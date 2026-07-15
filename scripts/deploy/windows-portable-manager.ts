@@ -12,6 +12,7 @@ import {installManagedBun, installManagerExecutable, writeManagerWrapper, writeR
 import {installManagedTool, writeManagedToolWrappers} from "nbook/packages/neuro-book-manager/src/tools";
 import type {InstallationManifest} from "nbook/packages/neuro-book-manager/src/types";
 import {MANAGER_VERSION} from "nbook/packages/neuro-book-manager/src/version-info";
+import {shouldIncludePortableFile} from "nbook/scripts/build/portable-file-policy";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 import {writeZipArchive} from "nbook/scripts/utils/zip";
 
@@ -123,6 +124,7 @@ async function trackedFiles(): Promise<string[]> {
     const indexedFiles = (await runCapture("git", ["ls-files", "-z"], {cwd: ROOT}))
         .split("\0")
         .filter(Boolean)
+        .filter(shouldIncludePortableFile)
         .filter((path) => !path.startsWith("packages/neuro-book-manager/dist/"));
     const existingFiles: string[] = [];
     const skippedFiles: string[] = [];
