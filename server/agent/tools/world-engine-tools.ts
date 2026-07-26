@@ -15,6 +15,9 @@ const NonEmptyString = (description: string) => Type.String({minLength: 1, descr
 const ExecuteWorldSchema = Type.Object({
     projectPath: NonEmptyString("Required Project Workspace path, e.g. workspace/silver-dragon-hime."),
     code: Type.String({minLength: 1, description: "Inline JavaScript code to execute in the World Engine CodeAct sandbox."}),
+    worldKey: Type.Optional(Type.Union([Type.Literal("main"), Type.Literal("rp")], {
+        description: "World timeline to operate on. Omit or \"main\" = writing-mode world (default). \"rp\" = the isolated RP-mode world timeline (shares schema/calendar, fully separate subjects/slices).",
+    })),
 }, {
     additionalProperties: false,
 });
@@ -30,7 +33,7 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
                 const mode = modeForContext(context);
                 try {
                     const facade = worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot);
-                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode);
+                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode, {worldKey: input.worldKey ?? "main"});
                     return worldResult(result);
                 } catch (error) {
                     const tempPath = await saveTempCode(context, input.code);

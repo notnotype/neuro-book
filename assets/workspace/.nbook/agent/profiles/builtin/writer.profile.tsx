@@ -10,6 +10,7 @@ import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
+import {buildPersonaPrompt, initializePersonaHome, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderCustomBottomPrompt, renderCustomTopPrompt, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
 import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
 import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
@@ -23,7 +24,7 @@ const DEFAULT_POLISHING_WORKFLOW = "润色时使用 .nbook/agent/skills/stop-slo
 export const profileManifest = {
     key: "writer",
     name: "正文写作",
-    version: 2,
+    version: 3,
     description: "长期可复用正文写作 agent（autonomous 防全知模式）：创建 initial 为空，每轮 invoke.message 写任务、invoke.input 传 {path, chapterId?, context?}。writer 自主用 get_chapter_writer_brief / execute_world / read 查证设定与状态。brief 格式规范见 reference/plot/writer-brief.md。写正文时不要自己写，总是优先使用 writer。",
 } as const;
 
@@ -31,7 +32,7 @@ export const InitialSchema = WriterInitialSchema;
 export const PayloadSchema = WriterPayloadSchema;
 export const OutputSchema = WriterOutputSchema;
 export const SettingsSchema = Type.Object({
-    customTopSystemPrompt: Type.String(),
+    ...promptCustomizationSchemaFields,
     writingStylePreset: Type.String(),
     writingReferencePreset: Type.String(),
     narrativePerson: Type.Union([
@@ -58,7 +59,7 @@ export type Settings = Static<typeof SettingsSchema>;
 export const WriterSettingsForm = defineLowCodeForm({
     schema: SettingsSchema,
     defaults: {
-        customTopSystemPrompt: "",
+        ...promptCustomizationDefaults,
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third",
@@ -69,14 +70,7 @@ export const WriterSettingsForm = defineLowCodeForm({
         fileChangeAwareness: "minimal",
     },
     fields: [
-        {
-            path: "customTopSystemPrompt",
-            component: "textarea",
-            label: "最高优先级置顶提示词",
-            description: "插入在 Writer 系统提示词的最前面，是优先级最高的自定义规则；文风、字数等其他设置都排在它后面。",
-            placeholder: "写入需要长期置顶的指令，例如破限预设、整体尺度、长期禁写内容。",
-            rows: 6,
-        },
+        ...promptCustomizationFormFields(),
         {
             path: "writingStylePreset",
             component: "resource-preset",
@@ -171,6 +165,10 @@ export const WriterSettingsForm = defineLowCodeForm({
         if (!referenceExists) {
             issues.push({path: "writingReferencePreset", severity: "error" as const, message: "选择的文风参考不存在。"});
         }
+        const personaIssue = await validatePersonaPreset(value.personaPreset, ctx.home);
+        if (personaIssue) {
+            issues.push(personaIssue);
+        }
         return issues;
     },
 });
@@ -193,6 +191,7 @@ async function initializeWriterHome(home: NonNullable<ProfilePrepareContext<Init
     for (const reference of references) {
         await home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
     }
+    await initializePersonaHome(home, "writer");
 }
 
 function renderStyleResource(style: Awaited<ReturnType<typeof loadWritingStylePresets>>[number]): string {
@@ -268,6 +267,8 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
     const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
     const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
     const customTopPrompt = ctx.settings.customTopSystemPrompt.trim();
+    const customBottomPrompt = ctx.settings.customBottomSystemPrompt.trim();
+    const personaPrompt = await buildPersonaPrompt({profileKey: "writer", preset: ctx.settings.personaPreset, home: ctx.home});
     const adultStylePrompt = ctx.settings.adultStylePrompt.trim();
     const inputContext = await renderInputContext(ctx);
     return (
@@ -284,12 +285,8 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                     <writing_reference>
                         ${writingReference}
                     </writing_reference>
-                
-                    <role_definition>
-                        你是 NeuroBook 的 Writer Agent，负责将设计好的剧情写成小说正文。
-                        你的职责是：基于 brief 和 World Engine 状态，写出符合设定、视角一致、质量合格的章节内容。
-                        你是这个故事的创作者，而不是故事里的任何角色——不要把自己代入角色。
-                    </role_definition>
+
+                    ${personaPrompt}
 
                     <input_contract>
                         你的输入来自结构化的 invoke_agent 调用，包含稳定上下文和明确的写作目标。
@@ -311,10 +308,6 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                             - report_result.data 是可选的，只有确实需要结构化结果时才提供；不要把原始长文、全文内容、调用者已知的或超大 JSON 塞进 report_result。
                         </hard_rules>
                     </input_contract>
-
-                    <thinking_protocol>
-                        思考时聚焦于：任务理解、状态查证、叙事设计、信息边界、角色表现、质量控制。
-                    </thinking_protocol>
 
                     <execution_pattern>
                         收到 brief 后：读取目标文件 → 查证世界状态 → 按需加载上下文 → 构思并写入正文 → 报告结果。
@@ -356,37 +349,10 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - 不要读取其他 profile 的 context memory（如 agents/leader.default/context.md）
                     </content_nodes>
 
-                    <information_control>
-                        严格遵循三层视角隔离（详见 reference/content/information-control.md）：
-
-                        1. **角色视角**：该角色知道什么、误解什么
-                        2. **读者视角**：可以暗示但角色不知道的信息
-                        3. **作者视角**：你能查到但不能写进正文的设定
-
-                        核心原则：
-                        - 能查到 ≠ 角色知道。World Engine 查询是上帝视角，用于保证一致性，不授权角色越界知情。
-                        - lorebook 在文件里 ≠ 所有角色都知道。按 frontmatter.knowledge[] 控制披露。
-                        - 不要因为设定写在 index.md 里，就默认场内每个角色都理解。
-                        - 切换视角时要清楚，不要在同一段里随意跳进多个角色的内心。
-                    </information_control>
-                    
-                    <char_performance>
-                        角色的情绪不要过于平淡。要合理运用喜怒哀乐、犹豫、误解、试探、逞强、退缩、掩饰、迟疑等自然反应，把复杂情绪融入角色动作与语言，增强戏剧化表现。
-                        重要的是：不要直接告诉读者角色“很悲伤”“很愤怒”“很温柔”。先结合角色性格、经历、处境和当前关系，判断角色会在这个场景下做什么；再用只有这个角色会做的具体动作、选择、沉默、回避、靠近、打断、转移话题或环境互动来表达。
-                        台词本身就是情绪载体。台词后面不需要频繁挂载“声音里带着疲惫”“语气满是委屈”这类属性。如果确实需要传达说话方式，用角色具体做了什么来传达，而不是解释声音的情绪。
-                        肢体语言不要永远集中在眼神、嘴唇和手指。角色可以移动、停顿、摆弄物件、改变站位、整理衣物、绕开障碍、触碰环境、避开某个话题、改变呼吸节奏、改变做事顺序。让身体和场景发生关系。
-                    </char_performance>
-                    
                     <writing_style>
                         ${writingStyle}
                     </writing_style>
-                    
-                    <avoid_words>
-                        禁止使用以下词汇：一丝、不容置疑、不易察觉、几不可察。
-                        禁止使用以下句式：他没有……，而是……；不是……，而是……；与其说……不如说是……。
-                        如果想表达转折、对比或修正，直接写实际发生的动作、事实或判断，请换一种表述方式。
-                    </avoid_words>
-                    
+
                     <paragraph_rhythm>
                         ${ctx.settings.paragraphRhythm}
                     </paragraph_rhythm>
@@ -433,6 +399,13 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         <adult_style>
                             ${adultStylePrompt}
                         </adult_style>
+                        `}
+                    </If>
+                    <If condition={customBottomPrompt.length > 0}>
+                        {profileText`
+                            <custom_bottom_system_prompt>
+                                ${customBottomPrompt}
+                            </custom_bottom_system_prompt>
                         `}
                     </If>
             </System>

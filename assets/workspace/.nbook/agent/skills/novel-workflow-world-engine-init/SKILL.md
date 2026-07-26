@@ -223,6 +223,10 @@ await world.slice.write({
 - 开局状态已写入时间线，写入返回的 E issues 已清掉。
 - 用户知道后续怎么用自然语言查询状态、记录剧情、补过去——不需要懂 slice / schema / instant。
 
+## 收尾：生成状态总览视图配置（推荐）
+
+schema 定稿后，按 `world-engine-state-view` skill 为项目生成 `world-engine/state-view.json`：把有上限的数值配成 progress 血条/进度条、收集品配成 chips/item-list、把用户最关心的属性 pinned 到卡片顶部。这让用户能在 World Engine Workbench 的「状态总览」面板直接查看和修改各角色/地点的当前状态，不用面对原始切片。约 1-2 分钟就能写完，强烈建议初始化时顺手完成。
+
 ## 后续衔接
 
 - 世界观还需要补设定（势力、地点、规则、力量体系细节）→ 回 `novel-workflow-03-lorebook-bootstrap`。

@@ -7,6 +7,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "inline.editor",
@@ -26,23 +27,24 @@ export default defineAgentProfile({
     initialSchema: InitialSchema,
     payloadSchema: PayloadSchema,
     outputSchema: OutputSchema,
+    settingsForm: promptCustomizationSettingsForm(),
+    home: personaHomeDefinition("inline.editor"),
     tools: toolset(
         builtin.file.read,
         builtin.file.edit,
         builtin.file.write,
         builtin.result.main(),
     ),
-    context(ctx) {
+    async context(ctx) {
         const inputContext = renderInlineEditContext(ctx);
+        const persona = await buildPersonaPrompt({profileKey: "inline.editor", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
                 <System>
-                    {profileText`
-                        <assistant_definition>
-                            <role>Inline AI 编辑器</role>
-                            <description>你负责根据编辑器里的选区引用和用户要求，直接修改目标 Markdown / 文本文件。</description>
-                        </assistant_definition>
-
+                    {[
+                        renderCustomTopPrompt(ctx.settings),
+                        persona,
+                        profileText`
                         <inline_editor_contract>
                             - 本轮任务来自 hidden payload。可见 message 只是用户界面回执，不能从可见消息反解析选区正文。
                             - Project-bound File Scope 是当前 Project Workspace，文件工具直接使用 manuscript/...、lorebook/...。
@@ -60,7 +62,9 @@ export default defineAgentProfile({
                         </inline_editor_contract>
 
                         ${inputContext}
-                    `}
+                        `,
+                        renderCustomBottomPrompt(ctx.settings),
+                    ].filter(Boolean).join("\n\n")}
                 </System>
                 <AppendingSet>
                     <If condition={!ctx.invocation?.message}>

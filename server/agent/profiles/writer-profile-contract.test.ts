@@ -135,6 +135,8 @@ describe("writer profile contract", () => {
 function defaultWriterSettings() {
     return {
         customTopSystemPrompt: "",
+        customBottomSystemPrompt: "",
+        personaPreset: "prompts/default.md",
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third" as const,

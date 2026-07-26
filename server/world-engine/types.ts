@@ -39,6 +39,18 @@ export type WorldPatch = {
 /** timeline subject 过滤模式：any=任一命中，all=全部命中。 */
 export type WorldSliceSubjectFilterMode = "any" | "all";
 
+/**
+ * 世界线维度：main = 写作模式主世界线（project.sqlite），rp = RP 模式独立世界线（world-rp.sqlite）。
+ * 两条世界线共享 world-engine/ 的 schema 与 calendar，但切片/subject 完全隔离。
+ */
+export type WorldEngineWorldKey = "main" | "rp";
+
+export const WORLD_ENGINE_WORLD_KEYS: readonly WorldEngineWorldKey[] = ["main", "rp"];
+
+export function normalizeWorldKey(value: unknown): WorldEngineWorldKey {
+    return value === "rp" ? "rp" : "main";
+}
+
 // ============================================================================
 // 新类型系统：Zod Schema
 // ============================================================================

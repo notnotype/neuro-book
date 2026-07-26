@@ -384,8 +384,10 @@ async function resolveSubjectPaths(
     }
     const normalized = subjectPath.trim().replaceAll("\\", "/");
     const segments = normalized.split("/");
-    if (isAbsolute(subjectPath) || segments.length !== 3 || segments[0] !== "simulation" || segments[1] !== "subjects" || !segments[2] || segments[2] === "." || segments[2] === "..") {
-        throw new Error("subjectPath必须是当前Project内的simulation/subjects/<id>");
+    // legacy simulation/subjects/<id> 与 RP v2 rp/characters/<id> 两种 subject 根都支持（目录内同样有 events.jsonl / memory.jsonl）。
+    const validRoot = (segments[0] === "simulation" && segments[1] === "subjects") || (segments[0] === "rp" && segments[1] === "characters");
+    if (isAbsolute(subjectPath) || segments.length !== 3 || !validRoot || !segments[2] || segments[2] === "." || segments[2] === "..") {
+        throw new Error("subjectPath必须是当前Project内的simulation/subjects/<id>或rp/characters/<id>");
     }
     const eventsAddress = (await authorizeFileOperation(scope, `${normalized}/events.jsonl`, access.events ?? "read")).address;
     const memoryAddress = (await authorizeFileOperation(scope, `${normalized}/memory.jsonl`, access.memory ?? "read")).address;

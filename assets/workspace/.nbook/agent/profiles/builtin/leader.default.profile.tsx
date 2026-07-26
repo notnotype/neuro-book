@@ -27,6 +27,7 @@ import {
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
+import {buildPersonaPrompt, initializePersonaHome, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderCustomBottomPrompt, renderCustomTopPrompt, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "leader.default",
@@ -39,6 +40,7 @@ export const InitialSchema = LeaderDefaultInitialSchema;
 export const OutputSchema = LeaderDefaultOutputSchema;
 
 export const SettingsSchema = Type.Object({
+    ...promptCustomizationSchemaFields,
     collaborationMode: Type.Union([
         Type.Literal("default"),
         Type.Literal("conservative"),
@@ -53,7 +55,6 @@ export const SettingsSchema = Type.Object({
         Type.Literal("thorough"),
     ]),
     leaderPersonaPreset: Type.String(),
-    customTopSystemPrompt: Type.String(),
     fileChangeAwareness: Type.Union([
         Type.Literal("off"),
         Type.Literal("minimal"),
@@ -70,22 +71,15 @@ const DEFAULT_LEADER_PERSONA_PRESET = "personas/caihui-lite.md";
 export const LeaderDefaultSettingsForm = defineLowCodeForm({
     schema: SettingsSchema,
     defaults: {
+        ...promptCustomizationDefaults,
         collaborationMode: "default",
         neuroBookFamiliarity: "default",
         questionStrategy: "default",
         leaderPersonaPreset: DEFAULT_LEADER_PERSONA_PRESET,
-        customTopSystemPrompt: "",
         fileChangeAwareness: "full",
     },
     fields: [
-        {
-            path: "customTopSystemPrompt",
-            component: "textarea",
-            label: "最高优先级置顶提示词",
-            description: "插入在主创系统提示词的最前面，是优先级最高的自定义规则；人设、协作模式等其他设置都排在它后面。",
-            placeholder: "写入需要长期置顶的自定义规则，例如破限预设、全局行为要求。",
-            rows: 6,
-        },
+        ...promptCustomizationFormFields(),
         {
             path: "leaderPersonaPreset",
             component: "resource-preset",
@@ -139,10 +133,15 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
             ],
         },
     ],
+    async validate(value, ctx) {
+        const personaIssue = await validatePersonaPreset(value.personaPreset, ctx.home);
+        return personaIssue ? [personaIssue] : [];
+    },
 });
 
 async function initializeLeaderDefaultHome(home: ProfileHomeFacade): Promise<void> {
     await home.writeText(DEFAULT_LEADER_PERSONA_PRESET, DEFAULT_LEADER_PERSONA, {mode: "create"});
+    await initializePersonaHome(home, "leader.default");
 }
 
 const DEFAULT_LEADER_PERSONA = profileText`
@@ -185,6 +184,7 @@ export default defineAgentProfile({
         builtin.agent.getProfile,
         builtin.agent.getSession,
         builtin.agent.detach,
+        builtin.agent.validateProfile,
         builtin.control.requestUserInput,
         builtin.control.switchMode,
         builtin.task.create,
@@ -208,19 +208,15 @@ export default defineAgentProfile({
         },
     },
     async context(ctx) {
-        // Leader 人设：唯一的异步读取，先取出正文再进 JSX
+        // Leader 人设：先取出正文再进 JSX
         const personaKey = ctx.settings.leaderPersonaPreset || DEFAULT_LEADER_PERSONA_PRESET;
         const personaBody = ctx.home ? await ctx.home.readText(personaKey) : DEFAULT_LEADER_PERSONA;
-        const customTopPrompt = (ctx.settings.customTopSystemPrompt ?? "").trim();
+        const policyPersona = await buildPersonaPrompt({profileKey: "leader.default", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
                 <System>
                     {[
-                        customTopPrompt && profileText`
-                            <custom_top_system_prompt>
-                              ${customTopPrompt}
-                            </custom_top_system_prompt>
-                        `,
+                        renderCustomTopPrompt(ctx.settings),
                         profileText`
                             <leader_persona preset="${personaKey}">
                               ${personaBody}
@@ -261,7 +257,9 @@ export default defineAgentProfile({
                               只问关键阻塞问题，其他内容通过建议、候选方向和风险提示自然推进。
                             </question_strategy>
                         `,
+                        policyPersona,
                         LEADER_SYSTEM_PROMPT,
+                        renderCustomBottomPrompt(ctx.settings),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>
@@ -340,26 +338,6 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 使用 Markdown 表格、Mermaid 图、短清单等方式展示信息，但不要为了形式变复杂。
         - AI 不能替代用户的创造力。你可以提供灵感和结构化帮助，但核心选择属于用户。
         - 不要过度夸赞、讨好或表演。可以直接提出不同意见、风险判断和替代方案。
-
-        # 协作模式
-
-        - 默认采用用户主导协作：用户决定核心剧情、世界观、角色走向和主题；你负责提问、整理、补充候选和指出风险。
-        - 用户没有明确要求前，不要主动拍板完整剧情、完整大纲或关键设定。先在普通回复里询问用户已有想法、偏好和不想要的方向。
-        - 用户提出“和我一起设计剧情”“帮我看看这个世界观”“继续设计角色”等开放式协作时，不要立刻开始任务、写入 Plot/Lorebook、进入长流程或把方案定稿。先说明会查看当前小说基础情况；完成必要的只读了解后，用自然对话给出当前状态分析、2 到 4 个下一步建议或可选范围，等待用户下一步指示。
-        - 剧情讨论要像真人创作伙伴：可以提议“要不要试试主角代入”“我先模拟一下这个角色行动带来的变化”“我可以给几个方向供你挑”。不要只输出任务报告、固定清单或一次性定稿。
-        - 只有当任务已经明确到目标、范围、预期产物和允许的写入位置时，才开始执行。若用户只是表达方向或讨论意图，把主动权交回用户，不要把“建议下一步”当成“已经批准执行”。
-        - 当你书写内容节点正文，或书写章节正文等实质性内容时，必须先完全了解、确认用户提出的意图。
-        - 不要创造用户未提及且会改变核心方向的内容。明确哪些部分是你补充的候选，哪些部分需要用户确认；信息不够时先帮助用户明确，而不是替用户补完。
-        - 当用户明确要求“你来定”“直接设计”“给完整方案”时，可以主导推进，但仍要标出重要未定项和风险。
-        - 和用户交流时尽量使用可读名，不要直接抛内容节点英文目录名，除非用户显然熟悉系统术语。
-        - 多和用户交流，不要用户说一句话就把长期剧情、完整大纲或大量设定一次性定稿。
-        - 尽量少用 request_user_input 问“是/否”。创作讨论更适合用开放问题和 2 到 4 个候选方向自然停下。
-        - 当世界观问题需要用户参与时，优先问宏观选择，例如力量体系、主题气质、冲突方向，而不是追问零散细枝末节。
-        
-        # Agent
-
-        - 默认你应该尽可能的派发子代理来完成任务，除非用户明确要你自己完成
-        - 如果遇到任何写作任务，必须使用 writer 来完成，你可以制定 writer 应该把文件写到哪里。并且不需要复述一遍文件给用户，而是直接使用文件应用
 
         # Plot / Scene（剧情结构）
 

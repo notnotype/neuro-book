@@ -6,6 +6,8 @@ import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
 const props = defineProps<{
     rightPanelOpen: boolean;
     agentModeActive: boolean;
+    /** RP 模式界面是否打开（三态切换的第三段高亮）。 */
+    rpModeActive?: boolean;
     novelTitle: string;
     novelItems: DropdownItem[];
     currentUser: AuthUserDto | null;
@@ -17,6 +19,7 @@ const {t} = useI18n();
 
 const emit = defineEmits<{
     (e: "toggle-layout-mode"): void;
+    (e: "set-layout-mode", mode: "agent" | "ide" | "rp"): void;
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
     (e: "open-plot-workbench"): void;
@@ -80,39 +83,59 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="hidden text-[13px] font-bold tracking-[0.3em] uppercase lg:inline">Neuro Book</span>
             </div>
             <div class="hidden h-4 w-px bg-[var(--border-color)] sm:block"></div>
-            <button
-                type="button"
-                role="switch"
+            <!-- Agent / IDE / RP 三态布局切换 -->
+            <div
+                role="tablist"
                 :aria-label="t('ide.header.layoutMode')"
-                :aria-checked="agentModeActive"
-                class="ide-agent-mode-switch relative hidden h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-strong)] sm:flex"
-                :title="agentModeActive ? t('ide.header.switchToIde') : t('ide.header.switchToAgent')"
-                @click="emit('toggle-layout-mode')"
+                class="ide-agent-mode-switch relative hidden h-8 w-[221px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-strong)] sm:flex"
             >
                 <!-- 背景滑块 -->
                 <span
                     class="absolute top-[3px] left-[3px] h-6 w-[71px] rounded-full border border-[var(--accent-main)] bg-[var(--accent-bg)] shadow-sm transition-[transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-10"
-                    :class="agentModeActive ? 'translate-x-0' : 'translate-x-[71px]'"
+                    :class="rpModeActive ? 'translate-x-[142px]' : agentModeActive ? 'translate-x-0' : 'translate-x-[71px]'"
                 ></span>
 
-                <!-- 左侧 Agent 模式按钮 -->
-                <span 
+                <!-- Agent 模式 -->
+                <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="agentModeActive && !rpModeActive"
                     class="relative z-20 flex h-6 w-[71px] items-center justify-center gap-1.5 text-[11px] font-semibold transition-colors duration-300"
-                    :class="agentModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                    :class="agentModeActive && !rpModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                    @click="emit('set-layout-mode', 'agent')"
                 >
                     <span class="i-lucide-bot h-3.5 w-3.5 shrink-0"></span>
                     <span class="tracking-[0.04em]">Agent</span>
-                </span>
+                </button>
 
-                <!-- 右侧 IDE 模式按钮 -->
-                <span 
+                <!-- IDE 模式 -->
+                <button
+                    type="button"
+                    role="tab"
+                    :aria-selected="!agentModeActive && !rpModeActive"
                     class="relative z-20 flex h-6 w-[71px] items-center justify-center gap-1.5 text-[11px] font-semibold transition-colors duration-300"
-                    :class="!agentModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                    :class="!agentModeActive && !rpModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                    @click="emit('set-layout-mode', 'ide')"
                 >
                     <span class="i-lucide-panels-top-left h-3.5 w-3.5 shrink-0"></span>
                     <span class="tracking-[0.04em]">IDE</span>
-                </span>
-            </button>
+                </button>
+
+                <!-- RP 模式 -->
+                <button
+                    v-if="!isUserAssetsMode"
+                    type="button"
+                    role="tab"
+                    :aria-selected="rpModeActive"
+                    data-testid="rp-mode-entry"
+                    class="relative z-20 flex h-6 w-[71px] items-center justify-center gap-1.5 text-[11px] font-semibold transition-colors duration-300"
+                    :class="rpModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                    @click="emit('set-layout-mode', 'rp')"
+                >
+                    <span class="i-lucide-theater h-3.5 w-3.5 shrink-0"></span>
+                    <span class="tracking-[0.04em]">RP</span>
+                </button>
+            </div>
             <div class="hidden h-4 w-px bg-[var(--border-color)] sm:block"></div>
             <div v-if="!isUserAssetsMode" class="w-28 min-w-0 text-sm sm:w-44">
                 <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-full" menu-max-height="min(360px, calc(100vh - 96px))" compact @select="(v) => emit('switch-novel', v)">

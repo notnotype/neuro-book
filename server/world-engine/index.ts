@@ -52,9 +52,11 @@ export type {
     WorldIssueExplanation,
     WorldIssueLabel,
     WorldIssueSeverity,
+    WorldEngineWorldKey,
     WorldPatchOp,
     WorldSchemaProjection,
     WorldSliceSubjectFilterMode,
     WorldState,
     WorldSubjectListItem,
 } from "nbook/server/world-engine/types";
+export {normalizeWorldKey, WORLD_ENGINE_WORLD_KEYS} from "nbook/server/world-engine/types";

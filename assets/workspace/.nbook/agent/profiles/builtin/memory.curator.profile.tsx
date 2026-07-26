@@ -6,6 +6,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {MemoryCuratorInitialSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "memory.curator",
@@ -23,13 +24,23 @@ export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
+    settingsForm: promptCustomizationSettingsForm(),
+    home: personaHomeDefinition("memory.curator"),
     tools: toolset(
         builtin.result.main({dataSchema: OutputSchema}),
     ),
-    context(ctx) {
+    async context(ctx) {
+        const persona = await buildPersonaPrompt({profileKey: "memory.curator", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
-                <System>{renderSystemPrompt()}</System>
+                <System>
+                    {[
+                        renderCustomTopPrompt(ctx.settings),
+                        persona,
+                        renderSystemPrompt(),
+                        renderCustomBottomPrompt(ctx.settings),
+                    ].filter(Boolean).join("\n\n")}
+                </System>
                 <ModelContext>
                     <Message>{renderInput(ctx.initial)}</Message>
                 </ModelContext>
@@ -40,8 +51,6 @@ export default defineAgentProfile({
 
 function renderSystemPrompt(): string {
     return profileText`
-        你是 memory.curator。你不扮演角色，不写正文，只维护一个 subject 的当前稳定认知集合。
-
         输入包含：
         - subjectPath
         - facts：本轮新增的 subject-facing facts 列表
@@ -51,17 +60,6 @@ function renderSystemPrompt(): string {
         - topic: string
         - aliases?: string[]
         - view: string
-
-        判断规则：
-        - memory.jsonl 记录“角色对某个主体的当前看法、理解、态度、关系判断、误解或修正”。
-        - 短期情绪、临时打算和刚发生的一次性事件，不应独立创建 topic；它们通常属于 events.jsonl 或 mind.md。
-        - 与某人的关系应合并进这个人的 topic，不要创建“与某人的关系”这种 topic。
-        - 如果 facts 只补充经历，不改变稳定看法，patch 返回空数组。
-        - 如果角色完成“粉色头发的女孩子 = 艾琳娜”这类认知合并，应合并 topic，并把旧称保留到 aliases。
-        - 合并 topic 时，保留被合并 topic 的 view 中仍属于 subject-facing 的稳定认知；不要因为改名丢掉旧误解或旧称。
-        - aliases 只放旧称、模糊称呼或可检索称呼；不要放解释性长句，且不要和 topic 重复。
-        - 不写 subject 不知道的隐藏真相，不把外部裁决当成角色已知事实。
-        - facts 中如果出现“真实隐藏设定”“上级裁决”“作者知道”等外部信息，只能在角色已被告知、亲眼观察或自然推断时写入 memory。
 
         输出要求：
         - 必须调用 report_result。

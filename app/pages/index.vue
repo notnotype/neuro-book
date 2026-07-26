@@ -11,6 +11,7 @@ import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue"
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
+import RpModeSurface from "nbook/app/components/novel-ide/rp/RpModeSurface.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
@@ -64,6 +65,8 @@ const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
 const historyInboxRefreshKey = ref(0);
 const worldEngineWorkbenchOpen = ref(false);
+/** RP 模式独立界面开关。 */
+const rpModeOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
 const worldEngineWorkbenchSaving = ref(false);
 const profileWorkbenchOpen = ref(false);
@@ -1614,6 +1617,30 @@ const openWorldEngineWorkbench = (): void => {
 };
 
 /**
+ * 从主 IDE 打开当前 Project 的 RP 模式独立界面。
+ */
+const openRpMode = (): void => {
+    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+        return;
+    }
+    rpModeOpen.value = true;
+};
+
+/**
+ * 三态布局切换（Agent / IDE / RP）：agent 与 ide 沿用原布局切换，rp 打开 RP 独立界面。
+ */
+const setLayoutMode = async (mode: "agent" | "ide" | "rp"): Promise<void> => {
+    if (mode === "rp") {
+        openRpMode();
+        return;
+    }
+    rpModeOpen.value = false;
+    if ((mode === "agent") !== isAgentMode.value) {
+        await toggleAgentLayoutMode();
+    }
+};
+
+/**
  * 从主 IDE 打开当前 Project 的 Plot 工作台。
  */
 const openPlotWorkbench = async (): Promise<void> => {
@@ -2123,11 +2150,13 @@ onBeforeUnmount(() => {
             class="ide-panel ide-header"
             :right-panel-open="isAgentMode ? agentStudioPanelOpen : displayRightPanelOpen"
             :agent-mode-active="isAgentMode"
+            :rp-mode-active="rpModeOpen"
             :novel-title="displayNovelTitle"
             :novel-items="displayNovelItems"
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
             @toggle-layout-mode="void toggleAgentLayoutMode()"
+            @set-layout-mode="void setLayoutMode($event)"
             @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
@@ -2142,7 +2171,17 @@ onBeforeUnmount(() => {
         />
         <WorldEngineWorkbenchDialog v-if="!isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-path="currentNovelId" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
-        <div class="flex min-h-0 flex-1 overflow-hidden">
+        <!-- RP 模式第三布局：占据头部下方整个内容区；Agent/IDE 布局用 v-show 保活 -->
+        <RpModeSurface
+            v-if="rpModeOpen && !isUserAssetsWorkspace"
+            :active="rpModeOpen"
+            :project-path="currentNovelId"
+            :novel-id="displayNovelIdForAgent"
+            :open-reference="openWorkspaceReference"
+            class="min-h-0 flex-1"
+        />
+
+        <div v-show="!rpModeOpen" class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
             <AgentModeSessionSidebar

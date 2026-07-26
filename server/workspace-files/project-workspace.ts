@@ -13,6 +13,8 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 
 export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
+/** RP 模式独立世界线数据库（World Engine worldKey="rp"）。与 project.sqlite 同 DDL，互不可见。 */
+export const PROJECT_RP_WORLD_DATABASE_RELATIVE_PATH = ".nbook/world-rp.sqlite";
 export const PROJECT_CONFIG_RELATIVE_PATH = ".nbook/config.json";
 export const PROJECT_DELETED_MARKER_RELATIVE_PATH = ".nbook/deleted-project.json";
 const STORY_PLOT_BACKUP_RELATIVE_PATH = ".nbook/story-plot-backup.json";
@@ -340,6 +342,41 @@ export function resolveProjectDatabasePath(
 ): AbsoluteFsPath {
     const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
     return absoluteFsPath(path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH));
+}
+
+/**
+ * 解析 RP 模式独立世界线数据库路径（worldKey="rp"）。
+ */
+export function resolveProjectRpWorldDatabasePath(
+    workspaceRoot: AbsoluteFsPath,
+    projectPath: string,
+): AbsoluteFsPath {
+    const projectRoot = resolveProjectWorkspaceRoot(workspaceRoot, normalizeProjectPath(projectPath));
+    return absoluteFsPath(path.join(projectRoot, PROJECT_RP_WORLD_DATABASE_RELATIVE_PATH));
+}
+
+/**
+ * 惰性初始化 RP 世界线数据库：文件缺失时按项目 DDL 建表（幂等）。
+ * 复用 PROJECT_MIGRATION_SQL 保证 World* 表与主库同构；多余的空 Plot 表无害。
+ */
+export async function ensureRpWorldDatabase(databasePath: string): Promise<void> {
+    try {
+        await fs.access(databasePath);
+        return;
+    } catch {
+        // 文件不存在，走初始化。
+    }
+    await fs.mkdir(path.dirname(databasePath), {recursive: true});
+    const client = createClient({url: toSqliteFileUrl(databasePath)});
+    try {
+        await client.execute("PRAGMA foreign_keys = ON");
+        for (const statement of splitSqlStatements(PROJECT_MIGRATION_SQL)) {
+            await client.execute(statement);
+        }
+    } finally {
+        await client.close();
+        collectReleasedSqliteHandles();
+    }
 }
 
 /**

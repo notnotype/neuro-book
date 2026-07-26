@@ -6,7 +6,7 @@ import path from "node:path";
 import {WorldEngineFacade} from "nbook/server/world-engine/world-engine.facade";
 import type {JsonValue} from "nbook/server/world-engine/types";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
-import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {resolveProjectDatabasePath, resolveProjectRpWorldDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
@@ -58,6 +58,51 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
             events: ["在祭坛醒来"],
             inventory: ["subject://old-sword"],
         });
+    });
+
+    it("worldKey=rp 使用独立世界线：惰性建库、数据与 main 完全隔离、同 instant 互不冲突", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        // main 世界线写入
+        await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "写作模式事件",
+            patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 90}],
+        });
+
+        // rp 库文件此时尚未创建
+        const rpDatabasePath = resolveProjectRpWorldDatabasePath(resolveRuntimeWorkspaceRoot(), projectPath);
+        await expect(fs.access(rpDatabasePath)).rejects.toBeTruthy();
+
+        // rp 世界线写入：同 instant、同 subjectId，互不冲突
+        const rpResult = await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "RP 模式事件",
+            patches: [{subjectId: "erina", type: "character", name: "艾莉娜(RP)", path: "/hp", op: "replace", value: 55}],
+        }, "rp");
+        expect(rpResult.issues).toEqual([]);
+        await expect(fs.access(rpDatabasePath)).resolves.toBeUndefined();
+
+        // 各自世界线只看到自己的数据
+        const mainState = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
+        const rpState = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]}, "rp");
+        expect(mainState.subjects[0]?.attrs.hp).toBe(90);
+        expect(rpState.subjects[0]?.attrs.hp).toBe(55);
+
+        const mainSlices = await facade.listSlices(projectPath);
+        const rpSlices = await facade.listSlices(projectPath, {}, "rp");
+        expect(mainSlices.map((slice) => slice.title)).toEqual(["写作模式事件"]);
+        expect(rpSlices.map((slice) => slice.title)).toEqual(["RP 模式事件"]);
+
+        const mainSubjects = await facade.listSubjects(projectPath);
+        const rpSubjects = await facade.listSubjects(projectPath, {}, "rp");
+        expect(mainSubjects.find((subject) => subject.id === "erina")?.name).toBe("艾莉娜");
+        expect(rpSubjects.find((subject) => subject.id === "erina")?.name).toBe("艾莉娜(RP)");
+
+        // CodeAct 沙盒同样按世界线隔离
+        const codeActResult = await facade.executeCodeActWorld(projectPath, "const s = await world.subject.get(\"erina\"); return s.hp;", "readonly", {worldKey: "rp"});
+        expect(codeActResult.data).toBe(55);
     });
 
     it("同 instant 写入冲突提示合并 patches", async () => {

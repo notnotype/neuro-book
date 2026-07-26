@@ -6,6 +6,8 @@ import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 import {createWebTools} from "nbook/server/agent/tools/web-tools";
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
+import {profileValidateTools} from "nbook/server/agent/tools/profile-validate-tool";
+import {rpCharacterTools} from "nbook/server/agent/tools/rp-character-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import {defineAgentToolFromRuntime} from "nbook/server/agent/tools/types";
@@ -58,6 +60,8 @@ function buildAgentTools() {
         webFetch: requireDefinition(webTools, "web_fetch"),
         ...controlTools,
         ...agentCollaborationTools,
+        ...profileValidateTools,
+        ...rpCharacterTools,
     } as const;
 }
 

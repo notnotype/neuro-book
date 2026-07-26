@@ -15,6 +15,7 @@ import type {
     SliceListItem,
     SliceWriteResult,
     CreateWorldSubjectResult,
+    WorldEngineWorldKey,
     WorldSchemaProjection,
     WorldSliceSubjectFilterMode,
     WorldSubjectListItem,
@@ -25,7 +26,7 @@ import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-fil
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {ensureRpWorldDatabase, resolveProjectDatabasePath, resolveProjectRpWorldDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 type WorldEngineModule = {
     service: WorldEngineService;
@@ -48,6 +49,8 @@ export type ExecuteWorldResult = {
 
 export type ExecuteWorldOptions = {
     timeout?: number;
+    /** 世界线：main = 写作模式主世界线（默认），rp = RP 模式独立世界线。 */
+    worldKey?: WorldEngineWorldKey;
 };
 
 /** 世界引擎后端门面。 */
@@ -67,48 +70,48 @@ export class WorldEngineFacade {
     }
 
     /** 创建 subject + 初始化切面。 */
-    async createSubject(projectPath: string, input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.createSubject(input));
+    async createSubject(projectPath: string, input: CreateWorldSubjectInput, worldKey: WorldEngineWorldKey = "main"): Promise<CreateWorldSubjectResult> {
+        return this.runInTransaction(projectPath, (module) => module.service.createSubject(input), "write", worldKey);
     }
 
     /** 写入新切面。 */
-    async writeSlice(projectPath: string, input: SliceInput): Promise<SliceWriteResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.writeSlice(input));
+    async writeSlice(projectPath: string, input: SliceInput, worldKey: WorldEngineWorldKey = "main"): Promise<SliceWriteResult> {
+        return this.runInTransaction(projectPath, (module) => module.service.writeSlice(input), "write", worldKey);
     }
 
     /** 整块编辑已有切面。 */
-    async editSlice(projectPath: string, sliceId: string, input: SliceInput): Promise<SliceWriteResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.editSlice(sliceId, input));
+    async editSlice(projectPath: string, sliceId: string, input: SliceInput, worldKey: WorldEngineWorldKey = "main"): Promise<SliceWriteResult> {
+        return this.runInTransaction(projectPath, (module) => module.service.editSlice(sliceId, input), "write", worldKey);
     }
 
     /** 物理删除一个切面。 */
-    async deleteSlice(projectPath: string, sliceId: string): Promise<DeleteSliceResult> {
-        return this.runInTransaction(projectPath, (module) => module.service.deleteSlice(sliceId));
+    async deleteSlice(projectPath: string, sliceId: string, worldKey: WorldEngineWorldKey = "main"): Promise<DeleteSliceResult> {
+        return this.runInTransaction(projectPath, (module) => module.service.deleteSlice(sliceId), "write", worldKey);
     }
 
     /** 读取单个切面及 patch。 */
-    async getSlice(projectPath: string, sliceId: string): Promise<SliceListItem> {
-        return this.runWithModule(projectPath, (module) => module.service.getSlice(sliceId));
+    async getSlice(projectPath: string, sliceId: string, worldKey: WorldEngineWorldKey = "main"): Promise<SliceListItem> {
+        return this.runWithModule(projectPath, (module) => module.service.getSlice(sliceId), worldKey);
     }
 
     /** 查询世界状态；公开入口负责决定是否允许全量查询。 */
-    async queryState(projectPath: string, query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}): Promise<QueryStateResult> {
-        return this.runWithModule(projectPath, (module) => module.service.queryState(query));
+    async queryState(projectPath: string, query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}, worldKey: WorldEngineWorldKey = "main"): Promise<QueryStateResult> {
+        return this.runWithModule(projectPath, (module) => module.service.queryState(query), worldKey);
     }
 
     /** 列出切面。 */
-    async listSlices(projectPath: string, query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
-        return this.runWithModule(projectPath, (module) => module.service.listSlices(query));
+    async listSlices(projectPath: string, query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}, worldKey: WorldEngineWorldKey = "main"): Promise<SliceListItem[]> {
+        return this.runWithModule(projectPath, (module) => module.service.listSlices(query), worldKey);
     }
 
     /** 列出 subject 身份。 */
-    async listSubjects(projectPath: string, query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
-        return this.runWithModule(projectPath, (module) => module.service.listSubjects(query));
+    async listSubjects(projectPath: string, query: {type?: string} = {}, worldKey: WorldEngineWorldKey = "main"): Promise<WorldSubjectListItem[]> {
+        return this.runWithModule(projectPath, (module) => module.service.listSubjects(query), worldKey);
     }
 
     /** 语义搜索 EmbeddingText 字段。 */
-    async searchText(projectPath: string, query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
-        return this.runWithModule(projectPath, (module) => module.service.searchText(query, options));
+    async searchText(projectPath: string, query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}, worldKey: WorldEngineWorldKey = "main"): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
+        return this.runWithModule(projectPath, (module) => module.service.searchText(query, options), worldKey);
     }
 
     /**
@@ -164,8 +167,8 @@ export class WorldEngineFacade {
     }
 
     /** 执行 CodeAct 查询代码。 */
-    async executeCodeActQuery(projectPath: string, code: string): Promise<unknown> {
-        return (await this.executeCodeActWorld(projectPath, code, "readonly")).data;
+    async executeCodeActQuery(projectPath: string, code: string, options: ExecuteWorldOptions = {}): Promise<unknown> {
+        return (await this.executeCodeActWorld(projectPath, code, "readonly", options)).data;
     }
 
     /** 在同一 deferred 事务内执行 CodeAct 世界读写代码。 */
@@ -191,11 +194,11 @@ export class WorldEngineFacade {
                 data: data === undefined ? "执行完成" : data,
                 issues: dedupeWorldIssues(issues),
             };
-        }, "deferred");
+        }, "deferred", options.worldKey ?? "main");
     }
 
-    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: TransactionMode = "write"): Promise<TResult> {
-        const entry = await this.createClientEntry(projectPath);
+    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: TransactionMode = "write", worldKey: WorldEngineWorldKey = "main"): Promise<TResult> {
+        const entry = await this.createClientEntry(projectPath, worldKey);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const client = this.requireClient(entry);
         await client.execute(transactionBeginStatement(mode));
@@ -215,8 +218,8 @@ export class WorldEngineFacade {
         }
     }
 
-    private async runWithModule<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
-        const entry = await this.createClientEntry(projectPath);
+    private async runWithModule<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, worldKey: WorldEngineWorldKey = "main"): Promise<TResult> {
+        const entry = await this.createClientEntry(projectPath, worldKey);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const client = this.requireClient(entry);
         try {
@@ -226,10 +229,15 @@ export class WorldEngineFacade {
         }
     }
 
-    private async createClientEntry(projectPath: string): Promise<WorldEngineClientEntry> {
+    private async createClientEntry(projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<WorldEngineClientEntry> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         assertProjectOpen(normalizedProjectPath);
         markProjectActivity(normalizedProjectPath);
+        if (worldKey === "rp") {
+            const rpDatabasePath = resolveProjectRpWorldDatabasePath(this.workspaceRoot, normalizedProjectPath);
+            await ensureRpWorldDatabase(rpDatabasePath);
+            return {client: createClient({url: toSqliteFileUrl(rpDatabasePath)})};
+        }
         const databasePath = resolveProjectDatabasePath(this.workspaceRoot, normalizedProjectPath);
         return {client: createClient({url: toSqliteFileUrl(databasePath)})};
     }

@@ -43,6 +43,7 @@ export const builtin = {
         getProfile: registeredTool("get_agent_profile"),
         getSession: registeredTool("get_session"),
         detach: registeredTool("detach_agent"),
+        validateProfile: registeredTool("validate_agent_profile"),
     },
     control: {
         requestUserInput: registeredTool("request_user_input"),
@@ -87,6 +88,12 @@ export const builtin = {
     web: {
         search: registeredTool("web_search"),
         fetch: registeredTool("web_fetch"),
+    },
+    rp: {
+        // RP v2 角色信息与记忆工具（rp/characters/ 存储）。god-view 能力由各 profile 绑定与提示词约束。
+        characterRecall: registeredTool("rp_character_recall"),
+        characterUpdate: registeredTool("rp_character_update"),
+        memoryCommit: registeredTool("rp_memory_commit"),
     },
     result: {
         main: (options: {dataSchema?: TSchema} = {}): ReportResultToolBinding => ({

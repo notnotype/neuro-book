@@ -7,6 +7,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {SessionSummarizerInitialSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {readTitleOwner} from "nbook/server/agent/session/custom-state-keys";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "summarizer",
@@ -27,6 +28,8 @@ export default defineAgentProfile({
     },
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
+    settingsForm: promptCustomizationSettingsForm(),
+    home: personaHomeDefinition("summarizer"),
     tools: toolset(
         builtin.result.main({dataSchema: OutputSchema}),
     ),
@@ -113,17 +116,16 @@ export default defineAgentProfile({
             profileKey: "summarizer",
             initial: ctx.initial,
         });
+        const persona = await buildPersonaPrompt({profileKey: "summarizer", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
                 <System>
                     {[
-                        "你是 NeuroBook 的后台 session 展示元数据摘要器。",
-                        "你会收到一段 Agent Dialogue Content，它是源 session 当前 active path 的可见正文。",
-                        "只根据这段正文生成展示用 title 和 summary，不要编造文件、工具结果或未出现的结论。",
-                        "title 必须简短具体，不超过 32 个中文字符。",
-                        "summary 用一句话概括当前会话目标、已完成进展或最新状态，不超过 240 个中文字符。",
+                        renderCustomTopPrompt(ctx.settings),
+                        persona,
                         "必须调用 report_result，report_result.data 必须是 { title, summary }。",
-                    ].join("\n")}
+                        renderCustomBottomPrompt(ctx.settings),
+                    ].filter(Boolean).join("\n\n")}
                 </System>
                 <ModelContext>
                     <Message>{dialogue.text || "当前 source session 没有可摘要的 Agent Dialogue Content。"}</Message>

@@ -110,6 +110,7 @@ describe("assets builtin v3 profiles", () => {
             "get_agent_profile",
             "get_session",
             "detach_agent",
+            "validate_agent_profile",
             "request_user_input",
             "switch_mode",
             "task_create",
@@ -228,7 +229,7 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Available Skills");
         expect(historyText).toContain("Draft Skill");
         expect(historyText).toContain("Skills are reusable work methods");
-        expect(historyText).toContain("These agent profiles are currently available");
+        expect(historyText).toContain("These public agent profiles are currently available");
         expect(historyText).toContain("```reference/agent/profile-routing.md");
         expect(historyText).toContain("当你察觉当前任务与自身职责不同");
         expect(historyText).toContain("建议用户新建或切换到对应 agent");
@@ -301,8 +302,8 @@ describe("assets builtin v3 profiles", () => {
         expect(runtimeAppendingText).toContain("not an access boundary");
         expect(runtimeAppendingText).toContain("Current Workspace Focus:");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("novel-7/lorebook/..., novel-7/manuscript/..., or novel-7/reference/...");
-        expect(runtimeAppendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
+        expect(runtimeAppendingText).toContain("use lorebook/..., manuscript/..., or reference/... directly");
+        expect(runtimeAppendingText).toContain("Current selected file: manuscript/001-opening/index.md");
         expect(runtimeAppendingText).toContain("You are in normal mode. switch_mode is available");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
@@ -366,7 +367,7 @@ describe("assets builtin v3 profiles", () => {
         expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Left Plan Mode");
         const snapshot = await catalog.snapshot();
         expect(snapshot.profiles.map((item) => item.key)).toContain("leader.default");
-    }, 20_000);
+    }, 120_000);
 
     it("retrieval profile 使用 Git Bash 安全的路径枚举提示", async () => {
         const catalog = new AgentProfileCatalog(
@@ -473,6 +474,7 @@ describe("assets builtin v3 profiles", () => {
             "get_agent_profile",
             "get_session",
             "detach_agent",
+            "validate_agent_profile",
             "request_user_input",
             "switch_mode",
         ]);

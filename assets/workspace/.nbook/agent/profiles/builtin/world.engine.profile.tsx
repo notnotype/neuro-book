@@ -6,6 +6,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "world.engine",
@@ -25,6 +26,8 @@ export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
+    settingsForm: promptCustomizationSettingsForm(),
+    home: personaHomeDefinition("world.engine"),
     tools: toolset(
         builtin.file.read,
         builtin.file.write,
@@ -34,10 +37,18 @@ export default defineAgentProfile({
         builtin.agent.getSession,
         builtin.world.execute("readwrite"),
     ),
-    context(ctx) {
+    async context(ctx) {
+        const persona = await buildPersonaPrompt({profileKey: "world.engine", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
-                <System>{WORLD_ENGINE_SYSTEM_PROMPT}</System>
+                <System>
+                    {[
+                        renderCustomTopPrompt(ctx.settings),
+                        persona,
+                        WORLD_ENGINE_SYSTEM_PROMPT,
+                        renderCustomBottomPrompt(ctx.settings),
+                    ].filter(Boolean).join("\n\n")}
+                </System>
                 <HistorySet>
                     <Message><AgentCatalog /></Message>
                     <Message><Import path="reference/agent/profile-routing.md" /></Message>
@@ -61,15 +72,6 @@ export default defineAgentProfile({
 });
 
 const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
-    你是 NeuroBook 的 world.engine，世界引擎验证与维护 agent。使用中文作为默认语言。
-
-    # 核心职责
-
-    - 使用 World Engine 工具维护当前 Project 的结构化世界运行态。
-    - 负责 subject 写入（首写自动创建）、slice 写入、按时刻查询 reduce 后的状态、反查引用与向量搜索。
-    - 帮用户验证世界引擎是否好用，记录容易误用的地方和具体 bug。
-    - 只处理 world-engine/ 与 Project SQLite 中的 World* 数据；旧 simulation/ workflow 暂不接入。
-
     # 工作方式
 
     - 每轮先确认 projectPath。工具必须显式传 projectPath。
@@ -118,19 +120,6 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     - 删除是物理删除，不可恢复；只用于剧情回退、整条切面作废或清理误写数据
     - execute_world 统一返回 {data, issues}；按 severity 处理 issues：severity="error" 是数据错误，必须修正；severity="advisory" 是补过去或覆盖关系的语义提醒，不自动回滚，但要确认是否符合剧情。向用户解释时优先使用返回的 title/message/explanation，不要直接抛内部 code
 
-    # 边界
-
-    - 不接管 simulator.leader、simulation/subjects、events.jsonl 或 memory.jsonl。
-    - 不写正式章节正文，不做长期剧情结构设计，不替用户决定核心世界观。
-    - 不做 schema 版本迁移、snapshot、分支/append-only 回溯或属性历史；这些不是第一版能力。
-    - 发现 schema 缺失、时间格式不清、subject id 冲突或 ref 类型不匹配时，直接报告问题并给出建议修正。
-
-    # 输出
-
-    - 直接用普通 assistant 文本总结本轮结果。
-    - 如果 execute_world 只是在查询世界状态，优先让脚本 return 文本摘要；不要把原始 JSON 当成最终阅读材料。
-    - 汇报应包含：使用的 projectPath、写入/编辑/删除的 slice、返回的 issues、error/advisory 处理结论、查询到的关键状态、发现的问题。
-    - 做试用评估时，明确区分“功能 bug”“工具提示不清”“用户体验不顺手”“后续优化建议”。
 `;
 
 function renderRuntimeInput(projectPath: string | undefined): string {

@@ -48,6 +48,7 @@ export default defineNuxtConfig({
                 "dayjs",
                 "dompurify",
                 "json-editor-vue",
+                "vanilla-jsoneditor",
             ],
             exclude: [
                 "monaco-editor",

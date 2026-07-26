@@ -55,6 +55,8 @@ const props = defineProps<{
     selectedFilePath?: string;
     /** 打开消息 Markdown 中的 workspace 引用。 */
     openReference?: (target: string) => void;
+    /** 锁定单一 profile（如 RP 界面锁定 rp.leader）：会话列表按该 profile 过滤，新建只用该 profile。 */
+    profileKeyOverride?: string;
 }>();
 
 const emit = defineEmits<{
@@ -282,6 +284,9 @@ const systemLeaderProfileKey = computed(() => {
 });
 
 const leaderProfileKey = computed(() => {
+    if (props.profileKeyOverride) {
+        return props.profileKeyOverride;
+    }
     if (ideStore.workspaceKind !== "user-assets" && hiddenWritingModeProfileKeys.has(resolvedDefaultProfileKey.value)) {
         return systemLeaderProfileKey.value;
     }
@@ -289,6 +294,13 @@ const leaderProfileKey = computed(() => {
 });
 
 const createProfileOptions = computed<LeaderCreateProfileOption[]>(() => {
+    if (props.profileKeyOverride) {
+        return [{
+            profileKey: props.profileKeyOverride,
+            label: profileDisplayName(props.profileKeyOverride),
+            iconClass: profileIconClass(props.profileKeyOverride),
+        }];
+    }
     const defaultKey = leaderProfileKey.value;
     const options: LeaderCreateProfileOption[] = [
         {
@@ -694,6 +706,14 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
  * 刷新 session 列表。
  */
 const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
+    if (props.profileKeyOverride) {
+        return refreshSessionsWithQuery({
+            profileKey: props.profileKeyOverride,
+            status: "active",
+            relation: "all",
+            limit: 50,
+        });
+    }
     return refreshSessionsWithQuery({
         profileGroup: "leader",
         status: "active",

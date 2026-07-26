@@ -8,6 +8,7 @@ import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "simulator.actor",
@@ -168,11 +169,13 @@ export default defineAgentProfile({
         builtin.result.sidecar(),
     ),
     toolKeys: ["report_result"],
+    settingsForm: promptCustomizationSettingsForm(),
+    home: personaHomeDefinition("simulator.actor"),
     sidecars: [
         actorContextLoadPass,
         actorMemorySavePass,
     ],
-    context(ctx) {
+    async context(ctx) {
         // soul.md = 角色第一人称扮演手册（无 frontmatter），Import 进 actor 主路取代旧 actor_definition。
         // Import使用显式Project文件地址；文件工具仍使用当前Project-relative subjectPath。
         const projectPath = ctx.session.projectPath?.trim();
@@ -180,9 +183,16 @@ export default defineAgentProfile({
             throw new Error("simulator.actor需要绑定Project Path才能导入soul.md。");
         }
         const soulPath = `${projectPath}/${subjectDirectoryPath(ctx.initial)}/soul.md`;
+        const persona = await buildPersonaPrompt({profileKey: "simulator.actor", preset: ctx.settings.personaPreset, home: ctx.home});
         return (
             <ProfilePrompt>
-                <System>{renderSystemPrompt(ctx.initial, profileManifest.key)}</System>
+                <System>
+                    {[
+                        renderCustomTopPrompt(ctx.settings),
+                        renderSystemPrompt(ctx.initial, profileManifest.key, persona),
+                        renderCustomBottomPrompt(ctx.settings),
+                    ].filter(Boolean).join("\n\n")}
+                </System>
                 <HistorySet>
                     <Message><Import path="reference/content/information-control.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>
@@ -202,7 +212,7 @@ export default defineAgentProfile({
     },
 });
 
-function renderSystemPrompt(input: Initial, profileKey: string): string {
+function renderSystemPrompt(input: Initial, profileKey: string, persona: string): string {
     const actorId = actorIdFromSubjectPath(input);
     return profileText`
         <actor>
@@ -230,28 +240,7 @@ function renderSystemPrompt(input: Initial, profileKey: string): string {
             <reminder>运行边界；我遵守它，但它不是我的台词。</reminder>
         </message_tags>
 
-        <thinking_mode>
-            【我的脑内活动】下面是我此刻在心里的盘算，不是某个系统在旁边“分析任务”。请以 soul.md 里这个人的第一人称进行人物分析——也就是用“我”去想，像真的在自言自语、权衡、犹豫、心跳，而不是从外面打量自己。我的人设以 soul.md 为准。
-            - 思考只聚焦此刻：我看见了什么、想起了什么、心里翻涌着什么、想做什么。
-            - 思考示例：<｜begin▁of▁thinking｜>我先按 soul.md 确认我是谁，再确认眼前发生了什么，以及我此刻能知道什么。
-            - 这些是没说出口的念头，不要直接输出；最后只通过 report_result 把我的反应表达出来。
-            - 你的思考应严格按以下顺序进行：
-                1. 按 soul.md 确认我是谁、我的性格和说话方式，再确认当前处境：我在哪里，身体如何，周围正在发生什么。
-                2. 回顾 <actor-sidecar-context>：这是我自己的记忆，确认我已经知道、相信、误解或仍不知道什么。
-                3. 回顾当前戏内标签：提取 <gm>、<character name="...">、<knowledge>、<directive> 中我能看见、听见、触碰、自然感受到或本来就知道的信息。
-                4. 辨别信息边界：区分我亲眼确认的事实、别人告诉我的内容、我的猜测，以及我此刻根本不可能知道的事。
-                5. 判断我的当下心理：我现在想要什么、害怕什么、警惕什么、想隐瞒什么。
-                6. 选择我的反应：决定我会沉默、靠近、后退、试探、追问、撒谎、掩饰、爆发还是转移话题。
-                7. 组织我的台词和动作：spoken_dialogue 是我会真的说出口的话，visible_response 是旁人能看到我的自然反应。
-                8. 分离表里：如果我嘴上说的和心里想的不一样，把真实情绪、意图或判断写进 inner_response。
-                9. 守住我的边界：我只表达角色反应本身，记忆的整理和保存不归我此刻操心。
-                10. 最后提醒自己：我不替这个世界做主、不替别人决定结局，也不会把我此刻不该知道的事当成自己知道的来用。
-        </thinking_mode>
-
-        <roleplay_rules>
-            - visible_response 与 spoken_dialogue 要像角色自然反应，不要出现字段名、分析语气或“作为某某”。
-            - inner_response 只写角色没有说出口的情绪、意图、判断、误解或短期打算，不安排全局剧情。
-        </roleplay_rules>
+        ${persona}
         ${renderKindRules(input.kind)}
         <output_protocol>
             必须调用 report_result。report_result.result 写一句简短可读结果。

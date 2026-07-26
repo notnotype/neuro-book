@@ -6,6 +6,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import WorldEngineMutationEditor from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationEditor.vue";
 import WorldEngineSubjectCreator from "nbook/app/components/novel-ide/world-engine/WorldEngineSubjectCreator.vue";
 import WorldEngineWorkbenchPreviewInspector from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue";
+import WorldEngineStateOverview from "nbook/app/components/novel-ide/world-engine/state-overview/WorldEngineStateOverview.vue";
 import WorldEngineWorkbenchPreviewMutationEditor from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewMutationEditor.vue";
 import WorldEngineWorkbenchPreviewSidebar from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSidebar.vue";
 import WorldEngineWorkbenchPreviewSliceList from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSliceList.vue";
@@ -149,6 +150,36 @@ const reviewQueueMode = ref<WorldWorkbenchPreviewReviewQueueMode>("open");
 const sidebarCollapsed = ref(false);
 const subjectCreatorOpen = ref(false);
 const inspectorVisible = ref(true);
+/** Workbench 视图：slices = 切片编辑（原有）；state = 状态总览（人类查阅/编辑）。 */
+const workbenchView = ref<"slices" | "state">("slices");
+/** 世界线：main = 写作模式主世界线；rp = RP 模式独立世界线（同 schema/calendar，数据隔离）。 */
+const worldKey = ref<"main" | "rp">("main");
+
+/** 切换世界线：清空会话态并整体重载。 */
+function switchWorldKey(next: "main" | "rp"): void {
+    if (worldKey.value === next) {
+        return;
+    }
+    if (workbenchUnsavedDraftLabels().length > 0 && !window.confirm("有未保存的草稿，切换世界线将丢弃。继续？")) {
+        return;
+    }
+    worldKey.value = next;
+    resetWorkbenchSessionState();
+    void loadWorld();
+}
+const stateOverviewRef = ref<InstanceType<typeof WorldEngineStateOverview> | null>(null);
+
+/** 从状态总览跳转到切片编辑视图并选中指定切片。 */
+function openSliceFromStateOverview(sliceId: string): void {
+    workbenchView.value = "slices";
+    selectSlice(sliceId);
+}
+
+/** 状态总览写入切片后，刷新工作台数据并同步状态总览。 */
+async function handleStateOverviewSaved(): Promise<void> {
+    await refreshWorldForCurrentTimeline();
+    await stateOverviewRef.value?.refresh();
+}
 const subjectFileProposalFocusVersion = ref(0);
 const committedSubjectEventKeys = ref<string[]>([]);
 const mutationEditorCollapsed = ref(true);
@@ -1737,8 +1768,8 @@ function resetWorkbenchSessionState(): void {
     resetVersion.value += 1;
 }
 
-function projectQuery(): {projectPath: string} {
-    return {projectPath: props.projectPath};
+function projectQuery(): {projectPath: string; worldKey: string} {
+    return {projectPath: props.projectPath, worldKey: worldKey.value};
 }
 
 function sliceSubjectFilterQuery(): {subjectIds?: string; subjectMode?: WorldWorkbenchPreviewSubjectFilterMode} {
@@ -1855,6 +1886,26 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                     </div>
                 </div>
                 <div class="ml-auto flex items-center gap-2">
+                    <div class="inline-flex h-8 items-center overflow-hidden rounded-md border border-[var(--border-color)]" data-testid="world-workbench-worldkey-toggle" title="世界线：写作模式与 RP 模式的世界数据完全隔离，共享 Schema 与历法">
+                        <button type="button" class="inline-flex h-full items-center gap-1.5 px-3 text-[12px] transition-colors" :class="worldKey === 'main' ? 'bg-[color-mix(in_srgb,var(--accent-main)_18%,var(--bg-panel))] font-medium text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="switchWorldKey('main')">
+                            <span class="i-lucide-pen-line h-3.5 w-3.5"></span>
+                            写作世界线
+                        </button>
+                        <button type="button" class="inline-flex h-full items-center gap-1.5 border-l border-[var(--border-color)] px-3 text-[12px] transition-colors" :class="worldKey === 'rp' ? 'bg-[color-mix(in_srgb,var(--accent-main)_18%,var(--bg-panel))] font-medium text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="switchWorldKey('rp')">
+                            <span class="i-lucide-theater h-3.5 w-3.5"></span>
+                            RP 世界线
+                        </button>
+                    </div>
+                    <div class="inline-flex h-8 items-center overflow-hidden rounded-md border border-[var(--border-color)]" data-testid="world-workbench-view-toggle">
+                        <button type="button" class="inline-flex h-full items-center gap-1.5 px-3 text-[12px] transition-colors" :class="workbenchView === 'state' ? 'bg-[color-mix(in_srgb,var(--accent-main)_18%,var(--bg-panel))] font-medium text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="workbenchView = 'state'">
+                            <span class="i-lucide-layout-dashboard h-3.5 w-3.5"></span>
+                            状态总览
+                        </button>
+                        <button type="button" class="inline-flex h-full items-center gap-1.5 border-l border-[var(--border-color)] px-3 text-[12px] transition-colors" :class="workbenchView === 'slices' ? 'bg-[color-mix(in_srgb,var(--accent-main)_18%,var(--bg-panel))] font-medium text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="workbenchView = 'slices'">
+                            <span class="i-lucide-list h-3.5 w-3.5"></span>
+                            切片编辑
+                        </button>
+                    </div>
                     <span class="hidden items-center gap-1.5 rounded-md border border-[var(--border-color)] px-2.5 py-1 text-[11px] text-[var(--text-secondary)] md:inline-flex">
                         <span class="h-1.5 w-1.5 rounded-full" :class="syncStatusDotClass"></span>
                         {{ error ? "需要处理" : workbenchBusy ? "同步中" : "已同步" }}
@@ -1950,7 +2001,21 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                 </div>
             </div>
 
-            <div class="flex min-h-0 flex-1">
+            <WorldEngineStateOverview
+                v-if="workbenchView === 'state'"
+                :key="worldKey"
+                ref="stateOverviewRef"
+                :project-path="props.projectPath"
+                :world-key="worldKey"
+                :schema="workbenchSchema"
+                :subjects="subjects"
+                :slices="slices"
+                :busy="workbenchActionBusy"
+                @open-slice="openSliceFromStateOverview"
+                @saved="void handleStateOverviewSaved()"
+            />
+
+            <div v-show="workbenchView === 'slices'" class="flex min-h-0 flex-1">
                 <WorldEngineWorkbenchPreviewSidebar
                     :busy="workbenchActionBusy"
                     :selected-subject-ids="selectedSubjectIds"
