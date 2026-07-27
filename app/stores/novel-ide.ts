@@ -269,6 +269,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotPlanningFocusId = ref<string | null>(null);
     const rightPanelOpen = ref(false);
     const rightPanelWidth = ref(400);
+    // ComfyUI 生图悬浮面板显隐；面板内参数草稿与任务运行态在 comfy-ui store，不持久化。
+    const comfyUiPanelOpen = ref(false);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
     const activeThemeId = ref<string>("sepia");
@@ -2350,6 +2352,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         plotWorkbenchOpen,
         plotWorkbenchTab,
         plotPlanningFocusId,
+        comfyUiPanelOpen,
         detailUndoStacks,
         getDetailUndoStack,
         pushDetailUndoSnapshot,
@@ -2450,6 +2453,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "leftPanelWidth",
             "rightPanelOpen",
             "rightPanelWidth",
+            "comfyUiPanelOpen",
             "selectedModel",
             "selectedReasoning",
             "activeThemeId",

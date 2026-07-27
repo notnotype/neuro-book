@@ -65,3 +65,7 @@ server/workspace/.nbook/
 server/.agent/
 # Temporary screenshots / assets
 t16-editor-heat.png
+
+# 本地一键启动打包产物
+/0.82/
+/0.83/

@@ -50,6 +50,8 @@ export type MarkdownStudioEditorHandle = {
     insertMarkdown?: (markdown: string) => void;
     replaceSelection?: (markdown: string) => void;
     appendMarkdown?: (markdown: string) => void;
+    /** 在指定文档位置插入 Markdown（生图插画"插在选区之后"用）。 */
+    insertMarkdownAt?: (pos: number, markdown: string) => void;
     addComment?: (body: string) => void;
     getInlineComments?: () => MarkdownInlineCommentItem[];
     selectInlineComment?: (index: number) => void;
@@ -312,6 +314,19 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
     };
 
     /**
+     * 在指定文档位置插入 Markdown。仅富文本句柄支持精确位置，
+     * 其余情况退化为追加到正文末尾（保证插图不丢）。
+     */
+    const insertMarkdownAt = (pos: number, markdown: string): void => {
+        const handle = activeWriteHandle();
+        if (handle?.insertMarkdownAt) {
+            handle.insertMarkdownAt(pos, markdown);
+            return;
+        }
+        appendMarkdown(markdown);
+    };
+
+    /**
      * 将 Markdown 追加到正文末尾。
      */
     const appendMarkdown = (markdown: string): void => {
@@ -527,6 +542,7 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         insertMarkdown,
         replaceSelection,
         appendMarkdown,
+        insertMarkdownAt,
         openStream,
         startStream,
         appendStreamText,

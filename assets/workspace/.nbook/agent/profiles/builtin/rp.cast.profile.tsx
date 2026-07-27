@@ -48,7 +48,7 @@ export default defineAgentProfile({
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>
-                    <Message><Import path="reference/agent/rp-tick/actor-facing-packet.md" /></Message>
+                    <Message><Import path="reference/agent/rp-v2/actor-packet.md" /></Message>
                 </HistorySet>
                 <ModelContext>
                     <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
@@ -66,8 +66,8 @@ const RP_CAST_CONTRACT = profileText`
     <rp_cast_contract>
         # 调度流程
 
-        1. 从 invoke_agent.message 读取本 Tick 的出场名单与每角色材料包（上级已过滤，不含 secret）。
-        2. 对每个角色：已有 linked rp.actor session 则复用；没有则 create_agent({profileKey: "rp.actor", initial: {characterId, kind}, title: "rp.actor: {characterId}"})。kind 取材料包标注（player = 用户化身，npc = 自主角色）。
+        1. 从 invoke_agent.message 读取本 Tick 编号、出场名单与每角色材料包（上级已过滤，不含 secret）。
+        2. 对每个角色：characterId **必须用出场名单给出的注册表 id**（不要自己音译角色名）。create 前先 rp_character_recall 确认档案存在；档案缺失或 id 未登记时，如实报告 rp.leader 请求建档，**不要**猜别的 id 或带着缺档继续。已有 linked rp.actor session 则复用；没有则 create_agent({profileKey: "rp.actor", initial: {characterId, kind}, title: "rp.actor: {characterId}"})。kind 取材料包标注（player = 用户化身，npc = 自主角色）。
         3. 把材料包装配为 actor-facing packet（<gm> / <character name="..."> / <knowledge> / <directive> 标签），作为 invoke_agent.message 发送。packet 首行标注当前 tick 号与日历时间（actor 的记忆维护需要）。
         4. **并行调度**：所有 actor 的 invoke 互不依赖，必须在同一轮一起发出，不要逐个串行等待。
         5. 收集三通道返回，按角色汇总；某个 actor 失败或超时时如实标注，不要编造它的反应。

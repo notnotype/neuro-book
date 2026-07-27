@@ -30,10 +30,11 @@ describe("rp v2 tick flow (data plane)", {timeout: 60_000}, () => {
 
     beforeAll(async () => {
         projectRoot = path.join(resolveRuntimeWorkspaceRoot(), slug);
-        await fs.mkdir(path.join(projectRoot, "world-engine", "schema"), {recursive: true});
+        // RP 模式的 schema/calendar 独立配置根:rp/world-engine/(与写作模式完全分离)
+        await fs.mkdir(path.join(projectRoot, "rp", "world-engine", "schema"), {recursive: true});
         await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: RP Flow Test\nsummary: ''\n", "utf-8");
-        await fs.writeFile(path.join(projectRoot, "world-engine", "schema", "index.ts"), SCHEMA_SOURCE, "utf-8");
-        await fs.writeFile(path.join(projectRoot, "world-engine", "calendar.ts"), CALENDAR_SOURCE, "utf-8");
+        await fs.writeFile(path.join(projectRoot, "rp", "world-engine", "schema", "index.ts"), SCHEMA_SOURCE, "utf-8");
+        await fs.writeFile(path.join(projectRoot, "rp", "world-engine", "calendar.ts"), CALENDAR_SOURCE, "utf-8");
         await openProjectForTest(projectPath);
         facade = new WorldEngineFacade(resolveRuntimeWorkspaceRoot());
     }, 60_000);
@@ -121,8 +122,8 @@ describe("rp v2 tick flow (data plane)", {timeout: 60_000}, () => {
         });
 
         // ===== 断言闭环 =====
-        // 1. 世界线隔离：main 世界线完全无数据
-        expect(await facade.listSlices(projectPath)).toEqual([]);
+        // 1. 世界线完全分离：本项目只有 rp/world-engine 配置根,main 世界线连配置都不共享(查询报缺配置而非回退)
+        await expect(facade.listSlices(projectPath)).rejects.toThrow();
         expect((await facade.listSlices(projectPath, {}, "rp")).map((slice) => slice.title)).toEqual([
             "Tick 000 initial-state",
             "Tick 001 sneak-corridor",

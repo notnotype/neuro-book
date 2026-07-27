@@ -301,6 +301,29 @@ export async function readWorkspaceTextFile(rootInput: AbsoluteFsPath, filePath:
     return readUtf8TextFile(absolutePath);
 }
 
+/** 二进制读取上限：与单文件上传上限一致（50MB），防止误读超大文件占内存。 */
+const BINARY_READ_MAX_BYTES = 50 * 1024 * 1024;
+
+/**
+ * 读取工作区内二进制文件（图片 raw serve 用）。与文本读取共用同一套路径归一 + realpath 越界防护。
+ */
+export async function readWorkspaceBinaryFile(rootInput: AbsoluteFsPath, filePath: string): Promise<{bytes: Buffer; mtimeMs: number; size: number}> {
+    const root = await resolveWorkspaceOperationRoot(rootInput, false);
+    const absolutePath = await resolveWorkspaceContentPath(root, filePath);
+    const stat = await fs.stat(absolutePath);
+    if (!stat.isFile()) {
+        throw new Error("Only files can be read");
+    }
+    if (stat.size > BINARY_READ_MAX_BYTES) {
+        throw new Error(`File too large to serve: ${String(stat.size)} bytes`);
+    }
+    return {
+        bytes: await fs.readFile(absolutePath),
+        mtimeMs: stat.mtimeMs,
+        size: stat.size,
+    };
+}
+
 /**
  * 覆盖写入工作区内文本文件。
  */

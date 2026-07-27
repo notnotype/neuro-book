@@ -69,6 +69,8 @@ defineRouteMeta({
 
 
 
+
+
 const WriteWorkspaceFileBodySchema = z.object({
     projectPath: z.string().optional(),
     workspaceKind: z.literal("user-assets").optional(),

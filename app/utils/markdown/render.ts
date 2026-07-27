@@ -130,6 +130,12 @@ const agentMarkdown = new Marked();
 const WORKSPACE_REFERENCE_PATTERN = /^\[([^\]]+)\]\(([^)\s]+)(?:\s+["'][^)]*["'])?\)/;
 
 /**
+ * 当前 parse 使用的图片 src 重写函数。marked 的 renderer 是同步回调，
+ * 无法直接传参，故在 renderMarkdown 内 parse 前设置、finally 清空。
+ */
+let currentImageResolver: ((src: string) => string) | null = null;
+
+/**
  * 初始化 Agent 聊天气泡专用 markdown 渲染器。
  */
 function ensureMarked(): void {
@@ -147,6 +153,12 @@ function ensureMarked(): void {
 
         const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
         return `<a href="${escapeHtml(href ?? "")}"${titleAttr}>${text}</a>`;
+    };
+    renderer.image = ({href, title, text}) => {
+        const rawSrc = href ?? "";
+        const src = currentImageResolver ? currentImageResolver(rawSrc) : rawSrc;
+        const titleAttr = title ? ` title="${escapeHtml(title)}"` : "";
+        return `<img src="${escapeHtml(src)}" alt="${escapeHtml(text)}"${titleAttr} class="nb-markdown-image">`;
     };
 
     agentMarkdown.setOptions({
@@ -261,14 +273,20 @@ function ensureMarked(): void {
 }
 
 /**
- * 渲染 Markdown。
+ * 渲染 Markdown。options.resolveImageSrc 可把图片相对路径重写为可访问 URL
+ * （如工作区插图 → /api/workspace-files/raw），只影响 DOM 输出不改源文本。
  */
-export const renderMarkdown = (content: string, sanitizeHtml?: (html: string) => string): string => {
+export const renderMarkdown = (content: string, sanitizeHtml?: (html: string) => string, options?: {resolveImageSrc?: (src: string) => string}): string => {
     if (!content.trim()) {
         return "";
     }
 
     ensureMarked();
-    const html = agentMarkdown.parse(normalizeStreamingMarkdown(content)) as string;
-    return sanitizeHtml ? sanitizeHtml(html) : html;
+    currentImageResolver = options?.resolveImageSrc ?? null;
+    try {
+        const html = agentMarkdown.parse(normalizeStreamingMarkdown(content)) as string;
+        return sanitizeHtml ? sanitizeHtml(html) : html;
+    } finally {
+        currentImageResolver = null;
+    }
 };

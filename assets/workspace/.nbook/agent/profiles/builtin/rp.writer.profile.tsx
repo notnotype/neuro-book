@@ -174,8 +174,8 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
             <HistorySet>
                 <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                 <Message><Import path="reference/content/markdown-dialect.md" /></Message>
-                <Message><Import path="reference/agent/rp-tick/writer-brief.md" /></Message>
-                <Message><Import path="reference/agent/rp-tick/rp-writer-interaction.md" /></Message>
+                <Message><Import path="reference/agent/rp-v2/writer-brief.md" /></Message>
+                <Message><Import path="reference/agent/rp-v2/rp-writer-interaction.md" /></Message>
                 <Message><Import path="reference/agent/profile-context-memory.md" /></Message>
                 <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md" /></Message>
                 <Message><Import path="assets/workspace/.nbook/agent/skills/stop-slop/references/examples.md" /></Message>

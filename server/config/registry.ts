@@ -147,4 +147,12 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         secret: false,
         description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
     },
+    {
+        key: "comfyui",
+        scope: "global",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "ComfyUI 生图集成配置：服务地址、提示词蒸馏模型、正负向提示词默认值、生成参数默认值与默认工作流。Project Config 不能覆盖。",
+    },
 ];

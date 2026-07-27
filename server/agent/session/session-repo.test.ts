@@ -339,12 +339,20 @@ describe("JsonlSessionRepository", () => {
             reason: "test",
         }, assetsLeader.metadata.workspaceKey);
 
+        // leader 分组只包含写作模式 leader.*；rp.leader / simulator.leader 归各自专用界面
         const leaders = await repo.listSessions({
             workspaceKey: "workspace",
             includeArchived: true,
             profileGroup: "leader",
         });
-        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "simulator.leader", "rp.leader", "leader.default"]);
+        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "leader.default"]);
+
+        const rpLeaders = await repo.listSessions({
+            workspaceKey: "workspace",
+            includeArchived: true,
+            profileKey: "rp.leader",
+        });
+        expect(rpLeaders.map((session) => session.profileKey)).toEqual(["rp.leader"]);
 
         const topActiveLeaders = await repo.listSessions({
             workspaceKey: "workspace",
@@ -355,7 +363,7 @@ describe("JsonlSessionRepository", () => {
         });
         expect(topActiveLeaders).toHaveLength(1);
         expect(topActiveLeaders[0]).toMatchObject({
-            profileKey: "simulator.leader",
+            profileKey: "leader.default",
         });
 
         const childSessions = await repo.listSessions({

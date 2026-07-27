@@ -17,6 +17,8 @@ defineRouteMeta({
 } as never,
 });
 
+
+
 export default defineEventHandler(() => {
     return {
         message: "Hello from Nuxt server api",

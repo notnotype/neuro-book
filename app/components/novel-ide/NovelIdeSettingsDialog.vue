@@ -9,6 +9,7 @@ import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/setti
 import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
 import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
+import NovelIdeComfyUiSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeComfyUiSettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -22,7 +23,7 @@ import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStud
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "comfyui";
 type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
@@ -74,6 +75,7 @@ const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const comfyUiSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const themeEditorOpen = ref(false);
 const themeEditorMode = ref<ThemeEditorMode>("create");
 const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
@@ -135,6 +137,12 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
     },
+    {
+        value: "comfyui",
+        label: t("settings.section.comfyui.label"),
+        description: t("settings.section.comfyui.description"),
+        iconClass: "i-lucide-image",
+    },
 ]);
 
 const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
@@ -164,7 +172,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability", "comfyui"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 const bootConfigSections: SettingsSection[] = ["security"];
@@ -315,6 +323,8 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return agentProfileModelSettingsPanelRef.value;
         case "observability":
             return observabilitySettingsPanelRef.value;
+        case "comfyui":
+            return comfyUiSettingsPanelRef.value;
         case "frontend":
         case "editor":
         case "security":
@@ -1226,6 +1236,11 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <!-- 可观测设定（Pi 请求 trace） -->
                         <div v-else-if="activeSection === 'observability'" key="observability">
                             <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
+                        </div>
+
+                        <!-- ComfyUI 生图设定 -->
+                        <div v-else-if="activeSection === 'comfyui'" key="comfyui">
+                            <NovelIdeComfyUiSettingsPanel ref="comfyUiSettingsPanelRef" :key="`comfyui:${settingsPanelKey}`" :target-query="targetQuery" />
                         </div>
                     </Transition>
                 </div>

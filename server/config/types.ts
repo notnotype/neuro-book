@@ -187,6 +187,42 @@ export type EffectiveConfig = {
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
     history: WorkspaceHistorySettingsConfig;
+    comfyui: ComfyUiSettingsConfig;
+};
+
+/** ComfyUI 生图面板与内置工作流的默认生成参数。 */
+export type ComfyUiGenerationDefaults = {
+    /** 内置 txt2img 模板使用的 checkpoint 文件名（ComfyUI models/checkpoints 下）；空串表示未配置。 */
+    checkpoint: string;
+    width: number;
+    height: number;
+    steps: number;
+    cfg: number;
+};
+
+/** ComfyUI 生图集成配置（Global-only，Project 不覆盖）。 */
+export type ComfyUiSettingsConfig = {
+    /** 总开关：false 时前端隐藏生图入口。 */
+    enabled: boolean;
+    /** ComfyUI 服务地址，如 http://127.0.0.1:8188。 */
+    baseURL: string;
+    /** 出站请求超时（毫秒）；null 使用默认 30s。 */
+    timeoutMs: number | null;
+    /** 提示词蒸馏使用的模型 key（providerId/modelId）；null 用全局默认模型。 */
+    promptModelKey: string | null;
+    /** 正向提示词质量前缀，服务端拼在蒸馏结果之前。 */
+    positivePrefix: string;
+    /** 默认负向提示词（蒸馏不生成负向，直接用这里的值）。 */
+    negativeDefault: string;
+    /** 面板与内置工作流默认参数。 */
+    defaults: ComfyUiGenerationDefaults;
+    /** 默认使用的自定义工作流 id；null = 内置模板。 */
+    activeWorkflowId: string | null;
+};
+
+/** ComfyUI 配置的存储层形态（config.json 内 partial）。 */
+export type StoredComfyUiSettingsConfig = Partial<Omit<ComfyUiSettingsConfig, "defaults">> & {
+    defaults?: Partial<ComfyUiGenerationDefaults>;
 };
 
 /** 可观测配置。第一版只有 Pi 请求 trace。 */
@@ -250,6 +286,7 @@ export type StoredGlobalConfig = {
         piTrace?: Partial<PiTraceConfig>;
     };
     history?: Partial<WorkspaceHistorySettingsConfig>;
+    comfyui?: StoredComfyUiSettingsConfig;
 };
 
 export type StoredProjectConfig = {

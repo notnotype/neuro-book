@@ -19,6 +19,9 @@ const activeTab = ref<RpSidebarTab>("world");
 
 const loading = ref(false);
 const loadError = ref("");
+/** rp 世界线是否已初始化(rp/world-engine/ 配置就绪);null = 未知(查询中)。 */
+const rpInitialized = ref<boolean | null>(null);
+const rpMissing = ref<string[]>([]);
 const stateResult = ref<WorldStateDto | null>(null);
 const subjects = ref<WorldSubjectDto[]>([]);
 const slices = ref<WorldSliceDto[]>([]);
@@ -30,6 +33,17 @@ async function refresh(): Promise<void> {
     loadError.value = "";
     try {
         const query = {projectPath: props.projectPath, worldKey: "rp"};
+        // 先查配置就绪状态:rp/world-engine/ 缺失是「尚未初始化」的正常状态,不是错误
+        const status = await $fetch<{initialized: boolean; missing: string[]}>("/api/projects/world-engine/status", {query});
+        rpInitialized.value = status.initialized;
+        rpMissing.value = status.missing;
+        if (!status.initialized) {
+            stateResult.value = null;
+            subjects.value = [];
+            slices.value = [];
+            schema.value = null;
+            return;
+        }
         const [nextState, nextSubjects, nextSlices, nextSchema] = await Promise.all([
             $fetch<WorldStateDto>("/api/projects/world-engine/state", {query}),
             $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
@@ -146,8 +160,18 @@ const TABS: Array<{key: RpSidebarTab; label: string; icon: string}> = [
 
         <div v-if="loadError" class="border-b border-[var(--we-danger-border,#f87171)] bg-[var(--we-danger-soft,rgba(248,113,113,0.1))] px-3 py-2 text-[11px] text-[var(--we-danger,#ef4444)]">{{ loadError }}</div>
 
+        <!-- 未初始化引导:rp/world-engine/ 配置缺失是开局前的正常状态 -->
+        <div v-if="rpInitialized === false" class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+            <span class="i-lucide-sparkles h-8 w-8 text-[var(--accent-main)]"></span>
+            <div class="text-[13px] font-semibold text-[var(--text-main)]">RP 世界尚未初始化</div>
+            <div class="text-[12px] leading-relaxed text-[var(--text-muted)]">
+                在右侧对话里对彩绘说「<span class="text-[var(--text-main)]">开始跑团</span>」,她会引导你搭建世界并自动创建 RP 环境。
+            </div>
+            <div class="text-[10px] text-[var(--text-muted)]">待创建:{{ rpMissing.join("、") }}</div>
+        </div>
+
         <!-- 世界面板 -->
-        <div v-if="activeTab === 'world'" class="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
+        <div v-else-if="activeTab === 'world'" class="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
             <div v-if="!stateResult || !subjects.length" class="py-8 text-center text-[12px] text-[var(--text-muted)]">RP 世界线还没有记录。开始冒险后,世界状态会在这里生长。</div>
             <template v-else>
                 <!-- 当前时间 -->

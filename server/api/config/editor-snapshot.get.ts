@@ -1638,6 +1638,76 @@ defineRouteMeta({
                                             }
                                         },
                                         "additionalProperties": false
+                                    },
+                                    "comfyui": {
+                                        "default": {},
+                                        "type": "object",
+                                        "properties": {
+                                            "enabled": {
+                                                "type": "boolean"
+                                            },
+                                            "baseURL": {
+                                                "type": "string",
+                                                "maxLength": 500
+                                            },
+                                            "timeoutMs": {
+                                                "nullable": true,
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "exclusiveMinimum": true,
+                                                "maximum": 9007199254740991
+                                            },
+                                            "promptModelKey": {
+                                                "nullable": true,
+                                                "type": "string",
+                                                "minLength": 1
+                                            },
+                                            "positivePrefix": {
+                                                "type": "string",
+                                                "maxLength": 2000
+                                            },
+                                            "negativeDefault": {
+                                                "type": "string",
+                                                "maxLength": 2000
+                                            },
+                                            "defaults": {
+                                                "default": {},
+                                                "type": "object",
+                                                "properties": {
+                                                    "checkpoint": {
+                                                        "type": "string",
+                                                        "maxLength": 300
+                                                    },
+                                                    "width": {
+                                                        "type": "integer",
+                                                        "minimum": 64,
+                                                        "maximum": 4096
+                                                    },
+                                                    "height": {
+                                                        "type": "integer",
+                                                        "minimum": 64,
+                                                        "maximum": 4096
+                                                    },
+                                                    "steps": {
+                                                        "type": "integer",
+                                                        "minimum": 1,
+                                                        "maximum": 150
+                                                    },
+                                                    "cfg": {
+                                                        "type": "number",
+                                                        "minimum": 0,
+                                                        "maximum": 30
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            },
+                                            "activeWorkflowId": {
+                                                "nullable": true,
+                                                "type": "string",
+                                                "minLength": 1
+                                            }
+                                        },
+                                        "additionalProperties": false
                                     }
                                 },
                                 "additionalProperties": {}
@@ -3414,6 +3484,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

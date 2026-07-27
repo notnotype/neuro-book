@@ -66,6 +66,8 @@ defineRouteMeta({
 
 
 
+
+
 const RenameWorkspacePathBodySchema = z.object({
     projectPath: z.string().optional(),
     workspaceKind: z.literal("user-assets").optional(),

@@ -376,6 +376,24 @@ export const ObservabilityConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
+/** ComfyUI 生图集成配置（Global-only）。无 secret 字段，不需要掩码。 */
+export const ComfyUiConfigDtoSchema = z.object({
+    enabled: z.boolean(),
+    baseURL: z.string().trim().max(500),
+    timeoutMs: z.number().int().positive().nullable(),
+    promptModelKey: z.string().trim().min(1).nullable(),
+    positivePrefix: z.string().trim().max(2000),
+    negativeDefault: z.string().trim().max(2000),
+    defaults: z.object({
+        checkpoint: z.string().trim().max(300),
+        width: z.number().int().min(64).max(4096),
+        height: z.number().int().min(64).max(4096),
+        steps: z.number().int().min(1).max(150),
+        cfg: z.number().min(0).max(30),
+    }).partial().default({}),
+    activeWorkflowId: z.string().trim().min(1).nullable(),
+}).partial().default({});
+
 /** 文件历史（操作日志）字段集。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。 */
 const WorkspaceHistoryFieldsDtoSchema = z.object({
     enabled: z.boolean(),
@@ -413,6 +431,7 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
     history: WorkspaceHistoryConfigDtoSchema,
+    comfyui: ComfyUiConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -435,6 +454,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
+    comfyui: ComfyUiConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -489,6 +509,7 @@ export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfile
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type ObservabilityConfigDto = z.infer<typeof ObservabilityConfigDtoSchema>;
+export type ComfyUiConfigDto = z.infer<typeof ComfyUiConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;

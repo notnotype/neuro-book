@@ -12,6 +12,7 @@ import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSetti
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import RpModeSurface from "nbook/app/components/novel-ide/rp/RpModeSurface.vue";
+import ComfyUiIllustrationPanel from "nbook/app/components/comfyui/ComfyUiIllustrationPanel.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
@@ -32,6 +33,7 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useComfyUiStore, type ComfyUiInsertTarget} from "nbook/app/stores/comfy-ui";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
@@ -98,6 +100,7 @@ const IDE_PAPER_TRANSITION_SELECTORS = [
 ] as const;
 
 const novelIdeStore = useNovelIdeStore();
+const comfyUiStore = useComfyUiStore();
 const route = useRoute();
 const router = useRouter();
 const {
@@ -172,7 +175,7 @@ const studio = useMarkdownStudioController({
 // store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
 novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
-const {choose, prompt} = useDialog();
+const {choose, prompt, confirm} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
 
@@ -825,6 +828,91 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
         saveQueued.value = false;
     }
 };
+
+// ── ComfyUI 生图插画 ─────────────────────────────────────────────
+const rpModeSurfaceRef = ref<InstanceType<typeof RpModeSurface> | null>(null);
+
+/**
+ * Markdown Studio 选区生图入口：记录插入目标（选区末尾位置）并打开生图面板。
+ */
+function handleGenerateIllustration(payload: {text: string; insertPos: number}): void {
+    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+        notification.warning(t("comfyui.panel.noProject"));
+        return;
+    }
+    comfyUiStore.openForSelection({
+        target: {kind: "markdown", insertPos: payload.insertPos},
+        text: payload.text,
+        projectPath: currentNovelId.value,
+    });
+    novelIdeStore.comfyUiPanelOpen = true;
+}
+
+/**
+ * RP 正文面板选区生图入口（RpModeSurface 上抛）：目标是 tick prose 锚点。
+ */
+function handleRpGenerateIllustration(payload: {tickDir: string; anchorText: string; occurrence: number; text: string}): void {
+    if (!currentNovelId.value) {
+        notification.warning(t("comfyui.panel.noProject"));
+        return;
+    }
+    comfyUiStore.openForSelection({
+        target: {kind: "rp", tickDir: payload.tickDir, anchorText: payload.anchorText, occurrence: payload.occurrence},
+        text: payload.text,
+        projectPath: currentNovelId.value,
+    });
+    novelIdeStore.comfyUiPanelOpen = true;
+}
+
+/**
+ * 生图面板「插入正文」：按插入目标分发到编辑器（选区之后）或 RP prose（锚点之后）。
+ */
+async function handleComfyUiInsert(payload: {imagePath: string; alt: string}): Promise<void> {
+    const target = comfyUiStore.insertTarget;
+    if (!target) {
+        return;
+    }
+    const markdown = `![${payload.alt}](${payload.imagePath})`;
+    if (target.kind === "markdown") {
+        studio.insertMarkdownAt(target.insertPos, `\n\n${markdown}\n\n`);
+        notification.success(t("comfyui.panel.inserted"));
+        void saveCurrentWorkspaceFile();
+        return;
+    }
+    await insertRpIllustration(target, payload, "none");
+}
+
+/**
+ * RP prose 插图写回：锚点找不到（409 ANCHOR_NOT_FOUND）时询问是否追加到该幕末尾。
+ */
+async function insertRpIllustration(target: Extract<ComfyUiInsertTarget, {kind: "rp"}>, payload: {imagePath: string; alt: string}, fallback: "none" | "append"): Promise<void> {
+    try {
+        await $fetch("/api/projects/rp/insert-illustration", {
+            method: "POST",
+            query: {projectPath: comfyUiStore.projectPath ?? currentNovelId.value},
+            body: {
+                tickDir: target.tickDir,
+                anchorText: target.anchorText,
+                occurrence: target.occurrence,
+                imagePath: payload.imagePath,
+                alt: payload.alt,
+                fallback,
+            },
+        });
+        notification.success(t("comfyui.panel.inserted"));
+        void rpModeSurfaceRef.value?.refreshProse();
+    } catch (error) {
+        const statusCode = typeof error === "object" && error !== null && "statusCode" in error ? (error as {statusCode?: number}).statusCode : undefined;
+        if (statusCode === 409 && fallback === "none") {
+            const confirmed = await confirm(t("comfyui.panel.insertAppendConfirm"), t("comfyui.panel.title"));
+            if (confirmed) {
+                await insertRpIllustration(target, payload, "append");
+            }
+            return;
+        }
+        notification.error(resolveApiErrorMessage(error, t("comfyui.panel.insertFailed")));
+    }
+}
 
 /**
  * 将 TipTap 选区加入底部 Inline AI 输入栏。
@@ -2174,11 +2262,13 @@ onBeforeUnmount(() => {
         <!-- RP 模式第三布局：占据头部下方整个内容区；Agent/IDE 布局用 v-show 保活 -->
         <RpModeSurface
             v-if="rpModeOpen && !isUserAssetsWorkspace"
+            ref="rpModeSurfaceRef"
             :active="rpModeOpen"
             :project-path="currentNovelId"
             :novel-id="displayNovelIdForAgent"
             :open-reference="openWorkspaceReference"
             class="min-h-0 flex-1"
+            @generate-illustration="handleRpGenerateIllustration"
         />
 
         <div v-show="!rpModeOpen" class="flex min-h-0 flex-1 overflow-hidden">
@@ -2284,6 +2374,7 @@ onBeforeUnmount(() => {
                             @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"
+                            @generate-illustration="handleGenerateIllustration"
                         />
                     </div>
                     <div
@@ -2380,6 +2471,7 @@ onBeforeUnmount(() => {
         <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
+        <ComfyUiIllustrationPanel @insert="void handleComfyUiInsert($event)" />
         <WorkspaceHistoryInboxDialog v-model="historyInboxOpen" :project-path="isUserAssetsWorkspace ? null : currentNovelId" :theme="activeThemeId" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog

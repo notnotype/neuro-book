@@ -245,3 +245,40 @@ describe("config normalizer Provider Config identity", () => {
         expect(Object.keys(effective.models.providers.provider?.models ?? {})).toEqual(["unique"]);
     });
 });
+
+describe("config normalizer comfyui", () => {
+    it("缺省时给出完整默认值（默认关闭、本机 8188）", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({}), null);
+        expect(effective.comfyui.enabled).toBe(false);
+        expect(effective.comfyui.baseURL).toBe("http://127.0.0.1:8188");
+        expect(effective.comfyui.timeoutMs).toBe(30000);
+        expect(effective.comfyui.promptModelKey).toBeNull();
+        expect(effective.comfyui.positivePrefix.length).toBeGreaterThan(0);
+        expect(effective.comfyui.defaults).toEqual({checkpoint: "", width: 832, height: 1216, steps: 32, cfg: 4.5});
+        expect(effective.comfyui.activeWorkflowId).toBeNull();
+    });
+
+    it("partial 覆盖生效，非法值回落默认", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            comfyui: {
+                enabled: true,
+                baseURL: "http://192.168.1.5:8188/",
+                timeoutMs: -1 as never,
+                defaults: {width: 1024, cfg: -5 as never},
+            },
+        }), null);
+        expect(effective.comfyui.enabled).toBe(true);
+        expect(effective.comfyui.baseURL).toBe("http://192.168.1.5:8188/");
+        expect(effective.comfyui.timeoutMs).toBe(30000);
+        expect(effective.comfyui.defaults.width).toBe(1024);
+        expect(effective.comfyui.defaults.height).toBe(1216);
+        expect(effective.comfyui.defaults.cfg).toBe(4.5);
+    });
+
+    it("comfyui 是 Global-only：Project Config 不参与合并", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({comfyui: {enabled: true}}), {
+            comfyui: {enabled: false},
+        } as never);
+        expect(effective.comfyui.enabled).toBe(true);
+    });
+});

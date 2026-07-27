@@ -25,6 +25,8 @@ import type {
     ObservabilityConfig,
     PiTraceConfig,
     WorkspaceHistorySettingsConfig,
+    ComfyUiSettingsConfig,
+    StoredComfyUiSettingsConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -113,6 +115,49 @@ function normalizeObservability(input: StoredGlobalConfig["observability"]): Obs
     };
 }
 
+/** ComfyUI 默认配置：默认关闭，指向本机默认端口；提示词前后缀按 Anima 模型推荐值。 */
+const DEFAULT_COMFYUI: ComfyUiSettingsConfig = {
+    enabled: false,
+    baseURL: "http://127.0.0.1:8188",
+    timeoutMs: 30_000,
+    promptModelKey: null,
+    positivePrefix: "masterpiece, best quality, amazing quality, very aesthetic, absurdres",
+    negativeDefault: "worst quality, low quality, lowres, bad anatomy, bad hands, jpeg artifacts, chromatic aberration, watermark, signature, artist name, blurry",
+    defaults: {
+        checkpoint: "",
+        width: 832,
+        height: 1216,
+        steps: 32,
+        cfg: 4.5,
+    },
+    activeWorkflowId: null,
+};
+
+/**
+ * 归一化 ComfyUI 配置：存储层 partial 覆盖默认值，非法值回落默认。
+ */
+export function normalizeComfyUi(input: StoredComfyUiSettingsConfig | undefined): ComfyUiSettingsConfig {
+    const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const rawDefaults = raw.defaults && typeof raw.defaults === "object" && !Array.isArray(raw.defaults) ? raw.defaults : {};
+    const cfg = normalizeNullableNumber(rawDefaults.cfg);
+    return {
+        enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_COMFYUI.enabled,
+        baseURL: normalizeText(raw.baseURL) || DEFAULT_COMFYUI.baseURL,
+        timeoutMs: normalizeNullablePositiveInteger(raw.timeoutMs) ?? DEFAULT_COMFYUI.timeoutMs,
+        promptModelKey: normalizeNullableModelKey(raw.promptModelKey),
+        positivePrefix: typeof raw.positivePrefix === "string" ? raw.positivePrefix.trim() : DEFAULT_COMFYUI.positivePrefix,
+        negativeDefault: typeof raw.negativeDefault === "string" ? raw.negativeDefault.trim() : DEFAULT_COMFYUI.negativeDefault,
+        defaults: {
+            checkpoint: normalizeText(rawDefaults.checkpoint),
+            width: normalizeNullablePositiveInteger(rawDefaults.width) ?? DEFAULT_COMFYUI.defaults.width,
+            height: normalizeNullablePositiveInteger(rawDefaults.height) ?? DEFAULT_COMFYUI.defaults.height,
+            steps: normalizeNullablePositiveInteger(rawDefaults.steps) ?? DEFAULT_COMFYUI.defaults.steps,
+            cfg: cfg !== null && cfg >= 0 ? cfg : DEFAULT_COMFYUI.defaults.cfg,
+        },
+        activeWorkflowId: normalizeNullableText(raw.activeWorkflowId),
+    };
+}
+
 const DEFAULT_WORKSPACE_HISTORY: WorkspaceHistorySettingsConfig = {
     enabled: true,
     retentionFullDays: 90,
@@ -187,6 +232,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
         history: normalizeWorkspaceHistory(undefined),
+        comfyui: normalizeComfyUi(undefined),
     };
 }
 
@@ -287,6 +333,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
+    effective.comfyui = normalizeComfyUi(globalConfig.comfyui);
 
     if (!projectConfig) {
         return effective;

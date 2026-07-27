@@ -77,6 +77,7 @@ const emit = defineEmits<{
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "generate-illustration", payload: {text: string; insertPos: number}): void;
 }>();
 
 const isMarkdownFile = computed(() => resolveWorkspaceFileExtension(props.activePath) === ".md");
@@ -156,6 +157,7 @@ watch(() => props.activePath, () => {
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"
                         @inline-ai-reference="emit('inline-ai-reference', $event)"
+                        @generate-illustration="emit('generate-illustration', $event)"
                     />
                     <MarkdownCommentFlowPanel
                         v-if="props.controller.commentViewOpen.value"

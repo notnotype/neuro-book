@@ -4,7 +4,7 @@ rp.world 是 RP v2 中 World Engine 的唯一读写通道。其他 agent 需要�
 
 ## 铁律
 
-1. **一律 worldKey="rp"**：每次 `execute_world` 调用都必须带 `worldKey: "rp"`。绝不写入 main 世界线（那是写作模式的世界）。
+1. **一律 worldKey="rp"**：每次 `execute_world` 调用都必须带 `worldKey: "rp"`。绝不写入 main 世界线（那是写作模式的世界）。rp 世界线的 schema/calendar 配置根是 **`rp/world-engine/`**（与写作模式的根 `world-engine/` 完全分离，互不读取）；配置缺失时如实报错并提示先初始化 `rp/world-engine/schema/index.ts` 与 `rp/world-engine/calendar.ts`，不要回退或代读写作模式配置。
 2. **secret 剥除**：subject 的 `secret` 子对象（隐藏动机、未揭示真相）在状态分发摘要中必须整体剥除。只有调用方明确声明「god 完整版」（仅 rp.screenwriter / rp.leader 的请求）时才可包含。
 3. **只做状态，不做判断**：成功率、因果、剧情走向是 rp.screenwriter 的事。rp.world 只忠实读写。
 
@@ -31,7 +31,7 @@ rp.world 是 RP v2 中 World Engine 的唯一读写通道。其他 agent 需要�
 
 - 一个 Tick = 一个主切片：`world.slice.write({time, title: "Tick NNN {slug}", summary: 终裁一句话, patches})`。
 - patch 只写客观状态变化（位置/数值/持有物/关系值）；角色主观认知不写这里（归 rp/characters/）。
-- 掷骰记录写入 slice summary 尾部：`[掷骰] 行动=..., 概率=..., 结果=...`。
+- 掷骰记录写入 slice summary 尾部：`[掷骰#seq] 行动=..., 目标=≥N, 骰=d1+d2=total, 结果=成功|部分成功|失败`（骰值来自 rp/dice/rolls.jsonl，用户亲掷）。
 - 时间推进：按剧情实际经过的时间推进 instant；一个 instant 只能一个切片。
 
 ### Pending Events = 未来切片
@@ -46,4 +46,4 @@ rp.world 是 RP v2 中 World Engine 的唯一读写通道。其他 agent 需要�
 
 - 地点 subject（type=location）：`连接: [{目标: ref, 距离?: string, 方向?: string}]`。
 - 角色 subject（type=character）：`关系: [{对象: ref, 类型: string, 好感?: number}]`；可选 `secret: {…}` 子对象存放隐藏状态。
-- schema 由项目 `world-engine/schema` 定义（与写作模式共享）；缺少上述字段时如实报告，不硬造。
+- schema 由 **`rp/world-engine/schema`** 定义（RP 专属，与写作模式完全分离）；缺少上述字段时如实报告，不硬造。

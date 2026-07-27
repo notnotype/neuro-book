@@ -105,7 +105,7 @@ export async function materializeManagedAsset<TKey extends string>(
         await recordCreated(options, createdPath);
         for (const retiredPath of retiredPaths) await recordRetired(options, retiredPath);
         await ensureDirectory(resolve(commitRoot, ".."));
-        await rename(extractedRoot, commitRoot);
+        await renameWithRetry(extractedRoot, commitRoot);
         await options.recordCreatedApplied?.(createdPath);
         committedRoot = commitRoot;
         return {
@@ -197,6 +197,24 @@ async function inspectExecutables<TKey extends string>(
 }
 
 /** 将staging绝对路径转换为Installation Root相对的最终Manifest路径。 */
+/**
+ * 带指数退避的 rename。Windows 上刚解压的大量可执行文件常被 Defender/索引器短暂持有句柄，
+ * 直接 rename 会偶发 EPERM/EBUSY/EACCES；这类锁通常数秒内释放，重试即可恢复。
+ */
+async function renameWithRetry(from: string, to: string, attempts = 6): Promise<void> {
+    for (let attempt = 1; ; attempt += 1) {
+        try {
+            await rename(from, to);
+            return;
+        } catch (error) {
+            const code = typeof error === "object" && error !== null && "code" in error ? (error as {code?: string}).code : undefined;
+            const retryable = code === "EPERM" || code === "EBUSY" || code === "EACCES";
+            if (!retryable || attempt >= attempts) throw error;
+            await new Promise((resolveDelay) => setTimeout(resolveDelay, 500 * 2 ** (attempt - 1)));
+        }
+    }
+}
+
 function relocateExecutables<TKey extends string>(
     staged: Array<readonly [TKey, {path: string; sha256: string}]>,
     extractedRoot: string,

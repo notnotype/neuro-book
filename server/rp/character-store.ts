@@ -31,6 +31,9 @@ import path from "node:path";
 
 export const RP_CHARACTERS_RELATIVE_ROOT = "rp/characters";
 
+/** 角色 id 注册表文件（rp/characters/registry.json）。 */
+const REGISTRY_FILE = "registry.json";
+
 const PERSONA_DIR = "人设";
 const KNOWLEDGE_DIR = "已知信息";
 const GOD_VIEW_DIR = "未知信息(god-view)";
@@ -100,6 +103,15 @@ export type CharacterGodView = CharacterActorView & {
     truthNotes: TruthNote[];
 };
 
+export type CharacterRegistryEntry = {
+    /** 目录 id（安全字符集，见 safeCharacterId）。 */
+    id: string;
+    /** 展示名（通常是中文名，唯一）。 */
+    name: string;
+    /** 别名/称呼列表（如「子爵」「白发女孩」），同样参与解析。 */
+    aliases: string[];
+};
+
 // ---- 路径与初始化 -------------------------------------------------------------
 
 export function rpCharacterRoot(projectRoot: string, characterId: string): string {
@@ -134,8 +146,90 @@ export async function rpCharacterExists(projectRoot: string, characterId: string
     }
 }
 
-/** 创建角色目录骨架（幂等；已存在的文件不覆盖）。 */
-export async function ensureRpCharacter(projectRoot: string, characterId: string, options: {soul?: string} = {}): Promise<void> {
+// ---- 角色 id 注册表 -----------------------------------------------------------
+// 中文角色名转目录 id 没有唯一音译，各 agent 各拼各的会造成同一角色多套档案
+// （实测出现过 brauer/bulaoer 双档）。注册表是 id 的唯一权威：建档必须登记
+// 展示名，读写一律先经 resolveCharacterId 解析（支持传中文名/别名），未登记即报错。
+
+/**
+ * 读取角色注册表。文件缺失时从已有角色目录合成（id 即展示名），
+ * 兼容注册表机制之前建档的老项目；合成结果不落盘，登记时才写文件。
+ */
+export async function readCharacterRegistry(projectRoot: string): Promise<CharacterRegistryEntry[]> {
+    const filePath = path.join(projectRoot, RP_CHARACTERS_RELATIVE_ROOT, REGISTRY_FILE);
+    try {
+        const parsed = JSON.parse(await readText(filePath)) as {characters?: CharacterRegistryEntry[]};
+        return (parsed.characters ?? []).filter((entry) => typeof entry.id === "string" && entry.id.trim()).map((entry) => ({
+            id: entry.id.trim(),
+            name: (entry.name ?? entry.id).trim(),
+            aliases: Array.isArray(entry.aliases) ? entry.aliases.map((alias) => String(alias).trim()).filter(Boolean) : [],
+        }));
+    } catch (error) {
+        if (!isNotFound(error)) throw error;
+        const ids = await listRpCharacters(projectRoot);
+        return ids.filter((id) => id !== REGISTRY_FILE).map((id) => ({id, name: id, aliases: []}));
+    }
+}
+
+async function writeCharacterRegistry(projectRoot: string, entries: CharacterRegistryEntry[]): Promise<void> {
+    const filePath = path.join(projectRoot, RP_CHARACTERS_RELATIVE_ROOT, REGISTRY_FILE);
+    await writeText(filePath, `${JSON.stringify({characters: entries}, null, 2)}\n`);
+}
+
+/** 名称匹配用的归一化：去空白、小写化（拉丁 id 大小写不敏感）。 */
+function normalizeName(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+/**
+ * 把 agent 传来的 id / 展示名 / 别名解析为注册过的目录 id。
+ * 未登记时抛错并列出全部已登记角色——把「猜目录名吃 ENOENT」变成一次带答案的失败。
+ */
+export async function resolveCharacterId(projectRoot: string, idOrName: string): Promise<string> {
+    const registry = await readCharacterRegistry(projectRoot);
+    const query = normalizeName(idOrName);
+    const matched = registry.find((entry) =>
+        normalizeName(entry.id) === query
+        || normalizeName(entry.name) === query
+        || entry.aliases.some((alias) => normalizeName(alias) === query));
+    if (matched) return matched.id;
+    const known = registry.map((entry) => `${entry.name}=${entry.id}`).join(", ") || "（尚无角色）";
+    throw new Error(`角色未登记：「${idOrName}」。已登记角色：${known}。新角色请先用 rp_character_update op=ensure 建档（须带展示名 name）。`);
+}
+
+/**
+ * 登记角色到注册表：同 id 幂等（合并别名、可更新展示名）；
+ * 展示名/别名撞上其他 id 时拒绝——这是防重复建档的核心闸门。
+ */
+export async function registerRpCharacter(projectRoot: string, input: {id: string; name: string; aliases?: string[]}): Promise<CharacterRegistryEntry> {
+    const id = safeCharacterId(input.id);
+    const name = input.name.trim() || id;
+    const aliases = (input.aliases ?? []).map((alias) => alias.trim()).filter(Boolean);
+    const registry = await readCharacterRegistry(projectRoot);
+    const conflict = registry.find((entry) =>
+        entry.id !== id
+        && [entry.name, ...entry.aliases].some((known) => normalizeName(known) === normalizeName(name)
+            || aliases.some((alias) => normalizeName(alias) === normalizeName(known))));
+    if (conflict) {
+        throw new Error(`「${name}」已登记为 id=${conflict.id}（${conflict.name}），禁止重复建档；请直接使用 id=${conflict.id}。`);
+    }
+    const existing = registry.find((entry) => entry.id === id);
+    let entry: CharacterRegistryEntry;
+    if (existing) {
+        existing.name = name;
+        existing.aliases = [...new Set([...existing.aliases, ...aliases])];
+        entry = existing;
+    } else {
+        entry = {id, name, aliases};
+        registry.push(entry);
+    }
+    await writeCharacterRegistry(projectRoot, registry);
+    return entry;
+}
+
+/** 创建角色目录骨架（幂等；已存在的文件不覆盖），并登记到注册表。 */
+export async function ensureRpCharacter(projectRoot: string, characterId: string, options: {soul?: string; name?: string; aliases?: string[]} = {}): Promise<void> {
+    await registerRpCharacter(projectRoot, {id: characterId, name: options.name ?? characterId, aliases: options.aliases});
     const root = rpCharacterRoot(projectRoot, characterId);
     await fs.mkdir(path.join(root, PERSONA_DIR), {recursive: true});
     await fs.mkdir(path.join(root, KNOWLEDGE_DIR), {recursive: true});

@@ -63,6 +63,8 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
     it("worldKey=rp 使用独立世界线：惰性建库、数据与 main 完全隔离、同 instant 互不冲突", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
+        // rp 世界线的 schema/calendar 配置根独立于写作模式：rp/world-engine/
+        await writeRpWorldConfig(projectPath);
 
         // main 世界线写入
         await facade.writeSlice(projectPath, {
@@ -103,6 +105,15 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
         // CodeAct 沙盒同样按世界线隔离
         const codeActResult = await facade.executeCodeActWorld(projectPath, "const s = await world.subject.get(\"erina\"); return s.hp;", "readonly", {worldKey: "rp"});
         expect(codeActResult.data).toBe(55);
+    });
+
+    it("worldKey=rp 缺少 rp/world-engine 配置根时明确报错，不回退写作模式配置", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
+        await expect(facade.listSlices(projectPath, {}, "rp")).rejects.toThrow();
+        // main 世界线不受影响
+        await expect(facade.listSlices(projectPath)).resolves.toEqual([]);
     });
 
     it("同 instant 写入冲突提示合并 patches", async () => {
@@ -752,6 +763,14 @@ async function createProject(schema = schemaSource(), options: {open?: boolean} 
 
 function projectRoot(projectPath: string): string {
     return path.join(resolveRuntimeWorkspaceRoot(), projectPath.slice("workspace/".length));
+}
+
+/** 为 rp 世界线写入独立配置根（rp/world-engine/），与写作模式配置完全分离。 */
+async function writeRpWorldConfig(projectPath: string, schema = schemaSource()): Promise<void> {
+    const rpConfigRoot = path.join(projectRoot(projectPath), "rp", "world-engine");
+    await fs.mkdir(path.join(rpConfigRoot, "schema"), {recursive: true});
+    await fs.writeFile(path.join(rpConfigRoot, "schema", "index.ts"), schema, "utf-8");
+    await fs.writeFile(path.join(rpConfigRoot, "calendar.ts"), calendarSource(), "utf-8");
 }
 
 async function tableExists(projectPath: string, table: string): Promise<boolean> {

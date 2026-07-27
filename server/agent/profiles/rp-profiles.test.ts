@@ -113,6 +113,7 @@ describe("RP builtin profiles", () => {
             "get_session",
             "rp_character_recall",
             "rp_character_update",
+            "rp_tick_info",
             "task_create",
             "task_set_status",
         ]);
@@ -121,7 +122,10 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("炉火边的共犯");
         expect(systemPrompt).toContain("小屋（元场景）");
         expect(systemPrompt).toContain("万华镜（世界内）");
-        expect(systemPrompt).toContain("manual/README.md、manual/player-guide/、manual/gm-guide.md");
+        expect(systemPrompt).toContain("rp/manual/README.md、rp/manual/player-guide/、rp/manual/gm-guide.md");
+        // 完全分离:写作模式目录是禁区
+        expect(systemPrompt).toContain("写作模式目录是禁区");
+        expect(systemPrompt).toContain("rp/world-engine/");
         expect(systemPrompt).toContain("agents/rp.leader/");
         // v2 流水线：编排六角色,不再直接调 simulator.leader
         expect(systemPrompt).not.toContain("simulator.leader");
@@ -156,7 +160,7 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
-        expect(modelContextText).toContain("manualRoot: manual/");
+        expect(modelContextText).toContain("manualRoot: rp/manual/");
         expect(modelContextText).toContain("rpRoot: rp/");
         expect(modelContextText).toContain("pipeline: rp.world");
         expect(appendingText).toContain("Runtime Location");

@@ -163,7 +163,7 @@ export default defineAgentProfile({
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>
-                    <Message><Import path="reference/agent/rp-tick/actor-facing-packet.md" /></Message>
+                    <Message><Import path="reference/agent/rp-v2/actor-packet.md" /></Message>
                     <Message><Import path={`${characterRoot}/人设/soul.md`} required={true} /></Message>
                     <Message><Import path={`${characterRoot}/人设/心境.md`} /></Message>
                 </HistorySet>

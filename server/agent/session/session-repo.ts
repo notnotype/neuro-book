@@ -341,13 +341,11 @@ export class JsonlSessionRepository {
 
     /**
      * Leader profile 采用 profileKey 命名约定筛选。
+     * 只包含写作模式 leader（leader.*）；rp.leader / simulator.leader 属于 RP/模拟专用界面，
+     * 不混入 Agent 页面的写作会话列表（RP 界面按 profileKey 精确过滤自己的会话）。
      */
     private isLeaderProfile(profileKey: string): boolean {
-        return profileKey === "leader.default"
-            || profileKey === "leader.assets"
-            || profileKey === "rp.leader"
-            || profileKey === "simulator.leader"
-            || profileKey.startsWith("leader.");
+        return profileKey.startsWith("leader.");
     }
 
     /**

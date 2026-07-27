@@ -94,6 +94,8 @@ export const builtin = {
         characterRecall: registeredTool("rp_character_recall"),
         characterUpdate: registeredTool("rp_character_update"),
         memoryCommit: registeredTool("rp_memory_commit"),
+        // Tick 编号权威总账（rp/ticks/ 扫描）：leader 宣告编号，全管线只用不算
+        tickInfo: registeredTool("rp_tick_info"),
     },
     result: {
         main: (options: {dataSchema?: TSchema} = {}): ReportResultToolBinding => ({

@@ -58,6 +58,7 @@ const emit = defineEmits<{
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "update-monaco-temporary-font-size", value: number): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "generate-illustration", payload: {text: string; insertPos: number}): void;
 }>();
 
 /**
@@ -107,6 +108,7 @@ function handleSourceBlur(): void {
                     @inline-comments-change="controller.setInlineComments"
                     @inline-comment-select="controller.activateInlineComment"
                     @inline-ai-reference="emit('inline-ai-reference', $event)"
+                    @generate-illustration="emit('generate-illustration', $event)"
                 />
                 <template #fallback>
                     <div class="flex min-h-[65vh] items-center justify-center text-[var(--text-muted)]">

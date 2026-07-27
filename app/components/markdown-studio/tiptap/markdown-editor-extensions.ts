@@ -1,7 +1,7 @@
 import {Placeholder} from "@tiptap/extension-placeholder";
 import {TableKit} from "@tiptap/extension-table";
 import {Image} from "@tiptap/extension-image";
-import type {AnyExtension} from "@tiptap/core";
+import {mergeAttributes, type AnyExtension} from "@tiptap/core";
 import {AgentHardBreak} from "nbook/app/components/novel-ide/agent/tiptap/AgentHardBreak";
 import {AgentSkill} from "nbook/app/components/novel-ide/agent/tiptap/AgentSkillNode";
 import type {AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
@@ -35,7 +35,38 @@ export interface MarkdownEditorExtensionOptions extends MarkdownSuggestionContro
     sourcePath?: string;
     resolveReference?: WorkspaceReferenceResolver;
     enableQuickTriggers?: boolean;
+    /** 图片相对路径 → 可访问 URL 的重写（工作区插图走 raw serve）。只改 DOM 渲染，node attrs 与 Markdown 序列化保持原相对路径。 */
+    resolveImageUrl?: (src: string) => string;
 }
+
+/**
+ * Image 扩展的渲染层 src 重写：编辑器内 <img> 用重写后的 URL 展示，
+ * 而 node.attrs.src 不动，保证序列化回 Markdown 时仍是原相对路径。
+ */
+type WorkspaceImageOptions = {
+    inline: boolean;
+    allowBase64: boolean;
+    HTMLAttributes: Record<string, unknown>;
+    resolveImageUrl: ((src: string) => string) | null;
+};
+
+const WorkspaceImage = Image.extend<WorkspaceImageOptions>({
+    addOptions() {
+        return {
+            inline: false,
+            allowBase64: false,
+            HTMLAttributes: {},
+            ...this.parent?.(),
+            resolveImageUrl: null,
+        };
+    },
+    renderHTML({HTMLAttributes}) {
+        const resolve = this.options.resolveImageUrl;
+        const src = typeof HTMLAttributes.src === "string" ? HTMLAttributes.src : "";
+        const resolved = resolve && src ? resolve(src) : src;
+        return ["img", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {src: resolved})];
+    },
+});
 
 /**
  * 完整 Markdown 编辑器扩展组。输入输出始终是 Markdown，包含项目自定义引用、评论、注音、双语对照和对齐语法。
@@ -60,12 +91,13 @@ export function createMarkdownEditorExtensions(options: MarkdownEditorExtensionO
             },
         }),
         TableKit,
-        Image.configure({
+        WorkspaceImage.configure({
             inline: true,
             allowBase64: false,
             HTMLAttributes: {
                 class: "nb-markdown-image-node",
             },
+            resolveImageUrl: options.resolveImageUrl ?? null,
         }),
         AgentHardBreak,
         Placeholder.configure({

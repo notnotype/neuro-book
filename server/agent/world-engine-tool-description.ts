@@ -98,8 +98,10 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
 
         Constraints:
         - Code must be inline in the code argument.
+        - The sandbox is a plain async script body: import / require / export are NOT available and will throw. Use only the injected \`world\` API plus standard JS builtins (JSON, Math, Array...). No filesystem, network, or Node API access — never try to load schema/calendar files from inside the sandbox; they are loaded for you.
         - Use await for async world.subject.* / world.search.* / world.slice.* methods.
-        - Result data is limited to 10KB; return a human-readable string summary or selected fields, not full world dumps.
+        - Result data is limited to 10KB; return a human-readable string summary or selected fields, not full world dumps. When listing many subjects/slices, map each to a short line (id / title / time) inside the script instead of returning raw objects.
+        - If the world config is missing (schema/calendar not initialized), report the error to your caller as-is — do NOT try to create config files yourself or fall back to another worldKey.
         - BigInt values are serialized as strings in the final tool details.
     `;
 }

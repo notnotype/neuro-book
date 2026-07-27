@@ -96,6 +96,21 @@ import {
     FormAnnotationResponseDtoSchema,
 } from "nbook/shared/dto/ai-form-annotation.dto";
 
+// ─── ComfyUI DTOs ────────────────────────────────────────────────
+import {
+    ComfyUiCheckRequestDtoSchema,
+    ComfyUiCheckResponseDtoSchema,
+    ComfyUiCreateJobRequestDtoSchema,
+    ComfyUiDistillRequestDtoSchema,
+    ComfyUiDistillResponseDtoSchema,
+    ComfyUiImportWorkflowRequestDtoSchema,
+    ComfyUiJobDtoSchema,
+    ComfyUiUpdateWorkflowRequestDtoSchema,
+    ComfyUiWorkflowSummaryDtoSchema,
+    RpInsertIllustrationRequestDtoSchema,
+    RpInsertIllustrationResponseDtoSchema,
+} from "nbook/shared/dto/comfyui.dto";
+
 // ─── Success response (for DELETE and simple operations) ────────
 import { z as z_ } from "zod";
 const SuccessResponseSchema = z_.object({ success: z_.boolean() });
@@ -891,7 +906,91 @@ export const routeMetaMap: RouteMetaEntry[] = [
         responseBody: ProjectRagSubjectDtoSchema,
     },
 
+    // ═══ ComfyUI ═══
+    {
+        file: "comfyui/check.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Check connectivity of the local ComfyUI server",
+        requestBody: ComfyUiCheckRequestDtoSchema,
+        responseBody: ComfyUiCheckResponseDtoSchema,
+    },
+    {
+        file: "comfyui/workflows/index.get.ts",
+        method: "get",
+        tags: ["ComfyUI"],
+        summary: "List ComfyUI workflows (built-in + imported)",
+        responseBody: z_.object({items: z_.array(ComfyUiWorkflowSummaryDtoSchema)}),
+    },
+    {
+        file: "comfyui/workflows/index.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Import a ComfyUI API-format workflow",
+        requestBody: ComfyUiImportWorkflowRequestDtoSchema,
+        responseBody: ComfyUiWorkflowSummaryDtoSchema,
+    },
+    {
+        file: "comfyui/workflows/[id].put.ts",
+        method: "put",
+        tags: ["ComfyUI"],
+        summary: "Update an imported workflow's name or injection mapping",
+        requestBody: ComfyUiUpdateWorkflowRequestDtoSchema,
+        responseBody: ComfyUiWorkflowSummaryDtoSchema,
+    },
+    {
+        file: "comfyui/workflows/[id].delete.ts",
+        method: "delete",
+        tags: ["ComfyUI"],
+        summary: "Delete an imported workflow",
+        responseBody: z_.object({ok: z_.boolean()}),
+    },
+    {
+        file: "projects/comfyui/distill.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Distill selected prose into an English image prompt",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ComfyUiDistillRequestDtoSchema,
+        responseBody: ComfyUiDistillResponseDtoSchema,
+    },
+    {
+        file: "projects/comfyui/jobs.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Create an illustration generation job",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: ComfyUiCreateJobRequestDtoSchema,
+        responseBody: ComfyUiJobDtoSchema,
+    },
+    {
+        file: "projects/comfyui/jobs/[jobId]/cancel.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Cancel an illustration generation job",
+        queryParams: ProjectRagProjectQuerySchema,
+        responseBody: ComfyUiJobDtoSchema,
+    },
+    {
+        file: "projects/rp/insert-illustration.post.ts",
+        method: "post",
+        tags: ["ComfyUI"],
+        summary: "Insert an illustration into RP tick prose after an anchor",
+        queryParams: ProjectRagProjectQuerySchema,
+        requestBody: RpInsertIllustrationRequestDtoSchema,
+        responseBody: RpInsertIllustrationResponseDtoSchema,
+    },
+
     // ═══ Workspace Files ═══
+    {
+        file: "workspace-files/raw.get.ts",
+        method: "get",
+        tags: ["Workspace Files"],
+        summary: "Serve a workspace image file as raw bytes",
+        queryParams: TreeQuerySchema.extend({
+            path: z_.string().trim().min(1, "path 不能为空").describe("Image file path relative to the workspace root"),
+        }),
+    },
     {
         file: "workspace-files/tree.get.ts",
         method: "get",

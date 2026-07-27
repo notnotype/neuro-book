@@ -2292,7 +2292,20 @@ defineExpose({
     resetInlineSessionModelSettings,
     sendInlineEditorPrompt,
     stopInlineEditorPrompt,
+    sendUserMessage,
 });
+
+/**
+ * 程序化发送一条用户消息（如 RP 掷骰按钮的续流程回执）。agent 运行中或无会话时不发送并返回 false。
+ */
+async function sendUserMessage(text: string): Promise<boolean> {
+    if (running.value || !activeSessionId.value || pendingUserInputSession.value) {
+        return false;
+    }
+    inputText.value = text;
+    await send();
+    return true;
+}
 
 /**
  * 确保 Project 级 Inline AI Session 可用。
@@ -2417,11 +2430,21 @@ function saveInlineEditorSessionId(sessionId: number): void {
     localStorage.setItem(`agent:inline-editor-session:${workspaceKey.value}`, String(sessionId));
 }
 
+/**
+ * 会话记忆的存储键按界面隔离：锁定 profile 的界面（如 RP 的 rp.leader）带 profile 前缀，
+ * 避免 RP 界面与写作模式 Agent 界面互相覆盖「上次打开的 session」。
+ */
+function lastSessionStorageKey(): string {
+    return props.profileKeyOverride
+        ? `agent:last-session:${props.profileKeyOverride}:${workspaceKey.value}`
+        : `agent:last-session:${workspaceKey.value}`;
+}
+
 function readLastSessionId(): number | null {
     if (!import.meta.client) {
         return null;
     }
-    const raw = localStorage.getItem(`agent:last-session:${workspaceKey.value}`);
+    const raw = localStorage.getItem(lastSessionStorageKey());
     const parsed = raw ? Number(raw) : NaN;
     return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
@@ -2430,7 +2453,7 @@ function saveLastSessionId(sessionId: number): void {
     if (!import.meta.client) {
         return;
     }
-    localStorage.setItem(`agent:last-session:${workspaceKey.value}`, String(sessionId));
+    localStorage.setItem(lastSessionStorageKey(), String(sessionId));
 }
 
 function formatAnswerText(

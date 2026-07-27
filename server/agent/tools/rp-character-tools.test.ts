@@ -46,7 +46,7 @@ describe("rp character tools", {timeout: 30_000}, () => {
         const recall = rpCharacterTools.rpCharacterRecall;
         const commit = rpCharacterTools.rpMemoryCommit;
 
-        await update.executeWithContext!(context, "t1", {projectPath, characterId: "erina", op: "ensure", content: "# 我是艾琳娜\n"});
+        await update.executeWithContext!(context, "t1", {projectPath, characterId: "erina", op: "ensure", name: "艾琳娜", aliases: ["白发女孩"], content: "# 我是艾琳娜\n"});
         await update.executeWithContext!(context, "t2", {projectPath, characterId: "erina", op: "add_knowledge", topic: "子爵的处境", content: "领地缺钱", source: "偷听", tick: 2});
         await update.executeWithContext!(context, "t3", {projectPath, characterId: "erina", op: "add_unknown", topic: "法师的注视", content: "法师怀疑她是特殊召唤体", occurredTick: 2, revealHint: "决斗时点破"});
         const commitResult = await commit.executeWithContext!(context, "t4", {
@@ -76,9 +76,34 @@ describe("rp character tools", {timeout: 30_000}, () => {
         const afterReveal = await recall.executeWithContext!(context, "t8", {projectPath, characterId: "erina"});
         expect(JSON.stringify(afterReveal.details)).toContain("特殊召唤体");
 
-        // 列出角色
+        // 列出角色：返回注册表条目（id + 展示名 + 别名）
         const list = await recall.executeWithContext!(context, "t9", {projectPath});
-        expect((list.details as {characters: string[]}).characters).toEqual(["erina"]);
+        expect((list.details as {characters: Array<{id: string; name: string; aliases: string[]}>}).characters).toEqual([
+            {id: "erina", name: "艾琳娜", aliases: ["白发女孩"]},
+        ]);
+    });
+
+    it("注册表约束:重名建档被拒、显示名/别名可解析、未登记角色提交记忆报错", async () => {
+        const update = rpCharacterTools.rpCharacterUpdate;
+        const recall = rpCharacterTools.rpCharacterRecall;
+        const commit = rpCharacterTools.rpMemoryCommit;
+
+        await update.executeWithContext!(context, "t1", {projectPath, characterId: "brauer", op: "ensure", name: "布劳尔", aliases: ["子爵"]});
+        // 同一显示名换个拼法建档 → 拒绝并指回已有 id
+        await expect(update.executeWithContext!(context, "t2", {projectPath, characterId: "bulaoer", op: "ensure", name: "布劳尔"}))
+            .rejects.toThrow(/id=brauer/);
+        // 显示名/别名解析到同一档案
+        const byName = await recall.executeWithContext!(context, "t3", {projectPath, characterId: "布劳尔"});
+        expect((byName.details as {characterId: string}).characterId).toBe("brauer");
+        const byAlias = await recall.executeWithContext!(context, "t4", {projectPath, characterId: "子爵"});
+        expect((byAlias.details as {characterId: string}).characterId).toBe("brauer");
+        // 未登记角色不再静默建档,直接报错并列出已登记角色
+        await expect(commit.executeWithContext!(context, "t5", {projectPath, characterId: "weiluosi", tick: 1, detail: "x", summaryLine: "x"}))
+            .rejects.toThrow(/角色未登记/);
+        // 同 id 重复 ensure 幂等,合并别名
+        await update.executeWithContext!(context, "t6", {projectPath, characterId: "brauer", op: "ensure", name: "布劳尔", aliases: ["老子爵"]});
+        const list = await recall.executeWithContext!(context, "t7", {projectPath});
+        expect((list.details as {characters: Array<{aliases: string[]}>}).characters[0]!.aliases).toEqual(["子爵", "老子爵"]);
     });
 
     it("未 open 的 Project 拒绝访问", async () => {

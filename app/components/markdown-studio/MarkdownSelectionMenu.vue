@@ -33,6 +33,7 @@ const emit = defineEmits<{
     (e: "add-ruby"): void;
     (e: "add-bilingual"): void;
     (e: "add-ai-reference"): void;
+    (e: "generate-illustration"): void;
 }>();
 
 const {prompt} = useDialog();
@@ -312,6 +313,17 @@ onUnmounted(() => {
             >
                 <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
                 <span>{{ t("markdownStudio.selection.addAiReference") }}</span>
+            </button>
+
+            <!-- 引用生图：选中文字 → ComfyUI 生成插画 -->
+            <button
+                type="button"
+                class="markdown-selection-menu__button"
+                :title="t('markdownStudio.selection.generateIllustration')"
+                @click="closeDropdowns(); emit('generate-illustration')"
+            >
+                <span class="i-lucide-image-plus h-3.5 w-3.5"></span>
+                <span>{{ t("markdownStudio.selection.generateIllustration") }}</span>
             </button>
 
             <div class="markdown-selection-menu__divider"></div>

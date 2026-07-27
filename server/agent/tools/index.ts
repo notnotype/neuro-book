@@ -8,6 +8,7 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {profileValidateTools} from "nbook/server/agent/tools/profile-validate-tool";
 import {rpCharacterTools} from "nbook/server/agent/tools/rp-character-tools";
+import {rpTickTools} from "nbook/server/agent/tools/rp-tick-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import {defineAgentToolFromRuntime} from "nbook/server/agent/tools/types";
@@ -62,6 +63,7 @@ function buildAgentTools() {
         ...agentCollaborationTools,
         ...profileValidateTools,
         ...rpCharacterTools,
+        ...rpTickTools,
     } as const;
 }
 

@@ -12,6 +12,8 @@ const props = defineProps<{
     streaming?: boolean;
     /** 打开 Markdown 渲染出的 workspace 引用 chip。 */
     openReference?: (target: string) => void;
+    /** 图片相对路径重写（如工作区插图 → raw serve URL），只影响 DOM 输出。 */
+    resolveImageSrc?: (src: string) => string;
 }>();
 
 const sanitizeHtml = inject<Ref<((html: string) => string) | null> | null>("sanitizeHtml", null);
@@ -22,7 +24,7 @@ let lastStreamingRenderAt = 0;
 
 /** 渲染当前 Markdown 输入。 */
 const renderCurrentHtml = (): string => {
-    return props.html || renderMarkdown(props.content, sanitizeHtml?.value ?? undefined);
+    return props.html || renderMarkdown(props.content, sanitizeHtml?.value ?? undefined, props.resolveImageSrc ? {resolveImageSrc: props.resolveImageSrc} : undefined);
 };
 
 /** 取消尚未执行的流式渲染任务。 */

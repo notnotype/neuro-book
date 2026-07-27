@@ -19,6 +19,8 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type M
 import {splitMarkdownFrontmatter} from "nbook/shared/editor-workbench";
 import {normalizeMarkdownDialectBlocks} from "nbook/shared/markdown-workbench";
 import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference, type SelectionRangeLocation} from "nbook/app/utils/inline-editor-selection";
+import {isRelativeWorkspaceImageSrc, workspaceImageUrl} from "nbook/app/utils/workspace-image-url";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import YAML from "yaml";
 
 type PopoverDirection = "auto" | "up" | "down";
@@ -79,11 +81,25 @@ const emit = defineEmits<{
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
     (e: "inline-comment-select", index: number): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
+    (e: "generate-illustration", payload: {text: string; insertPos: number}): void;
 }>();
 
 const {prompt} = useDialog();
 const notification = useNotification();
+const novelIdeStore = useNovelIdeStore();
 const {t} = useI18n();
+
+/**
+ * 工作区插图相对路径 → raw serve URL；调用时实时读取当前项目上下文，
+ * 只影响编辑器 DOM 展示，Markdown 序列化仍保留原相对路径。
+ */
+function resolveWorkspaceImage(src: string): string {
+    if (!isRelativeWorkspaceImageSrc(src)) {
+        return src;
+    }
+    const projectPath = novelIdeStore.workspaceKind === "user-assets" ? null : novelIdeStore.currentNovelId || null;
+    return workspaceImageUrl(src, projectPath);
+}
 const wrapperRef = ref<HTMLDivElement | null>(null);
 const focused = ref(false);
 const syncingFromOutside = ref(false);
@@ -240,6 +256,7 @@ const editor = useEditor({
             sourcePath: props.activePath,
             resolveReference: props.resolveReference,
             enableQuickTriggers: props.enableQuickTriggers,
+            resolveImageUrl: resolveWorkspaceImage,
         }),
         InlineAiReferenceHighlight,
     ],
@@ -547,6 +564,20 @@ function replaceSelection(markdown: string): void {
 }
 
 /**
+ * 在指定文档位置插入 Markdown（生图插画"插在选区之后"的落点）。
+ * pos 超界时夹到文档末尾；插入块级内容（如图片行）时 TipTap 会自动拆分所在段落。
+ */
+function insertMarkdownAt(pos: number, markdown: string): void {
+    const currentEditor = editor.value;
+    if (!currentEditor || !markdown.trim()) {
+        return;
+    }
+    const clamped = Math.max(0, Math.min(pos, currentEditor.state.doc.content.size));
+    currentEditor.chain().focus().insertContentAt(clamped, markdown, {contentType: "markdown"}).run();
+    emitChangeNow();
+}
+
+/**
  * 将 Markdown 追加到正文末尾。
  * ⚠️ 故意不做方言块规范化：与 replaceSelection 同为流式 chunk 语义路径。
  */
@@ -804,6 +835,20 @@ function addAiReferenceFromSelection(): void {
 }
 
 /**
+ * 用当前选区发起生图：把选中文字与"选区末尾位置"上抛，由宿主打开生图面板；
+ * 生成完成后宿主调 insertMarkdownAt(insertPos, "![](...)") 把插图放在选区之后。
+ */
+function generateIllustrationFromSelection(): void {
+    const currentEditor = editor.value;
+    const text = selectedClipboardText().trim();
+    if (!currentEditor || !text) {
+        notification.warning(t("markdownStudio.editor.selectBodyFirst"));
+        return;
+    }
+    emit("generate-illustration", {text, insertPos: currentEditor.state.selection.to});
+}
+
+/**
  * 当前选区是否包含内容。
  */
 function hasSelection(): boolean {
@@ -1042,6 +1087,7 @@ defineExpose<MarkdownStudioEditorHandle>({
     insertMarkdown,
     replaceSelection,
     appendMarkdown,
+    insertMarkdownAt,
     addComment,
     getInlineComments,
     selectInlineComment,
@@ -1253,6 +1299,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             @add-ruby="void addRubyFromMenu()"
             @add-bilingual="void addBilingualFromMenu()"
             @add-ai-reference="addAiReferenceFromSelection"
+            @generate-illustration="generateIllustrationFromSelection"
         />
 
         <ReferenceSelectorPopover

@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import {join} from "node:path";
 import {createClient, type Client} from "@libsql/client";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
@@ -137,11 +139,10 @@ export class WorldEngineFacade {
     }
 
     /** 返回 Agent 友好的 world schema 投影。 */
-    async getWorldSchema(projectPath: string): Promise<WorldSchemaProjection> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
-        const schema = await this.schemaLoader.load(projectRoot);
-        const calendar = await this.calendarLoader.load(projectRoot);
+    async getWorldSchema(projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<WorldSchemaProjection> {
+        const configRoot = this.configRoot(projectPath, worldKey);
+        const schema = await this.schemaLoader.load(configRoot);
+        const calendar = await this.calendarLoader.load(configRoot);
         return {
             subjectTypes: Object.entries(schema.subjectTypes).map(([type, subjectType]) => ({
                 type,
@@ -153,17 +154,41 @@ export class WorldEngineFacade {
     }
 
     /** 解析项目日历字符串。 */
-    async parseTime(projectPath: string, input: string): Promise<bigint> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
+    async parseTime(projectPath: string, input: string, worldKey: WorldEngineWorldKey = "main"): Promise<bigint> {
+        const calendar = await this.calendarLoader.load(this.configRoot(projectPath, worldKey));
         return calendar.parse(input);
     }
 
     /** 格式化项目时间。 */
-    async formatTime(projectPath: string, instant: bigint): Promise<string> {
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const calendar = await this.calendarLoader.load(resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath));
+    async formatTime(projectPath: string, instant: bigint, worldKey: WorldEngineWorldKey = "main"): Promise<string> {
+        const calendar = await this.calendarLoader.load(this.configRoot(projectPath, worldKey));
         return calendar.format(instant);
+    }
+
+    /**
+     * 世界线配置就绪状态：检查 schema 与 calendar 文件是否存在，供前端区分
+     * 「尚未初始化」与真实错误（rp 世界线在 bootstrap 前属于正常的未初始化态）。
+     */
+    async getWorldStatus(projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<{worldKey: WorldEngineWorldKey; initialized: boolean; missing: string[]}> {
+        const configRoot = this.configRoot(projectPath, worldKey);
+        const prefix = worldKey === "rp" ? "rp/world-engine" : "world-engine";
+        const missing: string[] = [];
+        if (!await fileExists(join(configRoot, "world-engine", "schema"))) {
+            missing.push(`${prefix}/schema/`);
+        }
+        if (!await fileExists(join(configRoot, "world-engine", "calendar.ts"))) {
+            missing.push(`${prefix}/calendar.ts`);
+        }
+        return {worldKey, initialized: missing.length === 0, missing};
+    }
+
+    /**
+     * 世界线配置根：main = 项目根（world-engine/），rp = rp/ 子树（rp/world-engine/）。
+     * 写作与 RP 的 schema/calendar 完全分离，互不读取。
+     */
+    private configRoot(projectPath: string, worldKey: WorldEngineWorldKey): string {
+        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizeProjectPath(projectPath));
+        return worldKey === "rp" ? join(projectRoot, "rp") : projectRoot;
     }
 
     /** 执行 CodeAct 查询代码。 */
@@ -203,7 +228,7 @@ export class WorldEngineFacade {
         const client = this.requireClient(entry);
         await client.execute(transactionBeginStatement(mode));
         try {
-            const result = await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
+            const result = await callback(await this.createModuleFromExecutor(client, normalizedProjectPath, worldKey));
             await client.execute("COMMIT");
             return result;
         } catch (error) {
@@ -223,7 +248,7 @@ export class WorldEngineFacade {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
         const client = this.requireClient(entry);
         try {
-            return await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
+            return await callback(await this.createModuleFromExecutor(client, normalizedProjectPath, worldKey));
         } finally {
             await this.closeClientEntry(entry);
         }
@@ -257,17 +282,26 @@ export class WorldEngineFacade {
         return entry.client;
     }
 
-    private async createModuleFromExecutor(executor: Client, projectPath: string): Promise<WorldEngineModule> {
+    private async createModuleFromExecutor(executor: Client, projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<WorldEngineModule> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizedProjectPath);
-        const schema = await this.schemaLoader.load(projectRoot);
-        const calendar = await this.calendarLoader.load(projectRoot);
+        const configRoot = this.configRoot(normalizedProjectPath, worldKey);
+        const schema = await this.schemaLoader.load(configRoot);
+        const calendar = await this.calendarLoader.load(configRoot);
         const repository = new WorldEngineRepository(executor);
         return {
             service: new WorldEngineService(repository, schema, calendar, projectPath),
             repository,
             calendar,
         };
+    }
+}
+
+async function fileExists(target: string): Promise<boolean> {
+    try {
+        await fs.access(target);
+        return true;
+    } catch {
+        return false;
     }
 }
 

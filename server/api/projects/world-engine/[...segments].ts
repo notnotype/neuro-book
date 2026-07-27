@@ -108,11 +108,14 @@ async function handleWorldEngineApi(event: H3Event): Promise<unknown> {
     assertProjectOpen(projectPath);
     const segments = readSegments(event);
     const method = event.method.toUpperCase();
-    // 世界线维度：main = 写作模式（默认），rp = RP 模式独立世界线。schema/calendar 共享，数据隔离。
+    // 世界线维度：main = 写作模式（默认，配置根 world-engine/），rp = RP 模式独立世界线（配置根 rp/world-engine/，数据在 world-rp.sqlite）。两模式完全分离。
     const worldKey = normalizeWorldKey(readOptionalStringQuery(event, "worldKey"));
 
+    if (method === "GET" && matchSegments(segments, ["status"])) {
+        return worldEngineFacade.getWorldStatus(projectPath, worldKey);
+    }
     if (method === "GET" && matchSegments(segments, ["schema"])) {
-        return worldEngineFacade.getWorldSchema(projectPath);
+        return worldEngineFacade.getWorldSchema(projectPath, worldKey);
     }
     if (method === "GET" && matchSegments(segments, ["subjects"])) {
         return worldEngineFacade.listSubjects(projectPath, {type: readOptionalStringQuery(event, "type")}, worldKey);
@@ -124,7 +127,7 @@ async function handleWorldEngineApi(event: H3Event): Promise<unknown> {
         return listSlices(worldEngineFacade, projectPath, event, worldKey);
     }
     if (method === "GET" && segments.length === 2 && segments[0] === "slices") {
-        return serializeSlice(worldEngineFacade, projectPath, await worldEngineFacade.getSlice(projectPath, requireSegment("sliceId", segments[1]), worldKey));
+        return serializeSlice(worldEngineFacade, projectPath, await worldEngineFacade.getSlice(projectPath, requireSegment("sliceId", segments[1]), worldKey), worldKey);
     }
     if (method === "POST" && matchSegments(segments, ["slices"])) {
         return writeSlice(worldEngineFacade, projectPath, await validateBody<SliceBody>(event, SliceBodySchema), worldKey);
@@ -156,7 +159,7 @@ async function createSubject(worldEngineFacade: WorldEngineFacade, projectPath: 
         id: body.id,
         type: body.type,
         name: body.name,
-        at: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time"),
+        at: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time", worldKey),
         attrs: body.attrs,
     }, worldKey);
 }
@@ -164,27 +167,27 @@ async function createSubject(worldEngineFacade: WorldEngineFacade, projectPath: 
 async function listSlices(worldEngineFacade: WorldEngineFacade, projectPath: string, event: H3Event, worldKey: WorldEngineWorldKey): Promise<unknown> {
     const slices = await worldEngineFacade.listSlices(projectPath, {
         limit: readPositiveIntQuery(event, "limit"),
-        from: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "from"),
-        to: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "to"),
+        from: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "from", worldKey),
+        to: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "to", worldKey),
         withPatches: readBooleanQuery(event, "withPatches"),
         subjectIds: readStringListQuery(event, "subjectIds"),
         subjectMode: readSubjectModeQuery(event),
     }, worldKey);
-    return Promise.all(slices.map((slice) => serializeSlice(worldEngineFacade, projectPath, slice)));
+    return Promise.all(slices.map((slice) => serializeSlice(worldEngineFacade, projectPath, slice, worldKey)));
 }
 
 async function writeSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, body: SliceBody, worldKey: WorldEngineWorldKey): Promise<unknown> {
-    return worldEngineFacade.writeSlice(projectPath, await toSliceInput(worldEngineFacade, projectPath, body), worldKey);
+    return worldEngineFacade.writeSlice(projectPath, await toSliceInput(worldEngineFacade, projectPath, body, worldKey), worldKey);
 }
 
 async function editSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, sliceId: string, body: SliceBody, worldKey: WorldEngineWorldKey): Promise<unknown> {
-    return worldEngineFacade.editSlice(projectPath, sliceId, await toSliceInput(worldEngineFacade, projectPath, body), worldKey);
+    return worldEngineFacade.editSlice(projectPath, sliceId, await toSliceInput(worldEngineFacade, projectPath, body, worldKey), worldKey);
 }
 
 async function readFullState(worldEngineFacade: WorldEngineFacade, projectPath: string, event: H3Event, worldKey: WorldEngineWorldKey): Promise<unknown> {
     return serializeWorldState(worldEngineFacade, projectPath, await worldEngineFacade.queryState(projectPath, {
-        at: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "at"),
-    }, worldKey));
+        at: await readOptionalTimeQuery(worldEngineFacade, projectPath, event, "at", worldKey),
+    }, worldKey), worldKey);
 }
 
 async function queryState(worldEngineFacade: WorldEngineFacade, projectPath: string, body: QueryStateBody, worldKey: WorldEngineWorldKey): Promise<unknown> {
@@ -195,7 +198,7 @@ async function queryState(worldEngineFacade: WorldEngineFacade, projectPath: str
         subjectIds: body.subjectIds,
         type: body.type,
         attrs: body.attrs,
-        at: body.at ? await parsePublicTime(worldEngineFacade, projectPath, body.at, "at") : undefined,
+        at: body.at ? await parsePublicTime(worldEngineFacade, projectPath, body.at, "at", worldKey) : undefined,
         listLimit: body.listLimit,
     }, worldKey);
     return {subjects: result.subjects, issues: result.issues};
@@ -263,9 +266,9 @@ async function commitSubjectFileEvent(
     };
 }
 
-async function toSliceInput(worldEngineFacade: WorldEngineFacade, projectPath: string, body: SliceBody): Promise<SliceInput> {
+async function toSliceInput(worldEngineFacade: WorldEngineFacade, projectPath: string, body: SliceBody, worldKey: WorldEngineWorldKey = "main"): Promise<SliceInput> {
     return {
-        instant: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time"),
+        instant: await parsePublicTime(worldEngineFacade, projectPath, body.time, "time", worldKey),
         title: body.title,
         summary: body.summary,
         kind: body.kind,
@@ -281,11 +284,11 @@ async function toSliceInput(worldEngineFacade: WorldEngineFacade, projectPath: s
     };
 }
 
-async function serializeSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, slice: SliceListItem): Promise<unknown> {
+async function serializeSlice(worldEngineFacade: WorldEngineFacade, projectPath: string, slice: SliceListItem, worldKey: WorldEngineWorldKey = "main"): Promise<unknown> {
     return {
         id: slice.id,
-        time: await worldEngineFacade.formatTime(projectPath, slice.instant),
-        ...(slice.previousInstant !== undefined ? {previousTime: await worldEngineFacade.formatTime(projectPath, slice.previousInstant)} : {}),
+        time: await worldEngineFacade.formatTime(projectPath, slice.instant, worldKey),
+        ...(slice.previousInstant !== undefined ? {previousTime: await worldEngineFacade.formatTime(projectPath, slice.previousInstant, worldKey)} : {}),
         title: slice.title,
         summary: slice.summary,
         kind: slice.kind,
@@ -294,9 +297,9 @@ async function serializeSlice(worldEngineFacade: WorldEngineFacade, projectPath:
     };
 }
 
-async function serializeWorldState(worldEngineFacade: WorldEngineFacade, projectPath: string, state: WorldState): Promise<unknown> {
+async function serializeWorldState(worldEngineFacade: WorldEngineFacade, projectPath: string, state: WorldState, worldKey: WorldEngineWorldKey = "main"): Promise<unknown> {
     return {
-        time: await worldEngineFacade.formatTime(projectPath, state.instant),
+        time: await worldEngineFacade.formatTime(projectPath, state.instant, worldKey),
         subjects: state.subjects,
         issues: state.issues,
     };
@@ -307,6 +310,7 @@ async function readOptionalTimeQuery(
     projectPath: string,
     event: H3Event,
     key: string,
+    worldKey: WorldEngineWorldKey = "main",
 ): Promise<bigint | undefined> {
     const value = readOptionalStringQuery(event, key);
     if (!value) {
@@ -315,7 +319,7 @@ async function readOptionalTimeQuery(
     if (value !== value.trim()) {
         throw createError({statusCode: 400, message: `${key} 不能包含前后空白：${value}`});
     }
-    return parsePublicTime(worldEngineFacade, projectPath, value, key);
+    return parsePublicTime(worldEngineFacade, projectPath, value, key, worldKey);
 }
 
 function readOptionalStringQuery(event: H3Event, key: string): string | undefined {
@@ -383,6 +387,7 @@ async function parsePublicTime(
     projectPath: string,
     input: string,
     label: string,
+    worldKey: WorldEngineWorldKey = "main",
 ): Promise<bigint> {
     if (input !== input.trim()) {
         throw createError({statusCode: 400, message: `${label} 不能包含前后空白：${input}`});
@@ -390,7 +395,7 @@ async function parsePublicTime(
     if (isRawInstantTime(input)) {
         throw createError({statusCode: 400, message: `${label} 必须使用项目日历字符串，不能使用 instant:<number>`});
     }
-    return worldEngineFacade.parseTime(projectPath, input);
+    return worldEngineFacade.parseTime(projectPath, input, worldKey);
 }
 
 function isRawInstantTime(input: string): boolean {

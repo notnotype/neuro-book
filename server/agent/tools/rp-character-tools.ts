@@ -11,10 +11,11 @@ import {
     addUnknown,
     commitTickMemory,
     ensureRpCharacter,
-    listRpCharacters,
     readActorView,
+    readCharacterRegistry,
     readGodView,
     readTickMemory,
+    resolveCharacterId,
     revealUnknown,
     rollupMidToFar,
     rollupRecentToMid,
@@ -34,7 +35,7 @@ import {
  */
 
 const ProjectPathField = Type.String({minLength: 1, description: "Project Workspace path, e.g. workspace/my-novel."});
-const CharacterIdField = Type.String({minLength: 1, description: "Character id under rp/characters/, e.g. erina."});
+const CharacterIdField = Type.String({minLength: 1, description: "Character id, display name, or alias — resolved via the registry (rp/characters/registry.json). Pass the Chinese display name if unsure of the id."});
 
 const RecallSchema = Type.Object({
     projectPath: ProjectPathField,
@@ -60,7 +61,11 @@ const UpdateSchema = Type.Object({
         Type.Literal("add_unknown"),
         Type.Literal("reveal_unknown"),
         Type.Literal("set_truth_note"),
-    ], {description: "ensure=创建角色骨架; write_soul/write_mood=覆盖人设/心境; add/update_knowledge=已知信息(角色相信的,允许为假); add_unknown=god-view 未知信息登记; reveal_unknown=揭示并转入已知信息; set_truth_note=god-view 属实批注。"}),
+    ], {description: "ensure=创建角色骨架并登记注册表(新角色必须带 name 展示名,重名会被拒绝); write_soul/write_mood=覆盖人设/心境; add/update_knowledge=已知信息(角色相信的,允许为假); add_unknown=god-view 未知信息登记; reveal_unknown=揭示并转入已知信息; set_truth_note=god-view 属实批注。"}),
+    /** ensure：角色展示名（通常是中文名，注册表唯一键）。新角色必填。 */
+    name: Type.Optional(Type.String()),
+    /** ensure：别名/称呼列表（如「子爵」「白发女孩」），供其他 agent 按称呼解析 id。 */
+    aliases: Type.Optional(Type.Array(Type.String())),
     /** write_soul / write_mood / add_* / update_knowledge 的正文内容。 */
     content: Type.Optional(Type.String()),
     /** add_knowledge / add_unknown 的主题标题。 */
@@ -122,24 +127,25 @@ export const rpCharacterTools = {
             "Read an RP character's profile and memory (rp/characters/ store).",
             "Progressive recall: first call without ticks to get soul/mood/knowledge/memory-summary; if a summary line needs detail, call again with ticks=[n] to read that tick's full record.",
             "view=\"actor\" (default) returns only what the character themselves knows. view=\"god\" additionally returns the unknown-info ledger and truth notes — screenwriter/host layer only; NEVER feed god view to an actor.",
-            "Omit characterId to list existing character ids.",
+            "Omit characterId to list the character registry (id + display name + aliases). characterId accepts id, display name, or alias — never guess directory names.",
         ].join("\n"),
         parameters: RecallSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as RecallInput;
             const projectRoot = resolveProjectRootForTool(context, input.projectPath);
             if (!input.characterId) {
-                return toolResult({characters: await listRpCharacters(projectRoot)});
+                return toolResult({characters: await readCharacterRegistry(projectRoot) as unknown as JsonValue});
             }
+            const characterId = await resolveCharacterId(projectRoot, input.characterId);
             const view = input.view === "god"
-                ? await readGodView(projectRoot, input.characterId)
-                : await readActorView(projectRoot, input.characterId);
+                ? await readGodView(projectRoot, characterId)
+                : await readActorView(projectRoot, characterId);
             const tickDetails: Record<string, string | null> = {};
             for (const tick of input.ticks ?? []) {
-                tickDetails[String(tick)] = await readTickMemory(projectRoot, input.characterId, tick);
+                tickDetails[String(tick)] = await readTickMemory(projectRoot, characterId, tick);
             }
             return toolResult({
-                characterId: input.characterId,
+                characterId,
                 view: input.view ?? "actor",
                 ...view,
                 ...(input.ticks?.length ? {tickDetails} : {}),
@@ -153,6 +159,7 @@ export const rpCharacterTools = {
         executionMode: "sequential",
         description: [
             "Maintain an RP character's persona, knowledge and god-view ledgers (rp/characters/ store).",
+            "op=ensure creates AND registers the character: a NEW character requires name (display name, usually Chinese); duplicate display names / aliases are rejected with the existing id — never create a second id for the same character. All other ops accept id, display name, or alias.",
             "Knowledge entries record what the character BELIEVES (may be false) with source + learned tick; use set_truth_note (god-view) to annotate false/unverified beliefs.",
             "add_unknown registers events the character does not know yet (god-view dramatic ledger); reveal_unknown moves an entry into knowledge when the character learns it.",
             "god-view ops (add_unknown / reveal_unknown / set_truth_note) are for the screenwriter/host layer only.",
@@ -161,12 +168,12 @@ export const rpCharacterTools = {
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as UpdateInput;
             const projectRoot = resolveProjectRootForTool(context, input.projectPath);
-            const characterId = input.characterId;
+            if (input.op === "ensure") {
+                await ensureRpCharacter(projectRoot, input.characterId, {soul: input.content, name: input.name, aliases: input.aliases});
+                return toolResult({op: input.op, characterId: input.characterId, status: "ok"});
+            }
+            const characterId = await resolveCharacterId(projectRoot, input.characterId);
             switch (input.op) {
-                case "ensure": {
-                    await ensureRpCharacter(projectRoot, characterId, {soul: input.content});
-                    return toolResult({op: input.op, characterId, status: "ok"});
-                }
                 case "write_soul": {
                     await writeSoul(projectRoot, characterId, requireField(input.content, "content"));
                     return toolResult({op: input.op, characterId, status: "ok"});
@@ -227,6 +234,7 @@ export const rpCharacterTools = {
         executionMode: "sequential",
         description: [
             "Commit one tick of character memory (rp/characters/{id}/记忆/): writes the character-perspective detail file, appends the recent summary line, and optionally updates mood — one call per character per tick, idempotent on re-run.",
+            "characterId accepts id, display name, or alias, but the character must already be registered (rp_character_update op=ensure) — unregistered ids fail instead of silently creating a new profile.",
             "detail MUST be written from this character's own perspective (their three-channel output + what they perceived). Never paste omniscient prose for non-avatar characters.",
             "Result includes rollupNeeded; when true, generate a merged line yourself and call again with op=rollup_recent_to_mid (then rollup_mid_to_far when 中期 grows long).",
         ].join("\n"),
@@ -234,7 +242,8 @@ export const rpCharacterTools = {
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as MemoryCommitInput;
             const projectRoot = resolveProjectRootForTool(context, input.projectPath);
-            const characterId = input.characterId;
+            // 只接受注册表里的角色：不再静默 ensure，防止拼错 id 悄悄裂出第二套档案
+            const characterId = await resolveCharacterId(projectRoot, input.characterId);
             const op = input.op ?? "commit";
             if (op === "rollup_recent_to_mid") {
                 await rollupRecentToMid(projectRoot, characterId, {
@@ -251,7 +260,6 @@ export const rpCharacterTools = {
                 });
                 return toolResult({op, characterId, status: "ok"});
             }
-            await ensureRpCharacter(projectRoot, characterId);
             await commitTickMemory(projectRoot, characterId, {
                 tick: requireNumber(input.tick, "tick"),
                 detail: requireField(input.detail, "detail"),

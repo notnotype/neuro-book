@@ -67,6 +67,8 @@ defineRouteMeta({
 
 
 
+
+
 /**
  * 读取工作区文本文件。
  */
@@ -77,10 +79,20 @@ export default defineEventHandler(async (event) => {
     const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), {projectPath, workspaceKind});
     assertProjectOpenForTarget(target);
-    const [node, content] = await Promise.all([
-        statWorkspacePath(target.root, filePath),
-        readWorkspaceTextFile(target.root, filePath),
-    ]);
+    let node;
+    let content: string;
+    try {
+        [node, content] = await Promise.all([
+            statWorkspacePath(target.root, filePath),
+            readWorkspaceTextFile(target.root, filePath),
+        ]);
+    } catch (error) {
+        // 文件不存在是常规情况（如可选配置探测），映射为 404 而不是让 ENOENT 变成 unhandled 500 噪声
+        if (typeof error === "object" && error !== null && "code" in error && (error as {code?: string}).code === "ENOENT") {
+            throw createError({statusCode: 404, message: `文件不存在：${filePath}`});
+        }
+        throw error;
+    }
 
     return {
         path: node.path,

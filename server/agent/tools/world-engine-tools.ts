@@ -16,7 +16,7 @@ const ExecuteWorldSchema = Type.Object({
     projectPath: NonEmptyString("Required Project Workspace path, e.g. workspace/silver-dragon-hime."),
     code: Type.String({minLength: 1, description: "Inline JavaScript code to execute in the World Engine CodeAct sandbox."}),
     worldKey: Type.Optional(Type.Union([Type.Literal("main"), Type.Literal("rp")], {
-        description: "World timeline to operate on. Omit or \"main\" = writing-mode world (default). \"rp\" = the isolated RP-mode world timeline (shares schema/calendar, fully separate subjects/slices).",
+        description: "World timeline to operate on. Omit or \"main\" = writing-mode world (default, config root world-engine/). \"rp\" = the fully isolated RP-mode world (own config root rp/world-engine/, own database; no fallback to main).",
     })),
 }, {
     additionalProperties: false,
