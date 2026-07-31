@@ -928,3 +928,28 @@ RP 与写作模式在项目内**零共享**，防止互相干扰：
 - 原方案只要求让 state_read 同时返回 raw Instant 与格式化时间；实际实现把 raw Instant 固定提升到所有 `execute_world` 结果元数据，避免 Agent 脚本忘记主动 return，同时不改变脚本正文的自由返回值。
 - 关系图当前真实项目的正式 relation state 为空，因此修复后会显示刘康、叮当两个角色节点但没有关系边；不会再用 World Engine 的临时 `关系` attrs 猜造正式关系。
 - 为避免新增节点详情扩大泄密面，本轮取消角色页对完整 World Engine attrs 的展示，改为只消费玩家安全 overview；这比最初单纯补点击事件的范围更严格，但符合 RP 玩家视图既有安全契约。
+
+## 二十八、RP 引导期 overview 初始化门禁（2026-08-01）
+
+### 问题与根因
+
+- RP 独立世界线的 `rp/world-engine/schema/index.ts` 与 `rp/world-engine/calendar.ts` 按契约只在玩家确认企划后，由 Bootstrap config 阶段的受信工具生成；`draft/reviewing/confirmed` 引导期缺少该目录是正常状态。
+- RP 侧栏刷新时先请求 `/api/projects/rp/overview`。该接口原本无条件调用 `listSubjects(..., "rp")`，在侧栏随后请求 `/api/projects/world-engine/status?worldKey=rp` 之前就加载 RP Schema/Calendar，因此未初始化项目稳定报“Project 缺少 world-engine/calendar.ts”。
+- 重启只会重新加载持久化的 intake 状态，不会自动越过玩家确认执行 Bootstrap，所以异常在每次启动后都会重复出现；发布包内的写作模式 `world-engine/` 模板并未缺失。
+
+### 实施结果
+
+1. RP overview 先通过 `getWorldStatus(projectPath, "rp")` 检查独立世界线配置状态。
+2. 未初始化时跳过 World Engine 角色查询，以空角色主体列表聚合 intake、事件、地图、角色注册表等当前可用的玩家侧数据；侧栏继续通过 status API 展示“尚未初始化/待创建”状态。
+3. 初始化完成后仍从 `worldKey=rp` 的独立数据库和配置根读取 character subjects，未回退或复用写作模式世界线。
+4. 新增 API handler 回归，分别约束未初始化时不调用 `listSubjects`、初始化完成后继续合并 RP 角色主体。
+
+### 验证结果
+
+- 定向回归：`server/api/projects/rp/overview.get.test.ts` 与 `server/world-engine/world-engine.facade.test.ts` 共 5 项通过，27 项按筛选跳过。
+- 验证覆盖引导期缺少 `rp/world-engine/`、RP 世界线严格隔离，以及初始化完成后的正常角色读取。
+- 按仓库规则未自动执行浏览器验证；本轮不打包、不创建新版本或 GitHub Release。
+
+### 与计划的出入
+
+- 诊断时用户将现象判断为发布后 RP 依赖目录整体漏打包；实际确认写作模式模板文件存在，缺少的是尚未进入 Bootstrap 的 RP 独立配置根。修复因此落在 API 初始化门禁，而不是给所有 Project Workspace 预建 RP 配置，避免破坏受信生成与模式隔离契约。
