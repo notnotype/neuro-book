@@ -1,6 +1,6 @@
 {
     "name": "@notnotype/neuro-book-manager",
-    "version": "0.1.0-canary.30",
+    "version": "0.1.0-canary.31",
     "description": "NeuroBook installation, runtime, toolchain and update manager.",
     "license": "AGPL-3.0-only",
     "repository": {
