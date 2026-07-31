@@ -7,7 +7,7 @@ import {readRpCognitionState, type RpCognitionState} from "nbook/server/rp/cogni
 import {readRpEventState, type RpEventState} from "nbook/server/rp/event-store";
 import {readRpFocusState, type RpFocusState} from "nbook/server/rp/focus-store";
 import {readRpIntake, type RpIntakeState} from "nbook/server/rp/intake-store";
-import {readRpMapState, type RpMapState} from "nbook/server/rp/map-store";
+import {readRpMapState, requiredRpMapSubjectType, type RpMapState} from "nbook/server/rp/map-store";
 import {readRpMechanicsState, type RpMechanicsState} from "nbook/server/rp/mechanics-store";
 import {readRpNpcState, type RpNpcState} from "nbook/server/rp/npc-store";
 import {readRpPipeline, RP_PIPELINE_STAGES} from "nbook/server/rp/pipeline-store";
@@ -37,6 +37,7 @@ type AuditState = {
     turns: RpTurnRecord[] | null;
     characterIds: Set<string>;
     worldSubjectIds: Set<string>;
+    worldSubjectTypes: Map<string, string>;
 };
 
 const locks = new Map<string, Promise<void>>();
@@ -71,7 +72,7 @@ export async function runRpConsistencyCheck(projectRoot: string, level: RpConsis
         const issues: RpConsistencyIssueDto[] = [];
         const repaired: RpConsistencyReportDto["repaired"] = [];
         const state = await readAuditState(projectRoot, issues, level);
-        await checkWorldDatabase(projectRoot, state.intake, level, issues, state.worldSubjectIds);
+        await checkWorldDatabase(projectRoot, state.intake, level, issues, state.worldSubjectIds, state.worldSubjectTypes);
         checkDuplicateIds(state, issues);
         checkTurnSettlements(state, issues);
         checkTimeAndResources(state, issues);
@@ -117,6 +118,7 @@ async function readAuditState(projectRoot: string, issues: RpConsistencyIssueDto
         intake, events, focus, map, mechanics, npcs, relations, cognition, turns,
         characterIds: new Set([...(registry ?? []).map((item) => item.id), ...(npcs?.npcs ?? []).map((item) => item.id)]),
         worldSubjectIds: new Set<string>(),
+        worldSubjectTypes: new Map<string, string>(),
     };
 }
 
@@ -199,6 +201,14 @@ function checkMapAndNpcReferences(state: AuditState, issues: RpConsistencyIssueD
     const nodeIds = new Set(state.map.nodes.map((item) => item.id));
     for (const node of state.map.nodes) {
         if (state.worldSubjectIds.size && !state.worldSubjectIds.has(node.worldSubjectId)) issues.push(issue("map.world_subject_missing", "error", node.id, `地点 ${node.canonicalName} 缺少 World Engine subject ${node.worldSubjectId}。`));
+        const subjectType = state.worldSubjectTypes.get(node.worldSubjectId);
+        const expectedType = requiredRpMapSubjectType(node.level);
+        if (subjectType && subjectType !== expectedType) issues.push(issue(
+            "map.world_subject_type_mismatch",
+            "error",
+            node.id,
+            `地点 ${node.canonicalName} 的 ${node.level} 层级要求 ${expectedType} subject，实际为 ${subjectType}。`,
+        ));
         if (node.parentId && !nodeIds.has(node.parentId)) issues.push(issue("map.parent_missing", "error", node.id, `地点 ${node.canonicalName} 的父节点不存在。`));
         const seen = new Set<string>([node.id]);
         let parentId = node.parentId;
@@ -276,7 +286,14 @@ async function checkPipelines(projectRoot: string, turns: RpTurnRecord[], issues
 }
 
 /** 使用 SQLite 原生检查确认 World Engine 真相源；deep 额外运行完整 integrity_check 与外键检查。 */
-async function checkWorldDatabase(projectRoot: string, intake: RpIntakeState | null, level: RpConsistencyLevelDto, issues: RpConsistencyIssueDto[], subjectIds: Set<string>): Promise<void> {
+async function checkWorldDatabase(
+    projectRoot: string,
+    intake: RpIntakeState | null,
+    level: RpConsistencyLevelDto,
+    issues: RpConsistencyIssueDto[],
+    subjectIds: Set<string>,
+    subjectTypes: Map<string, string>,
+): Promise<void> {
     const databasePath = join(projectRoot, ".nbook/world-rp.sqlite");
     try {
         await access(databasePath);
@@ -293,8 +310,12 @@ async function checkWorldDatabase(projectRoot: string, intake: RpIntakeState | n
             const foreignKeys = await client.execute("PRAGMA foreign_key_check");
             if (foreignKeys.rows.length) issues.push(issue("world.foreign_key_failed", "error", "world", `World Engine 存在 ${foreignKeys.rows.length} 条外键异常。`));
         }
-        const subjects = await client.execute(`SELECT "id" FROM "WorldSubject"`);
-        for (const row of subjects.rows) if (typeof row.id === "string") subjectIds.add(row.id);
+        const subjects = await client.execute(`SELECT "id", "type" FROM "WorldSubject"`);
+        for (const row of subjects.rows) {
+            if (typeof row.id !== "string") continue;
+            subjectIds.add(row.id);
+            if (typeof row.type === "string") subjectTypes.set(row.id, row.type);
+        }
     } catch (error) {
         issues.push(issue("world.database_unreadable", "error", "world", `World Engine 数据库检查失败：${errorMessage(error)}`));
     } finally {

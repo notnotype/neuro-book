@@ -9,7 +9,7 @@ import {registerNamedRpNpc} from "nbook/server/rp/npc-store";
 import {ensureRpCharacter} from "nbook/server/rp/character-store";
 import {settleRpRelationsTurn} from "nbook/server/rp/relation-store";
 import {listRpUpdates, readRpRuntimeOverview, readRpUpdateDetail} from "nbook/server/rp/runtime-view-store";
-import {activateIntake, preparePipelineForCommit} from "nbook/server/rp/test-fixtures";
+import {activateIntake, createRpWorldSubject, preparePipelineForCommit} from "nbook/server/rp/test-fixtures";
 import {beginRpTurnCommit, commitRpTurn, startRpTurn} from "nbook/server/rp/turn-store";
 
 describe("RP runtime player view", () => {
@@ -46,6 +46,7 @@ describe("RP runtime player view", () => {
             persistenceBasis: ["world_structure"],
             origin: "screenwriter",
         });
+        await createRpWorldSubject(projectRoot, {id: "world", type: "world", name: "世界"});
         await reviewRpLocationProposal(projectRoot, worldProposal.id, {accepted: true});
         const proposal = await proposeRpLocation(projectRoot, {
             requestedId: "old-town",
@@ -59,6 +60,7 @@ describe("RP runtime player view", () => {
             persistenceBasis: ["world_structure"],
             origin: "screenwriter",
         });
+        await createRpWorldSubject(projectRoot, {id: "old-town", type: "location", name: "旧城"});
         await reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true});
         await registerNamedRpNpc(projectRoot, {
             id: "lin", name: "林", aliases: ["隐藏称号"], origin: "world", narrativeRole: "商人", playerSummary: "经营杂货铺。",

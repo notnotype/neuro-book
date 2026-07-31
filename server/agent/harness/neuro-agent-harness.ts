@@ -339,6 +339,18 @@ type InvocationAdmission = {
     queued: AgentInvocationResult;
 };
 
+/** 当前进程中一个正在运行的 invocation 身份。 */
+type ActiveInvocationRef = Readonly<{
+    sessionId: number;
+    invocationId: string;
+}>;
+
+/** abort API 用它等待调用树真正完成清理，再向 UI 报告停止完成。 */
+type InvocationSettlement = {
+    promise: Promise<void>;
+    resolve: () => void;
+};
+
 type SessionRuntimeProjection = {
     snapshot: SessionSnapshot;
     context: NeuroSessionContext;
@@ -504,6 +516,12 @@ export class NeuroAgentHarness {
     private readonly steerQueues = new Map<number, AgentQueuedInvocationTruth[]>();
     private readonly followUpQueues = new Map<number, FollowUpQueueTruthState>();
     private readonly abortControllers = new Map<number, AbortController>();
+    /** 运行调用树：父 invocation id → 当前仍在运行的直接子 invocation。 */
+    private readonly invocationChildren = new Map<string, Map<string, ActiveInvocationRef>>();
+    /** 子 invocation id → 父 invocation id，用于 terminal 时双向清理。 */
+    private readonly invocationParents = new Map<string, string>();
+    /** invocation terminal 信号；停止请求会等待整棵调用树收敛。 */
+    private readonly invocationSettlements = new Map<string, InvocationSettlement>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
     private readonly invocationRuntimeStates = new Map<string, RunRuntimeState>();
@@ -899,6 +917,20 @@ export class NeuroAgentHarness {
         const invocationId = admission.invocationId;
         const abortController = admission.abortController;
         const runtimeState = admission.runtimeState;
+        const attachedToParent = this.attachInvocationParent(caller, {
+            sessionId: input.sessionId,
+            invocationId,
+        });
+        if (!attachedToParent) {
+            // 父调用已进入 aborting 或已经收敛：子调用不能在竞态窗口中脱离调用树继续运行。
+            await this.issueAbortTree(
+                input.sessionId,
+                {reason: "parent invocation aborted"},
+                invocationId,
+                new Set<string>(),
+                [],
+            );
+        }
         let errorPhase: InvocationErrorPhase = "pre_loop";
         try {
             if (hasResolutions) {
@@ -1218,9 +1250,11 @@ export class NeuroAgentHarness {
         if (input.mode === "continue" && hasResolutions) {
             pendingResolutions = resolutions;
         }
-        const activeInvocation: AgentActiveInvocationDto = currentInvocation?.status === "waiting" && hasResolutions
+        const resumedInvocation = hasResolutions && currentInvocation?.status === "waiting" ? currentInvocation : null;
+        const isResume = resumedInvocation !== null;
+        const activeInvocation: AgentActiveInvocationDto = resumedInvocation
             ? {
-                ...currentInvocation,
+                ...resumedInvocation,
                 status: "running",
             }
             : {
@@ -1234,6 +1268,13 @@ export class NeuroAgentHarness {
         this.activeInvocations.set(input.sessionId, activeInvocation);
         this.steerableSessions.add(input.sessionId);
         this.abortControllers.set(input.sessionId, abortController);
+        if (!isResume && !this.invocationSettlements.has(invocationId)) {
+            let resolveSettlement = (): void => {};
+            const promise = new Promise<void>((resolve) => {
+                resolveSettlement = resolve;
+            });
+            this.invocationSettlements.set(invocationId, {promise, resolve: resolveSettlement});
+        }
         this.invocationClientStates.set(invocationId, input.clientState);
         this.invocationVariableStates.set(invocationId, {
             readFingerprints: new Map(),
@@ -1241,7 +1282,6 @@ export class NeuroAgentHarness {
         });
         const runtimeState = this.invocationRuntimeStates.get(invocationId) ?? new Map<string, JsonValue>();
         this.invocationRuntimeStates.set(invocationId, runtimeState);
-        const isResume = Boolean(hasResolutions && currentInvocation?.status === "waiting");
         try {
             if (!isResume) {
                 await this.writeLifecycle(input.sessionId, invocationId, "start");
@@ -2817,16 +2857,38 @@ export class NeuroAgentHarness {
     }
 
     /**
-     * 请求中断当前 invocation。底层 provider/tool 会通过 AbortSignal 尽量停止。
+     * 请求中断当前 invocation 及其本次运行派生的完整子调用树。
+     * 返回前等待所有已登记 invocation 收敛，保证 UI 可以安全恢复待输入状态。
      */
     async abortInvocation(sessionId: number, body: AgentAbortRequestDto = {}): Promise<AgentAbortResult> {
+        const settlements: Promise<void>[] = [];
+        const result = await this.issueAbortTree(sessionId, body, undefined, new Set<string>(), settlements);
+        await Promise.allSettled(settlements);
+        return result;
+    }
+
+    /** 标记并中止一棵运行调用树；递归阶段只发出中止，settlement 由最外层统一等待。 */
+    private async issueAbortTree(
+        sessionId: number,
+        body: AgentAbortRequestDto,
+        expectedInvocationId: string | undefined,
+        visited: Set<string>,
+        settlements: Promise<void>[],
+    ): Promise<AgentAbortResult> {
         const admission = await this.withSessionAdmission(sessionId, async () => {
-            const active = await this.claimAbortInvocation(sessionId);
+            const active = await this.claimAbortInvocation(sessionId, expectedInvocationId);
             if (!active) {
                 return {
                     kind: "idle" as const,
                 };
             }
+            if (visited.has(active.invocationId)) {
+                return {
+                    kind: "already_visited" as const,
+                    active,
+                };
+            }
+            visited.add(active.invocationId);
             if (active.status === "waiting") {
                 active.status = "aborting";
                 this.steerQueues.delete(sessionId);
@@ -2858,11 +2920,13 @@ export class NeuroAgentHarness {
                     },
                 };
             }
+            const alreadyAborting = active.status === "aborting";
             active.status = "aborting";
             this.steerableSessions.delete(sessionId);
             return {
                 kind: "running" as const,
                 active,
+                alreadyAborting,
             };
         });
         if (admission.kind === "idle") {
@@ -2874,7 +2938,31 @@ export class NeuroAgentHarness {
         if (admission.kind === "completed") {
             return admission.result;
         }
+        if (admission.kind === "already_visited") {
+            return {
+                status: "aborted",
+                sessionId,
+            };
+        }
+
+        const children = [...(this.invocationChildren.get(admission.active.invocationId)?.values() ?? [])];
+        await Promise.all(children.map((child) => this.issueAbortTree(
+            child.sessionId,
+            body,
+            child.invocationId,
+            visited,
+            settlements,
+        )));
+
+        const settlement = this.invocationSettlements.get(admission.active.invocationId);
+        if (settlement && !settlements.includes(settlement.promise)) settlements.push(settlement.promise);
         this.abortControllers.get(sessionId)?.abort(body.reason);
+        if (admission.alreadyAborting) {
+            return {
+                status: "aborted",
+                sessionId,
+            };
+        }
         if (body.clearQueue ?? true) {
             this.steerQueues.delete(sessionId);
             await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
@@ -2895,11 +2983,13 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async claimAbortInvocation(sessionId: number): Promise<AgentActiveInvocationDto | null> {
+    /** expectedInvocationId 防止旧父子关系误中止同一 session 后续启动的无关调用。 */
+    private async claimAbortInvocation(sessionId: number, expectedInvocationId?: string): Promise<AgentActiveInvocationDto | null> {
         let active = this.activeInvocations.get(sessionId) ?? null;
         if (active) {
-            return active;
+            return expectedInvocationId === undefined || active.invocationId === expectedInvocationId ? active : null;
         }
+        if (expectedInvocationId !== undefined) return null;
         const snapshot = await this.repo.readSession(sessionId);
         const context = this.repo.reduce(snapshot);
         const messages = storedMessagesForText(context.messages);
@@ -2910,6 +3000,18 @@ export class NeuroAgentHarness {
             this.activeInvocations.set(sessionId, active);
         }
         return active;
+    }
+
+    /** 将 agent 工具发起的子 invocation 绑定到当前仍活跃的父 invocation。 */
+    private attachInvocationParent(caller: AgentInvokeCaller, child: ActiveInvocationRef): boolean {
+        if (caller.kind !== "agent" || caller.sessionId === undefined || !caller.invocationId) return true;
+        const parent = this.activeInvocations.get(caller.sessionId);
+        if (!parent || parent.invocationId !== caller.invocationId || parent.status === "aborting") return false;
+        const children = this.invocationChildren.get(parent.invocationId) ?? new Map<string, ActiveInvocationRef>();
+        children.set(child.invocationId, child);
+        this.invocationChildren.set(parent.invocationId, children);
+        this.invocationParents.set(child.invocationId, parent.invocationId);
+        return true;
     }
 
     private async appendAbortResolution(sessionId: number, invocationId: string, reason?: string): Promise<void> {
@@ -5625,6 +5727,21 @@ export class NeuroAgentHarness {
         this.steerQueues.delete(sessionId);
         this.abortControllers.delete(sessionId);
         if (invocationId) {
+            const parentInvocationId = this.invocationParents.get(invocationId);
+            if (parentInvocationId) {
+                const siblings = this.invocationChildren.get(parentInvocationId);
+                siblings?.delete(invocationId);
+                if (siblings?.size === 0) this.invocationChildren.delete(parentInvocationId);
+                this.invocationParents.delete(invocationId);
+            }
+            const children = this.invocationChildren.get(invocationId);
+            if (children) {
+                for (const child of children.values()) this.invocationParents.delete(child.invocationId);
+                this.invocationChildren.delete(invocationId);
+            }
+            const settlement = this.invocationSettlements.get(invocationId);
+            this.invocationSettlements.delete(invocationId);
+            settlement?.resolve();
             this.invocationClientStates.delete(invocationId);
             this.invocationVariableStates.delete(invocationId);
             this.invocationRuntimeStates.delete(invocationId);

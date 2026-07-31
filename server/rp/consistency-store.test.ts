@@ -5,7 +5,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {runRpConsistencyCheck} from "nbook/server/rp/consistency-store";
 import {RP_MAP_STATE_PATH} from "nbook/server/rp/map-store";
 import {initializeRpTimeline, RP_TIMELINE_TREE_PATH} from "nbook/server/rp/timeline-store";
-import {activateIntake} from "nbook/server/rp/test-fixtures";
+import {activateIntake, createRpWorldSubject} from "nbook/server/rp/test-fixtures";
 
 describe("RP 一致性审计", () => {
     let projectRoot: string;
@@ -43,8 +43,10 @@ describe("RP 一致性审计", () => {
             nodes: [{id: "room", worldSubjectId: "room", parentId: "missing", level: "building", canonicalName: "房间", playerSummary: "", rumorLabel: null, approximateDirection: null, status: "discovered", persistenceBasis: ["world_structure"], origin: "bootstrap", sourceRefs: [], solidifiedAtTick: 1, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString()}],
             proposals: [], routes: [], updatedAt: new Date(0).toISOString(),
         })}\n`, "utf-8");
+        await createRpWorldSubject(projectRoot, {id: "room", type: "world", name: "错误类型房间"});
         const blocked = await runRpConsistencyCheck(projectRoot, "standard", true);
         expect(blocked.status).toBe("blocked");
         expect(blocked.issues).toContainEqual(expect.objectContaining({code: "map.parent_missing", repair: "player_confirmation"}));
+        expect(blocked.issues).toContainEqual(expect.objectContaining({code: "map.world_subject_type_mismatch", repair: "player_confirmation"}));
     });
 });

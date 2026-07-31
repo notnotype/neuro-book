@@ -94,6 +94,7 @@ describe("agent collaboration tool definitions", () => {
             caller: expect.objectContaining({
                 kind: "agent",
                 sessionId: 1,
+                invocationId: "parent-invocation",
                 profileKey: "leader.default",
                 toolCallId: "tool-1",
             }),
@@ -176,5 +177,6 @@ function toolContext(harness: Record<string, unknown>): ToolExecutionContext {
         workspaceFsRoot: absoluteFsPath(process.cwd()),
         workspaceKey: "global",
         projectPath: "workspace/project",
+        invocationId: "parent-invocation",
     };
 }

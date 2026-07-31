@@ -34,7 +34,7 @@ when_to_use:
 - 地点 subject 带 `连接` 字段、角色 subject 带 `关系` 字段（地图与关系图面板靠它们生长）；schema 不含这些字段时如实报告即可，不硬造。
 - 隐藏状态放进 subject 的 `secret` 子对象。
 
-配置与材料完成后调用 `rp_intake op=checkpoint_bootstrap stage=config`；只有返回 stage=world 才调用 rp.world。世界主体和初始切片建立后 checkpoint world；只有返回 stage=map 才建立初始地图：让 rp.screenwriter 对每个地点分别调用 `rp_map op=propose origin=bootstrap`，每次只在根字段提交一个地点，绝不把 `candidates`、`view` 或 `decisions` 混入 propose；再让 rp.world 确保对应 location subject 存在并逐项 `review`。rp.leader 与 rp.world 都不能代替 screenwriter 提交 Bootstrap 提案。完成后 checkpoint map。服务端会真实加载 Schema/Calendar 并检查数据库与地图，不接受自然语言“已经完成”。校验失败会停留在当前阶段；修正后直接重试 checkpoint，不需要重复 begin_bootstrap。
+配置与材料完成后调用 `rp_intake op=checkpoint_bootstrap stage=config`；只有返回 stage=world 才调用 rp.world。世界主体和初始切片建立后 checkpoint world；只有返回 stage=map 才建立初始地图：让 rp.screenwriter 对每个地点分别调用 `rp_map op=propose origin=bootstrap`，每次只在根字段提交一个地点，绝不把 `candidates`、`view` 或 `decisions` 混入 propose；再让 rp.world 确保同 ID subject 存在且 `level=world` 对应 `type=world`、其余层级对应 `type=location`，然后逐项 `review`。rp.leader 与 rp.world 都不能代替 screenwriter 提交 Bootstrap 提案。完成后 checkpoint map。服务端会真实加载 Schema/Calendar，并在节点 materialize 前和 checkpoint 时重复检查数据库与地图，不接受自然语言“已经完成”。校验失败会停留在当前阶段；真正错误的旧 Bootstrap 叶节点可由 rp.world 用 `discard_bootstrap_location` 受控撤销后重新提案，修正后直接重试 checkpoint，不需要重复 begin_bootstrap。
 
 ## Step 3：角色建档（rp/characters/）
 

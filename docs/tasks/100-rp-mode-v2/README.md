@@ -953,3 +953,29 @@ RP 与写作模式在项目内**零共享**，防止互相干扰：
 ### 与计划的出入
 
 - 诊断时用户将现象判断为发布后 RP 依赖目录整体漏打包；实际确认写作模式模板文件存在，缺少的是尚未进入 Bootstrap 的 RP 独立配置根。修复因此落在 API 初始化门禁，而不是给所有 Project Workspace 预建 RP 配置，避免破坏受信生成与模式隔离契约。
+
+## 二十九、Bootstrap 地图身份契约与受控恢复（2026-08-01）
+
+### 问题与根因
+
+- 真实 Project Workspace 在 map checkpoint 报“地图节点缺少对应 location subject：kyoto”。`kyoto` 同时是合法 `level=world` 地图根和 World Engine `type=world` subject；旧 validator 却无条件只读取 location subjects，地图层级与世界身份契约互相冲突。
+- 地图节点在 review 时直接 materialize，直到 checkpoint 才检查 World Engine，导致错误定义先落盘；materialized 提案又不能 `replace_proposal`，初始化没有正式恢复入口。
+
+### 实施结果
+
+1. 地图身份映射统一为 `level=world → type=world`，其余层级统一为 `type=location`；Bootstrap checkpoint 按节点层级检查同 ID subject。
+2. `reviewRpLocationProposal()` 在持有地图写锁时先读取 RP World Engine subject，缺失或类型不符会拒绝且不落节点，避免制造新的脏 materialized 状态。
+3. 新增 `discard_bootstrap_location`：仅 rp.world 可在 `bootstrapping/map` 撤销未抵达、无子节点、无路线的 bootstrap 叶节点；旧提案保留为 rejected 审计，screenwriter 再用修正后的稳定 ID 提案。active 地图身份仍不可任意改写。
+4. standard/deep 一致性审计新增 `map.world_subject_type_mismatch`，旧 active 数据的地图层级/subject 类型冲突也能被报告；Bootstrap 夹具和 RP Agent/Profile/Skill/reference 同步采用同一类型映射，防止 Agent 继续按“所有地图节点都是 location”操作。
+
+### 验证结果
+
+- 关键定向回归：地图、Bootstrap、运行视图、RP 工具共同行为通过；与 Agent 停止链合并定向回归为 6 文件、57/57，通过修正测试夹具后关键回归为 5 文件、45/45。
+- 最终关键回归加入一致性审计与 100 Tick 长场景：8 文件、60/60，通过。
+- 扩大 RP/Harness 回归为 26 文件、317/319；唯一 RP 失败是旧运行视图夹具未建立 World Engine subject，补齐新生产契约后已单独通过。另一项为既有“删除 session 模型后的恢复投影”失败，与本轮无关。
+- `bunx tsc --noEmit --pretty false` 无本轮诊断；全仓只剩既有 `model-settings-view.ts` 的 Vue `SelectOption` 导出错误。
+- 按仓库规则未自动执行浏览器验证；本轮不打包、不创建新版本或 GitHub Release。
+
+### 与计划的出入
+
+- 诊断方案预期可能需要为 `kyoto` 改 ID；实现确认它是合法 world 根，因此无需迁移该真实数据。受控撤销入口只处理真正错误的旧 Bootstrap 叶节点，避免把稳定 ID 退化成可随意编辑字段。

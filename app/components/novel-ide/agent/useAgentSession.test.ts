@@ -36,6 +36,23 @@ describe("useAgentSession event reducer", () => {
         expect(session.recoveryReasons.value).toContain("active_path_changed");
     });
 
+    it("abort recovery 确认无 active invocation 后必须恢复待输入状态", () => {
+        const session = useAgentSession();
+        session.applyRecovery({
+            ...recovery(0),
+            activeInvocation: {invocationId: "run-1", sessionId: 1, status: "running", mode: "prompt", startedAt: 1},
+        });
+        expect(session.running.value).toBe(true);
+
+        session.applyEvent(control(1, {type: "invocation_aborted", reason: "user abort"}));
+        expect(session.runPhase.value).toBe("finishing");
+        expect(session.running.value).toBe(true);
+
+        session.applyLiveState({...liveState(), activeInvocation: null});
+        expect(session.running.value).toBe(false);
+        expect(session.runPhase.value).toBe("idle");
+    });
+
     it("live state 省略 pending form 详情且本地无 runtime 详情时请求 recovery", () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(0));

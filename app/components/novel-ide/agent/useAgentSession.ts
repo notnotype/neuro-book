@@ -650,7 +650,9 @@ export function useAgentSession() {
         if (activeInvocation) {
             liveRunStatus.value = activeInvocation.status === "waiting" ? "waiting" : activeInvocation.status;
             runPhase.value = pendingInputs.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
-        } else if (liveRunStatus.value !== "aborting") {
+        } else {
+            // 服务端已确认调用树收敛时，aborting 也必须终止；否则停止按钮会永久占据输入栏。
+            clearPendingMessageUpdates();
             liveRunStatus.value = "idle";
             runPhase.value = "idle";
         }

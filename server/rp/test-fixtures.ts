@@ -39,6 +39,23 @@ export async function activateIntake(projectRoot: string): Promise<void> {
     await resetBootstrapFixtureArtifacts(projectRoot);
 }
 
+/** 为需要直接落地地图节点的测试建立最小 World Engine subject 身份。 */
+export async function createRpWorldSubject(
+    projectRoot: string,
+    input: {id: string; type: "world" | "location"; name: string},
+): Promise<void> {
+    const databasePath = join(projectRoot, ".nbook/world-rp.sqlite");
+    await ensureRpWorldDatabase(databasePath);
+    const client = createClient({url: toSqliteFileUrl(databasePath)});
+    try {
+        const repository = new WorldEngineRepository(client);
+        if (!await repository.findSubject(input.id)) await repository.createSubject(input);
+    } finally {
+        client.close();
+        collectReleasedSqliteHandles({force: true});
+    }
+}
+
 /**
  * 不相关的 RP store 测试需要从空业务状态开始；先通过真实激活验收，再清空夹具产物。
  * Bootstrap 自身测试不调用此函数，因此仍验证完整产物和发布结果。
@@ -88,11 +105,16 @@ export async function prepareBootstrapArtifacts(projectRoot: string, through: Rp
     await checkpointRpBootstrap(projectRoot, "world");
     if (through === "world") return;
 
-    const proposal = await proposeRpLocation(projectRoot, {
-        requestedId: "start", level: "world", canonicalName: "起点", playerSummary: "测试起点",
+    const worldProposal = await proposeRpLocation(projectRoot, {
+        requestedId: "world", level: "world", canonicalName: "测试世界", playerSummary: "测试世界",
         initialStatus: "discovered", persistenceBasis: ["world_structure"], origin: "bootstrap",
     });
-    await reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true});
+    await reviewRpLocationProposal(projectRoot, worldProposal.id, {accepted: true});
+    const startProposal = await proposeRpLocation(projectRoot, {
+        requestedId: "start", parentId: "world", level: "town", canonicalName: "起点", playerSummary: "测试起点",
+        initialStatus: "discovered", persistenceBasis: ["world_structure"], origin: "bootstrap",
+    });
+    await reviewRpLocationProposal(projectRoot, startProposal.id, {accepted: true});
     await checkpointRpBootstrap(projectRoot, "map");
     if (through === "map") return;
 

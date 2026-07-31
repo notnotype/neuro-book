@@ -62,4 +62,4 @@ rp.world 是 RP v2 中 World Engine 的唯一读写通道。其他 agent 需要�
 - 地点 subject（type=location）：`连接: [{目标: ref, 距离?: string, 方向?: string}]`。
 - 角色 subject（type=character）：`关系: [{对象: ref, 类型: string, 好感?: number}]`；可选 `secret: {…}` 子对象存放隐藏状态。
 - schema 由 **`rp/world-engine/schema`** 定义（RP 专属，与写作模式完全分离）；缺少上述字段时如实报告，不硬造。
-- 新 location subject 的 id 必须与 `rp_map` 节点 id 一致。先确认客观 subject，再 materialize 地图目录；两者不一致时停止并报告。
+- 地图 `level=world` 根节点对应同 ID `world` subject，其余地图层级对应同 ID `location` subject。先确认客观 subject 与层级类型，再 materialize 地图目录；两者不一致时停止并报告。

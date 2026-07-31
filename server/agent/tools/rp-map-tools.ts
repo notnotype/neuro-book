@@ -10,6 +10,7 @@ import {
     approveRpLocationConflict,
     arriveRpLocation,
     confirmRpLocationImports,
+    discardRpBootstrapLocation,
     discoverRpMapRoute,
     proposeRpLocation,
     readRpMapState,
@@ -63,6 +64,10 @@ const Schema = Type.Union([
         conflictReasons: Type.Optional(Type.Array(Type.String({minLength: 1}))),
     }, {additionalProperties: false}),
     Type.Object({op: Type.Literal("approve_conflict"), projectPath: ProjectPath, proposalId: Type.String({minLength: 1})}, {additionalProperties: false}),
+    Type.Object({
+        op: Type.Literal("discard_bootstrap_location"), projectPath: ProjectPath,
+        locationId: Type.String({minLength: 1}), reason: Type.String({minLength: 1}),
+    }, {additionalProperties: false}),
     Type.Object({op: Type.Literal("arrive"), projectPath: ProjectPath, locationId: Type.String({minLength: 1}), tick: Type.Integer({minimum: 0})}, {additionalProperties: false}),
     Type.Object({op: Type.Literal("set_status"), projectPath: ProjectPath, locationId: Type.String({minLength: 1}), status: LocationStatus, reason: Type.String({minLength: 1})}, {additionalProperties: false}),
     Type.Object({
@@ -95,6 +100,7 @@ export const rpMapTools = {
             "screenwriter proposes; rp.world validates/materializes and maintains arrival/status/routes; rp.leader may submit player-authored proposals and must obtain real player approval for novel import decisions or canon-conflict overrides.",
             "op=propose accepts exactly one location in the root fields; never send view, candidates, or decisions with it. Repeat propose for additional locations. During Bootstrap map only, rp.screenwriter uses origin=bootstrap; during active play it uses origin=screenwriter.",
             "If the same requestedId already has a proposed/conflict definition with different fields, use replace_proposal with its proposalId and the complete corrected proposal. The old proposal remains in the audit ledger as superseded; materialized locations cannot be replaced this way.",
+            "If a truly wrong Bootstrap node was already materialized, rp.world may use discard_bootstrap_location only during the map stage. It rejects the audited proposal and removes only an unvisited leaf without routes; screenwriter can then propose the corrected stable id.",
             "Rumored nodes expose only vague labels/direction. Secret routes are completely absent from player view until discover_route. Unavailable/destroyed nodes and routes remain indexed.",
         ].join("\n"),
         parameters: providerObjectSchema(Schema),
@@ -136,6 +142,7 @@ export const rpMapTools = {
                     if (!(userInput as {approved?: boolean} | undefined)?.approved) return result({approved: false, proposalId: input.proposalId});
                     return result(await approveRpLocationConflict(root, input.proposalId, true));
                 }
+                case "discard_bootstrap_location": return result(await discardRpBootstrapLocation(root, input.locationId, input.reason));
                 case "arrive": return result(await arriveRpLocation(root, input.locationId, input.tick));
                 case "set_status": return result(await setRpLocationStatus(root, input.locationId, input.status, input.reason));
                 case "register_route": return result(await registerRpMapRoute(root, input));
@@ -169,7 +176,7 @@ export function assertMapPermission(
     if (input.op === "replace_proposal" && profileKey === "rp.screenwriter" && ["bootstrap", "screenwriter"].includes(input.origin ?? "")) return;
     if (input.op === "replace_proposal" && profileKey === "rp.leader" && input.origin === "player") return;
     if (["stage_import", "confirm_import", "approve_conflict"].includes(input.op) && profileKey === "rp.leader") return;
-    if (["review", "arrive", "set_status", "register_route", "discover_route", "set_route_status"].includes(input.op) && profileKey === "rp.world") return;
+    if (["review", "discard_bootstrap_location", "arrive", "set_status", "register_route", "discover_route", "set_route_status"].includes(input.op) && profileKey === "rp.world") return;
     throw new Error(`RP 地图操作 ${input.op} 不允许由 ${profileKey} 执行。`);
 }
 

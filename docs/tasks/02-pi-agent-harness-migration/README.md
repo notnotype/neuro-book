@@ -926,3 +926,29 @@ type AgentTreeRequest = {
 - assets 路径硬切已完成；后续若新增系统资源，先放到 `assets/workspace/.nbook/<relative>`，再确认同步逻辑和用户覆盖层 `workspace/.nbook/<relative>` 一致，不恢复旧路径 fallback。
 - 后续评估文件/变量回溯能力：变量可通过 `variable_set` / custom state entry reduce；文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版 session 只记录文件操作事实，不承诺文件内容回滚。
 - 若开始实现，持续更新本文档和 `PROJECT-STATUS.md`。
+
+## 2026-08-01 调用树级联停止与 UI 收敛
+
+### 问题与根因
+
+- 主 Agent 的停止入口只按当前 session 中止一个 AbortController；`invoke_agent` 创建的子 session 拥有独立 Controller，且调用方 metadata 没有父 invocation id，因此子 Agent、孙 Agent和并行兄弟仍会继续运行。
+- 前端收到 `invocation_aborted` 后进入 `aborting`，但 recovery 已无 active invocation 时刻意不转 idle，导致输出按钮和运行态长期不复位。
+
+### 实施结果
+
+1. `invoke_agent` 在 caller metadata 中携带父 `invocationId`。Harness 维护仅限当前进程运行期的双向父子 invocation 索引，不把 session ownership 错当运行调用树。
+2. `abortInvocation()` 递归标记并中止当前调用树，使用 invocation id 防止误停同一 session 后续的新调用；父调用已 aborting 时新接入的竞态子调用会立即自停。
+3. Harness 为活动 invocation 建立 settlement，停止 API 在整棵树完成 terminal 清理后才返回；无关 session 不进入 aborting。
+4. 前端 recovery/live shell 一旦确认 `activeInvocation=null`，无论之前是否 aborting 都清理待提交流式更新并恢复 `idle`，输入栏回到可发送状态。
+
+### 验证结果
+
+- 新增黑盒覆盖主 Agent → 两个并行子 Agent → 孙 Agent 的递归中止，并确认无关 session 保持 running；前端 reducer 覆盖 `invocation_aborted → activeInvocation=null → idle`。
+- 合并定向回归 6 文件、57/57；Harness 黑盒 19/19；关键修正后回归 5 文件、45/45。
+- 最终关键回归连同 RP 一致性审计和 100 Tick 长场景为 8 文件、60/60，通过。
+- 扩大 RP/Harness 回归 317/319；既有“已删除 session 模型恢复投影”断言仍失败，与调用树停止无关。
+- `bunx tsc --noEmit --pretty false` 无本轮诊断；仅剩既有 `SelectOption` 导出错误。
+
+### 与计划的出入
+
+- 原方案考虑由 `invoke_agent` 工具自行监听父 AbortSignal；最终把父子关系与递归中止放在 Harness 统一管理，工具只传递父 invocation 身份。这样多层级、并行兄弟、竞态接入和 invocation-id 防误停都由同一状态机约束。

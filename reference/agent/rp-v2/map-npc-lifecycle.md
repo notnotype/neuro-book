@@ -13,7 +13,7 @@
 | 主要角色人设、主观认知和 Tick 记忆 | `rp/characters/{id}/` |
 | 金钱、欲望、周期等精确资源 | `rp_mechanics` |
 
-`rp_map` 节点的 `id` / `worldSubjectId` 必须与对应 World Engine location subject id 相同。world 在接受地点提案前先保证该 subject 已写入或已存在，再登记地图节点。地图目录只保存投影所需的稳定字段，不复制完整 attrs。
+`rp_map` 节点的 `id` / `worldSubjectId` 必须与对应 World Engine subject id 相同：`level=world` 的世界根对应 `type=world`，其余层级对应 `type=location`。world 在接受地点提案前先保证同 ID subject 已写入且类型匹配，再登记地图节点；服务端也会在 materialize 前重复校验。地图目录只保存投影所需的稳定字段，不复制完整 attrs。
 
 ## 2. 层级地图
 
@@ -53,13 +53,14 @@ world -> region -> town -> district -> building -> sub_location
 
 ```text
 screenwriter / 玩家提出 -> world 核对 canon 与 World Engine
--> 无冲突：写/确认 location subject -> rp_map materialize
+-> 无冲突：写/确认匹配层级的 subject -> rp_map materialize
 -> 有冲突：记录 conflictReasons -> 玩家决定 -> world 再校验
 ```
 
 - screenwriter 在常规运行只能提出 `origin=screenwriter`；唯一特例是服务端处于 `bootstrapping/map` 时可逐地点提出 `origin=bootstrap`。
 - `propose` 每次只接受根字段中的一个地点；多个地点重复调用。`candidates` 只属于 `stage_import`，不能与 `propose` 混用。
 - 相同 `requestedId` 若业务字段完全一致则幂等返回；若父节点、层级或其他定义不同，工具会明确列出差异并要求 `replace_proposal`。替换只允许 `proposed/pending_import/conflict`，保持 requestedId 与 origin 不变；旧提案标记 `superseded` 并保留审计链。已 materialize 地点不能通过此入口改写。
+- 真正错误的 Bootstrap materialized 节点只能由 world 在 `bootstrapping/map` 使用 `discard_bootstrap_location` 撤销。服务端仅允许未抵达、无子节点、无路线的 bootstrap 叶节点，旧提案转为 `rejected` 并保留原因；随后 screenwriter 用新稳定 id 重新提案。active 运行期节点不可用此入口改写。
 - 玩家直接要求地点时，leader 只能提出 `origin=player`。
 - world 独占 `review`、抵达、状态和路线维护。
 - leader 的 `approve_conflict` 会触发真实用户审批。批准只允许 world 再次校验，不代表 leader 自己完成落库。

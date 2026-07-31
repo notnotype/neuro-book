@@ -1,6 +1,7 @@
 import {mkdtemp, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
+import {createClient} from "@libsql/client";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
     approveRpLocationConflict,
@@ -13,10 +14,14 @@ import {
     registerRpMapRoute,
     replaceRpLocationProposal,
     reviewRpLocationProposal,
+    requiredRpMapSubjectType,
     setRpLocationStatus,
     stageRpLocationImports,
 } from "nbook/server/rp/map-store";
 import {activateIntake} from "nbook/server/rp/test-fixtures";
+import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
+import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 describe("RP map store", () => {
     let projectRoot: string;
@@ -32,13 +37,24 @@ describe("RP map store", () => {
 
     it("只把可持续承载内容的地点固化为层级节点", async () => {
         const root = await proposeRpLocation(projectRoot, location("world", "world", null, "世界"));
+        await ensureWorldSubject("world", "world", "世界");
         await expect(reviewRpLocationProposal(projectRoot, root.id, {accepted: true})).resolves.toMatchObject({id: "world", level: "world"});
 
         const transient = await proposeRpLocation(projectRoot, {...location("flash", "building", "world", "一闪而过的门廊"), persistenceBasis: []});
         await expect(reviewRpLocationProposal(projectRoot, transient.id, {accepted: true})).rejects.toThrow("一次性背景空间");
 
         const town = await proposeRpLocation(projectRoot, location("harbor", "town", "world", "港城"));
+        await ensureWorldSubject("harbor", "town", "港城");
         await expect(reviewRpLocationProposal(projectRoot, town.id, {accepted: true})).resolves.toMatchObject({parentId: "world", worldSubjectId: "harbor"});
+    });
+
+    it("节点落地前按地图层级校验同 ID World Engine subject 类型", async () => {
+        const proposal = await proposeRpLocation(projectRoot, location("wrong-root", "world", null, "错误世界根"));
+        await ensureWorldSubject("wrong-root", "town", "错误世界根");
+
+        await expect(reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true})).rejects.toThrow("world 层级要求 world subject，实际为 location");
+        expect((await readRpMapState(projectRoot)).nodes.some((node) => node.id === "wrong-root")).toBe(false);
+        expect((await readRpMapState(projectRoot)).proposals.find((item) => item.id === proposal.id)?.status).toBe("proposed");
     });
 
     it("传闻节点降级展示，秘密路线发现前从玩家视图完全消失", async () => {
@@ -69,6 +85,7 @@ describe("RP map store", () => {
         await expect(reviewRpLocationProposal(projectRoot, proposal.id, {accepted: false, conflictReasons: ["既有设定中月亮上没有定居点"]})).resolves.toMatchObject({status: "conflict"});
         await expect(reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true})).rejects.toThrow("未获玩家处理");
         await approveRpLocationConflict(projectRoot, proposal.id, true);
+        await ensureWorldSubject("moon-port", "world", "月港");
         await expect(reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true})).resolves.toMatchObject({id: "moon-port"});
         await expect(reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true})).resolves.toMatchObject({id: "moon-port"});
         expect((await readRpMapState(projectRoot)).nodes.filter((node) => node.id === "moon-port")).toHaveLength(1);
@@ -85,6 +102,7 @@ describe("RP map store", () => {
         await expect(proposeRpLocation(projectRoot, corrected)).rejects.toThrow("replace_proposal");
         const replacement = await replaceRpLocationProposal(projectRoot, invalid.id, corrected);
         expect(replacement).toMatchObject({requestedId: "forest", parentId: "world", status: "proposed", supersedesProposalId: invalid.id});
+        await ensureWorldSubject("forest", "building", "尽头之森");
         await expect(reviewRpLocationProposal(projectRoot, replacement.id, {accepted: true})).resolves.toMatchObject({id: "forest"});
         expect((await readRpMapState(projectRoot)).proposals.find((item) => item.id === invalid.id)).toMatchObject({status: "superseded", supersededById: replacement.id});
         await expect(replaceRpLocationProposal(projectRoot, replacement.id, corrected)).rejects.toThrow("materialized");
@@ -105,7 +123,22 @@ describe("RP map store", () => {
 
     async function createLocation(id: string, level: "world" | "town" | "building" | "sub_location", parentId: string | null, name: string, status: "rumored" | "discovered", extra: {rumorLabel?: string; approximateDirection?: string} = {}) {
         const proposal = await proposeRpLocation(projectRoot, {...location(id, level, parentId, name), initialStatus: status, ...extra});
+        await ensureWorldSubject(id, level, name);
         return reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true});
+    }
+
+    /** 为地图落地测试建立同 ID 的最小 World Engine 身份。 */
+    async function ensureWorldSubject(id: string, level: "world" | "town" | "building" | "sub_location", name: string): Promise<void> {
+        const client = createClient({url: toSqliteFileUrl(join(projectRoot, ".nbook/world-rp.sqlite"))});
+        try {
+            const repository = new WorldEngineRepository(client);
+            if (!await repository.findSubject(id)) {
+                await repository.createSubject({id, type: requiredRpMapSubjectType(level), name});
+            }
+        } finally {
+            client.close();
+            collectReleasedSqliteHandles({force: true});
+        }
     }
 });
 

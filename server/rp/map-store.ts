@@ -1,8 +1,12 @@
 import {randomUUID} from "node:crypto";
+import {createClient} from "@libsql/client";
 import {appendFile, mkdir, readFile, rename, writeFile} from "node:fs/promises";
 import {dirname, join} from "node:path";
 import {z} from "zod";
 import {assertRpBootstrapStage} from "nbook/server/rp/intake-store";
+import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
+import {PROJECT_RP_WORLD_DATABASE_RELATIVE_PATH, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 export const RP_MAP_STATE_PATH = ".nbook/rp/runtime/map/state.json";
 export const RP_MAP_LEDGER_PATH = ".nbook/rp/runtime/map-ledger.jsonl";
@@ -18,10 +22,15 @@ export type RpLocationOrigin = "bootstrap" | "screenwriter" | "player" | "novel_
 export type RpProposalStatus = "proposed" | "pending_import" | "conflict" | "rejected" | "superseded" | "materialized";
 export type RpRouteStatus = "active" | "unavailable" | "destroyed";
 
+/** 地图世界根对应 world subject；其余空间层级统一对应 location subject。 */
+export function requiredRpMapSubjectType(level: RpMapLevel): "world" | "location" {
+    return level === "world" ? "world" : "location";
+}
+
 /** 地图节点只保存目录、可见性与稳定连接；地点完整客观状态仍由 RP World Engine 持有。 */
 export type RpLocationNode = {
     id: string;
-    /** 必须与 RP World Engine location subject id 一致。 */
+    /** 必须与 RP World Engine 对应 subject id 一致；world 层对应 world，其余层级对应 location。 */
     worldSubjectId: string;
     parentId: string | null;
     level: RpMapLevel;
@@ -239,7 +248,7 @@ export async function reviewRpLocationProposal(projectRoot: string, proposalId: 
     accepted: boolean;
     conflictReasons?: string[];
 }): Promise<RpLocationProposal | RpLocationNode> {
-    return mutate<RpLocationProposal | RpLocationNode>(projectRoot, "review_proposal", (state, now) => {
+    return mutate<RpLocationProposal | RpLocationNode>(projectRoot, "review_proposal", async (state, now) => {
         const proposal = requireProposal(state, proposalId);
         if (proposal.status === "materialized") return {value: requireNode(state, proposal.requestedId), detail: {proposalId, accepted: true, duplicate: true}};
         if (!["proposed", "conflict"].includes(proposal.status)) throw new Error(`地点提案当前不可校验：${proposal.status}`);
@@ -253,11 +262,37 @@ export async function reviewRpLocationProposal(projectRoot: string, proposalId: 
         }
         if (proposal.status === "conflict" && !proposal.playerOverrideApproved) throw new Error("地点仍有未获玩家处理的设定冲突，不能静默纳入地图。");
         validateProposalForMaterialization(state, proposal);
+        await assertWorldSubjectForProposal(projectRoot, proposal);
         const node = materializeNode(state, proposal, now);
         proposal.status = "materialized";
         proposal.updatedAt = now;
         state.nodes.push(node);
         return {value: node, detail: {proposalId, accepted: true, locationId: node.id}};
+    });
+}
+
+/**
+ * 撤销尚未进入运行期的错误 Bootstrap 节点，并保留原提案审计记录。
+ *
+ * 只有未抵达、无子节点、无路线的 bootstrap 节点允许撤销；运行期稳定地点必须走正式世界修订流程。
+ */
+export async function discardRpBootstrapLocation(projectRoot: string, locationId: string, reason: string): Promise<RpLocationProposal> {
+    const intake = await assertRpBootstrapStage(projectRoot, ["map"]);
+    if (intake.phase !== "bootstrapping") throw new Error("Bootstrap 地图节点只能在初始化 map 阶段撤销。");
+    return mutate(projectRoot, "discard_bootstrap_location", (state, now) => {
+        const node = requireNode(state, locationId);
+        if (node.origin !== "bootstrap") throw new Error("只有 Bootstrap 来源的地图节点可以在初始化阶段撤销。");
+        if (node.solidifiedAtTick !== null) throw new Error("已经抵达并固化的地点不能通过 Bootstrap 撤销。");
+        if (state.nodes.some((candidate) => candidate.parentId === node.id)) throw new Error("存在子地点的 Bootstrap 节点不能撤销，请先处理子节点。");
+        if (state.routes.some((route) => route.fromId === node.id || route.toId === node.id)) throw new Error("存在关联路线的 Bootstrap 节点不能撤销，请先处理路线。");
+        const proposal = state.proposals.find((candidate) => candidate.requestedId === node.id && candidate.status === "materialized");
+        if (!proposal) throw new Error(`地图节点缺少 materialized 提案审计记录：${node.id}`);
+        const normalizedReason = requireText(reason, "撤销原因");
+        proposal.status = "rejected";
+        proposal.conflictReasons = [...new Set([...proposal.conflictReasons, normalizedReason])];
+        proposal.updatedAt = now;
+        state.nodes = state.nodes.filter((candidate) => candidate.id !== node.id);
+        return {value: proposal, detail: {locationId: node.id, proposalId: proposal.id, reason: normalizedReason}};
     });
 }
 
@@ -409,6 +444,23 @@ function validateProposalForMaterialization(state: RpMapState, proposal: RpLocat
     if (RP_MAP_LEVELS.indexOf(parent.level) >= RP_MAP_LEVELS.indexOf(proposal.level)) throw new Error("父地点层级必须高于子地点。 ");
 }
 
+/** 在节点写入地图前验证同 ID World Engine subject 的存在性和身份类型。 */
+async function assertWorldSubjectForProposal(projectRoot: string, proposal: RpLocationProposal): Promise<void> {
+    const databasePath = join(projectRoot, PROJECT_RP_WORLD_DATABASE_RELATIVE_PATH);
+    const client = createClient({url: toSqliteFileUrl(databasePath)});
+    try {
+        const subject = await new WorldEngineRepository(client).findSubject(proposal.requestedId);
+        const expectedType = requiredRpMapSubjectType(proposal.level);
+        if (!subject) throw new Error(`地图节点 ${proposal.requestedId} 缺少对应 ${expectedType} subject，节点未落地。`);
+        if (subject.type !== expectedType) {
+            throw new Error(`地图节点 ${proposal.requestedId} 的 ${proposal.level} 层级要求 ${expectedType} subject，实际为 ${subject.type}，节点未落地。`);
+        }
+    } finally {
+        client.close();
+        collectReleasedSqliteHandles({force: true});
+    }
+}
+
 function materializeNode(state: RpMapState, proposal: RpLocationProposal, now: string): RpLocationNode {
     validateProposalForMaterialization(state, proposal);
     return {
@@ -482,13 +534,17 @@ function emptyState(): RpMapState {
     return {schemaVersion: 1, nodes: [], proposals: [], routes: [], updatedAt: new Date(0).toISOString()};
 }
 
-async function mutate<T>(projectRoot: string, operation: string, action: (state: RpMapState, now: string) => {value: T; detail: object}): Promise<T> {
+async function mutate<T>(
+    projectRoot: string,
+    operation: string,
+    action: (state: RpMapState, now: string) => Promise<{value: T; detail: object}> | {value: T; detail: object},
+): Promise<T> {
     await assertAdventureRunning(projectRoot);
     const statePath = join(projectRoot, RP_MAP_STATE_PATH);
     return withLock(statePath, async () => {
         const state = await readRpMapState(projectRoot);
         const now = new Date().toISOString();
-        const result = action(state, now);
+        const result = await action(state, now);
         state.updatedAt = now;
         await writeAtomic(statePath, state);
         await appendLedger(projectRoot, {operation, at: now, ...result.detail});

@@ -13,7 +13,7 @@ import {
     type RpBootstrapStage,
     type RpIntakeState,
 } from "nbook/server/rp/intake-store";
-import {readRpMapState} from "nbook/server/rp/map-store";
+import {readRpMapState, requiredRpMapSubjectType} from "nbook/server/rp/map-store";
 import {readRpNpcState} from "nbook/server/rp/npc-store";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
 import {WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
@@ -148,17 +148,23 @@ async function validateWorld(projectRoot: string): Promise<void> {
     }
 }
 
-/** 地图阶段要求至少一个稳定节点，且每个节点都能对应 World Engine location subject。 */
+/** 地图阶段要求至少一个稳定节点，且 world 根/普通地点分别对应同 ID world/location subject。 */
 async function validateMap(projectRoot: string): Promise<void> {
     const map = await readRpMapState(projectRoot);
     if (map.nodes.length === 0) throw new Error("初始地图没有已固化地点节点");
     const databasePath = path.join(projectRoot, PROJECT_RP_WORLD_DATABASE_RELATIVE_PATH);
     const client = createClient({url: toSqliteFileUrl(databasePath)});
     try {
-        const locations = await new WorldEngineRepository(client).listSubjects({type: "location"});
-        const locationIds = new Set(locations.map((subject) => subject.id));
-        const missing = map.nodes.filter((node) => !locationIds.has(node.worldSubjectId)).map((node) => node.id);
-        if (missing.length) throw new Error(`地图节点缺少对应 location subject：${missing.join("、")}`);
+        const subjects = await new WorldEngineRepository(client).listSubjects({ids: map.nodes.map((node) => node.worldSubjectId)});
+        const subjectsById = new Map(subjects.map((subject) => [subject.id, subject]));
+        const invalid = map.nodes.flatMap((node) => {
+            const expectedType = requiredRpMapSubjectType(node.level);
+            const subject = subjectsById.get(node.worldSubjectId);
+            if (!subject) return [`${node.id}（缺少 ${expectedType} subject ${node.worldSubjectId}）`];
+            if (subject.type !== expectedType) return [`${node.id}（${node.level} 层要求 ${expectedType}，实际为 ${subject.type}）`];
+            return [];
+        });
+        if (invalid.length) throw new Error(`地图节点与 World Engine subject 身份不一致：${invalid.join("、")}`);
     } finally {
         client.close();
         collectReleasedSqliteHandles({force: true});

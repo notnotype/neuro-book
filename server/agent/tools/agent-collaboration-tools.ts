@@ -122,6 +122,7 @@ export const agentCollaborationTools = {
                 caller: {
                     kind: "agent",
                     sessionId: context.sessionId,
+                    invocationId: context.invocationId,
                     profileKey: context.profileKey,
                     toolCallId,
                 },

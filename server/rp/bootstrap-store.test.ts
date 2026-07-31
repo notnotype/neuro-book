@@ -13,6 +13,7 @@ import {
     updateRpIntakeField,
 } from "nbook/server/rp/intake-store";
 import {listTickProse} from "nbook/server/rp/prose-store";
+import {discardRpBootstrapLocation, proposeRpLocation, readRpMapState, reviewRpLocationProposal} from "nbook/server/rp/map-store";
 import {prepareBootstrapArtifacts} from "nbook/server/rp/test-fixtures";
 
 describe("RP bootstrap orchestrator", {timeout: 30_000}, () => {
@@ -101,5 +102,25 @@ describe("RP bootstrap orchestrator", {timeout: 30_000}, () => {
             phase: "bootstrapping",
             bootstrap: {stage: "opening_event", completedStages: ["config", "world", "map", "characters"]},
         });
+    });
+
+    it("错误 Bootstrap 叶节点可受控撤销并保留审计记录", async () => {
+        await prepareBootstrapArtifacts(projectRoot, "world");
+        const proposal = await proposeRpLocation(projectRoot, {
+            requestedId: "world", level: "world", canonicalName: "测试世界", playerSummary: "测试世界根",
+            initialStatus: "discovered", persistenceBasis: ["world_structure"], origin: "bootstrap",
+        });
+        await reviewRpLocationProposal(projectRoot, proposal.id, {accepted: true});
+
+        const discarded = await discardRpBootstrapLocation(projectRoot, "world", "Bootstrap 层级选择错误，重新提案");
+        const map = await readRpMapState(projectRoot);
+
+        expect(discarded).toMatchObject({id: proposal.id, status: "rejected"});
+        expect(discarded.conflictReasons).toContain("Bootstrap 层级选择错误，重新提案");
+        expect(map.nodes).toEqual([]);
+        await expect(proposeRpLocation(projectRoot, {
+            requestedId: "corrected-world", level: "world", canonicalName: "修正世界", playerSummary: "修正后的世界根",
+            initialStatus: "discovered", persistenceBasis: ["world_structure"], origin: "bootstrap",
+        })).resolves.toMatchObject({requestedId: "corrected-world", status: "proposed"});
     });
 });

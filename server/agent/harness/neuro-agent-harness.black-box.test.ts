@@ -1071,6 +1071,68 @@ describe("NeuroAgentHarness black-box contract", () => {
         }
     });
 
+    it("停止父 invocation 会递归中止子孙与并行兄弟，但不影响无关 session", async () => {
+        const profileKey = registerPlainProfile(harness, {key: "test.blackbox.abort-tree"});
+        faux.setResponses([
+            ...Array.from({length: 4}, () => async () => {
+                await new Promise((resolve) => setTimeout(resolve, 200));
+                return fauxAssistantMessage("stopped", {stopReason: "aborted", errorMessage: "tree stopped"});
+            }),
+            async () => {
+                await new Promise((resolve) => setTimeout(resolve, 250));
+                return fauxAssistantMessage("independent completed");
+            },
+        ]);
+        const parent = await harness.createAgent({profileKey, initial: {}, workspaceRoot: root});
+        const firstChild = await harness.createAgent({profileKey, initial: {}, workspaceRoot: root});
+        const secondChild = await harness.createAgent({profileKey, initial: {}, workspaceRoot: root});
+        const grandchild = await harness.createAgent({profileKey, initial: {}, workspaceRoot: root});
+        const independent = await harness.createAgent({profileKey, initial: {}, workspaceRoot: root});
+        const parentRun = harness.invokeAgent({sessionId: parent.sessionId, mode: "prompt", message: {text: "parent"}});
+        await waitUntil(async () => Boolean((await harness.getSessionRecovery(parent.sessionId)).activeInvocation), "parent active");
+        const parentInvocationId = (await harness.getSessionRecovery(parent.sessionId)).activeInvocation!.invocationId;
+        const firstChildRun = harness.invokeAgent({
+            sessionId: firstChild.sessionId,
+            mode: "prompt",
+            message: {text: "first child"},
+            caller: {kind: "agent", sessionId: parent.sessionId, invocationId: parentInvocationId},
+        });
+        const secondChildRun = harness.invokeAgent({
+            sessionId: secondChild.sessionId,
+            mode: "prompt",
+            message: {text: "second child"},
+            caller: {kind: "agent", sessionId: parent.sessionId, invocationId: parentInvocationId},
+        });
+        await waitUntil(async () => Boolean((await harness.getSessionRecovery(firstChild.sessionId)).activeInvocation), "first child active");
+        const firstChildInvocationId = (await harness.getSessionRecovery(firstChild.sessionId)).activeInvocation!.invocationId;
+        const grandchildRun = harness.invokeAgent({
+            sessionId: grandchild.sessionId,
+            mode: "prompt",
+            message: {text: "grandchild"},
+            caller: {kind: "agent", sessionId: firstChild.sessionId, invocationId: firstChildInvocationId},
+        });
+        const independentRun = harness.invokeAgent({sessionId: independent.sessionId, mode: "prompt", message: {text: "independent"}});
+        await waitUntil(async () => {
+            const recoveries = await Promise.all([firstChild, secondChild, grandchild, independent].map((item) => harness.getSessionRecovery(item.sessionId)));
+            return recoveries.every((recovery) => recovery.activeInvocation?.status === "running");
+        }, "child tree and independent active");
+
+        const aborting = harness.abortInvocation(parent.sessionId, {reason: "stop complete tree"});
+        await waitUntil(async () => {
+            const recoveries = await Promise.all([parent, firstChild, secondChild, grandchild].map((item) => harness.getSessionRecovery(item.sessionId)));
+            return recoveries.every((recovery) => recovery.activeInvocation?.status === "aborting");
+        }, "complete invocation tree aborting");
+        expect((await harness.getSessionRecovery(independent.sessionId)).activeInvocation?.status).toBe("running");
+
+        await expect(aborting).resolves.toEqual({status: "aborted", sessionId: parent.sessionId});
+        const results = await Promise.all([
+            parentRun, firstChildRun, secondChildRun, grandchildRun, independentRun,
+        ]);
+        expect(results.slice(0, 4).every((result) => result.status === "error")).toBe(true);
+        const terminalRecoveries = await Promise.all([parent, firstChild, secondChild, grandchild].map((item) => harness.getSessionRecovery(item.sessionId)));
+        expect(terminalRecoveries.every((recovery) => recovery.activeInvocation === null)).toBe(true);
+    });
+
     it("SSE replay 和 snapshot_required 合同可从 Harness event hub 观察", async () => {
         const profileKey = registerPlainProfile(harness, {
             key: "test.blackbox.sse-replay",

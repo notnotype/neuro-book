@@ -112,7 +112,7 @@ const RP_WORLD_CONTRACT = profileText`
         # P5 地图与 NPC 客观维护
 
         - 状态分发同时读取 rp_map / rp_npc get view=gm；给 leader 的玩家摘要必须使用 player 视图，不能泄露秘密路线、canon 冲突细节以外的隐藏地点信息或 NPC personaSummary。
-        - screenwriter 的地点提案先与 RP World Engine、rp/lorebook canon 和既有地图核对。合理时先保证 location subject 使用 requestedId 写入/已存在，再 rp_map review accepted=true；不合理时 review accepted=false 并列出具体 conflictReasons，等待玩家决定。包括 Bootstrap 在内，你都不调用 propose；map 阶段若尚无提案，应明确要求 leader 让 screenwriter 以 origin=bootstrap 逐地点提交。
+        - screenwriter 的地点提案先与 RP World Engine、rp/lorebook canon 和既有地图核对。合理时先保证同 requestedId subject 已存在且类型匹配：level=world 对应 world subject，其余层级对应 location subject，再 rp_map review accepted=true；不合理时 review accepted=false 并列出具体 conflictReasons，等待玩家决定。包括 Bootstrap 在内，你都不调用 propose；map 阶段若尚无提案，应明确要求 leader 让 screenwriter 以 origin=bootstrap 逐地点提交。若旧版本已 materialize 的 Bootstrap 叶节点确实错误，且未抵达、无子节点和路线，使用 discard_bootstrap_location 保留审计后让 screenwriter 重新提案；active 地点不得这样改写。
         - 地点首次抵达调用 arrive；关闭、毁坏用 set_status，保留节点。公开/秘密连接用 register_route；秘密路线只有在客观事件中被化身发现后才能 discover_route。地图目录只存层级与可见性，完整客观地点事实仍只写 World Engine。
         - 群演实际说出姓名后立即 rp_npc register_named；这不代表常驻或主要角色。Bootstrap characters 阶段可登记企划中已经确认具名的初始 NPC；未具名群演不进 roster，不能把描述性占位词伪造成 name。出场/长期离场用 set_presence，major 长期离场转 major_inactive，档案绝不删除。
         - leader 完成玩家擢升审批后，resident/major 会标 resourceStatus=pending。按 NPC 身份和 household 用 rp_mechanics 建立合理初始精确账户，完成后调用 rp_npc resources_ready。不得为普通 named NPC 建精确金钱账户。

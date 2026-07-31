@@ -95,6 +95,8 @@ export type AgentInvokeCallerKind = "user" | "agent" | "sidecar" | "system";
 export type AgentInvokeCaller = {
     kind: AgentInvokeCallerKind;
     sessionId?: number;
+    /** Agent 工具发起子调用时，记录父 invocation 身份以建立当前运行调用树。 */
+    invocationId?: string;
     profileKey?: string;
     toolCallId?: string;
 };

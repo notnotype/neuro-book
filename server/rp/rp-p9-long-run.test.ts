@@ -114,7 +114,10 @@ async function seedScaleWorld(projectRoot: string): Promise<void> {
             const id = `npc-${String(npc).padStart(2, "0")}`;
             await client.execute({sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, 'character', ?)`, args: [id, `角色${npc}`]});
         }
-        for (const location of nodes) await client.execute({sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, 'location', ?)`, args: [location.id, location.canonicalName]});
+        for (const location of nodes) await client.execute({
+            sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, ?, ?)`,
+            args: [location.id, location.level === "world" ? "world" : "location", location.canonicalName],
+        });
     } finally {
         client.close();
         collectReleasedSqliteHandles({force: true});

@@ -36,6 +36,8 @@ describe("RP P5 map and NPC tools", () => {
         expect(() => assertMapPermission("rp.world", {op: "replace_proposal", origin: "bootstrap"})).toThrow("不允许");
         expect(() => assertMapPermission("rp.leader", {op: "review"})).toThrow("不允许");
         expect(() => assertMapPermission("rp.world", {op: "review"})).not.toThrow();
+        expect(() => assertMapPermission("rp.world", {op: "discard_bootstrap_location"})).not.toThrow();
+        expect(() => assertMapPermission("rp.screenwriter", {op: "discard_bootstrap_location"})).toThrow("不允许");
         expect(() => assertMapPermission("rp.world", {op: "approve_conflict"})).toThrow("不允许");
     });
 
