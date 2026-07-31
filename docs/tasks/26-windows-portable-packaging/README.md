@@ -676,3 +676,19 @@
 - 无 `node_modules/.bin/nuxt` 的临时源码目录调用 preflight：直接提示 `源码部署缺少本地 Nuxt CLI` 和 `bun install --frozen-lockfile`，未执行 `nuxt:prepare`。
 - 残留 `.nuxt/tsconfig.json` 但无 `node_modules/.bin/nuxt` 的临时源码目录调用 preflight：直接提示缺 Nuxt CLI，未进入 Prisma generate。
 - 单测覆盖：Nuxt prepare 失败与 Prisma generate 失败分别显示对应阶段名。
+
+## 本地一键启动打包记录（0.82 / 0.83）
+
+本地「一键启动版」直接复用 release 打包链路，产物解压在仓库根的版本号目录（`/0.82/`、`/0.83/` 已加入 .gitignore，不入库）。
+
+流程（0.83，2026-07-27，commit `5bba77d7`）：
+
+1. 提交当前工作（`trackedFiles()` 走 `git ls-files`，未提交的新文件不会进包；同时确认上一版目录没有残留在暂存区，否则会被嵌套打进新包）。
+2. `bun run nuxt:build` 生产构建。
+3. `bun scripts/release/release-assets.ts source --output dist/neuro-book-source.zip`
+4. `bun scripts/release/release-assets.ts product --platform windows-x64 --output dist/neuro-book-product-windows-x64.zip`
+5. `bun scripts/deploy/windows-portable-manager.ts --source-archive dist/neuro-book-source.zip --product-archive dist/neuro-book-product-windows-x64.zip` → `dist/neuro-book-windows-x64.zip`。**必须在 PowerShell/cmd 环境跑**：脚本内部调用 `tar -xzf`，git-bash 的 GNU tar 会把 `E:\...` 当远程主机报 "Cannot connect to E:"；系统 bsdtar 无此问题。
+6. `C:\Windows\System32\tar.exe -xf dist/neuro-book-windows-x64.zip -C 0.83` 解压（5.4 万文件约十几分钟）。
+7. 验证：`.runtime\bin\neuro-book.cmd --root <0.83 绝对路径> start --no-health-check` 启动后 curl 首页 200 + `/api/app/version` 正常，随后停进程并确认 3000 端口释放。
+
+0.83 实测：zip 561MB、解压 1.9GB、`installation.json` revision=5bba77d7、source files=2905、启动 200。appVersion 沿用 package.json 的 `0.8.19-canary...` 字符串，「0.83」只是本地版本目录名。

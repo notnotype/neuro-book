@@ -8,7 +8,7 @@ import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 
 const harness: ProfileRuntimeSettingsDto = {
     summarizer: {enabled: false, profileKey: "summarizer", trigger: "afterInvocation", interval: {kind: "sourceInvocation", value: 16}, maxDialogueContentTokens: 80_000},
-    compaction: {enabled: true, trigger: {kind: "autoReserve"}, reserveTokens: 25_600, keepRecent: {kind: "tokens", value: 24_000}, prompt: "prompt", summaryPrefix: "prefix"},
+    compaction: {enabled: true, trigger: {kind: "autoReserve"}, reserveTokens: 25_600, keepRecent: {kind: "tokens", value: 24_000}},
     fileChangeNotice: {diffMaxChars: 512},
 };
 

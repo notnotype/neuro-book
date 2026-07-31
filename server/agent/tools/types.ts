@@ -50,6 +50,22 @@ export type ToolExecutionContext = {
 };
 
 /**
+ * 工具在创建用户审批或输入请求前可用的只读授权上下文。
+ *
+ * 这一阶段只判断“当前 profile 是否有权发起该操作”，不得写入 session、
+ * Project Workspace 或其他业务状态。真正执行时仍应保留同一权限断言作为纵深防御。
+ */
+export type ToolAuthorizationContext = {
+    sessionId: number;
+    profileKey: string;
+    workspaceRootRef: WorkspaceRootRef;
+    workspaceFsRoot: AbsoluteFsPath;
+    workspaceKey: string;
+    projectPath?: string;
+    invocationId?: string;
+};
+
+/**
  * 用户输入请求上下文。
  * 工具在判断是否需要用户输入时可以访问的信息。
  */
@@ -102,6 +118,11 @@ export type NeuroAgentTool = {
      * 同一 assistant turn 内的工具调度策略。未声明时由 harness 默认策略决定。
      */
     executionMode?: ToolExecutionMode;
+    /**
+     * 在 Harness 创建审批或用户输入 pending 之前执行的只读授权钩子。
+     * 抛出错误表示拒绝该调用；Harness 会直接返回错误 tool result，不产生等待状态。
+     */
+    authorize?: (context: ToolAuthorizationContext, args: unknown) => Promise<void> | void;
     /**
      * 用户输入请求配置。
      * 工具可以通过此字段声明在执行时需要用户输入。
@@ -172,6 +193,7 @@ export type AgentToolDefinitionInput<TKey extends string = string> = {
     /** 见 NeuroAgentTool.mutatesWorkspace：只读模式写审批的能力标记。 */
     mutatesWorkspace?: boolean;
     executionMode?: ToolExecutionMode;
+    authorize?: NeuroAgentTool["authorize"];
     userInputRequest?: NeuroAgentTool["userInputRequest"];
     prepareArguments?: NeuroAgentTool["prepareArguments"];
     execute?: NeuroAgentTool["execute"];
@@ -210,6 +232,7 @@ export function defineAgentTool<const TKey extends string>(input: AgentToolDefin
                 approvalRequired: input.approvalRequired,
                 mutatesWorkspace: input.mutatesWorkspace,
                 executionMode: input.executionMode,
+                authorize: input.authorize,
                 userInputRequest: input.userInputRequest,
                 prepareArguments: input.prepareArguments,
                 execute: input.execute ?? (async () => {
@@ -236,6 +259,8 @@ export function defineAgentToolFromRuntime<const TKey extends string>(tool: Neur
         approvalRequired: tool.approvalRequired,
         mutatesWorkspace: tool.mutatesWorkspace,
         executionMode: tool.executionMode,
+        authorize: tool.authorize,
+        userInputRequest: tool.userInputRequest,
         prepareArguments: tool.prepareArguments,
         execute: tool.execute,
         executeWithContext: tool.executeWithContext,

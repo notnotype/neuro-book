@@ -21,7 +21,7 @@ import {
 } from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {defineLowCodeForm} from "nbook/server/low-code-form";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderCustomBottomPrompt, renderCustomTopPrompt, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, profileSettingsPresets, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderPromptEntries, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "leader.assets",
@@ -49,6 +49,7 @@ export const LeaderAssetsSettingsForm = defineLowCodeForm({
     fields: [
         ...promptCustomizationFormFields(),
     ],
+    presets: profileSettingsPresets(),
     async validate(value, ctx) {
         const personaIssue = await validatePersonaPreset(value.personaPreset, ctx.home);
         return personaIssue ? [personaIssue] : [];
@@ -97,10 +98,10 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
                         persona,
                         LEADER_ASSETS_SYSTEM_PROMPT,
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>

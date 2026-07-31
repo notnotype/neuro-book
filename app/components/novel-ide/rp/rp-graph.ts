@@ -1,5 +1,6 @@
 import type {JsonValue} from "nbook/app/utils/world-engine-preview";
 import type {SubjectStateDto, WorldSubjectDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
+import type {RpPlayerCharacterDto, RpPlayerMapNodeDto, RpPlayerMapRouteDto, RpPlayerRelationDto} from "nbook/shared/dto/rp-runtime.dto";
 
 /**
  * RP 侧栏图谱构建：从 World Engine（rp 世界线）的 subject 状态里提取引用关系，
@@ -26,6 +27,46 @@ export type RpGraph = {
     nodes: RpGraphNode[];
     edges: RpGraphEdge[];
 };
+
+export type RpGraphNodeDetail = {
+    id: string;
+    label: string;
+    category: string;
+    summary: string;
+    fields: Array<{label: string; value: string}>;
+};
+
+/** 只从玩家地图投影构建图谱，不读取尚未 materialize 的 World Engine 地点。 */
+export function buildRpMapGraph(map: {nodes: RpPlayerMapNodeDto[]; routes: RpPlayerMapRouteDto[]} | null): RpGraph {
+    if (!map) return {nodes: [], edges: []};
+    const nodes = map.nodes.map((node) => ({id: node.id, label: node.label, type: "location"}));
+    const edges: RpGraphEdge[] = [];
+    for (const node of map.nodes) {
+        if (node.parentId && map.nodes.some((parent) => parent.id === node.parentId)) {
+            edges.push({id: `hierarchy:${node.parentId}->${node.id}`, source: node.parentId, target: node.id, label: "包含"});
+        }
+    }
+    for (const route of map.routes) {
+        edges.push({id: `route:${route.id}`, source: route.fromId, target: route.toId, label: route.label || "路线"});
+    }
+    return {nodes, edges};
+}
+
+/** 从正式关系账本的玩家投影构建有向角色关系图。 */
+export function buildRpRelationGraph(characters: RpPlayerCharacterDto[], relations: RpPlayerRelationDto[]): RpGraph {
+    const characterIds = new Set(characters.map((character) => character.id));
+    return {
+        nodes: characters.map((character) => ({id: character.id, label: character.name, type: "character"})),
+        edges: relations
+            .filter((relation) => characterIds.has(relation.sourceId) && characterIds.has(relation.targetId))
+            .map((relation) => ({
+                id: relation.id,
+                source: relation.sourceId,
+                target: relation.targetId,
+                label: relation.tags.length > 0 ? relation.tags.join("、") : "关系",
+            })),
+    };
+}
 
 /** 从 subject 状态集中构建指定 type 集合的关系图。 */
 export function buildRpGraph(input: {

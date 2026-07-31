@@ -30,8 +30,6 @@ export const ProfileCompactionRuntimePatchSchema = z.object({
     trigger: CompactionTriggerSchema.optional(),
     reserveTokens: z.number().int().positive().optional(),
     keepRecent: CompactionKeepRecentSchema.optional(),
-    prompt: z.string().trim().min(1).optional(),
-    summaryPrefix: z.string().trim().min(1).optional(),
 }).strict();
 
 export const ProfileFileChangeNoticeRuntimePatchSchema = z.object({
@@ -71,8 +69,6 @@ export type ProfileCompactionRuntimePatch = {
     trigger?: CompactionTrigger;
     reserveTokens?: number;
     keepRecent?: CompactionKeepRecent;
-    prompt?: string;
-    summaryPrefix?: string;
 };
 
 export type ProfileFileChangeNoticeRuntimePatch = {

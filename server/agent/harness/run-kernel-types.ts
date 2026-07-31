@@ -169,6 +169,8 @@ export type RunFrame = {
     apiKey?: string;
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
+    /** false 时 Provider 仍流式执行，但公开事件只在完整消息完成后发送。 */
+    realtimeOutput?: boolean;
     compaction?: ProfileRuntimeSettings["compaction"];
     /** 本 run 的 Pi 请求 trace 设置，由 prepareRun 从 effective config 解析。缺省表示不追踪。 */
     piTrace?: PiTraceSettings;
@@ -246,6 +248,7 @@ export type TurnSnapshot = {
     apiKey?: string;
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
+    realtimeOutput: boolean;
     toolKeys: string[];
     executionToolKeys: string[];
     toolOverrides: Record<string, NeuroAgentTool>;

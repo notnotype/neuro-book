@@ -1,25 +1,20 @@
 /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
 import {isAbsolute, posix} from "node:path";
-import {Type, type Static} from "typebox";
+import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, plotReadBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {WriterInitialSchema, WriterOutputSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {DEFAULT_WRITING_REFERENCE_PRESET, buildWritingReference, legacyReferenceKeyToHomeKey, loadWritingReferencePresets, normalizeReferenceHomeKey} from "nbook/server/agent/profiles/writer-writing-reference";
-import {DEFAULT_WRITING_STYLE_PRESET, buildWritingStyle, legacyStyleKeyToHomeKey, loadWritingStylePresets, normalizeStyleHomeKey} from "nbook/server/agent/profiles/writer-writing-style";
-import {buildPersonaPrompt, initializePersonaHome, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderCustomBottomPrompt, renderCustomTopPrompt, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
-import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
-import {defineProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
+import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
+import {buildPersonaPrompt, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
+import {WriterProfileSettingsSchema, type WriterProfileSettings, writerNarrativePersonText, writerProfileHomeDefinition, writerProfileSettingsForm} from "nbook/server/agent/profiles/writer-profile-settings";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
-
-const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
-const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
-const DEFAULT_POLISHING_WORKFLOW = "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。不要输出 <refine> JSON，不把润色分析混进正文。";
 
 export const profileManifest = {
     key: "writer",
@@ -31,147 +26,14 @@ export const profileManifest = {
 export const InitialSchema = WriterInitialSchema;
 export const PayloadSchema = WriterPayloadSchema;
 export const OutputSchema = WriterOutputSchema;
-export const SettingsSchema = Type.Object({
-    ...promptCustomizationSchemaFields,
-    writingStylePreset: Type.String(),
-    writingReferencePreset: Type.String(),
-    narrativePerson: Type.Union([
-        Type.Literal("first"),
-        Type.Literal("second"),
-        Type.Literal("third"),
-    ]),
-    paragraphRhythm: Type.String(),
-    wordCountControl: Type.String(),
-    polishingWorkflow: Type.String(),
-    adultStylePrompt: Type.String(),
-    fileChangeAwareness: Type.Union([
-        Type.Literal("off"),
-        Type.Literal("minimal"),
-        Type.Literal("full"),
-    ]),
-}, {additionalProperties: false});
+export const SettingsSchema = WriterProfileSettingsSchema;
 
 export type Initial = Static<typeof InitialSchema>;
 export type Payload = Static<typeof PayloadSchema>;
 export type Output = Static<typeof OutputSchema>;
-export type Settings = Static<typeof SettingsSchema>;
+export type Settings = WriterProfileSettings;
 
-export const WriterSettingsForm = defineLowCodeForm({
-    schema: SettingsSchema,
-    defaults: {
-        ...promptCustomizationDefaults,
-        writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
-        writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
-        narrativePerson: "third",
-        paragraphRhythm: DEFAULT_PARAGRAPH_RHYTHM,
-        wordCountControl: DEFAULT_WORD_COUNT_CONTROL,
-        polishingWorkflow: DEFAULT_POLISHING_WORKFLOW,
-        adultStylePrompt: "",
-        fileChangeAwareness: "minimal",
-    },
-    fields: [
-        ...promptCustomizationFormFields(),
-        {
-            path: "writingStylePreset",
-            component: "resource-preset",
-            label: "文风要求",
-            description: "条文式的文风规则（用词、句式、禁用项），作为写作约束注入。",
-            placeholder: "选择默认文风要求",
-            resource: profileHomeResource({
-                directory: "styles",
-                extension: ".md",
-                template: "在这里写入文风要求。",
-            }),
-        },
-        {
-            path: "writingReferencePreset",
-            component: "resource-preset",
-            label: "文风参考",
-            description: "供模仿语感的正文样本，与「文风要求」互补：一个给规则，一个给示例。",
-            placeholder: "选择默认参考样本",
-            resource: profileHomeResource({
-                directory: "references",
-                extension: ".md",
-                template: "在这里写入文风参考样本。",
-            }),
-        },
-        {
-            path: "narrativePerson",
-            component: "radio",
-            label: "默认人称",
-            description: "正文默认叙事人称；本轮写作任务另有要求时以任务为准。",
-            options: [
-                {value: "third", label: "第三人称"},
-                {value: "first", label: "第一人称"},
-                {value: "second", label: "第二人称"},
-            ],
-        },
-        {
-            path: "paragraphRhythm",
-            component: "textarea",
-            label: "段落节奏",
-            description: "默认段落与分行节奏偏好；本轮写作任务另有要求时以任务为准。",
-            rows: 4,
-            placeholder: "描述你偏好的长段、短段或分行节奏。",
-        },
-        {
-            path: "wordCountControl",
-            component: "text",
-            label: "默认字数",
-            description: "单章默认字数范围；材料不足时 Writer 不会硬凑字数。",
-            placeholder: "例如：2000-2600 字",
-        },
-        {
-            path: "polishingWorkflow",
-            component: "text",
-            label: "润色工作流",
-            description: "写完正文后的自查与润色流程。",
-            placeholder: "描述写完后如何复查和润色。",
-        },
-        {
-            path: "adultStylePrompt",
-            component: "text",
-            label: "成人风格增强",
-            description: "填写后作为成人场景写作约束注入；留空则完全不注入。",
-            placeholder: "例如：注重情绪推进与关系变化，避免机械描写。",
-        },
-        {
-            path: "fileChangeAwareness",
-            component: "radio",
-            label: "文件变更感知",
-            description: "每轮开始前提醒 agent：上次看过之后，项目文件被其他人（用户 / 其他 agent / 外部工具）改过哪些。",
-            options: [
-                {value: "minimal", label: "精简", description: "只列变更文件路径和条数。"},
-                {value: "full", label: "完整", description: "含归因（谁改的）与操作类型，并提示续写前先重读相关文件。"},
-                {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
-            ],
-        },
-    ],
-    async validate(value, ctx) {
-        const [styles, references] = await Promise.all([
-            loadWritingStylePresets(),
-            loadWritingReferencePresets(),
-        ]);
-        const issues: Array<{path: string; severity: "error"; message: string}> = [];
-        const styleExists = ctx.home
-            ? await ctx.home.exists(normalizeStyleHomeKey(value.writingStylePreset))
-            : styles.some((style) => style.key === value.writingStylePreset || legacyStyleKeyToHomeKey(style.key) === value.writingStylePreset);
-        const referenceExists = ctx.home
-            ? await ctx.home.exists(normalizeReferenceHomeKey(value.writingReferencePreset))
-            : references.some((reference) => reference.key === value.writingReferencePreset || legacyReferenceKeyToHomeKey(reference.key) === value.writingReferencePreset);
-        if (!styleExists) {
-            issues.push({path: "writingStylePreset", severity: "error" as const, message: "选择的文风要求不存在。"});
-        }
-        if (!referenceExists) {
-            issues.push({path: "writingReferencePreset", severity: "error" as const, message: "选择的文风参考不存在。"});
-        }
-        const personaIssue = await validatePersonaPreset(value.personaPreset, ctx.home);
-        if (personaIssue) {
-            issues.push(personaIssue);
-        }
-        return issues;
-    },
-});
+export const WriterSettingsForm = writerProfileSettingsForm();
 
 type WriterPayloadTarget = {
     path: string;
@@ -180,70 +42,13 @@ type WriterPayloadTarget = {
     chapterPath: string | null;
 };
 
-async function initializeWriterHome(home: NonNullable<ProfilePrepareContext<Initial, Payload, Settings>["home"]>): Promise<void> {
-    const [styles, references] = await Promise.all([
-        loadWritingStylePresets(),
-        loadWritingReferencePresets(),
-    ]);
-    for (const style of styles) {
-        await home.writeText(legacyStyleKeyToHomeKey(style.key), renderStyleResource(style), {mode: "create"});
-    }
-    for (const reference of references) {
-        await home.writeText(legacyReferenceKeyToHomeKey(reference.key), renderReferenceResource(reference), {mode: "create"});
-    }
-    await initializePersonaHome(home, "writer");
-}
-
-function renderStyleResource(style: Awaited<ReturnType<typeof loadWritingStylePresets>>[number]): string {
-    return [
-        "---",
-        `key: "${style.key}"`,
-        `title: "${style.label.replaceAll("\"", "\\\"")}"`,
-        `label: "${style.label.replaceAll("\"", "\\\"")}"`,
-        `sourcePreset: "${style.sourcePreset.replaceAll("\"", "\\\"")}"`,
-        `identifier: "${style.identifier.replaceAll("\"", "\\\"")}"`,
-        `name: "${style.name.replaceAll("\"", "\\\"")}"`,
-        `enabled: ${style.enabled === null ? "null" : style.enabled}`,
-        `role: ${style.role === null ? "null" : `"${style.role.replaceAll("\"", "\\\"")}"`}`,
-        "---",
-        "",
-        style.content,
-    ].join("\n");
-}
-
-function renderReferenceResource(reference: Awaited<ReturnType<typeof loadWritingReferencePresets>>[number]): string {
-    return [
-        "---",
-        `key: "${reference.key}"`,
-        `title: "${reference.label.replaceAll("\"", "\\\"")}"`,
-        `label: "${reference.label.replaceAll("\"", "\\\"")}"`,
-        `sourceTitle: "${reference.sourceTitle.replaceAll("\"", "\\\"")}"`,
-        `sourceChapters: "${reference.sourceChapters.replaceAll("\"", "\\\"")}"`,
-        `generatedFrom: "${reference.generatedFrom.replaceAll("\"", "\\\"")}"`,
-        "---",
-        "",
-        reference.content,
-    ].join("\n");
-}
-
 export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     payloadSchema: PayloadSchema,
     outputSchema: OutputSchema,
     settingsForm: WriterSettingsForm,
-    home: defineProfileHome({
-        async init(ctx) {
-            await initializeWriterHome(ctx.home);
-        },
-        async upgrade(ctx) {
-            await initializeWriterHome(ctx.home);
-        },
-        async reset(ctx) {
-            await ctx.home.clear();
-            await initializeWriterHome(ctx.home);
-        },
-    }),
+    home: writerProfileHomeDefinition("writer"),
     tools: toolset(
         builtin.file.read,
         builtin.file.write,
@@ -265,22 +70,16 @@ export default defineAgentProfile({
 export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payload, Settings>) {
     const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset, home: ctx.home});
     const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
-    const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
-    const customTopPrompt = ctx.settings.customTopSystemPrompt.trim();
-    const customBottomPrompt = ctx.settings.customBottomSystemPrompt.trim();
+    const narrativePerson = writerNarrativePersonText(ctx.settings.narrativePerson);
+    const promptEntriesBefore = renderPromptEntries(ctx.settings, "before");
+    const promptEntriesAfter = renderPromptEntries(ctx.settings, "after");
     const personaPrompt = await buildPersonaPrompt({profileKey: "writer", preset: ctx.settings.personaPreset, home: ctx.home});
     const adultStylePrompt = ctx.settings.adultStylePrompt.trim();
     const inputContext = await renderInputContext(ctx);
     return (
         <ProfilePrompt>
             <System>
-                <If condition={customTopPrompt.length > 0}>
-                    {profileText`
-                        <custom_top_system_prompt>
-                            ${customTopPrompt}
-                        </custom_top_system_prompt>
-                    `}
-                </If>
+                {promptEntriesBefore}
                 {profileText`
                     <writing_reference>
                         ${writingReference}
@@ -401,13 +200,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         </adult_style>
                         `}
                     </If>
-                    <If condition={customBottomPrompt.length > 0}>
-                        {profileText`
-                            <custom_bottom_system_prompt>
-                                ${customBottomPrompt}
-                            </custom_bottom_system_prompt>
-                        `}
-                    </If>
+                    {promptEntriesAfter}
             </System>
             <HistorySet>
                 <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
@@ -427,22 +220,6 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
         </ProfilePrompt>
     );
 }
-
-/**
- * 渲染默认叙事人称。
- */
-function narrativePersonText(value: Settings["narrativePerson"]): string {
-    switch (value) {
-        case "first":
-            return "第一人称";
-        case "second":
-            return "第二人称";
-        case "third":
-            return "第三人称";
-    }
-}
-
-
 
 async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>): Promise<string> {
     const payload = ctx.invocation?.payload;

@@ -21,6 +21,7 @@ import {imageMimeType} from "nbook/server/agent/attachments/agent-attachment-cod
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
 import {normalizeProjectPath, projectSlug, resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
+import {assertRpFormalFileWrite} from "nbook/server/rp/intake-guard";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -237,6 +238,7 @@ function createWriteTool(): NeuroAgentTool {
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as WriteInput;
             const address = await resolveToolFile(context, input.path, "write");
+            await assertRpFormalFileWrite(context, address);
             const absolutePath = address.absolutePath;
             // 记账 before：覆盖写前补读一次旧内容（不存在 = null，file.create 语义）
             const before = await readFile(absolutePath).catch(() => null);
@@ -293,6 +295,7 @@ function createEditTool(): NeuroAgentTool {
                 throw new Error("edits must contain at least one replacement.");
             }
             const address = await resolveToolFile(context, input.path, "edit");
+            await assertRpFormalFileWrite(context, address);
             const absolutePath = address.absolutePath;
             const original = await readFile(absolutePath, "utf-8");
             const updated = applyExactEdits(original, input.edits, input.path);
@@ -333,6 +336,7 @@ function createApplyPatchTool(): NeuroAgentTool {
             const result = await applyCodexPatch({
                 fileScope: resolveSessionFileScope(context),
                 patchText: input.patch,
+                authorizeWrite: (address) => assertRpFormalFileWrite(context, address),
             });
             // 逐 change 归因记账。moveTo 形态在 planned changes 中已拆成源 delete + 目标 add/update，
             // 按拆分结果各记一条（改名+改内容不满足 rename 的「内容不变」语义，不聚合，v1 接受时间线在此断链）。

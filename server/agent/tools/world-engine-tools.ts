@@ -9,6 +9,7 @@ import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {resolveSessionFileScope} from "nbook/server/agent/workspace/session-file-scope";
 import {worldEngineFacadeForWorkspaceRoot} from "nbook/server/world-engine";
+import {assertRpRuntimeForProject} from "nbook/server/rp/intake-guard";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
 
@@ -18,6 +19,17 @@ const ExecuteWorldSchema = Type.Object({
     worldKey: Type.Optional(Type.Union([Type.Literal("main"), Type.Literal("rp")], {
         description: "World timeline to operate on. Omit or \"main\" = writing-mode world (default, config root world-engine/). \"rp\" = the fully isolated RP-mode world (own config root rp/world-engine/, own database; no fallback to main).",
     })),
+    operationId: Type.Optional(Type.String({
+        minLength: 1,
+        maxLength: 200,
+        pattern: "^[\\w:.-]+$",
+        description: "Idempotency key for a readwrite operation. RP turn settlement must use the operationId supplied by rp_turn begin_commit; retries with the same id return the first committed result without executing code again. Omit for readonly/state-distribution calls.",
+    })),
+    rpOperation: Type.Optional(Type.Union([
+        Type.Literal("state_read"),
+        Type.Literal("turn_commit"),
+        Type.Literal("bootstrap"),
+    ], {description: "Required for rp.world: state_read=query/distribution without operationId; turn_commit=world writeback and requires rp_turn worldOperationId; bootstrap=confirmed adventure initialization."})),
 }, {
     additionalProperties: false,
 });
@@ -30,10 +42,23 @@ export function createWorldEngineTools(): NeuroAgentTool[] {
             buildExecuteWorldDescription("readwrite"),
             ExecuteWorldSchema,
             async (context, input) => {
+                if ((input.worldKey ?? "main") === "rp") await assertRpRuntimeForProject(context, input.projectPath, ["world", "map", "opening_event"]);
+                if (context.profileKey === "rp.world") {
+                    if (!input.rpOperation) throw new Error("rp.world 调用 execute_world 必须声明 rpOperation。");
+                    if (input.rpOperation === "turn_commit" && !input.operationId) {
+                        throw new Error("rp.world turn_commit 必须携带 rp_turn begin_commit 返回的 operationId。");
+                    }
+                    if (input.rpOperation === "state_read" && input.operationId) {
+                        throw new Error("rp.world state_read 不得携带 operationId。");
+                    }
+                }
                 const mode = modeForContext(context);
                 try {
                     const facade = worldEngineFacadeForWorkspaceRoot(context.workspaceFsRoot);
-                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode, {worldKey: input.worldKey ?? "main"});
+                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode, {
+                        worldKey: input.worldKey ?? "main",
+                        operationId: input.operationId,
+                    });
                     return worldResult(result);
                 } catch (error) {
                     const tempPath = await saveTempCode(context, input.code);
@@ -81,10 +106,11 @@ function worldResult(details: unknown): NeuroToolResult {
 
 function renderWorldResultText(details: AgentJsonValue): string {
     if (isRecord(details) && typeof details.data === "string" && Array.isArray(details.issues)) {
+        const instantLine = typeof details.instant === "string" ? `worldInstant: ${details.instant}\n\n` : "";
         if (details.issues.length === 0) {
-            return details.data;
+            return `${instantLine}${details.data}`;
         }
-        return `${details.data}\n\nissues:\n${JSON.stringify(details.issues, null, 2)}`;
+        return `${instantLine}${details.data}\n\nissues:\n${JSON.stringify(details.issues, null, 2)}`;
     }
     return JSON.stringify(details, null, 2);
 }

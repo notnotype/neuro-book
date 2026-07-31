@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, ref, watch} from "vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import RpSidebar from "nbook/app/components/novel-ide/rp/RpSidebar.vue";
 import RpProsePanel from "nbook/app/components/novel-ide/rp/RpProsePanel.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {RpRuntimeOverviewDto} from "nbook/shared/dto/rp-runtime.dto";
 
 /**
  * RP 模式第三布局：嵌在 IDE 头部下方的内容区（非弹窗）。
@@ -43,6 +44,8 @@ const rpActiveSessionId = computed(() => chatRef.value?.activeSessionId ?? null)
 const rpSessionLoading = computed(() => chatRef.value?.loadingSession ?? false);
 const rpSessionRunning = computed(() => chatRef.value?.running ?? false);
 const rpSessionActionId = computed(() => chatRef.value?.sessionActionId ?? null);
+const pendingIntakeResumeVersion = ref<number | null>(null);
+const intakeResumeSending = ref(false);
 
 /** 刷新 rp.leader 会话列表。 */
 async function refreshRpSessions(): Promise<void> {
@@ -58,6 +61,66 @@ async function refreshRpSessions(): Promise<void> {
 function handleWorkspaceSync(): void {
     void sidebarRef.value?.refresh();
     void prosePanelRef.value?.refresh();
+}
+
+/**
+ * 玩家在状态页确认后，向当前主持会话追加一条可审计的 UI 操作回执。
+ * 若主持仍在完成审阅回合，则等运行结束；若它已自行进入初始化，则不重复续跑。
+ */
+async function handleIntakeConfirmed(payload: {version: number}): Promise<void> {
+    pendingIntakeResumeVersion.value = payload.version;
+    await resumeConfirmedIntake();
+}
+
+/** 在主持空闲后恢复已确认企划的 Bootstrap 编排。 */
+async function resumeConfirmedIntake(): Promise<void> {
+    const version = pendingIntakeResumeVersion.value;
+    if (version === null || intakeResumeSending.value || rpSessionRunning.value || !rpActiveSessionId.value) return;
+    intakeResumeSending.value = true;
+    try {
+        // 审阅工具返回后主持仍可能继续执行；只在企划仍停留 confirmed 时补发续跑消息。
+        try {
+            const overview = await $fetch<RpRuntimeOverviewDto>("/api/projects/rp/overview", {
+                query: {projectPath: props.projectPath},
+            });
+            if (overview.intake.phase !== "confirmed" || overview.intake.confirmedVersion !== version) {
+                pendingIntakeResumeVersion.value = null;
+                await sidebarRef.value?.refresh();
+                return;
+            }
+        } catch {
+            // 确认 API 已成功；概况复核失败不应吞掉后续恢复消息。
+        }
+
+        const sent = await chatRef.value?.sendUserMessage(`【RP 状态页操作】玩家已确认开团企划 v${version}。请调用 rp_intake op=get 核对 confirmedVersion，然后继续 begin_bootstrap；不要重新询问确认。`);
+        pendingIntakeResumeVersion.value = null;
+        if (!sent) {
+            notification.info("企划已确认，但当前主持会话仍在等待其他输入。请在对话中发送“继续开团”以恢复初始化。", {title: "等待主持继续"});
+        }
+    } finally {
+        intakeResumeSending.value = false;
+    }
+}
+
+watch(rpSessionRunning, (running, wasRunning) => {
+    // rp_intake 等工具写入 `.nbook` 后没有通用 workspace 文件事件；主持回合收束时刷新持久真相。
+    if (wasRunning && !running) {
+        void sidebarRef.value?.refresh();
+        void prosePanelRef.value?.refresh();
+    }
+    if (!running && rpActiveSessionId.value && pendingIntakeResumeVersion.value !== null) void resumeConfirmedIntake();
+});
+
+watch(rpActiveSessionId, (sessionId) => {
+    if (sessionId && !rpSessionRunning.value && pendingIntakeResumeVersion.value !== null) void resumeConfirmedIntake();
+});
+
+/** 时间线恢复后切断旧主持/演员会话链，并刷新所有 RP 文件投影。 */
+async function handleTimelineRestored(): Promise<void> {
+    await chatRef.value?.createSession();
+    await refreshRpSessions();
+    await Promise.all([sidebarRef.value?.refresh(), prosePanelRef.value?.refresh()]);
+    notification.info("已进入恢复后的时间线，并创建新的主持会话以隔离旧分支记忆。", {title: "时间线已切换"});
 }
 
 /**
@@ -134,7 +197,7 @@ async function rollDice(): Promise<void> {
         />
 
         <aside v-if="sidebarVisible" class="ide-panel w-[360px] shrink-0 border-r border-[var(--border-color)]">
-            <RpSidebar ref="sidebarRef" :project-path="props.projectPath" />
+            <RpSidebar ref="sidebarRef" :project-path="props.projectPath" @intake-confirmed="void handleIntakeConfirmed($event)" @timeline-restored="void handleTimelineRestored()" />
         </aside>
 
         <!-- 左侧功能轨道：会话列表开关 + 世界面板收起/展开 -->

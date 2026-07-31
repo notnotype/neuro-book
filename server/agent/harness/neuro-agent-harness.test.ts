@@ -281,6 +281,67 @@ describe("NeuroAgentHarness", () => {
             : null).toBe(faux.getModel().id);
     });
 
+    it("同一 Session 下一次 invocation 重新映射 Temperature 与实时输出", async () => {
+        const configPath = join(root, ".nbook", "config.json");
+        const config = JSON.parse(await readFile(configPath, "utf8")) as {models: JsonValue; agent?: JsonValue};
+        config.agent = {
+            profiles: {
+                "leader.default": {
+                    model: {temperature: 0.2, realtimeOutput: false},
+                },
+            },
+        };
+        await writeFile(configPath, JSON.stringify(config), "utf8");
+
+        let firstTemperature: number | undefined;
+        faux.setResponses([(_context, options) => {
+            firstTemperature = options?.temperature;
+            return fauxAssistantMessage("first response");
+        }]);
+        const created = await harness.createAgent({profileKey: "leader.default", initial: {}, workspaceRoot: root});
+        const firstEvents: string[] = [];
+        const first = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "first"},
+            onEvent(event) {
+                firstEvents.push(event.type);
+            },
+        });
+
+        expect(first.status).toBe("completed");
+        expect(firstTemperature).toBe(0.2);
+        expect(firstEvents).not.toContain("message_update");
+        expect(firstEvents).toEqual(expect.arrayContaining(["message_start", "message_end"]));
+
+        config.agent = {
+            profiles: {
+                "leader.default": {
+                    model: {temperature: 0.7, realtimeOutput: true},
+                },
+            },
+        };
+        await writeFile(configPath, JSON.stringify(config), "utf8");
+        let secondTemperature: number | undefined;
+        faux.setResponses([(_context, options) => {
+            secondTemperature = options?.temperature;
+            return fauxAssistantMessage("second response");
+        }]);
+        const secondEvents: string[] = [];
+        const second = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "second"},
+            onEvent(event) {
+                secondEvents.push(event.type);
+            },
+        });
+
+        expect(second.status).toBe("completed");
+        expect(secondTemperature).toBe(0.7);
+        expect(secondEvents).toContain("message_update");
+    });
+
     it("create -> prompt -> report_result 会落地消息和结构化结果", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -5829,10 +5890,16 @@ describe("NeuroAgentHarness", () => {
                 }, {id: "approval-report"}),
             ], {stopReason: "toolUse"}),
         ]);
+        const owner = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
         const created = await harness.createAgent({
             profileKey: "test.private-approval",
             initial: {},
             workspaceRoot: root,
+            parentSessionId: owner.sessionId,
         });
 
         const waiting = await harness.invokeAgent({
@@ -5840,6 +5907,8 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "run"},
         });
+        const waitingSummary = await harness.getAgent(created.sessionId);
+        const waitingOwned = await harness.getAgent(undefined, owner.sessionId);
         const continued = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "continue",
@@ -5852,9 +5921,77 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(waiting.status).toBe("waiting");
+        expect(waitingSummary).toEqual(expect.objectContaining({status: "waiting"}));
+        expect(waitingOwned).toEqual([expect.objectContaining({sessionId: created.sessionId, status: "waiting"})]);
         expect(continued.status).toBe("completed");
+        await expect(harness.getAgent(created.sessionId)).resolves.toEqual(expect.objectContaining({status: "idle"}));
+        await expect(harness.getAgent(undefined, owner.sessionId)).resolves.toEqual([
+            expect.objectContaining({sessionId: created.sessionId, status: "idle"}),
+        ]);
         expect(continued.reportResult?.result).toBe("approved done");
         expect(privateApprovalExecuted).toBe(false);
+    }, 20_000);
+
+    it("工具预授权拒绝发生在 userInputRequest 之前且不会创建 pending", async () => {
+        let inputRequirementChecked = false;
+        let executed = false;
+        const guardedTool = defineProfileTool({
+            key: "guarded_user_input",
+            name: "guarded_user_input",
+            label: "Guarded User Input",
+            description: "Authorization must run before a user input request is created.",
+            parameters: Type.Object({op: Type.Literal("restricted")}, {additionalProperties: false}),
+            authorize() {
+                throw new Error("当前 profile 无权执行 restricted");
+            },
+            userInputRequest: {
+                when() {
+                    inputRequirementChecked = true;
+                    return true;
+                },
+            },
+            async executeWithContext() {
+                executed = true;
+                return {content: [{type: "text", text: "unexpected"}], details: {}};
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.pre-authorization", name: "Pre Authorization"},
+            initialSchema: Type.Object({}),
+            tools: toolset(guardedTool, builtin.result.main()),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("guarded_user_input", {op: "restricted"}, {id: "guarded-user-input-call"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {result: "permission handled"}, {id: "guarded-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.pre-authorization",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const state = await harness.getSessionLiveState(created.sessionId);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult?.result).toBe("permission handled");
+        expect(inputRequirementChecked).toBe(false);
+        expect(executed).toBe(false);
+        expect(state.pendingUserInputs).toEqual([]);
+        expect(state.activeInvocation).toBeNull();
+        expect(visibleMessageText(context.messages)).toContain("当前 profile 无权执行 restricted");
     }, 20_000);
 
     it("sidecar 保持 profile 最大工具 schema 可见，但执行权限使用旁路子集", async () => {

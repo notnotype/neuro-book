@@ -178,7 +178,7 @@ describe("compaction", () => {
         expect(shouldCompactWithOptions(102_399, 128_000, options)).toBe(false);
     });
 
-    it("triggerTokens 生效并把自定义 prompt/prefix 写入 summary 调用和 compaction entry", async () => {
+    it("triggerTokens 生效并固定使用 Harness prompt/prefix", async () => {
         let summaryPrompt: Context | null = null;
         let summaryHeaders: Record<string, string | null> | undefined;
         faux.setResponses([
@@ -218,8 +218,6 @@ describe("compaction", () => {
             compaction: {
                 trigger: {kind: "tokens", value: 1},
                 keepRecent: {kind: "tokens", value: 1},
-                prompt: "CUSTOM PROMPT",
-                summaryPrefix: "CUSTOM PREFIX",
             },
             writeCompactionEntry,
         });
@@ -227,13 +225,13 @@ describe("compaction", () => {
         const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
         expect(compacted).toBe(true);
         const capturedPrompt = summaryPrompt as Context | null;
-        expect(capturedPrompt?.systemPrompt).toBe("CUSTOM PROMPT");
+        expect(capturedPrompt?.systemPrompt).toBe(COMPACTION_PROMPT);
         expect(summaryHeaders).toEqual({
             "x-request": "request",
             "x-model": "model",
             "x-shared": "request",
         });
-        expect(messageText(reduced.messages[0] as never)).toContain("CUSTOM PREFIX");
+        expect(messageText(reduced.messages[0] as never)).toContain(COMPACTION_SUMMARY_PREFIX);
     });
 
     it("visible custom_message 参与 recent cut 预算但不进入 summary 输入", async () => {

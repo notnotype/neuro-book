@@ -90,12 +90,28 @@ export const builtin = {
         fetch: registeredTool("web_fetch"),
     },
     rp: {
+        // RP 开团草案与确认门禁。最终确认由工具的 userInputRequest 强制暂停等待玩家操作。
+        intake: registeredTool("rp_intake"),
         // RP v2 角色信息与记忆工具（rp/characters/ 存储）。god-view 能力由各 profile 绑定与提示词约束。
         characterRecall: registeredTool("rp_character_recall"),
         characterUpdate: registeredTool("rp_character_update"),
         memoryCommit: registeredTool("rp_memory_commit"),
         // Tick 编号权威总账（rp/ticks/ 扫描）：leader 宣告编号，全管线只用不算
         tickInfo: registeredTool("rp_tick_info"),
+        // RP 回合事务、幂等 World operationId 与文件化结算账本
+        turn: registeredTool("rp_turn"),
+        // RP 候选四卡、正式事件生命周期与平淡回合触发器
+        event: registeredTool("rp_event"),
+        // RP 时间/资源/周期规则、八维关系和三层认知
+        mechanics: registeredTool("rp_mechanics"),
+        relation: registeredTool("rp_relation"),
+        cognition: registeredTool("rp_cognition"),
+        // RP 层级地点目录/可见性/路线，以及 NPC roster 生命周期
+        map: registeredTool("rp_map"),
+        npc: registeredTool("rp_npc"),
+        // P6 代码可见回合编排与关注度运行时
+        pipeline: registeredTool("rp_pipeline"),
+        focus: registeredTool("rp_focus"),
     },
     result: {
         main: (options: {dataSchema?: TSchema} = {}): ReportResultToolBinding => ({

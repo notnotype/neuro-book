@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {LowCodeJsonObjectSchema, LowCodeResourceMutationDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 
 // 这里用 any 是为了避免和 profile-template.dto.ts 形成运行时循环；字段仍在本地 schema 中校验。
 const AgentProfilePromptNodeDtoSchema: z.ZodType<any> = z.lazy(() => z.object({
@@ -151,11 +152,17 @@ export const AgentProfileDetailDtoSchema = z.object({
  */
 export const AgentProfilePreparePreviewRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1),
-    /**
-     * 完整 initial JSON。未提供时服务端会根据 initialOverrides 做一次最小构造。
-     */
+    /** 不依赖既有 Session 时，用于构造 Project scope 的真实 effective config。 */
+    projectPath: z.string().trim().min(1).optional(),
+    /** 配置中心尚未保存的完整有效 settings；缺省时预览当前已保存配置。 */
+    settingsOverride: LowCodeJsonObjectSchema.optional(),
+    /** 与 settingsOverride 一起应用到只读 Profile Home 覆盖层，不写真实资源。 */
+    resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
+    /** 完整 initial JSON；优先级高于 Session 与 initialOverrides。 */
     initial: z.json().optional(),
+    /** 可选真实 Session 上下文；未显式传 initial 时复用该 Session 的创建期 initial。 */
     sessionId: z.string().trim().min(1).optional(),
+    /** Workbench 自由文本字段构造的 initial；仅在没有 initial 和 Session 时使用。 */
     initialOverrides: z.record(z.string(), z.string()).optional(),
     /**
      * 仅用于 Workbench 显式验证未保存源码；服务端会在临时 profile root 中预览。
@@ -168,6 +175,10 @@ export const AgentProfilePreparePreviewRequestDtoSchema = z.object({
         role: z.enum(["system", "human", "assistant"]),
         text: z.string(),
     })).optional(),
+}).superRefine((value, ctx) => {
+    if ((value.resourceMutations?.length ?? 0) > 0 && value.settingsOverride === undefined) {
+        ctx.addIssue({code: "custom", path: ["settingsOverride"], message: "预览资源草稿时必须同时提供 settingsOverride"});
+    }
 });
 
 /**

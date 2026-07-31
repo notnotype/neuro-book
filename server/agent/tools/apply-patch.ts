@@ -137,6 +137,8 @@ export function extractPatchTargetPaths(patchText: string): string[] {
 export async function applyCodexPatch(input: {
     fileScope: FileScope;
     patchText: string;
+    /** 调用方附加的领域写门禁；在任何文件读取或落盘前对全部目标执行。 */
+    authorizeWrite?: (address: ResolvedFileAddress) => Promise<void>;
 }): Promise<ApplyCodexPatchResult> {
     const operations = parseCodexPatch(input.patchText);
     const authorizedAddresses = new Map<string, ResolvedFileAddress>();
@@ -147,6 +149,7 @@ export async function applyCodexPatch(input: {
         for (const patchPath of paths) {
             if (!authorizedAddresses.has(patchPath)) {
                 const authorized = await authorizeFileOperation(input.fileScope, patchPath, "apply_patch");
+                await input.authorizeWrite?.(authorized.address);
                 authorizedAddresses.set(patchPath, authorized.address);
             }
         }

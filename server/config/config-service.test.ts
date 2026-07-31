@@ -1078,7 +1078,7 @@ describe("config service", {timeout: 30_000}, () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profileModelDefaults: {
                     reasoningEffort: "high",
-                    stream: false,
+                    realtimeOutput: false,
                 },
                 profiles: {
                     "leader.default": {
@@ -1093,7 +1093,7 @@ describe("config service", {timeout: 30_000}, () => {
         await saveProjectConfig({
             agent: {
                 profileModelDefaults: {
-                    topK: 5,
+                    temperature: 0.5,
                     reasoningEffort: "low",
                 },
                 profiles: {
@@ -1114,19 +1114,18 @@ describe("config service", {timeout: 30_000}, () => {
 
         expect(settings.profileModelDefaults).toMatchObject({
             reasoningEffort: "low",
-            stream: false,
-            topK: 5,
+            realtimeOutput: false,
+            temperature: 0.5,
         });
         expect(leader?.model).toMatchObject({
             temperature: 0.4,
-            topK: 5,
             reasoningEffort: "medium",
-            stream: false,
+            realtimeOutput: false,
         });
         expect(assets?.model).toMatchObject({
-            topK: 5,
+            temperature: 0.5,
             reasoningEffort: "low",
-            stream: false,
+            realtimeOutput: false,
         });
     });
 
@@ -1136,7 +1135,7 @@ describe("config service", {timeout: 30_000}, () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profileModelDefaults: {
                     reasoningEffort: "off",
-                    stream: true,
+                    realtimeOutput: true,
                 },
                 profiles: {
                     "leader.default": {
@@ -1164,7 +1163,7 @@ describe("config service", {timeout: 30_000}, () => {
         expect(leader?.model).toMatchObject({
             temperature: 0.3,
             reasoningEffort: "xhigh",
-            stream: true,
+            realtimeOutput: true,
         });
     });
 

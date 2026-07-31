@@ -16,6 +16,7 @@ export type CreateRunFrameInput = {
     apiKey?: RunFrame["apiKey"];
     timeoutMs?: RunFrame["timeoutMs"];
     requestOptions?: RunFrame["requestOptions"];
+    realtimeOutput?: RunFrame["realtimeOutput"];
     compaction?: RunFrame["compaction"];
     piTrace?: RunFrame["piTrace"];
     sessionContextEnabled: RunFrame["sessionContextEnabled"];
@@ -62,6 +63,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs,
         requestOptions: input.requestOptions,
+        realtimeOutput: input.realtimeOutput ?? true,
         compaction: input.compaction,
         piTrace: input.piTrace,
         sessionContextEnabled: input.sessionContextEnabled,

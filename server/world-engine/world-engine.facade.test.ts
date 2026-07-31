@@ -105,6 +105,7 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
         // CodeAct 沙盒同样按世界线隔离
         const codeActResult = await facade.executeCodeActWorld(projectPath, "const s = await world.subject.get(\"erina\"); return s.hp;", "readonly", {worldKey: "rp"});
         expect(codeActResult.data).toBe(55);
+        expect(typeof codeActResult.instant).toBe("bigint");
     });
 
     it("worldKey=rp 缺少 rp/world-engine 配置根时明确报错，不回退写作模式配置", async () => {
@@ -114,6 +115,24 @@ describe("WorldEngineFacade", {timeout: 30_000}, () => {
         await expect(facade.listSlices(projectPath, {}, "rp")).rejects.toThrow();
         // main 世界线不受影响
         await expect(facade.listSlices(projectPath)).resolves.toEqual([]);
+    });
+
+    it("世界状态只有在 schema 与 calendar 真实加载成功后才标记 initialized", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+        const missing = await facade.getWorldStatus(projectPath, "rp");
+        expect(missing).toMatchObject({initialized: false, missing: ["rp/world-engine/schema/index.ts", "rp/world-engine/calendar.ts"], errors: []});
+
+        const rpConfigRoot = path.join(projectRoot(projectPath), "rp", "world-engine");
+        await fs.mkdir(path.join(rpConfigRoot, "schema"), {recursive: true});
+        await fs.writeFile(path.join(rpConfigRoot, "schema", "index.ts"), "import {z} from 'zod'; export const Character = z.object({name: z.string()});\n", "utf-8");
+        await fs.writeFile(path.join(rpConfigRoot, "calendar.ts"), "export const CALENDAR_CONFIG = {};\n", "utf-8");
+        const invalid = await facade.getWorldStatus(projectPath, "rp");
+        expect(invalid.initialized).toBe(false);
+        expect(invalid.errors.map((error) => error.path)).toEqual(["rp/world-engine/schema/index.ts", "rp/world-engine/calendar.ts"]);
+
+        await writeRpWorldConfig(projectPath);
+        await expect(facade.getWorldStatus(projectPath, "rp")).resolves.toMatchObject({initialized: true, missing: [], errors: []});
     });
 
     it("同 instant 写入冲突提示合并 patches", async () => {

@@ -12,8 +12,6 @@ export type ProfileRuntimeSettingsDraft = {
     compactionReserveTokens: string;
     compactionKeepRecentKind: "" | "percent" | "tokens";
     compactionKeepRecentValue: string;
-    compactionPrompt: string;
-    compactionSummaryPrefix: string;
     fileChangeDiffMaxChars: string;
 };
 
@@ -36,7 +34,7 @@ export function resolveProfileRuntimeInheritance(
     const sources = Object.fromEntries(([
         "summarizerEnabled", "summarizerProfileKey", "summarizerIntervalKind", "summarizerIntervalValue", "summarizerMaxTokens",
         "compactionEnabled", "compactionTriggerKind", "compactionTriggerValue", "compactionReserveTokens",
-        "compactionKeepRecentKind", "compactionKeepRecentValue", "compactionPrompt", "compactionSummaryPrefix", "fileChangeDiffMaxChars",
+        "compactionKeepRecentKind", "compactionKeepRecentValue", "fileChangeDiffMaxChars",
     ] satisfies ProfileRuntimeSettingsField[]).map((field) => [field, "harness"])) as ProfileRuntimeSettingsSources;
     for (const layer of layers) {
         const patch = layer.patch;
@@ -60,8 +58,6 @@ export function resolveProfileRuntimeInheritance(
             sources.compactionKeepRecentKind = layer.source;
             sources.compactionKeepRecentValue = layer.source;
         }
-        if (patch?.compaction?.prompt !== undefined) { settings.compaction.prompt = patch.compaction.prompt; sources.compactionPrompt = layer.source; }
-        if (patch?.compaction?.summaryPrefix !== undefined) { settings.compaction.summaryPrefix = patch.compaction.summaryPrefix; sources.compactionSummaryPrefix = layer.source; }
         if (patch?.fileChangeNotice?.diffMaxChars !== undefined) { settings.fileChangeNotice.diffMaxChars = patch.fileChangeNotice.diffMaxChars; sources.fileChangeDiffMaxChars = layer.source; }
     }
     return {settings, sources};
@@ -82,8 +78,6 @@ export function createProfileRuntimeSettingsDraft(patch: ProfileRuntimeSettingsP
         compactionReserveTokens: numberText(patch?.compaction?.reserveTokens),
         compactionKeepRecentKind: patch?.compaction?.keepRecent?.kind ?? "",
         compactionKeepRecentValue: numberText(patch?.compaction?.keepRecent?.value),
-        compactionPrompt: patch?.compaction?.prompt ?? "",
-        compactionSummaryPrefix: patch?.compaction?.summaryPrefix ?? "",
         fileChangeDiffMaxChars: numberText(patch?.fileChangeNotice?.diffMaxChars),
     };
 }
@@ -132,8 +126,6 @@ export function parseProfileRuntimeSettingsDraft(draft: ProfileRuntimeSettingsDr
         ...(reserveTokens !== null ? {reserveTokens} : {}),
         ...(draft.compactionKeepRecentKind === "percent" && keepRecentValue !== null && !errors.compactionKeepRecentValue ? {keepRecent: {kind: "percent" as const, value: keepRecentValue}} : {}),
         ...(draft.compactionKeepRecentKind === "tokens" && keepRecentValue !== null && !errors.compactionKeepRecentValue ? {keepRecent: {kind: "tokens" as const, value: keepRecentValue}} : {}),
-        ...(draft.compactionPrompt.trim() ? {prompt: draft.compactionPrompt} : {}),
-        ...(draft.compactionSummaryPrefix.trim() ? {summaryPrefix: draft.compactionSummaryPrefix} : {}),
     };
     const diffMaxChars = parseDiffMaxChars(draft.fileChangeDiffMaxChars, errors);
     return {patch: {

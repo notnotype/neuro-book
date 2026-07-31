@@ -81,9 +81,18 @@ export class AgentToolRegistry {
 
 /** Provider 只获得工具 schema，不获得 Harness 执行函数与领域能力。 */
 function providerTool(tool: NeuroAgentTool): Tool {
+    assertProviderObjectParameters(tool);
     return {
         name: tool.name,
         description: tool.description,
         parameters: tool.parameters,
     };
+}
+
+/** Provider function calling 要求 parameters 的 JSON Schema 根节点明确声明为 object。 */
+function assertProviderObjectParameters(tool: NeuroAgentTool): void {
+    const root = tool.parameters as {type?: string};
+    if (root.type === "object") return;
+    const rootType = root.type ?? "missing";
+    throw new Error(`工具 ${tool.name} 的模型可见 parameters 必须是顶层 object，当前 type=${rootType}。请将严格联合放入 validationSchema。`);
 }

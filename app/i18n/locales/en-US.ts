@@ -760,7 +760,7 @@ const enUS = {
                 inheritGlobalPlaceholder: "Inherit Global",
                 emptyPlaceholder: "Empty",
                 reasoningEffort: "Reasoning Effort",
-                stream: "Stream",
+                stream: "Realtime output",
                 summarizer: "Auto Summary",
                 runtime: {
                     defaultsTitle: "Runtime Defaults",

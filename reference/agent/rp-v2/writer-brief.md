@@ -56,7 +56,7 @@ prose 输出路径：rp/ticks/{NNNNNN}-{slug}/prose.md
 
 - 路径是 Project-relative 的 `rp/ticks/...` 形式（文件工具会解析到当前 Project Workspace），**不要**加项目名前缀，也**不要**使用 legacy 的 `simulation/runs/...`。
 - `{NNNNNN}` 是本 Tick 的权威编号：rp.leader 在 Tick 开始时用 `rp_tick_info` 取 `nextTick` 并宣告，六位补零；`{slug}` 用短横线英文短语。writer 不发明落点，落点由 rp.leader 决定。
-- 开场白 / 初始化正文是固定特例：路径固定为 `rp/ticks/000000-initial-state/prose.md`。
+- 开场白 / 初始化正文是 Bootstrap 固定特例：writer 写入 `rp/bootstrap/staging/opening-prose.md`，服务端激活验收通过后发布为 `rp/ticks/000000-initial-state/prose.md`。
 - rp.leader 终稿组装时用同一路径生成标题链接。
 
 ### Context 读取边界
@@ -84,7 +84,7 @@ prose 输出路径：rp/ticks/{NNNNNN}-{slug}/prose.md
 
 ## 开场白 Brief
 
-开场白 Brief 用同一套格式，`<context>` 通常为空，`<beats>` 写"用户化身醒来 / 当前处境 / 可感知人物与异常 / 第一选择点"。rp.leader 不能把开场白直接写给用户，必须调用 rp.writer 写入固定路径 `rp/ticks/000000-initial-state/prose.md`。
+开场白 Brief 用同一套格式，`<context>` 通常为空，`<beats>` 写"用户化身醒来 / 当前处境 / 可感知人物与异常 / 第一选择点"。rp.leader 不能把开场白直接写给用户，必须调用 rp.writer 写入暂存路径 `rp/bootstrap/staging/opening-prose.md`；激活成功前不得展示。
 
 ## rp.leader 编剧的工作
 

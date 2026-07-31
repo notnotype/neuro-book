@@ -7,7 +7,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {SessionSummarizerInitialSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {readTitleOwner} from "nbook/server/agent/session/custom-state-keys";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "summarizer",
@@ -121,10 +121,10 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
                         persona,
                         "必须调用 report_result，report_result.data 必须是 { title, summary }。",
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <ModelContext>

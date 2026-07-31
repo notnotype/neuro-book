@@ -1,37 +1,7 @@
 {
     "models": {
-        "default": "deepseek/deepseek-v4-flash",
-        "providers": [
-            {
-                "id": "deepseek",
-                "name": "DeepSeek",
-                "api": "openai-completions",
-                "options": {
-                    "apiKey": "",
-                    "baseURL": "",
-                    "proxy": "",
-                    "timeoutMs": 180000,
-                    "requestOptions": {}
-                },
-                "models": [
-                    {
-                        "name": "DeepSeek V4 Flash",
-                        "id": "deepseek-v4-flash",
-                        "group": "deepseek",
-                        "enabled": true,
-                        "api": null,
-                        "baseUrl": null,
-                        "reasoning": null,
-                        "input": null,
-                        "maxTokens": null,
-                        "cost": null,
-                        "compat": null,
-                        "contextWindowTokens": 1000000,
-                        "provider": null
-                    }
-                ]
-            }
-        ]
+        "default": null,
+        "providers": []
     },
     "embedding": {
         "enabled": false,
@@ -45,9 +15,16 @@
     },
     "agent": {
         "defaultProfileKey": {
-            "novel": "leader.default",
-            "userAssets": "leader.assets"
+            "novel": null,
+            "userAssets": null
         },
+        "profileModelDefaults": {
+            "modelKey": null,
+            "temperature": null,
+            "reasoningEffort": "off",
+            "realtimeOutput": true
+        },
+        "profileRuntimeDefaults": {},
         "profiles": {}
     },
     "ui": {

@@ -4,6 +4,7 @@ import {Value} from "typebox/value";
 import {defineAgentTool} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {normalizeToolResultDetails} from "nbook/server/agent/messages/message-utils";
+import {assertRpChildInvocation, isRpRuntimeProfile} from "nbook/server/rp/intake-guard";
 
 const CreateAgentSchema = Type.Object({
     profileKey: Type.String({description: "Agent profile key from AgentCatalog, e.g. writer or retrieval."}),
@@ -78,6 +79,9 @@ export const agentCollaborationTools = {
         parameters: CreateAgentSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const agentInput = params as CreateAgentInput;
+            if (context.profileKey === "rp.leader" && isRpRuntimeProfile(agentInput.profileKey)) {
+                await assertRpChildInvocation(context, agentInput.profileKey, agentInput.projectPath);
+            }
             const result = await context.harness.createAgent({
                 profileKey: agentInput.profileKey,
                 initial: normalizeCreateAgentInitial(agentInput.profileKey, agentInput.initial) as never,
@@ -104,6 +108,10 @@ export const agentCollaborationTools = {
             const invocation = params as InvokeAgentInput;
             if (invocation.sessionId === context.sessionId) {
                 throw new Error("invoke_agent 不能调用当前 session 自己；请直接继续当前对话，或 create_agent 后调用新 agent session。");
+            }
+            if (context.profileKey === "rp.leader") {
+                const target = await context.harness.getSession(invocation.sessionId, context.sessionId);
+                if (isRpRuntimeProfile(target.metadata.profileKey)) await assertRpChildInvocation(context, target.metadata.profileKey);
             }
             const result = await context.harness.invokeAgent({
                 sessionId: invocation.sessionId,

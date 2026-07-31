@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {readRpIntake} from "nbook/server/rp/intake-store";
+import {hasRpTurnLedger, listCommittedProsePaths} from "nbook/server/rp/turn-store";
 
 /**
  * RP 模式正文读取与受控插图写回：聚合 `rp/ticks/<NNNNNN>-<slug>/prose.md`。
@@ -82,7 +84,11 @@ async function fileExists(filePath: string): Promise<boolean> {
 
 /** 按 Tick 升序列出全部正文。ticks 目录缺失返回空；无 prose.md 的 Tick 跳过。 */
 export async function listTickProse(projectRoot: string): Promise<RpTickProse[]> {
+    const intake = await readRpIntake(projectRoot);
+    if (intake.phase !== "active") return [];
     const ticksRoot = path.join(projectRoot, RP_TICKS_RELATIVE_PATH);
+    const turnLedgerEnabled = await hasRpTurnLedger(projectRoot);
+    const committedPaths = await listCommittedProsePaths(projectRoot);
     let entries;
     try {
         entries = await fs.readdir(ticksRoot, {withFileTypes: true});
@@ -95,6 +101,10 @@ export async function listTickProse(projectRoot: string): Promise<RpTickProse[]>
         if (!entry.isDirectory()) continue;
         const match = TICK_DIR_PATTERN.exec(entry.name);
         if (!match) continue;
+        const tick = Number(match[1]);
+        const relativeProsePath = `rp/ticks/${entry.name}/prose.md`;
+        // Tick 000000 是 Bootstrap 开场；常规 Tick 必须由 committed 回合登记后才进入用户正文流。
+        if (turnLedgerEnabled && tick !== 0 && !committedPaths.has(relativeProsePath)) continue;
         const prosePath = path.join(ticksRoot, entry.name, "prose.md");
         let content: string;
         let stat;
@@ -106,7 +116,7 @@ export async function listTickProse(projectRoot: string): Promise<RpTickProse[]>
             throw error;
         }
         items.push({
-            tick: Number(match[1]),
+            tick,
             dir: entry.name,
             title: extractTitle(content) ?? match[2] ?? entry.name,
             content,

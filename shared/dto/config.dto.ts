@@ -318,8 +318,6 @@ export const ProfileRuntimeSettingsDtoSchema = z.object({
         trigger: CompactionTriggerDtoSchema,
         reserveTokens: z.number().int().positive(),
         keepRecent: CompactionKeepRecentDtoSchema,
-        prompt: z.string().min(1),
-        summaryPrefix: z.string().min(1),
     }),
     fileChangeNotice: z.object({
         diffMaxChars: z.number().int().min(0).max(MAX_AGENT_DIFF_MAX_CHARS),

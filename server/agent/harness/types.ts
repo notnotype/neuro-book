@@ -105,7 +105,7 @@ export type AgentSummary = {
     workspaceRoot: string;
     title?: string;
     summary?: string;
-    status: "idle";
+    status: "idle" | "running" | "waiting";
 };
 
 export type DetachAgentResult = {

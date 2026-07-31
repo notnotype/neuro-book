@@ -6,7 +6,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {MemoryCuratorInitialSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "memory.curator",
@@ -35,10 +35,10 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
                         persona,
                         renderSystemPrompt(),
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <ModelContext>

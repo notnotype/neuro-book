@@ -47,9 +47,8 @@ const themeVarNameSet = new Set<string>(themeVarNames);
 const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     modelKey: null,
     temperature: null,
-    topK: null,
     reasoningEffort: "off",
-    stream: true,
+    realtimeOutput: true,
 };
 const DEFAULT_EMBEDDING_SERVICE: EmbeddingServiceConfig = {
     enabled: false,
@@ -468,9 +467,8 @@ export function normalizeAgentProfileModelConfig(input: Partial<AgentProfileMode
     return {
         modelKey: Object.hasOwn(patch, "modelKey") ? patch.modelKey ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.modelKey : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.modelKey,
         temperature: Object.hasOwn(patch, "temperature") ? patch.temperature ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.temperature : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.temperature,
-        topK: Object.hasOwn(patch, "topK") ? patch.topK ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.topK : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.topK,
         reasoningEffort: Object.hasOwn(patch, "reasoningEffort") ? patch.reasoningEffort ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.reasoningEffort : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.reasoningEffort,
-        stream: Object.hasOwn(patch, "stream") ? patch.stream ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.stream : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.stream,
+        realtimeOutput: Object.hasOwn(patch, "realtimeOutput") ? patch.realtimeOutput ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.realtimeOutput : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.realtimeOutput,
     };
 }
 
@@ -528,9 +526,8 @@ function mergeAgentProfileModelConfig(
     return {
         modelKey: Object.hasOwn(patch, "modelKey") ? patch.modelKey ?? base.modelKey : base.modelKey,
         temperature: Object.hasOwn(patch, "temperature") ? patch.temperature ?? base.temperature : base.temperature,
-        topK: Object.hasOwn(patch, "topK") ? patch.topK ?? base.topK : base.topK,
         reasoningEffort: Object.hasOwn(patch, "reasoningEffort") ? patch.reasoningEffort ?? base.reasoningEffort : base.reasoningEffort,
-        stream: Object.hasOwn(patch, "stream") && typeof patch.stream === "boolean" ? patch.stream : base.stream,
+        realtimeOutput: Object.hasOwn(patch, "realtimeOutput") && typeof patch.realtimeOutput === "boolean" ? patch.realtimeOutput : base.realtimeOutput,
     };
 }
 
@@ -541,9 +538,8 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
     return {
         ...(Object.hasOwn(input, "modelKey") ? {modelKey: normalizeNullableModelKey(input.modelKey)} : {}),
         ...(Object.hasOwn(input, "temperature") ? {temperature: normalizeNullableNumber(input.temperature)} : {}),
-        ...(Object.hasOwn(input, "topK") ? {topK: normalizeNullableInteger(input.topK)} : {}),
         ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: normalizeThinkingLevel(input.reasoningEffort)} : {}),
-        ...(Object.hasOwn(input, "stream") && typeof input.stream === "boolean" ? {stream: input.stream} : {}),
+        ...(Object.hasOwn(input, "realtimeOutput") && typeof input.realtimeOutput === "boolean" ? {realtimeOutput: input.realtimeOutput} : {}),
     };
 }
 
@@ -551,7 +547,10 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
  * 规范化 profile settings patch。
  */
 export function normalizeAgentProfileSettings(input: unknown): AgentProfileSettingsConfig {
-    return normalizeJsonRecord(input);
+    const normalized = normalizeJsonRecord(input);
+    delete normalized.customTopSystemPrompt;
+    delete normalized.customBottomSystemPrompt;
+    return normalized;
 }
 
 /** 逐子策略规范化通用运行配置，单个非法分组不会遮蔽其他合法分组。 */

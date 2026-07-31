@@ -53,6 +53,7 @@ import {assertProjectOpen} from "nbook/server/workspace-files/project-session";
 import {createBuiltinTools, createReportResultTool, createReportSidecarResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
+import {operationSchemaForArguments} from "nbook/server/agent/tools/operation-schema";
 import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
@@ -101,7 +102,7 @@ import {
 } from "nbook/server/agent/profiles/profile-turn-context";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
-import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
+import {applyProfileTemperature, mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import {planModeDirectory, planModeToolDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import {
     normalizeWorkspaceRootRef,
@@ -278,6 +279,7 @@ type PreparedRun = {
     apiKey?: string;
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
+    realtimeOutput: boolean;
     compaction?: ProfileRuntimeSettings["compaction"];
     fileChangeDiffMaxChars?: number;
     piTrace?: PiTraceSettings;
@@ -302,6 +304,7 @@ type SidecarRunContext = {
     apiKey?: string;
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
+    realtimeOutput: boolean;
     compaction?: ProfileRuntimeSettings["compaction"];
     fileChangeDiffMaxChars?: number;
     /** sidecar 内层 runLoop 的 Pi trace 设置；缺省表示 sidecar 请求不追踪。 */
@@ -948,6 +951,7 @@ export class NeuroAgentHarness {
                     apiKey: preparedRun.apiKey,
                     timeoutMs: preparedRun.timeoutMs,
                     requestOptions: preparedRun.requestOptions,
+                    realtimeOutput: preparedRun.realtimeOutput,
                     compaction: preparedRun.compaction,
                     fileChangeDiffMaxChars: preparedRun.fileChangeDiffMaxChars,
                     piTrace: preparedRun.piTrace,
@@ -1000,6 +1004,7 @@ export class NeuroAgentHarness {
                 apiKey: preparedRun.apiKey,
                 timeoutMs: preparedRun.timeoutMs,
                 requestOptions: preparedRun.requestOptions,
+                realtimeOutput: preparedRun.realtimeOutput,
                 compaction: preparedRun.compaction,
                 fileChangeDiffMaxChars: preparedRun.fileChangeDiffMaxChars,
                 piTrace: preparedRun.piTrace,
@@ -1041,6 +1046,7 @@ export class NeuroAgentHarness {
                 apiKey: preparedRun.apiKey,
                 timeoutMs: preparedRun.timeoutMs,
                 requestOptions: preparedRun.requestOptions,
+                realtimeOutput: preparedRun.realtimeOutput,
                 compaction: preparedRun.compaction,
                 fileChangeDiffMaxChars: preparedRun.fileChangeDiffMaxChars,
                 piTrace: preparedRun.piTrace,
@@ -1324,6 +1330,7 @@ export class NeuroAgentHarness {
         apiKey?: string;
         timeoutMs: number | null;
         requestOptions: Record<string, JsonValue>;
+        realtimeOutput: boolean;
         compaction?: ProfileRuntimeSettings["compaction"];
         fileChangeDiffMaxChars?: number;
         piTrace?: PiTraceSettings;
@@ -1352,6 +1359,7 @@ export class NeuroAgentHarness {
                         apiKey: input.apiKey,
                         timeoutMs: input.timeoutMs,
                         requestOptions: input.requestOptions,
+                        realtimeOutput: input.realtimeOutput,
                         compaction: input.compaction,
                         fileChangeDiffMaxChars: input.fileChangeDiffMaxChars,
                         piTrace: input.piTrace,
@@ -1529,6 +1537,7 @@ export class NeuroAgentHarness {
         const model = preparedModel.model ?? this.modelResolver(config, context.profileKey);
         const models = this.runtimeResolver(config, model);
         const providerOptions = this.providerOptions(config, model);
+        const profileModel = config.agent.profiles[context.profileKey]?.model ?? config.agent.profileModelDefaults;
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
         const runProfile = await this.profiles.get(context.profileKey);
         const toolKeys = [...runProfile.rootToolKeys];
@@ -1564,7 +1573,8 @@ export class NeuroAgentHarness {
             model,
             apiKey,
             timeoutMs: providerOptions.timeoutMs,
-            requestOptions: providerOptions.requestOptions,
+            requestOptions: this.profileRequestOptions(profileModel.temperature, providerOptions.requestOptions),
+            realtimeOutput: profileModel.realtimeOutput,
             compaction: prepared.runtimeSettings.compaction,
             fileChangeDiffMaxChars: prepared.runtimeSettings.fileChangeNotice.diffMaxChars,
             piTrace: this.piTraceSettings(config),
@@ -1627,7 +1637,7 @@ export class NeuroAgentHarness {
         const index = await this.relationIndex();
         const summaries: AgentSummary[] = [];
         for (const linked of this.currentOwnedLinks(ownerSessionId, index)) {
-            summaries.push(this.sessionSummary(await this.repo.readSession(linked.targetSessionId)));
+            summaries.push(await this.sessionSummary(await this.repo.readSession(linked.targetSessionId)));
         }
         return summaries.sort((left, right) => left.sessionId - right.sessionId);
     }
@@ -2991,7 +3001,7 @@ export class NeuroAgentHarness {
         const index = await this.relationIndex();
         const linkedAgents: AgentSummary[] = [];
         for (const linked of this.currentOwnedLinks(targetSessionId, index)) {
-            linkedAgents.push(this.sessionSummary(await this.repo.readSession(linked.targetSessionId)));
+            linkedAgents.push(await this.sessionSummary(await this.repo.readSession(linked.targetSessionId)));
         }
         const result: SessionQueryResult = {
             metadata: snapshot.metadata,
@@ -3737,6 +3747,7 @@ export class NeuroAgentHarness {
         apiKey?: string;
         timeoutMs?: number | null;
         requestOptions?: Record<string, JsonValue>;
+        realtimeOutput: boolean;
         compaction?: ProfileRuntimeSettings["compaction"];
         fileChangeDiffMaxChars?: number;
         piTrace?: PiTraceSettings;
@@ -4043,6 +4054,7 @@ export class NeuroAgentHarness {
             apiKey: frame.apiKey,
             timeoutMs: frame.timeoutMs,
             requestOptions,
+            realtimeOutput: frame.realtimeOutput !== false,
             toolKeys,
             executionToolKeys,
             toolOverrides,
@@ -4417,8 +4429,10 @@ export class NeuroAgentHarness {
         for await (const event of stream) {
             const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
             if (event.type === "start" && message) {
-                started = true;
-                await input.emit({type: "message_start", message});
+                if (input.snapshot.realtimeOutput) {
+                    started = true;
+                    await input.emit({type: "message_start", message});
+                }
                 continue;
             }
             if (event.type === "done" || event.type === "error") {
@@ -4429,7 +4443,7 @@ export class NeuroAgentHarness {
                 await input.emit({type: "message_end", message: finalMessage});
                 return finalMessage;
             }
-            if (message) {
+            if (message && input.snapshot.realtimeOutput) {
                 await input.emit({
                     type: "message_update",
                     message,
@@ -4525,6 +4539,62 @@ export class NeuroAgentHarness {
                 await input.emit({type: "message_end", message: toolResult.event});
                 allExecutedTerminate = false;
                 continue;
+            }
+
+            // 工具领域授权必须先于任何审批或用户输入 pending。否则越权调用会先把
+            // invocation 挂成 waiting，真正的 executeWithContext 权限断言永远没有机会运行。
+            if (tool?.authorize) {
+                await flushSegment();
+                const permissionError = await this.validateUserResolutionTool(
+                    input.executionToolKeys,
+                    input.toolOverrides,
+                    input.workspaceRootRef,
+                    input.workspaceFsRoot,
+                    input.projectPath,
+                    toolCall,
+                );
+                if (permissionError) {
+                    const toolResult = this.runtimeTextToolResult({
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        text: permissionError,
+                        isError: true,
+                    });
+                    toolResults.push(toolResult);
+                    await input.emit({type: "message_start", message: toolResult.event});
+                    await input.emit({type: "message_end", message: toolResult.event});
+                    allExecutedTerminate = false;
+                    continue;
+                }
+                try {
+                    const preparedToolCall = tool.prepareArguments
+                        ? {...toolCall, arguments: tool.prepareArguments(toolCall.arguments) as AgentToolCall["arguments"]}
+                        : toolCall;
+                    const validationSchema = tool.validationSchema ?? tool.parameters;
+                    const validationTool = {...tool, parameters: operationSchemaForArguments(validationSchema, preparedToolCall.arguments)};
+                    const args = validateToolArguments(validationTool, preparedToolCall);
+                    await tool.authorize({
+                        sessionId: input.sessionId,
+                        profileKey: input.profileKey,
+                        workspaceRootRef: input.workspaceRootRef,
+                        workspaceFsRoot: input.workspaceFsRoot,
+                        workspaceKey: input.workspaceKey,
+                        projectPath: input.projectPath,
+                        invocationId: input.invocationId,
+                    }, args);
+                } catch (error) {
+                    const toolResult = this.runtimeTextToolResult({
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        text: error instanceof Error ? error.message : String(error),
+                        isError: true,
+                    });
+                    toolResults.push(toolResult);
+                    await input.emit({type: "message_start", message: toolResult.event});
+                    await input.emit({type: "message_end", message: toolResult.event});
+                    allExecutedTerminate = false;
+                    continue;
+                }
             }
 
             // 检查工具是否需要用户输入
@@ -5201,12 +5271,11 @@ export class NeuroAgentHarness {
                     arguments: tool.prepareArguments(input.toolCall.arguments) as Record<string, any>,
                 }
                 : input.toolCall;
-            const validationTool = tool.validationSchema
-                ? {
-                    ...tool,
-                    parameters: tool.validationSchema,
-                }
-                : tool;
+            const validationSchema = tool.validationSchema ?? tool.parameters;
+            const validationTool = {
+                ...tool,
+                parameters: operationSchemaForArguments(validationSchema, preparedToolCall.arguments),
+            };
             const args = validateToolArguments(validationTool, preparedToolCall);
             const context: ToolExecutionContext = {
                 harness: this,
@@ -5887,6 +5956,11 @@ export class NeuroAgentHarness {
         };
     }
 
+    /** Profile Temperature 优先于 Provider requestOptions；空值保留 Provider 默认。 */
+    private profileRequestOptions(temperature: number | null, requestOptions: Record<string, JsonValue>): Record<string, JsonValue> {
+        return applyProfileTemperature(requestOptions, temperature);
+    }
+
     /**
      * 合并 session 显式 thinking 设置与 profile 默认 reasoningEffort。
      */
@@ -6282,7 +6356,10 @@ export class NeuroAgentHarness {
                 model,
                 apiKey: resolvePiApiKeyForModelFromConfig(config, model),
                 timeoutMs: providerOptions.timeoutMs,
-                requestOptions: providerOptions.requestOptions,
+                requestOptions: this.profileRequestOptions(
+                    (config.agent.profiles[context.profileKey]?.model ?? config.agent.profileModelDefaults).temperature,
+                    providerOptions.requestOptions,
+                ),
                 thinkingLevel,
                 instructions,
                 compaction,
@@ -6316,15 +6393,18 @@ export class NeuroAgentHarness {
         };
     }
 
-    private sessionSummary(snapshot: SessionSnapshot): AgentSummary {
+    private async sessionSummary(snapshot: SessionSnapshot): Promise<AgentSummary> {
         const context = this.repo.reduce(snapshot);
+        const projection = await this.resolveSessionRuntimeProjection(snapshot.metadata.sessionId, snapshot);
         return {
             sessionId: snapshot.metadata.sessionId,
             profileKey: context.profileKey,
             workspaceRoot: context.workspaceRoot,
             title: context.title,
             summary: context.summary,
-            status: "idle",
+            status: projection.activeInvocation?.status === "waiting"
+                ? "waiting"
+                : projection.activeInvocation ? "running" : "idle",
         };
     }
 
@@ -6758,6 +6838,7 @@ export class NeuroAgentHarness {
                 apiKey: sidecarRun.apiKey,
                 timeoutMs: sidecarRun.timeoutMs,
                 requestOptions: sidecarRun.requestOptions,
+                realtimeOutput: sidecarRun.realtimeOutput,
                 compaction: sidecarRun.compaction,
                 fileChangeDiffMaxChars: sidecarRun.fileChangeDiffMaxChars,
                 piTrace: sidecarRun.piTrace,

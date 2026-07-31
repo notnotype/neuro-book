@@ -548,14 +548,6 @@ defineRouteMeta({
                                                         "type": "number",
                                                         "minimum": 0
                                                     },
-                                                    "topK": {
-                                                        "default": null,
-                                                        "nullable": true,
-                                                        "type": "integer",
-                                                        "minimum": 0,
-                                                        "exclusiveMinimum": true,
-                                                        "maximum": 9007199254740991
-                                                    },
                                                     "reasoningEffort": {
                                                         "default": null,
                                                         "nullable": true,
@@ -570,7 +562,7 @@ defineRouteMeta({
                                                             "max"
                                                         ]
                                                     },
-                                                    "stream": {
+                                                    "realtimeOutput": {
                                                         "default": true,
                                                         "type": "boolean"
                                                     }
@@ -749,14 +741,6 @@ defineRouteMeta({
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
-                                                            },
-                                                            "prompt": {
-                                                                "type": "string",
-                                                                "minLength": 1
-                                                            },
-                                                            "summaryPrefix": {
-                                                                "type": "string",
-                                                                "minLength": 1
                                                             }
                                                         },
                                                         "additionalProperties": false
@@ -797,14 +781,6 @@ defineRouteMeta({
                                                                     "type": "number",
                                                                     "minimum": 0
                                                                 },
-                                                                "topK": {
-                                                                    "default": null,
-                                                                    "nullable": true,
-                                                                    "type": "integer",
-                                                                    "minimum": 0,
-                                                                    "exclusiveMinimum": true,
-                                                                    "maximum": 9007199254740991
-                                                                },
                                                                 "reasoningEffort": {
                                                                     "default": null,
                                                                     "nullable": true,
@@ -819,7 +795,7 @@ defineRouteMeta({
                                                                         "max"
                                                                     ]
                                                                 },
-                                                                "stream": {
+                                                                "realtimeOutput": {
                                                                     "default": true,
                                                                     "type": "boolean"
                                                                 }
@@ -1135,14 +1111,6 @@ defineRouteMeta({
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             ]
-                                                                        },
-                                                                        "prompt": {
-                                                                            "type": "string",
-                                                                            "minLength": 1
-                                                                        },
-                                                                        "summaryPrefix": {
-                                                                            "type": "string",
-                                                                            "minLength": 1
                                                                         }
                                                                     },
                                                                     "additionalProperties": false
@@ -1767,14 +1735,6 @@ defineRouteMeta({
                                                         "type": "number",
                                                         "minimum": 0
                                                     },
-                                                    "topK": {
-                                                        "default": null,
-                                                        "nullable": true,
-                                                        "type": "integer",
-                                                        "minimum": 0,
-                                                        "exclusiveMinimum": true,
-                                                        "maximum": 9007199254740991
-                                                    },
                                                     "reasoningEffort": {
                                                         "default": null,
                                                         "nullable": true,
@@ -1789,7 +1749,7 @@ defineRouteMeta({
                                                             "max"
                                                         ]
                                                     },
-                                                    "stream": {
+                                                    "realtimeOutput": {
                                                         "default": true,
                                                         "type": "boolean"
                                                     }
@@ -1967,14 +1927,6 @@ defineRouteMeta({
                                                                         "additionalProperties": false
                                                                     }
                                                                 ]
-                                                            },
-                                                            "prompt": {
-                                                                "type": "string",
-                                                                "minLength": 1
-                                                            },
-                                                            "summaryPrefix": {
-                                                                "type": "string",
-                                                                "minLength": 1
                                                             }
                                                         },
                                                         "additionalProperties": false
@@ -2015,14 +1967,6 @@ defineRouteMeta({
                                                                     "type": "number",
                                                                     "minimum": 0
                                                                 },
-                                                                "topK": {
-                                                                    "default": null,
-                                                                    "nullable": true,
-                                                                    "type": "integer",
-                                                                    "minimum": 0,
-                                                                    "exclusiveMinimum": true,
-                                                                    "maximum": 9007199254740991
-                                                                },
                                                                 "reasoningEffort": {
                                                                     "default": null,
                                                                     "nullable": true,
@@ -2037,7 +1981,7 @@ defineRouteMeta({
                                                                         "max"
                                                                     ]
                                                                 },
-                                                                "stream": {
+                                                                "realtimeOutput": {
                                                                     "default": true,
                                                                     "type": "boolean"
                                                                 }
@@ -2353,14 +2297,6 @@ defineRouteMeta({
                                                                                     "additionalProperties": false
                                                                                 }
                                                                             ]
-                                                                        },
-                                                                        "prompt": {
-                                                                            "type": "string",
-                                                                            "minLength": 1
-                                                                        },
-                                                                        "summaryPrefix": {
-                                                                            "type": "string",
-                                                                            "minLength": 1
                                                                         }
                                                                     },
                                                                     "additionalProperties": false

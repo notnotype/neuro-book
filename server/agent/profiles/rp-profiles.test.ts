@@ -3,8 +3,13 @@ import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import rpLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.leader.profile";
-import rpWriterProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
-import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
+import rpScreenwriterProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.screenwriter.profile";
+import rpWorldProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.world.profile";
+import {renderRpActorSettings} from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile";
+import rpCastProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.cast.profile";
+import rpExtrasProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.extras.profile";
+import rpWriterProfile, {RpWriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
+import simulatorActorProfile, {SimulatorActorSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
@@ -26,6 +31,145 @@ function messagesText(messages: StoredMessageLike[] | undefined): string {
     return (messages ?? []).map((message) => storedMessageText(message)).join("\n");
 }
 describe("RP builtin profiles", () => {
+    it("Actor/Cast/Extras 特色设置逐项映射到动态 System Prompt", async () => {
+        const base = {
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+        };
+        const actorPrompt = renderRpActorSettings({
+            characterFidelity: "strict",
+            memoryReliance: "balanced",
+            innerThoughtDepth: "deep",
+            autonomousAction: "high",
+            informationBoundary: "contextual",
+        });
+        const cast = await rpCastProfile.prepare!({
+            ...base,
+            session: testSession({profileKey: "rp.cast", workspaceRoot: "workspace"}),
+            initial: {},
+            settings: {retryLimit: "twice", summaryDetail: "compact", materialCheck: false, missingActorPolicy: "report"},
+        });
+        const extras = await rpExtrasProfile.prepare!({
+            ...base,
+            session: testSession({profileKey: "rp.extras", workspaceRoot: "workspace"}),
+            initial: {},
+            settings: {
+                reactionDensity: "dense",
+                dialogueLength: "extended",
+                occupationalVariation: "high",
+                crowdCoordination: "independent",
+                improvisationLevel: "high",
+            },
+        });
+
+        expect(actorPrompt).toContain("严格服从 soul.md");
+        expect(actorPrompt).toContain("保守联想");
+        expect(actorPrompt).toContain("深入呈现欲望、矛盾");
+        expect(actorPrompt).toContain("主动采取具体行动");
+        expect(actorPrompt).toContain("符合角色能力的推断");
+        expect(cast.systemPrompt).toContain("最多重试 2 次");
+        expect(cast.systemPrompt).toContain("压缩措辞");
+        expect(cast.systemPrompt).toContain("最低档案存在性检查");
+        expect(cast.systemPrompt).toContain("汇总缺失项并停止本轮调度");
+        expect(extras.systemPrompt).toContain("覆盖多数在场群演");
+        expect(extras.systemPrompt).toContain("允许完整交流");
+        expect(extras.systemPrompt).toContain("鲜明体现职业知识");
+        expect(extras.systemPrompt).toContain("独立反应");
+        expect(extras.systemPrompt).toContain("可增加不改变事实的小动作");
+    });
+
+    it("rp.writer 与 simulator.actor 复用同职责特色设置并逐项进入真实 Prompt", async () => {
+        const writer = await rpWriterProfile.prepare!({
+            session: testSession({profileKey: "rp.writer", workspaceRoot: "workspace"}),
+            initial: {},
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+            settings: {
+                ...RpWriterSettingsForm.defaults,
+                writingStylePreset: "darkside-kitten.light-lively",
+                narrativePerson: "first",
+                paragraphRhythm: "自定义 RP 段落节奏：两拍一段。",
+                wordCountControl: "1800-2200 字",
+                polishingWorkflow: "自定义 RP 润色：先查视角，再查重复表达。",
+                adultStylePrompt: "成人场景保持角色逻辑与关系推进。",
+                fileChangeAwareness: "full",
+            },
+        });
+        const fixture = await createRoleplayFixture();
+        try {
+            const actor = await simulatorActorProfile.prepare!({
+                session: testSession({
+                    profileKey: "simulator.actor",
+                    workspaceRoot: "workspace",
+                    projectPath: `workspace/${fixture.projectSlug}`,
+                }),
+                initial: {subjectPath: "simulation/subjects/heroine", kind: "npc"},
+                vars: createTestVariableAccessor(),
+                catalog: {profiles: [], issues: []},
+                skills: [],
+                settings: {
+                    ...SimulatorActorSettingsForm.defaults,
+                    characterFidelity: "balanced",
+                    memoryReliance: "balanced",
+                    innerThoughtDepth: "deep",
+                    autonomousAction: "high",
+                    informationBoundary: "contextual",
+                },
+            });
+            const writerPrompt = writer.systemPrompt ?? "";
+            const actorPrompt = actor.systemPrompt ?? "";
+
+            expect(RpWriterSettingsForm.fields.map((field) => field.path)).toEqual([
+                "personaPreset", "promptEntries", "writingStylePreset", "writingReferencePreset", "narrativePerson",
+                "paragraphRhythm", "wordCountControl", "polishingWorkflow", "adultStylePrompt", "fileChangeAwareness",
+            ]);
+            expect(writerPrompt).toContain('key="darkside-kitten.light-lively"');
+            expect(writerPrompt).toContain("默认人称：第一人称");
+            expect(writerPrompt).toContain("自定义 RP 段落节奏：两拍一段。");
+            expect(writerPrompt).toContain("默认字数：1800-2200 字");
+            expect(writerPrompt).toContain("自定义 RP 润色：先查视角，再查重复表达。");
+            expect(writerPrompt).toContain("成人场景保持角色逻辑与关系推进。");
+
+            expect(SimulatorActorSettingsForm.fields.map((field) => field.path)).toEqual([
+                "personaPreset", "promptEntries", "characterFidelity", "memoryReliance", "innerThoughtDepth", "autonomousAction", "informationBoundary",
+            ]);
+            expect(actorPrompt).toContain("保持核心人格稳定");
+            expect(actorPrompt).toContain("保守联想");
+            expect(actorPrompt).toContain("深入呈现欲望、矛盾");
+            expect(actorPrompt).toContain("主动采取具体行动");
+            expect(actorPrompt).toContain("符合角色能力的推断");
+            expect(actorPrompt.indexOf("<roleplay_strategy>")).toBeLessThan(actorPrompt.indexOf("<actor>"));
+        } finally {
+            await fixture.cleanup();
+        }
+    });
+
+    it("同一 Session 的下一次 prepare 使用最新提示词条目", async () => {
+        const session = testSession({profileKey: "rp.cast", workspaceRoot: "workspace"});
+        const base = {
+            session,
+            initial: {},
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+        };
+        const first = await rpCastProfile.prepare!({
+            ...base,
+            settings: {promptEntries: [{id: "rule", title: "动态规则", enabled: true, content: "第一版规则"}]},
+        });
+        const second = await rpCastProfile.prepare!({
+            ...base,
+            settings: {promptEntries: [{id: "rule", title: "动态规则", enabled: true, content: "第二版规则"}]},
+        });
+
+        expect(first.systemPrompt).toContain("第一版规则");
+        expect(first.systemPrompt).not.toContain("第二版规则");
+        expect(second.systemPrompt).toContain("第二版规则");
+        expect(second.systemPrompt).not.toContain("第一版规则");
+    });
+
     it("catalog 加载 rp.leader、simulator.leader、simulator.actor、rp.writer，不再加载 leader.rp", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
@@ -105,7 +249,6 @@ describe("RP builtin profiles", () => {
             "write",
             "edit",
             "apply_patch",
-            "bash",
             "create_agent",
             "invoke_agent",
             "get_agent",
@@ -113,7 +256,17 @@ describe("RP builtin profiles", () => {
             "get_session",
             "rp_character_recall",
             "rp_character_update",
+            "rp_intake",
+            "rp_event",
+            "rp_mechanics",
+            "rp_relation",
+            "rp_cognition",
+            "rp_map",
+            "rp_npc",
+            "rp_pipeline",
+            "rp_focus",
             "rp_tick_info",
+            "rp_turn",
             "task_create",
             "task_set_status",
         ]);
@@ -129,14 +282,38 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("agents/rp.leader/");
         // v2 流水线：编排六角色,不再直接调 simulator.leader
         expect(systemPrompt).not.toContain("simulator.leader");
-        expect(systemPrompt).toContain("每个常规 tick（用户输入 → 世界推进 → 等待下一条指令）");
+        expect(systemPrompt).toContain("P6 代码可见流水线");
         expect(systemPrompt).toContain("开场白 / 初始化正文");
+        expect(systemPrompt).toContain("先调用 rp_intake op=get");
+        expect(systemPrompt).toContain("op=begin_bootstrap");
+        expect(systemPrompt).toContain("op=initialize_config");
+        expect(systemPrompt).toContain("op=activate");
+        expect(systemPrompt).toContain("op=checkpoint_bootstrap");
+        expect(systemPrompt).toContain("禁止用 write/edit/apply_patch 手写");
+        expect(systemPrompt).toContain("rp/bootstrap/staging/opening-prose.md");
         expect(systemPrompt).toContain("rp/ticks/000000-initial-state/prose.md");
         expect(systemPrompt).toContain("所有世界内用户可见正文都必须由 rp.writer 写");
-        expect(systemPrompt).toContain("P1 读状态");
-        expect(systemPrompt).toContain("P2 事前判断");
-        expect(systemPrompt).toContain("轻量通道");
-        expect(systemPrompt).toContain("P4 终裁");
+        expect(systemPrompt).toContain("action_understanding");
+        expect(systemPrompt).toContain("world_snapshot");
+        expect(systemPrompt).toContain("actor_proposals");
+        expect(systemPrompt).toContain("conflict_resolution");
+        expect(systemPrompt).toContain("ui_update");
+        expect(systemPrompt).toContain("rp_turn start");
+        expect(systemPrompt).toContain("snapshotId");
+        expect(systemPrompt).toContain("worldOperationId");
+        expect(systemPrompt).toContain("rp_turn commit");
+        expect(systemPrompt).toContain("主动事件与四卡");
+        expect(systemPrompt).toContain("calm / exciting / dangerous / unusual");
+        expect(systemPrompt).toContain("random_select");
+        expect(systemPrompt).toContain("meaningfulEvent");
+        expect(systemPrompt).toContain("时间、资源、关系与认知");
+        expect(systemPrompt).toContain("approve_jump");
+        expect(systemPrompt).toContain("user_revealed 不等于化身知道");
+        expect(systemPrompt).toContain("层级地图与 NPC 生命周期");
+        expect(systemPrompt).toContain("confirm_import");
+        expect(systemPrompt).toContain("秘密路线发现前完全不可提及");
+        expect(systemPrompt).toContain("活跃软上限默认 8");
+        expect(systemPrompt).toContain("memoryBackfill");
         expect(systemPrompt).toContain("rp.world");
         expect(systemPrompt).toContain("rp.screenwriter");
         expect(systemPrompt).toContain("rp.cast");
@@ -157,6 +334,8 @@ describe("RP builtin profiles", () => {
         expect(historyText).toContain("```reference/content/manual.md");
         expect(historyText).toContain("```reference/agent/rp-v2/README.md");
         expect(historyText).toContain("```reference/agent/rp-v2/character-memory.md");
+        expect(historyText).toContain("```reference/agent/rp-v2/map-npc-lifecycle.md");
+        expect(historyText).toContain("```reference/agent/rp-v2/pipeline-focus-runtime.md");
         expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
@@ -164,6 +343,68 @@ describe("RP builtin profiles", () => {
         expect(modelContextText).toContain("rpRoot: rp/");
         expect(modelContextText).toContain("pipeline: rp.world");
         expect(appendingText).toContain("Runtime Location");
+    });
+
+    it("screenwriter 只校验事件提案，world 独占正式登记与生命周期", async () => {
+        const screenwriter = await rpScreenwriterProfile.prepare!({
+            session: testSession({profileKey: "rp.screenwriter", workspaceRoot: "workspace", projectPath: "workspace/rp-project"}),
+            initial: {},
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+            settings: {},
+        });
+        const world = await rpWorldProfile.prepare!({
+            session: testSession({profileKey: "rp.world", workspaceRoot: "workspace", projectPath: "workspace/rp-project"}),
+            initial: {},
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+            settings: {},
+        });
+
+        expect(rpScreenwriterProfile.rootToolKeys).toContain("rp_event");
+        expect(rpWorldProfile.rootToolKeys).toContain("rp_event");
+        expect(rpScreenwriterProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_mechanics", "rp_relation", "rp_cognition"]));
+        expect(rpWorldProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_mechanics", "rp_relation", "rp_cognition"]));
+        expect(rpScreenwriterProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_map", "rp_npc"]));
+        expect(rpWorldProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_map", "rp_npc"]));
+        expect(rpScreenwriterProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_pipeline", "rp_focus"]));
+        expect(rpWorldProfile.rootToolKeys).toEqual(expect.arrayContaining(["rp_pipeline", "rp_focus"]));
+        expect(screenwriter.systemPrompt).toContain("op=validate_candidates");
+        expect(screenwriter.systemPrompt).toContain("你没有登记、选择、激活或结束事件的权限");
+        expect(world.systemPrompt).toContain("正式事件的唯一登记与客观生命周期维护者");
+        expect(world.systemPrompt).toContain("register_candidates");
+        expect(world.systemPrompt).toContain("continued_without_player");
+        expect(screenwriter.systemPrompt).toContain("P4 机械提案");
+        expect(screenwriter.systemPrompt).toContain("不替玩家决定化身");
+        expect(world.systemPrompt).toContain("P4 客观规则职责");
+        expect(world.systemPrompt).toContain("不得由模型自造随机数");
+        expect(screenwriter.systemPrompt).toContain("P5 地点与 NPC 提案");
+        expect(screenwriter.systemPrompt).toContain("suggest");
+        expect(world.systemPrompt).toContain("P5 地图与 NPC 客观维护");
+        expect(world.systemPrompt).toContain("resourceStatus=pending");
+        expect(screenwriter.systemPrompt).toContain("submit_plan");
+        expect(screenwriter.systemPrompt).toContain("submit_adjudication");
+        expect(world.systemPrompt).toContain("capture_snapshot");
+        expect(world.systemPrompt).toContain("resolve_conflicts");
+    });
+
+    it("cast 与 extras 必须把同快照提案写入 pipeline，且不能代演主要角色", async () => {
+        const cast = await rpCastProfile.prepare!({
+            session: testSession({profileKey: "rp.cast", workspaceRoot: "workspace", projectPath: "workspace/rp-project"}),
+            initial: {}, vars: createTestVariableAccessor(), catalog: {profiles: [], issues: []}, skills: [], settings: {},
+        });
+        const extras = await rpExtrasProfile.prepare!({
+            session: testSession({profileKey: "rp.extras", workspaceRoot: "workspace", projectPath: "workspace/rp-project"}),
+            initial: {}, vars: createTestVariableAccessor(), catalog: {profiles: [], issues: []}, skills: [], settings: {},
+        });
+        expect(rpCastProfile.rootToolKeys).toContain("rp_pipeline");
+        expect(rpExtrasProfile.rootToolKeys).toContain("rp_pipeline");
+        expect(cast.systemPrompt).toContain("submit_actor_proposals");
+        expect(cast.systemPrompt).toContain("只能重试同一 session/角色");
+        expect(extras.systemPrompt).toContain("submit_extras");
+        expect(extras.systemPrompt).toContain("主要角色永远不由你代演");
     });
 
     it("simulator.leader 作为 simulation runtime owner 并负责调度 actor", async () => {
@@ -229,7 +470,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
-                settings: {},
+                settings: SimulatorActorSettingsForm.defaults,
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -420,7 +661,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
-                settings: {},
+                settings: SimulatorActorSettingsForm.defaults,
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -458,7 +699,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
-                settings: {},
+                settings: SimulatorActorSettingsForm.defaults,
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -488,7 +729,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
-                settings: {},
+                settings: RpWriterSettingsForm.defaults,
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const historyText = messagesText(prepared.historyInitMessages);

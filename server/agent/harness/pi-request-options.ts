@@ -19,6 +19,14 @@ export function parsePiSimpleRequestOptions(
     return PiSimpleRequestOptionsSchema.parse(requestOptions ?? {});
 }
 
+/** Profile Temperature 覆盖 Provider requestOptions；null 表示继续使用 Provider 值。 */
+export function applyProfileTemperature(
+    requestOptions: Record<string, JsonValue>,
+    temperature: number | null,
+): Record<string, JsonValue> {
+    return temperature === null ? requestOptions : {...requestOptions, temperature};
+}
+
 /**
  * 为当前 API 合并 NeuroBook secret 与 Provider-scoped env。
  *

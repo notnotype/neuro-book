@@ -1,0 +1,156 @@
+{
+  "45": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+    }
+  },
+  "44": {
+    "class_type": "AnimaBoosterLoader",
+    "inputs": {
+      "model_name": "anima-base-v1.0.safetensors",
+      "sage_attention": "disabled",
+      "torch_compile": false
+    }
+  },
+  "15": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    }
+  },
+  "11": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "45",
+        0
+      ],
+      "text": "__POSITIVE__"
+    }
+  },
+  "12": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "45",
+        0
+      ],
+      "text": "__NEGATIVE__"
+    }
+  },
+  "28": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1536,
+      "batch_size": 1
+    }
+  },
+  "19": {
+    "class_type": "FLS_SamplerV4",
+    "inputs": {
+      "model": [
+        "61",
+        0
+      ],
+      "positive": [
+        "11",
+        0
+      ],
+      "negative": [
+        "12",
+        0
+      ],
+      "latent_image": [
+        "28",
+        0
+      ],
+      "seed": 0,
+      "steps": 30,
+      "cfg": 4.5,
+      "sampler_name": "dpmpp_2m_sde_gpu",
+      "scheduler": "beta57",
+      "denoise": 1.0,
+      "fovea_strength": 3.0,
+      "sharpness": 0.5,
+      "mask_inertia": 0.85
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "19",
+        0
+      ],
+      "vae": [
+        "15",
+        0
+      ]
+    }
+  },
+  "52": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "60",
+        0
+      ],
+      "filename_prefix": "anima/%year%-%month%-%day%/anima_base_v1_0-artist_tag-character_tag"
+    }
+  },
+  "60": {
+    "class_type": "RTXVideoSuperResolution",
+    "inputs": {
+      "images": [
+        "8",
+        0
+      ],
+      "resize_type": "scale by multiplier",
+      "resize_type.scale": 2.0,
+      "quality": "ULTRA"
+    }
+  },
+  "61": {
+    "class_type": "AnimaTeaCache",
+    "inputs": {
+      "model": [
+        "63",
+        0
+      ],
+      "threshold": 0.15,
+      "adaptive_mode": true,
+      "early_steps_factor": 0.4,
+      "late_steps_factor": 1.8,
+      "start_percent": 0.0,
+      "end_percent": 1.0,
+      "cache_device": "cuda",
+      "teacache_version": "v1 (Legacy Fast)"
+    }
+  },
+  "62": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "44",
+        0
+      ],
+      "lora_name": "anima-highres-aesthetic-boost.safetensors",
+      "strength_model": 1.0
+    }
+  },
+  "63": {
+    "class_type": "LoraLoaderModelOnly",
+    "inputs": {
+      "model": [
+        "62",
+        0
+      ],
+      "lora_name": "anima-base-1-masterpiece-v51.safetensors",
+      "strength_model": 1.0
+    }
+  }
+}

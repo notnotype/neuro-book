@@ -12,6 +12,7 @@ const props = defineProps<{
     /** 每个 type 的强调色（css color）；缺省用 accent。 */
     typeColors?: Record<string, string>;
     emptyHint: string;
+    selectedNodeId?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -28,7 +29,7 @@ const nodes = computed(() => {
         label: node.label,
         style: {
             background: "var(--we-bg-panel, var(--bg-panel))",
-            border: `1.5px solid ${props.typeColors?.[node.type] ?? "var(--accent-main)"}`,
+            border: `${props.selectedNodeId === node.id ? "3px" : "1.5px"} solid ${props.typeColors?.[node.type] ?? "var(--accent-main)"}`,
             borderRadius: "8px",
             padding: "6px 10px",
             fontSize: "12px",

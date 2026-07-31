@@ -2250,6 +2250,11 @@ onMounted(() => {
         const {default: createDOMPurify} = await import("dompurify");
         const purifier = createDOMPurify(window);
         sanitizeHtml.value = (html) => purifier.sanitize(html) as string;
+        // RP 等按需挂载的宿主会让 active 初始即为 true，active watcher 不会观察到初始值。
+        // 挂载完成后补走同一幂等恢复入口，避免已有 session 直到新建/手动刷新后才出现。
+        if (props.active) {
+            await ensureSessionReady();
+        }
     })();
 });
 

@@ -26,4 +26,33 @@ describe("createBuiltinTools smoke test", () => {
         expect(keys).not.toContain("get_world_schema");
         expect(keys).not.toContain("list_world_subjects");
     });
+
+    test("all provider-visible schemas should have an object root", () => {
+        const tools = createBuiltinTools();
+
+        for (const tool of tools) {
+            expect(tool.parameters, tool.key).toMatchObject({type: "object"});
+        }
+    });
+
+    test("RP operation tools should retain strict union validation", () => {
+        const rpOperationKeys = [
+            "rp_cognition",
+            "rp_event",
+            "rp_intake",
+            "rp_mechanics",
+            "rp_map",
+            "rp_npc",
+            "rp_pipeline",
+            "rp_focus",
+            "rp_turn",
+        ];
+        const tools = createBuiltinTools();
+
+        for (const key of rpOperationKeys) {
+            const tool = tools.find((candidate) => candidate.key === key);
+            expect(tool, key).toBeDefined();
+            expect(tool!.validationSchema, key).toHaveProperty("anyOf");
+        }
+    });
 });

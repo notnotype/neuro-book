@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
-import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsField, ProfileRuntimeSettingsSources} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 
@@ -117,16 +116,6 @@ function parseBoolean(value: string): boolean | null {
             <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionKeepRecentValue") }}</label>
             <FormInput :model-value="props.modelValue.compactionKeepRecentValue" type="number" min="0" :step="props.modelValue.compactionKeepRecentKind === 'percent' ? '0.05' : '1'" @update:model-value="update({compactionKeepRecentValue: $event})" />
             <p v-if="errorLabel('compactionKeepRecentValue')" class="text-[10px] text-[var(--status-danger)]">{{ errorLabel('compactionKeepRecentValue') }}</p>
-        </div>
-        <div class="space-y-1.5 md:col-span-2">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionPrompt") }}</label>
-            <FormTextarea :model-value="props.modelValue.compactionPrompt" :placeholder="props.inherited.compaction.prompt" :rows="5" @update:model-value="update({compactionPrompt: $event})" />
-            <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionPrompt', props.inherited.compaction.prompt) }}</p>
-        </div>
-        <div class="space-y-1.5 md:col-span-2">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.runtime.compactionSummaryPrefix") }}</label>
-            <FormTextarea :model-value="props.modelValue.compactionSummaryPrefix" :placeholder="props.inherited.compaction.summaryPrefix" :rows="4" @update:model-value="update({compactionSummaryPrefix: $event})" />
-            <p class="text-[10px] text-[var(--text-muted)]">{{ inheritLabel('compactionSummaryPrefix', props.inherited.compaction.summaryPrefix) }}</p>
         </div>
     </div>
 </template>

@@ -9,8 +9,7 @@ import {
     buildPersonaPrompt,
     initializePersonaHome,
     loadDefaultPersona,
-    renderCustomBottomPrompt,
-    renderCustomTopPrompt,
+    renderPromptEntries,
     renderPersonaResource,
     validatePersonaPreset,
 } from "nbook/server/agent/profiles/prompt-customization";
@@ -18,6 +17,7 @@ import {DEFAULT_WRITING_REFERENCE_PRESET} from "nbook/server/agent/profiles/writ
 import {DEFAULT_WRITING_STYLE_PRESET} from "nbook/server/agent/profiles/writer-writing-style";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 import {createTestRuntimeSession as testSession} from "nbook/server/agent/profiles/test/runtime-session";
+import {parseLowCodeFormValue, resolveLowCodeForm} from "nbook/server/low-code-form";
 
 describe("prompt customization", () => {
     let projectRoot: string;
@@ -66,11 +66,40 @@ describe("prompt customization", () => {
         expect(issue?.severity).toBe("error");
     });
 
-    it("top/bottom 注入段为空时不渲染标签", () => {
-        expect(renderCustomTopPrompt({customTopSystemPrompt: "  "})).toBe("");
-        expect(renderCustomBottomPrompt({customBottomSystemPrompt: ""})).toBe("");
-        expect(renderCustomTopPrompt({customTopSystemPrompt: "置顶规则"})).toContain("<custom_top_system_prompt>");
-        expect(renderCustomBottomPrompt({customBottomSystemPrompt: "追加规则"})).toContain("<custom_bottom_system_prompt>");
+    it("提示词条目按前置/末尾槽位与各自顺序渲染，并忽略禁用条目", () => {
+        const settings = {promptEntries: [
+            {id: "a", title: "第一条", enabled: true, content: "规则 A"},
+            {id: "b", title: "禁用条目", enabled: false, content: "不应出现"},
+            {id: "c", title: "末尾第一条", enabled: true, content: "规则 C", position: "after" as const},
+            {id: "d", title: "末尾第二条", enabled: true, content: "规则 D", position: "after" as const},
+        ]};
+        const before = renderPromptEntries(settings, "before");
+        const after = renderPromptEntries(settings, "after");
+        expect(before).toContain('<custom_prompt_item title="第一条" position="before">');
+        expect(before).not.toContain("规则 C");
+        expect(before).not.toContain("不应出现");
+        expect(after.indexOf("规则 C")).toBeLessThan(after.indexOf("规则 D"));
+    });
+
+    it("低代码表单公开条目编辑器与整套 Profile 设置预设", async () => {
+        const form = await resolveLowCodeForm(writerProfile.settingsForm!, {
+            profileKey: "writer",
+            scope: "global",
+            workspaceRoot: "workspace",
+        });
+        expect(form.fields.find((field) => field.path === "promptEntries")?.component).toBe("prompt-list");
+        expect(form.presets).toEqual({
+            storagePath: "profilePresets",
+            activePath: "activeProfilePresetId",
+            excludedPaths: [],
+        });
+
+        const value = parseLowCodeFormValue(writerProfile.settingsForm!, {
+            profilePresets: [{id: "preset-1", name: "动作场景", settingsJson: "{}", updatedAt: "2026-07-30T00:00:00.000Z"}],
+            activeProfilePresetId: "preset-1",
+        });
+        expect(value.profilePresets?.[0]?.name).toBe("动作场景");
+        expect(value.activeProfilePresetId).toBe("preset-1");
     });
 
     it("writer prepare 渲染出厂人设与自定义注入段", async () => {
@@ -78,9 +107,13 @@ describe("prompt customization", () => {
             session: testSession({profileKey: "writer", workspaceRoot: "workspace"}),
             initial: {},
             settings: {
-                customTopSystemPrompt: "这是置顶规则",
-                customBottomSystemPrompt: "这是追加规则",
+                promptEntries: [
+                    {id: "first", title: "首条规则", enabled: true, content: "这是首条规则"},
+                    {id: "second", title: "末条规则", enabled: true, content: "这是末条规则", position: "after" as const},
+                ],
                 personaPreset: DEFAULT_PERSONA_PRESET,
+                profilePresets: [],
+                activeProfilePresetId: "",
                 writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
                 writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
                 narrativePerson: "third" as const,
@@ -98,11 +131,10 @@ describe("prompt customization", () => {
         // 出厂人设（asset 回退链)
         expect(systemPrompt).toContain("<role_definition>");
         expect(systemPrompt).toContain("<char_performance>");
-        // 自定义注入段位置：置顶在最前、追加在最后
-        expect(systemPrompt).toContain("<custom_top_system_prompt>");
-        expect(systemPrompt).toContain("<custom_bottom_system_prompt>");
-        expect(systemPrompt.indexOf("<custom_top_system_prompt>")).toBeLessThan(systemPrompt.indexOf("<role_definition>"));
-        expect(systemPrompt.indexOf("<custom_bottom_system_prompt>")).toBeGreaterThan(systemPrompt.indexOf("<output_protocol>"));
+        expect(systemPrompt).toContain('<custom_prompt_item title="首条规则" position="before">');
+        expect(systemPrompt).toContain('<custom_prompt_item title="末条规则" position="after">');
+        expect(systemPrompt.indexOf("这是首条规则")).toBeLessThan(systemPrompt.indexOf("<role_definition>"));
+        expect(systemPrompt.indexOf("这是末条规则")).toBeGreaterThan(systemPrompt.indexOf("<output_protocol>"));
         // 合约段仍在
         expect(systemPrompt).toContain("<input_contract>");
         expect(systemPrompt).toContain("report_result");

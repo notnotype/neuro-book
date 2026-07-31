@@ -2,7 +2,7 @@ import {access, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/
 import path from "node:path";
 import {tmpdir} from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {createLayeredProfileHomeFacade, defineProfileHome, ensureGlobalProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, createProfileHomePreviewFacade, defineProfileHome, ensureGlobalProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 describe("profile home", () => {
@@ -141,5 +141,22 @@ describe("profile home", () => {
         } finally {
             await rm(workspaceRoot, {recursive: true, force: true});
         }
+    });
+
+    it("预览覆盖层支持创建、编辑、重命名和删除且不写底层 Home", async () => {
+        const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+        await home.writeText("prompts/default.md", "default", {mode: "overwrite"});
+        const preview = createProfileHomePreviewFacade(home);
+
+        await preview.writeText("prompts/draft.md", "draft", {mode: "create"});
+        await preview.writeText("prompts/default.md", "edited", {mode: "overwrite"});
+        await preview.move("prompts/draft.md", "prompts/renamed.md", {mode: "create"});
+        await preview.remove("prompts/default.md");
+
+        await expect(preview.readText("prompts/renamed.md")).resolves.toBe("draft");
+        await expect(preview.exists("prompts/default.md")).resolves.toBe(false);
+        expect((await preview.list("prompts")).map((item) => item.path)).toEqual(["prompts/renamed.md"]);
+        await expect(home.readText("prompts/default.md")).resolves.toBe("default");
+        await expect(home.exists("prompts/renamed.md")).resolves.toBe(false);
     });
 });

@@ -739,6 +739,59 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         expect(result).toEqual({data: [], issues: []});
     });
 
+    test("executeCodeActWorld operationId 在同一事务保存结果，重试不重复执行", async () => {
+        const operationId = "rp-turn:test-idempotent:world-commit";
+        const first = await facade.executeCodeActWorld(testProjectPath, `
+            await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:24:00"),
+                title: "首次提交",
+                patches: [
+                    {subjectId: "idempotent", type: "character", name: "幂等角色", path: "/hp", op: "replace", value: 88},
+                ],
+            });
+            return {committed: true};
+        `, "readwrite", {operationId});
+
+        const retried = await facade.executeCodeActWorld(testProjectPath, `
+            throw new Error("同 operationId 不应再次执行代码");
+        `, "readwrite", {operationId});
+
+        expect(retried).toEqual(first);
+        const instant = await facade.parseTime(testProjectPath, "测试纪元1日 00:24:00");
+        await expect(facade.listSlices(testProjectPath, {from: instant, to: instant})).resolves.toHaveLength(1);
+    });
+
+    test("executeCodeActWorld 失败事务不会占用 operationId", async () => {
+        const operationId = "rp-turn:test-retry-after-failure:world-commit";
+        await expect(facade.executeCodeActWorld(testProjectPath, `
+            await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:26:00"),
+                title: "失败尝试",
+                patches: [
+                    {subjectId: "retryable", type: "character", name: "重试角色", path: "/hp", op: "replace", value: 1},
+                ],
+            });
+            throw new Error("模拟提交失败");
+        `, "readwrite", {operationId})).rejects.toThrow("模拟提交失败");
+
+        const retried = await facade.executeCodeActWorld(testProjectPath, `
+            await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:26:00"),
+                title: "重试成功",
+                patches: [
+                    {subjectId: "retryable", type: "character", name: "重试角色", path: "/hp", op: "replace", value: 99},
+                ],
+            });
+            return (await world.subject.get("retryable")).hp;
+        `, "readwrite", {operationId});
+
+        expect(retried.data).toBe(99);
+        const instant = await facade.parseTime(testProjectPath, "测试纪元1日 00:26:00");
+        const slices = await facade.listSlices(testProjectPath, {from: instant, to: instant});
+        expect(slices).toHaveLength(1);
+        expect(slices[0]?.title).toBe("重试成功");
+    });
+
     test("executeCodeActWorld 同 instant 冲突后回滚事务内临时 slice", async () => {
         await expect(facade.executeCodeActWorld(testProjectPath, `
             const time = world.time.parse("测试纪元1日 00:25:00");

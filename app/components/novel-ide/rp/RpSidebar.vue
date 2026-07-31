@@ -1,253 +1,231 @@
 <script setup lang="ts">
-import {computed, onMounted, ref} from "vue";
-import type {SubjectStateDto, WorldSchemaProjectionDto, WorldSliceDto, WorldStateDto, WorldSubjectDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
-import {buildRpGraph} from "nbook/app/components/novel-ide/rp/rp-graph";
-import RpGraphCanvas from "nbook/app/components/novel-ide/rp/RpGraphCanvas.vue";
+import {computed, onMounted, ref, watch} from "vue";
+import type {SubjectStateDto, WorldStateDto, WorldSubjectDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
+import RpCharacterPanel from "nbook/app/components/novel-ide/rp/RpCharacterPanel.vue";
+import RpEventPanel from "nbook/app/components/novel-ide/rp/RpEventPanel.vue";
+import RpMapPanel from "nbook/app/components/novel-ide/rp/RpMapPanel.vue";
+import RpStatusPanel from "nbook/app/components/novel-ide/rp/RpStatusPanel.vue";
+import RpTimelineWindow from "nbook/app/components/novel-ide/rp/RpTimelineWindow.vue";
+import RpUpdateWindow from "nbook/app/components/novel-ide/rp/RpUpdateWindow.vue";
+import {buildRpMapGraph, buildRpRelationGraph} from "nbook/app/components/novel-ide/rp/rp-graph";
+import {useNotification} from "nbook/app/composables/useNotification";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatStateValue} from "nbook/app/utils/world-engine-state-view";
 import type {JsonValue} from "nbook/app/utils/world-engine-preview";
+import type {RpConsistencyLevelDto, RpConsistencyReportDto, RpEventActionRequestDto, RpIntakeOverviewDto, RpRunIntensityDto, RpRuntimeOverviewDto} from "nbook/shared/dto/rp-runtime.dto";
 
-/**
- * RP 界面侧边栏：世界 / 地图 / 角色状态 三面板。
- * 数据源 = World Engine rp 世界线（worldKey=rp）。
- */
+/** RP 左侧运行中心：聚合运行状态、事件、地图与角色四个玩家视图。 */
 const props = defineProps<{
     projectPath: string;
 }>();
 
-type RpSidebarTab = "world" | "map" | "characters";
-const activeTab = ref<RpSidebarTab>("world");
+const emit = defineEmits<{
+    (e: "timeline-restored"): void;
+    (e: "intake-confirmed", payload: {version: number}): void;
+}>();
 
+type RpSidebarTab = "status" | "events" | "map" | "characters";
+
+const notification = useNotification();
+const activeTab = ref<RpSidebarTab>("status");
 const loading = ref(false);
 const loadError = ref("");
-/** rp 世界线是否已初始化(rp/world-engine/ 配置就绪);null = 未知(查询中)。 */
+const eventBusy = ref(false);
+const intensityBusy = ref(false);
+const intakeConfirmBusy = ref(false);
+const consistencyBusy = ref(false);
+const updateWindowOpen = ref(false);
+const timelineWindowOpen = ref(false);
+const runtime = ref<RpRuntimeOverviewDto | null>(null);
+/** null 表示尚未完成状态查询；false 是引导期的正常状态。 */
 const rpInitialized = ref<boolean | null>(null);
 const rpMissing = ref<string[]>([]);
+const rpConfigErrors = ref<Array<{path: string; message: string}>>([]);
 const stateResult = ref<WorldStateDto | null>(null);
 const subjects = ref<WorldSubjectDto[]>([]);
-const slices = ref<WorldSliceDto[]>([]);
-const schema = ref<WorldSchemaProjectionDto | null>(null);
 
+/** 同时刷新 RP 运行聚合与 World Engine 客观状态。 */
 async function refresh(): Promise<void> {
     if (!props.projectPath) return;
     loading.value = true;
     loadError.value = "";
+    const errors: string[] = [];
+    try {
+        runtime.value = await $fetch<RpRuntimeOverviewDto>("/api/projects/rp/overview", {query: {projectPath: props.projectPath}});
+    } catch (error) {
+        runtime.value = null;
+        errors.push(resolveApiErrorMessage(error, "RP 运行概况加载失败"));
+    }
     try {
         const query = {projectPath: props.projectPath, worldKey: "rp"};
-        // 先查配置就绪状态:rp/world-engine/ 缺失是「尚未初始化」的正常状态,不是错误
-        const status = await $fetch<{initialized: boolean; missing: string[]}>("/api/projects/world-engine/status", {query});
+        const status = await $fetch<{initialized: boolean; missing: string[]; errors: Array<{path: string; message: string}>}>("/api/projects/world-engine/status", {query});
         rpInitialized.value = status.initialized;
         rpMissing.value = status.missing;
-        if (!status.initialized) {
+        rpConfigErrors.value = status.errors;
+        errors.push(...status.errors.map((problem) => `${problem.path}：${problem.message}`));
+        if (status.initialized) {
+            const [nextState, nextSubjects] = await Promise.all([
+                $fetch<WorldStateDto>("/api/projects/world-engine/state", {query}),
+                $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
+            ]);
+            stateResult.value = nextState;
+            subjects.value = nextSubjects;
+        } else {
             stateResult.value = null;
             subjects.value = [];
-            slices.value = [];
-            schema.value = null;
-            return;
         }
-        const [nextState, nextSubjects, nextSlices, nextSchema] = await Promise.all([
-            $fetch<WorldStateDto>("/api/projects/world-engine/state", {query}),
-            $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
-            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 30}}),
-            $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
-        ]);
-        stateResult.value = nextState;
-        subjects.value = nextSubjects;
-        slices.value = nextSlices;
-        schema.value = nextSchema;
     } catch (error) {
-        loadError.value = error instanceof Error ? error.message : String(error);
+        rpInitialized.value = null;
+        rpConfigErrors.value = [];
+        stateResult.value = null;
+        subjects.value = [];
+        errors.push(resolveApiErrorMessage(error, "RP 世界状态加载失败"));
     } finally {
+        loadError.value = errors.join("；");
         loading.value = false;
     }
 }
 
-onMounted(() => {
-    void refresh();
-});
-
+onMounted(() => void refresh());
+watch(() => props.projectPath, () => void refresh());
 defineExpose({refresh});
 
 const subjectNameMap = computed(() => new Map(subjects.value.map((subject) => [subject.id, subject.name || subject.id])));
-
-const stateBySubjectId = computed(() => new Map((stateResult.value?.subjects ?? []).map((state) => [state.subjectId, state])));
-
-// ---- 世界面板 ----
 const worldState = computed<SubjectStateDto | null>(() => stateResult.value?.subjects.find((state) => state.type === "world") ?? null);
-
-const typeGroups = computed(() => {
-    const groups = new Map<string, WorldSubjectDto[]>();
-    for (const subject of subjects.value) {
-        const list = groups.get(subject.type) ?? [];
-        list.push(subject);
-        groups.set(subject.type, list);
-    }
-    return [...groups.entries()].map(([type, members]) => ({type, members}));
+const subjectCounts = computed(() => {
+    const counts = new Map<string, number>();
+    for (const subject of subjects.value) counts.set(subject.type, (counts.get(subject.type) ?? 0) + 1);
+    return [...counts].map(([type, count]) => ({type, count}));
 });
+const worldAttrs = computed(() => worldState.value ? visibleAttrs(worldState.value) : []);
+const mapGraph = computed(() => buildRpMapGraph(runtime.value?.map ?? null));
+const relationGraph = computed(() => buildRpRelationGraph(runtime.value?.characters ?? [], runtime.value?.relations ?? []));
 
-const recentSlices = computed(() => slices.value.slice(-5).reverse());
-
-// ---- 地图面板 ----
-const mapGraph = computed(() => buildRpGraph({
-    subjects: subjects.value,
-    states: stateResult.value?.subjects ?? [],
-    nodeTypes: ["location"],
-}));
-
-// ---- 角色面板 ----
-const characterSubjects = computed(() => subjects.value.filter((subject) => subject.type === "character"));
-const relationGraph = computed(() => buildRpGraph({
-    subjects: subjects.value,
-    states: stateResult.value?.subjects ?? [],
-    nodeTypes: ["character"],
-}));
-
-const expandedCharacterId = ref<string | null>(null);
-
-function characterAttrs(subjectId: string): Array<{name: string; text: string}> {
-    const state = stateBySubjectId.value.get(subjectId);
-    if (!state) return [];
+/** 提取玩家可见的 World Engine 属性。 */
+function visibleAttrs(state: SubjectStateDto): Array<{name: string; text: string}> {
     return Object.entries(state.attrs)
         .filter(([name]) => name !== "secret")
         .map(([name, value]) => ({name, text: renderAttrText(value)}));
 }
 
+/** 将 World Engine 值压缩成侧栏文本。 */
 function renderAttrText(value: JsonValue | undefined): string {
     if (Array.isArray(value)) {
-        const parts = value.slice(0, 6).map((item) => {
-            if (typeof item === "string") return subjectNameMap.value.get(stripRef(item)) ?? item;
-            if (typeof item === "object" && item !== null) return formatStateValue(item);
-            return String(item);
-        });
+        const parts = value.slice(0, 6).map((item) => typeof item === "string" ? subjectNameMap.value.get(stripRef(item)) ?? item : formatStateValue(item));
         return parts.join("、") + (value.length > 6 ? ` 等${value.length}项` : "");
     }
-    if (typeof value === "string") {
-        return subjectNameMap.value.get(stripRef(value)) ?? value;
-    }
+    if (typeof value === "string") return subjectNameMap.value.get(stripRef(value)) ?? value;
     return formatStateValue(value);
 }
 
+/** 解除 World Engine subject 引用前缀。 */
 function stripRef(value: string): string {
     return value.startsWith("subject://") ? value.slice("subject://".length) : value;
 }
 
+/** 不调用 Agent，直接写入下一回合读取的运行强度变量。 */
+async function changeIntensity(intensity: RpRunIntensityDto): Promise<void> {
+    if (intensityBusy.value || runtime.value?.intensity === intensity) return;
+    intensityBusy.value = true;
+    try {
+        await $fetch("/api/projects/rp/intensity", {method: "PATCH", query: {projectPath: props.projectPath}, body: {intensity}});
+        if (runtime.value) runtime.value = {...runtime.value, intensity};
+        notification.success("运行强度已切换");
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "运行强度切换失败"), {title: "切换失败"});
+    } finally {
+        intensityBusy.value = false;
+    }
+}
+
+/**
+ * 从左侧状态页确认玩家当前看到的企划版本。
+ * 成功后只记录确认并通知宿主续跑 leader；Bootstrap 仍由 leader 通过硬门禁执行。
+ */
+async function confirmIntake(version: number): Promise<void> {
+    if (intakeConfirmBusy.value || runtime.value?.intake.phase !== "reviewing") return;
+    intakeConfirmBusy.value = true;
+    try {
+        const intake = await $fetch<RpIntakeOverviewDto>("/api/projects/rp/intake-confirm", {
+            method: "POST",
+            query: {projectPath: props.projectPath},
+            body: {version, confirmed: true},
+        });
+        if (runtime.value) runtime.value = {...runtime.value, intake};
+        notification.success(`开团企划 v${version} 已确认`, {title: "确认成功"});
+        emit("intake-confirmed", {version});
+    } catch (error) {
+        await refresh();
+        notification.error(resolveApiErrorMessage(error, "开团企划确认失败"), {title: "确认失败"});
+    } finally {
+        intakeConfirmBusy.value = false;
+    }
+}
+
+/** 执行玩家对候选事件的明确操作，成功后重新读取服务端真相源。 */
+async function runEventAction(action: RpEventActionRequestDto): Promise<void> {
+    if (eventBusy.value) return;
+    eventBusy.value = true;
+    try {
+        await $fetch("/api/projects/rp/events", {method: "POST", query: {projectPath: props.projectPath}, body: action});
+        await refresh();
+        const messages: Record<RpEventActionRequestDto["op"], string> = {save: "事件已保留", discard: "事件已放弃", select: "已选择事件入口", random_select: "已完成随机选择"};
+        notification.success(messages[action.op]);
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "事件操作失败"), {title: "操作失败"});
+    } finally {
+        eventBusy.value = false;
+    }
+}
+
+/** 按玩家选择运行一致性检查；报告正文留在项目文件，侧栏只更新摘要。 */
+async function runConsistency(level: RpConsistencyLevelDto): Promise<void> {
+    if (consistencyBusy.value) return;
+    consistencyBusy.value = true;
+    try {
+        const report = await $fetch<RpConsistencyReportDto>("/api/projects/rp/consistency", {
+            method: "POST", query: {projectPath: props.projectPath}, body: {level, repairSafe: true},
+        });
+        if (runtime.value) runtime.value = {...runtime.value, consistency: report};
+        const message = report.status === "healthy" ? "世界一致性检查通过" : report.status === "warning" ? "一致性检查发现警告" : "一致性检查发现阻断问题";
+        report.status === "healthy" ? notification.success(message) : report.status === "warning" ? notification.warning(message) : notification.error(message, {title: "需要处理"});
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "一致性检查失败"), {title: "检查失败"});
+    } finally {
+        consistencyBusy.value = false;
+    }
+}
+
 const TABS: Array<{key: RpSidebarTab; label: string; icon: string}> = [
-    {key: "world", label: "世界", icon: "i-lucide-globe-2"},
+    {key: "status", label: "状态", icon: "i-lucide-activity"},
+    {key: "events", label: "事件", icon: "i-lucide-sparkles"},
     {key: "map", label: "地图", icon: "i-lucide-map"},
     {key: "characters", label: "角色", icon: "i-lucide-users"},
 ];
 </script>
 
 <template>
-    <!-- RP 侧边栏容器 -->
+    <!-- RP 侧栏：四个玩家视图共用同一运行聚合 -->
     <div class="flex h-full min-h-0 flex-col bg-[var(--bg-panel)]">
-        <!-- Tab 切换 -->
-        <div class="flex shrink-0 items-center gap-1 border-b border-[var(--border-color)] px-2 py-1.5">
-            <button
-                v-for="tab in TABS"
-                :key="tab.key"
-                type="button"
-                class="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md text-[12px] transition-colors"
-                :class="activeTab === tab.key ? 'bg-[color-mix(in_srgb,var(--accent-main)_16%,transparent)] font-medium text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                @click="activeTab = tab.key"
-            >
-                <span :class="tab.icon" class="h-3.5 w-3.5"></span>
-                {{ tab.label }}
+        <div class="flex shrink-0 items-center gap-0.5 border-b border-[var(--border-color)] px-1.5 py-1.5">
+            <button v-for="tab in TABS" :key="tab.key" type="button" class="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1 rounded-md text-[11px] transition-colors" :class="activeTab === tab.key ? 'bg-[var(--accent-bg)] font-medium text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="activeTab = tab.key">
+                <span :class="tab.icon" class="h-3.5 w-3.5 shrink-0"></span><span class="truncate">{{ tab.label }}</span>
+                <span v-if="tab.key === 'events' && runtime?.events.items.some((event) => event.origin === 'candidate' && ['available', 'saved'].includes(event.status))" class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-warning)]"></span>
             </button>
-            <button type="button" class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="刷新" @click="void refresh()">
-                <span :class="loading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-3.5 w-3.5"></span>
-            </button>
+            <button type="button" class="inline-flex h-8 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="刷新" @click="void refresh()"><span :class="loading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-3.5 w-3.5"></span></button>
         </div>
 
-        <div v-if="loadError" class="border-b border-[var(--we-danger-border,#f87171)] bg-[var(--we-danger-soft,rgba(248,113,113,0.1))] px-3 py-2 text-[11px] text-[var(--we-danger,#ef4444)]">{{ loadError }}</div>
-
-        <!-- 未初始化引导:rp/world-engine/ 配置缺失是开局前的正常状态 -->
-        <div v-if="rpInitialized === false" class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-            <span class="i-lucide-sparkles h-8 w-8 text-[var(--accent-main)]"></span>
-            <div class="text-[13px] font-semibold text-[var(--text-main)]">RP 世界尚未初始化</div>
-            <div class="text-[12px] leading-relaxed text-[var(--text-muted)]">
-                在右侧对话里对彩绘说「<span class="text-[var(--text-main)]">开始跑团</span>」,她会引导你搭建世界并自动创建 RP 环境。
-            </div>
-            <div class="text-[10px] text-[var(--text-muted)]">待创建:{{ rpMissing.join("、") }}</div>
+        <div v-if="loadError" class="shrink-0 border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[10px] text-[var(--status-danger)]">{{ loadError }}</div>
+        <div v-if="rpInitialized === false && rpConfigErrors.length === 0" class="shrink-0 border-b border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-[10px] leading-relaxed text-[var(--status-info)]">
+            {{ runtime?.intake.phase === "reviewing" ? "开团企划已完成，请在状态页确认后开始。" : runtime?.intake.phase === "confirmed" || runtime?.intake.phase === "bootstrapping" ? "开团企划已确认，正在建立 RP 世界线。" : "RP 世界线尚未初始化，可继续在对话中完成开局引导。" }}<span v-if="rpMissing.length">；待创建：{{ rpMissing.join("、") }}</span>
         </div>
 
-        <!-- 世界面板 -->
-        <div v-else-if="activeTab === 'world'" class="min-h-0 flex-1 overflow-y-auto p-3 custom-scrollbar">
-            <div v-if="!stateResult || !subjects.length" class="py-8 text-center text-[12px] text-[var(--text-muted)]">RP 世界线还没有记录。开始冒险后,世界状态会在这里生长。</div>
-            <template v-else>
-                <!-- 当前时间 -->
-                <div class="mb-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2">
-                    <div class="flex items-center gap-2 text-[11px] text-[var(--text-muted)]"><span class="i-lucide-clock h-3.5 w-3.5"></span>当前时间</div>
-                    <div class="mt-1 font-mono text-[13px] text-[var(--text-main)]">{{ stateResult.time }}</div>
-                </div>
-                <!-- 世界 subject 状态 -->
-                <div v-if="worldState" class="mb-3 rounded-md border border-[var(--border-color)] p-2.5">
-                    <div class="mb-1.5 flex items-center gap-1.5 text-[12px] font-semibold text-[var(--text-main)]"><span class="i-lucide-globe-2 h-3.5 w-3.5 text-[var(--accent-main)]"></span>世界状态</div>
-                    <div v-for="attr in characterAttrs(worldState.subjectId)" :key="attr.name" class="flex items-baseline gap-2 py-0.5 text-[12px]">
-                        <span class="shrink-0 text-[var(--text-muted)]">{{ attr.name }}</span>
-                        <span class="min-w-0 truncate text-[var(--text-main)]" :title="attr.text">{{ attr.text }}</span>
-                    </div>
-                </div>
-                <!-- 分类计数 -->
-                <div class="mb-3 rounded-md border border-[var(--border-color)] p-2.5">
-                    <div class="mb-1.5 text-[12px] font-semibold text-[var(--text-main)]">登场要素</div>
-                    <div class="flex flex-wrap gap-1.5">
-                        <span v-for="group in typeGroups" :key="group.type" class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">{{ group.type }} × {{ group.members.length }}</span>
-                    </div>
-                </div>
-                <!-- 最近事件 -->
-                <div class="rounded-md border border-[var(--border-color)] p-2.5">
-                    <div class="mb-1.5 text-[12px] font-semibold text-[var(--text-main)]">最近事件</div>
-                    <div v-if="!recentSlices.length" class="text-[11px] text-[var(--text-muted)]">暂无</div>
-                    <div v-for="slice in recentSlices" :key="slice.id" class="border-b border-[var(--border-color)] py-1.5 last:border-b-0">
-                        <div class="truncate text-[12px] text-[var(--text-main)]" :title="slice.title">{{ slice.title || "(无标题)" }}</div>
-                        <div class="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
-                            <span class="font-mono">{{ slice.time }}</span>
-                            <span v-if="slice.kind === 'pending'" class="rounded bg-[color-mix(in_srgb,var(--we-warning,#f59e0b)_16%,transparent)] px-1 text-[var(--we-warning,#f59e0b)]">待发生</span>
-                        </div>
-                    </div>
-                </div>
-            </template>
-        </div>
+        <RpStatusPanel v-if="activeTab === 'status'" :overview="runtime" :current-time="stateResult?.time ?? null" :world-attrs="worldAttrs" :subject-counts="subjectCounts" :intake-confirm-busy="intakeConfirmBusy" :consistency-busy="consistencyBusy" @confirm-intake="void confirmIntake($event)" @change-intensity="void changeIntensity($event)" @run-consistency="void runConsistency($event)" @open-updates="updateWindowOpen = true" @open-timeline="timelineWindowOpen = true" />
+        <RpEventPanel v-else-if="activeTab === 'events'" :events="runtime?.events ?? null" :busy="eventBusy" @action="void runEventAction($event)" />
+        <RpMapPanel v-else-if="activeTab === 'map'" :map="runtime?.map ?? null" :graph="mapGraph" />
+        <RpCharacterPanel v-else :roster="runtime?.roster ?? null" :characters="runtime?.characters ?? []" :graph="relationGraph" />
 
-        <!-- 地图面板 -->
-        <div v-else-if="activeTab === 'map'" class="min-h-0 flex-1">
-            <RpGraphCanvas
-                :graph="mapGraph"
-                :type-colors="{location: 'var(--we-success, #22c55e)'}"
-                empty-hint="地图还是空白。随着剧情提到新的地点与路线,这里会自动生长出世界地图。"
-            />
-        </div>
-
-        <!-- 角色面板 -->
-        <div v-else class="flex min-h-0 flex-1 flex-col">
-            <div class="min-h-0 flex-[3] overflow-y-auto p-3 custom-scrollbar">
-                <div v-if="!characterSubjects.length" class="py-8 text-center text-[12px] text-[var(--text-muted)]">还没有角色登场。</div>
-                <!-- 每个角色一个独立卡片 -->
-                <div v-for="character in characterSubjects" :key="character.id" class="mb-2 overflow-hidden rounded-md border border-[var(--border-color)]">
-                    <button type="button" class="flex w-full items-center justify-between gap-2 bg-[var(--bg-input)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--bg-hover)]" @click="expandedCharacterId = expandedCharacterId === character.id ? null : character.id">
-                        <span class="flex min-w-0 items-center gap-2">
-                            <span class="i-lucide-user h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
-                            <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ character.name || character.id }}</span>
-                        </span>
-                        <span :class="expandedCharacterId === character.id ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                    </button>
-                    <div v-if="expandedCharacterId === character.id" class="px-2.5 py-2">
-                        <div v-if="!characterAttrs(character.id).length" class="text-[11px] text-[var(--text-muted)]">当前时间点没有状态记录</div>
-                        <div v-for="attr in characterAttrs(character.id)" :key="attr.name" class="flex items-baseline gap-2 py-0.5 text-[12px]">
-                            <span class="w-[72px] shrink-0 text-[var(--text-muted)]">{{ attr.name }}</span>
-                            <span class="min-w-0 flex-1 break-words text-[var(--text-main)]">{{ attr.text }}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- 关系图 -->
-            <div class="min-h-0 flex-[2] border-t border-[var(--border-color)]">
-                <RpGraphCanvas
-                    :graph="relationGraph"
-                    :type-colors="{character: 'var(--accent-main)'}"
-                    empty-hint="角色间还没有记录到关系。"
-                />
-            </div>
-        </div>
+        <RpUpdateWindow v-model="updateWindowOpen" :project-path="projectPath" />
+        <RpTimelineWindow v-model="timelineWindowOpen" :project-path="projectPath" @restored="emit('timeline-restored')" />
     </div>
 </template>

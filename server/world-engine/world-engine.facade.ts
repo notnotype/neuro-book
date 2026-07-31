@@ -23,11 +23,12 @@ import type {
     WorldSubjectListItem,
     WorldIssue,
 } from "nbook/server/world-engine/types";
+import superjson from "superjson";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {resolveProjectWorkspaceRoot} from "nbook/server/workspace-files/project-path";
-import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {ensureRpWorldDatabase, resolveProjectDatabasePath, resolveProjectRpWorldDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 type WorldEngineModule = {
@@ -42,9 +43,18 @@ type WorldEngineClientEntry = {
 
 type TransactionMode = "write" | "read" | "deferred";
 
+export type WorldEngineStatus = {
+    worldKey: WorldEngineWorldKey;
+    initialized: boolean;
+    missing: string[];
+    errors: Array<{path: string; message: string}>;
+};
+
 export type ExecuteWorldMode = "readonly" | "readwrite";
 
 export type ExecuteWorldResult = {
+    /** 执行脚本时固定的原始 World Engine Instant。 */
+    instant: bigint;
     data: unknown;
     issues: WorldIssue[];
 };
@@ -53,6 +63,8 @@ export type ExecuteWorldOptions = {
     timeout?: number;
     /** 世界线：main = 写作模式主世界线（默认），rp = RP 模式独立世界线。 */
     worldKey?: WorldEngineWorldKey;
+    /** readwrite 操作的幂等键；相同世界线内重复调用直接返回首次已提交结果。 */
+    operationId?: string;
 };
 
 /** 世界引擎后端门面。 */
@@ -169,26 +181,41 @@ export class WorldEngineFacade {
      * 世界线配置就绪状态：检查 schema 与 calendar 文件是否存在，供前端区分
      * 「尚未初始化」与真实错误（rp 世界线在 bootstrap 前属于正常的未初始化态）。
      */
-    async getWorldStatus(projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<{worldKey: WorldEngineWorldKey; initialized: boolean; missing: string[]}> {
+    async getWorldStatus(projectPath: string, worldKey: WorldEngineWorldKey = "main"): Promise<WorldEngineStatus> {
         const configRoot = this.configRoot(projectPath, worldKey);
         const prefix = worldKey === "rp" ? "rp/world-engine" : "world-engine";
         const missing: string[] = [];
-        if (!await fileExists(join(configRoot, "world-engine", "schema"))) {
-            missing.push(`${prefix}/schema/`);
+        const errors: WorldEngineStatus["errors"] = [];
+        if (!await fileExists(join(configRoot, "world-engine", "schema", "index.ts"))) {
+            missing.push(`${prefix}/schema/index.ts`);
         }
         if (!await fileExists(join(configRoot, "world-engine", "calendar.ts"))) {
             missing.push(`${prefix}/calendar.ts`);
         }
-        return {worldKey, initialized: missing.length === 0, missing};
+        if (!missing.includes(`${prefix}/schema/index.ts`)) {
+            try {
+                await this.schemaLoader.load(configRoot);
+            } catch (error) {
+                errors.push({path: `${prefix}/schema/index.ts`, message: errorText(error)});
+            }
+        }
+        if (!missing.includes(`${prefix}/calendar.ts`)) {
+            try {
+                await this.calendarLoader.load(configRoot);
+            } catch (error) {
+                errors.push({path: `${prefix}/calendar.ts`, message: errorText(error)});
+            }
+        }
+        return {worldKey, initialized: missing.length === 0 && errors.length === 0, missing, errors};
     }
 
     /**
      * 世界线配置根：main = 项目根（world-engine/），rp = rp/ 子树（rp/world-engine/）。
      * 写作与 RP 的 schema/calendar 完全分离，互不读取。
      */
-    private configRoot(projectPath: string, worldKey: WorldEngineWorldKey): string {
+    private configRoot(projectPath: string, worldKey: WorldEngineWorldKey): AbsoluteFsPath {
         const projectRoot = resolveProjectWorkspaceRoot(this.workspaceRoot, normalizeProjectPath(projectPath));
-        return worldKey === "rp" ? join(projectRoot, "rp") : projectRoot;
+        return absoluteFsPath(worldKey === "rp" ? join(projectRoot, "rp") : projectRoot);
     }
 
     /** 执行 CodeAct 查询代码。 */
@@ -198,7 +225,17 @@ export class WorldEngineFacade {
 
     /** 在同一 deferred 事务内执行 CodeAct 世界读写代码。 */
     async executeCodeActWorld(projectPath: string, code: string, mode: ExecuteWorldMode = "readwrite", options: ExecuteWorldOptions = {}): Promise<ExecuteWorldResult> {
+        if (options.operationId && mode !== "readwrite") {
+            throw new Error("World Engine operationId 只用于 readwrite 操作。");
+        }
+        if (options.operationId && (options.operationId.length > 200 || !/^[\w:.-]+$/u.test(options.operationId))) {
+            throw new Error("World Engine operationId 只能包含字母、数字、下划线、冒号、点和短横线，且不超过 200 字符。");
+        }
         return this.runInTransaction(projectPath, async (module) => {
+            if (options.operationId) {
+                const cached = await module.repository.findOperation(options.operationId);
+                if (cached !== null) return superjson.parse<ExecuteWorldResult>(cached);
+            }
             const currentInstant = await module.service.getCurrentInstant();
             const issues: WorldIssue[] = [];
 
@@ -215,10 +252,13 @@ export class WorldEngineFacade {
             const data = await executeCodeAct(code, worldApi, {
                 timeout: options.timeout ?? (mode === "readwrite" ? 15_000 : 5_000),
             });
-            return {
+            const result: ExecuteWorldResult = {
+                instant: currentInstant,
                 data: data === undefined ? "执行完成" : data,
                 issues: dedupeWorldIssues(issues),
             };
+            if (options.operationId) await module.repository.createOperation(options.operationId, superjson.stringify(result));
+            return result;
         }, "deferred", options.worldKey ?? "main");
     }
 
@@ -313,4 +353,10 @@ function transactionBeginStatement(mode: TransactionMode): string {
         return "BEGIN TRANSACTION READONLY";
     }
     return "BEGIN DEFERRED";
+}
+
+/** 提取配置 loader 错误中的稳定消息。 */
+function errorText(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    return String(error);
 }

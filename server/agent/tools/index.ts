@@ -8,7 +8,17 @@ import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tool
 import {agentCollaborationTools} from "nbook/server/agent/tools/agent-collaboration-tools";
 import {profileValidateTools} from "nbook/server/agent/tools/profile-validate-tool";
 import {rpCharacterTools} from "nbook/server/agent/tools/rp-character-tools";
+import {rpCognitionTools} from "nbook/server/agent/tools/rp-cognition-tools";
+import {rpEventTools} from "nbook/server/agent/tools/rp-event-tools";
+import {rpIntakeTools} from "nbook/server/agent/tools/rp-intake-tools";
+import {rpMechanicsTools} from "nbook/server/agent/tools/rp-mechanics-tools";
+import {rpMapTools} from "nbook/server/agent/tools/rp-map-tools";
+import {rpNpcTools} from "nbook/server/agent/tools/rp-npc-tools";
+import {rpPipelineTools} from "nbook/server/agent/tools/rp-pipeline-tools";
+import {rpFocusTools} from "nbook/server/agent/tools/rp-focus-tools";
+import {rpRelationTools} from "nbook/server/agent/tools/rp-relation-tools";
 import {rpTickTools} from "nbook/server/agent/tools/rp-tick-tools";
+import {rpTurnTools} from "nbook/server/agent/tools/rp-turn-tools";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
 import {defineAgentToolFromRuntime} from "nbook/server/agent/tools/types";
@@ -63,7 +73,17 @@ function buildAgentTools() {
         ...agentCollaborationTools,
         ...profileValidateTools,
         ...rpCharacterTools,
+        ...rpCognitionTools,
+        ...rpEventTools,
+        ...rpIntakeTools,
+        ...rpMechanicsTools,
+        ...rpMapTools,
+        ...rpNpcTools,
+        ...rpPipelineTools,
+        ...rpFocusTools,
+        ...rpRelationTools,
         ...rpTickTools,
+        ...rpTurnTools,
     } as const;
 }
 

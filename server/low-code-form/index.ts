@@ -43,6 +43,12 @@ export type LowCodeFieldDefinition = {
     path: string;
     component: LowCodeFieldComponentDto;
     label: string;
+    /** 可选展示分区；同 key 的连续字段由前端归入同一组。 */
+    section?: {
+        key: string;
+        label: string;
+        description?: string;
+    };
     description?: string;
     placeholder?: string;
     required?: boolean;
@@ -60,6 +66,12 @@ export type LowCodeFormDefinition<TSettingsSchema extends TSchema = TSchema> = {
     schema: TSettingsSchema;
     defaults: Static<TSettingsSchema>;
     fields: readonly LowCodeFieldDefinition[];
+    /** 整套 Profile 设置预设；模型参数和运行策略不属于低代码表单，因此天然不会被快照。 */
+    presets?: {
+        storagePath: string;
+        activePath: string;
+        excludedPaths?: readonly string[];
+    };
     validate?: (
         value: Static<TSettingsSchema>,
         ctx: LowCodeFormResolveContext,
@@ -111,6 +123,13 @@ export async function resolveLowCodeForm<TSettingsSchema extends TSchema>(
     return {
         defaults,
         fields: await Promise.all(form.fields.map((field) => resolveField(field, ctx, defaults))),
+        ...(form.presets ? {
+            presets: {
+                storagePath: form.presets.storagePath,
+                activePath: form.presets.activePath,
+                excludedPaths: [...(form.presets.excludedPaths ?? [])],
+            },
+        } : {}),
     };
 }
 
@@ -205,11 +224,21 @@ function assertLowCodeFormDefinition(form: LowCodeFormDefinition): void {
             throw new Error(`低代码表单字段 path 重复：${field.path}`);
         }
         paths.add(field.path);
+        if (field.section && (!field.section.key.trim() || !field.section.label.trim())) {
+            throw new Error(`低代码表单字段 ${field.path} 的 section key/label 不能为空。`);
+        }
         if (Array.isArray(field.options)) {
             assertFieldOptions(field, field.options);
         }
         if (field.component === "resource-preset" && !field.resource) {
             throw new Error(`低代码 resource-preset 字段 ${field.path} 必须声明 resource resolver。`);
+        }
+    }
+    if (form.presets) {
+        assertFieldPath(form.presets.storagePath);
+        assertFieldPath(form.presets.activePath);
+        for (const path of form.presets.excludedPaths ?? []) {
+            assertFieldPath(path);
         }
     }
 }

@@ -1,7 +1,12 @@
 import {describe, expect, it} from "vitest";
-import {parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
+import {applyProfileTemperature, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 
 describe("Pi simple request options", () => {
+    it("Profile Temperature 覆盖 Provider 默认，空值保持原请求参数", () => {
+        const provider = {temperature: 0.8, maxRetries: 2};
+        expect(applyProfileTemperature(provider, 0.25)).toEqual({temperature: 0.25, maxRetries: 2});
+        expect(applyProfileTemperature(provider, null)).toBe(provider);
+    });
     it("保留 Pi 0.80.6 streamSimple 已确认支持的 JSON 参数", () => {
         const options = parsePiSimpleRequestOptions({
             temperature: 0.3,

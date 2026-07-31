@@ -6,6 +6,7 @@ import {openProjectHistoryAndMaintain} from "nbook/server/workspace-history/proj
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {normalizeProjectPath} from "nbook/server/workspace-files/project-path";
 import {resolveNovelWorkspaceTarget} from "nbook/server/workspace-files/novel-workspace";
+import {auditRpOnProjectOpen} from "nbook/server/rp/consistency-store";
 
 const OpenProjectBodySchema = z.object({
     projectPath: z.string().trim().min(1, "projectPath 不能为空"),
@@ -26,5 +27,7 @@ export default defineEventHandler(async (event) => {
     void readProjectWorkspaceTreeSnapshot({target}).catch(() => undefined);
     // Task 95 D13/D14/D15：预热 history 库 + closed 期间外部变更对账扫描 + 24h 维护（同样 fire-and-forget）。
     void openProjectHistoryAndMaintain(target.root, target.projectPath).catch(() => undefined);
+    // P9：RP 项目打开后在后台运行 standard 审计；问题写入状态页，不阻塞普通项目打开。
+    void auditRpOnProjectOpen(target.root).catch(() => undefined);
     return {success: true};
 });

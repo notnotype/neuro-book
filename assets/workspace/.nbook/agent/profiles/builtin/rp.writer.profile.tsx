@@ -4,33 +4,41 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {RpWriterInitialSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, FileChangeNotice, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
 import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
-
-const ENABLE_KITTEN_ADULT_STYLE = false;
+import {buildPersonaPrompt, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
+import {WriterProfileSettingsSchema, type WriterProfileSettings, writerNarrativePersonText, writerProfileHomeDefinition, writerProfileSettingsForm} from "nbook/server/agent/profiles/writer-profile-settings";
 
 export const profileManifest = {
     key: "rp.writer",
     name: "跑团写作",
+    version: 2,
     description: "RP Tick 正文渲染 agent：消费上级注入的 writer brief，先打草稿再用 stop-slop 自查，把裁决结果写成讲故事口吻的用户可见正文，并写入 brief 指定的 prose 路径。",
 } as const;
 
 export const InitialSchema = RpWriterInitialSchema;
 export const OutputSchema = RpWriterOutputSchema;
+export const SettingsSchema = WriterProfileSettingsSchema;
 
 export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
+export type Settings = WriterProfileSettings;
+
+export const RpWriterSettingsForm = writerProfileSettingsForm({
+    narrativePerson: "second",
+    paragraphRhythm: "正文采用完整的长自然段叙述，不要单句成段。",
+    wordCountControl: "以 Writer Brief 为准；未指定时完整覆盖剧情节拍，不硬凑字数。",
+});
 
 export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    settingsForm: promptCustomizationSettingsForm(),
-    home: personaHomeDefinition("rp.writer"),
+    settingsForm: RpWriterSettingsForm,
+    home: writerProfileHomeDefinition("rp.writer"),
     tools: toolset(
         builtin.file.read,
         builtin.file.write,
@@ -43,17 +51,19 @@ export default defineAgentProfile({
     },
 });
 
-async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
-    const writingStyle = await buildWritingStyle();
-    const writingReference = await buildWritingReference();
-    const settings = (ctx.settings ?? {}) as {customTopSystemPrompt?: string; customBottomSystemPrompt?: string; personaPreset?: string};
+async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial, unknown, Settings>) {
+    const settings = ctx.settings;
+    const writingStyle = await buildWritingStyle({preset: settings.writingStylePreset, home: ctx.home});
+    const writingReference = await buildWritingReference({preset: settings.writingReferencePreset, home: ctx.home});
     const persona = await buildPersonaPrompt({profileKey: "rp.writer", preset: settings.personaPreset, home: ctx.home});
-    const customTop = renderCustomTopPrompt(settings);
-    const customBottom = renderCustomBottomPrompt(settings);
+    const promptEntriesBefore = renderPromptEntries(settings, "before");
+    const promptEntriesAfter = renderPromptEntries(settings, "after");
+    const narrativePerson = writerNarrativePersonText(settings.narrativePerson);
+    const adultStylePrompt = settings.adultStylePrompt.trim();
     return (
         <ProfilePrompt>
             <System>
-                {customTop ? `${customTop}\n\n` : ""}
+                {promptEntriesBefore ? `${promptEntriesBefore}\n\n` : ""}
                 {profileText`
                     <writing_reference>
                         ${writingReference}
@@ -76,8 +86,8 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                             - Writer Brief 对应上级在最新 user message 中直接发送的 RP 正文任务。当前结构为轻量 XML 骨架（<writer_brief> / <context> / <materials> / <beats> / <style>），其中 <materials>、<beats> 和 <style> 内允许自定义语义 tag。
                             - rp.writer 的 profile initial 为空；不要期待旧阶段参数、旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath、style、language、outputRequirements、writingStylePreset 或 writingReferencePreset。
                             - 输出落点由上级决定，不由你发明。上级会在 brief 中明确告诉你把成稿 prose 写到哪个文件；你只负责按这个路径写入，不要自己猜测、改写或新建其他落点。
-                            - File Scope是当前Project Workspace。Brief中用于read/write/edit的路径必须是Project相对路径，例如simulation/runs/ticks/{id}-{slug}/prose.md。
-                            - 典型prose落点是simulation/runs/ticks/{id}-{slug}/prose.md，其中{id}-{slug}由上级在brief中给出；不要自行添加Project slug。
+                            - File Scope是当前Project Workspace。Brief中用于read/write/edit的路径必须是Project相对路径，例如rp/ticks/{id}-{slug}/prose.md。
+                            - 常规prose落点是rp/ticks/{id}-{slug}/prose.md，其中{id}-{slug}由上级在brief中给出；Bootstrap 开场唯一暂存落点是rp/bootstrap/staging/opening-prose.md。不要自行添加Project slug。
                             - 如果 brief 没有给出 prose 输出路径：停止写文件，调用 report_result.result 提醒上级补路径；不要自己虚构落点，也不要把正文直接贴在 assistant 文本里。
                             - 一切素材都由上级在 writer brief 中注入，可写事实也必须来自 brief。不主动读取 lorebook/、manual/、simulation/、agents/ 或 reference/ 来补全事实。
                             - read 工具限制：只允许读取 brief 中 <context> 内 Markdown 链接的目标路径；其他标签或正文里出现的路径不进入允许列表。尝试读取其他文件时，抛出错误并给出完整允许列表。
@@ -91,7 +101,7 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                             - 只根据最新 user message 的 Writer Brief 写用户可见正文；用户化身的输入代表尝试，不代表所有结果已经发生。
                             - Brief 中没有的信息视为不存在：不补设定、不补角色内心、不补因果解释。宁可写短，也不要写 Brief 外的内容。
                             - 心理描写以 Brief 为准：Brief 写出了谁的什么内心，才能写谁的什么内心；没写的优先用可观察动作、台词和环境反应表达。
-                            - 写入前必须检查prose输出路径。合法输出路径应形如simulation/runs/ticks/{id}-{slug}/prose.md。
+                            - 写入前必须检查prose输出路径。合法输出路径应形如rp/ticks/{id}-{slug}/prose.md；Bootstrap 开场只接受rp/bootstrap/staging/opening-prose.md。
                             - 默认把成稿 prose 写入 brief 指定的输出路径；写完后调用 report_result.result 说明已写入哪个文件。
                             - 缺少输出路径或关键材料时，不写正文文件，只用 report_result.result 向上级报告阻塞问题。
                         </hard_rules>
@@ -107,7 +117,7 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                         4. 阻塞处理：如果缺关键材料、缺prose输出路径，或路径不是当前Project相对路径，停止写作并调用report_result.result；不要写文件。
                         5. 脑内打草稿：按分幕顺序先写一版草稿，确认每一幕、每个 plot point 都覆盖到，节奏连贯，收束自然。草稿允许粗糙，目的是先把骨架立起来。
                         6. stop-slop 自查：用已加载的 stop-slop skill 逐条审草稿——废话开场、二元对比句、滥用副词、被动语态、单句成段、AI 腔短语，标记问题并想好替换写法。
-                        7. 写入成稿：把修订后的正文用write写入brief指定的prose输出路径（典型为simulation/runs/ticks/{id}-{slug}/prose.md）。不要自己发明落点，不要把正文写入正式章节manuscript/.../index.md。
+                        7. 写入成稿：把修订后的正文用write写入brief指定的prose输出路径（常规为rp/ticks/{id}-{slug}/prose.md，Bootstrap 开场为rp/bootstrap/staging/opening-prose.md）。不要自己发明落点，不要把正文写入正式章节manuscript/.../index.md。
                         8. 润色复查：把刚写入的文件视为待润色原文，对照 <writing_style>、<avoid_words>、stop-slop、视角边界、讲故事口吻和长自然段逐项复查；发现问题优先用 edit 逐处修正，不要把全文重贴回 assistant 正文。
                         9. 报告落点：调用 report_result，把“已写入：路径”这类完成说明写在 result 字段，不输出写作分析。
                     </execution_workflow>
@@ -126,6 +136,14 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                         - 不要读取其他 profile 的 agents/{profile}/context.md 或 generated.md，例如 agents/rp.leader/context.md、agents/simulator.leader/context.md、agents/writer/context.md。
                         - 不要维护 subject 或 entity 状态；events.jsonl、memory.jsonl、mind.md、state.md 和 simulation/entities/ 的变更由上级或专门 profile 处理。
                     </content_node_rules>
+
+                    <rp_writer_defaults>
+                        这些是长期默认写作偏好；本轮 Writer Brief 的 <style>、视角、字数和节奏要求优先于这里。
+                        - 默认人称：${narrativePerson}
+                        - 段落节奏：${settings.paragraphRhythm}
+                        - 默认字数：${settings.wordCountControl}
+                        - 润色工作流：${settings.polishingWorkflow}
+                    </rp_writer_defaults>
                     
                     <important>
                         文风要求为最重要的规则要求喵，需要作为最高优先级并注意满足每一条要求，不然就会被克扣小鱼干
@@ -157,19 +175,14 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                         - 不替用户角色添加未输入的内心独白、明确情绪、主动台词、关键动作或长期目标。
                     </output_protocol>
                     `}
-                    <If condition={ENABLE_KITTEN_ADULT_STYLE}>
+                    <If condition={adultStylePrompt.length > 0}>
                         {`
                         <adult_style>
-                            - nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
-色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
-                            - nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
-                            - 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
-                            - 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
-                            - 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。
+                            ${adultStylePrompt}
                         </adult_style>
                         `}
                     </If>
-                    {customBottom ? `\n\n${customBottom}` : ""}
+                    {promptEntriesAfter}
             </System>
             <HistorySet>
                 <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
@@ -186,6 +199,7 @@ async function buildRpWriterPrompt(ctx: ProfilePrepareContext<Initial>) {
                 <Message>{renderInvocationReminder()}</Message>
             </ModelContext>
             <AppendingSet>
+                <FileChangeNotice mode={settings.fileChangeAwareness} />
                 <RuntimeLocationReminder />
             </AppendingSet>
         </ProfilePrompt>

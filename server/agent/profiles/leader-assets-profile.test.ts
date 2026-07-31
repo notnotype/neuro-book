@@ -1,5 +1,5 @@
 import {join, resolve} from "node:path";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
 import leaderDefaultProfile, {LeaderDefaultSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile";
@@ -603,7 +603,7 @@ describe("assets builtin v3 profiles", () => {
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-workflow-09-chapter-writing", "SKILL.md"),
             }],
             settings: {
-                customTopSystemPrompt: "资产助手置顶规则：先解释再动手。",
+                promptEntries: [{id: "asset-rule", title: "资产助手规则", enabled: true, content: "资产助手置顶规则：先解释再动手。"}],
             },
         });
         const systemPrompt = prepared.systemPrompt ?? "";
@@ -612,7 +612,7 @@ describe("assets builtin v3 profiles", () => {
         const leaderAssets = snapshot.profiles.find((item) => item.key === "leader.assets");
 
         expect(leaderAssets?.hasSettingsForm).toBe(true);
-        expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+        expect(systemPrompt).toContain('<custom_prompt_item title="资产助手规则" position="before">');
         expect(systemPrompt).toContain("资产助手置顶规则：先解释再动手。");
         expect(systemPrompt.indexOf("资产助手置顶规则")).toBeLessThan(systemPrompt.indexOf("用户资产助手"));
         // skills.include 白名单：写作流程 skill 不进本 agent 的 catalog。
@@ -913,7 +913,7 @@ describe("assets builtin v3 profiles", () => {
                 }),
                 initial: {},
                 settings: {
-                    customTopSystemPrompt: "写作置顶规则：一切场景优先保证角色逻辑。",
+                    promptEntries: [{id: "writer-rule", title: "角色逻辑", enabled: true, content: "写作置顶规则：一切场景优先保证角色逻辑。"}],
                     writingStylePreset: "darkside-kitten.light-lively",
                     writingReferencePreset: referenceKey,
                     narrativePerson: "second",
@@ -929,7 +929,7 @@ describe("assets builtin v3 profiles", () => {
             });
 
             const systemPrompt = prepared.systemPrompt ?? "";
-            expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+            expect(systemPrompt).toContain('<custom_prompt_item title="角色逻辑" position="before">');
             expect(systemPrompt.indexOf("写作置顶规则：一切场景优先保证角色逻辑。")).toBeLessThan(systemPrompt.indexOf("<writing_reference>"));
             expect(prepared.systemPrompt).toContain('key="darkside-kitten.light-lively"');
             expect(prepared.systemPrompt).toContain("正文用轻松、活泼的风格");
@@ -1006,7 +1006,7 @@ describe("assets builtin v3 profiles", () => {
                 neuroBookFamiliarity: "beginner",
                 questionStrategy: "thorough",
                 leaderPersonaPreset: "personas/caihui-lite.md",
-                customTopSystemPrompt: "最高规则：先确认用户意图。",
+                promptEntries: [{id: "leader-rule", title: "用户意图", enabled: true, content: "最高规则：先确认用户意图。"}],
                 fileChangeAwareness: "full",
             },
             vars: createTestVariableAccessor(),
@@ -1016,8 +1016,12 @@ describe("assets builtin v3 profiles", () => {
         const systemPrompt = prepared.systemPrompt ?? "";
 
         expect(leader?.hasSettingsForm).toBe(true);
+        expect(LeaderDefaultSettingsForm.fields.slice(0, 2).map((field) => field.section?.label)).toEqual(["提示词系统", "提示词系统"]);
+        expect(LeaderDefaultSettingsForm.fields.slice(2).map((field) => field.section?.label)).toEqual([
+            "特色设置", "特色设置", "特色设置", "特色设置", "特色设置",
+        ]);
         expect(validation.issues).toEqual([]);
-        expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+        expect(systemPrompt).toContain('<custom_prompt_item title="用户意图" position="before">');
         expect(systemPrompt.indexOf("最高规则：先确认用户意图。")).toBeLessThan(systemPrompt.indexOf("<leader_persona"));
         expect(systemPrompt.indexOf("<leader_persona")).toBeLessThan(systemPrompt.indexOf("<collaboration_mode"));
         expect(systemPrompt.indexOf("<collaboration_mode")).toBeLessThan(systemPrompt.indexOf("<neurobook_familiarity"));
@@ -1046,7 +1050,7 @@ describe("assets builtin v3 profiles", () => {
                 neuroBookFamiliarity: "default",
                 questionStrategy: "concise",
                 leaderPersonaPreset: "personas/caihui-lite.md",
-                customTopSystemPrompt: "",
+                promptEntries: [],
             }, {
                 profileKey: "leader.default",
                 scope: "project",
@@ -1064,7 +1068,7 @@ describe("assets builtin v3 profiles", () => {
                     neuroBookFamiliarity: "default",
                     questionStrategy: "concise",
                     leaderPersonaPreset: "personas/caihui-lite.md",
-                    customTopSystemPrompt: "",
+                    promptEntries: [],
                     fileChangeAwareness: "full",
                 },
                 home,
@@ -1073,12 +1077,52 @@ describe("assets builtin v3 profiles", () => {
                 skills: [],
             });
             const persona = await home.readText("personas/caihui-lite.md");
+            const promptPersona = await home.readText("prompts/default.md");
 
+            expect(leaderDefaultProfile.manifest.version).toBe(2);
             expect(validation.issues).toEqual([]);
             expect(persona).toContain("精简彩绘");
+            expect(promptPersona).toContain("默认（出厂）");
             expect(prepared.systemPrompt).toContain("有创作陪伴感");
             expect(prepared.systemPrompt).toContain("不引入 RP 小屋、万华镜");
             expect(prepared.systemPrompt).toContain("少问，优先给建议和默认路径");
+        } finally {
+            await rm(projectRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("leader.default v1 Home 升级到 v2 时补齐提示词人设并保留用户 Leader 人设", async () => {
+        const projectRoot = resolve(".agent", "workspace", "leader-default-home-test", randomUUID());
+        await mkdir(projectRoot, {recursive: true});
+        try {
+            const oldHome = await ensureProfileHome({
+                projectRoot,
+                profileKey: "leader.default",
+                profileVersion: 1,
+            });
+            await oldHome.writeText("personas/caihui-lite.md", "用户自定义 Leader 人设", {mode: "create"});
+
+            const upgraded = await ensureProfileHome({
+                projectRoot,
+                profileKey: "leader.default",
+                profileVersion: leaderDefaultProfile.manifest.version!,
+                definition: leaderDefaultProfile.home,
+            });
+            const metadata = JSON.parse(await readFile(join(upgraded.root, "home.json"), "utf8")) as {version: number};
+            const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, {
+                ...LeaderDefaultSettingsForm.defaults,
+                promptEntries: [{id: "disabled", title: "禁用规则", enabled: false, content: "不得进入提示词", position: "after"}],
+            }, {
+                profileKey: "leader.default",
+                scope: "global",
+                workspaceRoot: "workspace",
+                home: upgraded,
+            });
+
+            expect(metadata.version).toBe(2);
+            await expect(upgraded.readText("personas/caihui-lite.md")).resolves.toBe("用户自定义 Leader 人设");
+            await expect(upgraded.readText("prompts/default.md")).resolves.toContain("默认（出厂）");
+            expect(validation.issues).toEqual([]);
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
         }
@@ -1167,7 +1211,7 @@ describe("assets builtin v3 profiles", () => {
  */
 function defaultWriterSettings() {
     return {
-        customTopSystemPrompt: "",
+        promptEntries: [],
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third" as const,

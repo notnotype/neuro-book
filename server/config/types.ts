@@ -21,9 +21,9 @@ export type ConfigItemMeta = {
 export type AgentProfileModelConfig = {
     modelKey: string | null;
     temperature: number | null;
-    topK: number | null;
     reasoningEffort: ThinkingLevelDto | null;
-    stream: boolean;
+    /** 只控制客户端是否接收增量消息；Provider 底层始终保持流式执行。 */
+    realtimeOutput: boolean;
 };
 
 export type AgentProfileSettingsConfig = {

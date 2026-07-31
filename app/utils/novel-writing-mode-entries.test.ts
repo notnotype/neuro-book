@@ -10,6 +10,7 @@ const sidebarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSideb
 const toolPanelPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeToolPanel.vue", import.meta.url));
 const welcomePath = fileURLToPath(new URL("../components/markdown-studio/MarkdownStudioWelcome.vue", import.meta.url));
 const agentSurfacePath = fileURLToPath(new URL("../components/novel-ide/agent/AgentChatSurface.vue", import.meta.url));
+const rpSurfacePath = fileURLToPath(new URL("../components/novel-ide/rp/RpModeSurface.vue", import.meta.url));
 const plotPanelPath = fileURLToPath(new URL("../components/novel-ide/plot/NovelPlotPanel.vue", import.meta.url));
 const plotSceneCardPath = fileURLToPath(new URL("../components/novel-ide/plot/workbench/PlotWorkbenchSortableSceneCard.vue", import.meta.url));
 const plotInspectorPath = fileURLToPath(new URL("../components/novel-ide/plot/workbench/PlotWorkbenchInspector.vue", import.meta.url));
@@ -87,6 +88,16 @@ describe("Novel writing mode entries", () => {
         expect(agentSurface).not.toContain("{profileKey: \"simulator.leader\"");
         expect(agentSurface).toContain("case \"rp.leader\": return t(\"agent.profiles.rpLeader\")");
         expect(agentSurface).toContain("case \"simulator.leader\": return t(\"agent.profiles.simulatorLeader\")");
+    });
+
+    it("RP 对话面在 active 初始挂载时恢复已有 session", async () => {
+        const indexPage = await readFile(fileURLToPath(new URL("../pages/index.vue", import.meta.url)), "utf-8");
+        const rpSurface = await readFile(rpSurfacePath, "utf-8");
+        const agentSurface = await readFile(agentSurfacePath, "utf-8");
+
+        expect(indexPage).toContain("v-if=\"rpModeOpen && !isUserAssetsWorkspace\"");
+        expect(rpSurface).toContain("profile-key-override=\"rp.leader\"");
+        expect(agentSurface).toMatch(/onMounted\(\(\) => \{[\s\S]*if \(props\.active\) \{\s*await ensureSessionReady\(\);\s*\}[\s\S]*?\}\);/u);
     });
 
     it("Project 下载确认提示完整 History 隐私风险，user-assets 不显示该提示", async () => {

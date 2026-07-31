@@ -1,0 +1,133 @@
+{
+  "description": "Anima txt2img with FLSampler, default TeaCache and fixed RTX VSR 2x upscale. Positive prompt_11 and negative prompt_12 are required; output is saved as local_path. Includes optional AnimaBoosterLoader and FLSampler controls; defaults keep node-level SageAttention disabled because global --use-sage-attention is already used locally.",
+  "enabled": true,
+  "parameters": {
+    "prompt_11": {
+      "node_id": "11",
+      "field": "text",
+      "required": true,
+      "type": "string",
+      "description": "Text prompt"
+    },
+    "prompt_12": {
+      "node_id": "12",
+      "field": "text",
+      "required": true,
+      "type": "string",
+      "description": "Text prompt"
+    },
+    "width": {
+      "node_id": "28",
+      "field": "width",
+      "required": false,
+      "type": "int",
+      "description": "Image width"
+    },
+    "height": {
+      "node_id": "28",
+      "field": "height",
+      "required": false,
+      "type": "int",
+      "description": "Image height"
+    },
+    "batch_size": {
+      "node_id": "28",
+      "field": "batch_size",
+      "required": false,
+      "type": "int",
+      "description": "Batch size"
+    },
+    "seed": {
+      "node_id": "19",
+      "field": "seed",
+      "required": false,
+      "type": "int",
+      "description": "Random seed"
+    },
+    "steps": {
+      "node_id": "19",
+      "field": "steps",
+      "required": false,
+      "type": "int",
+      "description": "Generation steps"
+    },
+    "fls_fovea_strength": {
+      "node_id": "19",
+      "field": "fovea_strength",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler texture strength. Default 3.0 follows the author default/recommended starting value; only pass when the user explicitly asks to tune FLSampler texture/detail."
+    },
+    "fls_sharpness": {
+      "node_id": "19",
+      "field": "sharpness",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler local contrast/sharpness. Default 0.5 follows the author default; only pass when the user explicitly asks to tune FLSampler sharpness."
+    },
+    "fls_mask_inertia": {
+      "node_id": "19",
+      "field": "mask_inertia",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler focus mask inertia. Default 0.85 follows the author default; only pass when the user explicitly asks to tune FLSampler focus stability."
+    },
+    "filename_prefix": {
+      "node_id": "52",
+      "field": "filename_prefix",
+      "required": false,
+      "type": "string",
+      "description": "Output file prefix"
+    },
+    "rtx_vsr_quality": {
+      "node_id": "60",
+      "field": "quality",
+      "required": false,
+      "type": "string",
+      "description": "RTX VSR quality: LOW, MEDIUM, HIGH, ULTRA. Scale is fixed to 2x in workflow JSON."
+    },
+    "teacache_threshold": {
+      "node_id": "61",
+      "field": "threshold",
+      "required": false,
+      "type": "float",
+      "description": "TeaCache threshold. Default 0.15 is the conservative Anima setting; lower values are safer."
+    },
+    "teacache_adaptive_mode": {
+      "node_id": "61",
+      "field": "adaptive_mode",
+      "required": false,
+      "type": "bool",
+      "description": "Enable TeaCache adaptive mode. Default true."
+    },
+    "teacache_cache_device": {
+      "node_id": "61",
+      "field": "cache_device",
+      "required": false,
+      "type": "string",
+      "description": "TeaCache cache device: cuda or cpu. Default cuda."
+    },
+    "teacache_version": {
+      "node_id": "61",
+      "field": "teacache_version",
+      "required": false,
+      "type": "string",
+      "description": "AnimaTeaCache version enum: v1 (Legacy Fast) or v2 (Standard Precise). Default is v1 (Legacy Fast); do not pass short values v1/v2."
+    },
+    "anima_booster_sage_attention": {
+      "node_id": "44",
+      "field": "sage_attention",
+      "required": false,
+      "type": "string",
+      "description": "Optional AnimaBoosterLoader SageAttention mode: disabled, auto, triton, sageattn_qk_int8_pv_fp16_cuda, sageattn_qk_int8_pv_fp8_cuda. Default disabled; only pass when user explicitly requests node-level control."
+    },
+    "anima_booster_torch_compile": {
+      "node_id": "44",
+      "field": "torch_compile",
+      "required": false,
+      "type": "bool",
+      "description": "Optional AnimaBoosterLoader torch.compile toggle. Default false; only pass when user explicitly requests compile/JIT warmup behavior."
+    }
+  }
+}
+

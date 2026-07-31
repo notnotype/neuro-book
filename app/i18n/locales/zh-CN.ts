@@ -758,7 +758,7 @@ const zhCN = {
                 inheritGlobalPlaceholder: "继承 Global",
                 emptyPlaceholder: "留空",
                 reasoningEffort: "推理强度",
-                stream: "流式",
+                stream: "实时输出",
                 summarizer: "自动摘要",
                 runtime: {
                     defaultsTitle: "通用运行默认值",

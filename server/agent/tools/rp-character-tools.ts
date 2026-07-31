@@ -25,6 +25,7 @@ import {
     writeMood,
     writeSoul,
 } from "nbook/server/rp/character-store";
+import {assertRpRuntimeForProject} from "nbook/server/rp/intake-guard";
 
 /**
  * RP 模式 v2 角色信息与记忆工具（rp/characters/ 存储，格式见 reference/agent/rp-v2/character-memory.md）。
@@ -66,6 +67,8 @@ const UpdateSchema = Type.Object({
     name: Type.Optional(Type.String()),
     /** ensure：别名/称呼列表（如「子爵」「白发女孩」），供其他 agent 按称呼解析 id。 */
     aliases: Type.Optional(Type.Array(Type.String())),
+    /** ensure：玩家化身必须为 player，其余角色为 npc。 */
+    kind: Type.Optional(Type.Union([Type.Literal("player"), Type.Literal("npc")])),
     /** write_soul / write_mood / add_* / update_knowledge 的正文内容。 */
     content: Type.Optional(Type.String()),
     /** add_knowledge / add_unknown 的主题标题。 */
@@ -159,7 +162,7 @@ export const rpCharacterTools = {
         executionMode: "sequential",
         description: [
             "Maintain an RP character's persona, knowledge and god-view ledgers (rp/characters/ store).",
-            "op=ensure creates AND registers the character: a NEW character requires name (display name, usually Chinese); duplicate display names / aliases are rejected with the existing id — never create a second id for the same character. All other ops accept id, display name, or alias.",
+            "op=ensure creates AND registers the character: a NEW character requires name (display name, usually Chinese) and should declare kind=player for the player avatar or kind=npc otherwise; duplicate display names / aliases are rejected with the existing id — never create a second id for the same character. All other ops accept id, display name, or alias.",
             "Knowledge entries record what the character BELIEVES (may be false) with source + learned tick; use set_truth_note (god-view) to annotate false/unverified beliefs.",
             "add_unknown registers events the character does not know yet (god-view dramatic ledger); reveal_unknown moves an entry into knowledge when the character learns it.",
             "god-view ops (add_unknown / reveal_unknown / set_truth_note) are for the screenwriter/host layer only.",
@@ -167,9 +170,10 @@ export const rpCharacterTools = {
         parameters: UpdateSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as UpdateInput;
+            await assertRpRuntimeForProject(context, input.projectPath, ["characters"]);
             const projectRoot = resolveProjectRootForTool(context, input.projectPath);
             if (input.op === "ensure") {
-                await ensureRpCharacter(projectRoot, input.characterId, {soul: input.content, name: input.name, aliases: input.aliases});
+                await ensureRpCharacter(projectRoot, input.characterId, {soul: input.content, name: input.name, aliases: input.aliases, kind: input.kind});
                 return toolResult({op: input.op, characterId: input.characterId, status: "ok"});
             }
             const characterId = await resolveCharacterId(projectRoot, input.characterId);
@@ -241,6 +245,7 @@ export const rpCharacterTools = {
         parameters: MemoryCommitSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as MemoryCommitInput;
+            await assertRpRuntimeForProject(context, input.projectPath, ["characters"]);
             const projectRoot = resolveProjectRootForTool(context, input.projectPath);
             // 只接受注册表里的角色：不再静默 ensure，防止拼错 id 悄悄裂出第二套档案
             const characterId = await resolveCharacterId(projectRoot, input.characterId);

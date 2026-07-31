@@ -103,6 +103,12 @@ export class WorldSchemaLoader {
 export function buildWorldSchema(registry: ZodSchemaRegistry): WorldSchema {
     const subjectTypes: WorldSchema["subjectTypes"] = {};
     for (const [typeName, zodSchema] of Object.entries(registry)) {
+        if (!(zodSchema instanceof z.ZodObject)) {
+            throw createError({
+                statusCode: 400,
+                message: `subject type ${typeName} 必须使用 z.object(...)，不能用普通 shape 对象伪造`,
+            });
+        }
         const refs = extractRefs(zodSchema);
         const uniqueArrays = extractUniqueArrays(zodSchema);
         const defaults = collectZodDefaults(zodSchema);

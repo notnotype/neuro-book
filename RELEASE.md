@@ -1,5 +1,20 @@
 # Release Notes
 
+## 0.8.19-rp - 2026-07-31
+
+本次发布是原项目的 RP 分支版，对应用户侧版本标识 `0.8.19.rp`；为了保持安装器和 Release Manifest 的 SemVer 兼容，包版本与 tag 使用 `0.8.19-rp`。
+
+### 主要变化
+
+- RP 模式 v2 进入可公开验证分支：包含开团引导、Bootstrap 六阶段门禁、唯一回合事务、主动事件、规则结算、地图/NPC 生命周期、十阶段 pipeline、关注度/强度、更新窗口与世界切片恢复。
+- Agent Profile 配置中心收敛：模型参数与通用运行策略更清晰，Profile 自定义提示词改为可启停、排序、分前置/末尾槽位的条目结构，并支持设置预设与完整提示词预览。
+- 发布前已清理默认配置：新安装/新 Workspace 不再预置模型 Provider、默认模型、API Key、Agent Profile 覆盖或额外提示词条目；用户需要在设置中心重新配置 API 与 Agent 偏好。
+
+### 已知验证
+
+- 相关 RP 数据面回归与 Agent Profile 设置专项验证记录见 `docs/tasks/100-rp-mode-v2/README.md` 与 `docs/tasks/113-agent-profile-prompt-settings/README.md`。
+- 按项目约定，本轮不自动执行浏览器交互验收；建议发布后手动验证配置中心的模型/API 配置、额外提示词启停与 RP 开团流程。
+
 ## Manager 0.1.0-canary.30 - 2026-07-25
 
 本次只发布`@notnotype/neuro-book-manager`，不创建新的NeuroBook应用Release或Windows Portable压缩包。

@@ -7,6 +7,7 @@ import type {
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import ProfileRuntimeSettingsFields from "nbook/app/components/novel-ide/settings/ProfileRuntimeSettingsFields.vue";
+import AgentProfilePromptPreview from "nbook/app/components/novel-ide/settings/AgentProfilePromptPreview.vue";
 import {
     buildProfileRuntimeSettingsPatch,
     createProfileRuntimeSettingsDraft,
@@ -24,9 +25,11 @@ import {
     hasLowCodePath,
     lowCodeJsonEqual,
     readLowCodePath,
+    setLowCodePath,
 } from "nbook/app/components/common/low-code-form/low-code-form-utils";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProfileRuntimeSettingsPatchDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
@@ -64,9 +67,8 @@ type AgentProfileDraft = {
 type AgentProfileModelDraft = {
     modelKey: string | null;
     temperature: string;
-    topK: string;
     reasoningEffort: ThinkingLevelDto | null;
-    stream: boolean | null;
+    realtimeOutput: boolean | null;
 };
 
 type AgentProfileSettingsDraft = {
@@ -95,25 +97,28 @@ const validationIssues = ref<ConfigAgentProfileSettingsDto["validationIssues"]>(
 const profileModelDefaults = ref<AgentProfileModelDraft>({
     modelKey: null,
     temperature: "",
-    topK: "",
     reasoningEffort: "off",
-    stream: true,
+    realtimeOutput: true,
 });
 const profileRuntimeDefaults = ref<ProfileRuntimeSettingsDraft>(createProfileRuntimeSettingsDraft(undefined));
 const profileRuntimeDefaultsEffective = ref<ConfigAgentProfileSettingsDto["profileRuntimeDefaults"] | null>(null);
 const profileRuntimeDefaultsSources = ref<ProfileRuntimeSettingsSources | null>(null);
 const profileRuntimeDefaultsErrors = ref<ProfileRuntimeSettingsErrors>({});
 const profiles = ref([]) as Ref<AgentProfileDraft[]>;
+const defaultsExpanded = ref(false);
 const expandedProfileSettings = ref<Set<string>>(new Set());
+const expandedProfileRuntime = ref<Set<string>>(new Set());
 const snapshotText = ref("");
 let buildStatusPollTimer: ReturnType<typeof setTimeout> | null = null;
 const configApi = useConfigApi();
 const dialog = useDialog();
+const notification = useNotification();
 const novelIdeStore = useNovelIdeStore();
 const {t} = useI18n();
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const selectedDefaultProfileKey = ref("");
 const isProjectScope = computed(() => props.scope === "project");
+const previewProjectPath = computed(() => isProjectScope.value ? props.targetQuery?.projectPath : undefined);
 const globalDefaultProfileSlot = computed<"novel" | "userAssets">(() => novelIdeStore.workspaceKind === "user-assets" ? "userAssets" : "novel");
 const systemDefaultProfileKey = computed(() => {
     if (isProjectScope.value) {
@@ -218,18 +223,18 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
     }
 }
 
-function streamLabel(value: boolean): string {
+function realtimeOutputLabel(value: boolean): string {
     return value ? t("settings.panels.profileModels.enabled") : t("settings.panels.profileModels.disabled");
 }
 
-function streamSelectValue(value: boolean | null): string {
+function realtimeOutputSelectValue(value: boolean | null): string {
     if (value === null) {
         return "inherit";
     }
     return value ? "true" : "false";
 }
 
-function parseStreamSelectValue(value: string): boolean | null {
+function parseRealtimeOutputSelectValue(value: string): boolean | null {
     if (value === "inherit") {
         return null;
     }
@@ -240,17 +245,17 @@ function reasoningEffortDefaultLabel(profile: AgentProfileDraft): string {
     return t("settings.panels.profileModels.defaultValue", {value: thinkingLevelLabel(resolveProfileInheritedModel(profile).reasoningEffort ?? "off")});
 }
 
-function streamDefaultLabel(profile: AgentProfileDraft): string {
-    return t("settings.panels.profileModels.defaultValue", {value: streamLabel(resolveProfileInheritedModel(profile).stream ?? true)});
+function realtimeOutputDefaultLabel(profile: AgentProfileDraft): string {
+    return t("settings.panels.profileModels.defaultValue", {value: realtimeOutputLabel(resolveProfileInheritedModel(profile).realtimeOutput ?? true)});
 }
 
 function reasoningEffortOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
     return [{value: "inherit", label: reasoningEffortDefaultLabel(profile)}, ...reasoningEffortBaseOptions.value];
 }
 
-function streamOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
+function realtimeOutputOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
     return [
-        {value: "inherit", label: streamDefaultLabel(profile)},
+        {value: "inherit", label: realtimeOutputDefaultLabel(profile)},
         {value: "true", label: t("settings.panels.profileModels.enabled")},
         {value: "false", label: t("settings.panels.profileModels.disabled")},
     ];
@@ -264,12 +269,23 @@ function setProfileReasoningEffort(profile: AgentProfileDraft, value: string): v
     profile.model.reasoningEffort = value === "inherit" ? null : value as ThinkingLevelDto;
 }
 
-function setDefaultStream(value: string): void {
-    profileModelDefaults.value.stream = parseStreamSelectValue(value);
+function setDefaultRealtimeOutput(value: string): void {
+    profileModelDefaults.value.realtimeOutput = parseRealtimeOutputSelectValue(value);
 }
 
-function setProfileStream(profile: AgentProfileDraft, value: string): void {
-    profile.model.stream = parseStreamSelectValue(value);
+/** 切换单 Profile 运行策略；默认保持折叠。 */
+function toggleProfileRuntime(profileKey: string): void {
+    const next = new Set(expandedProfileRuntime.value);
+    if (next.has(profileKey)) {
+        next.delete(profileKey);
+    } else {
+        next.add(profileKey);
+    }
+    expandedProfileRuntime.value = next;
+}
+
+function setProfileRealtimeOutput(profile: AgentProfileDraft, value: string): void {
+    profile.model.realtimeOutput = parseRealtimeOutputSelectValue(value);
 }
 
 /**
@@ -279,9 +295,8 @@ function cloneModelDraft(model: Partial<AgentProfileModelConfigDto> | undefined)
     return {
         modelKey: model?.modelKey ?? null,
         temperature: stringifyNullableNumber(model?.temperature ?? null),
-        topK: stringifyNullableNumber(model?.topK ?? null),
         reasoningEffort: model?.reasoningEffort ?? null,
-        stream: typeof model?.stream === "boolean" ? model.stream : null,
+        realtimeOutput: typeof model?.realtimeOutput === "boolean" ? model.realtimeOutput : null,
     };
 }
 
@@ -302,10 +317,18 @@ function cloneSettingsDraft(
         inheritedValue: cloneLowCodeObject(settings.inheritedValue),
         issues: settings.issues,
         overridePaths: scope === "project"
-            ? settings.form.fields.filter((field) => hasLowCodePath(patch, field.path)).map((field) => field.path)
+            ? settingsPaths(settings.form).filter((path) => hasLowCodePath(patch, path))
             : [],
         resourceMutations: [],
     };
+}
+
+/** 返回可保存的表单字段路径，包含不直接渲染的预设存储字段。 */
+function settingsPaths(form: LowCodeFormDto): string[] {
+    return [
+        ...form.fields.map((field) => field.path),
+        ...(form.presets ? [form.presets.storagePath, form.presets.activePath] : []),
+    ];
 }
 
 /**
@@ -316,27 +339,42 @@ function buildSettingsPatch(settings: AgentProfileSettingsDraft | null): LowCode
         return {};
     }
     if (isProjectScope.value) {
-        return Object.fromEntries(settings.form.fields.filter((field) => settings.overridePaths.includes(field.path)).map((field) => {
-            const value = readLowCodePath(settings.values, field.path);
+        return Object.fromEntries(settingsPaths(settings.form).filter((path) => settings.overridePaths.includes(path)).map((path) => {
+            const value = readLowCodePath(settings.values, path);
             if (value !== undefined) {
-                return [field.path, value] as const;
+                return [path, value] as const;
             }
-            const defaultValue = hasLowCodePath(settings.form.defaults, field.path)
-                ? readLowCodePath(settings.form.defaults, field.path)
-                : field.defaultValue ?? null;
-            return [field.path, defaultValue] as const;
+            const field = settings.form.fields.find((item) => item.path === path);
+            const defaultValue = hasLowCodePath(settings.form.defaults, path)
+                ? readLowCodePath(settings.form.defaults, path)
+                : field?.defaultValue ?? null;
+            return [path, defaultValue] as const;
         })) as LowCodeJsonObject;
     }
-    return Object.fromEntries(settings.form.fields.flatMap((field) => {
-        const value = readLowCodePath(settings.values, field.path);
-        const defaultValue = hasLowCodePath(settings.form.defaults, field.path)
-            ? readLowCodePath(settings.form.defaults, field.path)
-            : field.defaultValue;
+    return Object.fromEntries(settingsPaths(settings.form).flatMap((path) => {
+        const value = readLowCodePath(settings.values, path);
+        const field = settings.form.fields.find((item) => item.path === path);
+        const defaultValue = hasLowCodePath(settings.form.defaults, path)
+            ? readLowCodePath(settings.form.defaults, path)
+            : field?.defaultValue;
         if (value === undefined || lowCodeJsonEqual(value, defaultValue)) {
             return [];
         }
-        return [[field.path, value] as const];
+        return [[path, value] as const];
     })) as LowCodeJsonObject;
+}
+
+/** 构造真实 prepare 草稿预览使用的完整有效 settings。 */
+function buildPreviewSettings(profile: AgentProfileDraft): LowCodeJsonObject {
+    const settings = profile.settings;
+    if (!settings) return {};
+    if (!isProjectScope.value) return cloneLowCodeObject(settings.values);
+    let effective = cloneLowCodeObject(settings.inheritedValue);
+    for (const path of settings.overridePaths) {
+        const value = readLowCodePath(settings.values, path);
+        if (value !== undefined) effective = setLowCodePath(effective, path, value);
+    }
+    return effective;
 }
 
 /**
@@ -458,13 +496,11 @@ function buildProjectModelPatch(model: AgentProfileModelDraft): Partial<AgentPro
 
 function buildModelPatch(model: AgentProfileModelDraft): Partial<AgentProfileModelConfigDto> {
     const temperature = parseNullableNumber(model.temperature);
-    const topK = parseNullableNumber(model.topK, true);
     return {
         ...(model.modelKey ? {modelKey: model.modelKey} : {}),
         ...(temperature !== null ? {temperature} : {}),
-        ...(topK !== null ? {topK} : {}),
         ...(model.reasoningEffort !== null ? {reasoningEffort: model.reasoningEffort} : {}),
-        ...(model.stream !== null ? {stream: model.stream} : {}),
+        ...(model.realtimeOutput !== null ? {realtimeOutput: model.realtimeOutput} : {}),
     };
 }
 
@@ -472,9 +508,8 @@ function buildCompleteModelConfig(model: AgentProfileModelDraft): AgentProfileMo
     return {
         modelKey: model.modelKey,
         temperature: parseNullableNumber(model.temperature),
-        topK: parseNullableNumber(model.topK, true),
         reasoningEffort: model.reasoningEffort ?? "off",
-        stream: model.stream ?? true,
+        realtimeOutput: model.realtimeOutput ?? true,
     };
 }
 
@@ -489,8 +524,8 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
     if (profileModelDefaults.value.reasoningEffort === null) {
         profileModelDefaults.value.reasoningEffort = "off";
     }
-    if (profileModelDefaults.value.stream === null) {
-        profileModelDefaults.value.stream = true;
+    if (profileModelDefaults.value.realtimeOutput === null) {
+        profileModelDefaults.value.realtimeOutput = true;
     }
     profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(editorSnapshot.value?.global.agent?.profileRuntimeDefaults);
     const globalDefaultsInheritance = resolveProfileRuntimeInheritance(settings.harnessRuntimeDefaults, []);
@@ -718,7 +753,9 @@ async function saveSettings(): Promise<void> {
             successText.value = t("settings.panels.profileModels.globalSaveSuccess");
         }
     } catch (error) {
-        errorText.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.saveFailed"));
+        const message = resolveApiErrorMessage(error, t("settings.panels.profileModels.saveFailed"));
+        errorText.value = message;
+        notification.error(message, {title: t("settings.panels.profileModels.saveFailed")});
     } finally {
         saving.value = false;
     }
@@ -761,9 +798,8 @@ function resetProfile(profile: AgentProfileDraft): void {
     profile.model = {
         modelKey: null,
         temperature: "",
-        topK: "",
         reasoningEffort: null,
-        stream: null,
+        realtimeOutput: null,
     };
     profile.runtime = createProfileRuntimeSettingsDraft(undefined);
     if (profile.settings) {
@@ -781,9 +817,8 @@ function resetProfileDefaults(): void {
         : {
             modelKey: null,
             temperature: "",
-            topK: "",
             reasoningEffort: "off",
-            stream: true,
+            realtimeOutput: true,
         };
     profileRuntimeDefaults.value = createProfileRuntimeSettingsDraft(undefined);
 }
@@ -793,9 +828,8 @@ function globalProfileModelDefaults(): AgentProfileModelConfigDto {
     return {
         modelKey: raw.modelKey ?? null,
         temperature: raw.temperature ?? null,
-        topK: raw.topK ?? null,
         reasoningEffort: raw.reasoningEffort ?? "off",
-        stream: raw.stream ?? true,
+        realtimeOutput: raw.realtimeOutput ?? true,
     };
 }
 
@@ -803,9 +837,8 @@ function mergeModelConfig(base: AgentProfileModelConfigDto, patch: AgentProfileM
     return {
         modelKey: patch.modelKey ?? base.modelKey,
         temperature: parseNullableNumber(patch.temperature) ?? base.temperature,
-        topK: parseNullableNumber(patch.topK, true) ?? base.topK,
         reasoningEffort: patch.reasoningEffort ?? base.reasoningEffort ?? "off",
-        stream: patch.stream ?? base.stream ?? true,
+        realtimeOutput: patch.realtimeOutput ?? base.realtimeOutput ?? true,
     };
 }
 
@@ -867,7 +900,7 @@ function defaultReasoningOptions(): SelectOption[] {
     return [{value: "inherit", label: t("settings.panels.profileModels.inheritGlobal", {value: thinkingLevelLabel(globalProfileModelDefaults().reasoningEffort ?? "off")})}, ...reasoningEffortBaseOptions.value];
 }
 
-function defaultStreamOptions(): SelectOption[] {
+function defaultRealtimeOutputOptions(): SelectOption[] {
     if (!isProjectScope.value) {
         return [
             {value: "true", label: t("settings.panels.profileModels.enabled")},
@@ -875,7 +908,7 @@ function defaultStreamOptions(): SelectOption[] {
         ];
     }
     return [
-        {value: "inherit", label: t("settings.panels.profileModels.inheritGlobal", {value: streamLabel(globalProfileModelDefaults().stream ?? true)})},
+        {value: "inherit", label: t("settings.panels.profileModels.inheritGlobal", {value: realtimeOutputLabel(globalProfileModelDefaults().realtimeOutput ?? true)})},
         {value: "true", label: t("settings.panels.profileModels.enabled")},
         {value: "false", label: t("settings.panels.profileModels.disabled")},
     ];
@@ -965,18 +998,22 @@ defineExpose({
             </section>
 
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
-                <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] pb-4">
+                <div class="flex flex-wrap items-center justify-between gap-2" :class="defaultsExpanded ? 'mb-4 border-b border-[var(--border-color)] pb-4' : ''">
                     <div>
                         <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.defaultParameters") }}</h4>
                         <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.profileModels.projectDefaultDescription") : t("settings.panels.profileModels.globalDefaultDescription") }}</p>
                     </div>
-                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileDefaults">
-                        <span class="i-lucide-rotate-ccw h-3 w-3"></span>
-                        {{ t("settings.panels.profileModels.resetDefault") }}
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button v-if="defaultsExpanded" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileDefaults">
+                            <span class="i-lucide-rotate-ccw h-3 w-3"></span>{{ t("settings.panels.profileModels.resetDefault") }}
+                        </button>
+                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[11px] text-[var(--text-secondary)]" @click="defaultsExpanded = !defaultsExpanded">
+                            <span :class="defaultsExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>{{ defaultsExpanded ? '收起' : '展开' }}
+                        </button>
+                    </div>
                 </div>
 
-                <div class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.5fr)]">
+                <div v-if="defaultsExpanded" class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.7fr)]">
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
                         <NovelIdeModelSelect
@@ -994,19 +1031,15 @@ defineExpose({
                         <FormInput v-model="profileModelDefaults.temperature" type="number" step="0.1" min="0" :placeholder="isProjectScope ? t('settings.panels.profileModels.inheritGlobalPlaceholder') : t('settings.panels.profileModels.emptyPlaceholder')" />
                     </div>
                     <div class="space-y-1.5">
-                        <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-                        <FormInput v-model="profileModelDefaults.topK" type="number" step="1" min="1" :placeholder="isProjectScope ? t('settings.panels.profileModels.inheritGlobalPlaceholder') : t('settings.panels.profileModels.emptyPlaceholder')" />
-                    </div>
-                    <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.reasoningEffort") }}</label>
                         <FormSelect :model-value="profileModelDefaults.reasoningEffort ?? 'inherit'" :options="defaultReasoningOptions()" @update:model-value="setDefaultReasoningEffort" />
                     </div>
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
-                        <FormSelect :model-value="streamSelectValue(profileModelDefaults.stream)" :options="defaultStreamOptions()" @update:model-value="setDefaultStream" />
+                        <FormSelect :model-value="realtimeOutputSelectValue(profileModelDefaults.realtimeOutput)" :options="defaultRealtimeOutputOptions()" @update:model-value="setDefaultRealtimeOutput" />
                     </div>
                 </div>
-                <div v-if="profileRuntimeDefaultsEffective && profileRuntimeDefaultsSources" class="mt-5 border-t border-[var(--border-color)] pt-5">
+                <div v-if="defaultsExpanded && profileRuntimeDefaultsEffective && profileRuntimeDefaultsSources" class="mt-5 border-t border-[var(--border-color)] pt-5">
                     <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.defaultsTitle") }}</h5>
                     <ProfileRuntimeSettingsFields v-model="profileRuntimeDefaults" :inherited="profileRuntimeDefaultsEffective" :sources="profileRuntimeDefaultsSources" :errors="profileRuntimeDefaultsErrors" />
                 </div>
@@ -1037,7 +1070,7 @@ defineExpose({
                             </div>
                         </div>
 
-                        <div class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_auto]">
+                        <div class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_auto]">
                             <!-- Profile 默认模型 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
@@ -1058,12 +1091,6 @@ defineExpose({
                                 <FormInput v-model="profile.model.temperature" type="number" step="0.1" min="0" :placeholder="t('settings.panels.profileModels.defaultPlaceholder')" />
                             </div>
 
-                            <!-- TopK -->
-                            <div class="space-y-1.5">
-                                <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-                                <FormInput v-model="profile.model.topK" type="number" step="1" min="1" :placeholder="t('settings.panels.profileModels.defaultPlaceholder')" />
-                            </div>
-
                             <!-- 推理强度 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.reasoningEffort") }}</label>
@@ -1073,13 +1100,19 @@ defineExpose({
                             <!-- 流式 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
-                                <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
+                                <FormSelect :model-value="realtimeOutputSelectValue(profile.model.realtimeOutput)" :options="realtimeOutputOptionsForProfile(profile)" @update:model-value="setProfileRealtimeOutput(profile, $event)" />
                             </div>
                         </div>
 
                         <div class="mt-4 border-t border-[var(--border-color)] pt-4">
-                            <h5 class="mb-3 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.profileOverrideTitle") }}</h5>
-                            <ProfileRuntimeSettingsFields v-model="profile.runtime" :inherited="profile.runtimeEffective" :sources="profile.runtimeSources" :errors="profile.runtimeErrors" />
+                            <button type="button" class="flex w-full items-center gap-2 text-left" @click="toggleProfileRuntime(profile.profileKey)">
+                                <span class="i-lucide-gauge h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                                <h5 class="min-w-0 flex-1 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.profileOverrideTitle") }}</h5>
+                                <span :class="expandedProfileRuntime.has(profile.profileKey) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-4 w-4 text-[var(--text-muted)]"></span>
+                            </button>
+                            <div v-if="expandedProfileRuntime.has(profile.profileKey)" class="mt-3">
+                                <ProfileRuntimeSettingsFields v-model="profile.runtime" :inherited="profile.runtimeEffective" :sources="profile.runtimeSources" :errors="profile.runtimeErrors" />
+                            </div>
                         </div>
 
                         <!-- Profile 自定义低代码设置 -->
@@ -1106,6 +1139,9 @@ defineExpose({
                                     :inheritance-mode="isProjectScope ? 'manual' : 'always-override'"
                                     :inherited-value="profile.settings.inheritedValue"
                                 />
+                                <div class="mt-3 flex justify-end border-t border-[var(--border-color)] pt-3">
+                                    <AgentProfilePromptPreview :profile-key="profile.profileKey" :settings="buildPreviewSettings(profile)" :resource-mutations="profile.settings.resourceMutations" :project-path="previewProjectPath" />
+                                </div>
                             </div>
                         </div>
                     </div>

@@ -23,6 +23,8 @@
 
 `tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `builtin.result.sidecar()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明顶层 `toolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
 
+所有模型可见工具的 `parameters` 必须是根级 `type: "object"`。多操作工具不能直接把根级 `Type.Union` 暴露给 Provider；应使用顶层对象作为模型可见参数，并把按 `op` 区分的严格联合放在 `validationSchema`，由执行入口校验。工具注册表会在 Provider 投影前拒绝缺少 object 根类型的 schema，避免把无效请求发送到模型服务。
+
 `tools` 支持三种来源：
 
 - `builtin.file.read` / `builtin.file.write` 等：引用内置全局工具。
@@ -97,6 +99,7 @@ export const WriterSettingsForm = defineLowCodeForm({
 - `defaults` 默认值。
 - 字段级动态 `options(ctx)`。
 - async `validate(value, ctx)` 自定义校验，返回字段级 issue。
+- 字段级 `section: {key, label, description?}` 显示分区；分区随表单 DTO 返回，只控制 UI，不写入 settings patch。
 - 合并 stored patch 时忽略 `defaults` 未声明的顶层 key：字段下线后，旧存档残留不会导致校验失败或整份 settings 回退默认。
 - 组件：`text`、`textarea`、`number`、`switch`、`select`、`combobox`、`radio`、`checkbox`。
 
@@ -108,6 +111,30 @@ export const WriterSettingsForm = defineLowCodeForm({
 - `combobox` 只能选择 options 中的值，不允许自由输入。
 
 Config 层保存 `agent.profiles[profileKey].settings` patch。Global patch 覆盖 profile defaults；Project patch 覆盖 Global，并在 Project UI 中展示字段级“继承 / 覆盖”。保存时服务端会执行 schema、options 和自定义校验；运行时如果读到损坏 settings，会回退 defaults 并记录 warning，避免 profile 不可用。
+
+同一职责存在多个 Profile 变体时，schema、form fields 和动态 Prompt renderer 必须抽为共享契约，变体只覆盖默认值或追加自身固定合同。例如 `writer` / `rp.writer` 共享 Writer 设置，`rp.actor` / `simulator.actor` 共享 Actor 设置。这样新增职责字段时，类型和测试会同时约束所有变体，避免只更新基础 Profile。内置 Profile 使用 `profileFeatureFormFields()` 把职责字段统一标记为“特色设置”；`promptCustomizationFormFields()` 生成的 `personaPreset` 与 `promptEntries` 统一属于“提示词系统”。
+
+内置 Profile 统一通过 `promptCustomizationSchemaFields` 暴露安全的提示词自定义槽位：
+
+- `personaPreset` 是 Profile Home `prompts/*.md` 中的人设/策略正文预设。
+- `promptEntries` 是有序条目数组；每项可新增、删除、启停、排序，并用 `position: "before" | "after"` 指定进入固定 Profile 结构之前或之后。缺省 `position` 等价于 `before`，保证既有配置继续位于前置槽。`enabled=false` 的条目保留在配置和预设中，但渲染时必须过滤；UI 使用明确的“已启用 / 已禁用”状态，不能只依赖无标签图标或颜色。
+- `profilePresets` / `activeProfilePresetId` 保存整套 Profile settings 快照。快照自动排除预设存储字段本身，包含提示词条目和 Writer、Leader、RP 等特色设置，不包含模型参数或通用运行策略。配置中心中的创建、更新和应用预设都先修改页面草稿，必须再执行页面级“保存设定”才会持久化。
+
+提示词自定义不能覆盖身份、工具权限、输出 schema、结构化交接合同，也不能跨 `HistorySet` / `ModelContext` / `AppendingSet` 分区重排。Profile 作者应把这些锁定合同继续写在 TSX 中，并按以下稳定顺序显式渲染两个开放槽：
+
+1. `renderPromptEntries(settings, "before")`
+2. 固定 Profile 结构：人设、特色设置、身份/工具协议、输出合同
+3. `renderPromptEntries(settings, "after")`
+
+配置中心会把这三段显示成“前置提示词 → 固定 Profile 结构 → 末尾补充提示词”。上下排序只在当前槽内生效；切换 `position` 才能跨槽移动。固定结构始终锁定，不能被条目排序穿越。
+
+配置中心“完整提示词预览”通过服务端真实 `profile.prepare()` 生成，不在前端近似拼接。当前草稿会把 `settingsOverride` 与未保存资源 mutation 应用到内存 Profile Home 覆盖层，读取行为与真实 Home 一致但不会写盘；“已保存生效”不带草稿覆盖。若 Profile 的 `initialSchema` 需要角色或任务初始化数据，预览返回 `initial_context_required` 并要求选择同 Profile 的真实 Session；服务端复用该 Session 的 durable `initial` 与 Project 上下文，禁止用自动填空字符串伪造角色档案或文件路径。
+
+Profile settings 和 Profile 模型配置都采用 next-invocation 语义：Harness 在同一个 Session 的每次 invocation 开始时重新解析 effective config，并冻结为该次 invocation 的快照。因此修改提示词条目、特色设置、`temperature` 或 `realtimeOutput` 后无需重开 Session，会从下一次调用生效；正在执行的调用不会中途变化。`ctx.vars` 是运行态变量访问器，不是用户配置真相源，不要用它模拟设置热更新。
+
+Profile settings 引用的内置 Profile Home 资源必须对既有 Home 可迁移。若新增默认 `prompts/*.md`、`personas/*.md` 等资源，必须同步提升 `manifest.version` 并在 `home.upgrade()` 中以 create-only 语义补齐；只修改 `home.initialize()` 不会更新已有 Home，缺失资源会在配置保存校验阶段阻断整份请求。
+
+配置中心的 Profile 模型参数只保留有真实运行时消费者的字段：模型选择、`temperature`、推理强度和 `realtimeOutput`。Provider 内部始终使用流式接口；`realtimeOutput=false` 仅抑制公开的增量事件，完成后仍发送最终消息。`topK` 没有 Pi 通用合同，已删除。Compaction Prompt 与摘要前缀是 Harness 内部常量，不属于普通 Profile 配置；用户可配置的 Compaction 运行策略只包含启停、触发、预留 token 和保留近期上下文。
 
 ## TSX Contract
 

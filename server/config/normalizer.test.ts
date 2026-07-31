@@ -282,3 +282,74 @@ describe("config normalizer comfyui", () => {
         expect(effective.comfyui.enabled).toBe(true);
     });
 });
+
+describe("Agent Profile 设置映射", () => {
+    it("模型参数按 Global → Project → Profile 合并，并移除无效模型字段", () => {
+        const global = normalizeGlobalConfig({
+            agent: {
+                profileModelDefaults: {
+                    temperature: 0.3,
+                    reasoningEffort: "high",
+                    realtimeOutput: false,
+                    ...({topK: 12, stream: false} as never),
+                },
+                profiles: {
+                    writer: {model: {temperature: 0.4}},
+                },
+            },
+        });
+        const project: StoredProjectConfig = {
+            agent: {
+                profileModelDefaults: {temperature: 0.6},
+                profiles: {writer: {model: {reasoningEffort: "medium", realtimeOutput: true}}},
+            },
+        };
+        const effective = resolveEffectiveConfig(global, project);
+
+        expect(global.agent?.profileModelDefaults).toEqual({temperature: 0.3, reasoningEffort: "high", realtimeOutput: false});
+        expect(effective.agent.profiles.writer?.model).toEqual({
+            modelKey: null,
+            temperature: 0.4,
+            reasoningEffort: "medium",
+            realtimeOutput: true,
+        });
+    });
+
+    it("Project 提示词条目完整覆盖 Global 顺序，并清除已删除的固定提示词字段", () => {
+        const global = normalizeGlobalConfig({
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            promptEntries: [
+                                {id: "global-a", title: "A", enabled: true, content: "Global A"},
+                                {id: "global-b", title: "B", enabled: true, content: "Global B"},
+                            ],
+                            customTopSystemPrompt: "已删除字段",
+                            customBottomSystemPrompt: "已删除字段",
+                        },
+                    },
+                },
+            },
+        });
+        const effective = resolveEffectiveConfig(global, {
+            agent: {
+                profiles: {
+                    writer: {
+                        model: {},
+                        settings: {
+                            promptEntries: [{id: "project", title: "Project", enabled: true, content: "Project only"}],
+                        },
+                    },
+                },
+            },
+        });
+
+        expect(global.agent?.profiles?.writer?.settings).not.toHaveProperty("customTopSystemPrompt");
+        expect(global.agent?.profiles?.writer?.settings).not.toHaveProperty("customBottomSystemPrompt");
+        expect(effective.agent.profiles.writer?.settings.promptEntries).toEqual([
+            {id: "project", title: "Project", enabled: true, content: "Project only"},
+        ]);
+    });
+});

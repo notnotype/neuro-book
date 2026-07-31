@@ -8,7 +8,8 @@ import {SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
+import {ActorProfileSettingsSchema, type ActorProfileSettings, actorProfileSettingsForm, renderActorProfileSettings} from "nbook/server/agent/profiles/actor-profile-settings";
 
 export const profileManifest = {
     key: "rp.actor",
@@ -24,6 +25,12 @@ export const OutputSchema = SubjectSimulatorOutputSchema;
 
 export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
+
+export const SettingsSchema = ActorProfileSettingsSchema;
+
+export type Settings = ActorProfileSettings;
+
+export const RpActorSettingsForm = actorProfileSettingsForm();
 
 const EmptySidecarDataSchema = Type.Object({}, {
     additionalProperties: false,
@@ -129,7 +136,7 @@ export default defineAgentProfile({
     manifest: profileManifest,
     initialSchema: InitialSchema,
     outputSchema: OutputSchema,
-    settingsForm: promptCustomizationSettingsForm(),
+    settingsForm: RpActorSettingsForm,
     home: personaHomeDefinition("rp.actor"),
     tools: toolset(
         builtin.rp.characterRecall,
@@ -157,9 +164,10 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
+                        renderRpActorSettings(ctx.settings),
                         renderSystemPrompt(ctx.initial, persona),
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>
@@ -177,6 +185,11 @@ export default defineAgentProfile({
         );
     },
 });
+
+/** 将共享角色扮演设置映射为本轮动态 System Prompt。 */
+export function renderRpActorSettings(settings: Settings): string {
+    return renderActorProfileSettings(settings);
+}
 
 function renderSystemPrompt(input: Initial, persona: string): string {
     return profileText`

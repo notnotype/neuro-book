@@ -36,6 +36,25 @@ type SqlArgs = InValue[];
 export class WorldEngineRepository {
     constructor(private readonly client: Client | Transaction) {}
 
+    /**
+     * 读取同一世界数据库内的幂等操作结果。
+     * 记录与世界写入处于同一个 SQLite 事务，避免“世界已提交但调用方未收到响应”时重复执行。
+     */
+    async findOperation(operationId: string): Promise<string | null> {
+        await this.ensureOperationTable();
+        const row = await this.queryOne(`SELECT "result" FROM "WorldOperation" WHERE "id" = ?`, [operationId]);
+        return typeof row?.result === "string" ? row.result : null;
+    }
+
+    /** 保存幂等操作结果；重复 id 由数据库唯一键拒绝。 */
+    async createOperation(operationId: string, result: string): Promise<void> {
+        await this.ensureOperationTable();
+        await this.execute(
+            `INSERT INTO "WorldOperation" ("id", "result", "createdAt") VALUES (?, ?, ?)`,
+            [operationId, result, new Date().toISOString()],
+        );
+    }
+
     /** 创建 subject 身份记录。 */
     async createSubject(input: {id: string; type: string; name: string}): Promise<WorldSubjectRow> {
         await this.execute(
@@ -273,6 +292,17 @@ export class WorldEngineRepository {
 
     private async execute(sql: string, args: SqlArgs): Promise<void> {
         await this.client.execute({sql, args});
+    }
+
+    /** 快速开发期采用自管理小表；IF NOT EXISTS 允许旧项目数据库无迁移直接进入新事务协议。 */
+    private async ensureOperationTable(): Promise<void> {
+        await this.client.execute(`
+            CREATE TABLE IF NOT EXISTS "WorldOperation" (
+                "id" TEXT PRIMARY KEY NOT NULL,
+                "result" TEXT NOT NULL,
+                "createdAt" TEXT NOT NULL
+            )
+        `);
     }
 
     private async queryRows(sql: string, args: SqlArgs): Promise<SqlRow[]> {

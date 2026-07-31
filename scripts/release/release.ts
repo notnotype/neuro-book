@@ -16,7 +16,7 @@ type CommonOptions = {
     yes: boolean;
 };
 
-type PrereleaseChannel = "alpha" | "beta" | "canary" | "rc";
+type PrereleaseChannel = "alpha" | "beta" | "canary" | "rc" | "rp";
 
 type PrereleaseOptions = CommonOptions & {
     allowDirty: boolean;
@@ -84,6 +84,7 @@ async function main(): Promise<void> {
     addPrereleaseAliasCommand(program, "alpha");
     addPrereleaseAliasCommand(program, "beta");
     addPrereleaseAliasCommand(program, "rc");
+    addPrereleaseAliasCommand(program, "rp");
 
     await program.parseAsync(process.argv);
 }
@@ -111,7 +112,7 @@ function addPrereleaseCommand(program: Command): void {
         .command("prerelease")
         .description("Create a NeuroBook SemVer prerelease.")
         .option("--allow-dirty", "允许 tracked worktree 不干净。真实发布通常不建议使用。", false)
-        .option("--channel <channel>", "先行版本标识符：canary、alpha、beta、rc。", parsePrereleaseChannel, "canary")
+        .option("--channel <channel>", "先行版本标识符：canary、alpha、beta、rc、rp。", parsePrereleaseChannel, "canary")
         .option("--draft", "创建 draft release。draft 不会等待 release workflow。", false)
         .option("--dry-run", "只打印将执行的 gh release create 命令。", false)
         .option("--current-patch", "基于当前 package patch 生成 prerelease；默认使用下一 patch。通常只用于补发当前版本线。", false)
@@ -449,10 +450,10 @@ function normalizeReleaseVersion(input: string): string {
 
 /** 解析 prerelease channel。 */
 function parsePrereleaseChannel(input: string): PrereleaseChannel {
-    if (input === "alpha" || input === "beta" || input === "canary" || input === "rc") {
+    if (input === "alpha" || input === "beta" || input === "canary" || input === "rc" || input === "rp") {
         return input;
     }
-    throw new Error(`prerelease channel 只支持 canary、alpha、beta、rc：${input}`);
+    throw new Error(`prerelease channel 只支持 canary、alpha、beta、rc、rp：${input}`);
 }
 
 /** 解析正式版自动增长类型。 */

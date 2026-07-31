@@ -31,7 +31,14 @@ export const LowCodeFieldComponentDtoSchema = z.enum([
     "radio",
     "checkbox",
     "resource-preset",
+    "prompt-list",
 ]);
+
+export const LowCodeFormPresetDtoSchema = z.object({
+    storagePath: z.string().trim().min(1),
+    activePath: z.string().trim().min(1),
+    excludedPaths: z.array(z.string().trim().min(1)).default([]),
+});
 
 export const LowCodeFieldOptionValueDtoSchema = z.union([
     z.string(),
@@ -79,10 +86,18 @@ export const LowCodeResourcePresetDtoSchema = z.object({
     }),
 });
 
+/** Profile 设置表单中的可视分区；只影响展示，不参与 settings 存储。 */
+export const LowCodeFieldSectionDtoSchema = z.object({
+    key: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+    description: z.string().trim().optional(),
+});
+
 export const LowCodeFieldDtoSchema = z.object({
     path: z.string().trim().min(1),
     component: LowCodeFieldComponentDtoSchema,
     label: z.string().trim().min(1),
+    section: LowCodeFieldSectionDtoSchema.optional(),
     description: z.string().trim().optional(),
     placeholder: z.string().optional(),
     required: z.boolean().default(false),
@@ -99,6 +114,7 @@ export const LowCodeFieldDtoSchema = z.object({
 export const LowCodeFormDtoSchema = z.object({
     defaults: LowCodeJsonObjectSchema.default({}),
     fields: z.array(LowCodeFieldDtoSchema).default([]),
+    presets: LowCodeFormPresetDtoSchema.optional(),
 });
 
 export const LowCodeFormIssueDtoSchema = z.object({
@@ -114,8 +130,10 @@ export type LowCodeFieldOptionDto = z.infer<typeof LowCodeFieldOptionDtoSchema>;
 export type LowCodeResourcePresetOptionDto = z.infer<typeof LowCodeResourcePresetOptionDtoSchema>;
 export type LowCodeResourcePresetContentDto = z.infer<typeof LowCodeResourcePresetContentDtoSchema>;
 export type LowCodeResourcePresetDto = z.infer<typeof LowCodeResourcePresetDtoSchema>;
+export type LowCodeFieldSectionDto = z.infer<typeof LowCodeFieldSectionDtoSchema>;
 export type LowCodeFieldDto = z.infer<typeof LowCodeFieldDtoSchema>;
 export type LowCodeFormDto = z.infer<typeof LowCodeFormDtoSchema>;
+export type LowCodeFormPresetDto = z.infer<typeof LowCodeFormPresetDtoSchema>;
 export type LowCodeFormIssueDto = z.infer<typeof LowCodeFormIssueDtoSchema>;
 
 export const LowCodeResourceMutationDtoSchema = z.discriminatedUnion("type", [

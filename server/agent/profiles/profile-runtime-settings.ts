@@ -81,8 +81,8 @@ export function resolveProfileRuntimeSettings(
             trigger: compaction.trigger ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.trigger,
             reserveTokens: compaction.reserveTokens ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.reserveTokens,
             keepRecent: compaction.keepRecent ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.keepRecent,
-            prompt: compaction.prompt ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.prompt,
-            summaryPrefix: compaction.summaryPrefix ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.compaction.summaryPrefix,
+            prompt: COMPACTION_PROMPT,
+            summaryPrefix: COMPACTION_SUMMARY_PREFIX,
         },
         fileChangeNotice: {
             diffMaxChars: fileChangeNotice.diffMaxChars ?? DEFAULT_PROFILE_RUNTIME_SETTINGS.fileChangeNotice.diffMaxChars,

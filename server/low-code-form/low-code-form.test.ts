@@ -102,6 +102,24 @@ describe("low-code form", () => {
         ]);
     });
 
+    it("保留字段展示分区但不把分区写进 settings 值", async () => {
+        const form = defineLowCodeForm({
+            schema: Type.Object({mode: Type.String()}),
+            defaults: {mode: "a"},
+            fields: [{
+                path: "mode",
+                component: "text",
+                label: "模式",
+                section: {key: "features", label: "特色设置", description: "真实运行参数。"},
+            }],
+        });
+
+        const dto = await resolveLowCodeForm(form, context());
+
+        expect(dto.fields[0]?.section).toEqual({key: "features", label: "特色设置", description: "真实运行参数。"});
+        expect(parseLowCodeFormValue(form, undefined)).toEqual({mode: "a"});
+    });
+
     it("执行自定义校验", async () => {
         const form = defineLowCodeForm({
             schema: Type.Object({

@@ -12,7 +12,6 @@ const ProviderOptionTextSchema = z.string().trim().default("");
 const ProviderTimeoutMsSchema = z.number().int("timeoutMs 必须是整数").positive("timeoutMs 必须大于 0").nullable().default(null);
 const DefaultModelKeySchema = z.string().trim().min(1, "默认模型不能为空").nullable().default(null);
 const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").nullable().default(null);
-const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
 export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 const ReasoningEffortSchema = ThinkingLevelSchema.nullable().default(null);
@@ -108,9 +107,8 @@ export const EnabledModelOptionDtoSchema = z.object({
 export const AgentProfileModelConfigDtoSchema = z.object({
     modelKey: DefaultModelKeySchema,
     temperature: TemperatureSchema,
-    topK: TopKSchema,
     reasoningEffort: ReasoningEffortSchema,
-    stream: z.boolean().default(true),
+    realtimeOutput: z.boolean().default(true),
 });
 
 /**

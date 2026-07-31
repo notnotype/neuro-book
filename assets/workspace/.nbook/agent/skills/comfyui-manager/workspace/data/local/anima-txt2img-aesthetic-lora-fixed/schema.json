@@ -1,0 +1,62 @@
+{
+  "description": "",
+  "enabled": true,
+  "parameters": {
+    "prompt_11": {
+      "node_id": "11",
+      "field": "text",
+      "required": true,
+      "type": "string",
+      "description": "Text prompt"
+    },
+    "prompt_12": {
+      "node_id": "12",
+      "field": "text",
+      "required": true,
+      "type": "string",
+      "description": "Text prompt"
+    },
+    "width": {
+      "node_id": "28",
+      "field": "width",
+      "required": false,
+      "type": "int",
+      "description": "Image width"
+    },
+    "height": {
+      "node_id": "28",
+      "field": "height",
+      "required": false,
+      "type": "int",
+      "description": "Image height"
+    },
+    "batch_size": {
+      "node_id": "28",
+      "field": "batch_size",
+      "required": false,
+      "type": "int",
+      "description": "Batch size"
+    },
+    "seed": {
+      "node_id": "19",
+      "field": "seed",
+      "required": false,
+      "type": "int",
+      "description": "Random seed"
+    },
+    "steps": {
+      "node_id": "19",
+      "field": "steps",
+      "required": false,
+      "type": "int",
+      "description": "Generation steps"
+    },
+    "filename_prefix": {
+      "node_id": "52",
+      "field": "filename_prefix",
+      "required": false,
+      "type": "string",
+      "description": "Output file prefix"
+    }
+  }
+}

@@ -110,6 +110,8 @@ export type CharacterRegistryEntry = {
     name: string;
     /** 别名/称呼列表（如「子爵」「白发女孩」），同样参与解析。 */
     aliases: string[];
+    /** 玩家化身与其他角色的稳定身份；UI 不再通过名称猜测化身。 */
+    kind: "player" | "npc";
 };
 
 // ---- 路径与初始化 -------------------------------------------------------------
@@ -163,11 +165,12 @@ export async function readCharacterRegistry(projectRoot: string): Promise<Charac
             id: entry.id.trim(),
             name: (entry.name ?? entry.id).trim(),
             aliases: Array.isArray(entry.aliases) ? entry.aliases.map((alias) => String(alias).trim()).filter(Boolean) : [],
+            kind: entry.kind === "player" ? "player" : "npc",
         }));
     } catch (error) {
         if (!isNotFound(error)) throw error;
         const ids = await listRpCharacters(projectRoot);
-        return ids.filter((id) => id !== REGISTRY_FILE).map((id) => ({id, name: id, aliases: []}));
+        return ids.filter((id) => id !== REGISTRY_FILE).map((id) => ({id, name: id, aliases: [], kind: "npc"}));
     }
 }
 
@@ -201,7 +204,7 @@ export async function resolveCharacterId(projectRoot: string, idOrName: string):
  * 登记角色到注册表：同 id 幂等（合并别名、可更新展示名）；
  * 展示名/别名撞上其他 id 时拒绝——这是防重复建档的核心闸门。
  */
-export async function registerRpCharacter(projectRoot: string, input: {id: string; name: string; aliases?: string[]}): Promise<CharacterRegistryEntry> {
+export async function registerRpCharacter(projectRoot: string, input: {id: string; name: string; aliases?: string[]; kind?: "player" | "npc"}): Promise<CharacterRegistryEntry> {
     const id = safeCharacterId(input.id);
     const name = input.name.trim() || id;
     const aliases = (input.aliases ?? []).map((alias) => alias.trim()).filter(Boolean);
@@ -218,9 +221,10 @@ export async function registerRpCharacter(projectRoot: string, input: {id: strin
     if (existing) {
         existing.name = name;
         existing.aliases = [...new Set([...existing.aliases, ...aliases])];
+        if (input.kind) existing.kind = input.kind;
         entry = existing;
     } else {
-        entry = {id, name, aliases};
+        entry = {id, name, aliases, kind: input.kind ?? "npc"};
         registry.push(entry);
     }
     await writeCharacterRegistry(projectRoot, registry);
@@ -228,8 +232,8 @@ export async function registerRpCharacter(projectRoot: string, input: {id: strin
 }
 
 /** 创建角色目录骨架（幂等；已存在的文件不覆盖），并登记到注册表。 */
-export async function ensureRpCharacter(projectRoot: string, characterId: string, options: {soul?: string; name?: string; aliases?: string[]} = {}): Promise<void> {
-    await registerRpCharacter(projectRoot, {id: characterId, name: options.name ?? characterId, aliases: options.aliases});
+export async function ensureRpCharacter(projectRoot: string, characterId: string, options: {soul?: string; name?: string; aliases?: string[]; kind?: "player" | "npc"} = {}): Promise<void> {
+    await registerRpCharacter(projectRoot, {id: characterId, name: options.name ?? characterId, aliases: options.aliases, kind: options.kind});
     const root = rpCharacterRoot(projectRoot, characterId);
     await fs.mkdir(path.join(root, PERSONA_DIR), {recursive: true});
     await fs.mkdir(path.join(root, KNOWLEDGE_DIR), {recursive: true});

@@ -258,8 +258,6 @@ describe("profile TSX DSL", () => {
                 compaction: {
                     trigger: {kind: "percent", value: 0.75},
                     keepRecent: {kind: "tokens", value: 12_000},
-                    prompt: "compact prompt",
-                    summaryPrefix: "summary prefix",
                 },
             },
             context() {
@@ -272,8 +270,6 @@ describe("profile TSX DSL", () => {
         expect(profile.runtimeDefaults?.compaction).toEqual({
             trigger: {kind: "percent", value: 0.75},
             keepRecent: {kind: "tokens", value: 12_000},
-            prompt: "compact prompt",
-            summaryPrefix: "summary prefix",
         });
     });
 

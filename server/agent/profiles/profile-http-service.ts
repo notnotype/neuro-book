@@ -26,7 +26,8 @@ import type {
 } from "nbook/shared/dto/agent-profile.dto";
 import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
-import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, createProfileHomePreviewFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {applyLowCodeResourceMutations} from "nbook/server/low-code-form";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
@@ -115,11 +116,46 @@ export async function previewAgentProfilePrepare(
     request: AgentProfilePreparePreviewRequestDto,
 ): Promise<AgentProfilePreparePreviewDto> {
     const profile = await harness.profiles.get(request.profileKey);
-    const initial = harness.profiles.parseInitial(profile, buildPreviewInitial(request));
-    const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
-    const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
-    const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext);
     const catalog = await harness.profiles.snapshot();
+    let previewSnapshot: SessionSnapshot | null = null;
+    if (request.sessionId) {
+        const sessionId = Number(request.sessionId);
+        if (!Number.isSafeInteger(sessionId) || sessionId <= 0) {
+            return failedPreparePreview(request.profileKey, "预览 Session id 无效。", "session_not_found", catalog, profile);
+        }
+        try {
+            previewSnapshot = await harness.repo.readSession(sessionId);
+        } catch {
+            return failedPreparePreview(request.profileKey, `未找到预览 Session #${request.sessionId}。`, "session_not_found", catalog, profile);
+        }
+    }
+    const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
+    if (previewSnapshot && sessionContext.profileKey !== request.profileKey) {
+        return failedPreparePreview(
+            request.profileKey,
+            `Session #${request.sessionId} 当前使用 ${sessionContext.profileKey}，不能作为 ${request.profileKey} 的预览上下文。`,
+            "session_profile_mismatch",
+            catalog,
+            profile,
+        );
+    }
+    let initial: JsonValue;
+    try {
+        initial = harness.profiles.parseInitial(profile, buildPreviewInitial(request, previewSnapshot));
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const needsSession = !request.sessionId && request.initial === undefined && request.initialOverrides === undefined;
+        return failedPreparePreview(
+            request.profileKey,
+            needsSession
+                ? `该 Profile 的完整提示词依赖创建 Session 时的初始化数据。请选择一个现有 ${request.profileKey} Session 作为预览上下文。\n${detail}`
+                : `预览初始化数据不符合 ${request.profileKey} 的 initialSchema。\n${detail}`,
+            needsSession ? "initial_context_required" : "initial_invalid",
+            catalog,
+            profile,
+        );
+    }
+    const session = createProfilePreviewSessionFacade(harness, request.profileKey, initial, previewSnapshot, sessionContext);
     const skills = await harness.skills.list();
     const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
     const needsHome = profileNeedsHome(profile);
@@ -144,14 +180,38 @@ export async function previewAgentProfilePrepare(
             definition: profile.home,
         })
         : undefined;
-    const home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
-    const customSettings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
+    let home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
+    const settingsContext = {
         profileKey: request.profileKey,
         scope: sessionContext.projectPath ? "project" : "global",
         workspaceRoot: sessionContext.workspaceRoot,
         ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
         ...(home ? {home, allowGlobalResourceKeys: true} : {}),
-    });
+    } as const;
+    if (request.settingsOverride !== undefined && (request.resourceMutations?.length ?? 0) > 0) {
+        if (!profile.settingsForm || !home) {
+            return failedPreparePreview(request.profileKey, "当前 Profile 不支持带资源草稿的设置预览。", "settings_preview", catalog, profile);
+        }
+        home = createProfileHomePreviewFacade(home);
+        const mutationResults = await applyLowCodeResourceMutations(
+            profile.settingsForm,
+            request.resourceMutations,
+            {...settingsContext, home},
+            request.settingsOverride,
+        );
+        const mutationIssues = mutationResults.flatMap((result) => result.issues);
+        if (mutationIssues.some((issue) => issue.severity === "error")) {
+            return failedPreparePreview(request.profileKey, mutationIssues.map((issue) => issue.message).join("\n"), "settings_preview", catalog, profile);
+        }
+    }
+    const customSettings = await resolveRuntimeProfileSettings(
+        profile,
+        request.settingsOverride ?? effectiveConfig.agent.profiles[request.profileKey]?.settings,
+        {
+            ...settingsContext,
+            ...(home ? {home} : {}),
+        },
+    );
     const runtimeSettings = resolveProfileRuntimeSettings(
         profile.runtimeDefaults,
         effectiveConfig.agent.profiles[request.profileKey]?.runtime ?? effectiveConfig.agent.profileRuntimeDefaults,
@@ -335,10 +395,31 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         thinkingLevel: "off",
         profileKey: request.profileKey,
         workspaceRoot: WORKSPACE_CONTAINER_ROOT,
+        ...(request.projectPath ? {projectPath: request.projectPath} : {}),
         customState: {},
         linkedAgents: [],
         archived: false,
         agentMode: "normal",
+    };
+}
+
+/** 构造配置草稿预览阶段的稳定失败结果。 */
+function failedPreparePreview(
+    profileKey: string,
+    message: string,
+    code: string,
+    catalog: AgentCatalogSnapshot,
+    profile: AgentProfile,
+): AgentProfilePreparePreviewDto {
+    return {
+        profileKey,
+        ok: false,
+        issues: [{severity: "error", code, message, profileKey}],
+        messages: [],
+        persistedMessageCount: 0,
+        variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === profileKey), profile),
+        reportResultSchema: null,
+        reportSidecarResultSchema: null,
     };
 }
 
@@ -385,11 +466,14 @@ function createProfilePreviewSessionFacade(
 }
 
 /**
- * 请求 initial 优先，其次用 initialOverrides 的自由文本字段构造 JSON 对象。
+ * 请求 initial 优先；选择 Session 时复用其创建期 initial；最后使用 initialOverrides。
  */
-function buildPreviewInitial(request: AgentProfilePreparePreviewRequestDto): JsonValue {
+function buildPreviewInitial(request: AgentProfilePreparePreviewRequestDto, snapshot: SessionSnapshot | null): JsonValue {
     if (request.initial !== undefined) {
         return request.initial as JsonValue;
+    }
+    if (snapshot) {
+        return snapshot.metadata.initial;
     }
     return JSON.parse(JSON.stringify(request.initialOverrides ?? {})) as JsonValue;
 }

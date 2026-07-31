@@ -1,6 +1,6 @@
-import {randomInt} from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import {rpRandomInt} from "nbook/server/rp/random-source";
 
 /**
  * RP 模式掷骰存储：`rp/dice/rolls.jsonl`，每行一次掷骰。
@@ -56,8 +56,8 @@ export async function listDiceRolls(projectRoot: string): Promise<DiceRoll[]> {
 /** 掷一次 2d6（服务端 crypto RNG）并追加到 rolls.jsonl，返回本次记录。 */
 export async function rollDice(projectRoot: string): Promise<DiceRoll> {
     const existing = await listDiceRolls(projectRoot);
-    const d1 = randomInt(1, 7);
-    const d2 = randomInt(1, 7);
+    const d1 = rpRandomInt(1, 7);
+    const d2 = rpRandomInt(1, 7);
     const roll: DiceRoll = {
         seq: (existing.at(-1)?.seq ?? 0) + 1,
         d1,

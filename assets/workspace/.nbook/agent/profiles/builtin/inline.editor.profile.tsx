@@ -7,7 +7,7 @@ import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {AppendingSet, If, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "inline.editor",
@@ -42,7 +42,7 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
                         persona,
                         profileText`
                         <inline_editor_contract>
@@ -63,7 +63,7 @@ export default defineAgentProfile({
 
                         ${inputContext}
                         `,
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <AppendingSet>

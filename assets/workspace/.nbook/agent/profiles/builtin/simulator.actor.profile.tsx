@@ -8,7 +8,8 @@ import {SubjectSimulatorInitialSchema, SubjectSimulatorOutputSchema} from "nbook
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import {buildPersonaPrompt, personaHomeDefinition, promptCustomizationSettingsForm, renderCustomBottomPrompt, renderCustomTopPrompt} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, personaHomeDefinition, renderPromptEntries} from "nbook/server/agent/profiles/prompt-customization";
+import {ActorProfileSettingsSchema, type ActorProfileSettings, actorProfileSettingsForm, renderActorProfileSettings} from "nbook/server/agent/profiles/actor-profile-settings";
 
 export const profileManifest = {
     key: "simulator.actor",
@@ -18,9 +19,13 @@ export const profileManifest = {
 
 export const InitialSchema = SubjectSimulatorInitialSchema;
 export const OutputSchema = SubjectSimulatorOutputSchema;
+export const SettingsSchema = ActorProfileSettingsSchema;
 
 export type Initial = Static<typeof InitialSchema>;
 export type Output = Static<typeof OutputSchema>;
+export type Settings = ActorProfileSettings;
+
+export const SimulatorActorSettingsForm = actorProfileSettingsForm();
 
 const EmptySidecarDataSchema = Type.Object({}, {
     additionalProperties: false,
@@ -169,7 +174,7 @@ export default defineAgentProfile({
         builtin.result.sidecar(),
     ),
     toolKeys: ["report_result"],
-    settingsForm: promptCustomizationSettingsForm(),
+    settingsForm: SimulatorActorSettingsForm,
     home: personaHomeDefinition("simulator.actor"),
     sidecars: [
         actorContextLoadPass,
@@ -188,9 +193,10 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
+                        renderActorProfileSettings(ctx.settings),
                         renderSystemPrompt(ctx.initial, profileManifest.key, persona),
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>

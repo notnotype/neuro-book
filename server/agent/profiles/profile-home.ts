@@ -166,6 +166,114 @@ export function createLayeredProfileHomeFacade(primary: ProfileHomeFacade, fallb
     };
 }
 
+/**
+ * 创建 Profile Home 的只读预览覆盖层。
+ *
+ * 写入、重命名、删除和 clear 只记录在内存中，底层 Home 永远不变。配置中心用它
+ * 应用尚未保存的 resource mutations，再调用真实 profile.prepare 生成草稿预览。
+ */
+export function createProfileHomePreviewFacade(source: ProfileHomeFacade): ProfileHomeFacade {
+    const contents = new Map<string, string>();
+    const removed = new Set<string>();
+    let cleared = false;
+    const isRemoved = (key: string): boolean => [...removed].some((removedKey) => key === removedKey || key.startsWith(`${removedKey}/`));
+    const exists = async (filePath: string): Promise<boolean> => {
+        const key = normalizePreviewHomePath(filePath);
+        if (contents.has(key)) return true;
+        if (cleared || isRemoved(key)) return false;
+        return source.exists(key);
+    };
+    const readText = async (filePath: string): Promise<string> => {
+        const key = normalizePreviewHomePath(filePath);
+        const content = contents.get(key);
+        if (content !== undefined) return content;
+        if (cleared || isRemoved(key)) throw previewHomeMissingError(key);
+        return source.readText(key);
+    };
+    const writeText = async (filePath: string, content: string, options: {mode?: ProfileHomeWriteMode} = {}): Promise<ProfileHomeWriteResult> => {
+        const key = normalizePreviewHomePath(filePath);
+        if (options.mode === "create" && await exists(key)) return {written: false};
+        contents.set(key, content);
+        removed.delete(key);
+        return {written: true};
+    };
+    return {
+        root: source.root,
+        readText,
+        writeText,
+        readJson: async (filePath) => JSON.parse(await readText(filePath)) as JsonValue,
+        writeJson: async (filePath, value, options) => writeText(filePath, `${JSON.stringify(value, null, 4)}\n`, options),
+        exists,
+        async list(directoryPath = "") {
+            const directory = normalizePreviewHomePath(directoryPath, true);
+            const items = new Map<string, ProfileHomeListItem>();
+            if (!cleared && !isRemoved(directory)) {
+                for (const item of await source.list(directory)) {
+                    const itemKey = joinPreviewHomePath(directory, item.name);
+                    if (!isRemoved(itemKey)) items.set(item.name, item);
+                }
+            }
+            const prefix = directory ? `${directory}/` : "";
+            for (const key of contents.keys()) {
+                if (!key.startsWith(prefix) || isRemoved(key)) continue;
+                const remainder = key.slice(prefix.length);
+                if (!remainder) continue;
+                const [name, ...rest] = remainder.split("/");
+                if (!name) continue;
+                items.set(name, {
+                    name,
+                    path: joinPreviewHomePath(directory, name),
+                    kind: rest.length > 0 ? "directory" : "file",
+                });
+            }
+            return [...items.values()].sort((left, right) => left.path.localeCompare(right.path));
+        },
+        async move(fromPath, toPath, options = {}) {
+            const fromKey = normalizePreviewHomePath(fromPath);
+            const toKey = normalizePreviewHomePath(toPath);
+            if (options.mode === "create" && await exists(toKey)) return {written: false};
+            const content = await readText(fromKey);
+            contents.set(toKey, content);
+            contents.delete(fromKey);
+            removed.add(fromKey);
+            removed.delete(toKey);
+            return {written: true};
+        },
+        async remove(filePath) {
+            const key = normalizePreviewHomePath(filePath);
+            for (const contentKey of [...contents.keys()]) {
+                if (contentKey === key || contentKey.startsWith(`${key}/`)) contents.delete(contentKey);
+            }
+            removed.add(key);
+        },
+        async clear() {
+            cleared = true;
+            contents.clear();
+            removed.clear();
+        },
+    };
+}
+
+/** 规范化预览覆盖层中的 Profile Home 相对路径。 */
+function normalizePreviewHomePath(filePath: string, allowEmpty = false): string {
+    const normalized = filePath.trim().replaceAll("\\", "/").replace(/^\/+|\/+$/gu, "");
+    if (!normalized && allowEmpty) return "";
+    if (!normalized || normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")) {
+        throw new Error(`非法 Profile Home 预览路径：${filePath}`);
+    }
+    return normalized;
+}
+
+/** 拼接预览覆盖层中的规范相对路径。 */
+function joinPreviewHomePath(directory: string, name: string): string {
+    return directory ? `${directory}/${name}` : name;
+}
+
+/** 构造与文件系统读取一致的缺失错误，供分层回退和资源解析识别。 */
+function previewHomeMissingError(filePath: string): Error & {code: "ENOENT"} {
+    return Object.assign(new Error(`Profile Home 预览资源不存在：${filePath}`), {code: "ENOENT" as const});
+}
+
 function createProfileHomeFacadeAtRoot(containmentRoot: AbsoluteFsPath, root: AbsoluteFsPath): ProfileHomeFacade {
     return {
         root,

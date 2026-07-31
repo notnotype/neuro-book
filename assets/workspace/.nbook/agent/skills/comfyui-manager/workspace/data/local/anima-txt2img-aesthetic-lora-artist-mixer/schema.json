@@ -1,0 +1,217 @@
+{
+  "description": "Anima txt2img aesthetic LoRA workflow with optional Anima Artist Mixer cross-attention artist-chain support. Use only when the user explicitly requests multi-artist/artist-chain mixing.",
+  "enabled": true,
+  "parameters": {
+    "prompt_11": {
+      "node_id": "65",
+      "field": "base_prompt",
+      "required": true,
+      "type": "string",
+      "description": "Main positive prompt without repeating artist names when artist_chain is used."
+    },
+    "prompt_12": {
+      "node_id": "12",
+      "field": "text",
+      "required": true,
+      "type": "string",
+      "description": "Text prompt"
+    },
+    "width": {
+      "node_id": "28",
+      "field": "width",
+      "required": false,
+      "type": "int",
+      "description": "Image width"
+    },
+    "height": {
+      "node_id": "28",
+      "field": "height",
+      "required": false,
+      "type": "int",
+      "description": "Image height"
+    },
+    "batch_size": {
+      "node_id": "28",
+      "field": "batch_size",
+      "required": false,
+      "type": "int",
+      "description": "Batch size"
+    },
+    "seed": {
+      "node_id": "19",
+      "field": "seed",
+      "required": false,
+      "type": "int",
+      "description": "Random seed"
+    },
+    "steps": {
+      "node_id": "19",
+      "field": "steps",
+      "required": false,
+      "type": "int",
+      "description": "Generation steps"
+    },
+    "fls_fovea_strength": {
+      "node_id": "19",
+      "field": "fovea_strength",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler texture strength. Default 3.0 follows the author default/recommended starting value; only pass when the user explicitly asks to tune FLSampler texture/detail."
+    },
+    "fls_sharpness": {
+      "node_id": "19",
+      "field": "sharpness",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler local contrast/sharpness. Default 0.5 follows the author default; only pass when the user explicitly asks to tune FLSampler sharpness."
+    },
+    "fls_mask_inertia": {
+      "node_id": "19",
+      "field": "mask_inertia",
+      "required": false,
+      "type": "float",
+      "description": "Optional FLSampler focus mask inertia. Default 0.85 follows the author default; only pass when the user explicitly asks to tune FLSampler focus stability."
+    },
+    "filename_prefix": {
+      "node_id": "52",
+      "field": "filename_prefix",
+      "required": false,
+      "type": "string",
+      "description": "Output file prefix"
+    },
+    "rtx_vsr_quality": {
+      "node_id": "60",
+      "field": "quality",
+      "required": false,
+      "type": "string",
+      "description": "RTX VSR quality: LOW, MEDIUM, HIGH, ULTRA. Scale is fixed to 2x in workflow JSON."
+    },
+    "teacache_threshold": {
+      "node_id": "61",
+      "field": "threshold",
+      "required": false,
+      "type": "float",
+      "description": "TeaCache threshold. Default 0.15 is the conservative Anima setting; lower values are safer."
+    },
+    "teacache_adaptive_mode": {
+      "node_id": "61",
+      "field": "adaptive_mode",
+      "required": false,
+      "type": "bool",
+      "description": "Enable TeaCache adaptive mode. Default true."
+    },
+    "teacache_cache_device": {
+      "node_id": "61",
+      "field": "cache_device",
+      "required": false,
+      "type": "string",
+      "description": "TeaCache cache device: cuda or cpu. Default cuda."
+    },
+    "teacache_version": {
+      "node_id": "61",
+      "field": "teacache_version",
+      "required": false,
+      "type": "string",
+      "description": "AnimaTeaCache version enum: v1 (Legacy Fast) or v2 (Standard Precise). Default is v1 (Legacy Fast); do not pass short values v1/v2."
+    },
+    "anima_booster_sage_attention": {
+      "node_id": "44",
+      "field": "sage_attention",
+      "required": false,
+      "type": "string",
+      "description": "Optional AnimaBoosterLoader SageAttention mode: disabled, auto, triton, sageattn_qk_int8_pv_fp16_cuda, sageattn_qk_int8_pv_fp8_cuda. Default disabled; only pass when user explicitly requests node-level control."
+    },
+    "anima_booster_torch_compile": {
+      "node_id": "44",
+      "field": "torch_compile",
+      "required": false,
+      "type": "bool",
+      "description": "Optional AnimaBoosterLoader torch.compile toggle. Default false; only pass when user explicitly requests compile/JIT warmup behavior."
+    },
+    "artist_chain": {
+      "node_id": "65",
+      "field": "artist_chain",
+      "required": false,
+      "type": "string",
+      "description": "Optional artist chain for Anima Artist Mixer. Comma or newline separated artist names; do not include @. Supports explicit weights such as (wlop:1.2) and v24 injection weights such as ::wlop::1.2. Use only when user explicitly requests artist-chain mixing."
+    },
+    "artist_mixer_combine_mode": {
+      "node_id": "67",
+      "field": "combine_mode",
+      "required": false,
+      "type": "string",
+      "description": "Artist mixer combine mode: output_avg or concat. Default output_avg."
+    },
+    "artist_mixer_fusion_mode": {
+      "node_id": "67",
+      "field": "fusion_mode",
+      "required": false,
+      "type": "string",
+      "description": "Artist mixer fusion mode: interpolate or concat_with_base. Default interpolate."
+    },
+    "artist_mixer_strength": {
+      "node_id": "67",
+      "field": "strength",
+      "required": false,
+      "type": "float",
+      "description": "Overall artist-chain contribution. Official recommended default is 1.0; use the workflow default unless the user explicitly asks to tune Artist Mixer strength."
+    },
+    "artist_mixer_enabled": {
+      "node_id": "67",
+      "field": "enabled",
+      "required": false,
+      "type": "bool",
+      "description": "Master toggle for Anima Artist Mixer. Default true in this dedicated workflow."
+    },
+    "artist_mixer_apply_to_uncond": {
+      "node_id": "67",
+      "field": "apply_to_uncond",
+      "required": false,
+      "type": "bool",
+      "description": "Apply artist mixer to uncond rows. Default false and not recommended because it can break CFG behavior."
+    },
+    "artist_mixer_start_block": {
+      "node_id": "66",
+      "field": "start_block",
+      "required": false,
+      "type": "int",
+      "description": "Advanced artist mixer start block. Default 0."
+    },
+    "artist_mixer_end_block": {
+      "node_id": "66",
+      "field": "end_block",
+      "required": false,
+      "type": "int",
+      "description": "Advanced artist mixer end block. Default -1 means last block."
+    },
+    "artist_mixer_start_percent": {
+      "node_id": "66",
+      "field": "start_percent",
+      "required": false,
+      "type": "float",
+      "description": "Advanced artist mixer sampling start percent. Default 0.0."
+    },
+    "artist_mixer_end_percent": {
+      "node_id": "66",
+      "field": "end_percent",
+      "required": false,
+      "type": "float",
+      "description": "Advanced artist mixer sampling end percent. Default 1.0."
+    },
+    "artist_mixer_normalize_weights": {
+      "node_id": "66",
+      "field": "normalize_weights",
+      "required": false,
+      "type": "bool",
+      "description": "Normalize artist-chain weights. Default true; turning off with many artists can destabilize output."
+    },
+    "artist_mixer_layer_filter": {
+      "node_id": "66",
+      "field": "layer_filter",
+      "required": false,
+      "type": "string",
+      "description": "Advanced explicit layer selection, e.g. 0,3,5-10,-1. Overrides start/end block when set."
+    }
+  }
+}
+

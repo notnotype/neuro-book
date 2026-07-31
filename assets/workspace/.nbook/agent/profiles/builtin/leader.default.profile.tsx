@@ -27,12 +27,14 @@ import {
 import {defineProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {defineLowCodeForm, profileHomeResource} from "nbook/server/low-code-form";
-import {buildPersonaPrompt, initializePersonaHome, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderCustomBottomPrompt, renderCustomTopPrompt, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
+import {buildPersonaPrompt, initializePersonaHome, profileFeatureFormFields, profileSettingsPresets, promptCustomizationDefaults, promptCustomizationFormFields, promptCustomizationSchemaFields, renderPromptEntries, validatePersonaPreset} from "nbook/server/agent/profiles/prompt-customization";
 
 export const profileManifest = {
     key: "leader.default",
     name: "主创",
     description: "默认协作与统筹 agent：协助小说创作、workspace 文件操作、World Engine 世界状态 / Lorebook / Manuscript 协调，并按需创建或复用专用 profile agent。",
+    // v2 为既有 Home 补入通用提示词人设 prompts/default.md，避免默认资源缺失阻断配置保存。
+    version: 2,
 } as const;
 
 export const InitialSchema = LeaderDefaultInitialSchema;
@@ -80,6 +82,7 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
     },
     fields: [
         ...promptCustomizationFormFields(),
+        ...profileFeatureFormFields([
         {
             path: "leaderPersonaPreset",
             component: "resource-preset",
@@ -132,7 +135,9 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
                 {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
             ],
         },
+        ]),
     ],
+    presets: profileSettingsPresets(),
     async validate(value, ctx) {
         const personaIssue = await validatePersonaPreset(value.personaPreset, ctx.home);
         return personaIssue ? [personaIssue] : [];
@@ -216,7 +221,7 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>
                     {[
-                        renderCustomTopPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "before"),
                         profileText`
                             <leader_persona preset="${personaKey}">
                               ${personaBody}
@@ -259,7 +264,7 @@ export default defineAgentProfile({
                         `,
                         policyPersona,
                         LEADER_SYSTEM_PROMPT,
-                        renderCustomBottomPrompt(ctx.settings),
+                        renderPromptEntries(ctx.settings, "after"),
                     ].filter(Boolean).join("\n\n")}
                 </System>
                 <HistorySet>
