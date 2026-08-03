@@ -207,7 +207,7 @@
 ## 发布流程
 
 - 发布前先阅读 `PROJECT-STATUS.md` 和相关 `docs/tasks/**/README.md` / walkthrough，确认本轮改动、验证记录和任务状态。
-- 发布前必须更新 `RELEASE.md`，严格按「面向用户的语言风格」小节写：只留当前版本，历史版本移到 `docs/changelog/` 并同步英文镜像 `docs/en/changelog/`。release 脚本不读 `RELEASE.md`（GitHub prerelease 正文是硬编码模板），所以它纯粹是给人看的，写不好没有任何机器会拦你。
+- 发布前必须更新 `RELEASE.md`，严格按「面向用户的语言风格」小节写：只留当前版本，历史版本移到 `docs/changelog/` 并同步英文镜像 `docs/en/changelog/`。prerelease 的 GitHub Release note 自动读取 `RELEASE.md` 当前版本段落（`## <版本> - <日期>` 起至文末）作为正文，缺失或为空时回退到通用模板并打印警告——写不好会直接出现在每个 canary release 页面上。
 - 提交前用 `git status --short --branch` 确认工作区范围；用户明确要求“提交全部改动”时，才使用 `git add -A` 纳入全部 tracked / untracked 改动。
 - 任何 worktree 或 agent 向远端 `master` 推送或合并后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`（分支与 worktree 约定见「Git 工作流」）。否则主工作区的 `master` 永远停在旧提交，下次提交就变成分叉；同一份改动也不要在主工作区和 worktree 各提交一次，那会产出 patch-id 相同、SHA 不同的重复提交。
 - 业务提交 message 要覆盖主要任务和用户可见能力。代码改动走分支 + squash PR（见「Git 工作流」）；`git push origin HEAD:master` 仅限文档类例外与 release 提交。如果远端拒绝，停止并报告，不要 force push。
