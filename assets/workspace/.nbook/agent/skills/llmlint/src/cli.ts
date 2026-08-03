@@ -17,8 +17,9 @@ import {readDetectCache, detectCacheKey, writeDetectCache} from "./detect/cache"
 import {chunkBySentence} from "./detect/chunk";
 import {aggregate, defaultDetectorOptions, HfTransport, type DetectPayload, type DetectorTransport} from "./detect/transport";
 import {loadUserSettings, saveUserSettings, userCacheDir} from "./user-state";
-import {beginRound} from "./round";
+import {beginRound, computeRoundMetrics} from "./round";
 import {contribute, listOutbox, outboxDir} from "./contribute";
+import {buildReport} from "./report";
 import {LLMLINT_VERSION} from "./version";
 import type {ActiveRuleRecord, CheckFileEntry, CheckFilterInfo, DensityIssue, FixFileResult, Issue, LlmlintOutput, MaskedRange, RegexRuleRecord, Review, RuleDetectorKind, RuleLevel} from "./types";
 import type {SharingMode, SharingTier, UserSettings} from "./user-state";
@@ -55,6 +56,8 @@ type DetectChunkReport = DetectPayload["chunks"][number] & {
     rank: number;
     /** 相对文档均值的偏离（pAi − docPAi）。正=比本篇平均更可疑。 */
     relative: number;
+    /** chunk 开头可见字符预览，免去消费者按 span 偏移自行切原文。 */
+    preview?: string;
 };
 type DetectFileReport = {
     filePath: string;
@@ -270,6 +273,38 @@ export async function runCli(argv: string[]): Promise<void> {
             }
         });
 
+    const report = program
+        .command("report")
+        .description("把 check + detect 的 JSON 合成审稿报告（静态分级 + 密度指纹 + 四象限交叉）")
+        .option("--check <path>", "check --format json 的输出文件（必需）")
+        .option("--detect <path>", "detect --format json 的输出文件；缺省只做静态部分")
+        .option("--density-threshold <n>", "四象限「规则密集」的 chunk 内命中下限（默认 3）")
+        .option("--min-level <level>", "只统计不低于该级别的命中：high / medium / low（默认 low）")
+        .action(async (commandOptions: {check?: string; detect?: string; densityThreshold?: string; minLevel?: string}) => {
+            try {
+                const checkPath = commandOptions.check;
+                if (!checkPath) {
+                    throw new Error("report 需要 --check <check.json>（check --format json 的输出文件）");
+                }
+                const checkJson = JSON.parse(readFileSync(checkPath, "utf-8"));
+                const detectJson = commandOptions.detect
+                    ? JSON.parse(readFileSync(commandOptions.detect, "utf-8"))
+                    : null;
+                const threshold = Number(commandOptions.densityThreshold ?? 3);
+                if (!Number.isFinite(threshold) || threshold < 1) {
+                    throw new Error("--density-threshold 必须是 ≥1 的数字");
+                }
+                const minLevel = commandOptions.minLevel ?? "low";
+                if (!LEVELS.has(minLevel as RuleLevel)) {
+                    throw new Error(`--min-level 必须是 ${[...LEVELS].join(" / ")} 之一`);
+                }
+                process.stdout.write(buildReport(checkJson, detectJson, {densityThreshold: threshold, minLevel: minLevel as RuleLevel}) + "\n");
+            } catch (error) {
+                console.error(`错误: ${error instanceof Error ? error.message : String(error)}`);
+                process.exitCode = 1;
+            }
+        });
+
     const round = program
         .command("round")
         .description("多轮修订谱系：把一轮审稿的修前快照、计划、修后稿与检测产物收在同一个目录");
@@ -282,6 +317,39 @@ export async function runCli(argv: string[]): Promise<void> {
         .action(async (files: string[], commandOptions: {parent?: string}) => {
             try {
                 await beginRoundCommand(files, commandOptions.parent);
+            } catch (error) {
+                console.error(`错误: ${error instanceof Error ? error.message : String(error)}`);
+                process.exitCode = 1;
+            }
+        });
+
+    round
+        .command("metrics")
+        .description("读轮目录的 check/detect JSON，输出台账 summary/retest 需要的指标与复测 verdict 建议")
+        .argument("<round>", "轮号")
+        .option("-f, --format <format>", "输出格式：stylish 或 json")
+        .action(async (roundArg: string, commandOptions: {format?: string}) => {
+            try {
+                const options = mergeOptions(program, commandOptions);
+                const parsed = Number.parseInt(roundArg, 10);
+                if (!Number.isInteger(parsed) || parsed < 1) {
+                    throw new Error(`轮号必须是正整数，当前为 ${roundArg}`);
+                }
+                const result = computeRoundMetrics(process.cwd(), parsed);
+                if (resolveOutput("stylish", options.format) === "json") {
+                    console.log(JSON.stringify({kind: "round-metrics", ...result}, null, 2));
+                } else {
+                    console.log([
+                        `round: ${result.round}`,
+                        `dir: ${result.dir}`,
+                        `staticIssues: ${result.staticIssues ?? "—"}`,
+                        `densityIssues: ${result.densityIssues ?? "—"}`,
+                        `docPAi: ${result.docPAi === null ? "—" : result.docPAi.toFixed(3)}`,
+                        `spread: ${result.spread === null ? "—" : result.spread.toFixed(3)}`,
+                        `verdict: ${result.verdict ?? "—（未复测）"}`,
+                        ...(result.message.length > 0 ? [`提示: ${result.message.join("；")}`] : []),
+                    ].join("\n"));
+                }
             } catch (error) {
                 console.error(`错误: ${error instanceof Error ? error.message : String(error)}`);
                 process.exitCode = 1;
@@ -324,6 +392,14 @@ async function beginRoundCommand(files: string[], parent: string | undefined): P
         `dir: ${relative}`,
         `source: ${result.snapshots.map((name) => `${relative}/source/${name}`).join("、")}`,
         `parent: ${parentRound === null ? "null（另起一篇）" : String(parentRound)}`,
+        "",
+        "下一步：",
+        `  1. check --review all --format json > ${relative}/check-source.json`,
+        `  2. detect --format json > ${relative}/detect-source.json`,
+        `  3. report --check ${relative}/check-source.json --detect ${relative}/detect-source.json（合成审稿报告）`,
+        "  4. 生成 plan.md → 用户审批 → 修复到 output/",
+        `  5. 复测：check / detect 落 ${relative}/check-output.json、detect-output.json`,
+        `  6. round metrics ${result.round}（算台账指标与 verdict）→ contribute --auto --round ${result.round}`,
     ].join("\n"));
 }
 
@@ -868,6 +944,16 @@ function chunkSpread(chunks: DetectPayload["chunks"]): number {
     return Math.max(...scores) - Math.min(...scores);
 }
 
+/** preview 最大码点数：足够判断 chunk 主题，又控制 JSON 体积。 */
+const DETECT_PREVIEW_CHARS = 48;
+
+/** 取 chunk 开头可见字符作 preview：折叠空白，按码点裁剪，避免切断代理对。 */
+function chunkPreview(content: string, chunk: {span: [number, number]}): string {
+    const raw = content.slice(chunk.span[0], Math.min(content.length, chunk.span[0] + DETECT_PREVIEW_CHARS * 2));
+    const compact = raw.replace(/\s+/gu, " ");
+    return Array.from(compact).slice(0, DETECT_PREVIEW_CHARS).join("");
+}
+
 function toDetectReport(result: DetectFileResult): DetectFileReport {
     // 派生字段（rank / relative / spread）在报告层算，刻意不写进缓存 payload：
     // 否则每次给报告加字段都要让全部 content-hash 缓存失效。
@@ -884,6 +970,7 @@ function toDetectReport(result: DetectFileResult): DetectFileReport {
             ...chunk,
             rank: rankByChunk.get(chunk) ?? 1,
             relative: chunk.pAi - result.docPAi,
+            preview: chunkPreview(result.content, chunk),
         })),
     };
 }

@@ -242,6 +242,7 @@ filler-word-actually [filler] (无意义填充词)
 handler 命中可能带 `detail`，用于说明动态计数，例如连续短句数量。density 命中在 stylish 输出中以“密度指纹”分段显示，包含命中次数、每千字密度和样本。
 
 `--min-level` 会隐藏低于指定级别的候选，并在 stylish / JSON 输出中记录被隐藏数量。默认值是 `low`，即显示全部级别。
+`check` 的退出码是 eslint 式门禁：有 high 命中时 exit 1、无 high 时 exit 0；JSON 照常完整输出（stdout）、stderr 保持空，脚本不要用退出码判断「是否成功」。
 `--review` 会按审查受众过滤候选，默认 `agent`。`--review` 与 `--min-level` 是两个独立过滤器，被隐藏数量分别统计为“按审查受众隐藏”和“按级别隐藏”。
 `--show-lines` 只影响 stylish 输出。JSON 的 `context` 默认裁到命中前后各 24 个码点；要完整整行前后文用 `--rule-detail`。
 

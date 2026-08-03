@@ -133,19 +133,23 @@ bun "<skill-root>/bin/llmlint.ts" check <files...> --format json > <轮目录>/c
 
 落盘之后再读这个文件做步骤 3。**不要把命中数字抄进台账**——`contribute` 会直接从这份 JSON 统计命中分布，抄一遍只是多一次抄错的机会。
 
+`check` 的退出码是 eslint 式门禁：有 high 命中时 exit 1、无 high 时 exit 0——JSON 输出不受影响（stdout 照常完整、stderr 保持空）。脚本和 Agent 不要用退出码判断「是否成功」，要看 JSON 是否生成。
+
 为什么创作类要 `--review all`：默认 agent 桶只收「低误杀、可直接交 Agent 处理」的规则，规则整理已把大量语境敏感规则下沉到 human 桶。实测一篇 P(AI) 0.88 的轻小说，agent 桶只给 5 条命中，而这篇最强的 AI 味特征（比喻密度 19 处 / 10.25 每千字）整体在 human 桶——只看 agent 桶会漏掉本篇最该讨论的问题。
 
 两个桶的用法不同，不要混：
 - `agent` 桶是默认**可修**入口。
 - `human` 桶参与四象限判断、密度判断和「问 / 留」分流，但默认不进「修」。要修 human 桶命中，必须先向用户说明理由并取得同意。
 
-JSON 默认是紧凑形态：规则元数据在顶层 `rules`，命中只带 `ruleId`，`context` 裁到命中前后各 24 字。要看规则的 `detector.targets` / `source` / `scope` 才加 `--rule-detail`（体积大 4 倍以上，日常审稿别用）。
+`check --format json` 的紧凑形态字段路径（实测按名猜会踩坑）：顶层 `{kind, filePath, summary, filter, rules, issues, densityIssues?, diagnostics, registry}`。`summary` 含 `total/high/medium/low/visibleChars`（`visibleChars` 是修复前后篇幅对比的同分母口径）；`rules` 是**对象字典**（ruleId → `{namespace,title,level,review,fixability,scope,action,note?}`），不是数组；逐处命中在 **`issues[]`**（每项 `{ruleId,line,column,endLine,endColumn,match,context:{before,current,after}}`，`context` 各裁 24 字）；密度指纹在 `densityIssues[]`（`{ruleId,line,column,hits,perKilo,samples}`）。要看规则的 `detector.targets` / `source` / `scope` 才加 `--rule-detail`（体积大 4 倍以上，日常审稿别用）。
 
 再跑神经检测：
 
 ```bash
 bun "<skill-root>/bin/llmlint.ts" detect <files...> --format json > <轮目录>/detect-source.json
 ```
+
+`detect --format json` 的结构：顶层 `{kind:"detect", files:[...]}`，单文件时结果在 **`files[0]`** 下，字段 `{filePath, docPAi, maxPAi, spread, cached, chunks:[{span,line,pAi,rank,relative,preview?}]}`。`docPAi` 是整篇均值、`spread` 是文内极差（四象限守门用）、`chunks[]` 保持原文顺序、`rank` 是 P(AI) 降序位次、`relative` 是相对整篇均值的偏离、`preview` 是原文前 40–60 字（v3.0.1+，不用再按 `span` 偏移自行切文本）。
 
 `detect` 使用默认 HF Space `yuchuantian-aigc-text-detector.hf.space`，按句界分块并缓存正文哈希。网络失败时报告失败原因和代理设置建议；已完成文件的缓存仍可保留。代理可配置：
 

@@ -502,3 +502,88 @@ function snapshotNameKey(name: string): string {
 export function portableBasename(file: string): string {
     return file.replace(/\\/g, "/").split("/").filter(Boolean).at(-1) ?? "";
 }
+
+/** round metrics 的结果：台账 summary/retest 需要的四项指标 + 复测 verdict 建议。 */
+export type RoundMetricsResult = {
+    round: number;
+    dir: string;
+    /** check-source.json 的静态命中总数；缺文件或字段为 null。 */
+    staticIssues: number | null;
+    /** density 命中数；缺文件为 null。 */
+    densityIssues: number | null;
+    /** detect 的 docPAi；缺文件为 null。 */
+    docPAi: number | null;
+    /** detect 的 spread；缺文件为 null。 */
+    spread: number | null;
+    /** 复测判据（有 check-output.json 时）：pass / fail；未复测为 null。 */
+    verdict: "pass" | "fail" | null;
+    /** 缺文件等说明；空数组 = 全部齐备。 */
+    message: string[];
+};
+
+/**
+ * 读轮目录的 check/detect JSON，算出台账 summary/retest 需要的四项指标。
+ *
+ * 有 `check-output.json`（复测产物）时再给 verdict 建议：静态命中减少、
+ * 没有引入新规则命中、篇幅在原文 ±20% 内三条同时成立为 pass。
+ * 检测分数不参与 verdict（SKILL 步骤 4：检测分数只作参考，不作目标）。
+ */
+export function computeRoundMetrics(cwd: string, round: number): RoundMetricsResult {
+    const dir = roundDir(cwd, round);
+    const checkSourcePath = join(dir, "check-source.json");
+    const detectSourcePath = join(dir, "detect-source.json");
+    const checkOutputPath = join(dir, "check-output.json");
+    const message: string[] = [];
+
+    let staticIssues: number | null = null;
+    let densityIssues: number | null = null;
+    let docPAi: number | null = null;
+    let spread: number | null = null;
+    let sourceVisible: number | null = null;
+    const sourceRuleIds = new Set<string>();
+
+    if (existsSync(checkSourcePath)) {
+        const check = JSON.parse(readFileSync(checkSourcePath, "utf-8"));
+        staticIssues = check.summary?.total ?? null;
+        densityIssues = Array.isArray(check.densityIssues) ? check.densityIssues.length : null;
+        sourceVisible = check.summary?.visibleChars ?? null;
+        for (const ruleId of Object.keys(check.rules ?? {})) {
+            sourceRuleIds.add(ruleId);
+        }
+    } else {
+        message.push(`缺 ${checkSourcePath}`);
+    }
+
+    if (existsSync(detectSourcePath)) {
+        const detect = JSON.parse(readFileSync(detectSourcePath, "utf-8"));
+        const file = detect.files?.[0];
+        docPAi = typeof file?.docPAi === "number" ? file.docPAi : null;
+        spread = typeof file?.spread === "number" ? file.spread : null;
+    } else {
+        message.push(`缺 ${detectSourcePath}`);
+    }
+
+    let verdict: "pass" | "fail" | null = null;
+    if (existsSync(checkOutputPath)) {
+        const output = JSON.parse(readFileSync(checkOutputPath, "utf-8"));
+        const outputTotal = output.summary?.total ?? null;
+        const outputVisible = output.summary?.visibleChars ?? null;
+        const outputRuleIds = new Set<string>();
+        for (const issue of output.issues ?? []) {
+            outputRuleIds.add(issue.ruleId);
+        }
+        const reduced = outputTotal !== null && staticIssues !== null && outputTotal < staticIssues;
+        const noNewRules = [...outputRuleIds].every((ruleId) => sourceRuleIds.has(ruleId));
+        const withinBudget = outputVisible !== null && sourceVisible !== null
+            && outputVisible >= sourceVisible * 0.8 && outputVisible <= sourceVisible * 1.2;
+        const checks = [
+            reduced ? "命中减少" : "命中未减少",
+            noNewRules ? "无新规则命中" : "引入新规则命中",
+            withinBudget ? "篇幅 ±20% 内" : "篇幅超出 ±20%",
+        ];
+        verdict = reduced && noNewRules && withinBudget ? "pass" : "fail";
+        message.push(`复测：${checks.join("、")}`);
+    }
+
+    return {round, dir, staticIssues, densityIssues, docPAi, spread, verdict, message};
+}
