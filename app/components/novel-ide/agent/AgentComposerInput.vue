@@ -22,6 +22,8 @@ const props = withDefaults(defineProps<{
     minHeight?: number;
     maxHeight?: number;
     submitOnEnter?: boolean;
+    /** 为 true 时，Ctrl/Meta+Enter 在展开输入框中也提交。 */
+    submitOnModifierEnter?: boolean;
 }>(), {
     placeholder: "",
     ariaLabel: "",
@@ -32,6 +34,8 @@ const props = withDefaults(defineProps<{
     readonly: false,
     generation: 0,
     enableImageFiles: true,
+    submitOnEnter: true,
+    submitOnModifierEnter: false,
 });
 
 const emit = defineEmits<{
@@ -130,7 +134,8 @@ defineExpose({
         :aria-label="props.ariaLabel || props.placeholder || t('agent.composer.messagePlaceholder')"
         :min-height="editorMinHeight"
         :max-height="editorMaxHeight"
-        :submit-on-enter="props.submitOnEnter ?? !props.expanded"
+        :submit-on-enter="props.submitOnEnter && !props.expanded"
+        :submit-on-modifier-enter="props.submitOnModifierEnter"
         :enable-quick-triggers="true"
         :readonly="props.readonly"
         :match-popover-width="true"

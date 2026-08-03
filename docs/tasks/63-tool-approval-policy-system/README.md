@@ -210,3 +210,28 @@ type UserInputFormSpec = {
 - Task 63/129 相邻回归：12 files / 118 tests 通过；新增用例覆盖引用 Markdown、selection chip、skill token 和多行文本从编辑器序列化到完整 resolution 的保真。
 - `bun run typecheck`：全仓通过，退出码 0。
 - 浏览器待验收：连续切换短问题/长选项/开放回答/表单时的同高；`@` 选择 chip、切走返回和提交规范化；普通 Composer 草稿隔离；明暗主题与 1440/390 视口。
+
+## 2026-08-03 Composer Enter 快捷键回归修复
+
+### 用户反馈与诊断
+
+- GitHub Issue [#44](https://github.com/notnotype/neuro-book/issues/44) 记录了普通 Composer 无法用 Enter 发送、Agent 运行期间无法用 Ctrl+Enter 发送 followup 的稳定回归。
+- `AgentComposerInput` 新增可选 Boolean prop `submitOnEnter` 后，使用 `props.submitOnEnter ?? !props.expanded` 计算默认行为。Vue 会把未传入的 Boolean prop 解析为 `false`，因此普通 Composer 永远无法回退到原来的 `!expanded`，底层编辑器不会发出 `submit`。
+- `AgentComposer.submitComposer()` 中的 send、steer 和 followup 分支没有丢失；问题发生在 `AgentComposerInput -> ReferencePlainTextEditor` 的键盘事件门禁。
+
+### 实现
+
+- `AgentComposerInput.submitOnEnter` 使用明确的 `true` 默认值，折叠输入框继续用 Enter 提交，展开输入框继续把普通 Enter 用作换行，不再依赖 Vue 对缺省 Boolean prop 的隐式投影。
+- `ReferencePlainTextEditor` 新增默认关闭的 `submitOnModifierEnter`。普通提交与 Ctrl/Meta+Enter 提交分别受独立门禁控制；Shift+Enter 和引用菜单打开时的 Enter 行为不变。
+- 普通 Composer 只在 Agent 正在运行且正文非空时开启 modifier 提交，使展开输入框也能用 Ctrl/Meta+Enter 发送 followup。pending 回答编辑器显式关闭两种提交，继续由面板按钮推进批次。
+- 没有修改消息 API、Session 状态、图片事务、数据结构、配置、安装或安全边界，也没有新增测试文件。
+
+### Verification
+
+- Vue SFC 编译探针通过：`submitOnEnter` 编译为 `default: true`，`submitOnModifierEnter` 编译为 `default: false`。
+- 新 worktree 首次 `bun run typecheck` 因缺少 `server/generated/prisma/client` 失败；执行既有 `bun run generate` 后重跑，`bun run typecheck` 全仓通过，退出码 0。失败没有修改后端业务文件。
+- 按用户要求没有新增或运行额外测试。按仓库规则没有自动运行浏览器验收；折叠/展开、空闲/运行中以及 Enter/Shift+Enter/Ctrl+Enter/Meta+Enter 的真实交互仍待用户验收。
+
+### 计划差异
+
+- 代码范围、快捷键合同、文档边界和不新增测试均与批准计划一致。唯一额外步骤是在新 worktree 中生成 typecheck 所需的 Prisma client；生成物未纳入本次改动。

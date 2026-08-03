@@ -295,6 +295,7 @@ function handlePrimary(): void {
                         :min-height="72"
                         :max-height="112"
                         :submit-on-enter="false"
+                        :submit-on-modifier-enter="false"
                         :enable-image-files="false"
                         :menu-refresh-key="props.menuRefreshKey"
                         :resolve-menu="resolveAnswerMenu"

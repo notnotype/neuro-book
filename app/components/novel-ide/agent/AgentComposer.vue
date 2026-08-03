@@ -600,6 +600,7 @@ defineExpose({focus, insertAttachment});
                     :placeholder="composerPlaceholder"
                     :expanded="composerExpanded"
                     :readonly="composerReadonly"
+                    :submit-on-modifier-enter="props.running && Boolean(runInputText.trim())"
                     :enable-image-files="canRegisterImages"
                     :menu-refresh-key="composerMenuRefreshKey"
                     :resolve-menu="resolveComposerMenu"
