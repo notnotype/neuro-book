@@ -199,6 +199,7 @@ async function writeRuntimeFixture(imageRoot: string): Promise<void> {
         imageVariantSmoke: "server/commands/sharp-image-variant.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec.mjs",
         webFetchSmoke: "server/commands/web-fetch.mjs",
+        worldEngineConfigSmoke: "server/commands/world-engine-config.mjs",
     };
     const contract = createProductRuntimeContract(entries);
     for (const path of new Set([PRODUCT_RUNTIME_COMMAND_BOOTSTRAP, ...Object.values(entries)])) {

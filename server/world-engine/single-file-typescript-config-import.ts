@@ -3,15 +3,20 @@ import fs from "node:fs/promises";
 import {createHash} from "node:crypto";
 import {builtinModules, createRequire} from "node:module";
 import path from "node:path";
-import {fileURLToPath, pathToFileURL} from "node:url";
 import {build, type Plugin} from "esbuild";
 import {consola} from "consola";
+import {init as initModuleLexer, parse as parseModuleImports} from "es-module-lexer";
 import type * as TypeScript from "typescript";
 import {DEFAULT_RUNTIME_ARTIFACT_RETENTION, importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
+import {
+    resolveRuntimeArtifactCompilerContext,
+    resolveRuntimeArtifactNbookPath,
+    resolveRuntimeArtifactPackagePath,
+    type RuntimeArtifactCompilerContext,
+} from "nbook/server/utils/runtime-artifact-compiler-context";
 
-const require = createRequire(import.meta.url);
-const ts = require("typescript") as typeof TypeScript;
-const runtimeNbookRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const runtimeRequire = createRequire(import.meta.url);
+const ts = runtimeRequire("typescript") as typeof TypeScript;
 
 const importCache = new Map<string, Promise<unknown>>();
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
@@ -25,6 +30,8 @@ type SingleFileTypeScriptConfigImport = {
     label: WorldEngineConfigLabel;
     /** Project Workspace `.nbook` 内由调用方显式决定的可写 runtime cache 根。 */
     runtimeCacheRoot: string;
+    /** Source 或 verified Product 的唯一模块解析合同。 */
+    compilerContext?: RuntimeArtifactCompilerContext;
 };
 
 /**
@@ -37,6 +44,7 @@ type SingleFileTypeScriptConfigImport = {
 export async function importSingleFileTypeScriptConfig<TModule extends object>(
     input: SingleFileTypeScriptConfigImport,
 ): Promise<TModule> {
+    const compilerContext = input.compilerContext ?? await resolveRuntimeArtifactCompilerContext();
     const content = await fs.readFile(input.filePath);
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
     const cachePath = path.join(input.runtimeCacheRoot, ".staging", `.world-engine-${input.label}-${hash}.mjs`);
@@ -47,7 +55,7 @@ export async function importSingleFileTypeScriptConfig<TModule extends object>(
         return imported;
     }
 
-    const pending = importValidatedHashedTypeScript<TModule>(input, cachePath, content, hash);
+    const pending = importValidatedHashedTypeScript<TModule>(input, compilerContext, cachePath, content, hash);
     importCache.set(cachePath, pending);
     try {
         return await pending;
@@ -58,13 +66,18 @@ export async function importSingleFileTypeScriptConfig<TModule extends object>(
 }
 
 /** 用 TypeScript AST 与 esbuild 双重确认配置入口没有本地文件、绝对路径或 URL 依赖。 */
-async function assertSingleFileConfig(filePath: string, source: string, label: string): Promise<void> {
+async function assertSingleFileConfig(
+    filePath: string,
+    source: string,
+    label: string,
+    compilerContext: RuntimeArtifactCompilerContext,
+): Promise<void> {
     const rejectedSpecifiers = new Set<string>();
-    for (const specifier of collectRejectedSpecifiers(source)) {
+    for (const specifier of collectRejectedSpecifiers(source, compilerContext)) {
         rejectedSpecifiers.add(specifier);
     }
     if (rejectedSpecifiers.size === 0) {
-        for (const specifier of await collectBundledRejectedSpecifiers(filePath)) {
+        for (const specifier of await collectBundledRejectedSpecifiers(filePath, compilerContext)) {
             rejectedSpecifiers.add(specifier);
         }
     }
@@ -74,7 +87,7 @@ async function assertSingleFileConfig(filePath: string, source: string, label: s
 }
 
 /** 解析源码级 import/export，包含 esbuild 会擦除的 `import type` 和 TS import type expression。 */
-function collectRejectedSpecifiers(source: string): string[] {
+function collectRejectedSpecifiers(source: string, compilerContext: RuntimeArtifactCompilerContext): string[] {
     const sourceFile = ts.createSourceFile("world-engine-config.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const rejectedSpecifiers: string[] = [];
     const collect = (specifier: string): void => {
@@ -124,7 +137,10 @@ function collectRejectedSpecifiers(source: string): string[] {
 }
 
 /** 让 esbuild 解析入口文件，捕获运行时 import/export 的真实模块 specifier。 */
-async function collectBundledRejectedSpecifiers(filePath: string): Promise<string[]> {
+async function collectBundledRejectedSpecifiers(
+    filePath: string,
+    compilerContext: RuntimeArtifactCompilerContext,
+): Promise<string[]> {
     const rejectedSpecifiers = new Set<string>();
     const plugin: Plugin = {
         name: "world-engine-single-file-config",
@@ -155,11 +171,20 @@ async function collectBundledRejectedSpecifiers(filePath: string): Promise<strin
     return [...rejectedSpecifiers];
 }
 
-function classifySingleFileConfigSpecifier(specifier: string): "allowed" | "rejected" {
-    if (isNodeBuiltinSpecifier(specifier) || isBarePackageSpecifier(specifier)) {
+function classifySingleFileConfigSpecifier(
+    specifier: string,
+): "allowed" | "rejected" {
+    if (isNodeBuiltinSpecifier(specifier) || isAllowedNbookSpecifier(specifier)
+        || specifier === "zod") {
         return "allowed";
     }
+    // 保留 parser 对路径/URL/动态表达式的统一 rejected 结果。
+    if (isBarePackageSpecifier(specifier)) return "rejected";
     return "rejected";
+}
+
+function isAllowedNbookSpecifier(specifier: string): boolean {
+    return specifier === "nbook/world-engine/schema" || specifier === "neuro_book/world-engine/schema";
 }
 
 function isNodeBuiltinSpecifier(specifier: string): boolean {
@@ -208,17 +233,19 @@ function configDisplayPath(label: string): string {
 /** 校验后写入稳定临时文件并导入，确保并发加载共享同一条 pending promise。 */
 async function importValidatedHashedTypeScript<TModule extends object>(
     input: SingleFileTypeScriptConfigImport,
+    compilerContext: RuntimeArtifactCompilerContext,
     cachePath: string,
     content: Buffer,
     hash: string,
 ): Promise<TModule> {
-    await assertSingleFileConfig(input.filePath, content.toString("utf-8"), input.label);
-    return await importHashedTypeScript<TModule>(input, cachePath, content, hash);
+    await assertSingleFileConfig(input.filePath, content.toString("utf-8"), input.label, compilerContext);
+    return await importHashedTypeScript<TModule>(input, compilerContext, cachePath, content, hash);
 }
 
 /** 转译成稳定临时 mjs 并导入，导入完成后清理磁盘文件。 */
 async function importHashedTypeScript<TModule extends object>(
     input: SingleFileTypeScriptConfigImport,
+    compilerContext: RuntimeArtifactCompilerContext,
     cachePath: string,
     content: Buffer,
     hash: string,
@@ -226,7 +253,8 @@ async function importHashedTypeScript<TModule extends object>(
     await fs.mkdir(path.dirname(cachePath), {recursive: true});
     await cleanupStaleTempFiles(path.dirname(cachePath), input.label);
     await cleanupStaleTempFiles(path.dirname(input.filePath), input.label);
-    const compiled = await compileSingleFileTypeScript(input.filePath, content.toString("utf-8"));
+    const compiled = await compileSingleFileTypeScript(input.filePath, content.toString("utf-8"), compilerContext);
+    const compiledHash = createHash("sha256").update(compiled).digest("hex");
     try {
         await fs.writeFile(cachePath, compiled, "utf-8");
         try {
@@ -234,7 +262,7 @@ async function importHashedTypeScript<TModule extends object>(
                 cache: {
                     root: input.runtimeCacheRoot,
                     namespace: `world-engine-${input.label}`,
-                    key: hash,
+                    key: compiledHash,
                     bytes: Buffer.byteLength(compiled, "utf-8"),
                     retention: DEFAULT_RUNTIME_ARTIFACT_RETENTION,
                 },
@@ -246,7 +274,7 @@ async function importHashedTypeScript<TModule extends object>(
                 label: input.label,
                 filePath: input.filePath,
                 cachePath,
-                hash,
+                hash: compiledHash,
             });
         }
     } finally {
@@ -280,7 +308,11 @@ function worldEngineArtifactImportError(
 }
 
 /** 只编译用户入口和 nbook 公共 helper；第三方包由当前 runtime vendor 解析。 */
-async function compileSingleFileTypeScript(filePath: string, source: string): Promise<string> {
+async function compileSingleFileTypeScript(
+    filePath: string,
+    source: string,
+    compilerContext: RuntimeArtifactCompilerContext,
+): Promise<string> {
     const result = await build({
         stdin: {
             contents: source,
@@ -292,56 +324,57 @@ async function compileSingleFileTypeScript(filePath: string, source: string): Pr
         write: false,
         platform: "node",
         format: "esm",
+        absWorkingDir: compilerContext.root,
+        nodePaths: compilerContext.productRuntime ? [compilerContext.compilerNodeModulesRoot] : [],
         target: "esnext",
         logLevel: "silent",
-        plugins: [runtimeConfigCompilePlugin()],
+        plugins: [runtimeConfigCompilePlugin(compilerContext)],
     });
     const output = result.outputFiles[0];
     if (!output) {
         throw new Error("World Engine TypeScript 配置转译未产生输出文件。");
     }
+    await assertWorldEngineArtifactClosure(output.text);
     return output.text;
 }
 
-function runtimeConfigCompilePlugin(): Plugin {
+/** 最终 artifact 只能留下 node: builtin；Zod/helper 必须已经进入同一内容寻址文件。 */
+async function assertWorldEngineArtifactClosure(source: string): Promise<void> {
+    await initModuleLexer;
+    const [imports] = parseModuleImports(source);
+    const unresolved = imports
+        .filter((item) => item.n && !isNodeBuiltinSpecifier(item.n))
+        .map((item) => item.n!);
+    if (unresolved.length > 0) {
+        throw new Error(`World Engine runtime artifact 含未内联 import：${[...new Set(unresolved)].sort().join(", ")}`);
+    }
+    if (imports.some((item) => item.d >= 0 && !item.n)) {
+        throw new Error("World Engine runtime artifact 不允许未解析的动态 import。");
+    }
+}
+
+function runtimeConfigCompilePlugin(compilerContext: RuntimeArtifactCompilerContext): Plugin {
     return {
         name: "world-engine-config-compile",
         setup(buildApi) {
-            buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => ({
-                path: resolveRepoAliasPath(args.path.replace(/^(nbook|neuro_book)\//, "")),
-            }));
+            buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => {
+                const relativePath = args.path.replace(/^(nbook|neuro_book)\//, "");
+                if (!isAllowedNbookSpecifier(args.path)) {
+                    return {errors: [{text: `World Engine 配置未登记 nbook import：${args.path}`}]};
+                }
+                return {path: resolveRuntimeArtifactNbookPath(compilerContext, relativePath)};
+            });
             buildApi.onResolve({filter: /^[^./].*/}, (args) => {
                 if (isNodeBuiltinSpecifier(args.path)) {
                     return {path: args.path, external: true};
                 }
-                if (!isBarePackageSpecifier(args.path)) {
+                if (args.path !== "zod") {
                     return undefined;
                 }
-                const resolved = require.resolve(args.path);
-                return {path: pathToFileURL(resolved).href, external: true};
+                return {path: resolveRuntimeArtifactPackagePath(compilerContext, args.path)};
             });
         },
     };
-}
-
-function resolveRepoAliasPath(relativePath: string): string {
-    const basePath = path.resolve(runtimeNbookRoot, relativePath);
-    const candidates = [
-        path.join(basePath, "index.ts"),
-        path.join(basePath, "index.tsx"),
-        path.join(basePath, "index.js"),
-        path.join(basePath, "index.mjs"),
-        `${basePath}.ts`,
-        `${basePath}.tsx`,
-        `${basePath}.js`,
-        `${basePath}.mjs`,
-        basePath,
-    ];
-    const resolved = candidates.find((candidate) => existsSync(candidate));
-    if (!resolved) {
-        throw new Error(`无法解析 World Engine 配置中的 nbook 包级 import：${relativePath}`);
-    }
-    return resolved;
 }
 
 /** 清理异常中断留下的旧临时文件；保留近期文件，避免误删并发导入中的文件。 */

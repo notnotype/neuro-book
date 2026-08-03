@@ -1,5 +1,7 @@
 import {existsSync, readFileSync} from "node:fs";
+import {createRequire} from "node:module";
 import {isAbsolute, join, relative, resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {
     ProductRuntimeImageVerifier,
     type ProductRuntimeImageManifest,
@@ -204,6 +206,25 @@ export function resolveRuntimeArtifactNbookPath(
         throw new Error(`${source} 无法解析 nbook 包级 import：${relativePath}`);
     }
     return resolvedPath;
+}
+
+/** 从 Authoring Kit 或 Source checkout 解析 World Engine 允许的 runtime package。 */
+export function resolveRuntimeArtifactPackagePath(
+    context: RuntimeArtifactCompilerContext,
+    specifier: string,
+): string {
+    if (specifier !== "zod") {
+        throw new Error(`Runtime Artifact Authoring 未登记 package：${specifier}`);
+    }
+    if (context.kind !== "source") {
+        return resolveRuntimeArtifactNbookPath(context, "world-engine/zod");
+    }
+    const requireFromCompiler = createRequire(pathToFileURL(context.compilerPackageRoot));
+    try {
+        return requireFromCompiler.resolve(specifier);
+    } catch (error) {
+        throw new Error(`Source Runtime Artifact Authoring 无法解析 package：${specifier}`, {cause: error});
+    }
 }
 
 /** 读取 package name；损坏或缺失时返回 null。 */

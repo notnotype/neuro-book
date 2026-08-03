@@ -86,6 +86,11 @@ export interface ProductRuntimeExpectedIdentity {
     builderContractVersion?: string;
 }
 
+/** Manager 仅在读取已安装旧代次时开启 v3 合同兼容；新 Product 默认 v4。 */
+export interface ProductRuntimeImageVerificationOptions {
+    allowPreviousRuntimeContract?: boolean;
+}
+
 /** 一个 owner 在最终不可变 payload 中的实际占用。 */
 export interface ProductRuntimeOwnerInventory {
     name: string;
@@ -259,8 +264,9 @@ export class ProductRuntimeImageVerifier {
     async openVerified(
         imagePath: string,
         expectedIdentity: ProductRuntimeExpectedIdentity,
+        options: ProductRuntimeImageVerificationOptions = {},
     ): Promise<VerifiedProductRuntimeImage> {
-        const control = await this.readControlPlane(imagePath, expectedIdentity);
+        const control = await this.readControlPlane(imagePath, expectedIdentity, options);
         const inspection = await inspectProductRuntimeImage(control.path, control.manifest.policy.owners);
         assertProductRuntimeBudget(inspection, control.manifest.policy.budget);
         assertPhysicalBudget(inspection, control, control.manifest.policy.budget);
@@ -276,7 +282,10 @@ export class ProductRuntimeImageVerifier {
     }
 
     /** 独立 Product bootstrap 以镜像内 manifest 建立身份后执行完整自洽验证。 */
-    async openSelfVerified(imageRoot: string): Promise<VerifiedProductRuntimeImage> {
+    async openSelfVerified(
+        imageRoot: string,
+        options: ProductRuntimeImageVerificationOptions = {},
+    ): Promise<VerifiedProductRuntimeImage> {
         const manifest = parseManifest(await readProductRuntimeControlFile(resolve(imageRoot, MANIFEST_FILE), "runtime-image manifest"));
         return await this.openVerified(imageRoot, {
             version: manifest.version,
@@ -287,15 +296,16 @@ export class ProductRuntimeImageVerifier {
             lockfileSha256: manifest.lockfileSha256,
             sourceDigest: manifest.sourceDigest,
             builderContractVersion: manifest.builderContractVersion,
-        });
+        }, options);
     }
 
     /** 验证控制面和 Runtime Contract，不遍历 payload。 */
     async openControlPlane(
         imagePath: string,
         expectedIdentity: ProductRuntimeExpectedIdentity,
+        options: ProductRuntimeImageVerificationOptions = {},
     ): Promise<ProductRuntimeImageControlPlane> {
-        const control = await this.readControlPlane(imagePath, expectedIdentity);
+        const control = await this.readControlPlane(imagePath, expectedIdentity, options);
         await this.assertControlPlaneUnchanged(control);
         return {path: control.path, manifest: control.manifest};
     }
@@ -304,6 +314,7 @@ export class ProductRuntimeImageVerifier {
     private async readControlPlane(
         imagePath: string,
         expectedIdentity: ProductRuntimeExpectedIdentity,
+        options: ProductRuntimeImageVerificationOptions,
     ): Promise<RuntimeControlPlaneState> {
         assertExpectedIdentity(expectedIdentity);
         const imageRoot = resolve(imagePath);
@@ -332,7 +343,9 @@ export class ProductRuntimeImageVerifier {
         if (productRuntimeContractSha256(runtimeContractText) !== manifest.runtimeContract.sha256) {
             throw new Error("Product Runtime Image runtime contract 摘要与 manifest 不一致。");
         }
-        const runtimeContract = parseProductRuntimeContract(JSON.parse(runtimeContractText) as unknown);
+        const runtimeContract = options.allowPreviousRuntimeContract
+            ? parseProductRuntimeContract(JSON.parse(runtimeContractText) as unknown, {allowPrevious: true})
+            : parseProductRuntimeContract(JSON.parse(runtimeContractText) as unknown);
         await assertProductRuntimeContractFiles(runtimeContract, imageRoot);
         return {
             path: imageRoot,

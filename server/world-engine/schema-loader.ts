@@ -3,6 +3,7 @@ import path from "node:path";
 import {createError} from "h3";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 import {
     collectZodDefaults,
     extractRefs,
@@ -16,7 +17,7 @@ import {
     type ZodSchemaRegistry,
     type ZodSchemaUniqueArrays,
 } from "nbook/server/world-engine/types";
-import {z} from "zod";
+import {z} from "zod/v4";
 
 const SCHEMA_TS_PATH = "world-engine/schema/index.ts";
 
@@ -69,6 +70,7 @@ export class WorldSchemaLoader {
                 filePath: tsSchemaPath,
                 label: "schema",
                 runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
+                compilerContext: await resolveRuntimeArtifactCompilerContext(),
             });
             const exportedSchema = schemaModule.default ?? schemaModule.WorldSchema;
             if (!exportedSchema || typeof exportedSchema !== "object") {

@@ -71,7 +71,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
                 sha256: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
             },
             inventory: {
-                files: 18,
+                files: 19,
                 owners: expect.arrayContaining([
                     expect.objectContaining({name: "frontend", paths: ["public"], files: 1}),
                     expect.objectContaining({
@@ -389,7 +389,7 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
                 await writeFile(join(imageRoot, "server", "index.mjs"), "ok", "utf8");
                 await writeRuntimeFixture(imageRoot);
             },
-        })).rejects.toThrow("物理载荷超出总预算：19/17 files");
+        })).rejects.toThrow("Product Runtime Image 超出总预算：18/17 files");
     });
 
     it("拒绝 owner 路径逃逸与指向候选外部的 symlink", async () => {
@@ -607,6 +607,7 @@ async function writeRuntimeFixture(
         imageVariantSmoke: "server/commands/sharp-image-variant.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec.mjs",
         webFetchSmoke: "server/commands/web-fetch.mjs",
+        worldEngineConfigSmoke: "server/commands/world-engine-config.mjs",
     };
     const contract = createProductRuntimeContract(entries);
     const entryPaths = new Set([PRODUCT_RUNTIME_COMMAND_BOOTSTRAP, ...Object.values(entries)]);

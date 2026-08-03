@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-02（Authoring 完整模块图、只读 Verifier、Verified Application Execution 与 Contract v3 验收）
+- 更新：2026-08-03（World Engine Product schema 自包含、Runtime Contract v4 与旧 v3 Manager 读取边界）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)
 
 ## 背景
@@ -19,14 +19,14 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 4. Runtime Image 只有在以下证据一致时才 ready：Source identity、lockfile、平台、Runtime 版本、Product Runtime Contract 摘要、规范平台 owner/预算 policy 及其摘要、owner inventory、tree digest、shape digest、manifest 与最后写入的 ready marker。构建期间 Source 变化直接失败；每次复核必须重新枚举 tracked 与 untracked Source，不能复用首次路径集。
 5. Release、Windows Portable、Docker、staging、Manager doctor/import/install/update 和 smoke 只能消费 `openVerified()` 成功且外部代次身份匹配的镜像。Manager 的 start、admin、migration 与 recovery 先收窄为 `VerifiedApplicationExecution`；独立 Product bootstrap 还会在解析逻辑命令前执行完整自洽验证并删除 `NODE_PATH`。单独存在 `server/index.mjs` 不构成可执行或可归档条件。
 6. 状态展示和实例发现可以使用 `openControlPlane()`，但它只验证 manifest/ready/contract 控制文件及合同入口存在性，返回独立只读类型；执行、激活、安装和归档禁止使用该结果。实测完整验证冷启动约 13.3 秒、热缓存约 1.08 秒，轻量验证约 4-9 毫秒。
-7. Product Runtime Contract v3 是所有消费者唯一的逻辑入口。正式命令为 `start`、`migrate-database`、`migrate-application-state`、`create-admin`、`profile`、`variable`、`workspace`；发布检查包含 Profile、Variable、sqlite-vec、Sharp、Application State、Workspace 与 `web-fetch`。未知 schema、未知 ID、路径逃逸、缺失入口或不允许的附加参数立即失败，不保留 `server/scripts` fallback。
+7. Product Runtime Contract v4 是所有新 Product 消费者唯一的逻辑入口。正式命令为 `start`、`migrate-database`、`migrate-application-state`、`create-admin`、`profile`、`variable`、`workspace`；发布检查包含 Profile、Variable、sqlite-vec、Sharp、Application State、Workspace、`web-fetch` 与 `world-engine-config`。未知 schema、未知 ID、路径逃逸、缺失入口或不允许的附加参数立即失败，不保留 `server/scripts` fallback。Manager 只在已安装旧 Product 的读取边界显式接受 v3；候选、发布和 Product bootstrap 仍严格要求 v4。
 8. Nitro 只根据真实 ESM module specifier 发现 external Seed；普通字符串、注释、source map 和客户端资源清单不形成 Seed。绝对 file URL、Bun `.bun` 和 pnpm `.pnpm` 路径统一规范化到 Product 内部，物理包与根 hoisted 包版本不一致时失败。
 9. 最终 Nitro server 使用单 bundle；命令使用一次多入口构建和 shared chunks；Profile 编译使用与 Product revision 绑定的 Authoring Kit；native addon、动态 package、worker、`createRequire` 与必须读取 package 形状的依赖进入显式 package islands。命令入口必须由 Bun metafile 的 `entryPoint` 建立映射，不能从输出文件名反推。
 10. `native-islands.json` 使用 v2 合同登记无法静态解析的 dynamic import：每项必须包含 Product 相对路径模式、精确数量、保留原因和对应 smoke。最终闭包扫描 `server/index.mjs`、commands、Authoring Kit 与 `server/assets/**/*.mjs`；未登记、重复命中、数量漂移或逃逸镜像的引用全部失败。
 11. raw chunk 中 Nitro 的 `file:///_entry.js` fallback 在最终 bundle 阶段统一替换为 `import.meta.url`。不得按 raw chunk 位置提前计算相对入口，因为 chunk 合并后该位置不再成立。
 12. Profile authoring 的公开 import 面只包含主入口 `nbook/profile-sdk`、正式 writing 能力子入口 `nbook/profile-sdk/writing`、Profile root 内相对模块和 Runtime builtin。writing 子入口承载文风/参考预设的读取与提示词构造；只有需要这些能力的 Profile 才导入它，主入口不得静态依赖 writing host graph。Import gate 使用 TypeScript AST 递归验证作者拥有的完整相对模块图，不只检查入口；精确放行该 subpath，不放行任意 `nbook/profile-sdk/*`，并拒绝 helper 裸包、绝对路径、非字面量动态加载、相对越界与 symlink realpath 逃逸。`typebox` 是 SDK 内部实现，不是作者可直接导入的 Interface；新增第三方作者 import 或 SDK subpath 必须先修改 ADR，而不是扩大扫描白名单。`compilerPackageRoot` 固定为 Product `server/authoring/package.json`，`artifactRuntimeRequireRoot` 固定为最终 `server/index.mjs`；显式 Product identity 缺少入口、package、Kit 或预编译 worker 时立即失败，编译不得回退 Source Root 或根 `node_modules`。
 13. Variable authoring 使用独立的 `nbook/variable-sdk`，公开面只包含 `Type`、`Static`、`TSchema`、`VariableDefinition`、`defineWorkspaceRootVariable()` 与 `defineProjectVariable()`。Profile SDK 和 Variable SDK 使用同一递归模块图 import gate 与 Product-bound compiler package root，宿主 richer types 只能通过静态 assignability gate 适配，不能把 `server/**` 类型图重新暴露给作者。
-14. Authoring Kit 对每个内部依赖登记 name、version、用途、投影类型和 smoke。当前第三方闭包仅为同时携带 runtime implementation 与声明的 `typebox`，以及仅投影声明的 `@types/node`、`undici-types`；Pi/Provider SDK、Prisma 与 Zod 不属于 authoring 闭包。
+14. Authoring Kit 对每个内部依赖登记 name、version、用途、投影类型和 smoke。Profile/Variable 的通用第三方声明闭包仍只包含同时携带 runtime implementation 与声明的 `typebox`，以及仅投影声明的 `@types/node`、`undici-types`；Pi/Provider SDK 与 Prisma 不属于 authoring 闭包。World Engine schema 是独立的 Product runtime island：Kit 固定携带 `nbook/world-engine/schema/index.mjs` 和 bundled `nbook/world-engine/zod.mjs`，不把 Zod 放进通用 authoring dependency projection。
 15. Workspace CLI 的实现由 Product Workspace 领域 Module 拥有，`server/runtime/commands/` 只保留 Product Runtime Contract 的薄 Adapter。`.nbook/agent/bin/workspace` 是 Agent 稳定入口：Source checkout 调用 Product-owned source entry，发行物解析 `workspace` 逻辑命令；已删除的 `assets/workspace/.nbook/agent/scripts/workspace.ts` 与 `server/scripts` 均不得作为 fallback。
 16. 每个平台保存真实 owner baseline。Builder 是规范平台 owner、总预算与 baseline 上限的唯一 owner；调用方传入的策略只能等于或严于该上限，实际策略写入 manifest 并在 `openVerified()` 时重新校验。全局 6000 文件、360 MiB 是包含 `runtime-image.json` 与 `runtime-image.ready` 的物理 `.output` 绝对安全上限；manifest inventory 与 digest 为避免自引用只统计 payload，但 Builder 在写完控制文件后及每次完整验证时都会追加控制文件的真实数量和字节数执行物理门禁。日常回归门禁按每个 owner 的已审查基线上浮最多 10%，不能把全局上限复制成每个 owner 的假基线。
 17. Runtime Image 不携带 VitePress `dist/cache`、raw Nitro chunks、完整 docs 或完整 Source 副本。完整 Release Source 是独立 owner，继续展开随发行交付，并可恢复 Git remote、安装开发依赖和本地重建。
@@ -39,6 +39,7 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 24. GHCR Compose 固定使用 `repository@sha256:digest`，Engine `Digest`/`RepoDigests`、Container `.Image`、`.Config.Image` 必须证明同一不可变引用。Source Docker manifest 必填 `containerImageId`，Dockerfile revision label、构建后 Engine image ID 与后续 tag 解析结果必须一致；tag 重绑时 start、migration 与 admin 均失败。
 25. `web-fetch` 检查必须对本地确定性 HTML 调用正式 `fetchWeb()`，同时证明 Readability、jsdom、Turndown 与 GFM table 行为；“HTTP 能启动”不构成这些动态依赖可用的替代证据。
 26. 正式发行按 [ADR 0012](0012-release-candidate-activation.md) 只消费 Draft Candidate 的精确 release ID、revision 与已验证 Runtime Image identity。版本 tag、`latest` 和公开 Release 不属于 Builder；它们只能在全部平台与 Portable gate 完成后激活。
+27. `world-engine/calendar.ts` 与 `world-engine/schema/index.ts` 的 runtime 编译必须接收显式 Source 或 verified Product context。Source 只从当前 checkout 的开发依赖解析 `zod`；Product candidate/verified context 只从 Authoring Kit 解析 helper 与 Zod。源码级与 esbuild module graph 使用同一 allowlist，最终 artifact 只能留下 `node:` builtin；Product 不读取根 `node_modules`、`NODE_PATH` 或构建机绝对路径。
 
 ## 原因
 

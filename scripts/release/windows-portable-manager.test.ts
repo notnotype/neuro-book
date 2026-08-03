@@ -298,6 +298,7 @@ async function writeValidArchives(
                 imageVariantSmoke: COMMAND_PATH,
                 sqliteVecSmoke: COMMAND_PATH,
                 webFetchSmoke: COMMAND_PATH,
+                worldEngineConfigSmoke: COMMAND_PATH,
             });
             await mkdir(resolve(imageRoot, "server", "commands"), {recursive: true});
             await Promise.all([

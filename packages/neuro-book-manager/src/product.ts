@@ -102,9 +102,7 @@ export async function verifyProductRuntimeImage(
         platform: ProductPlatform;
     },
 ): Promise<VerifiedRuntimeImageIdentity> {
-    const identity: ProductRuntimeExpectedIdentity = expected;
-    const image = await new ProductRuntimeImageVerifier().openVerified(outputRoot, identity);
-    return verifiedIdentity(image.manifest);
+    return await verifyRuntimeImage(outputRoot, expected);
 }
 
 /**
@@ -120,7 +118,9 @@ export async function verifyProductRuntimeControlPlane(
         platform: ProductPlatform;
     },
 ): Promise<VerifiedRuntimeImageIdentity> {
-    const image = await new ProductRuntimeImageVerifier().openControlPlane(outputRoot, expected);
+    const image = await new ProductRuntimeImageVerifier().openControlPlane(outputRoot, expected, {
+        allowPreviousRuntimeContract: true,
+    });
     return verifiedIdentity(image.manifest);
 }
 
@@ -147,7 +147,7 @@ export function verifyInstalledProductRuntimeImage(
     installationRoot: string,
     product: Exclude<ProductComponent, {provider: "container"}>,
 ): Promise<VerifiedRuntimeImageIdentity> {
-    return verifyProductRuntimeImage(resolve(installationRoot, product.path), {
+    return verifyRuntimeImage(resolve(installationRoot, product.path), {
         version: product.version,
         revision: product.revision,
         dirty: false,
@@ -156,7 +156,23 @@ export function verifyInstalledProductRuntimeImage(
         sourceDigest: product.sourceDigest,
         lockfileSha256: product.lockfileSha256,
         builderContractVersion: product.builderContractVersion,
-    });
+    }, {allowPreviousRuntimeContract: true});
+}
+
+/** 统一执行完整 Runtime Image 验证；旧合同兼容只由已安装实例读取方显式开启。 */
+async function verifyRuntimeImage(
+    outputRoot: string,
+    expected: Partial<ProductRuntimeImageIdentity> & {
+        version: string;
+        revision: string;
+        dirty: boolean;
+        platform: ProductPlatform;
+    },
+    options: {allowPreviousRuntimeContract?: boolean} = {},
+): Promise<VerifiedRuntimeImageIdentity> {
+    const identity: ProductRuntimeExpectedIdentity = expected;
+    const image = await new ProductRuntimeImageVerifier().openVerified(outputRoot, identity, options);
+    return verifiedIdentity(image.manifest);
 }
 
 /** 只读状态页使用的安装 Product 控制面验证，不遍历 payload。 */

@@ -2,6 +2,8 @@
 
 `reference/world-engine/` 是 World Engine（世界引擎）的稳定参考书架。World Engine 是 NeuroBook 写作模式下**动态世界状态 + 时间线的唯一真相源**：用事件溯源（event sourcing）表达世界演化——世界不存「当前状态」，只存按时间排列的切面（slice）序列，任意时刻的世界状态由该时刻前所有切面 reduce 得来。
 
+Product 发布时，`world-engine/schema/index.ts` 与 `world-engine/calendar.ts` 仍是作者可编辑的单文件入口，但运行时会在显式 Source/Product context 下编译。Product Authoring Kit 自带 schema helper 与 Zod runtime；允许的包级入口只有 `zod` 和 `nbook/world-engine/schema`，最终 artifact 必须内联它们，不能依赖安装目录根 `node_modules` 或 `NODE_PATH`。
+
 本目录只讲**原理与契约**（教 How：概念、约束、为什么）。具体操作步骤是 skill 的职责，不在这里。
 
 ## 阅读顺序

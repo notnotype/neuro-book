@@ -92,4 +92,76 @@ describe("World Engine 单文件 runtime artifact cleanup", () => {
         const remaining = await fs.readdir(stagingRoot).catch(() => []);
         expect(remaining.filter((name) => name.startsWith(".world-engine-calendar-"))).toEqual([]);
     });
+
+    it("Product candidate 在没有根 node_modules 时内联 Zod 与 World Engine helper", async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-product-authoring-"));
+        tempRoots.push(root);
+        const outputRoot = path.join(root, ".output");
+        const serverRoot = path.join(outputRoot, "server");
+        const authoringRoot = path.join(serverRoot, "authoring");
+        const schemaPath = path.join(root, "world-engine", "schema", "index.ts");
+        await fs.mkdir(path.join(authoringRoot, "nbook", "world-engine", "schema"), {recursive: true});
+        await fs.mkdir(path.dirname(schemaPath), {recursive: true});
+        await fs.writeFile(path.join(serverRoot, "index.mjs"), "export {};", "utf8");
+        await fs.writeFile(path.join(serverRoot, "package.json"), '{"name":"neuro-book-output"}', "utf8");
+        await fs.writeFile(path.join(authoringRoot, "package.json"), '{"name":"authoring-kit"}', "utf8");
+        await fs.writeFile(path.join(authoringRoot, "tsconfig.json"), "{}", "utf8");
+        await fs.writeFile(path.join(authoringRoot, "profile-compile-worker.mjs"), "export {};", "utf8");
+        await fs.writeFile(
+            path.join(authoringRoot, "nbook", "world-engine", "schema", "index.mjs"),
+            "export const Ref = (name) => `ref:${name}`;",
+            "utf8",
+        );
+        await fs.writeFile(
+            path.join(authoringRoot, "nbook", "world-engine", "zod.mjs"),
+            "export const z = {object: (shape) => ({kind: 'object', shape}), string: () => ({kind: 'string'})};",
+            "utf8",
+        );
+        await fs.writeFile(
+            schemaPath,
+            [
+                'import {z} from "zod";',
+                'import {Ref} from "nbook/world-engine/schema";',
+                'export default {character: z.object({name: z.string(), mentor: Ref("character")})};',
+            ].join("\n"),
+            "utf8",
+        );
+        const compilerContext = {
+            kind: "product-candidate" as const,
+            productRuntime: true as const,
+            imageRoot: outputRoot,
+            root,
+            outputRoot: serverRoot,
+            nbookRoot: path.join(authoringRoot, "nbook"),
+            compilerPackageRoot: path.join(authoringRoot, "package.json"),
+            compilerNodeModulesRoot: path.join(authoringRoot, "node_modules"),
+            artifactRuntimeRequireRoot: path.join(serverRoot, "index.mjs"),
+            tsconfigPath: path.join(authoringRoot, "tsconfig.json"),
+        };
+
+        const imported = await importSingleFileTypeScriptConfig<{default: {character: {kind: string}}}>({
+            filePath: schemaPath,
+            label: "schema",
+            runtimeCacheRoot: path.join(root, ".nbook", "runtime-artifact-import-cache"),
+            compilerContext,
+        });
+        expect(imported.default.character.kind).toBe("object");
+        const cacheEntries = await fs.readdir(path.join(root, ".nbook", "runtime-artifact-import-cache", "world-engine-schema"));
+        expect(cacheEntries).toHaveLength(1);
+        expect(cacheEntries[0]).toMatch(/^[0-9a-f]{64}\.mjs$/u);
+        await expect(fs.access(path.join(root, "node_modules"))).rejects.toThrow();
+    });
+
+    it("World Engine 配置拒绝未登记裸包", async () => {
+        const root = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-world-engine-package-policy-"));
+        tempRoots.push(root);
+        const filePath = path.join(root, "world-engine", "calendar.ts");
+        await fs.mkdir(path.dirname(filePath), {recursive: true});
+        await fs.writeFile(filePath, 'import value from "left-pad"; export default value;', "utf8");
+        await expect(importSingleFileTypeScriptConfig({
+            filePath,
+            label: "calendar",
+            runtimeCacheRoot: path.join(root, ".nbook", "runtime-artifact-import-cache"),
+        })).rejects.toThrow("left-pad");
+    });
 });
