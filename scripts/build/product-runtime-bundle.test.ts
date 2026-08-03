@@ -61,7 +61,7 @@ describe("Product Runtime bundle", () => {
         const requireFromSource = createRequire(import.meta.url);
         const esbuildEntry = pathToFileURL(requireFromSource.resolve("esbuild")).href;
         const zodEntry = pathToFileURL(requireFromSource.resolve("zod")).href;
-        const gaxiosEntry = pathToFileURL(requireFromSource.resolve("gaxios")).href;
+        const yamlEntry = pathToFileURL(requireFromSource.resolve("yaml")).href;
         const chunkRoot = join(serverRoot, "chunks", "_");
         await Promise.all([
             mkdir(chunkRoot, {recursive: true}),
@@ -82,10 +82,10 @@ describe("Product Runtime bundle", () => {
             `import zod from ${JSON.stringify(zodEntry)};`,
             `import * as zodAgain from ${JSON.stringify(zodEntry)};`,
             'import {JSDOM} from "jsdom";',
-            `import {Gaxios} from ${JSON.stringify(gaxiosEntry)};`,
+            `import YAML from ${JSON.stringify(yamlEntry)};`,
             'const metadata = "../node_modules/.bun/zod@4.3.6/node_modules/zod/index.js";',
             "export {metadata};",
-            "export default [esbuild.transform, zod.string, zodAgain.string, JSDOM, globalThis.__tsVersion, Gaxios];",
+            "export default [esbuild.transform, zod.string, zodAgain.string, JSDOM, globalThis.__tsVersion, YAML.parse];",
         ].join("\n"), "utf8");
         await writeFile(join(chunkRoot, "cfg.mjs"), [
             'import {createRequire} from "node:module";',
@@ -116,7 +116,7 @@ describe("Product Runtime bundle", () => {
         expect(source).toContain("esbuild");
         expect(source).not.toContain(esbuildEntry);
         expect(source).not.toContain(zodEntry);
-        expect(source).not.toContain(gaxiosEntry);
+        expect(source).not.toContain(yamlEntry);
         expect(source).not.toContain("/.bun/");
         expect(source).not.toContain("/.pnpm/");
         expect(source).not.toContain("file:///_entry.js");
@@ -125,7 +125,6 @@ describe("Product Runtime bundle", () => {
         expect(source).toContain("./node_modules/jsdom/lib/api.js");
         expect(source).not.toContain('import("node-fetch")');
         expect(source).not.toContain("import('node-fetch')");
-        expect(source).toContain("globalThis.fetch");
         expect(source).toContain("node_modules/zod/");
         expect(islands.platform).toBe(currentProductPlatform());
         expect(islands.schema).toBe("nbook.product-native-islands/v2");

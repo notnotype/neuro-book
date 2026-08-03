@@ -1,5 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";
@@ -11,6 +12,29 @@ import {productRuntimeCompatibilityPlugin} from "nbook/scripts/build/product-bun
 const execFileAsync = promisify(execFile);
 
 describe("Product bundle plugins", () => {
+    it("在 gaxios 稳定源码路径内投影 node-fetch fallback", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-gaxios-plugin-"));
+        try {
+            const sourcePath = join(root, "gaxios", "build", "cjs", "src", "gaxios.js");
+            await mkdir(join(root, "gaxios", "build", "cjs", "src"), {recursive: true});
+            await writeFile(sourcePath, [
+                "export const fetchImplementation = (await import('node-fetch')).default;",
+            ].join("\n"), "utf8");
+            const result = await build({
+                entryPoints: [sourcePath],
+                bundle: true,
+                format: "esm",
+                platform: "node",
+                write: false,
+                plugins: [productRuntimeCompatibilityPlugin()],
+            });
+            expect(result.outputFiles[0]!.text).toContain("globalThis.fetch.bind(globalThis)");
+            expect(result.outputFiles[0]!.text).not.toContain("node-fetch");
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
     it("统一静态化pi-ai已知loader，只保留auth context opaque seam", async () => {
         const probe = await execFileAsync("bun", ["-e", BUN_PLUGIN_PROBE], {
             cwd: process.cwd(),
