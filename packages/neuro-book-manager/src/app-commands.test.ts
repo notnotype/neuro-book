@@ -501,7 +501,7 @@ describe("Manager Bun运行策略", () => {
 
             expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({
                 command: "bun",
-                args: ["--no-install", "run", "dev"],
+                args: ["--no-install", "run", "dev:runtime"],
                 cwd: root,
                 env: expect.objectContaining({BUN: "bun"}),
             }));

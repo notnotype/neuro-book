@@ -1,8 +1,12 @@
 import {createHash} from "node:crypto";
-import {open, mkdir, readFile} from "node:fs/promises";
-import {dirname, resolve} from "node:path";
-import {lock} from "proper-lockfile";
+import {readFile} from "node:fs/promises";
+import {resolve} from "node:path";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {
+    acquireAgentSessionStoreLease,
+    AGENT_SESSION_STORE_LEASE_RELATIVE_PATH,
+    agentSessionStoreLeasePath,
+} from "nbook/server/agent/session/agent-session-store-lease";
 
 /** 当前Agent Session JSONL持久化schema。 */
 export const AGENT_SESSION_SCHEMA_VERSION = 2 as const;
@@ -11,7 +15,7 @@ export const AGENT_SESSION_SCHEMA_VERSION = 2 as const;
 export const AGENT_SESSION_STORE_SENTINEL_VERSION = 1 as const;
 
 /** Runtime与offline migration唯一互斥锁；物理路径沿用Attachment迁移时期的既有路径。 */
-export const AGENT_SESSION_STORE_LEASE_RELATIVE_PATH = ".nbook/agent/migrations/runtime.lease";
+export {AGENT_SESSION_STORE_LEASE_RELATIVE_PATH};
 
 /** Session schema与崩溃恢复状态的唯一sentinel。 */
 export const AGENT_SESSION_STORE_SENTINEL_RELATIVE_PATH = ".nbook/agent/migrations/session-store.json";
@@ -133,9 +137,7 @@ export function agentSessionStoreKey(rootWorkspace: string): string {
 }
 
 /** 返回Workspace Root对应的runtime lease绝对路径。 */
-export function agentSessionStoreLeasePath(rootWorkspace: string): string {
-    return resolve(rootWorkspace, AGENT_SESSION_STORE_LEASE_RELATIVE_PATH);
-}
+export {agentSessionStoreLeasePath};
 
 /** 返回Workspace Root对应的schema sentinel绝对路径。 */
 export function agentSessionStoreSentinelPath(rootWorkspace: string): string {
@@ -184,7 +186,7 @@ export async function acquireReadyAgentSessionStore(rootWorkspace: string): Prom
  * 此入口不共享进程内runtime引用，也不读取sentinel；调用方必须在锁内完成rescan与状态机推进。
  */
 export async function acquireAgentSessionStoreExclusiveLease(rootWorkspace: string): Promise<() => Promise<void>> {
-    return acquirePhysicalLease(rootWorkspace);
+    return acquirePhysicalLease(rootWorkspace, "migration");
 }
 
 /** 在lease保护下读取并严格解析Session Store sentinel。 */
@@ -360,12 +362,11 @@ async function releaseSharedPhysicalLease(key: string, shared: SharedRuntimeLeas
 }
 
 /** 创建lease文件并取得proper-lockfile物理锁。 */
-async function acquirePhysicalLease(rootWorkspace: string): Promise<() => Promise<void>> {
-    const path = agentSessionStoreLeasePath(rootWorkspace);
-    await mkdir(dirname(path), {recursive: true});
-    const handle = await open(path, "a");
-    await handle.close();
-    return lock(path, {realpath: false, stale: 30_000});
+async function acquirePhysicalLease(
+    rootWorkspace: string,
+    kind: "runtime" | "migration" = "runtime",
+): Promise<() => Promise<void>> {
+    return acquireAgentSessionStoreLease(rootWorkspace, kind);
 }
 
 /** complete sentinel必须绑定真实、未篡改且checkpoint一致的migration manifest。 */

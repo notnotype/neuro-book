@@ -24,6 +24,7 @@
         "build/measure-product-runtime-image.ts",
         "build/product-source-path-contract.ts",
         "build/product-runtime-image-builder.ts",
+        "cli/source-dev.ts",
         "deploy/windows-owned-process-smoke.ts",
         "release/create-interrupted-operation.ts",
         "release/install-dependencies.ts",

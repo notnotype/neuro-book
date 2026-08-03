@@ -1,7 +1,10 @@
-import {access, mkdir, open} from "node:fs/promises";
-import {mkdirSync, openSync, closeSync} from "node:fs";
+import {access} from "node:fs/promises";
 import {dirname, join} from "node:path";
-import {lock, lockSync} from "proper-lockfile";
+import {
+    acquireAgentSessionStoreLease,
+    acquireAgentSessionStoreLeaseSync,
+    AGENT_SESSION_STORE_LEASE_RELATIVE_PATH,
+} from "nbook/server/agent/session/agent-session-store-lease";
 
 /** Attachment 硬切迁移使用的 Workspace Root 级 sentinel 相对路径。 */
 export const ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH = join(
@@ -10,9 +13,7 @@ export const ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH = join(
     "migrations",
     "attachment-v1.lock",
 );
-export const ATTACHMENT_RUNTIME_LEASE_RELATIVE_PATH = join(
-    ".nbook", "agent", "migrations", "runtime.lease",
-);
+export const ATTACHMENT_RUNTIME_LEASE_RELATIVE_PATH = AGENT_SESSION_STORE_LEASE_RELATIVE_PATH;
 
 const runtimeSyncLeases = new Map<string, {release: () => void; refs: number}>();
 
@@ -40,8 +41,10 @@ export function isAttachmentMigrationInProgressError(error: unknown): error is A
  */
 export class AttachmentMigrationGate {
     readonly lockPath: string;
+    private readonly rootWorkspace: string;
 
     constructor(rootWorkspace: string) {
+        this.rootWorkspace = rootWorkspace;
         this.lockPath = join(rootWorkspace, ATTACHMENT_MIGRATION_LOCK_RELATIVE_PATH);
     }
 
@@ -60,11 +63,7 @@ export class AttachmentMigrationGate {
      * 迁移脚本无法在 Agent 仍运行时取得同一租约，从根上消除 sentinel TOCTOU。
      */
     async acquireRuntimeLease(): Promise<() => Promise<void>> {
-        await mkdir(dirname(this.runtimeLeasePath), {recursive: true});
-        const handle = await open(this.runtimeLeasePath, "a");
-        await handle.close();
-        const releaseLock = await lock(this.runtimeLeasePath, {realpath: false, stale: 30_000});
-        return releaseLock;
+        return acquireAgentSessionStoreLease(this.rootWorkspace, "migration");
     }
 
     /** 同步获取启动期租约，保证 Harness 构造完成前迁移无法插入。 */
@@ -74,10 +73,7 @@ export class AttachmentMigrationGate {
             existing.refs += 1;
             return () => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
         }
-        mkdirSync(dirname(this.runtimeLeasePath), {recursive: true});
-        const handle = openSync(this.runtimeLeasePath, "a");
-        closeSync(handle);
-        const release = lockSync(this.runtimeLeasePath, {realpath: false, stale: 30_000});
+        const release = acquireAgentSessionStoreLeaseSync(this.rootWorkspace, "runtime");
         runtimeSyncLeases.set(this.runtimeLeasePath, {release, refs: 1});
         return () => this.releaseRuntimeLeaseSync(this.runtimeLeasePath);
     }
