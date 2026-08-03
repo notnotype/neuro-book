@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution 与 Contract v3 的 focused/type 门禁、冻结 Source A/B、逐文件摘要比较和仓库外完整 Product smoke；同仓并行完成的 Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。当前 dirty acceptance ZIP 仍不是正式 Release archive，真实 Docker/rootless Podman、五平台 Candidate Actions、Linux/macOS owner baseline、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-03 已完成 World Engine Product schema 的自包含 Authoring Kit、Runtime Contract v4 `world-engine-config` smoke、Source Dev/Product 身份隔离与 Manager v3 旧镜像读取边界；显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、冻结 Source A/B、逐文件摘要比较和仓库外完整 Product smoke 的既有证据仍有效。当前 dirty acceptance ZIP 仍不是正式 Release archive，真实 Docker/rootless Podman、五平台 Candidate Actions、Linux/macOS owner baseline、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -593,6 +593,12 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `manager-v0.1.0-canary.48` 的 workflow 在 clean checkout 的 Manager 测试阶段失败：`shared/product-runtime-shutdown.ts` 已被 Manager 导入，但未登记到独立 `shared/tsconfig.json`，本地 Developer Build State 未暴露该缺口。该 tag 保留为失败审计，不移动、不删除、不复用。
 - 将 shutdown shared module 加入独立 TypeScript project，并由 `manager-release-contract.test.ts` 固定登记；`manager-v0.1.0-canary.49` workflow 全绿后公开。npm 精确版本的 `gitHead=9a293dd12e7b976ac7208b2634c47c4f1998e299`、tarball integrity/signature、真实 `bunx --version` 与 `manager:verify-public` 均通过。
 - 主仓库最终门禁：根全量 Vitest 为 478 files / 3,321 tests passed、1 skipped file / 14 skipped tests；两个旧合同断言已分别对齐 Source Dev launcher 与 Windows CRLF 读取，focused 3 files / 15 tests 通过；根 typecheck、install 8 tests、docs build 和 Product/Release focused 8 files / 56 tests 均通过。全量 Vitest 的预期 fail-open/模拟 EBUSY/SQLite 警告不构成失败。
+
+### 2026-08-03：World Engine Product schema 自包含修复
+
+- Product 运行时不再假设 `.output/server/node_modules/zod` 存在。Authoring Kit 新增 `nbook/world-engine/schema/index.mjs` 与 bundled `zod.mjs`，Source Dev 从当前 checkout 解析 Zod，Product candidate/verified context 只从 verified Authoring Kit 解析；Source Dev 环境会清除继承来的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`，不会误冒充 Product。
+- `calendar.ts` 与 `schema/index.ts` 共用显式 Source/Product compiler context。配置 import 只接受 `node:` builtin、`zod` 和 `nbook/world-engine/schema`；最终 runtime artifact closure 不得留下裸包或动态 import，cache key 使用完整编译结果 SHA-256，保留上限收紧为 64 entries / 32 MiB。
+- Product Runtime Contract 升级为 v4，新增 `world-engine-config` 检查并接入 POSIX、GHCR 与 Container workflow 的 `check all`；新 Product 只接受 v4，Manager 仅在已安装实例验证路径显式读取 v3。本轮重新执行 World Engine/Authoring/Product focused 8 files / 72 tests、Manager Product/Publisher/Portable focused 3 files / 15 tests、Manager 全量 37 files / 249 passed / 3 skipped，shared/scripts/runtime/Manager typecheck 均通过；本轮尚未伪造新的 clean Release archive 或跨平台 baseline。
 
 ### 2026-08-02：桌面前置的 Source Dev 与 Runtime lease 生命周期
 

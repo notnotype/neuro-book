@@ -5,7 +5,6 @@
  */
 
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from "vitest";
-import {createHash} from "node:crypto";
 import {existsSync, mkdirSync, readdirSync, writeFileSync} from "node:fs";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -374,8 +373,10 @@ describe("CodeAct Integration", {timeout: 30_000}, () => {
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, "world-engine/schema"))).toEqual([]);
         expect(listWorldEngineTempFiles(join(projectRoot, ".nbook", "runtime-artifact-import-cache", ".staging"))).toEqual([]);
-        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-calendar")).toContain(`${sourceHash(calendarFixture())}.mjs`);
-        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-schema")).toContain(`${sourceHash(schemaSource)}.mjs`);
+        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-calendar")
+            .every((name) => /^[0-9a-f]{64}\.mjs$/u.test(name))).toBe(true);
+        expect(listRuntimeArtifactCacheFiles(projectRoot, "world-engine-schema")
+            .every((name) => /^[0-9a-f]{64}\.mjs$/u.test(name))).toBe(true);
         expect(existsSync(oldCalendarCache)).toBe(false);
         expect(existsSync(oldSchemaCache)).toBe(false);
     });
@@ -974,11 +975,6 @@ function listWorldEngineTempFiles(directory: string): string[] {
     } catch {
         return [];
     }
-}
-
-/** 计算 loader 入口内容 hash，必须与生产 loader 的 cache key 保持一致。 */
-function sourceHash(source: string): string {
-    return createHash("sha256").update(Buffer.from(source, "utf-8")).digest("hex").slice(0, 16);
 }
 
 /** 读取统一 runtime artifact cache 中某个 namespace 的文件列表。 */

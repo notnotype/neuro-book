@@ -16,7 +16,7 @@ export type RuntimeArtifactRetention = {
 /** 默认 retention。调用方仍需显式传入，以此强制作者看见回收责任。 */
 export const DEFAULT_RUNTIME_ARTIFACT_RETENTION: RuntimeArtifactRetention = {
     maxEntries: 64,
-    maxBytes: 256 * 1024 * 1024,
+    maxBytes: 32 * 1024 * 1024,
 };
 
 /**

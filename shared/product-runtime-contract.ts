@@ -6,7 +6,8 @@ export const PRODUCT_RUNTIME_CONTRACT_PATH = "server/runtime-contract.json";
 export const PRODUCT_RUNTIME_COMMAND_BOOTSTRAP = "server/commands/product-command.mjs";
 /** Product Runtime 禁止 Bun 在缺包时联网或从全局 cache 隐式补装依赖。 */
 export const PRODUCT_BUN_RUNTIME_ARGS = ["--no-install", "--no-env-file"] as const;
-export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v3";
+export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v4";
+export const PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v3";
 export const PRODUCT_SHUTDOWN_PROTOCOL = "http-loopback-token/v1";
 export const PRODUCT_SHUTDOWN_PATH = "/__nbook/control/shutdown";
 export const PRODUCT_SHUTDOWN_TIMEOUT_MS = 30_000;
@@ -40,11 +41,23 @@ export const PRODUCT_RUNTIME_CHECK_IDS = [
     "application-state",
     "workspace-cli",
     "web-fetch",
+    "world-engine-config",
+] as const;
+
+const PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS = [
+    "profile-compile",
+    "variable-authoring",
+    "sqlite-vec",
+    "sharp-image-variant",
+    "application-state",
+    "workspace-cli",
+    "web-fetch",
 ] as const;
 
 export type ProductRuntimeCommandId = typeof PRODUCT_RUNTIME_COMMAND_IDS[number];
 export type ProductRuntimeInternalId = typeof PRODUCT_RUNTIME_INTERNAL_IDS[number];
 export type ProductRuntimeCheckId = typeof PRODUCT_RUNTIME_CHECK_IDS[number];
+export type ProductRuntimePreviousCheckId = typeof PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS[number];
 export type ProductRuntimeLaunchMode = "command" | "check";
 
 export type ProductRuntimeInvocation = {
@@ -66,6 +79,14 @@ export type ProductRuntimeContract = {
     };
 };
 
+/** 只供 Manager 验证已安装旧镜像；新建候选和 Product bootstrap 不接受此版本。 */
+export type PreviousProductRuntimeContract = Omit<ProductRuntimeContract, "schema" | "checks"> & {
+    schema: typeof PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA;
+    checks: Record<ProductRuntimePreviousCheckId, ProductRuntimeInvocation>;
+};
+
+export type ParsedProductRuntimeContract = ProductRuntimeContract | PreviousProductRuntimeContract;
+
 export type ProductRuntimeEntryMap = Readonly<{
     productStart: string;
     sqliteMigrate: string;
@@ -81,6 +102,7 @@ export type ProductRuntimeEntryMap = Readonly<{
     imageVariantSmoke: string;
     sqliteVecSmoke: string;
     webFetchSmoke: string;
+    worldEngineConfigSmoke: string;
 }>;
 
 /** 从本次 bundle 的实际 entry 输出建立唯一 Product 运行合同。 */
@@ -113,6 +135,7 @@ export function createProductRuntimeContract(entries: ProductRuntimeEntryMap): P
             "application-state": command(entries.applicationStateMigration, ["--plan"]),
             "workspace-cli": command(entries.workspace, ["node", "schema", "--json"]),
             "web-fetch": command(entries.webFetchSmoke),
+            "world-engine-config": command(entries.worldEngineConfigSmoke),
         },
         shutdown: {
             protocol: PRODUCT_SHUTDOWN_PROTOCOL,
@@ -124,15 +147,23 @@ export function createProductRuntimeContract(entries: ProductRuntimeEntryMap): P
 }
 
 /** 严格解析磁盘中的 Product Runtime Contract，不接受未知字段或缺失命令。 */
-export function parseProductRuntimeContract(value: unknown): ProductRuntimeContract {
+export function parseProductRuntimeContract(value: unknown): ProductRuntimeContract;
+export function parseProductRuntimeContract(value: unknown, options: {allowPrevious: true}): ParsedProductRuntimeContract;
+export function parseProductRuntimeContract(
+    value: unknown,
+    options: {allowPrevious?: boolean} = {},
+): ParsedProductRuntimeContract {
     const root = object(value, "Product Runtime Contract");
     exactKeys(root, ["schema", "commands", "internal", "checks", "shutdown"], "Product Runtime Contract");
-    if (root.schema !== PRODUCT_RUNTIME_CONTRACT_SCHEMA) {
-        throw new Error(`Product Runtime Contract schema 不受支持：${String(root.schema)}`);
+    const schema = root.schema;
+    const isCurrent = schema === PRODUCT_RUNTIME_CONTRACT_SCHEMA;
+    const isPrevious = schema === PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA;
+    if (!isCurrent && !(options.allowPrevious && isPrevious)) {
+        throw new Error(`Product Runtime Contract schema 不受支持：${String(schema)}`);
     }
     const commands = invocationMap(root.commands, PRODUCT_RUNTIME_COMMAND_IDS, "commands");
     const internal = invocationMap(root.internal, PRODUCT_RUNTIME_INTERNAL_IDS, "internal");
-    const checks = invocationMap(root.checks, PRODUCT_RUNTIME_CHECK_IDS, "checks");
+    const checks = invocationMap(root.checks, isCurrent ? PRODUCT_RUNTIME_CHECK_IDS : PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS, "checks");
     const shutdown = object(root.shutdown, "shutdown");
     exactKeys(shutdown, ["protocol", "path", "timeoutMs", "tokenEnvironment"], "shutdown");
     if (shutdown.protocol !== PRODUCT_SHUTDOWN_PROTOCOL
@@ -141,24 +172,30 @@ export function parseProductRuntimeContract(value: unknown): ProductRuntimeContr
         || shutdown.tokenEnvironment !== PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT) {
         throw new Error("Product Runtime Contract shutdown 合同不受支持。");
     }
-    return {
-        schema: PRODUCT_RUNTIME_CONTRACT_SCHEMA,
+    const parsed = {
+        schema,
         commands: commands as Record<ProductRuntimeCommandId, ProductRuntimeInvocation>,
         internal: internal as Record<ProductRuntimeInternalId, ProductRuntimeInvocation>,
-        checks: checks as Record<ProductRuntimeCheckId, ProductRuntimeInvocation>,
+        checks,
         shutdown: {
             protocol: PRODUCT_SHUTDOWN_PROTOCOL,
             path: PRODUCT_SHUTDOWN_PATH,
             timeoutMs: PRODUCT_SHUTDOWN_TIMEOUT_MS,
             tokenEnvironment: PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
         },
-    };
+    } as ParsedProductRuntimeContract;
+    return parsed;
 }
 
 /** 读取并严格解析一个 Runtime Image 的运行合同。 */
-export async function readProductRuntimeContract(imageRoot: string): Promise<ProductRuntimeContract> {
+export async function readProductRuntimeContract(imageRoot: string): Promise<ProductRuntimeContract>;
+export async function readProductRuntimeContract(imageRoot: string, options: {allowPrevious: true}): Promise<ParsedProductRuntimeContract>;
+export async function readProductRuntimeContract(
+    imageRoot: string,
+    options: {allowPrevious?: boolean} = {},
+): Promise<ParsedProductRuntimeContract> {
     const text = await readFile(resolve(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/")), "utf8");
-    return parseProductRuntimeContract(JSON.parse(text) as unknown);
+    return parseProductRuntimeContract(JSON.parse(text) as unknown, options as {allowPrevious: true});
 }
 
 /** 解析公开逻辑命令，并执行额外参数策略。 */
@@ -183,6 +220,11 @@ export function resolveProductRuntimeCheck(
         throw new Error(`未知 Product Runtime check：${id}`);
     }
     return invocation(contract.checks[id], additionalArgs, `check ${id}`);
+}
+
+/** 按当前合同声明顺序解析 `check all` 的完整检查队列。 */
+export function resolveProductRuntimeChecks(contract: ProductRuntimeContract): ProductRuntimeInvocation[] {
+    return PRODUCT_RUNTIME_CHECK_IDS.map((id) => resolveProductRuntimeCheck(contract, id));
 }
 
 /**
@@ -213,7 +255,7 @@ export function resolveProductRuntimeInternal(
 
 /** 验证合同中每个入口都存在于 Runtime Image 且是普通文件。 */
 export async function assertProductRuntimeContractFiles(
-    contract: ProductRuntimeContract,
+    contract: ParsedProductRuntimeContract,
     imageRoot: string,
 ): Promise<void> {
     const entries = new Set([

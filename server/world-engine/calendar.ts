@@ -8,6 +8,7 @@ import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-
 import {GregorianCalendar, normalizeGregorianCalendarConfig} from "nbook/server/world-engine/calendars/gregorian";
 import {CustomCalendar, normalizeCustomCalendarConfig} from "nbook/server/world-engine/calendars/custom";
 import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
+import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
 
 /**
  * WorldCalendar Facade
@@ -62,6 +63,7 @@ export class WorldCalendarLoader {
                 filePath: tsPath,
                 label: "calendar",
                 runtimeCacheRoot: path.join(projectRoot, ".nbook", "runtime-artifact-import-cache"),
+                compilerContext: await resolveRuntimeArtifactCompilerContext(),
             });
             const config = module.default;
 

@@ -7,6 +7,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     assertProductCommandOutputs,
     PRODUCT_COMMAND_SOURCES,
+    pruneEmptyProductCommandChunks,
     resolveProductCommandEntries,
 } from "nbook/scripts/build/product-command-bundle";
 
@@ -93,6 +94,40 @@ describe("Product command metafile", () => {
             .rejects.toThrow("Product command output 不完整：start.mjs");
     });
 
+    it("清理纯 re-export 产生的零字节 shared chunk 及其副作用导入", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-product-command-empty-chunk-"));
+        temporaryRoots.push(root);
+        const commandRoot = join(root, "commands");
+        const emptyPath = join(commandRoot, "chunks", "command-shared-empty.mjs");
+        const entryPath = join(commandRoot, "start.mjs");
+        await mkdir(join(commandRoot, "chunks"), {recursive: true});
+        await writeFile(emptyPath, "", "utf8");
+        await writeFile(entryPath, 'import "./chunks/command-shared-empty.mjs";\nexport default true;\n', "utf8");
+        const metafile: Metafile = {
+            inputs: {},
+            outputs: {
+                [entryPath]: {
+                    bytes: 36,
+                    inputs: {},
+                    imports: [{path: "chunks/command-shared-empty.mjs", kind: "import-statement"}],
+                    exports: ["default"],
+                },
+                [emptyPath]: {
+                    bytes: 0,
+                    inputs: {"../../../node_modules/zod/index.js": {bytesInOutput: 0}},
+                    imports: [],
+                    exports: [],
+                },
+            },
+        };
+
+        await pruneEmptyProductCommandChunks(metafile, commandRoot);
+
+        await expect(readFile(entryPath, "utf8")).resolves.not.toContain("command-shared-empty");
+        await expect(readFile(emptyPath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
+        expect(metafile.outputs[emptyPath]).toBeUndefined();
+    });
+
     it("Product正式命令实现归server领域Module，server不得反向依赖scripts", async () => {
         const orchestrationOnly = new Set([
             "prepare-system-assets",
@@ -100,6 +135,7 @@ describe("Product command metafile", () => {
             "product-variable-authoring-smoke",
             "product-image-variant-smoke",
             "sqlite-vec-smoke",
+            "product-world-engine-config-smoke",
         ]);
         for (const [id, source] of Object.entries(PRODUCT_COMMAND_SOURCES)) {
             if (orchestrationOnly.has(id)) continue;

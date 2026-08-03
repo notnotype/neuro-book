@@ -235,6 +235,7 @@ describe("Product Release宿主合同", () => {
                     imageVariantSmoke: entry,
                     sqliteVecSmoke: entry,
                     webFetchSmoke: entry,
+                    worldEngineConfigSmoke: entry,
                 });
                 await writeFile(join(imageRoot, "server", "runtime-contract.json"), `${JSON.stringify(contract)}\n`, "utf8");
             },
@@ -579,13 +580,10 @@ describe("Product Release宿主合同", () => {
         ]) {
             expect(runtimeIslands).toContain(platformPackage);
         }
-        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
+        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check all");
         expect(releaseWorkflow).toContain(".output/server/commands/product-command.mjs");
-        expect(releaseWorkflow).toContain("check sharp-image-variant");
-        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check sharp-image-variant");
-        expect(posixVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
-        expect(releaseWorkflow).toContain("check web-fetch");
-        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check web-fetch");
+        expect(releaseWorkflow).toContain("check all");
+        expect(ghcrVerify).toContain(".output/server/commands/product-command.mjs check all");
         expect(posixVerify).toContain(".output/server/node_modules/@img/colour/");
         expect(posixVerify).toContain("verify-extracted-product.ts --product-root");
         expect(extractedVerifier).toContain("new ProductRuntimeImageVerifier().openVerified");

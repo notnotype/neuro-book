@@ -102,13 +102,7 @@ export DATABASE_URL="file:$STATE_ROOT/workspace/.nbook/neuro-book.sqlite"
 export NEURO_BOOK_APPLICATION_ROOT="$APPLICATION_ROOT"
 export NEURO_BOOK_STATE_ROOT="$STATE_ROOT"
 
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check sharp-image-variant)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check sqlite-vec)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check application-state)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check workspace-cli)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check profile-compile)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check variable-authoring)
-(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check web-fetch)
+(cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs check all)
 (cd "$APPLICATION_ROOT" && bun --no-install --no-env-file .output/server/commands/product-command.mjs command migrate-application-state --apply)
 test -f "$STATE_ROOT/workspace/.nbook/neuro-book.sqlite"
 (cd "$APPLICATION_ROOT" && exec bun --no-install --no-env-file .output/server/commands/product-command.mjs command start) >"$SMOKE_ROOT/product.log" 2>&1 &

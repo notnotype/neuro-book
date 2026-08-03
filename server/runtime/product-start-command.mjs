@@ -19,6 +19,7 @@ const cacheRoot = resolveCacheRoot(productRoot, stateRoot);
 const stateEnv = ensureProductEnv(stateRoot);
 const productEnv = createProductRuntimeEnvironment({
     applicationRoot: productRoot,
+    productImageRoot: resolve(productRoot, ".output"),
     stateRoot,
     cacheRoot,
     development: false,

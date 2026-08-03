@@ -7,8 +7,10 @@ import {
     createProductRuntimeContract,
     parseProductRuntimeContract,
     PRODUCT_BUN_RUNTIME_ARGS,
+    PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
     productRuntimeCwd,
     resolveProductRuntimeCommand,
+    resolveProductRuntimeChecks,
 } from "nbook/shared/product-runtime-contract";
 
 describe("Product Runtime Contract", () => {
@@ -34,12 +36,36 @@ describe("Product Runtime Contract", () => {
         })).toThrow("可迁移 .mjs 路径");
     });
 
+    it("新镜像只接受 v4，Manager 旧镜像读取可显式接受 v3", () => {
+        const current = contractFixture();
+        const {"world-engine-config": _removed, ...previousChecks} = current.checks;
+        const previous = {
+            ...current,
+            schema: PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
+            checks: previousChecks,
+        };
+        expect(() => parseProductRuntimeContract(previous)).toThrow("schema 不受支持");
+        expect(parseProductRuntimeContract(previous, {allowPrevious: true}).schema)
+            .toBe(PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA);
+    });
+
     it("交互式CLI保留调用cwd，其余命令固定Application Root", () => {
         expect(productRuntimeCwd("command", "workspace", "application", "invocation")).toBe("invocation");
         expect(productRuntimeCwd("command", "profile", "application", "invocation")).toBe("application");
         expect(productRuntimeCwd("command", "variable", "application", "invocation")).toBe("application");
         expect(productRuntimeCwd("command", "create-admin", "application", "invocation")).toBe("application");
         expect(productRuntimeCwd("check", "workspace-cli", "application", "invocation")).toBe("application");
+    });
+
+    it("check all 按当前合同解析全部检查入口并包含 World Engine smoke", () => {
+        const contract = contractFixture();
+        const checks = resolveProductRuntimeChecks(contract);
+
+        expect(checks).toHaveLength(Object.keys(contract.checks).length);
+        expect(checks.at(-1)?.entry).toBe(contract.checks["world-engine-config"].entry);
+        expect(checks.every((check) => !check.allowAdditionalArgs)).toBe(true);
+        expect(checks.find((check) => check.entry === contract.checks["application-state"].entry)?.fixedArgs)
+            .toEqual(["--plan"]);
     });
 
     it("验证 bootstrap 与所有合同入口实际存在", async () => {
@@ -79,5 +105,6 @@ function contractFixture() {
         imageVariantSmoke: "server/commands/product-image-variant-smoke.mjs",
         sqliteVecSmoke: "server/commands/sqlite-vec-smoke.mjs",
         webFetchSmoke: "server/commands/product-web-fetch-smoke.mjs",
+        worldEngineConfigSmoke: "server/commands/product-world-engine-config-smoke.mjs",
     });
 }

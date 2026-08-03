@@ -50,6 +50,8 @@ describe("Product Profile Authoring Kit", () => {
             ["sdk-source", "profile-sdk", "writing.ts"],
             ["nbook", "profile-sdk", "writing.mjs"],
             ["nbook", "variable-sdk", "index.mjs"],
+            ["nbook", "world-engine", "schema", "index.mjs"],
+            ["nbook", "world-engine", "zod.mjs"],
             ["node_modules", "typebox", "package.json"],
             ["node_modules", "@types", "node", "index.d.ts"],
             ["node_modules", "undici-types", "package.json"],
@@ -96,6 +98,17 @@ describe("Product Profile Authoring Kit", () => {
             await expect(access(join(authoringRoot, "node_modules", ...forbiddenPackage.split("/"))))
                 .rejects.toMatchObject({code: "ENOENT"});
         }
+        const worldSchemaRuntime = await readFile(
+            join(authoringRoot, "nbook", "world-engine", "schema", "index.mjs"),
+            "utf8",
+        );
+        expect(worldSchemaRuntime).toContain("../zod.mjs");
+        expect(worldSchemaRuntime).not.toContain('from"zod"');
+        const zodRuntime = await import(pathToFileURL(
+            join(authoringRoot, "nbook", "world-engine", "zod.mjs"),
+        ).href) as {z?: {object?: unknown}; default?: {object?: unknown}};
+        expect(typeof zodRuntime.z?.object).toBe("function");
+        expect(typeof zodRuntime.default?.object).toBe("function");
 
         const probePath = join(authoringRoot, "profile-smoke.tsx");
         const probeTsconfigPath = join(authoringRoot, "tsconfig.smoke.json");

@@ -489,25 +489,7 @@ jobs:
             cd "${product_root}"
             NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
             NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check sharp-image-variant
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check sqlite-vec
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check application-state
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check workspace-cli
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check profile-compile
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check variable-authoring
-            NEURO_BOOK_APPLICATION_ROOT="${product_root}" \
-            NEURO_BOOK_STATE_ROOT="${state_root}" \
-            bun --no-install --no-env-file .output/server/commands/product-command.mjs check web-fetch
+            bun --no-install --no-env-file .output/server/commands/product-command.mjs check all
           )
           test ! -e "${product_root}/workspace"
           test -d "${state_root}/workspace"

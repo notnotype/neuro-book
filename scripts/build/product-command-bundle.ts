@@ -1,6 +1,7 @@
 import {builtinModules} from "node:module";
 import {cp, mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
+import {init as initModuleLexer, parse as parseModuleImports} from "es-module-lexer";
 import type {Metafile} from "esbuild";
 import {
     productPiAiImportPlugin,
@@ -30,6 +31,7 @@ export const PRODUCT_COMMAND_SOURCES = {
     "product-image-variant-smoke": "scripts/deploy/product-image-variant-smoke.ts",
     "sqlite-vec-smoke": "scripts/smoke/sqlite-vec-smoke.ts",
     "product-web-fetch-smoke": "server/runtime/web-fetch-check.ts",
+    "product-world-engine-config-smoke": "scripts/deploy/product-world-engine-config-smoke.ts",
     "profile": "server/agent/profiles/profile-command.ts",
     "variable": "server/agent/variables/variable-command.ts",
     "workspace": "server/workspace-files/workspace-command.ts",
@@ -72,6 +74,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
             ...productRuntimeIslandPackageNames().flatMap((packageName) => [packageName, `${packageName}/*`]),
         ],
     });
+    await pruneEmptyProductCommandChunks(result.metafile, commandRoot);
     await assertProductCommandOutputs(result.metafile, commandRoot);
 
     await copyPhysicalRuntimeFiles(serverRoot);
@@ -95,6 +98,7 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
         imageVariantSmoke: entry("product-image-variant-smoke"),
         sqliteVecSmoke: entry("sqlite-vec-smoke"),
         webFetchSmoke: entry("product-web-fetch-smoke"),
+        worldEngineConfigSmoke: entry("product-world-engine-config-smoke"),
     };
     const inventory = await directoryInventory(commandRoot);
     return {
@@ -103,6 +107,67 @@ export async function buildProductCommands(outputRoot: string): Promise<ProductC
         contract: createProductRuntimeContract(entries),
         ...inventory,
     };
+}
+
+/** 删除 esbuild 由纯 re-export 入口生成的无代码 shared chunk，并清理其静态副作用导入。 */
+export async function pruneEmptyProductCommandChunks(
+    metafile: Metafile | undefined,
+    commandRoot: string,
+): Promise<void> {
+    if (!metafile) throw new Error("Product command bundle 缺少 metafile。");
+    const emptyOutputs = Object.entries(metafile.outputs).filter(([outputName, output]) => {
+        const outputRelative = resolveCommandOutput(outputName, commandRoot).outputRelative.replaceAll("\\", "/");
+        return outputRelative.startsWith(`chunks/${PRODUCT_COMMAND_CHUNK_BASENAME}-`)
+            && outputRelative.endsWith(".mjs")
+            && output.bytes === 0
+            && output.imports.length === 0
+            && output.exports.length === 0
+            && Object.values(output.inputs).every((input) => input.bytesInOutput === 0);
+    });
+    if (emptyOutputs.length === 0) return;
+
+    await initModuleLexer;
+    const emptySpecsByImporter = new Map<string, Set<string>>();
+    for (const [emptyOutputName] of emptyOutputs) {
+        const emptyOutputPath = resolveCommandOutput(emptyOutputName, commandRoot).outputPath;
+        for (const importerName of Object.keys(metafile.outputs)) {
+            if (importerName === emptyOutputName) continue;
+            const importerPath = resolveCommandOutput(importerName, commandRoot).outputPath;
+            const specifier = relative(dirname(importerPath), emptyOutputPath).replaceAll("\\", "/");
+            const normalizedSpecifier = specifier.startsWith(".") ? specifier : `./${specifier}`;
+            const source = await readFile(importerPath, "utf8");
+            const [imports] = parseModuleImports(source);
+            const matches = imports.filter((item) => item.n === normalizedSpecifier);
+            if (matches.some((item) => item.d >= 0)) {
+                throw new Error(`Product command empty shared chunk 被动态 import：${normalizedSpecifier}`);
+            }
+            if (matches.length === 0) continue;
+            if (matches.some((item) => !/^import\s*["']/u.test(source.slice(item.ss, item.se).trim()))) {
+                throw new Error(`Product command empty shared chunk 含有绑定 import：${normalizedSpecifier}`);
+            }
+            const key = importerPath;
+            const specifiers = emptySpecsByImporter.get(key) ?? new Set<string>();
+            specifiers.add(normalizedSpecifier);
+            emptySpecsByImporter.set(key, specifiers);
+        }
+    }
+
+    for (const [importerPath, specifiers] of emptySpecsByImporter) {
+        let source = await readFile(importerPath, "utf8");
+        const [imports] = parseModuleImports(source);
+        const ranges = imports
+            .filter((item) => item.d < 0 && item.n !== undefined && specifiers.has(item.n))
+            .map((item) => ({start: item.ss, end: item.se}))
+            .sort((left, right) => right.start - left.start);
+        for (const range of ranges) source = `${source.slice(0, range.start)}${source.slice(range.end)}`;
+        await writeFile(importerPath, source, "utf8");
+    }
+
+    for (const [emptyOutputName] of emptyOutputs) {
+        const {outputPath} = resolveCommandOutput(emptyOutputName, commandRoot);
+        await rm(outputPath, {force: true});
+        delete metafile.outputs[emptyOutputName];
+    }
 }
 
 /** 从 esbuild metafile 的 source entryPoint 建立 Product 相对入口，不依赖输出文件名规则。 */
@@ -132,7 +197,7 @@ export function resolveProductCommandEntries(
     })) as Record<keyof typeof PRODUCT_COMMAND_SOURCES, string>;
 }
 
-/** 要求 esbuild outdir 中每个 metafile output 已完整落盘，拒绝空文件与截断。 */
+/** 要求清理后的 esbuild outdir 中每个 metafile output 已完整落盘，拒绝空文件与截断。 */
 export async function assertProductCommandOutputs(
     metafile: Metafile | undefined,
     commandRoot: string,

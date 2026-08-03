@@ -91,6 +91,7 @@ export async function buildTestRuntimeImage(input: {
                 imageVariantSmoke: entry,
                 sqliteVecSmoke: entry,
                 webFetchSmoke: entry,
+                worldEngineConfigSmoke: entry,
             });
             await mkdir(join(imageRoot, "server", "commands"), {recursive: true});
             await Promise.all([
