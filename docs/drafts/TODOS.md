@@ -232,6 +232,13 @@
 - profile 设置界面调整
 - leader 情绪价值设置
 - session 的 fork 能力搞回来
+- plan 放到 project 目录中
+- diff 界面要优化
+- composer 不能 enter 换行了
+- .agent 协议
+- job 持久化
+- release 脚本优化
+
 
 
 

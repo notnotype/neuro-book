@@ -999,3 +999,12 @@ Phase 4B + Phase 7 的实测规模是 **187 个生产文件 + 101 个测试文�
 - Preview 行为测试覆盖普通失败零刷新、成功后 Catalog 失败保留已知 root、unknown 不猜 root、恢复刷新失败保留原记录、activation false 仍视为已提交。SFC 测试只锁页面接线，不再把源码顺序当状态行为证据。
 - 最终合并回归为 13 files / 77 tests；其中包含 Config `PROJECT_NOT_OPEN`、Catalog Store、Picker create/delete/cover recovery、route transition、ProjectSession、删除编排和连续 100 次列表门禁。根 typecheck 零命中本轮文件，仍被未修改的 Skill `commander` 声明、Session migration 与 llmlint fixture 错误阻断。
 - 按仓库规则未自动执行浏览器验证；Current Project Settings 与 Preview 的 Catalog/activation/transport unknown 人工验收仍保留。
+
+### 2026-08-02：跨实例残留 Session ID 的稳定 Not Found 合同
+
+- 现场 `GET /api/agent/sessions/3?view=recovery` 的 `ENOENT` 不是 Runtime lease、Source Dev 关闭或本轮进程树治理删除数据。Session 3 属于本任务已记录的 38 份旧嵌套布局 Session，仍原样保存在 `session-backups/legacy-nested-2026-07-26/novel-7/3.jsonl`；当前在线目录只包含一级 `sessions/<id>.jsonl`，备份目录继续不参与枚举。
+- 触发条件是两个不同 State Root 的实例先后使用相同浏览器 origin `localhost:3000`。浏览器内存、localStorage 或 Trace 仍可能提交前一实例的 Session ID；这是可预期的过期客户端输入，不应成为未处理 500。
+- Session Repository 现只把目标 JSONL 自身的 `ENOENT` 转成跨 HMR 稳定 `AgentSessionNotFoundError`。完整读取、entry 流式读取、全 entry 扫描与文件 identity 读取共用该合同；损坏 JSON、权限错误和 visitor 内其它路径的 `ENOENT` 不会被误判。
+- Agent HTTP 统一返回 `404` 与 `SESSION_NOT_FOUND`。recovery/history/systemPrompt、relations、mutation 与 Attachment preflight 复用同一映射；宽泛的用户消息和 Attachment 404 路由先保留 Session Not Found，再处理 entry/locator 自身缺失。
+- 主 Agent Surface 遇到该错误时清除精确失效的记忆 ID，在原 activation ownership 下刷新一次列表并最多加载一次 fallback：优先保留仍有效的原 Session，否则选择第一个有效 Session；空列表进入 empty，不自动创建。fallback 再失败不会递归重试，迟到恢复不能覆盖新选择。
+- 验证使用隔离临时 Workspace Root：Repository 28 项、Agent HTTP 22 项、前端错误解析与 Surface 状态 55 项、两个宽泛 entry/attachment 路由 13 项均通过，受共享错误码解析影响的 ProjectSession 另有 9 项通过，合计 9 files / 127 tests；根 `nuxt typecheck` 通过。未执行浏览器验证，未读取、恢复、复制或删除真实 Session 备份。

@@ -85,6 +85,10 @@
 - ✅ 2026-08-01：同步 llmlint 3.0.0；规则 scope、Guide provenance、本地 round/contribute 隐私与完整性边界已落地
 - ✅ 2026-08-01：source、vendored snapshot、当前 user runtime 各 122 个文件，两段逐文件 SHA-256 差异为 0
 
+**2026-08-02 update**：llmlint 3.0.1 落地四组 CLI/文档增强（sibling 仓开发，已 sync 回 NeuroBook vendor 与 user runtime）：① 新增 `report` 命令——吃 check/detect 两个 JSON 合成审稿报告（静态分级表按 level×review 桶聚合、密度指纹、检测两层结论、四象限自动交叉、规则信号密度排序），纯函数核心在 `skill/src/report.ts`（12 个 vitest 用例）；② 新增 `round metrics <轮>`——从轮目录 JSON 自动算台账 summary/retest 四项指标与 verdict 建议；③ detect JSON 的每个 chunk 增加 `preview` 字段（原文前 48 字，免去按 span 偏移自行切文本）；④ `round begin` 打印后续步骤 checklist。SKILL.md 与 cli-usage.md 修正 check/detect JSON 实际字段路径（rules 是字典、命中在 issues、detect 结果在 files[0]）与 check 退出码语义（high 命中 exit 1 是门禁非失败）。
+
+NeuroBook 新增两个内置 workflow：`llmlint-review`（用 leader.default 作 CLI 执行器，逐文件并行 check+detect+report，detect 失败降级）与 `llmlint-full-review`（检测→报告→runner 生成 plan.md→wf.ask 人工审批→writer 按 plan 修复到轮目录 output/→复测+round metrics 出 verdict；writer 越权改原文件由 integrity 步骤 cmp/cp 快照强制回滚兜底）。调用需传 `skillRoot`（workflow 求值环境禁止 import/fs，不能自行定位 skill 路径）。
+
 **当前边界**：`contribute` 只写本机 outbox，不联网；`detect` 会把未缓存正文分块发给配置的外部服务，`sharing.off` 不会关闭它。Web 不执行 density；这不是规则目录缺失，而是有意保持 span-only，完整静态结果以 CLI/Agent 为准。
 
 ## Decisions / Discussion

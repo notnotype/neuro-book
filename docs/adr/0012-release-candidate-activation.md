@@ -2,7 +2,6 @@
 
 - 状态：Accepted
 - 日期：2026-08-02
-- 更新：2026-08-02（五平台 Product policy 验收完成；正式 Candidate 仍待重建）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[ADR 0009](0009-product-runtime-image-generation.md)、[ADR 0010](0010-desktop-storage-loopback-shutdown.md)
 
 ## 背景
@@ -36,7 +35,6 @@ numeric release ID 避免同 tag、并发 rerun 或事件上下文把资产上�
 - Release 公开和 OCI alias 激活之间仍是两个顺序动作。若 alias 激活失败，Release Manifest 的 digest 仍可执行，独立激活 job 可幂等重试；不为此增加跨服务回滚数据库。
 - Canary 不再自动取消旧 Candidate，Actions 并发消耗可能略高，但每个候选都有完整结论。
 - 人工 GHCR 调试必须显式给 Candidate ID；不能再把本地构建直接伪装成版本发行。
-- 首个已 dispatch 的 0.9 Draft 因四个平台尚无 canonical policy，在任何候选资产或 OCI 动作前被 preflight 拒绝；随后独立 baseline 与 Product workflow 已在同一最终提交上完成五平台严格 A/B 和四个 POSIX Product smoke。失败 Draft 不复用，下一 Candidate 必须使用新的 canary identity，并重新执行 Windows Portable、GHCR 与最终发布门禁。
 
 ## 未采用方案
 

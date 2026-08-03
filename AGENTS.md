@@ -30,9 +30,45 @@
   3. 本次重构或修复会导致那些测试出问题？哪些测试没用了考虑删除。哪些应该修改优化？
 - 任务结束后记得报告并清理用户不知情的临时文件（例如 ~/some-files）
 
+## Git 工作流
+
+维护者（用户 + 开发 Agent）的协作模式：GitHub Issue 承载需求与 TODO，分支 + worktree 承载开发，squash PR 合并进 `master`。外部贡献者的 Issue/PR 流程见 `CONTRIBUTING.md`，本节不重复。
+
+### 分支命名
+
+格式：`{type}/{refs}-{slug}`
+
+- `type` ∈ `feat` / `fix` / `docs` / `refactor` / `test` / `chore`（对齐 Conventional Commit）。
+- `refs`：`t{task号}` 或 `i{issue号}`；同时关联时 issue 在前：`i{issue号}-t{task号}`。
+- `slug`：英文 kebab-case，不超过 5 个单词。
+- 示例：`feat/t135-agent-asset-install`、`fix/i18-we-sibling-deref`、`feat/i14-t133-style-distill`。
+- 每个代码分支必须能追溯到至少一个 issue 或 task；不再使用 `codex/*` 这类 agent 前缀（agent 会更换，前缀与任务追溯无关）。
+
+### 开发循环
+
+1. 想法 / bug / 需求先开 GitHub Issue（`type:*` + `status:*` 标签）；维护者用 `gh issue create` 直接开即可，不必走 Issue Form（表单面向外部贡献者）。`PROJECT-STATUS.md` 不再新增 TODO 清单。
+2. 重大任务继续按 `docs/tasks/README.md` 建任务目录：issue 是需求层，task 是文档层，两者互补不替代。
+3. 开工前 `git fetch origin`，然后 `git worktree add .agent/workspace/wt/<slug> -b <branch> origin/master`（worktree 固定在 `wt/` 子目录，与临时文件区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
+4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`，正文用 `Closes #N` 关联 issue。
+5. CI 通过且本地验证（typecheck + 相关聚焦测试）通过后，`gh pr merge --squash --delete-branch`；squash 提交信息 = PR 标题，使用 Conventional Commit 格式。注意现状 CI 没有 required check（Code Baseline 为 Advisory，见 issue #15），本地验证是实际门禁。
+6. 远端 `master` 被任何 worktree 或 agent 更新后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`，防止主工作区停在旧提交产生分叉；主工作区有在途改动时先提交或 stash 再合并。
+7. 清理：`git worktree remove .agent/workspace/wt/<slug>`，然后 `git branch -D <branch>` 删本地分支——`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留。
+
+### master 纪律
+
+- `master` 是用户测试基线，始终保持可构建、可测试状态；代码改动一律走分支 + squash PR。
+- 文档类例外可直推 master：typo、`PROJECT-STATUS.md` / task walkthrough 更新、`RELEASE.md` 维护、release 脚本的版本提交。
+- 上述纪律是约定层面，不配 GitHub ruleset / required check（质量门禁见 issue #15）。
+- 不 force push `master`；远端拒绝就停下报告。
+
+### 多 Agent 并行
+
+- 一个 agent 对应一个独立 worktree + 分支；不共享 worktree，不在同一 worktree 里同时跑两个 agent。
+- 跨模块合同、冲突、文档和最终验证由主工作区统一集成（对齐 `CONTRIBUTING.md` 的集成负责人规则）。
+
 ## 文档索引
 
-- `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO 也记录在这里，注意 TODO 完成后记得删除
+- `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO / 跟进事项记录为 GitHub Issue，不写进该文件。
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
 - `reference/README.md`：NeuroBook Reference Bookshelf，按模块链接到 `reference/<module>/`。
 - `reference/world-engine/README.md`：World Engine 世界引擎 reference 入口。写作模式动态世界状态 + 时间线真相源；处理 slice / subject / instant / reduce / schema / Calendar / 记录原则 / leader-writer 协作时先读这里。
@@ -43,8 +79,8 @@
 
 ## 文档规范
 
-- `PROJECT-STATUS.md` 是仓库级现状报告。重大任务结束后，如果代码行为、架构决策、模块状态或长期 TODO 发生变化，必须同步更新该文件。
-- `docs/tasks/<order>-<task-slug>/README.md` 是 active 重大任务的持续 walkthrough；归档任务在 `docs/tasks/archived/<task-slug>/README.md`。每个重大任务都应有一个任务目录，记录用户需求、目标、执行过程、关键决策、变更文件、验证结果和后续 TODO。
+- `PROJECT-STATUS.md` 是仓库级现状报告。重大任务结束后，如果代码行为、架构决策或模块状态发生变化，必须同步更新该文件。TODO / 跟进事项一律开 GitHub Issue（见「Git 工作流」），不再写入该文件的 Known Follow-ups。
+- `docs/tasks/<order>-<task-slug>/README.md` 是 active 重大任务的持续 walkthrough；归档任务在 `docs/tasks/archived/<task-slug>/README.md`。每个重大任务都应有一个任务目录，记录用户需求、目标、执行过程、关键决策、变更文件、验证结果和后续 TODO。task walkthrough 的 TODO / Follow-ups 只记本任务实现级跟进；跨任务或产品级跟进一律开 GitHub Issue。
 - 同一功能后续调节时，继续更新原任务 walkthrough。例如新增“拆书功能”后，后续所有拆书功能调节都更新同一个 active 编号任务目录，不要每轮新建碎片文档。
 - `reference/` 只放稳定参考和实现契约，按模块分组，例如 `reference/agent/`、`reference/content/`、`reference/editor/`、`reference/plot/`。
 - `docs/` 放文档入口、模块说明、调研、草案、归档和任务 walkthrough。调研资料放 `docs/research/`，未定稿草案放 `docs/drafts/`，过期但仍有参考价值的内容放 `docs/archived/`。
@@ -173,8 +209,8 @@
 - 发布前先阅读 `PROJECT-STATUS.md` 和相关 `docs/tasks/**/README.md` / walkthrough，确认本轮改动、验证记录和任务状态。
 - 发布前必须更新 `RELEASE.md`，严格按「面向用户的语言风格」小节写：只留当前版本，历史版本移到 `docs/changelog/` 并同步英文镜像 `docs/en/changelog/`。release 脚本不读 `RELEASE.md`（GitHub prerelease 正文是硬编码模板），所以它纯粹是给人看的，写不好没有任何机器会拦你。
 - 提交前用 `git status --short --branch` 确认工作区范围；用户明确要求“提交全部改动”时，才使用 `git add -A` 纳入全部 tracked / untracked 改动。
-- **在 `.agent/workspace/` 的 git worktree（`codex/*` 分支）里推过 master 之后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`。** 否则主工作区的 `master` 永远停在旧提交，下次提交就变成分叉；同一份改动也不要在主工作区和 worktree 各提交一次，那会产出 patch-id 相同、SHA 不同的重复提交。
-- 业务提交 message 要覆盖主要任务和用户可见能力；提交后先 `git push origin HEAD:master`。如果远端拒绝，停止并报告，不要 force push。
+- 任何 worktree 或 agent 向远端 `master` 推送或合并后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`（分支与 worktree 约定见「Git 工作流」）。否则主工作区的 `master` 永远停在旧提交，下次提交就变成分叉；同一份改动也不要在主工作区和 worktree 各提交一次，那会产出 patch-id 相同、SHA 不同的重复提交。
+- 业务提交 message 要覆盖主要任务和用户可见能力。代码改动走分支 + squash PR（见「Git 工作流」）；`git push origin HEAD:master` 仅限文档类例外与 release 提交。如果远端拒绝，停止并报告，不要 force push。
 - canary patch 发布使用 `bun run release -- canary --next patch --push --yes --no-watch`；canary minor 发布使用 `bun run release -- canary --next minor --push --yes --no-watch`。
 - release 脚本会自动更新 `package.json.version`、创建 `chore(release): v...` 提交、push 当前分支并创建 GitHub prerelease。
 - 不要等待或盯 GitHub Actions release workflow；发布命令必须带 `--no-watch`。创建 GitHub Release 成功后，报告 release tag / URL，并说明 Actions 后台自行运行。

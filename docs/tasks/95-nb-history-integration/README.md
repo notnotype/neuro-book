@@ -113,13 +113,6 @@ NeuroBook 全部写入路径接入 nb-history 记账，四视图（单文件时�
 
 详见 [Task 102](../102-agent-change-inbox-and-prompt-order/README.md)。
 
-### 2026-08-02 收件箱 revision 条件式 mutation
-
-- 发行前并发审查发现，HTTP route 先读 inbox revision、再调用 `accept/revert/accept-all` 会留下 TOCTOU 窗口：用户确认旧 revision 后，新变化可能在最终操作前进入 History。
-- 真相源 sibling `nb-history` 在提交 `68c54caed73c4499eac44e92931895aa130672b3` 增加 `acceptAtRevision`、`revertAtRevision` 与 `acceptAllAtRevision`。revision 复核与 mutation 现在位于 History 自己的写锁内；`accept-all` 使用单个 SQLite transaction，`revert` 另复核当前磁盘 hash，拒绝未记账的外部变化。
-- NeuroBook route 只把 `HistoryInboxMutationError` 映射为 404/412；`revert` 的物理写盘仍处于 Project File Index mutation gate，`accept` 不触发无意义的文件树重建。同步脚本同时支持普通 checkout 与 Git worktree，并保持二跑幂等。
-- 验证：sibling `nb-history` 40/40 与 typecheck 通过；NeuroBook History/Profile/File Index 聚焦组 5 files / 79 tests、根与 scripts typecheck 通过。
-
 ## TODO / Follow-ups
 
 - [ ] D15b 呈现层：open 扫描发现外部变更时 notification + 「外部变更」列表视图（需要 nb-history 跨文件按 actor 查询小 API 时先在模块仓做）。

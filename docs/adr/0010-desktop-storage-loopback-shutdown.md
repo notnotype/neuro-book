@@ -72,6 +72,13 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 7. Manager 最多等待合同规定的 30 秒。只有退出码为 0 且没有 signal 才算 graceful；HTTP 失败、超时、非零退出、signal 或 Product crash 时调用 Owned Process 收口完整进程树，并明确记录 forced shutdown。
 8. Windows 不依赖 `SIGTERM`；POSIX Ctrl+C/SIGTERM 继续进入同一个 Nitro close hook 和 shutdown controller。
 
+#### Source Dev 入口
+
+1. 公开 `bun run dev` 必须进入 Source Dev launcher，由 `Owned Process` 在任何 Nuxt、生成器或迁移检查后代启动前建立完整进程树所有权。原开发准备链只作为内部 `dev:runtime` 存在；只有已经持有外层 owner 的 Manager Source Dev Adapter 可以直接调用它。
+2. launcher 与 Manager 复用同一 `shutdownNativeProduct()`：首次 Ctrl+C/SIGTERM 请求认证 loopback shutdown，第二次信号立即强制收口；graceful 与 force 同时失败必须聚合报告。launcher 自身异常退出时由监督 IPC 断连收口后代树。
+3. Source Dev 未显式声明监听 host 时固定使用 `127.0.0.1`。显式 `localhost` 或 IPv6 loopback 时，shutdown client 必须请求同一 loopback 地址；不得因地址族不一致把正常数据 flush 静默降级为强杀。
+4. Agent Session Store 的 `runtime.lease` owner metadata 只用于竞争错误诊断。互斥、15 秒 heartbeat、30 秒 stale 接管仍由 `proper-lockfile` 决定；禁止按 metadata PID 自动杀进程、提前抢锁或删除 `.lock`。
+
 ### Secret 传递
 
 1. 管理员自动创建的密码只能通过 `create-admin --password-stdin` 的 stdin pipe 传入；Manager、Release smoke 与容器编排不得把明文放入 argv、子进程环境或日志。
@@ -107,7 +114,6 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 - Bash 完整输出不再持久化 `%TEMP%` 绝对路径；cache 被回收是正式可见状态。
 - llmlint 的 sibling source 与 NeuroBook vendored snapshot 必须同步维护两个环境变量和缓存预算。
 - Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
-- 最终 POSIX Product workflow `30733829837` 已在 Linux x64/AArch64 与 macOS x64/AArch64 通过 Product 启动、HTTP/浏览器 smoke、Owned Process 与关闭链；Windows Portable 的同代 Candidate 终验仍由正式 Release workflow 负责。
 - Windows 自卸载有独立外置 Host，因此 Portable 可以删除正在承载 Manager/Bun 的程序目录；默认卸载和 `--delete-data` 必须分别通过最终 Portable Candidate 验收。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 

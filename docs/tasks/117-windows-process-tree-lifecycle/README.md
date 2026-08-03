@@ -1,6 +1,6 @@
 # 117 - Windows 进程树所有权与 Bash 超时
 
-> 当前状态：本地实现与自动化发行验证完成；Linux x64/AArch64、macOS x64/AArch64 与多次Windows Candidate Product/Owned Process workflow均已通过。第十六次Candidate已在clean Windows runner完成真实浏览器、同State Root鉴权重启、两次正式stdin shutdown、Product终态、Agent Session Store lease立即重取与两种自卸载；第十三次stdin竞争和第十五次Playwright runtime阻断均已有发行证据闭环。只剩用户可见CMD关闭窗口的授权人工验收。
+> 当前状态：本地实现与聚焦验证完成；候选 Windows Release workflow 验证待执行。
 
 ## Relative documents refs
 
@@ -575,63 +575,19 @@ Phase E gate：本地实现已满足；Windows Release runner真实Portable smok
 - [x] 从正式fixture与回归测试进入实现，没有把临时探针直接复制进生产。
 - [x] 保留Task 105、Task 116职责边界。
 - [x] FFI/嵌套Job失败保持fail closed，没有扫描式fallback。
-- [x] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit，并完成四平台POSIX runner门禁。
-- [x] 在新Candidate确认实际Manager graceful shutdown、Product终态与 `runtime.lease` 立即可重取。
+- [ ] 执行真实候选Windows Release workflow，确认包内Bun + PortableGit、实际Manager PID cleanup与POSIX runner门禁。
 - [ ] 经用户授权执行一次可见CMD窗口最终验收：卡住Bash fixture后关闭窗口，以fixture PID和端口确认完整收口。
 
-### 2026-08-02：POSIX Product 最终回归
+### 2026-08-02：Source Dev owner 与 Session Store lease 诊断补齐
 
-- Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在提交 `18e12750` 上通过 Linux x64/AArch64、macOS x64/AArch64 的 Owned Process package、Product 启动、HTTP/浏览器与关闭链。此前“POSIX runner 尚未执行”的缺口已经关闭。
-- 该 workflow 不生成 Windows Portable Candidate，也不替代 Windows 包内 Bun + PortableGit、外置自卸载 Host 与最终进程树验收；对应 TODO 继续保留。
+- 真实故障不是 `favicon.ico` 本身：Nuxt 的全局 startup readiness 在处理该请求时等待 Agent Session Store，随后把 `proper-lockfile` 的 `ELOCKED` 暴露出来。现场 PID 的父进程已经消失、3000 无监听，但 `workspace/.nbook/agent/migrations/runtime.lease.lock` heartbeat 仍持续更新，确认是旧 Source Dev 后代仍存活并持锁。
+- 现场只终止了命令行、父进程和路径都能确认属于本仓库的孤儿 Nuxt PID；没有扫描进程名、删除活锁或基于 metadata 杀 PID。heartbeat 停止后继续由既有 30 秒 stale 协议恢复。
+- 根 `dev` 现在是 Source Dev launcher，原完整准备链改为内部 `dev:runtime`。launcher 用 `spawnOwnedProcess()` 在准备动作之前拥有完整后代树；Manager 的 `source-dev` Adapter 直接调用 `dev:runtime`，因为 Manager 已是外层 owner，避免嵌套两层 owner。
+- 首次 Ctrl+C/SIGTERM 使用随机 shutdown token 请求 Product 的认证 loopback shutdown；30 秒内等待 HTTP drain、Agent、Project、Session Store、SQLite 和日志释放。第二次信号立即进入 Owned Process 强制收口；graceful 与 force 同时失败时保留 `AggregateError`，不会等待一个无法证明收口的 completion。
+- 真实 smoke 发现 Nuxt 默认 `localhost` 在本机只绑定 `::1`，而共享关闭 client 默认请求 `127.0.0.1`，这会让正常关闭退化为 force。Source Dev 未显式配置 host 时现固定 `HOST/NITRO_HOST=127.0.0.1`；显式 `localhost`、`::` 或 `::1` 时 client 使用对应 loopback 地址。Manager Product 仍固定使用 IPv4 loopback。
+- `runtime.lease` 现在保存最小版本化诊断 JSON：lease ID、`runtime | migration`、PID、取得时间和 Bun/Node 版本；不记录 argv、环境、token、cwd 或正文。Runtime、Session migration 和旧 Attachment migration 的 sync/async 获取统一经过同一 Module，竞争统一抛 `AgentSessionStoreLeaseHeldError` 并保留 `code="ELOCKED"`、lease path、heartbeat 与可选 owner。metadata 仅供人排障，不参与抢锁、删锁或杀进程。
+- 实际验证：共享 shutdown/launcher、Session Store lease/互操作、Product startup/shutdown 共 8 files / 33 tests；Manager 20 tests；Owned Process 13 passed / 2 POSIX-only skipped；scripts、Runtime、Manager 与 Owned Process typecheck 通过。Windows 真实 fixture 强杀 launcher 后证明 TCP 后代退出、heartbeat 停止，推进到 stale 后可重新取得 lease；隔离 Application State migration 后，两次完整 Source Dev 启动均通过 `/api/app/version`，强杀 launcher 后端口两次释放。
 
-### 2026-08-02：Candidate Windows smoke 宿主所有权修正
+本轮与计划的差异：全新隔离 State Root 必须先执行正式 Application State migration，直接启动被门禁正确拒绝；真实 smoke 因非交互 runner 无法等价产生 Windows Terminal 的 Ctrl+C/关闭事件，最终直接强杀 launcher 验证 host-disconnect，公开 `bun run dev` 到 launcher 的精确 wiring 由合同测试覆盖。没有把 `favicon.ico` 放行，也没有修改 stale 算法、自动终止报告 PID、换端口或引入进程注册表。
 
-- Candidate workflow `30752133985` 的 Windows job 在Product构建前执行Owned Process门禁时失败，表面错误是删除 `nbook-windows-owned-smoke-*` 临时根返回 `EBUSY`。finally 的删除错误覆盖了更早的真实异常，初始诊断因此误判为进程树未收口。
-- 真实首错是smoke仍按旧合同读取 `jobs.spawn(...).jobId`；当前 `AgentJobManager.spawn()` 返回 `{job, jobEventCursor}`，因此cancel实际收到`undefined`。现已改为使用`spawned.job.jobId`，cancel与shutdown都会在`waitIdle()`后复核最终`cancelled`状态。
-- Bun 1.3.14在Windows同一宿主进程内仍可能持有曾作为后代cwd的临时根，进程退出后目录立即可删。没有加入无限重试、GC或忽略清理错误；smoke改为父harness创建专属临时根、worker执行真实进程树测试、worker退出后父harness删除。worker root必须是规范化系统临时目录下的固定前缀，不能接受任意路径。
-- Windows监督控制面不再继承目标cwd；目标cwd仍只通过IPC传给目标进程。包级合同固定该边界，避免监督ChildProcess自身扩大目录句柄生命周期。
-- `scripts` TypeScript project现显式包含Source smoke，Release preflight也会在fan-out前运行scripts与Owned Process package typecheck；旧`spawn()`返回值用法不能再只等Windows运行时暴露。
-- 本地验证：Owned Process包`14 passed / 3 platform-skipped`，Source Agent Bash smoke与Portable nested Product smoke都通过；两条脚本均实际完成临时根删除。该证据修复的是Windows Candidate前置门禁，最终同代Portable仍由下一唯一Candidate证明。
-
-### 2026-08-02：Windows Product clean runner证据
-
-- workflow [`30753830837`](https://github.com/notnotype/neuro-book/actions/runs/30753830837) 的 `product-windows` 已通过Owned Process package、Source Agent Bash smoke和完整Windows Product构建；旧`job undefined`与临时根`EBUSY`均未复发。
-- 同一workflow因独立OCI deps失败而没有进入assemble、Windows Portable及包内Bun + PortableGit smoke。该结果关闭Source/Product前置门禁，但不勾选最终Portable TODO，也不冒充外置Host与同代安装包证据。
-- workflow [`30754453941`](https://github.com/notnotype/neuro-book/actions/runs/30754453941) 再次通过同一Windows前置链并上传Product；独立OCI artifact门禁失败仍使assemble和Portable跳过。两次clean runner重复成功提高了Windows父/worker收口证据，但最终同代Portable进程树验收仍未执行。
-- workflow [`30755110092`](https://github.com/notnotype/neuro-book/actions/runs/30755110092) 第三次通过Windows前置链并上传Product；独立OCI Runtime bundle门禁失败仍使assemble和Portable跳过。重复Product证据不替代最终同代Portable的包内Bun + PortableGit进程树验收。
-- workflow [`30755685695`](https://github.com/notnotype/neuro-book/actions/runs/30755685695) 第四次通过同一Windows Product前置链；两个OCI架构直到最终module closure才被剩余路径误报阻断，assemble和Portable仍未运行。该证据继续证明Windows Product构建稳定，不证明同代Portable中的包内Bun、PortableGit、A→B与自卸载进程树。
-- workflow [`30756404604`](https://github.com/notnotype/neuro-book/actions/runs/30756404604) 的Windows job在Manager clean transform阶段失败，未进入Owned Process或Product smoke；原因是共享build Module漏登scripts tsconfig，不是进程树回归。此前四轮Windows Product证据继续成立，但本轮没有新增Windows生命周期证据，Portable仍被上游失败跳过。
-- workflow [`30757057719`](https://github.com/notnotype/neuro-book/actions/runs/30757057719) 第五次通过Windows Manager、Owned Process、Agent State Root、Product构建与归档，证明第九次tsconfig补登没有引入进程树回归。双OCI在独立Git-less发布Adapter失败使assemble和最终Portable继续跳过，因此包内Bun + PortableGit、A→B与自卸载仍无本轮同代证据。
-
-### 2026-08-03：第十一次 Candidate 的正式关闭边界
-
-- workflow [`30757628319`](https://github.com/notnotype/neuro-book/actions/runs/30757628319) 已实际执行包内 Bun + PortableGit、Windows Runtime Contract与首次浏览器 smoke；失败发生在第二次复用State Root的authenticated start，错误为 `runtime.lease` `ELOCKED`。
-- 根因是验收脚本用 `Stop-Process -Force` 终止Manager后只检查端口，未调用已有Owned Process/Product graceful shutdown；本轮改用 Manager `--shutdown-on-stdin-end`，关闭stdin后等待Manager/Product终态并立即重取唯一Store lease。Candidate workflow尚未重新执行，故Task仍保留Release candidate verification pending。
-- workflow [`30760273783`](https://github.com/notnotype/neuro-book/actions/runs/30760273783) 已使用公开`.41`和新stdin协议构建同代Portable，但第一次冷启动同步系统资产后略过60秒，外层Verifier在浏览器前超时；日志显示Manager最终输出`Listening`且stderr为空。验收窗口现大于Manager正式120秒启动窗口，下一Candidate才会实际执行shutdown、lease重取与二次登录，当前不能把进程生命周期标为通过。
-
-### 2026-08-03：第十三次 Candidate 的 stdin pipe 竞争
-
-- workflow [`30761237553`](https://github.com/notnotype/neuro-book/actions/runs/30761237553) 已越过第十二次外层timeout，最终由Manager自己的120秒健康检查报告Product未ready。进程快照持续存在`product-command.mjs → product-start.mjs → server/index.mjs`，stdout只有migration/assets准备，stderr为空。
-- 差分反馈环逐项排除Product镜像、State Root、Portable完整Source、祖先`node_modules`、Windows Job Object和`windowsHide`。精确复现条件是：Manager主动读取开放stdin pipe，同时Owned Process把同一句柄继承给Product；只继承但父进程不读时不会失败。
-- stdin现在由Manager唯一拥有，Product不再继承。Manager仍用shutdown token请求Product正式关闭，协议失败时仍由Owned Process Job收口，不引入PID扫描、延时或第二套生命周期框架。修复后原Candidate包5.84秒ready，stdin关闭后Manager/Product退出码0并立即重取唯一Store lease。
-- 本轮只完成本机真实包回归。第十三次Draft保持失败审计；TODO仍等待公开`.42`与下一Candidate实际确认，不提前勾选。
-- Manager `.42` workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已全绿，npm gitHead、tarball、registry signature、两份attestation、全新cache bunx与公开输入校验均通过。进程生命周期TODO只剩下一Candidate真实执行，不再被Manager公开态阻断。
-- 第十四次Draft `v0.9.0-canary.20260802.200609Z.dc568d1e`（release ID `363883460`）已dispatch workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479)。当前仍为0资产Draft；正式shutdown、Product终态与lease重取TODO只有在该workflow实际通过后才能勾选。
-
-### 2026-08-03：第十四次 Candidate 未进入最终 Windows 生命周期
-
-- workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 的Windows Product job已通过Manager、Owned Process、State Root、Product与Portable组装；五平台Product和双架构OCI也均成功。失败发生在独立Ubuntu assemble runner安装依赖时：`@rolldown/binding-linux-x64-musl`单个tarball下载/解压失败，非Windows进程树回归。
-- assemble未生成候选bundle，`verify-windows`因此完全跳过。第十三次修复的包内Manager restart、stdin正式关闭、Product终态和lease立即重取仍只有本机原包证据，不能用第十四次的Windows Product job替代。
-- 下一Candidate会消费统一的Release依赖安装入口；它只有限重试明确的下载/归档瞬时错误，不改变Owned Process、stdin ownership、超时或shutdown协议。
-- 第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）已dispatch workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)。当前仍为0资产Draft；Windows最终restart、stdin正式关闭、Product终态和lease重取仍以该workflow实际执行为准。
-
-### 2026-08-03：第十五次 Candidate 的正式关闭证据
-
-- workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992) 的Windows候选第一次启动已经ready。Playwright浏览器动作随后失败，但`withManagedPortable()`仍完成stdin关闭、Manager/Product退出码0与同一Agent Session Store lease立即重取；若任一收口失败，Verifier会聚合生命周期错误，而本轮只有浏览器launch错误。因此正式shutdown与lease TODO已有clean Candidate证据。
-- 失败根因位于宿主验证工具：Bun 1.3.14在Windows启动Chrome或Edge后无法连接Playwright调试pipe；Node 24对同一系统Chrome连续五次稳定通过。修复只把Playwright探针隔离到Node+tsx子进程，不改变Manager stdin所有权、Owned Process Job、shutdown token或Product Runtime。
-- 第二次鉴权启动和两个自卸载场景因步骤失败被跳过，不能由第一次正式收口代替；这些属于Task 105/130的完整发行矩阵，仍由下一Candidate证明。本Task仍保留用户可见CMD关闭窗口验收项。
-
-### 2026-08-03：第十六次 Candidate 的完整自动化生命周期证据
-
-- workflow [`30767213367`](https://github.com/notnotype/neuro-book/actions/runs/30767213367) 的Windows job完整通过真实Chrome页面、管理员创建、同一State Root第二次鉴权启动、两次stdin正式shutdown、Manager/Product退出、Agent Session Store lease立即重取、默认卸载保留data和`--delete-data`全量卸载。包内Bun、Manager、Owned Process Job和外置卸载Host均来自同一Candidate。
-- workflow后续因Draft asset下载权限失败不改变上述已完成job的clean-runner证据；它也不等于整个0.9 Release成功。Task 117自动化TODO已关闭，仍保留需要用户授权的可见CMD窗口手工关闭验收。
+后续出现的 Session 3 `ENOENT` 已确认是相同 `localhost:3000` origin 在不同 State Root 实例之间保留了旧 Session ID；Session 3 仍在 Task 118 既有备份中。该问题按 Session Not Found HTTP/前端恢复合同收口，不归因于 lease、孤儿进程或 graceful shutdown，也没有因此改动 heartbeat/stale 协议。

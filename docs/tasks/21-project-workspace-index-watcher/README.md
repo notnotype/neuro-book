@@ -1,7 +1,5 @@
 # Project Workspace Index Watcher
 
-> 2026-08-02 现行合同：本任务记录的是旧 index watcher 的历史演进。生产实现现由 Task 114 的 `ProjectFileIndexAdapter` 与独立 `SnapshotCache` 统一持有；自有文件写入必须通过 `mutate()` 与同 entry build 串行，旧 `invalidateProjectWorkspaceIndexAfterMutation()` 已删除。外部编辑器和受信任 Bash 写入仍由 watcher 收敛。
-
 ## User Request
 
 - 排查 `reference/silly-tavern` 外部导入后前端文件树不更新的问题。

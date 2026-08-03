@@ -318,12 +318,10 @@ assets/
 
 - 复现现象：真实`workspace/.nbook/config.json`从工作树消失，同时系统临时目录遗留`nbook-config-test-*/config.json`；7月11日与7月13日各存在一份未恢复备份，证明问题可重复发生。
 - 根因：`config-service.test.ts`的`beforeEach`会把真实Global Config和Global Agent资源目录rename到临时目录，`afterEach`再移回。测试进程被中断、超时或强制退出时不会执行恢复，真实用户配置因此留在临时目录。
-- 修复：Config Service测试改用现有`createIsolatedWorkspaceAssets()`，Global Config、Global Agent资源和Project fixture全部位于独立临时State Root。测试显式使用 Workspace Root context 与`NEURO_BOOK_STATE_ROOT`，不再切换Vitest worker的进程cwd；删除真实目录备份、清空和恢复逻辑，测试不再接触用户数据。
+- 修复：Config Service测试改用现有`createIsolatedWorkspaceAssets({useAsCwd: true})`，Global Config、Global Agent资源和Project fixture全部位于独立临时State Root。删除真实目录备份、清空和恢复逻辑，测试不再接触用户数据。
 - 数据恢复：按用户决策使用7月11日备份恢复真实Global Config；恢复后文件SHA256与备份完全一致，JSON解析通过，未输出任何secret。
 - 验证：`bun test server/config/config-service.test.ts --path-ignore-patterns=product`通过39项测试；测试前后真实Global Config SHA256保持不变。另一次误包含`product/`源码副本的测试运行虽然出现重复模块`instanceof`失败，真实Global Config仍保持不变，证明失败路径也不会再搬移用户配置。
 - 实际计划差异：仓库已有Workspace assets隔离基础设施，无需新增Config专用fixture。问题不是业务Config读写，而是测试绕开统一路径Context直接操作真实cwd。
-
-2026-08-02 发行门禁补强：60项Config测试改为suite级持有只读System Assets、一次Session migration和一条runtime lease；Global Config、Profile Home、Project Workspace与额外临时目录仍逐项删除重建。完整文件`60/60`、约71秒，根全量压力下未再出现lease`ECOMPROMISED`或OXC`Tsconfig not found`。初始化失败和suite清理都会恢复原`NEURO_BOOK_STATE_ROOT`并释放fixture，不再修改或尝试恢复Vitest worker的进程cwd。
 
 ### 2026-07-18：Model Config 硬切验证
 

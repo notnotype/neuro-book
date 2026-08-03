@@ -1,6 +1,6 @@
 # 130 - 桌面应用前置架构、发行载荷与存储生命周期
 
-> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution、Contract v3、Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议均已完成；正式构建使用 esbuild 同图 link/minify，五平台严格 A/B 已通过。Manager `.47` 与 `v0.9.0-canary.20260803.030205Z.1252af3b` 已公开，Candidate 25 的五平台、Portable、OCI、公开复验、最终索引和正式版本 tag 全绿。Actions 中的真实浏览器 smoke 已通过；浏览器人工验收与 Tauri/Electron 同矩阵 spike 尚未执行。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
+> 当前状态：Product Runtime Image、Runtime Contract、Storage/Locator、Product shutdown、Authoring SDK/CLI 与载荷投影的共享地基已经落地。2026-08-02 已完成显式 Authoring Context/module graph、Variable 原子发布、Verified Application Execution 与 Contract v3 的 focused/type 门禁、冻结 Source A/B、逐文件摘要比较和仓库外完整 Product smoke；同仓并行完成的 Installation Mutation、Windows 自卸载 Host 与 Draft Release 激活协议另有独立证据。当前 dirty acceptance ZIP 仍不是正式 Release archive，真实 Docker/rootless Podman、五平台 Candidate Actions、Linux/macOS owner baseline、浏览器验收与 Tauri/Electron 同矩阵 spike 尚未完成。当前优先推荐 `Tauri Desktop Envelope + 独立 Bun Product`，最终选择仍必须由 spike 证据冻结。
 
 ## Relative documents refs
 
@@ -536,7 +536,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 冻结 Source A/B 的 payload 均为 3,229 文件 / 133,132,675 bytes，`treeDigest`、`shapeDigest`、Source/Contract/policy identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` 与 `runtime-image.ready` 后，3,229 个路径和逐文件 SHA-256 差异均为 0，两个镜像分别重新通过 `openVerified()`。相对 2026-07-29 历史 payload 少 1,454 文件 / 28,141,556 bytes。owner 为 frontend 177 / 15,854,204，server-bundle 1 / 12,608,947，commands（含 Prisma）106 / 10,700,869，authoring-kit 510 / 13,400,281，native-islands 2,059 / 75,260,595，system-assets 373 / 5,303,264，runtime-meta 3 / 4,515。该组数字已写入 Windows canonical baseline；全局安全上限与每 owner 10% 回归规则不变。
 - TypeScript 从完整包 132 文件 / 23,625,066 bytes 投影为 89 / 12,196,852。`jsdom` 包本身为 652 / 7,033,222；从 `jsdom` 递归解析的 39 package closure（含 undici，不含 TypeScript）为 1,806 / 21,927,469；第一 native island 加上 TypeScript 后为 40 packages / 1,895 files / 34,124,321 bytes。全部 52 个 native package island 合计 2,058 / 75,256,580，另有 1 个 4,015-byte manifest。
 - A 镜像另生成 41,172,014-byte acceptance ZIP（SHA-256 `FFE3AD4514CF473E07767090DCDC390C287314270BBC545C8AB8A2EE3FF7BDFE`），并解压到仓库外、祖先无 `node_modules` 的 `C:\nbook-task130-product-smoke-*`。解压前后与完整 smoke 后三次 `openVerified()` 均通过；database/Application State migration、Profile compile、Variable authoring、sqlite-vec、Sharp、workspace schema/node、stdin-only create-admin、HTTP version、错误/正确 token shutdown、端口关闭、State Root 移动删除全部成功，Application Root 没有影子 workspace，scratch 最终不存在。该 ZIP 使用验收归档口径；当前 Source 为 dirty 且没有伪造 `product-build.json`，不是正式 Release archive，也不能与正式 ZIP writer 的 41,575,259-byte measurement 直接混为同一压缩算法结果。
-- 截至本节 Windows 验收时仍未完成：clean runner 正式 Release archive；Linux/macOS owner baseline（真实平台登记前继续 fail closed）；浏览器验收与 Tauri/Electron spike。后续五平台结果见本文末尾的最终门禁记录。
+- 仍未完成：clean runner 正式 Release archive；Linux/macOS owner baseline（真实平台登记前继续 fail closed）；浏览器验收与 Tauri/Electron spike。
 
 ### 2026-08-01：发行前链路审计与 checkpoint 清理
 
@@ -558,7 +558,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - Windows Product hostile smoke 已实机通过：archive 先完成外部身份验证，再在仓库外 Application Root 建空根 `node_modules`、注入错误 `NODE_PATH`，通过真实 HTTP 创建并编译 SDK-only Profile，确认使用镜像内预编译 worker；测试目录在 finally 清理，smoke 结束后 Product 再次通过 `openVerified()`。
 - 真实 smoke 暴露并修复两个非依赖缺失故障。其一，Bun 1.3.14 下 `fflate.unzip()` 对 512 KiB 以上高压缩条目启用 Blob Worker 时会收到空 transferable；当前 ZIP 读取链本来就整体载入归档，因此改用 `unzipSync()`，没有扩大原有内存模型，并以 600 KiB 高压缩条目回归。其二，boot sweep 与 HTTP 请求并发编译同一 Profile 时，等待互斥的任务仍让 pump 无限调度微任务，导致 Worker `message` 事件饥饿；pump 现在只在确有可启动任务时自调度，同文件并发回归通过。
 - Authoring gate 另补齐 `ImportTypeNode`：`type X = import("zod").X` 与普通 import 使用同一 SDK-only 规则，不能绕过完整模块图验证。当前最终 Source 验证为 Task 130 focused 14 files / 153 tests、Profile Worker 19/19、Manager 全量 36 passed files / 1 skipped file与 240 passed / 2 skipped tests、Manager release contract 1/1；根全量为 466 passed files / 1 skipped file、3,177 passed / 14 skipped tests，根、Runtime 与 Manager typecheck 均通过。
-- 最终冻结 Source A/B 均为 3,231 payload files / 133,213,461 bytes，`imageId=sha256:fcb795167920d023b196bd37c0999c5dfc20ef5cd5b4ec654a78e7c4efe8f0e2`。Source、Contract、policy、tree/shape identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` / `runtime-image.ready` 后，3,231 个路径和逐文件 SHA-256 差异均为 0，两份镜像分别重新通过共享 Verifier。owner 为 frontend 177 / 15,858,420，server-bundle 1 / 12,638,609，commands（含 Prisma）108 / 10,730,043，authoring-kit 510 / 13,417,522，native-islands 2,059 / 75,260,630，system-assets 373 / 5,303,474，runtime-meta 3 / 4,763；全部低于现有 baseline 的 10% 门禁，未放宽 baseline。
+- 历史候选代次（已被后续冻结代次取代）：Source A/B 均为 3,231 payload files / 133,213,461 bytes，`imageId=sha256:fcb795167920d023b196bd37c0999c5dfc20ef5cd5b4ec654a78e7c4efe8f0e2`。Source、Contract、policy、tree/shape identity 与七个 owner inventory 完全一致；排除 `runtime-image.json` / `runtime-image.ready` 后，3,231 个路径和逐文件 SHA-256 差异均为 0，两份镜像分别重新通过共享 Verifier。owner 为 frontend 177 / 15,858,420，server-bundle 1 / 12,638,609，commands（含 Prisma）108 / 10,730,043，authoring-kit 510 / 13,417,522，native-islands 2,059 / 75,260,630，system-assets 373 / 5,303,474，runtime-meta 3 / 4,763；全部低于当时 baseline 的 10% 门禁，未放宽 baseline。
 - 最终验收 ZIP 为 41,599,391 bytes，SHA-256 `6C1C08C1F5BF08C6EC0EA263DD1480C409D496E14490BC7C45AD5F6D46022B19`。仓库外完整 smoke 通过 database/Application State migration、Profile compile、Variable authoring、sqlite-vec、Sharp、Application State、Workspace CLI/node、真实 `web-fetch`、stdin-only create-admin、hostile `NODE_PATH` HTTP Profile compile、认证 shutdown、State Root 移动/删除与 post-smoke `openVerified()`。
 - 早期构建曾两次被同仓外部写入正确拦截：第一次两代 Source identity 不同，第二次在构建内检测到 `PROJECT-STATUS.md`、`RELEASE.md`、Task 105/130 内容变化并拒绝发布。最终 A/B 在稳定窗口通过，未放宽 Source 竞态门禁。以上仍是 dirty Source 的本地 acceptance archive，不是正式 Release archive；本机未执行真实 Docker/rootless Podman，五平台 Candidate Actions、正式归档、浏览器验收与 Tauri/Electron spike 仍待后续证据。
 
@@ -578,7 +578,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 
 ### 2026-08-02：clean Windows 归档与 Portable 组装实测
 
-- 最终clean提交 `0a3cc7fd84f52b1b5478745053a20cfbf0171a25` 生成 Source archive 3,490 entries / 47,101,921 bytes；Windows Product 为 3,231 payload files / 133,213,461 bytes，`imageId=sha256:3641b45ca04f7d3c53fcb76115338a32beda472ac1fb50106b86ef94c6c3b4eb`，Product archive 41,599,956 bytes。三者统一build ID为`sha256:1d6ad6cfd7687132156b91bad64067530f3c53a52a8cb2a72a344b1622ed641c`；应用版本仍是 `0.8.19-canary...`，不是最终0.9 Candidate。
+- 历史 clean 归档代次（已被后续冻结代次取代）：提交 `0a3cc7fd84f52b1b5478745053a20cfbf0171a25` 生成 Source archive 3,490 entries / 47,101,921 bytes；Windows Product 为 3,231 payload files / 133,213,461 bytes，`imageId=sha256:3641b45ca04f7d3c53fcb76115338a32beda472ac1fb50106b86ef94c6c3b4eb`，Product archive 41,599,956 bytes。三者统一 build ID 为 `sha256:1d6ad6cfd7687132156b91bad64067530f3c53a52a8cb2a72a344b1622ed641c`；应用版本仍是 `0.8.19-canary...`，不是最终 0.9 Candidate。
 - PortableGit SFX 在旧的双层 staging 输出根达到 248 字符时稳定退出 1；同一资产在 30/170 字符输出根完成 9,567-file post-install。Portable operation 现使用 OS 临时目录下的短 `nbp-*` 根，提前执行 170 字符预算门禁；最终从上述 Source/Product archives 生成含Manager`.39`的16,322 entries、297,242,174-byte Portable ZIP，SHA-256 `76F52EF5AE0026EE1091F8C433F6D0EA61909DDECBA4B89EFB2884FD3760BA9C`。
 - 仓库外解压后 doctor 31 checks 全绿，Bun 1.3.14、ripgrep 15.2.0、Git 2.55.0.windows.3 与 Bash 5.3.15 均通过真实版本检查。完整 Product Contract 通过数据库/Application State migration、Profile/Variable、sqlite-vec、Sharp、workspace schema/node、管理员创建、HTTP Profile 编译、错误/正确 shutdown token 和 State Root 移动删除；Manager 外层又通过 Owned Process、管理员创建、前台启动、HTTP 登录与零 shadow workspace。
 - 自卸载实测发现公开 Manager `.38` 的 detached Host没有运行，不能把同步Host脚本单测冒充完整生命周期证据。调度边界改为短命PowerShell launcher + 独立Host后，`.39` clean Portable的两条真实链均通过：默认卸载的durable result成功且终态只保留`data/`，`--delete-data`的独立新解压实例成功删除整个Installation Root。Candidate门禁也从“看到`.output`消失”收紧为等待Host成功result并检查完整终态。
@@ -588,128 +588,11 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `RELEASE.md`继续只保存当前0.9版本；`docs/changelog/`与英文镜像只收录已经成为历史的发布线，因此不会在0.9仍是当前Candidate时提前创建`v0.9.md`。正式进入下一发布线后再归档中英文0.9记录。
 - 本轮不实现Developer Mode/rebuild、Tauri/Electron spike或手工浏览器验收。Candidate Actions仍负责五平台、真实Docker/Podman与公开资产证据；本地Windows结果不能替代这些门禁。
 
-### 2026-08-02：五平台确定性与 POSIX Product 最终门禁
+### 2026-08-02：桌面前置的 Source Dev 与 Runtime lease 生命周期
 
-- measurement schema 升为 v3，对全部 payload 文件记录路径、字节数、mode 与 SHA-256；A/B 失败时仍上传两份 measurement。比较器会报告仅存在于单侧的路径与具体漂移文件，不再只给 tree digest 不同。
-- Bun identifier minifier 在 Linux/macOS AArch64及偶发 Linux x64 对同一 Source 产生跨次内容漂移。v3 measurement 将差异定位到 `server/index.mjs`、command chunks 与 Profile compiler，最小差异包含 6-byte 变化；没有采用字节容差。该轮曾采用 Bun link/splitting + esbuild 后置 minify，纯类型空模块固定为 `export{};`；这一结论随后被 macOS ARM64 的 2/2 重现推翻，当前正式合同见后文的 esbuild 同图 hard cut。
-- 最终 baseline workflow [`30733829868`](https://github.com/notnotype/neuro-book/actions/runs/30733829868) 在提交 `18e12750707a16e6119f9769dae49bc2c2c4eca4` 上五平台严格 A/B 全绿。Windows x64 为 3,238 files / 133,455,576 bytes；Linux x64 为 3,241 / 133,294,968；Linux AArch64 为 3,241 / 130,718,274；macOS x64 为 3,241 / 134,063,432；macOS AArch64 为 3,241 / 130,115,684。各平台 Source/runtime/contract/policy、七个 owner、tree/shape digest 和逐文件 SHA-256 均一致。
-- 最终 owner 没有新增；Windows authoring-kit 相对上一审查值增长 `7.8%`，是最大增幅，低于 10% 决策线。Windows owner 为 frontend 177 / 15,272,680；server-bundle 1 / 12,300,171；commands 116 / 10,865,638；authoring-kit 509 / 14,477,260；native-islands 2,059 / 75,260,630；system-assets 373 / 5,274,435；runtime-meta 3 / 4,762。POSIX 除 native-islands 平台字节差异外共用其余精确 owner 基线。
-- Product Platform workflow [`30733829837`](https://github.com/notnotype/neuro-book/actions/runs/30733829837) 在同一提交通过 Linux x64/AArch64 与 macOS x64/AArch64 的 Source/Product archive、Runtime Contract、native islands、sqlite-vec、Sharp、Manager、Owned Process、启动、HTTP 与浏览器 smoke。该证据不包含 Windows Portable、GHCR、最终 Release Manifest 或公开索引。
-- 根全量曾为 468 files passed、1 failed、1 skipped；唯一失败是 `tracked-workspace-files.test.ts` 的非空目录 rename：Project File Index 正在重建时，Windows `fs.rename()` 返回 `EPERM`。最小诊断证明纯 Chokidar/Bun 不复现，关闭 File Index 或等待 build 稳定后可通过，因此根因是完整树扫描与文件 mutation 缺少单 entry 互斥，不是 Product 构建回归。该阻断已由下一节 mutation gate 系统修复；最终根全量结果以本节之后的门禁记录为准。
-- 第一次失败 Draft 已把 package version 推进到 `0.9.0-canary.*`。因此原计划的 `--next minor` dry-run 会错误生成 `0.10.0-canary.*`；同一 0.9 发布线的下一 Candidate 必须显式使用 `--version 0.9.0`，并继续生成新的唯一 canary identity，不复用历史 Draft。
-
-### 2026-08-02：Project File Index mutation gate
-
-- `SnapshotCache` 新增 per-entry `mutate()`：同 key 的完整树 build 与源数据 mutation 串行，不同 key 保持并行；mutation 成功或失败后都推进 generation。`close()` 会取消排队 mutation，并等待已经开始的 mutation settle 后再释放 entry。
-- `ProjectFileIndexHandle` 只暴露 `read/mutate/subscribe`，已删除手动 `invalidate()`；plain Workspace 通过 Adapter 的 `mutatePlain()` 使用同一内核。类型层不再允许“先写盘、再失效”的两段式调用。
-- 八个 Workspace Files 写路由统一经过 `withProjectTargetMutation()`；History revert、Agent write/edit/apply_patch 与 Subject Memory、World Engine/RAG 用户写入、Plot frontmatter、Context Access，以及已打开 Project 的 metadata/封面更新也共用当前 exact generation gate。多 Project Agent patch 按稳定 workspace key 顺序取得 gate，避免反向锁顺序。
-- RAG 与 World Engine 的读取、解析、冲突判断、写盘、History 和 dirty marker 位于同一次 gate，避免两个串行写仍基于同一旧快照而丢更新。plain Workspace mutation 遇到最后一个 SSE activation 正在关闭时，会等待同一精确 lease 完成后重试；关闭失败则保持 fail closed，不猜测新 entry。
-- 原始 Windows 非空目录 rename 回归已通过；路由/History focused 为 8 files / 31 tests，File Index/guard 为 3 files / 15 tests，Agent/Plot 为 2 files / 11 tests，package 为 3 files / 44 tests，根 typecheck 通过。大型 `workspace-files.test.ts` 本次相关 2 项通过。
-- 实际偏差：实现时发现旧的手动失效入口还有五类生产消费者，后续只读审查又找到 metadata/封面、RAG/World Engine 读改写和 plain close-window 三条漏链，因此没有只修八个 HTTP route，而是删除 `ProjectFileIndexHandle.invalidate()` 并迁移全部已知消费者；没有扩展为通用文件事务框架。受信任 Bash 仍可能像外部编辑器一样修改文件，继续由 watcher 处理，不会把任意长命令放进 mutation gate。
-
-### 2026-08-02：mutation gate 最终本地发行门禁
-
-- 第一次根全量为 `467 files passed / 4 failed / 1 skipped`、`3,183 tests passed / 11 failed / 14 skipped`。原 Windows rename `EPERM` 已消失；真实剩余问题是 Subject Memory 两个写工具漏接 mutation gate、Config 测试反复迁移/启动/释放 Session Store 且切换进程 cwd，以及 Profile Coordinator 依赖 3 秒墙钟轮询。
-- Subject Memory 已把模型调用留在 gate 外，最终读改写、History 与 dirty marker 放进 exact Project generation gate；发布前重读源文件，期间变化时拒绝覆盖。`subject-memory-tools.test.ts` 为 `16/16`。
-- Config 测试不再修改 Vitest worker cwd；Workspace Root context 与 `NEURO_BOOK_STATE_ROOT` 同时指向 suite fixture。System Assets、Session migration 与 runtime lease 每个文件只建立一次，Global Config、Profile Home、Project Workspace 和额外临时目录仍逐项删除重建。完整 `config-service.test.ts` 为 `60/60`，约 71 秒；原 `ECOMPROMISED` 与 OXC `Tsconfig not found` 均未复发。
-- Profile Coordinator 新增可等待的 `flush()` idle checkpoint，并对`ok=false`、freshness、worker与Registry恢复异常明确拒绝；`closing`终态阻止teardown后重新enqueue/pump，timer显式消费后台rejection，`dispose()`等待活动pump。Catalog先关闭watcher producer再关闭Coordinator并聚合清理错误。Coordinator 12项、Catalog 46项，组合`58/58`。
-- 最终审查还把 summarizer retry 与 abort queue 测试从20ms/1秒墙钟改为等待Harness正式后台任务排空；两个路由mock不再在模块factory中递归import同一HTTP error依赖。Catalog与Variable真实编译/发布锁用例使用局部15秒集成预算，全仓普通测试仍保持5秒默认值。
-- 最终根全量为 `471 files passed / 1 skipped`、`3,209 tests passed / 14 skipped`，耗时约10分29秒。package为`3 files / 44 tests`，Profile Catalog/Coordinator为`2 files / 58 tests`，最终直接链路组为`6 files / 113 tests`；原`EPERM`与后续生命周期问题均未复发。frozen hoisted install、Nuxt prepare、根/Runtime/scripts/shared/Manager/File Snapshot Cache typecheck、Manager `240 passed / 3 skipped` + release contract `1/1`、install `8 passed / 9 skipped`、Manager pack-check（5 files / 0.43 MiB）与 docs build 全绿。
-- 最终只读审查发现两条发布链补漏。其一，History route 原先在领域写锁外复核 revision，旧审查请求可能接受或还原随后出现的新变化；`nb-history` 现提供锁内条件式 accept/revert/accept-all，批量接受位于单个 SQLite transaction，revert 同时复核磁盘 hash。其二，Profile `dispose()` 原先只等待 pump，未等待已经进入异步扫描的 `enqueue()` / `bootSweep()`；Coordinator 现显式登记 producer，Harness 也持有 startup reconcile/watcher startup，teardown 会等待全部 I/O settle。
-- 补漏验证为 sibling `nb-history` 40/40 + typecheck、NeuroBook 聚焦 5 files / 79 tests、File Snapshot Cache 3 files / 44 tests，以及根、scripts、File Snapshot Cache typecheck 全绿。没有为 metadata/封面再造第二套完整生命周期 fixture：真实生产入口已经进入同一 gate，内核与 Service/lifecycle/publish rollback 均有分层行为测试，额外 fixture 的复杂度高于新增证据价值。
-- 当前代码已通过本地发行门禁，但五平台严格 A/B 与 POSIX Product smoke 的最新证据仍绑定提交 `18e12750`。mutation gate 提交后必须在最终 HEAD 重跑这两条 workflow；在此之前不创建新的 0.9 Candidate，也不复用两个历史失败 Draft。
-
-### 2026-08-02：macOS ARM64 linker 漂移与同图构建 hard cut
-
-- mutation/lifecycle 提交 `f69ff006` 的 Product Platforms workflow [`30746538230`](https://github.com/notnotype/neuro-book/actions/runs/30746538230) 已通过四个 POSIX 平台完整 smoke。Baseline workflow [`30746538313`](https://github.com/notnotype/neuro-book/actions/runs/30746538313) 只有 macOS ARM64 失败：`server/index.mjs` 在 12,305,479 与 12,305,485 bytes 两种结果间变化，两次重试的 A/B 恰好对调，复现率为 2/2；其余 payload 路径稳定。
-- 该证据推翻了“Bun link/splitting + esbuild 后置 minify 已解决确定性”的旧结论。后置 transform 只能压缩 Bun 已经产出的 AST，无法修复 linker 的 module/symbol 排序。正式 Nitro server、命令多入口、Profile Authoring Kit compiler 和类型投影现统一由同一个 esbuild graph 完成 link/tree-shaking/splitting/minify；Bun 继续作为构建宿主与 Product Runtime，不再参与正式 Product 链接。
-- esbuild metafile 的 `entryPoint` 与 output key 统一按各 Builder 的 `absWorkingDir` 收窄；命令 shared chunk 使用 `command-shared-*` 稳定前缀，opaque import 仍固定为三项，没有放宽到任意输出。Bun 将 npm `undici` 解析成同名 bare runtime specifier 时，package-island 重写从已登记 package root 的 manifest 解析入口，并继续执行普通文件与 realpath containment 校验。
-- 当前未提交 Source 在 Windows 完成两次独立 dirty measurement：两份报告除 `measuredAt` 外完整 JSON 相同，3,227 payload files / 133,489,445 bytes，3,227 条逐文件 SHA-256、七个 owner、`treeDigest=sha256:9e352a32745713cd326f11d75fa65a91f4cb9dfd2d92f65d92beb3b4794639fb` 与 `shapeDigest=sha256:28730968247f3a688bd7b9cf02bf2fcd2911d2ac57dad68821a5ab4ec90d0728` 均一致。dirty 证据不更新 canonical baseline；新 HEAD 的五平台 clean A/B 与 POSIX Product workflow 全绿前仍禁止发布 0.9 Candidate。
-
-### 2026-08-02：esbuild 同图 clean 证据与 Web 提取互操作补漏
-
-- 提交 `26c24c8e` 的 Baseline workflow [`30748519159`](https://github.com/notnotype/neuro-book/actions/runs/30748519159) 已在 Windows x64、Linux x64/AArch64 与 macOS x64/AArch64 全部通过两次严格构建，原 macOS ARM64 linker 漂移未复发。同一提交的 Product Platforms workflow [`30748519182`](https://github.com/notnotype/neuro-book/actions/runs/30748519182) 在四个平台均通过 Product build/archive、sqlite-vec、migration、Workspace CLI、Profile compile 与 Variable authoring，随后共同失败在真实 `web-fetch` check。
-- 最终 shared chunk 证明失败不是 native island 或平台差异：esbuild 对动态导入的 `@mozilla/readability` 与 `turndown-plugin-gfm` CommonJS 入口做 code splitting 后，生成 chunk 只公开 `default`，调用 chunk 仍读取 `Readability` / `gfm` 命名导出，依次得到 `undefined`。Windows 完整 15 入口命令 graph 可稳定复现同一错误，最小单文件 bundle 不会复现。
-- Product compatibility plugin 现只对这两个受审入口建立显式 ESM 投影，构建时要求上游 CommonJS 导出片段精确存在一次，运行时要求登记值仍为函数；没有在业务源码增加 named/default fallback，也没有把包扩大为 package island。回归测试真实启用多入口、splitting、动态 import 并执行最终 `.mjs`；完整命令 graph 的本地 `web-fetch` 返回 `{ok:true, provider:"local", characters:160}`。
-- 首轮失败诊断 artifact 因默认排除隐藏目录而漏掉 `.output`。workflow 已改为只上传失败实例的 `.output`、Source/Product identity、State、server log 与浏览器截图，显式允许隐藏文件，不再复制整份 Source。本地验证为 7 个 focused 文件 / 38 项、scripts typecheck、根 typecheck 与 docs build 全绿；提交 `852eead1` 的 Baseline workflow [`30749825353`](https://github.com/notnotype/neuro-book/actions/runs/30749825353) 五平台全绿，Product Platforms workflow [`30749825356`](https://github.com/notnotype/neuro-book/actions/runs/30749825356) 四平台完整通过，Web 提取修复获得真实跨平台证据。
-- Manager `0.1.0-canary.40` 已由 workflow [`30750314307`](https://github.com/notnotype/neuro-book/actions/runs/30750314307) 通过 Trusted Publishing；npm 精确版本/`canary`、两个 Sigstore attestation、5-file tarball、全新缓存真实 bunx 与 `manager:verify-public` 均已验证。新的 0.9 Candidate 必须消费 `.40`，下一步只创建新的唯一 Draft，不复用历史失败 Draft。
-- release coordinator 已创建唯一 Draft `v0.9.0-canary.20260802.134429Z.01a015f6`，release ID `363798604`、revision `a6f9fa7e`，并 dispatch workflow [`30750586392`](https://github.com/notnotype/neuro-book/actions/runs/30750586392)。按仓库约定使用 `--no-watch`，当前 Draft 尚未公开；该 workflow 的 GHCR、Windows Portable、最终 Verifier 与发布激活结果不在本轮本地证据中。
-
-### 2026-08-02：clean Release preflight 生成前置修复
-
-- Draft `v0.9.0-canary.20260802.134429Z.01a015f6`（release ID `363798604`）的 workflow `30750586392` 在 `Verify Stage 0 and Manager contracts` 中执行 `scripts/deploy/product-start.test.ts` 时失败：clean checkout 没有被 Git 跟踪的 `server/generated/prisma/client`，而 preflight 只安装依赖、准备 Nuxt 和运行测试，没有执行 `bun run generate`。本地 Developer Build State 中已有生成目录，所以不能用本地通过掩盖该问题。
-- 修复在 release workflow 的依赖安装后、Product policy/Manager/`product-start` 合同前执行 `bun run generate`；`scripts/release/release-assets.test.ts` 新增顺序断言，固定生成步骤必须早于 Product command graph 检查。旧 Draft 保留为失败审计，不能复用其 release ID、tag 或 revision。
-- 本地验证：release asset contract 20/20、`product-start` Bun test（Windows 平台 SIGTERM 用例按条件跳过）、scripts typecheck、根 typecheck 与 docs build 全部通过。修复后必须创建新的 0.9 Draft，再由 clean runner 重新执行全链门禁。
-- 修复提交 `5fb0f7b9` 推送后，release coordinator 创建新 Draft `v0.9.0-canary.20260802.135629Z.5fb0f7b9`，release ID `363801080`、revision `ab581c1d`，并 dispatch workflow [`30751019906`](https://github.com/notnotype/neuro-book/actions/runs/30751019906)。按 `--no-watch` 协议只确认唯一身份与启动事实；该 Release 仍为 Draft、尚未公开，不能把运行中的 GHCR、Portable、Verifier 或激活门禁记为通过。
-- workflow `30751019906` 的 clean runner 已通过 generated sources、policy、Manager、Stage 0，并在 13:57:49 输出 Agent State Root `{ok:true}`；进程随后直到 14:13:18 取消仍未退出，所有 fan-out 均未开始。根因不是业务断言或 Bun 子进程退出码，而是脚本只 `closeProject()`，全局 Project Session Service/ProjectLifecycle 仍绑定原 Workspace Root；Windows 同时稳定表现为移动 State Root 时 `EPERM`。
-- smoke 现由脚本 owner 在两个阶段都调用 `closeAllProjects()`，停止全局维护并释放 Lifecycle 后再移动 State Root；没有用 `process.exit(0)` 掩盖资源泄漏。Windows 真实两阶段 smoke 在 6.4 秒自然退出，完成 rename、移动后 session/History/Variable/Agent 工具恢复。workflow step 增加 10 分钟硬超时，防止未来生命周期回归无限占用 runner；旧 Draft 保留取消审计，下一次仍必须使用新 tag、release ID 与 revision。
-- 生命周期修复后的 Draft `v0.9.0-canary.20260802.142014Z.fa92005b`（release ID `363806130`、revision `043773ec`）dispatch workflow [`30751890962`](https://github.com/notnotype/neuro-book/actions/runs/30751890962)。clean runner 在 47 秒内通过 generated sources、policy、Manager、Stage 0 与 Agent State Root，随后 release assets Vitest 在收集目标文件前加载全仓 Agent `globalSetup/setupFiles`，clean hoisted Zod 模块形状与本地 Developer Build State 不同而失败；没有进入任何 fan-out。
-- release assets 与 checksum 两个合同现使用独立 `release-assets-vitest.config.ts`，只设置 `nbook` alias、Node environment、单 worker 和两个精确 include，不加载 Agent/Nuxt fixture。专用命令为 2 files / 22 tests、setup 0ms；合同测试同时约束 workflow 必须使用该配置且不得出现 `globalSetup` / `setupFiles`。该失败 Draft继续保留审计，下一 Candidate仍使用新身份。
-
-### 2026-08-02：第四次 Draft fan-out 与双链修复
-
-- 新 Draft `v0.9.0-canary.20260802.142653Z.be5484f8`（release ID `363807688`、revision `1be5556459c7b2b6f6828b0efaf2ff69da544aea`）dispatch workflow [`30752133985`](https://github.com/notnotype/neuro-book/actions/runs/30752133985)。Release preflight、Source archive、Linux x64/AArch64与macOS x64/AArch64 Product全部成功，证明前面三轮的生成、State Root和资产测试隔离修复已经进入clean Candidate。
-- 两个OCI原生架构共同失败于deps stage：Dockerfile在`bun install --frozen-lockfile`前只复制package manifest与lockfile，没有复制lockfile登记的`patches/nitropack@2.13.4.patch`。修复把完整`patches/`投影到deps stage，并由Dockerfile合同固定copy必须早于install；本机无Docker CLI，容器构建本身仍由下一Candidate取得真实证据。
-- Windows job在Product构建前的Owned Process smoke停止。finally的`EBUSY`一度掩盖了旧`spawn()`返回值用法；修正为`spawned.job.jobId`后，smoke以父harness/子worker分离测试宿主和临时根所有权：worker完成timeout、abort、Agent Job cancel、shutdown及nested Product进程树验证，退出后父harness再删除专属根。没有用删除重试或忽略错误绕过真实泄漏。
-- `scripts` TypeScript project此前未包含Windows smoke，旧返回值漂移因此未被静态检查发现。现已登记smoke及其既有网页提取类型声明，Release preflight在任何fan-out前同时运行scripts与Owned Process package typecheck；发行合同固定命令和tsconfig include。
-- 本地验证为Owned Process包`14 passed / 3 skipped`、两条真实Windows smoke、Dockerfile合同`1/1`、release assets `22/22`、scripts/package/root typecheck与docs build全绿。workflow `30752133985` 保持失败Draft、没有公开资产或正式OCI tag；修复提交后必须创建新的唯一Draft，不能复用该release ID、tag、revision或部分产物。
-
-### 2026-08-02：第五次 Draft 的五平台 Product 与 workspace deps补漏
-
-- Draft `v0.9.0-canary.20260802.151219Z.dc386983`（release ID `363818038`、revision `cc507c5e1619cee8f0cc49821ae4a7e4d27076e1`）dispatch workflow [`30753830837`](https://github.com/notnotype/neuro-book/actions/runs/30753830837)。新增的scripts/Owned Process typecheck在preflight通过，Source与Windows、Linux x64/AArch64、macOS x64/AArch64五个平台Product全部成功；Windows已越过Owned Process smoke并完成Product构建。
-- OCI已成功看到`patches/nitropack@2.13.4.patch`，随后两个原生架构共同在frozen install拒绝缺失的`@notnotype/file-snapshot-cache`与`@notnotype/owned-process` workspace。根manifest声明`packages/*`，只复制Manager manifest不足以建立Bun workspace图。
-- Docker deps stage现只补三个workspace package manifest，不复制源码整树，保留依赖层缓存。合同测试扫描实际`packages/*/package.json`，汇总根与全部workspace manifest的`workspace:`依赖，并要求每个依赖对应的manifest在frozen install前COPY；新增workspace依赖不能再静默漏投影。
-- 本地最小deps投影已用真实lockfile、patches和三个manifest完成`bun install --frozen-lockfile --linker hoisted --ignore-scripts`，解析出两个workspace package；完整postinstall在本机Windows因隔离目录中的esbuild平台二进制缺失失败，不能替代下一次Linux BuildKit证据。临时投影已删除。
-- 该workflow因OCI失败跳过merge、assemble、Portable、GHCR公开验收与发布激活，Release保持Draft。下一轮仍创建全新Candidate，不复用`363818038`或五个平台的部分产物。
-
-### 2026-08-02：第六次 Draft 的 OCI 短 Source Root 误报
-
-- Draft `v0.9.0-canary.20260802.152845Z.726eb70b`（release ID `363821373`、revision `6f6a9ef91a55cfb5a1edbd505d0b7561468903e4`）dispatch workflow [`30754453941`](https://github.com/notnotype/neuro-book/actions/runs/30754453941)。Release preflight、Source archive和Windows、Linux x64/AArch64、macOS x64/AArch64五个平台Product全部成功；Docker deps stage也已越过patch、workspace解析、frozen install与Nuxt raw build。
-- 两个OCI原生架构共同在Product后处理失败。`Product system artifact`门禁把Docker Source Root `/app`作为无边界普通子串查找，因此`nbook/app/**`这类合法模块标识符也会被同一算法误判；其他runner的Source Root较长，没有暴露这个短根条件。最小回归先复现`/app`误报，再把检查收紧为路径token边界；真实`/app/.deploy/**`、Bun/pnpm物理store与Nitro fallback仍会被拒绝，没有添加Docker豁免。
-- 该workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release继续保持Draft。修复本地通过path contract 3/3、scripts与根typecheck、docs build；下一轮仍必须创建新的唯一Candidate，不能复用`363821373`或前六次Draft的任何部分产物。
-
-### 2026-08-02：第七次 Draft 的运行根与 Source Root 身份冲突
-
-- Draft `v0.9.0-canary.20260802.154612Z.a9ca2668`（release ID `363825288`、revision `c151d3b8e41e4e849e351e4a254e67493d9f2b13`）dispatch workflow [`30755110092`](https://github.com/notnotype/neuro-book/actions/runs/30755110092)。Release preflight、Source archive和五个平台Product全部成功；两个OCI架构也再次完成deps与raw build，随后共同在Runtime bundle绝对路径门禁失败。
-- 根因不是架构漂移，而是Docker构建Source Root与正式Runtime Application Root都为`/app`。Runtime bundle合法包含容器SQLite映射所需的精确`"/app"`，旧门禁却把Source Root本身视为构建路径泄漏；AMD64与ARM64日志在同一行、同一错误收口。
-- 路径合同现集中到共享Module：精确运行根与`nbook/app/**`模块标识符允许，只有继续指向Source Root下文件/目录的绝对后代路径才拒绝；`/app/server/**`、Windows反斜杠后代、Bun/pnpm store、非法import与Nitro fallback继续fail closed。没有改Docker正式`/app`、没有增加平台豁免，也没有降低结构化import closure检查。
-- workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release继续保持Draft。本地验证为两个正式contract 2 files / 7 tests、scripts与根typecheck全绿；下一轮仍创建全新Candidate，不复用`363825288`或其部分产物。
-
-### 2026-08-02：第八次 Draft 暴露剩余路径门禁分叉
-
-- Draft `v0.9.0-canary.20260802.160118Z.5e41b2b0`（release ID `363828977`、revision `c0643142337b29c281955fe50737d3e05247d449`）dispatch workflow [`30755685695`](https://github.com/notnotype/neuro-book/actions/runs/30755685695)。Release preflight、Source archive和Windows、Linux x64/AArch64、macOS x64/ARM64五个平台Product全部成功；两个OCI架构完成deps、raw build和Product后处理后，在最终Runtime module closure共同失败。
-- 最终closure把多个Profile artifact、Authoring worker、command chunk、Application State migration与server入口中的精确运行根`/app`继续误报为构建机绝对路径。第七次修复只让Runtime bundle和System artifact消费共享合同，最终closure与Authoring declaration仍保留各自的Source Root子串检查；这是共享invariant接入不完整，不是Docker平台差异。
-- 四个消费者现统一消费同一Source路径合同：Runtime bundle、System artifact、最终module closure与Authoring declaration都允许精确运行根，拒绝`/app/server/**`、`/app/.deploy/**`等Source Root绝对后代。Bun/pnpm物理store、非法import、Nitro fallback和候选目录外引用继续fail closed；没有修改正式容器Application Root，也没有增加平台豁免。
-- workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release继续保持Draft且没有公开资产。本地验证为4 files / 18 tests、scripts与根typecheck、`git diff --check`全绿；下一轮仍创建全新Candidate，不复用`363828977`或前八次Draft的任何产物。
-
-### 2026-08-02：第九次 Draft 的 Git-less 生成态与 Windows clean transform
-
-- Draft `v0.9.0-canary.20260802.162002Z.4e3d6150`（release ID `363832998`、revision `621a5bca5fe142bc0c3e644bcd23126a98eabcdb`）dispatch workflow [`30756404604`](https://github.com/notnotype/neuro-book/actions/runs/30756404604)。Release preflight、Source archive、Linux x64/AArch64与macOS x64/ARM64 Product成功；Windows在Product构建前失败，双OCI在Product最终复核失败。
-- 双OCI都完成deps、raw build、Product后处理与最终module closure，证明第八次的四消费者共享路径合同修复已进入clean Docker构建。随后Builder检测到`logs/server-current.jsonl`在Source snapshot前后变化并fail closed：根`logs/`已由`.gitignore`定义为运行状态，但Git-less排除集和`.dockerignore`同时漏掉它，Nuxt build写入日志时因此把自身生成态误算为Source输入。修复只把精确根`logs/`同步到两份输入排除合同；未知目录和真实`src/**`变化仍拒绝。
-- Windows clean runner在`manager:test`的Vite OXC transform阶段报告共享`product-source-path-contract.ts`没有tsconfig。该文件未登记进`scripts/tsconfig.json`的显式include；POSIX preflight能够沿import解析，Windows package-root resolver不能。修复把共享Module加入正式scripts类型项目，不移动边界、不增加resolver hack。本机禁用Vitest cache的Manager全量为36 files passed / 1 skipped、240 tests passed / 3 skipped。
-- workflow按协议跳过merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release保持Draft且没有公开资产。修复本地通过Product/输入合同6 files / 35 tests、scripts与根typecheck、docs build及无cache Manager全量；下一轮仍创建全新Candidate，不复用`363832998`或前九次Draft的任何产物。
-
-### 2026-08-02：第十次 Draft 的 Git-less Product 发布 Adapter
-
-- Draft `v0.9.0-canary.20260802.163721Z.3ffdc320`（release ID `363836995`、revision `a3a7654b64f982b156c3d2a2934c13e7074b8d32`）dispatch workflow [`30757057719`](https://github.com/notnotype/neuro-book/actions/runs/30757057719)。Release preflight、Source archive和Windows、Linux x64/AArch64、macOS x64/ARM64五个平台Product全部成功；Windows clean Manager transform、Owned Process、State Root与Product归档均越过第九次故障。
-- 双OCI也完成deps、raw build、Product后处理、最终module closure、Source二次摘要和verified candidate，证明`logs/`生成态排除合同生效。随后`LocalProductPublisher`拒绝在没有`.git`的Docker build中隐式切换checkout根`.output`；Dockerfile此前没有按错误合同设置`NEURO_BOOK_OUTPUT_DIR`，AMD64与ARM64同因失败。
-- 修复保留Publisher的安全边界：只有本地Git checkout可隐式切换根`.output`；Docker build Adapter在单次build命令显式传`NEURO_BOOK_OUTPUT_DIR=/app/.output`，由同一个Publisher接收并再次验证candidate。没有让Git-less调用方猜测输出路径，也没有直接复制未发布staging。Dockerfile正式合同先红后绿。
-- workflow按协议跳过OCI merge、assemble、Portable、公开GHCR、最终Verifier和Release/正式tag激活，Release保持Draft且没有公开资产。下一轮仍创建全新Candidate，不复用`363836995`或前十次Draft的任何产物。
-
-### 2026-08-03：第十一次 Draft 的 Windows 二次启动生命周期
-
-- Draft `v0.9.0-canary.20260802.165232Z.0d4fd1c0`（release ID `363840225`、revision `0d6b16613ec247d3d6e1a749175b7588b576b58f`）的五平台 Product、双OCI、assemble、Linux公开GHCR smoke、Windows Runtime Contract与首次真实浏览器 smoke均通过。
-- Windows authenticated login 在复用同一State Root时失败于 `runtime.lease` 的 `ELOCKED`。前一浏览器 step只强杀Manager并检查端口，跳过了Manager已有的graceful Product shutdown；端口释放不是Store lease释放证明。失败 Draft保持空资产，后续最终Verifier、公开资产、Podman、A→B、自卸载与Release激活均跳过。
-- 本轮修复增加宿主stdin关闭到`launch.shutdown()`的正式控制边界；新Windows Portable verifier使用包内Manager完成浏览器→正式shutdown→lease立即重取→管理员→第二次启动登录的完整顺序，并修正诊断artifact的`$RUNNER_TEMP`路径。由于Manager bundle发生变化，必须先发布新的Manager canary，再创建新的唯一0.9 Candidate；不复用`.40`、第十一次Draft或其部分产物。
-- 本地验证为Manager全量36 files passed / 1 skipped、241 passed / 3 skipped，Manager/scripts/root/Runtime typecheck、Manager pack、Release asset contract 20/20、install 8 passed / 9 skipped、docs build与根全量471 files passed / 1 skipped、3216 passed / 14 skipped。真实Windows Portable二次启动仍待新Candidate。
-- Manager `0.1.0-canary.41` 已由 workflow [`30759838936`](https://github.com/notnotype/neuro-book/actions/runs/30759838936) 通过Trusted Publishing。npm `gitHead`为`740182403c74b30712ebe7f5b172afe84208029e`，5-file公开tarball SHA-1为`87fff983046118dd5f0f5aebf7a85baa90f35abd`；registry signature、npm publish attestation、SLSA provenance、全新Bun cache真实bunx与`manager:verify-public`均已验证。
-- 本地公开校验同时发现原脚本的`git fetch --depth=1`会把完整开发仓标成shallow repository。现改为先检查公开`gitHead`对象，只在缺失时按精确commit抓取且不传depth；本地Git历史已恢复，Release contract禁止该参数复发。
-
-### 2026-08-03：第十二次 Draft 的 Windows 冷启动验收窗口
-
-- Draft `v0.9.0-canary.20260802.180343Z.12a9b18d`（release ID `363855156`、revision `d72c796ebbd869a84ffe38c73cbbfa4b82294ef5`）dispatch workflow [`30760273783`](https://github.com/notnotype/neuro-book/actions/runs/30760273783)。Release preflight、Source、五平台Product、双OCI与multi-arch merge、assemble、Linux GHCR identity/Runtime Contract/真实浏览器/公开Manager smoke均通过；Windows Product与Portable也完成构建。
-- Windows先通过Portable executable/doctor、Runtime Contract与shadow-workspace诊断，随后restart verifier在第一次启动的60秒外层等待到期。诊断日志无stderr，Manager已完成migration、14个Profile和326个system asset同步，并输出`Listening on http://127.0.0.1:39123`；失败发生在浏览器之前，不是`runtime.lease`复发，也没有形成二次启动证据。
-- Manager正式启动本来允许120秒，Verifier不能用更短的60秒抢先裁决。外层保护窗口现为150秒，仍持续监控Manager提前退出和版本identity；Manager自身若在120秒失败会先给出终态，不增加重试、不忽略错误，也不改变`.41` bundle。Draft保持空资产且未公开，后续publish、Podman、A→B、自卸载、最终Verifier与OCI正式tag激活均按协议跳过。
+- 直接 Source Dev 不再把 Nuxt 进程树交给终端隐式管理。公开 `dev` 进入 Owned Process launcher，内部 `dev:runtime` 保留完整构建链；Manager 直接拥有内部入口，避免双重 owner。正常信号复用 Product 认证 shutdown，宿主异常退出由 Windows Job Object/POSIX process group 收口。
+- Session Store 的 runtime/migration 物理 lease 增加不含用户内容和凭据的最小 owner JSON，并用稳定 `ELOCKED` 错误报告 lease path、heartbeat 和可选 owner。metadata 不改变 15 秒 heartbeat / 30 秒 stale 协议，也不成为 Desktop 自动清理或杀进程的权威。
+- Windows 仓库外 fixture 和隔离 State Root 的完整 Source Dev smoke 已通过；真实可见终端关闭仍属于 Task 117 的人工候选验收。此修复不改变 Product Runtime Image、Installation Manifest、Desktop Root 或 Tauri/Electron 选择。
 
 ## TODO / Follow-ups
 
@@ -722,100 +605,4 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - [ ] Phase 3：在 Desktop Envelope spike 中验证普通页面 Origin/CSP 和最小 Tauri capability。
 - [ ] Phase 4：执行 Tauri/Electron Windows 双 spike。
 - [ ] 基于 spike 结果冻结 Desktop Envelope 技术选择。
-- [x] 完成 0.9 Product、Windows Portable 与 Container Canary 的公开号、索引和 OCI 激活。
 - [ ] Phase 5：实现首个 Desktop Release、更新、回滚、退出和卸载闭环。
-
-### 2026-08-03：第十三次 Candidate 的 Windows stdin 所有权修复
-
-- Draft `v0.9.0-canary.20260802.182923Z.61966c00`（release ID `363861676`）的 workflow [`30761237553`](https://github.com/notnotype/neuro-book/actions/runs/30761237553) 再次完成五平台Product、双OCI、assemble、Linux公开验证与Windows Runtime Contract。Windows restart step由Manager正式120秒健康检查失败，Release仍为Draft、空资产且未激活正式OCI tag。
-- 同一Product的直接仓库外Verifier在60秒内完成全部命令、HTTP与shutdown；Owned Process、完整Portable根和原State Root对照均在6至10秒ready。唯一稳定失败条件是Manager执行`process.stdin.resume()`后仍让Product继承同一开放Windows pipe，最终`server/index.mjs`存活但不监听。
-- 修复保持生命周期单一所有权：Manager读取宿主stdin；Product stdin为`ignore`；关闭仍走Manager shutdown token和Owned Process Job fallback。没有增加timeout、进程扫描、平台豁免或新的事务Module。
-- 修复后本地Manager bundle消费原Candidate 13包，5.84秒ready，stdin关闭后退出码0并立即重取Agent Session Store lease。回归、Manager完整241 passed / 3 skipped、typecheck与pack通过。下一步必须先公开并验证Manager `.42`，再创建新Candidate；失败Draft不复用。
-- Manager `.42` 的 workflow [`30764517751`](https://github.com/notnotype/neuro-book/actions/runs/30764517751) 已完成Trusted Publishing。npm gitHead、5-file tarball SHA-1、registry signature、两份attestation、全新Bun cache真实bunx与`manager:verify-public`均通过；下一唯一Candidate可以正式消费`.42`。
-- 第十四次Draft `v0.9.0-canary.20260802.200609Z.dc568d1e`（release ID `363883460`、revision `53b9a153e93b348d1f85577dbb7f98d4ad870e6c`）已dispatch workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479)。当前Release仍为Draft、0资产、未公开；按`--no-watch`约定不在本轮等待Actions，所有剩余门禁以后台实际结果为准。
-
-### 2026-08-03：第十四次 Candidate 的 assemble tarball 故障
-
-- workflow [`30764872479`](https://github.com/notnotype/neuro-book/actions/runs/30764872479) 已通过Release preflight、Source、Windows/Linux/macOS五平台Product、Windows Portable组装、双架构OCI与multi-arch merge。assemble runner执行frozen install时已安装3,095个包，但`@rolldown/binding-linux-x64-musl@1.1.5`的单个npm tarball下载/解压失败，因而没有生成Release Manifest和候选bundle。
-- 证据边界保持严格：五平台Product与OCI成功继续成立；Windows最终restart/authenticated lifecycle、公开payload、GHCR AMD64/ARM64与rootless Podman、A→B/data reuse、跨Profile、自卸载、最终Portable Verifier、Release公开和正式OCI tag激活全部跳过。Draft仍为0资产、未公开，并作为失败审计永久保留。
-- 新增Release专用依赖安装Module并让13个clean-runner入口统一消费。它始终调用`bun install --frozen-lockfile`，只识别下载、瞬时HTTP/网络和归档解压错误，按2秒/10秒退避最多尝试3次；确定性的lockfile或版本错误立即传播，连续瞬时失败也保持非零终态。实现不删除cache或`node_modules`，让重试只补缺失包；没有放宽identity、复用Candidate或增加通用重试框架。
-- 本地验证包括真实frozen install、Release故障注入与资产合同3 files / 26 tests、scripts typecheck。下一步提交该边界并创建全新Candidate，从头执行全部Release链。
-- 修复提交`03357aca`已推送`master`。release脚本创建版本提交`3ee52492`并把全新第十五次Draft `v0.9.0-canary.20260802.203034Z.03357aca`（release ID `363887944`）dispatch到workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992)；同一提交随后fast-forward推送`master`。当前Draft为0资产、未公开，按`--no-watch`协议不把dispatch写成Release成功。
-
-### 2026-08-03：第十五次 Candidate 的 Windows Playwright/Bun 边界
-
-- workflow [`30765794992`](https://github.com/notnotype/neuro-book/actions/runs/30765794992) 已越过第十四次网络故障：Release preflight、Source、五平台Product、Windows Portable、双架构OCI、multi-arch merge、assemble和Linux最终验证全部成功。Windows executable/doctor、Runtime Contract、shadow-workspace以及第一次Manager ready也通过。
-- Windows浏览器动作中，Playwright经Bun 1.3.14启动系统Chrome并得到PID，但180秒内无法建立`--remote-debugging-pipe`。Product日志已完成migration、Profile/system asset准备并监听`127.0.0.1:39123`；浏览器失败后的正式Manager shutdown和Agent Session Store lease重取没有附加错误。该故障不是Product identity、页面、HTTP、State Root或生命周期回归。
-- 最小反馈环不启动NeuroBook即可在本机复现：Bun启动Chrome与Edge都超时；Node 24连续五次启动同一Chrome为147至172毫秒。修复把浏览器探针放入Node+tsx子进程，并在Windows上拒绝Bun直接执行；60秒浏览器launch与120秒子进程边界保证失败可收口。Portable、Manager、Product和应用数据生命周期仍由候选包内Bun执行，没有引入第二套产品Runtime。
-- 本地回归为Release asset contract 20/20、scripts typecheck、真实Node Chrome DOM/版本smoke通过；Bun误用在277毫秒内明确拒绝。Candidate 15保持0资产Draft、未公开且不复用，Windows二次鉴权启动、自卸载、公开payload、GHCR AMD64/ARM64、rootless Podman、0.8.6 data reuse、最终Portable Verifier、Release公开和OCI正式tag仍待下一唯一Candidate。
-
-### 2026-08-03：第十六次 Candidate 的 Draft asset 下载权限
-
-- 新Draft `v0.9.0-canary.20260802.210808Z.dddec169`（release ID `363895565`、revision `37045283eefb519a45c202c05d610941937c457e`）dispatch workflow [`30767213367`](https://github.com/notnotype/neuro-book/actions/runs/30767213367)。五平台Product、Windows Portable、双架构OCI、multi-arch merge、assemble、Linux Runtime/GHCR/browser/Manager，以及Windows Runtime/真实Chrome/同State Root鉴权重启/shutdown/lease/两种自卸载全部成功。
-- `publish-payload`上传10个候选payload后，Release仍保持Draft。独立Verifier以`contents: read`下载Draft asset bytes时收到GitHub `403 Resource not accessible by integration`；同一asset endpoint用具备Release写权限的token能返回原始bytes，GitHub记录的size/digest也正确。根因是GitHub App对未公开Release资产的权限要求，不是归档或摘要漂移。
-- 修复只让独立payload verifier声明`contents: write`，仍逐个按release ID与asset ID下载GitHub实际bytes并复核统一Manifest/checksum；后续GHCR、Podman和Windows data reuse不扩权。Candidate 16不rerun、不复用；10个资产保持在未公开Draft中，A→B、GHCR双架构、Podman、最终索引公开和OCI正式别名仍待下一Candidate。
-
-### 2026-08-03：第十七次 Candidate 的候选 Compose 校验边界
-
-- Draft `v0.9.0-canary.20260802.213518Z.475cda42`（release ID `363900563`、revision `5bb9e01bf048b7a21efe7c5e42f08b24bb8a9515`）的 workflow [`30768238823`](https://github.com/notnotype/neuro-book/actions/runs/30768238823) 已完成五平台Product、Windows Portable、双架构OCI、assemble、Linux最终验证、Windows浏览器/鉴权重启/shutdown/lease/两种自卸载、Draft 10个payload实字节复核和0.8.6完整data复用。第十六次权限阻断已由clean runner关闭。
-- GHCR AMD64/ARM64和rootless Podman都在正确digest拉取完成后失败。Fresh Install迁移plan使用Operation staging内的候选Compose，但一次性Product命令执行前仍读取尚未切换的根Compose做身份校验，导致三个平台一致返回`.deploy/docker-compose.generated.yml` ENOENT；这不是OCI内容、架构、rootless权限或目录创建失败。
-- 修复让Compose镜像校验与实际`docker compose -f`严格消费同一路径，保留候选验证通过后才切换正式Compose的事务顺序。行为测试覆盖“正式Compose不存在、候选Compose存在”的真实安装形状；Manager全量242 passed / 3 skipped、typecheck、pack、Release 3 files / 26 tests、scripts typecheck和docs build通过。
-- Candidate 17保持10资产Draft且不复用，最终Release和OCI正式Canary tag仍未产生。Manager `.43`已由workflow [`30769613583`](https://github.com/notnotype/neuro-book/actions/runs/30769613583)完成Trusted Publishing；npm `gitHead=6d62e57387820b501cdc51022b13bb8607c0d137`，公开tarball SHA-1为`43cc2e38aa754383bb94f49066039f050e28b816`，registry signature、SLSA provenance、真实`bunx`与`manager:verify-public`均通过。全新Candidate需从头重跑GHCR双架构、rootless Podman、最终Portable Verifier、Release公开和OCI别名激活。
-
-### 2026-08-03：第十八次 Candidate 的 staging bind mount 边界
-
-- Draft `v0.9.0-canary.20260802.221657Z.3e2b7d33`（release ID `363907966`、revision `c2bc42e2dfe2980ec1632fcd3f2d636d57fe022a`）的 workflow [`30769774882`](https://github.com/notnotype/neuro-book/actions/runs/30769774882) 已通过17个job。五平台Product、Windows Portable、双OCI、assemble、Linux最终验证、Windows完整生命周期、Draft 10个payload实字节复核和0.8.6完整data复用均成功；Candidate 17的正式Compose ENOENT没有复发。
-- 三个公开GHCR job均越过候选镜像identity校验，随后把无`./`前缀的`staging/<operation>/migration-plan-*`解释为named volume而失败。Docker AMD64/ARM64报`undefined volume`，rootless Podman报`volume ... not defined in top level`；三者首错一致。
-- Compose生成现在区分执行布局与激活布局：迁移plan按候选文件所在staging生成`./migration-plan-*` bind source，plan通过后再按最终`.deploy`位置重渲染为`../...`并事务rename。Update也先按staging执行、再按最终位置重写，避免只修Fresh Install留下同类缺口。
-- focused Docker/Updater为33/33，Manager全量242 passed / 3 skipped，typecheck与隔离Release合同26/26通过。Manager `.44`已由workflow [`30771114654`](https://github.com/notnotype/neuro-book/actions/runs/30771114654)完成Trusted Publishing；npm `gitHead=24d35a994fe235cb878c2af5643cc20e80a72828`，公开tarball SHA-1为`3731d2b8b6ce49b27191b568e85861ddb1d90ad5`，registry signature、SLSA provenance、真实`bunx`与`manager:verify-public`均通过。下一步创建全新Candidate；Candidate 18保持10资产Draft，最终Portable Verifier、Release公开和OCI正式Canary tag仍未产生。
-
-### 2026-08-03：第十九次 Candidate 的公开 GHCR 最终门禁
-
-- Draft `v0.9.0-canary.20260802.225655Z.c6749e43`（release ID `363915323`、revision `77c8792bfe52e7b4f389e88bb72b8e68d2abc382`）的 workflow [`30771219424`](https://github.com/notnotype/neuro-book/actions/runs/30771219424) 有17个job成功、3个失败。五平台Product、Windows Portable、双OCI与merge、assemble、Linux最终验证、Windows完整生命周期、Draft 10个payload实字节复核和0.8.6完整data复用全部通过；第十八次staging bind source问题未复发。
-- Docker AMD64/ARM64安装和管理员创建成功后，公开smoke因读取`$root/.env`失败；实际State Root由Manifest locator声明为`$root/data`。修复通过窄Release Adapter严格解析Manifest，不猜固定目录，并让Compose cleanup/ps/stop共用解析后的State Root。
-- rootless Podman已拉取正确digest并启动候选容器，但`podman-compose 1.0.6`的诊断与容器ID共享stdout，Manager无法得到唯一机器身份并按事务协议回滚。Manager改由Podman原生命令按Compose working-dir realpath和`app` service label查询，继续拒绝零以外的多容器或非法ID；没有按容器名猜测，也没有放宽Journal身份。
-- 本地验证为Docker/Podman 23/23、State Root locator 5/5、Manager全量243 passed / 3 skipped、独立Release合同31/31、Manager/scripts typecheck和docs build通过。Candidate 19保持10资产Draft、未公开且不复用。
-- Manager `.45`已由workflow [`30772919928`](https://github.com/notnotype/neuro-book/actions/runs/30772919928)完成Trusted Publishing；npm `gitHead=c07d4a157d88ea480e5075905446b894c174fa31`，5-file tarball SHA-1为`02bd5a3cd5a8d15847558f32763506fac79e5fdf`，registry signature、2份attestation、SLSA provenance、隔离Bun cache真实bunx和`manager:verify-public`均通过。Candidate 20必须从头运行全部gate；最终Portable Verifier、Release公开和OCI正式Canary tag仍未产生。
-
-### 2026-08-03：第二十次 Candidate 的可写根与Podman inspect合同
-
-- Draft `v0.9.0-canary.20260802.235048Z.3930b64d`（release ID `363924164`、revision `d680200bc8b77619a38b02527788df65480d403b`）的 workflow [`30773118840`](https://github.com/notnotype/neuro-book/actions/runs/30773118840) 最终有16个job成功、3个job失败。Source、五平台Product、Windows Portable、双架构OCI与merge、assemble、Linux最终验证、Windows Runtime/真实浏览器/鉴权重启/shutdown/lease/两种自卸载、Draft payload实字节复核与0.8.6完整data复用全部通过；Candidate 19的State Root和Podman容器查询问题均未复发。
-- Docker AMD64/ARM64完成安装、启动与管理员创建后，图片变体smoke在全新`/app/cache`下失败。Image Variant Module按产品语义退化到内存结果，但随后磁盘合同看到`/app/cache/image-variants`不存在。根因是Manager没有在任何Container命令前由宿主用户建立Cache Root，Docker代建bind source后其ownership与Compose指定的非root用户不一致；同一缺口也会影响尚未首次使用的`State Root/tool-state`。修复让安装迁移与每次启动都先建立这两个明确运行根，不在smoke中预建目录或放宽持久缓存断言。
-- rootless Podman已通过原生labels定位唯一候选容器。Podman 4.9.3在没有healthcheck时仍输出`State.Health`对象，但`Status`为空字符串；旧的Docker共用Schema要求非空状态，因此拒绝了真实inspect JSON。Adapter现优先读取Podman顶层`ImageName`并接受空Health状态，Docker合同保持不变。候选ID一经唯一定位即先写入Operation Journal，再执行镜像身份门禁；后续验证失败时可以精确停止本次容器。CLI同步展开AggregateError中的原始操作与恢复叶错误，避免平台日志只剩总括句。
-- 本地回归为相关3 files / 48 tests、Manager全量248 passed / 3 skipped、Manager/root/scripts typecheck、5-file pack和Release 4 files / 31 tests通过。根typecheck额外发现一个已提交设置模块从Vue SFC导入命名类型的问题，已把该跨边界DTO改为独立结构类型，不改变界面行为。Candidate 20保持10资产Draft、未公开且不复用；Manager `.46`供应链验证、Candidate 21、最终Portable Verifier、Release公开与OCI正式Canary tag仍待完成。
-- Manager `.46`已由workflow [`30775254534`](https://github.com/notnotype/neuro-book/actions/runs/30775254534)完成Trusted Publishing；npm `gitHead=ef98cf244bb0c942f374e67b7db9d4fed020756a`，5-file tarball SHA-1为`b94e32004a731019a550adfa7d418a3b12317674`，registry signature、2份attestation、SLSA provenance、隔离cache真实bunx和`manager:verify-public`均通过。下一步从头创建Candidate 21；最终发布状态仍由该workflow的完整矩阵决定。
-
-### 2026-08-03：Candidate 21 的发布线恢复与审计
-
-- 发行脚本的`--next minor`按当前package version计算；因为历史失败Draft已经把版本推进到`0.9.0-canary.*`，该参数实际生成了错误的`0.10.0`。Draft `v0.10.0-canary.20260803.005155Z.4eb16b29`（release ID `363935623`、revision `d1a5a5f0514dd645c9801307fd0f667bb872100d`）只存在于隔离分支，workflow [`30775479903`](https://github.com/notnotype/neuro-book/actions/runs/30775479903)已取消。Draft保持空资产与未公开状态；GHCR Registry API对`candidate-363935623`和正式版本tag都返回404，因此没有正式OCI别名需要回滚。
-- 不删除错误Draft、不改写其历史，也不在该分支继续发布。从`origin/master`建立干净分支后，dry-run使用显式`--version 0.9.0`确认目标，再创建Candidate 21：Draft `v0.9.0-canary.20260803.005535Z.4eb16b29`（release ID `363936400`、revision `ca8dd97f760f0726a09b81c4ea59abae735370c7`），workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)已dispatch并在后台执行。发行revision已fast-forward到`origin/master`；在完整矩阵通过前，Draft不会公开，OCI正式tag也不会激活。
-
-### 2026-08-03：Candidate 21 的 GHCR Source 首错
-
-- Workflow [`30775631022`](https://github.com/notnotype/neuro-book/actions/runs/30775631022)最终17个job成功、3个失败。五平台Product、Windows Portable、双OCI build/merge、assemble、Windows/Linux最终验证、Draft 10资产实字节和0.8.6完整data复用均成功；AMD64、ARM64与rootless Podman都在容器重启后出现同一Source模块解析错误，最终索引与OCI正式tag因此跳过。
-- 三个平台相同首错为Actions checkout内的Manager Source无法解析私有`@notnotype/owned-process`；公开`.46` tarball本身复核正确。Candidate 21日志最初把失败归到相邻的Manager `start`，Candidate 22隔离bunx后证明`start`已成功，真正失败的是随后运行的Source故障注入脚本。
-- GHCR生命周期仍把bunx cwd固定到相邻空目录，确保公开精确Manager版本不被Source workspace遮蔽；这项边界保留，但不再被记录成Candidate 21首错的完整根因。
-
-### 2026-08-03：Candidate 22 的自包含恢复fixture
-
-- Draft `v0.9.0-canary.20260803.013300Z.7e9bc0ea`（revision `d6de1b443c718112dfc7acbe3a285a2c69586e09`）的workflow [`30777137614`](https://github.com/notnotype/neuro-book/actions/runs/30777137614)仍为17成功、3失败、2跳过。五平台、Portable、OCI build/merge、Draft 10资产、Windows完整生命周期与0.8.6 data复用通过；三个GHCR容器都越过第二次Manager `start`，随后执行`create-interrupted-operation.ts`时同因失败。
-- 恢复fixture原本深层导入Manager operation Module，而公开GHCR job刻意不安装Source依赖。它现改为标准库-only并原子发布Operation Journal：先记录planned path intent，再创建marker并记录applied effect；公开Manager仍负责schema校验、恢复和最终`rolled-back`断言，不复制生产恢复逻辑。
-- 脚本已进入scripts typecheck，Release合同执行真实fixture并禁止重新引入`nbook/**`。本地shell语法、typecheck与21项合同通过。Candidate 22保留未公开Draft且没有正式OCI tag，Candidate 23从头运行。
-
-### 2026-08-03：Candidate 23 的 Windows Host 测试预算
-
-- Draft `v0.9.0-canary.20260803.021228Z.5f420615`（release ID `363954387`、revision `6d55c11e22ab97185c45d6420dd13a335ec85d29`）的 workflow [`30778745831`](https://github.com/notnotype/neuro-book/actions/runs/30778745831) 通过 preflight、Source、四个 POSIX Product、双架构 OCI build/merge；Windows 在 Product 构建前的 Manager Adapter 测试失败，后续 assemble 与发布门禁按协议跳过。
-- 首错是 Windows runner 上真实 PowerShell Host 启动超过测试写死的 15 秒，不是卸载协议或 Product 行为失败。修复只把该具名 Host 启动预算调整为 30 秒；连续 10 轮共 40 项 Windows Host 测试、Manager 248 passed / 3 skipped、typecheck、Release contract 与 5-file pack 均通过，没有跳过测试或放宽生产超时。
-- Manager `0.1.0-canary.47` 由 workflow [`30779402862`](https://github.com/notnotype/neuro-book/actions/runs/30779402862) 完成 Trusted Publishing；npm `canary`、registry signature、SLSA provenance、隔离 cache 真实 bunx 与 `manager:verify-public` 均通过，公开 tarball SHA-1 为 `a7824d43d126f1bf33e6467e0f0cde372ef9419e`。
-
-### 2026-08-03：Candidate 24 的恢复终态断言
-
-- Draft `v0.9.0-canary.20260803.023155Z.b39e74ef`（release ID `363959292`、revision `5fe0422cbb66a9209cbe97193eadbe8d297dd5d7`）的 workflow [`30779535759`](https://github.com/notnotype/neuro-book/actions/runs/30779535759) 已通过五平台 Product、Windows Portable、双 OCI、assemble、Windows/Linux 最终验证、Draft payload 实字节复核和 0.8.6 data 复用。三个 GHCR job 在恢复 smoke 的最后断言同因失败，最终索引、Release 公开和 OCI 正式版本 tag 均未执行。
-- 正式 Operation v5 合同规定成功回滚且 cleanup 无错误时删除 Journal；旧 smoke 却要求保留 `outcome=rolled-back` Journal。修复改为同时断言 Journal、staging marker 与 backup 都不存在，并在 Manager update 失败时保留原 recovery log；没有恢复历史命令，也没有改变生产事务终态。回归先红后绿，Release assets 21/21、scripts typecheck 与 shell 语法通过。
-
-### 2026-08-03：Candidate 25 公开发布终验
-
-- `v0.9.0-canary.20260803.030205Z.1252af3b`（revision `4f551179920b2b4735d69f378e26632850216a84`）的 workflow [`30780756837`](https://github.com/notnotype/neuro-book/actions/runs/30780756837) 全部成功。五平台 Product、Windows Portable、双架构 OCI build/merge、Windows/Linux Runtime 与真实浏览器、Draft payload、GHCR AMD64/ARM64/rootless Podman、0.8.6 data 复用、最终索引和 OCI 别名激活均通过。
-- GitHub Release 已公开为 prerelease，目标 revision 准确，共 12 个资产；`release-manifest.json` 为 schema v5、build ID `sha256:cbfa63d942b80544e716f14153841869dd4adc989004b32d9bd7323552f27455`，声明五个平台 Product、297,722,402-byte Windows Portable 与 Manager `.47`。公开 Manifest 的 SHA-256 `3072f786495e647fc2d6f68cb263f7350728371e03250ab6ffe178d2b0aae457` 与 `SHA256SUMS` 一致，三个安装入口和索引均返回 HTTP 200。
-- 正式版本 tag `ghcr.io/notnotype/neuro-book:v0.9.0-canary.20260803.030205Z.1252af3b` 的 Registry digest 为 `sha256:ae916e746993d39ef2a9c63cb3868342b8c3c19022eb1dff1438a02c749cc202`，与 Release Manifest 完全一致；`latest` 仍指向不同的 `sha256:26e32f9d6fd2ff3e490f59caf786963202b2417b8d4afb37313eef923955bb4c`，Canary 未移动稳定别名。
-- 与计划的差异：公开发行最终完成，失败 Candidate 23/24 按不可复用协议保留为 Draft；Actions 已执行 Windows/Linux 真实浏览器 smoke，但仓库约定的人工浏览器验收、Tauri/Electron 双 spike、Desktop Envelope 和 Developer Mode/rebuild 仍未完成，也未记为完成。

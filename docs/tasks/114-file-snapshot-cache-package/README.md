@@ -1,6 +1,6 @@
 # Task 114：文件快照缓存独立包与 Project File Index 生命周期
 
-状态：Phase A–F与Task 118 Phase 2–3已完成。package 已删除0生产consumer的projection/store，完成显式activation、raw event-before-rebuild、默认5秒idle TTL、资源诊断与build/mutation单entry互斥；NeuroBook现通过唯一`ProjectFileIndexAdapter`接入生产，Project/plain Workspace共用一个`SnapshotCache`，旧index lifecycle、手动invalidate与ResourceOwner已删除。package为3 files / 44 tests且独立typecheck通过；Task 118 Phase 3 warm-up关闭批次为8 files / 41 passed，根typecheck通过（2026-07-24），mutation补强见2026-08-02记录。
+状态：Phase A–F与Task 118 Phase 2–3已完成。package 已删除0生产consumer的projection/store，完成显式activation、raw event-before-rebuild、默认5秒idle TTL与资源诊断；NeuroBook现通过唯一`ProjectFileIndexAdapter`接入生产，Project/plain Workspace共用一个`SnapshotCache`，旧index lifecycle与ResourceOwner已删除。package为3 files / 40 tests且独立typecheck通过；Task 118 Phase 3 warm-up关闭批次为8 files / 41 passed，根typecheck通过（2026-07-24）。
 
 > 2026-07-24 统一合同：执行顺序仍是 Task 118 Phase 1先完成Project Lifecycle发布门禁，随后在Task 118 Phase 3把已深化的cache Interface与ProjectSession/全部built-in Module同代接入；轻量`/api/projects`与“打开目录”产品切片再落地。File Index不临时包装旧ResourceOwner。内置`ProjectModule` registry同批替代全部旧owner；Task 114只拥有File Index迁移，不替其他owner建兼容层。完整tree build等重工作使用共享、可取消后台warm-up，不建设面板级部分ready UI。Project/plain Workspace cache key区分target kind、canonical identity/root与scan policy；旧`project-workspace-index.ts`生命周期必须删除，禁止双cache。关闭失败必须保留本generation精确handle并可重试；plain Workspace由显式引用计数activation lease持有，不得形成第二个snapshot状态机。无实际消费者的projection/store已从package源码、export、测试与benchmark删除。
 
@@ -382,7 +382,7 @@ benchmark 必须独立于 Vitest 默认 correctness suite，固定 seed，并输
 ## Verification Result
 
 - `bun run --cwd packages/file-snapshot-cache typecheck`：通过。
-- `bun run --cwd packages/file-snapshot-cache test`：3 files / 44 tests 通过。
+- `bun run --cwd packages/file-snapshot-cache test`：3 files / 40 tests 通过。
 - 根`bun run typecheck`：通过。
 - `bun run --cwd packages/file-snapshot-cache benchmark`：通过，报告见 `packages/file-snapshot-cache/benchmarks/results/baseline-node.{json,md}`。
 - `bun run --cwd packages/file-snapshot-cache benchmark:bun`：通过，报告见 `packages/file-snapshot-cache/benchmarks/results/baseline-bun.{json,md}`。
@@ -484,14 +484,6 @@ benchmark 必须独立于 Vitest 默认 correctness suite，固定 seed，并输
 - 以 key isolation、minimum-ready latency、warm-up abort/late-result、HMR replacement、现有 tree/History/SSE 回归、真实 Project Workspace benchmark、连续刷新内存/句柄曲线和旧 registry/双 cache 零命中验收。
 - `/api/projects` 只做回归断言：连续读取 file build delta 为 0，且不打开 Project Database、History 或 File Index。
 - 独立package可以继续保持“已验证”状态，但NeuroBook生产Adapter属于Task 118 Phase 1–8同一release train；Phase 8总门禁完成前不得单独发布接入结果。
-
-### 2026-08-02：Build / Mutation 单 entry 互斥补强
-
-- Windows 非空目录 rename 回归证明，完整树扫描与 NeuroBook 自有文件 mutation 只靠 watcher/invalidate 属于错误时序：扫描可能持有目录枚举资源，写入已发生后再失效无法阻止 `EPERM`。
-- package 新增 `mutate(key, operation)`，与同 key build 共用公平单槽 gate；mutation settle 后统一推进 generation，不同 key 仍并行。关闭时取消排队 mutation并等待活动 mutation，避免 plain Workspace 或 shutdown 提前释放 entry。
-- NeuroBook Adapter 删除公开 `invalidate()` / `invalidatePlain()`，Project handle 改为 `read/mutate/subscribe`；全部已知自有 Project Workspace 写入迁入 gate。外部编辑器和受信任 Bash 仍按 watcher 事件处理，不把 package 误表述为文件系统锁或安全沙箱。
-- 验证：package `3 files / 44 tests` 与独立 typecheck 全绿；新增 build/mutation、失败失效、跨 key 并行、close wait/cancel 回归；生产 Adapter、HTTP route、Agent 多 Project 稳定锁顺序和原始 Windows rename focused 均通过。
-- File Index/guard、HTTP/History、Agent/Plot/RAG/World Engine 的直接链路组为 `6 files / 113 tests`，package 自身为 `3 files / 44 tests`。最终根全量为 `471 files passed / 1 skipped`、`3,209 tests passed / 14 skipped`；原 `EPERM` 未复发。审查补漏另覆盖 Project metadata/封面、plain activation 关闭窗口，以及 RAG/World Engine 同 gate 读改写。
 
 ## TODO / Follow-ups
 
