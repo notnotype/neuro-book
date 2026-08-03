@@ -1,6 +1,8 @@
 # Agent Asset Package Protocol
 
-本文是 NeuroBook 可发布 Agent 资产包的唯一协议真相源。它统一 Skill、Workflow 与 Profile 的发布外壳、版本和固定入口；Workshop 实现、后续客户端安装与更新都必须消费同一合同。现有本地 catalog、运行时覆盖与依赖安装细节继续分别由 [Skill package](skill-package.md)、[Workflow](workflow/README.md) 和 [Profile guide](profile-guide.md) 定义。
+本文是 NeuroBook 可发布 Agent 资产包的唯一协议真相源。它统一 Skill、Workflow 与 Profile 的**发布外壳**、版本和固定入口；Workshop 实现必须消费同一合同。
+
+客户端的**本地安装、更新、卸载与来源记账**由 [Agent Asset Install Protocol](agent-asset-install.md) 定义。包结构与依赖细节继续分别由 [Skill package](skill-package.md)、[Workflow](workflow/README.md) 和 [Profile guide](profile-guide.md) 定义。
 
 ## Scope
 
@@ -76,4 +78,16 @@ ZIP 内路径必须使用 `/` 分隔的相对路径。拒绝绝对路径、盘�
 
 ## Client Boundary
 
-后续 NeuroBook 客户端必须以本协议实现安装和更新，但需要另行设计：安装落点、同名冲突、bundled / user / Workshop 三方所有权、文件级更新冲突、校验失败回滚和旧版本保留。客户端还必须先完成第三方 Workflow 的隔离威胁模型，不能把站点 AST 校验当作执行安全证明。本协议存在不代表这些用户闭环已经完成。
+客户端的安装落点、同名冲突、来源所有权、更新冲突、校验失败回滚和旧版本保留由 [Agent Asset Install Protocol](agent-asset-install.md) 定义，不在本文范围内。
+
+客户端还必须先完成第三方 Workflow 的隔离威胁模型，不能把站点 AST 校验当作执行安全证明。本协议存在不代表用户闭环已经完成。
+
+## Pending Site Changes
+
+以下条目是 NeuroBook 侧已拍板、**站点尚未实施**的合同变化。在站点跟进之前，生产行为仍以本文其余小节为准。
+
+1. **Skill 的发布身份改从 `SKILL.md` frontmatter 读取。** 目标合同：`name` 是 id，`metadata.displayName` 是展示名，`metadata.version` 是版本。站点当前强制要求根 `package.json` 并从中取身份与版本，因此符合 Agent Skills 开放标准但没有 `package.json` 的 Skill 现在传不上去。
+2. **Skill 的 `package.json` 降级为可选。** 仅在携带 `bin`、`scripts` 或 Bun 安装输入时必需。Workflow 与 Profile 没有 frontmatter，继续强制根 `package.json`。
+3. 上述两条不改变 ZIP 门禁、路径安全规则、SemVer 递增规则和 `containsExecutableCode` 的计算方式。
+
+跟进这两条时，站点的 Skill 校验分支需要新增严格 YAML frontmatter 身份解析，并保持对已发布的、带 `package.json` 的存量 Skill 兼容。

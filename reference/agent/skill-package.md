@@ -1,50 +1,99 @@
 # Agent Skill Package Contract
 
-本文定义 NeuroBook Agent Skill 的可移植 package、版本、安装和同步合同。任务过程记录见 [Task 120](../../docs/tasks/120-agent-skill-package-contract/README.md)。
+本文定义 NeuroBook Agent Skill 的包结构、身份、版本和依赖合同。
 
-通过 Workshop 发布的 Skill 还必须遵守 [Agent Asset Package Protocol](agent-asset-package.md)：所有可发布 Skill 都要有根 `package.json` 和 `neurobook` 字段。本文件继续负责本地 catalog、runnable Skill 安装和依赖失效细节。
+- 本地安装、更新、卸载和来源记账见 [Agent Asset Install Protocol](agent-asset-install.md)。
+- 通过 Workshop 发布的外壳与静态校验见 [Agent Asset Package Protocol](agent-asset-package.md)。
+- 任务过程记录见 [Task 120](../../docs/tasks/120-agent-skill-package-contract/README.md) 与 [Task 135](../../docs/tasks/135-agent-asset-install-protocol/README.md)。
 
-## Package Identity
+## Compatibility Baseline
 
-- Skill 目录名是 catalog 稳定 `key`；用户和 Agent 必须原样使用，不翻译或重命名。
-- 固定入口是根目录 `SKILL.md`。新建可移植 Skill 的 key 使用小写字母、数字和连字符。
-- `SkillCatalog.rootPath` 是当前生效 Skill 的绝对根目录，`skillPath` 是其入口绝对路径。
-- Skill 不得假定安装在 `.nbook`、`.claude`、`.codex` 或其它宿主专用目录。命令从 catalog 路径推导根目录。
+NeuroBook Skill 遵循 [Agent Skills 开放标准](https://agentskills.io/specification)。**符合该标准的外部 Skill 可以直接安装使用，不需要任何转换或补齐。**
 
-## SKILL.md
+标准约束在本项目内全部保留：
 
-`SKILL.md` frontmatter 只承载触发发现所需元数据：
+- 一个 Skill 是一个目录，固定入口 `SKILL.md`，由 YAML frontmatter 加 Markdown 正文组成。
+- 可选子目录 `scripts/`、`references/`、`assets/`。
+- 引用其它文件使用相对 Skill 根的路径，保持一层深度。
+- Skill 不得假定安装在 `.nbook`、`.claude`、`.codex` 或其它宿主专用目录，命令从 catalog 提供的绝对根目录推导。
+
+## Frontmatter
+
+**`SKILL.md` frontmatter 是 Skill 身份、展示名和版本的唯一真相源。**
 
 ```yaml
 ---
-name: example-skill
-description: Describe what the skill does and the concrete tasks that should trigger it.
+name: rp-mode
+description: 角色扮演模式的运行协议。用户要求进入 RP、扮演角色或推进 tick 时使用。
+metadata:
+    displayName: RP 模式
+    version: "1.2.0"
+    author: notnotype
 ---
 ```
 
-- `name` 和 `description` 必填；触发条件写进 `description`。
-- 版本、作者、安装状态和运行时配置不写入 frontmatter。
-- 正文只保留 Agent 执行任务所需的流程和资源导航；详细材料放在同级 `references/`。
-- Skill 引用的相对资源必须位于自身目录内，并从 `rootPath` 解析。
+| 字段 | 必填 | 约束 |
+| --- | --- | --- |
+| `name` | 是 | 稳定 id。≤64 字符，仅小写字母、数字和连字符，不以连字符开头结尾，不含连续连字符，**必须等于父目录名**。 |
+| `description` | 是 | ≤1024 字符，写清做什么和什么时候用。触发条件写进这里。 |
+| `when_to_use` | 否 | 补充触发场景，标量或 YAML 列表均可。**标准之外的既有扩展**，详见下。 |
+| `metadata.displayName` | 否 | 界面展示名，允许中文和任意字符。缺省时回退到 `name`。 |
+| `metadata.version` | 否 | canonical SemVer 字符串。缺省时视为无版本包，升级判定改走整包内容指纹比较。 |
+| `metadata.author` | 否 | 作者标识，仅展示。 |
+| `metadata.minAppVersion` | 否 | canonical SemVer。声明本 Skill 要求的最低 NeuroBook 版本，安装前和加载前都生效。**这是 frontmatter-only Skill 声明兼容性要求的唯一位置。** |
+| `license` | 否 | 许可证名或包内许可证文件名。 |
+| `compatibility` | 否 | ≤500 字符，自然语言环境要求。只展示，不参与门禁。 |
 
-## Runnable Skill
+### when_to_use
 
-本地只含提示词和参考资料的 loose Skill 不要求 package manifest；但它不能直接发布到 Workshop。包含 CLI、脚本依赖、独立发布生命周期或需要发布的 Skill 必须包含：
+`when_to_use` **不在 Agent Skills 标准里**，但它是既有事实：NeuroBook 的 `SkillCatalog` 真实解析它并输出 `whenToUse`，当前 6 个内置 Skill 在用（其中 2 个用 YAML 列表形态），Claude Code 也把它作为私有扩展消费。因此本项目在顶层容忍这个字段，不强制迁进 `metadata`。
+
+```yaml
+when_to_use:
+  - 用户要求进入 RP
+  - 用户要求推进 tick
+```
+
+标量与列表两种形态都接受；列表在进入模型可见清单时合并成一行。它是 `description` 的补充，不是替代——**只写 `when_to_use` 而 `description` 含糊，Skill 仍然不会被正确触发**。
+
+严格标准校验器可能会因为这个顶层字段报未知 key。它不影响 Skill 在 NeuroBook 内的安装与运行，也不影响外部标准 Skill 导入。
+
+### id 与展示名分离
+
+`name` 是 id，不是展示名。中文名走 `metadata.displayName`。
+
+这样安装身份、目录名、Workshop slug、下载 URL 和 `bun install --cwd` 路径全部保持 ASCII kebab-case，同时界面上呈现给用户的仍是中文。外部 Skill 没有 `displayName` 时回退到 `name`，因此对标准 Skill 零影响。
+
+catalog 同时输出 `id` 与 `displayName`；模型可见清单和界面都消费 `displayName`。
+
+### version 的读取顺序
+
+1. `metadata.version`
+2. 根 `package.json.version`（存在时）
+3. 都没有 → 无版本包
+
+两处同时存在且不一致时以 `metadata.version` 为准，并产生一条诊断。**新建和更新 Skill 时两处应保持同步**；只有从外部导入的 Skill 允许只有其中一处。
+
+## Optional Root Package
+
+`package.json` 对本地安装是**可选**的。只含提示词和参考资料的 Skill 不需要它。
+
+以下任一情况需要根 `package.json`：
+
+- Skill 携带 CLI、脚本或运行时依赖。
+- Skill 要发布到 Workshop（发布外壳要求见 [agent-asset-package.md](agent-asset-package.md)）。
 
 ```text
-<skill-key>/
+<skill-id>/
 ├── SKILL.md
 ├── package.json
 ├── bun.lock
-├── bin/ or scripts/
-└── references/ and assets/ as needed
+├── bin/ 或 scripts/
+└── references/ 与 assets/ 按需
 ```
 
-- `package.json.name` 与目录 key 一致。
-- `package.json.version` 是唯一 Skill 版本真相源，使用 SemVer；catalog 不从 `SKILL.md` 读取版本。
-- 通过 Workshop 发布时，非空 `bin`、非空 `scripts` 或任一实际 Bun 安装输入都会要求根目录携带非空 `bun.lock`；纯提示词/资料包不为形式统一而生成空锁文件。
-- 需要依赖安装的 Skill 首次运行任何 CLI 前，Agent 必须先执行 `bun install --cwd "<skill-root>" --frozen-lockfile`。安装失败时停止，不绕过 frozen lockfile。
-- 后续运行复用本地安装；只有 `node_modules` 缺失时重新安装。
+- `package.json.name` 必须与目录名和 frontmatter `name` 一致。
+- 非空 `bin`、非空 `scripts` 或任一实际 Bun 安装输入存在时，根目录必须携带非空 `bun.lock`。纯提示词包不为形式统一生成空锁文件。
 
 版本调整口径：
 
@@ -54,32 +103,27 @@ description: Describe what the skill does and the concrete tasks that should tri
 
 ## Dependency Lifecycle
 
-`node_modules` 是当前用户机器上的本地派生物，不是 Skill package 文件：
+依赖安装由安装事务负责，状态记在 provenance 账本中，完整规则见 [agent-asset-install.md](agent-asset-install.md) 的 Dependencies 小节。本文只固定与 Skill 包直接相关的三条：
 
-- sibling/source → Bundled Workspace Template 的 vendored 同步排除 `node_modules`。
-- Bundled Workspace Template → Workspace Root `.nbook` 的受管资产清单排除 `node_modules`。
-- 普通同步、no-op、`force` no-op、版本号变化、`SKILL.md` / `references` / rules 更新不得删除 `node_modules`。
-- 当新的 `bun.lock`，或 `package.json` 中影响 Bun install 的依赖、安装脚本、平台与 package-manager 字段实际发布到用户 Skill 时，只失效该 Skill 的 `node_modules`。
-- 如果用户目录已经自行与新上游文件一致，同步只补齐 sync state，不猜测此前安装动作，也不清理依赖。
-- 用户修改了 package 安装合同且系统更新未覆盖时，不清理用户依赖；强制同步真正覆盖该合同时才清理。
+- `node_modules` 是当前用户机器上的本地派生物，不是包文件。它不进包内容指纹、不进包分发、不随回收区保留。
+- 只有 `bun.lock`，或 `package.json` 中影响 Bun 安装结果的依赖、安装脚本、平台与 package-manager 字段发生变化时，依赖状态才回到 `pending`。版本号、`SKILL.md`、`references/` 与规则文件的变化不触发重装。
+- 需要依赖的 Skill 在依赖状态不是 `installed` 时，任何 CLI 都必须先完成 `bun install --cwd "<skill-root>" --frozen-lockfile`。安装失败时停止，不绕过 frozen lockfile。
 
-`.git`、开发评测、coverage 和已硬切官方目录属于 vendored/runtime 排除项，不与依赖失效机制混用。
+## Catalog Visibility
 
-## Override And Sync
-
-- Bundled system Skill 位于 Bundled Workspace Template 的 `.nbook/agent/skills/<key>/`。
-- 用户 Skill 位于 Workspace Root `.nbook/agent/skills/<key>/`。
-- 用户同 key 目录整体覆盖 system Skill；catalog 不逐文件合并两层。
-- 系统 Skill package 违反 manifest / SemVer 合同属于打包缺陷，catalog 直接失败；损坏的用户 Skill 只隔离该 key 并记录服务端诊断，不拖垮其它 Skill，也不回退执行同 key system Skill。
-- 系统受管文件继续按 sync state 更新；用户已手改文件默认保留并产生冲突提示。
-- runnable Skill 真相源位于独立仓时，先更新独立仓 package，再同步 vendored snapshot，最后同步真实 user-assets runtime。
+- catalog 层级是 Install Root → Project Root，同 id 时 Project Root 胜出。Seed Root 不是 catalog 层。
+- 同 id 的包整体覆盖，catalog 不逐文件合并两层。
+- 损坏的 Skill 包只隔离该 id 并记录服务端诊断，不拖垮其它 Skill。
+- runnable Skill 真相源位于独立仓时，先更新独立仓 package，再同步随程序发布的种子包。
 
 ## Review Checklist
 
-发布或更新 runnable Skill 时检查：
+新增或更新 Skill 时检查：
 
-1. `SKILL.md` 只含 `name` / `description` frontmatter，正文从 catalog 路径推导 `<skill-root>`。
-2. `package.json.version` 已按 SemVer 更新；存在脚本、命令或 Bun 安装输入时，非空 `bun.lock` 与安装声明一致。
-3. 需要依赖安装的新目录先运行 `bun install --cwd "<skill-root>" --frozen-lockfile`，再运行初始化或业务命令。
-4. no-op、版本号、提示词更新保留 `node_modules`；依赖或 lockfile 更新会精确失效对应 Skill。
-5. source、vendored snapshot 与 Workspace Root `.nbook` runtime 的受管文件一致，runtime 不含开发资产。
+1. 目录名、frontmatter `name` 与（若存在）`package.json.name` 三者一致，且是合法 kebab-case id。
+2. 中文名写在 `metadata.displayName`，没有写进 `name`。
+3. `metadata.version` 已按 SemVer 更新；存在 `package.json` 时两处版本同步。
+4. 正文从 catalog 提供的绝对根目录推导 `<skill-root>`，没有硬编码宿主目录名。
+5. 存在脚本、命令或 Bun 安装输入时，非空 `bun.lock` 与安装声明一致。
+6. 该 Skill 能通过随 `skill-creator` 分发的 `scripts/quick_validate.py`。
+7. 除既有扩展 `when_to_use` 外没有引入新的顶层非标准字段；其余自定义属性一律进 `metadata`，以便对标准 Skill 生态保持可移植。

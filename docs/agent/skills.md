@@ -21,6 +21,7 @@ Skill 是一张**可复用的工作流程卡**：告诉 Agent 某一类任务该
 | Skill | 做什么 |
 | --- | --- |
 | `novel-genre-research` | 题材与竞品分析，接榜单数据 |
+| `novel-data` | 本地小说榜单与书籍详情查询，供题材分析取数 |
 | `novel-technique-character-card-workshop` | 重量级角色塑造与人设整理 |
 | `llmlint` | 文风检查与修复，见 [llmlint](/core/llmlint) |
 | `stop-slop` | 写作时去除 AI 腔 |
@@ -46,15 +47,16 @@ Skill 是一张**可复用的工作流程卡**：告诉 Agent 某一类任务该
 
 ## Skill 放在哪
 
-和 workflow 一样是三层覆盖，按目录名寻址：
+Skill 按目录名寻址，目录名就是它的 id：
 
 | 层 | 位置 |
 | --- | --- |
 | 系统内置 | 随 NeuroBook 分发 |
-| 用户层 | Workspace Root 的 `.nbook/agent/skills/<key>/SKILL.md` |
-| 项目层 | 当前项目根的 `.nbook/agent/skills/<key>/SKILL.md` |
+| 用户层 | Workspace Root 的 `.nbook/agent/skills/<id>/SKILL.md` |
 
-`SKILL.md` 用 frontmatter 声明 `name` 和 `description`——**description 决定 Agent 什么时候会想起用它**，所以要写清适用场景而不只是功能名。
+用户层同名目录会整体覆盖系统内置的同名 Skill，不会逐个文件合并。
+
+`SKILL.md` 用 frontmatter 声明 `name` 和 `description`——**description 决定 Agent 什么时候会想起用它**，所以要写清适用场景而不只是功能名。想让界面显示中文名，把 `name` 保持为英文小写 id，中文写进 `metadata.displayName`。
 
 ## 可执行 Skill
 

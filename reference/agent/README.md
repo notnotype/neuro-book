@@ -12,7 +12,8 @@
 - [leader-default.md](leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
 - [project-workspace-guide.md](project-workspace-guide.md)：Agent 使用 Project Workspace 文件工具的短指南，覆盖路径、基础内容节点和常用目录。
 - [novel-writing-workflow.md](novel-writing-workflow.md)：写作模式标准流程、emulation 使用边界、小说 workflow skill 分层和 runs 产物建议。
-- [skill-package.md](skill-package.md)：Skill package、SemVer、portable root、首次安装与依赖失效合同。
+- [skill-package.md](skill-package.md)：Skill 包结构、frontmatter 真相源、id 与展示名分离、SemVer 与依赖合同。
+- [agent-asset-install.md](agent-asset-install.md)：Skill / Workflow / Profile 的本地安装、更新、卸载、来源记账与安装事务合同。
 - [agent-asset-package.md](agent-asset-package.md)：Workshop 可发布 Skill / Workflow / Profile 的统一根 package、SemVer、固定入口与迁移合同。
 - [rp-tick/](rp-tick/)：RP Tick 完整交互协议。覆盖 Tick 生命周期（5 Phase）、LOD 世界模拟系统、actor-facing packet 标签规范、Writer Brief 剧本格式。各文件可被 profile 按需 Import。
 
@@ -33,8 +34,9 @@
 - 实现或修改 profile：先读 [profile-guide.md](profile-guide.md)，再读 [context.md](context.md)、[profile-import.md](profile-import.md) 和 [profile-compiled-artifacts.md](profile-compiled-artifacts.md)。
 - 处理 profile 职责边界、用户用错 agent 或入口切换建议：读 [profile-routing.md](profile-routing.md)。
 - 处理默认 Leader prompt、工具、writer / retrieval / researcher、Plan Mode 或 Skills：读 [leader-default.md](leader-default.md)。
-- 创建或更新 runnable Skill、版本、依赖、vendored snapshot 或 user-assets 同步：读 [skill-package.md](skill-package.md)。
-- 设计 Workshop 发布、资产更新或 Skill / Workflow / Profile 统一包：先读 [agent-asset-package.md](agent-asset-package.md)，再按类型进入对应运行时参考。
+- 创建或更新 runnable Skill、版本、依赖或 vendored snapshot：读 [skill-package.md](skill-package.md)。
+- 实现或修改资产安装、更新、卸载、种子投放、来源记账或 git / Workshop 安装链路：读 [agent-asset-install.md](agent-asset-install.md)。
+- 设计 Workshop 发布或 Skill / Workflow / Profile 统一发布包：先读 [agent-asset-package.md](agent-asset-package.md)，再按类型进入对应运行时参考。
 - 处理 Project Workspace 文件、内容节点、lorebook、manuscript 或 simulation：先读 [project-workspace-guide.md](project-workspace-guide.md)，需要完整目录协议时读 [../content/project-structure.md](../content/project-structure.md)。
 - 处理 Plot System：读 [../plot/system.md](../plot/system.md) 和 [../plot/agent-spec.md](../plot/agent-spec.md)。
 - 处理小说写作流程、剧情推进、emulation tick 或 workflow skill 命名：读 [novel-writing-workflow.md](novel-writing-workflow.md)。

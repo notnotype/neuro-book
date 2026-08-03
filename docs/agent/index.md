@@ -89,7 +89,7 @@ world-engine/schema/index.ts
 ## 继续阅读
 
 - [Agent 工具](./tools.md)：完整工具清单，以及什么时候该用文件工具、世界引擎、剧情工具还是 linked agent。
-- [Skill](./skills.md)：16 个内置 Skill 清单、三层覆盖与白名单。
+- [Skill](./skills.md)：17 个内置 Skill 清单、覆盖规则与白名单。
 - [Agent Workflow 与 Job](./workflow.md)：如何用可重放脚本编排多个 session，并通过后台 Job 运行长任务。
 - [Subject RAG 记忆](./subject-rag-memory.md)：保留的数据、索引和工具合同，以及当前自动集成缺口。
 - [Agent Harness](./advanced.md)：session、runtime hooks、SSE、队列和黑盒行为合同。

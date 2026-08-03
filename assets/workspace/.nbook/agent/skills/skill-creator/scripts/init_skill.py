@@ -3,12 +3,16 @@
 Create a Neuro Book skill skeleton.
 
 Usage:
-    init_skill.py <folder-name> [--name <skill-name>] [--description <text>]
+    init_skill.py <skill-id> [--display-name <text>] [--description <text>]
         [--path <skills-root>] [--resources scripts,references,assets]
+
+The directory name is the skill id and is written verbatim into the frontmatter
+`name`. Chinese or otherwise non-ASCII labels go to `--display-name`, which is
+emitted as `metadata.displayName`.
 
 Examples:
     init_skill.py plot-helper
-    init_skill.py shuangwen-style --name 爽文风格
+    init_skill.py shuangwen-style --display-name 爽文风格
     init_skill.py lore-tools --resources scripts,references
 """
 
@@ -20,12 +24,13 @@ from pathlib import Path
 MAX_SKILL_NAME_LENGTH = 64
 ALLOWED_RESOURCES = ("scripts", "references", "assets")
 DEFAULT_SKILL_ROOT = Path(__file__).resolve().parents[2]
-SKILL_NAME_PATTERN = re.compile(r"^[^\s\\/]+$", re.UNICODE)
+# id 规则：小写字母数字与连字符，不以连字符开头结尾，不含连续连字符。
+SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 SKILL_TEMPLATE = """---
 name: {skill_name}
 description: {skill_description}
----
+{metadata_block}---
 
 # {skill_title}
 
@@ -79,23 +84,26 @@ Replace this file with a real template, image, sample file, or delete it.
 
 
 def is_valid_skill_name(value: str) -> bool:
-    """Return True when the skill name can be typed as a single `$name` token."""
+    """Return True when the value is a valid skill id."""
     if not value or len(value) > MAX_SKILL_NAME_LENGTH:
         return False
     return SKILL_NAME_PATTERN.match(value) is not None
 
 
-def is_valid_folder_name(value: str) -> bool:
-    """Return True when the folder name is a single directory segment."""
-    return bool(value) and value not in {".", ".."} and "/" not in value and "\\" not in value
+def build_metadata_block(display_name: str) -> str:
+    """Build the optional frontmatter metadata block."""
+    if not display_name:
+        return ""
+    return f"metadata:\n    displayName: {display_name}\n"
 
 
-def build_skill_title(skill_name: str) -> str:
-    """Build a readable heading from the skill name."""
-    if "-" not in skill_name and "_" not in skill_name:
+def build_skill_title(skill_name: str, display_name: str) -> str:
+    """Build a readable heading, preferring the display name when provided."""
+    if display_name:
+        return display_name
+    if "-" not in skill_name:
         return skill_name
-    parts = re.split(r"[-_]+", skill_name)
-    return " ".join(part.capitalize() for part in parts if part)
+    return " ".join(part.capitalize() for part in skill_name.split("-") if part)
 
 
 def parse_resources(raw_resources: str) -> list[str]:
@@ -124,22 +132,22 @@ def write_file(path: Path, content: str, executable: bool = False) -> None:
         path.chmod(0o755)
 
 
-def init_skill(folder_name: str, skill_name: str, description: str, root_path: Path, resources: list[str]) -> int:
+def init_skill(skill_name: str, display_name: str, description: str, root_path: Path, resources: list[str]) -> int:
     """Create the skill directory and starter files."""
-    skill_dir = root_path / folder_name
+    skill_dir = root_path / skill_name
     if skill_dir.exists():
         print(f"[ERROR] Skill directory already exists: {skill_dir}")
         return 1
 
     skill_dir.mkdir(parents=True, exist_ok=False)
 
-    skill_title = build_skill_title(skill_name)
     write_file(
         skill_dir / "SKILL.md",
         SKILL_TEMPLATE.format(
             skill_name=skill_name,
             skill_description=description,
-            skill_title=skill_title,
+            metadata_block=build_metadata_block(display_name),
+            skill_title=build_skill_title(skill_name, display_name),
         ),
     )
 
@@ -169,8 +177,12 @@ def init_skill(folder_name: str, skill_name: str, description: str, root_path: P
 def main() -> int:
     """Parse CLI arguments and create the skill skeleton."""
     parser = argparse.ArgumentParser(description="Create a Neuro Book skill skeleton.")
-    parser.add_argument("folder_name", help="Directory name under the skill root")
-    parser.add_argument("--name", help="Frontmatter skill name. Defaults to folder_name.")
+    parser.add_argument("skill_name", help="Skill id. Becomes both the directory name and frontmatter `name`.")
+    parser.add_argument(
+        "--display-name",
+        default="",
+        help="Interface label written to metadata.displayName. Use this for Chinese names.",
+    )
     parser.add_argument(
         "--description",
         default="[TODO: Explain what this skill does and when it should be used.]",
@@ -179,7 +191,7 @@ def main() -> int:
     parser.add_argument(
         "--path",
         default=str(DEFAULT_SKILL_ROOT),
-        help="Skill root directory. Defaults to assets/agent/skills in this repo.",
+        help="Skill root directory. Defaults to the skills root containing this script.",
     )
     parser.add_argument(
         "--resources",
@@ -188,23 +200,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    folder_name = args.folder_name.strip()
-    skill_name = (args.name or folder_name).strip()
+    skill_name = args.skill_name.strip()
+    display_name = args.display_name.strip()
     description = args.description.strip()
     root_path = Path(args.path).resolve()
     resources = parse_resources(args.resources)
 
-    if not is_valid_folder_name(folder_name):
-        print("[ERROR] folder_name must be a single directory name.")
-        return 1
     if not is_valid_skill_name(skill_name):
-        print("[ERROR] skill name must be a single token without spaces or slashes.")
+        print(
+            "[ERROR] skill id must be lowercase letters, digits and hyphens only, "
+            "without leading, trailing or consecutive hyphens. "
+            "Put Chinese names in --display-name."
+        )
         return 1
     if not description:
         print("[ERROR] description cannot be empty.")
         return 1
 
-    return init_skill(folder_name, skill_name, description, root_path, resources)
+    return init_skill(skill_name, display_name, description, root_path, resources)
 
 
 if __name__ == "__main__":

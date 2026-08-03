@@ -22,13 +22,15 @@
 - **Project Workspace Download Archive**：Project Workspace 的可携带完整备份。普通文件继续遵守 `.gitignore`，`project.yaml`、Project Config、Project SQLite 和已有 History SQLite 强制纳入；两个 SQLite 使用独立在线 snapshot，不复制 live WAL/SHM。History SQLite 可能包含全文、删除内容、acceptance 与 session cursor，分享前必须评估隐私风险。
 - **user-assets**：前端用于编辑 Workspace Root `.nbook` 的入口。它不是独立配置层，而是把当前 Studio 挂载在 `workspace/.nbook/`。
 - **Bundled Workspace Template**：随项目发布的默认 workspace 模板与系统资源，位于 `assets/workspace/`。
+- **Seed Root**：Bundled Workspace Template 中的 `agent/{skills,workflows,profiles}/`，是随程序附带的 Agent 资产种子包仓库。它是只读的，**不是 catalog 层**；catalog 不从这里加载资产，安装器只把它当作来源之一。见 [Agent Asset Install Protocol](../agent/agent-asset-install.md)。
+- **Install Root**：Workspace Root `.nbook` 下的 `agent/{skills,workflows,profiles}/`，是已安装 Agent 资产的落点与 provenance 账本所在位置。它在 State Root 之下，随 Windows Portable 的 `data/` 一起搬移。
 
 ## Path Mapping
 
 - `assets/workspace/.nbook` 是系统模板层，映射到运行时 `workspace/.nbook`。
 - `NEURO_BOOK_STATE_ROOT` 决定 State Root；Workspace Root、Boot Config、Product Env 和日志都从 State Root 解析。
 - Windows Portable 的物理 Workspace Root 是 `data/workspace/`，但 Project API 的 `projectRoot` 仍是同一个单段 root。
-- 用户的 `workspace/.nbook` 可以覆盖系统 `assets/workspace/.nbook`。
+- 用户的 `workspace/.nbook` 可以覆盖系统 `assets/workspace/.nbook`，但**这条只对 `templates/` 与 `variables/` 成立**。`agent/{skills,workflows,profiles}/` 已改为包安装模型：Seed Root 不参与覆盖，资产由安装器装进 Install Root，catalog 层级是 `Install Root → Project Root`。见 [Agent Asset Install Protocol](../agent/agent-asset-install.md)。
 - `assets/workspace/global.config.example.json` 对应运行时 `workspace/.nbook/config.json` 的示例。
 - `assets/workspace/workspace.config.example.json` 对应运行时 `workspace/{project}/.nbook/config.json` 的示例。
 - user-assets 入口直接编辑 `workspace/.nbook`，不再使用 `workspace/.nbook/assets` 作为嵌套资产根。

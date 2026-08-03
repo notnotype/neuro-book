@@ -120,6 +120,8 @@ profile artifact 是宿主实现的**冻结副本**：宿主代码更新后旧 a
 
 ## Sync
 
+> 本节描述**当前生产行为**（system → user 逐文件投影同步）。[Task 135](../../docs/tasks/135-agent-asset-install-protocol/README.md) 已决定把 Profile 改为包安装模型，届时本节的触发入口会被 [agent-asset-install.md](agent-asset-install.md) 的安装事务 Post-install 阶段取代。**下面三条不可回滚边界与 Publisher 约束在新模型中原样保留**，安装器同样不得直接写 manifest 或在锁外动 artifact。
+
 Profile assets sync 不直接写 `manifest.json`。它把 system artifact copy 到 staging，经 Publisher 发布 user manifest。
 
 非 force 情况下，用户源码已手改时不会同步 compiled artifact；force 覆盖源码后才同步系统 artifact。

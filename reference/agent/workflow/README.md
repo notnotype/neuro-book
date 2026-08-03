@@ -34,11 +34,11 @@ agent/workflows/
     └── workflow.ts
 ```
 
-- Bundled Workspace Template 中的系统源：`assets/workspace/.nbook/agent/workflows/<key>/workflow.ts`。
-- 用户覆盖层：Workspace Root `.nbook` 下的 `agent/workflows/<key>/workflow.ts`；默认物理位置是 `workspace/.nbook/agent/workflows/<key>/workflow.ts`。
-- 当前 Project Workspace 覆盖层：当前项目根 `.nbook/agent/workflows/<key>/workflow.ts`。只有调用方显式绑定了该 Project Workspace 时才会读取这一层；未绑定项目时，项目 workflow 不会泄漏到全局或其他项目。
-- `<key>` 是稳定寻址键。用户层出现同名有效目录时，整个 catalog 条目覆盖系统条目；不会合并两份 `workflow.ts`。
-- 覆盖顺序固定为 `Bundled system → Workspace Root user-assets → Project Workspace`；后层同名有效目录覆盖前层。
+- Install Root：Workspace Root `.nbook` 下的 `agent/workflows/<key>/workflow.ts`；默认物理位置是 `workspace/.nbook/agent/workflows/<key>/workflow.ts`。内置 workflow 由安装器从随程序附带的种子包装到这里，装完就是普通的已安装包。
+- Project Root：当前项目根 `.nbook/agent/workflows/<key>/workflow.ts`。只有调用方显式绑定了该 Project Workspace 时才会读取这一层；未绑定项目时，项目 workflow 不会泄漏到全局或其他项目。
+- `assets/workspace/.nbook/agent/workflows/` 是 Seed Root，**不是 catalog 层**。catalog 不从这里加载任何 workflow，它只作为安装器的来源。
+- `<key>` 是稳定寻址键。同 key 时整个 catalog 条目覆盖，不会合并两份 `workflow.ts`。
+- 覆盖顺序固定为 `Install Root → Project Root`；后层同 key 有效目录覆盖前层。安装、升级、卸载与来源记账见 [agent-asset-install.md](../agent-asset-install.md)。
 - 文件内的 `key` 仍应和目录名一致，但 catalog 最终以目录名覆盖文件内 `key`。
 - catalog 只读取固定入口 `workflow.ts`。源码不能 `import` 或 `require`；运行能力来自 `wf`，JSON Schema 构造器来自宿主注入的 typebox `Type`。
 

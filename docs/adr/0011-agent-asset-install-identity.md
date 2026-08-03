@@ -30,6 +30,16 @@ Profile 的真实 key 已使用 `leader.default`、`world.engine` 等点分形�
 - 客户端安装实现必须在落盘前验证包身份、入口与编译产物身份，并把验证纳入同一可回滚事务。
 - TypeScript AST 检查继续只是发布质量门禁。它不能替代进程隔离、权限约束或代码审查。
 
+## 修订（2026-08-01，Task 135）
+
+[Task 135](../tasks/135-agent-asset-install-protocol/README.md) 决定兼容 [Agent Skills 开放标准](https://agentskills.io/specification)，因此 Skill 的身份读取位置发生变化。本 ADR 的核心原则不变——**仍然只有一个安装身份，不新增 `assetKey`，不用 slug 代替**——变的只是 Skill 从哪里读它：
+
+- 决策 1 对 Skill 修订为：`SKILL.md` frontmatter 的 `name` 是安装身份真相源。根 `package.json` 对 Skill 降级为可选，仅在携带 `bin`、`scripts` 或 Bun 安装输入时必需。Workflow 与 Profile 没有 frontmatter，继续以根 `package.json.name` 为身份。
+- 决策 5 对 Skill 修订为：`package.json` 存在时，其 `name` 必须等于 frontmatter `name`；不存在时不做该项校验。Workflow 的 `key` 必须等于 `package.json.name` 不变。
+- 新增：Skill 的展示名是 `metadata.displayName`，允许中文；它**不是**身份，不参与任何安装、更新或覆盖判断。版本读取顺序为 `metadata.version` → `package.json.version`，两处并存时以前者为准。
+
+决策 2、3、4、6、7、8 不变。站点侧尚未实施本修订，详见 [Agent Asset Package Protocol](../../reference/agent/agent-asset-package.md) 的 Pending Site Changes 小节。
+
 ## 未采用方案
 
 - 新增 `assetKey`：会与 `package.json.name`、Workflow key 和 Profile key 形成重复真相源。

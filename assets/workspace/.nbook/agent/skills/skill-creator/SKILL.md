@@ -7,13 +7,15 @@ description: Create or update a Neuro Book skill under .nbook/agent/skills. Use 
 
 Create and maintain skills for the Neuro Book repository.
 
-This project currently discovers skills by scanning `assets/workspace/.nbook/agent/skills/*/SKILL.md` and `workspace/.nbook/agent/skills/*/SKILL.md` (or legacy `skill.md`) and reading only the frontmatter fields `name`, `description`, and `when_to_use`. The skill body is loaded later with `read` from the catalog location only when the model decides the skill is relevant.
+This project follows the [Agent Skills open standard](https://agentskills.io/specification). A skill is a directory whose name is the stable id, with `SKILL.md` at its root. Skills are discovered from the Install Root (`workspace/.nbook/agent/skills/*/SKILL.md`) and, for project-scoped skills, from the current project root. Built-in skills are installed into the Install Root from the packages that ship with NeuroBook; they are not a separate override layer you edit in place.
 
-Treat this as the ground truth while editing skills. Do not design around external Codex conventions that are not implemented in this repo.
+Only the frontmatter is read up front. The body is loaded with `read` from the catalog location later, and only when the model decides the skill is relevant.
+
+The authoritative contract is `reference/agent/skill-package.md`. Treat it as ground truth while editing skills, and do not design around external conventions that this project does not implement.
 
 ## What A Neuro Book Skill Is
 
-Each skill is a folder under `assets/workspace/.nbook/agent/skills/<folder>` or the user overlay `workspace/.nbook/agent/skills/<folder>`.
+Each skill is a folder under the Install Root `workspace/.nbook/agent/skills/<id>`. The folder name is the skill id and must match the frontmatter `name`.
 
 Required file:
 
@@ -40,7 +42,7 @@ Do not create extra process documentation such as `README.md`, `CHANGELOG.md`, o
 
 ## Frontmatter Rules
 
-The current runtime only needs:
+Minimum:
 
 ```yaml
 ---
@@ -49,13 +51,33 @@ description: Explain what the skill does and when it should be used.
 ---
 ```
 
+With the optional fields this project supports:
+
+```yaml
+---
+name: rp-mode
+description: Runs the roleplay protocol. Use when the user asks to start RP, play a character, or advance a tick.
+when_to_use:
+  - 用户要求进入 RP
+  - 用户要求推进 tick
+metadata:
+    displayName: RP 模式
+    version: "1.2.0"
+    author: your-name
+    minAppVersion: "0.8.0"
+license: AGPL-3.0-only
+compatibility: Requires bun and network access
+---
+```
+
 Rules:
 
-- `name` must be usable as `$name`
-- `name` may be English or Chinese
-- `name` must not contain spaces
-- prefer short names because the user may type them in the editor
-- `description` is the main trigger hint, so include both capability and usage context
+- `name` is the stable **id**, not a display label. It must be 1–64 characters, lowercase letters, digits and hyphens only, must not start or end with a hyphen, must not contain consecutive hyphens, and **must equal the parent directory name**.
+- **Chinese names go in `metadata.displayName`, never in `name`.** The id stays ASCII so it can be used as a directory name, an install identity, and a shell path; the interface still shows the Chinese name.
+- `description` is the main trigger hint, so include both capability and usage context.
+- `when_to_use` optionally adds trigger scenarios, as a scalar or a YAML list. It supplements `description`; it does not replace it.
+- Everything else custom goes under `metadata`, which is a flat string map. Do not invent new top-level keys.
+- Prefer short ids because the user may type them in the editor.
 
 Good `description` fields mention:
 
@@ -132,10 +154,12 @@ These scripts are optional accelerators. Do not block on them if the environment
 
 If you cannot run the validator, check these points manually:
 
-- the skill folder lives under `workspace/.nbook/agent/skills` or `assets/workspace/.nbook/agent/skills`
+- the skill folder lives under `workspace/.nbook/agent/skills`, or under the current project root for a project-scoped skill
 - `SKILL.md` exists
-- frontmatter contains only `name` and `description`
-- `name` can be typed as `$name` without spaces
+- `name` is lowercase letters, digits and hyphens, and equals the folder name
+- any Chinese display name is in `metadata.displayName`, not in `name`
+- no custom top-level frontmatter keys beyond `when_to_use`; everything else is under `metadata`
+- `metadata.version` and `metadata.minAppVersion`, when present, are canonical SemVer
 - `description` clearly states when the skill should be used
 - `SKILL.md` does not mention outdated Codex-specific paths or metadata files
 - optional `references/`, `scripts/`, and `assets/` directories are only present when they are actually useful

@@ -21,6 +21,7 @@ It is not a tool and not a script. An agent sees which Skills are available in t
 | Skill | What it does |
 | --- | --- |
 | `novel-genre-research` | Genre and competitor analysis, wired to ranking data |
+| `novel-data` | Queries locally cached novel rankings and book details for genre analysis |
 | `novel-technique-character-card-workshop` | Heavyweight character building and character sheet curation |
 | `llmlint` | Prose style checking and repair, see [llmlint](/en/core/llmlint) |
 | `stop-slop` | Strip the AI voice while you write |
@@ -46,15 +47,16 @@ It is not a tool and not a script. An agent sees which Skills are available in t
 
 ## Where Skills Live
 
-Like workflows, Skills use three-layer overrides, addressed by directory name:
+Skills are addressed by directory name, and that directory name is the skill id:
 
 | Layer | Location |
 | --- | --- |
 | System built-in | Ships with NeuroBook |
-| User layer | `.nbook/agent/skills/<key>/SKILL.md` under the Workspace Root |
-| Project layer | `.nbook/agent/skills/<key>/SKILL.md` under the current project root |
+| User layer | `.nbook/agent/skills/<id>/SKILL.md` under the Workspace Root |
 
-`SKILL.md` declares `name` and `description` in frontmatter — **the description is what makes an agent think of using it**, so spell out when it applies instead of just naming the feature.
+A user-layer directory replaces the built-in skill of the same name wholesale; the two are never merged file by file.
+
+`SKILL.md` declares `name` and `description` in frontmatter — **the description is what makes an agent think of using it**, so spell out when it applies instead of just naming the feature. To show a Chinese label in the interface, keep `name` as the lowercase English id and put the Chinese name in `metadata.displayName`.
 
 ## Runnable Skills
 

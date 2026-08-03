@@ -89,7 +89,7 @@ The test is one question: does this change as the story moves? If it changes, it
 ## Keep Reading
 
 - [Agent Tools](./tools.md): the full tool list, and when to reach for file tools, the World Engine, plot tools or a linked agent.
-- [Skills](./skills.md): the 16 built-in Skills, three-layer overrides and allowlists.
+- [Skills](./skills.md): the 17 built-in Skills, override rules and allowlists.
 - [Agent Workflows and Jobs](./workflow.md): how to orchestrate several sessions with a replayable script and run long tasks as background jobs.
 - [Subject RAG Memory](./subject-rag-memory.md): the data, index and tool contracts that are preserved, and the gap in automatic integration today.
 - [Agent Harness](./advanced.md): sessions, runtime hooks, SSE, queues and black-box behavior contracts.
