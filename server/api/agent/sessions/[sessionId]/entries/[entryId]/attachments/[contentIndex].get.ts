@@ -1,6 +1,6 @@
 import {createError, getRequestHeader, getRouterParam, setResponseHeader, setResponseStatus} from "h3";
 import {canonicalImageMime, imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
-import {requireAgentSessionId, useAgentHarness} from "nbook/server/agent/http";
+import {isAgentSessionNotFoundHttpError, mapAgentHttpError, requireAgentSessionId, useAgentHarness} from "nbook/server/agent/http";
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {ImageVariantError, type ImageVariantSpec} from "nbook/server/media/image-variant-contract";
 import {imageVariantHttpError, imageVariantSpecFromEvent} from "nbook/server/media/image-variant-http";
@@ -25,6 +25,10 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
     } catch (error) {
         if (isProjectNotOpenError(error)) {
             throw error;
+        }
+        const mapped = mapAgentHttpError(error);
+        if (isAgentSessionNotFoundHttpError(mapped)) {
+            throw mapped;
         }
         setResponseHeader(event, "Cache-Control", "no-store");
         throw createError({statusCode: 404, message: "Attachment 不存在", data: {code: "ATTACHMENT_NOT_FOUND"}});

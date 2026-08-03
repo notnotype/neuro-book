@@ -22,7 +22,7 @@ import {
     PUBLIC_TOOL_ARGS_TEXT_BYTES,
 } from "nbook/server/agent/events/public-event-policy";
 import type {SessionEntry} from "nbook/server/agent/session/types";
-import type {AgentChatEntryDto, AgentChatUserEntryDto} from "nbook/shared/dto/agent-public-event.dto";
+import type {AgentChatEntryDto, AgentChatUserEntryDto, ChatEntryKind} from "nbook/shared/dto/agent-public-event.dto";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
 export type AgentChatEntryProjectionContext = {
@@ -31,12 +31,48 @@ export type AgentChatEntryProjectionContext = {
 };
 
 /**
+ * 判断该账本 entry 会渲染成哪种 Chat Flow 气泡；null 表示它根本不进入 Chat Flow。
+ *
+ * 这是「哪些 entry 会变成气泡」的唯一判据：`projectAgentChatEntry` 用它做唯一的 null 出口，
+ * Session Tree 用它标注 `SessionTreeNode.chatEntry`，前端再据此决定哪些节点能当分支锚点。
+ * 判断必须保持纯结构、不做正文裁剪——`JsonlSessionRepository.tree()` 在 recovery 热路径上，
+ * 每个 entry 都会调用一次。
+ */
+export function chatEntryKind(entry: SessionEntry): ChatEntryKind | null {
+    if (entry.type === "message") {
+        const role = entry.message.role;
+        if (role === "user") {
+            // harness / workflow / ingest 注入的 user 消息只进模型上下文，不进 Chat Flow。
+            return entry.origin === "prompt" || entry.intent === "steer" ? "user" : null;
+        }
+        if (role === "assistant") {
+            return "assistant";
+        }
+        return role === "toolResult" ? "tool_result" : null;
+    }
+    if (entry.type === "custom_message" || entry.type === "compaction" || entry.type === "branch_summary") {
+        return "system";
+    }
+    if (entry.type === "invocation_lifecycle" && entry.status === "error") {
+        // 没有任何错误正文时不产出空卡片。
+        return entry.errorInfo?.message?.trim() || entry.error?.trim() ? "invocation_error" : null;
+    }
+    return null;
+}
+
+/**
  * 将 append-only 账本 entry 投影为 Chat Flow 的有界公开 entry。
+ *
+ * 唯一的 null 出口在开头的 `chatEntryKind`；后续分支只负责构造 DTO。
+ * 两者若发生漂移会立即抛错，而不是安静地少渲染一个气泡。
  */
 export function projectAgentChatEntry(
     entry: SessionEntry,
     context: AgentChatEntryProjectionContext = {},
 ): AgentChatEntryDto | null {
+    if (chatEntryKind(entry) === null) {
+        return null;
+    }
     if (entry.type === "message") {
         return projectMessageEntry(entry, context);
     }
@@ -75,10 +111,7 @@ export function projectAgentChatEntry(
         };
     }
     if (entry.type === "invocation_lifecycle" && entry.status === "error") {
-        const message = entry.errorInfo?.message?.trim() || entry.error?.trim();
-        if (!message) {
-            return null;
-        }
+        const message = entry.errorInfo?.message?.trim() || entry.error?.trim() || "";
         return {
             id: entry.id,
             timestamp: entry.timestamp,
@@ -90,21 +123,18 @@ export function projectAgentChatEntry(
             ...(entry.errorInfo?.code ? {code: entry.errorInfo.code} : {}),
         };
     }
-    return null;
+    throw new Error(`chatEntryKind 判定 ${entry.type} 会进入 Chat Flow，但投影没有对应分支`);
 }
 
 /**
- * 投影标准 message entry。
+ * 投影标准 message entry。调用方已通过 `chatEntryKind` 确认该 entry 会进入 Chat Flow。
  */
 function projectMessageEntry(
     entry: Extract<SessionEntry, {type: "message"}>,
     context: AgentChatEntryProjectionContext,
-): AgentChatEntryDto | null {
+): AgentChatEntryDto {
     const message = entry.message;
     if (message.role === "user") {
-        if (entry.origin !== "prompt" && entry.intent !== "steer") {
-            return null;
-        }
         if (!entry.clientMessageId || !entry.intent) {
             throw new Error(`公开用户消息 ${entry.id} 缺少 clientMessageId 或 intent`);
         }
@@ -156,9 +186,7 @@ function projectMessageEntry(
             omittedToolCalls: Math.max(0, rawToolCalls.length - toolCalls.length),
         };
     }
-    if (message.role !== "toolResult") {
-        return null;
-    }
+    // StoredAgentMessage 的 role 联合到此已穷尽；新增 role 会在这里产生编译错误而不是静默少渲染。
     return projectToolResultEntry(entry.id, entry.timestamp, message);
 }
 

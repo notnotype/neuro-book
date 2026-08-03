@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type { ChatNode, AgentMessage } from "nbook/app/components/novel-ide/agent/agent-message";
+import type { ChatNode, AgentMessage, AgentMessageSwitcherState } from "nbook/app/components/novel-ide/agent/agent-message";
 import { messageStatusLabel } from "nbook/app/components/novel-ide/agent/agent-message";
 import { useCollapsible } from "nbook/app/composables/useCollapsible";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import AgentBranchSwitcher from "nbook/app/components/novel-ide/agent/AgentBranchSwitcher.vue";
 import AgentAttachmentGallery from "nbook/app/components/novel-ide/agent/AgentAttachmentGallery.vue";
 import AgentAttachmentCard from "nbook/app/components/novel-ide/agent/AgentAttachmentCard.vue";
 import AgentHistoryMessageEditor from "nbook/app/components/novel-ide/agent/AgentHistoryMessageEditor.vue";
@@ -35,11 +36,7 @@ const props = defineProps<{
     projectRoot: string | null;
     modelSupportsImages: boolean;
     attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
-    branchSwitcher?: {
-        nodeIds: string[];
-        currentIndex: number;
-        total: number;
-    };
+    branchSwitcher?: AgentMessageSwitcherState;
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
@@ -55,7 +52,8 @@ const emit = defineEmits<{
     (e: "cancel-edit", message: AgentMessage): void;
     (e: "save-edit", payload: {message: AgentMessage; content: string}): void;
     (e: "retry", message: AgentMessage): void;
-    (e: "delete", message: AgentMessage): void;
+    /** 从这条消息新开一条分支；只移动 active leaf，不删除任何历史。 */
+    (e: "branch-from-here", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
     (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
     (e: "resend-unknown", message: AgentMessage): void;
@@ -239,12 +237,6 @@ const messageCacheHitRateLabel = computed(() => {
 
 /** 本次调用费用标签；没有可展示价格时为空。 */
 const messageCostLabel = computed(() => formatCost(messageUsage.value?.cost.total, props.costDisplayOptions));
-const branchSwitcherTitle = computed(() => {
-    if (!props.branchSwitcher) {
-        return "";
-    }
-    return t("agent.textBubble.branchTitle", {current: props.branchSwitcher.currentIndex + 1, total: props.branchSwitcher.total});
-});
 
 /** 格式化精确 token 数。 */
 function formatTokenCount(value: number | null | undefined): string {
@@ -403,21 +395,30 @@ const endSwipe = (event: PointerEvent): void => {
 <template>
     <!-- System 消息 -->
     <div v-if="props.node.message.type === 'system'" class="group flex min-w-0 w-full flex-col pl-6" :class="isSystemReminder ? 'my-2' : 'my-3'">
-        <button
-            class="flex min-w-0 w-full items-center gap-2 rounded-md border text-left transition-colors"
-            :class="isSystemError
-                ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]'
-                : isSystemReminder
-                    ? 'border-[var(--border-color)]/50 bg-[var(--bg-panel)]/45 px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]/60 hover:text-[var(--text-secondary)]'
-                    : 'border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-            @click="toggleSystem"
-        >
-            <span :class="isSystemError ? 'i-lucide-alert-triangle h-3.5 w-3.5' : isSystemReminder ? 'i-lucide-bell-ring h-3 w-3' : 'i-lucide-settings-2 h-3.5 w-3.5'" class="shrink-0"></span>
-            <span class="shrink-0 font-medium uppercase tracking-[0.18em]">{{ systemLabel }}</span>
-            <span v-if="isSystemCollapsed && systemSummary" class="min-w-0 flex-1 truncate normal-case tracking-normal opacity-75">{{ systemSummary }}</span>
-            <span v-else class="min-w-0 flex-1"></span>
-            <span :class="isSystemCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5 shrink-0"></span>
-        </button>
+        <div class="flex min-w-0 w-full items-center gap-2">
+            <button
+                class="flex min-w-0 flex-1 items-center gap-2 rounded-md border text-left transition-colors"
+                :class="isSystemError
+                    ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]'
+                    : isSystemReminder
+                        ? 'border-[var(--border-color)]/50 bg-[var(--bg-panel)]/45 px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]/60 hover:text-[var(--text-secondary)]'
+                        : 'border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                @click="toggleSystem"
+            >
+                <span :class="isSystemError ? 'i-lucide-alert-triangle h-3.5 w-3.5' : isSystemReminder ? 'i-lucide-bell-ring h-3 w-3' : 'i-lucide-settings-2 h-3.5 w-3.5'" class="shrink-0"></span>
+                <span class="shrink-0 font-medium uppercase tracking-[0.18em]">{{ systemLabel }}</span>
+                <span v-if="isSystemCollapsed && systemSummary" class="min-w-0 flex-1 truncate normal-case tracking-normal opacity-75">{{ systemSummary }}</span>
+                <span v-else class="min-w-0 flex-1"></span>
+                <span :class="isSystemCollapsed ? 'i-lucide-chevron-down' : 'i-lucide-chevron-up'" class="h-3.5 w-3.5 shrink-0"></span>
+            </button>
+            <!-- 跑挂的运行也是一条分支；没有它用户切不回上一个成功的回答。 -->
+            <AgentBranchSwitcher
+                v-if="isSystemError && props.branchSwitcher"
+                :state="props.branchSwitcher"
+                :disabled="props.actionDisabled || props.runActionDisabled"
+                @cycle="cycleBranch"
+            />
+        </div>
 
         <div v-show="!isSystemCollapsed" class="mt-2 min-w-0 w-full">
             <div
@@ -461,18 +462,13 @@ const endSwipe = (event: PointerEvent): void => {
                 <button v-if="isUnknownDelivery" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)]" title="移除本地未知占位" @click="emit('dismiss-unknown', props.node.message)">
                     <span class="i-lucide-x h-3.5 w-3.5"></span>
                 </button>
-                <div v-if="props.branchSwitcher" class="mr-1 inline-flex h-7 items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]" :title="branchSwitcherTitle">
-                    <button class="flex h-7 w-7 items-center justify-center border-r border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.previousBranch')" @click="cycleBranch(-1)">
-                        <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
-                    </button>
-                    <span class="inline-flex h-7 items-center gap-1 px-2 text-[10px] tabular-nums text-[var(--text-secondary)]">
-                        <span class="i-lucide-git-branch h-3 w-3 text-[var(--accent-text)]"></span>
-                        {{ props.branchSwitcher.currentIndex + 1 }} / {{ props.branchSwitcher.total }}
-                    </span>
-                    <button class="flex h-7 w-7 items-center justify-center border-l border-[var(--border-color)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.nextBranch')" @click="cycleBranch(1)">
-                        <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
-                    </button>
-                </div>
+                <AgentBranchSwitcher
+                    v-if="props.branchSwitcher"
+                    class="mr-1"
+                    :state="props.branchSwitcher"
+                    :disabled="props.actionDisabled || props.runActionDisabled"
+                    @cycle="cycleBranch"
+                />
                 <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="isContentOmitted ? t('agent.textBubble.copyPreview') : t('agent.textBubble.copy')" @click="emit('copy', props.node.message)">
                     <span class="i-lucide-copy h-3.5 w-3.5"></span>
                 </button>
@@ -482,8 +478,8 @@ const endSwipe = (event: PointerEvent): void => {
                 <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.retry')" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
-                    <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.branchFromHere')" @click="emit('branch-from-here', props.node.message)">
+                    <span class="i-lucide-git-branch-plus h-3.5 w-3.5"></span>
                 </button>
             </div>
         </div>

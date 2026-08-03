@@ -151,6 +151,19 @@ describe("useAgentSession durable history", () => {
         expect(session.historyError.value).toBe("网络暂时不可用");
     });
 
+    it("Session Not Found 在 history 中保持局部错误且不请求隐式切换", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery("rev-1", [user("entry-1", "当前")], "cursor-1"));
+
+        await expect(session.loadPrevious(async () => {
+            throw {data: {code: "SESSION_NOT_FOUND", message: "Session 不存在或已不可用"}};
+        })).resolves.toBe(false);
+
+        expect(session.needsRecovery.value).toBe(false);
+        expect(session.previousCursor.value).toBe("cursor-1");
+        expect(session.historyError.value).toBe("Session 不存在或已不可用");
+    });
+
     it("System Prompt 仅在显式加载时请求，并按 session single-flight", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery("rev-1", [], null));
@@ -162,6 +175,19 @@ describe("useAgentSession durable history", () => {
         expect(loader).toHaveBeenCalledTimes(1);
         expect(session.systemPrompt.value).toBe("SYSTEM");
         expect(session.messages.value).toEqual([]);
+    });
+
+    it("Session Not Found 在 System Prompt 中只发布局部错误", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery("rev-1", [], null));
+
+        await expect(session.loadSystemPrompt(async () => {
+            throw {response: {_data: {code: "SESSION_NOT_FOUND", message: "Session 不存在或已不可用"}}};
+        })).resolves.toBe(false);
+
+        expect(session.systemPrompt.value).toBeNull();
+        expect(session.systemPromptError.value).toBe("Session 不存在或已不可用");
+        expect(session.needsRecovery.value).toBe(false);
     });
 
     it("durable user entry 到达后按 clientMessageId 收敛 optimistic message", () => {

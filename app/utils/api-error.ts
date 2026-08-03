@@ -53,6 +53,34 @@ export function resolveApiErrorMessage(error: unknown, fallback?: string): strin
     return fallback ?? resolveDefaultApiErrorMessage();
 }
 
+/** 提取 `$fetch` / h3 错误中的稳定业务码；外部响应结构在此边界逐层收窄。 */
+export function resolveApiErrorCode(error: unknown): string | null {
+    if (typeof error !== "object" || error === null) {
+        return null;
+    }
+    const direct = "data" in error ? nestedApiErrorCode(error.data) : null;
+    if (direct !== null) {
+        return direct;
+    }
+    if (!("response" in error) || typeof error.response !== "object" || error.response === null || !("_data" in error.response)) {
+        return null;
+    }
+    return nestedApiErrorCode(error.response._data);
+}
+
+/** H3 可能把业务 data 再包一层，最多读取两层稳定 code。 */
+function nestedApiErrorCode(value: unknown): string | null {
+    if (typeof value !== "object" || value === null) {
+        return null;
+    }
+    if ("code" in value && typeof value.code === "string") {
+        return value.code;
+    }
+    return "data" in value && typeof value.data === "object" && value.data !== null && "code" in value.data && typeof value.data.code === "string"
+        ? value.data.code
+        : null;
+}
+
 /**
  * 提取 `$fetch` / h3 错误中的 HTTP 状态码；无法识别时返回 null。
  */

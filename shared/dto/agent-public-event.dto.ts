@@ -273,6 +273,15 @@ export type AgentChatEntryDto =
     | AgentChatToolResultEntryDto
     | AgentChatSystemEntryDto
     | AgentChatInvocationErrorEntryDto;
+
+/**
+ * 账本 entry 会渲染成哪一种 Chat Flow 气泡。
+ *
+ * 从 `AgentChatEntryDto` 派生，不额外定义一套并行词汇：判据的唯一实现是
+ * `server/agent/events/public-chat-entry-projection.ts` 的 `chatEntryKind()`。
+ * 注意 `tool_result` 会并入所属 assistant 气泡，没有独立气泡与工具条。
+ */
+export type ChatEntryKind = AgentChatEntryDto["type"];
 import type {Usage} from "@earendil-works/pi-ai";
 import type {AttachmentId} from "nbook/shared/dto/agent-attachment.dto";
 import type {LowCodeFieldDto, LowCodeJsonObject} from "nbook/shared/dto/low-code-form.dto";

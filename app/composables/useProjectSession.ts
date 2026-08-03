@@ -1,6 +1,6 @@
 import {onScopeDispose, readonly, ref, type Ref} from "vue";
 import {readSseStream} from "nbook/app/utils/http/read-sse";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
 import type {ProjectOpenResponseDto} from "nbook/shared/dto/project.dto";
@@ -363,16 +363,8 @@ export function useProjectSession(): ProjectSessionController {
     return lifecycle;
 }
 
-/** $fetch 外部错误只按稳定 data.code 判别 Project 领域状态。 */
-function apiErrorCode(error: unknown): string | null {
-    if (typeof error !== "object" || error === null || !("data" in error)) return null;
-    const data = (error as {data?: {code?: unknown; data?: {code?: unknown}}}).data;
-    if (typeof data?.code === "string") return data.code;
-    return typeof data?.data?.code === "string" ? data.data.code : null;
-}
-
 function isProjectMissingError(error: unknown): boolean {
-    return apiErrorCode(error) === "PROJECT_NOT_FOUND";
+    return resolveApiErrorCode(error) === "PROJECT_NOT_FOUND";
 }
 
 function isAbortError(error: unknown): boolean {

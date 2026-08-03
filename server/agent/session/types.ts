@@ -3,6 +3,7 @@ import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types"
 import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
+import type {ChatEntryKind} from "nbook/shared/dto/agent-public-event.dto";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 
 export type SessionId = number;
@@ -364,7 +365,14 @@ export type SessionTreeNode = {
     terminal: boolean;
     childCount: number;
     role?: string;
-    messageId?: string;
+    /**
+     * 该 entry 会渲染成哪种 Chat Flow 气泡；缺失表示它不进入 Chat Flow。
+     *
+     * 由 `chatEntryKind()` 计算，与 Chat Flow 投影同源。气泡 id 就是 `id`，不再单独下发。
+     * 前端据此判断哪些节点可以充当对话分支的锚点——记账 entry（lifecycle、model_change、
+     * custom 等）缺失该字段，因此不会被误当成一条分支。
+     */
+    chatEntry?: ChatEntryKind;
     preview?: string;
     toolName?: string;
     label?: string;

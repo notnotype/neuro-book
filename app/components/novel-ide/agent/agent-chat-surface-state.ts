@@ -23,6 +23,51 @@ export type AgentSurfaceActivationState =
     | {status: "empty"; attempt: AgentSurfaceActivationAttempt}
     | {status: "error"; attempt: AgentSurfaceActivationAttempt; message: string};
 
+/** 缺失目标恢复时，只从当前服务端列表选择一次有效 fallback。 */
+export function resolveMissingSessionFallback(
+    sessions: readonly {readonly sessionId: number}[],
+    failedSessionId: number,
+    previousSessionId: number | null,
+): number | null {
+    if (previousSessionId !== null
+        && previousSessionId !== failedSessionId
+        && sessions.some((session) => session.sessionId === previousSessionId)) {
+        return previousSessionId;
+    }
+    return sessions.find((session) => session.sessionId !== failedSessionId)?.sessionId ?? null;
+}
+
+export type MissingSessionRecoveryResult =
+    | {status: "superseded"}
+    | {status: "empty"}
+    | {status: "load_failed"; sessionId: number}
+    | {status: "loaded"; sessionId: number};
+
+/** 刷新一次并加载一次 fallback；调用方负责 UI 状态和提示。 */
+export async function recoverMissingSessionSelection(input: {
+    failedSessionId: number;
+    previousSessionId: number | null;
+    accepts: () => boolean;
+    refresh: () => Promise<readonly {readonly sessionId: number}[]>;
+    load: (sessionId: number) => Promise<boolean>;
+}): Promise<MissingSessionRecoveryResult> {
+    const sessions = await input.refresh();
+    if (!input.accepts()) {
+        return {status: "superseded"};
+    }
+    const fallbackSessionId = resolveMissingSessionFallback(sessions, input.failedSessionId, input.previousSessionId);
+    if (fallbackSessionId === null) {
+        return {status: "empty"};
+    }
+    const loaded = await input.load(fallbackSessionId);
+    if (!input.accepts()) {
+        return {status: "superseded"};
+    }
+    return loaded
+        ? {status: "loaded", sessionId: fallbackSessionId}
+        : {status: "load_failed", sessionId: fallbackSessionId};
+}
+
 /** 被新 scope、激活代次或组件销毁取代的请求。调用方应静默忽略。 */
 export class AgentSurfaceSupersededError extends Error {
     constructor(readonly attempt: AgentSurfaceActivationAttempt) {

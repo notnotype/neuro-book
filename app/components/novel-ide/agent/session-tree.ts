@@ -26,7 +26,12 @@ export type AgentTreeDerivedState = {
     activePathIds: Set<string>;
     flattenedNodes: SessionTreeNode[];
     terminalByBranchRootId: Map<string, SessionTreeNode>;
-    /** 消息气泡 swipe 状态。nodeIds 表示同一 branch point 下的 continuation lane roots，不保证每个 root 都是 message。 */
+    /**
+     * 消息气泡上的分支切换状态，按承载切换器的气泡 id 建索引。
+     *
+     * nodeIds 是同一分叉下的对话分支锚点，运行期记账 entry 已被条件化掉，
+     * 因此每个 id 都对应一个真实气泡。切换目标仍落到该分支在原始树里的最新终点。
+     */
     switcherByMessageId: Record<string, AgentMessageSwitcherState>;
 };
 
@@ -228,7 +233,7 @@ export function deriveAgentTreeState(tree: SessionTreeNode[]): AgentTreeDerivedS
         activePathIds,
         flattenedNodes,
         terminalByBranchRootId,
-        switcherByMessageId: deriveSwitcherByMessageId({flattenedNodes, childrenByParentId}),
+        switcherByMessageId: deriveSwitcherByMessageId({flattenedNodes, nodeById}),
     };
 }
 
@@ -398,27 +403,77 @@ function isRawBranchPoint(node: SessionTreeNode): boolean {
     return node.childCount > 1;
 }
 
+/**
+ * 判断节点能否充当一条对话分支的锚点。
+ *
+ * 服务端只给事实（`chatEntry` = 这条 entry 会渲染成哪种气泡），这里定的是 UI 策略：
+ * 只有带消息工具条、能承载切换器的气泡才算一条分支的开头。
+ *
+ * - `tool_result` 并入所属 assistant 气泡，没有独立工具条，排除。
+ * - `system` 是每轮注入的提醒 / 压缩摘要这类脚手架卡片，不是「另一个版本」，排除。
+ * - `invocation_error` 保留：跑挂的那次运行也是一条真实结果，否则重试失败后会切不回上一个好答案。
+ * - 缺 `chatEntry` 的记账 entry（lifecycle、model_change、custom 等）一律透明。
+ */
+function isBranchAnchor(node: SessionTreeNode): boolean {
+    return node.chatEntry === "user" || node.chatEntry === "assistant" || node.chatEntry === "invocation_error";
+}
+
+/**
+ * 派生消息气泡上的分支切换状态。
+ *
+ * 原始 entry 树同时承载对话内容和运行期记账，直接按 `childCount > 1` 找分叉会把
+ * `invocation_lifecycle` / `model_change` / `custom(agent.link.*)` 也算成分支——既让真实的
+ * 重试分支显示不出来（每次运行的第一条 entry 必然是 lifecycle start，它抢占了分支根的位置），
+ * 又会造出切过去就把对话截断的假分支。
+ *
+ * 这里改为在锚点之间连线：每个锚点归属到最近的锚点祖先，记账 entry 全部透明。
+ * 只含记账 entry 的分叉自然消失，`model_change` 也因此不构成独立分支。
+ */
 function deriveSwitcherByMessageId(
-    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "childrenByParentId">,
+    state: Pick<AgentTreeDerivedState, "flattenedNodes" | "nodeById">,
 ): Record<string, AgentMessageSwitcherState> {
+    /** 沿 parentId 上溯到最近的锚点；null 表示该锚点直接挂在会话虚拟根下。 */
+    const nearestAnchorId = (node: SessionTreeNode): string | null => {
+        let cursor = node.parentId;
+        while (cursor) {
+            const ancestor = state.nodeById.get(cursor);
+            if (!ancestor) {
+                return null;
+            }
+            if (isBranchAnchor(ancestor)) {
+                return ancestor.id;
+            }
+            cursor = ancestor.parentId;
+        }
+        return null;
+    };
+
+    const lanesByAnchorParentId = new Map<string | null, SessionTreeNode[]>();
+    for (const node of state.flattenedNodes) {
+        if (!isBranchAnchor(node)) {
+            continue;
+        }
+        const anchorParentId = nearestAnchorId(node);
+        const lanes = lanesByAnchorParentId.get(anchorParentId) ?? [];
+        lanes.push(node);
+        lanesByAnchorParentId.set(anchorParentId, lanes);
+    }
+
     const result: Record<string, AgentMessageSwitcherState> = {};
-    for (const branchPoint of state.flattenedNodes) {
-        if (!isRawBranchPoint(branchPoint)) {
+    for (const lanes of lanesByAnchorParentId.values()) {
+        if (lanes.length <= 1) {
             continue;
         }
-        const branchRoots = state.childrenByParentId.get(branchPoint.id) ?? [];
-        if (branchRoots.length <= 1) {
-            continue;
-        }
-        const currentIndex = branchRoots.findIndex((item) => item.active && Boolean(item.messageId));
+        lanes.sort((left, right) => left.timestamp - right.timestamp);
+        // 分叉整体不在 active path 上时不显示切换器；这类分支只在 Session Tree 对话框审计。
+        const currentIndex = lanes.findIndex((lane) => lane.active);
         if (currentIndex < 0) {
             continue;
         }
-        const currentRoot = branchRoots[currentIndex]!;
-        result[currentRoot.messageId!] = {
-            nodeIds: branchRoots.map((item) => item.id),
+        result[lanes[currentIndex]!.id] = {
+            nodeIds: lanes.map((lane) => lane.id),
             currentIndex,
-            total: branchRoots.length,
+            total: lanes.length,
         };
     }
     return result;

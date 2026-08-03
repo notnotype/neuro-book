@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { AgentMessage, AgentToolCall, ChatNode } from "nbook/app/components/novel-ide/agent/agent-message";
+import type { AgentMessage, AgentMessageSwitcherState, AgentToolCall, ChatNode } from "nbook/app/components/novel-ide/agent/agent-message";
 import { toChatNodes } from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentTextBubble from "nbook/app/components/novel-ide/agent/AgentTextBubble.vue";
 import AgentToolBubble from "nbook/app/components/novel-ide/agent/AgentToolBubble.vue";
@@ -42,8 +42,8 @@ const props = defineProps<{
     projectRoot: string | null;
     modelSupportsImages: boolean;
     attachmentInsertRequest?: {id: number; item: AgentSessionAttachmentItemDto} | null;
-    /** 消息级分支切换状态。 */
-    branchSwitcherStateByMessageId?: Record<string, {nodeIds: string[]; currentIndex: number; total: number}>;
+    /** 消息级分支切换状态，按承载切换器的气泡 id 建索引。 */
+    branchSwitcherStateByMessageId?: Record<string, AgentMessageSwitcherState>;
     /** 编辑器触发菜单刷新 key。 */
     menuRefreshKey?: string | number;
     /** 编辑器触发菜单解析器。 */
@@ -71,7 +71,8 @@ const emit = defineEmits<{
     (e: "cancel-edit", message: AgentMessage): void;
     (e: "save-edit", payload: {message: AgentMessage; content: string}): void;
     (e: "retry", message: AgentMessage): void;
-    (e: "delete", message: AgentMessage): void;
+    /** 从这条消息新开一条分支；只移动 active leaf，不删除任何历史。 */
+    (e: "branch-from-here", message: AgentMessage): void;
     (e: "cycle-branch", payload: {messageId: string; direction: -1 | 1}): void;
     (e: "load-previous"): void;
     (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
@@ -372,7 +373,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     @cancel-edit="emit('cancel-edit', $event)"
                     @save-edit="emit('save-edit', $event)"
                     @retry="emit('retry', $event)"
-                    @delete="emit('delete', $event)"
+                    @branch-from-here="emit('branch-from-here', $event)"
                     @cycle-branch="emit('cycle-branch', $event)"
                     @attachment-registered="emit('attachment-registered', $event)"
                     @resend-unknown="emit('resend-unknown', $event)"

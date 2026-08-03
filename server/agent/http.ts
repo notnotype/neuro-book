@@ -5,6 +5,7 @@ import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {isAttachmentError} from "nbook/server/agent/attachments/types";
 import {isSessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
+import {isAgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 import {requireReadyAgentSessionStore} from "nbook/server/agent/session/agent-session-store-runtime";
 import {projectPublicInvocationResult} from "nbook/server/agent/events/public-invocation-result-projection";
 import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
@@ -84,12 +85,12 @@ export function requireAgentSessionId(event: Parameters<typeof getRouterParam>[0
  * 创建 Agent session。
  */
 export async function createAgentSession(body: AgentCreateSessionRequestDto, harness = useAgentHarness()) {
-    return harness.createAgent({
+    return withAgentHttpError(() => harness.createAgent({
         profileKey: body.profileKey,
         initial: body.initial,
         currentProjectRoot: body.currentProjectRoot,
         parentSessionId: body.parentSessionId,
-    });
+    }));
 }
 
 /** 重新绑定或清除 Session Current Project。 */
@@ -98,11 +99,7 @@ export async function updateAgentSessionCurrentProject(
     body: AgentCurrentProjectRequestDto,
     harness = useAgentHarness(),
 ) {
-    try {
-        return await harness.updateCurrentProject(sessionId, body.projectRoot);
-    } catch (error) {
-        throw mapAgentHttpError(error);
-    }
+    return withAgentHttpError(() => harness.updateCurrentProject(sessionId, body.projectRoot));
 }
 
 /**
@@ -131,41 +128,28 @@ export async function getAgentSessionQuery(
     harness = useAgentHarness(),
     timingSink?: ServerTimingSink,
 ): Promise<AgentSessionQueryResultDto> {
-    try {
-        return timingSink
-            ? await harness.getSessionQuery(sessionId, query, timingSink)
-            : await harness.getSessionQuery(sessionId, query);
-    } catch (error) {
-        if (error instanceof AgentHistoryQueryError) {
-            throw createError({
-                statusCode: error.statusCode,
-                message: error.message,
-                data: {code: error.code},
-            });
-        }
-        throw error;
-    }
+    return withAgentHttpError(() => timingSink
+        ? harness.getSessionQuery(sessionId, query, timingSink)
+        : harness.getSessionQuery(sessionId, query));
 }
 
 /**
  * 返回关联 Agent 面板使用的轻量关系投影。
  */
 export async function getAgentSessionRelations(sessionId: number, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
-    return timingSink
+    return withAgentHttpError(() => timingSink
         ? harness.getSessionRelations(sessionId, timingSink)
-        : harness.getSessionRelations(sessionId);
+        : harness.getSessionRelations(sessionId));
 }
 
 /**
  * 阻塞调用 Agent session。
  */
 export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()): Promise<InvokeAgentResult> {
-    try {
+    return withAgentHttpError(async () => {
         const result = await harness.invokeAgent(toInvokeInput(sessionId, body));
         return projectPublicInvocationResult(result);
-    } catch (error) {
-        throw mapAgentHttpError(error);
-    }
+    });
 }
 
 /** 查询 Session 全分支附件目录。 */
@@ -174,11 +158,7 @@ export async function listAgentSessionAttachments(
     query: AgentSessionAttachmentListQueryDto,
     harness = useAgentHarness(),
 ): Promise<AgentSessionAttachmentPageDto> {
-    try {
-        return await harness.listSessionAttachments(sessionId, query);
-    } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
-    }
+    return withAgentHttpError(() => harness.listSessionAttachments(sessionId, query));
 }
 
 /** 按请求顺序批量解析当前 Session 已授权附件。 */
@@ -187,11 +167,9 @@ export async function resolveAgentSessionAttachments(
     attachmentIds: readonly import("nbook/shared/dto/agent-attachment.dto").AttachmentId[],
     harness = useAgentHarness(),
 ): Promise<AgentSessionAttachmentResolveResultDto> {
-    try {
-        return {items: await harness.resolveSessionAttachments(sessionId, attachmentIds)};
-    } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
-    }
+    return withAgentHttpError(async () => ({
+        items: await harness.resolveSessionAttachments(sessionId, attachmentIds),
+    }));
 }
 
 /** 保存 multipart 上传图片并登记到 Session。 */
@@ -200,11 +178,7 @@ export async function uploadAgentSessionAttachment(
     input: {bytes: Uint8Array; mimeType?: string; name?: string},
     harness = useAgentHarness(),
 ): Promise<AgentSessionAttachmentItemDto> {
-    try {
-        return await harness.uploadSessionAttachment(sessionId, input);
-    } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
-    }
+    return withAgentHttpError(() => harness.uploadSessionAttachment(sessionId, input));
 }
 
 /** 上传路由在消费 multipart body 前执行的 Session 交互门禁。 */
@@ -212,11 +186,9 @@ export async function preflightAgentSessionAttachmentRegistration(
     sessionId: number,
     harness = useAgentHarness(),
 ): Promise<void> {
-    try {
+    return withAgentHttpError(async () => {
         await harness.preflightSessionAttachmentRegistration(sessionId);
-    } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
-    }
+    });
 }
 
 /** 快照本地图片并登记到 Session。 */
@@ -225,11 +197,7 @@ export async function snapshotAgentSessionAttachment(
     input: AgentSessionAttachmentSnapshotRequestDto,
     harness = useAgentHarness(),
 ): Promise<AgentSessionAttachmentItemDto> {
-    try {
-        return await harness.snapshotSessionAttachment(sessionId, input);
-    } catch (error) {
-        throw mapAgentAttachmentHttpError(error);
-    }
+    return withAgentHttpError(() => harness.snapshotSessionAttachment(sessionId, input));
 }
 
 /** 返回历史用户消息按 stored content 顺序重建的完整 Markdown。 */
@@ -238,16 +206,16 @@ export async function getAgentSessionUserContent(
     entryId: string,
     harness = useAgentHarness(),
 ): Promise<AgentUserMessageContentDto> {
-    return harness.getSessionUserContent(sessionId, entryId);
+    return withAgentHttpError(() => harness.getSessionUserContent(sessionId, entryId));
 }
 
 /**
  * 执行 session command。slash command 在前端识别后进入这里。
  */
 export async function runAgentSessionCommand(sessionId: number, body: AgentCommandRequestDto, harness = useAgentHarness(), timingSink?: ServerTimingSink) {
-    return timingSink
+    return withAgentHttpError(() => timingSink
         ? harness.runCommand(sessionId, body, timingSink)
-        : harness.runCommand(sessionId, body);
+        : harness.runCommand(sessionId, body));
 }
 
 /**
@@ -256,25 +224,29 @@ export async function runAgentSessionCommand(sessionId: number, body: AgentComma
  * 当前实现先移动 leaf 再 invoke；若 invoke 失败，leaf 不会自动回滚。
  */
 export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()): Promise<AgentTreeResult> {
-    const result = await harness.moveTree(sessionId, body);
-    return result.invocation
-        ? {...result, invocation: projectPublicInvocationResult(result.invocation)}
-        : {status: result.status, state: result.state};
+    return withAgentHttpError(async () => {
+        const result = await harness.moveTree(sessionId, body);
+        return result.invocation
+            ? {...result, invocation: projectPublicInvocationResult(result.invocation)}
+            : {status: result.status, state: result.state};
+    });
 }
 
 /**
  * 请求中断当前 invocation。
  */
 export async function abortAgentSession(sessionId: number, body: AgentAbortRequestDto, harness = useAgentHarness()) {
-    return harness.abortInvocation(sessionId, body);
+    return withAgentHttpError(() => harness.abortInvocation(sessionId, body));
 }
 
 /**
  * 前端确认 client.* variable patch 已应用。
  */
 export async function acknowledgeClientVariablePatch(sessionId: number, body: ClientVariablePatchAckDto, harness = useAgentHarness()) {
-    await harness.acknowledgeClientVariablePatch(sessionId, body);
-    return {ok: true};
+    return withAgentHttpError(async () => {
+        await harness.acknowledgeClientVariablePatch(sessionId, body);
+        return {ok: true};
+    });
 }
 
 /**
@@ -306,6 +278,15 @@ export function toInvokeInput(
         block: body.block,
         onEvent,
     };
+}
+
+/** 统一保护 Session HTTP helper，避免各路由重复识别领域错误。 */
+async function withAgentHttpError<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+    try {
+        return await operation();
+    } catch (error) {
+        throw mapAgentHttpError(error);
+    }
 }
 
 /** 将 Attachment 稳定错误映射为前端可处理的 HTTP 合同。 */
@@ -348,8 +329,22 @@ function mapAgentAttachmentHttpError(error: unknown): Error {
     });
 }
 
-/** Session admission/rebind与Attachment共享的HTTP错误出口。 */
-function mapAgentHttpError(error: unknown): Error {
+/** Session HTTP 路由共享的稳定错误出口。 */
+export function mapAgentHttpError(error: unknown): Error {
+    if (isAgentSessionNotFoundError(error)) {
+        return createError({
+            statusCode: 404,
+            message: "Session 不存在或已不可用",
+            data: {code: "SESSION_NOT_FOUND"},
+        });
+    }
+    if (error instanceof AgentHistoryQueryError) {
+        return createError({
+            statusCode: error.statusCode,
+            message: error.message,
+            data: {code: error.code},
+        });
+    }
     if (isSessionCurrentProjectError(error)) {
         return createError({
             statusCode: error.statusCode,
@@ -361,4 +356,12 @@ function mapAgentHttpError(error: unknown): Error {
         });
     }
     return mapAgentAttachmentHttpError(error);
+}
+
+/** 宽泛 entry/attachment 404 Adapter 用稳定 HTTP code 保留 Session Not Found。 */
+export function isAgentSessionNotFoundHttpError(error: unknown): boolean {
+    if (!(error instanceof Error) || !("data" in error) || typeof error.data !== "object" || error.data === null) {
+        return false;
+    }
+    return "code" in error.data && error.data.code === "SESSION_NOT_FOUND";
 }

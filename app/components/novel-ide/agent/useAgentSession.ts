@@ -10,7 +10,7 @@ import type {
     AgentSessionAttachmentItemDto,
     AgentSessionSystemPromptDto,
 } from "nbook/shared/dto/agent-session.dto";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowReadonly, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
@@ -411,7 +411,7 @@ export function useAgentSession() {
                 if (generation !== requestGeneration || recoveryShell.value?.summary.sessionId !== sessionId) {
                     return false;
                 }
-                const code = apiErrorCode(error);
+                const code = resolveApiErrorCode(error);
                 if (code === "ACTIVE_PATH_CHANGED") {
                     requestRecovery("active_path_changed");
                 } else if (code === "INVALID_HISTORY_CURSOR") {
@@ -758,15 +758,4 @@ function trimQueuedMessages<T>(queue: {items: T[]; omittedItems: number}, count:
     if (count >= queue.items.length + queue.omittedItems) return queue;
     const items = queue.items.slice(0, Math.min(count, queue.items.length));
     return {items, omittedItems: Math.max(0, count - items.length)};
-}
-
-/** 读取 `$fetch` 错误中的稳定业务码；外部错误结构只能在边界使用 unknown。 */
-function apiErrorCode(error: unknown): string | null {
-    if (typeof error !== "object" || error === null) return null;
-    const data = "data" in error && typeof error.data === "object" && error.data !== null
-        ? error.data
-        : "response" in error && typeof error.response === "object" && error.response !== null && "_data" in error.response
-            ? error.response._data
-            : null;
-    return typeof data === "object" && data !== null && "code" in data && typeof data.code === "string" ? data.code : null;
 }

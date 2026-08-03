@@ -5,6 +5,8 @@ import {
     AgentSurfaceOperationController,
     AgentSurfaceSupersededError,
     projectAgentComposerAvailability,
+    recoverMissingSessionSelection,
+    resolveMissingSessionFallback,
     watchAgentSurfaceActivation,
     type AgentSurfaceActivationState,
 } from "nbook/app/components/novel-ide/agent/agent-chat-surface-state";
@@ -18,6 +20,90 @@ function deferred<T>() {
     });
     return {promise, resolve, reject};
 }
+
+describe("resolveMissingSessionFallback", () => {
+    const sessions = [{sessionId: 39}, {sessionId: 40}, {sessionId: 41}];
+
+    it("优先保留列表中仍有效的原 Session", () => {
+        expect(resolveMissingSessionFallback(sessions, 3, 40)).toBe(40);
+    });
+
+    it("原 Session 不可用时选择第一个非失败 Session", () => {
+        expect(resolveMissingSessionFallback(sessions, 3, 3)).toBe(39);
+        expect(resolveMissingSessionFallback(sessions, 3, 99)).toBe(39);
+    });
+
+    it("排除失败 ID 且空列表返回 null", () => {
+        expect(resolveMissingSessionFallback([{sessionId: 3}, {sessionId: 40}], 3, null)).toBe(40);
+        expect(resolveMissingSessionFallback([{sessionId: 3}], 3, null)).toBeNull();
+        expect(resolveMissingSessionFallback([], 3, null)).toBeNull();
+    });
+});
+
+describe("recoverMissingSessionSelection", () => {
+    it("只刷新和加载一次，并优先恢复原有效 Session", async () => {
+        const refresh = vi.fn(async () => [{sessionId: 39}, {sessionId: 40}]);
+        const load = vi.fn(async () => true);
+
+        await expect(recoverMissingSessionSelection({
+            failedSessionId: 3,
+            previousSessionId: 40,
+            accepts: () => true,
+            refresh,
+            load,
+        })).resolves.toEqual({status: "loaded", sessionId: 40});
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(load).toHaveBeenCalledTimes(1);
+        expect(load).toHaveBeenCalledWith(40);
+    });
+
+    it("空列表不加载，fallback 失败也不递归重试", async () => {
+        const emptyLoad = vi.fn(async () => true);
+        await expect(recoverMissingSessionSelection({
+            failedSessionId: 3,
+            previousSessionId: null,
+            accepts: () => true,
+            refresh: async () => [],
+            load: emptyLoad,
+        })).resolves.toEqual({status: "empty"});
+        expect(emptyLoad).not.toHaveBeenCalled();
+
+        const failedLoad = vi.fn(async () => false);
+        await expect(recoverMissingSessionSelection({
+            failedSessionId: 3,
+            previousSessionId: null,
+            accepts: () => true,
+            refresh: async () => [{sessionId: 39}, {sessionId: 40}],
+            load: failedLoad,
+        })).resolves.toEqual({status: "load_failed", sessionId: 39});
+        expect(failedLoad).toHaveBeenCalledTimes(1);
+    });
+
+    it("刷新或加载后 ownership 失效时不发布旧结果", async () => {
+        let accepted = false;
+        const load = vi.fn(async () => true);
+        await expect(recoverMissingSessionSelection({
+            failedSessionId: 3,
+            previousSessionId: null,
+            accepts: () => accepted,
+            refresh: async () => [{sessionId: 39}],
+            load,
+        })).resolves.toEqual({status: "superseded"});
+        expect(load).not.toHaveBeenCalled();
+
+        accepted = true;
+        await expect(recoverMissingSessionSelection({
+            failedSessionId: 3,
+            previousSessionId: null,
+            accepts: () => accepted,
+            refresh: async () => [{sessionId: 39}],
+            load: async () => {
+                accepted = false;
+                return true;
+            },
+        })).resolves.toEqual({status: "superseded"});
+    });
+});
 
 describe("AgentSurfaceActivationController", () => {
     it("组件初次以 active=true 挂载时立即激活", () => {

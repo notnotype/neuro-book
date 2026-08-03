@@ -5,6 +5,7 @@ import {
     getAgentSessionRelations,
     getAgentSessionQuery,
     invokeAgentSession,
+    listAgentSessionAttachments,
     listAgentSessions,
     moveAgentSessionTree,
     runAgentSessionCommand,
@@ -12,6 +13,7 @@ import {
     updateAgentSessionCurrentProject,
 } from "nbook/server/agent/http";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
+import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
@@ -118,6 +120,21 @@ describe("agent session http helpers", () => {
         });
     });
 
+    it.each([
+        {view: "recovery", query: {}},
+        {view: "history", query: {view: "history", cursor: "cursor-1"}},
+        {view: "systemPrompt", query: {view: "systemPrompt"}},
+    ])("$view 缺失 Session 映射为统一 404", async ({query}) => {
+        const getSessionQuery = vi.fn(async () => {
+            throw new AgentSessionNotFoundError(12);
+        });
+
+        await expect(getAgentSessionQuery(12, query as never, {getSessionQuery} as never)).rejects.toMatchObject({
+            statusCode: 404,
+            data: {code: "SESSION_NOT_FOUND"},
+        });
+    });
+
     it("getAgentSessionRelations 调用 harness.getSessionRelations", async () => {
         const getSessionRelations = vi.fn(async () => ({
             sessionId: 12,
@@ -128,6 +145,25 @@ describe("agent session http helpers", () => {
         await getAgentSessionRelations(12, {getSessionRelations} as never);
 
         expect(getSessionRelations).toHaveBeenCalledWith(12);
+    });
+
+    it("relations、command 和 attachment 复用 Session Not Found 映射", async () => {
+        const missing = async () => {
+            throw new AgentSessionNotFoundError(12);
+        };
+
+        await expect(getAgentSessionRelations(12, {getSessionRelations: missing} as never)).rejects.toMatchObject({
+            statusCode: 404,
+            data: {code: "SESSION_NOT_FOUND"},
+        });
+        await expect(runAgentSessionCommand(12, {command: "archive"}, {runCommand: missing} as never)).rejects.toMatchObject({
+            statusCode: 404,
+            data: {code: "SESSION_NOT_FOUND"},
+        });
+        await expect(listAgentSessionAttachments(12, {offset: 0, limit: 50}, {listSessionAttachments: missing} as never)).rejects.toMatchObject({
+            statusCode: 404,
+            data: {code: "SESSION_NOT_FOUND"},
+        });
     });
 
     it("invokeAgentSession 调用 harness.invokeAgent", async () => {

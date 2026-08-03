@@ -30,6 +30,7 @@ import {
     AgentSurfaceOperationController,
     isAgentSurfaceSupersededError,
     projectAgentComposerAvailability,
+    recoverMissingSessionSelection,
     watchAgentSurfaceActivation,
     type AgentComposerAvailability,
     type AgentComposerAvailabilityAction,
@@ -41,7 +42,7 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
-import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import {promptCacheHitRate, type PromptCacheUsage} from "nbook/app/utils/prompt-cache";
 import type {ConfigBootstrapDto, ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
@@ -1203,9 +1204,10 @@ function insertSessionAttachment(item: AgentSessionAttachmentItemDto): void {
  */
 const loadSession = async (
     sessionId: number,
-    options: {attempt?: AgentSurfaceActivationAttempt} = {},
+    options: {attempt?: AgentSurfaceActivationAttempt; recoverMissing?: boolean} = {},
 ): Promise<boolean> => {
     const attempt = options.attempt ?? surfaceActivation.begin(sessionScopeKey.value);
+    const previousSessionId = activeSessionId.value;
     if (!options.attempt) {
         beginSurfaceOperations(attempt.scopeKey);
     }
@@ -1252,11 +1254,43 @@ const loadSession = async (
         if (!acceptsActivation(attempt) || activeSessionId.value !== sessionId) {
             return false;
         }
-        console.error(`加载 session ${String(sessionId)} 失败`, error);
         sessionStream.stop();
         activeSessionId.value = null;
         session.reset();
         syncSessionModelState(null);
+        if (resolveApiErrorCode(error) === "SESSION_NOT_FOUND" && options.recoverMissing !== false) {
+            if (readLastSessionId() === sessionId) {
+                localStorage.removeItem(`agent:last-session:${sessionMemoryScopeKey.value}`);
+            }
+            try {
+                const recovery = await recoverMissingSessionSelection({
+                    failedSessionId: sessionId,
+                    previousSessionId,
+                    accepts: () => acceptsActivation(attempt),
+                    refresh: () => refreshSessions(attempt),
+                    load: (fallbackSessionId) => loadSession(fallbackSessionId, {attempt, recoverMissing: false}),
+                });
+                if (recovery.status === "superseded" || recovery.status === "load_failed") {
+                    return false;
+                }
+                if (recovery.status === "empty") {
+                    surfaceActivation.markEmpty(attempt, sessionScopeKey.value);
+                    notification.warning("目标对话不在当前打开的 NeuroBook 中，当前没有可用对话。", {title: "对话已失效"});
+                    return false;
+                }
+                notification.warning("目标对话不在当前打开的 NeuroBook 中，已切换到可用对话。", {title: "对话已切换"});
+                return true;
+            } catch (refreshError) {
+                if (!acceptsActivation(attempt)) {
+                    return false;
+                }
+                console.error("失效 Session 的列表恢复失败", refreshError);
+                const message = notifyAgentError(refreshError, "目标对话已失效，刷新对话列表失败");
+                surfaceActivation.markError(attempt, sessionScopeKey.value, message);
+                return false;
+            }
+        }
+        console.error(`加载 session ${String(sessionId)} 失败`, error);
         const message = notifyAgentError(error, t("agent.chatSurface.loadSessionFailed"));
         surfaceActivation.markError(attempt, sessionScopeKey.value, message);
         return false;
@@ -2076,6 +2110,21 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         await renameSession(activeSessionId.value, title);
         return true;
     }
+    if (command === "/fork") {
+        if (!activeInteraction.value.canMutateHistory) {
+            return true;
+        }
+        try {
+            // fork 只以同 Profile 开一条新线并记录出处，不复制历史；同一会话内换版本请用消息上的分支切换。
+            const result = await agentApi.runCommand(activeSessionId.value, {command: "fork"});
+            await applyCommandResult(result);
+            notification.info(t("agent.chatSurface.forkCreated"), {title: t("agent.chatSurface.forkTitle")});
+        } catch (error) {
+            console.error("分叉 Session 失败", error);
+            notifyAgentError(error, t("agent.chatSurface.forkFailed"));
+        }
+        return true;
+    }
     if (command === "/summarize") {
         if (!activeInteraction.value.canChangeRuntime) {
             return true;
@@ -2630,11 +2679,15 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
     }
 };
 
-const rollbackMessage = async (message: AgentMessage): Promise<void> => {
+/**
+ * 从这条消息新开一条分支：只把 active leaf 移到该消息，不删除任何历史。
+ * 原来的后续内容留在原地成为一条非活动分支，可通过气泡上的分支切换器切回。
+ */
+const branchFromMessage = async (message: AgentMessage): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || !activeInteraction.value.canMutateHistory) {
         return;
     }
-    const confirmed = await confirm(t("agent.chatSurface.rollbackConfirm"), t("agent.chatSurface.rollbackTitle"));
+    const confirmed = await confirm(t("agent.chatSurface.branchFromHereConfirm"), t("agent.chatSurface.branchFromHereTitle"));
     if (!confirmed) {
         return;
     }
@@ -2647,10 +2700,10 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
         session.applyLiveState(result.state);
         await syncMutationRecovery();
         cancelEditingMessage();
-        notification.success(t("agent.chatSurface.rollbackSuccess"));
+        notification.success(t("agent.chatSurface.branchFromHereSuccess"));
     } catch (error) {
-        console.error("回退消息失败", error);
-        notifyAgentError(error, t("agent.chatSurface.rollbackFailed"));
+        console.error("从消息分叉失败", error);
+        notifyAgentError(error, t("agent.chatSurface.branchFromHereFailed"));
     } finally {
         messageActionId.value = null;
     }
@@ -3411,7 +3464,7 @@ function saveLastSessionId(sessionId: number): void {
                 @cancel-edit="cancelEditingMessage"
                 @save-edit="void saveEditedMessage($event)"
                 @retry="void refreshMessage($event)"
-                @delete="void rollbackMessage($event)"
+                @branch-from-here="void branchFromMessage($event)"
                 @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
                 @load-previous="void loadPreviousHistory()"
                 @attachment-registered="registerSessionAttachment"

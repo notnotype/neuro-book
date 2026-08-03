@@ -1,9 +1,10 @@
 import {randomUUID} from "node:crypto";
-import {appendFile, readFile, rm, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {consola} from "consola";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {AgentSessionNotFoundError, isAgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {Usage} from "nbook/server/agent/messages/types";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -36,6 +37,61 @@ describe("JsonlSessionRepository", () => {
 
     afterEach(async () => {
         await rm(root, {recursive: true, force: true});
+    });
+
+    it("缺失的 Session 文件统一抛出稳定领域错误", async () => {
+        const missingSessionId = 17;
+
+        await expect(repo.readSession(missingSessionId)).rejects.toEqual(expect.objectContaining({
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: missingSessionId,
+        }));
+        await expect(repo.readEntryContext(missingSessionId, randomUUID())).rejects.toBeInstanceOf(AgentSessionNotFoundError);
+        await expect(repo.scanEntries(missingSessionId, () => {})).rejects.toBeInstanceOf(AgentSessionNotFoundError);
+        await expect(repo.sessionFileSignature(missingSessionId)).rejects.toBeInstanceOf(AgentSessionNotFoundError);
+    });
+
+    it("Not Found 类型守卫跨 HMR 按稳定字段识别", () => {
+        const reloadedError = Object.assign(new Error("missing"), {
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: 17,
+        });
+
+        expect(isAgentSessionNotFoundError(reloadedError)).toBe(true);
+        expect(isAgentSessionNotFoundError(Object.assign(new Error("missing"), {
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: 0,
+        }))).toBe(false);
+    });
+
+    it("列表与读取之间删除 Session 时返回 Not Found 且不读取备份目录", async () => {
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        const backupPath = join(root, ".nbook", "agent", "session-backups", "cross-instance", `${String(session.metadata.sessionId)}.jsonl`);
+        await mkdir(join(root, ".nbook", "agent", "session-backups", "cross-instance"), {recursive: true});
+        await writeFile(backupPath, await readFile(sessionPath, "utf8"), "utf8");
+        const listed = await repo.listSessions();
+        await rm(sessionPath);
+
+        expect(listed.map((item) => item.sessionId)).toContain(session.metadata.sessionId);
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.toBeInstanceOf(AgentSessionNotFoundError);
+        expect(await repo.listSessions()).toEqual([]);
+    });
+
+    it("现存损坏文件和 visitor 的其它 ENOENT 不会被误判为 Session Not Found", async () => {
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
+        await writeFile(sessionPath, "{broken-json}\n", "utf8");
+
+        await expect(repo.readSession(session.metadata.sessionId)).rejects.not.toBeInstanceOf(AgentSessionNotFoundError);
+
+        const healthy = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await expect(repo.scanEntries(healthy.metadata.sessionId, async () => {
+            await readFile(join(root, "missing-visitor-file"), "utf8");
+        })).rejects.toMatchObject({code: "ENOENT"});
     });
 
     it("创建 session 使用全局递增 ID 并 reduce active path", async () => {
@@ -552,8 +608,12 @@ describe("JsonlSessionRepository", () => {
         const forkContext = repo.reduce(fork);
 
         expect(fork.metadata.sessionId).toBe(2);
-        expect(fork.metadata.parentSessionId).toBe(session.metadata.sessionId);
-        expect(forkContext.customState["fork.fromEntryId"]).toBe(userEntry.id);
+        // fork 不是子 Agent，不能占用 parentSessionId，否则会从顶层 session 列表消失。
+        expect(fork.metadata.parentSessionId).toBeUndefined();
+        expect(forkContext.customState["fork.from"]).toEqual({
+            sessionId: session.metadata.sessionId,
+            entryId: userEntry.id,
+        });
     });
 
     it("tree 返回消息展示元数据和终端节点信息", async () => {
@@ -579,12 +639,13 @@ describe("JsonlSessionRepository", () => {
 
         expect(userNode).toMatchObject({
             role: "user",
-            messageId: userEntry.id,
             preview: "first message",
             childCount: 2,
             terminal: false,
             active: true,
         });
+        // appendUserMessage 写的是 origin: "manual"，只进模型上下文不进 Chat Flow。
+        expect(userNode?.chatEntry).toBeUndefined();
         expect(firstAssistantNode).toMatchObject({
             role: "assistant",
             preview: "first answer",
@@ -592,6 +653,7 @@ describe("JsonlSessionRepository", () => {
             terminal: true,
             active: false,
         });
+        expect(firstAssistantNode?.chatEntry).toBe("assistant");
         expect(secondAssistantNode).toMatchObject({
             role: "assistant",
             preview: "second answer",

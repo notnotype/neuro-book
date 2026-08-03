@@ -1,17 +1,44 @@
 import {describe, expect, it} from "vitest";
 import type {SessionTreeNode} from "nbook/server/agent/session/types";
+import type {ChatEntryKind} from "nbook/shared/dto/agent-public-event.dto";
 import {deriveAgentSessionTreeRows, deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 
-const node = (patch: Partial<SessionTreeNode> & Pick<SessionTreeNode, "id" | "parentId">): SessionTreeNode => ({
-    type: "message",
-    timestamp: 1,
-    active: false,
-    terminal: true,
-    childCount: 0,
-    role: "assistant",
-    messageId: patch.id,
-    ...patch,
-});
+/**
+ * 按 type/role 推出默认 `chatEntry`，镜像服务端 `chatEntryKind()` 的常见情形。
+ * 权威判据在服务端并由投影不变量测试守护；这里只是让 fixture 少写样板，
+ * 需要偏离默认（幽灵 user 消息、报错 lifecycle）的用例必须显式声明 `chatEntry`。
+ */
+const defaultChatEntry = (type: SessionTreeNode["type"], role: string | undefined): ChatEntryKind | undefined => {
+    if (type === "message") {
+        if (role === "user") return "user";
+        if (role === "assistant") return "assistant";
+        return role === "toolResult" ? "tool_result" : undefined;
+    }
+    return type === "custom_message" || type === "compaction" || type === "branch_summary" ? "system" : undefined;
+};
+
+const node = (patch: Partial<SessionTreeNode> & Pick<SessionTreeNode, "id" | "parentId">): SessionTreeNode => {
+    const type = patch.type ?? "message";
+    const role = "role" in patch ? patch.role : "assistant";
+    return {
+        type,
+        timestamp: 1,
+        active: false,
+        terminal: true,
+        childCount: 0,
+        role,
+        chatEntry: defaultChatEntry(type, role),
+        ...patch,
+    };
+};
+
+/** 运行期记账 entry：不进 Chat Flow，对分支投影必须完全透明。 */
+const bookkeeping = (
+    id: string,
+    parentId: string | null,
+    type: SessionTreeNode["type"],
+    patch: Partial<SessionTreeNode> = {},
+): SessionTreeNode => node({id, parentId, type, role: undefined, chatEntry: undefined, ...patch});
 
 describe("agent session tree", () => {
     it("为 active path 上每个有 sibling 的消息派生切换状态", () => {
@@ -68,6 +95,143 @@ describe("agent session tree", () => {
         });
         expect(state.switcherByMessageId.C2).toBeUndefined();
         expect(resolveBranchSwitchTarget(state, "C1", 1)?.id).toBe("C2");
+    });
+
+    // 以下形状全部取自 workspace/.nbook/agent/sessions 的真实会话。
+    // 每次 invoke 写入的第一条 entry 必然是 invocation_lifecycle:start，它会挡在分叉点和新消息之间；
+    // 旧实现要求分支根自己就是消息，因此真实的重试分支一个都显示不出来。
+    describe("真实 session 形状", () => {
+        it("重试：lifecycle start 挡在分叉点和新回复之间，切换器仍落在新回复上", () => {
+            const tree = [
+                node({id: "U", parentId: null, role: "user", timestamp: 1, active: true, childCount: 2, terminal: false}),
+                node({id: "A_old", parentId: "U", timestamp: 2, active: false}),
+                bookkeeping("L2", "U", "invocation_lifecycle", {timestamp: 3, active: true, childCount: 1, terminal: false}),
+                node({id: "A_new", parentId: "L2", timestamp: 4, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId.A_new).toEqual({
+                nodeIds: ["A_old", "A_new"],
+                currentIndex: 1,
+                total: 2,
+            });
+            expect(state.switcherByMessageId.L2).toBeUndefined();
+            expect(resolveBranchSwitchTarget(state, "A_new", -1)?.id).toBe("A_old");
+        });
+
+        it("换模型重试：model_change 不构成独立分支", () => {
+            const tree = [
+                node({id: "U", parentId: null, role: "user", timestamp: 1, active: true, childCount: 2, terminal: false}),
+                node({id: "A_old", parentId: "U", timestamp: 2, active: false}),
+                bookkeeping("MC", "U", "model_change", {timestamp: 3, active: true, childCount: 1, terminal: false}),
+                bookkeeping("L2", "MC", "invocation_lifecycle", {timestamp: 4, active: true, childCount: 1, terminal: false}),
+                node({id: "A_new", parentId: "L2", timestamp: 5, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId.A_new).toEqual({
+                nodeIds: ["A_old", "A_new"],
+                currentIndex: 1,
+                total: 2,
+            });
+            expect(state.switcherByMessageId.MC).toBeUndefined();
+        });
+
+        it("连续失败后成功（会话 775 形状）：两次报错各算一条分支", () => {
+            const tree = [
+                node({id: "U", parentId: null, role: "user", timestamp: 1, active: true, childCount: 3, terminal: false}),
+                bookkeeping("E1", "U", "invocation_lifecycle", {timestamp: 2, chatEntry: "invocation_error"}),
+                bookkeeping("L2", "U", "invocation_lifecycle", {timestamp: 3, childCount: 1, terminal: false}),
+                bookkeeping("E2", "L2", "invocation_lifecycle", {timestamp: 4, chatEntry: "invocation_error"}),
+                bookkeeping("MC", "U", "model_change", {timestamp: 5, active: true, childCount: 1, terminal: false}),
+                bookkeeping("L3", "MC", "invocation_lifecycle", {timestamp: 6, active: true, childCount: 1, terminal: false}),
+                node({id: "A", parentId: "L3", timestamp: 7, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId.A).toEqual({
+                nodeIds: ["E1", "E2", "A"],
+                currentIndex: 2,
+                total: 3,
+            });
+        });
+
+        it("停在报错分支时仍能切回上一个好答案", () => {
+            const tree = [
+                node({id: "U", parentId: null, role: "user", timestamp: 1, active: true, childCount: 2, terminal: false}),
+                node({id: "A_good", parentId: "U", timestamp: 2, active: false}),
+                bookkeeping("L2", "U", "invocation_lifecycle", {timestamp: 3, active: true, childCount: 1, terminal: false}),
+                bookkeeping("E", "L2", "invocation_lifecycle", {timestamp: 4, active: true, chatEntry: "invocation_error"}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId.E).toEqual({
+                nodeIds: ["A_good", "E"],
+                currentIndex: 1,
+                total: 2,
+            });
+            expect(resolveBranchSwitchTarget(state, "E", -1)?.id).toBe("A_good");
+        });
+
+        it("agent.link 记账 entry 不构成假分支（会话 177 形状）", () => {
+            const tree = [
+                node({id: "A0", parentId: null, timestamp: 1, active: true, childCount: 1, terminal: false}),
+                node({id: "TR", parentId: "A0", role: "toolResult", toolName: "read", timestamp: 2, active: true, childCount: 2, terminal: false}),
+                bookkeeping("LINK", "TR", "custom", {timestamp: 3}),
+                node({id: "A1", parentId: "TR", timestamp: 4, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId).toEqual({});
+        });
+
+        it("harness / workflow 注入的 user 消息不构成分支", () => {
+            const tree = [
+                node({id: "A0", parentId: null, timestamp: 1, active: true, childCount: 2, terminal: false}),
+                node({id: "ghost", parentId: "A0", role: "user", chatEntry: undefined, timestamp: 2, active: false}),
+                node({id: "A1", parentId: "A0", timestamp: 3, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId).toEqual({});
+        });
+
+        it("编辑重发：新旧用户消息各算一条分支，system reminder 透明", () => {
+            const tree = [
+                bookkeeping("L1", null, "invocation_lifecycle", {timestamp: 1, active: true, childCount: 2, terminal: false}),
+                node({id: "U_old", parentId: "L1", role: "user", timestamp: 2, active: false}),
+                node({id: "R", parentId: "L1", type: "custom_message", role: "user", timestamp: 3, active: true, childCount: 1, terminal: false}),
+                node({id: "U_new", parentId: "R", role: "user", timestamp: 4, active: true}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId.U_new).toEqual({
+                nodeIds: ["U_old", "U_new"],
+                currentIndex: 1,
+                total: 2,
+            });
+            expect(state.switcherByMessageId.R).toBeUndefined();
+        });
+
+        it("分叉整体不在 active path 上时不显示切换器", () => {
+            const tree = [
+                node({id: "U", parentId: null, role: "user", timestamp: 1, active: true, childCount: 1, terminal: false}),
+                node({id: "A", parentId: "U", timestamp: 2, active: true, childCount: 2, terminal: false}),
+                node({id: "dead1", parentId: "A", role: "user", timestamp: 3, active: false}),
+                node({id: "dead2", parentId: "A", role: "user", timestamp: 4, active: false}),
+            ];
+
+            const state = deriveAgentTreeState(tree);
+
+            expect(state.switcherByMessageId).toEqual({});
+        });
     });
 
     it("按树结构 preorder 展开，而不是按 JSONL append 顺序展示", () => {
@@ -337,7 +501,7 @@ describe("agent session tree", () => {
                 parentId: "tool-result",
                 type: "invocation_lifecycle",
                 role: undefined,
-                messageId: undefined,
+                chatEntry: undefined,
                 timestamp: 3,
                 preview: "run end",
             }),

@@ -1,5 +1,5 @@
 import {createError, getRouterParam} from "h3";
-import {getAgentSessionUserContent, requireAgentSessionId} from "nbook/server/agent/http";
+import {getAgentSessionUserContent, isAgentSessionNotFoundHttpError, requireAgentSessionId} from "nbook/server/agent/http";
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {isProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 
@@ -12,7 +12,7 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
     try {
         return await getAgentSessionUserContent(requireAgentSessionId(event), entryId);
     } catch (error) {
-        if (isProjectNotOpenError(error)) {
+        if (isProjectNotOpenError(error) || isAgentSessionNotFoundHttpError(error)) {
             throw error;
         }
         throw createError({statusCode: 404, message: "用户消息不存在", data: {code: "USER_MESSAGE_NOT_FOUND"}});

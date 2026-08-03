@@ -1,5 +1,6 @@
 import {appendFile, mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {createReadStream} from "node:fs";
+import type {BigIntStats} from "node:fs";
 import {createInterface} from "node:readline";
 import {dirname, join} from "node:path";
 import {randomUUID} from "node:crypto";
@@ -26,8 +27,10 @@ import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {PUBLIC_TREE_TEXT_BYTES} from "nbook/server/agent/events/public-event-policy";
 import {projectPublicToolName, textPreview} from "nbook/server/agent/events/public-tool-projection";
+import {chatEntryKind} from "nbook/server/agent/events/public-chat-entry-projection";
 import {parseDurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
+import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -129,7 +132,12 @@ export class JsonlSessionRepository {
     /** 读取并严格投影一个schema v2 Session。 */
     async readSession(sessionId: SessionId): Promise<SessionSnapshot> {
         const sessionPath = this.sessionPath(sessionId);
-        const text = await readFile(sessionPath, "utf8");
+        let text: string;
+        try {
+            text = await readFile(sessionPath, "utf8");
+        } catch (error) {
+            throw this.sessionFileError(error, sessionId, sessionPath);
+        }
         const records = text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as SessionFileRecord);
         const header = records.find((record): record is Extract<SessionFileRecord, {kind: "header"}> => record.kind === "header");
         if (!header) {
@@ -171,7 +179,8 @@ export class JsonlSessionRepository {
      * 为保证append-only Current Project重绑生效，本入口扫描完整文件后再返回有效metadata。
      */
     async readEntryContext(sessionId: SessionId, entryId: SessionEntryId): Promise<SessionEntryContext> {
-        const stream = createReadStream(this.sessionPath(sessionId), {encoding: "utf8"});
+        const sessionPath = this.sessionPath(sessionId);
+        const stream = createReadStream(sessionPath, {encoding: "utf8"});
         const lines = createInterface({input: stream, crlfDelay: Infinity});
         let metadata: SessionMetadata | null = null;
         let matchedEntry: SessionEntry | null = null;
@@ -199,6 +208,8 @@ export class JsonlSessionRepository {
                 throw new Error(`session ${sessionId} 缺少 header`);
             }
             return {metadata: this.effectiveMetadata(metadata, entries), entry: matchedEntry};
+        } catch (error) {
+            throw this.sessionFileError(error, sessionId, sessionPath);
         } finally {
             lines.close();
             stream.destroy();
@@ -207,7 +218,13 @@ export class JsonlSessionRepository {
 
     /** 返回 Session JSONL 的文件 identity、大小与高精度修改时间。 */
     async sessionFileSignature(sessionId: SessionId): Promise<SessionFileSignature> {
-        const file = await stat(this.sessionPath(sessionId), {bigint: true});
+        const sessionPath = this.sessionPath(sessionId);
+        let file: BigIntStats;
+        try {
+            file = await stat(sessionPath, {bigint: true});
+        } catch (error) {
+            throw this.sessionFileError(error, sessionId, sessionPath);
+        }
         return {
             identity: `${file.dev.toString()}:${file.ino.toString()}`,
             size: file.size.toString(),
@@ -221,7 +238,8 @@ export class JsonlSessionRepository {
      * 附件目录需要覆盖所有分支，但不能为分页查询反复把完整 JSONL 载入内存。
      */
     async scanEntries(sessionId: SessionId, visit: (entry: SessionEntry) => void | Promise<void>): Promise<SessionMetadata> {
-        const stream = createReadStream(this.sessionPath(sessionId), {encoding: "utf8"});
+        const sessionPath = this.sessionPath(sessionId);
+        const stream = createReadStream(sessionPath, {encoding: "utf8"});
         const lines = createInterface({input: stream, crlfDelay: Infinity});
         let metadata: SessionMetadata | null = null;
         const entries: SessionEntry[] = [];
@@ -250,6 +268,8 @@ export class JsonlSessionRepository {
                 throw new Error(`session ${sessionId} 缺少 header`);
             }
             return this.effectiveMetadata(metadata, entries);
+        } catch (error) {
+            throw this.sessionFileError(error, sessionId, sessionPath);
         } finally {
             lines.close();
             stream.destroy();
@@ -744,7 +764,7 @@ export class JsonlSessionRepository {
                 terminal: !childCountByParentId.has(entry.id),
                 childCount: childCountByParentId.get(entry.id) ?? 0,
                 role: entry.type === "message" ? entry.message.role : entry.type === "custom_message" ? entry.message.role : undefined,
-                messageId: entry.type === "message" || entry.type === "custom_message" ? entry.id : undefined,
+                chatEntry: chatEntryKind(entry) ?? undefined,
                 preview: this.treeNodePreview(entry),
                 toolName: entry.type === "message" && entry.message.role === "toolResult"
                     ? projectPublicToolName(entry.message.toolName)
@@ -793,7 +813,11 @@ export class JsonlSessionRepository {
     }
 
     /**
-     * 创建新 session，并从指定 entry 附带 parent session 信息。
+     * 从当前 session 分叉出一个新 session，只记录出处，不复制任何历史 entry。
+     *
+     * 刻意不设 `parentSessionId`：那个字段表达的是「子 Agent」关系，会话列表按它区分顶层与
+     * 子 Agent（见 `matchesSessionFilter` 的 relation 过滤），fork 出来的会话若占用它会从顶层
+     * 列表消失。出处改由 `fork.from` custom entry 承载。
      */
     async forkSession(sessionId: SessionId, entryId?: SessionEntryId): Promise<SessionSnapshot> {
         const snapshot = await this.readSession(sessionId);
@@ -801,16 +825,16 @@ export class JsonlSessionRepository {
             profileKey: snapshot.metadata.profileKey,
             initial: snapshot.metadata.initial,
             currentProjectRoot: snapshot.metadata.currentProjectRoot,
-            parentSessionId: sessionId,
             title: snapshot.metadata.title,
         });
-        if (entryId) {
-            await this.appendEntry(fork.metadata.sessionId, {
-                type: "custom",
-                key: "fork.fromEntryId",
-                value: entryId,
-            });
-        }
+        await this.appendEntry(fork.metadata.sessionId, {
+            type: "custom",
+            key: "fork.from",
+            value: {
+                sessionId,
+                ...(entryId === undefined ? {} : {entryId}),
+            },
+        });
         return this.readSession(fork.metadata.sessionId);
     }
 
@@ -921,6 +945,18 @@ export class JsonlSessionRepository {
         if (entry.type === "current_project_change" && entry.projectRoot !== null) {
             ProjectRootDtoSchema.parse(entry.projectRoot);
         }
+    }
+
+    /** 只把当前目标 JSONL 的缺失转换为 Session 领域错误。 */
+    private sessionFileError(error: unknown, sessionId: SessionId, sessionPath: string): Error {
+        if (error instanceof Error
+            && "code" in error
+            && error.code === "ENOENT"
+            && "path" in error
+            && error.path === sessionPath) {
+            return new AgentSessionNotFoundError(sessionId);
+        }
+        return error instanceof Error ? error : new Error(String(error));
     }
 
     /** Runtime只接受完整v2 metadata；旧格式解码只能存在于离线migration目录。 */
