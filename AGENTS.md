@@ -71,11 +71,7 @@
 
 - `master` 是用户测试基线，始终保持可构建、可测试状态；代码改动一律走分支 + squash PR。
 - 文档类例外可直推 master：typo、`PROJECT-STATUS.md` / task walkthrough 更新、`RELEASE.md` 维护、release 脚本的版本提交。
-- 测试反馈小修复例外可直推 master：用户在 master 上测试（含浏览器验收）发现的问题，修复**同时**满足以下全部条件时可就地修复直推，任一不满足回完整流程（issue + 分支 + PR）：
-  1. 单文件、改动约 ≤ 30 行；
-  2. 不动架构 / 数据合同 / Prisma schema；
-  3. 不引入新依赖。
-  约束：验证不跳过（至少 typecheck + 相关聚焦测试）；可不开 issue，但 commit message 必须注明问题现象与来源（如 `fix: 修复章节名不刷新（#55 浏览器验收发现）`）；agent 就地修复前先向用户确认「简单」判定与主工作区状态（用户可能正跑着 dev 或有未提交改动）。
+- 测试反馈小修复例外可直推 master：用户在 master 上测试（含浏览器验收）发现的问题，修复简单（如单文件小改、不动架构 / 数据合同 / schema、不引新依赖）时可就地修复直推；复杂修复回完整流程（issue + 分支 + PR）。「简单」与否靠 agent 自觉判断，拿不准就走完整流程；验证不跳过，commit message 注明问题现象与来源（如 `fix: 修复章节名不刷新（#55 浏览器验收发现）`）。
 - 上述纪律是约定层面，不配 GitHub ruleset / required check（质量门禁见 issue #15）。
 - 不 force push `master`；远端拒绝就停下报告。
 
