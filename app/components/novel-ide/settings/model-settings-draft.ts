@@ -4,7 +4,7 @@ import type {
     ModelInputKind,
 } from "nbook/shared/dto/app-settings.dto";
 import type {GlobalConfigUpdateDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
-import {PiSimpleRequestOptionsSchema, type PiSimpleRequestOptionsDto} from "nbook/shared/dto/pi-request-options.dto";
+import {parsePiMaxRetries, PiSimpleRequestOptionsSchema, type PiSimpleRequestOptionsDto} from "nbook/shared/dto/pi-request-options.dto";
 import {parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
 import {
     inspectModelCapability,
@@ -68,6 +68,7 @@ export type ModelSettingsProviderDraft = ContractProviderDraft<ModelSettingsMode
         baseURL: string;
         proxy: string;
         timeoutMs: string;
+        maxRetries: string;
         requestOptions: string;
     };
 };
@@ -156,10 +157,25 @@ export function parseStringMap(value: string): Record<string, string | null> | n
     return result;
 }
 
-/** 解析并执行 Pi simple request options 正式 schema，不接受未知/保留字段。 */
-export function parseRequestOptions(value: string): PiSimpleRequestOptionsDto {
-    const parsed = parseJsonObject(value, "Provider request options") ?? {};
-    return PiSimpleRequestOptionsSchema.parse(parsed);
+/** 合并 Provider 的结构化 maxRetries 与高级 JSON；重复配置时明确拒绝保存和临时请求。 */
+export function buildProviderRequestOptions(requestOptions: string, maxRetries: string): PiSimpleRequestOptionsDto {
+    const parsed = parseJsonObject(requestOptions, "Provider request options") ?? {};
+    if (Object.hasOwn(parsed, "maxRetries")) {
+        throw new Error("maxRetries 已由独立的最大重试次数字段管理，请从请求扩展参数 JSON 中删除它。");
+    }
+    return {
+        ...PiSimpleRequestOptionsSchema.parse(parsed),
+        maxRetries: parsePiMaxRetries(maxRetries.trim() ? Number(maxRetries) : undefined),
+    };
+}
+
+/** 将已保存 Provider requestOptions 拆成结构化字段和高级 JSON 草稿。 */
+export function splitProviderRequestOptions(requestOptions: PiSimpleRequestOptionsDto): {maxRetries: string; requestOptions: string} {
+    const {maxRetries, ...advancedRequestOptions} = requestOptions;
+    return {
+        maxRetries: typeof maxRetries === "number" ? String(maxRetries) : "",
+        requestOptions: Object.keys(advancedRequestOptions).length ? JSON.stringify(advancedRequestOptions, null, 2) : "",
+    };
 }
 
 /** 将完整前端草稿转换成 Global Config 的 models section。 */
@@ -178,7 +194,7 @@ export function buildModelsSection(draft: ModelSettingsDraft): NonNullable<Globa
                 baseURL: provider.options.baseURL.trim(),
                 proxy: provider.options.proxy.trim(),
                 timeoutMs: parsePositiveInteger(provider.options.timeoutMs),
-                requestOptions: parseRequestOptions(provider.options.requestOptions),
+                requestOptions: buildProviderRequestOptions(provider.options.requestOptions, provider.options.maxRetries),
             },
             models: provider.models.map((model) => ({
                 name: model.name.trim(),

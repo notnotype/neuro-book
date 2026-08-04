@@ -1,6 +1,7 @@
 import type {Api, ProviderHeaders, SimpleStreamOptions} from "@earendil-works/pi-ai";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {
+    parsePiMaxRetries,
     PiSimpleRequestOptionsSchema,
     type PiSimpleRequestOptionsDto,
 } from "nbook/shared/dto/pi-request-options.dto";
@@ -15,8 +16,12 @@ const OPENAI_NO_AUTH_KEY = "neurobook-no-auth";
  */
 export function parsePiSimpleRequestOptions(
     requestOptions: Record<string, JsonValue> | undefined,
-): PiSimpleRequestOptionsDto {
-    return PiSimpleRequestOptionsSchema.parse(requestOptions ?? {});
+): PiSimpleRequestOptionsDto & {maxRetries: number} {
+    const parsed = PiSimpleRequestOptionsSchema.parse(requestOptions ?? {});
+    return {
+        ...parsed,
+        maxRetries: parsePiMaxRetries(parsed.maxRetries),
+    };
 }
 
 /**

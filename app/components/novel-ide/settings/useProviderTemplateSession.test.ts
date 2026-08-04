@@ -50,7 +50,7 @@ describe("Provider Template frontend session", () => {
             id: "responses-provider",
             name: "Responses Provider",
             modelApi: "openai-responses",
-            options: {baseURL: "https://example.com/v1"},
+            options: {baseURL: "https://example.com/v1", maxRetries: ""},
             models: [{id: "model", api: "openai-responses"}],
         });
         expect(draft.value.providers[0]).not.toHaveProperty("templateId");

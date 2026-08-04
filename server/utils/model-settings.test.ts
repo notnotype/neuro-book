@@ -180,6 +180,38 @@ describe("provider/model Pi checks", () => {
         expect(result.message).toContain("Faux Provider Pi 检查通过");
     });
 
+    it("Provider health check 将空配置补为默认重试次数并保留显式 0", async () => {
+        const faux = createFauxModels({
+            provider: "faux-provider-retries",
+            api: "openai-completions",
+            models: [{id: "faux-fast"}],
+        });
+        const observedMaxRetries: Array<number | undefined> = [];
+        faux.setResponses([
+            (_context, options) => {
+                observedMaxRetries.push(options?.maxRetries);
+                return fauxAssistantMessage(fauxText("default"));
+            },
+            (_context, options) => {
+                observedMaxRetries.push(options?.maxRetries);
+                return fauxAssistantMessage(fauxText("disabled"));
+            },
+        ]);
+
+        await checkProviderConnection(createProviderDraft({id: "faux-provider-retries"}), [createModelDraft({id: "faux-fast"})], {
+            runtimeResolver: () => faux.runtime,
+        });
+        await checkProviderConnection(createProviderDraft({
+            id: "faux-provider-retries",
+            options: {
+                ...createProviderDraft().options,
+                requestOptions: {maxRetries: 0},
+            },
+        }), [createModelDraft({id: "faux-fast"})], {runtimeResolver: () => faux.runtime});
+
+        expect(observedMaxRetries).toEqual([5, 0]);
+    });
+
     it("provider check 显式空模型列表时不回退 Pi registry", async () => {
         const result = await checkProviderConnection(createProviderDraft({
             id: "xiaomi-token-plan-cn",

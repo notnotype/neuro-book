@@ -235,10 +235,12 @@ describe("compaction", () => {
     it("triggerTokens 生效并把自定义 prompt/prefix 写入 summary 调用和 compaction entry", async () => {
         let summaryPrompt: Context | null = null;
         let summaryHeaders: Record<string, string | null> | undefined;
+        let summaryMaxRetries: number | undefined;
         faux.setResponses([
             (context, options) => {
                 summaryPrompt = context;
                 summaryHeaders = options?.headers;
+                summaryMaxRetries = options?.maxRetries;
                 return fauxAssistantMessage(fauxText("CUSTOM SUMMARY"));
             },
         ]);
@@ -281,6 +283,7 @@ describe("compaction", () => {
         expect(compacted).toBe(true);
         const capturedPrompt = summaryPrompt as Context | null;
         expect(capturedPrompt?.systemPrompt).toBe("CUSTOM PROMPT");
+        expect(summaryMaxRetries).toBe(5);
         expect(summaryHeaders).toEqual({
             "x-request": "request",
             "x-model": "model",

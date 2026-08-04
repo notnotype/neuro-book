@@ -361,6 +361,133 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
     }, 10_000);
 
+    it("adhoc outputSchema 会让 report_result.data 在模型 schema 与执行层都必填", async () => {
+        const outputSchema = {
+            type: "object",
+            properties: {answer: {type: "string"}},
+            required: ["answer"],
+            additionalProperties: false,
+        };
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "missing data"}, {id: "adhoc-missing-data"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {result: "ok", data: {answer: "structured"}}, {id: "adhoc-valid-data"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "只返回结构化答案。",
+                outputSchema,
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "回答问题"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "ok", data: {answer: "structured"}});
+        expect(observedParameters?.required).toEqual(expect.arrayContaining(["result", "data"]));
+        expect(observedParameters?.properties?.data).toEqual(outputSchema);
+        const reportResults = context.messages.filter((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResults).toHaveLength(2);
+        expect(reportResults.map((message) => message.isError)).toEqual([true, false]);
+        expect(storedMessageText(reportResults[0]!)).toContain("report_result.data 必填");
+        expect(visibleMessageText(context.messages)).toContain("report_result.data 必填");
+    }, 20_000);
+
+    it("adhoc 显式空 outputSchema 仍要求 data，空对象可以通过校验", async () => {
+        const outputSchema = {
+            type: "object",
+            properties: {},
+            additionalProperties: false,
+        };
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "missing data"}, {id: "adhoc-empty-missing-data"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {result: "ok", data: {}}, {id: "adhoc-empty-valid-data"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "返回空结构化对象。",
+                outputSchema,
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "返回结果"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "ok", data: {}});
+        expect(observedParameters?.required).toEqual(expect.arrayContaining(["result", "data"]));
+        expect(observedParameters?.properties?.data).toEqual(outputSchema);
+        const reportResults = context.messages.filter((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResults).toHaveLength(2);
+        expect(reportResults.map((message) => message.isError)).toEqual([true, false]);
+        expect(storedMessageText(reportResults[0]!)).toContain("report_result.data 必填");
+        expect(visibleMessageText(context.messages)).toContain("report_result.data 必填");
+    }, 20_000);
+
+    it("adhoc 未声明 outputSchema 时仍允许只返回 result", async () => {
+        let observedParameters: (TSchema & {properties?: Record<string, TSchema>; required?: string[]}) | undefined;
+        faux.setResponses([
+            (context) => {
+                observedParameters = context.tools?.find((tool) => tool.name === "report_result")?.parameters as typeof observedParameters;
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {result: "text-only"}, {id: "adhoc-text-only"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "adhoc",
+            initial: {
+                systemPrompt: "只返回文本结论。",
+            },
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "返回结论"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({result: "text-only"});
+        expect(observedParameters?.required).toEqual(["result"]);
+        expect(observedParameters?.properties).not.toHaveProperty("data");
+        const reportResult = context.messages.find((message): message is StoredToolResultMessage => {
+            return message.role === "toolResult" && message.toolName === "report_result";
+        });
+        expect(reportResult?.isError).toBe(false);
+    }, 20_000);
+
     it("大 assistant 正文完整落库但 InvokeAgentResult 只返回有界 finalMessage 预览", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -3743,6 +3870,7 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(observedRequestOptions[0]).toEqual(expect.objectContaining({
+            maxRetries: 5,
             metadata: {
                 runtimeHookMarker: "turn-1",
             },

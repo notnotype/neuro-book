@@ -22,6 +22,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfiguredModelDto, ModelInputKind, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigWorkspaceQueryDto} from "nbook/shared/dto/config.dto";
+import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 const props = withDefaults(defineProps<{
@@ -557,9 +558,13 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.proxy") }}</label>
                                     <FormInput v-model="activeProvider.options.proxy" :readonly="activeProvider.sourceIndex !== undefined" placeholder="http://127.0.0.1:7890" />
                                 </div>
-                                <div class="group space-y-1.5 md:col-span-2">
+                                <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestTimeout") }}</label>
                                     <FormInput v-model="activeProvider.options.timeoutMs" :placeholder="t('settings.panels.models.defaultTimeout')" type="number" />
+                                </div>
+                                <div class="group space-y-1.5">
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.maxRetries") }}</label>
+                                    <FormInput v-model="activeProvider.options.maxRetries" :placeholder="t('settings.panels.models.defaultMaxRetries', {value: DEFAULT_PI_MAX_RETRIES})" min="0" step="1" type="number" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.requestOptions") }}</label>

@@ -838,6 +838,8 @@ const zhCN = {
                 proxy: "代理",
                 requestTimeout: "请求超时",
                 defaultTimeout: "默认 180000",
+                maxRetries: "最大重试次数",
+                defaultMaxRetries: "默认 {value}",
                 requestOptions: "请求扩展参数",
                 enabledModels: "已启用模型",
                 enabledModelsDescription: "按 Group 分组展示。右侧管理可查询更多。",

@@ -18,6 +18,22 @@
 >
 > Target baseline: `@earendil-works/pi-ai@0.80.6` and `@earendil-works/pi-agent-core@0.80.6`
 
+## 2026-08-04：OpenCode Go 请求级重试
+
+本轮针对 OpenCode Go 偶发 `500 status code (no body)` 收口已有 Pi request options 合同。原配置为空时，OpenAI Completions adapter 的 `maxRetries` 为 `0`，因此上游一次 500 会直接结束；同一模型后续请求成功，符合上游瞬时故障而非 NeuroBook Agent turn 状态错误的特征。
+
+- 共享 `DEFAULT_PI_MAX_RETRIES = 5` 与 `parsePiMaxRetries()` 统一校验：只接受非负整数，不设产品硬上限；未配置时运行时补 `5`，显式 `0` 继续关闭重试。
+- 配置路径保持 `models.providers[].options.requestOptions.maxRetries`。服务端 `parsePiSimpleRequestOptions()` 是运行时默认入口，Agent turn、compaction、健康检查和 runtime hook 共用它；没有新增 NeuroBook 重试器，也不自动重放完整 Agent turn。
+- 设置页把 `maxRetries` 从高级 JSON 拆成独立数字字段。读取旧配置时迁移展示、保存时合并回原路径；空值保存和检查按 `5` 处理，`0` 正常保留。高级 JSON 继续保留 `maxRetryDelayMs` 等字段，但再次声明 `maxRetries` 会在保存、Provider check、Model check 和 discovery 发请求前明确拒绝。
+- 保存、检查和发现请求共用 Provider request-options 合并 helper。Provider discovery 仍使用现有直接 HTTP `/models` adapter，不因本轮需求额外重写一套重试逻辑。
+- `maxRetries = 5` 遵循 Pi/OpenAI SDK 语义：首次请求之外最多重试 5 次，最终最多 6 次请求；退避和 `Retry-After` 继续由 SDK 处理。只保证实际支持该字段的 Pi adapter（当前 OpenCode Go 的 `openai-completions` 链路）按 adapter 语义生效，不为其他 adapter 增加通用重试层。
+
+### 本轮验证
+
+- 聚焦 Vitest：设置页草稿/检查/发现/模板、共享 DTO、Pi request options、compaction、Provider health check 共 9 个文件 78 项通过；Agent Harness 回归 1 个文件 175 项通过。
+- `bun run typecheck`：通过。
+- 未自动执行浏览器验收、真实 OpenCode Go 重放、构建或发布；设置页由用户手动验收。
+
 ## Model Library / Provider Template / Automatic Discovery 实施结果（2026-07-18）
 
 本轮已完成核心合同硬切：

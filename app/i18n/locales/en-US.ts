@@ -840,6 +840,8 @@ const enUS = {
                 proxy: "Proxy",
                 requestTimeout: "Request Timeout",
                 defaultTimeout: "Default 180000",
+                maxRetries: "Maximum Retries",
+                defaultMaxRetries: "Default {value}",
                 requestOptions: "Request Options",
                 enabledModels: "Enabled Models",
                 enabledModelsDescription: "Grouped by Group. Manage more models on the right.",

@@ -18,10 +18,16 @@ describe("Pi simple request options", () => {
 
         expect(options).toMatchObject({
             temperature: 0.3,
+            maxRetries: 1,
             headers: {"x-test": "ok", "x-remove": null},
             env: {AWS_REGION: "ap-southeast-1"},
             thinkingBudgets: {low: 2_048, high: 16_384},
         });
+    });
+
+    it("运行时空配置使用默认重试次数，显式 0 关闭重试", () => {
+        expect(parsePiSimpleRequestOptions({}).maxRetries).toBe(5);
+        expect(parsePiSimpleRequestOptions({maxRetries: 0}).maxRetries).toBe(0);
     });
 
     it.each(["apiKey", "signal", "onPayload", "sessionId", "reasoning", "timeoutMs", "maxTokens", "bearerToken", "serviceTier"])(

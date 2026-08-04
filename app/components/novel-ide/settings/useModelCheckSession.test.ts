@@ -25,7 +25,10 @@ describe("Model health check frontend session", () => {
         await session.checkAll();
 
         expect(fetchMock).toHaveBeenCalledTimes(1);
-        expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({body: {model: {id: "runnable"}}});
+        expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({body: {
+            provider: {options: {requestOptions: {maxRetries: 5}}},
+            model: {id: "runnable"},
+        }});
         expect(session.result(provider, provider.models[0]!)).toMatchObject({success: true, latencyMs: 12});
         expect(session.checkingAll.value).toBe(false);
     });
@@ -77,7 +80,13 @@ function createSession(provider: ModelSettingsProviderDraft, runnableKeys: Set<s
             id: value.id,
             name: value.name,
             modelApi: "openai-completions",
-            options: {apiKey: "", baseURL: value.options.baseURL, proxy: "", timeoutMs: null, requestOptions: {}},
+            options: {
+                apiKey: "",
+                baseURL: value.options.baseURL,
+                proxy: "",
+                timeoutMs: null,
+                requestOptions: {maxRetries: value.options.maxRetries.trim() ? Number(value.options.maxRetries) : 5},
+            },
         }),
         buildModelDraft: (model) => ({
             name: model.name,
@@ -113,6 +122,7 @@ function createProvider(models: ModelSettingsModelDraft[]): ModelSettingsProvide
             baseURL: "https://example.com/v1",
             proxy: "",
             timeoutMs: "",
+            maxRetries: "",
             requestOptions: "",
         },
         models,

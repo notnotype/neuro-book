@@ -1,5 +1,10 @@
 import {z} from "zod";
 
+/** Pi OpenAI adapter 在首次请求之外最多发起的默认重试次数。 */
+export const DEFAULT_PI_MAX_RETRIES = 5;
+
+const PiMaxRetriesSchema = z.number().int("maxRetries 必须是整数").nonnegative("maxRetries 不能小于 0");
+
 /**
  * Pi `streamSimple` 中由 NeuroBook 正式开放的 JSON-safe 请求参数。
  *
@@ -11,7 +16,7 @@ export const PiSimpleRequestOptionsSchema = z.object({
     temperature: z.number().finite("temperature 必须是有限数字").nonnegative("temperature 不能小于 0").optional(),
     headers: z.record(z.string(), z.string().nullable()).optional(),
     websocketConnectTimeoutMs: z.number().int("websocketConnectTimeoutMs 必须是整数").positive("websocketConnectTimeoutMs 必须大于 0").optional(),
-    maxRetries: z.number().int("maxRetries 必须是整数").nonnegative("maxRetries 不能小于 0").optional(),
+    maxRetries: PiMaxRetriesSchema.optional(),
     maxRetryDelayMs: z.number().int("maxRetryDelayMs 必须是整数").nonnegative("maxRetryDelayMs 不能小于 0").optional(),
     metadata: z.record(z.string(), z.json()).optional(),
     env: z.record(z.string(), z.string()).optional(),
@@ -26,3 +31,8 @@ export const PiSimpleRequestOptionsSchema = z.object({
 }).strict().default({});
 
 export type PiSimpleRequestOptionsDto = z.infer<typeof PiSimpleRequestOptionsSchema>;
+
+/** 解析 Provider 的 maxRetries；未配置时使用产品默认值，0 仍表示关闭重试。 */
+export function parsePiMaxRetries(value: unknown): number {
+    return PiMaxRetriesSchema.parse(value === undefined ? DEFAULT_PI_MAX_RETRIES : value);
+}

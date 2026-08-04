@@ -95,6 +95,7 @@ export function useProviderTemplateSession(options: ProviderTemplateSessionOptio
                 baseURL: template.baseUrl,
                 proxy: "",
                 timeoutMs: "",
+                maxRetries: "",
                 requestOptions: "",
                 apiKeyConfigured: false,
                 apiKeyMaskedValue: null,

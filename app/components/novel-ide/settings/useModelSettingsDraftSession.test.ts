@@ -37,6 +37,23 @@ describe("Provider Config draft frontend session", () => {
         expect(session.draft.value.defaultModelKey).toBe("provider/model");
     });
 
+    it("Provider 请求重复声明 maxRetries 时在发请求前拒绝", () => {
+        const session = createSession();
+        const provider = createProvider();
+        provider.options.requestOptions = '{"maxRetries":2}';
+
+        expect(() => session.buildProviderRequest(provider)).toThrow("maxRetries");
+    });
+
+    it("Provider 检查请求保留默认重试次数和显式 0", () => {
+        const session = createSession();
+        const provider = createProvider();
+
+        expect(session.buildProviderRequest(provider).options.requestOptions.maxRetries).toBe(5);
+        provider.options.maxRetries = "0";
+        expect(session.buildProviderRequest(provider).options.requestOptions.maxRetries).toBe(0);
+    });
+
     it("Provider ID 重命名会迁移默认模型并通知临时会话", () => {
         const renameDiscovery = vi.fn();
         const cancelProviderChecks = vi.fn();
@@ -74,7 +91,7 @@ describe("Provider Config draft frontend session", () => {
         const clone = session.activeProvider.value!;
         expect(clone).toMatchObject({
             id: "provider-copy",
-            options: {apiKey: "", apiKeyConfigured: false, apiKeyMaskedValue: null},
+            options: {apiKey: "", apiKeyConfigured: false, apiKeyMaskedValue: null, maxRetries: ""},
         });
         expect(clone.sourceIndex).toBeUndefined();
         expect(clone.models.map((model) => model.id)).toEqual(["model"]);
@@ -126,6 +143,7 @@ function createProvider(): ModelSettingsProviderDraft {
             baseURL: "https://example.com/v1",
             proxy: "",
             timeoutMs: "",
+            maxRetries: "",
             requestOptions: "",
         },
         models: [],

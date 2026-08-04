@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest";
 import {
     buildAgentVisibleModels,
+    buildProviderRequestOptions,
+    splitProviderRequestOptions,
     cleanGlobalAgent,
     ensureRunnableDefault,
     inspectSettingsDraft,
@@ -14,6 +16,24 @@ import {
 import type {ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 describe("model settings draft contract", () => {
+    it("旧 Provider 配置把 maxRetries 拆到独立字段并保留其他高级参数", () => {
+        expect(splitProviderRequestOptions({maxRetries: 0, maxRetryDelayMs: 3_000, metadata: {tenant: "test"}})).toEqual({
+            maxRetries: "0",
+            requestOptions: JSON.stringify({maxRetryDelayMs: 3_000, metadata: {tenant: "test"}}, null, 2),
+        });
+    });
+
+    it("保存和临时请求合并空值默认、显式 0 与高级参数", () => {
+        expect(buildProviderRequestOptions('{"maxRetryDelayMs":3000}', "")).toEqual({maxRetryDelayMs: 3_000, maxRetries: 5});
+        expect(buildProviderRequestOptions('{"maxRetryDelayMs":3000}', "0")).toEqual({maxRetryDelayMs: 3_000, maxRetries: 0});
+    });
+
+    it("高级 JSON 重复声明 maxRetries 时拒绝合并", () => {
+        expect(() => buildProviderRequestOptions('{"maxRetries":2}', "3")).toThrow("maxRetries");
+        expect(() => buildProviderRequestOptions("{}", "1.5")).toThrow();
+        expect(() => buildProviderRequestOptions("{}", "-1")).toThrow();
+    });
+
     it("草稿补齐后实时 issue 立即消失", () => {
         const draft = createDraft();
         draft.providers[0]!.models[0]!.api = "";

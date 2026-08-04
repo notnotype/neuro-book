@@ -16,7 +16,8 @@ import {
     parseModelCompat,
     parseModelInput,
     parseModelReasoning,
-    parseRequestOptions,
+    buildProviderRequestOptions,
+    splitProviderRequestOptions,
     parseStringMap,
     previewModelLibraryRepairs,
     previewProviderModelApiRepairs,
@@ -121,6 +122,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
 
     /** 将 Config Provider DTO 复制成可编辑草稿。 */
     function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], localKeys: Map<string, string[]>): ModelSettingsProviderDraft {
+        const requestOptionsDraft = splitProviderRequestOptions(provider.options.requestOptions);
         return {
             localKey: localKeys.get(provider.id)?.shift() ?? createProviderKey(provider.id),
             sourceIndex: provider.sourceIndex,
@@ -136,7 +138,8 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                 baseURL: provider.options.baseURL,
                 proxy: provider.options.proxy,
                 timeoutMs: typeof provider.options.timeoutMs === "number" ? String(provider.options.timeoutMs) : "",
-                requestOptions: Object.keys(provider.options.requestOptions).length ? JSON.stringify(provider.options.requestOptions, null, 2) : "",
+                maxRetries: requestOptionsDraft.maxRetries,
+                requestOptions: requestOptionsDraft.requestOptions,
             },
             models: provider.models.map(cloneModel),
         };
@@ -324,7 +327,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                 baseURL: provider.options.baseURL.trim(),
                 proxy: provider.options.proxy.trim(),
                 timeoutMs: parseDraftInteger(provider.options.timeoutMs),
-                requestOptions: parseRequestOptions(provider.options.requestOptions),
+                requestOptions: buildProviderRequestOptions(provider.options.requestOptions, provider.options.maxRetries),
             },
         };
     }
@@ -492,6 +495,7 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
                 baseURL: provider.options.baseURL,
                 proxy: provider.options.proxy,
                 timeoutMs: provider.options.timeoutMs,
+                maxRetries: provider.options.maxRetries,
                 requestOptions: provider.options.requestOptions,
             },
             models: provider.models.map((model) => cloneModel({...buildModelDraft(model), enabled: model.enabled})),

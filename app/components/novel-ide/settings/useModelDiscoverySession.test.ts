@@ -62,7 +62,12 @@ describe("Automatic Model Discovery frontend session", () => {
         await session.discover();
 
         expect(fetchMock).toHaveBeenCalledWith("/api/config/models/provider-discover", expect.objectContaining({
-            body: expect.objectContaining({credentialSource: "saved"}),
+            body: expect.objectContaining({
+                credentialSource: "saved",
+                provider: expect.objectContaining({
+                    options: expect.objectContaining({requestOptions: {maxRetries: 5}}),
+                }),
+            }),
         }));
     });
 
@@ -126,7 +131,13 @@ function createSession(provider: ModelSettingsProviderDraft, credentialSource: "
             id: value.id,
             name: value.name,
             modelApi: value.modelApi === "openai-responses" ? "openai-responses" : "openai-completions",
-            options: {apiKey: "", baseURL: value.options.baseURL, proxy: "", timeoutMs: null, requestOptions: {}},
+            options: {
+                apiKey: "",
+                baseURL: value.options.baseURL,
+                proxy: "",
+                timeoutMs: null,
+                requestOptions: {maxRetries: value.options.maxRetries.trim() ? Number(value.options.maxRetries) : 5},
+            },
         }),
         credentialSource: () => credentialSource,
         enableModel: () => undefined,
@@ -152,6 +163,7 @@ function createProvider(overrides: Partial<ModelSettingsProviderDraft> = {}): Mo
             baseURL: "https://example.com/v1",
             proxy: "",
             timeoutMs: "",
+            maxRetries: "",
             requestOptions: "",
         },
         models: [],
