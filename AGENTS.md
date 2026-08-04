@@ -50,9 +50,9 @@
 1. 想法 / bug / 需求先开 GitHub Issue（`type:*` + `status:*` 标签）；维护者用 `gh issue create` 直接开即可，不必走 Issue Form（表单面向外部贡献者）。`PROJECT-STATUS.md` 不再新增 TODO 清单。
 2. 重大任务继续按 `docs/tasks/README.md` 建任务目录：issue 是需求层，task 是文档层，两者互补不替代。
 3. 开工前 `git fetch origin`，然后 `git worktree add .agent/workspace/wt/<slug> -b <branch> origin/master`（worktree 固定在 `wt/` 子目录，与临时文件区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
-4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`，正文用 `Closes #N` 关联 issue。
-5. **到此停下，向用户报告验证结果与 PR 链接。Agent 不得自行合并 PR、关闭 issue 或做其它收尾动作**：代码审查、浏览器验收等确认工作完成后，必须等用户明确许可才能开始收尾。
-6. 收尾（仅在用户许可后，一次做完）：确认 CI 通过且本地验证（typecheck + 相关聚焦测试）通过（现状 CI 没有 required check，见 issue #15，本地验证是实际门禁）→ `gh pr merge --squash --delete-branch`（squash 提交信息 = PR 标题，Conventional Commit 格式）→ issue 应随 `Closes` 自动关闭，未关闭时手动 `gh issue close` 并留言说明 → 主工作区立刻 `git fetch && git merge --ff-only origin/master`（有在途改动先提交或 stash）→ `git worktree remove .agent/workspace/wt/<slug>` 并 `git branch -D <branch>`（`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留）。
+4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`。PR 完整覆盖 issue 时正文用 `Closes #N`（merge 会自动关闭 issue）；只覆盖一部分时用 `Refs #N`，避免 issue 被提前关闭。
+5. **到此停下，向用户报告验证结果与 PR 链接。Agent 不得自行合并 PR、关闭 issue 或做其它收尾动作。** Agent 可以自审或跑代码审查并把结论附在报告里，但「审查完成」的判定与收尾许可都来自用户；浏览器验收同样由用户执行或授权。
+6. 收尾（仅在用户许可后，一次做完）：确认 CI 通过且本地验证（typecheck + 相关聚焦测试）通过（现状 CI 没有 required check，见 issue #15，本地验证是实际门禁）→ `gh pr merge --squash --delete-branch`（squash 提交信息 = PR 标题，Conventional Commit 格式）→ issue 应随 `Closes` 自动关闭，未关闭时手动 `gh issue close` 并留言说明 → 主工作区立刻 `git fetch && git merge --ff-only origin/master`（有在途改动先提交或 stash）→ `git worktree remove .agent/workspace/wt/<slug>` 并 `git branch -D <branch>`（`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留）。收尾链任一步失败时报告断点，从断点继续，不要重头执行（已完成的步骤如 merge 不可重复）。
 7. 远端 `master` 被任何 worktree 或 agent 更新后（不限于自己的收尾），主工作区必须立刻 `git fetch && git merge --ff-only origin/master`，防止主工作区停在旧提交产生分叉。
 8. Windows 上 `node_modules` 深路径可能让 `git worktree remove` 报 `Filename too long`：先 `git config core.longpaths true` 重试；注册已清除但目录残留时，在 PowerShell 里用 robocopy 镜像空目录清掉（Git Bash 会把 `/MIR` 误转成路径）。
 
@@ -67,6 +67,7 @@
   4. **验收 / 证据**：怎么算完成。
 - Task 引用一律用完整链接，不裸写编号。
 - 不复制会话原话：用户随口说的要求必须改写为面向读者的陈述。
+- Issue 是公开页面，正文同时遵循「面向用户的语言风格」中适用的部分（不出现无上下文的内部名词）。
 
 ### master 纪律
 

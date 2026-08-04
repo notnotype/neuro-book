@@ -4,9 +4,10 @@
 
 ## 何时创建或更新
 
-- 会改变代码行为、架构决策、模块状态、goal 模式或长期 TODO 的任务，需要更新任务 walkthrough。
+- 会改变代码行为、架构决策、模块状态、goal 模式的任务，需要更新任务 walkthrough。
 - 同一功能后续调节继续更新同一个任务目录，例如拆书功能继续写入 `docs/tasks/07-book-splitting/README.md`。
 - 用户创建一个重要的讨论，或者架构设计
+- walkthrough 的 TODO / Follow-ups 只记本任务实现级跟进；跨任务或产品级跟进开 GitHub Issue（见 `AGENTS.md`「Git 工作流」）。
 
 ## 命名
 
