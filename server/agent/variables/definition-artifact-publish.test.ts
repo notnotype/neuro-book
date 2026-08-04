@@ -159,7 +159,7 @@ describe("Variable definition 原子发布", () => {
 });
 
 async function createFixture(key: string): Promise<{root: string}> {
-    const root = resolve(".agent", "workspace", "variable-publish-test", randomUUID());
+    const root = resolve(".agent", "tmp", "variable-publish-test", randomUUID());
     roots.push(root);
     await mkdir(root, {recursive: true});
     await writeDefinition(root, key);

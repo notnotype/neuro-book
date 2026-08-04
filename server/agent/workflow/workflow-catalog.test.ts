@@ -15,7 +15,7 @@ import {
  * WorkflowCatalog：双根覆盖 + workflow.ts 转译加载 + 内联编译边界。
  */
 describe("WorkflowCatalog", () => {
-    const root = resolve(".agent", "workspace", "workflow-catalog-test", randomUUID());
+    const root = resolve(".agent", "tmp", "workflow-catalog-test", randomUUID());
     const systemRoot = join(root, "system");
     const userRoot = join(root, "user");
     const projectRoot = join(root, "project");

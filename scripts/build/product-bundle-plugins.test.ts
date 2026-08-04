@@ -56,7 +56,7 @@ describe("Product bundle plugins", () => {
     });
 
     it("为code splitting后的Web提取CommonJS入口保留命名导出", async () => {
-        const workspaceRoot = resolve(".agent", "workspace");
+        const workspaceRoot = resolve(".agent", "tmp");
         await mkdir(workspaceRoot, {recursive: true});
         const root = await mkdtemp(join(workspaceRoot, "readability-interop-"));
         const sourceRoot = join(root, "source");

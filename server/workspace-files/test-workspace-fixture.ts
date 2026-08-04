@@ -487,7 +487,7 @@ async function readFixtureMarker(root: string): Promise<TestWorkspaceFixtureMark
  * 判断 owner 进程是否仍活跃。
  * ESRCH 表示进程不存在；EPERM 表示存在但无权限，视为存活。无法判定一律视为存活。
  */
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
     if (!Number.isInteger(pid) || pid <= 0) {
         return true;
     }

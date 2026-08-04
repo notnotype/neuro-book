@@ -16,7 +16,7 @@ describe("Product system assets preflight", () => {
     });
 
     it("只读 Product Root 的新鲜 system assets 零写入，过期时明确拒绝", async () => {
-        const root = resolve(".agent", "workspace", "system-assets-preflight-test", randomUUID());
+        const root = resolve(".agent", "tmp", "system-assets-preflight-test", randomUUID());
         const applicationRoot = join(root, "product");
         const stateRoot = join(root, "state");
         const systemNbookRoot = join(applicationRoot, ".output", "server", "assets", "workspace", ".nbook");

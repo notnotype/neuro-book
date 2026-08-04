@@ -44,6 +44,7 @@ product/
 /logs/
 /coverage/
 /.agent/
+/.worktree/
 docs/.vitepress/dist
 docs/.vitepress/cache
 assets/workspace/.nbook/agent/profiles/.compiled/

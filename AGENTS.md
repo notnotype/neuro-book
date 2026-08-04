@@ -47,10 +47,10 @@
 
 1. 想法 / bug / 需求先开 GitHub Issue（`type:*` + `status:*` 标签）；维护者用 `gh issue create` 直接开即可，不必走 Issue Form（表单面向外部贡献者）。`PROJECT-STATUS.md` 不再新增 TODO 清单。
 2. 重大任务继续按 `docs/tasks/README.md` 建任务目录：issue 是需求层，task 是文档层，两者互补不替代。
-3. 开工前 `git fetch origin`，然后 `git worktree add .agent/workspace/wt/<slug> -b <branch> origin/master`（worktree 固定在 `wt/` 子目录，与临时文件区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
+3. 开工前 `git fetch origin`，然后 `git worktree add .worktree/<slug> -b <branch> origin/master`（worktree 固定在仓库根 `.worktree/` 目录，与 `.agent` 临时区区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
 4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`。PR 完整覆盖 issue 时正文用 `Closes #N`（merge 会自动关闭 issue）；只覆盖一部分时用 `Refs #N`，避免 issue 被提前关闭。
 5. **到此停下，向用户报告验证结果与 PR 链接。Agent 不得自行合并 PR、关闭 issue 或做其它收尾动作。** Agent 可以自审或跑代码审查并把结论附在报告里，但「审查完成」的判定与收尾许可都来自用户；浏览器验收同样由用户执行或授权。
-6. 收尾（仅在用户许可后，一次做完）：确认 CI 通过且本地验证（typecheck + 相关聚焦测试）通过（现状 CI 没有 required check，见 issue #15，本地验证是实际门禁）→ `gh pr merge --squash --delete-branch`（squash 提交信息 = PR 标题，Conventional Commit 格式）→ issue 应随 `Closes` 自动关闭，未关闭时手动 `gh issue close` 并留言说明 → 主工作区立刻 `git fetch && git merge --ff-only origin/master`（有在途改动先提交或 stash）→ `git worktree remove .agent/workspace/wt/<slug>` 并 `git branch -D <branch>`（`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留）。收尾链任一步失败时报告断点，从断点继续，不要重头执行（已完成的步骤如 merge 不可重复）。
+6. 收尾（仅在用户许可后，一次做完）：确认 CI 通过且本地验证（typecheck + 相关聚焦测试）通过（现状 CI 没有 required check，见 issue #15，本地验证是实际门禁）→ `gh pr merge --squash --delete-branch`（squash 提交信息 = PR 标题，Conventional Commit 格式）→ issue 应随 `Closes` 自动关闭，未关闭时手动 `gh issue close` 并留言说明 → 主工作区立刻 `git fetch && git merge --ff-only origin/master`（有在途改动先提交或 stash）→ `git worktree remove .worktree/<slug>` 并 `git branch -D <branch>`（`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留）。收尾链任一步失败时报告断点，从断点继续，不要重头执行（已完成的步骤如 merge 不可重复）。
 7. 远端 `master` 被任何 worktree 或 agent 更新后（不限于自己的收尾），主工作区必须立刻 `git fetch && git merge --ff-only origin/master`，防止主工作区停在旧提交产生分叉。
 8. Windows 上 `node_modules` 深路径可能让 `git worktree remove` 报 `Filename too long`：先 `git config core.longpaths true` 重试；注册已清除但目录残留时，在 PowerShell 里用 robocopy 镜像空目录清掉（Git Bash 会把 `/MIR` 误转成路径）。
 
@@ -193,7 +193,8 @@
 
 - 可读取 node_modules 下的源代码
 - 可以使用 get_file_contents、search_code、issue_read 搜寻 github 项目
-- .agent/workspace 为你可随意操作的目录（.agent 目录不是），你可以再此编写临时文件、clone 代码等
+- `.agent` 为你可随意操作的目录，可以在此编写临时文件、clone 代码等（运行时业务临时目录如 `manager-product-build`、`product-runtime-acceptance` 也放这里；**不要**在 `.worktree/` 或快照目录里做这类操作）
+- 测试临时根统一放 `.agent/tmp/<test-name>-<uuid>/`（新测试用 `createTestTmpRoot`），由 vitest globalSetup 在每次 run 起点按 24h 窗口 + owner marker 兜底清理，无需手工清理
 - 可以通过编写测试脚本并运行来测试数据
 - 如果要写 commit message 的时候，可以从 docs/tasks PROJECT-STATUS.md 获取信息，查看他们的最新变更。提交信息要丰富，覆盖所有相关 tasks。重点关心新功能
 

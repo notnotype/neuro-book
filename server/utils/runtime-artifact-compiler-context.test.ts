@@ -39,7 +39,7 @@ describe("runtime artifact compiler context", () => {
     });
 
     it("Product build只使用Authoring Kit编译上下文，artifact require继续指向Product runtime", async () => {
-        const root = resolve(".agent", "workspace", "artifact-context-test", randomUUID());
+        const root = resolve(".agent", "tmp", "artifact-context-test", randomUUID());
         roots.push(root);
         const outputRoot = join(root, ".output", "server");
         const authoringRoot = join(outputRoot, "authoring");
@@ -73,7 +73,7 @@ describe("runtime artifact compiler context", () => {
     });
 
     it("Product缺少自包含tsconfig时拒绝回退Source根", async () => {
-        const root = resolve(".agent", "workspace", "artifact-context-missing-test", randomUUID());
+        const root = resolve(".agent", "tmp", "artifact-context-missing-test", randomUUID());
         roots.push(root);
         const outputRoot = join(root, ".output", "server");
         await mkdir(outputRoot, {recursive: true});
@@ -88,7 +88,7 @@ describe("runtime artifact compiler context", () => {
     });
 
     it("Product identity验证失败时拒绝回退完整Source checkout", async () => {
-        const root = resolve(".agent", "workspace", "artifact-context-unverified-test", randomUUID());
+        const root = resolve(".agent", "tmp", "artifact-context-unverified-test", randomUUID());
         roots.push(root);
         const outputRoot = join(root, ".output", "server");
         const authoringRoot = join(outputRoot, "authoring");
@@ -109,7 +109,7 @@ describe("runtime artifact compiler context", () => {
     });
 
     it("没有显式 Product identity 时始终使用 Source Dev", async () => {
-        const root = resolve(".agent", "workspace", "artifact-context-source-test", randomUUID());
+        const root = resolve(".agent", "tmp", "artifact-context-source-test", randomUUID());
         roots.push(root);
         const outputRoot = join(root, ".output", "server");
         await mkdir(outputRoot, {recursive: true});

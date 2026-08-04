@@ -18,7 +18,7 @@ afterEach(async () => {
 
 describe("Product command metafile", () => {
     it("按 entryPoint 建立入口，不依赖输出文件名", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
 
         const entries = resolveProductCommandEntries(metafile, commandRoot);
@@ -30,7 +30,7 @@ describe("Product command metafile", () => {
     });
 
     it("按 commands root 解析 esbuild 返回的相对 output key 与 entryPoint", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile-relative", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative", "commands");
         const metafile = buildMetafile(commandRoot, true);
         for (const output of Object.values(metafile.outputs)) {
             output.entryPoint = relative(commandRoot, output.entryPoint!);
@@ -45,7 +45,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝 metafile entry output 逃逸 commands root", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile", "commands");
         const metafile = buildMetafile(commandRoot);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];
@@ -56,7 +56,7 @@ describe("Product command metafile", () => {
     });
 
     it("拒绝相对 metafile output 通过上级目录逃逸", () => {
-        const commandRoot = resolve(".agent", "workspace", "product-command-metafile-relative-escape", "commands");
+        const commandRoot = resolve(".agent", "tmp", "product-command-metafile-relative-escape", "commands");
         const metafile = buildMetafile(commandRoot, true);
         const [firstOutput, definition] = Object.entries(metafile.outputs)[0]!;
         delete metafile.outputs[firstOutput];

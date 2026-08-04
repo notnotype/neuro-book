@@ -6,7 +6,7 @@ describe("Product 临时验收实例合同", () => {
     it("只复制 verified .output，并通过 bundle commands 运行", async () => {
         const source = await readFile(resolve("scripts", "deploy", "product-runtime.mjs"), "utf8");
 
-        expect(source).toContain('".agent", "workspace", "product-runtime-acceptance"');
+        expect(source).toContain('".agent", "product-runtime-acceptance"');
         expect(source).toContain("ProductRuntimeImageBuilder");
         expect(source).toContain("openVerified");
         expect(source).toContain('resolve(stageRoot, ".output")');

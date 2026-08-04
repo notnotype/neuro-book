@@ -8,7 +8,7 @@ import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/s
 
 describe("profile compile worker preview 与 lifecycle", () => {
     // 原「源码覆盖编译不写入全局 profile module cache」用例已删除（Task 125）。
-    // 它守的 `.agent/workspace/profile-module-cache` 全仓再无任何写入方，断言恒真；
+    // 它守的 `.agent/profile-module-cache` 全仓再无任何写入方，断言恒真；
     // 而且它按 cwd 相对解析，实际是在 rm/mkdir 真实仓库目录。dry-run 不写真实
     // 用户源码与 `.compiled` 由本文件后面的 preview 用例覆盖。
 

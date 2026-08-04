@@ -543,7 +543,7 @@ describe("low-code form", () => {
             }],
         });
 
-        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "workspace", "low-code-form-context"));
+        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "tmp", "low-code-form-context"));
         const dto = await resolveLowCodeForm(form, context({scope: "project", projectWorkspace}));
         const result = await applyLowCodeResourceMutations(form, [{
             type: "create",
@@ -578,7 +578,7 @@ describe("low-code form", () => {
             }],
         });
 
-        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "workspace", "low-code-form-context"));
+        const projectWorkspace = projectWorkspaceForTest(path.resolve(".agent", "tmp", "low-code-form-context"));
         const dto = await resolveLowCodeForm(form, context({scope: "project", projectWorkspace}));
         const result = await applyLowCodeResourceMutations(form, [{
             type: "create",

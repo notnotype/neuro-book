@@ -48,7 +48,7 @@ describe("Nuxt raw Product output", () => {
     });
 
     it("保留 Builder 候选目录并使用 Source digest 派生稳定 build ID", async () => {
-        const candidate = resolve(".agent", "workspace", "nuxt-output-contract", ".output");
+        const candidate = resolve(".agent", "tmp", "nuxt-output-contract", ".output");
         const sourceDigest = `sha256:${"a".repeat(64)}`;
         const {stdout} = await execFileAsync("bun", ["-e", configProbe], {
             cwd: process.cwd(),
@@ -71,12 +71,12 @@ describe("Nuxt raw Product output", () => {
     });
 
     it.each([
-        ["只设置 output root", resolve(".agent", "workspace", "nuxt-output-only"), "", "同时注入"],
-        ["只设置 image root", "", resolve(".agent", "workspace", "nuxt-image-only"), "同时注入"],
+        ["只设置 output root", resolve(".agent", "tmp", "nuxt-output-only"), "", "同时注入"],
+        ["只设置 image root", "", resolve(".agent", "tmp", "nuxt-image-only"), "同时注入"],
         [
             "注入不一致的两个 root",
-            resolve(".agent", "workspace", "nuxt-output-mismatch"),
-            resolve(".agent", "workspace", "nuxt-image-mismatch"),
+            resolve(".agent", "tmp", "nuxt-output-mismatch"),
+            resolve(".agent", "tmp", "nuxt-image-mismatch"),
             "不一致",
         ],
     ])("%s 时拒绝 raw Product build", async (_label, outputRoot, imageRoot, expectedMessage) => {
@@ -96,7 +96,7 @@ describe("Nuxt raw Product output", () => {
         ["缺少", ""],
         ["无效", "sha256:bad"],
     ])("%s Source digest 时拒绝 raw Product build", async (_label, sourceDigest) => {
-        const candidate = resolve(".agent", "workspace", "nuxt-output-digest");
+        const candidate = resolve(".agent", "tmp", "nuxt-output-digest");
         await expect(execFileAsync("bun", ["-e", configProbe], {
             cwd: process.cwd(),
             env: {

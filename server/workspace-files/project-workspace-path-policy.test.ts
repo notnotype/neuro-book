@@ -11,7 +11,7 @@ import {
     type ProjectWorkspacePathConsumer,
 } from "nbook/server/workspace-files/project-workspace-path-policy";
 
-const workspaceRoot = absoluteFsPath(path.resolve(".agent", "workspace", "path-policy"));
+const workspaceRoot = absoluteFsPath(path.resolve(".agent", "tmp", "path-policy"));
 const ref = projectWorkspaceRef("project");
 const workspace = resolvedProjectWorkspace(
     ref,

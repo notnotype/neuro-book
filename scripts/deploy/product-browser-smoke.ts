@@ -117,7 +117,7 @@ function parseOptions(args: string[]): SmokeOptions {
         url: new URL(url).href,
         expectedVersion,
         browserExecutable: resolve(browserExecutable),
-        screenshot: resolve(values.get("--screenshot") ?? ".agent/workspace/product-browser-smoke-failure.png"),
+        screenshot: resolve(values.get("--screenshot") ?? ".agent/product-browser-smoke-failure.png"),
     };
 }
 
