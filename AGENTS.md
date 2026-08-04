@@ -45,7 +45,7 @@
 
 ### 开发循环
 
-1. 想法 / bug / 需求先开 GitHub Issue（`type:*` + `status:*` 标签）；维护者用 `gh issue create` 直接开即可，不必走 Issue Form（表单面向外部贡献者）。`PROJECT-STATUS.md` 不再新增 TODO 清单。
+1. 想法 / bug / 需求先开 GitHub Issue（`type:*` + `status:*` 标签）；维护者用 `gh issue create` 直接开即可，不必走 Issue Form（表单面向外部贡献者）。Agent 开 issue 的正文结构见下节「Agent 创建 Issue 约定」。`PROJECT-STATUS.md` 不再新增 TODO 清单。
 2. 重大任务继续按 `docs/tasks/README.md` 建任务目录：issue 是需求层，task 是文档层，两者互补不替代。
 3. 开工前 `git fetch origin`，然后 `git worktree add .worktree/<slug> -b <branch> origin/master`（worktree 固定在仓库根 `.worktree/` 目录，与 `.agent` 临时区区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
 4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`。PR 完整覆盖 issue 时正文用 `Closes #N`（merge 会自动关闭 issue）；只覆盖一部分时用 `Refs #N`，避免 issue 被提前关闭。
@@ -58,7 +58,7 @@
 
 - 必须打 `source: agent` 标签（另加常规 `type:*` / `status:*`），便于区分机器起草与人工报告。
 - 标题说清「什么东西要变成什么样」，不堆内部类名、文件名、函数名。
-- 正文结构（对齐 ADR 的背景 → 决策 → 后果习惯）：
+- 正文结构（对齐 ADR 的背景 → 决策 → 后果习惯）；Agent 创建 issue 必须按此结构写，不逐条强制、可按需调整扩展：
   1. **一句人话概述**：没看过会话、没读过代码的人，也能看懂这个 issue 要让什么变成什么样。
   2. **背景**：为什么现在提。给足上下文，不假设读者拥有你的会话记忆。
   3. **内容 / 方案**：要做什么。内部标识符（文件路径、函数名、合同名）放这一段，并给出上下文。
@@ -71,7 +71,7 @@
 
 - `master` 是用户测试基线，始终保持可构建、可测试状态；代码改动一律走分支 + squash PR。
 - 文档类例外可直推 master：typo、`PROJECT-STATUS.md` / task walkthrough 更新、`RELEASE.md` 维护、release 脚本的版本提交。
-- 测试反馈小修复例外可直推 master：用户在 master 上测试（含浏览器验收）发现的问题，修复简单（如单文件小改、不动架构 / 数据合同 / schema、不引新依赖）时可就地修复直推；复杂修复回完整流程（issue + 分支 + PR）。「简单」与否靠 agent 自觉判断，拿不准就走完整流程；验证不跳过，commit message 注明问题现象与来源（如 `fix: 修复章节名不刷新（#55 浏览器验收发现）`）。
+- 测试反馈小修复例外可直推 master：用户在 master 上测试（含浏览器验收）发现的问题，Agent 自行判断修复是否简单（如单文件小改、不动架构 / 数据合同 / schema、不引新依赖）。判断为简单时，**先向用户报告问题现象与修复方案，用户明确许可后才可直接在 master 上修改**（master 可能是脏的、可能有其它 agent 并行工作，直推是例外不是常态）；未获许可一律走分支 + PR。复杂修复或拿不准时走完整流程（issue + 分支 + PR）；验证不跳过，commit message 注明问题现象与来源（如 `fix: 修复章节名不刷新（#55 浏览器验收发现）`）。
 - 上述纪律是约定层面，不配 GitHub ruleset / required check（质量门禁见 issue #15）。
 - 不 force push `master`；远端拒绝就停下报告。
 
