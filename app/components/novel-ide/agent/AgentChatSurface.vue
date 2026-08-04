@@ -1385,6 +1385,11 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
         return;
     }
     await syncActiveSessionRecovery("invoke_error_fallback");
+    // 用户取消不是错误：气泡上已经有「已停止生成」标记，这里再弹通知既重复，又会把
+    // result.error 里的英文技术文本（"invocation aborted" / provider 原文）带到界面上（Task 139）。
+    if (result.aborted) {
+        return;
+    }
     if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
         notification.error(result.error ?? t("agent.chatSurface.runFailed"), {title: t("agent.chatSurface.runFailed")});
     }
@@ -1412,7 +1417,11 @@ const handleInlineEditorInvokeResult = async (
     if (!acceptsSurfaceOperation(owner, sessionId)) {
         return {status: "superseded"};
     }
-    inlineEditorResultText.value = result.error ?? t("agent.chatSurface.runFailed");
+    // 取消同样走这个分支（停止按钮和 in-flight 阻塞 invoke 谁先返回是竞态），
+    // 但结果条不能显示 result.error 里的英文技术文本，用和停止按钮一致的说法（Task 139）。
+    inlineEditorResultText.value = result.aborted
+        ? t("agent.chatSurface.stopped")
+        : result.error ?? t("agent.chatSurface.runFailed");
     throw new Error(inlineEditorResultText.value);
 };
 
@@ -1551,7 +1560,9 @@ const submitPendingUserInput = async (): Promise<void> => {
         }
         publishPendingSubmissionIssue(operation, {
             kind: "error",
-            message: result.error || t("agent.chatSurface.submitAnswersFailed"),
+            message: result.aborted
+                ? t("agent.chatSurface.stopped")
+                : result.error || t("agent.chatSurface.submitAnswersFailed"),
         });
     } catch (error) {
         if (!acceptsPendingUserInputOperation(operation)) return;

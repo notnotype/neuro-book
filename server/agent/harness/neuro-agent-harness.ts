@@ -1654,6 +1654,8 @@ export class NeuroAgentHarness {
                 error: result.errorInfo.message,
                 errorPhase: result.errorInfo.phase,
                 errorInfo: result.errorInfo,
+                // 取消与失败在这里必须区分开：调用方仍按异常终止处理，但界面据此走「已停止」而非报错。
+                ...(result.terminalStatus === "aborted" ? {aborted: true} : {}),
                 ...projectPublicFinalMessage(result.finalAssistant ? messageText(result.finalAssistant, {stripThinking: true}) : undefined),
                 usage: result.usage,
                 elapsedMs: Date.now() - input.startedAt,
@@ -1816,6 +1818,7 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
+            ...(input.aborted ? {aborted: true} : {}),
             elapsedMs: Date.now() - input.startedAt,
         };
     }
@@ -6385,6 +6388,7 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
+            aborted: true,
             elapsedMs: Math.max(0, Date.now() - startedAt),
         };
     }

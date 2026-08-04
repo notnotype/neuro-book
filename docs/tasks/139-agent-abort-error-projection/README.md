@@ -35,7 +35,7 @@
 
 错误文案 top：`503 gateway_error` 92 · `Request was aborted` 38 · `400 (no body)` 13 · sidecar 失败 27 · `401 Invalid API Key` 9 · `流式连接异常中断` 4 · `配置未设置 models.default` 4。
 
-## 四个根因
+## 五个根因
 
 ### 根因 1 · 取消被当成错误，SDK 英文原文被持久化
 
@@ -45,7 +45,7 @@ provider SDK `throw new Error("Request was aborted")` → `toRunKernelErrorInfo(
 
 英文泄漏三个写入点：`failInvocation`（SDK 原文）、`abortInvocationMatching` waiting 路径（硬编码 `"invocation aborted"`）、`forceAbortInvocation`（硬编码 `"invocation aborted after cancellation grace period"`）。
 
-补充：`chatEntryKind()` 只认 `status === "error"`，**不处理 `status === "aborted"`**，所以那 40 条 aborted 账本记录根本不投影成气泡——用户看到的英文来自 **live 流式层**，刷新后整条消失。
+补充：`chatEntryKind()` 只认 `status === "error"`，**不处理 `status === "aborted"`**，所以那 40 条 aborted 账本记录根本不投影成气泡。英文因此不来自 durable 层，而来自另外两条通道：live 流式层的 `message_end`，以及阻塞 invoke 的 HTTP 返回值（见根因 5）。
 
 ### 根因 2 · 半截消息的持久化协议从未生效（Task 07 契约破窗）
 
@@ -89,6 +89,30 @@ if (frame.invocationId && !this.ownsInvocation(frame.sessionId, frame.invocation
 
 **附带**：`runTurnTransaction` 的取消检查点问的是 `ownsInvocation`（这次运行还是本会话的当前运行吗），不是「用户按了停止吗」。running 路径的取消只把 `active.status` 改成 `"aborting"`，**不删条目、不换 id**，`ownsInvocation` 恒为 true，**该检查点对用户主动取消永不触发**。
 
+### 根因 5 · 阻塞 invoke 的返回值仍把取消报成错误（自审补充，2026-08-04）
+
+前四个根因修完、自审各条链路时发现的**第五个泄漏口，也是最贴近用户原始描述的那一个**：`AgentInvocationResult.status` 的类型是 `"completed" | "waiting" | "error"`，**没有「取消」这一档**。于是取消结束的阻塞 invoke 返回：
+
+```
+{"status":"error","error":"invocation aborted","errorPhase":"unknown"}
+```
+
+（真实取消的实测返回值，先写探针跑出来再定型成回归测试。）
+
+前端 `AgentChatSurface.handleInvokeResult` 的兜底通知只看 `status`：
+
+```ts
+if (result.status !== "error") return;
+await syncActiveSessionRecovery("invoke_error_fallback");
+if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
+    notification.error(result.error ?? t("agent.chatSurface.runFailed"), ...);
+}
+```
+
+`hasVisibleInvocationError` 问的是「这次运行的错误用户已经看见了吗」。取消**没有** Run Error 卡片（lifecycle 是 `aborted`，`chatEntryKind` 不认），修完根因 1 之后 assistant 上也不再有 `error` 字段——于是它必然返回 false，**每次点停止都会弹出一条英文红色通知**。
+
+这条通道在前四个根因修完后不但没关闭，反而**更容易触发**：修复前 live assistant 携带 `error: "Request was aborted"` 时可以碰巧让 `hasVisibleInvocationError` 为真、把通知压掉；修复后这个抑制条件消失了。同一泄漏还有另外两个出口：Inline AI 的结果条（`handleInlineEditorInvokeResult` 把 `result.error` 直接写进 PromptBar），以及审批提交失败提示。
+
 ## Decisions
 
 | 编号 | 决策 | 理由 |
@@ -97,6 +121,7 @@ if (frame.invocationId && !this.ownsInvocation(frame.sessionId, frame.invocation
 | ADR-2 | **修复 Task 07 协议，保留半截消息（带 `interrupted` 标记）**，不妥协成丢弃 | 关键在标记而非保留与否——带标记的半截消息不会让 Agent 误以为自己写完了；且它天然是 assistant 锚点，取消后重试的分支切换器自动可用，**无需改 `chatEntryKind`、无需给 `aborted` 加特例、历史观感不变** |
 | ADR-3 | **留痕靠 durable，前端只清重复**：Run Error 卡片是权威详情，它一到就清掉同一次运行 assistant 上的错误字段 | 有正文保留正文气泡，无正文整条移除。live 与 durable 两条路径结果相同，刷新前后一致 |
 | ADR-4 | **撤回，不需要决策**：不给工具加 abort 响应 | 调研纠正：所有可能长跑的工具**都已响应取消**（bash / web_search / web_fetch / invoke_agent / run_workflow）。未接 signal 的（剧情 / 任务 / 世界引擎 / 记忆 / 本地 SQL）全是毫秒级本地操作。用户感知的「取消不生效」来自根因 4 |
+| ADR-5 | **给 invocation 结果加显式 `aborted` 标记，不动 `status` 联合类型** | 把 `"aborted"` 加进 `status` 会让所有 `status === "error"` 的判断静默改变语义——`workflow-agent-port` 和 `invoke_agent` 都靠它抛错终止，漏改一处就是「取消被当成成功」。`aborted` 是加法：调用方默认仍按异常终止处理，只有面向用户的展示据此改走「已停止」 |
 
 新增不变量：**错误详情只记在 `invocation_lifecycle` entry 上，assistant entry 只承载正文。** 两处都写会让同一段错误在账本里留下两份，跨层合成时渲染成两个气泡。
 
@@ -130,10 +155,18 @@ if (frame.invocationId && !this.ownsInvocation(frame.sessionId, frame.invocation
 - `messageFromChatEntry` 的 assistant 分支去掉 `content: entry.content.preview || entry.error?.preview` 回落——正文就是正文，不再用错误文本冒充正文。
 - 删除死代码 `toLocalMessage`（唯一调用方是测试）与 `hasAssistantErrorForInvocation`。
 
+### 批次 5 · 取消在返回值里有独立身份（根因 5，ADR-5）
+
+- `AgentInvocationResult` 与公开 DTO `InvokeAgentResult` 新增 `aborted?: boolean`；`projectPublicInvocationResult` 透传。
+- 三个构造点标记：`forcedAbortResult`（恒为取消）、`failInvocation`（`input.aborted`）、`finalizeInvokeResult`（`result.terminalStatus === "aborted"`）。`status` 保持 `"error"`，调用方语义不变。
+- 前端三个展示出口据此改走「已停止」：`handleInvokeResult` 直接不弹通知（气泡上已有「已停止生成」）；`handleInlineEditorInvokeResult` 与审批提交失败提示复用既有文案 `agent.chatSurface.stopped`，不新增 i18n key。
+- Inline AI 顺带修好一个竞态：停止按钮把结果条写成「已请求停止」，随后返回的阻塞 invoke 又把它覆盖成 `result.error` 的英文；现在两条路径写的是同一句话。
+
 ## Verification / Test
 
 - `bun run test app/components/novel-ide/agent/ app/utils/`：59 files / 371 tests 全绿。
-- `bun run test server/agent/`：145 files / 1318 tests 全绿。
+- `bun run test server/agent/`：145 files / **1329** tests 全绿。
+- `bun run test server/agent/ app/ shared/`：251 files / 1968 tests，**2 failed**——`neuro-agent-harness.black-box.test.ts` 的两个取消用例 5s 超时。同一文件单跑 25/25 全绿、`server/agent/` 整个 scope 也全绿，只在叠加 `app/` + `shared/` 的满载并发下超时。这两个用例围绕 150ms 取消宽限期用真实计时器，是全仓对 CPU 争用最敏感的用例；与本轮改动无关（本轮对它们只增加了一个可选字段）。
 - `bun run typecheck`：**零错误**。
 - 真实数据只读回归（556 个会话跑发货代码 `chatEntryKind` + `projectAgentChatEntry`）：
   - Run Error 卡片数 **188**，与修复前基线一致（本轮未改 `chatEntryKind`）。
@@ -141,6 +174,7 @@ if (frame.invocationId && !this.ownsInvocation(frame.sessionId, frame.invocation
   - `(chatEntryKind(e) === null) === (projectAgentChatEntry(e) === null)` 不变量违例 **0**。
 - 新增 / 改写测试：
   - `neuro-agent-harness.test.ts`「取消保留已生成的半截正文，且 lifecycle 不写 provider 原文」：断言半截正文以 `interrupted` 落盘、assistant 不含 `Request was aborted`、lifecycle 也不含。修复前两条断言都会失败。
+  - `neuro-agent-harness.test.ts`「取消的阻塞 invoke 返回 aborted 标记，界面据此不弹错误」：provider 永不返回 → 走宽限期强制收尾，断言 `result.aborted === true` 且 lifecycle 只有 `start` / `aborted`（不能出现 `error`，否则前端会多一张 Run Error 卡片）。这条用例是先写成探针跑出真实返回值 `{"status":"error","error":"invocation aborted"}` 之后才定型的，根因 5 由它实测确认。
   - `agent-message-projection.test.ts`「用户取消不展示 provider 英文原文，只标成 interrupted」。
   - `agent-message-projection.test.ts`「同一次运行的错误只展示一次」+「失败时没有正文的 assistant 整条移除」：取代旧的「已有 assistant error 时不重复展示 invocation error」（旧用例编码的是相反行为）。
   - 用真实 live 路径 `applyRuntimeEventToMessages` 重写了原先测试死代码 `toLocalMessage` 的用例。
@@ -149,12 +183,15 @@ if (frame.invocationId && !this.ownsInvocation(frame.sessionId, frame.invocation
 
 `streamAssistant` 新增的 catch 分支**没有被自动化测试覆盖**：faux provider 取消时推 error 事件并保留 partial，不抛异常，无法触发该分支。真实 provider 全部抛异常（已逐个核对 `node_modules/@earendil-works/pi-ai/dist/api/*.js`），该分支的正确性依据是代码走查 + 40/40 真实会话零保留的实测证据。要真正覆盖它需要引入一个会在流式中途抛异常的 provider 替身，属于测试基建改动，本轮未做。
 
+根因 5 的三个前端出口（兜底通知 / Inline AI 结果条 / 审批提交提示）**没有前端自动化测试**：它们都在 `AgentChatSurface.vue` 的 SFC 内部，不是可单测的纯函数。服务端侧的 `aborted` 标记有回归测试锁定，前端消费只是一个分支判断，验证靠浏览器验收。
+
 ### 待用户浏览器验收
 
-- 模型开始输出后点停止 → 半截内容保留在气泡里，底部显示灰色「已停止生成」，**不是**英文 `Request was aborted`；停止按钮立即熄灭，可以马上发下一条。
+- 模型开始输出后点停止 → 半截内容保留在气泡里，底部显示灰色「已停止生成」，**不是**英文 `Request was aborted`；**也不应该弹出任何红色通知**（根因 5）；停止按钮立即熄灭，可以马上发下一条。
 - 取消后点重试 → 该消息上出现分支切换器，可切回被取消的那一版。
-- 让慢工具（bash / web_fetch / 子 Agent）跑起来再点停止 → 界面不再卡在「运行中」。
-- 制造一次流式中途的网关错误 → 只出现**一个**错误展示。
+- 让慢工具（bash / web_fetch / 子 Agent）跑起来再点停止 → 界面不再卡在「运行中」，同样不弹英文通知。
+- 编辑器里用 Inline AI 跑一次再点停止 → 结果条显示「已请求停止」，不是英文。
+- 制造一次流式中途的网关错误 → 只出现**一个**错误展示，且这次**要**看到错误（别把取消的修复误伤到真失败）。
 - 刷新页面 → 显示与刷新前一致。
 
 ## 已知边界

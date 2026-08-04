@@ -570,6 +570,14 @@ export type InvokeAgentResult = {
     error?: string;
     errorPhase?: AgentInvocationErrorPhaseDto;
     errorInfo?: AgentInvocationErrorInfoDto;
+    /**
+     * true 表示这次运行是被取消的（用户点停止、父级撤销、宽限期强制收尾），不是失败。
+     *
+     * `status` 仍是 `"error"`：调用方默认按异常终止处理（不继续 workflow、不当成功），
+     * 但面向用户的展示必须走「已停止」而不是报错——`error` 里是 provider/内部英文技术文本，
+     * 只用于日志与诊断，弹给用户就成了界面上的英文报错（Task 139）。
+     */
+    aborted?: boolean;
     usage?: Usage;
     elapsedMs?: number;
     queuedItem?: AgentQueuedMessageDto;

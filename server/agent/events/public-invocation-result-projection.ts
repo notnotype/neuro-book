@@ -62,6 +62,7 @@ export function projectPublicInvocationResult(input: AgentInvocationResult): Inv
         ...(error.message === undefined ? {} : {error: error.message}),
         ...(input.errorPhase ? {errorPhase: input.errorPhase} : {}),
         ...(error.info ? {errorInfo: error.info} : {}),
+        ...(input.aborted ? {aborted: true} : {}),
         ...(input.usage ? {usage: input.usage} : {}),
         ...(input.elapsedMs === undefined ? {} : {elapsedMs: input.elapsedMs}),
         ...(input.queuedItem ? {queuedItem: input.queuedItem} : {}),
