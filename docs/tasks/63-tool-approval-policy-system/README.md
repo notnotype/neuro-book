@@ -240,7 +240,7 @@ type UserInputFormSpec = {
 
 ### 诊断
 
-- 复查 #45 合并后的真实调用链确认 Enter、steer 和 Ctrl/Meta+Enter followup 已恢复，但共享编辑器仍没有排除输入法组合态。Windows 中文输入法确认候选字也会产生 Enter keydown，可能被误判为提交。
+- 复查 https://github.com/notnotype/neuro-book/pull/45 合并后的真实调用链确认 Enter、steer 和 Ctrl/Meta+Enter followup 已恢复，但共享编辑器仍没有排除输入法组合态。Windows 中文输入法确认候选字也会产生 Enter keydown，可能被误判为提交。
 - 发送按钮已经阻止 pending 图片、未解析稳定图片、metadata error 和预算超限；`AgentComposer.submitComposer()` 只阻止 readonly 与 pending 图片，键盘入口因此可以绕过既有图片合同。
 - `AgentChatSurface` 在创建乐观消息前解析 Session 图片附件，但原解析异常不在错误出口内，失败时可能形成未处理 Promise。
 

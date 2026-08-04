@@ -1003,3 +1003,8 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - 修复后，按钮和键盘提交共用 Agent Composer 的消息门禁；解析 Session Attachment metadata 失败时，prompt、steer 和 followup 都在创建乐观消息及调用 Session 前通过统一通知出口返回。
 - 本轮不修改 Attachment Authority、存储、DTO、图片 transaction 或 Provider hydration；不新增测试文件，沿用现有聚焦回归和根 typecheck，浏览器交互由用户验收。
 - 验证：既有 `useComposerImageTransaction`、Agent invocation reconciliation 和 Composer draft 聚焦测试共 3 files / 16 tests 通过；SFC 编译探针与 `bun run typecheck` 通过。浏览器图片门禁仍待用户验收。
+
+### 2026-08-04 Composer 附件迟到响应保护
+
+- Composer 解析 Session Attachment metadata 时捕获当前 `sessionScopeKey`、Session ID 和附件缓存 generation；Session 切换、Workspace scope 重置或附件缓存失效后，旧请求的成功与失败结果都会被丢弃，不写入新缓存、不创建消息，也不发送过期错误通知。
+- 当前 Session 的真实解析失败仍沿用既有 notification 出口；prompt、steer 和 followup 继续共享 `null` 提交终止语义。底层 HTTP 请求不取消，服务端仍以 Session Attachment Authority 的 fail-closed 合同为最终边界。
