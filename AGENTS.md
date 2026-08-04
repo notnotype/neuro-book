@@ -9,8 +9,6 @@
 - 当前是沙盒环境，执行 bun 命令时，提权在沙盒外执行
 - **学会在需求和实现复杂度之间妥协：当你制定计划、需求、审查用户需求或者设计系统的时候，多进行一步思考：这个需求是否很冷门？如果对需求进行妥协是否能大幅度降低复杂度？**
 - 执行命令时注意 PowerShell 路径转义
-- Agent runtime 中内容节点 CLI 的稳定入口是 `workspace node ...`，由 `.nbook/agent/bin` 注入 `bash` PATH；不要提示 Agent 直接调用项目根 `scripts/workspace.ts`。手工在 PowerShell 管道传中文路径给 `workspace node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
-- Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
 - **Bug 诊断流程**：当用户要求排查、诊断、debug 报错或性能回归时，参考 `$diagnose`；先阅读相关上下文并定位可能原因，再用最小测试、脚本、请求或日志尝试复现并确认症状。不要直接修改业务代码修复；诊断完成后先给出报告，说明现象、复现结果、根因判断、影响范围和建议修复方案，等待用户确认后再进入实现。若无法复现，报告已尝试路径和下一步需要的信息。
 - 没有收到用户明确的指令，永远不要擅自改代码、文件。优先做只读调研、讨论、分析
@@ -210,14 +208,20 @@
 - 不要等待或盯 GitHub Actions release workflow；发布命令必须带 `--no-watch`。创建 GitHub Release 成功后，报告 release tag / URL，并说明 Actions 后台自行运行。
 - 如果 release 命令被中断，先检查 `git status --short --branch`、`git log --oneline -5`、`package.json.version`，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断版本提交和 GitHub Release 是否已经完成，避免重复发布。
 
-## llmlint 独立开发仓（sibling source + vendored snapshot）
+## 子项目索引（sibling 仓库）
 
-（这里可以精简成子项目索引，例如 nb-memory neuro-book-site llmlint 等）
+NeuroBook 的部分功能模块独立成 sibling 仓库开发（位置均为主仓同级目录 `../<name>`），主仓以 vendor 快照、同步脚本或 goal 封装消费。**改这些模块一律去对应 sibling 仓，不在主仓内开发；主仓只更新快照 / 同步，也不要在主仓的快照目录内执行 sibling 仓的 git 操作。** sibling 仓改动落盘后，其 `goal:check` / `test` / `build` 属于该仓侧的真实验证，必须如实报告结果；在 sibling 仓执行 `push` / `remote` 操作前先 `git remote -v` 确认当前仓库，不 force push。
 
-- llmlint 真正开发仓位于 sibling 路径 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`，remote 是 **github.com/notnotype/llmlint**（AGPL-3.0-only）。仓库根是开发工作区，真正可安装的 skill package 固定在 `skill/`。
-- NeuroBook 内置副本 `assets/workspace/.nbook/agent/skills/llmlint/` 只是 `../llmlint/skill` 的 vendored runtime snapshot，不再有嵌套 `.git`，不要在该目录内执行 llmlint 仓的 git 操作。
-- 改 llmlint 源码、规则、README 或 evals 时，先进入 sibling llmlint 仓修改；改完从 llmlint 根运行 `bun run sync:neuro-book`，或从 NeuroBook 根运行 `bun scripts/cli/sync-llmlint-skill.ts`，再执行 `bun scripts/cli/sync-user-assets.ts` 更新真实 user runtime 副本。
-- NeuroBook 同步脚本只镜像 `skill/`，并排除 `.git/`、`node_modules/`、`.bun/`、`.agent/`、`evals/`、`tests/`、coverage/report 临时产物；`workspace/.nbook/agent/skills/llmlint/` 也必须保持为 runtime-only 副本。
-- `evals/` 进入 sibling llmlint 仓 git，作为规则评测 harness、fixture、语料和基线报告的开发资产；它不属于可安装 skill package，也不随 NeuroBook user-assets 同步到用户 workspace。
-- README 为中英双语双文件：仓库根 `README.md` / `README.en.md` 说明开发仓，`skill/README.md` / `skill/README.en.md` 说明可安装 skill。改安装或运行方式时两层文档都要同步。
-- 不要在 llmlint 仓 force push；远端拒绝就停下报告。任何 `push` / `remote` 操作前先 `git remote -v` 或 `git rev-parse --show-toplevel` 确认当前仓库。
+| 仓库 | 内容 | 与主仓的关系 |
+| --- | --- | --- |
+| llmlint | lint 规则开发仓（github.com/notnotype/llmlint，AGPL-3.0）；仓库根为开发工作区，可安装 skill package 固定在 `skill/` | 主仓 `assets/workspace/.nbook/agent/skills/llmlint/` 是 `../llmlint/skill` 的 vendored runtime snapshot；从 llmlint 根 `bun run sync:neuro-book` 或主仓 `bun scripts/cli/sync-llmlint-skill.ts` 同步，再跑 `sync-user-assets.ts` 更新 user runtime 副本（只镜像 `skill/`，排除 `.git`、`node_modules`、`evals`、`tests` 等） |
+| nb-memory | 记忆框架（Task 113 产物，TS/Bun 零依赖、port 注入） | agent memory goal（`bun run agent-memory-*`）在该仓执行 |
+| nb-history | workspace 操作日志与文件历史（append-only 事件溯源 + 内容寻址快照） | 主仓 `bun run sync:nb-history` 同步 |
+| nb-workflow | Agent Workflow 编排 spike（Task 110） | 主仓 `bun run sync:nb-workflow` 同步 |
+| neuro-agent-harness | 多宿主 Agent Harness（Profile、Run Kernel、Session、approval、compaction） | 上游真相源；主仓 `server/agent/harness/` 为快照 |
+| nb-ui | NeuroBook 系项目共享 Vue/Nuxt UI 组件库 | 供派生项目使用；主仓未迁移 import |
+| nb-fullstack-template | 全栈项目模板 | neuro-book-site 等 sibling 项目从它派生 |
+| neuro-book-site | 官方站：账号关联、创意工坊、客户端加密云备份 | 独立部署（owner-only 私有内测），与主仓是产品配套关系 |
+
+- llmlint 的 README 为中英双语双文件：仓库根与 `skill/` 两层，改安装或运行方式时两层都同步。
+- NeuroBook 侧验证 vendor 快照的最小方式是 import smoke，例如 `bun -e "import './llmlint/llmlint.ts'; console.log('ok')"`。
