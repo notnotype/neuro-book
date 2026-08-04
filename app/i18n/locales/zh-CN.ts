@@ -2207,6 +2207,7 @@ const zhCN = {
             copy: "复制",
             copyPreview: "复制当前预览",
             previewOnly: "当前仅展示预览（原文 {bytes} bytes），为防止覆盖完整原文，不能编辑。",
+            interrupted: "已停止生成",
             edit: "编辑",
             retry: "刷新",
             branchFromHere: "从这里分叉（不会删除后面的内容）",

@@ -664,7 +664,9 @@ export function useAgentSession() {
         if (activeInvocation) {
             liveRunStatus.value = activeInvocation.status === "waiting" ? "waiting" : activeInvocation.status;
             runPhase.value = pendingInputs.length > 0 ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
-        } else if (liveRunStatus.value !== "aborting") {
+        } else {
+            // 服务端报「没有活动 invocation」就是权威终态，aborting 也不例外：
+            // 取消侧补发的 agent_end 万一丢包，这里是唯一的兜底出口，加守卫会让界面永久停在「正在停止」。
             liveRunStatus.value = "idle";
             runPhase.value = "idle";
         }

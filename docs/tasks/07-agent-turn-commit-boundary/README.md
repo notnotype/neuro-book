@@ -148,6 +148,20 @@
 - `bun run test server/agent/harness/neuro-agent-harness.test.ts -t "invoke_agent"`
   - 结果：通过，1 个测试文件，2 个 invoke_agent 测试；确认父 session 的 `invoke_agent` toolResult details 包含 `sessionId/status/finalMessage` 摘要且不再包含 `events`。
 
+## 契约破窗与修复（2026-08-04，Task 139）
+
+本 task 定下的这条协议**在真实运行中从未生效过**：
+
+> provider error / abort 的 assistant 可以在 turn terminal 时写入，用 `stopReason` / `errorMessage` 表达失败。
+
+配套实现一直都在（`sanitizePartialAssistant()`、`messageStatus: "interrupted"`、`executeTurn` 的 `stopReason === "aborted"` 分支），但实测 556 个真实会话里 **40 次取消 0 次保存过半截消息**。
+
+根因：真实 provider SDK 用**抛异常**表达取消（`throw new Error("Request was aborted")`），异常一抛 `await stream.result()` 永不执行，已接收文本烂在 stream 内部；异常冒泡后走 `createRuntimeErrorAssistant(error)`（正文为空）→ `sanitizePartialAssistant` 因无非空文本返回 `null` → 什么都不写。
+
+**测试没照出来的原因**：faux provider 的 abort 语义与真实 SDK 不一致——faux 推 `{type: "error", reason: "aborted"}` 事件并 `stream.end(createAbortedMessage(partial))`（保留 partial），真实 SDK 直接 throw。测试替身比现实宽容，这条路径在 CI 里一直是绿的。
+
+[Task 139](../139-agent-abort-error-projection/README.md) 已在 `streamAssistant` 的流式循环外补 try/catch 接住取消并复用现成链路。同时新增一条不变量：**错误详情只记在 `invocation_lifecycle` entry 上，assistant entry 只承载正文**，`sanitizePartialAssistant` 不再持久化 `errorMessage`（两处都写会让同一段错误渲染成两个气泡）。
+
 ## TODO / Follow-ups
 
 - 评估是否需要把旧坏 session 的前端中断文案加上“可 fork clean branch / repair”的操作入口。

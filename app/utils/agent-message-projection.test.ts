@@ -1,7 +1,17 @@
 import {describe, expect, it} from "vitest";
-import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromChatEntries, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 import {projectPublicToolArgs} from "nbook/server/agent/events/public-tool-projection";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
+
+/** message_end 事件必填 usage；这些用例不关心用量，统一给零值。 */
+const emptyUsage = () => ({
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+});
 
 describe("agent message projection helpers", () => {
     it("request_user_input schema 拒绝默认值、推荐和多选旧字段", () => {
@@ -229,37 +239,53 @@ describe("agent message projection helpers", () => {
     });
 
     it("assistant 失败但没有正文时展示 errorMessage", () => {
-        const message = toLocalMessage("assistant-error", {
-            role: "assistant",
-            content: [],
-            api: "openai-completions",
-            provider: "mimo",
-            model: "mimo-v2.5-pro",
-            usage: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 0,
-                cost: {
-                    input: 0,
-                    output: 0,
-                    cacheRead: 0,
-                    cacheWrite: 0,
-                    total: 0,
-                },
-            },
+        const messages = applyRuntimeEventToMessages([{
+            id: "assistant-error",
+            type: "ai",
+            content: "",
+            status: "streaming",
+            invocationId: "inv-error",
+            projectionSource: "live",
+        }], {
+            type: "message_end",
+            messageId: "assistant-error",
             stopReason: "error",
+            usage: emptyUsage(),
             errorMessage: "Provider rejected image payload",
-            timestamp: Date.now(),
-        });
+        }, "inv-error");
 
+        const message = messages.find((item) => item.id === "assistant-error");
         expect(message).toEqual(expect.objectContaining({
             content: "Provider rejected image payload",
             error: "Provider rejected image payload",
             status: "stopped",
         }));
-        expect(messageStatusLabel(message)).toBe("生成失败");
+        expect(messageStatusLabel(message!)).toBe("生成失败");
+    });
+
+    it("用户取消不展示 provider 英文原文，只标成 interrupted", () => {
+        const messages = applyRuntimeEventToMessages([{
+            id: "assistant-aborted",
+            type: "ai",
+            content: "写到一半的正文",
+            status: "streaming",
+            invocationId: "inv-abort",
+            projectionSource: "live",
+        }], {
+            type: "message_end",
+            messageId: "assistant-aborted",
+            stopReason: "aborted",
+            usage: emptyUsage(),
+            // provider SDK 抛的就是这句英文；它绝不能出现在界面上。
+            errorMessage: "Request was aborted",
+        }, "inv-abort");
+
+        const message = messages.find((item) => item.id === "assistant-aborted");
+        expect(message).toEqual(expect.objectContaining({
+            content: "写到一半的正文",
+            error: undefined,
+            status: "interrupted",
+        }));
     });
 
     it("durable invocation error 会展示为 Run Error 系统消息", () => {
@@ -331,14 +357,14 @@ describe("agent message projection helpers", () => {
         ]);
     });
 
-    it("已有 assistant error 时不重复展示 invocation error", () => {
+    it("同一次运行的错误只展示一次：保留正文气泡，错误详情归 Run Error 卡片", () => {
         const timestamp = Date.now();
         const messages = deriveMessagesFromChatEntries([{
                 id: "assistant-1",
                 timestamp,
                 type: "assistant",
                 invocationId: "invoke-1",
-                content: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                content: {preview: "写到一半的正文", bytes: 21, omitted: false},
                 thinking: {preview: "", bytes: 0, omitted: false},
                 error: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
                 status: "error",
@@ -355,9 +381,45 @@ describe("agent message projection helpers", () => {
                 phase: "model",
             }]);
 
-        expect(messages.filter((message) => message.systemDisplayKind === "error")).toHaveLength(0);
-        expect(messages.filter((message) => message.type === "ai" && message.error)).toHaveLength(1);
+        // 正文留下，错误红字从 assistant 上清掉，详情只在卡片上出现一次。
+        expect(messages.filter((message) => message.type === "ai" && message.error)).toHaveLength(0);
+        expect(messages.filter((message) => message.systemDisplayKind === "error")).toHaveLength(1);
+        expect(messages.find((message) => message.type === "ai")).toEqual(expect.objectContaining({
+            content: "写到一半的正文",
+            error: undefined,
+        }));
         expect(hasVisibleInvocationError(messages, "invoke-1")).toBe(true);
+    });
+
+    it("失败时没有正文的 assistant 整条移除，只留 Run Error 卡片", () => {
+        const timestamp = Date.now();
+        const messages = deriveMessagesFromChatEntries([{
+                id: "assistant-1",
+                timestamp,
+                type: "assistant",
+                invocationId: "invoke-1",
+                content: {preview: "", bytes: 0, omitted: false},
+                thinking: {preview: "", bytes: 0, omitted: false},
+                error: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                status: "error",
+                model: "test",
+                usage: {input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0}},
+                toolCalls: [],
+                omittedToolCalls: 0,
+            }, {
+                id: "error-1",
+                timestamp,
+                type: "invocation_error",
+                invocationId: "invoke-1",
+                message: {preview: "Provider rejected image payload", bytes: 31, omitted: false},
+                phase: "model",
+            }]);
+
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toEqual(expect.objectContaining({
+            id: "error-1",
+            systemDisplayKind: "error",
+        }));
     });
 
     it("session_entry toolResult 能增量完成对应工具调用", () => {

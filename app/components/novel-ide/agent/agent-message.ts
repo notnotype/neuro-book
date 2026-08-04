@@ -25,7 +25,8 @@ export type SystemMessageDisplayKind = "prompt" | "reminder" | "system" | "error
 /**
  * 消息状态。
  */
-export type MessageStatus = "streaming" | "done" | "stopped";
+/** `interrupted` 专指用户主动取消：它不是错误，不走 error 配色，也不携带 provider 错误文本。 */
+export type MessageStatus = "streaming" | "done" | "stopped" | "interrupted";
 
 /**
  * 用户消息意图，用于区分普通输入和运行中 steer。
@@ -428,8 +429,27 @@ export const applySessionEntryToMessages = (
     previousMessages: AgentMessage[],
     entry: AgentChatEntryDto,
 ): AgentMessage[] => {
-    if (entry.type === "invocation_error" && hasAssistantErrorForInvocation(previousMessages, entry.invocationId)) {
-        return previousMessages;
+    if (entry.type === "invocation_error") {
+        // 同一次运行的错误有两个出口：assistant 气泡的内嵌红字，和独立的 Run Error 卡片。
+        // 卡片是权威详情，它一到就把同一次运行的 assistant 错误清掉：有正文则保留正文气泡（用户能看见写了
+        // 一半的内容），没正文就整条移除，只留卡片。live 与 durable 两条路径由此得到相同结果，刷新前后一致。
+        //
+        // 旧实现是反过来的——「已有 assistant error 就丢弃这条 entry」。那在 deriveMessagesFromChatEntries
+        // 的 durable 折叠里有效，但对真正的重复无效：useAgentSession 收到 session_entry 时会把 entry 无条件
+        // 合并进 durableEntries，只有 liveOverlay 采用这里的返回值，丢弃 entry 拦不住 durable 那一份（Task 139）。
+        const cleaned = previousMessages.flatMap((message) => {
+            const isSameInvocationError = message.type === "ai"
+                && message.invocationId === entry.invocationId
+                && Boolean(message.error);
+            if (!isSameInvocationError) {
+                return [message];
+            }
+            if (!message.content.trim() && !message.toolCalls?.length) {
+                return [];
+            }
+            return [{...message, error: undefined}];
+        });
+        return [...cleaned, messageFromChatEntry(entry)];
     }
     if (entry.type === "tool_result") {
         const assistant = previousMessages.findLast((message) => {
@@ -498,78 +518,6 @@ export const hasVisibleInvocationError = (messages: AgentMessage[], invocationId
         return message.invocationId === invocationId
             && (message.systemDisplayKind === "error" || (message.type === "ai" && Boolean(message.error)));
     });
-};
-
-const hasAssistantErrorForInvocation = (messages: AgentMessage[], invocationId: string): boolean => {
-    return messages.some((message) => {
-        return message.type === "ai"
-            && message.invocationId === invocationId
-            && Boolean(message.error);
-    });
-};
-
-/**
- * 从 Pi message_start/update/end 派生本地消息。
- */
-export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, streaming = false): AgentMessage => {
-    if (message.role === "assistant") {
-        const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
-        const thinking = message.content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
-        const errorText = message.stopReason === "error" || message.stopReason === "aborted"
-            ? message.errorMessage?.trim() || (message.stopReason === "aborted"
-                ? translate("agent.userInput.assistantAborted", "生成已中断。")
-                : translate("agent.userInput.providerNoDetail", "生成失败，provider 未返回错误详情。"))
-            : "";
-        const toolCalls = message.content
-            .filter((block): block is PiAgentToolCall => block.type === "toolCall")
-            .map((toolCall, index) => toLocalToolCall(toolCall, index, id));
-        return {
-            id,
-            type: "ai",
-            content: text || errorText,
-            status: streaming ? "streaming" : errorText ? "stopped" : "done",
-            timestamp: formatTimestamp(message.timestamp),
-            model: message.model,
-            usage: message.usage,
-            tokens: message.usage?.totalTokens,
-            thinking: thinking || undefined,
-            error: errorText || undefined,
-            toolCalls,
-            assistantContent: [...message.content],
-        };
-    }
-
-    if (message.role === "user") {
-        const text = messageContentText(message);
-        return {
-            id,
-            type: "user",
-            intent: "normal",
-            content: text,
-            status: "done",
-            timestamp: formatTimestamp(message.timestamp),
-        };
-    }
-
-    if (message.role === "toolResult") {
-        return {
-            id,
-            type: "system",
-            systemDisplayKind: "system",
-            content: messageContentText(message),
-            status: "done",
-            timestamp: formatTimestamp(message.timestamp),
-        };
-    }
-
-    return {
-        id,
-        type: "system",
-        systemDisplayKind: "system",
-        content: "",
-        status: "done",
-        timestamp: translate("agent.time.justNow", "刚刚"),
-    };
 };
 
 /**
@@ -759,10 +707,11 @@ export const applyRuntimeEventToMessages = (previousMessages: AgentMessage[], ev
 
     if (event.type === "message_end") {
         const previousMessage = previousMessages.find((message) => message.id === event.messageId);
-        const errorText = event.stopReason === "error" || event.stopReason === "aborted"
-            ? event.errorMessage?.trim() || (event.stopReason === "aborted"
-                ? translate("agent.userInput.assistantAborted", "生成已中断。")
-                : translate("agent.userInput.providerNoDetail", "生成失败，provider 未返回错误详情。"))
+        // 取消不取 provider 的 errorMessage：SDK 给的是英文 "Request was aborted"，
+        // 以前它会短路掉中文兜底并当成错误红字显示。取消只标 interrupted，由气泡用中性文案呈现（Task 139）。
+        const aborted = event.stopReason === "aborted";
+        const errorText = event.stopReason === "error"
+            ? event.errorMessage?.trim() || translate("agent.userInput.providerNoDetail", "生成失败，provider 未返回错误详情。")
             : "";
         const message: AgentMessage = {
             ...(previousMessage ?? {
@@ -771,7 +720,7 @@ export const applyRuntimeEventToMessages = (previousMessages: AgentMessage[], ev
                 content: "",
             }),
             content: previousMessage?.content || errorText,
-            status: errorText ? "stopped" : "done",
+            status: aborted ? "interrupted" : errorText ? "stopped" : "done",
             model: event.responseModel ?? previousMessage?.model,
             usage: event.usage,
             tokens: event.usage.totalTokens,
@@ -989,12 +938,14 @@ const messageFromChatEntry = (entry: Exclude<AgentChatEntryDto, {type: "tool_res
         return {
             id: entry.id,
             type: "ai",
-            content: entry.content.preview || entry.error?.preview || "",
-            contentBytes: entry.content.preview ? entry.content.bytes : entry.error?.bytes ?? 0,
-            contentOmitted: entry.content.preview ? entry.content.omitted : entry.error?.omitted ?? false,
+            // 正文就是正文：不再用错误文本冒充正文。错误详情归 invocation_error 卡片，
+            // 否则同一段错误会既当正文又当红字，跨层合成时变成两个气泡（Task 139）。
+            content: entry.content.preview,
+            contentBytes: entry.content.bytes,
+            contentOmitted: entry.content.omitted,
             thinking: entry.thinking.preview || undefined,
             error: entry.error?.preview,
-            status: entry.status === "partial" ? "streaming" : entry.status === "done" ? "done" : "stopped",
+            status: entry.status === "partial" ? "streaming" : entry.status === "done" ? "done" : entry.status === "interrupted" ? "interrupted" : "stopped",
             timestamp: formatTimestamp(entry.timestamp),
             model: entry.model,
             usage: entry.usage,

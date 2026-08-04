@@ -1725,8 +1725,11 @@ export class NeuroAgentHarness {
             sessionId: input.sessionId,
             invocationId: input.invocationId,
             lifecycleStatus: aborted ? "aborted" : input.finalResult.status === "error" ? "error" : input.finalResult.status === "waiting" ? "waiting" : "end",
-            error: input.finalResult.error,
-            errorInfo: input.finalResult.errorInfo ?? (input.finalResult.error ? this.toInvocationErrorInfo(input.finalResult.error, input.finalResult.errorPhase ?? "unknown") : undefined),
+            // 取消不写正文，理由同 failInvocation：status: "aborted" 已经是全部事实，写 provider 原文会泄漏到界面。
+            error: aborted ? undefined : input.finalResult.error,
+            errorInfo: aborted
+                ? undefined
+                : input.finalResult.errorInfo ?? (input.finalResult.error ? this.toInvocationErrorInfo(input.finalResult.error, input.finalResult.errorPhase ?? "unknown") : undefined),
             ...(input.finalResult.status === "waiting"
                 ? {nextState: "waiting"}
                 : {nextState: "finished", pauseReason: input.finalResult.status === "error" ? aborted ? "aborted" : "error" : undefined}),
@@ -1782,12 +1785,15 @@ export class NeuroAgentHarness {
             return this.forcedAbortResult(input.sessionId, input.invocationId, input.startedAt);
         }
         const errorInfo = toRunKernelErrorInfo(input.error, input.aborted ? "unknown" : input.errorPhase);
+        // 用户主动取消不是错误：durable 只记 status: "aborted"，不写 provider 原文。
+        // SDK 抛的是英文 "Request was aborted"，以前它会被当成错误详情一路显示到界面上（Task 139）。
+        // 日志与调用方返回值仍保留技术细节，那是诊断面不是用户面。
         const committed = await this.commitInvocationState({
             sessionId: input.sessionId,
             invocationId: input.invocationId,
             lifecycleStatus: input.aborted ? "aborted" : "error",
-            error: errorInfo.message,
-            errorInfo,
+            error: input.aborted ? undefined : errorInfo.message,
+            errorInfo: input.aborted ? undefined : errorInfo,
             nextState: "finished",
             pauseReason: input.aborted ? "aborted" : "error",
         });
@@ -3433,10 +3439,12 @@ export class NeuroAgentHarness {
                     await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
                 }
                 await this.appendAbortResolution(sessionId, active.invocationId, body.reason);
-                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason ?? "invocation aborted", {
-                    message: body.reason ?? "invocation aborted",
+                // 只在调用方显式给了 reason 时才写正文；没有 reason 时 status: "aborted" 本身就是全部事实。
+                // 以前这里兜底写的是英文 "invocation aborted"，会当成错误详情显示给用户（Task 139）。
+                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason, body.reason ? {
+                    message: body.reason,
                     phase: "unknown",
-                });
+                } : undefined);
                 this.eventHub.publish({
                     sessionId,
                     invocationId: active.invocationId,
@@ -3447,6 +3455,9 @@ export class NeuroAgentHarness {
                     },
                 });
                 await this.finishInvocation(sessionId, active.invocationId);
+                // waiting 段的 runLoop 早已返回，不会再自己发终态；前端在 invocation_aborted 上进入 aborting，
+                // 必须由这里补一条 agent_end 让它回到 idle。
+                this.publishRuntimeEvent(sessionId, active.invocationId, {type: "agent_end", status: "aborted"});
                 return {
                     kind: "completed" as const,
                     result: {
@@ -4426,6 +4437,21 @@ export class NeuroAgentHarness {
      * 再决定 waiting、failed 或准备下一轮。
      */
     private async runTurnTransaction(frame: RunFrame): Promise<RunTurnTransactionResult> {
+        // 取消可能落在上一轮的工具执行里：那一轮的结果已经 ingest 落盘，但不能再开新的一轮。
+        // 这里必须看 abortSignal 而不是 ownsInvocation —— 用户主动取消只把 active.status 改成 aborting，
+        // invocation 仍是本会话的当前运行，下面那个 ownsInvocation fence 恒为 true，挡不住用户取消。
+        if (frame.abortSignal?.aborted) {
+            return {
+                kind: "failed",
+                result: {
+                    status: "failed",
+                    finalAssistant: frame.finalAssistant,
+                    usage: frame.usage,
+                    errorInfo: {message: "", phase: "unknown"},
+                    terminalStatus: "aborted",
+                },
+            };
+        }
         frame.turnIndex += 1;
         await this.emitRuntimeEvent(frame, {type: "turn_start", turnIndex: frame.turnIndex});
         if (frame.turnIndex > 1) {
@@ -4686,7 +4712,11 @@ export class NeuroAgentHarness {
                 return {
                     kind: "failed",
                     phase: "provider",
-                    errorInfo: this.toInvocationErrorInfo(assistant.errorMessage || (assistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"), "model"),
+                    // 取消不带正文：provider 抛的是英文原文，写进来就会被当成错误详情显示（Task 139）。
+                    // 界面文案由前端 i18n 承担，服务端只负责说清「这是取消，不是失败」。
+                    errorInfo: assistant.stopReason === "aborted"
+                        ? {message: "", phase: "model"}
+                        : this.toInvocationErrorInfo(assistant.errorMessage || "生成失败，provider 未返回错误详情。", "model"),
                     finalAssistant: assistant,
                     partialAssistant: sanitizePartialAssistant(assistant) ?? undefined,
                     messageStatus: assistant.stopReason === "aborted" ? "interrupted" : "partial",
@@ -5037,36 +5067,61 @@ export class NeuroAgentHarness {
         });
 
         let started = false;
-        for await (const event of stream) {
-            const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
-            if (event.type === "start" && message) {
-                started = true;
-                await input.emit({type: "message_start", message});
-                continue;
-            }
-            if (event.type === "done" || event.type === "error") {
-                const finalMessage = sanitizeProviderAssistant(await stream.result());
-                if (!started) {
-                    await input.emit({type: "message_start", message: finalMessage});
+        // provider SDK 用抛异常表达取消，异常一抛 stream.result() 就永远不会执行，已经收到的正文会烂在 stream 内部。
+        // 留住最后一份 partial，取消时才有内容可以闭合成 interrupted 消息（Task 07 的 turn commit 契约）。
+        let lastPartial: AssistantMessage | null = null;
+        try {
+            for await (const event of stream) {
+                const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
+                if (message && typeof message === "object" && "role" in message && message.role === "assistant") {
+                    lastPartial = message as AssistantMessage;
                 }
-                await input.emit({type: "message_end", message: finalMessage});
-                return finalMessage;
+                if (event.type === "start" && message) {
+                    started = true;
+                    await input.emit({type: "message_start", message});
+                    continue;
+                }
+                if (event.type === "done" || event.type === "error") {
+                    const finalMessage = sanitizeProviderAssistant(await stream.result());
+                    if (!started) {
+                        await input.emit({type: "message_start", message: finalMessage});
+                    }
+                    await input.emit({type: "message_end", message: finalMessage});
+                    return finalMessage;
+                }
+                if (message) {
+                    await input.emit({
+                        type: "message_update",
+                        message,
+                        assistantMessageEvent: event,
+                    });
+                }
             }
-            if (message) {
-                await input.emit({
-                    type: "message_update",
-                    message,
-                    assistantMessageEvent: event,
-                });
-            }
-        }
 
-        const finalMessage = sanitizeProviderAssistant(await stream.result());
-        if (!started) {
-            await input.emit({type: "message_start", message: finalMessage});
+            const finalMessage = sanitizeProviderAssistant(await stream.result());
+            if (!started) {
+                await input.emit({type: "message_start", message: finalMessage});
+            }
+            await input.emit({type: "message_end", message: finalMessage});
+            return finalMessage;
+        } catch (error) {
+            // 只接管「用户取消」：其余异常仍然按 provider 故障冒泡给 executeTurn。
+            if (!input.abortSignal?.aborted || !lastPartial) {
+                throw error;
+            }
+            // 不在这里跑 sanitizeProviderAssistant：流式中断处的 toolCall id 可能只收到一半，
+            // 会撞上它的 public id 校验。持久化形态由下游 sanitizePartialAssistant 负责（它先剥掉 toolCall 再校验）。
+            const abortedAssistant: AssistantMessage = {
+                ...lastPartial,
+                stopReason: "aborted",
+                errorMessage: undefined,
+            };
+            if (!started) {
+                await input.emit({type: "message_start", message: abortedAssistant});
+            }
+            await input.emit({type: "message_end", message: abortedAssistant});
+            return abortedAssistant;
         }
-        await input.emit({type: "message_end", message: finalMessage});
-        return finalMessage;
     }
 
     private async runToolBatch(input: {
@@ -6266,14 +6321,18 @@ export class NeuroAgentHarness {
             if (!this.ownsInvocation(sessionId, invocationId)) {
                 return;
             }
-            const message = reason ?? "invocation aborted after cancellation grace period";
             const abortGate = this.invocationAbortGates.get(invocationId);
             await this.pauseFollowUps(sessionId, invocationId, "aborted");
-            await this.writeLifecycle(sessionId, invocationId, "aborted", message, {
-                message,
+            // 宽限期到点的强制取消也是取消，同样不写英文兜底正文（理由见 failInvocation）。
+            await this.writeLifecycle(sessionId, invocationId, "aborted", reason, reason ? {
+                message: reason,
                 phase: "unknown",
-            });
+            } : undefined);
             this.finishInvocationState(sessionId, invocationId);
+            // runLoop 可能仍卡在工具里。ownership 此刻已释放，它随后自己发的 agent_end 会被 emitRuntimeEvent 的
+            // fence 丢弃，前端就再也等不到终态。所以必须由取消侧补发，且必须在 finishInvocationState 之后补，
+            // 否则残留 runLoop 的 message_update 会抢在终态之后把前端重新拉回 running。
+            this.publishRuntimeEvent(sessionId, invocationId, {type: "agent_end", status: "aborted"});
             await this.publishSessionState(sessionId, invocationId);
             abortGate?.resolve(this.forcedAbortResult(sessionId, invocationId));
         });

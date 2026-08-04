@@ -17,6 +17,9 @@ export type AppliedFailedTurn = {
 
 /**
  * provider streaming 失败后，只保留可展示文本，剥离未闭合 tool calls。
+ *
+ * 不变量：错误详情只记在 invocation_lifecycle entry 上，assistant entry 只承载正文。
+ * 否则同一次失败会在账本里留下两份错误文本，前端渲染成两个气泡（Task 139）。
  */
 export function sanitizePartialAssistant(assistant: AssistantMessage): AssistantMessage | null {
     const content = assistant.content.filter((block) => block.type !== "toolCall");
@@ -26,6 +29,7 @@ export function sanitizePartialAssistant(assistant: AssistantMessage): Assistant
     return sanitizeProviderAssistant({
         ...assistant,
         content,
+        errorMessage: undefined,
     });
 }
 

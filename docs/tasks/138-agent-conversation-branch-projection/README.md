@@ -119,6 +119,18 @@
 - 分叉整体不在 active path 上时不显示切换器，这类分支仍通过 Session Tree 对话框审计——与 Task 49 的既有约定一致。
 - `tool_result` 与 system 卡片（reminder / compaction / branch_summary）不作为分支锚点：前者并入 assistant 气泡没有独立工具条，后者是每轮注入的脚手架，不是「另一个版本」。
 
+## 后续：取消也成为分支锚点（2026-08-04，Task 139）
+
+本 task 的 ADR-1 把「运行报错」纳入分支锚点，理由是「重试失败时活动叶子停在报错上；报错不算锚点会出现『跑挂之后切不回上一个好答案』的单向门」。
+
+**取消当时留下了同一个单向门**：取消不产生任何 durable 气泡（`chatEntryKind` 不处理 `status === "aborted"`，且半截 assistant 消息从未落盘），所以取消后重试看不到分支切换器。
+
+[Task 139](../139-agent-abort-error-projection/README.md) 的处理方式不是给 `aborted` 加锚点特例，而是修好 [Task 07](../07-agent-turn-commit-boundary/README.md) 那条从未生效的协议：取消时把半截正文以 `status: "interrupted"` 落盘。这条 assistant 消息**天然就是本 task 定义的 assistant 锚点**，因此：
+
+- `chatEntryKind` 一行未改，`isBranchAnchor` 一行未改；
+- 历史会话观感不变（历史上从来没存过半截消息，不会凭空多出气泡）；
+- 取消后重试自动获得分支切换器。
+
 ## 交付状态
 
 - 六个批次全部实现并随 PR [#34](https://github.com/notnotype/neuro-book/pull/34) `fix(agent): recover missing sessions and project conversation branches` 合并进 `master`（commit `30c524d1`）。

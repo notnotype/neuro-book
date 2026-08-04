@@ -2209,6 +2209,7 @@ const enUS = {
             copy: "Copy",
             copyPreview: "Copy current preview",
             previewOnly: "Only a preview is shown (original: {bytes} bytes). Editing is disabled to protect the complete message.",
+            interrupted: "Generation stopped",
             edit: "Edit",
             retry: "Retry",
             branchFromHere: "Branch from here (nothing after it is deleted)",

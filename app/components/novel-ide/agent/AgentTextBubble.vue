@@ -568,6 +568,11 @@ const endSwipe = (event: PointerEvent): void => {
                         <span class="i-lucide-info h-3.5 w-3.5 shrink-0"></span>
                         <span>{{ t("agent.textBubble.previewOnly", {bytes: props.node.message.contentBytes ?? 0}) }}</span>
                     </div>
+                    <!-- 用户主动取消：中性提示，不走 error 配色，因为取消不是错误 -->
+                    <div v-if="props.node.message.status === 'interrupted'" class="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                        <span class="i-lucide-square h-3.5 w-3.5 shrink-0"></span>
+                        <span>{{ t("agent.textBubble.interrupted") }}</span>
+                    </div>
                     <div v-if="(props.node.message.omittedToolCalls ?? 0) > 0" class="mt-2 flex items-center gap-1.5 text-[11px] text-[var(--status-info)]"><span class="i-lucide-info h-3.5 w-3.5 shrink-0"></span><span>另有 {{ props.node.message.omittedToolCalls }} 个工具调用未在历史预览中显示</span></div>
                 </div>
             </div>
