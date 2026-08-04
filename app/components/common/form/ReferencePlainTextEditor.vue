@@ -203,6 +203,9 @@ const editor = useEditor({
                     event.key === "Enter"
                     && !event.shiftKey
                     && !menuVisible.value
+                    // 输入法候选确认也会产生 Enter keydown，组合态必须交回编辑器。
+                    && !event.isComposing
+                    && event.keyCode !== 229
                     && (props.submitOnEnter || (props.submitOnModifierEnter && (event.ctrlKey || event.metaKey)))
                 ) {
                     event.preventDefault();

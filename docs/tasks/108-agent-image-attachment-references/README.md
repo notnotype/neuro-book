@@ -996,3 +996,10 @@ Task 108 与 Task 109 合并后完成最终串行复核：
 - snapshot 端到端回归证明超过 64 MP 时返回 `limit_exceeded` 且注入 Adapter 零写入；归档竞态同时锁定 `invalid_input` 和“当前 Session 已归档，不能登记附件”，避免前置解码失败误通过。
 - 完整 `file-tools.test.ts` 为 49/49；Session Attachment、Codec 与前端/路由相邻回归通过。完整 Harness 图片相关旧失败已归零，余下两个失败位于模型恢复与 Variable SDK 在途改动，不属于 Attachment。
 - 没有增加 Attachment GC、统一媒体库、Provider 文本附件或浏览器自动验收。
+
+### 2026-08-04 Composer 键盘附件门禁补漏
+
+- 复查发现发送按钮已经按 pending、未解析稳定图片、metadata error 和预算超限阻止提交，但 Agent Composer 键盘入口只检查 pending 图片，违反本任务“metadata failure 阻止发送和历史保存”的既有合同。
+- 修复后，按钮和键盘提交共用 Agent Composer 的消息门禁；解析 Session Attachment metadata 失败时，prompt、steer 和 followup 都在创建乐观消息及调用 Session 前通过统一通知出口返回。
+- 本轮不修改 Attachment Authority、存储、DTO、图片 transaction 或 Provider hydration；不新增测试文件，沿用现有聚焦回归和根 typecheck，浏览器交互由用户验收。
+- 验证：既有 `useComposerImageTransaction`、Agent invocation reconciliation 和 Composer draft 聚焦测试共 3 files / 16 tests 通过；SFC 编译探针与 `bun run typecheck` 通过。浏览器图片门禁仍待用户验收。

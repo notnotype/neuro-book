@@ -1715,6 +1715,20 @@ async function resolveComposerAttachmentItems(
     });
 }
 
+/** 附件 metadata 失败时不能进入乐观消息或 Session invoke。 */
+async function prepareComposerAttachmentItems(
+    sessionId: number,
+    markdown: string,
+): Promise<AgentSessionAttachmentItemDto[] | null> {
+    try {
+        return await resolveComposerAttachmentItems(sessionId, markdown);
+    } catch (error) {
+        console.error("校验 Agent 消息图片附件失败", error);
+        notifyAgentError(error, "校验 Session 图片失败");
+        return null;
+    }
+}
+
 /** 等待 durable user entry 或 queue item，二者都是输入已接受的 SSE 旁证。 */
 function waitForOptimisticAdmission(
     clientMessageId: string,
@@ -1797,7 +1811,10 @@ const send = async (): Promise<void> => {
     }
 
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }
@@ -1965,7 +1982,10 @@ const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => 
     }
     const sessionId = activeSessionId.value;
     const prompt = inputText.value;
-    const attachmentItems = await resolveComposerAttachmentItems(sessionId, prompt);
+    const attachmentItems = await prepareComposerAttachmentItems(sessionId, prompt);
+    if (!attachmentItems) {
+        return;
+    }
     if (activeSessionId.value !== sessionId || inputText.value !== prompt) {
         return;
     }

@@ -272,20 +272,20 @@ const composerMenuRefreshKey = computed(() => [
 ].join(":"));
 const imageCapabilityWarning = computed(() => composerImages.value.length > 0 && !props.modelSupportsImages);
 
+/** 键盘提交和发送按钮必须共享同一份消息提交门禁。 */
+const messageSubmitBlocked = computed(() => (
+    composerReadonly.value
+    || pendingImageCount.value > 0
+    || imageUsage.value.unresolvedStable > 0
+    || Boolean(images.metadataError.value)
+    || Boolean(images.budgetError.value)
+));
+
 const sendDisabled = computed(() => {
-    if (composerReadonly.value) {
-        return !canStopReadonlyRun.value;
+    if (canStopReadonlyRun.value) {
+        return false;
     }
-    if (pendingImageCount.value > 0) {
-        return true;
-    }
-    if (imageUsage.value.unresolvedStable > 0) {
-        return true;
-    }
-    if (images.metadataError.value) {
-        return true;
-    }
-    if (images.budgetError.value) {
+    if (messageSubmitBlocked.value) {
         return true;
     }
     if (props.running) {
@@ -454,7 +454,7 @@ function updateComposerValue(value: string): void {
  * 处理回答备注输入提交。
  */
 function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
-    if (composerReadonly.value || pendingImageCount.value > 0) {
+    if (messageSubmitBlocked.value) {
         return;
     }
     if (props.running && runInputText.value.trim()) {
@@ -476,7 +476,7 @@ function submitButton(event: MouseEvent): void {
         emit("stop");
         return;
     }
-    if (composerReadonly.value || pendingImageCount.value > 0) {
+    if (messageSubmitBlocked.value) {
         return;
     }
     if (props.running && !runInputText.value.trim()) {
