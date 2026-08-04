@@ -64,12 +64,8 @@ const planSuggestionSelected = computed(() => Boolean(
     activeQuestion.value
     && isPlanSuggestion(activeQuestion.value, activeAnswer.value.selectedOptionIndex),
 ));
-const showNoteInput = computed(() => {
-    const question = activeQuestion.value;
-    if (!question) return false;
-    if (question.options.length === 0) return true;
-    return activeAnswer.value.selectedOptionIndex !== undefined;
-});
+/** 备注/回答输入区常显（Task 137）：未选选项时也直接展示，减少一次点击才发现入口的成本。 */
+const showNoteInput = computed(() => Boolean(activeQuestion.value));
 const primaryLabel = computed(() => {
     if (activeForm.value && !activeFormDraft.value.confirmed) return t("agent.userInput.confirmItem");
     if (allComplete.value) return t("agent.userInput.submitAll");
@@ -215,8 +211,8 @@ function handlePrimary(): void {
             <div class="min-w-0">
                 <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-[var(--status-warning)]">
                     <span class="inline-flex items-center gap-1.5"><span class="i-lucide-message-square-more h-3.5 w-3.5"></span>{{ t("agent.userInput.pendingTitle") }}</span>
-                    <span class="tabular-nums">{{ activeIndex + 1 }} / {{ items.length }}</span>
-                    <span class="tabular-nums">{{ t("agent.userInput.answeredProgress", {answered: completedCount, total: items.length}) }}</span>
+                    <span class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-input)] px-2 py-0.5 tabular-nums">{{ activeIndex + 1 }} / {{ items.length }}</span>
+                    <span class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-input)] px-2 py-0.5 tabular-nums">{{ t("agent.userInput.answeredProgress", {answered: completedCount, total: items.length}) }}</span>
                 </div>
                 <div class="mt-0.5 text-xs font-medium text-[var(--text-main)]">{{ questionTypeLabel }}</div>
             </div>
@@ -260,24 +256,24 @@ function handlePrimary(): void {
 
                     <fieldset v-if="activeQuestion.options.length > 0" class="mt-3 space-y-1.5" :disabled="answerControlsDisabled">
                         <legend class="sr-only">{{ activeQuestion.question }}</legend>
-                        <label v-for="(option, index) in activeQuestion.options" :key="index" :for="optionId(index)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55">
+                        <label v-for="(option, index) in activeQuestion.options" :key="index" :for="optionId(index)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === index ? 'bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : ''">
                             <input :id="optionId(index)" type="radio" :name="`agent-pending-${activeItem.key}`" class="sr-only" :checked="activeAnswer.selectedOptionIndex === index" :disabled="answerControlsDisabled" @change="selectOption(index)">
                             <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ index + 1 }}.</span>
                             <span class="min-w-0 flex-1">
                                 <span class="block text-[13px] font-semibold leading-5" :class="activeAnswer.selectedOptionIndex === index ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'">{{ option.label }}</span>
                                 <span v-if="option.description" class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ option.description }}</span>
                             </span>
-                            <span class="mt-1 h-3 w-3 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === index ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
+                            <span class="mt-0.5 h-4 w-4 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === index ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
                         </label>
 
-                        <label v-if="activeItem.kind === 'question' || (activeItem.kind === 'approval' && activeQuestion.approvalAction === 'switch_mode' && activeQuestion.switchTargetMode === 'normal')" :for="optionId(NONE_OF_ABOVE_OPTION_INDEX)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55">
+                        <label v-if="activeItem.kind === 'question' || (activeItem.kind === 'approval' && activeQuestion.approvalAction === 'switch_mode' && activeQuestion.switchTargetMode === 'normal')" :for="optionId(NONE_OF_ABOVE_OPTION_INDEX)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : ''">
                             <input :id="optionId(NONE_OF_ABOVE_OPTION_INDEX)" type="radio" :name="`agent-pending-${activeItem.key}`" class="sr-only" :checked="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX" :disabled="answerControlsDisabled" @change="selectOption(NONE_OF_ABOVE_OPTION_INDEX)">
                             <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ activeQuestion.options.length + 1 }}.</span>
                             <span class="min-w-0 flex-1">
                                 <span class="block text-[13px] font-semibold leading-5" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'">{{ activeItem.kind === 'approval' ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer") }}</span>
                                 <span class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ activeItem.kind === 'approval' ? t("agent.userInput.suggestionDescription") : t("agent.userInput.otherAnswerDescription") }}</span>
                             </span>
-                            <span class="mt-1 h-3 w-3 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
+                            <span class="mt-0.5 h-4 w-4 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
                         </label>
                     </fieldset>
                 </div>

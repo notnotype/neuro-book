@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, inject, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
-import WorkflowMermaid from "nbook/app/components/workflow-preview/WorkflowMermaid.vue";
+import WorkflowRunVisuals from "nbook/app/components/workflow-preview/WorkflowRunVisuals.vue";
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useAgentJob} from "nbook/app/composables/useAgentJob";
@@ -41,6 +41,11 @@ const resumeSubmitting = ref(false);
 const resumeSubmitted = ref(false);
 const askDrafts = ref<Record<string, AskDraftValue>>({});
 const chartExpanded = ref(true);
+/** 信息折叠区（运行参数 / 内联脚本 / 执行元数据 / 返回值）的展开态，默认收起。 */
+const argsExpanded = ref(false);
+const scriptExpanded = ref(false);
+const metaExpanded = ref(false);
+const resultExpanded = ref(false);
 const catalogTitle = ref("");
 const catalogDescription = ref("");
 const nowTick = ref(Date.now());
@@ -135,6 +140,12 @@ const statusIcon = computed(() => {
 });
 
 const effectiveChart = computed(() => matchingRunState.value?.machineMermaid ?? details.value?.chartMermaid ?? "");
+/** active phase 上的 done/total 进度文本；无 progress 信息时为空。 */
+const progressText = computed(() => {
+    const progress = matchingRunState.value?.view.progress;
+    if (!progress?.total) return "";
+    return `${progress.done ?? 0}/${progress.total}`;
+});
 const runningNow = computed(() => matchingRunState.value?.runningNow ?? []);
 const pendingAsks = computed<PendingAsk[]>(() => matchingRunState.value?.view.pendingAsks ?? []);
 const pendingAskTitles = computed(() => pendingAsks.value.length > 0
@@ -416,14 +427,21 @@ onBeforeUnmount(() => {
                 </span>
             </div>
 
-            <details v-if="parsedArgs.args !== undefined" class="mt-3">
-                <summary class="cursor-pointer text-xs text-[var(--text-secondary)]">运行参数</summary>
-                <div class="mt-2"><JsonViewer :value="parsedArgs.args" :max-height="220" /></div>
-            </details>
-            <details v-if="parsedArgs.script" class="mt-3">
-                <summary class="cursor-pointer text-xs text-[var(--text-secondary)]">内联 workflow 脚本</summary>
-                <pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded border border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">{{ parsedArgs.script }}</pre>
-            </details>
+            <!-- 运行参数 / 内联脚本：按钮式折叠卡片（与可视化区折叠样式统一，Task 137）。 -->
+            <div v-if="parsedArgs.args !== undefined" class="mt-3 overflow-hidden rounded-lg border border-[var(--border-color)]">
+                <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="argsExpanded = !argsExpanded">
+                    <span class="text-xs font-medium text-[var(--text-main)]">运行参数</span>
+                    <span :class="argsExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                </button>
+                <div v-if="argsExpanded" class="border-t border-[var(--border-color)] p-2"><JsonViewer :value="parsedArgs.args" :max-height="220" /></div>
+            </div>
+            <div v-if="parsedArgs.script" class="mt-3 overflow-hidden rounded-lg border border-[var(--border-color)]">
+                <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="scriptExpanded = !scriptExpanded">
+                    <span class="text-xs font-medium text-[var(--text-main)]">内联 workflow 脚本</span>
+                    <span :class="scriptExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                </button>
+                <pre v-if="scriptExpanded" class="max-h-64 overflow-auto whitespace-pre-wrap break-all border-t border-[var(--border-color)] bg-[var(--bg-input)] p-2 font-mono text-[11px] leading-5 text-[var(--text-secondary)]">{{ parsedArgs.script }}</pre>
+            </div>
         </div>
 
         <!-- 声明式工具审批由会话宿主统一提交，气泡不复制第二套批准接口。 -->
@@ -463,22 +481,35 @@ onBeforeUnmount(() => {
             </span>
         </div>
 
-        <!-- wf.chart 主视图：终态默认折叠，且限制高度避免撑爆聊天流。 -->
-        <div v-if="effectiveChart" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
+        <!-- 可视化区（Task 137 共享组件）：phase 步进条 + 视图 tab；终态默认折叠，限高避免撑爆聊天流。
+             run 不可查询时仍用 details 里的 chartMermaid 展示状态图（旧行为保留），其余视图自然为空态。 -->
+        <div v-if="matchingRunState || effectiveChart" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
             <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="chartExpanded = !chartExpanded">
                 <span class="flex items-center gap-2 text-xs font-medium text-[var(--text-main)]">
                     <span class="i-lucide-git-branch h-3.5 w-3.5 text-[var(--accent-main)]"></span>
-                    Workflow 状态图
+                    Workflow 可视化
                 </span>
                 <span :class="chartExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
             </button>
             <div v-if="chartExpanded" class="border-t border-[var(--border-color)] p-2">
-                <WorkflowMermaid :code="effectiveChart" :max-height="360" />
+                <WorkflowRunVisuals
+                    :phases="matchingRunState?.phases ?? []"
+                    :progress-text="progressText"
+                    :machine-mermaid="effectiveChart || null"
+                    :flow-mermaid="matchingRunState?.flowMermaid ?? ''"
+                    :trace-mermaid="matchingRunState?.traceMermaid ?? ''"
+                    :relation-mermaid="matchingRunState?.relationMermaid ?? ''"
+                    :timeline="matchingRunState?.timeline ?? []"
+                    :live="matchingRunState?.live ?? []"
+                    default-view="machine"
+                    always-show-machine-tab
+                    :mermaid-max-height="360"
+                />
             </div>
         </div>
         <div v-else-if="status === 'running' || status === 'starting'" class="flex items-center gap-2 rounded border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">
             <span class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>
-            等待 workflow 发布首个 wf.chart 状态节点…
+            正在连接 workflow run…
         </div>
 
         <!-- wf.ask waiting：从正式 Run VM 取得完整 ask 规格并原地续跑。 -->
@@ -516,30 +547,38 @@ onBeforeUnmount(() => {
         <div v-if="jobFeedError" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ jobFeedError }}</div>
         <div v-if="pollError" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ pollError }}；仍保留最近一次可用的 run 状态。</div>
 
-        <!-- Session 与 usage 默认折叠，避免终态卡片过长。 -->
-        <details v-if="hasMetadata" class="rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2">
-            <summary class="cursor-pointer text-xs text-[var(--text-secondary)]">
-                执行元数据 · {{ sessionRows.length }} sessions<span v-if="usage"> · {{ totalTokens.toLocaleString() }} tokens</span>
-            </summary>
-            <div v-if="usage" class="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--text-muted)]">
-                <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">输入 {{ usage.inputTokens.toLocaleString() }}</span>
-                <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">输出 {{ usage.outputTokens.toLocaleString() }}</span>
-            </div>
-            <div v-if="sessionRows.length" class="mt-2 space-y-1.5">
-                <div v-for="session in sessionRows" :key="session.sessionId" class="flex flex-wrap items-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-[11px]">
-                    <span class="font-mono text-[var(--accent-main)]">#{{ session.sessionId }}</span>
-                    <span class="text-[var(--text-main)]">{{ session.title || session.profileKey }}</span>
-                    <span v-if="session.title && session.profileKey" class="font-mono text-[var(--text-muted)]">{{ session.profileKey }}</span>
-                    <span v-if="session.tokens" class="ml-auto text-[var(--text-muted)]">{{ session.tokens.totalTokens.toLocaleString() }} tokens</span>
+        <!-- 执行元数据（Session 与 usage）：按钮式折叠卡片，默认收起避免终态卡片过长。 -->
+        <div v-if="hasMetadata" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
+            <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="metaExpanded = !metaExpanded">
+                <span class="text-xs font-medium text-[var(--text-main)]">
+                    执行元数据 · {{ sessionRows.length }} sessions<span v-if="usage"> · {{ totalTokens.toLocaleString() }} tokens</span>
+                </span>
+                <span :class="metaExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
+            </button>
+            <div v-if="metaExpanded" class="border-t border-[var(--border-color)] px-3 py-2">
+                <div v-if="usage" class="flex flex-wrap gap-2 text-[11px] text-[var(--text-muted)]">
+                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">输入 {{ usage.inputTokens.toLocaleString() }}</span>
+                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1">输出 {{ usage.outputTokens.toLocaleString() }}</span>
+                </div>
+                <div v-if="sessionRows.length" class="mt-2 space-y-1.5">
+                    <div v-for="session in sessionRows" :key="session.sessionId" class="flex flex-wrap items-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-[11px]">
+                        <span class="font-mono text-[var(--accent-main)]">#{{ session.sessionId }}</span>
+                        <span class="text-[var(--text-main)]">{{ session.title || session.profileKey }}</span>
+                        <span v-if="session.title && session.profileKey" class="font-mono text-[var(--text-muted)]">{{ session.profileKey }}</span>
+                        <span v-if="session.tokens" class="ml-auto text-[var(--text-muted)]">{{ session.tokens.totalTokens.toLocaleString() }} tokens</span>
+                    </div>
                 </div>
             </div>
-        </details>
+        </div>
 
-        <!-- Workflow 自定义返回值独立折叠。 -->
-        <details v-if="effectiveResult !== undefined" class="rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2">
-            <summary class="cursor-pointer text-xs text-[var(--text-secondary)]">Workflow 返回值</summary>
-            <div class="mt-2"><JsonViewer :value="effectiveResult" :max-height="260" /></div>
-        </details>
+        <!-- Workflow 自定义返回值：按钮式折叠卡片。 -->
+        <div v-if="effectiveResult !== undefined" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
+            <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="resultExpanded = !resultExpanded">
+                <span class="text-xs font-medium text-[var(--text-main)]">Workflow 返回值</span>
+                <span :class="resultExpanded ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+            </button>
+            <div v-if="resultExpanded" class="border-t border-[var(--border-color)] p-2"><JsonViewer :value="effectiveResult" :max-height="260" /></div>
+        </div>
 
         <div v-if="status === 'not_started' && props.toolCall.result" class="whitespace-pre-wrap break-all rounded border border-[var(--border-color)] bg-[var(--bg-main)] p-2 text-xs text-[var(--text-secondary)]">{{ props.toolCall.result }}</div>
     </div>
