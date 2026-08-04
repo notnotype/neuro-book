@@ -604,7 +604,7 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 
 - Windows verifier 删除本地重复的 release check 列表，直接消费 `PRODUCT_RUNTIME_CHECK_IDS`；focused `verify-windows-product` 与 Runtime Contract 测试明确断言 v4 的 8 项检查包含 `world-engine-config`，stdin secret transport 回归保持通过。
 - Product World Engine smoke 在同一临时 Cache Root 同时编译 schema 与 Calendar：schema 继续验证 bundled Zod/`Ref`，Calendar 使用现有 `simple` fixture 完成 `parse/format` 往返，得到 `Product1 00:00:00`。仓库外复制的当前 Product 在 hostile `NODE_PATH`、`--no-install --no-env-file` 和空根 `node_modules` 下执行 `check all`，8 项检查全部通过。
-- 本轮 focused 4 files / 18 tests、`runtime:typecheck`、`scripts/tsconfig.json`、`shared/tsconfig.json` 与 Manager typecheck 均通过；测试中的 `EBUSY` 只来自既有清理失败注入。当前验证镜像仍是本地 dirty build，清洁非 dirty Product 的 Windows 最终 verifier 与正式 Release archive 不能由这组证据替代。
+- 本轮 focused 4 files / 18 tests、`runtime:typecheck`、`scripts/tsconfig.json`、`shared/tsconfig.json` 与 Manager typecheck 均通过；测试中的 `EBUSY` 只来自既有清理失败注入。clean commit `bc79b7af478c360718644d47039828bc3e043c54` 重新生成 Product Runtime Image：3,237 files / 133,931,826 bytes，`imageId=sha256:60258dd952d174bc73ab250597ca76ad09f5c7643aba517062799502cd7a074c`，`sourceDigest=sha256:0dabc8f27e2ce72a333b4add24e67fc9e753ffa80753fe8a65b405061f942456`，`dirty=false`。本地 Product archive 为 41,885,459 bytes，SHA-256 `58845BBFD0F643BC57492AD252EE3DF3984B883A284696667D0301906EF9D67F`；解压到仓库外后，Windows verifier 通过 migration、v4 全部 8 项 release checks（含 `world-engine-config`）、stdin-only create-admin、hostile `NODE_PATH` HTTP Profile compile、错误/正确 shutdown、Workspace CLI 与 State Root move/delete。该 archive 只是一份本地 clean Product 验收资产，不是五平台正式 Release；Linux/macOS、GHCR/Container、Portable 最终交叉身份与公开 Release 仍由后续 Candidate workflow 负责。
 
 ### 2026-08-02：桌面前置的 Source Dev 与 Runtime lease 生命周期
 
