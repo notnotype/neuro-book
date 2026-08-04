@@ -129,14 +129,55 @@ type SharedRuntimeLease = {
     compromisedError: AgentSessionStoreLeaseCompromisedError | null;
 };
 
+/** HMR前一版本的物理lease形状；迁移时保留同一个Map对象，避免旧模块自持锁被当成外部锁。 */
+type LegacySharedRuntimeLease = {
+    refs: number;
+    physicalLease: Promise<() => Promise<void>>;
+    phase: "open" | "releasing" | "release_failed";
+    releasePromise: Promise<void> | null;
+};
+
 type AgentSessionStoreGlobals = typeof globalThis & {
+    __nbookAgentSessionStoreRuntimeLeasesV1?: Map<string, LegacySharedRuntimeLease>;
     __nbookAgentSessionStoreRuntimeLeasesV2?: Map<string, SharedRuntimeLease>;
 };
 
 const storeGlobals = globalThis as AgentSessionStoreGlobals;
 const sharedRuntimeLeases = storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2
+    ?? migrateLegacyRuntimeLeases(storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV1)
     ?? new Map<string, SharedRuntimeLease>();
 storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2 = sharedRuntimeLeases;
+
+const NEVER_COMPROMISED = new Promise<AgentSessionStoreLeaseCompromisedError>(() => undefined);
+
+/** 把V1物理release包装成同时兼容旧函数调用和新handle调用的同一对象。 */
+function migrateLegacyRuntimeLeases(
+    legacy: Map<string, LegacySharedRuntimeLease> | undefined,
+): Map<string, SharedRuntimeLease> | null {
+    if (!legacy) return null;
+    for (const [key, entry] of legacy) {
+        const migrated: SharedRuntimeLease = {
+            refs: entry.refs,
+            physicalLease: entry.physicalLease.then(legacyPhysicalLease),
+            phase: entry.phase,
+            releasePromise: entry.releasePromise,
+            compromisedError: null,
+        };
+        // globalThis上的Map来自旧HMR模块；这里保留同一个Map对象，不能创建第二份锁注册表。
+        legacy.set(key, migrated as unknown as LegacySharedRuntimeLease);
+    }
+    return legacy as unknown as Map<string, SharedRuntimeLease>;
+}
+
+/** 旧模块只保存可调用release，新模块同时需要handle方法；两者指向同一个release。 */
+function legacyPhysicalLease(release: () => Promise<void>): AgentSessionStoreLeaseHandle {
+    const releaseHandle = async (): Promise<void> => release();
+    return Object.assign(releaseHandle, {
+        release: releaseHandle,
+        compromised: NEVER_COMPROMISED,
+        assertHealthy: () => undefined,
+    });
+}
 
 /**
  * 返回Workspace Root在进程内注册表中的canonical key。
