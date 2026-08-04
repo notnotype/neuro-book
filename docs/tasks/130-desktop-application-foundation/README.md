@@ -600,6 +600,12 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - `calendar.ts` 与 `schema/index.ts` 共用显式 Source/Product compiler context。配置 import 只接受 `node:` builtin、`zod` 和 `nbook/world-engine/schema`；最终 runtime artifact closure 不得留下裸包或动态 import，cache key 使用完整编译结果 SHA-256，保留上限收紧为 64 entries / 32 MiB。
 - Product Runtime Contract 升级为 v4，新增 `world-engine-config` 检查并接入 POSIX、GHCR 与 Container workflow 的 `check all`；新 Product 只接受 v4，Manager 仅在已安装实例验证路径显式读取 v3。本轮重新执行 World Engine/Authoring/Product focused 8 files / 72 tests、Manager Product/Publisher/Portable focused 3 files / 15 tests、Manager 全量 37 files / 249 passed / 3 skipped，shared/scripts/runtime/Manager typecheck 均通过；本轮尚未伪造新的 clean Release archive 或跨平台 baseline。
 
+### 2026-08-04：PR #49 Windows 合同与 Calendar smoke 收口
+
+- Windows verifier 删除本地重复的 release check 列表，直接消费 `PRODUCT_RUNTIME_CHECK_IDS`；focused `verify-windows-product` 与 Runtime Contract 测试明确断言 v4 的 8 项检查包含 `world-engine-config`，stdin secret transport 回归保持通过。
+- Product World Engine smoke 在同一临时 Cache Root 同时编译 schema 与 Calendar：schema 继续验证 bundled Zod/`Ref`，Calendar 使用现有 `simple` fixture 完成 `parse/format` 往返，得到 `Product1 00:00:00`。仓库外复制的当前 Product 在 hostile `NODE_PATH`、`--no-install --no-env-file` 和空根 `node_modules` 下执行 `check all`，8 项检查全部通过。
+- 本轮 focused 4 files / 18 tests、`runtime:typecheck`、`scripts/tsconfig.json`、`shared/tsconfig.json` 与 Manager typecheck 均通过；测试中的 `EBUSY` 只来自既有清理失败注入。当前验证镜像仍是本地 dirty build，清洁非 dirty Product 的 Windows 最终 verifier 与正式 Release archive 不能由这组证据替代。
+
 ### 2026-08-02：桌面前置的 Source Dev 与 Runtime lease 生命周期
 
 - 直接 Source Dev 不再把 Nuxt 进程树交给终端隐式管理。公开 `dev` 进入 Owned Process launcher，内部 `dev:runtime` 保留完整构建链；Manager 直接拥有内部入口，避免双重 owner。正常信号复用 Product 认证 shutdown，宿主异常退出由 Windows Job Object/POSIX process group 收口。
