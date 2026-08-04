@@ -4,8 +4,13 @@ import {resolve} from "node:path";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
     acquireAgentSessionStoreLease,
+    acquireAgentSessionStoreRuntimeLease,
     AGENT_SESSION_STORE_LEASE_RELATIVE_PATH,
     agentSessionStoreLeasePath,
+    isAgentSessionStoreLeaseCompromisedError,
+    type AgentSessionStoreLeaseCompromisedError,
+    type AgentSessionStoreLeaseHandle,
+    type AgentSessionStoreLeaseRelease,
 } from "nbook/server/agent/session/agent-session-store-lease";
 
 /** 当前Agent Session JSONL持久化schema。 */
@@ -91,7 +96,14 @@ export class AgentSessionStoreRuntime {
     constructor(
         readonly ready: ReadyAgentSessionStore,
         private readonly releaseLease: () => Promise<void>,
+        private readonly assertLeaseHealthy: () => void,
+        readonly compromised: Promise<AgentSessionStoreLeaseCompromisedError>,
     ) {}
+
+    /** 在复用已有runtime capability前同步确认物理lease仍由本进程持有。 */
+    assertHealthy(): void {
+        this.assertLeaseHealthy();
+    }
 
     /** 最后一个runtime owner关闭后释放唯一store lease。 */
     async release(): Promise<void> {
@@ -111,19 +123,20 @@ export class AgentSessionStoreRuntime {
 
 type SharedRuntimeLease = {
     refs: number;
-    physicalLease: Promise<() => Promise<void>>;
-    phase: "open" | "releasing" | "release_failed";
+    physicalLease: Promise<AgentSessionStoreLeaseHandle>;
+    phase: "open" | "releasing" | "release_failed" | "compromised";
     releasePromise: Promise<void> | null;
+    compromisedError: AgentSessionStoreLeaseCompromisedError | null;
 };
 
 type AgentSessionStoreGlobals = typeof globalThis & {
-    __nbookAgentSessionStoreRuntimeLeasesV1?: Map<string, SharedRuntimeLease>;
+    __nbookAgentSessionStoreRuntimeLeasesV2?: Map<string, SharedRuntimeLease>;
 };
 
 const storeGlobals = globalThis as AgentSessionStoreGlobals;
-const sharedRuntimeLeases = storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV1
+const sharedRuntimeLeases = storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2
     ?? new Map<string, SharedRuntimeLease>();
-storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV1 = sharedRuntimeLeases;
+storeGlobals.__nbookAgentSessionStoreRuntimeLeasesV2 = sharedRuntimeLeases;
 
 /**
  * 返回Workspace Root在进程内注册表中的canonical key。
@@ -150,7 +163,7 @@ export function agentSessionStoreSentinelPath(rootWorkspace: string): string {
  * 相同进程/HMR内同root调用共享物理锁；只有最后一个owner释放后offline migration才能进入。
  */
 export async function acquireReadyAgentSessionStore(rootWorkspace: string): Promise<AgentSessionStoreRuntime> {
-    const releaseLease = await acquireSharedRuntimeLease(rootWorkspace);
+    const runtimeLease = await acquireSharedRuntimeLease(rootWorkspace);
     try {
         const sentinel = await readAgentSessionStoreSentinel(rootWorkspace);
         if (sentinel.state !== "complete") {
@@ -163,13 +176,18 @@ export async function acquireReadyAgentSessionStore(rootWorkspace: string): Prom
             );
         }
         await assertCompleteSentinelManifest(rootWorkspace, sentinel);
-        return new AgentSessionStoreRuntime(
+        const runtime = new AgentSessionStoreRuntime(
             createReadyAgentSessionStore(rootWorkspace),
-            releaseLease,
+            runtimeLease.release,
+            runtimeLease.assertHealthy,
+            runtimeLease.compromised,
         );
+        // Sentinel校验期间可能刚好发生heartbeat失效；ready发布前再检查一次，避免把已失效capability交给调用方。
+        runtime.assertHealthy();
+        return runtime;
     } catch (error) {
         try {
-            await releaseLease();
+            await runtimeLease.release();
         } catch (releaseError) {
             throw new AggregateError(
                 [asError(error), asError(releaseError)],
@@ -185,7 +203,7 @@ export async function acquireReadyAgentSessionStore(rootWorkspace: string): Prom
  *
  * 此入口不共享进程内runtime引用，也不读取sentinel；调用方必须在锁内完成rescan与状态机推进。
  */
-export async function acquireAgentSessionStoreExclusiveLease(rootWorkspace: string): Promise<() => Promise<void>> {
+export async function acquireAgentSessionStoreExclusiveLease(rootWorkspace: string): Promise<AgentSessionStoreLeaseRelease> {
     return acquirePhysicalLease(rootWorkspace, "migration");
 }
 
@@ -270,7 +288,7 @@ export function parseAgentSessionStoreSentinel(value: unknown): AgentSessionStor
 }
 
 /** 获取相同进程内按Workspace Root引用计数的runtime lease。 */
-async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<() => Promise<void>> {
+async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<SharedRuntimeLeaseReference> {
     const resolvedRoot = resolve(rootWorkspace);
     const key = agentSessionStoreKey(resolvedRoot);
     let shared: SharedRuntimeLease;
@@ -279,16 +297,30 @@ async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<() => P
         if (!existing) {
             shared = {
                 refs: 0,
-                physicalLease: acquirePhysicalLease(resolvedRoot),
+                physicalLease: acquireAgentSessionStoreRuntimeLease(resolvedRoot),
                 phase: "open",
                 releasePromise: null,
+                compromisedError: null,
             };
             sharedRuntimeLeases.set(key, shared);
+            trackSharedCompromise(key, shared);
             break;
         }
         if (existing.phase === "open") {
-            shared = existing;
-            break;
+            const physicalLease = await existing.physicalLease;
+            try {
+                physicalLease.assertHealthy();
+                shared = existing;
+                break;
+            } catch (error) {
+                if (!isAgentSessionStoreLeaseCompromisedError(error)) throw error;
+                existing.compromisedError = error;
+                existing.phase = "compromised";
+                throw error;
+            }
+        }
+        if (existing.phase === "compromised") {
+            throw existing.compromisedError ?? new Error("Agent Session Store runtime lease已失去所有权。");
         }
         if (existing.phase === "release_failed") {
             throw new Error("Agent Session Store runtime lease上次释放失败，必须由原owner重试关闭。");
@@ -297,7 +329,26 @@ async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<() => P
     }
     shared.refs += 1;
     try {
-        await shared.physicalLease;
+        const physicalLease = await shared.physicalLease;
+        let released = false;
+        let releasePromise: Promise<void> | null = null;
+            return {
+                compromised: physicalLease.compromised,
+                assertHealthy: physicalLease.assertHealthy,
+                release: async () => {
+                if (released) return;
+                if (!releasePromise) {
+                    releasePromise = releaseSharedRuntimeReference(key, shared)
+                        .then(() => {
+                            released = true;
+                        })
+                        .finally(() => {
+                            if (!released) releasePromise = null;
+                        });
+                }
+                await releasePromise;
+            },
+        };
     } catch (error) {
         shared.refs -= 1;
         if (shared.refs === 0 && sharedRuntimeLeases.get(key) === shared) {
@@ -305,21 +356,26 @@ async function acquireSharedRuntimeLease(rootWorkspace: string): Promise<() => P
         }
         throw error;
     }
-    let released = false;
-    let releasePromise: Promise<void> | null = null;
-    return async () => {
-        if (released) return;
-        if (!releasePromise) {
-            releasePromise = releaseSharedRuntimeReference(key, shared)
-                .then(() => {
-                    released = true;
-                })
-                .finally(() => {
-                    if (!released) releasePromise = null;
-                });
-        }
-        await releasePromise;
-    };
+}
+
+type SharedRuntimeLeaseReference = {
+    readonly compromised: Promise<AgentSessionStoreLeaseCompromisedError>;
+    readonly assertHealthy: () => void;
+    readonly release: () => Promise<void>;
+};
+
+/** 将物理 lease 的一次性 compromised 信号提升到共享 runtime 状态。 */
+function trackSharedCompromise(key: string, shared: SharedRuntimeLease): void {
+    void shared.physicalLease.then(
+        (physicalLease) => {
+            void physicalLease.compromised.then((error) => {
+                if (sharedRuntimeLeases.get(key) !== shared) return;
+                shared.compromisedError = error;
+                shared.phase = "compromised";
+            });
+        },
+        () => undefined,
+    );
 }
 
 /** 释放一个进程内runtime引用；最后一个引用必须等待物理解锁完成。 */
@@ -347,7 +403,39 @@ async function releaseSharedPhysicalLease(key: string, shared: SharedRuntimeLeas
     shared.phase = "releasing";
     shared.releasePromise = (async () => {
         const releasePhysical = await shared.physicalLease;
-        await releasePhysical();
+        let compromised = shared.compromisedError;
+        try {
+            releasePhysical.assertHealthy();
+        } catch (error) {
+            if (!isAgentSessionStoreLeaseCompromisedError(error)) throw error;
+            compromised = error;
+        }
+        if (!compromised) {
+            try {
+                await releasePhysical.release();
+            } catch (error) {
+                try {
+                    releasePhysical.assertHealthy();
+                } catch (compromisedError) {
+                    if (!isAgentSessionStoreLeaseCompromisedError(compromisedError)) throw error;
+                    compromised = compromisedError;
+                }
+                if (!compromised) throw error;
+            }
+            if (!compromised) {
+                try {
+                    releasePhysical.assertHealthy();
+                } catch (compromisedError) {
+                    if (!isAgentSessionStoreLeaseCompromisedError(compromisedError)) throw compromisedError;
+                    compromised = compromisedError;
+                }
+            }
+        }
+        if (compromised) {
+            shared.compromisedError = compromised;
+            shared.phase = "compromised";
+            return;
+        }
         if (sharedRuntimeLeases.get(key) === shared) {
             sharedRuntimeLeases.delete(key);
         }
@@ -365,7 +453,7 @@ async function releaseSharedPhysicalLease(key: string, shared: SharedRuntimeLeas
 async function acquirePhysicalLease(
     rootWorkspace: string,
     kind: "runtime" | "migration" = "runtime",
-): Promise<() => Promise<void>> {
+): Promise<AgentSessionStoreLeaseRelease> {
     return acquireAgentSessionStoreLease(rootWorkspace, kind);
 }
 

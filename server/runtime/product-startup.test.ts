@@ -1,4 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
 
 const mocks = vi.hoisted(() => ({
     mkdir: vi.fn(async () => undefined),
@@ -6,7 +7,13 @@ const mocks = vi.hoisted(() => ({
     stateRootIntegrityFailed: vi.fn(() => false),
     assertProductMigrationsReady: vi.fn(async () => undefined),
     startAgentSessionStoreRuntime: vi.fn(async () => ({rootWorkspace: "C:/state/workspace"})),
+    observeAgentSessionStoreRuntimeCompromised: vi.fn<() => Promise<{
+        leasePath: string;
+        kind: "runtime";
+    }>>(),
     warn: vi.fn(async () => undefined),
+    fatalSync: vi.fn(),
+    requestProcessExit: vi.fn(),
 }));
 
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
@@ -26,8 +33,12 @@ vi.mock("nbook/server/runtime/product-migration-gate", () => ({
 }));
 vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     startAgentSessionStoreRuntime: mocks.startAgentSessionStoreRuntime,
+    observeAgentSessionStoreRuntimeCompromised: mocks.observeAgentSessionStoreRuntimeCompromised,
 }));
-vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {warn: mocks.warn}}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {warn: mocks.warn, fatalSync: mocks.fatalSync}}));
+vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
+    productShutdownController: {requestProcessExit: mocks.requestProcessExit},
+}));
 
 import {prepareProductRuntime} from "nbook/server/runtime/product-startup";
 
@@ -38,6 +49,7 @@ describe("Product startup", () => {
         mocks.stateRootIntegrityFailed.mockReturnValue(false);
         mocks.assertProductMigrationsReady.mockResolvedValue(undefined);
         mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: "C:/state/workspace"});
+        mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise(() => undefined));
     });
 
     it("按 Workspace、migration、Session Store 顺序完成完整 ready 门禁", async () => {
@@ -55,6 +67,35 @@ describe("Product startup", () => {
         );
         expect(mocks.assertProductMigrationsReady.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.startAgentSessionStoreRuntime.mock.invocationCallOrder[0]!,
+        );
+    });
+
+    it("runtime lease compromised时记录fatal诊断并请求专用退出", async () => {
+        let resolveCompromised!: (error: {leasePath: string; kind: "runtime"}) => void;
+        mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise((resolvePromise) => {
+            resolveCompromised = resolvePromise;
+        }));
+
+        await prepareProductRuntime();
+        const error = Object.assign(new Error("heartbeat lost"), {
+            leasePath: "C:/state/workspace/.nbook/agent/migrations/runtime.lease",
+            kind: "runtime" as const,
+        });
+        resolveCompromised(error);
+        await vi.waitFor(() => expect(mocks.requestProcessExit).toHaveBeenCalledWith(
+            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+        ));
+
+        expect(mocks.fatalSync).toHaveBeenCalledWith(
+            "runtime.agentSessionStore.leaseCompromised",
+            expect.objectContaining({
+                leasePath: error.leasePath,
+                kind: "runtime",
+                staleMs: 30_000,
+                heartbeatMs: 15_000,
+            }),
+            error,
+            expect.stringContaining("有序关闭"),
         );
     });
 

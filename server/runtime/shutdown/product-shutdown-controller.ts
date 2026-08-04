@@ -1,3 +1,5 @@
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
+
 export type ProductShutdownStep = {
     name: string;
     close(): Promise<void>;
@@ -23,6 +25,7 @@ export type ProductShutdownControllerOptions = {
 export class ProductShutdownController {
     private shutdownPromise: Promise<void> | null = null;
     private processExitRequested = false;
+    private requestedExitCode = 0;
     private draining = false;
     private activeRequests = 0;
     private drainWaiter: (() => void) | null = null;
@@ -69,15 +72,22 @@ export class ProductShutdownController {
     }
 
     /** 在控制路由返回 202 后异步关闭资源并退出 Product 进程。 */
-    requestProcessExit(): void {
+    requestProcessExit(exitCode = 0): void {
+        if (exitCode === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED
+            || this.requestedExitCode !== PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED
+            && exitCode !== 0) {
+            this.requestedExitCode = exitCode;
+        }
+        // compromised 不依赖 HTTP 响应，调用方必须从本次调用返回后立即看到 draining。
+        this.draining = true;
         if (this.processExitRequested) return;
         this.processExitRequested = true;
         this.schedule(() => {
             void this.shutdown().then(
-                () => this.exit(0),
+                () => this.exit(this.requestedExitCode),
                 (error: unknown) => {
                     this.reportFailure(error);
-                    this.exit(1);
+                    this.exit(this.requestedExitCode === 0 ? 1 : this.requestedExitCode);
                 },
             );
         });

@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-02（Installation Mutation、Windows 自卸载与 Candidate 验收）
+- 更新：2026-08-04（Installation Mutation、Windows 自卸载、Candidate 验收与 Session Store lease 失效关闭）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)、[ADR 0002](0002-bounded-rebuildable-runtime-artifacts.md)
 - 取代范围：[ADR 0006](0006-image-variant-and-original-ownership.md) 中 Image Variant Cache 的物理 locator 由本 ADR 的 Cache Root 决定；其 512 MiB、10000 项等领域预算不变。
 
@@ -71,13 +71,14 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 6. 每一步失败都继续执行后续步骤，最后返回带步骤身份的 `AggregateError`。并发关闭共享同一个结果。
 7. Manager 最多等待合同规定的 30 秒。只有退出码为 0 且没有 signal 才算 graceful；HTTP 失败、超时、非零退出、signal 或 Product crash 时调用 Owned Process 收口完整进程树，并明确记录 forced shutdown。
 8. Windows 不依赖 `SIGTERM`；POSIX Ctrl+C/SIGTERM 继续进入同一个 Nitro close hook 和 shutdown controller。
+9. Session Store runtime lease 的 heartbeat 失效或所有权被其他进程接管时，`proper-lockfile` 的 `ECOMPROMISED` 通过一次性 typed signal 进入同一 shutdown controller：立即 draining、记录完整诊断、按既有顺序关闭，并以退出码 75 结束。旧 owner 不自动抢锁、杀进程或删除 `.lock`；Manager 根据退出码提示用户关闭其他 NeuroBook/迁移程序或处理长时间暂停后重试。
 
 #### Source Dev 入口
 
 1. 公开 `bun run dev` 必须进入 Source Dev launcher，由 `Owned Process` 在任何 Nuxt、生成器或迁移检查后代启动前建立完整进程树所有权。原开发准备链只作为内部 `dev:runtime` 存在；只有已经持有外层 owner 的 Manager Source Dev Adapter 可以直接调用它。
 2. launcher 与 Manager 复用同一 `shutdownNativeProduct()`：首次 Ctrl+C/SIGTERM 请求认证 loopback shutdown，第二次信号立即强制收口；graceful 与 force 同时失败必须聚合报告。launcher 自身异常退出时由监督 IPC 断连收口后代树。
 3. Source Dev 未显式声明监听 host 时固定使用 `127.0.0.1`。显式 `localhost` 或 IPv6 loopback 时，shutdown client 必须请求同一 loopback 地址；不得因地址族不一致把正常数据 flush 静默降级为强杀。
-4. Agent Session Store 的 `runtime.lease` owner metadata 只用于竞争错误诊断。互斥、15 秒 heartbeat、30 秒 stale 接管仍由 `proper-lockfile` 决定；禁止按 metadata PID 自动杀进程、提前抢锁或删除 `.lock`。
+4. Agent Session Store 的 `runtime.lease` owner metadata 只用于竞争错误诊断。互斥、15 秒 heartbeat、30 秒 stale 接管仍由 `proper-lockfile` 决定；禁止按 metadata PID 自动杀进程、提前抢锁或删除 `.lock`。普通 `ELOCKED` 表示获取时已有 owner；`ECOMPROMISED` 表示当前 owner 已失去所有权，两者都不得被解释为普通正文文件占用。
 
 ### Secret 传递
 
@@ -107,6 +108,8 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 
 应用级关闭必须发生在进程级强制终止之前。认证 loopback 控制面给 Windows 一个可等待的正常关闭路径，Owned Process 保留最终兜底，两者职责不重叠。
 
+Session Store lease 的 mtime heartbeat 是跨进程所有权协议，不是正文文件句柄锁。系统睡眠、事件循环长时间阻塞或其他 owner 接管都可能触发 `ECOMPROMISED`；继续写入会让两个 owner 同时操作同一份 Session Store，因此必须终止当前 Product，而不是通过重试或删除锁目录掩盖失效。
+
 ## 后果
 
 - Installation Manifest 升级为 schema v5；Manager、Docker、Portable 脚本和运行环境统一解析四类 locator。
@@ -115,6 +118,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 - llmlint 的 sibling source 与 NeuroBook vendored snapshot 必须同步维护两个环境变量和缓存预算。
 - Windows 仓库外 Product smoke 已证明错误 token 不结束进程、正确 token 完成应用级关闭，随后端口关闭且 State Root 可移动和删除；Owned Process 仍只保留超时后的最终兜底职责。
 - Windows 自卸载有独立外置 Host，因此 Portable 可以删除正在承载 Manager/Bun 的程序目录；默认卸载和 `--delete-data` 必须分别通过最终 Portable Candidate 验收。
+- Session Store runtime lease 失效现在会留下 fatal 诊断、执行有序关闭并以退出码 75 交给 Manager；用户不需要也不应该手动删除 `runtime.lease.lock`。
 - 浏览器与 Tauri/Electron UI 尚未验收；本 ADR 只冻结共享 Product/Manager 生命周期，不提前冻结 Desktop Envelope 框架。
 
 ## 未采用方案

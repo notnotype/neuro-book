@@ -131,6 +131,7 @@ describe("Agent Session Store", () => {
         const second = await reloaded.acquireReadyAgentSessionStore(root);
 
         try {
+            expect(first.compromised).toBe(second.compromised);
             await first.release();
             await expect(reloaded.acquireAgentSessionStoreExclusiveLease(root))
                 .rejects.toMatchObject({code: "ELOCKED"});

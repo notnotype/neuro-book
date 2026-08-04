@@ -1,4 +1,5 @@
 import {describe, expect, it, vi} from "vitest";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
 import {ProductShutdownController} from "nbook/server/runtime/shutdown/product-shutdown-controller";
 
 describe("ProductShutdownController", () => {
@@ -113,5 +114,44 @@ describe("ProductShutdownController", () => {
         await controller.shutdown();
         await Promise.resolve();
         expect(exits).toEqual([0]);
+    });
+
+    it("普通关闭失败时使用退出码1", async () => {
+        const exits: number[] = [];
+        const scheduled: Array<() => void> = [];
+        const controller = new ProductShutdownController(
+            [{name: "close", close: async () => { throw new Error("close failed"); }}],
+            {
+                exit: (code) => exits.push(code),
+                schedule: (task) => scheduled.push(task),
+            },
+        );
+
+        controller.requestProcessExit();
+        scheduled[0]!();
+        await expect(controller.shutdown()).rejects.toBeInstanceOf(AggregateError);
+        await Promise.resolve();
+
+        expect(exits).toEqual([1]);
+    });
+
+    it("compromised退出码立即进入draining且shutdown失败时仍保留专用退出码", async () => {
+        const exits: number[] = [];
+        const scheduled: Array<() => void> = [];
+        const controller = new ProductShutdownController(
+            [{name: "close", close: async () => { throw new Error("close failed"); }}],
+            {
+                exit: (code) => exits.push(code),
+                schedule: (task) => scheduled.push(task),
+            },
+        );
+
+        controller.requestProcessExit(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
+        expect(controller.enterRequest()).toBeNull();
+        scheduled[0]!();
+        await expect(controller.shutdown()).rejects.toBeInstanceOf(AggregateError);
+        await Promise.resolve();
+
+        expect(exits).toEqual([PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED]);
     });
 });

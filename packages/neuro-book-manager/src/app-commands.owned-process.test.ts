@@ -32,6 +32,15 @@ describe("Windows Portable Owned Process", () => {
         }, 1, {startupTimeoutMs: 3_000})).rejects.toThrow("NeuroBook 服务退出：17");
     });
 
+    it.runIf(process.platform === "win32")("Session Store lease compromised退出会给出可操作提示", async () => {
+        const entry = fileURLToPath(new URL("./fixtures/portable-owned-exit.ts", import.meta.url));
+
+        await expect(runPortableForeground(process.execPath, entry, import.meta.dir, {
+            ...process.env,
+            NEURO_BOOK_OWNED_EXIT_CODE: "75",
+        }, 1, {startupTimeoutMs: 3_000})).rejects.toThrow("不要手动删除 runtime.lease.lock");
+    });
+
     it.runIf(process.platform === "win32")("健康检查失败会清理完整Product进程树并释放端口", async () => {
         const statePath = join(tmpdir(), `nbook-portable-owned-${crypto.randomUUID()}.json`);
         statePaths.push(statePath);

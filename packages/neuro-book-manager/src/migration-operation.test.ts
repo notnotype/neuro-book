@@ -16,6 +16,7 @@ import {currentProductPlatform} from "#manager/platform";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {ApplicationLaunchOptions} from "#manager/app-commands";
 import type {InstallationManifest} from "#manager/types";
+import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "nbook/shared/product-runtime-contract";
 
 const migrations = vi.hoisted(() => ({
     plan: vi.fn(),
@@ -173,6 +174,38 @@ describe("Journaled application migration", () => {
         expect(lifecycle.assertNativeStopped).toHaveBeenCalledWith(join(root, "data"));
         expect(lifecycle.backupDatabase).toHaveBeenCalledOnce();
         expect(shutdown).toHaveBeenCalledOnce();
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
+    });
+
+    it("migration验证进程丢失Session Store lease时不提交成功结果", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-migration-only-compromised-"));
+        roots.push(root);
+        const manifest = productManifest();
+        migrations.plan.mockImplementation(async (_root, _manifest, runId) => ({
+            runId,
+            status: "planned",
+            steps: migrationSteps(runId),
+        }));
+        migrations.apply.mockImplementation(async (_root, _manifest, runId) => ({
+            runId,
+            steps: migrationSteps(runId),
+        }));
+        const shutdown = vi.fn().mockResolvedValue(undefined);
+        const terminate = vi.fn().mockResolvedValue(undefined);
+        migrations.launch.mockResolvedValue({
+            ready: Promise.resolve(),
+            completion: Promise.resolve({
+                code: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
+                signal: null,
+            }),
+            shutdown,
+            terminate,
+        });
+
+        await expect(migrateCurrentApplicationState(root, manifest))
+            .rejects.toThrow("不要手动删除 runtime.lease.lock");
+        expect(shutdown).toHaveBeenCalledOnce();
+        expect(terminate).toHaveBeenCalledOnce();
         await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 
@@ -399,6 +432,22 @@ describe("Journaled application migration", () => {
 
         expect(terminate).toHaveBeenCalledTimes(1);
         await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
+    });
+
+    it("ready后以Session Store lease compromised退出时返回专用提示", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-ready-compromised-"));
+        roots.push(root);
+        const manifest = productManifest();
+        migrations.plan.mockResolvedValue({runId: "start-compromised", status: "already_current", steps: migrationSteps("start-compromised")});
+        migrations.launch.mockResolvedValueOnce({
+            ready: Promise.resolve(),
+            completion: Promise.resolve({code: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED, signal: null}),
+            shutdown: vi.fn(),
+            terminate: vi.fn(),
+        });
+
+        await expect(startManagedApplication(root, manifest, {healthCheck: true}))
+            .rejects.toThrow("不要手动删除 runtime.lease.lock");
     });
 
     it("候选终止失败时保留未提交 Journal 并禁止状态回滚", async () => {

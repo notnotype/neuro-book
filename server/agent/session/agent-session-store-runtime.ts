@@ -5,6 +5,7 @@ import {
     type AgentSessionStoreRuntime,
     type ReadyAgentSessionStore,
 } from "nbook/server/agent/session/agent-session-store";
+import type {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
 
 type AgentSessionStoreRuntimeEntry = {
     rootWorkspace: string;
@@ -14,13 +15,13 @@ type AgentSessionStoreRuntimeEntry = {
 };
 
 type AgentSessionStoreRuntimeGlobals = typeof globalThis & {
-    __nbookAgentSessionStoreRuntimesV3?: Map<string, AgentSessionStoreRuntimeEntry>;
+    __nbookAgentSessionStoreRuntimesV4?: Map<string, AgentSessionStoreRuntimeEntry>;
 };
 
 const runtimeGlobals = globalThis as AgentSessionStoreRuntimeGlobals;
-const runtimes = runtimeGlobals.__nbookAgentSessionStoreRuntimesV3
+const runtimes = runtimeGlobals.__nbookAgentSessionStoreRuntimesV4
     ?? new Map<string, AgentSessionStoreRuntimeEntry>();
-runtimeGlobals.__nbookAgentSessionStoreRuntimesV3 = runtimes;
+runtimeGlobals.__nbookAgentSessionStoreRuntimesV4 = runtimes;
 
 /**
  * 启动Workspace Root级Agent Session Store owner。
@@ -35,7 +36,10 @@ export async function startAgentSessionStoreRuntime(rootWorkspace: string): Prom
         if (entry.phase === "closing") {
             throw new Error("Agent Session Store runtime仍在关闭，不能启动。");
         }
-        if (entry.phase === "active" && entry.active) return entry.active.ready;
+        if (entry.phase === "active" && entry.active) {
+            entry.active.assertHealthy();
+            return entry.active.ready;
+        }
         entry.phase = "starting";
         try {
             const active = await acquireReadyAgentSessionStore(entry.rootWorkspace);
@@ -61,7 +65,19 @@ export function requireReadyAgentSessionStore(rootWorkspace: string): ReadyAgent
     if (!entry || entry.phase !== "active" || !entry.active) {
         throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
     }
+    entry.active.assertHealthy();
     return entry.active.ready;
+}
+
+/** 返回runtime lease的一次性失效信号；该Promise只解析，不会产生未处理rejection。 */
+export function observeAgentSessionStoreRuntimeCompromised(
+    rootWorkspace: string,
+): Promise<AgentSessionStoreLeaseCompromisedError> {
+    const entry = runtimes.get(agentSessionStoreKey(rootWorkspace));
+    if (!entry || entry.phase !== "active" || !entry.active) {
+        throw new Error(`Agent Session Store runtime尚未完成启动：${resolve(rootWorkspace)}`);
+    }
+    return entry.active.compromised;
 }
 
 /**

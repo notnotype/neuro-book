@@ -9,6 +9,7 @@ import {
     createAdmin,
     launchApplication,
     planApplicationStateMigration,
+    productExitErrorMessage,
     rollbackApplicationStateMigration,
     runPortableForeground,
 } from "#manager/app-commands";
@@ -17,6 +18,7 @@ import {currentProductPlatform} from "#manager/platform";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {ContainerEngine, InstallationManifest} from "#manager/types";
 import {
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_PATH,
     PRODUCT_SHUTDOWN_TIMEOUT_MS,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
@@ -79,6 +81,38 @@ beforeEach(() => {
     });
 });
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true}))));
+
+describe("Product exit diagnostics", () => {
+    it("为Session Store lease compromised返回可执行提示", () => {
+        expect(productExitErrorMessage({code: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED, signal: null}, "NeuroBook 服务退出")).toContain(
+            "不要手动删除 runtime.lease.lock",
+        );
+        expect(productExitErrorMessage({code: 17, signal: null}, "NeuroBook 服务退出")).toBe(
+            "NeuroBook 服务退出：17",
+        );
+    });
+});
+
+describe("Product ready退出诊断", () => {
+    it("ready前以Session Store lease compromised退出时返回专用提示", async () => {
+        const root = await nativeProductRoot();
+        const terminate = vi.fn(async () => ({exitCode: 75, signal: null, terminationReason: "startup-failure" as const}));
+        ownedProcess.spawn.mockReturnValue({
+            completion: Promise.resolve({exitCode: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED, signal: null}),
+            terminate,
+        });
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, {status: 503}));
+
+        try {
+            const launch = await launchApplication(root, productManifest());
+            await expect(launch.ready).rejects.toThrow("运行租约失去所有权");
+            await launch.terminate();
+            expect(terminate).toHaveBeenCalledWith("startup-failure");
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+});
 
 describe("Application State migration command", () => {
     it("Manager统一注入Product、llmlint与Bun的State/Cache Root", async () => {
@@ -465,6 +499,17 @@ describe("原生 Product shutdown", () => {
 });
 
 describe("Windows Portable前台启动", () => {
+    it("以Session Store lease compromised退出时返回专用提示", async () => {
+        ownedProcess.spawn.mockReturnValue({
+            completion: Promise.resolve({exitCode: PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED, signal: null}),
+            terminate: vi.fn(),
+        });
+
+        await expect(runPortableForeground(process.execPath, "--version", process.cwd(), process.env, 3000, {
+            healthCheck: false,
+        })).rejects.toThrow("不要手动删除 runtime.lease.lock");
+    });
+
     it("关闭健康检查时不发起HTTP探测或尝试打开浏览器", async () => {
         const fetch = vi.spyOn(globalThis, "fetch");
 

@@ -31,6 +31,55 @@ export type AgentSessionStoreLeaseOwner = {
     runtimeVersion: string;
 };
 
+/** Runtime lease 已失去所有权；该错误只用于诊断与有序关闭，不用于抢锁。 */
+export class AgentSessionStoreLeaseCompromisedError extends Error {
+    readonly code = "AGENT_SESSION_STORE_LEASE_COMPROMISED" as const;
+
+    constructor(
+        readonly leasePath: string,
+        readonly kind: AgentSessionStoreLeaseKind,
+        cause: unknown,
+    ) {
+        super(
+            `Agent Session Store ${kind} lease已失去所有权：${leasePath}；`
+            + "可能存在另一个 NeuroBook 实例或迁移程序，或当前进程/系统曾长时间暂停。"
+            + "不要手动删除 runtime.lease.lock。",
+            {cause},
+        );
+        this.name = "AgentSessionStoreLeaseCompromisedError";
+    }
+}
+
+/** HMR 与进程级关闭使用的 runtime lease handle。 */
+export type AgentSessionStoreLeaseHandle = {
+    readonly compromised: Promise<AgentSessionStoreLeaseCompromisedError>;
+    assertHealthy(): void;
+    release(): Promise<void>;
+};
+
+/** 保留历史可调用 release API，同时暴露一次性失效信号与同步健康检查。 */
+export type AgentSessionStoreLeaseRelease = (() => Promise<void>) & {
+    readonly compromised: Promise<AgentSessionStoreLeaseCompromisedError>;
+    assertHealthy(): void;
+};
+
+/** 同步启动调用方使用的可调用 release API。 */
+export type AgentSessionStoreLeaseSyncRelease = (() => void) & {
+    readonly compromised: Promise<AgentSessionStoreLeaseCompromisedError>;
+    assertHealthy(): void;
+};
+
+/** 判断错误是否表示 Session Store lease 已失去所有权。 */
+export function isAgentSessionStoreLeaseCompromisedError(
+    error: unknown,
+): error is AgentSessionStoreLeaseCompromisedError {
+    return error instanceof AgentSessionStoreLeaseCompromisedError
+        || typeof error === "object"
+        && error !== null
+        && "code" in error
+        && error.code === "AGENT_SESSION_STORE_LEASE_COMPROMISED";
+}
+
 /** Session Store 已被另一进程占用；owner 只用于诊断，不授予终止或抢锁权限。 */
 export class AgentSessionStoreLeaseHeldError extends Error {
     readonly code = "ELOCKED" as const;
@@ -45,8 +94,11 @@ export class AgentSessionStoreLeaseHeldError extends Error {
             ? `报告 owner：pid=${String(owner.pid)} kind=${owner.kind} acquiredAt=${owner.acquiredAt} runtime=${owner.runtime}@${owner.runtimeVersion}`
             : "报告 owner：未知（旧版或损坏的诊断 metadata）";
         const heartbeatText = heartbeatAt ? `；heartbeat=${heartbeatAt}` : "";
+        const holderText = owner?.kind === "migration"
+            ? "迁移程序"
+            : owner?.kind === "runtime" ? "NeuroBook 运行实例" : "NeuroBook 实例或迁移程序";
         super(
-            `Agent Session Store 正被另一 NeuroBook 进程使用：${leasePath}；${ownerText}${heartbeatText}。`
+            `Agent Session Store 正被另一${holderText}使用：${leasePath}；${ownerText}${heartbeatText}。`
             + "请先正常关闭该实例；owner 仍存活时不要删除 runtime.lease.lock。",
             {cause},
         );
@@ -63,60 +115,66 @@ export function agentSessionStoreLeasePath(rootWorkspace: string): string {
 export async function acquireAgentSessionStoreLease(
     rootWorkspace: string,
     kind: AgentSessionStoreLeaseKind,
-): Promise<() => Promise<void>> {
-    const path = agentSessionStoreLeasePath(rootWorkspace);
-    await mkdir(dirname(path), {recursive: true});
-    const handle = await open(path, "a");
-    await handle.close();
+): Promise<AgentSessionStoreLeaseRelease> {
+    const lease = await acquireAgentSessionStoreLeaseHandle(rootWorkspace, kind);
+    return decorateRelease(lease);
+}
 
-    let release: () => Promise<void>;
+/** 获取带失效信号的 Session Store lease；runtime 与 migration 共用这一物理实现。 */
+async function acquireAgentSessionStoreLeaseHandle(
+    rootWorkspace: string,
+    kind: AgentSessionStoreLeaseKind,
+): Promise<AgentSessionStoreLeaseHandle> {
+    const path = await ensureLeaseFile(rootWorkspace);
+    const signal = compromiseSignal(path, kind);
+    let releaseLock: () => Promise<void>;
     try {
-        release = await lock(path, {
+        releaseLock = await lock(path, {
             realpath: false,
             stale: AGENT_SESSION_STORE_LEASE_STALE_MS,
             update: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
+            onCompromised: signal.notify,
         });
     } catch (error) {
         if (!isLockContention(error)) throw error;
         throw await leaseHeldError(path, error);
     }
-    try {
-        await writeFile(path, `${JSON.stringify(currentOwner(kind), null, 2)}\n`, "utf8");
-    } catch (error) {
-        try {
-            await release();
-        } catch (releaseError) {
-            throw new AggregateError(
-                [asError(error), asError(releaseError)],
-                "Session Store lease owner写入失败且锁未能释放。",
-            );
-        }
-        throw error;
-    }
-    return release;
+    const lease = leaseHandle(releaseLock, signal);
+    await writeLeaseOwner(path, kind, lease.release);
+    return lease;
+}
+
+/** 获取运行时专用 lease；compromised 只通过一次性信号传播，不异步抛错。 */
+export async function acquireAgentSessionStoreRuntimeLease(
+    rootWorkspace: string,
+): Promise<AgentSessionStoreLeaseHandle> {
+    return acquireAgentSessionStoreLeaseHandle(rootWorkspace, "runtime");
 }
 
 /** 获取启动构造路径使用的同步 Session Store lease。 */
 export function acquireAgentSessionStoreLeaseSync(
     rootWorkspace: string,
     kind: AgentSessionStoreLeaseKind,
-): () => void {
+): AgentSessionStoreLeaseSyncRelease {
     const path = agentSessionStoreLeasePath(rootWorkspace);
     mkdirSync(dirname(path), {recursive: true});
     const handle = openSync(path, "a");
     closeSync(handle);
 
-    let release: () => void;
+    const signal = compromiseSignal(path, kind);
+    let releaseLock: () => void;
     try {
-        release = lockSync(path, {
+        releaseLock = lockSync(path, {
             realpath: false,
             stale: AGENT_SESSION_STORE_LEASE_STALE_MS,
             update: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
+            onCompromised: signal.notify,
         });
     } catch (error) {
         if (!isLockContention(error)) throw error;
         throw leaseHeldErrorSync(path, error);
     }
+    const release = syncLeaseHandle(releaseLock, signal);
     try {
         writeFileSync(path, `${JSON.stringify(currentOwner(kind), null, 2)}\n`, "utf8");
     } catch (error) {
@@ -145,6 +203,144 @@ function currentOwner(kind: AgentSessionStoreLeaseKind): AgentSessionStoreLeaseO
         runtime: bunVersion ? "bun" : "node",
         runtimeVersion: bunVersion ?? process.versions.node,
     };
+}
+
+/** 创建 lease 文件但不写入 owner metadata。 */
+async function ensureLeaseFile(rootWorkspace: string): Promise<string> {
+    const path = agentSessionStoreLeasePath(rootWorkspace);
+    await mkdir(dirname(path), {recursive: true});
+    const handle = await open(path, "a");
+    await handle.close();
+    return path;
+}
+
+/** 写入 owner metadata；写入失败时保留原始错误与 release 错误。 */
+async function writeLeaseOwner(
+    path: string,
+    kind: AgentSessionStoreLeaseKind,
+    release: () => Promise<void>,
+): Promise<void> {
+    try {
+        await writeFile(path, `${JSON.stringify(currentOwner(kind), null, 2)}\n`, "utf8");
+    } catch (error) {
+        try {
+            await release();
+        } catch (releaseError) {
+            throw new AggregateError(
+                [asError(error), asError(releaseError)],
+                "Session Store lease owner写入失败且锁未能释放。",
+            );
+        }
+        throw error;
+    }
+}
+
+type LeaseCompromiseSignal = {
+    readonly promise: Promise<AgentSessionStoreLeaseCompromisedError>;
+    readonly notify: (error: Error) => void;
+    readonly failure: () => AgentSessionStoreLeaseCompromisedError | null;
+};
+
+/** 建立只解析一次的 compromised 信号，避免 proper-lockfile 的默认异步 throw。 */
+function compromiseSignal(path: string, kind: AgentSessionStoreLeaseKind): LeaseCompromiseSignal {
+    let resolvePromise: (error: AgentSessionStoreLeaseCompromisedError) => void = () => undefined;
+    let failure: AgentSessionStoreLeaseCompromisedError | null = null;
+    const promise = new Promise<AgentSessionStoreLeaseCompromisedError>((resolvePromiseValue) => {
+        resolvePromise = resolvePromiseValue;
+    });
+    return {
+        promise,
+        notify: (error) => {
+            if (failure) return;
+            failure = new AgentSessionStoreLeaseCompromisedError(path, kind, error);
+            resolvePromise(failure);
+        },
+        failure: () => failure,
+    };
+}
+
+/** 将 proper-lockfile release 包装为可观察、compromised 后不再触碰旧锁的 handle。 */
+function leaseHandle(
+    releaseLock: () => Promise<void>,
+    signal: LeaseCompromiseSignal,
+): AgentSessionStoreLeaseHandle {
+    let released = false;
+    let releasePromise: Promise<void> | null = null;
+    return {
+        compromised: signal.promise,
+        assertHealthy: () => {
+            const failure = signal.failure();
+            if (failure) throw failure;
+        },
+        release: () => {
+            if (released) return Promise.resolve();
+            if (signal.failure()) {
+                released = true;
+                return Promise.resolve();
+            }
+            if (!releasePromise) {
+                releasePromise = (async () => {
+                    try {
+                        if (signal.failure()) {
+                            released = true;
+                            return;
+                        }
+                        await releaseLock();
+                        released = true;
+                    } catch (error) {
+                        if (signal.failure()) {
+                            released = true;
+                            return;
+                        }
+                        throw error;
+                    }
+                })().finally(() => {
+                    if (!released) releasePromise = null;
+                });
+            }
+            return releasePromise;
+        },
+    };
+}
+
+/** 把可观察 handle 转成仍可直接调用的历史 release closure。 */
+function decorateRelease(handle: AgentSessionStoreLeaseHandle): AgentSessionStoreLeaseRelease {
+    return Object.assign(handle.release, {
+        compromised: handle.compromised,
+        assertHealthy: handle.assertHealthy,
+    });
+}
+
+/** 同步 release 在失效后终态 no-op，并保留原有同步调用签名。 */
+function syncLeaseHandle(
+    releaseLock: () => void,
+    signal: LeaseCompromiseSignal,
+): AgentSessionStoreLeaseSyncRelease {
+    let released = false;
+    const release = (): void => {
+        if (released) return;
+        if (signal.failure()) {
+            released = true;
+            return;
+        }
+        try {
+            releaseLock();
+            released = true;
+        } catch (error) {
+            if (signal.failure()) {
+                released = true;
+                return;
+            }
+            throw error;
+        }
+    };
+    return Object.assign(release, {
+        compromised: signal.promise,
+        assertHealthy: () => {
+            const failure = signal.failure();
+            if (failure) throw failure;
+        },
+    });
 }
 
 /** 读取活跃 `.lock` 的 heartbeat 与持有者声明；诊断读取失败降级为未知。 */

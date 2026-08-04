@@ -6,6 +6,7 @@ import {spawnOwnedProcess} from "@notnotype/owned-process";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
+    PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
@@ -77,6 +78,21 @@ export type PortableForegroundOptions = StartApplicationOptions & {
     /** 健康检查总时长，缺省120秒；只有测试需要缩短，生产不传。 */
     startupTimeoutMs?: number;
 };
+
+const AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE =
+    "NeuroBook 服务因运行租约失去所有权而退出。可能有另一个 NeuroBook 实例或迁移程序正在使用同一工作区，也可能是当前进程或系统长时间暂停。"
+    + "请关闭其他实例或迁移程序后重试；不要手动删除 runtime.lease.lock。";
+
+/** 将Product跨进程退出结果转换为Manager用户可执行的错误提示。 */
+export function productExitErrorMessage(
+    result: {code: number | null; signal: string | null},
+    fallback: string,
+): string {
+    if (result.signal === null && result.code === PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED) {
+        return AGENT_SESSION_STORE_LEASE_COMPROMISED_MESSAGE;
+    }
+    return `${fallback}：${result.signal ?? result.code}`;
+}
 
 /** 事务调用方持久化候选容器所有权所需的生命周期回调。 */
 export type ApplicationLaunchOptions = PortableForegroundOptions & {
@@ -563,7 +579,7 @@ async function waitForApplicationReady(
     while (Date.now() < deadline) {
         if (completionState.error) throw completionState.error;
         if (completionState.terminal) {
-            throw new Error(`Product 在 ready 前退出：${completionState.terminal.signal ?? completionState.terminal.code}`);
+            throw new Error(productExitErrorMessage(completionState.terminal, "Product 在 ready 前退出"));
         }
         try {
             const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
@@ -661,6 +677,6 @@ export async function runPortableForeground(
         throw new Error("Windows Portable Product在通过健康检查前以退出码0结束。");
     }
     if (result.signal || result.exitCode !== 0) {
-        throw new Error(`NeuroBook 服务退出：${result.signal ?? result.exitCode}`);
+        throw new Error(productExitErrorMessage({code: result.exitCode, signal: result.signal}, "NeuroBook 服务退出"));
     }
 }

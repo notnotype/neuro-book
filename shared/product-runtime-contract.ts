@@ -12,6 +12,8 @@ export const PRODUCT_SHUTDOWN_PROTOCOL = "http-loopback-token/v1";
 export const PRODUCT_SHUTDOWN_PATH = "/__nbook/control/shutdown";
 export const PRODUCT_SHUTDOWN_TIMEOUT_MS = 30_000;
 export const PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT = "NEURO_BOOK_SHUTDOWN_TOKEN";
+/** Product 丢失 Agent Session Store runtime lease；Manager据此给出可操作提示。 */
+export const PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED = 75;
 
 export const PRODUCT_RUNTIME_COMMAND_IDS = [
     "start",
