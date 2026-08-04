@@ -5,11 +5,11 @@ import {dirname, join, parse, resolve} from "node:path";
 import {parseArgs} from "node:util";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
+    PRODUCT_RUNTIME_CHECK_IDS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
     readProductRuntimeContract,
 } from "nbook/shared/product-runtime-contract";
-import type {ProductRuntimeCheckId} from "nbook/shared/product-runtime-contract";
 import {parseInstallationManifest} from "nbook/packages/neuro-book-manager/src/schema";
 import {verifyInstalledProductRuntimeImage} from "nbook/packages/neuro-book-manager/src/product";
 import {openVerifiedExtractedProduct} from "nbook/scripts/release/verify-extracted-product";
@@ -38,15 +38,7 @@ type ProfileCompileResponse = {
 };
 
 /** Windows 最终归档必须逐项通过的 Product release checks。 */
-export const WINDOWS_PRODUCT_RELEASE_CHECKS = [
-    "profile-compile",
-    "variable-authoring",
-    "sqlite-vec",
-    "sharp-image-variant",
-    "application-state",
-    "workspace-cli",
-    "web-fetch",
-] as const satisfies readonly ProductRuntimeCheckId[];
+export const WINDOWS_PRODUCT_RELEASE_CHECKS = PRODUCT_RUNTIME_CHECK_IDS;
 
 /** hostile Product 环境中通过真实 HTTP 编译的最小合法 Profile。 */
 export const WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE = [

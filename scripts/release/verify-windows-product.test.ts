@@ -11,6 +11,7 @@ import {
     WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE,
     WINDOWS_PRODUCT_RELEASE_CHECKS,
 } from "nbook/scripts/release/verify-windows-product";
+import {PRODUCT_RUNTIME_CHECK_IDS} from "nbook/shared/product-runtime-contract";
 
 const roots: string[] = [];
 const executeFile = promisify(execFile);
@@ -22,16 +23,9 @@ afterEach(async () => {
 });
 
 describe("Windows Product release command secret transport", () => {
-    it("覆盖Runtime Contract v3的Authoring与web-fetch release check", () => {
-        expect(WINDOWS_PRODUCT_RELEASE_CHECKS).toEqual([
-            "profile-compile",
-            "variable-authoring",
-            "sqlite-vec",
-            "sharp-image-variant",
-            "application-state",
-            "workspace-cli",
-            "web-fetch",
-        ]);
+    it("覆盖Runtime Contract v4的全部 release check", () => {
+        expect(WINDOWS_PRODUCT_RELEASE_CHECKS).toEqual(PRODUCT_RUNTIME_CHECK_IDS);
+        expect(WINDOWS_PRODUCT_RELEASE_CHECKS).toContain("world-engine-config");
         expect(WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE).toContain("tools: toolset()");
     });
 
