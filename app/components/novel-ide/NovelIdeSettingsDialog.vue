@@ -719,8 +719,8 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
     <Dialog
         :model-value="props.modelValue"
         :title="t('settings.title')"
-        width="1280px"
-        height="86vh"
+        width="min(1440px, calc(100vw - 48px))"
+        height="90vh"
         overlay-type="blur"
         :busy="false"
         :show-footer="false"

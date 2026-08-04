@@ -89,6 +89,23 @@
 
 **已知但未处理（非本次引入）**：`refreshBuildStatus` 检测到编译结束后会调 `loadSettings()`，整份草稿被覆盖。旧版同样如此，但旧版所有 profile 摊在一屏，草稿被冲掉尚可察觉；二级化后只显示一个 profile，后台某个 profile 编译完成会让当前编辑中的草稿连同未保存黄点一起无声消失。要不要加保护是独立议题。
 
+## 空白修复轮（2026-08-04，issue #57）
+
+浏览器验收发现：左侧点任意 Profile，右侧永久空白；切回「默认设置」同样空白；控制台无报错。首屏能正常显示默认设置。
+
+**根因**：`<Transition name="fade-slide" mode="out-in">` 被卡死。`AgentProfileDefaultsPanel.vue` 的模板根注释写在根 `<div>` 外面，dev 编译（保留注释）让它的根变成「注释 + 元素」两个节点，即 Fragment 根（patchFlag `2112` = `STABLE_FRAGMENT | DEV_ROOT_FRAGMENT`）。`out-in` 卸载这种组件时，`setTransitionHooks` 递归到 Fragment `subTree` 就停，不下沉到里面的 `<div>`，那个真正被删的元素身上只有挂载时的 enterHooks、没有 `afterLeave`；`performRemove` 读到 `transition.afterLeave` 为 `undefined`，`state.isLeaving` 永不复位，之后每次渲染都返回 `emptyPlaceholder`——这就是「切回默认设置也空白」的原因。
+
+**为什么静默、为什么只在 dev**：Vue 那条 `Component inside <Transition> renders non-element root node` 警告是在 `getChildRoot()` 把 root 重指到元素**之后**才判断的，根本不触发，所以控制台干净是符合预期的；生产构建剥掉注释，根回到单元素，行为正常。
+
+**修法（两步，缺一不可）**：
+
+1. `AgentProfileDefaultsPanel.vue`：根注释移进根 `<div>` 内部，消掉 Fragment 根。
+2. `NovelIdeAgentProfileModelSettingsPanel.vue` 的 Transition 两个分支各包一层带 key 的 `<div>`，让直接子节点恒为元素。只做第 1 步的话，下一个人在根元素上方补一行注释就原地复发（AGENTS.md 自己的 HTML 规范就是「容器附近加注释」），而且照样静默、照样只在 dev 复发；包一层后子组件根是什么形状都无所谓，这才在设计上锁死不变量。`v-if` 从组件移到包装 `<div>` 后 vue-tsc 对 `activeProfile` 的 narrowing 不受影响（typecheck 已验证）。
+
+**自审轮为什么漏了**：首轮自审逐行比对了数据流、保存形态键顺序和文案，但没检查「原来 Transition 的子节点是内联元素，抽成子组件后变成组件」这个从未写下来的结构性前提——D2 抄的参照实现（`NovelIdeSettingsDialog.vue:840` 包装 `<div>`、`NovelIdeModelSettingsPanel.vue` 内联元素）恰好都躲过了这个坑。属于自审维度缺失。
+
+同轮附带把配置中心弹窗调大一档（`NovelIdeSettingsDialog.vue`：宽 `1280px` → `min(1440px, calc(100vw - 48px))`，高 `86vh` → `90vh`；宽度顺带补上此前缺的小屏保护）；连带同步 `AgentProfileNavList.vue` 里照弹窗高度硬算的滚动区魔数 `calc(86vh-330px)` → `calc(90vh-330px)`，并加注释标明跨文件耦合。
+
 ## Verification / Test
 
 - `bun run typecheck`：本任务触及的 `app/components/novel-ide/settings/**` 与 `app/i18n/locales/**` **零错误**。仓库其余既有错误与本次无关：`server/agent/session/migrations/session-v2*/migration.ts`、`server/agent/skills/llmlint.test.ts`（本次未改任何 server 代码），以及 `app/components/novel-ide/agent/AgentChatSurface.vue` / `agent-chat-surface-state.*`（他人在途改动，工作区里是 `M` + 未跟踪新文件）。
@@ -98,6 +115,7 @@
 - 2026-08-01 合并收口后，根 `bun run typecheck` 已全绿；前两条保留实施当时用于区分本任务与并行改动的历史证据。
 - typecheck 与 vitest 分开跑，未并发（并发会让 nuxt 重写 `.nuxt/tsconfig` 产生假失败——本次确实撞到过一次，同一条命令里连跑两次 typecheck 出现 3 个幽灵错误，单跑即消失）。
 - **浏览器走查未做**（AGENTS.md 禁止自动浏览器验证）。走查期间 dev server 出现 `worker entry not found in .nuxt/dev/index.mjs`，且 `/api/projects/open` 长时间 pending，走查前需重启 dev server。
+- **结构性回归无自动化能拦**：`vitest.config.ts` 是 `environment: "node"`，settings 目录下 8 个测试文件全是纯逻辑投影，不挂载 `.vue`。issue #57 的空白 bug（Transition 子节点变成 Fragment 根）就是这类结构性问题——typecheck 与现有 vitest 都拦不住，只能靠浏览器走查。修复轮验证：worktree 内 `bun run typecheck` 全绿（`app/` 零错误，`activeProfile` narrowing 未受影响）、`bunx vitest run app/components/novel-ide/settings` 仍 8 文件 40 用例通过（只动模板未越界）。
 
 ## Implementation Walkthrough
 
@@ -138,5 +156,7 @@
   - 自审轮新增：详情页往下滚到运行策略段底部，左侧二级列表仍常驻可见（`sticky`）。
   - 自审轮新增：「通用运行默认值」段的说明文字读起来是"给所有 Profile 设基线"，不是"只配置差异覆盖"。
   - 自审轮新增：Project scope 下对某个 profile 点「重置 Home」，重置进行中切到另一个 profile，该 profile 的「重置 Home」按钮应为灰色禁用态。
+  - 空白修复轮（issue #57）：点任意 Profile → 右侧出现该 Profile 详情（核心）；再点「默认设置」→ 正常回到默认页；连续切换两个不同 Profile → 都能渲染，有覆盖的 Profile 打开时运行策略段自动展开、无覆盖的保持折叠（确认 A2 包装层没破坏 D5）。
+  - 空白修复轮（issue #57）：配置中心弹窗尺寸变大后观感到位；二级列表在新高度下滚动区正常、`sticky` 仍常驻；把浏览器窗口拖窄到 1280px 以下，弹窗不溢出屏幕。
 - [ ] 若 profile 数量继续增长，考虑给二级列表加分组（leader / writer / 工具类）。
 - [ ] 保存粒度仍是整面板一次写回；如需 per-profile 保存要一并调整 Dialog header 的 expose 契约。

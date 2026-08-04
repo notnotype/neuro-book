@@ -38,8 +38,9 @@ const isProjectScope = computed(() => props.scope === "project");
 </script>
 
 <template>
-    <!-- 默认设置页：默认 Profile 选择 + 所有 Profile 共享的参数基线。 -->
     <div class="space-y-4 pb-8">
+        <!-- 默认设置页：默认 Profile 选择 + 所有 Profile 共享的参数基线。 -->
+        <!-- 注意：注释一律写在根元素内部。写在根元素外面会让 dev 编译出 Fragment 根，父级 <Transition mode="out-in"> 的离场钩子传不进来，切换后永久空白。 -->
         <!-- 默认 Agent Profile -->
         <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
             <div class="mb-4 border-b border-[var(--border-color)] pb-4">

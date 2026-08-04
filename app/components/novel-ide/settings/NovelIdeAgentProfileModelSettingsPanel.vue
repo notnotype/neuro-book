@@ -635,50 +635,51 @@ defineExpose({
 
             <div class="relative min-w-0">
                 <Transition name="fade-slide" mode="out-in">
+                    <!-- Transition 的直接子节点必须是元素，不能直接放子组件：子组件只要编译成 Fragment 根（模板根注释就会），out-in 的离场方拿不到 afterLeave，会永久卡在 isLeaving 只渲染空占位。包一层后子组件根是什么形状都无所谓。 -->
                     <!-- 单个 Profile 详情 -->
-                    <AgentProfileDetailPanel
-                        v-if="activeProfile"
-                        :key="activeProfile.profileKey"
-                        :profile="activeProfile"
-                        :inherited-model="resolveProfileInheritedModel(activeProfile)"
-                        :enabled-models="enabledModels"
-                        :validation-issues="validationIssues"
-                        :scope="props.scope"
-                        :runtime-override-count="countProfileRuntimeOverrides(activeProfile.runtime)"
-                        :settings-override-count="countSettingsOverrides(activeProfile)"
-                        :resetting-home="resettingHomeProfileKey === activeProfile.profileKey"
-                        :reset-home-disabled="Boolean(resettingHomeProfileKey) || saving"
-                        :is-default-profile="activeProfile.profileKey === effectiveDefaultProfileKey"
-                        @update:model="updateActiveModel"
-                        @update:runtime="updateActiveRuntime"
-                        @update:settings-values="updateActiveSettings({values: $event})"
-                        @update:settings-override-paths="updateActiveSettings({overridePaths: $event})"
-                        @update:settings-resource-mutations="updateActiveSettings({resourceMutations: $event})"
-                        @reset="resetProfile(activeProfile)"
-                        @reset-home="void resetProfileHome(activeProfile)"
-                    />
+                    <div v-if="activeProfile" :key="activeProfile.profileKey">
+                        <AgentProfileDetailPanel
+                            :profile="activeProfile"
+                            :inherited-model="resolveProfileInheritedModel(activeProfile)"
+                            :enabled-models="enabledModels"
+                            :validation-issues="validationIssues"
+                            :scope="props.scope"
+                            :runtime-override-count="countProfileRuntimeOverrides(activeProfile.runtime)"
+                            :settings-override-count="countSettingsOverrides(activeProfile)"
+                            :resetting-home="resettingHomeProfileKey === activeProfile.profileKey"
+                            :reset-home-disabled="Boolean(resettingHomeProfileKey) || saving"
+                            :is-default-profile="activeProfile.profileKey === effectiveDefaultProfileKey"
+                            @update:model="updateActiveModel"
+                            @update:runtime="updateActiveRuntime"
+                            @update:settings-values="updateActiveSettings({values: $event})"
+                            @update:settings-override-paths="updateActiveSettings({overridePaths: $event})"
+                            @update:settings-resource-mutations="updateActiveSettings({resourceMutations: $event})"
+                            @reset="resetProfile(activeProfile)"
+                            @reset-home="void resetProfileHome(activeProfile)"
+                        />
+                    </div>
 
                     <!-- 默认设置页：所有 Profile 的继承基线 -->
-                    <AgentProfileDefaultsPanel
-                        v-else
-                        key="defaults"
-                        :scope="props.scope"
-                        :default-profile-key="selectedDefaultProfileKey"
-                        :default-profile-options="defaultProfileOptions"
-                        :effective-default-profile-key="effectiveDefaultProfileKey"
-                        :model-defaults="profileModelDefaults"
-                        :global-model-defaults="globalModelDefaults"
-                        :enabled-models="enabledModels"
-                        :validation-issues="validationIssues"
-                        :runtime-defaults="profileRuntimeDefaults"
-                        :runtime-effective="profileRuntimeDefaultsEffective"
-                        :runtime-sources="profileRuntimeDefaultsSources"
-                        :runtime-errors="profileRuntimeDefaultsErrors"
-                        @update:default-profile-key="selectedDefaultProfileKey = $event"
-                        @update:model-defaults="profileModelDefaults = $event"
-                        @update:runtime-defaults="profileRuntimeDefaults = $event"
-                        @reset="resetProfileDefaults"
-                    />
+                    <div v-else key="defaults">
+                        <AgentProfileDefaultsPanel
+                            :scope="props.scope"
+                            :default-profile-key="selectedDefaultProfileKey"
+                            :default-profile-options="defaultProfileOptions"
+                            :effective-default-profile-key="effectiveDefaultProfileKey"
+                            :model-defaults="profileModelDefaults"
+                            :global-model-defaults="globalModelDefaults"
+                            :enabled-models="enabledModels"
+                            :validation-issues="validationIssues"
+                            :runtime-defaults="profileRuntimeDefaults"
+                            :runtime-effective="profileRuntimeDefaultsEffective"
+                            :runtime-sources="profileRuntimeDefaultsSources"
+                            :runtime-errors="profileRuntimeDefaultsErrors"
+                            @update:default-profile-key="selectedDefaultProfileKey = $event"
+                            @update:model-defaults="profileModelDefaults = $event"
+                            @update:runtime-defaults="profileRuntimeDefaults = $event"
+                            @reset="resetProfileDefaults"
+                        />
+                    </div>
                 </Transition>
             </div>
         </div>
