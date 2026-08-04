@@ -39,7 +39,6 @@ product/
 # 外部工具产生的调试 trace（与运行时 .nbook/agent/traces 无关）
 .traces/
 .agent/manual-retrieval-e2e-build-check/
-.agent/workspace
 /workspace/
 /logs/
 /coverage/
