@@ -7,6 +7,7 @@ import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 
 import {createReleaseCandidate} from "nbook/scripts/release/release-candidate";
+import {readReleaseNotesBody} from "nbook/scripts/release/release-notes";
 import {run, runCapture} from "nbook/scripts/utils/process.mjs";
 
 type CommonOptions = {
@@ -797,17 +798,27 @@ async function prereleaseNotes(input: ReleaseNotesInput, repo: string): Promise<
     const compareLine = previousTag
         ? `Compare: https://github.com/${repo}/compare/${previousTag}...${input.tag}`
         : "";
-    return [
-        `${input.channel} prerelease for early validation.`,
+    // 正文优先取 RELEASE.md 当前版本段落；缺失或为空时回退通用模板，不阻塞发布
+    const releaseBody = await readReleaseNotesBody(REPO_ROOT);
+    if (!releaseBody) {
+        console.warn("警告：未能从 RELEASE.md 提取当前版本段落，prerelease notes 回退到通用模板。");
+    }
+    const notes = [
+        releaseBody || `${input.channel} prerelease for early validation.`,
         "",
         `- Tag: ${input.tag}`,
         `- Commit: ${input.target}`,
         `- Package version: ${input.packageVersion}`,
         `- Channel: ${input.channel}`,
-        compareLine ? `- ${compareLine}` : "",
+        ...compareLine ? [`- ${compareLine}`] : [],
         "",
         "Windows portable and container images are produced by the release workflow.",
-    ].filter(Boolean).join("\n");
+    ].join("\n");
+    // Windows 进程命令行上限约 32k 字符，--notes 走命令行传参，留余量防御
+    if (notes.length > 30_000) {
+        throw new Error(`prerelease notes 过长（${notes.length} 字符，上限 30000）：请精简 RELEASE.md 当前版本段落。`);
+    }
+    return notes;
 }
 
 /** 组装正式版 release 命令。 */
