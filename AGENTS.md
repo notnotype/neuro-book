@@ -51,9 +51,22 @@
 2. 重大任务继续按 `docs/tasks/README.md` 建任务目录：issue 是需求层，task 是文档层，两者互补不替代。
 3. 开工前 `git fetch origin`，然后 `git worktree add .agent/workspace/wt/<slug> -b <branch> origin/master`（worktree 固定在 `wt/` 子目录，与临时文件区分；存量 worktree 不迁移）。新 worktree 没有 `node_modules`，首次使用前必须 `bun install`。
 4. 在 worktree 内开发；完成后 push 分支并 `gh pr create`，正文用 `Closes #N` 关联 issue。
-5. CI 通过且本地验证（typecheck + 相关聚焦测试）通过后，`gh pr merge --squash --delete-branch`；squash 提交信息 = PR 标题，使用 Conventional Commit 格式。注意现状 CI 没有 required check（Code Baseline 为 Advisory，见 issue #15），本地验证是实际门禁。
-6. 远端 `master` 被任何 worktree 或 agent 更新后，主工作区必须立刻 `git fetch && git merge --ff-only origin/master`，防止主工作区停在旧提交产生分叉；主工作区有在途改动时先提交或 stash 再合并。
-7. 清理：`git worktree remove .agent/workspace/wt/<slug>`，然后 `git branch -D <branch>` 删本地分支——`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留。
+5. **到此停下，向用户报告验证结果与 PR 链接。Agent 不得自行合并 PR、关闭 issue 或做其它收尾动作**：代码审查、浏览器验收等确认工作完成后，必须等用户明确许可才能开始收尾。
+6. 收尾（仅在用户许可后，一次做完）：确认 CI 通过且本地验证（typecheck + 相关聚焦测试）通过（现状 CI 没有 required check，见 issue #15，本地验证是实际门禁）→ `gh pr merge --squash --delete-branch`（squash 提交信息 = PR 标题，Conventional Commit 格式）→ issue 应随 `Closes` 自动关闭，未关闭时手动 `gh issue close` 并留言说明 → 主工作区立刻 `git fetch && git merge --ff-only origin/master`（有在途改动先提交或 stash）→ `git worktree remove .agent/workspace/wt/<slug>` 并 `git branch -D <branch>`（`--delete-branch` 删不掉仍被 worktree 占用的本地分支，不手动清理会残留）。
+7. 远端 `master` 被任何 worktree 或 agent 更新后（不限于自己的收尾），主工作区必须立刻 `git fetch && git merge --ff-only origin/master`，防止主工作区停在旧提交产生分叉。
+8. Windows 上 `node_modules` 深路径可能让 `git worktree remove` 报 `Filename too long`：先 `git config core.longpaths true` 重试；注册已清除但目录残留时，在 PowerShell 里用 robocopy 镜像空目录清掉（Git Bash 会把 `/MIR` 误转成路径）。
+
+### Agent 创建 Issue 约定
+
+- 必须打 `source: agent` 标签（另加常规 `type:*` / `status:*`），便于区分机器起草与人工报告。
+- 标题说清「什么东西要变成什么样」，不堆内部类名、文件名、函数名。
+- 正文结构（对齐 ADR 的背景 → 决策 → 后果习惯）：
+  1. **一句人话概述**：没看过会话、没读过代码的人，也能看懂这个 issue 要让什么变成什么样。
+  2. **背景**：为什么现在提。给足上下文，不假设读者拥有你的会话记忆。
+  3. **内容 / 方案**：要做什么。内部标识符（文件路径、函数名、合同名）放这一段，并给出上下文。
+  4. **验收 / 证据**：怎么算完成。
+- Task 引用一律用完整链接，不裸写编号。
+- 不复制会话原话：用户随口说的要求必须改写为面向读者的陈述。
 
 ### master 纪律
 

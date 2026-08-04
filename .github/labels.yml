@@ -67,3 +67,6 @@
 - name: "duplicate"
   color: "CFD3D7"
   description: "已有相同问题或请求 / A matching issue or request already exists"
+- name: "source: agent"
+  color: "8250DF"
+  description: "由开发 Agent 创建，便于区分机器起草与人工报告 / Created by a development agent"

@@ -128,7 +128,7 @@ Issue 负责公开问题和需求分流；Task walkthrough 负责重大实现的
 - 外部依赖或前置任务阻止继续时使用 `status: blocked`；阻塞解除后回到最符合当前情况的状态。
 - `help wanted` 和 `good first issue` 只用于 `status: ready` 的 Issue。后者还必须范围小、上下文完整，并有可独立验证的验收条件。
 
-`.github/labels.yml` 是标签清单真相源。维护者使用 `bun run github:labels -- check` 只读检查远端；使用 `bun run github:labels -- apply --yes` 创建或更新标签。清单外标签默认只报告，确认删除时才使用 `--delete-extra --yes`。标签改名必须先在 GitHub 原地重命名以保留历史关联，不要用“新建后删除旧标签”代替。
+`.github/labels.yml` 是标签清单真相源。维护者使用 `bun run github:labels -- check` 只读检查远端；使用 `bun run github:labels -- apply --yes` 创建或更新标签。清单外标签默认只报告，确认删除时才使用 `--delete-extra --yes`。标签改名必须先在 GitHub 原地重命名以保留历史关联，不要用“新建后删除旧标签”代替。`source: agent` 标记由开发 Agent 创建的 issue，便于区分机器起草与人工报告。
 
 | 改动类型 | Issue | Task walkthrough | `PROJECT-STATUS.md` |
 | --- | --- | --- | --- |
