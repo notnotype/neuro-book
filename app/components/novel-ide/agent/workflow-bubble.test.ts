@@ -8,8 +8,10 @@ import {
     resolveWorkflowBubbleStatus,
     resolveWorkflowDisplaySummary,
     shouldPollWorkflowRun,
+    workflowPendingAskSignature,
     workflowPollDelay,
 } from "nbook/app/components/novel-ide/agent/workflow-bubble";
+import type {PendingAsk} from "nbook/server/vendor/nb-workflow/index";
 
 const usage = (inputTokens: number, outputTokens: number) => ({
     inputTokens,
@@ -19,7 +21,6 @@ const usage = (inputTokens: number, outputTokens: number) => ({
     cacheWrite1hTokens: 1,
     reasoningTokens: 3,
     totalTokens: inputTokens + outputTokens + 6,
-    cost: {input: 0.1, output: 0.2, cacheRead: 0.01, cacheWrite: 0.02, total: 0.33},
 });
 
 describe("workflow bubble view model", () => {
@@ -202,5 +203,17 @@ describe("workflow bubble view model", () => {
             status: "completed",
             usage: {inputTokens: 90, outputTokens: 10},
         })?.usage).toBeUndefined();
+    });
+
+    it("ask 阶段指纹区分 resume 后的下一轮问题", () => {
+        const ask = (key: string, fingerprint: string): PendingAsk => ({
+            key,
+            path: "root",
+            seq: 1,
+            fingerprint,
+            spec: {kind: "approve", title: key},
+        });
+        expect(workflowPendingAskSignature([ask("root#1", "a")])).toBe(workflowPendingAskSignature([ask("root#1", "a")]));
+        expect(workflowPendingAskSignature([ask("root#1", "a")])).not.toBe(workflowPendingAskSignature([ask("root#2", "a")]));
     });
 });

@@ -1,5 +1,6 @@
 import type {AssistantMessage, JsonValue, TextContent, UserMessage} from "nbook/server/agent/messages/types";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
+import type {AgentMessageIdentity} from "nbook/server/agent/harness/invocation-caller";
 
 /**
  * Session truth 中的附件内容块。文件名描述本次使用场景，不参与 blob identity。
@@ -34,6 +35,14 @@ export type StoredToolResultMessage = {
 /** JSONL、RunFrame、queue 与 hook 共用的 Agent 消息真相。 */
 export type StoredAgentMessage = StoredUserMessage | AssistantMessage | StoredToolResultMessage;
 
+/** 可持久化的 invocation 调用方身份；旧队列可能没有该字段，恢复时按未知身份兼容。 */
+export type StoredInvocationCaller = {
+    kind: "user" | "agent" | "system";
+    sessionId?: number;
+    profileKey?: string;
+    toolCallId?: string;
+};
+
 /** invocation/steer/follow-up 在 admission 后使用的引用态输入。 */
 export type StoredAgentUserMessageInput = {
     /** 正文与附件的唯一有序真相。 */
@@ -47,6 +56,10 @@ export type StoredFollowUpQueueItem = {
     kind: "followup";
     message?: StoredAgentUserMessageInput;
     input?: JsonValue;
+    /** 原始调用方；system 后台回流必须在队列与重启恢复后仍保持 system 投影。 */
+    caller?: StoredInvocationCaller;
+    /** durable writer 使用的消息身份；新队列项始终显式保存，旧状态缺失时按用户消息兼容。 */
+    messageIdentity?: AgentMessageIdentity;
     /** 该排队 invocation 的一次性模型覆盖；drain 后不得写回 session。 */
     modelKey?: string;
     createdAt: number;

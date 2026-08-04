@@ -4,9 +4,10 @@ import WorkflowMermaid from "nbook/app/components/workflow-preview/WorkflowMerma
 import WorkflowSessionTree from "nbook/app/components/workflow-preview/WorkflowSessionTree.vue";
 import WorkflowTimeline from "nbook/app/components/workflow-preview/WorkflowTimeline.vue";
 import WorkflowAgentCards from "nbook/app/components/workflow-preview/WorkflowAgentCards.vue";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import {useAgentJob} from "nbook/app/composables/useAgentJob";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
-import {shouldPollWorkflowRun} from "nbook/app/components/novel-ide/agent/workflow-bubble";
+import {shouldPollWorkflowRun, workflowPendingAskSignature} from "nbook/app/components/novel-ide/agent/workflow-bubble";
 import type {WorkflowDemoRunState} from "nbook/server/agent/workflow/workflow-demo-service";
 import type {JsonValue, WorkflowEvent} from "nbook/server/vendor/nb-workflow/index";
 import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
@@ -55,6 +56,8 @@ const expandedSessions = ref<number[]>([]);
 const styleModeInput = ref("工笔细描");
 /** ask 应答草稿：key → 值 */
 const askDrafts = ref<Record<string, AskDraftValue>>({});
+const askSubmitState = ref<"idle" | "submitting" | "submitted">("idle");
+const submittedAskSignature = ref<string | null>(null);
 /** 主视图切换：状态机 / 对话流 / 时间线 / 直播卡片 / 关系图 */
 type ViewKey = "machine" | "flow" | "timeline" | "cards" | "relation";
 const activeView = ref<ViewKey>(props.mode === "formal" ? "machine" : "flow");
@@ -107,6 +110,12 @@ async function poll(expectedRevision: number, expectedRunId: string, expectedApi
         cursor = next.nextCursor;
         for (const event of next.events) pushLog(event, next.labels);
         state.value = next;
+        if (askSubmitState.value === "submitted"
+            && (next.view.status !== "waiting"
+                || workflowPendingAskSignature(next.view.pendingAsks) !== submittedAskSignature.value)) {
+            askSubmitState.value = "idle";
+            submittedAskSignature.value = null;
+        }
         nowTick.value = Date.now();
         error.value = "";
     } catch (e) {
@@ -142,6 +151,7 @@ function restartPolling() {
 }
 
 async function submitAsks() {
+    if (askSubmitState.value !== "idle") return;
     const view = state.value?.view;
     if (!view) return;
     const answers: Record<string, JsonValue> = {};
@@ -159,14 +169,19 @@ async function submitAsks() {
     const expectedRevision = pollRevision;
     const expectedRunId = props.runId;
     const expectedApiBase = runApiBase.value;
+    const submittedSignature = workflowPendingAskSignature(view.pendingAsks);
+    askSubmitState.value = "submitting";
     try {
         await $fetch(`${expectedApiBase}/runs/${expectedRunId}/resume`, {method: "POST", body: {answers}});
         if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
         askDrafts.value = {};
+        askSubmitState.value = "submitted";
+        submittedAskSignature.value = submittedSignature;
         restartPolling();
     } catch (e) {
         if (disposed || expectedRevision !== pollRevision || expectedRunId !== props.runId || expectedApiBase !== runApiBase.value) return;
         error.value = resolveApiErrorMessage(e, "resume 失败");
+        askSubmitState.value = "idle";
     }
 }
 
@@ -216,6 +231,8 @@ watch([() => props.runId, runApiBase], () => {
     logs.value = [];
     state.value = null;
     askDrafts.value = {};
+    askSubmitState.value = "idle";
+    submittedAskSignature.value = null;
     expandedSessions.value = [];
     runUnavailable = false;
     activeView.value = props.mode === "formal" ? "machine" : "flow";
@@ -299,22 +316,24 @@ onBeforeUnmount(() => {
         <!-- ask 应答卡片：用户参与点 -->
         <div v-for="ask in state?.view.pendingAsks ?? []" :key="ask.key" class="mb-3 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
             <div class="mb-2 text-sm font-semibold text-[var(--status-warning)]">🙋 轮到你了：{{ ask.spec.title }}</div>
+            <AgentMarkdownContent v-if="ask.spec.description" class="mb-2 text-xs text-[var(--text-secondary)]" :content="ask.spec.description" />
             <div v-if="ask.spec.kind === 'select'" class="flex flex-wrap gap-2">
                 <button v-for="option in ask.spec.options ?? []" :key="option.id"
                     class="rounded-full border px-3 py-1 text-xs transition-colors"
+                    :disabled="askSubmitState !== 'idle'"
                     :class="isSelected(ask.key, option.id)
                         ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
                         : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)]'"
                     @click="toggleSelect(ask.key, option.id, ask.spec.multi)">{{ option.label }}</button>
             </div>
             <input v-else-if="ask.spec.kind === 'text'" class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-main)] px-2 py-1 text-sm text-[var(--text-main)]"
-                placeholder="输入应答…" @input="askDrafts[ask.key] = ($event.target as HTMLInputElement).value">
+                placeholder="输入应答…" :disabled="askSubmitState !== 'idle'" @input="askDrafts[ask.key] = ($event.target as HTMLInputElement).value">
             <div v-else class="flex gap-2">
-                <button class="rounded border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1 text-xs text-[var(--status-success)]" @click="askDrafts[ask.key] = true">同意</button>
-                <button class="rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-1 text-xs text-[var(--status-danger)]" @click="askDrafts[ask.key] = false">否决</button>
-                <span class="text-xs text-[var(--text-muted)]">当前：{{ askDrafts[ask.key] === undefined ? "未选" : askDrafts[ask.key] ? "同意" : "否决" }}</span>
+                <button :disabled="askSubmitState !== 'idle'" class="rounded border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1 text-xs text-[var(--status-success)]" @click="askDrafts[ask.key] = true">同意</button>
+                <button :disabled="askSubmitState !== 'idle'" class="rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-1 text-xs text-[var(--status-danger)]" @click="askDrafts[ask.key] = false">否决</button>
+                <span class="text-xs text-[var(--text-muted)]">当前：{{ typeof askDrafts[ask.key] === "boolean" ? (askDrafts[ask.key] ? "同意" : "否决") : "未选" }}</span>
             </div>
-            <button class="mt-2 rounded border border-[var(--accent-main)] bg-[var(--accent-bg)] px-4 py-1 text-xs text-[var(--accent-text)]" @click="submitAsks">应答并继续</button>
+            <button :disabled="askSubmitState !== 'idle'" class="mt-2 rounded border border-[var(--accent-main)] bg-[var(--accent-bg)] px-4 py-1 text-xs text-[var(--accent-text)] disabled:cursor-wait disabled:opacity-50" @click="submitAsks">{{ askSubmitState === "submitting" ? "提交中…" : askSubmitState === "submitted" ? "已提交" : "应答并继续" }}</button>
         </div>
 
         <!-- 主体：可切换的可视化视图 + 人话事件流 -->

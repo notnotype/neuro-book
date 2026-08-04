@@ -18,8 +18,12 @@ import type {
     AgentJobStatus,
     JsonValue,
 } from "nbook/shared/dto/agent-job.dto";
+import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
 
 export type {AgentJobDetail, AgentJobKind, AgentJobSnapshot, AgentJobStatus} from "nbook/shared/dto/agent-job.dto";
+
+/** kind 专属详情只在 get_job/HTTP 详情入口按需读取，不进入列表快照。 */
+export type JobDetailProvider = () => Promise<JsonValue | undefined>;
 
 /** job 执行回调拿到的运行上下文 */
 export type JobRunContext = {
@@ -60,6 +64,8 @@ export type SpawnJobSpec = {
     onCancel?: () => void | Promise<void>;
     /** 缺省：有 owner 则 followup 回流，无则 none */
     deliver?: "followup" | "none";
+    /** kind 专属详情；Provider 失败不改变执行状态，由详情入口记录为不可用。 */
+    detail?: JobDetailProvider;
 };
 
 /** Manager 启动结果；游标来自首次 running 快照的实际发布帧。 */
@@ -78,12 +84,15 @@ type RegistryLine = {
     originToolCallId?: string;
     status: AgentJobStatus;
     error?: string;
+    deliveryStatus?: AgentJobSnapshot["deliveryStatus"];
+    deliveryError?: string;
 };
 
 type JobRecord = {
     snapshot: AgentJobSnapshot;
     /** 仅详情面消费；不进入 list() 投影与薄登记表。 */
     result?: JsonValue;
+    detail?: JobDetailProvider;
     controller: AbortController;
     promise: Promise<void>;
     spec: SpawnJobSpec;
@@ -126,6 +135,7 @@ export class AgentJobManager {
         if (this.shuttingDown) {
             throw new Error("Agent Job Manager 已关闭，不能启动新任务");
         }
+        const delivery = spec.deliver ?? (spec.ownerSessionId === undefined ? "none" : "followup");
         const snapshot: AgentJobSnapshot = {
             jobId: `job_${randomUUID().slice(0, 8)}`,
             kind: spec.kind,
@@ -133,11 +143,12 @@ export class AgentJobManager {
             ownerSessionId: spec.ownerSessionId ?? null,
             originToolCallId: spec.originToolCallId,
             status: "running",
+            deliveryStatus: delivery === "none" || spec.ownerSessionId === undefined ? "not_required" : "pending",
             createdAt: Date.now(),
             ref: spec.ref ?? null,
         };
         const controller = new AbortController();
-        const record: JobRecord = {snapshot, controller, spec, promise: Promise.resolve()};
+        const record: JobRecord = {snapshot, controller, spec, detail: spec.detail, promise: Promise.resolve()};
         this.jobs.set(snapshot.jobId, record);
         const createdEvent = this.publishSnapshot(record);
         if (!createdEvent || createdEvent.payload.event.type !== "job_upserted") {
@@ -173,9 +184,25 @@ export class AgentJobManager {
             .sort((a, b) => b.createdAt - a.createdAt);
     }
 
-    get(jobId: string): AgentJobDetail | null {
+    async get(jobId: string): Promise<AgentJobDetail | null> {
         const record = this.jobs.get(jobId);
-        return record ? {...record.snapshot, ...(record.result === undefined ? {} : {result: record.result})} : null;
+        if (!record) return null;
+        let detail: JsonValue | undefined;
+        if (record.detail) {
+            try {
+                detail = await record.detail();
+            } catch (error) {
+                void appLogger.warn("agent.jobs.detailUnavailable", {
+                    jobId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
+        return {
+            ...record.snapshot,
+            ...(record.result === undefined ? {} : {result: record.result}),
+            ...(detail === undefined ? {} : {detail}),
+        };
     }
 
     /** 请求取消：置 abort 信号 + 调用 kind 专属钩子；实际状态翻转由执行路径收尾时落 */
@@ -268,12 +295,29 @@ export class AgentJobManager {
         for (const entry of last.values()) {
             if (entry.status !== "running" && entry.status !== "waiting") continue;
             const interrupted: RegistryLine = {...entry, at: Date.now(), status: "interrupted", error: "进程重启，后台任务丢失"};
+            const needsDelivery = entry.deliveryStatus === "pending" || (entry.deliveryStatus === undefined && entry.ownerSessionId !== null);
+            interrupted.deliveryStatus = needsDelivery ? "pending" : "not_required";
             await this.persistLine(interrupted);
-            if (entry.ownerSessionId !== null) {
-                await this.sendFollowup(entry.ownerSessionId, [
-                    `[后台任务中断] ${entry.title}（${entry.jobId}）`,
-                    "服务重启导致该后台任务丢失，未能产出结果。如仍需要请重新发起。",
-                ].join("\n"));
+            if (entry.ownerSessionId !== null && needsDelivery) {
+                try {
+                    const result = await this.sendFollowup(entry.ownerSessionId, [
+                        `[后台任务中断] ${entry.title}（${entry.jobId}）`,
+                        "服务重启导致该后台任务丢失，未能产出结果。如仍需要请重新发起。",
+                    ].join("\n"));
+                    if (result.status === "error") {
+                        await this.persistLine({...interrupted, deliveryStatus: "failed", deliveryError: result.error ?? "owner invocation 返回 error"});
+                    } else {
+                        await this.persistLine({...interrupted, deliveryStatus: "accepted", deliveryError: undefined});
+                    }
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    void appLogger.error("agent.jobs.recoverDeliveryFailed", {
+                        jobId: entry.jobId,
+                        ownerSessionId: entry.ownerSessionId,
+                        error: message,
+                    }, error, "后台任务中断通知回流失败");
+                    await this.persistLine({...interrupted, deliveryStatus: "failed", deliveryError: message});
+                }
             }
         }
     }
@@ -332,7 +376,11 @@ export class AgentJobManager {
     private async deliverResult(record: JobRecord, outcome: JobOutcome | null, failure: string | null): Promise<void> {
         const {snapshot, spec} = record;
         const deliver = spec.deliver ?? (snapshot.ownerSessionId !== null ? "followup" : "none");
-        if (deliver === "none" || snapshot.ownerSessionId === null || this.shuttingDown) return;
+        if (deliver === "none" || snapshot.ownerSessionId === null) return;
+        if (this.shuttingDown) {
+            await this.setDeliveryStatus(record, "failed", "Agent Job Manager 已关闭，未发送结果回流");
+            return;
+        }
         const header = snapshot.status === "completed"
             ? `[后台任务完成] ${snapshot.title}（${snapshot.jobId}）`
             : snapshot.status === "cancelled"
@@ -342,29 +390,54 @@ export class AgentJobManager {
             ? outcome.message
             : [header, snapshot.status === "completed" ? outcome?.resultPreview ?? "" : ""].filter(Boolean).join("\n");
         try {
-            await this.sendFollowup(snapshot.ownerSessionId, [
+            const result = await this.sendFollowup(snapshot.ownerSessionId, [
                 "<system-reminder>",
                 content,
                 "</system-reminder>",
             ].join("\n"));
+            if (result.status === "error") {
+                await this.setDeliveryStatus(record, "failed", result.error ?? "owner invocation 返回 error");
+                return;
+            }
+            await this.setDeliveryStatus(record, "accepted");
         } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            await this.setDeliveryStatus(record, "failed", message);
             void appLogger.error("agent.jobs.deliverFailed", {
                 jobId: snapshot.jobId,
                 ownerSessionId: snapshot.ownerSessionId,
+                deliveryError: message,
             }, error, "后台任务结果回流失败");
         }
     }
 
     /** mode:"prompt" 兼顾两态：owner 空闲立即触发一轮，忙时 harness 自动进 followup 队列。 */
-    private async sendFollowup(sessionId: number, text: string): Promise<void> {
-        if (this.deliveryController.signal.aborted) return;
-        await this.harness().invokeAgent({
+    private async sendFollowup(sessionId: number, text: string): Promise<AgentInvocationResult> {
+        if (this.deliveryController.signal.aborted) {
+            return {
+                sessionId,
+                invocationId: "delivery-aborted",
+                status: "error",
+                acceptance: {state: "none"},
+                error: "Agent Job Manager 已关闭",
+            };
+        }
+        return await this.harness().invokeAgent({
             sessionId,
             mode: "prompt",
             message: {text},
             caller: {kind: "system"},
+            messageIdentity: "system",
             signal: this.deliveryController.signal,
         });
+    }
+
+    /** 投递状态独立于执行状态翻转，并通过同一快照/SSE/登记表发布。 */
+    private async setDeliveryStatus(record: JobRecord, status: AgentJobSnapshot["deliveryStatus"], error?: string): Promise<void> {
+        record.snapshot.deliveryStatus = status;
+        record.snapshot.deliveryError = error;
+        this.publishSnapshot(record);
+        await this.persist(record.snapshot);
     }
 
     private async persist(snapshot: AgentJobSnapshot): Promise<void> {
@@ -377,6 +450,8 @@ export class AgentJobManager {
             originToolCallId: snapshot.originToolCallId,
             status: snapshot.status,
             error: snapshot.error,
+            deliveryStatus: snapshot.deliveryStatus,
+            deliveryError: snapshot.deliveryError,
         });
     }
 
@@ -403,7 +478,7 @@ export class AgentJobManager {
 
     /** 发布 detached Job 快照；shutdown 后的迟到状态变化不再进入事件流。 */
     private publishSnapshot(record: JobRecord): PublishedAgentJobEvent | null {
-        if (this.shuttingDown) return null;
+        if (this.shuttingDown || this.jobs.get(record.snapshot.jobId) !== record) return null;
         return this.events.publish({type: "job_upserted", job: {...record.snapshot}});
     }
 

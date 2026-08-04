@@ -51,7 +51,6 @@ describe("run_workflow cancellation propagation", () => {
                         cacheReadTokens: 0,
                         cacheWriteTokens: 0,
                         totalTokens: 0,
-                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
                     },
                 })),
                 runState: vi.fn(async () => ({machineMermaid: null})),
@@ -102,6 +101,73 @@ describe("run_workflow cancellation propagation", () => {
         controller.abort(new Error("parent cancelled"));
         const result = await pending;
         expect(result.details).toEqual(expect.objectContaining({runId: "run_cancelled", status: "cancelled"}));
+    });
+
+    it("wait:true 遇到 wf.ask 会取消并报错，不留下 waiting Run 或 Job", async () => {
+        let resolveTerminal: (() => void) | undefined;
+        const terminal = new Promise<void>((resolve) => {
+            resolveTerminal = resolve;
+        });
+        const waiting = {
+            runId: "run_waiting_ask",
+            workflowKey: "ask-workflow",
+            status: "waiting" as const,
+            result: null,
+            pendingAsks: [{
+                key: "approval",
+                path: "root",
+                seq: 1,
+                fingerprint: JSON.stringify({kind: "approve"}),
+                spec: {kind: "approve" as const, title: "继续", description: "请确认 **继续**"},
+            }],
+            logs: [],
+            progress: null,
+            journal: [],
+        };
+        const startWorkflowRun = vi.fn(() => ({runId: waiting.runId, done: Promise.resolve(waiting), terminal}));
+        const cancelRun = vi.fn();
+        vi.doMock("nbook/server/agent/workflow/workflow-demo-service", () => ({
+            useWorkflowDemoService: () => ({startWorkflowRun, cancelRun}),
+        }));
+        const workspaceRoot = absoluteFsPath(process.cwd());
+        const ready = readyProject(workspaceRoot, absoluteFsPath(join(workspaceRoot, ".agent", "workflow-tools-wait-ask-project")));
+        const targetMocks = mockWorkflowProject(ready, workspaceRoot);
+        const spawn = vi.fn();
+
+        const {createWorkflowTools} = await import("nbook/server/agent/tools/workflow-tools");
+        const context = {
+            harness: {
+                repo: {rootWorkspace: workspaceRoot},
+                configTargetForInvocation: targetMocks.configTargetForInvocation,
+                workflows: {
+                    get: vi.fn(async () => ({def: {key: "ask-workflow", run: async () => null}})),
+                },
+                jobs: {spawn},
+            },
+            sessionId: 1,
+            profileKey: "leader",
+            workspaceRootRef: "workspace",
+            workspaceFsRoot: workspaceRoot,
+            workspaceKey: "global",
+            projectPath: "workspace/project",
+            invocationId: "workflow-wait-ask-invocation",
+        } as unknown as ToolExecutionContext;
+        const pending = createWorkflowTools().runWorkflow.runtime().executeWithContext!(
+            context,
+            "tool-workflow-wait-ask",
+            {workflowKey: "ask-workflow", wait: true},
+        );
+
+        await vi.waitFor(() => expect(cancelRun).toHaveBeenCalledWith(waiting.runId));
+        await expect(Promise.race([
+            pending.then(() => "settled", () => "settled"),
+            Promise.resolve("pending"),
+        ])).resolves.toBe("pending");
+        expect(spawn).not.toHaveBeenCalled();
+
+        resolveTerminal!();
+        await expect(pending).rejects.toThrow("改用默认后台模式");
+        expect(startWorkflowRun).toHaveBeenCalledWith(expect.objectContaining({project: ready}));
     });
 
     it("后台启动 details 返回首次 Job 事件的因果游标", async () => {
@@ -236,7 +302,6 @@ describe("run_workflow cancellation propagation", () => {
                     startWorkflowRun,
                     runSummary: vi.fn(async () => ({sessions: [], usage: {
                         inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 0,
-                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
                     }})),
                     runState: vi.fn(async () => ({machineMermaid: null})),
                 }),
@@ -278,6 +343,7 @@ describe("run_workflow cancellation propagation", () => {
                 project: ready,
             });
             expect(result.details).toEqual(expect.objectContaining({runId: completed.runId, status: "completed", result: {source: "project"}}));
+            expect(JSON.stringify(result.details)).not.toContain('"cost"');
         } finally {
             await rm(root, {recursive: true, force: true});
         }

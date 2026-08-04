@@ -1,6 +1,6 @@
 {
     "package": "@notnotype/nb-workflow",
-    "sourceCommit": "cf34d1567181f77b49f12721648f8f73c3385120",
-    "syncedAt": "2026-07-22T06:23:10.960Z",
+    "sourceCommit": "c071ad55b2cd1c8efeb044a956483574835fd3b2",
+    "syncedAt": "2026-08-03T13:23:13.622Z",
     "note": "机器同步产物,勿手改。真相源在 sibling 仓 ../nb-workflow;更新流程: 改源仓 -> bun run sync:nb-workflow -> commit。"
 }

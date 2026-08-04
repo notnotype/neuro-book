@@ -19,8 +19,6 @@ export class SessionBusyError extends Error {
  */
 export interface SessionPort {
     createSession(init: {
-        /** 创建动作所属run；宿主可据此读取run admission冻结的上下文。 */
-        runId?: string;
         profileKey: string;
         kind: SessionMeta["kind"];
         tags: string[];

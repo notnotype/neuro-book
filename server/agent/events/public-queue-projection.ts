@@ -1,5 +1,6 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {StoredAgentUserMessageInput} from "nbook/server/agent/messages/stored-types";
+import type {AgentInvokeCaller, AgentMessageIdentity} from "nbook/server/agent/harness/invocation-caller";
 import type {AgentQueuedMessageDto, AgentQueuedMessageListDto} from "nbook/shared/dto/agent-session.dto";
 import {
     budgetText,
@@ -22,6 +23,10 @@ export type AgentQueuedInvocationTruth = {
     input?: JsonValue;
     /** 仅供后续 invocation 执行；公共 queue DTO 不暴露运行时模型覆盖。 */
     modelKey?: string;
+    /** 内部保留原始调用方；公共 queue DTO 不暴露该字段。 */
+    caller?: AgentInvokeCaller;
+    /** 内部 durable message 身份；公共 queue DTO 不暴露该字段。 */
+    messageIdentity?: AgentMessageIdentity;
     createdAt: number;
 };
 

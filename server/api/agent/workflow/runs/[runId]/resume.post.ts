@@ -6,7 +6,7 @@ import type {JsonValue} from "nbook/server/vendor/nb-workflow/index";
 export default defineEventHandler(async (event) => {
     const runId = getRouterParam(event, "runId");
     if (!runId) throw createError({statusCode: 400, message: "runId 必填"});
-    const body = await readBody<{answers?: Record<string, JsonValue>}>(event);
+    const body = await readBody<{answers?: JsonValue}>(event);
     try {
         useWorkflowDemoService().resume(runId, body?.answers ?? {});
         return {ok: true};

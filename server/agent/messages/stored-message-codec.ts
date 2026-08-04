@@ -6,6 +6,7 @@ import type {
     StoredFollowUpQueueItem,
     StoredFollowUpQueuePause,
     StoredFollowUpQueueState,
+    StoredInvocationCaller,
 } from "nbook/server/agent/messages/stored-types";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 
@@ -120,6 +121,8 @@ export function encodeFollowUpQueue(value: StoredFollowUpQueueState): JsonValue 
         ...(item.message ? {message: encodeStoredInput(item.message)} : {}),
         ...(item.input === undefined ? {} : {input: item.input}),
         ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
+        ...(item.caller === undefined ? {} : {caller: item.caller}),
+        ...(item.messageIdentity === undefined ? {} : {messageIdentity: item.messageIdentity}),
         createdAt: item.createdAt,
     }));
     if (queue.status === "ready") {
@@ -268,7 +271,7 @@ function parseAssistantMessage(message: Record<string, unknown>): void {
 
 function parseFollowUpQueueItem(value: unknown): StoredFollowUpQueueItem {
     const item = objectValue(value, "Stored follow-up item 必须是对象。");
-    requireExactKeys(item, new Set(["id", "clientMessageId", "kind", "message", "input", "modelKey", "createdAt"]), "Stored follow-up item 包含未声明字段。");
+    requireExactKeys(item, new Set(["id", "clientMessageId", "kind", "message", "input", "modelKey", "caller", "messageIdentity", "createdAt"]), "Stored follow-up item 包含未声明字段。");
     requireString(item.id, "Stored follow-up item 缺少 id。");
     requireString(item.clientMessageId, "Stored follow-up item 缺少 clientMessageId。");
     if (item.kind !== "followup") {
@@ -287,6 +290,12 @@ function parseFollowUpQueueItem(value: unknown): StoredFollowUpQueueItem {
             corrupt("Stored follow-up item modelKey 不能为空。");
         }
     }
+    const caller = item.caller === undefined ? undefined : parseStoredInvocationCaller(item.caller);
+    // 旧队列没有显式身份时保留缺省，drain 边界按用户消息兼容；新写入始终带身份。
+    const messageIdentity = item.messageIdentity;
+    if (messageIdentity !== undefined && messageIdentity !== "user" && messageIdentity !== "system") {
+        corrupt("Stored follow-up messageIdentity 非法。");
+    }
     requireFiniteNumber(item.createdAt, "Stored follow-up item createdAt 非法。");
     return {
         id: item.id,
@@ -295,7 +304,44 @@ function parseFollowUpQueueItem(value: unknown): StoredFollowUpQueueItem {
         ...(message ? {message} : {}),
         ...(item.input === undefined ? {} : {input: item.input}),
         ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
+        ...(caller === undefined ? {} : {caller}),
+        ...(messageIdentity === undefined ? {} : {messageIdentity}),
         createdAt: item.createdAt,
+    };
+}
+
+/** 严格解析持久化队列中的调用方身份。 */
+function parseStoredInvocationCaller(value: unknown): StoredInvocationCaller {
+    const caller = objectValue(value, "Stored follow-up caller 必须是对象。");
+    requireExactKeys(caller, new Set(["kind", "sessionId", "profileKey", "toolCallId"]), "Stored follow-up caller 包含未声明字段。");
+    const kind = caller.kind;
+    if (kind !== "user" && kind !== "agent" && kind !== "system") {
+        corrupt("Stored follow-up caller kind 非法。");
+    }
+    const sessionId = caller.sessionId;
+    if (sessionId !== undefined) {
+        if (typeof sessionId !== "number" || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
+            corrupt("Stored follow-up caller sessionId 非法。");
+        }
+    }
+    for (const key of ["profileKey", "toolCallId"] as const) {
+        if (caller[key] !== undefined) {
+            requireString(caller[key], `Stored follow-up caller ${key} 非法。`);
+        }
+    }
+    const profileKey = caller.profileKey;
+    const toolCallId = caller.toolCallId;
+    if (profileKey !== undefined && typeof profileKey !== "string") {
+        corrupt("Stored follow-up caller profileKey 非法。");
+    }
+    if (toolCallId !== undefined && typeof toolCallId !== "string") {
+        corrupt("Stored follow-up caller toolCallId 非法。");
+    }
+    return {
+        kind,
+        ...(sessionId === undefined ? {} : {sessionId}),
+        ...(profileKey === undefined ? {} : {profileKey}),
+        ...(toolCallId === undefined ? {} : {toolCallId}),
     };
 }
 

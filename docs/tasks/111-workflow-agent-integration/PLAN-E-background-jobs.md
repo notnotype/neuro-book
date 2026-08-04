@@ -98,7 +98,7 @@ JobManager 不提供静默 `notify` 写树旁路。workflow 需要驱动 caller 
 
 - `GET /api/agent/jobs`（?ownerSessionId=&status=）/ `GET /api/agent/jobs/:id` / `POST /api/agent/jobs/:id/cancel`。
 - 一期观测使用 HTTP：workflow 气泡同时轮询 jobId 与 runId，任务中心列表也可复用 Job API；Job SSE projection 留二期。
-- 前端 C 已完成 workflow Job + Run 双观察、waiting 应答与取消；bash/invoke 后台 job 通用小气泡留二期，Header 任务中心入口设计定稿见 [PLAN-F](PLAN-F-jobs-center.md)。
+- 前端 C 已完成 workflow Job + Run 双观察、Composer Workflow 待处理区的 waiting 应答与取消；bash/invoke 后台 job 通用小气泡留二期，Header 任务中心入口设计定稿见 [PLAN-F](PLAN-F-jobs-center.md)。
 
 ## workflow 内核 cancel（粗粒度）
 

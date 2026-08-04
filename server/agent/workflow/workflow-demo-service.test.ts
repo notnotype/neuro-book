@@ -2,7 +2,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import type {WorkflowRunStart} from "nbook/server/agent/workflow/workflow-demo-service";
-import type {ActivityRecord, AgentInvokeUsage, RunView, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
+import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
 import {createDefaultEffectiveConfig} from "nbook/server/config/normalizer";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
@@ -14,7 +14,6 @@ describe("WorkflowDemoService terminal summary", () => {
         cacheReadTokens: 0,
         cacheWriteTokens: 0,
         totalTokens: 0,
-        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
     };
     let generationController: AbortController;
     let leasedCompletion: Promise<void> | undefined;
@@ -85,6 +84,131 @@ describe("WorkflowDemoService terminal summary", () => {
             usage: zeroUsage,
         });
         expect(summarySpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("resume 校验所有 ask 类型、选项与 key，并保证非法请求不触碰 journal", async () => {
+        const {useWorkflowDemoService} = await import("nbook/server/agent/workflow/workflow-demo-service");
+        const service = useWorkflowDemoService();
+        const journal: ActivityRecord[] = [{
+            key: "root#1",
+            path: "root",
+            seq: 1,
+            kind: "workflow.marker",
+            fingerprint: "{}",
+            result: {before: true},
+        }];
+        let currentView: RunView;
+        const resume = vi.fn(async () => undefined);
+        const runner = {
+            view: vi.fn(() => currentView),
+            resume,
+        };
+        (service as unknown as {runner: typeof runner}).runner = runner;
+        const waiting = (pendingAsks: PendingAsk[]): RunView => ({
+            runId: "run-resume-validation",
+            workflowKey: "resume-validation",
+            status: "waiting",
+            pendingAsks,
+            logs: [],
+            progress: null,
+            journal,
+        });
+        const approve: PendingAsk = {
+            key: "approve",
+            path: "root",
+            seq: 1,
+            fingerprint: "{}",
+            spec: {kind: "approve", title: "确认"},
+        };
+        const single: PendingAsk = {
+            key: "single",
+            path: "root",
+            seq: 2,
+            fingerprint: "{}",
+            spec: {kind: "select", title: "选择一个", options: [{id: "a", label: "A"}, {id: "b", label: "B"}]},
+        };
+        const multi: PendingAsk = {
+            key: "multi",
+            path: "root",
+            seq: 3,
+            fingerprint: "{}",
+            spec: {kind: "select", title: "选择多个", multi: true, options: [{id: "a", label: "A"}, {id: "b", label: "B"}]},
+        };
+        const text: PendingAsk = {
+            key: "text",
+            path: "root",
+            seq: 4,
+            fingerprint: "{}",
+            spec: {kind: "text", title: "补充说明"},
+        };
+
+        currentView = waiting([approve]);
+        service.resume(currentView.runId, {approve: false});
+        expect(resume).toHaveBeenCalledWith(currentView.runId, {approve: false});
+
+        resume.mockClear();
+        currentView = waiting([single]);
+        service.resume(currentView.runId, {single: "b"});
+        expect(resume).toHaveBeenCalledWith(currentView.runId, {single: "b"});
+
+        const invalidSingleAnswers: Array<[Record<string, JsonValue>, string]> = [
+            [{single: "unknown"}, "必须选择声明的选项"],
+            [{single: ["a"]}, "必须选择声明的选项"],
+        ];
+        for (const [answers, message] of invalidSingleAnswers) {
+            resume.mockClear();
+            const before = [...journal];
+            currentView = waiting([single]);
+            expect(() => service.resume(currentView.runId, answers)).toThrow(message);
+            expect(resume).not.toHaveBeenCalled();
+            expect(journal).toEqual(before);
+        }
+
+        resume.mockClear();
+        currentView = waiting([multi]);
+        service.resume(currentView.runId, {multi: ["a", "b"]});
+        expect(resume).toHaveBeenCalledWith(currentView.runId, {multi: ["a", "b"]});
+        const invalidMultiAnswers: Array<Record<string, JsonValue>> = [{multi: "a"}, {multi: ["unknown"]}, {multi: []}];
+        for (const answers of invalidMultiAnswers) {
+            resume.mockClear();
+            const before = [...journal];
+            currentView = waiting([multi]);
+            expect(() => service.resume(currentView.runId, answers)).toThrow("必须选择声明的一个或多个选项");
+            expect(resume).not.toHaveBeenCalled();
+            expect(journal).toEqual(before);
+        }
+
+        resume.mockClear();
+        currentView = waiting([text]);
+        service.resume(currentView.runId, {text: "有内容"});
+        expect(resume).toHaveBeenCalledWith(currentView.runId, {text: "有内容"});
+        for (const answer of ["", "   ", 42] as const) {
+            resume.mockClear();
+            const before = [...journal];
+            currentView = waiting([text]);
+            expect(() => service.resume(currentView.runId, {text: answer})).toThrow("必须填写非空文本");
+            expect(resume).not.toHaveBeenCalled();
+            expect(journal).toEqual(before);
+        }
+
+        const invalidKeyAnswers: Array<Record<string, JsonValue>> = [{approve: true, extra: true}, {extra: true}];
+        for (const answers of invalidKeyAnswers) {
+            resume.mockClear();
+            const before = [...journal];
+            currentView = waiting([approve]);
+            expect(() => service.resume(currentView.runId, answers)).toThrow(/未知 ask 应答|缺少 ask 应答/);
+            expect(resume).not.toHaveBeenCalled();
+            expect(journal).toEqual(before);
+        }
+
+        for (const answers of [[], "true", 1, null] as JsonValue[]) {
+            resume.mockClear();
+            const before = [...journal];
+            currentView = waiting([approve]);
+            expect(() => service.resume(currentView.runId, answers)).toThrow("workflow 应答必须是对象");
+            expect(resume).not.toHaveBeenCalled();
+            expect(journal).toEqual(before);
+        }
     });
 
     it("Project generation signal在waiting期间取消Run并解除最终terminal", async () => {
@@ -172,6 +296,7 @@ describe("WorkflowDemoService terminal summary", () => {
         const firstTurn = usage(100, 40, 10, 5, 3, {input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2, total: 3.3});
         const secondTurn = usage(20, 8, 2, 1, 1, {input: 0.2, output: 0.4, cacheRead: 0.02, cacheWrite: 0.04, total: 0.66});
         const otherSessionTurn = usage(50, 15, 0, 4, 0, {input: 0.5, output: 0.75, cacheRead: 0, cacheWrite: 0.08, total: 1.33});
+        const {cost: _otherSessionCost, ...otherSessionTokens} = otherSessionTurn;
         const journal: ActivityRecord[] = [
             {
                 key: "root#1",
@@ -221,6 +346,14 @@ describe("WorkflowDemoService terminal summary", () => {
                 fingerprint: JSON.stringify({id: 22}),
                 result: {usage: otherSessionTurn},
             },
+            {
+                key: "root#7",
+                path: "root",
+                seq: 7,
+                kind: "workflow.result",
+                fingerprint: "{}",
+                result: {cost: {total: 9}, data: {cost: "user-defined-cost"}},
+            },
         ];
         const view: RunView = {
             runId: "run-usage",
@@ -231,8 +364,24 @@ describe("WorkflowDemoService terminal summary", () => {
             progress: null,
             journal,
         };
-        const internals = service as unknown as {runner: {view(runId: string): RunView}};
+        const invocationEvent = {
+            event: {type: "activity", runId: "run-usage", record: journal[3]!, cached: false},
+            at: 1,
+        };
+        const customEvent = {
+            event: {type: "activity", runId: "run-usage", record: journal[6]!, cached: false},
+            at: 2,
+        };
+        const events = [invocationEvent, customEvent];
+        const internals = service as unknown as {
+            runner: {view(runId: string): RunView};
+            buffers: Map<string, {after: (after: number) => {events: typeof events; nextCursor: number}; all: () => typeof events}>;
+        };
         internals.runner = {view: () => view};
+        internals.buffers = new Map([["run-usage", {
+            after: () => ({events, nextCursor: events.length}),
+            all: () => events,
+        }]]);
 
         const summary = await service.runSummary("run-usage");
         expect(summary).toMatchObject({
@@ -245,9 +394,8 @@ describe("WorkflowDemoService terminal summary", () => {
                     cacheWrite1hTokens: 8,
                     reasoningTokens: 4,
                     totalTokens: 186,
-                    cost: {input: 1.2, output: 2.4, cacheRead: expect.closeTo(0.12, 10), cacheWrite: expect.closeTo(0.24, 10), total: 3.96},
                 }},
-                {sessionId: 22, profileKey: "researcher", title: "", tokens: otherSessionTurn},
+                {sessionId: 22, profileKey: "researcher", title: "", tokens: otherSessionTokens},
                 {sessionId: 33, profileKey: "no-call", title: "", tokens: null},
             ],
             usage: {
@@ -258,9 +406,24 @@ describe("WorkflowDemoService terminal summary", () => {
                 cacheWrite1hTokens: 13,
                 reasoningTokens: 4,
                 totalTokens: 255,
-                cost: {input: 1.7, output: 3.15, cacheRead: expect.closeTo(0.12, 10), cacheWrite: 0.32, total: 5.29},
             },
         });
+
+        const publicState = await service.runState("run-usage", 0);
+        const publicInvocation = publicState.view.journal.find((record) => record.key === "root#4");
+        expect(publicInvocation?.result).toEqual({usage: expect.not.objectContaining({cost: expect.anything()})});
+        expect(publicState.events.find((event) => event.type === "activity" && event.record.key === "root#4")).toEqual(expect.objectContaining({
+            type: "activity",
+            record: expect.objectContaining({result: {usage: expect.not.objectContaining({cost: expect.anything()})}}),
+        }));
+        expect(publicState.view.journal.find((record) => record.key === "root#7")?.result).toEqual({
+            cost: {total: 9},
+            data: {cost: "user-defined-cost"},
+        });
+        expect(publicState.events.find((event) => event.type === "activity" && event.record.key === "root#7")).toEqual(expect.objectContaining({
+            type: "activity",
+            record: expect.objectContaining({result: {cost: {total: 9}, data: {cost: "user-defined-cost"}}}),
+        }));
     });
 
     it("workflow job 保存超过 4000 字符的完整 JSON，不使用 code fence", async () => {
@@ -285,7 +448,7 @@ describe("WorkflowDemoService terminal summary", () => {
         });
         await jobs.waitIdle();
 
-        const detail = jobs.get(job.jobId)!;
+        const detail = (await jobs.get(job.jobId))!;
         expect(detail.result).toMatchObject({
             workflowKey: "large-result",
             status: "completed",
@@ -315,12 +478,12 @@ describe("WorkflowDemoService terminal summary", () => {
             project: null,
             deliver: "none",
         });
-        await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("waiting"));
+        await vi.waitFor(async () => expect((await jobs.get(job.jobId))?.status).toBe("waiting"));
 
         await jobs.cancel(job.jobId);
         await jobs.waitIdle();
 
-        expect(jobs.get(job.jobId)).toMatchObject({status: "cancelled"});
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "cancelled"});
     });
 
     it("waiting workflow 应答后 Job 立即恢复 running，完成后落终态", async () => {
@@ -351,18 +514,18 @@ describe("WorkflowDemoService terminal summary", () => {
             project,
             deliver: "none",
         });
-        await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("waiting"));
+        await vi.waitFor(async () => expect((await jobs.get(job.jobId))?.status).toBe("waiting"));
         expect(startReadyProjectOperation).toHaveBeenCalledWith(project, expect.any(Function));
         const waiting = await service.runState(runId, 0);
         const ask = waiting.view.pendingAsks[0];
         expect(ask).toBeDefined();
 
         service.resume(runId, {[ask!.key]: true});
-        await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("running"));
+        await vi.waitFor(async () => expect((await jobs.get(job.jobId))?.status).toBe("running"));
         release();
         await jobs.waitIdle();
 
-        expect(jobs.get(job.jobId)).toMatchObject({status: "completed", preview: "完成：{\"ok\":true}"});
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "completed", preview: "完成：{\"ok\":true}"});
     });
 
     it("正式run创建participant时复用冻结的Config与Project generation", async () => {

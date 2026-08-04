@@ -1,7 +1,8 @@
+import {AsyncLocalStorage} from "node:async_hooks";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {consola} from "consola";
 import {MockAgentPort, WorkflowRunner, createMemoryWorkspace, skeletonMermaid} from "nbook/server/vendor/nb-workflow/index";
-import type {AgentInvokeUsage, JsonValue, RunView, SessionId, WorkflowDefinition, WorkflowEvent, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {ActivityRecord, AgentInvokeUsage, JsonValue, PendingAsk, RunView, SessionId, WorkflowDefinition, WorkflowEvent, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
 import {NeuroWorkflowSessionPort} from "nbook/server/agent/workflow/workflow-session-port";
 import {HarnessAgentPort, RoutingAgentPort} from "nbook/server/agent/workflow/workflow-agent-port";
 import {
@@ -79,9 +80,11 @@ export type WorkflowDemoRunState = {
 };
 
 /** workflow 触达的 session 与 token 汇总；工具返回和正式 GET 共用同一真相源。 */
+export type WorkflowUsage = Omit<AgentInvokeUsage, "cost">;
+
 export type WorkflowRunSummary = {
-    sessions: {sessionId: number; profileKey: string; title: string; tokens: AgentInvokeUsage | null}[];
-    usage: AgentInvokeUsage;
+    sessions: {sessionId: number; profileKey: string; title: string; tokens: WorkflowUsage | null}[];
+    usage: WorkflowUsage;
 };
 
 /** 正式Workflow启动结果；terminal只在最终Run终态settle，waiting不属于释放边界。 */
@@ -151,6 +154,82 @@ function addUsage(target: AgentInvokeUsage, source: AgentInvokeUsage): void {
     }
 }
 
+/** Workflow 公共边界只投影 token 明细；价格属于普通 Session 内部 usage。 */
+function projectUsage(usage: AgentInvokeUsage): WorkflowUsage {
+    const {cost: _cost, ...tokens} = usage;
+    return tokens;
+}
+
+/** 公开 Run 只移除 invocation usage.cost，不触碰普通结果中的同名字段。 */
+function projectActivityRecord(record: ActivityRecord): ActivityRecord {
+    if (record.kind !== "agents.invoke" || !record.result || typeof record.result !== "object" || Array.isArray(record.result)) {
+        return record;
+    }
+    const result = record.result as {[key: string]: JsonValue};
+    const usage = result.usage;
+    if (!usage || typeof usage !== "object" || Array.isArray(usage)) return record;
+    const usageRecord = usage as {[key: string]: JsonValue};
+    if (!("cost" in usageRecord)) return record;
+    const {cost: _cost, ...publicUsage} = usageRecord;
+    return {
+        ...record,
+        result: {
+            ...result,
+            usage: publicUsage,
+        },
+    };
+}
+
+/** Workflow events 与 journal 共用 invocation usage 公开投影。 */
+function projectWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
+    return event.type === "activity"
+        ? {...event, record: projectActivityRecord(event.record)}
+        : event;
+}
+
+/** Run HTTP/API 公共边界；内部 runner view 与 summary 仍保留完整 cost。 */
+function projectRunView(view: RunView): RunView {
+    return {
+        ...view,
+        journal: view.journal.map(projectActivityRecord),
+    };
+}
+
+/** 在调用内核 resume 前一次性校验全部答案，保证非法请求不会部分写入 journal。 */
+function validateResumeAnswers(asks: PendingAsk[], answers: JsonValue): asserts answers is {[key: string]: JsonValue} {
+    if (!answers || typeof answers !== "object" || Array.isArray(answers)) {
+        throw new Error("workflow 应答必须是对象");
+    }
+    const expected = new Set(asks.map((ask) => ask.key));
+    for (const key of Object.keys(answers)) {
+        if (!expected.has(key)) throw new Error(`未知 ask 应答: ${key}`);
+    }
+    for (const ask of asks) {
+        if (!Object.prototype.hasOwnProperty.call(answers, ask.key)) {
+            throw new Error(`缺少 ask 应答: ${ask.spec.title}`);
+        }
+        const answer = answers[ask.key];
+        if (ask.spec.kind === "approve") {
+            if (typeof answer !== "boolean") throw new Error(`ask ${ask.spec.title} 必须回答 true 或 false`);
+            continue;
+        }
+        if (ask.spec.kind === "text") {
+            if (typeof answer !== "string" || answer.trim().length === 0) {
+                throw new Error(`ask ${ask.spec.title} 必须填写非空文本`);
+            }
+            continue;
+        }
+        const optionIds = new Set((ask.spec.options ?? []).map((option) => option.id));
+        if (ask.spec.multi) {
+            if (!Array.isArray(answer) || answer.length === 0 || answer.some((value) => typeof value !== "string" || !optionIds.has(value))) {
+                throw new Error(`ask ${ask.spec.title} 必须选择声明的一个或多个选项`);
+            }
+        } else if (typeof answer !== "string" || !optionIds.has(answer)) {
+            throw new Error(`ask ${ask.spec.title} 必须选择声明的选项`);
+        }
+    }
+}
+
 export type WorkflowDemoScenarioDto = {
     key: string;
     title: string;
@@ -188,18 +267,17 @@ class WorkflowDemoService {
     private profileKeyCache = new Map<number, string>();
     /** runId -> admission冻结的Config与Project generation。 */
     private runContexts = new Map<string, WorkflowRunContext>();
+    /** 当前 runner 执行链的冻结宿主上下文；vendor SessionPort 不携带 runId。 */
+    private readonly runContextStorage = new AsyncLocalStorage<WorkflowRunContext>();
     /** runId -> 最终终态信号；waiting/resume期间必须保留。 */
     private runTerminals = new Map<string, WorkflowRunTerminal>();
 
     constructor() {
         const harness = useAgentHarness();
         this.sessions = new NeuroWorkflowSessionPort(harness.repo, async (init) => {
-            if (!init.runId) {
-                throw new Error("正式workflow participant创建缺少runId。");
-            }
-            const runContext = this.runContexts.get(init.runId);
+            const runContext = this.runContextStorage.getStore();
             if (!runContext) {
-                throw new Error(`workflow run上下文不存在：${init.runId}`);
+                throw new Error("正式workflow participant创建缺少run上下文。");
             }
             // 所有 workflow participant 模型（含脚本内显式 create.model）都在宿主边界校验，
             // 不能只相信顶层 run_workflow.model 已校验，否则内联脚本可绕过 visibleModels。
@@ -317,28 +395,34 @@ class WorkflowDemoService {
         /** 阻塞工具调用的父 invocation signal；后台 Job 仍通过 cancelRun 传播。 */
         signal?: AbortSignal;
     }): WorkflowRunStart {
-        /** begin实际执行延迟到microtask；本同步段先发布全部run-scoped冻结上下文。 */
+        /** begin 可能同步进入 workflow；用 async context 让 participant 创建拿到冻结宿主上下文。 */
         const begin = (signal?: AbortSignal): WorkflowRunStart => {
             const buffer = new EventBuffer();
+            const runContext = Object.freeze({
+                config: opts.config,
+                project: opts.project,
+            });
             this.startupBuffer = buffer;
             let started: {runId: string; done: Promise<RunView>};
             try {
-                started = this.runner.begin(opts.def, opts.args, {
-                    callerSessionId: opts.callerSessionId,
-                    defaultModel: opts.model,
-                    workspace: opts.workspace,
-                    signal,
-                });
+                started = this.runContextStorage.run(runContext, () => this.runner.begin(opts.def, opts.args, {
+                        callerSessionId: opts.callerSessionId,
+                        defaultModel: opts.model,
+                        workspace: opts.workspace,
+                        signal,
+                    }));
             } finally {
                 this.startupBuffer = null;
             }
             const {runId, done} = started!;
             const terminal = createRunTerminal();
-            this.runTerminals.set(runId, terminal);
-            this.runContexts.set(runId, Object.freeze({
-                config: opts.config,
-                project: opts.project,
-            }));
+            const current = this.runner.view(runId);
+            if (current.status === "completed" || current.status === "failed" || current.status === "cancelled") {
+                terminal.resolve();
+            } else {
+                this.runTerminals.set(runId, terminal);
+                this.runContexts.set(runId, runContext);
+            }
             this.buffers.set(runId, buffer);
             this.runInfo.set(runId, {workflowKey: opts.def.key, phases: opts.def.phases});
             this.running.set(runId, new Map());
@@ -402,20 +486,22 @@ class WorkflowDemoService {
             } catch {
                 // session 可能已删除：保留 journal 里的信息
             }
-            sessions.push({sessionId, profileKey, title, tokens: perSession.get(sessionId) ?? null});
+            const tokens = perSession.get(sessionId);
+            sessions.push({sessionId, profileKey, title, tokens: tokens ? projectUsage(tokens) : null});
         }
         sessions.sort((a, b) => a.sessionId - b.sessionId);
-        return {sessions, usage: total};
+        return {sessions, usage: projectUsage(total)};
     }
 
     /** 应答 pending ask 续跑（后台执行） */
-    resume(runId: string, answers: Record<string, JsonValue>): void {
+    resume(runId: string, answers: JsonValue): void {
         const view = this.runner.view(runId);
         if (view.status !== "waiting") throw new Error(`run ${runId} 非 waiting 状态`);
-        for (const ask of view.pendingAsks) {
-            if (answers[ask.key] === undefined) throw new Error(`缺少 ask 应答: ${ask.spec.title}`);
-        }
-        this.runner.resume(runId, answers).catch((error) => consola.error({runId, error}, "workflow demo resume 异常"));
+        validateResumeAnswers(view.pendingAsks, answers);
+        const context = this.runContexts.get(runId);
+        const resume = () => this.runner.resume(runId, answers);
+        const execution = context ? this.runContextStorage.run(context, resume) : resume();
+        execution.catch((error) => consola.error({runId, error}, "workflow demo resume 异常"));
     }
 
     /**
@@ -485,10 +571,11 @@ class WorkflowDemoService {
         const summary = view.status === "completed" || view.status === "failed" || view.status === "cancelled"
             ? await this.runSummary(runId)
             : undefined;
+        const publicView = projectRunView(view);
         return {
-            view,
+            view: publicView,
             ...(summary ? {summary} : {}),
-            events: events.map((t) => t.event),
+            events: events.map((t) => projectWorkflowEvent(t.event)),
             nextCursor,
             ...vm,
         };

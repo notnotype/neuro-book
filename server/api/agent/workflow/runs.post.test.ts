@@ -90,7 +90,7 @@ describe("POST /api/agent/workflow/runs", () => {
             runId: "run_api",
         });
         await fixture.jobs.waitIdle();
-        expect(fixture.jobs.get(response.jobId)).toMatchObject({
+        await expect(fixture.jobs.get(response.jobId)).resolves.toMatchObject({
             kind: "workflow",
             ownerSessionId: null,
             status: "completed",
@@ -141,7 +141,7 @@ describe("POST /api/agent/workflow/runs", () => {
         });
         expect(fixture.getWorkflow).not.toHaveBeenCalled();
         await fixture.jobs.waitIdle();
-        expect(fixture.jobs.get(response.jobId)).toMatchObject({
+        await expect(fixture.jobs.get(response.jobId)).resolves.toMatchObject({
             status: "completed",
             ref: {runId: "run_api", workflowKey: "brainstorm-opening"},
         });

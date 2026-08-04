@@ -2,6 +2,7 @@
 import {computed, inject, onBeforeUnmount, ref, shallowRef, watch} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import WorkflowMermaid from "nbook/app/components/workflow-preview/WorkflowMermaid.vue";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useAgentJob} from "nbook/app/composables/useAgentJob";
@@ -25,7 +26,6 @@ const props = defineProps<{
     toolCall: AgentToolCall;
 }>();
 
-type AskDraftValue = string | string[] | boolean;
 type WorkflowCatalogResponse = {
     workflows: Array<{key: string; title: string; description: string}>;
 };
@@ -36,10 +36,6 @@ const catalogProjectRoot = computed(() => ideStore.workspaceKind === "user-asset
 const runState = shallowRef<WorkflowDemoRunState | null>(null);
 const pollError = ref("");
 const runUnavailable = ref(false);
-const resumeError = ref("");
-const resumeSubmitting = ref(false);
-const resumeSubmitted = ref(false);
-const askDrafts = ref<Record<string, AskDraftValue>>({});
 const chartExpanded = ref(true);
 const catalogTitle = ref("");
 const catalogDescription = ref("");
@@ -280,12 +276,6 @@ async function pollRun(revision: number, expectedRunId: string): Promise<void> {
     }
 }
 
-/** workflow ask 提交后立刻恢复快轮询。 */
-function restartPolling(): void {
-    clearRunPollTimer();
-    scheduleRunPoll(0);
-}
-
 watch(runId, (nextRunId) => {
     runPollRevision++;
     clearRunPollTimer();
@@ -293,10 +283,6 @@ watch(runId, (nextRunId) => {
     runState.value = null;
     pollError.value = "";
     runUnavailable.value = false;
-    resumeSubmitting.value = false;
-    resumeSubmitted.value = false;
-    resumeError.value = "";
-    askDrafts.value = {};
     if (nextRunId) {
         scheduleRunPoll(0);
     }
@@ -310,80 +296,7 @@ watch(status, (nextStatus, previousStatus) => {
             chartExpanded.value = false;
         }
     }
-    if (nextStatus !== "waiting") {
-        resumeSubmitted.value = false;
-        resumeError.value = "";
-    }
 }, {immediate: true});
-
-watch(() => pendingAsks.value.map((ask) => ask.key).join("\n"), () => {
-    const activeKeys = new Set(pendingAsks.value.map((ask) => ask.key));
-    askDrafts.value = Object.fromEntries(Object.entries(askDrafts.value).filter(([key]) => activeKeys.has(key)));
-    resumeSubmitted.value = false;
-});
-
-/** 切换 select ask 的选项。 */
-function toggleAskOption(ask: PendingAsk, optionId: string): void {
-    if (!ask.spec.multi) {
-        askDrafts.value[ask.key] = optionId;
-        return;
-    }
-    const current = Array.isArray(askDrafts.value[ask.key]) ? [...askDrafts.value[ask.key] as string[]] : [];
-    const index = current.indexOf(optionId);
-    if (index >= 0) current.splice(index, 1);
-    else current.push(optionId);
-    askDrafts.value[ask.key] = current;
-}
-
-/** ask 选项是否已选。 */
-function isAskOptionSelected(askKey: string, optionId: string): boolean {
-    const value = askDrafts.value[askKey];
-    return Array.isArray(value) ? value.includes(optionId) : value === optionId;
-}
-
-/** 单个 ask 是否已有可提交答案。 */
-function hasAskAnswer(ask: PendingAsk): boolean {
-    const value = askDrafts.value[ask.key];
-    if (ask.spec.kind === "approve") return typeof value === "boolean";
-    if (ask.spec.kind === "text") return typeof value === "string" && Boolean(value.trim());
-    return Array.isArray(value) ? value.length > 0 : typeof value === "string" && Boolean(value);
-}
-
-const canResume = computed(() => pendingAsks.value.length > 0 && pendingAsks.value.every(hasAskAnswer));
-/** 通过正式 resume API 应答 workflow 内的人类参与点。 */
-async function submitAsks(): Promise<void> {
-    if (!runId.value || !canResume.value || resumeSubmitting.value || resumeSubmitted.value) {
-        return;
-    }
-    const answers: Record<string, JsonValue> = {};
-    for (const ask of pendingAsks.value) {
-        answers[ask.key] = askDrafts.value[ask.key]!;
-    }
-    const revision = runPollRevision;
-    const expectedRunId = runId.value;
-    resumeSubmitting.value = true;
-    resumeError.value = "";
-    try {
-        await $fetch(`/api/agent/workflow/runs/${expectedRunId}/resume`, {
-            method: "POST",
-            body: {answers},
-        });
-        if (disposed || revision !== runPollRevision || expectedRunId !== runId.value) {
-            return;
-        }
-        resumeSubmitted.value = true;
-        restartPolling();
-    } catch (error) {
-        if (disposed || revision !== runPollRevision || expectedRunId !== runId.value) {
-            return;
-        }
-        resumeError.value = resolveApiErrorMessage(error, "继续 workflow 失败");
-    } finally {
-        if (revision === runPollRevision && expectedRunId === runId.value) {
-            resumeSubmitting.value = false;
-        }
-    }
-}
 
 onBeforeUnmount(() => {
     disposed = true;
@@ -481,34 +394,23 @@ onBeforeUnmount(() => {
             等待 workflow 发布首个 wf.chart 状态节点…
         </div>
 
-        <!-- wf.ask waiting：从正式 Run VM 取得完整 ask 规格并原地续跑。 -->
+        <!-- wf.ask waiting：问题在 Composer 区域统一应答，气泡只保留只读状态摘要。 -->
         <div v-if="status === 'waiting'" class="space-y-2">
             <div v-for="ask in pendingAsks" :key="ask.key" class="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
-                <div class="mb-2 text-sm font-semibold text-[var(--status-warning)]">{{ ask.spec.title }}</div>
-                <div v-if="ask.spec.kind === 'select'" class="flex flex-wrap gap-2">
-                    <button v-for="option in ask.spec.options ?? []" :key="option.id" type="button" class="rounded-full border px-3 py-1 text-xs transition-colors"
-                        :class="isAskOptionSelected(ask.key, option.id)
-                            ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
-                            : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)]'"
-                        :disabled="resumeSubmitting || resumeSubmitted" @click="toggleAskOption(ask, option.id)">{{ option.label }}</button>
+                <div class="text-sm font-semibold text-[var(--status-warning)]">{{ ask.spec.title }}</div>
+                <AgentMarkdownContent v-if="ask.spec.description" class="mt-2" :content="ask.spec.description" />
+                <div v-if="ask.spec.kind === 'select'" class="mt-2 text-xs text-[var(--text-secondary)]">
+                    可选：{{ (ask.spec.options ?? []).map((option) => option.label).join("、") }}
                 </div>
-                <input v-else-if="ask.spec.kind === 'text'" v-model="askDrafts[ask.key]" type="text" class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-sm text-[var(--text-main)]" :disabled="resumeSubmitting || resumeSubmitted" placeholder="输入应答…">
-                <div v-else class="flex flex-wrap items-center gap-2">
-                    <button type="button" class="rounded border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1 text-xs text-[var(--status-success)]" :disabled="resumeSubmitting || resumeSubmitted" @click="askDrafts[ask.key] = true">同意</button>
-                    <button type="button" class="rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-1 text-xs text-[var(--status-danger)]" :disabled="resumeSubmitting || resumeSubmitted" @click="askDrafts[ask.key] = false">否决</button>
-                    <span class="text-xs text-[var(--text-muted)]">{{ typeof askDrafts[ask.key] === "boolean" ? (askDrafts[ask.key] ? "已选择同意" : "已选择否决") : "尚未选择" }}</span>
+                <div v-else class="mt-2 text-xs text-[var(--text-secondary)]">
+                    {{ ask.spec.kind === "approve" ? "等待批准或拒绝" : "等待文字回答" }}
                 </div>
             </div>
             <div v-if="pendingAsks.length === 0 && pendingAskTitles.length" class="rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">
                 等待应答：{{ pendingAskTitles.join("；") }}。正在读取完整应答项…
             </div>
-            <div class="flex flex-wrap items-center justify-between gap-2">
-                <span v-if="resumeError" class="text-xs text-[var(--status-danger)]">{{ resumeError }}</span>
-                <span v-else-if="resumeSubmitted" class="text-xs text-[var(--status-info)]">应答已提交，workflow 正在继续…</span>
-                <span v-else class="text-xs text-[var(--text-muted)]">全部参与点完成后可继续</span>
-                <button v-if="pendingAsks.length" type="button" class="rounded bg-[var(--accent-main)] px-3 py-1.5 text-xs font-medium text-[var(--text-inverse)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="!canResume || resumeSubmitting || resumeSubmitted" @click="submitAsks">
-                    {{ resumeSubmitting ? "提交中…" : resumeSubmitted ? "已提交" : "应答并继续" }}
-                </button>
+            <div class="rounded border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">
+                请在底部 Workflow 待处理区应答。
             </div>
         </div>
 

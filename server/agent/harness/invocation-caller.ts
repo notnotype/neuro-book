@@ -1,6 +1,9 @@
 /** Agent invocation 的调用方类别。 */
 export type AgentInvokeCallerKind = "user" | "agent" | "system";
 
+/** Durable message 的投影身份；与调用来源 caller.kind 分离。 */
+export type AgentMessageIdentity = "user" | "system";
+
 /**
  * Agent invocation 的稳定调用方身份。
  *

@@ -8,7 +8,8 @@ import {assertVisibleModel, resolveAgentVisibleModels} from "nbook/server/agent/
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import {createProjectWorkflowWorkspace} from "nbook/server/agent/workflow/workflow-workspace-port";
 import type {JsonValue} from "nbook/server/agent/messages/types";
-import type {AgentInvokeUsage, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
+import type {WorkflowUsage} from "nbook/server/agent/workflow/workflow-demo-service";
 
 const RunWorkflowSchema = Type.Object({
     workflowKey: Type.Optional(Type.String({
@@ -38,8 +39,8 @@ type RunWorkflowDetails = {
     error: string | null;
     /** 等待用户应答的 ask 标题（status=waiting 时非空） */
     pendingAsks: string[];
-    sessions: {sessionId: number; profileKey: string; title: string; tokens: AgentInvokeUsage | null}[];
-    usage: AgentInvokeUsage;
+    sessions: {sessionId: number; profileKey: string; title: string; tokens: WorkflowUsage | null}[];
+    usage: WorkflowUsage;
     /** 终态状态图（wf.chart 投影；气泡静态兜底） */
     chartMermaid: string | null;
 };
@@ -130,7 +131,7 @@ export function createWorkflowTools() {
                 };
             }
 
-            const {runId, done} = service.startWorkflowRun({
+            const {runId, done, terminal} = service.startWorkflowRun({
                 def,
                 args,
                 callerSessionId: context.sessionId,
@@ -163,6 +164,13 @@ export function createWorkflowTools() {
                 if (heartbeat) clearInterval(heartbeat);
             }
 
+            if (view.status === "waiting" || view.pendingAsks.length > 0) {
+                // wait:true 没有 Job/Composer 收件箱，不能留下无法继续的 waiting Run。
+                service.cancelRun(runId);
+                await terminal;
+                throw new Error(`workflow ${def.key} 在 wait:true 下需要用户应答；该 Run 已取消，请改用默认后台模式。`);
+            }
+
             const summary = await service.runSummary(runId);
             const state = await service.runState(runId, 0);
             const details: RunWorkflowDetails = {
@@ -184,9 +192,6 @@ export function createWorkflowTools() {
             if (view.status === "completed") {
                 lines.push(`workflow ${def.key} 已完成（run ${runId}）。`);
                 lines.push(`结果：${JSON.stringify(view.result ?? null)}`);
-            } else if (view.status === "waiting") {
-                lines.push(`workflow ${def.key} 挂起等待用户应答（run ${runId}）：${details.pendingAsks.join("；")}`);
-                lines.push("用户在 workflow 面板应答后 run 会继续；你无需重复调用本工具。");
             } else if (view.status === "cancelled") {
                 lines.push(`workflow ${def.key} 已取消（run ${runId}）。`);
             } else {

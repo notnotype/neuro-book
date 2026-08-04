@@ -1,4 +1,4 @@
-import {readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import {describe, expect, it, vi} from "vitest";
@@ -221,12 +221,38 @@ describe("AgentJobManager", () => {
             mode: "prompt",
             message: {text: "<system-reminder>\n[后台任务完成] background task（" + jobs.list()[0]!.jobId + "）\ndone\n</system-reminder>"},
             caller: {kind: "system"},
+            messageIdentity: "system",
             signal: expect.any(AbortSignal),
         });
 
         releaseDelivery!();
         await idle;
         expect(idleResolved).toBe(true);
+        await expect(jobs.get(jobs.list()[0]!.jobId)).resolves.toMatchObject({deliveryStatus: "accepted"});
+    });
+
+    it.each([
+        ["返回 error", async () => ({sessionId: 7, invocationId: "delivery-error", status: "error" as const, acceptance: {state: "none" as const}, error: "owner 忙"})],
+        ["抛出异常", async () => { throw new Error("owner invocation 崩溃"); }],
+    ])("结果回流%s时只标记 delivery failed 且不重试", async (_label, invoke) => {
+        const invokeAgent = vi.fn(invoke);
+        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        const spawned = jobs.spawn({
+            kind: "workflow",
+            title: "delivery failure",
+            ownerSessionId: 7,
+            run: async () => ({resultPreview: "done", result: {ok: true}}),
+        });
+
+        await jobs.waitIdle();
+
+        await expect(jobs.get(spawned.job.jobId)).resolves.toMatchObject({
+            status: "completed",
+            deliveryStatus: "failed",
+            deliveryError: expect.stringContaining("owner"),
+            result: {ok: true},
+        });
+        expect(invokeAgent).toHaveBeenCalledOnce();
     });
 
     it("shutdown 会取消在途结果回流，不被不合作的 owner invocation 永久阻塞", async () => {
@@ -318,7 +344,7 @@ describe("AgentJobManager", () => {
 
         await jobs.waitIdle();
         const summary = jobs.list()[0]!;
-        const detail = jobs.get(spawned.job.jobId)!;
+        const detail = (await jobs.get(spawned.job.jobId))!;
         const notification = invokeAgent.mock.calls[0]![0].message.text;
 
         expect(summary).not.toHaveProperty("result");
@@ -363,6 +389,31 @@ describe("AgentJobManager", () => {
         await rm(root, {recursive: true, force: true});
     });
 
+    it("recoverInterrupted 独立处理每条中断通知，单条失败不阻塞后续", async () => {
+        const root = resolve(".agent", "agent-job-recovery-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        await mkdir(root, {recursive: true});
+        await writeFile(registryPath, [
+            {at: 1, jobId: "job-fail", kind: "workflow", title: "失败通知", ownerSessionId: 1, status: "running", deliveryStatus: "pending"},
+            {at: 2, jobId: "job-ok", kind: "workflow", title: "成功通知", ownerSessionId: 2, status: "waiting", deliveryStatus: "pending"},
+        ].map((line) => JSON.stringify(line)).join("\n") + "\n", "utf8");
+        const invokeAgent = vi.fn(async (input: {sessionId: number; messageIdentity?: string; caller?: {kind: string}}) => {
+            if (input.sessionId === 1) throw new Error("owner-1 offline");
+            return {sessionId: input.sessionId, invocationId: "recovery", status: "completed" as const, acceptance: {state: "none" as const}};
+        });
+        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, registryPath);
+
+        await jobs.recoverInterrupted();
+
+        expect(invokeAgent).toHaveBeenCalledTimes(2);
+        expect(invokeAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({messageIdentity: "system", caller: {kind: "system"}}));
+        expect(invokeAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({messageIdentity: "system", caller: {kind: "system"}}));
+        const lines = (await readFile(registryPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as {jobId: string; status: string; deliveryStatus?: string; deliveryError?: string});
+        expect(lines.filter((line) => line.jobId === "job-fail").at(-1)).toMatchObject({status: "interrupted", deliveryStatus: "failed", deliveryError: "owner-1 offline"});
+        expect(lines.filter((line) => line.jobId === "job-ok").at(-1)).toMatchObject({status: "interrupted", deliveryStatus: "accepted"});
+        await rm(root, {recursive: true, force: true});
+    });
+
     it("clearFinished 只清终态条目，running 保留", async () => {
         const jobs = new AgentJobManager(() => {
             throw new Error("ownerless 测试不应投递");
@@ -399,5 +450,51 @@ describe("AgentJobManager", () => {
 
         release!();
         await jobs.waitIdle();
+    });
+
+    it("clearFinished 后迟到的 delivery 状态不重新发布已清除 Job", async () => {
+        let releaseDelivery!: () => void;
+        const delivery = new Promise<void>((resolve) => {
+            releaseDelivery = resolve;
+        });
+        const invokeAgent = vi.fn(async () => {
+            await delivery;
+            return {
+                sessionId: 7,
+                invocationId: "late-delivery",
+                status: "completed" as const,
+            };
+        });
+        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        const before = jobs.recovery().eventCursor;
+        const spawned = jobs.spawn({
+            kind: "workflow",
+            title: "clear during delivery",
+            ownerSessionId: 7,
+            run: async () => ({resultPreview: "done"}),
+        });
+
+        await vi.waitFor(() => expect(jobs.list().find((job) => job.jobId === spawned.job.jobId)?.status).toBe("completed"));
+        await vi.waitFor(() => expect(invokeAgent).toHaveBeenCalledOnce());
+        const terminal = jobs.recovery().eventCursor;
+        expect(jobs.clearFinished()).toBe(1);
+        expect(jobs.list()).toEqual([]);
+        expect(jobs.recovery().eventCursor.after).toBe(terminal.after + 1);
+
+        let idleResolved = false;
+        const idle = jobs.waitIdle().then(() => {
+            idleResolved = true;
+        });
+        await Promise.resolve();
+        expect(idleResolved).toBe(false);
+
+        releaseDelivery();
+        await idle;
+        expect(idleResolved).toBe(true);
+        expect(jobs.list()).toEqual([]);
+        expect(jobs.recovery().eventCursor).toEqual({
+            eventEpoch: before.eventEpoch,
+            after: terminal.after + 1,
+        });
     });
 });
