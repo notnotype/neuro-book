@@ -119,7 +119,15 @@
 - 分叉整体不在 active path 上时不显示切换器，这类分支仍通过 Session Tree 对话框审计——与 Task 49 的既有约定一致。
 - `tool_result` 与 system 卡片（reminder / compaction / branch_summary）不作为分支锚点：前者并入 assistant 气泡没有独立工具条，后者是每轮注入的脚手架，不是「另一个版本」。
 
+## 交付状态
+
+- 六个批次全部实现并随 PR [#34](https://github.com/notnotype/neuro-book/pull/34) `fix(agent): recover missing sessions and project conversation branches` 合并进 `master`（commit `30c524d1`）。
+- **任务编号与计划不一致**：计划里写的是 135，建目录时 135 已被 [Agent 资产安装协议](../135-agent-asset-install-protocol/README.md) 占用，实际编号为 138。Task 49 回写里的三处 `Task 135` 链接已在 2026-08-04 修正为 138（此前指向错误目录）。
+- master 复验（2026-08-04）：`bun run test app/components/novel-ide/agent/session-tree.test.ts server/agent/events/public-chat-entry-projection.test.ts server/agent/session/session-repo.test.ts` → 3 files / 102 tests 全绿。
+- **浏览器验收仍未执行**，清单见上一节；这是本任务唯一未完成的验证环节。
+
 ## TODO / Follow-ups
 
+- [ ] 浏览器验收（用户执行或授权）。
 - [ ] 真 fork：把活动路径复制进新会话，需处理附件授权、关系账本与 project 绑定，独立任务。
 - [ ] `JsonlSessionRepository.appendUserMessage()` 只有测试在用（写 `origin: "manual"`），属于混在生产代码里的测试 helper，可考虑下沉到测试工具。

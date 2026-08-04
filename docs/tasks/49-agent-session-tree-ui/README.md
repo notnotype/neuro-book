@@ -270,10 +270,10 @@ Sidecar transcript 是 inactive branch，也应该在 tree dialog 中清楚出�
 ## Follow-up Options
 
 - Search 模式当前只展示命中路径和必要 branch anchor，不展示同一 branch point 下未命中的 sibling。这更适合搜索聚焦；如果希望搜索时也显示“这里还有其他分支”，需要增加 collapsed sibling hint，而不是把未命中的分支完整展开。
-- ~~V1 swipe switcher 挂在 active continuation lane root 对应的消息气泡上。如果 lane root 是 `toolResult` / lifecycle / 其他非文本气泡节点，聊天流不额外寻找后续 descendant 气泡承载外层分支 switcher；这类分支仍通过 Session Tree dialog 审计。~~ **已由 [Task 135](../135-agent-conversation-branch-projection/README.md) 处理（2026-08-03）**：这条当时被记为「限制」，但实测发现 lane root 是 `invocation_lifecycle: start` 是**每次运行必然发生**的情况，因此它实际吃掉了全部重试分支——504 个真实会话里真正由重试 / 编辑 / 报错重跑产生、能显示 switcher 的分支数为 0。
+- ~~V1 swipe switcher 挂在 active continuation lane root 对应的消息气泡上。如果 lane root 是 `toolResult` / lifecycle / 其他非文本气泡节点，聊天流不额外寻找后续 descendant 气泡承载外层分支 switcher；这类分支仍通过 Session Tree dialog 审计。~~ **已由 [Task 138](../138-agent-conversation-branch-projection/README.md) 处理（2026-08-03）**：这条当时被记为「限制」，但实测发现 lane root 是 `invocation_lifecycle: start` 是**每次运行必然发生**的情况，因此它实际吃掉了全部重试分支——504 个真实会话里真正由重试 / 编辑 / 报错重跑产生、能显示 switcher 的分支数为 0。
 - 当前折叠状态不持久化；如果后续希望跨 Dialog 打开或跨 session 记住折叠状态，可以在前端 store 中按 sessionId 保存，不应写入 append-only session tree。
 
-## 决策变更：气泡与 Dialog 不再共用同一套 branch 语义（2026-08-03，Task 135）
+## 决策变更：气泡与 Dialog 不再共用同一套 branch 语义（2026-08-03，Task 138）
 
 本 task「Goal」里的这条要求已被显式推翻：
 
@@ -286,4 +286,4 @@ Sidecar transcript 是 inactive branch，也应该在 tree dialog 中清楚出�
 
 强行统一的后果是记账 entry 抢占了 lane root 的位置：真分支显示不出来，同时 `custom agent.link.*` 被当成假分支（切过去会把对话截断）。
 
-Task 135 的处理方式是**共享事实、分离策略**：服务端用 `chatEntryKind()` 下发「这条 entry 会渲染成哪种气泡」这一事实（`SessionTreeNode.chatEntry`，取代原来的 `messageId`），气泡侧据此做锚点条件化投影；**本 task 的 `deriveAgentSessionTreeRows` / `isRawBranchPoint` / lane depth / guide / 折叠 / search 一行未动**，Dialog 行为与既有回归用例保持不变。
+Task 138 的处理方式是**共享事实、分离策略**：服务端用 `chatEntryKind()` 下发「这条 entry 会渲染成哪种气泡」这一事实（`SessionTreeNode.chatEntry`，取代原来的 `messageId`），气泡侧据此做锚点条件化投影；**本 task 的 `deriveAgentSessionTreeRows` / `isRawBranchPoint` / lane depth / guide / 折叠 / search 一行未动**，Dialog 行为与既有回归用例保持不变。
