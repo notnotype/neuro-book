@@ -18,7 +18,7 @@ import {
 describe("chapter-write-review-revise workflow", () => {
     const catalog = new WorkflowCatalog(
         resolve("assets", "workspace", ".nbook", "agent", "workflows"),
-        resolve(".agent", "workspace", "chapter-wrr-test", "no-user-root"),
+        resolve(".agent", "tmp", "chapter-wrr-test", "no-user-root"),
     );
     const chapterPath = "manuscript/001-volume/001-chapter/index.md";
     const chapterBody = "# 第一章 星陨遗迹\n薇洛丝在遗迹深处解开了封印。";

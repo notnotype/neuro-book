@@ -42,7 +42,7 @@ type RouteFixture = {
 };
 
 describe("POST /api/agent/workflow/runs", () => {
-    const testRoot = resolve(".agent", "workspace", "workflow-runs-post-test");
+    const testRoot = resolve(".agent", "tmp", "workflow-runs-post-test");
     const cleanupRoots: string[] = [];
 
     beforeAll(async () => {

@@ -35,7 +35,7 @@ export async function installSourceDependencies(root: string, bun = "bun"): Prom
 /**
  * 从源码执行统一 `nuxt:build` Builder，并把已验证镜像移入 Manager staging。
  *
- * Builder 输出先放在 Source Root 内被 Git 忽略的 `.agent/workspace`，既满足 Builder
+ * Builder 输出先放在 Source Root 内被 Git 忽略的 `.agent`，既满足 Builder
  * 同盘原子切换合同，也不会提前覆盖 Installation Root 当前 `.output`。
  */
 export async function buildSourceProduct(input: {
@@ -50,7 +50,7 @@ export async function buildSourceProduct(input: {
 }): Promise<StagedProduct> {
     const sourceRoot = input.sourceRoot ?? input.root;
     const operationId = `manager-${randomUUID()}`;
-    const buildOutput = join(sourceRoot, ".agent", "workspace", "manager-product-build", operationId, ".output");
+    const buildOutput = join(sourceRoot, ".agent", "manager-product-build", operationId, ".output");
     const stagedOutput = join(input.staging, ".output");
     await removePath(stagedOutput);
     await removePath(dirname(buildOutput));

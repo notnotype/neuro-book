@@ -12,7 +12,7 @@ import {PRODUCT_BUN_RUNTIME_ARGS, PRODUCT_RUNTIME_COMMAND_BOOTSTRAP} from "../..
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const BUILD_OUTPUT_ROOT = resolve(REPO_ROOT, process.env.NEURO_BOOK_OUTPUT_DIR?.trim() || ".output");
-const ACCEPTANCE_ROOT = resolve(REPO_ROOT, ".agent", "workspace", "product-runtime-acceptance");
+const ACCEPTANCE_ROOT = resolve(REPO_ROOT, ".agent", "product-runtime-acceptance");
 const ACCEPTANCE_POINTER = resolve(ACCEPTANCE_ROOT, "current.json");
 const OWNER_FILE = ".nbook-product-acceptance.json";
 const LEASE_FILE = ".nbook-product-acceptance-lease";
@@ -37,7 +37,7 @@ if (command === "stage") {
  * 把当前已验证 Runtime Image 复制为短生命周期验收实例。
  *
  * 该命令故意不重建、不投影 Source，也不接受任意目录作为输入；产品正确性唯一
- * 来源是 Builder 已写入 ready marker 的 `.output`。实例位于 `.agent/workspace`，
+ * 来源是 Builder 已写入 ready marker 的 `.output`。实例位于 `.agent`，
  * 不再污染仓库根 `product/`。
  */
 async function stageProduct() {
@@ -203,7 +203,7 @@ function requestedOperationId() {
     return operationId;
 }
 
-/** 支持显式验收目录，但永远限制在 `.agent/workspace`。 */
+/** 支持显式验收目录，但永远限制在 `.agent`。 */
 function resolveStageRoot(operationId) {
     const configured = process.env.NEURO_BOOK_PRODUCT_STAGE_DIR?.trim();
     const stageRoot = configured
@@ -211,7 +211,7 @@ function resolveStageRoot(operationId) {
         : resolve(ACCEPTANCE_ROOT, operationId);
     assertContained(ACCEPTANCE_ROOT, stageRoot, "Product 验收目录");
     if (stageRoot === ACCEPTANCE_ROOT) {
-        throw new Error("Product 验收目录不能是 `.agent/workspace/product-runtime-acceptance` 根。");
+        throw new Error("Product 验收目录不能是 `.agent/product-runtime-acceptance` 根。");
     }
     return stageRoot;
 }
@@ -388,11 +388,11 @@ function run(commandName, args, options) {
     });
 }
 
-/** 防止环境变量或 pointer 越过 `.agent/workspace`。 */
+/** 防止环境变量或 pointer 越过 `.agent`。 */
 function assertContained(root, target, label) {
     const relativePath = relative(resolve(root), resolve(target));
     if (relativePath === "" || (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath))) {
         return;
     }
-    throw new Error(`${label} 逃逸 .agent/workspace：${target}`);
+    throw new Error(`${label} 逃逸 .agent：${target}`);
 }

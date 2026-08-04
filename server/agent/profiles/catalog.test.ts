@@ -55,7 +55,7 @@ describe("AgentProfileCatalog", {timeout: 15_000}, () => {
         applicationRootBeforeTest = process.env.NEURO_BOOK_APPLICATION_ROOT;
         productImageRootBeforeTest = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT;
         productBuildBeforeTest = process.env.NEURO_BOOK_PRODUCT_BUILD;
-        root = resolve(".agent", "workspace", "agent-profile-catalog-test", randomUUID());
+        root = resolve(".agent", "tmp", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(systemRoot, {recursive: true});

@@ -69,7 +69,7 @@ describe("Product Runtime Contract", () => {
     });
 
     it("验证 bootstrap 与所有合同入口实际存在", async () => {
-        const root = resolve(".agent", "workspace", "product-contract-test", randomUUID());
+        const root = resolve(".agent", "tmp", "product-contract-test", randomUUID());
         roots.push(root);
         const contract = contractFixture();
         const entries = new Set([

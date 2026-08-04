@@ -768,7 +768,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {
-        const root = resolve(".agent", "workspace", "writer-preset-test", randomUUID());
+        const root = resolve(".agent", "tmp", "writer-preset-test", randomUUID());
         const systemStyleRoot = join(root, "system", "styles");
         const userStyleRoot = join(root, "user", "styles");
         const systemReferenceRoot = join(root, "system", "references");
@@ -1044,7 +1044,7 @@ describe("assets builtin v3 profiles", () => {
     });
 
     it("leader.default Project home 初始化默认人设资源并可通过 resource-preset 校验", async () => {
-        const projectRoot = resolve(".agent", "workspace", "leader-default-home-test", randomUUID());
+        const projectRoot = resolve(".agent", "tmp", "leader-default-home-test", randomUUID());
         await mkdir(projectRoot, {recursive: true});
         try {
             const projectRef = projectWorkspaceRef(basename(projectRoot));

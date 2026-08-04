@@ -12,7 +12,7 @@ describe("ProfileBuildCoordinator", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "workspace", "profile-build-coordinator-test", randomUUID());
+        root = resolve(".agent", "tmp", "profile-build-coordinator-test", randomUUID());
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
     });
