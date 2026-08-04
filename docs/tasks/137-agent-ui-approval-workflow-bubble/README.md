@@ -72,7 +72,13 @@ GitHub Issue：#50（主需求）。跟进：#51（直播卡片展开完整对�
 与计划的出入：
 
 1. 折叠统一范围除计划内 3 处外，顺带统一了「内联 workflow 脚本」（第 4 处 `<details>`），否则同一卡片内两种折叠样式并存。
-2. 可视化区外层容器仅在 `matchingRunState` 存在时渲染；未连接上 run 时的占位文案由「等待 workflow 发布首个 wf.chart 状态节点…」改为「正在连接 workflow run…」（机器图占位文案移入共享组件内部）。
+2. 可视化区外层容器在未连上 run 但 details 带 `chartMermaid` 时仍展示（保留旧回退行为）；未连接且无任何图时的占位文案由「等待 workflow 发布首个 wf.chart 状态节点…」改为「正在连接 workflow run…」（机器图占位文案移入共享组件内部）。
+
+自查修复（提交后 diff 复审发现，已补第二个提交）：
+
+1. 气泡可视化区条件从 `v-if="matchingRunState"` 改为 `matchingRunState || effectiveChart`——run 不可查询（服务重启 404）时旧版仍展示 details 里的状态图，初版改丢了该回退。
+2. `WorkflowRunVisuals` 的 showMachineTab watch 加 `immediate`——否则 defaultView=machine 且 tab 隐藏时无 tab 激活、内容落到末尾 else（trace）。
+3. RunPanel 给共享组件加 `:key="runId"`——恢复旧版切换 run 时 tab 重置回默认视图的行为。
 
 验证：
 
