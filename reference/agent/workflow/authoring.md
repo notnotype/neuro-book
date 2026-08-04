@@ -149,7 +149,7 @@ const [outline, risks] = await wf.all([
 ## 其他稳定 API
 
 - `wf.workspace.read(path)`：只读当前 Project Workspace 文件，路径使用 `manuscript/...`、`lorebook/...` 等 Project Workspace 相对语义。
-- `wf.ask(spec)`：创建 `select`、`text` 或 `approve` 人工参与点；未应答时 run 进入 `waiting`。
+- `wf.ask(spec)`：创建 `select`、`text` 或 `approve` 人工参与点；可附 `description` Markdown 说明；未应答时 Run 进入 `waiting`。默认后台 Run 的问题会显示在发起 Session Composer 下方的 Workflow 待处理区，用户逐项提交后再 resume；`wait:true` 没有 Job 收件箱，遇到 ask 会取消并报错，编写需要人工参与的流程时不要要求调用方使用 `wait:true`。不要让 agent 代答，也不要重复启动同一个 Run。
 - `wf.log(message)`：写运行日志。
 - `wf.progress({phase, done?, total?})`：更新阶段进度；`phase` 应来自定义中的 `phases`。
 - `wf.caller()`：获取发起方 session 句柄。只有 agent 通过工具触发时存在，其他入口会抛错。
@@ -169,7 +169,7 @@ return {
 };
 ```
 
-默认后台模式先返回 jobId/runId，平台在完成回流和 `get_job` 中提供业务结果、触达 session 与 usage；`wait: true` 的完整 details 还包含终态状态图。workflow 自定义结果不要复制这些平台元数据。
+默认后台模式先返回 jobId/runId，平台在完成回流和 `get_job` 中提供业务结果、触达 session 与 usage；`wait: true` 的完整 details 还包含终态状态图。workflow 自定义结果不要复制这些平台元数据。公开 usage 只包含 token 明细，不包含 `cost`；Run 的公开 `journal/events` 同样移除 invocation usage 中的 `cost`，但保留自定义结果自己的 `cost` 字段；价格仍属于普通 Session 的内部统计。
 
 ## 确定性与重放
 

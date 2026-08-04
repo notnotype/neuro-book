@@ -248,7 +248,6 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
                     { profileKey, initial: opts.initial ?? null, tags: opts.tags ?? [], parent: opts.parent?.id ?? null, ephemeral: opts.ephemeral ?? false, model },
                     async () => {
                         const meta = await rt.ports.sessions.createSession({
-                            runId: rt.run.runId,
                             profileKey, kind: "chat", tags: opts.tags ?? [], parentSessionId: opts.parent?.id, initial: opts.initial, model: model ?? undefined,
                         });
                         return { sessionId: meta.sessionId };
@@ -262,7 +261,7 @@ function createWf(rt: Runtime, args: JsonValue): Wf {
                     async () => {
                         const found = await rt.ports.sessions.findByTag(profileKey, tag);
                         if (found) return { sessionId: found.sessionId, leafId: await rt.ports.sessions.activeLeaf(found.sessionId), created: false };
-                        const meta = await rt.ports.sessions.createSession({runId: rt.run.runId, profileKey, kind: "chat", tags: [tag], parentSessionId: parent?.id});
+                        const meta = await rt.ports.sessions.createSession({ profileKey, kind: "chat", tags: [tag], parentSessionId: parent?.id });
                         return { sessionId: meta.sessionId, leafId: null, created: true };
                     }) as { sessionId: SessionId; leafId: EntryId | null };
                 await rt.lock(out.sessionId);
@@ -391,8 +390,7 @@ export class WorkflowRunner {
                 run.removeExternalAbort = () => opts.signal?.removeEventListener("abort", onAbort);
             }
         }
-        // begin只同步分配并发布runId；实际执行进入microtask，让宿主先登记run-scoped上下文。
-        return {runId: run.runId, done: Promise.resolve().then(() => this.execute(run))};
+        return { runId: run.runId, done: this.execute(run) };
     }
 
     /** 面 A（无 caller）/ 面 B（callerSessionId = 发起 agent 的 session） */

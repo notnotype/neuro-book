@@ -1,6 +1,6 @@
 # Task 111：Workflow 正式接入 NeuroBook Agent
 
-状态：实现完成（Plan G Jobs SSE 于 2026-07-27 收口）；浏览器与真实模型验收待执行。上游：Task 110（内核端口化 + demo 页 + `wf.chart` 状态图已定形）。
+状态：实现完成（Plan G Jobs SSE 于 2026-07-27 收口；Task 111 反馈闭环于 2026-08-04 收口）；浏览器与真实模型验收待执行。上游：Task 110（内核端口化 + demo 页 + `wf.chart` 状态图已定形）。
 
 ## 用户需求（原话要点）
 
@@ -263,6 +263,30 @@
 - 修复 `builtin.result.main({dataSchemaFromInitial})` binding 只包含动态 schema 字段时，被两个重复的 `isReportResultBinding()` 漏判的问题。之前 harness 没有把 session initial 的 `outputSchema` 传入 report_result schema，模型可见参数缺少 `data`，执行层也会把缺 data 的调用当成成功。
 - 将守卫集中到 `server/agent/profiles/report-result-schema.ts`，harness 复用唯一实现；显式声明 outputSchema（包括空 schema）继续要求 `data`，静态 profile 和未声明 outputSchema 的 adhoc 行为不变。
 - 新增真实 adhoc harness 回归，覆盖 provider 可见 schema、缺 data 错误重试、合法结构化结果、空 schema 的 `{}` 结果，以及未声明 outputSchema 时只返回 `result` 的兼容边界。profile 聚焦 8 项、harness report_result 15 项、5 个 bundled workflow 文件 16 项、profile preview 2 项通过；`bun run typecheck` 退出码为 0。`llmlint-full-review` 使用同一 adhoc 动态合同，但依赖外部 llmlint 命令和审批流程，本轮未执行完整 workflow 专项冒烟，真实 Harness 回归覆盖其共享运行时 seam。
+
+### 2026-08-03 Workflow 回流身份、公开用量与 `wf.ask` 待处理区
+
+- **后台回流身份**：`AgentJobManager` 的 Workflow 完成/失败通知继续通过 `caller:{kind:"system"}` 发起。调用方身份现在随 steer/follow-up 队列持久化，服务重启恢复也保留该身份；落 durable entry 时系统回流写为 `custom_message`，不会再以普通用户消息出现在 Chat Flow。entry 同时保留 `sourceQueueItemId`，恢复或重复 drain 会先识别已提交项并确认队列，避免重复投递。
+- **公开 usage**：Workflow 公共 `WorkflowRunSummary`、工具 details 和前端气泡模型统一投影 token 用量，移除 `cost`；内部 Session usage 仍保留 cost 累计，不影响普通会话的内部统计。
+- **`wf.ask`**：新增 Composer 区域的 Workflow 待处理面板，按当前 owner Session 展示多个 waiting 后台 Run，支持 select/text/approve、Markdown description、逐个提交和独立 resume API。气泡保留只读状态图与问题摘要，普通聊天 Composer 不被替换。
+- **实现边界**：pending 面板只消费带 Job 的后台 Workflow；`wait:true` 仍是短流程阻塞入口，禁止把长流程或人工参与点交给该模式。未执行浏览器、真实 Project Workspace/模型验收。
+
+**验证**：`bun run typecheck` 退出码 1，但只报告既有的 7 个仓库错误（两个 admin transaction 回调隐式 `any`，Prisma generated client 缺失的 5 个模块错误）；本轮文件零新增类型错误。`bunx vitest run server/agent/messages server/agent/workflow server/agent/tools/workflow-tools.test.ts server/agent/harness/neuro-agent-harness.test.ts app/components/novel-ide/agent/workflow-bubble.test.ts`：19 个文件、250 项通过。未自动执行浏览器验收。
+
+### 2026-08-04 Task 111 反馈闭环收口
+
+- **消息身份**：在 invocation、steer/follow-up queue 和持久化 codec 中保存显式 `messageIdentity`。Workflow 回流明确使用 `system`；空闲直投递、忙时入队、queue drain、重复 drain 识别和重启恢复都写成 `custom_message`，不进入普通用户消息 projection。保留旧队列缺省值的边界兼容，但新写入始终显式保存身份。
+- **公开用量**：内部 `runSummary` 继续累计完整 token/cost，公开投影统一作用于 Run 的 `journal`、增量 `events`、工具 details、Job result/detail 与前端模型，只移除 invocation `result.usage.cost`；用户自定义结果中的 `cost` 不误删。
+- **Job 详情与投递**：`AgentJobManager.get()` 改为异步 kind-specific 详情入口，HTTP 与 Agent `get_job` 共用；Workflow 详情包含 Run 状态、完整 pending asks、参与 session、公开 token usage 和完整 result。新增 `deliveryStatus`/`deliveryError`，`failed` 只表示回流失败，不改写执行终态、不自动重试；任务中心现展示回流状态和失败原因。
+- **等待与应答**：`wait:true` 遇到 `wf.ask` 会取消并等待 Run 终态后报错，避免留下无 Job 的 waiting Run。默认后台模式继续由 Job 驱动 Composer 待处理区；服务端一次性校验全部答案，覆盖缺失/多余 key、approve false、select 单选/多选选项和非空 text，非法请求不触碰内核/journal。`/workflow.preview` 与 Composer 均按 Run 加提交锁、重复提交保护和 Markdown description 展示。
+- **异步观察竞态**：Composer 待处理区的 resume 响应、异常和收尾都绑定 Session 观察代际与 Run 轮询代际；切换 Session/Run 后，迟到响应不会清理或写回新观察状态。
+- **协作边界**：没有修改 sibling `nb-workflow`、没有新增 ADR、没有修改 `RELEASE.md`，没有建设无 Job 收件箱、跨重启 Run 真相或新的重试协调器。vendor snapshot 保留 sibling 合同分支已提交的 `c071ad5`（包含 `cancelled`、Ask description、完整 usage 等本轮依赖），同步脚本增加 `--source`/`--dry-run` 以便明确指定该 worktree；本轮未改 sibling 源仓。实现中修正了现有 Workflow Job detail 测试 fixture 的一个多余括号，使最终聚焦套件可解析。
+
+**验证**：
+
+- `bunx vitest run server/agent/jobs server/agent/workflow server/agent/tools/workflow-tools.test.ts server/agent/messages/stored-message-codec.test.ts server/agent/events/public-queue-projection.test.ts server/agent/harness/neuro-agent-harness.test.ts app/composables/useAgentJob.test.ts app/composables/useAgentJobsFeed.test.ts app/composables/agent-jobs-wiring.test.ts app/components/novel-ide/agent/workflow-bubble.test.ts app/utils/workflow-preview.contract.test.ts --reporter=dot --testTimeout=15000`：22 个文件、301 项通过。
+- `bun run typecheck` 退出码 1；只剩既有 7 个仓库错误：两个 admin transaction 回调隐式 `any`，以及 Prisma generated client 缺失导致的 5 个模块错误。本轮新增类型错误为 0。
+- 未自动执行浏览器验收，也未执行真实 Project Workspace/provider/模型验收；待人工走 `/workflow.preview`、后台 waiting + Composer、多 Workflow 并行应答、完成消息身份和真实项目链路。
 
 ## 后续 TODO
 

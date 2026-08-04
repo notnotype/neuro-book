@@ -18,7 +18,7 @@ export class MemorySessionStore implements SessionPort {
     /** 排它锁：sessionId -> 持有者标识（runId 或 "direct"） */
     private locks = new Map<SessionId, string>();
 
-    async createSession(init: {runId?: string; profileKey: string; kind: SessionMeta["kind"]; tags: string[]; initial?: JsonValue; parentSessionId?: SessionId; title?: string}): Promise<SessionMeta> {
+    async createSession(init: { profileKey: string; kind: SessionMeta["kind"]; tags: string[]; initial?: JsonValue; parentSessionId?: SessionId; title?: string }): Promise<SessionMeta> {
         const full: SessionMeta = {
             sessionId: this.nextSessionId++,
             profileKey: init.profileKey,

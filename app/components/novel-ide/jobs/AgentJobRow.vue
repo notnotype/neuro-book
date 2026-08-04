@@ -53,6 +53,15 @@ const STATUS_CHIPS: Record<AgentJobSnapshot["status"], {labelKey: string; chipCl
 
 const statusChip = computed(() => STATUS_CHIPS[props.job.status]);
 
+const DELIVERY_LABELS: Record<AgentJobSnapshot["deliveryStatus"], string> = {
+    not_required: "deliveryNotRequired",
+    pending: "deliveryPending",
+    accepted: "deliveryAccepted",
+    failed: "deliveryFailed",
+};
+
+const deliveryStatusText = computed(() => t(`ide.agentJobs.${DELIVERY_LABELS[props.job.deliveryStatus]}`));
+
 const ownerLabel = computed(() => props.job.ownerSessionId === null
     ? t("ide.agentJobs.ownerNone")
     : `Agent #${props.job.ownerSessionId}`);
@@ -163,6 +172,14 @@ watch([expanded, () => props.job.status], () => {
             <!-- 行3：收起态 preview / error 摘要 -->
             <p v-if="job.preview && !expanded" class="line-clamp-2 text-[12px] text-[var(--text-secondary)]">{{ job.preview }}</p>
             <p v-if="job.error && !expanded" class="truncate text-[12px] text-[var(--status-danger)]">{{ job.error }}</p>
+            <p v-if="job.deliveryStatus !== 'not_required'" class="whitespace-pre-wrap break-words text-[12px]"
+                :class="{
+                    'text-[var(--status-info)]': job.deliveryStatus === 'pending',
+                    'text-[var(--status-success)]': job.deliveryStatus === 'accepted',
+                    'text-[var(--status-danger)]': job.deliveryStatus === 'failed',
+                }">
+                ↳ {{ deliveryStatusText }}<span v-if="job.deliveryStatus === 'failed' && job.deliveryError">：{{ job.deliveryError }}</span>
+            </p>
             <!-- waiting 指引：应答能力在发起会话的气泡侧，面板只指路 -->
             <p v-if="job.status === 'waiting'" class="text-[12px] text-[var(--status-warning)]">↳ {{ t("ide.agentJobs.waitingHint", {session: ownerLabel}) }}</p>
         </div>

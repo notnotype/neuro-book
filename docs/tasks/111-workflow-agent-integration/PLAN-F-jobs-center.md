@@ -6,7 +6,7 @@
 
 ## 背景与目标
 
-PLAN-E 一期建成 AgentJobManager（workflow 默认非阻塞、bash/invoke_agent background、HTTP 三路由），气泡侧（PLAN-C）已具备单 job 观察、waiting 应答与取消。但**没有全局入口**：用户看不到「现在有哪些后台任务在跑」，终态任务在内存里无限堆积也无法清理。
+PLAN-E 一期建成 AgentJobManager（workflow 默认非阻塞、bash/invoke_agent background、HTTP 三路由），Workflow 气泡侧（PLAN-C）已具备单 job 观察与取消，waiting 应答已集中到发起 Session Composer 的 Workflow 待处理区。但**没有全局入口**：用户看不到「现在有哪些后台任务在跑」，终态任务在内存里无限堆积也无法清理。
 
 目标：
 1. Header 常驻「Jobs」按钮 + 运行数徽标（不开面板也能瞥见有任务在跑）；
@@ -90,7 +90,7 @@ export function useAgentJobsFeed(): AgentJobsFeed     // 模块级单例
 │    job_a1b2 · Agent #12 · 3 分钟前 · 2m10s [取消] │
 │    「step 4/9: 抽取人物卡…」(preview 随轮询刷新)  │
 │ ▸ 🤖 调研角色动机                 [◐ 等待回应]    │
-│    ↳ 等待回应：请到发起会话（Agent #12）气泡处应答│
+│    ↳ 等待回应：请到发起会话的 Composer Workflow 待处理区应答│
 │ —— 已结束（endedAt 倒序）——                      │
 │ ▾ ▍bun run build                  [✔ 已完成]     │
 │    ├ ref: command=bun run build          [复制]   │
@@ -114,7 +114,7 @@ export function useAgentJobsFeed(): AgentJobsFeed     // 模块级单例
 - 行1：kind 图标（workflow=`i-lucide-workflow` / bash=`i-lucide-terminal` / invoke_agent=`i-lucide-bot`）+ title truncate + 状态 chip。
 - 行2 meta：jobId · owner（`Agent #{n}`；null→「用户直发」）· `formatTimestamp(createdAt)` · 时长（endedAt−createdAt；运行中 now−createdAt，轮询整替自然刷新；`formatDuration` 组件内 inline："12s"/"2m05s"/"1h03m"）。
 - 行3：`preview` line-clamp-2；`error` 有值时 danger 色单独一行。
-- waiting 特别行：`↳ 等待回应：请到发起会话（Agent #{n}）的气泡处应答`（应答能力在气泡侧已有，面板只指引不重复实现）。
+- waiting 特别行：`↳ 等待回应：请到发起会话的 Composer Workflow 待处理区应答`（Jobs 面板只指引，不复制应答状态）。
 - 取消（running/waiting）：`POST /api/agent/jobs/:id/cancel` → 本地 `cancelRequested` 置位（按钮「取消中…」禁用；不做二次确认，与气泡一致）→ `emit("cancelled")`；失败 `notification.error`。
 - 展开（点行头切换）：
   - ref 结构化摘要：workflow→`runId=…`、bash→`command=…`、invoke_agent→`sessionId=…`（解析失败降级 JSON 文本）+ 每项复制按钮（`navigator.clipboard.writeText` + notification 反馈）；
@@ -144,7 +144,7 @@ export function useAgentJobsFeed(): AgentJobsFeed     // 模块级单例
 - SSE 推送（PLAN-E 已记 TODO，轮询先行）。
 - `interrupted` 历史任务进列表（等 run-as-session 持久化，不为此 nullable 化 JobRecord）。
 - 从面板跳转发起会话 / 气泡锚定（`originToolCallId` 已在快照，留后续）。
-- 面板内应答 waiting ask（气泡已具备，不重复）。
+- 面板内应答 waiting ask（由 Composer Workflow 待处理区承载，Jobs 对话框仍只指引）。
 - 删除单个 job；DialogWindow 尺寸拖拽（通用组件无 resize，不为本任务改它）。
 
 ## 验收清单

@@ -7,8 +7,6 @@ import {createHash} from "node:crypto";
 const execFileAsync = promisify(execFile);
 
 const NEUROBOOK_ROOT = path.resolve(import.meta.dir, "../..");
-const NB_WORKFLOW_SOURCE_REPO = path.resolve(NEUROBOOK_ROOT, "..", "nb-workflow");
-const NB_WORKFLOW_SOURCE_ROOT = path.join(NB_WORKFLOW_SOURCE_REPO, "src");
 const NB_WORKFLOW_TARGET_ROOT = path.resolve(NEUROBOOK_ROOT, "server", "vendor", "nb-workflow");
 const VENDOR_MANIFEST_NAME = "VENDOR.json";
 
@@ -22,65 +20,131 @@ type VendorManifest = {
     note: string;
 };
 
+type SyncOptions = {
+    sourceRepo: string;
+    dryRun: boolean;
+};
+
+type SyncPlan = {
+    sourceFiles: string[];
+    targetFiles: string[];
+    copied: string[];
+    unchanged: string[];
+    removed: string[];
+    sourceCommit: string;
+    manifestChanged: boolean;
+};
+
 /**
  * 从 sibling nb-workflow 开发仓把 src/ 源码镜像到 NeuroBook vendored snapshot。
  * 真相源永远是 ../nb-workflow；vendor 目录是机器同步产物，勿手改。
  * 幂等：内容无变化且源 commit 未变时零写入（VENDOR.json 也不动）。
  */
 async function main(): Promise<void> {
-    await assertWorkflowSource();
+    const options = parseArgs(process.argv.slice(2));
+    const sourceRoot = path.join(options.sourceRepo, "src");
+    await assertWorkflowSource(options.sourceRepo, sourceRoot);
     assertExpectedTarget(NB_WORKFLOW_TARGET_ROOT);
 
-    await fs.mkdir(NB_WORKFLOW_TARGET_ROOT, {recursive: true});
-
-    const sourceFiles = await listRelativeFiles(NB_WORKFLOW_SOURCE_ROOT);
+    const sourceFiles = await listRelativeFiles(sourceRoot);
     if (sourceFiles.length === 0) {
-        throw new Error(`nb-workflow src 目录为空: ${NB_WORKFLOW_SOURCE_ROOT}`);
+        throw new Error(`nb-workflow src 目录为空: ${sourceRoot}`);
     }
     const targetFiles = await listRelativeFiles(NB_WORKFLOW_TARGET_ROOT);
     const sourceSet = new Set(sourceFiles);
-    let copied = 0;
-    let unchanged = 0;
-    let removed = 0;
-
-    for (const relativePath of targetFiles) {
-        if (sourceSet.has(relativePath) || NON_MIRRORED_TARGET_FILES.has(relativePath)) {
-            continue;
-        }
-        await fs.rm(path.join(NB_WORKFLOW_TARGET_ROOT, ...relativePath.split("/")), {force: true});
-        removed += 1;
-    }
-
+    const removed = targetFiles.filter((relativePath) => !sourceSet.has(relativePath) && !NON_MIRRORED_TARGET_FILES.has(relativePath));
+    const copied: string[] = [];
+    const unchanged: string[] = [];
     for (const relativePath of sourceFiles) {
-        const sourcePath = path.join(NB_WORKFLOW_SOURCE_ROOT, ...relativePath.split("/"));
+        const sourcePath = path.join(sourceRoot, ...relativePath.split("/"));
         const targetPath = path.join(NB_WORKFLOW_TARGET_ROOT, ...relativePath.split("/"));
         if (await sameFile(sourcePath, targetPath)) {
-            unchanged += 1;
+            unchanged.push(relativePath);
             continue;
         }
-        await fs.mkdir(path.dirname(targetPath), {recursive: true});
-        await fs.copyFile(sourcePath, targetPath);
-        copied += 1;
+        copied.push(relativePath);
     }
 
-    const sourceCommit = await readSourceCommit();
-    const manifestChanged = await writeVendorManifestIfChanged({
+    const sourceCommit = await readSourceCommit(options.sourceRepo);
+    const manifestChanged = await vendorManifestNeedsUpdate({
         sourceCommit,
-        contentChanged: copied > 0 || removed > 0,
+        contentChanged: copied.length > 0 || removed.length > 0,
     });
+    const plan: SyncPlan = {sourceFiles, targetFiles, copied, unchanged, removed, sourceCommit, manifestChanged};
 
-    console.log(`synced nb-workflow vendor: copied=${copied}, unchanged=${unchanged}, removed=${removed}, manifest=${manifestChanged ? "updated" : "unchanged"}, sourceCommit=${sourceCommit}`);
+    if (options.dryRun) {
+        printDryRun(plan, options.sourceRepo);
+        return;
+    }
+
+    await applySync(plan, sourceRoot);
+    await writeVendorManifestIfChanged({sourceCommit, contentChanged: copied.length > 0 || removed.length > 0});
+
+    console.log(`synced nb-workflow vendor: copied=${copied.length}, unchanged=${unchanged.length}, removed=${removed.length}, manifest=${manifestChanged ? "updated" : "unchanged"}, sourceCommit=${sourceCommit}`);
+}
+
+/** 解析同步源和 dry-run 开关；source 默认为 sibling nb-workflow。 */
+function parseArgs(args: string[]): SyncOptions {
+    let sourceRepo = path.resolve(NEUROBOOK_ROOT, "..", "nb-workflow");
+    let dryRun = false;
+    for (let index = 0; index < args.length; index += 1) {
+        const arg = args[index];
+        if (arg === "--dry-run") {
+            dryRun = true;
+            continue;
+        }
+        if (arg === "--source") {
+            const value = args[index + 1];
+            if (!value || value.startsWith("--")) {
+                throw new Error("--source 必须提供 nb-workflow worktree 路径");
+            }
+            sourceRepo = path.resolve(value);
+            index += 1;
+            continue;
+        }
+        throw new Error(`未知参数: ${arg}。支持 --source <worktree> 和 --dry-run`);
+    }
+    return {sourceRepo, dryRun};
+}
+
+/** 只打印即将发生的 vendor 文件操作，不创建、删除或写入任何文件。 */
+function printDryRun(plan: SyncPlan, sourceRepo: string): void {
+    console.log(`[dry-run] source=${sourceRepo}`);
+    for (const relativePath of plan.copied) {
+        console.log(`[dry-run] copy ${relativePath}`);
+    }
+    for (const relativePath of plan.removed) {
+        console.log(`[dry-run] remove ${relativePath}`);
+    }
+    if (plan.manifestChanged) {
+        console.log(`[dry-run] update ${VENDOR_MANIFEST_NAME} sourceCommit=${plan.sourceCommit}`);
+    }
+    console.log(`[dry-run] summary copied=${plan.copied.length}, unchanged=${plan.unchanged.length}, removed=${plan.removed.length}, manifest=${plan.manifestChanged ? "updated" : "unchanged"}`);
+}
+
+/** 将已计算的同步计划落到 vendor 目录。 */
+async function applySync(plan: SyncPlan, sourceRoot: string): Promise<void> {
+    await fs.mkdir(NB_WORKFLOW_TARGET_ROOT, {recursive: true});
+    for (const relativePath of plan.removed) {
+        await fs.rm(path.join(NB_WORKFLOW_TARGET_ROOT, ...relativePath.split("/")), {force: true});
+    }
+    for (const relativePath of plan.copied) {
+        const sourcePath = path.join(sourceRoot, ...relativePath.split("/"));
+        const targetPath = path.join(NB_WORKFLOW_TARGET_ROOT, ...relativePath.split("/"));
+        await fs.mkdir(path.dirname(targetPath), {recursive: true});
+        await fs.copyFile(sourcePath, targetPath);
+    }
 }
 
 /**
  * 验证 source 是真实 nb-workflow 开发仓（防误指向其它 sibling 目录整目录镜像）。
  */
-async function assertWorkflowSource(): Promise<void> {
-    const stat = await fs.stat(NB_WORKFLOW_SOURCE_ROOT).catch(() => null);
+async function assertWorkflowSource(sourceRepo: string, sourceRoot: string): Promise<void> {
+    const stat = await fs.stat(sourceRoot).catch(() => null);
     if (!stat?.isDirectory()) {
-        throw new Error(`nb-workflow src 不存在: ${NB_WORKFLOW_SOURCE_ROOT}`);
+        throw new Error(`nb-workflow src 不存在: ${sourceRoot}`);
     }
-    const packagePath = path.join(NB_WORKFLOW_SOURCE_REPO, "package.json");
+    const packagePath = path.join(sourceRepo, "package.json");
     const packageJson = JSON.parse(await fs.readFile(packagePath, "utf-8")) as {name?: string};
     if (packageJson.name !== "@notnotype/nb-workflow") {
         throw new Error(`nb-workflow package.json.name 必须是 @notnotype/nb-workflow: ${packagePath}`);
@@ -103,8 +167,8 @@ function assertExpectedTarget(targetRoot: string): void {
 /**
  * 读取源仓当前 HEAD commit，用于 VENDOR.json 溯源。
  */
-async function readSourceCommit(): Promise<string> {
-    const {stdout} = await execFileAsync("git", ["-C", NB_WORKFLOW_SOURCE_REPO, "rev-parse", "HEAD"]);
+async function readSourceCommit(sourceRepo: string): Promise<string> {
+    const {stdout} = await execFileAsync("git", ["-C", sourceRepo, "rev-parse", "HEAD"]);
     return stdout.trim();
 }
 
@@ -127,6 +191,15 @@ async function writeVendorManifestIfChanged(input: {sourceCommit: string; conten
     };
     await fs.writeFile(manifestPath, `${JSON.stringify(manifest, null, 4)}\n`, "utf-8");
     return true;
+}
+
+/** 判断 VENDOR.json 是否会因内容或 source commit 变化而更新。 */
+async function vendorManifestNeedsUpdate(input: {sourceCommit: string; contentChanged: boolean}): Promise<boolean> {
+    const manifestPath = path.join(NB_WORKFLOW_TARGET_ROOT, VENDOR_MANIFEST_NAME);
+    const existing = await fs.readFile(manifestPath, "utf-8")
+        .then((text) => JSON.parse(text) as VendorManifest)
+        .catch(() => null);
+    return input.contentChanged || existing?.sourceCommit !== input.sourceCommit;
 }
 
 /**

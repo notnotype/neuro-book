@@ -1544,14 +1544,14 @@ describe("NeuroAgentHarness black-box contract", () => {
                 throw new AgentJobCancelledError();
             },
         });
-        await waitUntil(() => harness.jobs.get(job.job.jobId)?.status === "waiting", "job enters waiting");
+        await waitUntil(async () => (await harness.jobs.get(job.job.jobId))?.status === "waiting", "job enters waiting");
 
         await Promise.race([
             harness.dispose(),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error("harness dispose did not settle")), 300)),
         ]);
 
-        expect(harness.jobs.get(job.job.jobId)).toMatchObject({status: "cancelled"});
+        await expect(harness.jobs.get(job.job.jobId)).resolves.toMatchObject({status: "cancelled"});
     });
 
     it("SSE replay 和 snapshot_required 合同可从 Harness event hub 观察", async () => {

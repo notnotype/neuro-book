@@ -118,6 +118,8 @@ export type CustomMessageSessionEntry = {
     type: "custom_message";
     message: StoredAgentMessage;
     visibleToModel: boolean;
+    /** follow-up queue item 的 durable 回执；用于重启恢复时避免重复投递。 */
+    sourceQueueItemId?: string;
     /**
      * Profile Prompt 归因（Task 126）。纯可观测：不参与 reduce、不影响可见性、不进入发给模型的消息体。
      *

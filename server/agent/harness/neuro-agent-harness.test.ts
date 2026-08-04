@@ -32,7 +32,7 @@ import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from
 import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
-import {AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_TASKS_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
@@ -8039,6 +8039,133 @@ describe("NeuroAgentHarness", () => {
             releaseTool.resolve();
             await running.catch(() => undefined);
         }
+    });
+
+    it("system followup 持久化调用方并以 custom_message 写入 durable entry", async () => {
+        const toolStarted = createDeferred();
+        const releaseTool = createDeferred();
+        harness.tools.register({
+            key: "system_followup_gate",
+            name: "system_followup_gate",
+            label: "System Follow-up Gate",
+            description: "让系统回流在当前 invocation 忙碌时排队。",
+            parameters: Type.Object({}),
+            async execute() {
+                toolStarted.resolve();
+                await releaseTool.promise;
+                return {
+                    content: [{type: "text", text: "released"}],
+                    details: {},
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-followup",
+                name: "System Follow-up",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["system_followup_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("system_followup_gate", {}, {id: "system-followup-gate"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("原始 invocation 完成"),
+            fauxAssistantMessage("已处理系统回流"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.system-followup",
+            initial: {},
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "开始后台任务"},
+        });
+        try {
+            await toolStarted.promise;
+            const queued = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "<system-reminder>后台 Workflow 完成</system-reminder>"},
+                caller: {kind: "system"},
+                messageIdentity: "system",
+            });
+            const queueItemId = queued.queuedItem?.id;
+            expect(queued).toMatchObject({
+                status: "waiting",
+                acceptance: {state: "queued"},
+                queuedItem: {kind: "followup"},
+            });
+            expect(queueItemId).toEqual(expect.any(String));
+            const queuedContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(queuedContext.customState[AGENT_FOLLOW_UP_QUEUE_STATE_KEY]).toMatchObject({
+                status: "ready",
+                items: [{id: queueItemId, caller: {kind: "system"}, messageIdentity: "system"}],
+            });
+
+            releaseTool.resolve();
+            await running;
+
+            const entries = (await harness.repo.readSession(created.sessionId)).entries;
+            expect(entries).toContainEqual(expect.objectContaining({
+                type: "custom_message",
+                visibleToModel: true,
+                sourceQueueItemId: queueItemId,
+                message: expect.objectContaining({role: "user"}),
+            }));
+            expect(entries).not.toContainEqual(expect.objectContaining({
+                type: "message",
+                sourceQueueItemId: queueItemId,
+            }));
+        } finally {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+        }
+    });
+
+    it("idle system invocation 直接写入 custom_message，不伪装成用户消息", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.system-direct",
+                name: "System Direct",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage("系统回流已收到")]);
+        const created = await harness.createAgent({
+            profileKey: "test.system-direct",
+            initial: {},
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "<system-reminder>后台 Workflow 完成</system-reminder>"},
+            caller: {kind: "system"},
+            messageIdentity: "system",
+        });
+        expect(result.status).toBe("completed");
+        const entries = (await harness.repo.readSession(created.sessionId)).entries;
+        expect(entries).toContainEqual(expect.objectContaining({
+            type: "custom_message",
+            visibleToModel: true,
+            message: expect.objectContaining({role: "user"}),
+        }));
+        expect(entries).not.toContainEqual(expect.objectContaining({
+            type: "message",
+            origin: "prompt",
+            message: expect.objectContaining({role: "user"}),
+        }));
     });
 
     it("排队 followup 保留 invocation modelKey 且不修改 session 默认模型", async () => {

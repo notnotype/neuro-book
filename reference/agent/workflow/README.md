@@ -71,12 +71,16 @@ run_workflow({
 
 ## 后台运行与 wait
 
-`run_workflow` 默认非阻塞：审批通过后立即注册后台 job，并以 details 返回 `{jobId, runId, workflowKey, status: "started", background: true}`。发起方 agent 应向用户简述任务已启动，然后结束当前回合，不要轮询。workflow 结束后，结果卡（自定义返回值 JSON、参与 session、token 用量）会以系统 followup 自动回流到发起 session，触发新一轮回合；agent 再据此向用户汇报或继续编排。
+`run_workflow` 默认非阻塞：审批通过后立即注册后台 job，并以 details 返回 `{jobId, runId, workflowKey, status: "started", background: true}`。发起方 agent 应向用户简述任务已启动，然后结束当前回合，不要轮询。workflow 结束后，结果卡（自定义返回值 JSON、参与 session、token 用量）会以显式系统身份的 followup 自动回流到发起 session，触发新一轮回合；它不会作为普通用户消息进入聊天上下文。
 
 - `wait: true` 走阻塞路径：当前工具调用等待 workflow settle 并直接返回完整 details，只适合不含长调用和人工参与点的短内联编排。
-- `wf.ask` 挂起时：后台 job 转为 `waiting`，用户在 workflow 面板应答后自动恢复跟踪；`wait: true` 则以 `waiting` 正常返回，后续不再有 job followup。两种情况都不要重复启动同一个 workflow。
+- `wf.ask` 挂起时：默认后台 job 转为 `waiting`，用户在 Workflow 待处理区应答后自动恢复跟踪；`wait: true` 没有 Job 收件箱，会先取消该 Run，再返回明确错误提示改用默认后台模式，不留下无入口的 waiting Run。
+- 后台 Workflow 的问题统一显示在发起 Session Composer 下方的「Workflow 待处理」区域；该区域按 Run 分组，可同时处理多个 waiting Run，并支持 `select`、`text`、`approve` 三种应答。`wf.ask` 的 `description` 按 Markdown 渲染，问题没有完整加载前不要提交。
+- resume 会在调用内核前一次性校验全部答案：不允许缺失或未知 key；`approve` 必须是 boolean（包括 `false`）；`select` 必须选择声明的 option，并按 `multi` 区分 `string` / `string[]`；`text` 必须是非空字符串。校验失败不会部分写入 journal。
+- Workflow 气泡只展示 waiting 摘要和状态图；Jobs 任务中心只负责列出、取消和指引，不承载问题应答。普通聊天输入仍可继续使用。
 - `list_jobs({status?})` 默认只列当前 session 发起的 job；只有确需全局排查时才传 `all: true`。
-- `get_job({jobId})` 返回 job 快照；workflow job 还带 run 状态、结果、待应答问题、参与 session 与 usage。它用于用户主动询问或一次性诊断，不用于循环轮询。状态图继续看 workflow 气泡或 run 状态接口。
+- `get_job({jobId})` 返回 job 快照；workflow job 还带 run 状态、完整 pending asks、参与 session、公开 token usage 与已完成的完整 result。它使用与 HTTP 详情相同的异步 Manager 入口，用于用户主动询问或一次性诊断，不用于循环轮询。状态图继续看 workflow 气泡或 run 状态接口。
+- Job 快照另有 `deliveryStatus`：`not_required | pending | accepted | failed`。它只描述结果回流是否被接收，不改变 `completed/failed/cancelled/interrupted` 执行状态；失败时看 `deliveryError`，Manager 不自动重试。
 - `cancel_job({jobId})` 只能取消当前 session 发起的 job。取消请求会传播到执行链：Workflow 当前 Agent activity 通过 Run signal 取消，Harness 对不合作的 provider/tool 在有界宽限后提交唯一 aborted 终态；waiting job 会立即解除等待并进入 `cancelled`。Job 只有在执行链完成收口后才确认最终 `cancelled`，调用方应读取后续快照确认。
 
 ## 返回契约
@@ -95,14 +99,15 @@ run_workflow({
         sessionId: number,
         profileKey: string,
         title: string,
-        tokens: AgentInvokeUsage | null,
+        tokens: WorkflowUsage | null,
     }>,
-    usage: AgentInvokeUsage,
+    usage: WorkflowUsage,
     chartMermaid: string | null,
 }
 ```
 
 `result` 只包含 workflow `run` 的自定义返回值。`sessions`、`usage` 与 `chartMermaid` 由平台附加，workflow 不要自行伪造或重复包装这些元数据。后台完成通知与 `get_job` 共享同一份完整结构化 JSON；Job 列表中的 preview 只用于轻量展示，不能作为结果真相源。
+`WorkflowUsage` 只包含输入、输出、缓存和总 token 字段，以及 provider 实际提供的可选 token 明细；公开 Workflow 返回不包含价格 `cost`。这条投影同时作用于 Run HTTP 的 `journal`、增量 `events`、工具 details、Job result/detail 和前端模型；普通用户自定义结果中名为 `cost` 的字段不会被误删。价格仍可在普通 Session 的内部 usage 中累计，但不是 Workflow 的用户展示合同。
 
 ## ad-hoc agent（adhoc profile）
 

@@ -11,6 +11,7 @@
 - `AgentJobEventCursor`：`{eventEpoch, after}`；`after` 是快照已经覆盖的最后一个全局事件 seq。
 - `AgentJobStartDto`：`{jobId, jobEventCursor}`；游标精确指向该 Job 首次 `job_upserted(running)` 事件。
 - Job 状态：`running | waiting | completed | failed | cancelled | interrupted`。
+- `deliveryStatus`：执行状态之外的结果回流状态。`not_required` 表示没有 owner 或显式关闭回流；`pending` 表示等待直接投递或进入队列；`accepted` 表示已直接接收或可靠进入 follow-up queue；`failed` 表示投递失败，失败原因在 `deliveryError`，不改写 Job 的执行终态。
 
 Job 历史仍以运行期内存 Map 为列表真相。`jobs.jsonl` 是 append-only 恢复/审计薄登记表；服务重启后的历史 Job 不重新进入内存列表。
 
@@ -29,7 +30,34 @@ Manager 必须在同一同步方法内读取列表与游标。客户端先取得
 
 过滤参数严格校验：`ownerSessionId` 只能是正整数，`status` 只能是公开 Job 状态；数组、未知字段和非法值返回 HTTP 400，`data.code = "INVALID_AGENT_JOB_LIST_QUERY"`，`data.issues` 保留 Zod issues。非法查询不能静默投影为空列表。
 
-`GET /api/agent/jobs/:jobId` 只在需要完整 `result` 时按需调用，不是状态观察接口。
+`GET /api/agent/jobs/:jobId` 只在需要完整 `result` 或 kind-specific `detail` 时按需调用，不是状态观察接口。HTTP 路由、Agent `get_job` 和任务中心共用 `AgentJobManager.get()`；详情 provider 异步读取 Workflow Run，避免各入口分别拼装合同。
+
+Workflow Job 的 `detail` 形状为：
+
+```ts
+{
+    runId: string,
+    workflowKey: string,
+    runStatus: "running" | "waiting" | "completed" | "failed" | "cancelled",
+    pendingAsks: PendingAsk[],
+    sessions: Array<{sessionId, profileKey, title, tokens}>,
+    usage: WorkflowUsage,
+    result: JsonValue | null,
+}
+```
+
+`usage` 是公开 token 投影，不包含价格 `cost`；`result` 是已完成 Run 的完整结构化返回值。详情读取失败不会改变执行状态，调用方仍可看到快照和执行结果（若已有）。
+
+## 回流状态
+
+Job 执行完成、失败、取消和中断都保留自己的 `status`。当 Job 需要把结果送回 owner Session 时，Manager 另外维护 `deliveryStatus`：
+
+- `pending`：结果尚未被 owner 直接接收，或尚未可靠写入 follow-up queue；
+- `accepted`：直接 invocation 已被接收，或 queue 已持久化，后续由 Harness drain；
+- `failed`：回流返回错误或抛异常。Manager 不自动重试，也不把它伪装成执行失败；完整结果从 `get_job` 和任务中心详情读取；
+- `not_required`：没有 owner，或入口明确使用 `deliver: "none"`。
+
+回流使用显式系统消息身份。直接投递、忙时队列、队列 drain 和重启恢复都写入系统消息投影（`custom_message`），不会进入普通用户消息 projection。恢复时每条中断通知独立处理；一条失败不会阻塞其他 Job，也不会启动新的重试协调器。
 
 ## Jobs SSE
 

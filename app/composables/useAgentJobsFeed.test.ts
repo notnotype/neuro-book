@@ -521,6 +521,7 @@ function snapshot(jobId: string, status: AgentJobSnapshot["status"], createdAt: 
         title: jobId,
         ownerSessionId: null,
         status,
+        deliveryStatus: "not_required",
         createdAt,
         ref: null,
     };

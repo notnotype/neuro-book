@@ -17,6 +17,7 @@ import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/AgentSystemPromptPanel.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
+import AgentWorkflowPendingPanel from "nbook/app/components/novel-ide/agent/AgentWorkflowPendingPanel.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
@@ -3469,6 +3470,8 @@ function saveLastSessionId(sessionId: number): void {
                 @load-previous="void loadPreviousHistory()"
                 @attachment-registered="registerSessionAttachment"
             />
+
+            <AgentWorkflowPendingPanel :session-id="activeSessionId" />
 
             <AgentComposer
                 :key="composerContextGeneration"

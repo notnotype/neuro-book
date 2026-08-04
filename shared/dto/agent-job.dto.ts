@@ -13,6 +13,7 @@ const AgentJobJsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
 
 export const AgentJobKindSchema = z.enum(["workflow", "invoke_agent", "bash"]);
 export const AgentJobStatusSchema = z.enum(["running", "waiting", "completed", "failed", "cancelled", "interrupted"]);
+export const AgentJobDeliveryStatusSchema = z.enum(["not_required", "pending", "accepted", "failed"]);
 
 export const AgentJobSnapshotSchema = z.object({
     jobId: z.string(),
@@ -26,10 +27,15 @@ export const AgentJobSnapshotSchema = z.object({
     ref: AgentJobJsonValueSchema,
     preview: z.string().optional(),
     error: z.string().optional(),
+    /** 执行终态之外的结果回流状态；无 owner 或显式 none 时为 not_required。 */
+    deliveryStatus: AgentJobDeliveryStatusSchema,
+    deliveryError: z.string().optional(),
 });
 
 export const AgentJobDetailSchema = AgentJobSnapshotSchema.extend({
     result: AgentJobJsonValueSchema.optional(),
+    /** kind-specific detail；Workflow 由服务端 provider 填充 run/pendingAsks/sessions/usage。 */
+    detail: AgentJobJsonValueSchema.optional(),
 });
 
 export const AgentJobEventCursorSchema = z.object({
@@ -66,6 +72,7 @@ export const AgentJobEventsQueryDtoSchema = z.object({
 
 export type AgentJobKind = z.infer<typeof AgentJobKindSchema>;
 export type AgentJobStatus = z.infer<typeof AgentJobStatusSchema>;
+export type AgentJobDeliveryStatus = z.infer<typeof AgentJobDeliveryStatusSchema>;
 export type AgentJobSnapshot = z.infer<typeof AgentJobSnapshotSchema>;
 export type AgentJobDetail = z.infer<typeof AgentJobDetailSchema>;
 export type AgentJobEventCursor = z.infer<typeof AgentJobEventCursorSchema>;

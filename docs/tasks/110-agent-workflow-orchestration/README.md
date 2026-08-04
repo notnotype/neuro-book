@@ -219,7 +219,7 @@ await wf.workflow(key, args);                // 嵌套限一层
 | D1 | Run 载体 = session（`kind:"workflow"`） | 脚本式确认时隐含拍板 |
 | D2 | agent 内联脚本 `script` 参数 V1 不开放，只留 schema 位 | 建议，待确认 |
 | D3 | sidecar V1 迁移（两个 actor sidecar 试点） | 建议，待确认 |
-| D4 | `wf.ask` 挂起穿透顶层用户，不给 agent 代答 | 建议，待确认 |
+| D4 | `wf.ask` 挂起穿透顶层用户，不给 agent 代答；后台 Run 在 owner Session 的 Composer Workflow 待处理区应答 | Task 111 已落地（`wait:true` 仅保留短流程阻塞入口） |
 | D5 | 嵌套限一层 | 建议，待确认 |
 | D6 | session 写原语统一为 checkout+append，分支无创建 API，旁路用 excursion 作用域 | 本轮定稿 |
 | D7 | Activity/Workflow 两层：Activity=一切 journaled 副作用（含读），log/progress 非 Activity | 本轮定稿 |

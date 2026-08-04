@@ -1,6 +1,6 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {AgentJobEventCursor, AgentJobStatus} from "nbook/shared/dto/agent-job.dto";
-import type {RunStatus} from "nbook/server/vendor/nb-workflow/index";
+import type {PendingAsk, RunStatus} from "nbook/server/vendor/nb-workflow/index";
 
 /** run_workflow 工具参数的前端展示模型。 */
 export type RunWorkflowArgs = {
@@ -31,13 +31,6 @@ export type WorkflowUsage = {
     /** provider 提供 reasoning token 明细时存在。 */
     reasoningTokens?: number;
     totalTokens: number;
-    cost: {
-        input: number;
-        output: number;
-        cacheRead: number;
-        cacheWrite: number;
-        total: number;
-    };
 };
 
 /** 正式 RunState 在终态附带的最新执行摘要。 */
@@ -87,6 +80,11 @@ export type WorkflowBubbleStatusInput = {
     runStatus?: RunStatus;
     runUnavailable?: boolean;
 };
+
+/** 为一次 ask 阶段生成稳定指纹；resume 后出现下一轮问题时释放提交锁。 */
+export function workflowPendingAskSignature(asks: readonly PendingAsk[]): string {
+    return JSON.stringify(asks.map((ask) => [ask.key, ask.fingerprint]));
+}
 
 /** 判断 workflow 是否已经进入不会再自行变化的终态。 */
 export function isWorkflowTerminalStatus(status: string | undefined): status is "completed" | "failed" | "cancelled" {
@@ -258,13 +256,7 @@ function parseUsage(value: JsonValue | undefined): WorkflowUsage | null {
         || typeof value.outputTokens !== "number"
         || typeof value.cacheReadTokens !== "number"
         || typeof value.cacheWriteTokens !== "number"
-        || typeof value.totalTokens !== "number"
-        || !isJsonObject(value.cost)
-        || typeof value.cost.input !== "number"
-        || typeof value.cost.output !== "number"
-        || typeof value.cost.cacheRead !== "number"
-        || typeof value.cost.cacheWrite !== "number"
-        || typeof value.cost.total !== "number") {
+        || typeof value.totalTokens !== "number") {
         return null;
     }
     return {
@@ -275,12 +267,5 @@ function parseUsage(value: JsonValue | undefined): WorkflowUsage | null {
         ...(typeof value.cacheWrite1hTokens === "number" ? {cacheWrite1hTokens: value.cacheWrite1hTokens} : {}),
         ...(typeof value.reasoningTokens === "number" ? {reasoningTokens: value.reasoningTokens} : {}),
         totalTokens: value.totalTokens,
-        cost: {
-            input: value.cost.input,
-            output: value.cost.output,
-            cacheRead: value.cost.cacheRead,
-            cacheWrite: value.cost.cacheWrite,
-            total: value.cost.total,
-        },
     };
 }

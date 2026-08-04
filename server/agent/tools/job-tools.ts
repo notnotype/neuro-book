@@ -47,7 +47,7 @@ export function createJobTools() {
         }),
         async executeWithContext(context, _toolCallId, params): Promise<NeuroToolResult> {
             const input = params as {jobId: string};
-            const job = context.harness.jobs.get(input.jobId);
+            const job = await context.harness.jobs.get(input.jobId);
             if (!job) throw new Error(`job ${input.jobId} 不存在（重启后旧 job 只在登记表留痕，不可查询）`);
             return {
                 content: [{type: "text", text: JSON.stringify(job, null, 2)}],
@@ -64,7 +64,7 @@ export function createJobTools() {
         }),
         async executeWithContext(context, _toolCallId, params): Promise<NeuroToolResult> {
             const input = params as {jobId: string};
-            const job = context.harness.jobs.get(input.jobId);
+            const job = await context.harness.jobs.get(input.jobId);
             if (!job) throw new Error(`job ${input.jobId} 不存在`);
             if (job.ownerSessionId !== context.sessionId) {
                 throw new Error(`job ${input.jobId} 不是本 session 发起的，不能取消`);

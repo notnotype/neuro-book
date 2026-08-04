@@ -138,6 +138,7 @@ function snapshot(jobId: string, status: AgentJobSnapshot["status"]): AgentJobSn
         title: jobId,
         ownerSessionId: null,
         status,
+        deliveryStatus: "not_required",
         createdAt: 1,
         ref: {command: "echo ok"},
     };

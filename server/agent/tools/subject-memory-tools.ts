@@ -303,6 +303,7 @@ async function runMemoryCurator(context: ToolExecutionContext, input: SubjectMem
                     sessionId: context.sessionId,
                     profileKey: context.profileKey,
                 },
+                messageIdentity: "system",
             });
             if (result.status !== "completed") {
                 lastError = result.error ?? result.finalMessage ?? "memory.curator 未完成。";

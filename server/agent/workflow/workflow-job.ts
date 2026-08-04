@@ -1,6 +1,6 @@
 import {AgentJobCancelledError, type AgentJobManager, type AgentJobSnapshot} from "nbook/server/agent/jobs/agent-job-manager";
 import type {AgentJobEventCursor} from "nbook/shared/dto/agent-job.dto";
-import type {WorkflowRunStart, WorkflowRunSummary} from "nbook/server/agent/workflow/workflow-demo-service";
+import type {WorkflowDemoRunState, WorkflowRunStart, WorkflowRunSummary} from "nbook/server/agent/workflow/workflow-demo-service";
 import type {JsonValue, RunView, SessionId, WorkflowDefinition, WorkspacePort} from "nbook/server/vendor/nb-workflow/index";
 import type {EffectiveConfig} from "nbook/server/config/types";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
@@ -20,6 +20,8 @@ type WorkflowJobService = {
     waitForRunSettled(runId: string, signal?: AbortSignal, onRunning?: () => void): Promise<RunView>;
     cancelRun(runId: string): void;
     runSummary(runId: string): Promise<WorkflowRunSummary>;
+    /** 公开 Run 投影；详情 provider 用它读取 waiting/completed 状态和完整 pending asks。 */
+    runState?(runId: string, after: number): Promise<WorkflowDemoRunState>;
 };
 
 export type SpawnWorkflowJobInput = {
@@ -80,6 +82,21 @@ export function spawnWorkflowJob(input: SpawnWorkflowJobInput): SpawnedWorkflowJ
             originToolCallId: input.originToolCallId,
             ref: {runId, workflowKey: input.def.key},
             deliver: input.deliver,
+            detail: async () => {
+                if (!input.service.runState) return undefined;
+                const state = await input.service.runState(runId, 0);
+                const summary = state.summary ?? await input.service.runSummary(runId);
+                // RunView 的递归 JsonValue 由 Workflow 内核保证可序列化，这里只改变公开字段形状。
+                return {
+                    runId,
+                    workflowKey: input.def.key,
+                    runStatus: state.view.status,
+                    pendingAsks: state.view.pendingAsks,
+                    sessions: summary.sessions,
+                    usage: summary.usage,
+                    result: state.view.result ?? null,
+                } as unknown as JsonValue;
+            },
             onCancel: () => input.service.cancelRun(runId),
             run: async (ctx) => {
                 let view = await done;

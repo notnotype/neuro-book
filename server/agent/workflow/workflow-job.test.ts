@@ -88,12 +88,12 @@ describe("spawnWorkflowJob cancellation", () => {
 
         expect(cancelRun).toHaveBeenCalledWith(cancelledView.runId);
         expect(requested.status).toBe("running");
-        expect(jobs.get(job.jobId)?.status).toBe("running");
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "running"});
 
         settleRun!(cancelledView);
         await jobs.waitIdle();
 
-        expect(jobs.get(job.jobId)).toMatchObject({status: "cancelled"});
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "cancelled"});
     });
 
     it("Project后台Run把exact generation与冻结Config交给统一Service并跨waiting跟踪", async () => {
@@ -155,7 +155,6 @@ describe("spawnWorkflowJob cancellation", () => {
                         cacheReadTokens: 0,
                         cacheWriteTokens: 0,
                         totalTokens: 0,
-                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
                     },
                 })),
             },
@@ -173,16 +172,67 @@ describe("spawnWorkflowJob cancellation", () => {
         }));
 
         initial.resolve(waitingView);
-        await vi.waitFor(() => expect(jobs.get(job.jobId)?.status).toBe("waiting"));
+        await vi.waitFor(async () => expect((await jobs.get(job.jobId))?.status).toBe("waiting"));
 
         markRunning?.();
-        expect(jobs.get(job.jobId)?.status).toBe("running");
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "running"});
         terminal.resolve();
         resumed.resolve(completedView);
         await jobs.waitIdle();
 
-        expect(jobs.get(job.jobId)).toMatchObject({status: "completed"});
+        await expect(jobs.get(job.jobId)).resolves.toMatchObject({status: "completed"});
         expect(waitForRunSettled).toHaveBeenCalledWith(waitingView.runId, expect.any(AbortSignal), expect.any(Function));
+    });
+
+    it("Workflow Job get_job 详情读取 Run 状态、pending asks、sessions 与 token usage", async () => {
+        const definition: WorkflowDefinition = {key: "detail", run: async () => ({ok: true})};
+        const completedView: RunView = {
+            runId: "run_detail",
+            workflowKey: definition.key,
+            status: "completed",
+            result: {ok: true},
+            pendingAsks: [],
+            logs: [],
+            progress: null,
+            journal: [],
+        };
+        const usage = {inputTokens: 3, outputTokens: 2, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 5};
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, "");
+        const {job} = spawnWorkflowJob({
+            jobs,
+            service: {
+                startWorkflowRun: () => ({runId: completedView.runId, done: Promise.resolve(completedView), terminal: Promise.resolve()}),
+                waitForRunSettled: vi.fn(),
+                cancelRun: vi.fn(),
+                runSummary: vi.fn(async () => ({
+                    sessions: [{sessionId: 4, profileKey: "writer.default", title: "写手", tokens: usage}],
+                    usage,
+                })),
+                runState: vi.fn(async () => ({view: completedView, summary: {sessions: [{sessionId: 4, profileKey: "writer.default", title: "写手", tokens: usage}], usage}} as never)),
+            },
+            def: definition,
+            args: null,
+            config: createDefaultEffectiveConfig(),
+            project: null,
+            deliver: "none",
+        });
+        await jobs.waitIdle();
+
+        const detail = await jobs.get(job.jobId);
+        expect(detail).toMatchObject({
+            status: "completed",
+            result: expect.objectContaining({result: {ok: true}}),
+            detail: {
+                runStatus: "completed",
+                pendingAsks: [],
+                sessions: [{sessionId: 4, profileKey: "writer.default"}],
+                usage,
+                result: {ok: true},
+            },
+        });
+        expect(JSON.stringify(detail)).not.toContain('"cost"');
     });
 });
 

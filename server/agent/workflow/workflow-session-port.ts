@@ -29,11 +29,10 @@ export class NeuroWorkflowSessionPort implements SessionPort {
     constructor(
         private repo: JsonlSessionRepository,
         /** 真实 profile 的创建入口；为空时真实 profile 创建直接报错。model 非空时实现负责把 session 模型设为该 key */
-        private createRealSession?: (init: {runId?: string; profileKey: string; initial: JsonValue; parentSessionId?: SessionId; title?: string; model?: string; kind?: SessionMeta["kind"]; tags?: string[]}) => Promise<SessionId>,
+        private createRealSession?: (init: {profileKey: string; initial: JsonValue; parentSessionId?: SessionId; title?: string; model?: string; kind?: SessionMeta["kind"]; tags?: string[]}) => Promise<SessionId>,
     ) {}
 
     async createSession(init: {
-        runId?: string;
         profileKey: string;
         kind: SessionMeta["kind"];
         tags: string[];
@@ -45,7 +44,6 @@ export class NeuroWorkflowSessionPort implements SessionPort {
         if (!init.profileKey.startsWith(WORKFLOW_DEMO_PROFILE_PREFIX)) {
             if (!this.createRealSession) throw new Error(`真实 profile ${init.profileKey} 的创建入口未注入`);
             const sessionId = await this.createRealSession({
-                runId: init.runId,
                 profileKey: init.profileKey,
                 initial: init.initial ?? null,
                 parentSessionId: init.parentSessionId,

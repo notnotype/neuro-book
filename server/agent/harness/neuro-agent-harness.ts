@@ -153,7 +153,7 @@ import type {
     SessionQueryInput,
     SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
-import type {AgentInvokeCaller} from "nbook/server/agent/harness/invocation-caller";
+import type {AgentInvokeCaller, AgentMessageIdentity} from "nbook/server/agent/harness/invocation-caller";
 import type {
     AgentAbortRequestDto,
     AgentAbortResult,
@@ -496,6 +496,7 @@ type PreparedInvocationInput = {
     message?: StoredAgentUserMessageInput;
     payload?: JsonValue;
     modelKey?: string;
+    messageIdentity: AgentMessageIdentity;
 };
 
 /** invocation 内可由 durable user entry commit 单向推进的 admission receipt。 */
@@ -1097,6 +1098,7 @@ export class NeuroAgentHarness {
         }
         const invokeTitle = this.normalizeInvokeTitle(input.title);
         const caller = this.normalizeInvokeCaller(input.caller);
+        const messageIdentity = this.normalizeMessageIdentity(input.messageIdentity);
         let admission: InvocationAdmission;
         if (preadmitted) {
             admission = preadmitted;
@@ -1220,6 +1222,7 @@ export class NeuroAgentHarness {
                 clientState: input.clientState,
                 runtimeState,
                 caller,
+                messageIdentity,
                 modelKey: invocationModelKey,
                 clientMessageId: input.clientMessageId,
                 intent: input.mode === "steer" ? "steer" : "normal",
@@ -1334,6 +1337,11 @@ export class NeuroAgentHarness {
 
     private normalizeInvokeCaller(caller: InvokeAgentInput["caller"]): AgentInvokeCaller {
         return caller ?? {kind: "user"};
+    }
+
+    /** durable 身份必须由显式 messageIdentity 决定；缺失时按用户消息兼容。 */
+    private normalizeMessageIdentity(identity: InvokeAgentInput["messageIdentity"]): AgentMessageIdentity {
+        return identity ?? "user";
     }
 
     /** 用户输入模式必须有稳定 clientMessageId；continue 不创建用户消息。 */
@@ -1457,6 +1465,8 @@ export class NeuroAgentHarness {
         let pendingPayload: JsonValue | undefined;
         let pendingResolutions: AgentResolution[] = [];
         let currentInvocation = this.activeInvocations.get(input.sessionId) ?? null;
+        const caller = this.normalizeInvokeCaller(input.caller);
+        const messageIdentity = this.normalizeMessageIdentity(input.messageIdentity);
         const clientMessageId = input.mode === "continue"
             ? undefined
             : this.requireClientMessageId(input.clientMessageId, input.mode);
@@ -1503,7 +1513,7 @@ export class NeuroAgentHarness {
                 if (!this.steerableSessions.has(input.sessionId)) {
                     throw new Error("steer_not_available");
                 }
-                const item = this.enqueueSteer(input.sessionId, await this.prepareInvocationInput(input));
+                const item = this.enqueueSteer(input.sessionId, await this.prepareInvocationInput(input, messageIdentity), caller, messageIdentity);
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -1523,7 +1533,7 @@ export class NeuroAgentHarness {
                 if (input.queueIfBusy === false) {
                     throw new Error("active_invocation_exists");
                 }
-                const item = await this.enqueueFollowUp(input.sessionId, await this.prepareInvocationInput(input));
+                const item = await this.enqueueFollowUp(input.sessionId, await this.prepareInvocationInput(input, messageIdentity), caller, messageIdentity);
                 return {
                     queued: {
                         sessionId: input.sessionId,
@@ -1828,6 +1838,7 @@ export class NeuroAgentHarness {
         clientState?: ClientStateSnapshot;
         runtimeState: RunRuntimeState;
         caller: AgentInvokeCaller;
+        messageIdentity: AgentMessageIdentity;
         /** 本 invocation 的模型覆盖；只参与本次 prepare，不写 session model_change。 */
         modelKey?: string;
         /** 当前用户输入的稳定关联 ID；continue/resolution 为空。 */
@@ -1876,23 +1887,31 @@ export class NeuroAgentHarness {
 
         snapshot = await this.repo.readSession(input.sessionId);
         if (input.pendingUserMessage) {
+            const entry = input.messageIdentity === "system"
+                ? {
+                    type: "custom_message" as const,
+                    message: input.pendingUserMessage,
+                    visibleToModel: true,
+                    ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
+                }
+                : {
+                    type: "message" as const,
+                    message: input.pendingUserMessage,
+                    origin: "prompt" as const,
+                    clientMessageId: this.requireClientMessageId(input.clientMessageId, "prompt"),
+                    intent: input.intent,
+                    ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
+                    ...(input.userMessageParentId === undefined ? {} : {parentId: input.userMessageParentId}),
+                };
             const written = await this.executeWritePlan({
                 target: {sessionId: input.sessionId},
                 cause: "prompt",
                 ops: [{
                     kind: "appendMany",
-                    entries: [{
-                        type: "message",
-                        message: input.pendingUserMessage,
-                        origin: "prompt",
-                        clientMessageId: this.requireClientMessageId(input.clientMessageId, "prompt"),
-                        intent: input.intent,
-                        ...(input.sourceQueueItemId === undefined ? {} : {sourceQueueItemId: input.sourceQueueItemId}),
-                        ...(input.userMessageParentId === undefined ? {} : {parentId: input.userMessageParentId}),
-                    }],
+                    entries: [entry],
                 }],
             }, input.invocationId);
-            const userEntry = written.find((entry) => entry.type === "message" && entry.message.role === "user");
+            const userEntry = written.find((entry) => (entry.type === "message" || entry.type === "custom_message") && entry.message.role === "user");
             if (!userEntry) {
                 throw new Error("用户消息已写入但缺少 durable entry ID");
             }
@@ -3903,6 +3922,7 @@ export class NeuroAgentHarness {
                 sessionId: sourceSnapshot.metadata.sessionId,
                 profileKey: sourceSnapshot.metadata.profileKey,
             },
+            messageIdentity: "system",
             internalQueued: true,
         });
         if (result.status === "error") {
@@ -5886,7 +5906,7 @@ export class NeuroAgentHarness {
         }
     }
 
-    private enqueueSteer(sessionId: number, input: PreparedInvocationInput): AgentQueuedInvocationTruth {
+    private enqueueSteer(sessionId: number, input: PreparedInvocationInput, caller: AgentInvokeCaller, messageIdentity: AgentMessageIdentity): AgentQueuedInvocationTruth {
         const item: AgentQueuedInvocationTruth = {
             id: randomUUID(),
             clientMessageId: input.clientMessageId,
@@ -5894,6 +5914,8 @@ export class NeuroAgentHarness {
             message: input.message,
             input: input.payload,
             modelKey: input.modelKey,
+            caller,
+            messageIdentity,
             createdAt: Date.now(),
         };
         const queue = this.steerQueues.get(sessionId) ?? [];
@@ -5910,7 +5932,7 @@ export class NeuroAgentHarness {
         return item;
     }
 
-    private async enqueueFollowUp(sessionId: number, input: PreparedInvocationInput): Promise<StoredFollowUpQueueItem> {
+    private async enqueueFollowUp(sessionId: number, input: PreparedInvocationInput, caller: AgentInvokeCaller, messageIdentity: AgentMessageIdentity): Promise<StoredFollowUpQueueItem> {
         const item: StoredFollowUpQueueItem = {
             id: randomUUID(),
             clientMessageId: input.clientMessageId,
@@ -5918,6 +5940,8 @@ export class NeuroAgentHarness {
             message: input.message,
             input: input.payload,
             modelKey: input.modelKey,
+            caller,
+            messageIdentity,
             createdAt: Date.now(),
         };
         const queue = this.followUpQueueState(sessionId);
@@ -5950,13 +5974,23 @@ export class NeuroAgentHarness {
         const entries: AppendManySessionEntryDraft[] = [];
         for (const item of queue) {
             const message = this.createQueuedUserMessage(item, "steer");
-            entries.push({
-                type: "message",
-                message,
-                origin: "harness",
-                clientMessageId: item.clientMessageId,
-                intent: "steer",
-            });
+            const messageIdentity = item.messageIdentity ?? "user";
+            if (messageIdentity === "system") {
+                entries.push({
+                    type: "custom_message",
+                    message,
+                    visibleToModel: true,
+                    sourceQueueItemId: item.id,
+                });
+            } else {
+                entries.push({
+                    type: "message",
+                    message,
+                    origin: "harness",
+                    clientMessageId: item.clientMessageId,
+                    intent: "steer",
+                });
+            }
             messages.push(message);
         }
         const written = await this.executeWritePlan({
@@ -5970,7 +6004,7 @@ export class NeuroAgentHarness {
         }, input.invocationId);
         return {
             messages,
-            leafId: written.findLast((entry) => entry.type === "message")?.id,
+            leafId: written.findLast((entry) => entry.type === "message" || entry.type === "custom_message")?.id,
         };
     }
 
@@ -5989,7 +6023,7 @@ export class NeuroAgentHarness {
             }
 
             const snapshot = await this.repo.readSession(sessionId);
-            const committed = snapshot.entries.some((entry) => entry.type === "message"
+            const committed = snapshot.entries.some((entry) => (entry.type === "message" || entry.type === "custom_message")
                 && entry.message.role === "user"
                 && entry.sourceQueueItemId === next.id);
             if (committed) {
@@ -6031,7 +6065,8 @@ export class NeuroAgentHarness {
                     message: prepared.message,
                     payload: prepared.payload,
                     modelKey: prepared.modelKey,
-                    caller: {kind: "system", sessionId},
+                    caller: next.caller ?? {kind: "user", sessionId},
+                    messageIdentity: next.messageIdentity ?? "user",
                     internalQueued: true,
                     sourceQueueItemId: next.id,
                 });
@@ -6070,6 +6105,7 @@ export class NeuroAgentHarness {
             ...(item.message ? {message: await this.authorizeStoredInvocationInput(sessionId, item.message)} : {}),
             ...(item.input === undefined ? {} : {payload: this.profiles.parsePayload(profile, item.input)}),
             ...(item.modelKey === undefined ? {} : {modelKey: item.modelKey}),
+            messageIdentity: item.messageIdentity ?? "user",
         };
     }
 
@@ -6103,7 +6139,7 @@ export class NeuroAgentHarness {
     /**
      * 入队前按当前 profile 校验结构化 payload，避免无效 input 滞留到后续 drain 才失败。
      */
-    private async prepareInvocationInput(input: InvocationCoreInput): Promise<PreparedInvocationInput> {
+    private async prepareInvocationInput(input: InvocationCoreInput, messageIdentity = this.normalizeMessageIdentity(input.messageIdentity)): Promise<PreparedInvocationInput> {
         if (input.source.kind === "stored") {
             const snapshot = await this.repo.readSession(input.sessionId);
             const profile = await this.profiles.get(this.repo.reduce(snapshot).profileKey);
@@ -6114,6 +6150,7 @@ export class NeuroAgentHarness {
                     : undefined,
                 payload: this.profiles.parsePayload(profile, input.payload),
                 modelKey: input.modelKey,
+                messageIdentity,
             };
         }
         const snapshot = await this.repo.readSession(input.sessionId);
@@ -6125,6 +6162,7 @@ export class NeuroAgentHarness {
                 : undefined,
             payload: this.profiles.parsePayload(profile, input.payload),
             modelKey: input.modelKey,
+            messageIdentity,
         };
     }
 
