@@ -52,12 +52,12 @@ const viewTabs = computed<{key: ViewKey; label: string}[]>(() => [
     {key: "trace", label: "执行图"},
 ]);
 
-/** 状态机 tab 被隐藏时，激活视图不能停在上面。 */
+/** 状态机 tab 被隐藏时，激活视图不能停在上面（immediate：挂载时就兜底，避免无 tab 激活落到末尾 else）。 */
 watch(showMachineTab, (visible) => {
     if (!visible && activeView.value === "machine") {
         activeView.value = "flow";
     }
-});
+}, {immediate: true});
 </script>
 
 <template>

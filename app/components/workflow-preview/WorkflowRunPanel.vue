@@ -292,7 +292,9 @@ onBeforeUnmount(() => {
         <!-- 主体：可切换的可视化视图（共享组件）+ 人话事件流 -->
         <div class="flex flex-wrap gap-4">
             <div class="min-w-0 flex-1 basis-[460px]">
+                <!-- key=runId：切换 run 时重挂载，tab 回到默认视图（对齐旧版 runId watcher 的重置行为）。 -->
                 <WorkflowRunVisuals
+                    :key="props.runId"
                     :phases="state?.phases ?? []"
                     :progress-text="progressText"
                     :machine-mermaid="state?.machineMermaid ?? null"

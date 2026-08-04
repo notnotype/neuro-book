@@ -481,8 +481,9 @@ onBeforeUnmount(() => {
             </span>
         </div>
 
-        <!-- 可视化区（Task 137 共享组件）：phase 步进条 + 视图 tab；终态默认折叠，限高避免撑爆聊天流。 -->
-        <div v-if="matchingRunState" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
+        <!-- 可视化区（Task 137 共享组件）：phase 步进条 + 视图 tab；终态默认折叠，限高避免撑爆聊天流。
+             run 不可查询时仍用 details 里的 chartMermaid 展示状态图（旧行为保留），其余视图自然为空态。 -->
+        <div v-if="matchingRunState || effectiveChart" class="overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)]">
             <button type="button" class="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-[var(--bg-hover)]" @click="chartExpanded = !chartExpanded">
                 <span class="flex items-center gap-2 text-xs font-medium text-[var(--text-main)]">
                     <span class="i-lucide-git-branch h-3.5 w-3.5 text-[var(--accent-main)]"></span>
@@ -492,14 +493,14 @@ onBeforeUnmount(() => {
             </button>
             <div v-if="chartExpanded" class="border-t border-[var(--border-color)] p-2">
                 <WorkflowRunVisuals
-                    :phases="matchingRunState.phases"
+                    :phases="matchingRunState?.phases ?? []"
                     :progress-text="progressText"
                     :machine-mermaid="effectiveChart || null"
-                    :flow-mermaid="matchingRunState.flowMermaid"
-                    :trace-mermaid="matchingRunState.traceMermaid"
-                    :relation-mermaid="matchingRunState.relationMermaid"
-                    :timeline="matchingRunState.timeline"
-                    :live="matchingRunState.live"
+                    :flow-mermaid="matchingRunState?.flowMermaid ?? ''"
+                    :trace-mermaid="matchingRunState?.traceMermaid ?? ''"
+                    :relation-mermaid="matchingRunState?.relationMermaid ?? ''"
+                    :timeline="matchingRunState?.timeline ?? []"
+                    :live="matchingRunState?.live ?? []"
                     default-view="machine"
                     always-show-machine-tab
                     :mermaid-max-height="360"
