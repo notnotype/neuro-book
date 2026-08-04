@@ -74,7 +74,6 @@ import {createBuiltinTools, createReportResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
 import type {AgentResolution, NeuroAgentTool, NeuroToolResult, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
-import type {ProfileToolBinding, ReportResultToolBinding} from "nbook/profile-sdk/contracts";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import {publicAgentUserInputFormSpec} from "nbook/server/agent/events/public-user-input-form";
@@ -109,7 +108,7 @@ import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-
 import {assertValidProfileStateWrite, buildPromptPrefixAttribution, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
-import {isEmptyObjectSchema, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {isEmptyObjectSchema, isReportResultBinding, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, type ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
 import {assemblePersistedProfilePromptMessages} from "nbook/server/agent/profiles/prompt-order";
@@ -7941,10 +7940,6 @@ function resolveAgentModelLogName(model: Model<any>): string {
         }
     }
     return "unknown";
-}
-
-function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {
-    return Boolean(binding && typeof binding === "object" && binding.key === "report_result" && "dataSchema" in binding);
 }
 
 function stableJsonHash(value: JsonValue): string {

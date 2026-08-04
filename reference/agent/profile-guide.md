@@ -19,7 +19,7 @@
 - `tools`
 - `context(ctx)`
 
-需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。需要 profile 自定义默认预设时声明 `settingsForm`，运行时通过 `ctx.settings` 读取合并后的设置；settings 不属于创建期 initial，也不属于单次 invocation payload。存在 `outputSchema` 时，`report_result.data` 是结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束 run。
+需要每轮结构化调用载荷时声明 `payloadSchema`。需要结构化结果时声明 `outputSchema`。需要 profile 自定义默认预设时声明 `settingsForm`，运行时通过 `ctx.settings` 读取合并后的设置；settings 不属于创建期 initial，也不属于单次 invocation payload。静态 profile 存在 `outputSchema` 时，`report_result.data` 是结构化输出的 runtime 校验依据，provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束 run。`adhoc` profile 的 `initial.outputSchema` 是 session 级调用方合同，声明后 provider-visible schema 中的 `data` 必填，缺失会由 `report_result` 执行层拒绝。
 
 `tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。需要收窄执行权限时声明顶层 `toolKeys`，它只能引用根 `tools` 中已有的 key。
 

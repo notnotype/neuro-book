@@ -17,6 +17,15 @@ export function isEmptyObjectSchema(schema: TSchema | undefined): boolean {
 }
 
 /**
+ * 判断 profile 是否声明了 report_result 专用 binding 字段。
+ * dataSchemaFromInitial 是 adhoc session 的动态 data schema 来源。
+ */
+export function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {
+    return Boolean(binding && typeof binding === "object" && binding.key === "report_result"
+        && ("dataSchema" in binding || "dataSchemaFromInitial" in binding));
+}
+
+/**
  * 从目标 profile 的 OutputSchema 派生 report_result 的模型可见参数 schema。
  * dataSchemaOverride 非空时优先（per-session 动态 schema：adhoc profile 从 initial 解析）。
  */
@@ -38,8 +47,4 @@ export function reportResultSchemaForProfile(profile: AgentProfile, dataSchemaOv
             : {},
     };
     return Type.Object(properties);
-}
-
-function isReportResultBinding(binding: ProfileToolBinding | undefined): binding is ReportResultToolBinding {
-    return Boolean(binding && typeof binding === "object" && binding.key === "report_result" && "dataSchema" in binding);
 }

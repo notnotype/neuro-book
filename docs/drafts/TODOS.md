@@ -238,6 +238,8 @@
 - .agent 协议
 - job 持久化
 - release 脚本优化
+- 回到 logs 相关任务。
+  目前的 logs 只有一个目录。
 
 
 

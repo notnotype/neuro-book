@@ -258,6 +258,12 @@
 
 **与计划的出入**：新增的初始快照恢复证据是测试暴露的实际竞态修复；没有新增请求、状态容器、协议或 ADR。测试文件已从组件目录迁到 `app/composables/useAgentJob.test.ts`。
 
+### 2026-08-04 adhoc 动态 outputSchema 合同修复
+
+- 修复 `builtin.result.main({dataSchemaFromInitial})` binding 只包含动态 schema 字段时，被两个重复的 `isReportResultBinding()` 漏判的问题。之前 harness 没有把 session initial 的 `outputSchema` 传入 report_result schema，模型可见参数缺少 `data`，执行层也会把缺 data 的调用当成成功。
+- 将守卫集中到 `server/agent/profiles/report-result-schema.ts`，harness 复用唯一实现；显式声明 outputSchema（包括空 schema）继续要求 `data`，静态 profile 和未声明 outputSchema 的 adhoc 行为不变。
+- 新增真实 adhoc harness 回归，覆盖 provider 可见 schema、缺 data 错误重试、合法结构化结果、空 schema 的 `{}` 结果，以及未声明 outputSchema 时只返回 `result` 的兼容边界。profile 聚焦 8 项、harness report_result 15 项、5 个 bundled workflow 文件 16 项、profile preview 2 项通过；`bun run typecheck` 退出码为 0。`llmlint-full-review` 使用同一 adhoc 动态合同，但依赖外部 llmlint 命令和审批流程，本轮未执行完整 workflow 专项冒烟，真实 Harness 回归覆盖其共享运行时 seam。
+
 ## 后续 TODO
 
 - [ ] 统一 workflow/session 忙碌语义：HarnessAgentPort 对 busy caller 的 invoke 与真实直聊对 workflow 锁的互斥都需要收口到 harness admission。
