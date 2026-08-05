@@ -18,6 +18,9 @@ const checks = {
         && tauriConfig.app.security.csp.includes("http://127.0.0.1:*"),
     tauriHasNoShellOrFsCapability: tauriCapability.permissions.every((permission) =>
         !String(permission).includes("shell") && !String(permission).includes("fs")),
+    tauriUsesNarrowCapability: tauriCapability.permissions.includes("core:event:allow-listen")
+        && !tauriCapability.permissions.includes("core:event:default")
+        && !tauriCapability.permissions.includes("core:window:default"),
 };
 const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
 console.log(JSON.stringify({kind: "t140-security-audit", checks}, null, 4));

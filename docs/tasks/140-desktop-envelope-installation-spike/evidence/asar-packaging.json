@@ -1,6 +1,6 @@
 {
     "schema": "nbook.desktop-envelope-asar-evidence/v1",
-    "capturedAt": "2026-08-05",
+    "capturedAt": "2026-08-05T23:13:53.179+08:00",
     "input": {
         "productImageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
         "productDirty": false,
@@ -32,11 +32,11 @@
     "tauriEnvelope": {
         "payload": {
             "files": 9546,
-            "bytes": 631748475,
-            "digest": "sha256:c06ea9bf20df5061522d69c91ae91850b5ec3885d65f0da31ab00369a3c35b2d"
+            "bytes": 631719803,
+            "digest": "sha256:a5ded68252d090996bfa3e2b3bea1ff7376c9eb0ea423ed84130b2d192293f6a"
         },
-        "zipBytes": 243791957,
-        "zipSha256": "22c1650bf303d6c8f91193e27161fcf69b80f05cf7a2c6b3f954ed4e75a23612"
+        "zipBytes": 243804755,
+        "zipSha256": "23bb6a91557a66835c6b717949a1dee4a509a2081389139c3aced633ab5f6f43"
     },
     "repeatability": {
         "sameInput": true,
@@ -57,7 +57,7 @@
             "processTreeClosed": true
         },
         "tauri": {
-            "port": 23195,
+            "port": 40984,
             "exitCode": 0,
             "shutdown": "graceful",
             "processTreeClosed": true
@@ -66,7 +66,8 @@
     "tests": {
         "desktopContract": "6 files / 22 tests passed",
         "electronBuild": "passed",
-        "securityAudit": "all checks passed"
+        "securityAudit": "all checks passed",
+        "tauriCapabilityPermissions": ["core:event:allow-listen"]
     },
     "boundary": "本证据只记录 ASAR 打包收口；没有重做 Product Build A/B，也不代表真实窗口、签名安装器、WebView2 分发或最终框架选型已完成。"
 }
