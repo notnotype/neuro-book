@@ -9,10 +9,11 @@ import {
     readFile,
     readdir,
     rm,
+    stat,
     utimes,
     writeFile,
 } from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
 
@@ -457,6 +458,35 @@ async function buildShell(kind, args, versions, outputDir) {
     }
 }
 
+/** 为本地 depot 生成可被 Manager 解析的组件发行清单。 */
+async function writeDistributionManifest(outputDir, fileName, version, channel, archives) {
+    const components = await Promise.all(archives.map(async ({id, archive, componentVersion, required}) => {
+        const info = await stat(archive);
+        return {
+            id,
+            version: componentVersion,
+            archive: {
+                kind: "path",
+                location: basename(archive),
+                sha256: `sha256:${await fileSha256(archive)}`,
+                bytes: info.size,
+                format: "zip",
+            },
+            required,
+        };
+    }));
+    const manifest = {
+        schema: "nbook.desktop-distribution/v1",
+        version,
+        channel,
+        platform: "windows",
+        architecture: "x64",
+        components,
+    };
+    await writeFile(join(outputDir, fileName), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
+    return manifest;
+}
+
 async function main() {
     const args = parseArgs(process.argv.slice(2));
     await mkdir(args.outputDir, {recursive: true});
@@ -475,6 +505,16 @@ async function main() {
     );
     const electron = await buildPortable("electron", args, verified, versions, args.outputDir);
     const tauri = await buildPortable("tauri", args, verified, versions, args.outputDir);
+    const distribution = await writeDistributionManifest(
+        args.outputDir,
+        "neuro-book-desktop-spike-win-x64.distribution.json",
+        verified.manifest.version,
+        "canary",
+        [
+            {id: "electron-envelope", componentVersion: electron.manifest.runtime.envelopeVersion, archive: electron.archive, required: false},
+            {id: "tauri-envelope", componentVersion: tauri.manifest.runtime.envelopeVersion, archive: tauri.archive, required: false},
+        ],
+    );
     let shells = null;
     if (args.shellOutputDir) {
         await mkdir(args.shellOutputDir, {recursive: true});
@@ -485,12 +525,23 @@ async function main() {
             electron: await buildShell("electron", args, versions, args.shellOutputDir),
             tauri: await buildShell("tauri", args, versions, args.shellOutputDir),
         };
+        shells.distribution = await writeDistributionManifest(
+            args.shellOutputDir,
+            "neuro-book-shell-win-x64.distribution.json",
+            verified.manifest.version,
+            "canary",
+            [
+                {id: "electron-envelope", componentVersion: shells.electron.manifest.envelopeVersion, archive: shells.electron.archive, required: false},
+                {id: "tauri-envelope", componentVersion: shells.tauri.manifest.envelopeVersion, archive: shells.tauri.archive, required: false},
+            ],
+        );
     }
     console.log(JSON.stringify({
         imageId: verified.manifest.imageId,
         bun: versions.bun,
         electron: electron.archive,
         tauri: tauri.archive,
+        distribution,
         ...(shells ? {shells} : {}),
     }, null, 4));
 }

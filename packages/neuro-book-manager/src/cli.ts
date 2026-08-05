@@ -376,6 +376,7 @@ desktop.command("install")
     .description("从本地 Product Portable 或独立 shell depot 安装 Windows 用户级 Desktop；下载与更新由 Manager 托管。")
     .option("--archive <path>", "本地模式使用的 Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
     .option("--shell-archive <path>", "远端模式使用的独立 Desktop Envelope ZIP；不得包含 Product、Bun 或 Tool Pack。")
+    .option("--distribution-manifest <path>", "使用本地 Desktop Distribution Manifest；组件 ZIP 必须位于 manifest 根目录内。")
     .option("--envelope <envelope>", "桌面壳：electron 或 tauri。", "electron")
     .option("--channel <channel>", "发行通道：stable 或 canary。", parseChannel)
     .option("--remote <url>", "连接远端 Product；不传则使用本机 Product。")
@@ -389,6 +390,7 @@ desktop.command("install")
     .action(async (options: {
         archive?: string;
         shellArchive?: string;
+        distributionManifest?: string;
         envelope: string;
         channel?: ReleaseChannel;
         remote?: string;
@@ -407,10 +409,10 @@ desktop.command("install")
         }
         const remoteUrl = options.remote ? new URL(options.remote) : null;
         if (remoteUrl && options.passwordStdin) throw new Error("远端 Desktop 安装不能读取本地管理员密码。" );
+        const depotArguments = [options.archive, options.shellArchive, options.distributionManifest].filter((value) => value !== undefined);
+        if (depotArguments.length !== 1) throw new Error("Desktop 安装必须且只能提供 --archive、--shell-archive 或 --distribution-manifest 之一。" );
         if (remoteUrl) {
-            if (!options.shellArchive || options.archive) {
-                throw new Error("远端 Desktop 安装必须只提供 --shell-archive，不能传完整 --archive。" );
-            }
+            if (options.archive) throw new Error("远端 Desktop 安装不能使用完整 --archive。" );
             if (remoteUrl.protocol !== "https:" && !(remoteUrl.protocol === "http:" && options.allowInsecureHttp)) {
                 throw new Error("远端 Desktop 默认要求 HTTPS；局域网 HTTP 必须显式传入 --allow-insecure-http。" );
             }
@@ -419,9 +421,7 @@ desktop.command("install")
                 if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
             }
         }
-        if (!remoteUrl && (!options.archive || options.shellArchive)) {
-            throw new Error("本地 Desktop 安装必须只提供完整 --archive，不能传 --shell-archive。" );
-        }
+        if (!remoteUrl && options.shellArchive) throw new Error("本地 Desktop 安装不能使用 --shell-archive。" );
         if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             const confirmed = await promptResult(p.confirm({message: `安装 ${options.envelope} Desktop 到用户级目录？`, initialValue: true}));
             if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
@@ -441,6 +441,7 @@ desktop.command("install")
         const result = await installDesktopFromLocalDepot({
             ...(options.archive ? {archivePath: options.archive} : {}),
             ...(options.shellArchive ? {shellArchivePath: options.shellArchive} : {}),
+            ...(options.distributionManifest ? {distributionManifestPath: options.distributionManifest} : {}),
             envelope: options.envelope,
             channel: options.channel ?? "canary",
             connection: remoteUrl
@@ -448,6 +449,7 @@ desktop.command("install")
                 : {mode: "local"},
             installationRoot: options.dir,
             addCliToUserPath: options.addCliToPath,
+            managerExecutable,
             ...(adminPassword !== undefined ? {adminPassword} : {}),
         });
         if (!remoteUrl) {

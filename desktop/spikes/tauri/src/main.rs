@@ -132,6 +132,30 @@ struct DesktopSettingsPatch {
     close_behavior: Option<String>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct WindowState {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    maximized: bool,
+    fullscreen: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            x: 80,
+            y: 80,
+            width: 1280,
+            height: 840,
+            maximized: false,
+            fullscreen: false,
+        }
+    }
+}
+
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
@@ -178,6 +202,11 @@ fn config() -> Result<Config, String> {
             .map_err(|_| "Tauri spike 缺少 T140_PORT".to_string())?
             .parse::<u16>()
             .map_err(|_| "Tauri spike T140_PORT 无效".to_string())?;
+        let remote_url = std::env::var("T140_REMOTE_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| validate_remote_origin(&value, true))
+            .transpose()?;
         return Ok(Config {
             image_root: env_path("T140_PRODUCT_IMAGE_ROOT")?,
             application_root: env_path("T140_APPLICATION_ROOT")?,
@@ -187,9 +216,7 @@ fn config() -> Result<Config, String> {
             manager: env_path("T140_MANAGER")?,
             bun: env_path("T140_BUN_EXECUTABLE")?,
             port,
-            remote_url: std::env::var("T140_REMOTE_URL")
-                .ok()
-                .filter(|value| !value.trim().is_empty()),
+            remote_url,
         });
     }
 
@@ -200,13 +227,13 @@ fn config() -> Result<Config, String> {
         .parent()
         .and_then(Path::parent)
         .ok_or_else(|| "Tauri spike 无法定位 portable root".to_string())?;
-    let state_root = runtime_root(&portable_root, "state", portable_root.join("data"));
-    let cache_root = runtime_root(&portable_root, "cache", portable_root.join(".cache"));
+    let state_root = runtime_root(&portable_root, "state", portable_root.join("data"))?;
+    let cache_root = runtime_root(&portable_root, "cache", portable_root.join(".cache"))?;
     let desktop_root = runtime_root(
         &portable_root,
         "desktop",
         portable_root.join("data").join(".desktop"),
-    );
+    )?;
     let remote_url = read_remote_url(&desktop_root)?;
     Ok(Config {
         image_root: portable_root.join(".output"),
@@ -222,27 +249,29 @@ fn config() -> Result<Config, String> {
 }
 
 /** 读取 Manager 写入的相对 locator；Portable 没有该文件时使用安装根内目录。 */
-fn runtime_root(root: &Path, key: &str, fallback: PathBuf) -> PathBuf {
+fn runtime_root(root: &Path, key: &str, fallback: PathBuf) -> Result<PathBuf, String> {
     let path = root.join("desktop").join("runtime-locators.json");
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
-        Err(_) => return fallback,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(fallback),
+        Err(error) => return Err(format!("读取 Desktop runtime locator 失败：{error}")),
     };
-    let locators = match serde_json::from_str::<RuntimeLocators>(&text) {
-        Ok(value) => value,
-        Err(_) => return fallback,
-    };
+    let locators = serde_json::from_str::<RuntimeLocators>(&text)
+        .map_err(|error| format!("解析 Desktop runtime locator 失败：{error}"))?;
     let locator = match key {
         "state" => &locators.state,
         "cache" => &locators.cache,
         "desktop" => &locators.desktop,
-        _ => return fallback,
+        _ => return Ok(fallback),
     };
-    if locator.path.is_empty() || locator.path.contains("..") {
-        return fallback;
+    if !safe_locator_path(&locator.path) {
+        return Err(format!(
+            "Desktop runtime locator 路径非法：{}",
+            locator.path
+        ));
     }
     if locator.base == "installation-root" {
-        return root.join(&locator.path);
+        return Ok(root.join(&locator.path));
     }
     if locator.base == "local-app-data" {
         let base = std::env::var_os("LOCALAPPDATA")
@@ -252,26 +281,41 @@ fn runtime_root(root: &Path, key: &str, fallback: PathBuf) -> PathBuf {
                     .map(|value| PathBuf::from(value).join("AppData").join("Local"))
             });
         if let Some(base) = base {
-            return base.join(&locator.path);
+            return Ok(base.join(&locator.path));
         }
     }
     if locator.base == "user-app-data" {
         if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home)
+            return Ok(PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join(&locator.path);
+                .join(&locator.path));
         }
     }
     if locator.base == "user-cache" {
         if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home)
+            return Ok(PathBuf::from(home)
                 .join("Library")
                 .join("Caches")
-                .join(&locator.path);
+                .join(&locator.path));
         }
     }
-    fallback
+    Err(format!(
+        "Desktop runtime locator base 不受支持：{}",
+        locator.base
+    ))
+}
+
+/** locator 只允许不含 dot segment 的相对路径，防止被篡改后越过 root。 */
+fn safe_locator_path(path: &str) -> bool {
+    !path.is_empty()
+        && !path.starts_with('/')
+        && !path.starts_with('\\')
+        && !path.contains(':')
+        && !path.contains('\0')
+        && path
+            .split(['/', '\\'])
+            .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
 /** 读取安装清单的远端 origin；清单损坏时 fail closed，不回退本地 Product。 */
@@ -290,13 +334,60 @@ fn read_remote_url(desktop_root: &Path) -> Result<Option<String>, String> {
         .and_then(Value::as_str)
     {
         Some("local") => Ok(None),
-        Some("remote") => connection
-            .and_then(|item| item.get("baseUrl"))
-            .and_then(Value::as_str)
-            .map(|url| Some(url.to_string()))
-            .ok_or_else(|| "远端 Desktop Installation Manifest 缺少 baseUrl".to_string()),
+        Some("remote") => {
+            let url = connection
+                .and_then(|item| item.get("baseUrl"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| "远端 Desktop Installation Manifest 缺少 baseUrl".to_string())?;
+            let accepted = connection
+                .and_then(|item| item.get("insecureHttpAccepted"))
+                .and_then(Value::as_bool)
+                .ok_or_else(|| {
+                    "远端 Desktop Installation Manifest 缺少 HTTP 风险确认".to_string()
+                })?;
+            Ok(Some(validate_remote_origin(url, accepted)?))
+        }
         _ => Err("Desktop Installation Manifest connection 无效".to_string()),
     }
+}
+
+/** Tauri 侧复用 Desktop Remote 的 HTTPS/私网 HTTP 边界，拒绝凭据和路径注入。 */
+fn validate_remote_origin(value: &str, insecure_http_accepted: bool) -> Result<String, String> {
+    let url =
+        url::Url::parse(value).map_err(|error| format!("远端 Desktop origin 无效：{error}"))?;
+    if url.username() != ""
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err("远端地址只能包含 origin，不能携带凭据、路径、query 或 hash".to_string());
+    }
+    if url.scheme() == "https" {
+        return Ok(url.to_string());
+    }
+    if url.scheme() != "http" || !insecure_http_accepted {
+        return Err("局域网 HTTP 远端必须记录二次确认".to_string());
+    }
+    let host = url.host_str().unwrap_or_default();
+    let allowed = host == "localhost"
+        || host == "::1"
+        || host
+            .parse::<std::net::Ipv4Addr>()
+            .map(is_private_ipv4)
+            .unwrap_or(false);
+    if !allowed {
+        return Err("远端地址必须使用 HTTPS；HTTP 只允许 loopback 或私有 IPv4".to_string());
+    }
+    Ok(url.to_string())
+}
+
+fn is_private_ipv4(address: std::net::Ipv4Addr) -> bool {
+    let [first, second, _, _] = address.octets();
+    first == 10
+        || first == 127
+        || (first == 192 && second == 168)
+        || (first == 172 && (16..=31).contains(&second))
 }
 
 /** 让系统选择一个 loopback 端口，交给本次 Supervisor 生命周期独占。 */
@@ -601,6 +692,86 @@ fn validate_settings(settings: &DesktopSettings) -> Result<(), String> {
 
 fn settings_path(state: &SupervisorState) -> PathBuf {
     state.desktop_root.join("settings.json")
+}
+
+fn window_state_path(desktop_root: &Path) -> PathBuf {
+    desktop_root.join("window-state.json")
+}
+
+fn read_window_state(desktop_root: &Path) -> WindowState {
+    fs::read_to_string(window_state_path(desktop_root))
+        .ok()
+        .and_then(|text| serde_json::from_str::<WindowState>(&text).ok())
+        .filter(|state| {
+            state.width >= 640
+                && state.height >= 480
+                && state.width <= 10000
+                && state.height <= 10000
+        })
+        .unwrap_or_default()
+}
+
+fn save_window_state(window: &WebviewWindow, desktop_root: &Path) {
+    let maximized = window.is_maximized().unwrap_or(false);
+    let fullscreen = window.is_fullscreen().unwrap_or(false);
+    if maximized || fullscreen {
+        return;
+    }
+    let Ok(position) = window.outer_position() else {
+        return;
+    };
+    let Ok(size) = window.inner_size() else {
+        return;
+    };
+    let state = WindowState {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized,
+        fullscreen,
+    };
+    if fs::create_dir_all(desktop_root).is_ok() {
+        if let Ok(text) = serde_json::to_string_pretty(&state) {
+            let _ = fs::write(window_state_path(desktop_root), format!("{text}\n"));
+        }
+    }
+}
+
+/** 把保存的窗口位置钳制到当前仍可见的显示器工作区。 */
+fn restore_window_state(window: &WebviewWindow, state: &WindowState) {
+    let Ok(monitors) = window.available_monitors() else {
+        return;
+    };
+    let monitor = monitors
+        .iter()
+        .find(|monitor| {
+            let area = monitor.work_area();
+            state.x >= area.position.x && state.x < area.position.x + area.size.width as i32
+        })
+        .or_else(|| monitors.first());
+    let Some(monitor) = monitor else {
+        return;
+    };
+    let area = monitor.work_area();
+    let width = state.width.min(area.size.width.max(640));
+    let height = state.height.min(area.size.height.max(480));
+    let x = state
+        .x
+        .max(area.position.x - width as i32 + 80)
+        .min(area.position.x + area.size.width as i32 - 80);
+    let y = state
+        .y
+        .max(area.position.y - 36)
+        .min(area.position.y + area.size.height as i32 - 80);
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+    let _ = window.set_size(tauri::PhysicalSize::new(width, height));
+    if state.maximized {
+        let _ = window.maximize();
+    }
+    if state.fullscreen {
+        let _ = window.set_fullscreen(true);
+    }
 }
 
 fn read_desktop_settings(state: &SupervisorState) -> Result<DesktopSettings, String> {
@@ -935,8 +1106,14 @@ fn main() {
             desktop_window,
             desktop_menu
         ])
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+            let payload = json!({
+                "args": args.into_iter().take(32).map(|value| value.chars().take(4096).collect::<String>()).collect::<Vec<_>>(),
+                "cwd": cwd.chars().take(4096).collect::<String>(),
+            });
+            let _ = app.emit("neurobook:second-instance", payload);
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
@@ -955,12 +1132,21 @@ fn main() {
             };
             let url = url::Url::parse(&target)
                 .map_err(|error| format!("Desktop Product URL 无效：{error}"))?;
+            let saved_window_state = read_window_state(&state_for_setup.desktop_root);
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("NeuroBook Tauri Envelope Spike")
-                .inner_size(1280.0, 840.0)
+                .inner_size(saved_window_state.width as f64, saved_window_state.height as f64)
                 .data_directory(state_for_setup.desktop_root.join("webview"))
                 .initialization_script(TAURI_BRIDGE_SCRIPT)
                 .build()?;
+            restore_window_state(&window, &saved_window_state);
+            let window_for_state = window.clone();
+            let desktop_root_for_state = state_for_setup.desktop_root.clone();
+            window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) | tauri::WindowEvent::Destroyed) {
+                    save_window_state(&window_for_state, &desktop_root_for_state);
+                }
+            });
             let state_for_close = Arc::clone(&state_for_setup);
             let window_for_close = window.clone();
             window.on_window_event(move |event| {

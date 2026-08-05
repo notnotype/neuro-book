@@ -1,14 +1,17 @@
 import {createHash, randomUUID} from "node:crypto";
-import {mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
+import {copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, join, resolve} from "node:path";
+import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 
 import {
     parseDesktopCapability,
+    parseDesktopDistributionManifest,
     parseDesktopInstallationManifest,
     parseDesktopShellArchiveManifest,
+    desktopRemoteOrigin,
     type DesktopCapability,
     type DesktopConnection,
+    type DesktopDistributionManifest,
     type DesktopEnvelope,
     type DesktopInstallationManifest,
     type DesktopShellArchiveManifest,
@@ -33,6 +36,8 @@ export type DesktopLocalDepot = {
     archivePath?: string;
     /** 远端模式只携带 Desktop Envelope，不携带 Product、Bun 或 Tool Pack。 */
     shellArchivePath?: string;
+    /** 本地 distribution manifest；archive location 必须是同一 depot 根内的相对 ZIP 路径。 */
+    distributionManifestPath?: string;
     envelope: DesktopEnvelope;
     channel: "stable" | "canary";
     connection: DesktopConnection;
@@ -40,6 +45,8 @@ export type DesktopLocalDepot = {
     addCliToUserPath: boolean;
     /** 本地 Product 首次安装时创建管理员；远端连接不允许携带该值。 */
     adminPassword?: string;
+    /** 当前 Manager CLI 自身入口；远端 shell 的卸载注册由它生成稳定 launcher。 */
+    managerExecutable?: string;
 };
 
 export type DesktopInstallResult = {
@@ -80,12 +87,17 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         throw new Error("本地 Desktop 首次安装必须提供管理员密码。" );
     }
     if (options.shellArchivePath !== undefined) throw new Error("本地 Desktop 安装必须使用完整 Portable archive，不接受 shell archive。" );
-    if (!options.archivePath) throw new Error("本地 Desktop 安装缺少 Portable archive。" );
+    if (options.archivePath !== undefined && options.distributionManifestPath !== undefined) {
+        throw new Error("本地 Desktop 安装不能同时提供 archive 和 distribution manifest。" );
+    }
+    if (!options.archivePath && !options.distributionManifestPath) {
+        throw new Error("本地 Desktop 安装缺少 Portable archive 或 distribution manifest。" );
+    }
     const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot());
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
-    const archivePath = resolve(options.archivePath);
+    const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
     if (!await pathExists(archivePath)) throw new Error(`Desktop Portable archive 不存在：${archivePath}`);
 
     const desktopCacheRoot = managerDesktopCacheRoot();
@@ -133,14 +145,19 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     if (options.connection.mode !== "remote") throw new Error("shell archive 只用于远端 Desktop 安装。" );
     if (options.adminPassword !== undefined) throw new Error("远端 Desktop 安装不能接收本地管理员密码。" );
     if (options.archivePath !== undefined) throw new Error("远端 Desktop 安装不能使用完整 Portable archive，请提供 shell archive。" );
+    if (options.shellArchivePath !== undefined && options.distributionManifestPath !== undefined) {
+        throw new Error("远端 Desktop 安装不能同时提供 shell archive 和 distribution manifest。" );
+    }
+    if (!options.shellArchivePath && !options.distributionManifestPath) {
+        throw new Error("远端 Desktop 安装缺少 shell archive 或 distribution manifest。" );
+    }
     if (options.addCliToUserPath) throw new Error("远端 Desktop 只安装壳，不携带 Manager CLI，不能修改用户 PATH。" );
-    if (!options.shellArchivePath) throw new Error("远端 Desktop 安装缺少 shell archive；它只应包含 Desktop Envelope。" );
-    const capability = await probeRemoteDesktopCapability(options.connection.baseUrl);
+    const capability = await probeRemoteDesktopCapability(options.connection.baseUrl, options.connection.insecureHttpAccepted);
     const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot());
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
-    const archivePath = resolve(options.shellArchivePath);
+    const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
     if (!await pathExists(archivePath)) throw new Error(`Desktop shell archive 不存在：${archivePath}`);
 
     const desktopCacheRoot = managerDesktopCacheRoot();
@@ -161,7 +178,8 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
         await writeDesktopRuntimeConfig(installationRoot);
         const desktopManifest = createRemoteDesktopInstallationManifest(options, shell);
         await writeJsonAtomic(join(roots.desktop, DESKTOP_INSTALLATION_FILE), desktopManifest);
-        await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath);
+        const uninstallLauncher = await writeRemoteManagerLauncher(options.managerExecutable);
+        await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath, uninstallLauncher);
         return {
             installationRoot,
             stateRoot: roots.state,
@@ -179,8 +197,8 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
 }
 
 /** 远端安装前验证服务端是否支持 DesktopBridge v1。 */
-export async function probeRemoteDesktopCapability(baseUrl: string): Promise<DesktopCapability> {
-    const origin = new URL(baseUrl).origin;
+export async function probeRemoteDesktopCapability(baseUrl: string, insecureHttpAccepted = false): Promise<DesktopCapability> {
+    const origin = desktopRemoteOrigin(baseUrl, insecureHttpAccepted);
     const response = await fetch(new URL("/api/app/desktop-capability", `${origin}/`), {redirect: "error"});
     if (!response.ok) throw new Error(`远端 Desktop capability 请求失败：HTTP ${String(response.status)}`);
     return parseDesktopCapability(await response.json());
@@ -195,15 +213,44 @@ export function assertDesktopShellInstallable(shell: DesktopShellArchiveManifest
 /** 校验壳 depot 不含 Product 等其他 owner，并验证 Envelope 内容摘要。 */
 export async function verifyDesktopShellPayload(root: string, shell: DesktopShellArchiveManifest): Promise<void> {
     const topLevel = await readdir(root, {withFileTypes: true});
+    const manifestEntry = topLevel.find((entry) => entry.name === "manifest.json");
+    if (!manifestEntry) {
+        throw new Error("远端 shell archive 缺少 manifest.json。" );
+    }
+    if (!manifestEntry.isFile()) {
+        throw new Error("远端 shell archive 的 manifest.json 必须是普通文件。");
+    }
+    const desktopEntry = topLevel.find((entry) => entry.name === "desktop");
+    if (!desktopEntry?.isDirectory()) throw new Error("远端 shell archive 缺少 desktop 目录。");
     const unexpected = topLevel
         .map((entry) => entry.name)
         .filter((name) => name !== "manifest.json" && name !== "desktop");
     if (unexpected.length > 0) throw new Error(`远端 shell archive 包含禁止的顶层内容：${unexpected.join(", ")}`);
+    const entries = await collectShellEntries(join(root, "desktop"));
+    const forbidden = entries.filter((entry) => entry.split("/").some((segment) => [".output", "server", "manager", "runtime", "tools", "data", ".deploy", "source"].includes(segment)));
+    if (forbidden.length > 0) throw new Error(`远端 shell archive 包含禁止的 Product/Runtime owner：${forbidden.join(", ")}`);
+    if (shell.kind === "tauri" && entries.some((entry) => entry !== "NeuroBook-Tauri.exe")) {
+        throw new Error("Tauri shell archive 只能包含 Tauri Envelope 可执行文件。");
+    }
     const envelopePath = join(root, shell.envelopePath);
     if (!await pathExists(envelopePath)) throw new Error(`远端 shell archive 缺少 Envelope：${shell.envelopePath}`);
     if (await sha256File(envelopePath) !== shell.envelopeSha256.slice("sha256:".length)) {
         throw new Error("远端 shell Envelope checksum 不匹配。" );
     }
+}
+
+/** 递归读取壳目录并拒绝符号链接，避免把其他 owner 藏在 Envelope 目录内。 */
+async function collectShellEntries(root: string, prefix = ""): Promise<string[]> {
+    const entries = await readdir(root, {withFileTypes: true});
+    const result: string[] = [];
+    for (const entry of entries) {
+        const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+        if (entry.isSymbolicLink()) throw new Error(`远端 shell archive 不允许符号链接：${relative}`);
+        if (entry.isDirectory()) result.push(...await collectShellEntries(join(root, entry.name), relative));
+        else if (entry.isFile()) result.push(relative);
+        else throw new Error(`远端 shell archive 包含不受支持的文件类型：${relative}`);
+    }
+    return result;
 }
 
 /** 在解压内容进入安装事务前固定 Envelope 身份和 clean Product 要求。 */
@@ -354,7 +401,7 @@ function createRemoteDesktopInstallationManifest(
 }
 
 /** 注册用户级开始菜单、桌面快捷方式、卸载项和 neurobook:// 协议。 */
-export async function registerWindowsDesktop(root: string, manifest: DesktopInstallationManifest, addCliToUserPath: boolean): Promise<void> {
+export async function registerWindowsDesktop(root: string, manifest: DesktopInstallationManifest, addCliToUserPath: boolean, uninstallLauncher?: string): Promise<void> {
     const envelopeId = manifest.envelope === "electron" ? "electron-envelope" : "tauri-envelope";
     const envelope = manifest.components.find((component) => component.id === envelopeId);
     if (!envelope) throw new Error(`Desktop Installation Manifest 缺少 ${envelopeId}。`);
@@ -374,9 +421,10 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
         await createShortcut(shortcutPaths[1]!, executable, root);
         await regAdd(uninstallKey, "DisplayName", "NeuroBook");
         await regAdd(uninstallKey, "InstallLocation", root);
-        const uninstallCommand = await pathExists(manager)
-            ? `"${manager}" uninstall --yes`
-            : `neuro-book desktop uninstall --dir "${root}" --yes`;
+        let uninstallCommand: string;
+        if (uninstallLauncher) uninstallCommand = `"${uninstallLauncher}" --dir "${root}" --yes`;
+        else if (await pathExists(manager)) uninstallCommand = `"${manager}" uninstall --yes`;
+        else throw new Error("Desktop 安装缺少可执行的 Manager CLI，不能创建卸载项。" );
         await regAdd(uninstallKey, "UninstallString", uninstallCommand);
         await regAdd(protocolKey, "", "URL:NeuroBook Protocol");
         await regAdd(protocolKey, "URL Protocol", "");
@@ -386,6 +434,23 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
         await removeWindowsDesktopRegistration(root, manifest, previousPath).catch(() => undefined);
         throw error;
     }
+}
+
+/** 把当前 Manager CLI 放入用户级 cache，供没有 Manager payload 的远端壳卸载。 */
+async function writeRemoteManagerLauncher(managerExecutable?: string): Promise<string> {
+    const source = managerExecutable ? resolve(managerExecutable) : resolve(process.argv[1] ?? "");
+    if (!source || !await pathExists(source)) throw new Error("远端 Desktop 需要可复制的 Manager CLI 入口，不能建立系统卸载项。");
+    if (!source.toLowerCase().endsWith(".mjs")) throw new Error("远端 Desktop 只能复制 bundled .mjs Manager CLI 入口。");
+    if (!process.versions.bun) throw new Error("远端 Desktop Manager launcher 必须由 Bun 运行。");
+    const root = join(managerDesktopCacheRoot(), "remote-shell-manager");
+    const bunPath = join(root, "bun.exe");
+    const managerPath = join(root, "neuro-book.mjs");
+    await ensureDirectory(root);
+    if (resolve(process.execPath) !== resolve(bunPath)) await copyFile(process.execPath, bunPath);
+    if (source !== managerPath) await copyFile(source, managerPath);
+    const launcher = join(root, "neuro-book.cmd");
+    await writeFile(launcher, `@echo off\r\n"%~dp0bun.exe" "%~dp0neuro-book.mjs" %*\r\n`, "utf8");
+    return launcher;
 }
 
 /** 卸载时删除 Manager 创建的 Windows 注册项、快捷方式和可选 PATH 项。 */
@@ -523,4 +588,46 @@ function defaultInstallationRoot(): string {
 function managerDesktopCacheRoot(): string {
     const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
     return join(localAppData, "NeuroBook", "manager", "desktop");
+}
+
+/** 从本地 distribution manifest 解析并校验所选 Envelope 的 ZIP。 */
+async function resolveDepotArchive(
+    options: DesktopLocalDepot,
+    componentId: "electron-envelope" | "tauri-envelope",
+): Promise<string> {
+    if (!options.distributionManifestPath) {
+        const archivePath = options.archivePath ?? options.shellArchivePath;
+        if (!archivePath) throw new Error("Desktop depot 缺少 archive 路径。" );
+        return resolve(archivePath);
+    }
+    const manifestPath = resolve(options.distributionManifestPath);
+    const manifestInfo = await lstat(manifestPath).catch(() => null);
+    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) {
+        throw new Error(`Desktop distribution manifest 不存在或不是普通文件：${manifestPath}`);
+    }
+    const manifest: DesktopDistributionManifest = parseDesktopDistributionManifest(await readJson(manifestPath));
+    if (manifest.platform !== "windows" || manifest.architecture !== "x64") {
+        throw new Error("Desktop distribution manifest 只支持 Windows x64 本地 depot。" );
+    }
+    if (manifest.channel !== options.channel) {
+        throw new Error(`Desktop distribution manifest 通道为 ${manifest.channel}，命令选择为 ${options.channel}。`);
+    }
+    const component = manifest.components.find((item) => item.id === componentId);
+    if (!component) throw new Error(`Desktop distribution manifest 缺少 ${componentId} 组件。`);
+    if (component.archive.kind !== "path" || component.archive.format !== "zip") {
+        throw new Error("当前本地 Manager 只接受同一 depot 根内的 ZIP path archive；HTTPS 下载尚未接入。" );
+    }
+    const depotRoot = dirname(manifestPath);
+    const archivePath = resolve(depotRoot, component.archive.location);
+    const escaped = relative(depotRoot, archivePath);
+    if (!escaped || escaped === ".." || escaped.startsWith(`..${sep}`) || isAbsolute(escaped)) {
+        throw new Error("Desktop distribution archive 路径越出 manifest 根目录。" );
+    }
+    const info = await lstat(archivePath).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Desktop distribution archive 不存在或不是普通文件：${archivePath}`);
+    if (info.size !== component.archive.bytes) throw new Error(`Desktop distribution archive 字节数不匹配：${archivePath}`);
+    if (`sha256:${await sha256File(archivePath)}` !== component.archive.sha256) {
+        throw new Error(`Desktop distribution archive checksum 不匹配：${archivePath}`);
+    }
+    return archivePath;
 }

@@ -1,8 +1,10 @@
 import {randomBytes} from "node:crypto";
 import {createInterface} from "node:readline";
 import {createServer} from "node:net";
-import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog} from "electron";
+import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen} from "electron";
 import {readFileSync} from "node:fs";
+import {mkdir as mkdirAsync, readFile as readFileAsync, writeFile as writeFileAsync} from "node:fs/promises";
+import {homedir} from "node:os";
 import {join, resolve} from "node:path";
 import {
     spawnOwnedProcess,
@@ -17,6 +19,7 @@ import {
     parseDesktopSupervisorEvent,
     parseDesktopSettings,
     patchDesktopSettings,
+    desktopRemoteOrigin,
     DEFAULT_DESKTOP_SETTINGS,
     type DesktopSettings,
     type DesktopStatus,
@@ -44,6 +47,18 @@ type RunningProduct = {
     audit: ContractAudit;
     shutdown: () => Promise<"graceful" | "forced">;
 };
+
+type WindowState = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    maximized: boolean;
+    fullscreen: boolean;
+};
+
+const DEFAULT_WINDOW_STATE: WindowState = {x: 80, y: 80, width: 1280, height: 840, maximized: false, fullscreen: false};
+let windowStateWrite: Promise<void> = Promise.resolve();
 
 let window: BrowserWindow | null = null;
 let splash: BrowserWindow | null = null;
@@ -95,41 +110,68 @@ function readConfig(): DesktopConfig {
     };
 }
 
+/** Windows 单实例身份固定在用户级目录，不随 Portable 的安装根变化。 */
+function desktopIdentityRoot(): string {
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir();
+    if (process.platform === "win32") return resolve(process.env.LOCALAPPDATA ?? join(home, "AppData", "Local"), "NeuroBook", "desktop");
+    if (process.platform === "darwin") return resolve(home, "Library", "Application Support", "NeuroBook", "desktop");
+    return resolve(process.env.XDG_CONFIG_HOME ?? join(home, ".config"), "NeuroBook", "desktop");
+}
+
 /** 读取 Manager 写入的相对 locator；没有安装 locator 时保持 Portable 布局。 */
 function readRuntimeRoots(root: string): {state: string; cache: string; desktop: string} {
+    const locatorPath = join(root, "desktop", "runtime-locators.json");
+    let text: string;
     try {
-        const value = JSON.parse(readFileSync(join(root, "desktop", "runtime-locators.json"), "utf8")) as {
-            state?: {base?: string; path?: string};
-            cache?: {base?: string; path?: string};
-            desktop?: {base?: string; path?: string};
-        };
-        const home = process.env.USERPROFILE ?? process.env.HOME;
-        const localAppData = resolve(process.env.LOCALAPPDATA ?? (home ? join(home, "AppData", "Local") : join(root, "data", ".desktop")));
-        const userAppData = process.platform === "darwin"
-            ? resolve(process.env.HOME ?? home ?? root, "Library", "Application Support")
-            : localAppData;
-        const userCache = process.platform === "darwin"
-            ? resolve(process.env.HOME ?? home ?? root, "Library", "Caches")
-            : resolve(process.env.XDG_CACHE_HOME ?? localAppData);
-        const resolveLocator = (locator: {base?: string; path?: string} | undefined, fallback: string): string => {
-            if (!locator?.path || !["installation-root", "local-app-data", "user-app-data", "user-cache"].includes(locator.base ?? "")) return fallback;
-            const base = locator.base === "installation-root"
-                ? root
-                : locator.base === "local-app-data"
-                    ? localAppData
-                    : locator.base === "user-app-data"
-                        ? userAppData
-                        : userCache;
-            return join(base, ...locator.path.split(/[\\/]/u));
-        };
-        return {
-            state: resolveLocator(value.state, join(root, "data")),
-            cache: resolveLocator(value.cache, join(root, ".cache")),
-            desktop: resolveLocator(value.desktop, join(root, "data", ".desktop")),
-        };
-    } catch {
-        return {state: join(root, "data"), cache: join(root, ".cache"), desktop: join(root, "data", ".desktop")};
+        text = readFileSync(locatorPath, "utf8");
+    } catch (error) {
+        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+            return {state: join(root, "data"), cache: join(root, ".cache"), desktop: join(root, "data", ".desktop")};
+        }
+        throw error;
     }
+    const value = JSON.parse(text) as {
+        schema?: string;
+        state?: {base?: string; path?: string};
+        cache?: {base?: string; path?: string};
+        desktop?: {base?: string; path?: string};
+    };
+    if (value.schema !== "nbook.desktop-installation-runtime/v1") throw new Error("Desktop runtime locator schema 不受支持。");
+    const home = process.env.USERPROFILE ?? process.env.HOME;
+    const localAppData = resolve(process.env.LOCALAPPDATA ?? (home ? join(home, "AppData", "Local") : join(root, "data", ".desktop")));
+    const userAppData = process.platform === "darwin"
+        ? resolve(process.env.HOME ?? home ?? root, "Library", "Application Support")
+        : localAppData;
+    const userCache = process.platform === "darwin"
+        ? resolve(process.env.HOME ?? home ?? root, "Library", "Caches")
+        : resolve(process.env.XDG_CACHE_HOME ?? localAppData);
+    const resolveLocator = (locator: {base?: string; path?: string} | undefined, label: string): string => {
+        if (!locator?.path || !["installation-root", "local-app-data", "user-app-data", "user-cache"].includes(locator.base ?? "") || !safeLocatorPath(locator.path)) {
+            throw new Error(`${label} runtime locator 非法。`);
+        }
+        const base = locator.base === "installation-root"
+            ? root
+            : locator.base === "local-app-data"
+                ? localAppData
+                : locator.base === "user-app-data"
+                    ? userAppData
+                    : userCache;
+        return join(base, ...locator.path.split(/[\\/]/u));
+    };
+    return {
+        state: resolveLocator(value.state, "state"),
+        cache: resolveLocator(value.cache, "cache"),
+        desktop: resolveLocator(value.desktop, "desktop"),
+    };
+}
+
+function safeLocatorPath(path: string): boolean {
+    return path.length > 0
+        && !path.startsWith("/")
+        && !path.startsWith("\\")
+        && !path.includes(":")
+        && !path.includes("\0")
+        && path.split(/[\\/]/u).every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
 /** 读取安装清单的远端 origin；损坏清单直接阻止启动，绝不回退到本地 Product。 */
@@ -145,8 +187,8 @@ function readRemoteUrl(desktopRoot: string): string | null {
 
 /** 远端 Desktop 只能在服务端明确声明 Bridge 兼容后打开。 */
 async function probeRemote(url: string): Promise<DesktopStatus> {
-    const origin = new URL(url).origin;
-    const response = await fetch(new URL("/api/app/desktop-capability", origin + "/"));
+    const origin = desktopRemoteOrigin(url, new URL(url).protocol === "http:");
+    const response = await fetch(new URL("/api/app/desktop-capability", origin + "/"), {redirect: "error"});
     if (!response.ok) throw new Error("远端 Desktop capability 请求失败：HTTP " + response.status);
     const capability = parseDesktopCapability(await response.json());
     return {
@@ -322,6 +364,7 @@ function installNavigationGuards(): void {
 async function closeApplication(): Promise<void> {
     if (closing) return await closing;
     closing = (async () => {
+        await flushWindowState();
         if (running) {
             const result = await running.shutdown();
             console.log(JSON.stringify({kind: "electron-shutdown", result}));
@@ -335,14 +378,63 @@ async function closeApplication(): Promise<void> {
     return await closing;
 }
 
+/** 读取并钳制窗口状态；显示器变化时至少保留一段可见标题栏。 */
+async function loadWindowState(root: string): Promise<WindowState> {
+    try {
+        const value = JSON.parse(await readFileAsync(join(root, "window-state.json"), "utf8")) as Partial<WindowState>;
+        if (!["x", "y", "width", "height"].every((key) => Number.isInteger(value[key as keyof WindowState]))) throw new Error("窗口坐标不是整数。");
+        if (!Number.isInteger(value.width) || !Number.isInteger(value.height) || value.width < 640 || value.height < 480) throw new Error("窗口尺寸不受支持。");
+        const displays = screen.getAllDisplays();
+        const display = displays.find((item) => item.bounds.x <= value.x! && value.x! < item.bounds.x + item.bounds.width)
+            ?? screen.getPrimaryDisplay();
+        const area = display.workArea;
+        const width = Math.min(value.width!, Math.max(640, area.width));
+        const height = Math.min(value.height!, Math.max(480, area.height));
+        const x = Math.max(area.x - width + 80, Math.min(value.x!, area.x + area.width - 80));
+        const y = Math.max(area.y - 36, Math.min(value.y!, area.y + area.height - 80));
+        return {x, y, width, height, maximized: value.maximized === true, fullscreen: value.fullscreen === true};
+    } catch {
+        return DEFAULT_WINDOW_STATE;
+    }
+}
+
+/** 保存窗口位置、最大化和全屏状态，写入 Desktop Local Root 而不是 Product/State。 */
+function queueWindowStateSave(root: string): void {
+    if (!window || window.isDestroyed()) return;
+    const bounds = window.getBounds();
+    const state: WindowState = {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        maximized: window.isMaximized(),
+        fullscreen: window.isFullScreen(),
+    };
+    windowStateWrite = windowStateWrite.then(async () => {
+        await mkdirAsync(root, {recursive: true});
+        await writeFileAsync(join(root, "window-state.json"), `${JSON.stringify(state, null, 4)}\n`, "utf8");
+    }).catch(() => undefined);
+}
+
+async function flushWindowState(): Promise<void> {
+    await windowStateWrite;
+}
+
 async function main(): Promise<void> {
     const config = readConfig();
-    // These paths must be fixed before the single-instance lock and before Electron creates a session.
-    app.setPath("userData", config.desktopRoot);
+    // Session/profile 属于当前安装；单实例身份必须使用稳定的用户级根，不能随 Portable 变化。
+    app.setPath("userData", desktopIdentityRoot());
     app.setPath("sessionData", join(config.desktopRoot, "webview"));
     app.setPath("logs", join(config.desktopRoot, "logs"));
-    if (!app.requestSingleInstanceLock()) { app.quit(); return; }
-    app.on("second-instance", () => window?.show());
+    const launchData = {argv: process.argv.slice(1).slice(0, 32), cwd: process.cwd()};
+    if (!app.requestSingleInstanceLock(launchData)) { app.quit(); return; }
+    app.on("second-instance", (_event, commandLine, workingDirectory) => {
+        if (window?.isMinimized()) window.restore();
+        window?.show();
+        window?.focus();
+        const args = commandLine.slice(1, 33).map((value) => value.slice(0, 4096));
+        window?.webContents.send("neurobook:second-instance", {args, cwd: workingDirectory.slice(0, 4096)});
+    });
     await app.whenReady();
     await loadDesktopSettings(config.desktopRoot);
     ipcMain.handle("t140:status", (event) => {
@@ -391,9 +483,12 @@ async function main(): Promise<void> {
         await closeApplication();
         return;
     }
+    const savedWindowState = await loadWindowState(config.desktopRoot);
     window = new BrowserWindow({
-        width: 1280,
-        height: 840,
+        x: savedWindowState.x,
+        y: savedWindowState.y,
+        width: savedWindowState.width,
+        height: savedWindowState.height,
         show: false,
         titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
         ...(process.platform === "win32" ? {titleBarOverlay: {color: "#15171a", symbolColor: "#eef2f4", height: 36}} : {}),
@@ -406,6 +501,7 @@ async function main(): Promise<void> {
     applyDesktopSettings();
     window.show();
     window.on("close", (event) => {
+        queueWindowStateSave(config.desktopRoot);
         if (allowWindowClose) return;
         if (desktopSettings.closeBehavior === "quit") {
             event.preventDefault();
@@ -425,7 +521,12 @@ async function main(): Promise<void> {
         event.preventDefault();
         void closeApplication();
     });
-    window.on("closed", () => { window = null; void closeApplication(); });
+    for (const eventName of ["move", "resize", "maximize", "unmaximize", "enter-full-screen", "leave-full-screen"] as const) {
+        window.on(eventName, () => queueWindowStateSave(config.desktopRoot));
+    }
+    window.on("closed", () => { queueWindowStateSave(config.desktopRoot); window = null; void closeApplication(); });
+    if (savedWindowState.maximized) window.maximize();
+    if (savedWindowState.fullscreen) window.setFullScreen(true);
 }
 
 /** 首次关闭询问用户；选择可保存到 Desktop Local Root。 */

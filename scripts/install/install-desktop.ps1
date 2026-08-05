@@ -1,8 +1,9 @@
-[CmdletBinding(PositionalBinding = $false)]
+﻿[CmdletBinding(PositionalBinding = $false)]
 param(
     [Parameter(Mandatory = $false)]
     [string]$Archive,
     [string]$ShellArchive,
+    [string]$DistributionManifest,
     [ValidateSet("electron", "tauri")]
     [string]$Envelope = "electron",
     [ValidateSet("stable", "canary")]
@@ -43,11 +44,18 @@ function Resolve-Bun {
     return $resolved
 }
 
-if ($Remote -and (-not $ShellArchive -or $Archive)) {
-    throw "远端 Desktop 安装必须只传 -ShellArchive；它不携带 Product、Bun 或 Tool Pack。"
+$depotCount = 0
+if ($Archive) { $depotCount++ }
+if ($ShellArchive) { $depotCount++ }
+if ($DistributionManifest) { $depotCount++ }
+if ($depotCount -ne 1) {
+    throw "Desktop 安装必须且只能传 -Archive、-ShellArchive 或 -DistributionManifest 之一。"
 }
-if (-not $Remote -and (-not $Archive -or $ShellArchive)) {
-    throw "本地 Desktop 安装必须只传 -Archive；它需要完整 Product Portable。"
+if ($Remote -and $Archive) {
+    throw "远端 Desktop 安装不能传 -Archive；它不携带 Product、Bun 或 Tool Pack。"
+}
+if (-not $Remote -and $ShellArchive) {
+    throw "本地 Desktop 安装不能传 -ShellArchive；它需要完整 Product Portable 或 distribution manifest。"
 }
 $bun = Resolve-Bun -ExplicitPath $BunPath
 $managerOptions = @(
@@ -59,6 +67,7 @@ $managerOptions = @(
 )
 if ($Archive) { $managerOptions += @("--archive", (Resolve-Path -LiteralPath $Archive).Path) }
 if ($ShellArchive) { $managerOptions += @("--shell-archive", (Resolve-Path -LiteralPath $ShellArchive).Path) }
+if ($DistributionManifest) { $managerOptions += @("--distribution-manifest", (Resolve-Path -LiteralPath $DistributionManifest).Path) }
 if ($Remote) { $managerOptions += @("--remote", $Remote) }
 if ($AllowInsecureHttp) { $managerOptions += "--allow-insecure-http" }
 if ($InstallRoot) { $managerOptions += @("--dir", $InstallRoot) }
@@ -66,7 +75,11 @@ if ($AddCliToPath) { $managerOptions += "--add-cli-to-path" }
 if ($PasswordStdin) { $managerOptions += "--password-stdin" }
 if ($Yes) { $managerOptions += "--yes" }
 
-$env:BUN_INSTALL_CACHE_DIR = Join-Path ($env:LOCALAPPDATA ?? (Join-Path $HOME "AppData\Local")) "NeuroBook\manager\bun\install"
+$managerLocalAppData = $env:LOCALAPPDATA
+if (-not $managerLocalAppData) {
+    $managerLocalAppData = Join-Path $HOME "AppData\Local"
+}
+$env:BUN_INSTALL_CACHE_DIR = Join-Path $managerLocalAppData "NeuroBook\manager\bun\install"
 if ($ManagerPath) {
     $manager = (Resolve-Path -LiteralPath $ManagerPath).Path
     & $bun --no-install $manager @managerOptions

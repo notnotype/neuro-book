@@ -429,12 +429,18 @@ function parseConnection(value: unknown): DesktopConnection {
         return {mode};
     }
     exactKeys(root, ["mode", "baseUrl", "insecureHttpAccepted"], "connection");
-    const baseUrl = remoteBaseUrl(root.baseUrl);
     const insecureHttpAccepted = boolean(root.insecureHttpAccepted, "connection.insecureHttpAccepted");
-    if (new URL(baseUrl).protocol === "http:" && !insecureHttpAccepted) {
+    const baseUrl = desktopRemoteOrigin(root.baseUrl, insecureHttpAccepted);
+    return {mode, baseUrl, insecureHttpAccepted};
+}
+
+/** 校验并规范化 Desktop Remote origin；HTTP 必须由调用方显式确认。 */
+export function desktopRemoteOrigin(value: unknown, insecureHttpAccepted = false): string {
+    const origin = remoteBaseUrl(value);
+    if (new URL(origin).protocol === "http:" && !insecureHttpAccepted) {
         throw new Error("局域网 HTTP 远端必须记录二次确认。");
     }
-    return {mode, baseUrl, insecureHttpAccepted};
+    return origin;
 }
 
 function supervisorRoot(value: unknown, label: string): JsonObject {

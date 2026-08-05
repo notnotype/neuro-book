@@ -61,7 +61,7 @@ Electron 与 Tauri 在 Task 140 内继续并行；本 ADR 不冻结最终框架�
 
 ### 发行与安装清单
 
-`Desktop Distribution Manifest v1` 描述可下载组件；本地 depot 只允许相对 manifest root 的无逃逸路径，联网只允许 HTTPS URL，全部组件记录 SHA-256、字节数、版本和格式。
+`Desktop Distribution Manifest v1` 描述可下载组件；本地 depot 只允许相对 manifest root 的无逃逸路径，联网只允许 HTTPS URL，全部组件记录 SHA-256、字节数、版本和格式。Portable/shell 打包器生成该 sidecar，Manager 的 `desktop install --distribution-manifest` 在进入安装事务前选择 Envelope 组件并复核平台、通道、路径、字节数和摘要；当前本地 Manager 只执行 path archive，HTTPS URL 仍是后续联网下载接口，不得被当作已实现的下载能力。
 
 远端 Desktop 使用独立 `nbook.desktop-shell/v1` shell depot。该 depot 只允许 `manifest.json` 和 `desktop/`，并记录所选 Envelope 的路径、版本、SHA-256 与 WebView 类型；Manager 安装前请求服务端 `/api/app/desktop-capability`，验证 DesktopBridge v1 后才落盘，不把 Product、Bun、Manager CLI 或 Tool Pack 复制进远端安装根。其卸载注册表调用 Manager 的 `desktop uninstall --dir` 逻辑命令，默认保留 State Root。
 

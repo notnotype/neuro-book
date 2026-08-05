@@ -156,10 +156,13 @@ describe("Desktop installation lifecycle", () => {
         const localAppData = join(root, "LocalAppData");
         const installRoot = join(root, "Installation");
         const archive = join(root, "shell.zip");
+        const distributionManifest = join(root, "distribution.json");
+        const managerExecutable = join(root, "manager.mjs");
         roots.push(root);
         process.env.LOCALAPPDATA = localAppData;
         process.env.APPDATA = join(root, "AppData");
         process.env.USERPROFILE = join(root, "User");
+        await writeFile(managerExecutable, "console.log('manager fixture');", "utf8");
         const executable = new TextEncoder().encode("electron-shell");
         const shellManifest = {
             schema: "nbook.desktop-shell/v1",
@@ -174,6 +177,20 @@ describe("Desktop installation lifecycle", () => {
             "manifest.json": strToU8(`${JSON.stringify(shellManifest)}\n`),
             "desktop/NeuroBook-Electron.exe": executable,
         }));
+        const archiveBytes = await readFile(archive);
+        await writeFile(distributionManifest, `${JSON.stringify({
+            schema: "nbook.desktop-distribution/v1",
+            version: "0.9.1",
+            channel: "canary",
+            platform: "windows",
+            architecture: "x64",
+            components: [{
+                id: "electron-envelope",
+                version: "43.2.0",
+                archive: {kind: "path", location: "shell.zip", sha256: `sha256:${digest(archiveBytes)}`, bytes: archiveBytes.byteLength, format: "zip"},
+                required: false,
+            }],
+        }, null, 4)}\n`, "utf8");
         vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
             ok: true,
             status: 200,
@@ -186,12 +203,13 @@ describe("Desktop installation lifecycle", () => {
         }));
 
         const result = await installDesktopShellFromLocalDepot({
-            shellArchivePath: archive,
+            distributionManifestPath: distributionManifest,
             envelope: "electron",
             channel: "canary",
             connection: {mode: "remote", baseUrl: "https://example.com", insecureHttpAccepted: false},
             installationRoot: installRoot,
             addCliToUserPath: false,
+            managerExecutable,
         });
 
         expect(result.applicationManifest).toBeUndefined();
@@ -230,6 +248,7 @@ describe("Desktop installation lifecycle", () => {
         await mkdir(dirname(executable), {recursive: true});
         await writeFile(executable, "electron", "utf8");
         await mkdir(join(root, ".output"), {recursive: true});
+        await writeFile(join(root, "manifest.json"), "{}\n", "utf8");
         await expect(verifyDesktopShellPayload(root, {
             schema: "nbook.desktop-shell/v1",
             kind: "electron",
@@ -241,6 +260,44 @@ describe("Desktop installation lifecycle", () => {
         })).rejects.toThrow("禁止的顶层内容");
     });
 
+    it("shell depot 缺少 manifest 时 fail closed", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-shell-no-manifest-"));
+        roots.push(root);
+        const executable = join(root, "desktop", "NeuroBook-Electron.exe");
+        await mkdir(dirname(executable), {recursive: true});
+        await writeFile(executable, "electron", "utf8");
+
+        await expect(verifyDesktopShellPayload(root, {
+            schema: "nbook.desktop-shell/v1",
+            kind: "electron",
+            platform: "windows-x64",
+            envelopePath: "desktop/NeuroBook-Electron.exe",
+            envelopeVersion: "43.2.0",
+            envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            webview: "bundled-chromium",
+        })).rejects.toThrow("缺少 manifest.json");
+    });
+
+    it("shell depot 不能把 Product 藏在 Envelope 目录内", async () => {
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-shell-nested-owner-"));
+        roots.push(root);
+        const executable = join(root, "desktop", "NeuroBook-Electron.exe");
+        await mkdir(dirname(executable), {recursive: true});
+        await writeFile(executable, "electron", "utf8");
+        await mkdir(join(root, "desktop", ".output"), {recursive: true});
+        await writeFile(join(root, "desktop", ".output", "server.mjs"), "not shell", "utf8");
+        await writeFile(join(root, "manifest.json"), "{}\n", "utf8");
+        await expect(verifyDesktopShellPayload(root, {
+            schema: "nbook.desktop-shell/v1",
+            kind: "electron",
+            platform: "windows-x64",
+            envelopePath: "desktop/NeuroBook-Electron.exe",
+            envelopeVersion: "43.2.0",
+            envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            webview: "bundled-chromium",
+        })).rejects.toThrow("禁止的 Product/Runtime owner");
+    });
+
     it("注册失败会回滚快捷方式和注册项，卸载会清理同一组资源", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-registration-"));
@@ -250,6 +307,8 @@ describe("Desktop installation lifecycle", () => {
         process.env.APPDATA = appData;
         process.env.USERPROFILE = userProfile;
         const manifest = desktopManifest();
+        await mkdir(join(root, ".runtime", "bin"), {recursive: true});
+        await writeFile(join(root, ".runtime", "bin", "neuro-book.cmd"), "@echo off\n", "utf8");
         let call = 0;
         processMocks.run.mockImplementation(async () => {
             call += 1;
@@ -265,6 +324,22 @@ describe("Desktop installation lifecycle", () => {
         await writeFile(desktopShortcut, "shortcut", "utf8");
         await removeWindowsDesktopRegistration(root, manifest);
         expect(await pathExists(desktopShortcut)).toBe(false);
+    });
+
+    it("注册表卸载项使用安装根内的 Manager wrapper", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-uninstall-command-"));
+        roots.push(root);
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await mkdir(join(root, ".runtime", "bin"), {recursive: true});
+        await writeFile(join(root, ".runtime", "bin", "neuro-book.cmd"), "@echo off\n", "utf8");
+
+        await registerWindowsDesktop(root, desktopManifest(), false);
+
+        const uninstallCall = processMocks.run.mock.calls.find(([command, args]) => command === "reg.exe" && args.includes("UninstallString"));
+        expect(uninstallCall?.[1]).toEqual(expect.arrayContaining([expect.stringContaining(".runtime\\bin\\neuro-book.cmd")]));
+        expect(uninstallCall?.[1]).not.toEqual(expect.arrayContaining([expect.stringContaining("neuro-book desktop")]));
     });
 });
 

@@ -13,15 +13,23 @@ if (import.meta.client) {
     (window as any).$dialog = dialog;
     (window as any).$notify = notification;
 }
+
+const desktopAvailable = computed(() => import.meta.client && Boolean(window.neuroBookDesktop));
 </script>
 
 <template>
     <DesktopTitleBar />
-    <NuxtPage/>
+    <div :class="{ 'desktop-page-shell': desktopAvailable }">
+        <NuxtPage/>
+    </div>
     <NotificationViewport />
 </template>
 
 <style>
+
+.desktop-page-shell {
+    padding-top: 36px;
+}
 
 *, ::after, ::before, ::backdrop, ::file-selector-button {
     box-sizing: border-box;

@@ -8,6 +8,7 @@ import {
     DESKTOP_INSTALLATION_SCHEMA,
     DESKTOP_SUPERVISOR_SCHEMA,
     desktopUserInstallationContract,
+    desktopRemoteOrigin,
     desktopRelativePath,
     desktopSupervisorLine,
     parseDesktopCapability,
@@ -80,6 +81,9 @@ describe("Desktop contracts", () => {
             baseUrl: "http://example.com",
             insecureHttpAccepted: true,
         }))).toThrow("必须使用 HTTPS");
+        expect(desktopRemoteOrigin("https://example.com/")).toBe("https://example.com");
+        expect(() => desktopRemoteOrigin("http://192.168.1.8")).toThrow("二次确认");
+        expect(desktopRemoteOrigin("http://192.168.1.8", true)).toBe("http://192.168.1.8");
     });
 
     it("约束设备设置和 patch 字段", () => {

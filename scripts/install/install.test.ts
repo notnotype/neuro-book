@@ -7,10 +7,12 @@ import {afterEach, beforeAll, describe, expect, it} from "vitest";
 
 const scriptPath = resolve(import.meta.dirname, "install.sh");
 const windowsScriptPath = resolve(import.meta.dirname, "install.ps1");
+const desktopWindowsScriptPath = resolve(import.meta.dirname, "install-desktop.ps1");
 const windowsCmdPath = resolve(import.meta.dirname, "install.cmd");
 const roots: string[] = [];
 let script = "";
 let windowsScript = "";
+let desktopWindowsScript = "";
 let windowsCmd = "";
 
 const PLATFORM_CASES = [
@@ -21,9 +23,10 @@ const PLATFORM_CASES = [
 ] as const;
 
 beforeAll(async () => {
-    [script, windowsScript, windowsCmd] = await Promise.all([
+    [script, windowsScript, desktopWindowsScript, windowsCmd] = await Promise.all([
         readFile(scriptPath, "utf8"),
         readFile(windowsScriptPath, "utf8"),
+        readFile(desktopWindowsScriptPath, "utf8"),
         readFile(windowsCmdPath, "utf8"),
     ]);
 });
@@ -62,8 +65,20 @@ describe("Windows Stage 0合同", () => {
         expect(windowsCmd).toContain("exit /b %ERRORLEVEL%");
     });
 
+    it("透传本地 Desktop distribution manifest 并保持 depot 参数互斥", () => {
+        expect(desktopWindowsScript).toContain("[string]$DistributionManifest");
+        expect(desktopWindowsScript).toContain("--distribution-manifest");
+        expect(desktopWindowsScript).toContain("-Archive、-ShellArchive 或 -DistributionManifest 之一");
+    });
+
     it.runIf(process.platform === "win32")("PowerShell脚本语法有效", async () => {
         const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${windowsScriptPath.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
+        const result = await spawnCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], process.env);
+        expect(result.code).toBe(0);
+    });
+
+    it.runIf(process.platform === "win32")("Desktop 安装向导 PowerShell 语法有效", async () => {
+        const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${desktopWindowsScriptPath.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
         const result = await spawnCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], process.env);
         expect(result.code).toBe(0);
     });
