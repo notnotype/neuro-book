@@ -1,7 +1,7 @@
 import {randomBytes} from "node:crypto";
 import {createInterface} from "node:readline";
 import {createServer} from "node:net";
-import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen} from "electron";
+import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen, shell} from "electron";
 import {readFileSync} from "node:fs";
 import {mkdir as mkdirAsync, readFile as readFileAsync, writeFile as writeFileAsync} from "node:fs/promises";
 import {homedir} from "node:os";
@@ -68,6 +68,7 @@ let remoteStatus: DesktopStatus | null = null;
 let closing: Promise<void> | null = null;
 let allowWindowClose = false;
 let desktopSettings: DesktopSettings = DEFAULT_DESKTOP_SETTINGS;
+let splashStage = "正在启动 NeuroBook...";
 
 /** 从显式环境或 Portable 根读取 Manager/Product 配置。 */
 function readConfig(): DesktopConfig {
@@ -221,8 +222,17 @@ async function selectPort(requested: number): Promise<number> {
     });
 }
 
+/** 更新启动页阶段；启动页关闭后忽略更新，避免恢复路径掩盖原始错误。 */
+function setSplashStage(stage: string): void {
+    splashStage = stage;
+    if (!splash || splash.isDestroyed()) return;
+    const escaped = JSON.stringify(stage);
+    void splash.webContents.executeJavaScript(`document.querySelector("[data-stage]").textContent = ${escaped};`, true).catch(() => undefined);
+}
+
 /** 启动 Manager Supervisor，并等待同一 requestId 的 ready 与 full verified 事件。 */
 async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
+    setSplashStage("检查 Product Runtime...");
     const resolvedConfig = {...config, port: await selectPort(config.port)};
     const audit = await auditProductContract(resolvedConfig.imageRoot);
     if (audit.unsafeEntries.length > 0) throw new Error(`Electron spike 拒绝不安全 Product Contract：${audit.unsafeEntries.join(",")}`);
@@ -247,6 +257,7 @@ async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
         throw new Error("Electron Supervisor 缺少 NDJSON stdin/stdout pipe。 ");
     }
     const reader = createInterface({input: output, crlfDelay: Infinity});
+    setSplashStage("启动本地服务...");
     const ready = waitForSupervisor(reader, lease.completion, requestId, startupNonce);
     lease.stdin.write(desktopSupervisorLine({
         schema: "nbook.desktop-supervisor/v1",
@@ -306,11 +317,24 @@ async function waitForSupervisor(
             try {
                 const event = parseDesktopSupervisorEvent(JSON.parse(line) as unknown);
                 if (event.requestId !== requestId) return;
-                if (event.type === "ready") {
+                if (event.type === "stage") {
+                    const stageLabels = {
+                        "quick-verify": "快速验证 Product...",
+                        migration: "执行数据迁移...",
+                        "starting-product": "启动本地服务...",
+                        "waiting-ready": "等待本地服务就绪...",
+                        "background-verify": "后台完整验证...",
+                        "stopping-product": "正在关闭本地服务...",
+                        repairing: "正在修复 Product 回执...",
+                    } as const;
+                    setSplashStage(stageLabels[event.stage] ?? "正在处理桌面启动阶段...");
+                } else if (event.type === "ready") {
+                    setSplashStage("本地服务已就绪，正在验证...");
                     if (event.startupNonce !== startupNonce) throw new Error("Supervisor ready nonce 与本次启动不一致。");
                     readyPort = Number(new URL(event.url).port);
                     readyVersion = event.version;
                 } else if (event.type === "verified" && event.verification === "full") {
+                    setSplashStage("验证完成，正在打开 NeuroBook...");
                     verified = true;
                 } else if (event.type === "failure") {
                     throw new Error(`Manager Supervisor 失败：${event.code} ${event.message}`);
@@ -328,8 +352,85 @@ async function waitForSupervisor(
 
 function createSplash(): BrowserWindow {
     const value = new BrowserWindow({width: 440, height: 260, frame: false, resizable: false, show: true, alwaysOnTop: true, webPreferences: {sandbox: true}});
-    void value.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent("<body style='margin:0;background:#15171a;color:#eef2f4;font:16px sans-serif;display:grid;place-items:center'><main><strong>NeuroBook</strong><p>正在启动本地服务...</p></main></body>")}`);
+    const html = `<!doctype html><meta charset="utf-8"><body style="margin:0;background:#15171a;color:#eef2f4;font:16px sans-serif;display:grid;place-items:center"><main style="width:280px"><strong style="font-size:22px">NeuroBook</strong><p data-stage style="margin:18px 0 0;color:#b8c0c8">${splashStage}</p><div style="height:3px;background:#30363d;overflow:hidden"><i style="display:block;width:42%;height:100%;background:#6ea8fe;animation:load 1.2s ease-in-out infinite"></i></div></main><style>@keyframes load{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}</style></body>`;
+    void value.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
     return value;
+}
+
+/** 在启动失败时提供可重复的恢复入口，不把 Manager 修复逻辑复制到 Electron。 */
+async function repairProduct(config: DesktopConfig): Promise<void> {
+    setSplashStage("正在修复 Product 回执...");
+    const requestId = randomBytes(16).toString("hex");
+    const lease = spawnOwnedProcess({
+        command: config.bun,
+        args: [...PRODUCT_BUN_RUNTIME_ARGS, config.manager, "--root", config.applicationRoot, "desktop", "supervise"],
+        cwd: config.applicationRoot,
+        env: {...process.env, T140_BUN_EXECUTABLE: config.bun},
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "pipe",
+        windowsHide: true,
+        graceMs: 1_000,
+        hardKillWaitMs: 5_000,
+    });
+    if (!lease.stdout || !lease.stdin) {
+        await lease.terminate("repair-startup-failure").catch(() => undefined);
+        throw new Error("Manager 修复通道不可用。" );
+    }
+    const reader = createInterface({input: lease.stdout, crlfDelay: Infinity});
+    const result = new Promise<void>((resolvePromise, rejectPromise) => {
+        reader.on("line", (line) => {
+            try {
+                const event = parseDesktopSupervisorEvent(JSON.parse(line) as unknown);
+                if (event.requestId !== requestId) return;
+                if (event.type === "verified" && event.verification === "full") resolvePromise();
+                else if (event.type === "failure") rejectPromise(new Error(`Manager 修复失败：${event.code} ${event.message}`));
+            } catch (error) {
+                rejectPromise(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+        void lease.completion.then((completion) => {
+            rejectPromise(new Error(`Manager 修复进程提前退出：${JSON.stringify(completion)}`));
+        }, rejectPromise);
+    });
+    lease.stdin.write(desktopSupervisorLine({schema: "nbook.desktop-supervisor/v1", requestId, type: "repair"}));
+    try {
+        await result;
+    } finally {
+        reader.close();
+        if (lease.stdin.writable) lease.stdin.end();
+        const completed = await Promise.race([
+            lease.completion.then(() => true, () => true),
+            new Promise<boolean>((resolvePromise) => setTimeout(() => resolvePromise(false), 5_000)),
+        ]);
+        if (!completed) await lease.terminate("repair-finish").catch(() => undefined);
+    }
+}
+
+/** 启动失败后让用户选择恢复动作；修复仍通过 Manager Supervisor 合同执行。 */
+async function recoverStartup(config: DesktopConfig, error: unknown): Promise<boolean> {
+    const message = error instanceof Error ? error.message : String(error);
+    const result = await dialog.showMessageBox({
+        type: "error",
+        title: "NeuroBook 启动失败",
+        message,
+        detail: "可以重试启动，或先让 NeuroBook Manager 修复当前 Product 回执。",
+        buttons: ["重试", "修复后重试", "打开日志", "退出"],
+        defaultId: 0,
+        cancelId: 3,
+    });
+    if (result.response === 2) {
+        await shell.openPath(join(config.desktopRoot, "logs")).catch(() => undefined);
+        return recoverStartup(config, error);
+    }
+    if (result.response === 1) {
+        try {
+            await repairProduct(config);
+        } catch (repairError) {
+            return recoverStartup(config, repairError);
+        }
+    }
+    return result.response === 0 || result.response === 1;
 }
 
 function installMenu(): void {
@@ -342,7 +443,9 @@ function installMenu(): void {
 
 function installTray(): void {
     if (tray) return;
-    tray = new Tray(nativeImage.createEmpty());
+    const iconPath = resolve(import.meta.dirname, "icon.ico");
+    const icon = nativeImage.createFromPath(iconPath);
+    tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
     tray.setToolTip("NeuroBook");
     tray.setContextMenu(Menu.buildFromTemplate([
         {label: "显示 NeuroBook", click: () => { window?.show(); }},
@@ -471,9 +574,19 @@ async function main(): Promise<void> {
     });
     installMenu();
     const headless = process.argv.includes("--t140-headless") || process.argv.includes("--headless");
-    if (config.remoteUrl) remoteStatus = await probeRemote(config.remoteUrl);
     if (!headless) splash = createSplash();
-    if (!config.remoteUrl) running = await launchProduct(config);
+    if (config.remoteUrl) {
+        setSplashStage("检查远端 Desktop capability...");
+        remoteStatus = await probeRemote(config.remoteUrl);
+    } else {
+        while (!running) {
+            try {
+                running = await launchProduct(config);
+            } catch (error) {
+                if (headless || !await recoverStartup(config, error)) throw error;
+            }
+        }
+    }
     if (headless) {
         console.log(JSON.stringify(config.remoteUrl
             ? {kind: "electron-remote-ready", origin: remoteStatus?.origin, version: remoteStatus?.version}
@@ -508,12 +621,13 @@ async function main(): Promise<void> {
             void closeApplication();
             return;
         }
-        if (desktopSettings.closeBehavior === "tray" || desktopSettings.trayEnabled) {
-            if (desktopSettings.closeBehavior === "tray") {
-                event.preventDefault();
-                window?.hide();
-                return;
-            }
+        if (desktopSettings.closeBehavior === "tray") {
+            event.preventDefault();
+            if (desktopSettings.trayEnabled) window?.hide();
+            else void closeApplication();
+            return;
+        }
+        if (desktopSettings.closeBehavior === "ask" && desktopSettings.trayEnabled) {
             event.preventDefault();
             void confirmCloseToTray();
             return;

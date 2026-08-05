@@ -1160,7 +1160,7 @@ fn main() {
                         return;
                     }
                     let settings = read_desktop_settings(&state_for_close).unwrap_or_default();
-                    if settings.close_behavior == "ask" {
+                    if settings.close_behavior == "ask" && settings.tray_enabled {
                         api.prevent_close();
                         if let Ok(mut pending) = state_for_close.close_dialog_pending.lock() {
                             if !*pending {

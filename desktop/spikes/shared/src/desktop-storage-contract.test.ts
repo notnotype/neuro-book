@@ -12,6 +12,10 @@ describe("Desktop storage contract", () => {
         expect(source).toContain('window?.webContents.send("neurobook:second-instance"');
         expect(source).toContain('window-state.json');
         expect(source).toContain('screen.getAllDisplays()');
+        expect(source).toContain('nativeImage.createFromPath');
+        expect(source).toContain('正在修复 Product 回执');
+        expect(source).toContain('打开日志');
+        expect(source).toContain('desktopSettings.closeBehavior === "ask" && desktopSettings.trayEnabled');
     });
 
     it("将 Tauri WebView2 数据目录放在 Desktop Local Root 下", async () => {
@@ -21,5 +25,6 @@ describe("Desktop storage contract", () => {
         expect(source).toContain("validate_remote_origin");
         expect(source).toContain("neurobook:second-instance");
         expect(source).toContain("window-state.json");
+        expect(source).toContain("settings.close_behavior == \"ask\" && settings.tray_enabled");
     });
 });

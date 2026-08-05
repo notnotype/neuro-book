@@ -211,6 +211,7 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
     const envelopeDist = resolve(sourceRoot, "..", "..", "..", "dist");
     await copyFile(join(envelopeDist, "main.mjs"), join(targetRoot, "resources", "app", "main.mjs"));
     await copyFile(join(envelopeDist, "preload.mjs"), join(targetRoot, "resources", "app", "preload.mjs"));
+    await copyFile(join(envelopeDist, "icon.ico"), join(targetRoot, "resources", "app", "icon.ico"));
     await writeFile(join(targetRoot, "resources", "app", "package.json"), `${JSON.stringify({
         name: "neuro-book-portable-electron-envelope",
         version: "0.0.0",
