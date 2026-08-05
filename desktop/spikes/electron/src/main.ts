@@ -2,7 +2,7 @@ import {randomBytes} from "node:crypto";
 import {createInterface} from "node:readline";
 import {createServer} from "node:net";
 import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog, screen, shell} from "electron";
-import {readFileSync} from "node:fs";
+import {existsSync, readFileSync} from "node:fs";
 import {mkdir as mkdirAsync, readFile as readFileAsync, writeFile as writeFileAsync} from "node:fs/promises";
 import {homedir} from "node:os";
 import {join, resolve} from "node:path";
@@ -443,7 +443,8 @@ function installMenu(): void {
 
 function installTray(): void {
     if (tray) return;
-    const iconPath = resolve(import.meta.dirname, "icon.ico");
+    const packagedIconPath = resolve(process.resourcesPath, "icon.ico");
+    const iconPath = existsSync(packagedIconPath) ? packagedIconPath : resolve(import.meta.dirname, "icon.ico");
     const icon = nativeImage.createFromPath(iconPath);
     tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
     tray.setToolTip("NeuroBook");

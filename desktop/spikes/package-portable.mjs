@@ -17,6 +17,7 @@ import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {promisify} from "node:util";
 
+import {createPackage} from "./electron/node_modules/@electron/asar/lib/asar.js";
 import {writeZipArchive} from "../../scripts/utils/zip.ts";
 import {ProductRuntimeImageVerifier} from "../../shared/product-runtime-image-verifier.ts";
 import {readProductRuntimeContract} from "../../shared/product-runtime-contract.ts";
@@ -190,7 +191,7 @@ async function fileSha256(path) {
     return createHash("sha256").update(await readFile(path)).digest("hex");
 }
 
-/** 复制 Electron runtime，并把 main/preload 放入 Electron 约定的 resources/app。 */
+/** 复制 Electron runtime；壳代码进入 app.asar，native 图标留在 resources 根。 */
 async function copyElectronRuntime(sourceRoot, stageRoot) {
     const targetRoot = join(stageRoot, "desktop");
     await mkdir(targetRoot, {recursive: true});
@@ -207,17 +208,23 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
             throw new Error(`Electron runtime 包含不受支持的文件：${source}`);
         }
     }
-    await mkdir(join(targetRoot, "resources", "app"), {recursive: true});
+    const resourcesRoot = join(targetRoot, "resources");
+    const appStagingRoot = join(resourcesRoot, "app");
+    await mkdir(appStagingRoot, {recursive: true});
     const envelopeDist = resolve(sourceRoot, "..", "..", "..", "dist");
-    await copyFile(join(envelopeDist, "main.mjs"), join(targetRoot, "resources", "app", "main.mjs"));
-    await copyFile(join(envelopeDist, "preload.mjs"), join(targetRoot, "resources", "app", "preload.mjs"));
-    await copyFile(join(envelopeDist, "icon.ico"), join(targetRoot, "resources", "app", "icon.ico"));
-    await writeFile(join(targetRoot, "resources", "app", "package.json"), `${JSON.stringify({
+    await copyFile(join(envelopeDist, "main.mjs"), join(appStagingRoot, "main.mjs"));
+    await copyFile(join(envelopeDist, "preload.mjs"), join(appStagingRoot, "preload.mjs"));
+    await writeFile(join(appStagingRoot, "package.json"), `${JSON.stringify({
         name: "neuro-book-portable-electron-envelope",
         version: "0.0.0",
         private: true,
         main: "main.mjs",
     }, null, 4)}\n`, "utf8");
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    await assertPortableText(appStagingRoot, repoRoot);
+    await createPackage(appStagingRoot, join(resourcesRoot, "app.asar"));
+    await rm(appStagingRoot, {recursive: true, force: true});
+    await copyFile(join(envelopeDist, "icon.ico"), join(resourcesRoot, "icon.ico"));
 }
 
 /** 建立一个没有用户内容的 Portable stage。 */

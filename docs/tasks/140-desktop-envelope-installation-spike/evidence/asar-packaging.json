@@ -1,0 +1,72 @@
+{
+    "schema": "nbook.desktop-envelope-asar-evidence/v1",
+    "capturedAt": "2026-08-05",
+    "input": {
+        "productImageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
+        "productDirty": false,
+        "productContract": "nbook.product-runtime-contract/v5",
+        "sourceRevision": "3623d32c66aa7ab0a9ad4769e4405036ea9d5433",
+        "bun": "1.3.14",
+        "electron": "43.2.0",
+        "tauri": "2.11.5",
+        "toolPack": {
+            "files": 6293,
+            "bytes": 387904585,
+            "digest": "sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c"
+        },
+        "reusedVerifiedProductBuild": true,
+        "rebuildProductAandB": false
+    },
+    "electronEnvelope": {
+        "resources": ["app.asar", "default_app.asar", "icon.ico"],
+        "asarEntries": ["main.mjs", "package.json", "preload.mjs"],
+        "expandedAppEntries": 0,
+        "payload": {
+            "files": 9622,
+            "bytes": 986432007,
+            "digest": "sha256:1971ea27ad24204ae696c8a70f0d4f4c764e562eca7e00c93173a17dee8b155c"
+        },
+        "zipBytes": 389591210,
+        "zipSha256": "f24f9d534ca361e5471d82a7f3ce776ca7039fd1938ceb6d67f80b313937be75"
+    },
+    "tauriEnvelope": {
+        "payload": {
+            "files": 9546,
+            "bytes": 631748475,
+            "digest": "sha256:c06ea9bf20df5061522d69c91ae91850b5ec3885d65f0da31ab00369a3c35b2d"
+        },
+        "zipBytes": 243791957,
+        "zipSha256": "22c1650bf303d6c8f91193e27161fcf69b80f05cf7a2c6b3f954ed4e75a23612"
+    },
+    "repeatability": {
+        "sameInput": true,
+        "electronZipSha256Equal": true,
+        "tauriZipSha256Equal": true,
+        "electronPayloadDigestEqual": true,
+        "tauriPayloadDigestEqual": true,
+        "electronPayloadShapeEqual": true,
+        "tauriPayloadShapeEqual": true
+    },
+    "smoke": {
+        "root": "repository-external temporary root; ancestor has no node_modules",
+        "nodePath": "",
+        "electron": {
+            "exitCode": 0,
+            "asarEntrypointLoaded": true,
+            "shutdown": "graceful",
+            "processTreeClosed": true
+        },
+        "tauri": {
+            "port": 23195,
+            "exitCode": 0,
+            "shutdown": "graceful",
+            "processTreeClosed": true
+        }
+    },
+    "tests": {
+        "desktopContract": "6 files / 22 tests passed",
+        "electronBuild": "passed",
+        "securityAudit": "all checks passed"
+    },
+    "boundary": "本证据只记录 ASAR 打包收口；没有重做 Product Build A/B，也不代表真实窗口、签名安装器、WebView2 分发或最终框架选型已完成。"
+}
