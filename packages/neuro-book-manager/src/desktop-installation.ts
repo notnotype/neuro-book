@@ -30,6 +30,7 @@ import type {InstallationComponents, InstallationManifest, InstallationRootLocat
 const DESKTOP_RUNTIME_SCHEMA = "nbook.desktop-installation-runtime/v1" as const;
 const DESKTOP_INSTALLATION_FILE = "desktop-installation.json";
 const DEFAULT_INSTALLATION_ROOT = "Programs\\NeuroBook";
+const DESKTOP_DEFAULT_ADMIN_USERNAME = "admin";
 
 export type DesktopLocalDepot = {
     /** 本地模式使用完整 Product Portable；远端模式改用 shellArchivePath。 */
@@ -122,7 +123,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         const desktopManifest = await createDesktopInstallationManifest(options, installationRoot, applicationManifest, portable);
         await writeJsonAtomic(join(roots.desktop, DESKTOP_INSTALLATION_FILE), desktopManifest);
         if (options.connection.mode === "local") {
-            await createAdmin(installationRoot, applicationManifest, undefined, options.adminPassword);
+            await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
         }
         await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath);
         return {installationRoot, stateRoot: roots.state, cacheRoot: roots.cache, desktopRoot: roots.desktop, manifest: desktopManifest, applicationManifest};

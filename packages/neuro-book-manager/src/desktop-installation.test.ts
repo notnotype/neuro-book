@@ -34,7 +34,7 @@ import {
     writeManagerWrappers,
 } from "#manager/desktop-installation";
 import type {DesktopInstallationManifest} from "nbook/shared/desktop-contract";
-import type {InstallationComponents} from "#manager/types";
+import type {InstallationComponents, InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
 const originalPlatform = process.platform;
@@ -121,6 +121,36 @@ describe("Desktop installation lifecycle", () => {
             .rejects.toThrow("必须提供管理员密码");
         await expect(installDesktopFromLocalDepot({...base, connection: {mode: "remote", baseUrl: "https://example.com", insecureHttpAccepted: false}, adminPassword: "secret"}))
             .rejects.toThrow("不能接收本地管理员密码");
+    });
+
+    it("本地安装创建管理员时显式使用默认用户名，避免密码 stdin 被用户名提示消费", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-admin-username-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        const portable = portableManifest("electron");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portable);
+
+        await installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+            adminPassword: "correct horse battery staple",
+        });
+
+        expect(appCommandMocks.createAdmin).toHaveBeenCalledWith(
+            installRoot,
+            expect.anything(),
+            "admin",
+            "correct horse battery staple",
+        );
     });
 
     it("Manager wrapper 只使用相对 Installation Root 路径", async () => {
@@ -369,6 +399,47 @@ function portableManifest(kind: "electron" | "tauri") {
         },
         toolPack: {digest: `sha256:${"d".repeat(64)}`},
     };
+}
+
+async function createDesktopPortableArchive(path: string, portable: ReturnType<typeof portableManifest>): Promise<void> {
+    const files = {
+        ".runtime/manager/neuro-book.mjs": "manager",
+        "runtime/bun.exe": "bun",
+        "tools/rg.exe": "rg",
+        "tools/git.exe": "git",
+        "tools/bash.exe": "bash",
+        [portable.runtime.envelopePath]: "envelope",
+    };
+    const hashes = new Map<string, string>();
+    for (const [file, value] of Object.entries(files)) {
+        hashes.set(file, digest(new TextEncoder().encode(value)));
+    }
+    const components = componentsManifest(hashes);
+    components.applicationRuntime = components.managerRuntime;
+    const now = new Date().toISOString();
+    const manifest: InstallationManifest = {
+        schemaVersion: 5,
+        profile: "windows-portable",
+        containerEngine: null,
+        managerVersion: "0.1.0",
+        appVersion: "0.9.1",
+        channel: "canary",
+        sourceRevision: "f".repeat(40),
+        roots: {
+            state: {base: "installation-root", path: "data"},
+            cache: {base: "installation-root", path: ".cache"},
+            desktop: {base: "installation-root", path: "data/.desktop"},
+            webview: {base: "installation-root", path: "data/.desktop/webview"},
+        },
+        components,
+        installedAt: now,
+        updatedAt: now,
+    };
+    await writeFile(path, zipSync({
+        ...Object.fromEntries(Object.entries(files).map(([file, value]) => [file, strToU8(value)])),
+        ".deploy/installation.json": strToU8(`${JSON.stringify(manifest)}\n`),
+        "manifest.json": strToU8(`${JSON.stringify(portable)}\n`),
+    }));
 }
 
 function componentsManifest(hashes: Map<string, string>): InstallationComponents {
