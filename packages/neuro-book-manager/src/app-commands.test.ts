@@ -433,6 +433,26 @@ describe("原生 Product shutdown", () => {
         }
     });
 
+    it("允许机器可读宿主隔离Product stdout", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        ownedProcess.spawn.mockReturnValue({
+            completion: terminal.promise,
+            terminate: vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "shutdown" as const})),
+        });
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({versionLabel: "v0.8.0-canary.1"}));
+
+        try {
+            const launch = await launchApplication(root, productManifest(), {productStdout: "ignore"});
+            await launch.ready;
+            expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({stdout: "ignore", stderr: "inherit"}));
+            terminal.resolve({exitCode: 0, signal: null});
+            await launch.completion;
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
     it("shutdown HTTP 失败时使用 Owned Process fallback", async () => {
         const root = await nativeProductRoot();
         const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();

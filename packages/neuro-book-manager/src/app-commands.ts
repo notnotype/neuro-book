@@ -2,7 +2,7 @@ import {randomBytes} from "node:crypto";
 import {join, resolve} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
-import {spawnOwnedProcess} from "@notnotype/owned-process";
+import {spawnOwnedProcess, type OwnedProcessStdio} from "@notnotype/owned-process";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
@@ -77,6 +77,8 @@ export type StartApplicationOptions = {
     startupNonce?: string;
     /** Desktop 候选的动态 loopback 端口；不写回 State Root。 */
     port?: number;
+    /** 宿主拥有机器可读 stdout 时，Product 的普通启动输出必须转移到指定 stdio。 */
+    productStdout?: OwnedProcessStdio;
     /** ready 后由宿主消费的结构化回调。 */
     onReady?: (ready: {port: number; startupNonce?: string}) => Promise<void>;
 };
@@ -247,7 +249,7 @@ export async function launchApplication(
         env,
         // Manager独占宿主stdin；Windows上同时读取并继承同一pipe会阻塞Product启动。
         stdin: "ignore",
-        stdout: "inherit",
+        stdout: options.productStdout ?? "inherit",
         stderr: "inherit",
         windowsHide: manifest.profile !== "windows-portable",
         graceMs: 2_000,

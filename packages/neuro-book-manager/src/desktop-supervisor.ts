@@ -127,6 +127,8 @@ async function startDesktop(
         await startInstallationApplication(root, {
             healthCheck: true,
             openBrowser: false,
+            // Supervisor stdout 是唯一的 NDJSON 协议通道，Product 的普通启动日志不能混入其中。
+            productStdout: "ignore",
             port: request.port,
             startupNonce: request.startupNonce,
             shutdownSignal: controller.signal,
