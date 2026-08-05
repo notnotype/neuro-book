@@ -1,0 +1,130 @@
+{
+    "schema": "nbook.desktop-envelope-spike-final-evidence/v1",
+    "capturedAt": "2026-08-05T11:10:13.473Z",
+    "environment": {
+        "platform": "win32",
+        "arch": "x64",
+        "node": "v24.3.0",
+        "bun": "1.3.14",
+        "electron": "43.2.0",
+        "tauri": "2.11.5",
+        "rustc": "1.97.1",
+        "cargo": "1.97.1"
+    },
+    "product": {
+        "contract": "nbook.product-runtime-contract/v5",
+        "imageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
+        "sourceRevision": "3623d32c66aa7ab0a9ad4769e4405036ea9d5433",
+        "sourceDigest": "sha256:c5fea97c659ca9035aaa82a63c99615649d070cc91d23a575d215bec429667bf",
+        "dirty": false,
+        "payload": {
+            "files": 3242,
+            "bytes": 134532224,
+            "treeDigest": "sha256:e5afa0d9dc500b5acfe366e4a6385ecea3c3fa3b24031801ca6470a3088ad626",
+            "shapeDigest": "sha256:917c43569fa43d60045dacb23c5de6d71fb1d3100a2779cd4d464ada2d814aab"
+        },
+        "buildReproducibility": {
+            "builds": ["A", "B"],
+            "identityEqual": true,
+            "payloadFilesEqual": true,
+            "onlyAllowedDifference": "createdAt"
+        },
+        "owners": {
+            "authoring-kit": {"files": 513, "bytes": 14746686},
+            "commands": {"files": 109, "bytes": 10748820},
+            "frontend": {"files": 181, "bytes": 15882924},
+            "native-islands": {"files": 2059, "bytes": 75260633},
+            "runtime-meta": {"files": 3, "bytes": 5069},
+            "server-bundle": {"files": 1, "bytes": 12558328},
+            "system-assets": {"files": 376, "bytes": 5329764}
+        }
+    },
+    "components": {
+        "electronRuntime": {"files": 75, "bytes": 364266454},
+        "electronBundle": {"files": 2, "bytes": 64866},
+        "tauriReleaseExecutable": {"files": 1, "bytes": 9863680},
+        "tauriReleaseDebugSymbols": {"files": 1, "bytes": 6467584},
+        "toolPack": {
+            "files": 6293,
+            "bytes": 387904585,
+            "digest": "sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c"
+        }
+    },
+    "portable": {
+        "inputImageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
+        "batches": ["final-a", "final-b"],
+        "electron": {
+            "payload": {
+                "files": 9623,
+                "bytes": 986194835,
+                "digest": "sha256:a6a2b7a97d6287d40b0b649795d76dc7750211833b198e79be6dec8d11c6f369"
+            },
+            "zipBytes": 389496381,
+            "zipSha256": "B7C1B270E22471B11733EAC787E829B4F8C0C65F7BB5FFB689DBBA786A7F8205",
+            "webview": "bundled-chromium"
+        },
+        "tauri": {
+            "payload": {
+                "files": 9546,
+                "bytes": 631727064,
+                "digest": "sha256:998efdeb60da35d883075cc7b2379c2d3d32103da8069f2b59d931c8d6fb9a57"
+            },
+            "zipBytes": 243786881,
+            "zipSha256": "70B03065D101ECA43079D4BF94CF393BF2EB3015CD0E15DBBB42BEFFB8D55872",
+            "webview": "system-evergreen"
+        },
+        "reproducibility": {
+            "electronZipSha256Equal": true,
+            "tauriZipSha256Equal": true,
+            "manifestSha256Equal": true,
+            "payloadShapeEqual": true
+        }
+    },
+    "smoke": {
+        "root": "repository-external temporary root; ancestor has no node_modules",
+        "ancestorNodeModules": false,
+        "nodePath": "",
+        "productApplicationRoot": {
+            "files": 3244,
+            "digest": "sha256:3b94f5252f5634375f4a916356a1590cef8529e46a7bf92ee2302a57fad224dc",
+            "unchangedBeforeAfter": true
+        },
+        "electron": {
+            "exitCode": 0,
+            "contract": "nbook.product-runtime-contract/v5",
+            "migration": "complete",
+            "profiles": 14,
+            "invalidTokenStatus": 401,
+            "shutdown": "graceful",
+            "stateRootMove": true,
+            "stateRootDelete": true,
+            "processTreeClosed": true
+        },
+        "tauri": {
+            "exitCode": 0,
+            "contract": "nbook.product-runtime-contract/v5",
+            "migration": "complete",
+            "profiles": 14,
+            "shutdown": "graceful",
+            "stateRootMove": true,
+            "stateRootDelete": true,
+            "processTreeClosed": true
+        }
+    },
+    "tests": {
+        "desktopContract": "5 files / 17 tests passed",
+        "securityAudit": "all checks passed",
+        "electronBundle": "passed",
+        "desktopTypecheck": "passed",
+        "managerTests": "37 files / 263 tests passed; 1 file / 3 tests skipped",
+        "managerTypecheck": "passed",
+        "tauriFmt": "passed",
+        "tauriCheck": "passed"
+    },
+    "limitations": [
+        "真实窗口、SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和运行时 Origin 行为仍需人工验收。",
+        "稳定 RSS、冷启动、签名、安装器、updater、卸载器和 WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量。",
+        "Tauri spike 的 forced fallback 仍是 taskkill；生产实现必须接入共享 Owned Process/Windows Job Object 或等价受控 supervisor。",
+        "本证据是 Windows x64 spike，不代表 Linux/macOS 或 Electron/Tauri 最终选型。"
+    ]
+}
