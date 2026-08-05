@@ -109,7 +109,7 @@ Electron main / Tauri Rust envelope
 - 2026-08-05：根据安装后交互复核补做 Electron 启动与托盘加固。启动页现在显示 Product 检查、Supervisor 启动、ready/full verification 等阶段；本地启动失败不会立即退出，而是提供重试、经 Manager Supervisor 修复回执后重试、打开日志和退出。托盘改为复用现有 `desktop/spikes/tauri/icons/icon.ico`，并由 Electron build/Portable staging 带入 `resources/icon.ico`；新增桌面合同断言覆盖启动恢复入口和非空图标加载。该批次只验证构建和合同，不声称真实窗口视觉或托盘人工验收完成。
 - 2026-08-05：使用现有最终 Product/Portable 输入重新组包，打包器保持拒绝 Scoop shim Bun 的门禁；改用真实 Bun 1.3.14 后 Electron/Tauri 两个 ZIP 均成功生成，历史包已确认图标随 Envelope 携带。将当前 `main.mjs`、`preload.mjs` 和图标替换进仓库外解压的旧版 Electron ZIP 后运行 `--headless`，退出码为 0；Product 日志记录动态端口启动、`GET /api/app/version` 和 `POST /__nbook/control/shutdown`，无残留 Electron/Product 进程。该 smoke 复用了历史 verified Product image，不重新声明 Build A/B。
 - 2026-08-05：补齐托盘关闭策略边界：当用户关闭托盘后仍保留 `tray` 设置时，Electron/Tauri 不再把窗口隐藏到没有入口的托盘；`ask` 只有在托盘启用时才弹出隐藏选择，否则直接走统一 graceful shutdown。桌面合同测试仍为 5 files / 20 tests，Electron bundle、Tauri `cargo fmt --check` 和 `cargo check` 通过。
-- 2026-08-05：按 ADR 0013 收口 Electron 载荷：`desktop/spikes/package-portable.mjs` 使用 spike 依赖 `@electron/asar` 将 `main.mjs`、`preload.mjs` 和壳 `package.json` 写入 `desktop/resources/app.asar`，托盘图标作为 native resource 放在 `desktop/resources/icon.ico`；ASAR 生成前仍执行绝对路径、`.bun`、`.pnpm` 和固定 token 泄漏检查，Portable ZIP 不再展开 `resources/app/main.mjs`。在复用最终 Build A/B 的 verified Product image 上重新组包，Electron 为 9,622 个 payload 文件 / 986,432,007 bytes / ZIP 389,591,210 bytes，Tauri 为 9,546 个文件 / 631,719,803 bytes / ZIP 243,804,755 bytes；两次同输入组包的 ZIP SHA 与 payload digest 均一致。仓库外清空 `NODE_PATH` 后，Electron ASAR headless 和 Tauri headless 均退出 0、graceful shutdown 且无残留进程；Tauri capability 已收窄为 `core:event:allow-listen`，拒绝 `core:window:default` 与 `core:event:default`；focused 门禁为 6 files / 22 tests、Electron build、Tauri build 和 security audit 通过。证据见 [asar-packaging.json](evidence/asar-packaging.json)。此前用当前 dirty Product 尝试 Tauri 时被 `dirty expected=false actual=true` 正确拒绝，未放宽该门禁。
+- 2026-08-05：在同一 verified Product image 上重建 ASAR/Portable，Electron 为 9,622 个 payload 文件 / 986,432,016 bytes / ZIP 389,591,229 bytes，Tauri 为 9,546 个文件 / 631,716,228 bytes / ZIP 243,800,254 bytes；两批同输入组包的 ZIP、manifest 和 payload digest 均一致。Tauri Windows Supervisor 改用 Job Object（`KILL_ON_JOB_CLOSE` + `TerminateJobObject`）拥有 Manager 及其后代，仓库外新包 graceful smoke 退出 0，`--t140-force --headless` smoke 退出 0 且报告 `forced`、无残留进程；安全审计同时拒绝 `taskkill` fallback。证据见 [asar-packaging.json](evidence/asar-packaging.json)。
 
 ## Acceptance Matrix
 
@@ -121,16 +121,16 @@ Electron main / Tauri Rust envelope
 | S4 | 未完成 | Monaco、TipTap、剪贴板、拖放、下载和文件对话框只生成了人工验收范围，没有自动点击或视觉验收。 |
 | S5 | 自动审计通过 | Electron isolation/sandbox/navigation、Tauri loopback CSP/capability 均通过静态安全审计；页面运行时 Origin 行为仍需人工验收。 |
 | S6 | 通过（focused） | Electron `requestSingleInstanceLock` 与 Tauri lock fixture 的第二实例竞争已通过；没有把第二实例 UI 转发冒充为完整人工验收。 |
-| S7 | 部分通过 | 两个壳均完成 Product-owned migration、动态 health、认证 graceful shutdown、错误 token `401` 和退出后进程树收口；Electron 复用 Owned Process。Tauri spike 的 forced fallback 仍是 `taskkill /T /F`，不是生产级共享 Owned Process/Job Object 合同；crash/disconnect 后的完整矩阵仍未完成。 |
+| S7 | 部分通过 | 两个壳均完成 Product-owned migration、动态 health、认证 graceful shutdown、错误 token `401` 和退出后进程树收口；Electron 复用 Owned Process，Tauri Windows Supervisor 现在由 Job Object 拥有并通过 `TerminateJobObject` 完成 forced smoke。crash/disconnect 后的完整矩阵和跨平台强制收口仍未完成。 |
 | S8 | clean Portable 自动 smoke 通过（最终 Build A/B + ASAR follow-up） | 两包均从仓库外且祖先无 `node_modules`、清空 `NODE_PATH` 的临时根启动；14 个 system profiles、动态 loopback health/version、认证 graceful shutdown、`.output` immutable digest 和 State Root move/delete 均通过；Electron 保持运行期间额外验证错误 token `401`。ASAR follow-up 重新验证了 Electron ASAR 入口和 Tauri headless graceful shutdown。`data/`、`.cache/` 和 WebView profile 是运行期 owner，不纳入 immutable Product payload digest；完整 WebView profile 回收仍未验证。 |
-| S9 | clean Portable measurement 通过（含 ASAR follow-up） | 最终 Build A/B 的 Product 与旧 Portable 数字保留在 [final-build-a-b.json](evidence/final-build-a-b.json)；同一 verified Product 输入的 ASAR follow-up 连续两次组包也逐字节一致：Electron 9,622 文件 / 986,432,007 bytes、ZIP 389,591,210 bytes、payload digest `sha256:1971ea27ad24204ae696c8a70f0d4f4c764e562eca7e00c93173a17dee8b155c`、ZIP SHA-256 `f24f9d534ca361e5471d82a7f3ce776ca7039fd1938ceb6d67f80b313937be75`；Tauri 9,546 文件 / 631,719,803 bytes、ZIP 243,804,755 bytes、payload digest `sha256:a5ded68252d090996bfa3e2b3bea1ff7376c9eb0ea423ed84130b2d192293f6a`、ZIP SHA-256 `23bb6a91557a66835c6b717949a1dee4a509a2081389139c3aced633ab5f6f43`。Tool Pack 为 6,293 文件 / 387,904,585 bytes / digest `sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c`；稳定 RSS、正式安装器/updater 和 WebView2 分发成本仍未测量。 |
+| S9 | clean Portable measurement 通过（含 ASAR follow-up） | 最终 Build A/B 的 Product 与旧 Portable 数字保留在 [final-build-a-b.json](evidence/final-build-a-b.json)；Job Object 版本 ASAR follow-up 连续两次组包也逐字节一致：Electron 9,622 文件 / 986,432,016 bytes、ZIP 389,591,229 bytes、payload digest `sha256:bf09d3c185764a0a7993d4bbbc727fa4547bec4f48583fdbd4188ab8f34adc52`、ZIP SHA-256 `a1c1e01807957e4204d1702fe162c148b0dc3a7aa5de3f8658c8f37c9ad99acf`；Tauri 9,546 文件 / 631,716,228 bytes、ZIP 243,800,254 bytes、payload digest `sha256:6689f9b1598ef72a2f73adb43a3808ea0d9b91399609ffcf9b72ab6816314beb`、ZIP SHA-256 `8b45c49f18cb8fb52a3f18427b47cf3199a937953e380b7136b55ca5ed8731be`。Tool Pack 为 6,293 文件 / 387,904,585 bytes / digest `sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c`；稳定 RSS、正式安装器/updater 和 WebView2 分发成本仍未测量。 |
 | S10 | CLI 用户级安装合同通过（focused + real Windows smoke） | Manager 安装/注册/回滚/卸载测试覆盖本地密码、远端 shell capability/version、远端 Product/Tool Pack 隔离、dirty/checksum/image identity、相对 wrapper 和 Windows 资源清理；真实 Windows smoke 又验证 stdin 密码、默认用户级安装根、快捷方式、HKCU 注册项、`neurobook://` 和 State Root 保留。macOS 仅通过路径合同与 CI 配置检查。 |
 
 ## Findings and Follow-ups
 
-- 本 spike 证明两个桌面壳可以保持薄层边界，复用 Product Runtime Contract v5 和现有生命周期；它没有证明任何框架已经达到生产发布条件，也没有修改 ADR 0009/0010 的最终选择。
+- 本 spike 证明两个桌面壳可以保持薄层边界，复用 Product Runtime Contract v5 和现有生命周期；Tauri Windows forced fallback 已通过 Job Object 黑盒验证，但它没有证明任何框架已经达到生产发布条件，也没有修改 ADR 0009/0010 的最终选择。
 - Tauri 的单文件 release executable 明显小于 Electron Chromium runtime，但这不是完整安装包对比：Tauri 仍需 WebView2 分发策略，Electron 还需把 runtime、Product Image、Bun 和资源一起计入安装载荷。
-- 生产实现前必须把 Tauri 的强制收口接入共享 Owned Process/Windows Job Object 或等价的受控 native supervisor；不得把当前 `taskkill` fallback 带入正式 Desktop Envelope。
+- Tauri Windows spike 已接入受控 Job Object；正式实现仍需补齐 crash/disconnect、非 Windows 进程组和签名发行链路的完整收口验证。
 - 生产实现前必须完成真实窗口的 S3/S4/S5/S8 场景，并分别测量冷启动、RSS、压缩安装器、WebView2 Evergreen/Fixed/Bootstrapper 与升级/卸载行为。
 - 最终 Build A/B 与两次 Portable 组包已覆盖 stdio、startup nonce、Contract、生命周期和 Windows-first 自动化矩阵；旧 C2/旧 ZIP 仅保留为历史证据。上述证据仍不构成跨平台完成或 Electron/Tauri 的生产选择。
 
@@ -152,7 +152,7 @@ Electron 包携带完整 Chromium runtime；Tauri 包只携带 release executabl
 
 Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录中完成，且清空 `NODE_PATH`；必须检查 Product Contract、动态端口、migration/Profile 准备、认证 shutdown、immutable Product payload digest、端口/进程收口和包内绝对路径泄漏。`data/`、`.cache/`、Desktop/WebView root 是可写 owner，不能用整个 Portable 根 digest 冒充只读证明。两次从同一输入组包的 payload identity 必须一致，时间戳不计入比较。
 
-本阶段已提供 Windows 用户级安装的 Manager CLI 事务，但仍不提供图形化 Manager、签名安装器、updater、跨平台正式包或最终 Electron/Tauri 决策。Tauri 的系统 WebView2、Electron Chromium 体积、Tauri forced fallback 的生产级 Owned Process/Job Object，以及真实窗口交互都单独记录，不以单个 exe 大小代替完整 portable 包结论。
+本阶段已提供 Windows 用户级安装的 Manager CLI 事务，但仍不提供图形化 Manager、签名安装器、updater、跨平台正式包或最终 Electron/Tauri 决策。Tauri Windows forced fallback 已使用 Job Object 单独验证；系统 WebView2、Electron Chromium 体积、完整 crash/disconnect 生命周期和真实窗口交互仍单独记录，不以单个 exe 大小代替完整 portable 包结论。
 
 ## Portable Packaging Result (2026-08-05, historical dirty spike)
 
@@ -164,7 +164,7 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 两包均从仓库外且祖先无 `node_modules` 的临时根启动，清空 `NODE_PATH`，自动执行 Product-owned SQLite/Application State migration，准备 14 个 system profiles，通过动态 loopback health/version；无效 shutdown token 返回 `401`，随后由 envelope 内存中的 token 完成认证 graceful shutdown。Electron 动态端口为 `59372`；Tauri 动态端口为 `9883`；两次退出码均为 0。
 - 两包的 Application Root 均为 3,240 文件、134,488,581 bytes，digest `sha256:c2e250be2deb50d567c3510aef1b33e6310c94a4246cc311829d3d67d2fe2144`，启动前后不变。两个 State Root 均完成移出/移回，Product 进程退出后可删除，Application Root 和 Cache Root 不受影响。
 - 本轮补修了三个 packaging 级问题：Electron `resources/app` 反推 portable root 少退一层；Windows Scoop shim 不能作为随包 Bun，打包器现在拒绝 `shims` 与 `node_modules/.bin` 路径；Tauri 与 Electron 的 headless 参数统一支持 `--headless`。空 Portable State Root 的 migration 由共享 launcher 的 `prepare` 合同步骤完成。
-- 仍未完成的门禁：真实窗口及 SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和 Origin 行为；稳定 RSS；WebView2 Evergreen/Fixed/Bootstrapper 分发成本；Tauri 生产级 Owned Process/Job Object 强制收口；签名图形安装器、updater、图形化卸载器和跨平台 runner。不得据此冻结 Electron/Tauri 生产选择。
+- 仍未完成的门禁：真实窗口及 SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和 Origin 行为；稳定 RSS；WebView2 Evergreen/Fixed/Bootstrapper 分发成本；完整 crash/disconnect 生命周期矩阵；签名图形安装器、updater、图形化卸载器和跨平台 runner。不得据此冻结 Electron/Tauri 生产选择。
 
 ## Portable Packaging Result (2026-08-05, clean C2)
 
@@ -179,7 +179,7 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 最终输入为 verified Product image `sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2`、Contract v5、source revision `3623d32c66aa7ab0a9ad4769e4405036ea9d5433`、`dirty=false`。Build A/B 的 inventory、owner policy、tree/shape digest 和 payload 文件内容完全一致，只有 manifest `createdAt` 不同。
 - Electron Portable 为 9,623 文件 / 986,194,835 bytes，ZIP 389,496,381 bytes，payload digest `sha256:a6a2b7a97d6287d40b0b649795d76dc7750211833b198e79be6dec8d11c6f369`，ZIP SHA-256 `B7C1B270E22471B11733EAC787E829B4F8C0C65F7BB5FFB689DBBA786A7F8205`；Tauri Portable 为 9,546 文件 / 631,727,064 bytes，ZIP 243,786,881 bytes，payload digest `sha256:998efdeb60da35d883075cc7b2379c2d3d32103da8069f2b59d931c8d6fb9a57`，ZIP SHA-256 `70B03065D101ECA43079D4BF94CF393BF2EB3015CD0E15DBBB42BEFFB8D55872`。
 - 两包均在仓库外、祖先无 `node_modules`、清空 `NODE_PATH` 的临时根通过 Contract、migration、14 个 system profiles、动态 loopback health/version、认证 graceful shutdown、`.output` immutable digest、State Root move/delete 和进程收口；Electron 黑盒额外验证错误 token `401`。Electron 使用 bundled Chromium；Tauri manifest 明确依赖系统 WebView2 Evergreen，未携带 WebView2。
-- 这两个 ZIP 仍是未签名 Windows spike 产物，不是签名图形安装器、updater、图形化卸载器或框架选型结论。真实窗口/SSE/WebSocket/Monaco/TipTap/剪贴板/拖放/文件对话框、冷启动/RSS、WebView2 分发、跨平台 runner，以及 Tauri 生产级 Owned Process/Job Object forced fallback 仍需后续授权和任务。
+- 这两个 ZIP 仍是未签名 Windows spike 产物，不是签名图形安装器、updater、图形化卸载器或框架选型结论。真实窗口/SSE/WebSocket/Monaco/TipTap/剪贴板/拖放/文件对话框、冷启动/RSS、WebView2 分发、跨平台 runner 和完整 crash/disconnect 矩阵仍需后续授权和任务；Tauri Windows Job Object forced fallback 已由后续 ASAR follow-up 补证。
 
 ## Desktop User Installation Result (2026-08-05)
 

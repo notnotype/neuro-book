@@ -3,15 +3,30 @@ use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::ptr;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
+
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+};
 
 const SUPERVISOR_SCHEMA: &str = "nbook.desktop-supervisor/v1";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
@@ -91,9 +106,84 @@ struct RuntimeLocators {
     desktop: RuntimeLocator,
 }
 
+/// 拥有 Tauri 启动的 Manager Supervisor；Windows 使用 Job Object 收口全部后代。
+struct SupervisorJob {
+    #[cfg(windows)]
+    handle: isize,
+}
+
+impl SupervisorJob {
+    fn attach(child: &Child) -> Result<Self, String> {
+        #[cfg(windows)]
+        {
+            let job = unsafe { CreateJobObjectW(ptr::null(), ptr::null()) };
+            if job.is_null() {
+                return Err(format!(
+                    "创建 Tauri Supervisor Job Object 失败：{}",
+                    std::io::Error::last_os_error()
+                ));
+            }
+            let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+            limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let configured = unsafe {
+                SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    &limits as *const _ as *const _,
+                    size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                )
+            } != 0;
+            if !configured {
+                let error = std::io::Error::last_os_error();
+                unsafe { CloseHandle(job) };
+                return Err(format!("配置 Tauri Supervisor Job Object 失败：{error}"));
+            }
+            let assigned =
+                unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) } != 0;
+            if !assigned {
+                let error = std::io::Error::last_os_error();
+                unsafe { CloseHandle(job) };
+                return Err(format!(
+                    "绑定 Tauri Manager Supervisor 到 Job Object 失败：{error}"
+                ));
+            }
+            return Ok(Self {
+                handle: job as isize,
+            });
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = child;
+            Ok(Self {})
+        }
+    }
+
+    #[cfg(windows)]
+    fn terminate(&self) -> Result<(), String> {
+        let result = unsafe { TerminateJobObject(self.handle as HANDLE, 137) };
+        if result == 0 {
+            return Err(format!(
+                "TerminateJobObject 失败：{}",
+                std::io::Error::last_os_error()
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+impl Drop for SupervisorJob {
+    fn drop(&mut self) {
+        if self.handle != 0 {
+            unsafe { CloseHandle(self.handle as HANDLE) };
+        }
+    }
+}
+
 struct SupervisorState {
     child: Mutex<Option<Child>>,
     stdin: Mutex<Option<ChildStdin>>,
+    job: Option<SupervisorJob>,
     request_id: String,
     connection: String,
     origin: String,
@@ -171,7 +261,7 @@ impl Drop for SupervisorState {
     fn drop(&mut self) {
         if let Ok(mut child) = self.child.lock() {
             if let Some(child) = child.as_mut() {
-                let _ = force_kill(child);
+                let _ = force_kill(child, self.job.as_ref());
             }
         }
     }
@@ -427,6 +517,7 @@ fn spawn_supervisor(
     (
         Child,
         ChildStdin,
+        SupervisorJob,
         u16,
         String,
         String,
@@ -461,6 +552,13 @@ fn spawn_supervisor(
     let mut child = command
         .spawn()
         .map_err(|error| format!("启动 Manager Supervisor 失败：{error}"))?;
+    let job = match SupervisorJob::attach(&child) {
+        Ok(job) => job,
+        Err(error) => {
+            let _ = child.kill();
+            return Err(error);
+        }
+    };
     let mut stdin = child
         .stdin
         .take()
@@ -491,7 +589,7 @@ fn spawn_supervisor(
     stdin
         .write_all(supervisor_line(&request_id, "start", Some(&startup_nonce), port).as_bytes())
         .map_err(|error| format!("发送 Supervisor start 失败：{error}"))?;
-    Ok((child, stdin, port, request_id, startup_nonce, receiver))
+    Ok((child, stdin, job, port, request_id, startup_nonce, receiver))
 }
 
 fn wait_ready(
@@ -617,7 +715,7 @@ fn graceful_shutdown(state: &SupervisorState) -> Result<&'static str, String> {
             return Ok("graceful");
         }
         if Instant::now() >= deadline {
-            force_kill(child)?;
+            force_kill(child, state.job.as_ref())?;
             *child_guard = None;
             return Ok("forced");
         }
@@ -635,7 +733,7 @@ fn shutdown_with_fallback(state: &SupervisorState) -> Result<&'static str, Strin
                 .lock()
                 .map_err(|_| "Manager child lock poisoned".to_string())?;
             if let Some(child) = child_guard.as_mut() {
-                force_kill(child)?;
+                force_kill(child, state.job.as_ref())?;
                 *child_guard = None;
             }
             Ok("forced")
@@ -643,22 +741,30 @@ fn shutdown_with_fallback(state: &SupervisorState) -> Result<&'static str, Strin
     }
 }
 
-fn force_kill(child: &mut Child) -> Result<(), String> {
-    #[cfg(windows)]
+fn force_kill(child: &mut Child, job: Option<&SupervisorJob>) -> Result<(), String> {
+    if child
+        .try_wait()
+        .map_err(|error| format!("读取 Manager Supervisor 终态失败：{error}"))?
+        .is_some()
     {
-        let status = Command::new("taskkill")
-            .args(["/PID", &child.id().to_string(), "/T", "/F"])
-            .status()
-            .map_err(|error| format!("taskkill 启动失败：{error}"))?;
-        if !status.success() {
-            return Err(format!("taskkill 退出码异常：{status}"));
-        }
         return Ok(());
     }
-    #[cfg(not(windows))]
+    #[cfg(windows)]
+    if let Some(job) = job {
+        job.terminate()?;
+        child
+            .wait()
+            .map_err(|error| format!("等待 Job Object 收口失败：{error}"))?;
+        return Ok(());
+    }
+    let _ = job;
     child
         .kill()
-        .map_err(|error| format!("强制终止 Manager Supervisor 失败：{error}"))
+        .map_err(|error| format!("强制终止 Manager Supervisor 失败：{error}"))?;
+    child
+        .wait()
+        .map_err(|error| format!("等待 Manager Supervisor 收口失败：{error}"))?;
+    Ok(())
 }
 
 /** 只允许当前 Product loopback 页面调用 Desktop Bridge。 */
@@ -996,15 +1102,17 @@ fn apply_tray_setting(app: &AppHandle, enabled: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn start_headless(config: Config) -> Result<(), String> {
+fn start_headless(config: Config, force_shutdown: bool) -> Result<(), String> {
     if config.remote_url.is_some() {
         return Err("远端 Desktop 需要加载 WebView 后完成 capability smoke，不能使用本地 Product headless 模式。".to_string());
     }
-    let (mut child, stdin, port, request_id, startup_nonce, receiver) = spawn_supervisor(&config)?;
+    let (mut child, stdin, job, port, request_id, startup_nonce, receiver) =
+        spawn_supervisor(&config)?;
     let version = wait_ready(&mut child, &receiver, &request_id, &startup_nonce, port)?;
     let state = SupervisorState {
         child: Mutex::new(Some(child)),
         stdin: Mutex::new(Some(stdin)),
+        job: Some(job),
         request_id,
         connection: "local".to_string(),
         origin: format!("http://127.0.0.1:{port}"),
@@ -1013,7 +1121,19 @@ fn start_headless(config: Config) -> Result<(), String> {
         allow_window_close: Mutex::new(false),
         close_dialog_pending: Mutex::new(false),
     };
-    let result = shutdown_with_fallback(&state)?;
+    let result = if force_shutdown {
+        let mut child_guard = state
+            .child
+            .lock()
+            .map_err(|_| "Manager child lock poisoned".to_string())?;
+        if let Some(child) = child_guard.as_mut() {
+            force_kill(child, state.job.as_ref())?;
+            *child_guard = None;
+        }
+        "forced"
+    } else {
+        shutdown_with_fallback(&state)?
+    };
     println!("{{\"kind\":\"tauri-headless-ready\",\"port\":{port},\"shutdown\":\"{result}\"}}");
     Ok(())
 }
@@ -1026,19 +1146,25 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if std::env::args().any(|argument| argument == "--t140-headless" || argument == "--headless") {
-        if let Err(error) = start_headless(config) {
+    let arguments = std::env::args().collect::<Vec<_>>();
+    if arguments
+        .iter()
+        .any(|argument| argument == "--t140-headless" || argument == "--headless")
+    {
+        let force_shutdown = arguments.iter().any(|argument| argument == "--t140-force");
+        if let Err(error) = start_headless(config, force_shutdown) {
             eprintln!("{error}");
             std::process::exit(1);
         }
         return;
     }
 
-    let (child, stdin, port, request_id, connection, origin, version, receiver) =
+    let (child, stdin, job, port, request_id, connection, origin, version, receiver) =
         if let Some(remote_url) = config.remote_url.clone() {
             let request_id = random_text(16).unwrap_or_else(|_| "remote".to_string());
             let (_sender, receiver) = mpsc::channel::<String>();
             (
+                None,
                 None,
                 None,
                 0,
@@ -1049,7 +1175,7 @@ fn main() {
                 receiver,
             )
         } else {
-            let (mut child, stdin, port, request_id, startup_nonce, receiver) =
+            let (mut child, stdin, job, port, request_id, startup_nonce, receiver) =
                 match spawn_supervisor(&config) {
                     Ok(value) => value,
                     Err(error) => {
@@ -1061,7 +1187,7 @@ fn main() {
             {
                 Ok(version) => version,
                 Err(error) => {
-                    let _ = force_kill(&mut child);
+                    let _ = force_kill(&mut child, Some(&job));
                     eprintln!("{error}");
                     std::process::exit(1);
                 }
@@ -1069,6 +1195,7 @@ fn main() {
             (
                 Some(child),
                 Some(stdin),
+                Some(job),
                 port,
                 request_id,
                 "local".to_string(),
@@ -1088,6 +1215,7 @@ fn main() {
     let state = Arc::new(SupervisorState {
         child: Mutex::new(child),
         stdin: Mutex::new(stdin),
+        job,
         request_id,
         connection,
         origin,

@@ -6,6 +6,7 @@ const electronMain = await readFile(resolve(root, "electron", "src", "main.ts"),
 const electronPreload = await readFile(resolve(root, "electron", "src", "preload.ts"), "utf8");
 const tauriConfig = JSON.parse(await readFile(resolve(root, "tauri", "tauri.conf.json"), "utf8"));
 const tauriCapability = JSON.parse(await readFile(resolve(root, "tauri", "capabilities", "default.json"), "utf8"));
+const tauriSource = await readFile(resolve(root, "tauri", "src", "main.rs"), "utf8");
 
 const checks = {
     electronNodeIntegrationDisabled: electronMain.includes("nodeIntegration: false"),
@@ -21,6 +22,9 @@ const checks = {
     tauriUsesNarrowCapability: tauriCapability.permissions.includes("core:event:allow-listen")
         && !tauriCapability.permissions.includes("core:event:default")
         && !tauriCapability.permissions.includes("core:window:default"),
+    tauriUsesJobObjectFallback: tauriSource.includes("TerminateJobObject")
+        && tauriSource.includes("KILL_ON_JOB_CLOSE")
+        && !tauriSource.includes('Command::new("taskkill")'),
 };
 const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
 console.log(JSON.stringify({kind: "t140-security-audit", checks}, null, 4));

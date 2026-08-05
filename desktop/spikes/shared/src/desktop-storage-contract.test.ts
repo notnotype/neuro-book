@@ -26,5 +26,8 @@ describe("Desktop storage contract", () => {
         expect(source).toContain("neurobook:second-instance");
         expect(source).toContain("window-state.json");
         expect(source).toContain("settings.close_behavior == \"ask\" && settings.tray_enabled");
+        expect(source).toContain("TerminateJobObject");
+        expect(source).toContain("KILL_ON_JOB_CLOSE");
+        expect(source).not.toContain('Command::new("taskkill")');
     });
 });
