@@ -101,7 +101,7 @@ async function verifyBackgroundTermination(
     else await jobs.shutdown();
     await jobs.waitIdle();
 
-    const snapshot = jobs.get(spawned.job.jobId);
+    const snapshot = await jobs.get(spawned.job.jobId);
     if (snapshot?.status !== "cancelled") {
         throw new Error(`后台${reason}状态未收口：${JSON.stringify(snapshot)}`);
     }

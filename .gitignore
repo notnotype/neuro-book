@@ -72,3 +72,4 @@ server/workspace/.nbook/
 server/.agent/
 # Temporary screenshots / assets
 t16-editor-heat.png
+/cache/
