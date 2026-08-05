@@ -1,9 +1,10 @@
+import {createServer} from "node:net";
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {Database} from "bun:sqlite";
 import {afterEach, describe, expect, it} from "vitest";
-import {backupApplicationDatabase} from "#manager/health";
+import {assertNativeProductStopped, backupApplicationDatabase} from "#manager/health";
 
 let root: string | null = null;
 
@@ -66,5 +67,31 @@ describe("App SQLite备份", () => {
 
         await expect(backupApplicationDatabase(join(root, "state"), join(root, "backup")))
             .rejects.toThrow(`App SQLite备份失败：${databasePath}`);
+    });
+});
+
+describe("native Product 端口保护", () => {
+    it("空 State Root 不把默认 3000 当作本安装的运行实例", async () => {
+        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-port-"));
+        await expect(assertNativeProductStopped(join(root, "state"))).resolves.toBeUndefined();
+    });
+
+    it("已有 State Root 会检查显式配置的端口", async () => {
+        root = await mkdtemp(join(tmpdir(), "nbook-manager-health-port-"));
+        const stateRoot = join(root, "state");
+        const server = createServer();
+        await new Promise<void>((resolvePromise, rejectPromise) => {
+            server.once("error", rejectPromise);
+            server.listen(0, "127.0.0.1", resolvePromise);
+        });
+        const address = server.address();
+        if (!address || typeof address === "string") throw new Error("测试服务器没有动态端口。");
+        await mkdir(stateRoot, {recursive: true});
+        await writeFile(join(stateRoot, ".env"), `NUXT_PORT=${address.port}\n`, "utf8");
+        try {
+            await expect(assertNativeProductStopped(stateRoot)).rejects.toThrow(`127.0.0.1:${address.port}`);
+        } finally {
+            await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+        }
     });
 });

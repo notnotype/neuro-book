@@ -1,4 +1,4 @@
-import {copyFile} from "node:fs/promises";
+import {copyFile, readFile} from "node:fs/promises";
 import {createConnection} from "node:net";
 import {dirname, join} from "node:path";
 
@@ -10,7 +10,10 @@ import {resolveAppSqliteLocation} from "nbook/server/runtime/app-sqlite-location
 
 /** 更新原生 Product 前确认端口未被运行中的服务占用。 */
 export async function assertNativeProductStopped(stateRoot: string): Promise<void> {
-    const port = await statePort(stateRoot);
+    const port = await configuredStatePort(stateRoot);
+    // 首次 Desktop 启动还没有 State Root 配置；不能把默认 3000 当成这个安装实例的端口，
+    // 否则用户正在运行的其它本地服务会阻断 Manager 选择的动态端口。
+    if (port === null) return;
     if (await portOpen(port)) {
         throw new Error(`NeuroBook 仍在监听 127.0.0.1:${port}；请先退出服务后再更新。`);
     }
@@ -63,6 +66,22 @@ export async function statePort(stateRoot: string): Promise<number> {
     const env = await loadStateEnv(stateRoot);
     const port = Number(env.NUXT_PORT ?? env.PORT ?? "3000");
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`State Root 端口非法：${env.NUXT_PORT ?? env.PORT}`);
+    return port;
+}
+
+/** 只读取 State Root 已明确声明的端口；空 State Root 返回 null。 */
+async function configuredStatePort(stateRoot: string): Promise<number | null> {
+    const env = await loadStateEnv(stateRoot);
+    const value = env.NUXT_PORT ?? env.PORT;
+    if (value === undefined) {
+        const envPath = join(stateRoot, ".env");
+        if (!await pathExists(envPath)) return null;
+        return 3000;
+    }
+    const port = Number(value);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`State Root 端口非法：${value}`);
+    }
     return port;
 }
 

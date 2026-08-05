@@ -290,7 +290,7 @@ export async function startInstallationApplication(
         });
         let launch: Awaited<ReturnType<typeof launchApplication>> | null = null;
         try {
-            await ensureStateFiles(stateRoot, 3000, activeManifest.profile !== "windows-portable");
+            await ensureStateFiles(stateRoot, options.port ?? 3000, activeManifest.profile !== "windows-portable");
             journal = await prepareJournaledApplicationState(paths.root, activeManifest, journal, stateRoot, service);
             journal = await applyJournaledApplicationMigrations(paths.root, activeManifest, journal);
             journal = await updateOperation(journal, "migrated");
