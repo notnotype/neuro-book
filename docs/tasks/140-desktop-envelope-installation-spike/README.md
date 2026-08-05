@@ -35,7 +35,7 @@
 ## Current State
 
 - Task 130 已提供 verified Runtime Image、Product Runtime Contract v4、Manager 进程编排、loopback shutdown、State/Cache Root 和 Windows Product smoke。
-- 当前仓库没有 `desktop/`、`electron/` 或 `src-tauri/` 生产实现。
+- 当前仓库已经有 `desktop/spikes/electron` 与 `desktop/spikes/tauri` 的 Windows-first spike 实现，但它们仍不是生产桌面实现；生产安装器、更新器、签名和最终框架选择不在本任务冻结。
 - 本机已有 `rustup-msvc` stable MSVC toolchain、Visual Studio 2022 Community、Windows SDK 和 WebView2 Runtime。
 - Electron 不进入根依赖；spike worktree 内单独安装并记录版本。
 
@@ -88,12 +88,13 @@ Electron main / Tauri Rust envelope
 
 ## Implementation Walkthrough
 
-- 2026-08-04：创建 Issue #66、从 `origin/master` 建立 `feat/i66-t140-desktop-envelope-installation-spike` worktree；确认 Rust/MSVC/WebView2 前置已安装。
+- 2026-08-04：创建 Issue #66、从 `origin/master` 建立 `feat/i66-t140-desktop-envelope-installation-spike` worktree；确认 Rust/MSVC/WebView2 前置已安装。随后以当前合同迁移到 `feat/i66-t140-desktop-envelope-hardening` 继续收口。
 - 2026-08-04：Electron 依赖只安装在 `desktop/spikes/electron`，版本为 Electron 43.2.0；Tauri 使用 Rust 1.97.1 stable MSVC 与 Tauri 2.11.5。两个壳都通过共享 Product launcher 解析 Product Runtime Contract v4，未复制数据库、Profile、Workspace 或 shutdown 业务实现。
 - 2026-08-04：完成 Electron main/preload 与 Tauri Rust/WebView2 最小壳。Electron 固定 `nodeIntegration=false`、`contextIsolation=true`、`sandbox=true`，只暴露只读状态 IPC；Tauri 只声明窗口 capability，CSP 仅允许 loopback，未声明 shell/fs 权限。两个壳都使用动态端口和每次启动随机 256-bit shutdown token，token 不写磁盘、URL 或 WebView storage。
 - 2026-08-04：以仓库外、非当前 checkout 构建的 Windows verified Product fixture（source revision `4947c1e4ab7643c71d875bae4083a56412f06ee3`，Contract v4）完成两次 headless launch。Electron 端口 `37641`、Tauri 端口 `37642` 均通过 version health、数据库/Application State 准备、14 个 system profiles 准备和认证 graceful shutdown；Application Root 前后均为 3,239 文件，digest `sha256:a99cf1d0a1e9e563b177a7955ddf21f87a92e20c28656b8d04f3a9c3a762aa25`。
 - 2026-08-04：最终 focused 门禁通过：spike TypeScript typecheck、Contract Vitest `1 file / 1 test`、security audit、Electron bundle、Tauri `cargo fmt --check`、`cargo test`（0 个 Rust 单测）和 `cargo build --release`。测量见 [measurement.json](evidence/measurement.json)：Product fixture 3,239 文件 / 133,936,301 bytes；Electron runtime 75 文件 / 364,266,454 bytes，Envelope bundle 2 文件 / 41,349 bytes；Tauri release exe 1 文件 / 8,921,088 bytes，PDB 6,279,168 bytes。
 - 2026-08-04：测量只记录逻辑文件数与字节数，没有把 Electron runtime、WebView2 或最终安装器压缩大小冒充已知结果。Tauri 的当前构建关闭正式 bundle，WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量。
+- 2026-08-05：在当前 checkout 的空 `NEURO_BOOK_OUTPUT_DIR` 完成 clean Build A。Runtime Image manifest 报告 `dirty=false`、source revision `9c1c0f3564fbb1543a9ef198bccf31d9c1eef112`、source digest `sha256:d2d110e00f0957c36507f587107457aa819d1b4a9e6dd3355205f8bb662cde45`、imageId `sha256:f4010c53f1ae261a7574294be41dbb737a91d31439d3be8ce5b809dd6fbbb4e3`，共 3,242 个文件 / 134,529,839 bytes，shape digest `sha256:5548e16f91f23d3cedf43aa61c15a8cc65fdcde06673aa18346b464f45ce62d4`。Owner inventory 为 authoring-kit 513/14,745,912、commands 109/10,748,046、frontend 181/15,882,924、native-islands 2,059/75,260,633、runtime-meta 3/5,069、server-bundle 1/12,557,491、system-assets 376/5,329,764；该候选已通过 Product Runtime Image verifier，但文档随后还会进入最终 Build B。
 
 ## Acceptance Matrix
 
@@ -106,8 +107,8 @@ Electron main / Tauri Rust envelope
 | S5 | 自动审计通过 | Electron isolation/sandbox/navigation、Tauri loopback CSP/capability 均通过静态安全审计；页面运行时 Origin 行为仍需人工验收。 |
 | S6 | 通过（focused） | Electron `requestSingleInstanceLock` 与 Tauri lock fixture 的第二实例竞争已通过；没有把第二实例 UI 转发冒充为完整人工验收。 |
 | S7 | 部分通过 | 两个壳的空 State Root 首次启动均完成 Product-owned migration、health 和认证 graceful shutdown；Electron 复用 Owned Process，Tauri spike 的 forced fallback 仍是 `taskkill /T /F`，不是生产级共享 Owned Process/Job Object 合同。crash/disconnect 后完整进程树证明未完成。 |
-| S8 | 自动 smoke 通过 | 两包 Application Root 均为 3,240 文件，digest `sha256:c2e250be2deb50d567c3510aef1b33e6310c94a4246cc311829d3d67d2fe2144` 前后不变；两个 State Root 均完成移出/移回和进程退出后的删除。完整 WebView profile 回收仍未验证。 |
-| S9 | portable measurement 通过（Windows） | K/L 两次输入完全相同：Electron 3,324 文件 / 597,293,364 bytes / ZIP 230,564,235 bytes；Tauri 3,247 文件 / 241,920,090 bytes / ZIP 84,492,619 bytes。冷启动沿用同一运行时输入的既有测量（Electron 14,878 ms、Tauri 14,444 ms）；稳定 RSS、安装器/updater 和 WebView2 分发成本仍未测量。 |
+| S8 | 自动 smoke 通过（上一轮 dirty spike 包） | 两包 Application Root 均为 3,240 文件，digest `sha256:c2e250be2deb50d567c3510aef1b33e6310c94a4246cc311829d3d67d2fe2144` 前后不变；两个 State Root 均完成移出/移回和进程退出后的删除。该证据使用旧 dirty Product，最终 clean Product 包待 Build B 后重做；完整 WebView profile 回收仍未验证。 |
+| S9 | portable measurement 通过（上一轮 dirty spike 包） | K/L 两次输入完全相同：Electron 3,324 文件 / 597,293,364 bytes / ZIP 230,564,235 bytes；Tauri 3,247 文件 / 241,920,090 bytes / ZIP 84,492,619 bytes。冷启动沿用同一运行时输入的既有测量（Electron 14,878 ms、Tauri 14,444 ms）；这些数字不作为 clean Release baseline，稳定 RSS、安装器/updater 和 WebView2 分发成本仍未测量。 |
 
 ## Findings and Follow-ups
 
@@ -115,7 +116,7 @@ Electron main / Tauri Rust envelope
 - Tauri 的单文件 release executable 明显小于 Electron Chromium runtime，但这不是完整安装包对比：Tauri 仍需 WebView2 分发策略，Electron 还需把 runtime、Product Image、Bun 和资源一起计入安装载荷。
 - 生产实现前必须把 Tauri 的强制收口接入共享 Owned Process/Windows Job Object 或等价的受控 native supervisor；不得把当前 `taskkill` fallback 带入正式 Desktop Envelope。
 - 生产实现前必须完成真实窗口的 S3/S4/S5/S8 场景，并分别测量冷启动、RSS、压缩安装器、WebView2 Evergreen/Fixed/Bootstrapper 与升级/卸载行为。
-- 当前 Product fixture 来自 Task 130 已验证的历史 clean revision，不是本 Task 140 checkout 的 clean build；本任务没有重新开启 Task 130 A/B build，也没有声称跨平台完成。
+- 当前 checkout 已完成 clean Build A，并将在文档收口后执行 Build B 与最终 Portable smoke；这仍不构成跨平台完成或 Electron/Tauri 的生产选择。
 
 ## Portable Packaging Phase
 
@@ -137,9 +138,9 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 
 本阶段仍不提供签名、安装器、updater、卸载器、跨平台包或最终 Electron/Tauri 决策。Tauri 的系统 WebView2、Electron Chromium 体积、Tauri forced fallback 的生产级 Owned Process/Job Object，以及真实窗口交互都单独记录，不以单个 exe 大小代替完整 portable 包结论。
 
-## Portable Packaging Result (2026-08-05)
+## Portable Packaging Result (2026-08-05, historical dirty spike)
 
-- 使用 verified Product image `sha256:5a35e96ad4f642c555d7dba63a656087e5cb813683aabbb87642166faca5749b`、Contract v4、Bun 1.3.14，在同一 Windows x64 输入上连续生成 K/L 两批 ZIP。Product image 的 source revision 为 `d08199fdc56a6b8e7e3ec0670daa009d5b99c732`，`dirty=true`，所以最终目录中的 ZIP 明确是 spike 资产，不是正式 Release。
+- 使用 verified Product image `sha256:5a35e96ad4f642c555d7dba63a656087e5cb813683aabbb87642166faca5749b`、Contract v4、Bun 1.3.14，在同一 Windows x64 输入上连续生成 K/L 两批 ZIP。Product image 的 source revision 为 `d08199fdc56a6b8e7e3ec0670daa009d5b99c732`，`dirty=true`，所以该段只保留作历史 spike 证据，不能作为正式 Release 或当前 clean baseline。
 - 最终交付目录为 worktree 外的 `.agent/artifacts/t140-desktop-portable/`，包含：
 - `neuro-book-electron-portable-win-x64.zip`：3,324 文件、597,293,364 bytes，ZIP 230,564,235 bytes，payload digest `sha256:eb3340c9987721e8f5697be8c9fcd98b98cc4d50ee526b21a89d7e50d2ef6310`。
   - `neuro-book-tauri-portable-win-x64.zip`：3,247 文件、241,920,090 bytes，ZIP 84,492,619 bytes，payload digest `sha256:318cee4013c90cfe025a89e32cbd22123f7b5cc474772296b371123a0617cb67`。

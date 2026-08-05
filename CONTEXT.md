@@ -44,6 +44,14 @@ _Avoid_: State Root, temporary directory, one global cache owner
 Desktop Envelope 拥有的设备本地状态根；WebView Root 是其受管子路径。正常更新保留、内容备份排除，只有显式 desktop reset 或卸载删除；Product RuntimePaths 不消费该 root。
 _Avoid_: Cache Root, State Root, browser localStorage truth source
 
+**Desktop Distribution Manifest**:
+描述一个桌面发行候选可下载或可从本地 depot 安装的组件清单；它记录 Source、Product、Bun、Manager、Envelope、Tool Pack 和 WebView Runtime 的相对 locator、版本与摘要，不记录用户状态或控制凭据。
+_Avoid_: installation state, user data manifest, arbitrary absolute path
+
+**Desktop Supervisor Protocol**:
+Desktop Envelope 与 Manager 之间的 stdin/stdout NDJSON 控制合同，覆盖验证、迁移、启动、ready、停止和失败事件。Envelope 不直接编排 Product 内部命令，Manager/Product 仍分别拥有安装事务和业务生命周期。
+_Avoid_: ad hoc shell output, exposed shutdown token, UI-owned migration
+
 **Windows Release Zip**:
 面向 Windows x64 用户的 GitHub Release 资产。解压目录就是 Installation Root，包内包含完整源码、`.output`、托管 Bun/rg/PortableGit/bash、版本化 Manager 和根启动入口；用户状态位于 `data/`。
 _Avoid_: deploy mode, source bootstrap zip, app sub-root
@@ -55,6 +63,10 @@ _Avoid_: direct child process, PID tree scan, global process killer
 **NeuroBook Manager**:
 独立 npm 包 `@notnotype/neuro-book-manager` 提供的安装、更新、启动、诊断、Runtime 和 Tool 管理器，公开命令为 `neuro-book`。
 _Avoid_: application dependency installer
+
+**Desktop Envelope**:
+围绕 Product Runtime 的 Electron 或 Tauri 宿主，拥有窗口、单实例、菜单、托盘、WebView profile 和设备本地状态；它通过 Manager/Supervisor 合同启动 Product，不复制业务命令。
+_Avoid_: Product replacement, browser-only shell, GUI Manager
 
 **Workspace Root `.nbook`**:
 Workspace Root 的全局控制区，保存 Global Config、用户 assets、Agent 资源覆盖层和全局运行状态。
@@ -288,6 +300,9 @@ _Avoid_: files-only panel, workspace switcher
 - A **State Root** belongs to one Installation Root and owns Boot Config、Product Env、logs and one logical Workspace Root.
 - A **Cache Root** belongs to one installation locator set, but each cache Module owns its own reachable set and hard budget.
 - A **Desktop Local Root** belongs to the Desktop Envelope; its WebView Root is not part of Product RuntimePaths or content backup.
+- A **Desktop Distribution Manifest** describes portable/installable component identities; it is not a user-state or installation manifest.
+- A **Desktop Supervisor Protocol** carries Manager lifecycle events over stdin/stdout NDJSON; it does not expose Product internals to the Envelope.
+- A **Desktop Envelope** owns native window and device interaction while Product owns business APIs and application shutdown.
 - A **Windows Release Zip** extracts directly into one **Installation Root**.
 - An **Owned Process** belongs to one runtime lease; terminating that lease must not affect another Owned Process or an external user process.
 - Agent Bash and the Windows Portable foreground Product are **Owned Process** consumers; their Agent Job and Installation state machines remain separate domain owners.
