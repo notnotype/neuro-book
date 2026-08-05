@@ -1040,6 +1040,9 @@ fn desktop_update_settings(
     if let Some(close_behavior) = patch.close_behavior {
         settings.close_behavior = close_behavior;
     }
+    window
+        .set_zoom(settings.zoom_factor)
+        .map_err(|error| format!("设置 Desktop 缩放失败：{error}"))?;
     write_desktop_settings(state.as_ref(), &settings)?;
     apply_tray_setting(&app, settings.tray_enabled)?;
     Ok(settings)
@@ -1392,6 +1395,10 @@ fn main() {
                 .data_directory(state_for_setup.desktop_root.join("webview"))
                 .initialization_script(TAURI_BRIDGE_SCRIPT)
                 .build()?;
+            let settings = read_desktop_settings(&state_for_setup).unwrap_or_default();
+            window
+                .set_zoom(settings.zoom_factor)
+                .map_err(|error| format!("设置初始 Desktop 缩放失败：{error}"))?;
             restore_window_state(&window, &saved_window_state);
             let window_for_state = window.clone();
             let desktop_root_for_state = state_for_setup.desktop_root.clone();

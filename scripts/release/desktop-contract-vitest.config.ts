@@ -14,6 +14,7 @@ export default defineConfig({
         environment: "node",
         include: [
             "shared/desktop-contract.test.ts",
+            "shared/desktop-menu-command.test.ts",
             "desktop/spikes/shared/src/electron-packaging-contract.test.ts",
         ],
     },

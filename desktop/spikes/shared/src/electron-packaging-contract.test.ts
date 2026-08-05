@@ -17,4 +17,11 @@ describe("Electron portable packaging contract", () => {
         expect(source).toContain('resolve(process.resourcesPath, "icon.ico")');
         expect(source).toContain("existsSync(packagedIconPath)");
     });
+
+    it("headless 支持单独的 forced shutdown smoke", async () => {
+        const source = await readFile(resolve("desktop/spikes/electron/src/main.ts"), "utf8");
+        expect(source).toContain('process.argv.includes("--t140-force")');
+        expect(source).toContain('running.lease.terminate("shutdown")');
+        expect(source).toContain('shutdown: "forced"');
+    });
 });

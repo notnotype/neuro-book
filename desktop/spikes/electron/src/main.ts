@@ -14,6 +14,7 @@ import {
 import {PRODUCT_BUN_RUNTIME_ARGS} from "nbook/shared/product-runtime-contract";
 import {
     desktopSupervisorLine,
+    DESKTOP_MENU_COMMAND_IDS,
     parseDesktopCapability,
     parseDesktopInstallationManifest,
     parseDesktopSupervisorEvent,
@@ -22,6 +23,7 @@ import {
     desktopRemoteOrigin,
     DEFAULT_DESKTOP_SETTINGS,
     type DesktopSettings,
+    type DesktopMenuCommandId,
     type DesktopStatus,
     type DesktopSupervisorEvent,
 } from "nbook/shared/desktop-contract";
@@ -453,11 +455,88 @@ async function recoverStartup(config: DesktopConfig, error: unknown): Promise<bo
     return result.response === 0 || result.response === 1;
 }
 
+/** 将原生菜单和自绘标题栏统一投影到 Desktop Menu Contract。 */
+function runElectronMenuCommand(command: DesktopMenuCommandId): void {
+    switch (command) {
+        case "file.quit":
+            void closeApplication();
+            return;
+        case "edit.undo":
+            window?.webContents.undo();
+            return;
+        case "edit.redo":
+            window?.webContents.redo();
+            return;
+        case "edit.cut":
+            window?.webContents.cut();
+            return;
+        case "edit.copy":
+            window?.webContents.copy();
+            return;
+        case "edit.paste":
+            window?.webContents.paste();
+            return;
+        case "edit.select-all":
+            window?.webContents.selectAll();
+            return;
+        case "view.reload":
+            void window?.webContents.reload();
+            return;
+        case "view.zoom-in":
+            updateElectronZoom("in");
+            return;
+        case "view.zoom-out":
+            updateElectronZoom("out");
+            return;
+        case "view.zoom-reset":
+            updateElectronZoom("reset");
+            return;
+        case "file.open":
+        case "file.settings":
+        case "help.documentation":
+        case "help.about":
+            window?.webContents.send("neurobook:menu", command);
+            return;
+    }
+}
+
+/** 修改并持久化 Electron 的页面缩放。 */
+function updateElectronZoom(target: "in" | "out" | "reset"): void {
+    const zoomFactor = target === "reset"
+        ? 1
+        : Math.min(2, Math.max(0.75, desktopSettings.zoomFactor + (target === "in" ? 0.05 : -0.05)));
+    desktopSettings = patchDesktopSettings(desktopSettings, {zoomFactor});
+    applyDesktopSettings();
+    void saveDesktopSettings(readConfig().desktopRoot);
+}
+
 function installMenu(): void {
+    const command = (id: DesktopMenuCommandId): (() => void) => () => runElectronMenuCommand(id);
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-        {label: "File", submenu: [{label: "Settings", click: () => window?.webContents.send("neurobook:menu", "file.settings")}, {label: "Quit", click: () => void closeApplication()}]},
-        {label: "View", submenu: [{role: "reload"}, {role: "resetZoom"}, {role: "zoomIn"}, {role: "zoomOut"}]},
-        {label: "Help", submenu: [{label: "About NeuroBook", click: () => window?.webContents.send("neurobook:menu", "help.about")} ]},
+        {label: "File", submenu: [
+            {label: "Open", click: command("file.open")},
+            {label: "Settings", click: command("file.settings")},
+            {label: "Quit", click: command("file.quit")},
+        ]},
+        {label: "Edit", submenu: [
+            {label: "Undo", click: command("edit.undo")},
+            {label: "Redo", click: command("edit.redo")},
+            {type: "separator"},
+            {label: "Cut", click: command("edit.cut")},
+            {label: "Copy", click: command("edit.copy")},
+            {label: "Paste", click: command("edit.paste")},
+            {label: "Select All", click: command("edit.select-all")},
+        ]},
+        {label: "View", submenu: [
+            {label: "Reload", click: command("view.reload")},
+            {label: "Zoom In", click: command("view.zoom-in")},
+            {label: "Zoom Out", click: command("view.zoom-out")},
+            {label: "Reset Zoom", click: command("view.zoom-reset")},
+        ]},
+        {label: "Help", submenu: [
+            {label: "Documentation", click: command("help.documentation")},
+            {label: "About NeuroBook", click: command("help.about")},
+        ]},
     ]));
 }
 
@@ -589,9 +668,8 @@ async function main(): Promise<void> {
     });
     ipcMain.on("t140:menu", (event, command: string) => {
         assertTrustedFrame(event);
-        if (command === "file.settings") window?.webContents.send("neurobook:menu", command);
-        else if (command === "file.quit") void closeApplication();
-        else if (command === "view.reload") void window?.webContents.reload();
+        if (!DESKTOP_MENU_COMMAND_IDS.includes(command as DesktopMenuCommandId)) throw new Error("Desktop Menu command 不受支持。");
+        runElectronMenuCommand(command as DesktopMenuCommandId);
     });
     installMenu();
     const headless = process.argv.includes("--t140-headless") || process.argv.includes("--headless");
@@ -609,12 +687,24 @@ async function main(): Promise<void> {
         }
     }
     if (headless) {
+        const forceShutdown = process.argv.includes("--t140-force");
         console.log(JSON.stringify(config.remoteUrl
             ? {kind: "electron-remote-ready", origin: remoteStatus?.origin, version: remoteStatus?.version}
             : {kind: "electron-headless-ready", port: running?.config.port, contract: running?.audit.schema}));
         const holdMs = Number(process.env.T140_HOLD_MS ?? "0");
         if (Number.isInteger(holdMs) && holdMs > 0) await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, holdMs));
+        if (forceShutdown && running) {
+            await running.lease.terminate("shutdown");
+            running = null;
+            allowWindowClose = true;
+            tray?.destroy();
+            tray = null;
+            console.log(JSON.stringify({kind: "electron-headless-shutdown", shutdown: "forced"}));
+            app.quit();
+            return;
+        }
         await closeApplication();
+        console.log(JSON.stringify({kind: "electron-headless-shutdown", shutdown: "graceful"}));
         return;
     }
     const savedWindowState = await loadWindowState(config.desktopRoot);

@@ -192,3 +192,5 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 用户级 Installation Root 为 `%LOCALAPPDATA%/Programs/NeuroBook`，State/Cache/Desktop/WebView 使用 `local-app-data` locator；Portable 的 `data/`、`.cache/` 不会遮蔽用户级数据。安装失败先删除候选 Installation Root，再回滚快捷方式、注册表和可选 CLI PATH。
 - macOS 已登记 `~/Applications/NeuroBook.app`、Application Support、Caches 与 x64/arm64 分包合同，并在 `desktop-envelope-contract.yml` 做 Bun/Manager/合同检查；没有签名凭据、真实 `.app`、公证或安装 smoke 证据。
 - 2026-08-05：补跑真实 Windows 用户级安装/卸载 smoke（[desktop-user-installation-smoke.json](evidence/desktop-user-installation-smoke.json)）。`install-desktop.ps1` 通过 stdin 设置管理员 `admin`，安装到 `%LOCALAPPDATA%/Programs/NeuroBook`，创建 Desktop manifest、开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`；随后 Manager 卸载删除程序、快捷方式和注册项，同时保留 State Root。此前遗留的旧 `neurobook://` 注册项已在 smoke 前确认指向已删除临时目录并清理，不计入本次安装结果。
+
+- 2026-08-06：补齐 Desktop Menu Contract 的页面消费链。自绘标题栏改为 File/Edit/View/Help 下拉菜单，Electron 原生菜单与 Tauri 事件统一覆盖 15 个公开命令；Settings、编辑命令、缩放、刷新和 About 均有实际行为，文档入口在尚未嵌入 Desktop 时给出明确提示，不再静默 no-op。新增共享分发器与未知命令拒绝测试，Desktop Contract 为 3 files / 15 tests，根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 和 security audit 通过；本记录尚未包含本批代码对应的新 Product/Portable 摘要。
