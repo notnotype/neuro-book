@@ -4,6 +4,8 @@ export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v1";
 export const DESKTOP_SETTINGS_SCHEMA = "nbook.desktop-settings/v1";
 export const DESKTOP_SUPERVISOR_SCHEMA = "nbook.desktop-supervisor/v1";
 export const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
+export const DESKTOP_USER_INSTALLATION_SCHEMA = "nbook.desktop-user-installation/v1";
+export const DESKTOP_SHELL_SCHEMA = "nbook.desktop-shell/v1";
 
 export const DESKTOP_ENVELOPES = ["electron", "tauri"] as const;
 export const DESKTOP_CHANNELS = ["stable", "canary"] as const;
@@ -45,6 +47,8 @@ export const DESKTOP_WINDOW_COMMAND_IDS = [
 ] as const;
 
 export type DesktopEnvelope = typeof DESKTOP_ENVELOPES[number];
+export type DesktopHostPlatform = "windows" | "macos";
+export type DesktopArchitecture = "x64" | "arm64";
 export type DesktopChannel = typeof DESKTOP_CHANNELS[number];
 export type DesktopComponentId = typeof DESKTOP_COMPONENT_IDS[number];
 export type DesktopMenuCommandId = typeof DESKTOP_MENU_COMMAND_IDS[number];
@@ -64,6 +68,17 @@ export type DesktopDistributionComponent = {
     version: string;
     archive: DesktopComponentArchive;
     required: boolean;
+};
+
+/** 远端 Desktop 只需要的 Envelope depot；不得携带 Product、Bun 或 Tool Pack。 */
+export type DesktopShellArchiveManifest = {
+    schema: typeof DESKTOP_SHELL_SCHEMA;
+    kind: DesktopEnvelope;
+    platform: "windows-x64";
+    envelopePath: string;
+    envelopeVersion: string;
+    envelopeSha256: string;
+    webview: "bundled-chromium" | "system-evergreen";
 };
 
 /** 可下载组件的不可变发行声明；组件本身只允许内容寻址 archive。 */
@@ -86,6 +101,57 @@ export type DesktopInstalledComponent = {
 export type DesktopConnection =
     | {mode: "local"}
     | {mode: "remote"; baseUrl: string; insecureHttpAccepted: boolean};
+
+/** 用户级安装的稳定路径合同；只保存模板，不保存本机绝对路径。 */
+export type DesktopUserInstallationContract = {
+    schema: typeof DESKTOP_USER_INSTALLATION_SCHEMA;
+    platform: DesktopHostPlatform;
+    architecture: DesktopArchitecture;
+    applicationBundle: string;
+    installationRoot: string;
+    stateRoot: string;
+    cacheRoot: string;
+    desktopRoot: string;
+    webviewRoot: string;
+    signedBundleRequired: boolean;
+    portable: false;
+};
+
+/** 返回 Windows/macOS 用户级安装合同；macOS 只支持分架构，不声称已产出安装包。 */
+export function desktopUserInstallationContract(
+    platform: DesktopHostPlatform,
+    architecture: DesktopArchitecture,
+): DesktopUserInstallationContract {
+    if (platform === "windows") {
+        if (architecture !== "x64") throw new Error("Windows 用户级 Desktop 当前只支持 x64。" );
+        return {
+            schema: DESKTOP_USER_INSTALLATION_SCHEMA,
+            platform,
+            architecture,
+            applicationBundle: "%LOCALAPPDATA%/Programs/NeuroBook",
+            installationRoot: "%LOCALAPPDATA%/Programs/NeuroBook",
+            stateRoot: "%LOCALAPPDATA%/NeuroBook/data",
+            cacheRoot: "%LOCALAPPDATA%/NeuroBook/cache",
+            desktopRoot: "%LOCALAPPDATA%/NeuroBook/desktop",
+            webviewRoot: "%LOCALAPPDATA%/NeuroBook/desktop/webview",
+            signedBundleRequired: false,
+            portable: false,
+        };
+    }
+    return {
+        schema: DESKTOP_USER_INSTALLATION_SCHEMA,
+        platform,
+        architecture,
+        applicationBundle: "~/Applications/NeuroBook.app",
+        installationRoot: "~/Library/Application Support/NeuroBook/installation",
+        stateRoot: "~/Library/Application Support/NeuroBook/data",
+        cacheRoot: "~/Library/Caches/NeuroBook",
+        desktopRoot: "~/Library/Application Support/NeuroBook/desktop",
+        webviewRoot: "~/Library/Application Support/NeuroBook/desktop/webview",
+        signedBundleRequired: true,
+        portable: false,
+    };
+}
 
 /** Desktop 安装层的本机真相源；所有组件路径均相对 Installation Root。 */
 export type DesktopInstallationManifest = {
@@ -181,6 +247,27 @@ export function parseDesktopDistributionManifest(value: unknown): DesktopDistrib
     const components = root.components.map((item, index) => parseDistributionComponent(item, index));
     assertUnique(components.map((item) => item.id), "Desktop Distribution components");
     return {schema: DESKTOP_DISTRIBUTION_SCHEMA, version, channel, platform, architecture, components};
+}
+
+/** 严格解析远端 Desktop 壳 depot manifest。 */
+export function parseDesktopShellArchiveManifest(value: unknown): DesktopShellArchiveManifest {
+    const root = object(value, "Desktop Shell Archive Manifest");
+    exactKeys(root, ["schema", "kind", "platform", "envelopePath", "envelopeVersion", "envelopeSha256", "webview"], "Desktop Shell Archive Manifest");
+    literal(root.schema, DESKTOP_SHELL_SCHEMA, "schema");
+    const kind = member(root.kind, DESKTOP_ENVELOPES, "kind");
+    literal(root.platform, "windows-x64", "platform");
+    const envelopePath = desktopRelativePath(nonEmptyString(root.envelopePath, "envelopePath"), "envelopePath");
+    const expectedPath = kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
+    if (envelopePath !== expectedPath) throw new Error(`Envelope 路径与壳类型不一致：${envelopePath}`);
+    return {
+        schema: DESKTOP_SHELL_SCHEMA,
+        kind,
+        platform: "windows-x64",
+        envelopePath,
+        envelopeVersion: nonEmptyString(root.envelopeVersion, "envelopeVersion"),
+        envelopeSha256: sha256(root.envelopeSha256, "envelopeSha256"),
+        webview: member(root.webview, ["bundled-chromium", "system-evergreen"] as const, "webview"),
+    };
 }
 
 /** 严格解析 Desktop Installation Manifest。输入是本机磁盘上的不可信 JSON。 */

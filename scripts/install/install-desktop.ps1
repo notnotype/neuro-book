@@ -1,7 +1,8 @@
 [CmdletBinding(PositionalBinding = $false)]
 param(
-    [Parameter(Mandatory = $true)]
+    [Parameter(Mandatory = $false)]
     [string]$Archive,
+    [string]$ShellArchive,
     [ValidateSet("electron", "tauri")]
     [string]$Envelope = "electron",
     [ValidateSet("stable", "canary")]
@@ -16,6 +17,7 @@ param(
     [ValidateSet("managed")]
     [string]$ToolProvider = "managed",
     [switch]$AddCliToPath,
+    [switch]$PasswordStdin,
     [switch]$Yes,
     [string]$ManagerTag = "canary"
 )
@@ -41,20 +43,27 @@ function Resolve-Bun {
     return $resolved
 }
 
-$archivePath = (Resolve-Path -LiteralPath $Archive).Path
+if ($Remote -and (-not $ShellArchive -or $Archive)) {
+    throw "远端 Desktop 安装必须只传 -ShellArchive；它不携带 Product、Bun 或 Tool Pack。"
+}
+if (-not $Remote -and (-not $Archive -or $ShellArchive)) {
+    throw "本地 Desktop 安装必须只传 -Archive；它需要完整 Product Portable。"
+}
 $bun = Resolve-Bun -ExplicitPath $BunPath
 $managerOptions = @(
     "desktop", "install",
-    "--archive", $archivePath,
     "--envelope", $Envelope,
     "--channel", $Channel,
     "--runtime-provider", $RuntimeProvider,
     "--tool-provider", $ToolProvider
 )
+if ($Archive) { $managerOptions += @("--archive", (Resolve-Path -LiteralPath $Archive).Path) }
+if ($ShellArchive) { $managerOptions += @("--shell-archive", (Resolve-Path -LiteralPath $ShellArchive).Path) }
 if ($Remote) { $managerOptions += @("--remote", $Remote) }
 if ($AllowInsecureHttp) { $managerOptions += "--allow-insecure-http" }
 if ($InstallRoot) { $managerOptions += @("--dir", $InstallRoot) }
 if ($AddCliToPath) { $managerOptions += "--add-cli-to-path" }
+if ($PasswordStdin) { $managerOptions += "--password-stdin" }
 if ($Yes) { $managerOptions += "--yes" }
 
 $env:BUN_INSTALL_CACHE_DIR = Join-Path ($env:LOCALAPPDATA ?? (Join-Path $HOME "AppData\Local")) "NeuroBook\manager\bun\install"

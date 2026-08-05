@@ -33,7 +33,7 @@ import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflig
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {runDesktopSupervisor} from "#manager/desktop-supervisor";
-import {installDesktopFromLocalDepot} from "#manager/desktop-installation";
+import {installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -291,7 +291,7 @@ program.command("start")
     .option("--no-health-check", "Windows Portable跳过HTTP健康检查和自动打开浏览器。")
     .option("--shutdown-on-stdin-end", "标准输入关闭时完整收口Product；供桌面宿主和自动验收使用。", false)
     .action(async (options: {healthCheck: boolean; shutdownOnStdinEnd: boolean}) => {
-        const {root} = await currentInstallation();
+        const {root, manifest} = await currentInstallation();
         const controller = options.shutdownOnStdinEnd ? new AbortController() : null;
         const shutdown = (): void => controller?.abort();
         if (controller) {
@@ -335,7 +335,7 @@ program.command("uninstall")
     .option("--delete-data", "同时删除托管 State Root；外部 Project Workspace 永不删除。", false)
     .option("--yes", "确认执行卸载。", false)
     .action(async (options: {deleteData: boolean; yes: boolean}) => {
-        const {root} = await currentInstallation();
+        const {root, manifest} = await currentInstallation();
         if (!options.yes) {
             if (!process.stdin.isTTY || !process.stdout.isTTY) {
                 throw new Error("卸载需要 --yes；同时删除托管用户数据还需显式传入 --delete-data。");
@@ -349,10 +349,14 @@ program.command("uninstall")
                 return;
             }
         }
+        const desktopManifest = process.platform === "win32"
+            ? await readDesktopInstallationManifest(root, manifest.roots)
+            : null;
         const result = await uninstallInstallation({
             installationRoot: root,
             deleteData: options.deleteData,
         });
+        if (desktopManifest) await removeWindowsDesktopRegistration(root, desktopManifest);
         const config = await readManagerConfig();
         const instance = findManagerInstance(config, root);
         if (instance) await forgetManagerInstance(instance.id);
@@ -369,8 +373,9 @@ program.command("uninstall")
 
 const desktop = program.command("desktop").description("管理 Desktop Local/WebView 状态。");
 desktop.command("install")
-    .description("从本地 Portable depot 安装 Windows 用户级 Desktop；下载与更新由 Manager 托管。")
-    .requiredOption("--archive <path>", "Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
+    .description("从本地 Product Portable 或独立 shell depot 安装 Windows 用户级 Desktop；下载与更新由 Manager 托管。")
+    .option("--archive <path>", "本地模式使用的 Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
+    .option("--shell-archive <path>", "远端模式使用的独立 Desktop Envelope ZIP；不得包含 Product、Bun 或 Tool Pack。")
     .option("--envelope <envelope>", "桌面壳：electron 或 tauri。", "electron")
     .option("--channel <channel>", "发行通道：stable 或 canary。", parseChannel)
     .option("--remote <url>", "连接远端 Product；不传则使用本机 Product。")
@@ -379,9 +384,11 @@ desktop.command("install")
     .option("--runtime-provider <provider>", "Runtime provider；当前本地 depot 只支持 managed。", "managed")
     .option("--tool-provider <provider>", "Tool provider；当前本地 depot 只支持 managed。", "managed")
     .option("--add-cli-to-path", "把 Manager CLI 加入当前用户 PATH。", false)
+    .option("--password-stdin", "从 stdin 读取本地 Product 首次管理员密码；保持原始 UTF-8 字节，不 trim。", false)
     .option("--yes", "跳过交互确认。", false)
     .action(async (options: {
-        archive: string;
+        archive?: string;
+        shellArchive?: string;
         envelope: string;
         channel?: ReleaseChannel;
         remote?: string;
@@ -390,6 +397,7 @@ desktop.command("install")
         runtimeProvider: string;
         toolProvider: string;
         addCliToPath: boolean;
+        passwordStdin: boolean;
         yes: boolean;
     }) => {
         if (process.platform !== "win32") throw new Error("Desktop 用户级安装当前只支持 Windows；macOS 仅完成安装合同与 CI 准备。" );
@@ -398,7 +406,11 @@ desktop.command("install")
             throw new Error("本地 Portable depot 当前只提供 managed Bun、Git/Bash 和 rg；system provider 选择将在 Manager 下载合同接入后开放。" );
         }
         const remoteUrl = options.remote ? new URL(options.remote) : null;
+        if (remoteUrl && options.passwordStdin) throw new Error("远端 Desktop 安装不能读取本地管理员密码。" );
         if (remoteUrl) {
+            if (!options.shellArchive || options.archive) {
+                throw new Error("远端 Desktop 安装必须只提供 --shell-archive，不能传完整 --archive。" );
+            }
             if (remoteUrl.protocol !== "https:" && !(remoteUrl.protocol === "http:" && options.allowInsecureHttp)) {
                 throw new Error("远端 Desktop 默认要求 HTTPS；局域网 HTTP 必须显式传入 --allow-insecure-http。" );
             }
@@ -407,12 +419,28 @@ desktop.command("install")
                 if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
             }
         }
+        if (!remoteUrl && (!options.archive || options.shellArchive)) {
+            throw new Error("本地 Desktop 安装必须只提供完整 --archive，不能传 --shell-archive。" );
+        }
         if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
             const confirmed = await promptResult(p.confirm({message: `安装 ${options.envelope} Desktop 到用户级目录？`, initialValue: true}));
             if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
         }
+        let adminPassword: string | undefined;
+        // 远端 shell 没有 Product Installation Manifest，不能伪装成可执行的本地实例加入索引。
+        if (!remoteUrl) {
+            if (options.passwordStdin) {
+                if (process.stdin.isTTY) throw new Error("--password-stdin 需要从管道读取密码，不能与交互 TTY 同时使用。" );
+                adminPassword = await readPasswordStdin();
+            } else if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
+                adminPassword = await promptResult(p.password({message: "设置 NeuroBook 管理员密码", mask: "*"}));
+            } else {
+                throw new Error("本地 Desktop 首次安装需要管理员密码；交互运行请不要传 --yes，自动化运行请传 --password-stdin。" );
+            }
+        }
         const result = await installDesktopFromLocalDepot({
-            archivePath: options.archive,
+            ...(options.archive ? {archivePath: options.archive} : {}),
+            ...(options.shellArchive ? {shellArchivePath: options.shellArchive} : {}),
             envelope: options.envelope,
             channel: options.channel ?? "canary",
             connection: remoteUrl
@@ -420,20 +448,45 @@ desktop.command("install")
                 : {mode: "local"},
             installationRoot: options.dir,
             addCliToUserPath: options.addCliToPath,
+            ...(adminPassword !== undefined ? {adminPassword} : {}),
         });
-        await registerManagerInstance({
-            root: result.installationRoot,
-            name: "NeuroBook",
-            makeDefault: true,
-            preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
-        });
-        p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}`);
+        if (!remoteUrl) {
+            await registerManagerInstance({
+                root: result.installationRoot,
+                name: "NeuroBook",
+                makeDefault: true,
+                preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
+            });
+        }
+        p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}${result.remoteProductVersion ? `\n远端 Product：${result.remoteProductVersion}` : ""}`);
     });
 desktop.command("supervise")
     .description("通过 stdin/stdout NDJSON 为 Desktop Envelope 编排 Product 生命周期。")
     .action(async () => {
         const {root, manifest} = await currentInstallation();
         await runDesktopSupervisor({root, manifest});
+    });
+desktop.command("uninstall")
+    .description("卸载只含远端 Envelope 的 Desktop；默认保留 State Root。")
+    .requiredOption("--dir <path>", "远端 Desktop Installation Root。")
+    .option("--delete-data", "同时删除托管 State Root。", false)
+    .option("--yes", "跳过确认。", false)
+    .action(async (options: {dir: string; deleteData: boolean; yes: boolean}) => {
+        if (!options.yes) {
+            if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("远端 Desktop 卸载需要 --yes。" );
+            const confirmed = await promptResult(p.confirm({
+                message: options.deleteData ? "卸载远端 Desktop 并删除托管用户数据？" : "卸载远端 Desktop？State Root 会保留。",
+                initialValue: false,
+            }));
+            if (!confirmed) {
+                p.cancel("已取消卸载。" );
+                return;
+            }
+        }
+        const result = await uninstallRemoteDesktopInstallation(options.dir, options.deleteData);
+        p.outro(result.stateRoot && !options.deleteData
+            ? `远端 Desktop 已卸载；State Root 保留在：${result.stateRoot}`
+            : "远端 Desktop 与托管用户数据已卸载。" );
     });
 desktop.command("reset")
     .description("删除当前实例的 Desktop Local Root，包括 WebView profile。")
@@ -642,6 +695,30 @@ async function promptResult<T>(result: Promise<T | symbol>): Promise<T> {
     const value = await result;
     if (p.isCancel(value)) throw new Error("已取消操作。" );
     return value as T;
+}
+
+/** 从 stdin 读取管理员密码；不 trim、不写日志，硬限制为 4096 UTF-8 bytes。 */
+async function readPasswordStdin(): Promise<string> {
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    for await (const chunk of process.stdin) {
+        const value = typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
+        bytes += value.byteLength;
+        if (bytes > 4096) throw new Error("管理员密码超过 4096 bytes。" );
+        chunks.push(value);
+    }
+    if (bytes === 0) throw new Error("stdin 没有提供管理员密码。" );
+    const input = new Uint8Array(bytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+        input.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    try {
+        return new TextDecoder("utf-8", {fatal: true}).decode(input);
+    } catch {
+        throw new Error("管理员密码必须是有效的 UTF-8 字节。" );
+    }
 }
 
 /** 按显式 root、显式实例、当前目录、默认实例的顺序定位安装。 */

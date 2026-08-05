@@ -4,12 +4,16 @@ import {describe, expect, it} from "vitest";
 
 import {installationPaths} from "#manager/paths";
 import {
+    INSTALLED_MACOS_ROOT_LOCATORS,
     INSTALLED_WINDOWS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
     installationRootLocators,
     localAppDataRoot,
+    macosDesktopInstallationRoot,
     resolveInstallationRoots,
+    userAppDataRoot,
+    userCacheRoot,
 } from "#manager/root-locators";
 
 describe("Installation Root 路径", () => {
@@ -53,6 +57,22 @@ describe("Installation Root 路径", () => {
         expect(installationRootLocators("windows-portable", "win32")).toBe(PORTABLE_ROOT_LOCATORS);
     });
 
+    it("macOS 用户级 Desktop 将 State/Desktop 放入 Application Support、Cache 放入 Caches", () => {
+        const root = resolve("fixtures", "NeuroBook", "installation");
+        const appSupport = resolve("fixtures", "Library", "Application Support");
+        const caches = resolve("fixtures", "Library", "Caches");
+        expect(resolveInstallationRoots(root, INSTALLED_MACOS_ROOT_LOCATORS, "unused", {
+            userAppDataRoot: appSupport,
+            userCacheRoot: caches,
+        })).toEqual({
+            state: join(appSupport, "NeuroBook", "data"),
+            cache: join(caches, "NeuroBook"),
+            desktop: join(appSupport, "NeuroBook", "desktop"),
+            webview: join(appSupport, "NeuroBook", "desktop", "webview"),
+        });
+        expect(installationRootLocators("product-bun", "darwin")).toBe(INSTALLED_MACOS_ROOT_LOCATORS);
+    });
+
     it("拒绝空、dot、绝对路径和向上逃逸", () => {
         for (const invalid of ["", ".", "../data", "data/../cache", "C:/data", "/data"]) {
             expect(() => resolveInstallationRoots("C:/NeuroBook", {
@@ -73,5 +93,16 @@ describe("Installation Root 路径", () => {
             environment: {XDG_DATA_HOME: "/var/lib/test"},
             homeDirectory: "/home/test",
         })).toBe(resolve("/var/lib/test"));
+        expect(userAppDataRoot({
+            platform: "darwin",
+            environment: {HOME: "/Users/test"},
+            homeDirectory: "/fallback",
+        })).toBe(resolve("/Users/test/Library/Application Support"));
+        expect(userCacheRoot({
+            platform: "darwin",
+            environment: {HOME: "/Users/test"},
+            homeDirectory: "/fallback",
+        })).toBe(resolve("/Users/test/Library/Caches"));
+        expect(macosDesktopInstallationRoot("/Users/test")).toBe(resolve("/Users/test/Library/Application Support/NeuroBook/installation"));
     });
 });

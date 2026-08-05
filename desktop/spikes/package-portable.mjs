@@ -52,6 +52,7 @@ function parseArgs(argv) {
     return {
         imageRoot: resolve(values.get("--image")),
         outputDir: resolve(values.get("--output-dir")),
+        shellOutputDir: values.has("--shell-output-dir") ? resolve(values.get("--shell-output-dir")) : null,
         electronRuntime: resolve(values.get("--electron-runtime")),
         tauriExecutable: resolve(values.get("--tauri-exe")),
         managerExecutable: resolve(values.get("--manager")),
@@ -415,6 +416,47 @@ async function buildPortable(kind, args, verified, versions, outputDir) {
     }
 }
 
+/** 建立只含 Desktop Envelope 的远端 shell depot；Product/Bun/Manager/Tool Pack 均不进入。 */
+async function createShellStage(kind, args, versions, stageRoot) {
+    await mkdir(stageRoot, {recursive: true});
+    if (kind === "electron") {
+        await copyElectronRuntime(args.electronRuntime, stageRoot);
+    } else {
+        await mkdir(join(stageRoot, "desktop"), {recursive: true});
+        await copyFile(args.tauriExecutable, join(stageRoot, "desktop", "NeuroBook-Tauri.exe"));
+    }
+    const envelopePath = kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
+    const manifest = {
+        schema: "nbook.desktop-shell/v1",
+        kind,
+        platform: "windows-x64",
+        envelopePath,
+        envelopeVersion: kind === "electron" ? versions.electron : "tauri-2.11.5",
+        envelopeSha256: `sha256:${await fileSha256(join(stageRoot, envelopePath))}`,
+        webview: kind === "electron" ? "bundled-chromium" : "system-evergreen",
+    };
+    await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
+    await freezeTimes(stageRoot);
+    const scriptRoot = dirname(fileURLToPath(import.meta.url));
+    await assertPortableText(stageRoot, resolve(scriptRoot, "..", ".."));
+    return {manifest, archiveEntries: await collectEntries(stageRoot)};
+}
+
+/** 生成独立 shell ZIP 和 sidecar manifest。 */
+async function buildShell(kind, args, versions, outputDir) {
+    const stageRoot = await mkdtemp(join(outputDir, `.stage-${kind}-shell-`));
+    try {
+        const {manifest, archiveEntries} = await createShellStage(kind, args, versions, stageRoot);
+        const baseName = `neuro-book-${kind}-shell-win-x64`;
+        const archive = join(outputDir, `${baseName}.zip`);
+        await writeZipArchive(archive, archiveEntries, 2000);
+        await writeFile(join(outputDir, `${baseName}.manifest.json`), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
+        return {archive, manifest};
+    } finally {
+        await rm(stageRoot, {recursive: true, force: true});
+    }
+}
+
 async function main() {
     const args = parseArgs(process.argv.slice(2));
     await mkdir(args.outputDir, {recursive: true});
@@ -433,11 +475,23 @@ async function main() {
     );
     const electron = await buildPortable("electron", args, verified, versions, args.outputDir);
     const tauri = await buildPortable("tauri", args, verified, versions, args.outputDir);
+    let shells = null;
+    if (args.shellOutputDir) {
+        await mkdir(args.shellOutputDir, {recursive: true});
+        if ((await readdir(args.shellOutputDir)).length > 0) {
+            throw new Error(`Shell 输出目录必须为空：${args.shellOutputDir}`);
+        }
+        shells = {
+            electron: await buildShell("electron", args, versions, args.shellOutputDir),
+            tauri: await buildShell("tauri", args, versions, args.shellOutputDir),
+        };
+    }
     console.log(JSON.stringify({
         imageId: verified.manifest.imageId,
         bun: versions.bun,
         electron: electron.archive,
         tauri: tauri.archive,
+        ...(shells ? {shells} : {}),
     }, null, 4));
 }
 

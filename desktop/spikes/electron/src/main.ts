@@ -105,9 +105,22 @@ function readRuntimeRoots(root: string): {state: string; cache: string; desktop:
         };
         const home = process.env.USERPROFILE ?? process.env.HOME;
         const localAppData = resolve(process.env.LOCALAPPDATA ?? (home ? join(home, "AppData", "Local") : join(root, "data", ".desktop")));
+        const userAppData = process.platform === "darwin"
+            ? resolve(process.env.HOME ?? home ?? root, "Library", "Application Support")
+            : localAppData;
+        const userCache = process.platform === "darwin"
+            ? resolve(process.env.HOME ?? home ?? root, "Library", "Caches")
+            : resolve(process.env.XDG_CACHE_HOME ?? localAppData);
         const resolveLocator = (locator: {base?: string; path?: string} | undefined, fallback: string): string => {
-            if (!locator?.path || (locator.base !== "installation-root" && locator.base !== "local-app-data")) return fallback;
-            return join(locator.base === "installation-root" ? root : localAppData, ...locator.path.split(/[\\/]/u));
+            if (!locator?.path || !["installation-root", "local-app-data", "user-app-data", "user-cache"].includes(locator.base ?? "")) return fallback;
+            const base = locator.base === "installation-root"
+                ? root
+                : locator.base === "local-app-data"
+                    ? localAppData
+                    : locator.base === "user-app-data"
+                        ? userAppData
+                        : userCache;
+            return join(base, ...locator.path.split(/[\\/]/u));
         };
         return {
             state: resolveLocator(value.state, join(root, "data")),

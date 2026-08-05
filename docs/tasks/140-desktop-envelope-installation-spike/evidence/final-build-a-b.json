@@ -123,7 +123,7 @@
     },
     "limitations": [
         "真实窗口、SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和运行时 Origin 行为仍需人工验收。",
-        "稳定 RSS、冷启动、签名、安装器、updater、卸载器和 WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量。",
+        "稳定 RSS、冷启动、签名安装器、updater、图形化卸载器和 WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量；Windows Manager CLI 安装事务在后续 focused 回归中单独验证。",
         "Tauri spike 的 forced fallback 仍是 taskkill；生产实现必须接入共享 Owned Process/Windows Job Object 或等价受控 supervisor。",
         "本证据是 Windows x64 spike，不代表 Linux/macOS 或 Electron/Tauri 最终选型。"
     ]

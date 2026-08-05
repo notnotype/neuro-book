@@ -179,7 +179,7 @@ export type HostPlatform = {
 };
 
 /** Root Locator 的物理基准；清单不持久化不可迁移的绝对路径。 */
-export type RootLocatorBase = "installation-root" | "local-app-data";
+export type RootLocatorBase = "installation-root" | "local-app-data" | "user-app-data" | "user-cache";
 
 /** 从受控物理基准定位一个非根目录。 */
 export type RootLocator = {

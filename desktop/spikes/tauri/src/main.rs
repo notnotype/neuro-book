@@ -255,6 +255,22 @@ fn runtime_root(root: &Path, key: &str, fallback: PathBuf) -> PathBuf {
             return base.join(&locator.path);
         }
     }
+    if locator.base == "user-app-data" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join(&locator.path);
+        }
+    }
+    if locator.base == "user-cache" {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Caches")
+                .join(&locator.path);
+        }
+    }
     fallback
 }
 

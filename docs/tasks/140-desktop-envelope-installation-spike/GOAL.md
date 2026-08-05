@@ -5,7 +5,7 @@
 ```text
 /goal 在 Windows 上完成 Electron 与 Tauri Desktop Envelope 的可比较 spike，并以同一个 verified NeuroBook Product Runtime Image、同一个 Product Runtime Contract、同一个 State/Cache Root fixture 和同一份场景矩阵为证据；保持 Product、Manager、Owned Process、Profile、Workspace、数据库迁移和 shutdown 的所有权不变。
 
-执行范围：只在本 worktree 和 .agent/tmp 的带 owner marker 临时目录中工作。允许新增 desktop/spikes/**、该 Task 140 的 README/GOAL/evidence、spike 专属 package/lockfile 和必要的自动化测试；不得修改根 package.json 的 Electron/Tauri 依赖，不得修改 Task 130 的 Product 合同来迁就 spike，不得写入真实 workspace、用户 State Root、Cache Root、WebView profile、完整 Source 或 sibling 仓库。
+执行范围：只在本 worktree 和 .agent/tmp 的带 owner marker 临时目录中工作。允许新增 desktop/spikes/**、该 Task 140 的 README/GOAL/evidence、spike 专属 package/lockfile、`shared/desktop-contract.ts`、Manager CLI 的桌面安装适配、根 `package.json` 的专用合同测试脚本和必要的自动化测试；不得新增根 Electron/Tauri 依赖，不得修改 Task 130 的 Product 合同来迁就 spike，不得写入真实 workspace、用户 State Root、Cache Root、WebView profile、完整 Source 或 sibling 仓库。
 
 前置条件：先检查 bun/node、stable rustup MSVC、cargo/rustc、Visual Studio C++/Windows SDK、WebView2 和仓库外 verified Product 是否存在。若缺任何必要工具，记录版本和安装建议后停止，不要在无人值守阶段弹出安装器或修改系统 PATH。Electron 依赖必须只在 desktop/spikes/electron 下以 bun 安装；Tauri 使用 stable MSVC，不安装 nightly。
 
@@ -40,4 +40,4 @@
 
 Portable launcher 自己选择动态端口、生成内存 shutdown token，并提供普通 GUI 与 `--headless` smoke；用户无需设置 `T140_*` 环境变量。Electron 包不把 Bun Product 放进 ASAR；Tauri 包不安装 WebView2，manifest 明确 `system-evergreen` 前置条件。两个包必须在仓库外且祖先没有 `node_modules` 的目录解压，清空 `NODE_PATH` 后通过 Contract、health、migration/Profile、shutdown、Application Root digest、进程/端口收口和无绝对路径泄漏门禁。
 
-这两个 ZIP 只是未签名的 Windows spike 交付，不是正式 Release、安装器、updater、卸载器或最终框架决策。没有 verified image、出现源码/根依赖 fallback、固定 token、用户数据写入、WebView2 缺失或 Product 合同需要修改时立即停止并记录阻断。
+这两个 ZIP 只是未签名的 Windows spike 交付，不是正式 Release、签名图形安装器、updater、正式卸载器或最终框架决策。Task 140 的收口实现另提供 `install-desktop.ps1` 作为 CLI 向导入口；它只调用 Manager 完成 Windows 用户级安装事务，不改变 Portable ZIP 的性质。没有 verified image、出现源码/根依赖 fallback、固定 token、用户数据写入、WebView2 缺失或 Product 合同需要修改时立即停止并记录阻断。

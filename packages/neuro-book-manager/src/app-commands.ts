@@ -377,13 +377,13 @@ export async function rollbackApplicationStateMigration(
     if (report.status !== "not_started" && report.status !== "rolled_back") throw new Error(`Application State rollback 状态非法：${report.status}`);
 }
 
-/** 创建或重置管理员。 */
-export async function createAdmin(root: string, manifest: InstallationManifest, username?: string): Promise<void> {
+/** 创建或重置管理员；自动密码只在显式传入时经 stdin 交给 Product。 */
+export async function createAdmin(root: string, manifest: InstallationManifest, username?: string, passwordOverride?: string): Promise<void> {
     assertInstallationHostCompatible(manifest);
     activateManagedTools(root, manifest.components.tools);
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = roots.state;
-    const password = process.env.AUTH_ADMIN_PASSWORD;
+    const password = passwordOverride !== undefined ? passwordOverride : process.env.AUTH_ADMIN_PASSWORD;
     const passwordInput = password === undefined ? null : new TextEncoder().encode(password);
     const passwordArgs = passwordInput ? ["--password-stdin"] : [];
     const execution = await verifyApplicationExecution(root, manifest);

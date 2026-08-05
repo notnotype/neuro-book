@@ -7,11 +7,13 @@ import {
     DESKTOP_DISTRIBUTION_SCHEMA,
     DESKTOP_INSTALLATION_SCHEMA,
     DESKTOP_SUPERVISOR_SCHEMA,
+    desktopUserInstallationContract,
     desktopRelativePath,
     desktopSupervisorLine,
     parseDesktopCapability,
     parseDesktopDistributionManifest,
     parseDesktopInstallationManifest,
+    parseDesktopShellArchiveManifest,
     parseDesktopSettings,
     parseDesktopSupervisorEvent,
     parseDesktopSupervisorRequest,
@@ -127,10 +129,60 @@ describe("Desktop contracts", () => {
         expect(() => parseDesktopCapability({...capability, bridgeSchemas: []})).toThrow("不支持 DesktopBridge v1");
     });
 
+    it("远端 shell depot 只接受匹配的 Envelope 路径和 checksum", () => {
+        const shell = {
+            schema: "nbook.desktop-shell/v1",
+            kind: "electron",
+            platform: "windows-x64",
+            envelopePath: "desktop/NeuroBook-Electron.exe",
+            envelopeVersion: "43.2.0",
+            envelopeSha256: digest("e"),
+            webview: "bundled-chromium",
+        } as const;
+        expect(parseDesktopShellArchiveManifest(shell)).toEqual(shell);
+        expect(() => parseDesktopShellArchiveManifest({...shell, envelopePath: "desktop/NeuroBook-Tauri.exe"})).toThrow("路径与壳类型");
+        expect(() => parseDesktopShellArchiveManifest({...shell, envelopeSha256: "not-a-digest"})).toThrow("sha256 digest");
+    });
+
     it("拒绝 Windows 绝对路径、反斜杠和 dot segment", () => {
         expect(desktopRelativePath("components/product.zip")).toBe("components/product.zip");
         for (const path of ["C:\\product.zip", "/product.zip", "components\\product.zip", "./product.zip", "components/../product.zip"]) {
             expect(() => desktopRelativePath(path)).toThrow("portable 相对路径");
+        }
+    });
+
+    it("固定 Windows 用户级安装合同，并拒绝未支持的架构", () => {
+        expect(desktopUserInstallationContract("windows", "x64")).toEqual({
+            schema: "nbook.desktop-user-installation/v1",
+            platform: "windows",
+            architecture: "x64",
+            applicationBundle: "%LOCALAPPDATA%/Programs/NeuroBook",
+            installationRoot: "%LOCALAPPDATA%/Programs/NeuroBook",
+            stateRoot: "%LOCALAPPDATA%/NeuroBook/data",
+            cacheRoot: "%LOCALAPPDATA%/NeuroBook/cache",
+            desktopRoot: "%LOCALAPPDATA%/NeuroBook/desktop",
+            webviewRoot: "%LOCALAPPDATA%/NeuroBook/desktop/webview",
+            signedBundleRequired: false,
+            portable: false,
+        });
+        expect(() => desktopUserInstallationContract("windows", "arm64")).toThrow("只支持 x64");
+    });
+
+    it("固定 macOS Application Support、Caches 与分架构签名合同", () => {
+        for (const architecture of ["x64", "arm64"] as const) {
+            expect(desktopUserInstallationContract("macos", architecture)).toMatchObject({
+                schema: "nbook.desktop-user-installation/v1",
+                platform: "macos",
+                architecture,
+                applicationBundle: "~/Applications/NeuroBook.app",
+                installationRoot: "~/Library/Application Support/NeuroBook/installation",
+                stateRoot: "~/Library/Application Support/NeuroBook/data",
+                cacheRoot: "~/Library/Caches/NeuroBook",
+                desktopRoot: "~/Library/Application Support/NeuroBook/desktop",
+                webviewRoot: "~/Library/Application Support/NeuroBook/desktop/webview",
+                signedBundleRequired: true,
+                portable: false,
+            });
         }
     });
 });

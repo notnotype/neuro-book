@@ -15,6 +15,7 @@ import {
 import {assertAbsolutePathWithin, installationRelativePath} from "#manager/installation-path";
 import {
     INSTALLED_WINDOWS_ROOT_LOCATORS,
+    INSTALLED_MACOS_ROOT_LOCATORS,
     INSTALLATION_SCOPED_ROOT_LOCATORS,
     PORTABLE_ROOT_LOCATORS,
     resolveInstallationRoots,
@@ -39,7 +40,12 @@ const ReleaseChannelSchema = Type.Union([Type.Literal("stable"), Type.Literal("c
 const ContainerEngineSchema = Type.Union([Type.Literal("docker"), Type.Literal("podman")]);
 const ProductPlatformSchema = Type.Union(PRODUCT_PLATFORMS.map((platform) => Type.Literal(platform)));
 const RootLocatorSchema = Type.Object({
-    base: Type.Union([Type.Literal("installation-root"), Type.Literal("local-app-data")]),
+    base: Type.Union([
+        Type.Literal("installation-root"),
+        Type.Literal("local-app-data"),
+        Type.Literal("user-app-data"),
+        Type.Literal("user-cache"),
+    ]),
     path: Type.String({minLength: 1}),
 }, {additionalProperties: false});
 const InstallationRootLocatorsSchema = Type.Object({
@@ -805,8 +811,9 @@ function assertRootLocatorsSemantics(
         return;
     }
     const installedWindows = rootLocatorsEqual(roots, INSTALLED_WINDOWS_ROOT_LOCATORS);
+    const installedMacos = rootLocatorsEqual(roots, INSTALLED_MACOS_ROOT_LOCATORS);
     const installationScoped = rootLocatorsEqual(roots, INSTALLATION_SCOPED_ROOT_LOCATORS);
-    if (profile === "product-bun" ? !installedWindows && !installationScoped : !installationScoped) {
+    if (profile === "product-bun" ? !installedWindows && !installedMacos && !installationScoped : !installationScoped) {
         throw new Error(`Profile ${profile} 的 Root Locator 布局非法。`);
     }
 }
