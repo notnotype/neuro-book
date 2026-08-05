@@ -605,7 +605,8 @@ async function runApplicationCommand(
 }
 
 /** 等待候选 HTTP 与版本就绪；ready 前任何进程终态都视为启动失败。 */
-async function waitForApplicationReady(
+/** 等待候选 HTTP 与版本就绪；导出供 Desktop Supervisor 的协议回归测试复用。 */
+export async function waitForApplicationReady(
     port: number,
     expectedVersion: string,
     completion: Promise<{code: number | null; signal: string | null}>,
@@ -650,7 +651,8 @@ async function waitForApplicationReady(
             lastError = error instanceof Error ? error.message : String(error);
         }
         if (Date.now() >= nextProgressAt) {
-            console.log(`Product健康检查仍在等待：${lastError}`);
+            // Desktop Supervisor 的 stdout 是 NDJSON 控制通道；等待日志只能进入 stderr。
+            console.error(`Product健康检查仍在等待：${lastError}`);
             nextProgressAt = Date.now() + 10_000;
         }
         await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
