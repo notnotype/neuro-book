@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-04（Installation Mutation、Windows 自卸载、Candidate 验收与 Session Store lease 失效关闭）
+- 更新：2026-08-05（Installation Mutation、Windows 自卸载、Candidate 验收、Session Store lease 失效关闭与 Desktop Envelope root 边界）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)、[ADR 0002](0002-bounded-rebuildable-runtime-artifacts.md)
 - 取代范围：[ADR 0006](0006-image-variant-and-original-ownership.md) 中 Image Variant Cache 的物理 locator 由本 ADR 的 Cache Root 决定；其 512 MiB、10000 项等领域预算不变。
 
@@ -104,7 +104,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 
 ## 原因
 
-四类 root 对应四种不同恢复语义：程序可重装，用户状态必须保留，cache 可重建，WebView profile 是设备本地混合状态。typed locator 让 Portable 可以移动，也让卸载器只删除 manifest 声明的 owner。
+四类 root 对应四种不同恢复语义：程序可重装，用户状态必须保留，cache 可重建，WebView profile 是设备本地混合状态。typed locator 让 Portable 可以移动，也让卸载器只删除 manifest 声明的 owner。Portable 的 immutable Application/Product payload 与可写 State/Cache/Desktop owner 必须分开计量；运行后不能声称整个 Portable 根保持只读。
 
 应用级关闭必须发生在进程级强制终止之前。认证 loopback 控制面给 Windows 一个可等待的正常关闭路径，Owned Process 保留最终兜底，两者职责不重叠。
 

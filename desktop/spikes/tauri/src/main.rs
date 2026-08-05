@@ -413,8 +413,10 @@ fn wait_ready(
                 return Err("Manager Supervisor stdout 已关闭".to_string())
             }
         };
-        let value: Value = serde_json::from_str(&line)
-            .map_err(|error| format!("Supervisor 输出不是 JSON：{error}"))?;
+        let value: Value = serde_json::from_str(&line).map_err(|error| {
+            let snippet = line.chars().take(200).collect::<String>();
+            format!("Supervisor 输出不是 JSON：{error}；原始行={snippet}")
+        })?;
         if value.get("schema").and_then(Value::as_str) != Some(SUPERVISOR_SCHEMA)
             || value.get("requestId").and_then(Value::as_str) != Some(request_id)
         {
@@ -940,6 +942,7 @@ fn main() {
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("NeuroBook Tauri Envelope Spike")
                 .inner_size(1280.0, 840.0)
+                .data_directory(state_for_setup.desktop_root.join("webview"))
                 .initialization_script(TAURI_BRIDGE_SCRIPT)
                 .build()?;
             let state_for_close = Arc::clone(&state_for_setup);

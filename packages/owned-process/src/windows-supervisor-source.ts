@@ -115,7 +115,9 @@ function run(job, kernel32) {
             child = spawn(payload.command, payload.args, {
                 cwd: payload.cwd,
                 env: payload.env,
-                stdio: [payload.stdin === "pipe" ? "pipe" : 0, "inherit", "inherit"],
+                // Product stdout/stderr 是 Supervisor 协议的边界；ignore 必须显式传给目标。
+                // pipe/inherit 都继承 Supervisor 自己的 fd，由 Adapter 负责连接到宿主。
+                stdio: [payload.stdin === "pipe" ? "pipe" : 0, outputStdio(payload.stdout), outputStdio(payload.stderr)],
                 windowsHide: payload.windowsHide,
             });
             if (payload.stdin === "pipe") {
@@ -143,6 +145,10 @@ function run(job, kernel32) {
             signal,
             ...(terminationReason ? {reason: terminationReason} : {}),
         }));
+    }
+
+    function outputStdio(value) {
+        return value === "ignore" ? "ignore" : "inherit";
     }
 
     function terminate(reason) {

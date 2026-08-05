@@ -31,7 +31,7 @@ export default defineEventHandler(async (): Promise<AppVersionDto> => {
         versionLabel: versionLabel(manifest?.version ?? "unknown"),
         versionKind: "package",
         githubUrl: githubUrl(manifest),
-        ...(startupNonce && /^[A-Za-z0-9_-]{43}$/u.test(startupNonce) ? {startupNonce} : {}),
+        ...(startupNonce && /^[A-Za-z0-9_-]{32,128}$/u.test(startupNonce) ? {startupNonce} : {}),
     };
 });
 

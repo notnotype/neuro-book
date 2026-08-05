@@ -81,6 +81,8 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         cwd: spec.cwd,
         env: spec.env,
         stdin: spec.stdin ?? "ignore",
+        stdout: spec.stdout ?? "pipe",
+        stderr: spec.stderr ?? "pipe",
         graceMs,
         hardKillWaitMs,
     });

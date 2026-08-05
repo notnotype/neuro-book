@@ -21,6 +21,19 @@ describe("Windows Adapter protocol", () => {
         expect(spawnOptions).not.toHaveProperty("cwd");
     });
 
+    it("把目标 stdout/stderr 策略传给监督器，避免 Product 日志污染宿主协议", async () => {
+        const supervisor = new FakeSupervisor();
+        const spawnWindowsOwnedProcess = await loadAdapter(supervisor);
+
+        spawnWindowsOwnedProcess({command: "target", stdout: "ignore", stderr: "ignore"});
+
+        expect(supervisor.messages[0]).toMatchObject({
+            kind: "start",
+            stdout: "ignore",
+            stderr: "ignore",
+        });
+    });
+
     it("内部监督协议不根据测试宿主架构拒绝调用", async () => {
         const descriptor = Object.getOwnPropertyDescriptor(process, "arch");
         if (!descriptor) throw new Error("process.arch descriptor 不存在");
@@ -128,8 +141,10 @@ class FakeSupervisor extends EventEmitter {
     connected = true;
     stdout = null;
     stderr = null;
+    messages: object[] = [];
 
-    send(_message: object, callback?: (error: Error | null) => void): boolean {
+    send(message: object, callback?: (error: Error | null) => void): boolean {
+        this.messages.push(message);
         callback?.(null);
         return true;
     }

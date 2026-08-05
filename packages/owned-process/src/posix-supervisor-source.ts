@@ -41,7 +41,9 @@ function start(message) {
             cwd: payload.cwd,
             env: payload.env,
             detached: true,
-            stdio: [payload.stdin === "pipe" ? "pipe" : 0, "inherit", "inherit"],
+            // Product stdout/stderr 是 Supervisor 协议的边界；ignore 必须显式传给目标。
+            // pipe/inherit 都继承 Supervisor 自己的 fd，由 Adapter 负责连接到宿主。
+            stdio: [payload.stdin === "pipe" ? "pipe" : 0, outputStdio(payload.stdout), outputStdio(payload.stderr)],
         });
         if (payload.stdin === "pipe") {
             process.stdin.on("data", (chunk) => child.stdin?.write(chunk));
@@ -59,6 +61,10 @@ function start(message) {
         beginCleanup();
         settleIfClosed();
     });
+}
+
+function outputStdio(value) {
+    return value === "ignore" ? "ignore" : "inherit";
 }
 
 /** 主动终止与宿主断连共用同一进程组收口。 */

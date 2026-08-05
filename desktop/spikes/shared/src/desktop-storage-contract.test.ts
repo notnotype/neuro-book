@@ -1,0 +1,18 @@
+import {readFile} from "node:fs/promises";
+import {resolve} from "node:path";
+import {describe, expect, it} from "vitest";
+
+describe("Desktop storage contract", () => {
+    it("在创建单实例锁前固定 Electron userData、sessionData 和 logs", async () => {
+        const source = await readFile(resolve("desktop/spikes/electron/src/main.ts"), "utf8");
+        expect(source.indexOf('app.setPath("userData", config.desktopRoot)')).toBeGreaterThan(-1);
+        expect(source.indexOf('app.setPath("sessionData", join(config.desktopRoot, "webview"))')).toBeGreaterThan(-1);
+        expect(source.indexOf('app.setPath("logs", join(config.desktopRoot, "logs"))')).toBeGreaterThan(-1);
+        expect(source.indexOf('app.setPath("userData", config.desktopRoot)')).toBeLessThan(source.indexOf("app.requestSingleInstanceLock()"));
+    });
+
+    it("将 Tauri WebView2 数据目录放在 Desktop Local Root 下", async () => {
+        const source = await readFile(resolve("desktop/spikes/tauri/src/main.rs"), "utf8");
+        expect(source).toContain('.data_directory(state_for_setup.desktop_root.join("webview"))');
+    });
+});

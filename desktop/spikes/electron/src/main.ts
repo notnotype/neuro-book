@@ -103,7 +103,8 @@ function readRuntimeRoots(root: string): {state: string; cache: string; desktop:
             cache?: {base?: string; path?: string};
             desktop?: {base?: string; path?: string};
         };
-        const localAppData = resolve(process.env.LOCALAPPDATA ?? join(process.env.USERPROFILE ?? app.getPath("home"), "AppData", "Local"));
+        const home = process.env.USERPROFILE ?? process.env.HOME;
+        const localAppData = resolve(process.env.LOCALAPPDATA ?? (home ? join(home, "AppData", "Local") : join(root, "data", ".desktop")));
         const resolveLocator = (locator: {base?: string; path?: string} | undefined, fallback: string): string => {
             if (!locator?.path || (locator.base !== "installation-root" && locator.base !== "local-app-data")) return fallback;
             return join(locator.base === "installation-root" ? root : localAppData, ...locator.path.split(/[\\/]/u));
@@ -322,10 +323,14 @@ async function closeApplication(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+    const config = readConfig();
+    // These paths must be fixed before the single-instance lock and before Electron creates a session.
+    app.setPath("userData", config.desktopRoot);
+    app.setPath("sessionData", join(config.desktopRoot, "webview"));
+    app.setPath("logs", join(config.desktopRoot, "logs"));
     if (!app.requestSingleInstanceLock()) { app.quit(); return; }
     app.on("second-instance", () => window?.show());
     await app.whenReady();
-    const config = readConfig();
     await loadDesktopSettings(config.desktopRoot);
     ipcMain.handle("t140:status", (event) => {
         assertTrustedFrame(event);

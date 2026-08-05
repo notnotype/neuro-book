@@ -87,6 +87,8 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
         cwd: spec.cwd,
         env: spec.env,
         stdin: spec.stdin ?? "ignore",
+        stdout: spec.stdout ?? "pipe",
+        stderr: spec.stderr ?? "pipe",
         windowsHide: spec.windowsHide ?? true,
         graceMs,
     });
