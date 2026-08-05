@@ -154,13 +154,15 @@ async function assertPortableText(root, sourceRoot) {
 }
 
 /** 读取 Bun 与 Electron 版本，写入脱敏 manifest。 */
-async function runtimeVersions(bunExecutable, electronPackage) {
+async function runtimeVersions(bunExecutable, electronPackage, tauriCargo) {
     const bun = (await execFileAsync(bunExecutable, ["--version"], {windowsHide: true})).stdout.trim();
     const electron = JSON.parse(await readFile(electronPackage, "utf8"));
-    if (!/^\d+\.\d+\.\d+$/u.test(bun) || typeof electron.version !== "string") {
+    const cargo = await readFile(tauriCargo, "utf8");
+    const tauriVersion = cargo.match(/^\s*version\s*=\s*"([^"]+)"/mu)?.[1];
+    if (!/^\d+\.\d+\.\d+$/u.test(bun) || typeof electron.version !== "string" || !tauriVersion) {
         throw new Error("无法读取 portable runtime 版本。");
     }
-    return {bun, electron: electron.version};
+    return {bun, electron: electron.version, tauri: tauriVersion};
 }
 
 /** 读取 Tool Pack 中的真实可执行文件位置与版本；不接受 shim 或缺失依赖。 */
@@ -383,7 +385,8 @@ async function createStage(kind, args, verified, versions, stageRoot) {
             bunPath: "runtime/bun.exe",
             bunVersion: versions.bun,
             envelopePath: kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe",
-            envelopeVersion: kind === "electron" ? versions.electron : "tauri-2.11.5",
+            envelopeVersion: kind === "electron" ? versions.electron : versions.tauri,
+            envelopeSha256: `sha256:${await fileSha256(join(stageRoot, kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe"))}`,
         },
         toolPack: {
             files: toolIdentity.files,
@@ -440,7 +443,7 @@ async function createShellStage(kind, args, versions, stageRoot) {
         kind,
         platform: "windows-x64",
         envelopePath,
-        envelopeVersion: kind === "electron" ? versions.electron : "tauri-2.11.5",
+        envelopeVersion: kind === "electron" ? versions.electron : versions.tauri,
         envelopeSha256: `sha256:${await fileSha256(join(stageRoot, envelopePath))}`,
         webview: kind === "electron" ? "bundled-chromium" : "system-evergreen",
     };
@@ -510,6 +513,7 @@ async function main() {
     const versions = await runtimeVersions(
         args.bunExecutable,
         join(args.electronRuntime, "..", "package.json"),
+        resolve(dirname(args.tauriExecutable), "..", "..", "Cargo.toml"),
     );
     const electron = await buildPortable("electron", args, verified, versions, args.outputDir);
     const tauri = await buildPortable("tauri", args, verified, versions, args.outputDir);

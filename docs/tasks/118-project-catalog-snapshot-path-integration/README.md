@@ -426,7 +426,7 @@ flowchart TD
 | `workspace node`通过absolute target或祖先manifest发现external Project，并兼容`workspace/<slug>/...` | 输入只保留Workspace Root-relative（含`<projectRoot>/...`）与absolute filesystem path；absolute只按已知snapshot containment附加归属，不发现新Project |
 | JSON输出混合日志/结果，错误无统一code | 单一versioned envelope；stdout仅协议，stderr仅诊断，typed非零exit |
 
-CLI原子同步面必须在同一hard-cut切片一起更新：Bundled真相`assets/workspace/.nbook/agent/scripts/workspace.ts`、真实user runtime、Product assets与`.output`实现、三套`agent/bin/workspace`/`workspace.cmd` wrapper，以及`system-assets-preflight`、`sync-user-assets`、`prepare-system-assets`、Product打包/部署入口。任何一套版本不匹配都fail closed，不能让旧CLI继续写新schema。
+CLI原子同步面必须在同一 hard-cut 切片一起更新：Product-owned `server/workspace-files/workspace-command.ts`、真实 user runtime、`.nbook/agent/bin/workspace(.cmd)` wrapper、Product Runtime Contract 的 `workspace` 逻辑命令，以及 `system-assets-preflight`、`sync-user-assets`、`prepare-system-assets` 和 Product 打包/部署入口。Source checkout wrapper 调用 Product-owned source entry，发行物统一解析 Runtime Contract；已删除的 asset script 与 `server/scripts` 路径只保留历史证据，任何版本不匹配都必须 fail closed，不能让旧 CLI 写新 schema。
 
 ### 已撤销的 G6 / G7
 

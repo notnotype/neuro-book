@@ -6,6 +6,13 @@ export type RunOptions = {
     stdio?: "inherit" | "ignore" | "pipe";
 };
 
+export type RunCaptureResult = {
+    stdout: string;
+    stderr: string;
+    exitCode: number | null;
+    signal: NodeJS.Signals | null;
+};
+
 /** 执行外部命令，非零退出码抛出异常。 */
 export async function run(command: string, args: string[], options: RunOptions = {}): Promise<void> {
     await new Promise<void>((resolvePromise, rejectPromise) => {
@@ -90,7 +97,16 @@ export async function runBun(command: string, args: string[], options: RunOption
 
 /** 执行外部命令并读取 stdout。 */
 export async function runCapture(command: string, args: string[], options: Omit<RunOptions, "stdio"> = {}): Promise<string> {
-    return new Promise<string>((resolvePromise, rejectPromise) => {
+    const result = await runCaptureResult(command, args, options);
+    if (result.signal || result.exitCode !== 0) {
+        throw new Error(result.stderr.trim() || `${command} 执行失败，退出码 ${result.exitCode ?? result.signal ?? "unknown"}`);
+    }
+    return result.stdout;
+}
+
+/** 执行外部命令并保留退出结果；调用方自行判断允许的非零退出码。 */
+export async function runCaptureResult(command: string, args: string[], options: Omit<RunOptions, "stdio"> = {}): Promise<RunCaptureResult> {
+    return new Promise<RunCaptureResult>((resolvePromise, rejectPromise) => {
         const child = spawn(command, args, {
             cwd: options.cwd,
             env: options.env ?? process.env,
@@ -107,11 +123,7 @@ export async function runCapture(command: string, args: string[], options: Omit<
         // `exit`早于stdio关闭；短命令在macOS上可能先退出、后派发最后一段stdout。
         // 只有`close`能够保证stdout/stderr已完整消费，版本检查才能稳定读取输出。
         child.on("close", (code, signal) => {
-            if (signal || code !== 0) {
-                rejectPromise(new Error(stderr.trim() || `${command} 执行失败，退出码 ${code ?? signal ?? "unknown"}`));
-                return;
-            }
-            resolvePromise(stdout);
+            resolvePromise({stdout, stderr, exitCode: code, signal});
         });
     });
 }

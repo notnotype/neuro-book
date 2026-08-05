@@ -107,7 +107,22 @@ export async function verifyProductRuntimeReceiptFully(
 
 function assertReceiptMatchesManifest(receipt: ProductRuntimeVerificationReceipt, manifest: ProductRuntimeImageManifest): void {
     const expected = createProductRuntimeVerificationReceipt(manifest, receipt.issuedAt);
-    if (JSON.stringify(expected) !== JSON.stringify(receipt)) {
+    const runtimeContractMatches = receipt.runtimeContract.path === expected.runtimeContract.path
+        && receipt.runtimeContract.sha256 === expected.runtimeContract.sha256;
+    if (
+        receipt.schema !== expected.schema
+        || receipt.imageId !== expected.imageId
+        || receipt.version !== expected.version
+        || receipt.revision !== expected.revision
+        || receipt.dirty !== expected.dirty
+        || receipt.platform !== expected.platform
+        || receipt.sourceDigest !== expected.sourceDigest
+        || receipt.lockfileSha256 !== expected.lockfileSha256
+        || receipt.builderContractVersion !== expected.builderContractVersion
+        || receipt.treeDigest !== expected.treeDigest
+        || receipt.shapeDigest !== expected.shapeDigest
+        || !runtimeContractMatches
+    ) {
         throw new Error("Product Runtime verification receipt 与镜像 manifest 不一致。");
     }
 }

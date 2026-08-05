@@ -38,7 +38,14 @@ function Resolve-Bun {
     }
     $resolved = (Resolve-Path -LiteralPath $candidate).Path
     $version = (& $resolved --version 2>$null).Trim()
-    if ($LASTEXITCODE -ne 0 -or $version -notmatch '^1\.[3-9]\.') {
+    $parsedVersion = $null
+    try {
+        if ($version -notmatch '^\d+\.\d+(?:\.\d+)?$') { throw "invalid" }
+        $parsedVersion = [version]$version
+    } catch {
+        throw "Bun Runtime 版本无法解析，当前为：$version"
+    }
+    if ($LASTEXITCODE -ne 0 -or $parsedVersion -lt [version]"1.3.0") {
         throw "Bun Runtime 版本必须为 1.3 或更新版本，当前为：$version"
     }
     return $resolved

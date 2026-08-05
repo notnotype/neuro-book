@@ -58,6 +58,7 @@ type WindowState = {
 };
 
 const DEFAULT_WINDOW_STATE: WindowState = {x: 80, y: 80, width: 1280, height: 840, maximized: false, fullscreen: false};
+const SUPERVISOR_START_TIMEOUT_MS = 45_000;
 let windowStateWrite: Promise<void> = Promise.resolve();
 
 let window: BrowserWindow | null = null;
@@ -189,7 +190,10 @@ function readRemoteUrl(desktopRoot: string): string | null {
 /** 远端 Desktop 只能在服务端明确声明 Bridge 兼容后打开。 */
 async function probeRemote(url: string): Promise<DesktopStatus> {
     const origin = desktopRemoteOrigin(url, new URL(url).protocol === "http:");
-    const response = await fetch(new URL("/api/app/desktop-capability", origin + "/"), {redirect: "error"});
+    const response = await fetch(new URL("/api/app/desktop-capability", origin + "/"), {
+        redirect: "error",
+        signal: AbortSignal.timeout(10_000),
+    });
     if (!response.ok) throw new Error("远端 Desktop capability 请求失败：HTTP " + response.status);
     const capability = parseDesktopCapability(await response.json());
     return {
@@ -230,7 +234,7 @@ function setSplashStage(stage: string): void {
     void splash.webContents.executeJavaScript(`document.querySelector("[data-stage]").textContent = ${escaped};`, true).catch(() => undefined);
 }
 
-/** 启动 Manager Supervisor，并等待同一 requestId 的 ready 与 full verified 事件。 */
+/** 启动 Manager Supervisor；先等 ready，完整回执复核在窗口打开后后台执行。 */
 async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     setSplashStage("检查 Product Runtime...");
     const resolvedConfig = {...config, port: await selectPort(config.port)};
@@ -258,7 +262,11 @@ async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     }
     const reader = createInterface({input: output, crlfDelay: Infinity});
     setSplashStage("启动本地服务...");
-    const ready = waitForSupervisor(reader, lease.completion, requestId, startupNonce);
+    const ready = waitForSupervisor(reader, lease.completion, requestId, startupNonce, (error) => {
+        setSplashStage("Product 后台验证失败，正在关闭...");
+        void lease.terminate("background-verification-failure").catch(() => undefined);
+        console.error(error);
+    });
     lease.stdin.write(desktopSupervisorLine({
         schema: "nbook.desktop-supervisor/v1",
         requestId,
@@ -297,22 +305,27 @@ async function waitForSupervisor(
     completion: Promise<OwnedProcessCompletion>,
     requestId: string,
     startupNonce: string,
+    onBackgroundFailure: (error: Error) => void,
 ): Promise<{port: number; version: string}> {
     return await new Promise<{port: number; version: string}>((resolvePromise, rejectPromise) => {
         let readyPort: number | undefined;
         let readyVersion = "";
-        let verified = false;
         let settled = false;
+        let backgroundFailureReported = false;
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const finish = (error?: Error): void => {
             if (settled) return;
             if (error) {
                 settled = true;
+                if (timer) clearTimeout(timer);
                 rejectPromise(error);
-            } else if (readyPort !== undefined && verified) {
+            } else if (readyPort !== undefined) {
                 settled = true;
+                if (timer) clearTimeout(timer);
                 resolvePromise({port: readyPort, version: readyVersion});
             }
         };
+        timer = setTimeout(() => finish(new Error("Manager Supervisor ready 超时。")), SUPERVISOR_START_TIMEOUT_MS);
         reader.on("line", (line) => {
             try {
                 const event = parseDesktopSupervisorEvent(JSON.parse(line) as unknown);
@@ -329,15 +342,22 @@ async function waitForSupervisor(
                     } as const;
                     setSplashStage(stageLabels[event.stage] ?? "正在处理桌面启动阶段...");
                 } else if (event.type === "ready") {
-                    setSplashStage("本地服务已就绪，正在验证...");
+                    setSplashStage("本地服务已就绪，正在打开 NeuroBook...");
                     if (event.startupNonce !== startupNonce) throw new Error("Supervisor ready nonce 与本次启动不一致。");
                     readyPort = Number(new URL(event.url).port);
                     readyVersion = event.version;
                 } else if (event.type === "verified" && event.verification === "full") {
-                    setSplashStage("验证完成，正在打开 NeuroBook...");
-                    verified = true;
+                    setSplashStage("Product 后台验证完成。");
                 } else if (event.type === "failure") {
-                    throw new Error(`Manager Supervisor 失败：${event.code} ${event.message}`);
+                    const error = new Error(`Manager Supervisor 失败：${event.code} ${event.message}`);
+                    if (settled) {
+                        if (!backgroundFailureReported) {
+                            backgroundFailureReported = true;
+                            onBackgroundFailure(error);
+                        }
+                        return;
+                    }
+                    throw error;
                 }
                 finish();
             } catch (error) {
@@ -420,7 +440,7 @@ async function recoverStartup(config: DesktopConfig, error: unknown): Promise<bo
         cancelId: 3,
     });
     if (result.response === 2) {
-        await shell.openPath(join(config.desktopRoot, "logs")).catch(() => undefined);
+        await shell.openPath(join(config.stateRoot, "logs")).catch(() => undefined);
         return recoverStartup(config, error);
     }
     if (result.response === 1) {
@@ -529,7 +549,7 @@ async function main(): Promise<void> {
     // Session/profile 属于当前安装；单实例身份必须使用稳定的用户级根，不能随 Portable 变化。
     app.setPath("userData", desktopIdentityRoot());
     app.setPath("sessionData", join(config.desktopRoot, "webview"));
-    app.setPath("logs", join(config.desktopRoot, "logs"));
+    app.setPath("logs", join(config.stateRoot, "logs"));
     const launchData = {argv: process.argv.slice(1).slice(0, 32), cwd: process.cwd()};
     if (!app.requestSingleInstanceLock(launchData)) { app.quit(); return; }
     app.on("second-instance", (_event, commandLine, workingDirectory) => {

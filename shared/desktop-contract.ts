@@ -428,8 +428,11 @@ function parseConnection(value: unknown): DesktopConnection {
         exactKeys(root, ["mode"], "connection");
         return {mode};
     }
-    exactKeys(root, ["mode", "baseUrl", "insecureHttpAccepted"], "connection");
-    const insecureHttpAccepted = boolean(root.insecureHttpAccepted, "connection.insecureHttpAccepted");
+    const hasHttpAcknowledgement = Object.prototype.hasOwnProperty.call(root, "insecureHttpAccepted");
+    exactKeys(root, hasHttpAcknowledgement ? ["mode", "baseUrl", "insecureHttpAccepted"] : ["mode", "baseUrl"], "connection");
+    const insecureHttpAccepted = hasHttpAcknowledgement
+        ? boolean(root.insecureHttpAccepted, "connection.insecureHttpAccepted")
+        : false;
     const baseUrl = desktopRemoteOrigin(root.baseUrl, insecureHttpAccepted);
     return {mode, baseUrl, insecureHttpAccepted};
 }

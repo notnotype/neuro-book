@@ -7,7 +7,7 @@ describe("Desktop storage contract", () => {
         const source = await readFile(resolve("desktop/spikes/electron/src/main.ts"), "utf8");
         expect(source.indexOf('app.setPath("userData", desktopIdentityRoot())')).toBeGreaterThan(-1);
         expect(source.indexOf('app.setPath("sessionData", join(config.desktopRoot, "webview"))')).toBeGreaterThan(-1);
-        expect(source.indexOf('app.setPath("logs", join(config.desktopRoot, "logs"))')).toBeGreaterThan(-1);
+        expect(source.indexOf('app.setPath("logs", join(config.stateRoot, "logs"))')).toBeGreaterThan(-1);
         expect(source.indexOf('app.setPath("userData", desktopIdentityRoot())')).toBeLessThan(source.indexOf("app.requestSingleInstanceLock("));
         expect(source).toContain('window?.webContents.send("neurobook:second-instance"');
         expect(source).toContain('window-state.json');

@@ -71,7 +71,7 @@ export async function runDesktopSupervisor(options: DesktopSupervisorOptions): P
                 continue;
             }
             const controller = new AbortController();
-            const promise = startDesktop(root, options.manifest, request, controller, emit, fail)
+            const promise = startDesktop(root, options.manifest, paths.deploy, request, controller, emit, fail)
                 .finally(() => {
                     if (active?.promise === promise) active = null;
                 });
@@ -114,6 +114,7 @@ export async function runDesktopSupervisor(options: DesktopSupervisorOptions): P
 async function startDesktop(
     root: string,
     manifest: InstallationManifest,
+    deployRoot: string,
     request: Extract<DesktopSupervisorRequest, {type: "start"}>,
     controller: AbortController,
     emit: (event: DesktopSupervisorEvent) => void,
@@ -121,7 +122,7 @@ async function startDesktop(
 ): Promise<void> {
     try {
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "quick-verify"});
-        await verifyReceipt(root, manifest, join(root, ".deploy"), false);
+        await verifyReceipt(root, manifest, deployRoot, false);
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "migration"});
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "starting-product"});
         await startInstallationApplication(root, {
@@ -145,7 +146,7 @@ async function startDesktop(
                     startupNonce: nonce,
                 });
                 emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "background-verify"});
-                await verifyReceipt(root, manifest, join(root, ".deploy"), true);
+                await verifyReceipt(root, manifest, deployRoot, true);
                 emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "full"});
             },
         });

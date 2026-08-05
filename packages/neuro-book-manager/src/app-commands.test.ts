@@ -94,6 +94,34 @@ describe("Product exit diagnostics", () => {
 });
 
 describe("Product ready退出诊断", () => {
+    it("ready检查把启动nonce放入版本请求头，普通响应不公开nonce", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const nonce = "n".repeat(43);
+        const terminate = vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "startup-failure" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+            const headers = new Headers(init?.headers);
+            return Response.json({
+                versionLabel: "v0.8.0-canary.1",
+                ...(headers.get("x-neuro-book-startup-nonce") ? {startupNonce: nonce} : {}),
+            });
+        });
+
+        try {
+            const launch = await launchApplication(root, productManifest(), {startupNonce: nonce});
+            await launch.ready;
+            expect(fetch).toHaveBeenCalledWith(
+                "http://127.0.0.1:3000/api/app/version",
+                expect.objectContaining({headers: {"x-neuro-book-startup-nonce": nonce}}),
+            );
+            await launch.terminate();
+            expect(terminate).toHaveBeenCalledWith("startup-failure");
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
     it("ready前以0退出仍立即报告Product提前退出", async () => {
         const root = await nativeProductRoot();
         ownedProcess.spawn.mockReturnValue({

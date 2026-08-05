@@ -8,6 +8,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 const processMocks = vi.hoisted(() => ({
     run: vi.fn(),
     runCapture: vi.fn(),
+    runCaptureResult: vi.fn(),
 }));
 const productMocks = vi.hoisted(() => ({
     verify: vi.fn(),
@@ -38,6 +39,7 @@ import type {InstallationComponents, InstallationManifest} from "#manager/types"
 
 const roots: string[] = [];
 const originalPlatform = process.platform;
+const originalArch = process.arch;
 const originalAppData = process.env.APPDATA;
 const originalUserProfile = process.env.USERPROFILE;
 const originalLocalAppData = process.env.LOCALAPPDATA;
@@ -45,12 +47,14 @@ const originalLocalAppData = process.env.LOCALAPPDATA;
 beforeEach(() => {
     processMocks.run.mockReset().mockResolvedValue(undefined);
     processMocks.runCapture.mockReset().mockResolvedValue("");
+    processMocks.runCaptureResult.mockReset().mockResolvedValue({stdout: "", stderr: "", exitCode: 1, signal: null});
     productMocks.verify.mockReset().mockResolvedValue(undefined);
     appCommandMocks.createAdmin.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(async () => {
     Object.defineProperty(process, "platform", {configurable: true, value: originalPlatform});
+    Object.defineProperty(process, "arch", {configurable: true, value: originalArch});
     if (originalAppData === undefined) delete process.env.APPDATA;
     else process.env.APPDATA = originalAppData;
     if (originalUserProfile === undefined) delete process.env.USERPROFILE;
@@ -101,6 +105,7 @@ describe("Desktop Portable manifest", () => {
         for (const path of paths) hashes.set(path, digest(await readFile(join(root, path))));
         const components = componentsManifest(hashes);
         const portable = portableManifest("electron");
+        portable.runtime.envelopeSha256 = `sha256:${hashes.get("desktop/NeuroBook-Electron.exe")!}`;
 
         await expect(verifyDesktopPortablePayload(root, {components}, portable, "electron")).resolves.toBeUndefined();
         await writeFile(join(root, ".runtime/manager/neuro-book.mjs"), "tampered", "utf8");
@@ -251,7 +256,7 @@ describe("Desktop installation lifecycle", () => {
         expect(processMocks.run.mock.calls.some(([command, args]) => command === "powershell.exe" && args.includes("-Command"))).toBe(true);
         expect(vi.mocked(fetch)).toHaveBeenCalledWith(
             new URL("/api/app/desktop-capability", "https://example.com/"),
-            {redirect: "error"},
+            expect.objectContaining({redirect: "error", signal: expect.any(AbortSignal)}),
         );
         const uninstall = await uninstallRemoteDesktopInstallation(installRoot);
         expect(await pathExists(installRoot)).toBe(false);
@@ -265,7 +270,7 @@ describe("Desktop installation lifecycle", () => {
             platform: "windows-x64" as const,
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
-            envelopeSha256: `sha256:${"e".repeat(64)}`,
+            envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
             webview: "bundled-chromium" as const,
         };
         expect(() => assertDesktopShellInstallable(shell, "tauri")).toThrow("命令选择");
@@ -375,11 +380,12 @@ describe("Desktop installation lifecycle", () => {
 
 function setWindowsHost(): void {
     Object.defineProperty(process, "platform", {configurable: true, value: "win32"});
+    Object.defineProperty(process, "arch", {configurable: true, value: "x64"});
 }
 
 async function pathExists(path: string): Promise<boolean> {
     try {
-        await readFile(path);
+        await stat(path);
         return true;
     } catch {
         return false;
@@ -396,19 +402,21 @@ function portableManifest(kind: "electron" | "tauri") {
             bunPath: "runtime/bun.exe" as const,
             envelopePath: kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe",
             envelopeVersion: "43.2.0",
+            envelopeSha256: `sha256:${digest(new TextEncoder().encode(kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe"))}`,
         },
         toolPack: {digest: `sha256:${"d".repeat(64)}`},
     };
 }
 
 async function createDesktopPortableArchive(path: string, portable: ReturnType<typeof portableManifest>): Promise<void> {
+    portable.runtime.envelopeSha256 = `sha256:${digest(new TextEncoder().encode(portable.runtime.envelopePath))}`;
     const files = {
         ".runtime/manager/neuro-book.mjs": "manager",
         "runtime/bun.exe": "bun",
         "tools/rg.exe": "rg",
         "tools/git.exe": "git",
         "tools/bash.exe": "bash",
-        [portable.runtime.envelopePath]: "envelope",
+        [portable.runtime.envelopePath]: portable.runtime.envelopePath,
     };
     const hashes = new Map<string, string>();
     for (const [file, value] of Object.entries(files)) {

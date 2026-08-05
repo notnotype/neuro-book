@@ -632,6 +632,7 @@ async function waitForApplicationReady(
         try {
             const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
                 signal: AbortSignal.timeout(1_000),
+                ...(expectedStartupNonce ? {headers: {"x-neuro-book-startup-nonce": expectedStartupNonce}} : {}),
             });
             if (response.ok) {
                 const value = await response.json() as {versionLabel?: string; startupNonce?: string};

@@ -23,7 +23,7 @@ import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic} from
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
 import {parseInstallationManifest} from "#manager/schema";
-import {run, runCapture} from "#manager/process";
+import {run, runCaptureResult, type RunCaptureResult} from "#manager/process";
 import {verifyInstalledProductRuntimeImage} from "#manager/product";
 import type {InstallationComponents, InstallationManifest, InstallationRootLocators} from "#manager/types";
 
@@ -76,7 +76,7 @@ export type PortableArchiveManifest = {
     kind: DesktopEnvelope;
     platform: "windows-x64";
     product: {imagePath: ".output"; dirty: boolean; imageId: string};
-    runtime: {bunPath: "runtime/bun.exe"; envelopePath: string; envelopeVersion: string};
+    runtime: {bunPath: "runtime/bun.exe"; envelopePath: string; envelopeVersion: string; envelopeSha256: string};
     toolPack: {digest: string};
 };
 
@@ -101,9 +101,9 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
     const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
     if (!await pathExists(archivePath)) throw new Error(`Desktop Portable archive 不存在：${archivePath}`);
 
-    const desktopCacheRoot = managerDesktopCacheRoot();
-    await ensureDirectory(desktopCacheRoot);
-    const staging = await mkdtemp(join(desktopCacheRoot, `stage-${randomUUID()}-`));
+    const installationParent = dirname(installationRoot);
+    await ensureDirectory(installationParent);
+    const staging = await mkdtemp(join(installationParent, `.neurobook-stage-${randomUUID()}-`));
     try {
         await extractZip(archivePath, staging);
         const portable = parseDesktopPortableManifest(await readJson(join(staging, "manifest.json")));
@@ -161,9 +161,9 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
     if (!await pathExists(archivePath)) throw new Error(`Desktop shell archive 不存在：${archivePath}`);
 
-    const desktopCacheRoot = managerDesktopCacheRoot();
-    await ensureDirectory(desktopCacheRoot);
-    const staging = await mkdtemp(join(desktopCacheRoot, `stage-remote-${randomUUID()}-`));
+    const installationParent = dirname(installationRoot);
+    await ensureDirectory(installationParent);
+    const staging = await mkdtemp(join(installationParent, `.neurobook-stage-remote-${randomUUID()}-`));
     try {
         await extractZip(archivePath, staging);
         const shell = parseDesktopShellArchiveManifest(await readJson(join(staging, "manifest.json")));
@@ -200,7 +200,10 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
 /** 远端安装前验证服务端是否支持 DesktopBridge v1。 */
 export async function probeRemoteDesktopCapability(baseUrl: string, insecureHttpAccepted = false): Promise<DesktopCapability> {
     const origin = desktopRemoteOrigin(baseUrl, insecureHttpAccepted);
-    const response = await fetch(new URL("/api/app/desktop-capability", `${origin}/`), {redirect: "error"});
+    const response = await fetch(new URL("/api/app/desktop-capability", `${origin}/`), {
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
+    });
     if (!response.ok) throw new Error(`远端 Desktop capability 请求失败：HTTP ${String(response.status)}`);
     return parseDesktopCapability(await response.json());
 }
@@ -333,6 +336,7 @@ export async function verifyDesktopPortablePayload(
     const envelopePath = envelope === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
     if (portable.runtime.envelopePath !== envelopePath) throw new Error(`Desktop Portable Envelope 路径与命令选择不一致：${portable.runtime.envelopePath}`);
     if (!await pathExists(join(root, envelopePath))) throw new Error(`Desktop Portable 缺少 Envelope：${envelopePath}`);
+    if (`sha256:${await sha256File(join(root, envelopePath))}` !== portable.runtime.envelopeSha256) throw new Error("Desktop Portable Envelope checksum 不匹配。");
     const toolPack = manifest.components.tools;
     const rg = toolPack.rg;
     if (!rg || rg.provider !== "managed" || await sha256File(join(root, rg.path)) !== rg.executableSha256) {
@@ -458,7 +462,7 @@ async function writeRemoteManagerLauncher(managerExecutable?: string): Promise<s
 export async function removeWindowsDesktopRegistration(
     root: string,
     manifest: DesktopInstallationManifest,
-    previousPath?: string[] | null,
+    previousPath?: UserPathValue | null,
 ): Promise<void> {
     assertWindowsDesktopHost();
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
@@ -489,12 +493,9 @@ export async function uninstallRemoteDesktopInstallation(
     }
     await removeWindowsDesktopRegistration(root, manifest);
     await rm(root, {recursive: true, force: true});
-    await Promise.all([
-        rm(roots.cache, {recursive: true, force: true}),
-        rm(roots.desktop, {recursive: true, force: true}),
-        rm(roots.webview, {recursive: true, force: true}),
-        ...(deleteData ? [rm(roots.state, {recursive: true, force: true})] : []),
-    ]);
+    await rm(roots.cache, {recursive: true, force: true});
+    await rm(roots.desktop, {recursive: true, force: true});
+    if (deleteData) await rm(roots.state, {recursive: true, force: true});
     return {stateRoot: roots.state};
 }
 
@@ -506,33 +507,57 @@ async function createShortcut(path: string, target: string, workingDirectory: st
     });
 }
 
-async function regAdd(key: string, name: string, value: string): Promise<void> {
-    await run("reg.exe", ["ADD", key, "/v", name, "/t", "REG_SZ", "/d", value, "/f"], {stdio: "ignore"});
+type RegistryStringType = "REG_SZ" | "REG_EXPAND_SZ";
+
+type UserPathValue = {
+    entries: string[];
+    type: RegistryStringType;
+};
+
+async function regAdd(key: string, name: string, value: string, type: RegistryStringType = "REG_SZ"): Promise<void> {
+    await run("reg.exe", ["ADD", key, "/v", name, "/t", type, "/d", value, "/f"], {stdio: "ignore"});
 }
 
 async function addUserPath(directory: string): Promise<void> {
-    const entries = await readUserPath();
-    if (entries.some((value) => value.toLocaleLowerCase() === directory.toLocaleLowerCase())) return;
-    await regAdd("HKCU\\Environment", "Path", [...entries, directory].join(";"));
+    const existing = await readUserPath();
+    if (existing.entries.some((value) => value.toLocaleLowerCase() === directory.toLocaleLowerCase())) return;
+    await regAdd("HKCU\\Environment", "Path", [...existing.entries, directory].join(";"), existing.type);
 }
 
-async function readUserPath(): Promise<string[]> {
-    const existing = await runCapture("reg.exe", ["QUERY", "HKCU\\Environment", "/v", "Path"]).catch(() => "");
-    const match = existing.match(/Path\s+REG_(?:EXPAND_)?SZ\s+(.+)$/imu);
-    return (match?.[1] ?? "").split(";").map((value) => value.trim()).filter(Boolean);
+async function readUserPath(): Promise<UserPathValue> {
+    let result: RunCaptureResult;
+    try {
+        result = await runCaptureResult("reg.exe", ["QUERY", "HKCU\\Environment", "/v", "Path"]);
+    } catch (error) {
+        throw new Error(`读取用户 PATH 失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (result.signal || result.exitCode !== 0) {
+        const output = `${result.stdout}\n${result.stderr}`;
+        if (result.exitCode !== 1 || !/unable to find the specified registry key or value|找不到指定的注册表项或值/iu.test(output)) {
+            throw new Error(`读取用户 PATH 失败：${result.stderr.trim() || result.stdout.trim() || `退出码 ${result.exitCode ?? result.signal ?? "unknown"}`}`);
+        }
+        return {entries: [], type: "REG_EXPAND_SZ"};
+    }
+    const match = result.stdout.match(/^\s*Path\s+REG_(EXPAND_SZ|SZ)\s+(.*)$/imu);
+    if (!match) throw new Error("读取用户 PATH 失败：reg.exe 输出缺少 Path 类型。");
+    const type = match[1] === "EXPAND_SZ" ? "REG_EXPAND_SZ" : "REG_SZ";
+    return {entries: match[2].split(";").map((value) => value.trim()).filter(Boolean), type};
 }
 
-async function writeUserPath(entries: string[]): Promise<void> {
-    if (entries.length === 0) {
+async function writeUserPath(value: UserPathValue): Promise<void> {
+    if (value.entries.length === 0) {
         await regDelete("HKCU\\Environment", "/v", "Path");
         return;
     }
-    await regAdd("HKCU\\Environment", "Path", entries.join(";"));
+    await regAdd("HKCU\\Environment", "Path", value.entries.join(";"), value.type);
 }
 
 async function removeUserPath(directory: string): Promise<void> {
-    const entries = (await readUserPath()).filter((value) => value.toLocaleLowerCase() !== directory.toLocaleLowerCase());
-    await writeUserPath(entries);
+    const existing = await readUserPath();
+    await writeUserPath({
+        ...existing,
+        entries: existing.entries.filter((value) => value.toLocaleLowerCase() !== directory.toLocaleLowerCase()),
+    });
 }
 
 async function regDelete(key: string, ...extra: string[]): Promise<void> {
@@ -555,18 +580,20 @@ export function parseDesktopPortableManifest(value: unknown): PortableArchiveMan
     const dirty = (product as Record<string, unknown>).dirty;
     const envelopeVersion = (runtime as Record<string, unknown>).envelopeVersion;
     const envelopePath = (runtime as Record<string, unknown>).envelopePath;
+    const envelopeSha256 = (runtime as Record<string, unknown>).envelopeSha256;
     const toolDigest = (toolPack as Record<string, unknown>).digest;
     if (typeof imageId !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(imageId)) throw new Error("Portable Product imageId 无效。");
     if (typeof dirty !== "boolean") throw new Error("Portable Product dirty 标记无效。");
     if (typeof envelopeVersion !== "string" || !envelopeVersion.trim()) throw new Error("Portable Envelope version 缺失。");
     if (typeof envelopePath !== "string" || !envelopePath.trim()) throw new Error("Portable Envelope 路径缺失。");
+    if (typeof envelopeSha256 !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(envelopeSha256)) throw new Error("Portable Envelope checksum 无效。");
     if (typeof toolDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(toolDigest)) throw new Error("Portable Tool Pack digest 无效。");
     return {
         schema: "nbook.desktop-portable/v1",
         kind: root.kind,
         platform: "windows-x64",
         product: {imagePath: ".output", dirty, imageId},
-        runtime: {bunPath: "runtime/bun.exe", envelopePath, envelopeVersion},
+        runtime: {bunPath: "runtime/bun.exe", envelopePath, envelopeVersion, envelopeSha256},
         toolPack: {digest: toolDigest},
     };
 }

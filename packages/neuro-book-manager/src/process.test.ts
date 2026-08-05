@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import {runBun, runCapture} from "#manager/process";
+import {runBun, runCapture, runCaptureResult} from "#manager/process";
 
 describe("Bun子进程适配器", () => {
     it("完整转发包含空格的参数", async () => {
@@ -21,5 +21,10 @@ describe("Bun子进程适配器", () => {
             "-e",
             "process.stdout.write('1.3.14')",
         ])).resolves.toBe("1.3.14");
+    });
+
+    it("保留查询命令的非零退出结果，供注册表缺失和值错误分流", async () => {
+        await expect(runCaptureResult(process.execPath, ["-e", "process.stdout.write('missing'); process.exit(1)"]))
+            .resolves.toMatchObject({stdout: "missing", exitCode: 1, signal: null});
     });
 });

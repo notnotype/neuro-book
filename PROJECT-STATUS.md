@@ -44,6 +44,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - [Task 111](docs/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。
 - Product Runtime 已完成 Windows clean archive、Verifier、migration、Profile/Variable、SQLite、Sharp、Workspace CLI、HTTP/shutdown 和 State Root 生命周期验证。该证据不等于五平台 Release、真实 Docker/Podman、最终 Portable、浏览器或桌面壳验收。
 - Task 140 已完成 Windows x64 的 Electron/Tauri Portable、ASAR、Manager CLI 用户级安装、Desktop Bridge/Supervisor、动态 loopback、认证关闭和 Tauri Job Object forced smoke；证据见 [Task 140 walkthrough](docs/tasks/140-desktop-envelope-installation-spike/README.md)。真实窗口/SSE/WebSocket/编辑器交互、WebView2 分发、签名安装器/updater、macOS 实际包和完整 crash/disconnect 矩阵仍未完成。
+- Task 140 本轮收口补齐了 Portable Envelope 内容摘要、startup nonce header 保护、State Root 日志入口、Windows PATH fail-closed 读取、同盘 staging 和 Tauri 关闭幂等 claim；focused/type/security 门禁已重跑通过。此前 source-locked Build A/B 与 Portable 数字尚未包含这些最新改动，新的 clean build/Portable smoke 仍需单独记录，不能直接复用旧产物结论。
 - 测试写入 Project Workspace 的高风险路径已切换到隔离 Runtime Workspace Root；相关清理竞态和真实根残留已有专项记录，详见 [Task 125 Round 04](docs/tasks/125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)。
 
 ## 当前风险与验收缺口

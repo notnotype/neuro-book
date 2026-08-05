@@ -31,6 +31,7 @@ use windows_sys::Win32::System::JobObjects::{
 const SUPERVISOR_SCHEMA: &str = "nbook.desktop-supervisor/v1";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(45);
+const CLOSE_DIALOG_TIMEOUT: Duration = Duration::from_secs(15);
 const DESKTOP_BRIDGE_SCHEMA: &str = "nbook.desktop-bridge/v1";
 const DESKTOP_SETTINGS_SCHEMA: &str = "nbook.desktop-settings/v1";
 const TAURI_BRIDGE_SCRIPT: &str = r#"
@@ -191,6 +192,7 @@ struct SupervisorState {
     desktop_root: PathBuf,
     allow_window_close: Mutex<bool>,
     close_dialog_pending: Mutex<bool>,
+    shutdown_started: Mutex<bool>,
 }
 
 #[derive(Clone, Serialize)]
@@ -284,6 +286,8 @@ fn config() -> Result<Config, String> {
         "T140_MANAGER",
         "T140_BUN_EXECUTABLE",
         "T140_PORT",
+        "T140_REMOTE_URL",
+        "T140_ALLOW_INSECURE_HTTP",
     ]
     .iter()
     .any(|key| std::env::var_os(key).is_some());
@@ -295,7 +299,7 @@ fn config() -> Result<Config, String> {
         let remote_url = std::env::var("T140_REMOTE_URL")
             .ok()
             .filter(|value| !value.trim().is_empty())
-            .map(|value| validate_remote_origin(&value, true))
+            .map(|value| validate_remote_origin(&value, env_flag("T140_ALLOW_INSECURE_HTTP")))
             .transpose()?;
         return Ok(Config {
             image_root: env_path("T140_PRODUCT_IMAGE_ROOT")?,
@@ -432,9 +436,7 @@ fn read_remote_url(desktop_root: &Path) -> Result<Option<String>, String> {
             let accepted = connection
                 .and_then(|item| item.get("insecureHttpAccepted"))
                 .and_then(Value::as_bool)
-                .ok_or_else(|| {
-                    "远端 Desktop Installation Manifest 缺少 HTTP 风险确认".to_string()
-                })?;
+                .unwrap_or(false);
             Ok(Some(validate_remote_origin(url, accepted)?))
         }
         _ => Err("Desktop Installation Manifest connection 无效".to_string()),
@@ -478,6 +480,14 @@ fn is_private_ipv4(address: std::net::Ipv4Addr) -> bool {
         || first == 127
         || (first == 192 && second == 168)
         || (first == 172 && (16..=31).contains(&second))
+}
+
+/** 环境中的不安全 HTTP 只能由独立显式开关确认，默认拒绝。 */
+fn env_flag(name: &str) -> bool {
+    matches!(
+        std::env::var(name).ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 /** 让系统选择一个 loopback 端口，交给本次 Supervisor 生命周期独占。 */
@@ -600,9 +610,6 @@ fn wait_ready(
     expected_port: u16,
 ) -> Result<String, String> {
     let deadline = Instant::now() + START_TIMEOUT;
-    let mut ready = false;
-    let mut verified = false;
-    let mut version = String::new();
     while Instant::now() < deadline {
         if let Some(status) = child
             .try_wait()
@@ -643,7 +650,7 @@ fn wait_ready(
                 if observed_origin != format!("http://127.0.0.1:{expected_port}") {
                     return Err("Supervisor ready origin 与动态端口不一致".to_string());
                 }
-                version = value
+                let version = value
                     .get("version")
                     .and_then(Value::as_str)
                     .unwrap_or_default()
@@ -651,12 +658,7 @@ fn wait_ready(
                 if version.is_empty() {
                     return Err("Supervisor ready 缺少 Product version".to_string());
                 }
-                ready = true;
-            }
-            Some("verified")
-                if value.get("verification").and_then(Value::as_str) == Some("full") =>
-            {
-                verified = true
+                return Ok(version);
             }
             Some("failure") => {
                 return Err(format!(
@@ -672,9 +674,6 @@ fn wait_ready(
                 ));
             }
             _ => {}
-        }
-        if ready && verified {
-            return Ok(version);
         }
     }
     Err("Manager Supervisor ready 超时".to_string())
@@ -697,25 +696,38 @@ fn graceful_shutdown(state: &SupervisorState) -> Result<&'static str, String> {
             let _ = writer.flush();
         }
     }
-    let mut child_guard = state
-        .child
-        .lock()
-        .map_err(|_| "Manager child lock poisoned".to_string())?;
-    let child = child_guard
-        .as_mut()
-        .ok_or_else(|| "Manager Supervisor 已收口".to_string())?;
     let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
     loop {
-        if child
-            .try_wait()
-            .map_err(|error| format!("读取 Manager Supervisor 终态失败：{error}"))?
-            .is_some()
-        {
+        let exited = {
+            let mut child_guard = state
+                .child
+                .lock()
+                .map_err(|_| "Manager child lock poisoned".to_string())?;
+            let child = match child_guard.as_mut() {
+                Some(child) => child,
+                None => return Ok("graceful"),
+            };
+            child
+                .try_wait()
+                .map_err(|error| format!("读取 Manager Supervisor 终态失败：{error}"))?
+                .is_some()
+        };
+        if exited {
+            let mut child_guard = state
+                .child
+                .lock()
+                .map_err(|_| "Manager child lock poisoned".to_string())?;
             *child_guard = None;
             return Ok("graceful");
         }
         if Instant::now() >= deadline {
-            force_kill(child, state.job.as_ref())?;
+            let mut child_guard = state
+                .child
+                .lock()
+                .map_err(|_| "Manager child lock poisoned".to_string())?;
+            if let Some(child) = child_guard.as_mut() {
+                force_kill(child, state.job.as_ref())?;
+            }
             *child_guard = None;
             return Ok("forced");
         }
@@ -739,6 +751,85 @@ fn shutdown_with_fallback(state: &SupervisorState) -> Result<&'static str, Strin
             Ok("forced")
         }
     }
+}
+
+/** 关闭请求只允许第一个调用方进入 Supervisor 收口；后续调用复用首个请求的结果。 */
+fn claim_shutdown(state: &SupervisorState) -> Result<bool, String> {
+    let mut started = state
+        .shutdown_started
+        .lock()
+        .map_err(|_| "Tauri shutdown 状态锁损坏".to_string())?;
+    if *started {
+        return Ok(false);
+    }
+    *started = true;
+    Ok(true)
+}
+
+/** 判断是否已有关闭请求；用于确认框竞态下阻止取消操作重新隐藏窗口。 */
+fn shutdown_started(state: &SupervisorState) -> Result<bool, String> {
+    state
+        .shutdown_started
+        .lock()
+        .map(|started| *started)
+        .map_err(|_| "Tauri shutdown 状态锁损坏".to_string())
+}
+
+/** 在 Tauri 异步运行时的阻塞线程中完成关闭，避免拖住窗口事件循环。 */
+async fn shutdown_async(state: Arc<SupervisorState>) -> Result<&'static str, String> {
+    tauri::async_runtime::spawn_blocking(move || shutdown_with_fallback(&state))
+        .await
+        .map_err(|error| format!("Tauri shutdown worker 失败：{error}"))?
+}
+
+/** 在后台完成 Product 收口，再回到主线程允许窗口关闭。 */
+fn spawn_shutdown_and_close(window: WebviewWindow, state: Arc<SupervisorState>) {
+    match claim_shutdown(state.as_ref()) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            eprintln!("Tauri shutdown 状态不可用：{error}");
+            return;
+        }
+    }
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = shutdown_async(Arc::clone(&state)).await {
+            eprintln!("Tauri close shutdown 失败：{error}");
+        }
+        if let Ok(mut allow) = state.allow_window_close.lock() {
+            *allow = true;
+        }
+        let close_window = window.clone();
+        if let Err(error) = window.run_on_main_thread(move || {
+            if let Err(error) = close_window.close() {
+                eprintln!("关闭 NeuroBook 失败：{error}");
+            }
+        }) {
+            eprintln!("调度 NeuroBook 关闭失败：{error}");
+        }
+    });
+}
+
+/** 确认框超时后只由仍处于 pending 的请求触发一次关闭。 */
+fn schedule_close_dialog_timeout(window: WebviewWindow, state: Arc<SupervisorState>) {
+    thread::spawn(move || {
+        thread::sleep(CLOSE_DIALOG_TIMEOUT);
+        let should_close = state
+            .close_dialog_pending
+            .lock()
+            .map(|mut pending| {
+                if *pending {
+                    *pending = false;
+                    true
+                } else {
+                    false
+                }
+            })
+            .unwrap_or(false);
+        if should_close {
+            spawn_shutdown_and_close(window, state);
+        }
+    });
 }
 
 fn force_kill(child: &mut Child, job: Option<&SupervisorJob>) -> Result<(), String> {
@@ -955,7 +1046,7 @@ fn desktop_update_settings(
 }
 
 #[tauri::command]
-fn desktop_close_decision(
+async fn desktop_close_decision(
     window: WebviewWindow,
     state: State<'_, Arc<SupervisorState>>,
     quit: bool,
@@ -964,7 +1055,17 @@ fn desktop_close_decision(
     if let Ok(mut pending) = state.close_dialog_pending.lock() {
         *pending = false;
     }
+    if shutdown_started(state.as_ref())? {
+        return Ok(());
+    }
     if quit {
+        if !claim_shutdown(state.as_ref())? {
+            return Ok(());
+        }
+        let shutdown = shutdown_async(Arc::clone(state.inner())).await;
+        if let Err(error) = shutdown {
+            eprintln!("Tauri quit shutdown 失败：{error}");
+        }
         if let Ok(mut allow) = state.allow_window_close.lock() {
             *allow = true;
         }
@@ -1120,6 +1221,7 @@ fn start_headless(config: Config, force_shutdown: bool) -> Result<(), String> {
         desktop_root: config.desktop_root,
         allow_window_close: Mutex::new(false),
         close_dialog_pending: Mutex::new(false),
+        shutdown_started: Mutex::new(false),
     };
     let result = if force_shutdown {
         let mut child_guard = state
@@ -1204,14 +1306,7 @@ fn main() {
                 receiver,
             )
         };
-    if connection == "local" {
-        // Manager Supervisor 的剩余事件由后台线程消费，避免 stdout pipe 填满。
-        thread::spawn(move || {
-            for line in receiver {
-                eprintln!("[manager] {line}");
-            }
-        });
-    }
+    let is_local_connection = connection == "local";
     let state = Arc::new(SupervisorState {
         child: Mutex::new(child),
         stdin: Mutex::new(stdin),
@@ -1223,7 +1318,37 @@ fn main() {
         desktop_root: config.desktop_root.clone(),
         allow_window_close: Mutex::new(false),
         close_dialog_pending: Mutex::new(false),
+        shutdown_started: Mutex::new(false),
     });
+    if is_local_connection {
+        // Manager Supervisor 的剩余事件由后台线程消费；完整验证失败时立即收口 Product。
+        let background_state = Arc::clone(&state);
+        let background_request_id = background_state.request_id.clone();
+        thread::spawn(move || {
+            for line in receiver {
+                let value = serde_json::from_str::<Value>(&line).ok();
+                if value
+                    .as_ref()
+                    .and_then(|item| item.get("requestId"))
+                    .and_then(Value::as_str)
+                    != Some(background_request_id.as_str())
+                {
+                    continue;
+                }
+                if value
+                    .as_ref()
+                    .and_then(|item| item.get("type"))
+                    .and_then(Value::as_str)
+                    == Some("failure")
+                {
+                    eprintln!("[manager] {line}");
+                    let _ = shutdown_with_fallback(&background_state);
+                    break;
+                }
+                eprintln!("[manager] {line}");
+            }
+        });
+    }
     let state_for_setup = Arc::clone(&state);
     let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -1294,6 +1419,10 @@ fn main() {
                             if !*pending {
                                 *pending = true;
                                 let _ = window_for_close.emit("neurobook:close-requested", ());
+                                schedule_close_dialog_timeout(
+                                    window_for_close.clone(),
+                                    Arc::clone(&state_for_close),
+                                );
                             }
                         }
                         return;
@@ -1303,9 +1432,11 @@ fn main() {
                         let _ = window_for_close.hide();
                         return;
                     }
-                    if let Err(error) = shutdown_with_fallback(&state_for_close) {
-                        eprintln!("Tauri close fallback 失败：{error}");
-                    }
+                    api.prevent_close();
+                    spawn_shutdown_and_close(
+                        window_for_close.clone(),
+                        Arc::clone(&state_for_close),
+                    );
                 }
             });
             Ok(())

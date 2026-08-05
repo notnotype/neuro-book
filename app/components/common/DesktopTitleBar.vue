@@ -27,7 +27,7 @@ async function invoke(command: DesktopMenuCommandId): Promise<void> {
             <div class="desktop-title-bar__menus">
                 <button v-for="menu in menus" :key="menu.label" type="button" class="desktop-title-bar__menu" @click="void invoke(menu.command)">{{ menu.label }}</button>
             </div>
-            <div class="desktop-title-bar__status">{{ status?.connection === "remote" ? "Remote" : "Local" }}{{ status?.version ? ` · ${status.version}` : "" }}</div>
+            <div v-if="status" class="desktop-title-bar__status">{{ status.connection === "remote" ? "Remote" : "Local" }}{{ status.version ? ` · ${status.version}` : "" }}</div>
         </div>
     </div>
 </template>

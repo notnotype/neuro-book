@@ -22,7 +22,7 @@ const desktopAvailable = computed(() => import.meta.client && Boolean(window.neu
     <div :class="{ 'desktop-page-shell': desktopAvailable }">
         <NuxtPage/>
     </div>
-    <NotificationViewport />
+    <NotificationViewport :desktop="desktopAvailable" />
 </template>
 
 <style>
