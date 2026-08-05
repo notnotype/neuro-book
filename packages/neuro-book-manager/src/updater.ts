@@ -37,6 +37,8 @@ import {writeInstallationManifest} from "#manager/manifest-store";
 import {
     completeRuntimeWrapperSwitch,
     commitOperation,
+    prepareProductRuntimeReceiptSwitch,
+    completeProductRuntimeReceiptSwitch,
     createOperation,
     operationEffect,
     pathCreateEffect,
@@ -49,7 +51,7 @@ import {
 } from "#manager/operation";
 import {assertInstallationHostCompatible, currentProductPlatform} from "#manager/platform";
 import {installationPaths} from "#manager/paths";
-import {buildSourceProduct, installSourceDependencies} from "#manager/product";
+import {buildSourceProduct, installSourceDependencies, issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {installManagerExecutable, runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {writeManagedToolWrappers} from "#manager/tools";
 import {parseInstallationManifest} from "#manager/schema";
@@ -260,6 +262,13 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
                     assertProductExit(await healthLaunch.completion, "NeuroBook 服务退出");
                     healthLaunch = null;
                 }
+            }
+            const installedProduct = result.manifest.components.product;
+            if (installedProduct && installedProduct.provider !== "container" && await pathExists(join(paths.root, installedProduct.path))) {
+                const receiptPath = join(paths.deploy, "product-runtime-receipt.json");
+                journal = await prepareProductRuntimeReceiptSwitch(journal, receiptPath);
+                await issueInstalledProductRuntimeReceipt(paths.root, installedProduct, receiptPath);
+                journal = await completeProductRuntimeReceiptSwitch(journal);
             }
             journal = await updateOperation(journal, "healthy");
             if (gitTarget) {

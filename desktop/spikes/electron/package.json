@@ -5,11 +5,12 @@
     "main": "dist/main.mjs",
     "scripts": {
         "version": "electron --version",
-        "build": "bun ../shared/build.mjs && bun build.mjs",
+        "build": "bun build.mjs",
         "audit": "bun run build && bun -e \"import('./dist/main.mjs').catch(() => process.exit(0))\"",
         "headless": "bun run build && electron dist/main.mjs --headless"
     },
     "devDependencies": {
-        "electron": "latest"
+        "@electron/asar": "^4.2.1",
+        "electron": "^43.2.0"
     }
 }

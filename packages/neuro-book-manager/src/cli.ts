@@ -32,6 +32,8 @@ import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
+import {runDesktopSupervisor} from "#manager/desktop-supervisor";
+import {installDesktopFromLocalDepot} from "#manager/desktop-installation";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -366,6 +368,73 @@ program.command("uninstall")
     });
 
 const desktop = program.command("desktop").description("管理 Desktop Local/WebView 状态。");
+desktop.command("install")
+    .description("从本地 Portable depot 安装 Windows 用户级 Desktop；下载与更新由 Manager 托管。")
+    .requiredOption("--archive <path>", "Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
+    .option("--envelope <envelope>", "桌面壳：electron 或 tauri。", "electron")
+    .option("--channel <channel>", "发行通道：stable 或 canary。", parseChannel)
+    .option("--remote <url>", "连接远端 Product；不传则使用本机 Product。")
+    .option("--allow-insecure-http", "允许局域网 HTTP 远端；安装后状态仍标记为不安全。", false)
+    .option("--dir <path>", "Installation Root，默认 %LOCALAPPDATA%\\Programs\\NeuroBook。")
+    .option("--runtime-provider <provider>", "Runtime provider；当前本地 depot 只支持 managed。", "managed")
+    .option("--tool-provider <provider>", "Tool provider；当前本地 depot 只支持 managed。", "managed")
+    .option("--add-cli-to-path", "把 Manager CLI 加入当前用户 PATH。", false)
+    .option("--yes", "跳过交互确认。", false)
+    .action(async (options: {
+        archive: string;
+        envelope: string;
+        channel?: ReleaseChannel;
+        remote?: string;
+        allowInsecureHttp: boolean;
+        dir?: string;
+        runtimeProvider: string;
+        toolProvider: string;
+        addCliToPath: boolean;
+        yes: boolean;
+    }) => {
+        if (process.platform !== "win32") throw new Error("Desktop 用户级安装当前只支持 Windows；macOS 仅完成安装合同与 CI 准备。" );
+        if (options.envelope !== "electron" && options.envelope !== "tauri") throw new Error(`不支持的 Desktop envelope：${options.envelope}`);
+        if (options.runtimeProvider !== "managed" || options.toolProvider !== "managed") {
+            throw new Error("本地 Portable depot 当前只提供 managed Bun、Git/Bash 和 rg；system provider 选择将在 Manager 下载合同接入后开放。" );
+        }
+        const remoteUrl = options.remote ? new URL(options.remote) : null;
+        if (remoteUrl) {
+            if (remoteUrl.protocol !== "https:" && !(remoteUrl.protocol === "http:" && options.allowInsecureHttp)) {
+                throw new Error("远端 Desktop 默认要求 HTTPS；局域网 HTTP 必须显式传入 --allow-insecure-http。" );
+            }
+            if (remoteUrl.protocol === "http:" && !options.yes && process.stdin.isTTY && process.stdout.isTTY) {
+                const confirmed = await promptResult(p.confirm({message: "HTTP 远端连接未加密，仍要继续？", initialValue: false}));
+                if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
+            }
+        }
+        if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
+            const confirmed = await promptResult(p.confirm({message: `安装 ${options.envelope} Desktop 到用户级目录？`, initialValue: true}));
+            if (!confirmed) { p.cancel("已取消 Desktop 安装。" ); return; }
+        }
+        const result = await installDesktopFromLocalDepot({
+            archivePath: options.archive,
+            envelope: options.envelope,
+            channel: options.channel ?? "canary",
+            connection: remoteUrl
+                ? {mode: "remote", baseUrl: remoteUrl.origin, insecureHttpAccepted: remoteUrl.protocol === "http:"}
+                : {mode: "local"},
+            installationRoot: options.dir,
+            addCliToUserPath: options.addCliToPath,
+        });
+        await registerManagerInstance({
+            root: result.installationRoot,
+            name: "NeuroBook",
+            makeDefault: true,
+            preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
+        });
+        p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}`);
+    });
+desktop.command("supervise")
+    .description("通过 stdin/stdout NDJSON 为 Desktop Envelope 编排 Product 生命周期。")
+    .action(async () => {
+        const {root, manifest} = await currentInstallation();
+        await runDesktopSupervisor({root, manifest});
+    });
 desktop.command("reset")
     .description("删除当前实例的 Desktop Local Root，包括 WebView profile。")
     .option("--yes", "确认删除桌面本地状态。", false)

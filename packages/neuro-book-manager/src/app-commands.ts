@@ -8,6 +8,7 @@ import {
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+    PRODUCT_STARTUP_NONCE_ENVIRONMENT,
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
@@ -72,6 +73,12 @@ export type StartApplicationOptions = {
     stateRoot?: string;
     /** 嵌入宿主结束自身生命周期时请求Manager完整关闭Product。 */
     shutdownSignal?: AbortSignal;
+    /** Desktop Supervisor 为本次候选注入的启动关联 nonce。 */
+    startupNonce?: string;
+    /** Desktop 候选的动态 loopback 端口；不写回 State Root。 */
+    port?: number;
+    /** ready 后由宿主消费的结构化回调。 */
+    onReady?: (ready: {port: number; startupNonce?: string}) => Promise<void>;
 };
 
 export type PortableForegroundOptions = StartApplicationOptions & {
@@ -127,6 +134,8 @@ export type ApplicationLaunchOptions = PortableForegroundOptions & {
 export interface ApplicationLaunch {
     readonly ready: Promise<void>;
     readonly completion: Promise<{code: number | null; signal: string | null}>;
+    readonly port: number;
+    readonly startupNonce?: string;
     /** 正常关闭先请求 Product 收口资源；超时或协议失败后终止 Owned Process。 */
     shutdown(): Promise<void>;
     /** 启动、更新或迁移失败时立即终止候选 Owned Process。 */
@@ -172,6 +181,11 @@ export async function launchApplication(
     if (execution.kind === "container-product") {
         let terminated = false;
         let candidateContainerId: string | null = null;
+        const containerEnvironment = await loadStateEnv(stateRoot);
+        const containerPort = Number(containerEnvironment.NUXT_PORT ?? containerEnvironment.PORT ?? "3000");
+        if (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535) {
+            throw new Error(`Container Application 端口非法：${String(containerPort)}`);
+        }
         const ready = startDocker(
             execution.image,
             root,
@@ -203,15 +217,19 @@ export async function launchApplication(
         return {
             ready,
             completion,
+            port: containerPort,
             shutdown: stop,
             terminate: stop,
         };
     }
     const shutdownToken = randomBytes(32).toString("base64url");
+    const startupNonce = options.startupNonce;
     const bun = resolveBun(root, manifest);
     const env: NodeJS.ProcessEnv = {
         ...await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev", roots.cache),
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
+        ...(startupNonce ? {[PRODUCT_STARTUP_NONCE_ENVIRONMENT]: startupNonce} : {}),
+        ...(options.port ? {PORT: String(options.port), NUXT_PORT: String(options.port), NITRO_PORT: String(options.port)} : {}),
         BUN: bun,
     };
     if (execution.kind === "native-product") delete env.NODE_PATH;
@@ -240,9 +258,15 @@ export async function launchApplication(
         signal: result.signal,
     }));
     const healthCheck = options.healthCheck !== false;
-    const port = Number(env.NUXT_PORT ?? env.PORT ?? "3000");
+    const port = options.port ?? Number(env.NUXT_PORT ?? env.PORT ?? "3000");
     const ready = healthCheck
-        ? waitForApplicationReady(port, manifest.appVersion, completion, options.startupTimeoutMs ?? 120_000)
+        ? waitForApplicationReady(
+            port,
+            manifest.appVersion,
+            completion,
+            options.startupTimeoutMs ?? 120_000,
+            startupNonce,
+        )
         : Promise.resolve();
     if (manifest.profile === "windows-portable" && healthCheck && options.openBrowser) {
         void ready.then(() => run("cmd.exe", ["/c", "start", "", `http://127.0.0.1:${String(port)}`], {
@@ -254,6 +278,8 @@ export async function launchApplication(
     return {
         ready,
         completion,
+        port,
+        startupNonce,
         shutdown: () => {
             if (!shutdownPromise) {
                 shutdownPromise = shutdownNativeProduct({
@@ -582,6 +608,7 @@ async function waitForApplicationReady(
     expectedVersion: string,
     completion: Promise<{code: number | null; signal: string | null}>,
     timeoutMs: number,
+    expectedStartupNonce?: string,
 ): Promise<void> {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Application 端口非法：${String(port)}`);
     const completionState: {
@@ -605,10 +632,13 @@ async function waitForApplicationReady(
                 signal: AbortSignal.timeout(1_000),
             });
             if (response.ok) {
-                const value = await response.json() as {versionLabel?: string};
+                const value = await response.json() as {versionLabel?: string; startupNonce?: string};
                 const expected = expectedVersion.startsWith("v") ? expectedVersion : `v${expectedVersion}`;
                 if (value.versionLabel !== expected) {
                     throw new Error(`Product 版本接口返回 ${value.versionLabel ?? "<missing>"}，期望 ${expected}。`);
+                }
+                if (expectedStartupNonce && value.startupNonce !== expectedStartupNonce) {
+                    throw new Error("Product 启动 nonce 与本次候选不一致。");
                 }
                 return;
             }

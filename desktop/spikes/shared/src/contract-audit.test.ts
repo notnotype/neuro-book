@@ -11,7 +11,7 @@ describe("Task 140 Product Contract adapter", () => {
         await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
     });
 
-    it("只接受 v4 commands 下的可迁移入口，并返回可脱敏审计结果", async () => {
+    it("只接受 v5 commands 下的可迁移入口，并返回可脱敏审计结果", async () => {
         const root = resolve(".agent", "tmp", "t140-contract-audit", `${Date.now()}-${Math.random().toString(16).slice(2)}`);
         roots.push(root);
         await mkdir(resolve(root, "server"), {recursive: true});
@@ -33,7 +33,7 @@ describe("Task 140 Product Contract adapter", () => {
             worldEngineConfigSmoke: "server/commands/product-world-engine-config-smoke.mjs",
         })), "utf8");
         const audit = await auditProductContract(root);
-        expect(audit.schema).toBe("nbook.product-runtime-contract/v4");
+        expect(audit.schema).toBe("nbook.product-runtime-contract/v5");
         expect(audit.entries).toHaveLength(7);
         expect(audit.unsafeEntries).toEqual([]);
     });

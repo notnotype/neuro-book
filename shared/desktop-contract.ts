@@ -1,0 +1,470 @@
+export const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v1";
+export const DESKTOP_DISTRIBUTION_SCHEMA = "nbook.desktop-distribution/v1";
+export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v1";
+export const DESKTOP_SETTINGS_SCHEMA = "nbook.desktop-settings/v1";
+export const DESKTOP_SUPERVISOR_SCHEMA = "nbook.desktop-supervisor/v1";
+export const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
+
+export const DESKTOP_ENVELOPES = ["electron", "tauri"] as const;
+export const DESKTOP_CHANNELS = ["stable", "canary"] as const;
+export const DESKTOP_COMPONENT_IDS = [
+    "source",
+    "product",
+    "bun",
+    "manager-cli",
+    "electron-envelope",
+    "tauri-envelope",
+    "tool-pack",
+    "webview2-runtime",
+] as const;
+export const DESKTOP_MENU_COMMAND_IDS = [
+    "file.open",
+    "file.settings",
+    "file.quit",
+    "edit.undo",
+    "edit.redo",
+    "edit.cut",
+    "edit.copy",
+    "edit.paste",
+    "edit.select-all",
+    "view.reload",
+    "view.zoom-in",
+    "view.zoom-out",
+    "view.zoom-reset",
+    "help.documentation",
+    "help.about",
+] as const;
+export const DESKTOP_WINDOW_COMMAND_IDS = [
+    "show",
+    "hide",
+    "minimize",
+    "toggle-maximize",
+    "close",
+    "quit",
+    "open-logs",
+] as const;
+
+export type DesktopEnvelope = typeof DESKTOP_ENVELOPES[number];
+export type DesktopChannel = typeof DESKTOP_CHANNELS[number];
+export type DesktopComponentId = typeof DESKTOP_COMPONENT_IDS[number];
+export type DesktopMenuCommandId = typeof DESKTOP_MENU_COMMAND_IDS[number];
+export type DesktopWindowCommandId = typeof DESKTOP_WINDOW_COMMAND_IDS[number];
+export type DesktopCloseBehavior = "ask" | "tray" | "quit";
+
+export type DesktopComponentArchive = {
+    kind: "path" | "url";
+    location: string;
+    sha256: string;
+    bytes: number;
+    format: "zip" | "file";
+};
+
+export type DesktopDistributionComponent = {
+    id: DesktopComponentId;
+    version: string;
+    archive: DesktopComponentArchive;
+    required: boolean;
+};
+
+/** 可下载组件的不可变发行声明；组件本身只允许内容寻址 archive。 */
+export type DesktopDistributionManifest = {
+    schema: typeof DESKTOP_DISTRIBUTION_SCHEMA;
+    version: string;
+    channel: DesktopChannel;
+    platform: "windows" | "macos";
+    architecture: "x64" | "arm64";
+    components: DesktopDistributionComponent[];
+};
+
+export type DesktopInstalledComponent = {
+    id: DesktopComponentId;
+    version: string;
+    path: string;
+    sha256: string;
+};
+
+export type DesktopConnection =
+    | {mode: "local"}
+    | {mode: "remote"; baseUrl: string; insecureHttpAccepted: boolean};
+
+/** Desktop 安装层的本机真相源；所有组件路径均相对 Installation Root。 */
+export type DesktopInstallationManifest = {
+    schema: typeof DESKTOP_INSTALLATION_SCHEMA;
+    installationId: string;
+    envelope: DesktopEnvelope;
+    channel: DesktopChannel;
+    connection: DesktopConnection;
+    components: DesktopInstalledComponent[];
+    addCliToUserPath: boolean;
+    installedAt: string;
+    updatedAt: string;
+};
+
+/** 设备本地设置，不进入 Product State Root 或内容备份。 */
+export type DesktopSettings = {
+    schema: typeof DESKTOP_SETTINGS_SCHEMA;
+    zoomFactor: number;
+    trayEnabled: boolean;
+    closeBehavior: DesktopCloseBehavior;
+};
+
+export const DEFAULT_DESKTOP_SETTINGS: DesktopSettings = Object.freeze({
+    schema: DESKTOP_SETTINGS_SCHEMA,
+    zoomFactor: 1,
+    trayEnabled: true,
+    closeBehavior: "ask",
+});
+
+export type DesktopStatus = {
+    schema: typeof DESKTOP_BRIDGE_SCHEMA;
+    envelope: DesktopEnvelope;
+    connection: "local" | "remote";
+    version: string;
+    origin: string;
+    insecureRemote: boolean;
+    nativeWindowControls: boolean;
+};
+
+export type DesktopSettingsPatch = Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>;
+
+/** Renderer 唯一允许看到的宿主能力；不包含 shell、fs 或 Manager 控制凭据。 */
+export interface DesktopBridge {
+    readonly schema: typeof DESKTOP_BRIDGE_SCHEMA;
+    status(): Promise<DesktopStatus>;
+    settings(): Promise<DesktopSettings>;
+    updateSettings(patch: DesktopSettingsPatch): Promise<DesktopSettings>;
+    window(command: DesktopWindowCommandId): Promise<void>;
+    menu(command: DesktopMenuCommandId): Promise<void>;
+    onMenuCommand(listener: (command: DesktopMenuCommandId) => void): () => void;
+}
+
+export type DesktopCapability = {
+    schema: typeof DESKTOP_CAPABILITY_SCHEMA;
+    productVersion: string;
+    bridgeSchemas: [typeof DESKTOP_BRIDGE_SCHEMA];
+    supportsRemoteDesktop: true;
+};
+
+export type DesktopSupervisorRequest =
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "start"; startupNonce: string; port: number}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "stop"}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "verify"}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "repair"};
+
+export type DesktopSupervisorStage =
+    | "quick-verify"
+    | "migration"
+    | "starting-product"
+    | "waiting-ready"
+    | "background-verify"
+    | "stopping-product"
+    | "repairing";
+
+export type DesktopSupervisorEvent =
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "stage"; stage: DesktopSupervisorStage}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "ready"; url: string; origin: string; version: string; startupNonce: string}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "verified"; verification: "quick" | "full"}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "stopped"; shutdown: "graceful" | "forced"}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "failure"; code: string; message: string; recoverable: boolean}
+    | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "logs"; path: string};
+
+/** 严格解析 Desktop Distribution Manifest。输入是磁盘或网络上的不可信 JSON。 */
+export function parseDesktopDistributionManifest(value: unknown): DesktopDistributionManifest {
+    const root = object(value, "Desktop Distribution Manifest");
+    exactKeys(root, ["schema", "version", "channel", "platform", "architecture", "components"], "Desktop Distribution Manifest");
+    literal(root.schema, DESKTOP_DISTRIBUTION_SCHEMA, "schema");
+    const version = nonEmptyString(root.version, "version");
+    const channel = member(root.channel, DESKTOP_CHANNELS, "channel");
+    const platform = member(root.platform, ["windows", "macos"] as const, "platform");
+    const architecture = member(root.architecture, ["x64", "arm64"] as const, "architecture");
+    if (!Array.isArray(root.components)) throw new Error("components 必须是数组。");
+    const components = root.components.map((item, index) => parseDistributionComponent(item, index));
+    assertUnique(components.map((item) => item.id), "Desktop Distribution components");
+    return {schema: DESKTOP_DISTRIBUTION_SCHEMA, version, channel, platform, architecture, components};
+}
+
+/** 严格解析 Desktop Installation Manifest。输入是本机磁盘上的不可信 JSON。 */
+export function parseDesktopInstallationManifest(value: unknown): DesktopInstallationManifest {
+    const root = object(value, "Desktop Installation Manifest");
+    exactKeys(root, ["schema", "installationId", "envelope", "channel", "connection", "components", "addCliToUserPath", "installedAt", "updatedAt"], "Desktop Installation Manifest");
+    literal(root.schema, DESKTOP_INSTALLATION_SCHEMA, "schema");
+    const installationId = nonEmptyString(root.installationId, "installationId");
+    const envelope = member(root.envelope, DESKTOP_ENVELOPES, "envelope");
+    const channel = member(root.channel, DESKTOP_CHANNELS, "channel");
+    const connection = parseConnection(root.connection);
+    if (!Array.isArray(root.components)) throw new Error("components 必须是数组。");
+    const components = root.components.map((item, index) => parseInstalledComponent(item, index));
+    assertUnique(components.map((item) => item.id), "Desktop Installation components");
+    const addCliToUserPath = boolean(root.addCliToUserPath, "addCliToUserPath");
+    const installedAt = isoDate(root.installedAt, "installedAt");
+    const updatedAt = isoDate(root.updatedAt, "updatedAt");
+    return {schema: DESKTOP_INSTALLATION_SCHEMA, installationId, envelope, channel, connection, components, addCliToUserPath, installedAt, updatedAt};
+}
+
+/** 严格解析 Desktop 设备设置，并校验缩放范围。 */
+export function parseDesktopSettings(value: unknown): DesktopSettings {
+    const root = object(value, "Desktop Settings");
+    exactKeys(root, ["schema", "zoomFactor", "trayEnabled", "closeBehavior"], "Desktop Settings");
+    literal(root.schema, DESKTOP_SETTINGS_SCHEMA, "schema");
+    const zoomFactor = number(root.zoomFactor, "zoomFactor");
+    if (zoomFactor < 0.75 || zoomFactor > 2) throw new Error("zoomFactor 必须位于 0.75 到 2 之间。");
+    const trayEnabled = boolean(root.trayEnabled, "trayEnabled");
+    const closeBehavior = member(root.closeBehavior, ["ask", "tray", "quit"] as const, "closeBehavior");
+    return {schema: DESKTOP_SETTINGS_SCHEMA, zoomFactor, trayEnabled, closeBehavior};
+}
+
+/** 应用部分 Desktop 设置；未知字段和越界缩放直接失败。 */
+export function patchDesktopSettings(current: DesktopSettings, patch: DesktopSettingsPatch): DesktopSettings {
+    const patchRecord = object(patch, "Desktop Settings patch");
+    const allowed = ["zoomFactor", "trayEnabled", "closeBehavior"];
+    if (Object.keys(patchRecord).some((key) => !allowed.includes(key))) throw new Error("Desktop Settings patch 包含未知字段。");
+    return parseDesktopSettings({...current, ...patch});
+}
+
+/** 严格解析远端 Product 的 Desktop capability。 */
+export function parseDesktopCapability(value: unknown): DesktopCapability {
+    const root = object(value, "Desktop capability");
+    exactKeys(root, ["schema", "productVersion", "bridgeSchemas", "supportsRemoteDesktop"], "Desktop capability");
+    literal(root.schema, DESKTOP_CAPABILITY_SCHEMA, "schema");
+    const productVersion = nonEmptyString(root.productVersion, "productVersion");
+    if (!Array.isArray(root.bridgeSchemas) || root.bridgeSchemas.length !== 1 || root.bridgeSchemas[0] !== DESKTOP_BRIDGE_SCHEMA) {
+        throw new Error("Desktop capability 不支持 DesktopBridge v1。");
+    }
+    literal(root.supportsRemoteDesktop, true, "supportsRemoteDesktop");
+    return {schema: DESKTOP_CAPABILITY_SCHEMA, productVersion, bridgeSchemas: [DESKTOP_BRIDGE_SCHEMA], supportsRemoteDesktop: true};
+}
+
+/** 严格解析 Envelope 发给 Manager 的一行 Supervisor 请求。 */
+export function parseDesktopSupervisorRequest(value: unknown): DesktopSupervisorRequest {
+    const root = supervisorRoot(value, "Desktop Supervisor request");
+    const requestId = nonEmptyString(root.requestId, "requestId");
+    const type = member(root.type, ["start", "stop", "verify", "repair"] as const, "type");
+    if (type === "start") {
+        exactKeys(root, ["schema", "requestId", "type", "startupNonce", "port"], "Desktop Supervisor start request");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, startupNonce: nonce(root.startupNonce), port: supervisorPort(root.port)};
+    }
+    exactKeys(root, ["schema", "requestId", "type"], `Desktop Supervisor ${type} request`);
+    return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type};
+}
+
+/** 严格解析 Manager 发给 Envelope 的一行 Supervisor 事件。 */
+export function parseDesktopSupervisorEvent(value: unknown): DesktopSupervisorEvent {
+    const root = supervisorRoot(value, "Desktop Supervisor event");
+    const requestId = nonEmptyString(root.requestId, "requestId");
+    const type = member(root.type, ["stage", "ready", "verified", "stopped", "failure", "logs"] as const, "type");
+    if (type === "stage") {
+        exactKeys(root, ["schema", "requestId", "type", "stage"], "Desktop Supervisor stage event");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, stage: member(root.stage, ["quick-verify", "migration", "starting-product", "waiting-ready", "background-verify", "stopping-product", "repairing"] as const, "stage")};
+    }
+    if (type === "ready") {
+        exactKeys(root, ["schema", "requestId", "type", "url", "origin", "version", "startupNonce"], "Desktop Supervisor ready event");
+        const url = loopbackUrl(root.url, "url");
+        const origin = loopbackOrigin(root.origin, "origin");
+        if (new URL(url).origin !== origin) throw new Error("Desktop Supervisor ready URL 与 origin 不一致。");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, url, origin, version: nonEmptyString(root.version, "version"), startupNonce: nonce(root.startupNonce)};
+    }
+    if (type === "verified") {
+        exactKeys(root, ["schema", "requestId", "type", "verification"], "Desktop Supervisor verified event");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, verification: member(root.verification, ["quick", "full"] as const, "verification")};
+    }
+    if (type === "stopped") {
+        exactKeys(root, ["schema", "requestId", "type", "shutdown"], "Desktop Supervisor stopped event");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, shutdown: member(root.shutdown, ["graceful", "forced"] as const, "shutdown")};
+    }
+    if (type === "failure") {
+        exactKeys(root, ["schema", "requestId", "type", "code", "message", "recoverable"], "Desktop Supervisor failure event");
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, code: nonEmptyString(root.code, "code"), message: nonEmptyString(root.message, "message"), recoverable: boolean(root.recoverable, "recoverable")};
+    }
+    exactKeys(root, ["schema", "requestId", "type", "path"], "Desktop Supervisor logs event");
+    return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, path: nonEmptyString(root.path, "path")};
+}
+
+/** 将协议对象编码成一行 NDJSON，拒绝换行注入。 */
+export function desktopSupervisorLine(value: DesktopSupervisorRequest | DesktopSupervisorEvent): string {
+    const line = JSON.stringify(value);
+    if (line.includes("\n") || line.includes("\r")) throw new Error("Desktop Supervisor NDJSON 不能包含原始换行。");
+    return `${line}\n`;
+}
+
+/** 校验并返回 Installation Root 内的可迁移相对路径。 */
+export function desktopRelativePath(value: string, label = "Desktop relative path"): string {
+    const portable = value.replaceAll("\\", "/");
+    const segments = portable.split("/");
+    const absolute = portable.startsWith("/") || /^[A-Za-z]:\//u.test(portable);
+    if (!portable || portable !== value || absolute
+        || segments.some((segment) => !segment || segment === "." || segment === "..")) {
+        throw new Error(`${label} 必须是无逃逸的 portable 相对路径。`);
+    }
+    return portable;
+}
+
+function parseDistributionComponent(value: unknown, index: number): DesktopDistributionComponent {
+    const label = `components[${String(index)}]`;
+    const root = object(value, label);
+    exactKeys(root, ["id", "version", "archive", "required"], label);
+    const archive = object(root.archive, `${label}.archive`);
+    exactKeys(archive, ["kind", "location", "sha256", "bytes", "format"], `${label}.archive`);
+    const kind = member(archive.kind, ["path", "url"] as const, `${label}.archive.kind`);
+    const location = kind === "path"
+        ? desktopRelativePath(nonEmptyString(archive.location, `${label}.archive.location`), `${label}.archive.location`)
+        : httpsUrl(archive.location, `${label}.archive.location`);
+    return {
+        id: member(root.id, DESKTOP_COMPONENT_IDS, `${label}.id`),
+        version: nonEmptyString(root.version, `${label}.version`),
+        archive: {
+            kind,
+            location,
+            sha256: sha256(archive.sha256, `${label}.archive.sha256`),
+            bytes: nonNegativeInteger(archive.bytes, `${label}.archive.bytes`),
+            format: member(archive.format, ["zip", "file"] as const, `${label}.archive.format`),
+        },
+        required: boolean(root.required, `${label}.required`),
+    };
+}
+
+function parseInstalledComponent(value: unknown, index: number): DesktopInstalledComponent {
+    const label = `components[${String(index)}]`;
+    const root = object(value, label);
+    exactKeys(root, ["id", "version", "path", "sha256"], label);
+    return {
+        id: member(root.id, DESKTOP_COMPONENT_IDS, `${label}.id`),
+        version: nonEmptyString(root.version, `${label}.version`),
+        path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
+        sha256: sha256(root.sha256, `${label}.sha256`),
+    };
+}
+
+function parseConnection(value: unknown): DesktopConnection {
+    const root = object(value, "connection");
+    const mode = member(root.mode, ["local", "remote"] as const, "connection.mode");
+    if (mode === "local") {
+        exactKeys(root, ["mode"], "connection");
+        return {mode};
+    }
+    exactKeys(root, ["mode", "baseUrl", "insecureHttpAccepted"], "connection");
+    const baseUrl = remoteBaseUrl(root.baseUrl);
+    const insecureHttpAccepted = boolean(root.insecureHttpAccepted, "connection.insecureHttpAccepted");
+    if (new URL(baseUrl).protocol === "http:" && !insecureHttpAccepted) {
+        throw new Error("局域网 HTTP 远端必须记录二次确认。");
+    }
+    return {mode, baseUrl, insecureHttpAccepted};
+}
+
+function supervisorRoot(value: unknown, label: string): JsonObject {
+    const root = object(value, label);
+    literal(root.schema, DESKTOP_SUPERVISOR_SCHEMA, `${label}.schema`);
+    return root;
+}
+
+function remoteBaseUrl(value: unknown): string {
+    const text = nonEmptyString(value, "connection.baseUrl");
+    const url = new URL(text);
+    const loopback = url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "[::1]";
+    if (url.protocol !== "https:" && !(url.protocol === "http:" && (loopback || isPrivateIpv4(url.hostname)))) {
+        throw new Error("远端地址必须使用 HTTPS；HTTP 只允许 loopback 或私有 IPv4。");
+    }
+    if (url.username || url.password || url.search || url.hash || url.pathname !== "/") {
+        throw new Error("远端地址只能包含 origin，不能携带凭据、路径、query 或 hash。");
+    }
+    return url.origin;
+}
+
+function loopbackUrl(value: unknown, label: string): string {
+    const text = nonEmptyString(value, label);
+    const url = new URL(text);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port) throw new Error(`${label} 必须是带动态端口的 127.0.0.1 HTTP URL。`);
+    return url.href;
+}
+
+function loopbackOrigin(value: unknown, label: string): string {
+    const text = nonEmptyString(value, label);
+    const url = new URL(text);
+    if (url.href !== `${url.origin}/` || url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port) throw new Error(`${label} 必须是 127.0.0.1 origin。`);
+    return url.origin;
+}
+
+function httpsUrl(value: unknown, label: string): string {
+    const text = nonEmptyString(value, label);
+    const url = new URL(text);
+    if (url.protocol !== "https:" || url.username || url.password || url.hash) throw new Error(`${label} 必须是无凭据的 HTTPS URL。`);
+    return url.href;
+}
+
+function isPrivateIpv4(hostname: string): boolean {
+    const parts = hostname.split(".").map(Number);
+    if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+    return parts[0] === 10 || parts[0] === 127 || parts[0] === 192 && parts[1] === 168 || parts[0] === 172 && (parts[1] ?? 0) >= 16 && (parts[1] ?? 0) <= 31;
+}
+
+function nonce(value: unknown): string {
+    const text = nonEmptyString(value, "startupNonce");
+    if (!/^[A-Za-z0-9_-]{32,128}$/u.test(text)) throw new Error("startupNonce 格式非法。");
+    return text;
+}
+
+function supervisorPort(value: unknown): number {
+    if (typeof value !== "number" || !Number.isInteger(value) || value < 1024 || value > 65535) {
+        throw new Error("Desktop Supervisor port 必须是 1024-65535 的整数。");
+    }
+    return value;
+}
+
+function sha256(value: unknown, label: string): string {
+    const text = nonEmptyString(value, label);
+    if (!/^sha256:[a-f0-9]{64}$/u.test(text)) throw new Error(`${label} 必须是小写 sha256 digest。`);
+    return text;
+}
+
+function isoDate(value: unknown, label: string): string {
+    const text = nonEmptyString(value, label);
+    if (new Date(text).toISOString() !== text) throw new Error(`${label} 必须是规范 ISO 时间。`);
+    return text;
+}
+
+function nonEmptyString(value: unknown, label: string): string {
+    if (typeof value !== "string" || !value.trim() || value.includes("\0")) throw new Error(`${label} 必须是非空且不含 NUL 的字符串。`);
+    return value;
+}
+
+function number(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} 必须是有限数字。`);
+    return value;
+}
+
+function nonNegativeInteger(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) throw new Error(`${label} 必须是非负安全整数。`);
+    return value;
+}
+
+function boolean(value: unknown, label: string): boolean {
+    if (typeof value !== "boolean") throw new Error(`${label} 必须是 boolean。`);
+    return value;
+}
+
+function literal<const T extends string | boolean>(value: unknown, expected: T, label: string): T {
+    if (value !== expected) throw new Error(`${label} 必须是 ${String(expected)}。`);
+    return expected;
+}
+
+function member<const T extends readonly string[]>(value: unknown, values: T, label: string): T[number] {
+    if (typeof value !== "string" || !values.includes(value)) throw new Error(`${label} 不受支持：${String(value)}`);
+    return value as T[number];
+}
+
+function assertUnique(values: string[], label: string): void {
+    if (new Set(values).size !== values.length) throw new Error(`${label} 不能包含重复 ID。`);
+}
+
+/** 仅用于把外部 JSON 收窄；unknown 字段永远不会流入业务对象。 */
+type JsonObject = {[key: string]: unknown};
+
+function object(value: unknown, label: string): JsonObject {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} 必须是对象。`);
+    return value as JsonObject;
+}
+
+function exactKeys(record: JsonObject, expected: readonly string[], label: string): void {
+    const actual = Object.keys(record).sort();
+    const wanted = [...expected].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(wanted)) throw new Error(`${label} 字段不匹配：expected=${wanted.join(",")} actual=${actual.join(",")}`);
+}

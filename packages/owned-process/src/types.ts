@@ -1,4 +1,4 @@
-import type {Readable} from "node:stream";
+import type {Readable, Writable} from "node:stream";
 
 /** NeuroBook结束自有进程时记录的领域无关原因。 */
 export type OwnedProcessTerminationReason =
@@ -25,7 +25,7 @@ export type OwnedProcessSpec = {
     args?: string[];
     cwd?: string;
     env?: NodeJS.ProcessEnv;
-    stdin?: "inherit" | "ignore";
+    stdin?: "inherit" | "ignore" | "pipe";
     stdout?: OwnedProcessStdio;
     stderr?: OwnedProcessStdio;
     windowsHide?: boolean;
@@ -37,6 +37,7 @@ export type OwnedProcessSpec = {
 
 /** 调用方持有的自有进程lease；终止操作幂等。 */
 export type OwnedProcessLease = {
+    stdin?: Writable;
     stdout?: Readable;
     stderr?: Readable;
     completion: Promise<OwnedProcessCompletion>;

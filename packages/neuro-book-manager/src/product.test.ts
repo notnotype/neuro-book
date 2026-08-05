@@ -13,7 +13,7 @@ import {
     PRODUCT_RUNTIME_IMAGE_READY_SCHEMA,
     type ProductRuntimeImageManifest,
 } from "nbook/shared/product-runtime-image-verifier";
-import {PRODUCT_RUNTIME_CONTRACT_PATH, PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA} from "nbook/shared/product-runtime-contract";
+import {PRODUCT_RUNTIME_CONTRACT_PATH, PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA, type ProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 
 const roots: string[] = [];
 const REVISION = "b".repeat(40);
@@ -46,7 +46,7 @@ describe("Manager Product Runtime Image control plane", () => {
             .rejects.toThrow("payload digest 不一致");
     });
 
-    it("新候选严格拒绝 v3，已安装 Product 读取可显式兼容 v3", async () => {
+    it("新候选严格拒绝 v4，已安装 Product 读取可显式兼容 v4", async () => {
         const fixture = await legacyRuntimeImageFixture();
 
         await expect(verifyProductRuntimeImage(fixture.root, fixture.identity))
@@ -84,15 +84,11 @@ async function legacyRuntimeImageFixture() {
     await cp(fixture.root, join(installationRoot, ".output"), {recursive: true});
     const imageRoot = join(installationRoot, ".output");
     const contractPath = join(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/"));
-    const contract = JSON.parse(await readFile(contractPath, "utf8")) as {
-        schema: string;
-        checks: Record<string, unknown>;
-    };
-    const {"world-engine-config": _removed, ...previousChecks} = contract.checks;
+    const contract = JSON.parse(await readFile(contractPath, "utf8")) as ProductRuntimeContract;
+    const {startup: _removedStartup, ...withoutStartup} = contract;
     const previousContract = {
-        ...contract,
+        ...withoutStartup,
         schema: PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
-        checks: previousChecks,
     };
     const contractText = `${JSON.stringify(previousContract, null, 2)}\n`;
     await writeFile(contractPath, contractText, "utf8");

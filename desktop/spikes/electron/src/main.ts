@@ -1,18 +1,27 @@
 import {randomBytes} from "node:crypto";
-import {app, BrowserWindow, ipcMain} from "electron";
+import {createInterface} from "node:readline";
 import {createServer} from "node:net";
+import {app, BrowserWindow, Menu, Tray, nativeImage, ipcMain, dialog} from "electron";
+import {readFileSync} from "node:fs";
 import {join, resolve} from "node:path";
 import {
     spawnOwnedProcess,
     type OwnedProcessCompletion,
     type OwnedProcessLease,
 } from "@notnotype/owned-process";
+import {PRODUCT_BUN_RUNTIME_ARGS} from "nbook/shared/product-runtime-contract";
 import {
-    PRODUCT_BUN_RUNTIME_ARGS,
-    PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
-    PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
-} from "nbook/shared/product-runtime-contract";
-import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
+    desktopSupervisorLine,
+    parseDesktopCapability,
+    parseDesktopInstallationManifest,
+    parseDesktopSupervisorEvent,
+    parseDesktopSettings,
+    patchDesktopSettings,
+    DEFAULT_DESKTOP_SETTINGS,
+    type DesktopSettings,
+    type DesktopStatus,
+    type DesktopSupervisorEvent,
+} from "nbook/shared/desktop-contract";
 import {auditProductContract, type ContractAudit} from "../../shared/src/contract-audit";
 
 type DesktopConfig = {
@@ -20,24 +29,32 @@ type DesktopConfig = {
     applicationRoot: string;
     stateRoot: string;
     cacheRoot: string;
-    launcher: string;
+    desktopRoot: string;
+    manager: string;
     bun: string;
     port: number;
+    remoteUrl: string | null;
 };
 
 type RunningProduct = {
     config: DesktopConfig;
-    token: string;
+    startupNonce: string;
+    version: string;
     lease: OwnedProcessLease;
     audit: ContractAudit;
     shutdown: () => Promise<"graceful" | "forced">;
 };
 
 let window: BrowserWindow | null = null;
+let splash: BrowserWindow | null = null;
+let tray: Tray | null = null;
 let running: RunningProduct | null = null;
+let remoteStatus: DesktopStatus | null = null;
 let closing: Promise<void> | null = null;
+let allowWindowClose = false;
+let desktopSettings: DesktopSettings = DEFAULT_DESKTOP_SETTINGS;
 
-/** 从显式环境读取 Desktop spike 配置；不读取 cwd 猜测 Product。 */
+/** 从显式环境或 Portable 根读取 Manager/Product 配置。 */
 function readConfig(): DesktopConfig {
     const required = (key: string): string => {
         const value = process.env[key]?.trim();
@@ -45,46 +62,91 @@ function readConfig(): DesktopConfig {
         return value;
     };
     const explicitKeys = [
-        "T140_PRODUCT_IMAGE_ROOT",
-        "T140_APPLICATION_ROOT",
-        "T140_STATE_ROOT",
-        "T140_CACHE_ROOT",
-        "T140_LAUNCHER",
-        "T140_BUN_EXECUTABLE",
-        "T140_PORT",
+        "T140_PRODUCT_IMAGE_ROOT", "T140_APPLICATION_ROOT", "T140_STATE_ROOT", "T140_CACHE_ROOT", "T140_DESKTOP_ROOT",
+        "T140_MANAGER", "T140_BUN_EXECUTABLE", "T140_PORT",
     ];
-    const hasExplicitConfig = explicitKeys.some((key) => Boolean(process.env[key]?.trim()));
-    if (hasExplicitConfig) {
+    if (explicitKeys.some((key) => Boolean(process.env[key]?.trim()))) {
         const port = Number(process.env.T140_PORT ?? "0");
-        if (!Number.isInteger(port) || port < 0 || port > 65535) {
-            throw new Error("Electron spike 的 T140_PORT 必须是 0-65535 的整数。");
-        }
+        if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Electron spike 的 T140_PORT 必须是 0-65535 的整数。");
         return {
             imageRoot: resolve(required("T140_PRODUCT_IMAGE_ROOT")),
             applicationRoot: resolve(required("T140_APPLICATION_ROOT")),
             stateRoot: resolve(required("T140_STATE_ROOT")),
             cacheRoot: resolve(required("T140_CACHE_ROOT")),
-            launcher: resolve(required("T140_LAUNCHER")),
+            desktopRoot: resolve(required("T140_DESKTOP_ROOT")),
+            manager: resolve(required("T140_MANAGER")),
             bun: required("T140_BUN_EXECUTABLE"),
             port,
+            remoteUrl: process.env.T140_REMOTE_URL?.trim() || null,
         };
     }
-
-    // 打包后的 Electron 位于 <portable>/desktop，resources/app 是本入口的目录。
-    // 从 resources 反推 portable root，避免依赖启动 cwd 或任何 T140 环境变量。
     const portableRoot = resolve(process.resourcesPath, "..", "..");
+    const runtimeRoots = readRuntimeRoots(portableRoot);
     return {
-        imageRoot: join(portableRoot, "app", ".output"),
-        applicationRoot: join(portableRoot, "app"),
-        stateRoot: join(portableRoot, "data"),
-        cacheRoot: join(portableRoot, ".cache"),
-        launcher: join(portableRoot, "desktop", "product-launcher.mjs"),
+        imageRoot: join(portableRoot, ".output"),
+        applicationRoot: portableRoot,
+        stateRoot: runtimeRoots.state,
+        cacheRoot: runtimeRoots.cache,
+        desktopRoot: runtimeRoots.desktop,
+        manager: join(portableRoot, "manager", "neuro-book.mjs"),
         bun: join(portableRoot, "runtime", "bun.exe"),
         port: 0,
+        remoteUrl: readRemoteUrl(runtimeRoots.desktop),
     };
 }
 
-/** 让系统分配一个 loopback 端口；关闭探测 socket 后立即交给 Product。 */
+/** 读取 Manager 写入的相对 locator；没有安装 locator 时保持 Portable 布局。 */
+function readRuntimeRoots(root: string): {state: string; cache: string; desktop: string} {
+    try {
+        const value = JSON.parse(readFileSync(join(root, "desktop", "runtime-locators.json"), "utf8")) as {
+            state?: {base?: string; path?: string};
+            cache?: {base?: string; path?: string};
+            desktop?: {base?: string; path?: string};
+        };
+        const localAppData = resolve(process.env.LOCALAPPDATA ?? join(process.env.USERPROFILE ?? app.getPath("home"), "AppData", "Local"));
+        const resolveLocator = (locator: {base?: string; path?: string} | undefined, fallback: string): string => {
+            if (!locator?.path || (locator.base !== "installation-root" && locator.base !== "local-app-data")) return fallback;
+            return join(locator.base === "installation-root" ? root : localAppData, ...locator.path.split(/[\\/]/u));
+        };
+        return {
+            state: resolveLocator(value.state, join(root, "data")),
+            cache: resolveLocator(value.cache, join(root, ".cache")),
+            desktop: resolveLocator(value.desktop, join(root, "data", ".desktop")),
+        };
+    } catch {
+        return {state: join(root, "data"), cache: join(root, ".cache"), desktop: join(root, "data", ".desktop")};
+    }
+}
+
+/** 读取安装清单的远端 origin；损坏清单直接阻止启动，绝不回退到本地 Product。 */
+function readRemoteUrl(desktopRoot: string): string | null {
+    try {
+        const manifest = parseDesktopInstallationManifest(JSON.parse(readFileSync(join(desktopRoot, "desktop-installation.json"), "utf8")) as unknown);
+        return manifest.connection.mode === "remote" ? manifest.connection.baseUrl : null;
+    } catch (error) {
+        if (error instanceof Error && error.message.includes("ENOENT")) return null;
+        throw error;
+    }
+}
+
+/** 远端 Desktop 只能在服务端明确声明 Bridge 兼容后打开。 */
+async function probeRemote(url: string): Promise<DesktopStatus> {
+    const origin = new URL(url).origin;
+    const response = await fetch(new URL("/api/app/desktop-capability", origin + "/"));
+    if (!response.ok) throw new Error("远端 Desktop capability 请求失败：HTTP " + response.status);
+    const capability = parseDesktopCapability(await response.json());
+    return {
+        schema: "nbook.desktop-bridge/v1",
+        envelope: "electron",
+        connection: "remote",
+        version: capability.productVersion,
+        origin,
+        insecureRemote: new URL(origin).protocol === "http:",
+        nativeWindowControls: true,
+    };
+}
+
+/** 选择一个当前未监听的 IPv4 loopback 端口。 */
 async function selectPort(requested: number): Promise<number> {
     if (requested !== 0) return requested;
     return await new Promise<number>((resolvePromise, rejectPromise) => {
@@ -103,130 +165,146 @@ async function selectPort(requested: number): Promise<number> {
     });
 }
 
-/** 在启动长期 Product 前执行一次幂等的 Product-owned migration。 */
-async function prepareProduct(config: DesktopConfig): Promise<void> {
-    const lease = spawnOwnedProcess({
-        command: config.bun,
-        args: [
-            ...PRODUCT_BUN_RUNTIME_ARGS,
-            config.launcher,
-            "prepare",
-            "--image-root", config.imageRoot,
-            "--application-root", config.applicationRoot,
-            "--state-root", config.stateRoot,
-            "--cache-root", config.cacheRoot,
-            "--port", String(config.port),
-            "--bun", config.bun,
-        ],
-        cwd: config.applicationRoot,
-        env: {
-            ...process.env,
-            T140_BUN_EXECUTABLE: config.bun,
-        },
-        stdout: "pipe",
-        stderr: "pipe",
-        stdin: "ignore",
-        windowsHide: true,
-        graceMs: 1_000,
-        hardKillWaitMs: 5_000,
-    });
-    lease.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[prepare] ${chunk.toString()}`));
-    lease.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[prepare] ${chunk.toString()}`));
-    const result = await lease.completion;
-    if (result.signal || result.exitCode !== 0) {
-        throw new Error(`Product migration 失败：${result.signal ?? result.exitCode ?? 1}`);
-    }
-}
-
-/** 启动共同 Product launcher，并只把 token 放入子进程环境。 */
+/** 启动 Manager Supervisor，并等待同一 requestId 的 ready 与 full verified 事件。 */
 async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     const resolvedConfig = {...config, port: await selectPort(config.port)};
     const audit = await auditProductContract(resolvedConfig.imageRoot);
-    if (audit.unsafeEntries.length > 0) {
-        throw new Error(`Electron spike 拒绝不安全 Product Contract：${audit.unsafeEntries.join(",")}`);
-    }
-    await prepareProduct(resolvedConfig);
-    const token = randomBytes(32).toString("hex");
+    if (audit.unsafeEntries.length > 0) throw new Error(`Electron spike 拒绝不安全 Product Contract：${audit.unsafeEntries.join(",")}`);
+    const startupNonce = randomBytes(32).toString("base64url");
+    const requestId = randomBytes(16).toString("hex");
     const lease = spawnOwnedProcess({
         command: resolvedConfig.bun,
-        args: [
-            ...PRODUCT_BUN_RUNTIME_ARGS,
-            resolvedConfig.launcher,
-            "start",
-            "--image-root", resolvedConfig.imageRoot,
-            "--application-root", resolvedConfig.applicationRoot,
-            "--state-root", resolvedConfig.stateRoot,
-            "--cache-root", resolvedConfig.cacheRoot,
-            "--port", String(resolvedConfig.port),
-            "--bun", resolvedConfig.bun,
-        ],
+        args: [...PRODUCT_BUN_RUNTIME_ARGS, resolvedConfig.manager, "--root", resolvedConfig.applicationRoot, "desktop", "supervise"],
         cwd: resolvedConfig.applicationRoot,
-        env: {
-            ...process.env,
-            [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: token,
-            T140_BUN_EXECUTABLE: resolvedConfig.bun,
-        },
+        env: {...process.env, T140_BUN_EXECUTABLE: resolvedConfig.bun},
         stdout: "pipe",
         stderr: "pipe",
-        stdin: "ignore",
+        stdin: "pipe",
         windowsHide: true,
         graceMs: 1_000,
         hardKillWaitMs: 5_000,
     });
-    lease.stdout?.on("data", (chunk: Buffer) => process.stdout.write(`[product] ${chunk.toString()}`));
-    lease.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[product] ${chunk.toString()}`));
-    const shutdown = async (): Promise<"graceful" | "forced"> => await shutdownNativeProduct({
+    lease.stderr?.on("data", (chunk: Buffer) => process.stderr.write(`[manager] ${chunk.toString()}`));
+    const output = lease.stdout;
+    if (!output || !lease.stdin) {
+        await lease.terminate("startup-failure").catch(() => undefined);
+        throw new Error("Electron Supervisor 缺少 NDJSON stdin/stdout pipe。 ");
+    }
+    const reader = createInterface({input: output, crlfDelay: Infinity});
+    const ready = waitForSupervisor(reader, lease.completion, requestId, startupNonce);
+    lease.stdin.write(desktopSupervisorLine({
+        schema: "nbook.desktop-supervisor/v1",
+        requestId,
+        type: "start",
+        startupNonce,
         port: resolvedConfig.port,
-        token,
-        completion: lease.completion.then(toNativeExit),
-        forceTerminate: async () => { await lease.terminate("shutdown"); },
-    });
+    }));
     try {
-        await waitForHealth(resolvedConfig.port, lease.completion);
+        const observed = await ready;
+        const runtime = {...resolvedConfig, port: observed.port};
+        const shutdown = async (): Promise<"graceful" | "forced"> => {
+            if (lease.stdin?.writable) {
+                lease.stdin.write(desktopSupervisorLine({schema: "nbook.desktop-supervisor/v1", requestId, type: "stop"}));
+                lease.stdin.end();
+            }
+            const result = await Promise.race([
+                lease.completion,
+                new Promise<null>((resolvePromise) => setTimeout(() => resolvePromise(null), 30_000)),
+            ]);
+            if (result === null) {
+                await lease.terminate("shutdown");
+                return "forced";
+            }
+            return result.exitCode === 0 && result.signal === null ? "graceful" : "forced";
+        };
+        return {config: runtime, startupNonce, version: observed.version, lease, audit, shutdown};
     } catch (error) {
+        reader.close();
         await lease.terminate("startup-failure").catch(() => undefined);
         throw error;
     }
-    return {config: resolvedConfig, token, lease, audit, shutdown};
 }
 
-/** 等待真实 Product version API；只认 HTTP 200，不以 child 存在判定 ready。 */
-async function waitForHealth(port: number, completion: Promise<OwnedProcessCompletion>): Promise<void> {
-    const deadline = Date.now() + 30_000;
-    let lastError = "尚未响应";
-    while (Date.now() < deadline) {
-        const terminal = await Promise.race([
-            completion.then((result) => result),
-            new Promise<null>((resolvePromise) => setTimeout(() => resolvePromise(null), 100)),
-        ]);
-        if (terminal) throw new Error(`Product 在 health 前退出：${JSON.stringify(terminal)}`);
-        try {
-            const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
-                signal: AbortSignal.timeout(500),
-            });
-            if (response.status === 200) return;
-            lastError = `HTTP ${String(response.status)}`;
-        } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
-        }
-        await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, 150));
-    }
-    throw new Error(`Product health 超时：${lastError}`);
-}
-
-function toNativeExit(result: OwnedProcessCompletion): {code: number | null; signal: string | null} {
-    return {code: result.exitCode, signal: result.signal};
-}
-
-/** 只允许将 loopback Product URL 载入窗口，拒绝页面导航和任意新窗口。 */
-function installNavigationGuards(): void {
-    window?.webContents.setWindowOpenHandler(() => ({action: "deny"}));
-    window?.webContents.on("will-navigate", (event, targetUrl) => {
-        if (!targetUrl.startsWith(`http://127.0.0.1:${String(running?.config.port)}/`)) event.preventDefault();
+async function waitForSupervisor(
+    reader: ReturnType<typeof createInterface>,
+    completion: Promise<OwnedProcessCompletion>,
+    requestId: string,
+    startupNonce: string,
+): Promise<{port: number; version: string}> {
+    return await new Promise<{port: number; version: string}>((resolvePromise, rejectPromise) => {
+        let readyPort: number | undefined;
+        let readyVersion = "";
+        let verified = false;
+        let settled = false;
+        const finish = (error?: Error): void => {
+            if (settled) return;
+            if (error) {
+                settled = true;
+                rejectPromise(error);
+            } else if (readyPort !== undefined && verified) {
+                settled = true;
+                resolvePromise({port: readyPort, version: readyVersion});
+            }
+        };
+        reader.on("line", (line) => {
+            try {
+                const event = parseDesktopSupervisorEvent(JSON.parse(line) as unknown);
+                if (event.requestId !== requestId) return;
+                if (event.type === "ready") {
+                    if (event.startupNonce !== startupNonce) throw new Error("Supervisor ready nonce 与本次启动不一致。");
+                    readyPort = Number(new URL(event.url).port);
+                    readyVersion = event.version;
+                } else if (event.type === "verified" && event.verification === "full") {
+                    verified = true;
+                } else if (event.type === "failure") {
+                    throw new Error(`Manager Supervisor 失败：${event.code} ${event.message}`);
+                }
+                finish();
+            } catch (error) {
+                finish(error instanceof Error ? error : new Error(String(error)));
+            }
+        });
+        void completion.then((result) => {
+            if (!settled) finish(new Error(`Manager Supervisor 在 ready 前退出：${JSON.stringify(result)}`));
+        }, (error: unknown) => finish(error instanceof Error ? error : new Error(String(error))));
     });
 }
 
-/** 处理窗口关闭、Product drain 与 Owned Process 兜底，所有调用共享同一 Promise。 */
+function createSplash(): BrowserWindow {
+    const value = new BrowserWindow({width: 440, height: 260, frame: false, resizable: false, show: true, alwaysOnTop: true, webPreferences: {sandbox: true}});
+    void value.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent("<body style='margin:0;background:#15171a;color:#eef2f4;font:16px sans-serif;display:grid;place-items:center'><main><strong>NeuroBook</strong><p>正在启动本地服务...</p></main></body>")}`);
+    return value;
+}
+
+function installMenu(): void {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+        {label: "File", submenu: [{label: "Settings", click: () => window?.webContents.send("neurobook:menu", "file.settings")}, {label: "Quit", click: () => void closeApplication()}]},
+        {label: "View", submenu: [{role: "reload"}, {role: "resetZoom"}, {role: "zoomIn"}, {role: "zoomOut"}]},
+        {label: "Help", submenu: [{label: "About NeuroBook", click: () => window?.webContents.send("neurobook:menu", "help.about")} ]},
+    ]));
+}
+
+function installTray(): void {
+    if (tray) return;
+    tray = new Tray(nativeImage.createEmpty());
+    tray.setToolTip("NeuroBook");
+    tray.setContextMenu(Menu.buildFromTemplate([
+        {label: "显示 NeuroBook", click: () => { window?.show(); }},
+        {label: "设置", click: () => { window?.show(); window?.webContents.send("neurobook:menu", "file.settings"); }},
+        {type: "separator"},
+        {label: "退出", click: () => void closeApplication()},
+    ]));
+    tray.on("click", () => window?.show());
+}
+
+function installNavigationGuards(): void {
+    window?.webContents.setWindowOpenHandler(() => ({action: "deny"}));
+    window?.webContents.on("will-navigate", (event, targetUrl) => {
+        const expected = running ? `http://127.0.0.1:${String(running.config.port)}` : remoteStatus?.origin;
+        if (!expected || new URL(targetUrl).origin !== expected) event.preventDefault();
+    });
+}
+
 async function closeApplication(): Promise<void> {
     if (closing) return await closing;
     closing = (async () => {
@@ -235,59 +313,161 @@ async function closeApplication(): Promise<void> {
             console.log(JSON.stringify({kind: "electron-shutdown", result}));
             running = null;
         }
+        allowWindowClose = true;
+        tray?.destroy();
+        tray = null;
         app.quit();
     })();
     return await closing;
 }
 
 async function main(): Promise<void> {
-    if (!app.requestSingleInstanceLock()) {
-        app.quit();
-        return;
-    }
+    if (!app.requestSingleInstanceLock()) { app.quit(); return; }
     app.on("second-instance", () => window?.show());
     await app.whenReady();
-    ipcMain.handle("t140:status", () => running ? {
-        port: running.config.port,
-        contract: running.audit.schema,
-        imageRoot: running.config.imageRoot,
-    } : null);
     const config = readConfig();
-    running = await launchProduct(config);
-    if (process.argv.includes("--t140-headless") || process.argv.includes("--headless")) {
-        console.log(JSON.stringify({kind: "electron-headless-ready", port: running.config.port, contract: running.audit.schema}));
+    await loadDesktopSettings(config.desktopRoot);
+    ipcMain.handle("t140:status", (event) => {
+        assertTrustedFrame(event);
+        return running ? {
+            schema: "nbook.desktop-bridge/v1",
+            envelope: "electron",
+            connection: "local",
+            version: running.version,
+            origin: `http://127.0.0.1:${String(running.config.port)}`,
+            insecureRemote: false,
+            nativeWindowControls: true,
+        } : remoteStatus;
+    });
+    ipcMain.handle("t140:settings", (event) => { assertTrustedFrame(event); return desktopSettings; });
+    ipcMain.handle("t140:settings:update", async (event, patch: unknown) => {
+        assertTrustedFrame(event);
+        desktopSettings = patchDesktopSettings(desktopSettings, patch as never);
+        await saveDesktopSettings(config.desktopRoot);
+        applyDesktopSettings();
+        return desktopSettings;
+    });
+    ipcMain.on("t140:window", (event, command: string) => {
+        assertTrustedFrame(event);
+        if (command === "show") window?.show();
+        else if (command === "hide") window?.hide();
+        else if (command === "quit") void closeApplication();
+    });
+    ipcMain.on("t140:menu", (event, command: string) => {
+        assertTrustedFrame(event);
+        if (command === "file.settings") window?.webContents.send("neurobook:menu", command);
+        else if (command === "file.quit") void closeApplication();
+        else if (command === "view.reload") void window?.webContents.reload();
+    });
+    installMenu();
+    const headless = process.argv.includes("--t140-headless") || process.argv.includes("--headless");
+    if (config.remoteUrl) remoteStatus = await probeRemote(config.remoteUrl);
+    if (!headless) splash = createSplash();
+    if (!config.remoteUrl) running = await launchProduct(config);
+    if (headless) {
+        console.log(JSON.stringify(config.remoteUrl
+            ? {kind: "electron-remote-ready", origin: remoteStatus?.origin, version: remoteStatus?.version}
+            : {kind: "electron-headless-ready", port: running?.config.port, contract: running?.audit.schema}));
         const holdMs = Number(process.env.T140_HOLD_MS ?? "0");
-        if (Number.isInteger(holdMs) && holdMs > 0) {
-            await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, holdMs));
-        }
+        if (Number.isInteger(holdMs) && holdMs > 0) await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, holdMs));
         await closeApplication();
         return;
     }
     window = new BrowserWindow({
         width: 1280,
         height: 840,
-        show: true,
-        webPreferences: {
-            preload: resolve(import.meta.dirname, "preload.mjs"),
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-            webSecurity: true,
-        },
+        show: false,
+        titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+        ...(process.platform === "win32" ? {titleBarOverlay: {color: "#15171a", symbolColor: "#eef2f4", height: 36}} : {}),
+        webPreferences: {preload: resolve(import.meta.dirname, "preload.mjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true},
     });
     installNavigationGuards();
-    await window.loadURL(`http://127.0.0.1:${String(running.config.port)}/`);
+    await window.loadURL(config.remoteUrl ?? `http://127.0.0.1:${String(running?.config.port)}/`);
+    splash?.close();
+    splash = null;
+    applyDesktopSettings();
+    window.show();
+    window.on("close", (event) => {
+        if (allowWindowClose) return;
+        if (desktopSettings.closeBehavior === "quit") {
+            event.preventDefault();
+            void closeApplication();
+            return;
+        }
+        if (desktopSettings.closeBehavior === "tray" || desktopSettings.trayEnabled) {
+            if (desktopSettings.closeBehavior === "tray") {
+                event.preventDefault();
+                window?.hide();
+                return;
+            }
+            event.preventDefault();
+            void confirmCloseToTray();
+            return;
+        }
+        event.preventDefault();
+        void closeApplication();
+    });
     window.on("closed", () => { window = null; void closeApplication(); });
 }
 
+/** 首次关闭询问用户；选择可保存到 Desktop Local Root。 */
+async function confirmCloseToTray(): Promise<void> {
+    if (!window || closing) return;
+    const result = await dialog.showMessageBox(window, {
+        type: "question",
+        title: "NeuroBook",
+        message: "关闭窗口时要怎么处理？",
+        detail: "隐藏到系统托盘后，NeuroBook 会继续运行。",
+        buttons: ["隐藏到托盘", "退出应用"],
+        cancelId: 0,
+        defaultId: 0,
+        checkboxLabel: "记住这个选择",
+    });
+    if (result.checkboxChecked) {
+        desktopSettings = patchDesktopSettings(desktopSettings, {closeBehavior: result.response === 0 ? "tray" : "quit"});
+        await saveDesktopSettings(readConfig().desktopRoot);
+    }
+    if (result.response === 0) window.hide();
+    else await closeApplication();
+}
+
+function assertTrustedFrame(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): void {
+    const frameUrl = event.senderFrame?.url;
+    const expected = running ? `http://127.0.0.1:${String(running.config.port)}` : remoteStatus?.origin ?? null;
+    if (!expected || !frameUrl || new URL(frameUrl).origin !== expected) throw new Error("Desktop Bridge 拒绝非当前 Product origin 的请求。");
+}
+
+async function loadDesktopSettings(root: string): Promise<void> {
+    const {readFile, mkdir} = await import("node:fs/promises");
+    await mkdir(root, {recursive: true});
+    try {
+        desktopSettings = parseDesktopSettings(JSON.parse(await readFile(join(root, "settings.json"), "utf8")) as unknown);
+    } catch {
+        desktopSettings = DEFAULT_DESKTOP_SETTINGS;
+    }
+}
+
+async function saveDesktopSettings(root: string): Promise<void> {
+    const {writeFile, mkdir} = await import("node:fs/promises");
+    await mkdir(root, {recursive: true});
+    await writeFile(join(root, "settings.json"), `${JSON.stringify(desktopSettings, null, 4)}\n`, "utf8");
+}
+
+function applyDesktopSettings(): void {
+    if (window) window.webContents.setZoomFactor(desktopSettings.zoomFactor);
+    if (desktopSettings.trayEnabled) installTray();
+    else { tray?.destroy(); tray = null; }
+}
+
 app.on("before-quit", (event) => {
-    if (closing) return;
+    if (closing || allowWindowClose) return;
     event.preventDefault();
     void closeApplication();
 });
 
 void main().catch((error: unknown) => {
     console.error(error);
+    splash?.close();
     process.exitCode = 1;
     app.quit();
 });

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import NotificationViewport from "nbook/app/components/common/NotificationViewport.vue";
+import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import { useDialog } from "nbook/app/composables/useDialog";
 import { useNotification } from "nbook/app/composables/useNotification";
 
@@ -15,6 +16,7 @@ if (import.meta.client) {
 </script>
 
 <template>
+    <DesktopTitleBar />
     <NuxtPage/>
     <NotificationViewport />
 </template>

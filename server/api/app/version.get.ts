@@ -9,6 +9,8 @@ interface AppVersionDto {
     versionLabel: string;
     versionKind: AppVersionKind;
     githubUrl: string;
+    /** 受管 Desktop 启动注入的内存 nonce；普通 B/S 请求不返回此字段。 */
+    startupNonce?: string;
 }
 
 interface PackageManifest {
@@ -24,10 +26,12 @@ interface PackageManifest {
  */
 export default defineEventHandler(async (): Promise<AppVersionDto> => {
     const manifest = await readProductPackageManifest();
+    const startupNonce = process.env.NEURO_BOOK_STARTUP_NONCE?.trim();
     return {
         versionLabel: versionLabel(manifest?.version ?? "unknown"),
         versionKind: "package",
         githubUrl: githubUrl(manifest),
+        ...(startupNonce && /^[A-Za-z0-9_-]{43}$/u.test(startupNonce) ? {startupNonce} : {}),
     };
 });
 

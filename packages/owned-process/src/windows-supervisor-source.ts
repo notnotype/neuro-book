@@ -115,9 +115,13 @@ function run(job, kernel32) {
             child = spawn(payload.command, payload.args, {
                 cwd: payload.cwd,
                 env: payload.env,
-                stdio: [0, "inherit", "inherit"],
+                stdio: [payload.stdin === "pipe" ? "pipe" : 0, "inherit", "inherit"],
                 windowsHide: payload.windowsHide,
             });
+            if (payload.stdin === "pipe") {
+                process.stdin.on("data", (chunk) => child.stdin?.write(chunk));
+                process.stdin.on("end", () => child.stdin?.end());
+            }
         } catch (error) {
             finishError("target-spawn", String(error));
             return;

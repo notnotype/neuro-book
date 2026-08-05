@@ -12,7 +12,12 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
-        include: ["desktop/spikes/shared/src/**/*.test.ts"],
+        include: [
+            "desktop/spikes/shared/src/**/*.test.ts",
+            "shared/desktop-contract.test.ts",
+            "shared/product-runtime-contract.test.ts",
+            "shared/product-runtime-receipt.test.ts",
+        ],
         maxWorkers: 1,
         minWorkers: 1,
     },

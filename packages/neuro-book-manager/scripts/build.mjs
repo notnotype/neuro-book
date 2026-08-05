@@ -15,6 +15,7 @@ const result = await Bun.build({
     target: "bun",
     format: "esm",
     naming: "[name].mjs",
+    minify: true,
 });
 if (!result.success) {
     for (const log of result.logs) {

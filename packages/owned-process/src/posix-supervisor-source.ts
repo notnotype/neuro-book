@@ -41,8 +41,12 @@ function start(message) {
             cwd: payload.cwd,
             env: payload.env,
             detached: true,
-            stdio: [0, "inherit", "inherit"],
+            stdio: [payload.stdin === "pipe" ? "pipe" : 0, "inherit", "inherit"],
         });
+        if (payload.stdin === "pipe") {
+            process.stdin.on("data", (chunk) => child.stdin?.write(chunk));
+            process.stdin.on("end", () => child.stdin?.end());
+        }
     } catch (error) {
         finishError("spawn", error instanceof Error ? error.message : String(error));
         return;

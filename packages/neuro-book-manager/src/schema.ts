@@ -237,6 +237,15 @@ const OperationEffectSchema = Type.Union([
         backupPath: Type.Optional(Type.String({minLength: 1})),
     }, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("manifest-switch"), state: OperationEffectStateSchema, owner: Type.Literal("manifest")}, {additionalProperties: false}),
+    Type.Object({
+        kind: Type.Literal("receipt-switch"),
+        state: OperationEffectStateSchema,
+        owner: Type.Literal("receipt"),
+        path: Type.Literal(".deploy/product-runtime-receipt.json"),
+        previousState: Type.Union([Type.Literal("present"), Type.Literal("missing")]),
+        backupPath: Type.Optional(Type.String({minLength: 1})),
+        cleanupError: Type.Optional(Type.String({minLength: 1})),
+    }, {additionalProperties: false}),
     Type.Object({kind: Type.Literal("git-checkout"), state: OperationEffectStateSchema, owner: Type.Literal("source")}, {additionalProperties: false}),
     Type.Object({
         kind: Type.Literal("git-fast-forward"),
@@ -491,6 +500,18 @@ function assertOperationEffect(journal: OperationJournal, effect: OperationJourn
     }
     if (effect.kind === "wrapper-switch" && effect.previousState === "missing" && effect.backupPath) {
         throw new Error(`原本不存在Manager wrapper时不能记录backupPath：${journalPath}`);
+    }
+    if (effect.kind === "receipt-switch") {
+        const committedBackupAlreadyRemoved = journal.phase === "committed"
+            && effect.state === "applied"
+            && !effect.cleanupError;
+        if (effect.previousState === "present" && !effect.backupPath && !committedBackupAlreadyRemoved) {
+            throw new Error(`已有Product回执的切换Effect必须预先记录backupPath：${journalPath}`);
+        }
+        if (effect.previousState === "missing" && effect.backupPath) {
+            throw new Error(`原本不存在Product回执时不能记录backupPath：${journalPath}`);
+        }
+        if (effect.backupPath) assertAbsolutePathWithin(journal.backupRoot, effect.backupPath, "Product receipt backup");
     }
     if (effect.kind === "compose" && effect.previousCompose) {
         assertAbsolutePathWithin(journal.backupRoot, effect.previousCompose, "Docker previousCompose");

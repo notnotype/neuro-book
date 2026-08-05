@@ -4,6 +4,7 @@
     "description": "Task 140 loopback window only; no shell, filesystem, or arbitrary process capability.",
     "windows": ["main"],
     "permissions": [
-        "core:window:default"
+        "core:window:default",
+        "core:event:default"
     ]
 }

@@ -19,12 +19,13 @@ import {promisify} from "node:util";
 import {writeZipArchive} from "../../scripts/utils/zip.ts";
 import {ProductRuntimeImageVerifier} from "../../shared/product-runtime-image-verifier.ts";
 import {readProductRuntimeContract} from "../../shared/product-runtime-contract.ts";
+import {createProductRuntimeVerificationReceipt, writeProductRuntimeVerificationReceipt} from "../../shared/product-runtime-receipt.ts";
 
 const execFileAsync = promisify(execFile);
 const PORTABLE_SCHEMA = "nbook.desktop-portable/v1";
 const FIXED_TIME = new Date("1980-01-01T00:00:00.000Z");
-const PRODUCT_MANIFEST = "app/.output/runtime-image.json";
-const PRODUCT_READY = "app/.output/runtime-image.ready";
+const PRODUCT_MANIFEST = ".output/runtime-image.json";
+const PRODUCT_READY = ".output/runtime-image.ready";
 
 /** 解析只供本地打包使用的显式参数；不读取 cwd 猜测 Product。 */
 function parseArgs(argv) {
@@ -39,7 +40,7 @@ function parseArgs(argv) {
         values.set(key, value);
         index += 1;
     }
-    const required = ["--image", "--output-dir", "--electron-runtime", "--tauri-exe"];
+    const required = ["--image", "--output-dir", "--electron-runtime", "--tauri-exe", "--manager", "--tool-pack"];
     for (const key of required) {
         if (!values.has(key)) throw new Error(`缺少参数：${key}`);
     }
@@ -53,6 +54,8 @@ function parseArgs(argv) {
         outputDir: resolve(values.get("--output-dir")),
         electronRuntime: resolve(values.get("--electron-runtime")),
         tauriExecutable: resolve(values.get("--tauri-exe")),
+        managerExecutable: resolve(values.get("--manager")),
+        toolPack: resolve(values.get("--tool-pack")),
         bunExecutable,
     };
 }
@@ -157,6 +160,34 @@ async function runtimeVersions(bunExecutable, electronPackage) {
     return {bun, electron: electron.version};
 }
 
+/** 读取 Tool Pack 中的真实可执行文件位置与版本；不接受 shim 或缺失依赖。 */
+async function toolPackInfo(root) {
+    const gitPath = join(root, "git", "cmd", "git.exe");
+    const bashPath = join(root, "git", "usr", "bin", "bash.exe");
+    const rgPath = join(root, "rg", "rg.exe");
+    const [git, bash, rg] = await Promise.all([
+        execFileAsync(gitPath, ["--version"], {windowsHide: true}),
+        execFileAsync(bashPath, ["--version"], {windowsHide: true}),
+        execFileAsync(rgPath, ["--version"], {windowsHide: true}),
+    ]);
+    const gitVersion = git.stdout.trim().match(/git version ([^\s]+)/u)?.[1];
+    const rgVersion = rg.stdout.trim().match(/^ripgrep ([^\s]+)/mu)?.[1];
+    if (!gitVersion || !rgVersion || !/^GNU bash(?:,| )/u.test(bash.stdout.trim())) {
+        throw new Error("Tool Pack 的 Git/Bash/rg 版本无法验证。");
+    }
+    return {
+        gitPath: "tools/git/cmd/git.exe",
+        bashPath: "tools/git/usr/bin/bash.exe",
+        rgPath: "tools/rg/rg.exe",
+        gitVersion,
+        rgVersion,
+    };
+}
+
+async function fileSha256(path) {
+    return createHash("sha256").update(await readFile(path)).digest("hex");
+}
+
 /** 复制 Electron runtime，并把 main/preload 放入 Electron 约定的 resources/app。 */
 async function copyElectronRuntime(sourceRoot, stageRoot) {
     const targetRoot = join(stageRoot, "desktop");
@@ -189,13 +220,13 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
 /** 建立一个没有用户内容的 Portable stage。 */
 async function createStage(kind, args, verified, versions, stageRoot) {
     await mkdir(stageRoot, {recursive: true});
-    await copyTree(args.imageRoot, join(stageRoot, "app", ".output"));
+    await copyTree(args.imageRoot, join(stageRoot, ".output"));
     await mkdir(join(stageRoot, "runtime"), {recursive: true});
     await copyFile(args.bunExecutable, join(stageRoot, "runtime", "bun.exe"));
     await mkdir(join(stageRoot, "desktop"), {recursive: true});
-    const scriptRoot = dirname(fileURLToPath(import.meta.url));
-    const launcherSource = resolve(scriptRoot, "shared", "dist", "product-launcher.mjs");
-    await copyFile(launcherSource, join(stageRoot, "desktop", "product-launcher.mjs"));
+    await mkdir(join(stageRoot, "manager"), {recursive: true});
+    await copyTree(args.toolPack, join(stageRoot, "tools"));
+    await copyFile(args.managerExecutable, join(stageRoot, "manager", "neuro-book.mjs"));
     if (kind === "electron") {
         await copyElectronRuntime(args.electronRuntime, stageRoot);
     } else {
@@ -213,17 +244,124 @@ async function createStage(kind, args, verified, versions, stageRoot) {
         await writeFile(target, "portable-root\n", "utf8");
     }
 
-    const contract = await readProductRuntimeContract(join(stageRoot, "app", ".output"));
-    if (contract.schema !== "nbook.product-runtime-contract/v4") {
-        throw new Error(`Portable 只接受 Product Runtime Contract v4，当前为 ${contract.schema}`);
+    const contract = await readProductRuntimeContract(join(stageRoot, ".output"));
+    if (contract.schema !== "nbook.product-runtime-contract/v5") {
+        throw new Error(`Portable 只接受 Product Runtime Contract v5，当前为 ${contract.schema}`);
     }
+    const managerSha256 = await fileSha256(join(stageRoot, "manager", "neuro-book.mjs"));
+    const bunSha256 = await fileSha256(join(stageRoot, "runtime", "bun.exe"));
+    const toolInfo = await toolPackInfo(join(stageRoot, "tools"));
+    const toolIdentity = await payloadIdentity(join(stageRoot, "tools"));
+    const toolArchiveSha256 = toolIdentity.digest.slice("sha256:".length);
+    const bareDigest = verified.manifest.imageId.slice("sha256:".length);
+    const managerPackage = JSON.parse(await readFile(resolve(dirname(args.managerExecutable), "..", "package.json"), "utf8"));
+    const now = "2026-08-05T00:00:00.000Z";
+    const installationManifest = {
+        schemaVersion: 5,
+        profile: "windows-portable",
+        containerEngine: null,
+        managerVersion: managerPackage.version,
+        appVersion: verified.manifest.version,
+        channel: "canary",
+        sourceRevision: verified.manifest.revision,
+        roots: {
+            state: {base: "installation-root", path: "data"},
+            cache: {base: "installation-root", path: ".cache"},
+            desktop: {base: "installation-root", path: "data/.desktop"},
+            webview: {base: "installation-root", path: "data/.desktop/webview"},
+        },
+        components: {
+            source: {
+                provider: "release",
+                buildId: verified.manifest.imageId,
+                version: verified.manifest.version,
+                revision: verified.manifest.revision,
+                path: ".",
+                files: [],
+                archiveSha256: bareDigest,
+                sourceUrl: "local:portable-product-source",
+                license: "AGPL-3.0-only",
+                redistribution: "完整 Release Source 由 Manager CLI 单独管理",
+            },
+            product: {
+                provider: "release",
+                buildId: verified.manifest.imageId,
+                version: verified.manifest.version,
+                revision: verified.manifest.revision,
+                path: ".output",
+                platform: "windows-x64",
+                archiveSha256: bareDigest,
+                sourceUrl: "local:verified-product-runtime-image",
+                license: "AGPL-3.0-only",
+                redistribution: "verified Product Runtime Image",
+                imageId: verified.manifest.imageId,
+                sourceDigest: verified.manifest.sourceDigest,
+                lockfileSha256: verified.manifest.lockfileSha256,
+                builderContractVersion: verified.manifest.builderContractVersion,
+            },
+            manager: {provider: "managed", version: managerPackage.version, path: "manager/neuro-book.mjs", bundleSha256: managerSha256},
+            managerRuntime: {
+                provider: "managed",
+                version: versions.bun,
+                path: "runtime/bun.exe",
+                executableSha256: bunSha256,
+                archiveSha256: bunSha256,
+                sourceUrl: "local:bun-runtime",
+                license: "参见 Bun Runtime license",
+                redistribution: "Bun executable",
+            },
+            applicationRuntime: {
+                provider: "managed",
+                version: versions.bun,
+                path: "runtime/bun.exe",
+                executableSha256: bunSha256,
+                archiveSha256: bunSha256,
+                sourceUrl: "local:bun-runtime",
+                license: "参见 Bun Runtime license",
+                redistribution: "Bun executable",
+            },
+            tools: {
+                rg: {
+                    provider: "managed",
+                    version: toolInfo.rgVersion,
+                    path: toolInfo.rgPath,
+                    executableSha256: await fileSha256(join(stageRoot, toolInfo.rgPath)),
+                    archiveSha256: toolArchiveSha256,
+                    sourceUrl: "local:neuro-book-toolpack-win-x64",
+                    license: "MIT OR Unlicense",
+                    redistribution: "按 ripgrep 官方 Release 原样再分发，并保留许可证文件。",
+                },
+                git: {
+                    provider: "managed",
+                    distribution: "PortableGit",
+                    version: toolInfo.gitVersion,
+                    path: toolInfo.gitPath,
+                    bashPath: toolInfo.bashPath,
+                    archiveSha256: toolArchiveSha256,
+                    gitSha256: await fileSha256(join(stageRoot, toolInfo.gitPath)),
+                    bashSha256: await fileSha256(join(stageRoot, toolInfo.bashPath)),
+                    sourceUrl: "local:neuro-book-toolpack-win-x64",
+                    license: "GPL-2.0-only",
+                    redistribution: "按 Git for Windows PortableGit 原样再分发；包内许可证文件随组件保留。",
+                },
+            },
+        },
+        installedAt: now,
+        updatedAt: now,
+    };
+    await mkdir(join(stageRoot, ".deploy"), {recursive: true});
+    await writeFile(join(stageRoot, ".deploy", "installation.json"), `${JSON.stringify(installationManifest, null, 4)}\n`, "utf8");
+    await writeProductRuntimeVerificationReceipt(
+        join(stageRoot, ".deploy", "product-runtime-receipt.json"),
+        createProductRuntimeVerificationReceipt(verified.manifest, now),
+    );
     const identity = await payloadIdentity(stageRoot);
     const manifest = {
         schema: PORTABLE_SCHEMA,
         kind,
         platform: "windows-x64",
         product: {
-            imagePath: "app/.output",
+            imagePath: ".output",
             imageId: verified.manifest.imageId,
             sourceRevision: verified.manifest.revision,
             sourceDigest: verified.manifest.sourceDigest,
@@ -237,8 +375,13 @@ async function createStage(kind, args, verified, versions, stageRoot) {
             envelopePath: kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe",
             envelopeVersion: kind === "electron" ? versions.electron : "tauri-2.11.5",
         },
+        toolPack: {
+            files: toolIdentity.files,
+            bytes: toolIdentity.bytes,
+            digest: toolIdentity.digest,
+        },
         roots: {
-            application: "app",
+            application: ".",
             state: "data",
             cache: ".cache",
             desktop: "data/.desktop",
@@ -251,6 +394,7 @@ async function createStage(kind, args, verified, versions, stageRoot) {
     };
     await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
     await freezeTimes(stageRoot);
+    const scriptRoot = dirname(fileURLToPath(import.meta.url));
     await assertPortableText(stageRoot, resolve(scriptRoot, "..", ".."));
     const archiveEntries = await collectEntries(stageRoot);
     return {manifest, archiveEntries};

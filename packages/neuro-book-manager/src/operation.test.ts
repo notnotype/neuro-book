@@ -5,7 +5,17 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {removePath} from "#manager/files";
-import {commitOperation, createOperation, pathCreateEffect, pathRetireEffect, recoverInterruptedOperations, updateOperation} from "#manager/operation";
+import {
+    commitOperation,
+    completeProductRuntimeReceiptSwitch,
+    createOperation,
+    pathCreateEffect,
+    pathRetireEffect,
+    prepareProductRuntimeReceiptSwitch,
+    recoverInterruptedOperations,
+    rollbackOperation,
+    updateOperation,
+} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
 import {parseOperationJournal} from "#manager/schema";
@@ -63,6 +73,77 @@ beforeEach(() => {
 });
 
 describe("Operation recovery", () => {
+    it("回滚 receipt 切换时恢复旧回执并清除 backup", async () => {
+        const root = await operationRoot();
+        const receiptPath = join(root, ".deploy", "product-runtime-receipt.json");
+        await mkdir(join(root, ".deploy"), {recursive: true});
+        await writeFile(receiptPath, "old-receipt\n", "utf8");
+        let journal = await createOperation({
+            id: "receipt-restore",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "receipt-restore"),
+            previousManifest: null,
+            nextManifest: null,
+        });
+        journal = await prepareProductRuntimeReceiptSwitch(journal, receiptPath);
+        const receiptEffect = journal.effects.find((effect) => effect.kind === "receipt-switch");
+        expect(receiptEffect?.kind).toBe("receipt-switch");
+        if (receiptEffect?.kind !== "receipt-switch" || !receiptEffect.backupPath) throw new Error("测试 fixture 缺少 receipt backup");
+        await writeFile(receiptPath, "new-receipt\n", "utf8");
+        await rollbackOperation(journal);
+
+        expect(await readFile(receiptPath, "utf8")).toBe("old-receipt\n");
+        await expect(stat(receiptEffect.backupPath)).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(root, ".deploy", "operations", "receipt-restore.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("无旧 receipt 的失败回滚会删除新回执而不是留下半成品", async () => {
+        const root = await operationRoot();
+        const receiptPath = join(root, ".deploy", "product-runtime-receipt.json");
+        let journal = await createOperation({
+            id: "receipt-missing-restore",
+            action: "install",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "receipt-missing-restore"),
+            previousManifest: null,
+            nextManifest: null,
+        });
+        journal = await prepareProductRuntimeReceiptSwitch(journal, receiptPath);
+        await mkdir(join(root, ".deploy"), {recursive: true});
+        await writeFile(receiptPath, "partial-new\n", "utf8");
+        await rollbackOperation(journal);
+
+        await expect(stat(receiptPath)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it("成功提交 receipt 切换会清理旧回执 backup", async () => {
+        const root = await operationRoot();
+        const receiptPath = join(root, ".deploy", "product-runtime-receipt.json");
+        await mkdir(join(root, ".deploy"), {recursive: true});
+        await writeFile(receiptPath, "old-receipt\n", "utf8");
+        let journal = await createOperation({
+            id: "receipt-commit",
+            action: "update",
+            root,
+            containerEngine: null,
+            backupRoot: join(root, ".deploy", "backups", "receipt-commit"),
+            previousManifest: null,
+            nextManifest: null,
+        });
+        journal = await prepareProductRuntimeReceiptSwitch(journal, receiptPath);
+        const receiptEffect = journal.effects.find((effect) => effect.kind === "receipt-switch");
+        if (receiptEffect?.kind !== "receipt-switch" || !receiptEffect.backupPath) throw new Error("测试 fixture 缺少 receipt backup");
+        await writeFile(receiptPath, "new-receipt\n", "utf8");
+        journal = await completeProductRuntimeReceiptSwitch(journal);
+        await commitOperation(journal);
+
+        expect(await readFile(receiptPath, "utf8")).toBe("new-receipt\n");
+        await expect(stat(receiptEffect.backupPath)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("拒绝越界受管路径", () => {
         const journal = operationJournal();
         expect(() => parseOperationJournal({...journal, effects: [{kind: "path-create", state: "planned", owner: "staging", path: "../outside"}]}, "memory.json")).toThrow("非根目录项");

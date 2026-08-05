@@ -5,8 +5,8 @@
         "moduleResolution": "Bundler",
         "baseUrl": "../..",
         "paths": {
-            "nbook/*": ["../../*"],
-            "@notnotype/owned-process": ["../../packages/owned-process/src/index.ts"]
+            "nbook/*": ["*"],
+            "@notnotype/owned-process": ["packages/owned-process/src/index.ts"]
         },
         "noEmit": true,
         "types": ["node"],

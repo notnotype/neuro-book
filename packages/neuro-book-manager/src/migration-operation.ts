@@ -296,7 +296,7 @@ export async function startInstallationApplication(
             journal = await updateOperation(journal, "migrated");
             launch = await launchApplication(paths.root, activeManifest, {
                 ...options,
-                openBrowser: true,
+                openBrowser: options.openBrowser ?? true,
                 onContainerStarting: async () => {
                     journal = await prepareCandidateContainer(journal);
                 },
@@ -308,6 +308,10 @@ export async function startInstallationApplication(
                 },
             });
             await launch.ready;
+            await options.onReady?.({
+                port: launch.port,
+                ...(launch.startupNonce ? {startupNonce: launch.startupNonce} : {}),
+            });
             journal = await updateOperation(journal, "healthy");
             await commitOperation(journal);
             launchResult.launch = launch;

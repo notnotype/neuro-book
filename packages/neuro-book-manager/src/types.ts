@@ -499,6 +499,18 @@ export type ManifestSwitchEffect = {
     owner: "manifest";
 };
 
+/** Product 回执与 Product 镜像同一事务切换；失败时必须恢复旧回执。 */
+export type ReceiptSwitchEffect = {
+    kind: "receipt-switch";
+    state: OperationEffectState;
+    owner: "receipt";
+    path: ".deploy/product-runtime-receipt.json";
+    previousState: "present" | "missing";
+    /** 旧回执的事务备份；旧回执不存在时为空。 */
+    backupPath?: string;
+    cleanupError?: string;
+};
+
 export type GitCheckoutEffect = {
     kind: "git-checkout";
     state: OperationEffectState;
@@ -568,6 +580,7 @@ export type OperationEffect =
     | ComponentSwitchEffect
     | WrapperSwitchEffect
     | ManifestSwitchEffect
+    | ReceiptSwitchEffect
     | GitCheckoutEffect
     | GitFastForwardEffect
     | DockerImageEffect
