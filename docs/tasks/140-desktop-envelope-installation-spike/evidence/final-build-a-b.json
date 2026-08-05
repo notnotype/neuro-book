@@ -1,6 +1,6 @@
 {
     "schema": "nbook.desktop-envelope-spike-final-evidence/v1",
-    "capturedAt": "2026-08-05T11:10:13.473Z",
+    "capturedAt": "2026-08-05T17:33:29.358Z",
     "environment": {
         "platform": "win32",
         "arch": "x64",
@@ -13,15 +13,15 @@
     },
     "product": {
         "contract": "nbook.product-runtime-contract/v5",
-        "imageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
-        "sourceRevision": "3623d32c66aa7ab0a9ad4769e4405036ea9d5433",
-        "sourceDigest": "sha256:c5fea97c659ca9035aaa82a63c99615649d070cc91d23a575d215bec429667bf",
+        "imageId": "sha256:b20de896a3fa63591bf5c2ba067803c0ed707e9a0984b200562c10f0d28bf895",
+        "sourceRevision": "7a001aaf3961907b86e27f17c7f3b011f1b7dbc2",
+        "sourceDigest": "sha256:0abfa58ba027dba885b8cdaa248b956cce854967388f9763ac62e1414d3b1c14",
         "dirty": false,
         "payload": {
             "files": 3242,
-            "bytes": 134532224,
-            "treeDigest": "sha256:e5afa0d9dc500b5acfe366e4a6385ecea3c3fa3b24031801ca6470a3088ad626",
-            "shapeDigest": "sha256:917c43569fa43d60045dacb23c5de6d71fb1d3100a2779cd4d464ada2d814aab"
+            "bytes": 134532815,
+            "treeDigest": "sha256:5d06644fdd962903b83a1bd81628562476a68d8cda6d231e95b99710dbb76af0",
+            "shapeDigest": "sha256:b12dc9dd387895ad141558ddb8f537661cf1210cd12a4bac3b9721b4c1269fe8"
         },
         "buildReproducibility": {
             "builds": ["A", "B"],
@@ -35,15 +35,15 @@
             "frontend": {"files": 181, "bytes": 15882924},
             "native-islands": {"files": 2059, "bytes": 75260633},
             "runtime-meta": {"files": 3, "bytes": 5069},
-            "server-bundle": {"files": 1, "bytes": 12558328},
+            "server-bundle": {"files": 1, "bytes": 12558588},
             "system-assets": {"files": 376, "bytes": 5329764}
         }
     },
     "components": {
         "electronRuntime": {"files": 75, "bytes": 364266454},
-        "electronBundle": {"files": 2, "bytes": 64866},
-        "tauriReleaseExecutable": {"files": 1, "bytes": 9863680},
-        "tauriReleaseDebugSymbols": {"files": 1, "bytes": 6467584},
+        "electronBundle": {"files": 2, "bytes": 75703},
+        "tauriReleaseExecutable": {"files": 1, "bytes": 9912320},
+        "tauriReleaseDebugSymbols": {"files": 1, "bytes": 6500352},
         "toolPack": {
             "files": 6293,
             "bytes": 387904585,
@@ -51,26 +51,26 @@
         }
     },
     "portable": {
-        "inputImageId": "sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2",
+        "inputImageId": "sha256:b20de896a3fa63591bf5c2ba067803c0ed707e9a0984b200562c10f0d28bf895",
         "batches": ["final-a", "final-b"],
         "electron": {
             "payload": {
-                "files": 9623,
-                "bytes": 986194835,
-                "digest": "sha256:a6a2b7a97d6287d40b0b649795d76dc7750211833b198e79be6dec8d11c6f369"
+                "files": 9622,
+                "bytes": 986435296,
+                "digest": "sha256:3027eb9e84c99697ef1eabc2ac3858598be996961a7ee87dcad244f6892974db"
             },
-            "zipBytes": 389496381,
-            "zipSha256": "B7C1B270E22471B11733EAC787E829B4F8C0C65F7BB5FFB689DBBA786A7F8205",
+            "zipBytes": 389592191,
+            "zipSha256": "1497E310879882288C9A074BC25766563CD3BA1D38C36945F07D35B1D72608B5",
             "webview": "bundled-chromium"
         },
         "tauri": {
             "payload": {
                 "files": 9546,
-                "bytes": 631727064,
-                "digest": "sha256:998efdeb60da35d883075cc7b2379c2d3d32103da8069f2b59d931c8d6fb9a57"
+                "bytes": 631799472,
+                "digest": "sha256:065568de42c9ddb9369226a372fbfca8bf8ddcf43fc627b6198e1c7e612cd58d"
             },
-            "zipBytes": 243786881,
-            "zipSha256": "70B03065D101ECA43079D4BF94CF393BF2EB3015CD0E15DBBB42BEFFB8D55872",
+            "zipBytes": 243829175,
+            "zipSha256": "9B87A768AEA4531851F9FE47E5832A459E9D52A26EB1F49698C34B123521F15C",
             "webview": "system-evergreen"
         },
         "reproducibility": {
@@ -86,7 +86,7 @@
         "nodePath": "",
         "productApplicationRoot": {
             "files": 3244,
-            "digest": "sha256:3b94f5252f5634375f4a916356a1590cef8529e46a7bf92ee2302a57fad224dc",
+            "digest": "sha256:786f59b64997c0e5fe04ffe90ac0af341c44022378df7d2cdcf0b8c1ece0b301",
             "unchangedBeforeAfter": true
         },
         "electron": {
@@ -112,11 +112,11 @@
         }
     },
     "tests": {
-        "desktopContract": "5 files / 17 tests passed",
+        "desktopContract": "2 files / 11 tests passed",
         "securityAudit": "all checks passed",
         "electronBundle": "passed",
         "desktopTypecheck": "passed",
-        "managerTests": "37 files / 263 tests passed; 1 file / 3 tests skipped",
+        "managerTests": "38 files / 278 tests passed; 3 tests skipped",
         "managerTypecheck": "passed",
         "tauriFmt": "passed",
         "tauriCheck": "passed"
@@ -124,7 +124,7 @@
     "limitations": [
         "真实窗口、SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和运行时 Origin 行为仍需人工验收。",
         "稳定 RSS、冷启动、签名安装器、updater、图形化卸载器和 WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量；Windows Manager CLI 安装事务在后续 focused 回归中单独验证。",
-        "Tauri spike 的 forced fallback 仍是 taskkill；生产实现必须接入共享 Owned Process/Windows Job Object 或等价受控 supervisor。",
+        "Tauri Windows forced fallback 已由 Job Object smoke 验证；非 Windows 进程组和正式共享 supervisor 仍需单独验收。",
         "本证据是 Windows x64 spike，不代表 Linux/macOS 或 Electron/Tauri 最终选型。"
     ]
 }
