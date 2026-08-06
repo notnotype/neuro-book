@@ -1,3 +1,6 @@
+[install]
+linker = "hoisted"
+
 [test]
 pathIgnorePatterns = [
     "product/**",
