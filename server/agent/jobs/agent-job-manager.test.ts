@@ -1,8 +1,12 @@
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import {describe, expect, it, vi} from "vitest";
 import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
+import {
+    AgentJobDurableStore,
+    type DurableAgentJobRecord,
+} from "nbook/server/agent/jobs/agent-job-durable-store";
 
 describe("AgentJobManager", () => {
     it("启动回执精确指向首次 running 发布，不受同步执行器后续事件污染", async () => {
@@ -187,21 +191,23 @@ describe("AgentJobManager", () => {
         }
     });
 
-    it("结果回流使用普通 prompt invocation，且 waitIdle 等到投递完成", async () => {
+    it("结果回流进入 durable system follow-up queue，且 waitIdle 等到入队完成", async () => {
         let releaseDelivery: (() => void) | undefined;
         const delivery = new Promise<void>((resolve) => {
             releaseDelivery = resolve;
         });
-        const invokeAgent = vi.fn(async () => {
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            deliveryId: string;
+            clientMessageId: string;
+        }) => {
             await delivery;
             return {
-                sessionId: 7,
-                invocationId: "job-followup",
-                status: "completed" as const,
-                finalMessage: "received",
+                state: "queued" as const,
+                deliveryId: input.deliveryId,
+                clientMessageId: input.clientMessageId,
             };
         });
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, "");
         jobs.spawn({
             kind: "bash",
             title: "background task",
@@ -213,16 +219,14 @@ describe("AgentJobManager", () => {
         const idle = jobs.waitIdle().then(() => {
             idleResolved = true;
         });
-        await vi.waitFor(() => expect(invokeAgent).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(enqueueDurableSystemFollowUp).toHaveBeenCalledOnce());
 
         expect(idleResolved).toBe(false);
-        expect(invokeAgent).toHaveBeenCalledWith({
+        expect(enqueueDurableSystemFollowUp).toHaveBeenCalledWith({
             sessionId: 7,
-            mode: "prompt",
-            message: {text: "<system-reminder>\n[后台任务完成] background task（" + jobs.list()[0]!.jobId + "）\ndone\n</system-reminder>"},
-            caller: {kind: "system"},
-            messageIdentity: "system",
-            signal: expect.any(AbortSignal),
+            text: "<system-reminder>\n[后台任务完成] background task（" + jobs.list()[0]!.jobId + "）\ndone\n</system-reminder>",
+            deliveryId: expect.any(String),
+            clientMessageId: expect.stringMatching(/^[0-9a-f-]{36}$/u),
         });
 
         releaseDelivery!();
@@ -232,11 +236,11 @@ describe("AgentJobManager", () => {
     });
 
     it.each([
-        ["返回 error", async () => ({sessionId: 7, invocationId: "delivery-error", status: "error" as const, acceptance: {state: "none" as const}, error: "owner 忙"})],
-        ["抛出异常", async () => { throw new Error("owner invocation 崩溃"); }],
-    ])("结果回流%s时只标记 delivery failed 且不重试", async (_label, invoke) => {
-        const invokeAgent = vi.fn(invoke);
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        ["Session queue 拒绝", async () => { throw new Error("owner queue unavailable"); }],
+        ["Session 不存在", async () => { throw new Error("owner session missing"); }],
+    ])("结果回流%s时只标记 delivery failed 且不重试", async (_label, enqueue) => {
+        const enqueueDurableSystemFollowUp = vi.fn(enqueue);
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, "");
         const spawned = jobs.spawn({
             kind: "workflow",
             title: "delivery failure",
@@ -252,37 +256,37 @@ describe("AgentJobManager", () => {
             deliveryError: expect.stringContaining("owner"),
             result: {ok: true},
         });
-        expect(invokeAgent).toHaveBeenCalledOnce();
+        expect(enqueueDurableSystemFollowUp).toHaveBeenCalledOnce();
     });
 
-    it("shutdown 会取消在途结果回流，不被不合作的 owner invocation 永久阻塞", async () => {
-        const invokeAgent = vi.fn(async (input: {signal?: AbortSignal}) => {
-            await new Promise<void>((resolve) => {
-                if (input.signal?.aborted) {
-                    resolve();
-                    return;
-                }
-                input.signal?.addEventListener("abort", () => resolve(), {once: true});
-            });
-            return {
-                sessionId: 7,
-                invocationId: "shutdown-followup",
-                status: "error" as const,
-            };
-        });
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+    it("shutdown 期间完成的 Job 保留 pending，交给下次启动幂等回流", async () => {
+        const root = resolve(".agent", "agent-job-shutdown-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        const enqueueDurableSystemFollowUp = vi.fn();
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
         jobs.spawn({
             kind: "workflow",
             title: "shutdown delivery",
             ownerSessionId: 7,
-            run: async () => ({resultPreview: "done"}),
+            run: async (context) => {
+                await new Promise<void>((resolveGate) => {
+                    context.signal.addEventListener("abort", () => resolveGate(), {once: true});
+                });
+                return {resultPreview: "cancelled"};
+            },
         });
-        await vi.waitFor(() => expect(invokeAgent).toHaveBeenCalledOnce());
 
         await expect(Promise.race([
             jobs.shutdown().then(() => "settled"),
             new Promise<string>((resolve) => setTimeout(() => resolve("timed-out"), 300)),
         ])).resolves.toBe("settled");
+        expect(enqueueDurableSystemFollowUp).not.toHaveBeenCalled();
+        const durable = await new AgentJobDurableStore(resolve(root, "jobs")).read(jobs.list()[0]!.jobId);
+        expect(durable?.snapshot).toMatchObject({
+            status: "cancelled",
+            deliveryStatus: "pending",
+        });
+        await rm(root, {recursive: true, force: true});
     });
 
     it("shutdown 先关闭事件订阅并清理 preview，取消终态不再发布", async () => {
@@ -324,12 +328,16 @@ describe("AgentJobManager", () => {
     });
 
     it("list 保持轻量，get 保存完整大型结构化结果且通知不截断", async () => {
-        const invokeAgent = vi.fn(async (_input: {message: {text: string}}) => ({
-            sessionId: 7,
-            invocationId: "job-followup",
-            status: "completed" as const,
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            deliveryId: string;
+            clientMessageId: string;
+            text: string;
+        }) => ({
+            state: "queued" as const,
+            deliveryId: input.deliveryId,
+            clientMessageId: input.clientMessageId,
         }));
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, "");
         const largeText = "完整结果".repeat(3_000);
         const spawned = jobs.spawn({
             kind: "workflow",
@@ -345,7 +353,7 @@ describe("AgentJobManager", () => {
         await jobs.waitIdle();
         const summary = jobs.list()[0]!;
         const detail = (await jobs.get(spawned.job.jobId))!;
-        const notification = invokeAgent.mock.calls[0]![0].message.text;
+        const notification = enqueueDurableSystemFollowUp.mock.calls[0]![0].text;
 
         expect(summary).not.toHaveProperty("result");
         expect(summary.preview?.length).toBeLessThanOrEqual(401);
@@ -357,9 +365,11 @@ describe("AgentJobManager", () => {
         expect(notification).not.toContain("```json");
     });
 
-    it("jobs.jsonl 串行记录 running、waiting、running、terminal", async () => {
+    it("每个 Job 只保留最新 durable 文件，旧 jobs.jsonl 不再追加", async () => {
         const root = resolve(".agent", "agent-job-manager-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
+        await mkdir(root, {recursive: true});
+        await writeFile(registryPath, "legacy-audit\n", "utf8");
         const jobs = new AgentJobManager(() => {
             throw new Error("ownerless 测试不应投递");
         }, registryPath);
@@ -381,36 +391,253 @@ describe("AgentJobManager", () => {
         release!();
         await jobs.waitIdle();
 
-        const lines = (await readFile(registryPath, "utf8"))
-            .trim()
-            .split("\n")
-            .map((line) => (JSON.parse(line) as {status: string}).status);
-        expect(lines).toEqual(["running", "waiting", "running", "completed"]);
+        expect(await readFile(registryPath, "utf8")).toBe("legacy-audit\n");
+        const durableFiles = await readdir(resolve(root, "jobs"));
+        expect(durableFiles).toHaveLength(1);
+        const durable = JSON.parse(await readFile(resolve(root, "jobs", durableFiles[0]!), "utf8")) as DurableAgentJobRecord;
+        expect(durable.snapshot).toMatchObject({
+            status: "completed",
+            preview: "done",
+            deliveryStatus: "not_required",
+        });
         await rm(root, {recursive: true, force: true});
     });
 
-    it("recoverInterrupted 独立处理每条中断通知，单条失败不阻塞后续", async () => {
+    it("旧 jobs.jsonl 只迁移 active Job，并独立处理每条中断通知", async () => {
         const root = resolve(".agent", "agent-job-recovery-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");
         await mkdir(root, {recursive: true});
         await writeFile(registryPath, [
             {at: 1, jobId: "job-fail", kind: "workflow", title: "失败通知", ownerSessionId: 1, status: "running", deliveryStatus: "pending"},
             {at: 2, jobId: "job-ok", kind: "workflow", title: "成功通知", ownerSessionId: 2, status: "waiting", deliveryStatus: "pending"},
+            {at: 3, jobId: "job-terminal", kind: "bash", title: "旧终态", ownerSessionId: null, status: "completed", deliveryStatus: "not_required"},
         ].map((line) => JSON.stringify(line)).join("\n") + "\n", "utf8");
-        const invokeAgent = vi.fn(async (input: {sessionId: number; messageIdentity?: string; caller?: {kind: string}}) => {
+        const originalRegistry = await readFile(registryPath, "utf8");
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            sessionId: number;
+            deliveryId: string;
+            clientMessageId: string;
+        }) => {
             if (input.sessionId === 1) throw new Error("owner-1 offline");
-            return {sessionId: input.sessionId, invocationId: "recovery", status: "completed" as const, acceptance: {state: "none" as const}};
+            return {
+                state: "queued" as const,
+                deliveryId: input.deliveryId,
+                clientMessageId: input.clientMessageId,
+            };
         });
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, registryPath);
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
 
         await jobs.recoverInterrupted();
 
-        expect(invokeAgent).toHaveBeenCalledTimes(2);
-        expect(invokeAgent).toHaveBeenNthCalledWith(1, expect.objectContaining({messageIdentity: "system", caller: {kind: "system"}}));
-        expect(invokeAgent).toHaveBeenNthCalledWith(2, expect.objectContaining({messageIdentity: "system", caller: {kind: "system"}}));
-        const lines = (await readFile(registryPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as {jobId: string; status: string; deliveryStatus?: string; deliveryError?: string});
-        expect(lines.filter((line) => line.jobId === "job-fail").at(-1)).toMatchObject({status: "interrupted", deliveryStatus: "failed", deliveryError: "owner-1 offline"});
-        expect(lines.filter((line) => line.jobId === "job-ok").at(-1)).toMatchObject({status: "interrupted", deliveryStatus: "accepted"});
+        expect(enqueueDurableSystemFollowUp).toHaveBeenCalledTimes(2);
+        expect(jobs.list().map((job) => job.jobId).sort()).toEqual(["job-fail", "job-ok"]);
+        await expect(jobs.get("job-fail")).resolves.toMatchObject({
+            status: "interrupted",
+            deliveryStatus: "failed",
+            deliveryError: "owner-1 offline",
+        });
+        await expect(jobs.get("job-ok")).resolves.toMatchObject({
+            status: "interrupted",
+            deliveryStatus: "accepted",
+        });
+        expect(await readFile(registryPath, "utf8")).toBe(originalRegistry);
+        expect((await readdir(resolve(root, "jobs"))).sort()).toEqual(["job-fail.json", "job-ok.json"]);
+        await rm(root, {recursive: true, force: true});
+    });
+
+    it("进程重启后恢复终态列表、完整 result 和 kind detail", async () => {
+        const root = resolve(".agent", "agent-job-history-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        const first = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, registryPath);
+        const spawned = first.spawn({
+            kind: "workflow",
+            title: "durable history",
+            deliver: "none",
+            detail: async () => ({runId: "run-history", status: "completed"}),
+            run: async () => ({
+                resultPreview: "done",
+                result: {payload: "complete"},
+            }),
+        });
+        await first.waitIdle();
+
+        const restored = new AgentJobManager(() => {
+            throw new Error("终态 ownerless 历史不应投递");
+        }, registryPath);
+        await restored.recoverInterrupted();
+
+        expect(restored.list()).toEqual([
+            expect.objectContaining({
+                jobId: spawned.job.jobId,
+                status: "completed",
+                preview: "done",
+            }),
+        ]);
+        await expect(restored.get(spawned.job.jobId)).resolves.toMatchObject({
+            result: {payload: "complete"},
+            detail: {runId: "run-history", status: "completed"},
+        });
+        await rm(root, {recursive: true, force: true});
+    });
+
+    it("terminal pending 在重启后使用原稳定 ID 重投并更新为 accepted", async () => {
+        const root = resolve(".agent", "agent-job-pending-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        const store = new AgentJobDurableStore(resolve(root, "jobs"));
+        const durable = durableCompletedRecord("job_pending", {
+            deliveryId: "delivery-stable",
+            clientMessageId: "9ec1c584-22d6-4dcc-9748-b54258892a23",
+            message: "<system-reminder>\nreliable result\n</system-reminder>",
+        });
+        await store.write(durable);
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            deliveryId: string;
+            clientMessageId: string;
+        }) => ({
+            state: "persisted" as const,
+            deliveryId: input.deliveryId,
+            clientMessageId: input.clientMessageId,
+        }));
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
+
+        await jobs.recoverInterrupted();
+
+        expect(enqueueDurableSystemFollowUp).toHaveBeenCalledWith({
+            sessionId: 7,
+            text: durable.delivery!.message,
+            deliveryId: "delivery-stable",
+            clientMessageId: "9ec1c584-22d6-4dcc-9748-b54258892a23",
+        });
+        await expect(jobs.get("job_pending")).resolves.toMatchObject({
+            status: "completed",
+            deliveryStatus: "accepted",
+            result: {ok: true},
+        });
+        await rm(root, {recursive: true, force: true});
+    });
+
+    it("accepted=queued 的历史在重启后重新触发 drain，已提交时升级私有证据", async () => {
+        const root = resolve(".agent", "agent-job-accepted-queue-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        const store = new AgentJobDurableStore(resolve(root, "jobs"));
+        const durable = durableCompletedRecord("job_accepted_queue", {
+            deliveryId: "delivery-accepted",
+            clientMessageId: "b6c72bf4-25f4-4c34-8c52-a6ccfe38c492",
+            message: "<system-reminder>\nalready queued\n</system-reminder>",
+            acceptedState: "queued",
+        });
+        durable.snapshot.deliveryStatus = "accepted";
+        await store.write(durable);
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            deliveryId: string;
+            clientMessageId: string;
+        }) => ({
+            state: "persisted" as const,
+            deliveryId: input.deliveryId,
+            clientMessageId: input.clientMessageId,
+        }));
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
+
+        await jobs.recoverInterrupted();
+
+        expect(enqueueDurableSystemFollowUp).toHaveBeenCalledOnce();
+        expect((await store.read("job_accepted_queue"))?.delivery).toMatchObject({
+            deliveryId: "delivery-accepted",
+            acceptedState: "persisted",
+        });
+        await rm(root, {recursive: true, force: true});
+    });
+
+    it("terminal durable commit 失败时不发布 completed，而是收口为持久化失败", async () => {
+        const root = resolve(".agent", "agent-job-persist-failure-test", randomUUID());
+        class TerminalFailingStore extends AgentJobDurableStore {
+            private failed = false;
+
+            override async write(record: DurableAgentJobRecord): Promise<void> {
+                if (!this.failed && record.snapshot.status === "completed") {
+                    this.failed = true;
+                    throw new Error("disk full");
+                }
+                await super.write(record);
+            }
+        }
+        const store = new TerminalFailingStore(resolve(root, "jobs"));
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, resolve(root, "jobs.jsonl"), store);
+        const cursor = jobs.recovery().eventCursor;
+        const spawned = jobs.spawn({
+            kind: "bash",
+            title: "persist failure",
+            deliver: "none",
+            run: async () => ({resultPreview: "done", result: {ok: true}}),
+        });
+        const subscription = jobs.subscribeEvents(cursor);
+        await subscription.next();
+
+        await jobs.waitIdle();
+        const terminal = await subscription.next();
+
+        expect(terminal).toMatchObject({
+            value: {payload: {event: {type: "job_upserted", job: {
+                jobId: spawned.job.jobId,
+                status: "failed",
+                error: expect.stringContaining("disk full"),
+            }}}},
+        });
+        await expect(jobs.get(spawned.job.jobId)).resolves.toMatchObject({
+            status: "failed",
+            error: expect.stringContaining("持久化失败"),
+        });
+        subscription.close();
+        await rm(root, {recursive: true, force: true});
+    });
+
+    it("terminal durable commit 完成前，列表和 SSE 都不公开 completed", async () => {
+        const root = resolve(".agent", "agent-job-terminal-gate-test", randomUUID());
+        let releaseTerminal!: () => void;
+        const terminalGate = new Promise<void>((resolveGate) => {
+            releaseTerminal = resolveGate;
+        });
+        let terminalWriteStarted!: () => void;
+        const terminalStarted = new Promise<void>((resolveStarted) => {
+            terminalWriteStarted = resolveStarted;
+        });
+        class BlockingTerminalStore extends AgentJobDurableStore {
+            override async write(record: DurableAgentJobRecord): Promise<void> {
+                if (record.snapshot.status === "completed") {
+                    terminalWriteStarted();
+                    await terminalGate;
+                }
+                await super.write(record);
+            }
+        }
+        const store = new BlockingTerminalStore(resolve(root, "jobs"));
+        const jobs = new AgentJobManager(() => {
+            throw new Error("ownerless 测试不应投递");
+        }, resolve(root, "jobs.jsonl"), store);
+        const cursor = jobs.recovery().eventCursor;
+        jobs.spawn({
+            kind: "bash",
+            title: "terminal gate",
+            deliver: "none",
+            run: async () => ({resultPreview: "done"}),
+        });
+        const subscription = jobs.subscribeEvents(cursor);
+        await subscription.next();
+        await terminalStarted;
+
+        expect(jobs.list()[0]).toMatchObject({status: "running"});
+        expect(jobs.recovery().eventCursor.after).toBe(cursor.after + 1);
+
+        releaseTerminal();
+        await jobs.waitIdle();
+        await expect(subscription.next()).resolves.toMatchObject({
+            value: {payload: {event: {type: "job_upserted", job: {status: "completed"}}}},
+        });
+        subscription.close();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -440,7 +667,7 @@ describe("AgentJobManager", () => {
         await vi.waitFor(() => expect(jobs.list().find((job) => job.title === "finished")?.status).toBe("completed"));
         const cursor = jobs.recovery().eventCursor;
 
-        expect(jobs.clearFinished()).toBe(1);
+        await expect(jobs.clearFinished()).resolves.toBe(1);
         expect(jobs.list().map((job) => job.jobId)).toEqual([running.job.jobId]);
         expect(jobs.recovery().eventCursor.after).toBe(cursor.after + 1);
         await expect(jobs.subscribeEvents(cursor).next()).resolves.toMatchObject({
@@ -452,20 +679,25 @@ describe("AgentJobManager", () => {
         await jobs.waitIdle();
     });
 
-    it("clearFinished 后迟到的 delivery 状态不重新发布已清除 Job", async () => {
+    it("delivery pending 不能清除，accepted 后删除 durable 记录且重启不再出现", async () => {
+        const root = resolve(".agent", "agent-job-clear-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
         let releaseDelivery!: () => void;
         const delivery = new Promise<void>((resolve) => {
             releaseDelivery = resolve;
         });
-        const invokeAgent = vi.fn(async () => {
+        const enqueueDurableSystemFollowUp = vi.fn(async (input: {
+            deliveryId: string;
+            clientMessageId: string;
+        }) => {
             await delivery;
             return {
-                sessionId: 7,
-                invocationId: "late-delivery",
-                status: "completed" as const,
+                state: "queued" as const,
+                deliveryId: input.deliveryId,
+                clientMessageId: input.clientMessageId,
             };
         });
-        const jobs = new AgentJobManager(() => ({invokeAgent}) as never, "");
+        const jobs = new AgentJobManager(() => ({enqueueDurableSystemFollowUp}) as never, registryPath);
         const before = jobs.recovery().eventCursor;
         const spawned = jobs.spawn({
             kind: "workflow",
@@ -475,11 +707,11 @@ describe("AgentJobManager", () => {
         });
 
         await vi.waitFor(() => expect(jobs.list().find((job) => job.jobId === spawned.job.jobId)?.status).toBe("completed"));
-        await vi.waitFor(() => expect(invokeAgent).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(enqueueDurableSystemFollowUp).toHaveBeenCalledOnce());
         const terminal = jobs.recovery().eventCursor;
-        expect(jobs.clearFinished()).toBe(1);
-        expect(jobs.list()).toEqual([]);
-        expect(jobs.recovery().eventCursor.after).toBe(terminal.after + 1);
+        await expect(jobs.clearFinished()).resolves.toBe(0);
+        expect(jobs.list()).toHaveLength(1);
+        expect(jobs.recovery().eventCursor).toEqual(terminal);
 
         let idleResolved = false;
         const idle = jobs.waitIdle().then(() => {
@@ -491,10 +723,41 @@ describe("AgentJobManager", () => {
         releaseDelivery();
         await idle;
         expect(idleResolved).toBe(true);
+        await expect(jobs.clearFinished()).resolves.toBe(1);
         expect(jobs.list()).toEqual([]);
-        expect(jobs.recovery().eventCursor).toEqual({
-            eventEpoch: before.eventEpoch,
-            after: terminal.after + 1,
-        });
+        expect(jobs.recovery().eventCursor.after).toBe(terminal.after + 2);
+
+        const restored = new AgentJobManager(() => {
+            throw new Error("已清除记录不应投递");
+        }, registryPath);
+        await restored.recoverInterrupted();
+        expect(restored.list()).toEqual([]);
+        expect(await readdir(resolve(root, "jobs"))).toEqual([]);
+        expect(before.eventEpoch).toEqual(expect.any(String));
+        await rm(root, {recursive: true, force: true});
     });
 });
+
+function durableCompletedRecord(
+    jobId: string,
+    delivery: DurableAgentJobRecord["delivery"],
+): DurableAgentJobRecord {
+    return {
+        schemaVersion: 1,
+        snapshot: {
+            jobId,
+            kind: "workflow",
+            title: "pending delivery",
+            ownerSessionId: 7,
+            status: "completed",
+            deliveryStatus: "pending",
+            createdAt: 1,
+            endedAt: 2,
+            ref: {runId: "run-pending"},
+            preview: "done",
+        },
+        result: {ok: true},
+        detail: {runId: "run-pending", status: "completed"},
+        delivery,
+    };
+}

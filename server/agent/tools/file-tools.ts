@@ -31,6 +31,7 @@ import {
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {AGENT_IMAGE_POLICY} from "nbook/server/agent/attachments/agent-attachment-policy";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {JsonValue} from "nbook/shared/dto/agent-job.dto";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -408,6 +409,12 @@ function createBashTool(): NeuroAgentTool {
                             if (result.exitCode !== 0) throw new Error(formatted.length > 4000 ? `${formatted.slice(0, 4000)}…` : formatted);
                             return {
                                 resultPreview: `exit 0（输出 ${snapshot.content.length} 字符）`,
+                                result: {
+                                    exitCode: result.exitCode,
+                                    output: snapshot.content,
+                                    truncation: snapshot.truncation as unknown as JsonValue,
+                                    fullOutput: (snapshot.fullOutput ?? null) as unknown as JsonValue,
+                                },
                                 message: [
                                     `后台 bash 命令完成：\`${input.command}\``,
                                     "```",
