@@ -1993,6 +1993,7 @@ const zhCN = {
             reconnectFailed: "重新连接 Agent 事件流失败",
             userTerminated: "用户选择终止本轮。",
             stopped: "已请求停止",
+            stopRunFailed: "停止 Agent 运行失败",
             submitAnswersFailed: "提交问题答案失败",
             cancelUserInputFailed: "取消等待用户输入失败",
             switchModeFailed: "切换 Agent 模式失败",
