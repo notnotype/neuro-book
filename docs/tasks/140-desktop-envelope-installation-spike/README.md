@@ -30,7 +30,7 @@
 - 不把桌面壳并入生产发行、不修改根 Product dependencies、不移动 Product 领域代码。
 - 不用 Electron main 或 Tauri Rust 重写 Manager、数据库、Agent、Profile、Workspace 或安装更新流程。
 - 不为 Bun Product 自造 ASAR/虚拟文件系统；不把完整 Source、Skill 依赖或 native island 塞进桌面壳。
-- 不自动执行需要用户授权的真实浏览器验收；自动化只覆盖可重复的进程、HTTP、WebView 配置和测试 harness 检查。
+- 未获得用户授权时不自动执行真实浏览器或窗口验收；获得授权后仍需把可重复的 Playwright/CDP 证据与原生 OS 行为分开报告。
 
 ## Current State
 
@@ -84,7 +84,7 @@ Electron main / Tauri Rust envelope
 - Electron：安装后 `npm`/Bun 只在 spike 目录工作；执行 package build、main/preload smoke 和仓库外 Product launch。
 - Tauri：`cargo metadata`、`cargo test`、`cargo build` 与 WebView2/sidecar smoke。
 - Product：复用 Task 130 verified image 和现有 Windows verifier；不在本任务重做 clean A/B build。
-- UI：S4 的真实点击、编辑器、文件对话框、拖放和视觉确认需用户单独授权；没有该授权只能报告自动化准备/未完成。
+- UI：共享 Workbench Chrome 先用普通 Chromium + mock Desktop Bridge 验证 B/S/Desktop 差异，再用真实 Envelope 做 CDP/可见窗口验收。文件对话框、拖放、托盘、Snap Layout 等原生行为必须单列，不能由 DOM smoke 代替。
 
 ## Implementation Walkthrough
 
@@ -136,6 +136,7 @@ Electron main / Tauri Rust envelope
 - Tauri Windows spike 已接入受控 Job Object；正式实现仍需补齐 crash/disconnect、非 Windows 进程组和签名发行链路的完整收口验证。
 - 生产实现前必须完成真实窗口的 S3/S4/S5/S8 场景，并分别测量冷启动、RSS、压缩安装器、WebView2 Evergreen/Fixed/Bootstrapper 与升级/卸载行为。
 - 最终 Build A/B 与两次 Portable 组包已覆盖 stdio、startup nonce、Contract、生命周期和 Windows-first 自动化矩阵；旧 C2/旧 ZIP 仅保留为历史证据。上述证据仍不构成跨平台完成或 Electron/Tauri 的生产选择。
+- 2026-08-06：真实窗口复核新增视觉 follow-up：当前标题栏虽已满足文档流和拖动 CSS 合同，但 `color-mix(..., transparent)` 与 native overlay 的组合仍显得像半透明浮层；右上角系统按钮的视觉权重也偏高。按 VS Code 方向，后续应改为不透明、低对比、连续的桌面 chrome，保留 Windows 原生窗口按钮和 36px 几何；具体建议见 [`window-chrome-design.md`](../../research/desktop/window-chrome-design.md)。本记录只登记方向，尚未修改实现或冻结色值。
 
 ## Portable Packaging Phase
 
@@ -194,6 +195,10 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 2026-08-05：补跑真实 Windows 用户级安装/卸载 smoke（[desktop-user-installation-smoke.json](evidence/desktop-user-installation-smoke.json)）。`install-desktop.ps1` 通过 stdin 设置管理员 `admin`，安装到 `%LOCALAPPDATA%/Programs/NeuroBook`，创建 Desktop manifest、开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`；随后 Manager 卸载删除程序、快捷方式和注册项，同时保留 State Root。此前遗留的旧 `neurobook://` 注册项已在 smoke 前确认指向已删除临时目录并清理，不计入本次安装结果。
 
 - 2026-08-06：补齐 Desktop Menu Contract 的页面消费链。自绘标题栏改为 File/Edit/View/Help 下拉菜单，Electron 原生菜单与 Tauri 事件统一覆盖 15 个公开命令；Settings、编辑命令、缩放、刷新和 About 均有实际行为，文档入口在尚未嵌入 Desktop 时给出明确提示，不再静默 no-op。新增共享分发器与未知命令拒绝测试，Desktop Contract 为 3 files / 15 tests；本轮完成 source-locked Product A/B、两个新 Portable 的组包和仓库外 smoke，完整数字见 [final-build-a-b.json](evidence/final-build-a-b.json)。
+- 2026-08-06：补记 Electron 可见 UI 调试经验见 [`docs/research/desktop/electron-debugging.md`](../../research/desktop/electron-debugging.md)。真实 Portable 通过 `--remote-debugging-port` 接入 CDP 后确认，标题栏遮挡问题来自运行包仍加载旧的 `position: fixed` 与顶部 padding，而不是其他窗口覆盖；标题栏改为文档流后再收紧桌面 shell 高度，Electron 已恢复拖动。Playwright/CDP 的分工和托盘、原生对话框、真实窗口移动等未覆盖边界已单独记录。
+- 2026-08-06：完成 VS Code 式 Workbench Chrome 重构。Desktop 只保留一个 36px 标题栏；书架、Project、用户资产、IDE 和 Agent 模式共享 48px Activity Bar，Account/Settings 固定在底部；Project Picker 的品牌 Header、工作区 `NovelIdeHeader`、IDE Agent Drawer 和旧 `rightPanel*` 状态均已删除。Desktop 的 Agent 按钮移到标题栏并切换模式，B/S 使用 Activity Bar；Inline Editor Agent 通过独立 controller 保持创建、恢复和调用 Session，不再依赖隐藏挂载的 `AgentChatSurface`。
+- 2026-08-06：Desktop Bridge 原子升级到 v2，新增 `platform`、`menuPresentation`、`windowControls` 与枚举型 appearance。Electron preload、Tauri 注入、远端 capability、Manager 安装验证和共享合同同步升级，不保留 v1 fallback。标题栏使用四区网格和整体菜单折叠；Electron 使用 Window Controls Overlay 安全区，Tauri 使用独立自绘按钮区。
+- 2026-08-06：新增 `desktop:workbench-browser-smoke`。隔离 Source Dev 上的 headless 与 headed Edge 验收均通过，覆盖单标题栏、`y=0`/36px、内容从 `y=36` 开始、Activity Bar 几何、800/1024/1440 与 480px 菜单形态、键盘焦点恢复、书架 Settings、Inline Session、Agent/IDE 切换和 B/S 零顶部占位；截图保存于本轮 `.agent/tmp` evidence。聚焦门禁为根 typecheck、scripts typecheck、Desktop Contract `7 files / 28 tests`、相邻 UI `6 files / 21 tests`、Manager `1 file / 12 tests`、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 全部通过。
 
 ## Aggregate Depot Result (2026-08-06)
 

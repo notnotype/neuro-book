@@ -197,7 +197,7 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     }
 }
 
-/** 远端安装前验证服务端是否支持 DesktopBridge v1。 */
+/** 远端安装前验证服务端是否支持 DesktopBridge v2。 */
 export async function probeRemoteDesktopCapability(baseUrl: string, insecureHttpAccepted = false): Promise<DesktopCapability> {
     const origin = desktopRemoteOrigin(baseUrl, insecureHttpAccepted);
     const response = await fetch(new URL("/api/app/desktop-capability", `${origin}/`), {

@@ -1,4 +1,4 @@
-export const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v1";
+export const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v2";
 export const DESKTOP_DISTRIBUTION_SCHEMA = "nbook.desktop-distribution/v1";
 export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v1";
 export const DESKTOP_SETTINGS_SCHEMA = "nbook.desktop-settings/v1";
@@ -54,6 +54,10 @@ export type DesktopComponentId = typeof DESKTOP_COMPONENT_IDS[number];
 export type DesktopMenuCommandId = typeof DESKTOP_MENU_COMMAND_IDS[number];
 export type DesktopWindowCommandId = typeof DESKTOP_WINDOW_COMMAND_IDS[number];
 export type DesktopCloseBehavior = "ask" | "tray" | "quit";
+export type DesktopAppearance = "light" | "dark";
+export type DesktopPlatform = "windows" | "macos" | "linux";
+export type DesktopMenuPresentation = "renderer" | "native";
+export type DesktopWindowControls = "overlay" | "custom" | "traffic-lights";
 
 export type DesktopComponentArchive = {
     kind: "path" | "url";
@@ -188,7 +192,9 @@ export type DesktopStatus = {
     version: string;
     origin: string;
     insecureRemote: boolean;
-    nativeWindowControls: boolean;
+    platform: DesktopPlatform;
+    menuPresentation: DesktopMenuPresentation;
+    windowControls: DesktopWindowControls;
 };
 
 export type DesktopSettingsPatch = Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>;
@@ -197,6 +203,7 @@ export type DesktopSettingsPatch = Partial<Pick<DesktopSettings, "zoomFactor" | 
 export interface DesktopBridge {
     readonly schema: typeof DESKTOP_BRIDGE_SCHEMA;
     status(): Promise<DesktopStatus>;
+    setAppearance(appearance: DesktopAppearance): Promise<void>;
     settings(): Promise<DesktopSettings>;
     updateSettings(patch: DesktopSettingsPatch): Promise<DesktopSettings>;
     window(command: DesktopWindowCommandId): Promise<void>;
@@ -308,6 +315,34 @@ export function patchDesktopSettings(current: DesktopSettings, patch: DesktopSet
     return parseDesktopSettings({...current, ...patch});
 }
 
+/** 严格解析 Envelope 返回的 Desktop Chrome 能力。 */
+export function parseDesktopStatus(value: unknown): DesktopStatus {
+    const root = object(value, "Desktop status");
+    exactKeys(root, [
+        "schema",
+        "envelope",
+        "connection",
+        "version",
+        "origin",
+        "insecureRemote",
+        "platform",
+        "menuPresentation",
+        "windowControls",
+    ], "Desktop status");
+    literal(root.schema, DESKTOP_BRIDGE_SCHEMA, "schema");
+    return {
+        schema: DESKTOP_BRIDGE_SCHEMA,
+        envelope: member(root.envelope, DESKTOP_ENVELOPES, "envelope"),
+        connection: member(root.connection, ["local", "remote"] as const, "connection"),
+        version: nonEmptyString(root.version, "version"),
+        origin: desktopRemoteOrigin(nonEmptyString(root.origin, "origin"), true),
+        insecureRemote: boolean(root.insecureRemote, "insecureRemote"),
+        platform: member(root.platform, ["windows", "macos", "linux"] as const, "platform"),
+        menuPresentation: member(root.menuPresentation, ["renderer", "native"] as const, "menuPresentation"),
+        windowControls: member(root.windowControls, ["overlay", "custom", "traffic-lights"] as const, "windowControls"),
+    };
+}
+
 /** 严格解析远端 Product 的 Desktop capability。 */
 export function parseDesktopCapability(value: unknown): DesktopCapability {
     const root = object(value, "Desktop capability");
@@ -315,7 +350,7 @@ export function parseDesktopCapability(value: unknown): DesktopCapability {
     literal(root.schema, DESKTOP_CAPABILITY_SCHEMA, "schema");
     const productVersion = nonEmptyString(root.productVersion, "productVersion");
     if (!Array.isArray(root.bridgeSchemas) || root.bridgeSchemas.length !== 1 || root.bridgeSchemas[0] !== DESKTOP_BRIDGE_SCHEMA) {
-        throw new Error("Desktop capability 不支持 DesktopBridge v1。");
+        throw new Error("Desktop capability 不支持 DesktopBridge v2。");
     }
     literal(root.supportsRemoteDesktop, true, "supportsRemoteDesktop");
     return {schema: DESKTOP_CAPABILITY_SCHEMA, productVersion, bridgeSchemas: [DESKTOP_BRIDGE_SCHEMA], supportsRemoteDesktop: true};

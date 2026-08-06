@@ -231,8 +231,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotWorkbenchTab = ref<"thread" | "promises" | "decisions">("thread");
     // 跳账本时要聚焦的 promise/decision id;为空表示无待消费的聚焦请求,对应 tab 消费一次后置回 null。
     const plotPlanningFocusId = ref<string | null>(null);
-    const rightPanelOpen = ref(false);
-    const rightPanelWidth = ref(400);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
     const activeThemeId = ref<string>("sepia");
@@ -1941,8 +1939,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         configRevision,
         bumpConfigRevision,
         reasoningOptions,
-        rightPanelOpen,
-        rightPanelWidth,
         saveCurrentFile,
         saveDirtyWorkspaceFiles,
         selectedStoryThreadId,
@@ -2019,8 +2015,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "agentStudioPanelWidth",
             "agentStudioFileTreeWidth",
             "leftPanelWidth",
-            "rightPanelOpen",
-            "rightPanelWidth",
             "selectedModel",
             "selectedReasoning",
             "activeThemeId",

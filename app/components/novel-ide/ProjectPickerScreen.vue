@@ -633,19 +633,6 @@ onBeforeUnmount(() => {
 <template>
     <!-- 项目选择界面根容器 -->
     <div class="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--bg-main)] text-[var(--text-main)]">
-        <!-- 页面品牌栏：账户动作仍由宿主注入，选择器不依赖认证 API。 -->
-        <header class="sticky top-0 z-20 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-panel)]">
-            <div class="mx-auto flex h-14 w-full max-w-[1200px] items-center justify-between px-5 sm:px-6 lg:px-8">
-                <div class="flex min-w-0 items-center gap-2.5">
-                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)]">
-                        <span class="i-lucide-feather h-4 w-4 text-[var(--accent-text)]"></span>
-                    </div>
-                    <span class="truncate text-sm font-semibold text-[var(--text-main)]">Neuro Book</span>
-                </div>
-                <slot name="header-actions"></slot>
-            </div>
-        </header>
-
         <!-- 项目工作台主体 -->
         <main class="mx-auto flex w-full max-w-[1200px] flex-col gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:px-8">
             <!-- 页面标题与主操作 -->

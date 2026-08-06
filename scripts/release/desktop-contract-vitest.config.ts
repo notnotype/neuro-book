@@ -63,8 +63,11 @@ export default defineConfig({
         include: [
             "shared/desktop-contract.test.ts",
             "shared/desktop-menu-command.test.ts",
+            "app/composables/useWorkbenchChrome.test.ts",
+            "app/utils/workbench-chrome.test.ts",
             "desktop/spikes/shared/src/electron-packaging-contract.test.ts",
             "desktop/spikes/shared/src/desktop-distribution-packaging-contract.test.ts",
+            "desktop/spikes/shared/src/desktop-ui-contract.test.ts",
         ],
     },
 });

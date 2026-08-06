@@ -177,6 +177,7 @@ const enUS = {
             project: {
                 label: "Project Config",
                 description: "Current Project Workspace .nbook/config.json",
+                unavailable: "Open a Project before editing Project settings.",
             },
             browser: {
                 label: "Browser State",
@@ -901,6 +902,10 @@ const enUS = {
         },
     },
     ide: {
+        activityBar: {
+            more: "More",
+            moreActions: "More workbench actions",
+        },
         header: {
             openAdmin: "Admin Console",
             profile: "Profile",

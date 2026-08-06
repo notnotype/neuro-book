@@ -2,7 +2,7 @@ import {readFile} from "node:fs/promises";
 import {join} from "node:path";
 
 const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
-const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v1";
+const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v2";
 
 type PackageManifest = {
     version?: string;

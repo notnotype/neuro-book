@@ -232,7 +232,7 @@ describe("Desktop installation lifecycle", () => {
             json: async () => ({
                 schema: "nbook.desktop-capability/v1",
                 productVersion: "0.9.1",
-                bridgeSchemas: ["nbook.desktop-bridge/v1"],
+                bridgeSchemas: ["nbook.desktop-bridge/v2"],
                 supportsRemoteDesktop: true,
             }),
         }));

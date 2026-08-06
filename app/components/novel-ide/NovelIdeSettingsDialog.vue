@@ -178,6 +178,8 @@ const browserSections: SettingsSection[] = ["frontend", "editor", "desktop"];
 const bootConfigSections: SettingsSection[] = ["security"];
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
 const desktopAvailable = computed(() => Boolean(desktopBridge.value));
+const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"
+    && Boolean(novelIdeStore.currentProjectRoot));
 
 /** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
 type ThemeCard = {
@@ -401,7 +403,8 @@ function selectScope(scope: SettingsScope): void {
     if (!canLeaveCurrentPanel()) {
         return;
     }
-    if (scope === "project" && (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot)) {
+    if (scope === "project" && !projectScopeAvailable.value) {
+        notification.info(t("settings.scope.project.unavailable"));
         activeScope.value = "global";
         activeSection.value = "models";
         return;
@@ -789,8 +792,8 @@ function updateDesktopCloseBehavior(value: string): void {
                                 type="button"
                                 class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
                                 :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
-                                :title="scope.description"
+                                :disabled="scope.value === 'project' && !projectScopeAvailable"
+                                :title="scope.value === 'project' && !projectScopeAvailable ? t('settings.scope.project.unavailable') : scope.description"
                                 @click="selectScope(scope.value)"
                             >
                                 <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>

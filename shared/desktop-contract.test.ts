@@ -14,6 +14,7 @@ import {
     parseDesktopCapability,
     parseDesktopDistributionManifest,
     parseDesktopInstallationManifest,
+    parseDesktopStatus,
     parseDesktopShellArchiveManifest,
     parseDesktopSettings,
     parseDesktopSupervisorEvent,
@@ -122,7 +123,7 @@ describe("Desktop contracts", () => {
         expect(() => parseDesktopSupervisorRequest({...start, port: 80})).toThrow("1024-65535");
     });
 
-    it("只接受声明 DesktopBridge v1 的远端 capability", () => {
+    it("只接受声明 DesktopBridge v2 的远端 capability", () => {
         const capability = {
             schema: DESKTOP_CAPABILITY_SCHEMA,
             productVersion: "0.9.0",
@@ -130,7 +131,25 @@ describe("Desktop contracts", () => {
             supportsRemoteDesktop: true,
         } as const;
         expect(parseDesktopCapability(capability)).toEqual(capability);
-        expect(() => parseDesktopCapability({...capability, bridgeSchemas: []})).toThrow("不支持 DesktopBridge v1");
+        expect(() => parseDesktopCapability({...capability, bridgeSchemas: []})).toThrow("不支持 DesktopBridge v2");
+    });
+
+    it("严格解析 Desktop Chrome 的平台和窗口控制能力", () => {
+        const status = {
+            schema: DESKTOP_BRIDGE_SCHEMA,
+            envelope: "electron",
+            connection: "local",
+            version: "0.9.0",
+            origin: "http://127.0.0.1:43120",
+            insecureRemote: false,
+            platform: "windows",
+            menuPresentation: "renderer",
+            windowControls: "overlay",
+        } as const;
+        expect(DESKTOP_BRIDGE_SCHEMA).toBe("nbook.desktop-bridge/v2");
+        expect(parseDesktopStatus(status)).toEqual(status);
+        expect(() => parseDesktopStatus({...status, platform: "android"})).toThrow("platform");
+        expect(() => parseDesktopStatus({...status, extra: true})).toThrow("字段不匹配");
     });
 
     it("远端 shell depot 只接受匹配的 Envelope 路径和 checksum", () => {

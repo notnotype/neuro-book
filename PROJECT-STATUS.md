@@ -8,7 +8,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 
 ## 产品基线
 
-- 普通写作入口以 Novel IDE / Markdown Studio 为主，顶栏提供 Bookshelf、World、Plot、User Assets 和 Agent。
+- 普通写作入口以 Novel IDE / Markdown Studio 为主。共享 48px Activity Bar 提供书架、文件、角色、剧情、World、Jobs/Trace/History、用户资产、账户和设置；Desktop 使用单一 36px Workbench 标题栏，B/S 不绘制伪标题栏。
 - 默认写作链路是：`灵感探索 → Project / Lorebook → World Engine 初始化 → 08 剧情规划与状态推进 → 09 章节写作 → 写后回补与修订`。
 - 默认 Project 提供 `manuscript/`、`lorebook/`、`agents/`、`manual/`、`reference/` 和 `world-engine/` 骨架；新 Project 不再生成 `simulation/`。
 - RAG、RP、simulation 等历史能力仍保留在代码和历史资料中，但不进入普通写作模式的默认入口。
@@ -24,7 +24,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | Agent / Workflow | 主要链路已实现；人工界面、真实 Project、provider 和模型验收待做 | [Task 111](docs/tasks/111-workflow-agent-integration/README.md)、[Task 116](docs/tasks/116-agent-workflow-reliability/README.md)、[Task 139](docs/tasks/139-agent-abort-error-projection/README.md) |
 | Project 生命周期与存储 | 生命周期、快照、路径和运行产物合同已实现；跨环境发布验收未完成 | [Task 118](docs/tasks/118-project-catalog-snapshot-path-integration/README.md)、[Task 125](docs/tasks/125-runtime-artifact-storage-lifecycle/README.md) |
 | Product Runtime / Manager | Windows Product 本地验收通过；正式 Release Candidate 仍待多平台和容器验收 | [Task 105](docs/tasks/105-unified-installation-manager/README.md)、[Task 130](docs/tasks/130-desktop-application-foundation/README.md)、[Task 117](docs/tasks/117-windows-process-tree-lifecycle/README.md) |
-| Task 140 Desktop Envelope | Windows-first Electron/Tauri 自动化与 Manager CLI 安装合同已通过；真实窗口、WebView2、签名发行与最终框架选择仍未完成 | [Task 140](docs/tasks/140-desktop-envelope-installation-spike/README.md) |
+| Task 140 Desktop Envelope | Windows-first Electron/Tauri、Manager CLI 安装合同和共享 Workbench Chrome 可见验收已通过；原生窗口完整矩阵、WebView2 分发、签名发行与最终框架选择仍未完成 | [Task 140](docs/tasks/140-desktop-envelope-installation-spike/README.md) |
 | Agent 资产安装协议 | 方案已起草并完成自审，尚未实施 | [Task 135](docs/tasks/135-agent-asset-install-protocol/README.md) |
 | llmlint | 3.0.0 已同步到 sibling、内置 vendored runtime 和 user runtime | [Task 51](docs/tasks/51-anti-ai-slop-skill/README.md) |
 
@@ -43,10 +43,11 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 - [Task 138](docs/tasks/138-agent-conversation-branch-projection/README.md) 将对话分支切换改为基于可见对话锚点的投影，运行期记账 entry 不再制造假分支。
 - [Task 111](docs/tasks/111-workflow-agent-integration/README.md) 已补齐 Workflow 的持久身份、公开投影、Job/Run 详情、`wf.ask` 和 Composer/Preview 防重复提交；动态 `outputSchema` 的 `report_result` 合同也已补齐。
 - Product Runtime 已完成 Windows clean archive、Verifier、migration、Profile/Variable、SQLite、Sharp、Workspace CLI、HTTP/shutdown 和 State Root 生命周期验证。该证据不等于五平台 Release、真实 Docker/Podman、最终 Portable、浏览器或桌面壳验收。
-- Task 140 已完成 Windows x64 的 Electron/Tauri Portable、ASAR、Manager CLI 用户级安装、Desktop Bridge/Supervisor、动态 loopback、认证关闭和 Tauri Job Object forced smoke；证据见 [Task 140 walkthrough](docs/tasks/140-desktop-envelope-installation-spike/README.md)。真实窗口/SSE/WebSocket/编辑器交互、WebView2 分发、签名安装器/updater、macOS 实际包和完整 crash/disconnect 矩阵仍未完成。
+- Task 140 已完成 Windows x64 的 Electron/Tauri Portable、ASAR、Manager CLI 用户级安装、Desktop Bridge/Supervisor、动态 loopback、认证关闭和 Tauri Job Object forced smoke；证据见 [Task 140 walkthrough](docs/tasks/140-desktop-envelope-installation-spike/README.md)。共享 Workbench Chrome、书架/Project、Inline Editor Agent 和 Agent/IDE 切换已完成 Edge headless/headed 验收；原生拖动/Snap/托盘/对话框、完整 SSE/WebSocket、WebView2 分发、签名安装器/updater、macOS 实际包和完整 crash/disconnect 矩阵仍未完成。
 - Task 140 本轮收口补齐了 Portable Envelope 内容摘要、startup nonce header 保护、State Root 日志入口、Windows PATH fail-closed 读取、同盘 staging 和 Tauri 关闭幂等 claim；随后完成当前 Source 冻结后的 clean Build A/B 与 E/F Portable 重建。最终证据记录 Product image `sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b`、Electron ZIP 389,594,292 bytes、Tauri ZIP 243,829,892 bytes，两个 ZIP 与 payload 均逐字节一致；旧 stale Tauri/Manager bundle 失败已由重建二进制后的仓库外 headless smoke 复核通过。随后生成固定七项的 Aggregate Depot，G/H 两批共享 verifier 通过且逐字节一致；聚合 ZIP 为 628,325,258 bytes，仍是未签名 spike 交付。
 - Task 140 的 2026-08-06 收口又补齐了 Desktop Menu Contract：自绘标题栏提供完整下拉菜单，Electron 原生菜单和 Tauri 页面事件覆盖 15 个公开命令，Settings、编辑、缩放、刷新和 About 均有实际消费；共享分发器拒绝未知运行时命令。该批次的 focused Desktop Contract 为 3 files / 15 tests，根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 与 security audit 已通过；随后在同一 Source commit 上完成 Product Build A/B、两个 Portable 组包和仓库外 smoke，数字见 [Task 140 walkthrough](docs/tasks/140-desktop-envelope-installation-spike/README.md)。
 - Task 140 最新收口又修复了两个 clean-runner 问题：Windows Registry `UninstallString` 现在始终使用 Windows 分隔符；Desktop Contract 使用独立 esbuild TypeScript transform，不依赖 `.nuxt/tsconfig.json`，无 `.nuxt` 本地验证为 4 files / 19 tests。提交 `906271b4` 的最终 CI 已确认 Desktop Contract 三平台和 Product Platform 四平台均通过；根 Typecheck/Full tests advisory 的既有失败（Prisma generated client、隐式 `any`、POSIX `C:/...` fixture）单独登记，不能当作本轮桌面回归。最终 Full tests 为 464 passed、3 skipped，24 个文件 / 78 个测试失败；这些失败仍来自 POSIX `C:/...` 伪路径门禁。
+- Task 140 的 Workbench Chrome 批次删除了重复的工作区/书架 Header 和 IDE Agent Drawer，建立 request-scoped Chrome context、48px Activity Bar、四区 Desktop 标题栏与独立 Inline Editor Agent controller；Desktop Bridge 升级到 v2，不保留 v1 fallback。当前门禁为根/scripts typecheck、Desktop Contract `7 files / 28 tests`、相邻 UI `6 files / 21 tests`、Manager `1 file / 12 tests`、Electron bundle、Tauri fmt/check，以及 Edge headless/headed Workbench smoke 全部通过。
 - 测试写入 Project Workspace 的高风险路径已切换到隔离 Runtime Workspace Root；相关清理竞态和真实根残留已有专项记录，详见 [Task 125 Round 04](docs/tasks/125-runtime-artifact-storage-lifecycle/walkthroughs/round-04-workspace-test-isolation.md)。
 
 ## 当前风险与验收缺口

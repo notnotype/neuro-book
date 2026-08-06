@@ -32,7 +32,7 @@ const SUPERVISOR_SCHEMA: &str = "nbook.desktop-supervisor/v1";
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(30);
 const START_TIMEOUT: Duration = Duration::from_secs(45);
 const CLOSE_DIALOG_TIMEOUT: Duration = Duration::from_secs(15);
-const DESKTOP_BRIDGE_SCHEMA: &str = "nbook.desktop-bridge/v1";
+const DESKTOP_BRIDGE_SCHEMA: &str = "nbook.desktop-bridge/v2";
 const DESKTOP_SETTINGS_SCHEMA: &str = "nbook.desktop-settings/v1";
 const TAURI_BRIDGE_SCRIPT: &str = r#"
 (() => {
@@ -49,7 +49,7 @@ const TAURI_BRIDGE_SCRIPT: &str = r#"
         });
     }
     window.neuroBookDesktop = {
-        schema: "nbook.desktop-bridge/v1",
+        schema: "nbook.desktop-bridge/v2",
         status: async () => {
             const status = await tauri.core.invoke("desktop_status");
             if (status.connection === "remote") {
@@ -60,15 +60,16 @@ const TAURI_BRIDGE_SCRIPT: &str = r#"
                     || capability.supportsRemoteDesktop !== true
                     || !Array.isArray(capability.bridgeSchemas)
                     || capability.bridgeSchemas.length !== 1
-                    || capability.bridgeSchemas[0] !== "nbook.desktop-bridge/v1"
+                    || capability.bridgeSchemas[0] !== "nbook.desktop-bridge/v2"
                     || typeof capability.productVersion !== "string"
                     || !capability.productVersion.trim()) {
-                    throw new Error("远端 Desktop capability 不支持 DesktopBridge v1");
+                    throw new Error("远端 Desktop capability 不支持 DesktopBridge v2");
                 }
                 status.version = capability.productVersion;
             }
             return status;
         },
+        setAppearance: (appearance) => tauri.core.invoke("desktop_set_appearance", {appearance}),
         settings: () => tauri.core.invoke("desktop_settings"),
         updateSettings: (patch) => tauri.core.invoke("desktop_update_settings", {patch}),
         window: (command) => tauri.core.invoke("desktop_window", {command}),
@@ -204,7 +205,9 @@ struct DesktopStatus {
     version: String,
     origin: String,
     insecure_remote: bool,
-    native_window_controls: bool,
+    platform: String,
+    menu_presentation: String,
+    window_controls: String,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -1009,8 +1012,38 @@ fn desktop_status(
         version: state.version.clone(),
         origin: state.origin.clone(),
         insecure_remote: state.connection == "remote" && state.origin.starts_with("http://"),
-        native_window_controls: true,
+        platform: if cfg!(target_os = "windows") {
+            "windows".to_string()
+        } else if cfg!(target_os = "macos") {
+            "macos".to_string()
+        } else {
+            "linux".to_string()
+        },
+        menu_presentation: if cfg!(target_os = "macos") {
+            "native".to_string()
+        } else {
+            "renderer".to_string()
+        },
+        window_controls: if cfg!(target_os = "macos") {
+            "traffic-lights".to_string()
+        } else {
+            "custom".to_string()
+        },
     })
+}
+
+#[tauri::command]
+fn desktop_set_appearance(
+    window: WebviewWindow,
+    state: State<'_, Arc<SupervisorState>>,
+    appearance: String,
+) -> Result<(), String> {
+    assert_bridge_origin(&window, state.as_ref())?;
+    if !matches!(appearance.as_str(), "light" | "dark") {
+        return Err("Desktop appearance 不受支持。".to_string());
+    }
+    // Tauri 的窗口按钮由 renderer 绘制；颜色直接来自同一套主题变量。
+    Ok(())
 }
 
 #[tauri::command]
@@ -1356,6 +1389,7 @@ fn main() {
     let builder = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             desktop_status,
+            desktop_set_appearance,
             desktop_settings,
             desktop_update_settings,
             desktop_close_decision,
@@ -1389,12 +1423,20 @@ fn main() {
             let url = url::Url::parse(&target)
                 .map_err(|error| format!("Desktop Product URL 无效：{error}"))?;
             let saved_window_state = read_window_state(&state_for_setup.desktop_root);
-            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+            let mut window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
                 .title("NeuroBook Tauri Envelope Spike")
                 .inner_size(saved_window_state.width as f64, saved_window_state.height as f64)
                 .data_directory(state_for_setup.desktop_root.join("webview"))
-                .initialization_script(TAURI_BRIDGE_SCRIPT)
-                .build()?;
+                .initialization_script(TAURI_BRIDGE_SCRIPT);
+            #[cfg(target_os = "macos")]
+            {
+                window_builder = window_builder.title_bar_style(tauri::TitleBarStyle::Overlay);
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                window_builder = window_builder.decorations(false);
+            }
+            let window = window_builder.build()?;
             let settings = read_desktop_settings(&state_for_setup).unwrap_or_default();
             window
                 .set_zoom(settings.zoom_factor)

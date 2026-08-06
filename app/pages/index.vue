@@ -7,10 +7,8 @@ import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/Markdo
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import AgentJobsDialog from "nbook/app/components/novel-ide/jobs/AgentJobsDialog.vue";
-import NovelIdeAccountMenu from "nbook/app/components/novel-ide/NovelIdeAccountMenu.vue";
-import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
+import NovelIdeActivityBar from "nbook/app/components/novel-ide/NovelIdeActivityBar.vue";
 import NovelIdeProfileDialog from "nbook/app/components/novel-ide/NovelIdeProfileDialog.vue";
-import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
@@ -32,6 +30,9 @@ import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/comp
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
+import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
+import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
@@ -85,7 +86,6 @@ const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
-const agentResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
 const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
@@ -127,12 +127,12 @@ const {
     agentStudioFileTreeWidth,
     agentStudioPanelWidth,
     novels,
-    rightPanelOpen,
     savingFile,
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
     activeThemeId,
+    activeThemeAppearance,
     customThemes,
     themeVarsSnapshot,
     viewMode,
@@ -147,7 +147,6 @@ const {
     isUserAssetsWorkspace,
     leftPanelWidth,
     plotWorkbenchOpen,
-    rightPanelWidth,
 } = storeToRefs(novelIdeStore);
 const {
     initializeWorkspace,
@@ -189,6 +188,7 @@ const projectSurfaceActive = computed(() => workspaceBootstrapped.value && (
         && projectSession.state.value.ready.projectRoot === currentProjectRoot.value,
     ))
 ));
+const chromeJobsFeed = useAgentJobsFeed(projectSurfaceActive);
 const agentProjectReadyRevision = computed(() => projectSession.state.value.status === "ready"
     ? projectSession.state.value.ready.revision
     : null);
@@ -209,24 +209,8 @@ const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 type InlinePromptOwner = Readonly<{
     revision: number;
     operationKey: string;
-    surface: InstanceType<typeof AgentChatSurface>;
 }>;
 let inlinePromptRequestRevision = 0;
-
-/** 捕获 Prompt Bar 调用时的 Surface 实例与 Project ready generation。 */
-function captureInlinePromptOwner(): InlinePromptOwner | null {
-    const surface = agentSurfaceRef.value;
-    const operationKey = unref(surface?.operationScopeKey);
-    if (!surface || typeof operationKey !== "string") return null;
-    return {revision: ++inlinePromptRequestRevision, operationKey, surface};
-}
-
-/** 页面副作用只能由当前 Prompt 请求和当前 Project generation 发布。 */
-function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
-    return owner.revision === inlinePromptRequestRevision
-        && agentSurfaceRef.value === owner.surface
-        && unref(owner.surface.operationScopeKey) === owner.operationKey;
-}
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -238,9 +222,27 @@ novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 const {alert, choose, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
+const inlineEditorAgent = useInlineEditorAgentController({
+    active: projectSurfaceActive,
+    projectReadyRevision: agentProjectReadyRevision,
+    selectedFilePath,
+});
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
+
+/** 捕获 Prompt Bar 调用时的 Inline controller 与 Project ready generation。 */
+function captureInlinePromptOwner(): InlinePromptOwner | null {
+    const operationKey = inlineEditorAgent.operationScopeKey.value;
+    if (!operationKey) return null;
+    return {revision: ++inlinePromptRequestRevision, operationKey};
+}
+
+/** 页面副作用只能由当前 Prompt 请求和当前 Project generation 发布。 */
+function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
+    return owner.revision === inlinePromptRequestRevision
+        && inlineEditorAgent.operationScopeKey.value === owner.operationKey;
+}
 
 /** 执行当前焦点元素支持的原生编辑命令；没有选区时给出明确反馈。 */
 function executeDesktopEditCommand(command: "cut" | "copy" | "paste" | "selectAll"): void {
@@ -278,11 +280,7 @@ async function handleDesktopMenuCommand(command: DesktopMenuCommandId): Promise<
             notification.info("请先打开一个 Project，再打开文件。", {title: "文件"});
         },
         settings: () => {
-            if (projectSurfaceActive.value) {
-                settingsDialogOpen.value = true;
-                return;
-            }
-            notification.info("请先打开一个 Project，再访问设置。", {title: "设置"});
+            settingsDialogOpen.value = true;
         },
         quit: () => bridge.window("quit"),
         undo: () => studio.undo(),
@@ -363,9 +361,8 @@ const buildProjectRoute = (projectTarget: string): string => {
 };
 
 const consumingRouteOpenPath = ref(false);
-const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
-const agentSurfaceActive = computed(() => projectSurfaceActive.value && (rightPanelOpen.value || isAgentMode.value));
+const agentSurfaceActive = computed(() => projectSurfaceActive.value && isAgentMode.value);
 const agentModeSessions = computed(() => agentSurfaceRef.value?.sessions ?? []);
 const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSessionId ?? null);
 const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
@@ -386,17 +383,6 @@ const agentStudioPanelVisible = computed({
     },
 });
 const agentStudioPanelOpen = computed(() => workspaceBootstrapped.value && agentStudioPanelVisible.value);
-const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
-    size: computed(() => rightPanelWidth.value),
-    minSize: 320,
-    maxSize: 720,
-    edge: "left",
-    enabled: computed(() => !isAgentMode.value && displayRightPanelOpen.value),
-    syncDuringResize: true,
-    onResize: (width) => {
-        rightPanelWidth.value = width;
-    },
-});
 const {isResizing: resizingAgentStudioPanel, panelStyle: agentStudioPanelStyle} = useResizablePanel(agentStudioResizeHandleRef, {
     size: computed(() => agentStudioPanelWidth.value),
     minSize: 320,
@@ -416,12 +402,6 @@ const {isResizing: resizingAgentStudioFileTree, panelStyle: agentStudioFileTreeS
     onResizeEnd: (width) => {
         agentStudioFileTreeWidth.value = width;
     },
-});
-const agentSlotStyle = computed(() => {
-    if (isAgentMode.value) {
-        return {};
-    }
-    return displayRightPanelOpen.value ? agentPanelStyle.value : {width: "0px"};
 });
 const agentStudioStyle = computed(() => {
     if (!isAgentMode.value) {
@@ -515,44 +495,21 @@ const inlinePromptHoveredReference = ref<InlineEditReference | null>(null);
 const inlinePromptRunning = ref(false);
 const inlinePromptStatusText = ref(t("ide.inlineAi.initialStatus"));
 const inlinePromptEditPreview = ref("");
-const displayInlinePromptSessionLabel = computed(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorSessionLabel) || t("ide.inlineAi.sessionLabel");
-});
-const inlinePromptSessions = computed<AgentSessionSummaryDto[]>(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorSessions) ?? [];
-});
-const inlinePromptSessionId = computed<number | null>(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorSessionId) ?? null;
-});
-const inlinePromptSessionLoading = computed(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorSessionLoading) ?? false;
-});
-const inlinePromptResultText = computed(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorResultText) || "";
-});
-const inlinePromptAgentRunning = computed(() => {
-    return unref(agentSurfaceRef.value?.inlineEditorRunning) ?? false;
-});
+const displayInlinePromptSessionLabel = computed(() => inlineEditorAgent.sessionLabel.value || t("ide.inlineAi.sessionLabel"));
+const inlinePromptSessions = inlineEditorAgent.sessions;
+const inlinePromptSessionId = inlineEditorAgent.sessionId;
+const inlinePromptSessionLoading = inlineEditorAgent.sessionLoading;
+const inlinePromptResultText = inlineEditorAgent.resultText;
+const inlinePromptAgentRunning = inlineEditorAgent.running;
 const inlinePromptBusy = computed(() => inlinePromptRunning.value || inlinePromptAgentRunning.value || loadingWorkspace.value);
-const displayInlinePromptEditPreview = computed(() => {
-    return unref(agentSurfaceRef.value?.inlineEditPreview) || inlinePromptEditPreview.value;
-});
-const inlinePromptLiveView = computed(() => unref(agentSurfaceRef.value?.inlineEditorLiveView) ?? {
-    thinking: "",
-    content: "",
-    status: null,
-    editPreview: "",
-    resultText: "",
-});
-const inlinePromptSelectableModels = computed(() => unref(agentSurfaceRef.value?.selectableModels) ?? []);
-const inlinePromptSessionModelSelectionValue = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelSelectionValue) ?? null);
-const inlinePromptSessionModelDraft = computed<AgentSessionModelDraft>(() => unref(agentSurfaceRef.value?.inlineSessionModelDraft) ?? {
-    modelKey: null,
-    reasoningEffort: null,
-});
-const inlinePromptSessionModelSaving = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelSaving) ?? false);
-const inlinePromptSessionModelPopoverOpen = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelPopoverOpen) ?? false);
-const inlinePromptSessionThinkingResolvedLabel = computed(() => unref(agentSurfaceRef.value?.inlineSessionThinkingResolvedLabel) ?? "");
+const displayInlinePromptEditPreview = computed(() => inlineEditorAgent.editPreview.value || inlinePromptEditPreview.value);
+const inlinePromptLiveView = inlineEditorAgent.liveView;
+const inlinePromptSelectableModels = inlineEditorAgent.selectableModels;
+const inlinePromptSessionModelSelectionValue = inlineEditorAgent.sessionModelSelectionValue;
+const inlinePromptSessionModelDraft = inlineEditorAgent.sessionModelDraft;
+const inlinePromptSessionModelSaving = inlineEditorAgent.sessionModelSaving;
+const inlinePromptSessionModelPopoverOpen = inlineEditorAgent.sessionModelPopoverOpen;
+const inlinePromptSessionThinkingResolvedLabel = inlineEditorAgent.sessionThinkingResolvedLabel;
 const inlinePromptAvailable = computed(() => {
     return workspaceDisplayReady.value
         && selectedFileNode.value?.editable === true
@@ -1078,7 +1035,7 @@ async function sendInlineEditorPrompt(): Promise<void> {
     }
 
     const owner = captureInlinePromptOwner();
-    if (!owner?.surface.sendInlineEditorPrompt) {
+    if (!owner) {
         notification.error(t("ide.inlineAi.agentNotReady"), {title: "Inline AI"});
         return;
     }
@@ -1097,7 +1054,7 @@ async function sendInlineEditorPrompt(): Promise<void> {
     try {
         await saveCurrentWorkspaceFile();
         if (!acceptsInlinePromptOwner(owner)) return;
-        const result = await owner.surface.sendInlineEditorPrompt(
+        const result = await inlineEditorAgent.sendPrompt(
             payload,
             buildInlineVisibleMessage(payload),
             owner.operationKey,
@@ -1123,8 +1080,8 @@ async function sendInlineEditorPrompt(): Promise<void> {
  */
 async function stopInlineEditorPrompt(): Promise<void> {
     const owner = captureInlinePromptOwner();
-    if (!owner?.surface.stopInlineEditorPrompt) return;
-    const result = await owner.surface.stopInlineEditorPrompt();
+    if (!owner) return;
+    const result = await inlineEditorAgent.stopPrompt();
     if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
     inlinePromptRunning.value = false;
     inlinePromptStatusText.value = t("ide.inlineAi.stopRequested");
@@ -1135,9 +1092,9 @@ async function stopInlineEditorPrompt(): Promise<void> {
  */
 async function selectInlineEditorSession(sessionId: number): Promise<void> {
     const owner = captureInlinePromptOwner();
-    if (!owner?.surface.selectInlineEditorSession) return;
+    if (!owner) return;
     try {
-        const result = await owner.surface.selectInlineEditorSession(sessionId);
+        const result = await inlineEditorAgent.selectSession(sessionId);
         if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         inlinePromptStatusText.value = t("ide.inlineAi.boundSession");
     } catch (error) {
@@ -1152,9 +1109,9 @@ async function selectInlineEditorSession(sessionId: number): Promise<void> {
  */
 async function createInlineEditorSession(): Promise<void> {
     const owner = captureInlinePromptOwner();
-    if (!owner?.surface.createInlineEditorSession) return;
+    if (!owner) return;
     try {
-        const result = await owner.surface.createInlineEditorSession();
+        const result = await inlineEditorAgent.createSession();
         if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         inlinePromptStatusText.value = t("ide.inlineAi.sessionCreated");
     } catch (error) {
@@ -1165,15 +1122,15 @@ async function createInlineEditorSession(): Promise<void> {
 }
 
 /**
- * 显式打开右侧 Agent 面板查看当前 Inline AI session。
+ * 进入 Agent 模式查看当前 Inline AI session。
  */
 async function openInlineEditorSessionChat(): Promise<void> {
     const owner = captureInlinePromptOwner();
-    if (!owner?.surface.openInlineEditorSession) return;
+    if (!owner) return;
     try {
-        rightPanelOpen.value = true;
-        const result = await owner.surface.openInlineEditorSession();
+        const result = await inlineEditorAgent.openSession();
         if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
+        await showAgentSession(result.value.sessionId);
     } catch (error) {
         if (!acceptsInlinePromptOwner(owner)) return;
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.openModelPanelFailed"));
@@ -1182,11 +1139,11 @@ async function openInlineEditorSessionChat(): Promise<void> {
 }
 
 function updateInlineSessionModelDraft(value: AgentSessionModelDraft): void {
-    agentSurfaceRef.value?.setInlineSessionModelDraft?.(value);
+    inlineEditorAgent.setSessionModelDraft(value);
 }
 
 function updateInlineSessionModelPopoverOpen(value: boolean): void {
-    agentSurfaceRef.value?.setInlineSessionModelPopoverOpen?.(value);
+    inlineEditorAgent.setSessionModelPopoverOpen(value);
 }
 
 /**
@@ -1204,16 +1161,7 @@ watch(currentWorkspaceViewMode, (mode) => {
     viewMode.value = mode;
 }, {immediate: true});
 
-watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
-    if (available && surface?.refreshInlineEditorSessions) {
-        void surface.refreshInlineEditorSessions().catch((error: unknown) => {
-            if (agentSurfaceRef.value !== surface) return;
-            notification.error(resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed")), {title: "Inline AI"});
-        });
-    }
-}, {immediate: true});
-
-watch(() => unref(agentSurfaceRef.value?.operationScopeKey), (nextScope, previousScope) => {
+watch(() => inlineEditorAgent.operationScopeKey.value, (nextScope, previousScope) => {
     if (previousScope === undefined || nextScope === previousScope) return;
     inlinePromptRequestRevision += 1;
     inlinePromptRunning.value = false;
@@ -1558,16 +1506,31 @@ const toggleAgentLayoutMode = async (): Promise<void> => {
     if (layoutMode.value === "agent") {
         await runLayoutModeTransition(() => {
             layoutMode.value = "ide";
-            rightPanelOpen.value = true;
         });
         return;
     }
     await runLayoutModeTransition(() => {
         layoutMode.value = "agent";
-        rightPanelOpen.value = true;
     });
+    await nextTick();
     await agentSurfaceRef.value?.ensureSessionReady();
 };
+
+/**
+ * 进入 Agent 模式并选择指定 Session。
+ */
+async function showAgentSession(sessionId: number): Promise<void> {
+    if (!isAgentMode.value) {
+        await runLayoutModeTransition(() => {
+            layoutMode.value = "agent";
+        });
+    }
+    await nextTick();
+    const surface = agentSurfaceRef.value;
+    if (!surface) return;
+    await surface.ensureSessionReady();
+    await surface.selectSession(sessionId);
+}
 
 /**
  * Agent Mode 左侧栏请求刷新 leader sessions。
@@ -1594,10 +1557,7 @@ const selectAgentModeSession = async (sessionId: number): Promise<void> => {
  * 再确保 Agent 面板可见（Agent Mode 下面板已可见，无需动开关）。
  */
 const openTraceSession = async (sessionId: number): Promise<void> => {
-    await agentSurfaceRef.value?.selectSession(sessionId);
-    if (!isAgentMode.value) {
-        rightPanelOpen.value = true;
-    }
+    await showAgentSession(sessionId);
 };
 
 /**
@@ -1625,12 +1585,7 @@ const renameAgentModeSession = async (session: AgentSessionSummaryDto): Promise<
  * 关闭当前 Agent 槽位。
  */
 const closeAgentSurface = (): void => {
-    if (layoutMode.value === "agent") {
-        layoutMode.value = "ide";
-        rightPanelOpen.value = true;
-        return;
-    }
-    rightPanelOpen.value = false;
+    layoutMode.value = "ide";
 };
 
 /**
@@ -1651,7 +1606,6 @@ const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
     if (isAgentMode.value) {
         void runLayoutModeTransition(() => {
             layoutMode.value = "ide";
-            rightPanelOpen.value = true;
             activeLeftTab.value = tab;
         });
         return;
@@ -1826,7 +1780,6 @@ const openPlotWorkbench = async (): Promise<void> => {
     if (isAgentMode.value) {
         await runLayoutModeTransition(() => {
             layoutMode.value = "ide";
-            rightPanelOpen.value = true;
             activeLeftTab.value = "plot";
         });
     } else {
@@ -2205,13 +2158,10 @@ async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
 }
 
 /**
- * 从欢迎页打开 IDE 右侧 Agent 面板。
+ * 从欢迎页进入 Agent 模式。
  */
 async function openWelcomeAgentPanel(): Promise<void> {
-    rightPanelOpen.value = true;
-    if (isAgentMode.value) {
-        await agentSurfaceRef.value?.ensureSessionReady();
-    }
+    await openWelcomeAgentMode();
 }
 
 /**
@@ -2233,7 +2183,7 @@ function toggleWelcomeAgentSurface(): void {
         toggleAgentModeStudio();
         return;
     }
-    rightPanelOpen.value = true;
+    void openWelcomeAgentMode();
 }
 
 /**
@@ -2402,6 +2352,22 @@ function resolveWelcomeTitle(filePath: string): string {
     return lastSegment ?? "new-file";
 }
 
+useWorkbenchChromeRegistration({
+    title: () => {
+        if (!projectSurfaceActive.value) return t("ide.picker.title");
+        const fileName = displaySelectedFileNode.value?.title?.trim();
+        const workspaceTitle = displayNovelTitle.value || t("ide.header.noNovelSelected");
+        return fileName ? `${fileName} — ${workspaceTitle}` : workspaceTitle;
+    },
+    appearance: () => activeThemeAppearance.value,
+    surfaceActive: () => projectSurfaceActive.value,
+    layoutMode: () => layoutMode.value,
+    studioPanelOpen: () => agentStudioPanelOpen.value,
+    agentJobsActiveCount: () => chromeJobsFeed.activeCount.value,
+    toggleLayoutMode: () => toggleAgentLayoutMode(),
+    toggleStudioPanel: toggleAgentModeStudio,
+});
+
 onMounted(() => {
     if (import.meta.client) {
         removeDesktopMenuListener = desktopBridge.value?.onMenuCommand((command) => {
@@ -2473,7 +2439,11 @@ onBeforeUnmount(() => {
 
 <template>
     <!-- IDE 页面根容器 -->
-    <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
+    <div
+        ref="themeHostRef"
+        class="novel-ide-page ide-shell flex h-screen overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300"
+        :data-workbench-layout-mode="layoutMode"
+    >
         <!-- Project 激活事务期间阻止旧数据面继续编辑。 -->
         <div v-if="projectTransitionActive" class="fixed inset-0 z-[120] grid place-items-center bg-[var(--overlay-bg)] px-4" role="status" aria-live="polite" aria-atomic="true">
             <!-- Project 加载进度：确定阶段按实际完成节点推进，重连保持不定进度。 -->
@@ -2502,42 +2472,36 @@ onBeforeUnmount(() => {
                 </div>
             </section>
         </div>
-        <!-- 未选择 Project：项目选择界面接管整页 -->
-        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets">
-            <template #header-actions>
-                <NovelIdeAccountMenu :current-user="currentUser" @open-profile="accountProfileOpen = true" @open-admin="void openAdmin()" @logout="void logout()" />
-            </template>
-        </ProjectPickerScreen>
 
-        <NovelIdeHeader
-            v-if="projectSurfaceActive"
-            class="ide-panel ide-header"
-            :right-panel-open="isAgentMode ? agentStudioPanelOpen : displayRightPanelOpen"
-            :agent-mode-active="isAgentMode"
-            :novel-title="displayNovelTitle"
-            :novel-items="displayNovelItems"
+        <NovelIdeActivityBar
+            :active-tab="displaySidebarActiveTab"
+            :desktop-available="Boolean(desktopBridge)"
+            :surface-active="projectSurfaceActive"
+            :user-assets-mode="isUserAssetsWorkspace"
+            :agent-mode="isAgentMode"
+            :agent-jobs-active-count="chromeJobsFeed.activeCount.value"
             :current-user="currentUser"
-            :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
-            @toggle-layout-mode="void toggleAgentLayoutMode()"
-            @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
-            @open-bookshelf="void openProjectPicker()"
-            @open-plot-workbench="openPlotWorkbench"
+            @open-home="void openProjectPicker()"
+            @open-tab="handleSidebarToggle"
             @open-world-engine="openWorldEngineWorkbench"
-            @open-user-assets="openUserAssets"
-            @open-profile-workbench="profileWorkbenchOpen = true"
+            @open-agent-jobs="agentJobsOpen = true"
             @open-trace-viewer="traceViewerOpen = true"
             @open-history-inbox="historyInboxOpen = true"
-            @open-agent-jobs="agentJobsOpen = true"
-            @switch-novel="handleSwitchNovel"
+            @open-user-assets="openUserAssets"
+            @open-profile-workbench="profileWorkbenchOpen = true"
+            @toggle-layout-mode="void toggleAgentLayoutMode()"
+            @open-settings="settingsDialogOpen = true"
             @open-profile="accountProfileOpen = true"
             @open-admin="void openAdmin()"
             @logout="void logout()"
         />
+
+        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <!-- 未选择 Project：项目选择界面接管整页 -->
+        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div v-if="projectSurfaceActive" class="flex min-h-0 flex-1 overflow-hidden">
-            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
-
             <AgentModeSessionSidebar
                 :sessions="agentModeSessions"
                 :active-session-id="agentModeActiveSessionId"
@@ -2563,7 +2527,18 @@ onBeforeUnmount(() => {
                 ]"
                 :style="ideToolPanelStyle"
             >
-                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" @open-world-engine="openWorldEngineWorkbench" />
+                <NovelIdeToolPanel
+                    v-model:width="leftPanelWidth"
+                    class="ide-panel h-full"
+                    :active-tab="displayActiveLeftTab"
+                    :user-assets-mode="isUserAssetsWorkspace"
+                    :workspace-title="displayNovelTitle"
+                    :workspace-items="displayNovelItems"
+                    @close="activeLeftTab = null"
+                    @open-world-engine="openWorldEngineWorkbench"
+                    @open-home="void openProjectPicker()"
+                    @switch-workspace="void handleSwitchNovel($event)"
+                />
             </div>
 
             <!-- Studio 工作区 -->
@@ -2686,39 +2661,28 @@ onBeforeUnmount(() => {
                     @select-session="void selectInlineEditorSession($event)"
                     @create-session="void createInlineEditorSession()"
                     @open-session-chat="void openInlineEditorSessionChat()"
-                    @update-session-model-selection="void agentSurfaceRef?.updateInlineSessionModelSelection?.($event)"
+                    @update-session-model-selection="void inlineEditorAgent.updateSessionModelSelection($event)"
                     @update:session-model-draft="updateInlineSessionModelDraft"
                     @update:session-model-popover-open="updateInlineSessionModelPopoverOpen"
-                    @toggle-session-model-popover="agentSurfaceRef?.toggleInlineSessionModelPopover?.()"
-                    @apply-session-model-settings="void agentSurfaceRef?.applyInlineSessionModelSettings?.()"
-                    @reset-session-model-settings="void agentSurfaceRef?.resetInlineSessionModelSettings?.()"
+                    @toggle-session-model-popover="inlineEditorAgent.toggleSessionModelPopover()"
+                    @apply-session-model-settings="void inlineEditorAgent.applySessionModelSettings()"
+                    @reset-session-model-settings="void inlineEditorAgent.resetSessionModelSettings()"
                     @send="void sendInlineEditorPrompt()"
                     @stop="void stopInlineEditorPrompt()"
                 />
             </main>
 
-            <!-- Agent Chat Surface 槽位 -->
+            <!-- Agent 模式主工作区 -->
             <section
-                class="mode-transition-agent relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-[width,flex,opacity,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                :class="[
-                    isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 shadow-2xl',
-                    !isAgentMode && displayRightPanelOpen ? 'border-l border-[var(--border-color)] opacity-100' : '',
-                    !isAgentMode && !displayRightPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
-                    layoutTransitionDirection ? 'transition-none' : '',
-                    resizingAgentPanel ? 'select-none transition-none' : '',
-                ]"
-                :style="agentSlotStyle"
+                v-if="isAgentMode"
+                class="mode-transition-agent relative z-30 order-2 flex h-full min-h-0 min-w-[340px] flex-[1.2] shrink-0 flex-col border-x border-[var(--border-color)] bg-[var(--bg-panel)] opacity-100 transition-[width,flex,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                :class="layoutTransitionDirection ? 'transition-none' : ''"
             >
-                <template v-if="!isAgentMode && displayRightPanelOpen">
-                    <div ref="agentResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
-                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
-                    </div>
-                </template>
                 <AgentChatSurface
                     ref="agentSurfaceRef"
                     class="contain-layout-paint min-h-0 flex-1"
                     :active="agentSurfaceActive"
-                    :layout="isAgentMode ? 'workbench' : 'drawer'"
+                    layout="workbench"
                     :novel-id="displayNovelIdForAgent"
                     :project-ready-revision="agentProjectReadyRevision"
                     :history-inbox-refresh-key="historyInboxRefreshKey"
@@ -2731,7 +2695,7 @@ onBeforeUnmount(() => {
             </section>
         </div>
 
-        <NovelIdeSettingsDialog v-if="projectSurfaceActive" v-model="settingsDialogOpen" />
+        <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <NovelIdeProfileDialog v-model="accountProfileOpen" />
         <AgentTraceViewerDialog v-if="projectSurfaceActive" v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" :theme="activeThemeId" />
@@ -2767,14 +2731,14 @@ onBeforeUnmount(() => {
             :issues="workspaceIssues"
             @refresh="void loadWorkspaceTree()"
         />
+        </div>
     </div>
 </template>
 
 <style scoped>
 .novel-ide-page {
-    --ide-header-height: 48px;
     --ide-toolbar-height: 48px;
-    --editor-min-height: calc(100vh - var(--ide-header-height) - var(--ide-toolbar-height));
+    --editor-min-height: calc(100vh - var(--ide-toolbar-height));
 }
 
 .plain-text-editor {

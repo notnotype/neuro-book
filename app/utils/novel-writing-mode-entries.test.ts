@@ -5,8 +5,7 @@ import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock
 import enUS from "nbook/app/i18n/locales/en-US";
 import zhCN from "nbook/app/i18n/locales/zh-CN";
 
-const headerPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeHeader.vue", import.meta.url));
-const sidebarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSidebar.vue", import.meta.url));
+const activityBarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeActivityBar.vue", import.meta.url));
 const toolPanelPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeToolPanel.vue", import.meta.url));
 const welcomePath = fileURLToPath(new URL("../components/markdown-studio/MarkdownStudioWelcome.vue", import.meta.url));
 const agentSurfacePath = fileURLToPath(new URL("../components/novel-ide/agent/AgentChatSurface.vue", import.meta.url));
@@ -22,31 +21,29 @@ describe("Novel writing mode entries", () => {
         expect(isNovelIdeTab("rag")).toBe(false);
         expect(isNovelIdeTab("plot")).toBe(true);
 
-        const sidebar = await readFile(sidebarPath, "utf-8");
+        const activityBar = await readFile(activityBarPath, "utf-8");
         const toolPanel = await readFile(toolPanelPath, "utf-8");
 
-        expect(sidebar).not.toContain("value: \"outline\"");
-        expect(sidebar).not.toContain("value: \"rag\"");
-        expect(sidebar).toContain("value: \"plot\"");
-        expect(sidebar).toContain("sessionItems");
+        expect(activityBar).not.toContain("\"outline\"");
+        expect(activityBar).not.toContain("\"rag\"");
+        expect(activityBar).toContain("plot: \"i-lucide-git-branch\"");
+        expect(activityBar).toContain('case "plot": emit("open-tab", item.id); return;');
         expect(toolPanel).toContain("NovelPlotPanel");
         expect(toolPanel).toContain("activeTab === 'plot' && !props.userAssetsMode");
         expect(toolPanel).not.toContain("NovelRagPanel");
     });
 
-    it("顶栏和 Plot 面板提供 Plot Workbench 入口，但欢迎页和 RAG / simulation 快捷入口仍隐藏", async () => {
-        const header = await readFile(headerPath, "utf-8");
+    it("Activity Bar 和 Plot 面板提供 Plot 主路径，但欢迎页和 RAG / simulation 快捷入口仍隐藏", async () => {
+        const activityBar = await readFile(activityBarPath, "utf-8");
         const plotPanel = await readFile(plotPanelPath, "utf-8");
         const welcome = await readFile(welcomePath, "utf-8");
 
-        expect(header).toContain("open-plot-workbench");
-        expect(header).toContain("plot-workbench-entry");
-        expect(header).not.toContain("data-testid=\"plot-workbench-entry\" class=\"hidden");
+        expect(activityBar).toContain('case "plot": emit("open-tab", item.id); return;');
+        expect(activityBar).toContain("ide.header.plotWorkbench");
         expect(plotPanel).toContain("plot-panel-workbench-entry");
         expect(plotPanel).toContain("plotWorkbenchOpen = true");
-        expect(header).not.toContain("open-rag-inspector");
-        expect(header).toContain("ide.header.plotWorkbench");
-        expect(header).not.toContain("ide.header.ragInspector");
+        expect(activityBar).not.toContain("open-rag-inspector");
+        expect(activityBar).not.toContain("ide.header.ragInspector");
         expect(welcome).not.toContain("open-plot-workbench");
         expect(welcome).not.toContain("open-rag-inspector");
         expect(welcome).not.toContain("id: \"simulation\"");

@@ -175,6 +175,7 @@ const zhCN = {
             project: {
                 label: "项目配置",
                 description: "当前 Project Workspace .nbook/config.json",
+                unavailable: "请先打开一个 Project，再编辑项目配置。",
             },
             browser: {
                 label: "浏览器状态",
@@ -899,6 +900,10 @@ const zhCN = {
         },
     },
     ide: {
+        activityBar: {
+            more: "更多",
+            moreActions: "更多工作台入口",
+        },
         header: {
             openAdmin: "进入后台",
             profile: "个人中心",

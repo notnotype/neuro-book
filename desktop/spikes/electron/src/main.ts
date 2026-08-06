@@ -23,6 +23,7 @@ import {
     desktopRemoteOrigin,
     DEFAULT_DESKTOP_SETTINGS,
     type DesktopSettings,
+    type DesktopAppearance,
     type DesktopMenuCommandId,
     type DesktopStatus,
     type DesktopSupervisorEvent,
@@ -61,6 +62,7 @@ type WindowState = {
 
 const DEFAULT_WINDOW_STATE: WindowState = {x: 80, y: 80, width: 1280, height: 840, maximized: false, fullscreen: false};
 const SUPERVISOR_START_TIMEOUT_MS = 45_000;
+const WINDOW_LOAD_TIMEOUT_MS = 45_000;
 let windowStateWrite: Promise<void> = Promise.resolve();
 
 let window: BrowserWindow | null = null;
@@ -68,6 +70,29 @@ let splash: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let running: RunningProduct | null = null;
 let remoteStatus: DesktopStatus | null = null;
+
+function desktopPlatform(): DesktopStatus["platform"] {
+    if (process.platform === "win32") return "windows";
+    if (process.platform === "darwin") return "macos";
+    return "linux";
+}
+
+function desktopMenuPresentation(): DesktopStatus["menuPresentation"] {
+    return process.platform === "darwin" ? "native" : "renderer";
+}
+
+function desktopWindowControls(): DesktopStatus["windowControls"] {
+    if (process.platform === "win32") return "overlay";
+    if (process.platform === "darwin") return "traffic-lights";
+    return "custom";
+}
+
+function applyTitleBarAppearance(appearance: DesktopAppearance): void {
+    if (process.platform !== "win32" || !window) return;
+    window.setTitleBarOverlay(appearance === "dark"
+        ? {color: "#1f1f1f", symbolColor: "#cccccc", height: 36}
+        : {color: "#f4ecd8", symbolColor: "#5b4e3d", height: 36});
+}
 let closing: Promise<void> | null = null;
 let allowWindowClose = false;
 let desktopSettings: DesktopSettings = DEFAULT_DESKTOP_SETTINGS;
@@ -199,13 +224,15 @@ async function probeRemote(url: string): Promise<DesktopStatus> {
     if (!response.ok) throw new Error("远端 Desktop capability 请求失败：HTTP " + response.status);
     const capability = parseDesktopCapability(await response.json());
     return {
-        schema: "nbook.desktop-bridge/v1",
+        schema: "nbook.desktop-bridge/v2",
         envelope: "electron",
         connection: "remote",
         version: capability.productVersion,
         origin,
         insecureRemote: new URL(origin).protocol === "http:",
-        nativeWindowControls: true,
+        platform: desktopPlatform(),
+        menuPresentation: desktopMenuPresentation(),
+        windowControls: desktopWindowControls(),
     };
 }
 
@@ -564,6 +591,21 @@ function installNavigationGuards(): void {
     });
 }
 
+async function loadWindowUrl(targetUrl: string): Promise<void> {
+    if (!window) throw new Error("Electron 主窗口尚未创建。");
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+        await Promise.race([
+            window.loadURL(targetUrl),
+            new Promise<never>((_, rejectPromise) => {
+                timeout = setTimeout(() => rejectPromise(new Error(`Desktop 页面加载超时：${targetUrl}`)), WINDOW_LOAD_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+}
+
 async function closeApplication(): Promise<void> {
     if (closing) return await closing;
     closing = (async () => {
@@ -643,14 +685,21 @@ async function main(): Promise<void> {
     ipcMain.handle("t140:status", (event) => {
         assertTrustedFrame(event);
         return running ? {
-            schema: "nbook.desktop-bridge/v1",
+            schema: "nbook.desktop-bridge/v2",
             envelope: "electron",
             connection: "local",
             version: running.version,
             origin: `http://127.0.0.1:${String(running.config.port)}`,
             insecureRemote: false,
-            nativeWindowControls: true,
+            platform: desktopPlatform(),
+            menuPresentation: desktopMenuPresentation(),
+            windowControls: desktopWindowControls(),
         } : remoteStatus;
+    });
+    ipcMain.handle("t140:appearance", (event, appearance: unknown) => {
+        assertTrustedFrame(event);
+        if (appearance !== "light" && appearance !== "dark") throw new Error("Desktop appearance 不受支持。");
+        applyTitleBarAppearance(appearance);
     });
     ipcMain.handle("t140:settings", (event) => { assertTrustedFrame(event); return desktopSettings; });
     ipcMain.handle("t140:settings:update", async (event, patch: unknown) => {
@@ -664,6 +713,12 @@ async function main(): Promise<void> {
         assertTrustedFrame(event);
         if (command === "show") window?.show();
         else if (command === "hide") window?.hide();
+        else if (command === "minimize") window?.minimize();
+        else if (command === "toggle-maximize") {
+            if (window?.isMaximized()) window.unmaximize();
+            else window?.maximize();
+        }
+        else if (command === "close") window?.close();
         else if (command === "quit") void closeApplication();
     });
     ipcMain.on("t140:menu", (event, command: string) => {
@@ -715,15 +770,31 @@ async function main(): Promise<void> {
         height: savedWindowState.height,
         show: false,
         titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
-        ...(process.platform === "win32" ? {titleBarOverlay: {color: "#15171a", symbolColor: "#eef2f4", height: 36}} : {}),
-        webPreferences: {preload: resolve(import.meta.dirname, "preload.mjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true},
+        ...(process.platform === "win32" ? {titleBarOverlay: {color: "#f4ecd8", symbolColor: "#5b4e3d", height: 36}} : {}),
+        webPreferences: {preload: resolve(import.meta.dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true},
     });
     installNavigationGuards();
-    await window.loadURL(config.remoteUrl ?? `http://127.0.0.1:${String(running?.config.port)}/`);
+    window.webContents.on("preload-error", (_event, preloadPath, error) => {
+        console.error(JSON.stringify({kind: "electron-preload-error", preloadPath, message: error.message}));
+    });
+    window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+        if (isMainFrame) console.error(JSON.stringify({kind: "electron-load-error", errorCode, errorDescription, validatedURL}));
+    });
+    window.webContents.on("render-process-gone", (_event, details) => {
+        console.error(JSON.stringify({kind: "electron-render-process-gone", reason: details.reason, exitCode: details.exitCode}));
+    });
+    window.webContents.on("unresponsive", () => {
+        console.error(JSON.stringify({kind: "electron-render-unresponsive"}));
+    });
+    await loadWindowUrl(config.remoteUrl ?? `http://127.0.0.1:${String(running?.config.port)}/`);
+    const bridgeReady = await window.webContents.executeJavaScript("Boolean(window.neuroBookDesktop)", true);
+    if (!bridgeReady) throw new Error("Electron Desktop Bridge 未注入，无法安全启动桌面页面。");
     splash?.close();
     splash = null;
     applyDesktopSettings();
     window.show();
+    window.focus();
+    window.moveTop();
     window.on("close", (event) => {
         queueWindowStateSave(config.desktopRoot);
         if (allowWindowClose) return;

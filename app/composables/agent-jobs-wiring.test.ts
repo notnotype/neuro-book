@@ -3,7 +3,7 @@ import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
 const dialogPath = fileURLToPath(new URL("../components/novel-ide/jobs/AgentJobsDialog.vue", import.meta.url));
-const headerPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeHeader.vue", import.meta.url));
+const activityBarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeActivityBar.vue", import.meta.url));
 const indexPagePath = fileURLToPath(new URL("../pages/index.vue", import.meta.url));
 const packagePath = fileURLToPath(new URL("../../package.json", import.meta.url));
 const observerPath = fileURLToPath(new URL("./useAgentJob.ts", import.meta.url));
@@ -12,17 +12,17 @@ const workflowPanelPath = fileURLToPath(new URL("../components/workflow-preview/
 const workflowPreviewPath = fileURLToPath(new URL("../pages/workflow.preview.vue", import.meta.url));
 
 describe("Jobs feed 页面接线合同", () => {
-    it("Project 选择页不持有 feed，工作面 Header 和打开的 Dialog 才是消费者", async () => {
-        const [dialog, header, indexPage] = await Promise.all([
+    it("Project 选择页不单独持有 feed，工作面 Activity Bar 复用页面级徽标", async () => {
+        const [dialog, activityBar, indexPage] = await Promise.all([
             readFile(dialogPath, "utf8"),
-            readFile(headerPath, "utf8"),
+            readFile(activityBarPath, "utf8"),
             readFile(indexPagePath, "utf8"),
         ]);
 
-        expect(indexPage).not.toContain("useAgentJobsFeed");
-        expect(header).toContain("const {activeCount: agentJobsActiveCount} = useAgentJobsFeed();");
-        expect(header).not.toContain("agentJobsActiveCount?: number");
-        expect(indexPage).not.toContain(":agent-jobs-active-count=");
+        expect(indexPage).toContain("const chromeJobsFeed = useAgentJobsFeed(projectSurfaceActive);");
+        expect(activityBar).toContain("agentJobsActiveCount: number;");
+        expect(activityBar).not.toContain("useAgentJobsFeed");
+        expect(indexPage).toContain(':agent-jobs-active-count="chromeJobsFeed.activeCount.value"');
         expect(indexPage).toContain('<AgentJobsDialog v-if="projectSurfaceActive && agentJobsOpen"');
         expect(dialog).toContain("const feed = useAgentJobsFeed();");
     });

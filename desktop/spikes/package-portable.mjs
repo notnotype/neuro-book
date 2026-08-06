@@ -27,6 +27,7 @@ import {
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     DESKTOP_AGGREGATE_DEPOT_ENTRIES,
     createDesktopAggregateDepotManifest,
+    inspectDesktopAggregateDepot,
 } from "./shared/src/desktop-aggregate-depot.ts";
 
 const execFileAsync = promisify(execFile);
@@ -221,7 +222,7 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
     await mkdir(appStagingRoot, {recursive: true});
     const envelopeDist = resolve(sourceRoot, "..", "..", "..", "dist");
     await copyFile(join(envelopeDist, "main.mjs"), join(appStagingRoot, "main.mjs"));
-    await copyFile(join(envelopeDist, "preload.mjs"), join(appStagingRoot, "preload.mjs"));
+    await copyFile(join(envelopeDist, "preload.cjs"), join(appStagingRoot, "preload.cjs"));
     await writeFile(join(appStagingRoot, "package.json"), `${JSON.stringify({
         name: "neuro-book-portable-electron-envelope",
         version: "0.0.0",
@@ -524,7 +525,7 @@ async function buildAggregateDepot(outputDir, distribution) {
             await copyFile(source, join(stageRoot, file));
         }
         await freezeTimes(stageRoot);
-        const archiveEntries = await collectEntries(stageRoot);
+        const archiveEntries = (await inspectDesktopAggregateDepot(stageRoot)).entries;
         if (archiveEntries.length !== files.length || archiveEntries.some((entry, index) => entry.archivePath !== files[index])) {
             throw new Error("Aggregate depot ZIP 条目顺序不符合固定合同。" );
         }

@@ -36,7 +36,6 @@ import {
     type AgentComposerAvailability,
     type AgentComposerAvailabilityAction,
     type AgentSurfaceActivationAttempt,
-    type AgentSurfaceOperationResult,
 } from "nbook/app/components/novel-ide/agent/agent-chat-surface-state";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
@@ -52,8 +51,6 @@ import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
-import type {JsonValue} from "nbook/server/agent/messages/types";
-import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {
     AgentComposerDraftClientStore,
     AgentComposerDraftSession,
@@ -102,8 +99,6 @@ const NO_SESSION_INTERACTION: AgentSessionInteractionDto = {
     canAbort: false,
 };
 
-const INLINE_EDITOR_PROFILE_KEY = "inline.editor";
-
 const props = defineProps<{
     active: boolean;
     layout: "drawer" | "workbench";
@@ -131,10 +126,6 @@ const sessionListTotal = ref(0);
 const sessionListHasMore = ref(false);
 const sessionListNextOffset = ref<number | null>(null);
 const activeSessionId = ref<number | null>(null);
-const inlineEditorSessions = ref<AgentSessionSummaryDto[]>([]);
-const inlineEditorSessionId = ref<number | null>(null);
-const inlineEditorSessionLoading = ref(false);
-const inlineEditorResultText = ref("");
 const linkedAgentPanelOpen = ref(false);
 const loadingSession = ref(false);
 const sessionListLoading = ref(false);
@@ -167,19 +158,11 @@ const sessionModelDraft = ref<AgentSessionModelDraft>({
 });
 const sessionModelPopoverOpen = ref(false);
 const sessionModelSaving = ref(false);
-const inlineSessionModelDraft = ref<AgentSessionModelDraft>({
-    modelKey: null,
-    reasoningEffort: null,
-});
-const inlineSessionModelPopoverOpen = ref(false);
-const inlineSessionModelSaving = ref(false);
 const submittingUserInputKey = ref<string | null>(null);
 const pendingResolutionDraft = ref<AgentPendingResolutionDraft>(createAgentPendingResolutionDraft([]));
 const pendingSubmissionIssue = ref<AgentPendingSubmissionIssue | null>(null);
 let pendingSubmissionIssueBatchKey: string | null = null;
 let defaultProfileResolveRequest = 0;
-let inlineEditorSessionRequestId = 0;
-let inlineEditorRecoveryRequestId = 0;
 let sessionAttachmentRequestId = 0;
 let sessionAttachmentGeneration = 0;
 let historyAttachmentInsertRequestId = 0;
@@ -190,7 +173,6 @@ const composerContextGeneration = ref(0);
 const sessionListRequestGuard = new AgentSessionListRequestGuard();
 const surfaceActivation = new AgentSurfaceActivationController();
 const surfaceOperations = new AgentSurfaceOperationController();
-const surfaceOperationRevision = ref(0);
 const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
 
 /**
@@ -220,15 +202,12 @@ function applySessionListPage(page: AgentSessionListPageDto, append: boolean): A
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
-const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
 const themeManager = useThemeManager();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
-const inlineEditorMessages = inlineEditorSession.messages;
-const inlineEditorRunning = inlineEditorSession.running;
 const connectionStatus = session.connectionStatus;
 const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
@@ -306,46 +285,6 @@ const activeModelSupportsImages = computed(() => {
     return selected?.input.includes("image") ?? false;
 });
 const renderNodes = computed(() => messages.value);
-const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
-    const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
-    return latestUserIndex >= 0
-        ? inlineEditorMessages.value.slice(latestUserIndex + 1)
-        : inlineEditorMessages.value;
-});
-const inlineEditPreview = computed(() => {
-    const toolCall = inlineEditorCurrentTurnMessages.value
-        .flatMap((message) => message.toolCalls ?? [])
-        .filter((item) => (item.name === "edit" || item.name === "write") && (item.status === "streaming" || item.status === "running"))
-        .at(-1);
-    if (!toolCall) {
-        return "";
-    }
-    const path = readToolPath(toolCall);
-    const status = t("agent.chatSurface.inlineRunning");
-    const result = toolCall.error || toolCall.result || "";
-    return [`${status}${path ? `：${path}` : ""}`, result].filter(Boolean).join("\n");
-});
-const inlineEditorLiveView = computed(() => {
-    const latestAssistant = inlineEditorCurrentTurnMessages.value
-        .filter((message) => message.type === "ai")
-        .at(-1);
-    return {
-        thinking: latestAssistant?.thinking ?? "",
-        content: latestAssistant?.content ?? "",
-        status: latestAssistant?.status ?? null,
-        editPreview: inlineEditPreview.value,
-        resultText: inlineEditorResultText.value,
-    };
-});
-const inlineEditorSessionLabel = computed(() => {
-    const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
-        ?? inlineEditorSession.recoveryShell.value?.summary
-        ?? null;
-    if (!selected) {
-        return t("agent.chatSurface.inlineSessionLabel");
-    }
-    return selected.title || `Inline AI #${String(selected.sessionId)}`;
-});
 const messageActionsDisabled = computed(() => Boolean(messageActionId.value));
 const historyMutationDisabled = computed(() => Boolean(messageActionId.value) || !activeInteraction.value.canMutateHistory);
 const canContinueWithoutInput = computed(() => {
@@ -426,7 +365,6 @@ const canChooseCreateProfile = computed(() => createProfileOptions.value.length 
 const sessionMemoryScopeKey = computed(() => agentSessionScopeKey(ideStore.workspaceKind, ideStore.currentProjectRoot));
 /** 数据面 scope 包含 ready revision；同 root reconnect 后旧请求也会立即失去发布权。 */
 const sessionScopeKey = computed(() => `${sessionMemoryScopeKey.value}@ready:${String(props.projectReadyRevision ?? 0)}`);
-const surfaceOperationKey = computed(() => `${sessionScopeKey.value}@activation:${String(surfaceOperationRevision.value)}`);
 const sessionScope = computed<Pick<AgentSessionListQueryDto, "scope" | "projectRoot">>(() => (
     ideStore.workspaceKind === "novel" && ideStore.currentProjectRoot
         ? {scope: "project", projectRoot: ideStore.currentProjectRoot}
@@ -440,29 +378,17 @@ function acceptsActivation(attempt: AgentSurfaceActivationAttempt): boolean {
 
 /** 开启新 Surface 操作代次，并同步更新供页面捕获的不透明 operation key。 */
 function beginSurfaceOperations(scopeKey: string): AgentSurfaceActivationAttempt {
-    const owner = surfaceOperations.begin(scopeKey);
-    surfaceOperationRevision.value = owner.revision;
-    return owner;
+    return surfaceOperations.begin(scopeKey);
 }
 
 /** 立即失效旧操作；旧页面命令即使 Project scope 相同也无法借用新代次。 */
 function invalidateSurfaceOperations(): void {
     surfaceOperations.invalidate();
-    surfaceOperationRevision.value += 1;
 }
 
-/** 捕获当前 Project generation 的操作 owner；页面传入旧 scope 时直接拒绝。 */
-function captureSurfaceOperation(expectedOperationKey?: string): AgentSurfaceActivationAttempt | null {
-    if (expectedOperationKey !== undefined && expectedOperationKey !== surfaceOperationKey.value) {
-        return null;
-    }
+/** 捕获当前 Project generation 的操作 owner。 */
+function captureSurfaceOperation(): AgentSurfaceActivationAttempt | null {
     return surfaceOperations.capture(sessionScopeKey.value);
-}
-
-/** Session 操作同时校验 Project generation 与目标 Session 身份。 */
-function acceptsSurfaceOperation(owner: AgentSurfaceActivationAttempt, expectedSessionId?: number): boolean {
-    return surfaceOperations.accepts(owner, sessionScopeKey.value)
-        && (expectedSessionId === undefined || inlineEditorSessionId.value === expectedSessionId);
 }
 
 /**
@@ -473,49 +399,6 @@ const notifyAgentError = (error: unknown, fallback: string, title = fallback): s
     notification.error(message, {title});
     return message;
 };
-
-/**
- * 将 InlineEditPayload 转成 DTO 接受的 JsonValue。
- */
-function inlineEditPayloadToJson(payload: InlineEditPayload): JsonValue {
-    return {
-        version: payload.version,
-        task: payload.task,
-        targetPath: payload.targetPath,
-        instruction: payload.instruction,
-        references: payload.references.map((reference) => {
-            const output: {[key: string]: JsonValue} = {
-                ref: reference.ref,
-                path: reference.path,
-                match: reference.match,
-                text: reference.text,
-            };
-            if (reference.range) {
-                output.range = {
-                    startLine: reference.range.startLine,
-                    endLine: reference.range.endLine,
-                };
-            }
-            return output;
-        }),
-    };
-}
-
-/**
- * 从文件工具参数中读取 path，用于 Inline AI 轻量预览。
- */
-function readToolPath(toolCall: AgentToolCall): string {
-    const argsText = toolCall.argsJson || toolCall.argsText;
-    if (!argsText.trim()) {
-        return "";
-    }
-    try {
-        const parsed = JSON.parse(argsText) as {path?: string};
-        return typeof parsed.path === "string" ? parsed.path : "";
-    } catch {
-        return "";
-    }
-}
 
 /** 捕获主 Composer 当前 pending 批次的 Project/Session 发布权。 */
 function capturePendingUserInputOperation(): AgentPendingOperationOwner | null {
@@ -636,18 +519,6 @@ const sessionModelSelectionValue = computed(() => sessionModelDraft.value.modelK
 const sessionThinkingResolvedLabel = computed(() => {
     const requested = activeRecovery.value?.thinkingLevel ?? null;
     const effective = activeRecovery.value?.effectiveThinkingLevel ?? "off";
-    if (requested === null) {
-        return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
-    }
-    if (requested === effective) {
-        return thinkingLevelLabel(effective);
-    }
-    return t("agent.chatSurface.requestedEffective", {requested: thinkingLevelLabel(requested), effective: thinkingLevelLabel(effective)});
-});
-const inlineSessionModelSelectionValue = computed(() => inlineSessionModelDraft.value.modelKey);
-const inlineSessionThinkingResolvedLabel = computed(() => {
-    const requested = inlineEditorSession.recoveryShell.value?.thinkingLevel ?? null;
-    const effective = inlineEditorSession.recoveryShell.value?.effectiveThinkingLevel ?? "off";
     if (requested === null) {
         return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
     }
@@ -1400,36 +1271,6 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
 };
 
 /**
- * 处理后台 Inline AI invoke 结果，并把最终摘要留给 PromptBar 展示。
- */
-const handleInlineEditorInvokeResult = async (
-    result: InvokeAgentResult,
-    owner: AgentSurfaceActivationAttempt,
-    sessionId: number,
-): Promise<AgentSurfaceOperationResult<void>> => {
-    if (!acceptsSurfaceOperation(owner, sessionId)) {
-        return {status: "superseded"};
-    }
-    inlineEditorResultText.value = result.reportResult?.result ?? result.finalMessage ?? "";
-    if (result.status !== "error") {
-        const refreshed = await refreshInlineEditorSessions(owner);
-        return refreshed.status === "superseded"
-            ? refreshed
-            : {status: "current", value: undefined};
-    }
-    await inlineEditorStream.syncRecovery("invoke_error_fallback");
-    if (!acceptsSurfaceOperation(owner, sessionId)) {
-        return {status: "superseded"};
-    }
-    // 取消同样走这个分支（停止按钮和 in-flight 阻塞 invoke 谁先返回是竞态），
-    // 但结果条不能显示 result.error 里的英文技术文本，用和停止按钮一致的说法（Task 139）。
-    inlineEditorResultText.value = result.aborted
-        ? t("agent.chatSurface.stopped")
-        : result.error ?? t("agent.chatSurface.runFailed");
-    throw new Error(inlineEditorResultText.value);
-};
-
-/**
  * 委托 AgentChatFlow 滚动到底部。
  */
 const scrollToBottom = (): void => {
@@ -1490,13 +1331,6 @@ const acknowledgeClientPatch = async (
  */
 const ensureActiveSessionEvents = async (): Promise<void> => {
     await sessionStream.ensure();
-};
-
-/**
- * 发送 Inline AI 前确保后台 inline session SSE 处于连接状态。
- */
-const ensureInlineEditorEvents = async (): Promise<void> => {
-    await inlineEditorStream.ensure();
 };
 
 /**
@@ -1910,102 +1744,6 @@ const send = async (): Promise<void> => {
     }
 };
 
-/**
- * 发送 Inline AI 编辑任务。调用方只负责构造 visible message 与 payload。
- */
-const sendInlineEditorPrompt = async (
-    payload: InlineEditPayload,
-    visibleMessage: string,
-    expectedOperationKey?: string,
-): Promise<AgentSurfaceOperationResult<void>> => {
-    const owner = captureSurfaceOperation(expectedOperationKey);
-    if (!owner) {
-        return {status: "superseded"};
-    }
-    const targetResult = await ensureInlineEditorSession(owner);
-    if (targetResult.status === "superseded") return targetResult;
-    const targetSession = targetResult.value;
-    if (targetSession.status === "running" || targetSession.status === "waiting") {
-        throw new Error(t("agent.chatSurface.inlineRunningError"));
-    }
-    if (inlineEditorSessionId.value !== targetSession.sessionId || !inlineEditorSession.recoveryShell.value) {
-        const loaded = await loadInlineEditorSession(targetSession.sessionId, {owner});
-        if (loaded.status === "superseded") return loaded;
-    }
-
-    if (!acceptsSurfaceOperation(owner, targetSession.sessionId)) return {status: "superseded"};
-    inlineEditorResultText.value = "";
-    const clientMessageId = crypto.randomUUID();
-    const optimisticId = inlineEditorSession.appendOptimisticUserMessage(clientMessageId, visibleMessage);
-    let receivedReceipt = false;
-    try {
-        await ensureInlineEditorEvents();
-        if (!acceptsSurfaceOperation(owner, targetSession.sessionId)) {
-            return {status: "superseded"};
-        }
-        const result = await agentApi.invokeSession(targetSession.sessionId, {
-            mode: "prompt",
-            clientMessageId,
-            message: {text: visibleMessage},
-            input: inlineEditPayloadToJson(payload),
-            clientState: buildClientState(),
-        });
-        if (!acceptsSurfaceOperation(owner, targetSession.sessionId)) {
-            return {status: "superseded"};
-        }
-        receivedReceipt = true;
-        const reconciliation = reconcileInvocationReceipt(clientMessageId, result.acceptance);
-        if (reconciliation.state === "rejected") {
-            inlineEditorSession.removeOptimisticUserMessage(optimisticId);
-            throw new Error(result.error ?? t("agent.chatSurface.runFailed"));
-        }
-        return await handleInlineEditorInvokeResult(result, owner, targetSession.sessionId);
-    } catch (error) {
-        if (!acceptsSurfaceOperation(owner, targetSession.sessionId)) {
-            return {status: "superseded"};
-        }
-        if (!receivedReceipt) {
-            inlineEditorSession.markOptimisticUserMessageUnknown(clientMessageId);
-        }
-        throw error;
-    }
-};
-
-/**
- * 打开或创建 Inline AI Session，供 PromptBar 主动绑定。
- */
-const openInlineEditorSession = async (): Promise<AgentSurfaceOperationResult<AgentSessionSummaryDto>> => {
-    const owner = captureSurfaceOperation();
-    if (!owner) return {status: "superseded"};
-    const targetResult = await ensureInlineEditorSession(owner);
-    if (targetResult.status === "superseded") return targetResult;
-    const targetSession = targetResult.value;
-    if (activeSessionId.value !== targetSession.sessionId) {
-        await loadSession(targetSession.sessionId);
-    }
-    return acceptsSurfaceOperation(owner)
-        ? {status: "current", value: targetSession}
-        : {status: "superseded"};
-};
-
-/**
- * 停止后台 Inline AI session 当前运行。
- */
-const stopInlineEditorPrompt = async (): Promise<AgentSurfaceOperationResult<void>> => {
-    const owner = captureSurfaceOperation();
-    const sessionId = inlineEditorSessionId.value;
-    if (!owner || !sessionId) return {status: "superseded"};
-    await agentApi.abortSession(sessionId, {});
-    if (!acceptsSurfaceOperation(owner, sessionId)) return {status: "superseded"};
-    inlineEditorResultText.value = t("agent.chatSurface.stopped");
-    await inlineEditorStream.syncRecovery("manual_refresh");
-    if (!acceptsSurfaceOperation(owner, sessionId)) return {status: "superseded"};
-    const refreshed = await refreshInlineEditorSessions(owner);
-    return refreshed.status === "superseded"
-        ? refreshed
-        : {status: "current", value: undefined};
-};
-
 /** 运行中的 steer/follow-up 共用同一 receipt、SSE 与 transport unknown 对账。 */
 const sendRunningMessage = async (mode: "steer" | "followup"): Promise<void> => {
     const message = inputText.value.trim();
@@ -2389,189 +2127,6 @@ function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     };
 }
 
-function syncInlineSessionModelState(): void {
-    inlineSessionModelDraft.value = {
-        ...inlineSessionModelDraft.value,
-        ...modelDraftFromRecovery(inlineEditorSession.recoveryShell.value),
-    };
-}
-
-/**
- * 判断 Inline AI session 模型设置此刻是否允许写入。
- */
-function inlineSessionModelActionBlocked(): boolean {
-    return !inlineEditorSessionId.value || inlineEditorRunning.value || inlineEditorSessionLoading.value || inlineSessionModelSaving.value;
-}
-
-/**
- * 丢弃未落库草稿，恢复为当前 recovery 中的真实模型设置。
- */
-function restoreInlineSessionModelDraft(): void {
-    syncInlineSessionModelState();
-}
-
-type InlineSessionOperation = Readonly<{
-    owner: AgentSurfaceActivationAttempt;
-    sessionId: number;
-}>;
-
-/** 捕获模型命令的 Project generation 与 Inline Session 身份。 */
-function captureInlineSessionOperation(): InlineSessionOperation | null {
-    const owner = captureSurfaceOperation();
-    const sessionId = inlineEditorSessionId.value;
-    return owner && sessionId ? {owner, sessionId} : null;
-}
-
-/**
- * 更新 Inline AI session 模型覆盖，不影响右侧主 Agent 当前会话。
- */
-const updateInlineSessionModelSelection = async (
-    modelKey: string | null,
-    requestedOperation?: InlineSessionOperation,
-): Promise<boolean> => {
-    if (inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        return false;
-    }
-    const operation = requestedOperation ?? captureInlineSessionOperation();
-    if (!operation || !acceptsSurfaceOperation(operation.owner, operation.sessionId)) {
-        restoreInlineSessionModelDraft();
-        return false;
-    }
-
-    inlineSessionModelDraft.value = {
-        ...inlineSessionModelDraft.value,
-        modelKey,
-    };
-
-    inlineSessionModelSaving.value = true;
-    try {
-        await agentApi.runCommand(operation.sessionId, {
-            command: "model",
-            modelKey,
-        });
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        await inlineEditorStream.syncRecovery("manual_refresh");
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        syncInlineSessionModelState();
-        return true;
-    } catch (error) {
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        console.error("更新 Inline AI session 模型失败", error);
-        notifyAgentError(error, t("agent.chatSurface.updateModelFailed"));
-        restoreInlineSessionModelDraft();
-        return false;
-    } finally {
-        if (acceptsSurfaceOperation(operation.owner, operation.sessionId)) {
-            inlineSessionModelSaving.value = false;
-        }
-    }
-};
-
-/**
- * 更新 Inline AI session 推理强度覆盖。
- */
-const updateInlineSessionThinkingLevel = async (
-    thinkingLevel: ThinkingLevelDto | null,
-    requestedOperation?: InlineSessionOperation,
-): Promise<boolean> => {
-    if (inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        return false;
-    }
-    const operation = requestedOperation ?? captureInlineSessionOperation();
-    if (!operation || !acceptsSurfaceOperation(operation.owner, operation.sessionId)) {
-        restoreInlineSessionModelDraft();
-        return false;
-    }
-
-    inlineSessionModelDraft.value = {
-        ...inlineSessionModelDraft.value,
-        reasoningEffort: thinkingLevel,
-    };
-
-    inlineSessionModelSaving.value = true;
-    try {
-        await agentApi.runCommand(operation.sessionId, {
-            command: "thinking",
-            thinkingLevel,
-        });
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        await inlineEditorStream.syncRecovery("manual_refresh");
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        syncInlineSessionModelState();
-        return true;
-    } catch (error) {
-        if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return false;
-        console.error("更新 Inline AI session 推理强度失败", error);
-        notifyAgentError(error, t("agent.chatSurface.updateThinkingFailed"));
-        restoreInlineSessionModelDraft();
-        return false;
-    } finally {
-        if (acceptsSurfaceOperation(operation.owner, operation.sessionId)) {
-            inlineSessionModelSaving.value = false;
-        }
-    }
-};
-
-function toggleInlineSessionModelPopover(): void {
-    if (!inlineSessionModelPopoverOpen.value && inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        inlineSessionModelPopoverOpen.value = false;
-        return;
-    }
-    inlineSessionModelPopoverOpen.value = !inlineSessionModelPopoverOpen.value;
-}
-
-function setInlineSessionModelDraft(value: AgentSessionModelDraft): void {
-    if (inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        return;
-    }
-    inlineSessionModelDraft.value = value;
-}
-
-function setInlineSessionModelPopoverOpen(value: boolean): void {
-    if (value && inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        inlineSessionModelPopoverOpen.value = false;
-        return;
-    }
-    inlineSessionModelPopoverOpen.value = value;
-}
-
-async function applyInlineSessionModelSettings(): Promise<void> {
-    if (inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        inlineSessionModelPopoverOpen.value = false;
-        return;
-    }
-    const operation = captureInlineSessionOperation();
-    if (!operation) return;
-    const nextModelKey = inlineSessionModelDraft.value.modelKey;
-    const nextThinkingLevel = inlineSessionModelDraft.value.reasoningEffort;
-    if (!await updateInlineSessionModelSelection(nextModelKey, operation)) return;
-    if (!await updateInlineSessionThinkingLevel(nextThinkingLevel, operation)) return;
-    if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return;
-    restoreInlineSessionModelDraft();
-    inlineSessionModelPopoverOpen.value = false;
-}
-
-async function resetInlineSessionModelSettings(): Promise<void> {
-    if (inlineSessionModelActionBlocked()) {
-        restoreInlineSessionModelDraft();
-        inlineSessionModelPopoverOpen.value = false;
-        return;
-    }
-    const operation = captureInlineSessionOperation();
-    if (!operation) return;
-    if (!await updateInlineSessionModelSelection(null, operation)) return;
-    if (!await updateInlineSessionThinkingLevel(null, operation)) return;
-    if (!acceptsSurfaceOperation(operation.owner, operation.sessionId)) return;
-    restoreInlineSessionModelDraft();
-    inlineSessionModelPopoverOpen.value = false;
-}
-
 const sessionStream = useAgentSessionStream({
     session,
     api: agentApi,
@@ -2589,25 +2144,6 @@ const sessionStream = useAgentSessionStream({
         if (event.kind === "session" && event.event.type === "session_attachments_changed") {
             invalidateSessionAttachments();
         }
-        if (event.kind === "session" && event.event.type === "client_variable_patch_requested") {
-            await acknowledgeClientPatch(owner.sessionId, event.event.request, owner.isCurrent);
-        }
-    },
-    onError: (error, fallback) => {
-        console.error(fallback, error);
-        notifyAgentError(error, fallback);
-    },
-});
-
-const inlineEditorStream = useAgentSessionStream({
-    session: inlineEditorSession,
-    api: agentApi,
-    activeSessionId: inlineEditorSessionId,
-    applyRecoverySideEffects: (_recovery, _result, owner) => {
-        if (!owner.isCurrent()) return;
-        syncInlineSessionModelState();
-    },
-    onEvent: async (event, owner) => {
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested") {
             await acknowledgeClientPatch(owner.sessionId, event.event.request, owner.isCurrent);
         }
@@ -2965,34 +2501,23 @@ async function resetWorkspaceSessionState(attempt?: AgentSurfaceActivationAttemp
     defaultProfileResolveRequest += 1;
     sessionListRequestGuard.invalidate();
     sessionListLoading.value = false;
-    inlineEditorSessionRequestId += 1;
-    inlineEditorRecoveryRequestId += 1;
-    inlineEditorSessionLoading.value = false;
     sessionStream.stop();
-    inlineEditorStream.stop();
     const drafts = ensureComposerDraftSession();
     if (drafts) {
         drafts.update(inputText.value);
     }
     activeSessionId.value = null;
-    inlineEditorSessionId.value = null;
     sessions.value = [];
-    inlineEditorSessions.value = [];
     linkedAgentPanelOpen.value = false;
     sessionDialogOpen.value = false;
     sessionTreeDialogOpen.value = false;
     sessionModelPopoverOpen.value = false;
-    inlineSessionModelPopoverOpen.value = false;
-    inlineSessionModelSaving.value = false;
     cancelEditingMessage();
     messageActionId.value = null;
     inputText.value = "";
     resetSessionAttachments();
     session.reset();
-    inlineEditorSession.reset();
-    inlineEditorResultText.value = "";
     syncSessionModelState(null);
-    syncInlineSessionModelState();
     if (!drafts) {
         return;
     }
@@ -3057,7 +2582,6 @@ function closeSurfaceTransientState(): void {
     sessionDialogOpen.value = false;
     linkedAgentPanelOpen.value = false;
     sessionModelPopoverOpen.value = false;
-    inlineSessionModelPopoverOpen.value = false;
     attachmentPanelOpen.value = false;
     cancelEditingMessage();
     messageActionId.value = null;
@@ -3134,9 +2658,7 @@ onBeforeUnmount(() => {
     void composerDraftSession?.dispose().catch((error) => console.error("保存 Composer 草稿失败", error));
     composerDraftSession = null;
     sessionStream.stop();
-    inlineEditorStream.stop();
     surfaceOperations.dispose();
-    surfaceOperationRevision.value += 1;
     resetSessionAttachments();
 });
 
@@ -3160,26 +2682,12 @@ onMounted(() => {
 });
 
 defineExpose({
-    operationScopeKey: surfaceOperationKey,
     activeSessionId,
     sessions,
     loadingSession,
     linkedAgentsLoading,
     running,
     selectableModels,
-    inlineEditorRunning,
-    inlineEditorResultText,
-    inlineEditorLiveView,
-    inlineEditorSessionId,
-    inlineEditorSessions,
-    inlineEditorSessionLoading,
-    inlineEditPreview,
-    inlineEditorSessionLabel,
-    inlineSessionModelDraft,
-    inlineSessionModelPopoverOpen,
-    inlineSessionModelSaving,
-    inlineSessionModelSelectionValue,
-    inlineSessionThinkingResolvedLabel,
     sessionActionId,
     ensureSessionReady,
     refreshSessionsWithQuery,
@@ -3188,185 +2696,7 @@ defineExpose({
     archiveSessionFromDialog,
     restoreSessionFromDialog,
     renameSessionFromDialog,
-    openInlineEditorSession,
-    refreshInlineEditorSessions,
-    selectInlineEditorSession,
-    createInlineEditorSession,
-    setInlineSessionModelDraft,
-    setInlineSessionModelPopoverOpen,
-    updateInlineSessionModelSelection,
-    toggleInlineSessionModelPopover,
-    applyInlineSessionModelSettings,
-    resetInlineSessionModelSettings,
-    sendInlineEditorPrompt,
-    stopInlineEditorPrompt,
 });
-
-/**
- * 确保 Project 级 Inline AI Session 可用。
- */
-async function ensureInlineEditorSession(
-    owner: AgentSurfaceActivationAttempt,
-): Promise<AgentSurfaceOperationResult<AgentSessionSummaryDto>> {
-    const listResult = await refreshInlineEditorSessions(owner);
-    if (listResult.status === "superseded") return listResult;
-    const list = listResult.value;
-    const selected = inlineEditorSessionId.value
-        ? list.find((item) => item.sessionId === inlineEditorSessionId.value)
-        : undefined;
-    if (selected) {
-        return {status: "current", value: selected};
-    }
-    return createInlineEditorSession(owner);
-}
-
-/**
- * 刷新当前 Project Workspace 下的 Inline AI sessions。
- */
-async function refreshInlineEditorSessions(
-    requestedOwner?: AgentSurfaceActivationAttempt,
-): Promise<AgentSurfaceOperationResult<AgentSessionSummaryDto[]>> {
-    const owner = requestedOwner ?? captureSurfaceOperation();
-    if (!owner) return {status: "superseded"};
-    const requestId = ++inlineEditorSessionRequestId;
-    inlineEditorSessionLoading.value = true;
-    try {
-        const page = await agentApi.listSessions({
-            ...sessionScope.value,
-            profileGroup: "all",
-            profileKey: INLINE_EDITOR_PROFILE_KEY,
-            status: "active",
-            relation: "all",
-            limit: 50,
-        });
-        if (requestId !== inlineEditorSessionRequestId || !acceptsSurfaceOperation(owner)) {
-            return {status: "superseded"};
-        }
-        inlineEditorSessions.value = page.items;
-        const rememberedId = readInlineEditorSessionId();
-        const remembered = rememberedId ? page.items.find((item) => item.sessionId === rememberedId) : undefined;
-        const current = inlineEditorSessionId.value ? page.items.find((item) => item.sessionId === inlineEditorSessionId.value) : undefined;
-        const target = current ?? remembered ?? page.items[0];
-        if (target && inlineEditorSessionId.value !== target.sessionId) {
-            const loaded = await loadInlineEditorSession(target.sessionId, {
-                invalidateRefresh: false,
-                owner,
-            });
-            if (loaded.status === "superseded"
-                || requestId !== inlineEditorSessionRequestId
-                || !acceptsSurfaceOperation(owner)) {
-                return {status: "superseded"};
-            }
-        }
-        if (!target) {
-            inlineEditorRecoveryRequestId += 1;
-            inlineEditorSessionId.value = null;
-            inlineEditorSession.reset();
-            inlineEditorResultText.value = "";
-            inlineEditorStream.stop();
-            syncInlineSessionModelState();
-        }
-        return {status: "current", value: page.items};
-    } catch (error) {
-        if (requestId !== inlineEditorSessionRequestId || !acceptsSurfaceOperation(owner)) {
-            return {status: "superseded"};
-        }
-        throw error;
-    } finally {
-        if (requestId === inlineEditorSessionRequestId && acceptsSurfaceOperation(owner)) {
-            inlineEditorSessionLoading.value = false;
-        }
-    }
-}
-
-/**
- * 创建一个新的 Project 级 Inline AI session，并设为 PromptBar 当前 session。
- */
-async function createInlineEditorSession(
-    requestedOwner?: AgentSurfaceActivationAttempt,
-): Promise<AgentSurfaceOperationResult<AgentSessionSummaryDto>> {
-    const owner = requestedOwner ?? captureSurfaceOperation();
-    if (!owner) return {status: "superseded"};
-    const projectRoot = ideStore.workspaceKind === "novel" ? ideStore.currentProjectRoot || undefined : undefined;
-    const created = await agentApi.createSession({
-        profileKey: INLINE_EDITOR_PROFILE_KEY,
-        initial: {},
-        currentProjectRoot: projectRoot,
-    });
-    if (!acceptsSurfaceOperation(owner)) return {status: "superseded"};
-    const loaded = await loadInlineEditorSession(created.sessionId, {owner});
-    if (loaded.status === "superseded") return loaded;
-    const refreshed = await refreshInlineEditorSessions(owner);
-    if (refreshed.status === "superseded") return refreshed;
-    return {status: "current", value: loaded.value};
-}
-
-/**
- * 选择 PromptBar 当前使用的 Inline AI session，不影响右侧 Agent 面板。
- */
-async function selectInlineEditorSession(sessionId: number): Promise<AgentSurfaceOperationResult<void>> {
-    const owner = captureSurfaceOperation();
-    if (!owner) return {status: "superseded"};
-    if (inlineEditorSessionId.value === sessionId) {
-        return {status: "current", value: undefined};
-    }
-    const loaded = await loadInlineEditorSession(sessionId, {owner});
-    return loaded.status === "superseded"
-        ? loaded
-        : {status: "current", value: undefined};
-}
-
-/**
- * 加载后台 Inline AI session recovery，并启动它自己的 SSE。
- */
-async function loadInlineEditorSession(
-    sessionId: number,
-    options: {invalidateRefresh?: boolean; owner?: AgentSurfaceActivationAttempt} = {},
-): Promise<AgentSurfaceOperationResult<AgentSessionSummaryDto>> {
-    const owner = options.owner ?? captureSurfaceOperation();
-    if (!owner || !acceptsSurfaceOperation(owner)) return {status: "superseded"};
-    if (options.invalidateRefresh !== false) {
-        inlineEditorSessionRequestId += 1;
-    }
-    const recoveryRequestId = ++inlineEditorRecoveryRequestId;
-    inlineEditorStream.stop();
-    inlineEditorSessionId.value = sessionId;
-    inlineEditorSession.reset();
-    inlineEditorResultText.value = "";
-    const recovery = await agentApi.getSessionRecovery(sessionId);
-    if (recoveryRequestId !== inlineEditorRecoveryRequestId
-        || !acceptsSurfaceOperation(owner, sessionId)
-        || recovery.summary.sessionId !== sessionId) {
-        return {status: "superseded"};
-    }
-    if (recovery.summary.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
-        throw new Error(t("agent.chatSurface.inlineLoadFailed"));
-    }
-    inlineEditorSession.applyRecovery(recovery);
-    saveInlineEditorSessionId(sessionId);
-    syncInlineSessionModelState();
-    inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === recovery.summary.sessionId)
-        ? inlineEditorSessions.value.map((item) => item.sessionId === recovery.summary.sessionId ? recovery.summary : item)
-        : [recovery.summary, ...inlineEditorSessions.value];
-    void inlineEditorStream.start(sessionId).catch(() => {});
-    return {status: "current", value: recovery.summary};
-}
-
-function readInlineEditorSessionId(): number | null {
-    if (!import.meta.client) {
-        return null;
-    }
-    const raw = localStorage.getItem(`agent:inline-editor-session:${sessionMemoryScopeKey.value}`);
-    const parsed = raw ? Number(raw) : NaN;
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function saveInlineEditorSessionId(sessionId: number): void {
-    if (!import.meta.client) {
-        return;
-    }
-    localStorage.setItem(`agent:inline-editor-session:${sessionMemoryScopeKey.value}`, String(sessionId));
-}
 
 function readLastSessionId(): number | null {
     if (!import.meta.client) {
