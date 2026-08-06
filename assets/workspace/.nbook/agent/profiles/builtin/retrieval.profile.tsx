@@ -66,7 +66,7 @@ function renderSystemPrompt(): string {
         # 固定检索流程
 
         1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
-           - bash: rg --files | rg '(^|/)index\.md$' | workspace node parse --stdin --ndjson
+           - bash: rg --files -g 'index.md' | workspace node parse --stdin --ndjson
            - bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径。
         2. 从 Search prompt 自己理解任务目标、给谁用、章节/正文上下文、排除项和数量偏好；不要要求调用方额外提供结构化字段。
         3. 用 Search prompt、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。

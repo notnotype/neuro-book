@@ -876,14 +876,14 @@ describe("v3 file tools", () => {
         expect(firstPath).toContain(".nbook/agent/bin");
     });
 
-    it("bash 为 rg 注入 Agent 专用配置并统一输出 / 路径", async () => {
+    it("retrieval 的 index.md 清单命令可在真实 bash 中执行", async () => {
         await writeFile(join(workspaceRoot, "workspace.yaml"), "schemaVersion: 1\nslug: test\ndisplayName: Test\nnovelId: \"1\"\ncreatedAt: \"2026-05-24T00:00:00.000Z\"\nupdatedAt: \"2026-05-24T00:00:00.000Z\"\n", "utf-8");
         await mkdir(join(workspaceRoot, "lorebook", "character", "hero"), {recursive: true});
         await writeFile(join(workspaceRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nrefs: []\n---\n\n正文。", "utf-8");
         const tool = mustTool("bash", harness);
 
         const result = await tool.executeWithContext?.(context, "bash-rg-config", {
-            command: "printf 'config=%s\\n' \"$RIPGREP_CONFIG_PATH\" && rg --files | rg 'index.md$'",
+            command: "printf 'config=%s\\n' \"$RIPGREP_CONFIG_PATH\" && rg --files -g 'index.md' | workspace node parse --stdin --ndjson",
             timeout: 10,
         });
 
@@ -891,6 +891,7 @@ describe("v3 file tools", () => {
         expect(text.replaceAll("\\", "/")).toContain("config=");
         expect(text.replaceAll("\\", "/")).toContain(".nbook/agent/config/ripgreprc");
         expect(text).toContain("lorebook/character/hero/index.md");
+        expect(text).toContain("\"title\":\"Hero\"");
         expect(text).not.toContain("lorebook\\character\\hero\\index.md");
     });
 

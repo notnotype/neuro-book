@@ -420,7 +420,8 @@ describe("assets builtin v3 profiles", () => {
         });
         const prompt = prepared.systemPrompt ?? "";
 
-        expect(prompt).toContain("rg --files | rg '(^|/)index\\.md$'");
+        expect(prompt).toContain("rg --files -g 'index.md' | workspace node parse --stdin --ndjson");
+        expect(prompt).not.toContain("(^|/)index\\.md$");
         expect(prompt).toContain("head -n 30");
         expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
         expect(prompt).toContain("entries[].path");
