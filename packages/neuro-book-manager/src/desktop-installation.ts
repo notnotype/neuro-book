@@ -1,7 +1,7 @@
 import {createHash, randomUUID} from "node:crypto";
 import {copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
+import {dirname, isAbsolute, join, relative, resolve, sep, win32} from "node:path";
 
 import {
     parseDesktopCapability,
@@ -412,6 +412,9 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
     if (!envelope) throw new Error(`Desktop Installation Manifest 缺少 ${envelopeId}。`);
     const executable = join(root, envelope.path);
     const manager = join(root, ".runtime", "bin", "neuro-book.cmd");
+    // Registry values are Windows command lines even when this contract is
+    // exercised from a POSIX CI runner with a mocked Windows host.
+    const managerCommandPath = win32.join(root, ".runtime", "bin", "neuro-book.cmd");
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
     const startMenu = join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "NeuroBook");
     const desktop = join(process.env.USERPROFILE ?? homedir(), "Desktop");
@@ -428,7 +431,7 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
         await regAdd(uninstallKey, "InstallLocation", root);
         let uninstallCommand: string;
         if (uninstallLauncher) uninstallCommand = `"${uninstallLauncher}" --dir "${root}" --yes`;
-        else if (await pathExists(manager)) uninstallCommand = `"${manager}" uninstall --yes`;
+        else if (await pathExists(manager)) uninstallCommand = `"${managerCommandPath}" uninstall --yes`;
         else throw new Error("Desktop 安装缺少可执行的 Manager CLI，不能创建卸载项。" );
         await regAdd(uninstallKey, "UninstallString", uninstallCommand);
         await regAdd(protocolKey, "", "URL:NeuroBook Protocol");

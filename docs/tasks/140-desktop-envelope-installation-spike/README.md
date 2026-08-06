@@ -200,3 +200,9 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 在同一 verified Product image 上生成 G/H 两批 Windows x64 聚合 Depot；固定顶层只包含 7 个文件：`install-desktop.ps1`、`windows-bun-stage0.ps1`、distribution manifest、两个 Portable ZIP 及其 manifest。聚合层不重复展开 Product、Bun、Tool Pack 或 Portable 内容。
 - 解压后的固定七项 staging 根、sidecar 和 ZIP 均通过共享 verifier；payload 为 7 files / 633,438,014 bytes，ZIP 为 628,325,258 bytes，SHA-256 为 `sha256:590f71ed346c0fe4f4d40e2959c595ec1a56755ac8dfa103c9c70162870e5e7e`。G/H 的 ZIP、manifest、payload shape 和 payload bytes 均一致，证据见 [aggregate-depot.json](evidence/aggregate-depot.json)。
 - 该 Depot 是未签名 Windows spike 交付，用于验证“脚本 + 两种 Envelope”聚合形状；它不是正式安装器、updater、Release 资产或 Electron/Tauri 最终选型结论。
+
+## Contract hardening follow-up (2026-08-06)
+
+- Product Platform Checks 暴露了一个真实的跨平台安装合同问题：Manager 在模拟 Windows host 的 POSIX runner 上用宿主 `path.join` 生成 Registry `UninstallString`，导致期望的 `.runtime\bin\neuro-book.cmd` 变成 POSIX 分隔符；生产代码现在只在 Registry 命令值处使用 `path.win32.join`，物理文件检查仍使用宿主路径，Manager 回归重新通过。
+- Desktop Envelope Contract workflow 不执行 `nuxt prepare`，而根 `tsconfig.json` 会继承生成的 `.nuxt/tsconfig.json`。独立 Vitest 配置现在关闭 OXC 并显式使用 standalone esbuild TypeScript transform（含 Windows/POSIX 路径规范化），在暂时移出 `.nuxt` 的本地验证中仍为 4 files / 19 tests 通过；不会把 Nuxt 生成目录变成桌面合同的隐式前置。
+- 同一 CI run 的根 Typecheck 与 Full tests advisory 失败来自既有基线：Typecheck 是 Prisma generated client/隐式 `any` 缺失，Full tests 是 POSIX runner 使用 `C:/...` 伪路径；没有把这些与本轮 Desktop Contract 修复混报为桌面回归。下一次 push 后仍需重新读取受影响 workflow 的结果。
