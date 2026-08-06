@@ -1,6 +1,6 @@
 {
     "schema": "nbook.desktop-envelope-spike-final-evidence/v1",
-    "capturedAt": "2026-08-05T17:33:29.358Z",
+    "capturedAt": "2026-08-06T00:54:39.754Z",
     "environment": {
         "platform": "win32",
         "arch": "x64",
@@ -13,15 +13,15 @@
     },
     "product": {
         "contract": "nbook.product-runtime-contract/v5",
-        "imageId": "sha256:b20de896a3fa63591bf5c2ba067803c0ed707e9a0984b200562c10f0d28bf895",
-        "sourceRevision": "7a001aaf3961907b86e27f17c7f3b011f1b7dbc2",
-        "sourceDigest": "sha256:0abfa58ba027dba885b8cdaa248b956cce854967388f9763ac62e1414d3b1c14",
+        "imageId": "sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b",
+        "sourceRevision": "7d5972b8889c5ff49963baed178a45cc1a57cdac",
+        "sourceDigest": "sha256:844baf9dbec2ef603b0489698ec5df47f90c9ac1c331ae69b1485411fef69f18",
         "dirty": false,
         "payload": {
             "files": 3242,
-            "bytes": 134532815,
-            "treeDigest": "sha256:5d06644fdd962903b83a1bd81628562476a68d8cda6d231e95b99710dbb76af0",
-            "shapeDigest": "sha256:b12dc9dd387895ad141558ddb8f537661cf1210cd12a4bac3b9721b4c1269fe8"
+            "bytes": 134536961,
+            "treeDigest": "sha256:d19d82e9e7181650a212beb3c7847f906d401adcd311dd04608d5d8820b41cbd",
+            "shapeDigest": "sha256:702635343e44b9a3a45740994e49f439dbd40d73a26194d46f3522592596a420"
         },
         "buildReproducibility": {
             "builds": ["A", "B"],
@@ -32,7 +32,7 @@
         "owners": {
             "authoring-kit": {"files": 513, "bytes": 14746686},
             "commands": {"files": 109, "bytes": 10748820},
-            "frontend": {"files": 181, "bytes": 15882924},
+            "frontend": {"files": 181, "bytes": 15887401},
             "native-islands": {"files": 2059, "bytes": 75260633},
             "runtime-meta": {"files": 3, "bytes": 5069},
             "server-bundle": {"files": 1, "bytes": 12558588},
@@ -51,26 +51,26 @@
         }
     },
     "portable": {
-        "inputImageId": "sha256:b20de896a3fa63591bf5c2ba067803c0ed707e9a0984b200562c10f0d28bf895",
+        "inputImageId": "sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b",
         "batches": ["final-a", "final-b"],
         "electron": {
             "payload": {
                 "files": 9622,
-                "bytes": 986435296,
-                "digest": "sha256:3027eb9e84c99697ef1eabc2ac3858598be996961a7ee87dcad244f6892974db"
+                "bytes": 986442188,
+                "digest": "sha256:7fcf79a455353137e962732cbf2f69bffd1483c9f9dd0ead0df0467793a04c33"
             },
-            "zipBytes": 389592191,
-            "zipSha256": "1497E310879882288C9A074BC25766563CD3BA1D38C36945F07D35B1D72608B5",
+            "zipBytes": 389594292,
+            "zipSha256": "E818E4930909C15E409E7E03172EA6720DC71C708BCB0D07BEBA784F8C0C8172",
             "webview": "bundled-chromium"
         },
         "tauri": {
             "payload": {
                 "files": 9546,
-                "bytes": 631799472,
-                "digest": "sha256:065568de42c9ddb9369226a372fbfca8bf8ddcf43fc627b6198e1c7e612cd58d"
+                "bytes": 631809252,
+                "digest": "sha256:746ac04d35848a37be5a0b99930cf76cc756a79bf383528c85496d6a1fbf37b4"
             },
-            "zipBytes": 243829175,
-            "zipSha256": "9B87A768AEA4531851F9FE47E5832A459E9D52A26EB1F49698C34B123521F15C",
+            "zipBytes": 243829892,
+            "zipSha256": "E7622B23A06DCD818BB70C08FF53F92A83A2648396DED2DC369B2D248D5BEB22",
             "webview": "system-evergreen"
         },
         "reproducibility": {
@@ -86,7 +86,7 @@
         "nodePath": "",
         "productApplicationRoot": {
             "files": 3244,
-            "digest": "sha256:786f59b64997c0e5fe04ffe90ac0af341c44022378df7d2cdcf0b8c1ece0b301",
+            "digest": "sha256:90f2d4dda31229d434fccefb6294e456d728618ea43910d2fe19e57ec1264855",
             "unchangedBeforeAfter": true
         },
         "electron": {
@@ -106,17 +106,18 @@
             "migration": "complete",
             "profiles": 14,
             "shutdown": "graceful",
+            "forcedShutdown": "forced",
             "stateRootMove": true,
             "stateRootDelete": true,
             "processTreeClosed": true
         }
     },
     "tests": {
-        "desktopContract": "2 files / 11 tests passed",
+        "desktopContract": "3 files / 15 tests passed",
         "securityAudit": "all checks passed",
         "electronBundle": "passed",
         "desktopTypecheck": "passed",
-        "managerTests": "38 files / 278 tests passed; 3 tests skipped",
+        "managerTests": "38 files / 279 tests passed; 3 tests skipped",
         "managerTypecheck": "passed",
         "tauriFmt": "passed",
         "tauriCheck": "passed"
