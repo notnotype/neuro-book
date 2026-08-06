@@ -205,4 +205,5 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 
 - Product Platform Checks 暴露了一个真实的跨平台安装合同问题：Manager 在模拟 Windows host 的 POSIX runner 上用宿主 `path.join` 生成 Registry `UninstallString`，导致期望的 `.runtime\bin\neuro-book.cmd` 变成 POSIX 分隔符；生产代码现在只在 Registry 命令值处使用 `path.win32.join`，物理文件检查仍使用宿主路径，Manager 回归重新通过。
 - Desktop Envelope Contract workflow 不执行 `nuxt prepare`，而根 `tsconfig.json` 会继承生成的 `.nuxt/tsconfig.json`。独立 Vitest 配置现在关闭 OXC 并显式使用 standalone esbuild TypeScript transform（含 Windows/POSIX 路径规范化），在暂时移出 `.nuxt` 的本地验证中仍为 4 files / 19 tests 通过；不会把 Nuxt 生成目录变成桌面合同的隐式前置。
-- 同一 CI run 的根 Typecheck 与 Full tests advisory 失败来自既有基线：Typecheck 是 Prisma generated client/隐式 `any` 缺失，Full tests 是 POSIX runner 使用 `C:/...` 伪路径；没有把这些与本轮 Desktop Contract 修复混报为桌面回归。下一次 push 后仍需重新读取受影响 workflow 的结果。
+- 同一 CI run 的根 Typecheck 与 Full tests advisory 失败来自既有基线：Typecheck 是 Prisma generated client/隐式 `any` 缺失，Full tests 是 POSIX runner 使用 `C:/...` 伪路径；没有把这些与本轮 Desktop Contract 修复混报为桌面回归。
+- 提交 `25d5df8a` 的 CI 已完成：Desktop Envelope Contract 在 macOS x64、macOS arm64、Windows x64 全部通过；Product Platform 在 Linux x64、Linux arm64、macOS x64、macOS arm64 全部通过；Community and Docs Checks 通过。Code Baseline 仍为 advisory failure，实际为 25 个 full-test 文件 / 79 个测试因 POSIX `C:/...` fixture 被绝对路径门禁拒绝，及既有 Prisma generated client、两个 `transactionClient` 隐式 `any`；不属于本轮桌面修复回归。
