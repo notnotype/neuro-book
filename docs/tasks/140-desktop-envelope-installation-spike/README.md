@@ -194,3 +194,9 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 2026-08-05：补跑真实 Windows 用户级安装/卸载 smoke（[desktop-user-installation-smoke.json](evidence/desktop-user-installation-smoke.json)）。`install-desktop.ps1` 通过 stdin 设置管理员 `admin`，安装到 `%LOCALAPPDATA%/Programs/NeuroBook`，创建 Desktop manifest、开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`；随后 Manager 卸载删除程序、快捷方式和注册项，同时保留 State Root。此前遗留的旧 `neurobook://` 注册项已在 smoke 前确认指向已删除临时目录并清理，不计入本次安装结果。
 
 - 2026-08-06：补齐 Desktop Menu Contract 的页面消费链。自绘标题栏改为 File/Edit/View/Help 下拉菜单，Electron 原生菜单与 Tauri 事件统一覆盖 15 个公开命令；Settings、编辑命令、缩放、刷新和 About 均有实际行为，文档入口在尚未嵌入 Desktop 时给出明确提示，不再静默 no-op。新增共享分发器与未知命令拒绝测试，Desktop Contract 为 3 files / 15 tests；本轮完成 source-locked Product A/B、两个新 Portable 的组包和仓库外 smoke，完整数字见 [final-build-a-b.json](evidence/final-build-a-b.json)。
+
+## Aggregate Depot Result (2026-08-06)
+
+- 在同一 verified Product image 上生成 G/H 两批 Windows x64 聚合 Depot；固定顶层只包含 7 个文件：`install-desktop.ps1`、`windows-bun-stage0.ps1`、distribution manifest、两个 Portable ZIP 及其 manifest。聚合层不重复展开 Product、Bun、Tool Pack 或 Portable 内容。
+- 解压后的固定七项 staging 根、sidecar 和 ZIP 均通过共享 verifier；payload 为 7 files / 633,438,014 bytes，ZIP 为 628,325,258 bytes，SHA-256 为 `sha256:590f71ed346c0fe4f4d40e2959c595ec1a56755ac8dfa103c9c70162870e5e7e`。G/H 的 ZIP、manifest、payload shape 和 payload bytes 均一致，证据见 [aggregate-depot.json](evidence/aggregate-depot.json)。
+- 该 Depot 是未签名 Windows spike 交付，用于验证“脚本 + 两种 Envelope”聚合形状；它不是正式安装器、updater、Release 资产或 Electron/Tauri 最终选型结论。

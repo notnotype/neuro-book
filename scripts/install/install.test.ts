@@ -8,11 +8,14 @@ import {afterEach, beforeAll, describe, expect, it} from "vitest";
 const scriptPath = resolve(import.meta.dirname, "install.sh");
 const windowsScriptPath = resolve(import.meta.dirname, "install.ps1");
 const desktopWindowsScriptPath = resolve(import.meta.dirname, "install-desktop.ps1");
+const windowsStage0ScriptPath = resolve(import.meta.dirname, "windows-bun-stage0.ps1");
 const windowsCmdPath = resolve(import.meta.dirname, "install.cmd");
+const powershellCommand = "pwsh.exe";
 const roots: string[] = [];
 let script = "";
 let windowsScript = "";
 let desktopWindowsScript = "";
+let windowsStage0Script = "";
 let windowsCmd = "";
 
 const PLATFORM_CASES = [
@@ -23,10 +26,11 @@ const PLATFORM_CASES = [
 ] as const;
 
 beforeAll(async () => {
-    [script, windowsScript, desktopWindowsScript, windowsCmd] = await Promise.all([
+    [script, windowsScript, desktopWindowsScript, windowsStage0Script, windowsCmd] = await Promise.all([
         readFile(scriptPath, "utf8"),
         readFile(windowsScriptPath, "utf8"),
         readFile(desktopWindowsScriptPath, "utf8"),
+        readFile(windowsStage0ScriptPath, "utf8"),
         readFile(windowsCmdPath, "utf8"),
     ]);
 });
@@ -56,13 +60,28 @@ describe("POSIX Stage 0固定资产", () => {
 });
 
 describe("Windows Stage 0合同", () => {
-    it("使用原生OS架构并在首次解压后再次校验executable", () => {
+    it("共享固定资产并在普通安装入口强制使用pinned runtime", () => {
         expect(windowsScript).toContain("RuntimeInformation]::OSArchitecture");
         expect(windowsScript).toContain("Architecture]::X64");
-        expect(windowsScript.match(/Get-FileHash -LiteralPath \$bunExe/gu)?.length).toBe(2);
-        expect(windowsScript.match(/& \$bunExe --version/gu)?.length).toBe(2);
-        expect(windowsScript).toContain("Remove-Item -LiteralPath $cacheRoot -Recurse -Force");
+        expect(windowsScript).toContain("windows-bun-stage0.ps1");
+        expect(windowsScript).toContain("Ensure-NeuroBookBun -AllowDownload -RequirePinnedRuntime -UseAsStage0");
+        expect(windowsStage0Script).toContain('$script:NeuroBookBunVersion = "1.3.14"');
+        expect(windowsStage0Script).toContain("0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922");
+        expect(windowsStage0Script).toContain("0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c");
+        expect(windowsStage0Script).toContain("Test-NeuroBookBunExecutable -Path $bunExe -RequirePinnedDigest");
+        expect(windowsStage0Script).toContain("Remove-Item -LiteralPath $cacheRoot -Recurse -Force");
         expect(windowsCmd).toContain("exit /b %ERRORLEVEL%");
+    });
+
+    it("Desktop入口允许显式或PATH Bun，但不把本机文件标成官方archive", () => {
+        expect(desktopWindowsScript).toContain("windows-bun-stage0.ps1");
+        expect(desktopWindowsScript).toContain("Clear-NeuroBookStage0Environment");
+        expect(desktopWindowsScript).toContain("Ensure-NeuroBookBun -ExplicitPath $ExplicitPath -AllowDownload");
+        expect(desktopWindowsScript).not.toContain("-RequirePinnedRuntime");
+        expect(windowsStage0Script).toContain('$source = if ($candidateSource -eq "stage0"');
+        expect(windowsStage0Script).toContain('else { "local:$candidateSource" }');
+        expect(windowsStage0Script).toContain("else { $hash }");
+        expect(windowsStage0Script).toContain("[switch]$UseAsStage0");
     });
 
     it("透传本地 Desktop distribution manifest 并保持 depot 参数互斥", () => {
@@ -72,15 +91,51 @@ describe("Windows Stage 0合同", () => {
     });
 
     it.runIf(process.platform === "win32")("PowerShell脚本语法有效", async () => {
-        const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${windowsScriptPath.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
-        const result = await spawnCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], process.env);
+        const command = `$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${windowsScriptPath.replaceAll("'", "''")}', [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }; $tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${windowsStage0ScriptPath.replaceAll("'", "''")}', [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
+        const result = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], process.env);
         expect(result.code).toBe(0);
     });
 
     it.runIf(process.platform === "win32")("Desktop 安装向导 PowerShell 语法有效", async () => {
-        const command = `$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${desktopWindowsScriptPath.replaceAll("'", "''")}', [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
-        const result = await spawnCommand("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], process.env);
+        const command = `$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${desktopWindowsScriptPath.replaceAll("'", "''")}', [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
+        const result = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], process.env);
         expect(result.code).toBe(0);
+    });
+
+    it.runIf(process.platform === "win32")("显式本机Bun默认不产生Stage 0 metadata，而显式授权才产生", async () => {
+        const parent = resolve(".agent/tmp");
+        await mkdir(parent, {recursive: true});
+        const root = await mkdtemp(join(parent, "windows-stage0-explicit-"));
+        roots.push(root);
+        const fakeBun = join(root, "bun.cmd");
+        await writeFile(fakeBun, [
+            "@echo off",
+            'if "%~1"=="--version" (',
+            "    echo 1.3.14",
+            "    exit /b 0",
+            ")",
+            "exit /b 0",
+            "",
+        ].join("\r\n"), "utf8");
+        const escapedStage0 = windowsStage0ScriptPath.replaceAll("'", "''");
+        const escapedFakeBun = fakeBun.replaceAll("'", "''");
+        const acceptCommand = `. '${escapedStage0}'; Clear-NeuroBookStage0Environment; Ensure-NeuroBookBun -ExplicitPath '${escapedFakeBun}' | Out-Null; $source = if ($env:NEURO_BOOK_STAGE0_BUN_SOURCE_URL) { $env:NEURO_BOOK_STAGE0_BUN_SOURCE_URL } else { '<unset>' }; $archive = if ($env:NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256) { $env:NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256 } else { '<unset>' }; Write-Output ($source + '|' + $archive)`;
+        const accepted = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", acceptCommand], process.env);
+        expect(accepted.code).toBe(0);
+        expect(accepted.stdout.trim()).toBe("<unset>|<unset>");
+
+        const stage0Command = `. '${escapedStage0}'; Clear-NeuroBookStage0Environment; $resolved = Ensure-NeuroBookBun -ExplicitPath '${escapedFakeBun}' -UseAsStage0; $hash = (Get-FileHash -LiteralPath $resolved -Algorithm SHA256).Hash.ToLowerInvariant(); Write-Output ($env:NEURO_BOOK_STAGE0_BUN_SOURCE_URL + '|' + $env:NEURO_BOOK_STAGE0_BUN_ARCHIVE_SHA256 + '|' + $hash)`;
+        const stage0 = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", stage0Command], process.env);
+        expect(stage0.code).toBe(0);
+        const [stage0Source, stage0ArchiveSha256, stage0ExecutableSha256] = stage0.stdout.trim().split("|");
+        expect(stage0Source).toBe("local:explicit");
+        expect(stage0ArchiveSha256).toBe(stage0ExecutableSha256);
+        expect(stage0ArchiveSha256).not.toBe("0a0620930b6675d7ba440e81f4e0e00d3cfbe096c4b140d3fff02205e9e18922");
+
+        const rejectCommand = `. '${escapedStage0}'; try { Ensure-NeuroBookBun -ExplicitPath '${escapedFakeBun}' -RequirePinnedRuntime | Out-Null; exit 2 } catch { Write-Output $_.Exception.Message; exit 0 }`;
+        const rejected = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", rejectCommand], process.env);
+        expect(rejected.code).toBe(0);
+        expect(rejected.stdout).toContain("找不到有效 Bun Runtime");
     });
 });
 

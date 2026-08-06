@@ -22,6 +22,12 @@ import {writeZipArchive} from "../../scripts/utils/zip.ts";
 import {ProductRuntimeImageVerifier} from "../../shared/product-runtime-image-verifier.ts";
 import {readProductRuntimeContract} from "../../shared/product-runtime-contract.ts";
 import {createProductRuntimeVerificationReceipt, writeProductRuntimeVerificationReceipt} from "../../shared/product-runtime-receipt.ts";
+import {
+    DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
+    DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
+    DESKTOP_AGGREGATE_DEPOT_ENTRIES,
+    createDesktopAggregateDepotManifest,
+} from "./shared/src/desktop-aggregate-depot.ts";
 
 const execFileAsync = promisify(execFile);
 const PORTABLE_SCHEMA = "nbook.desktop-portable/v1";
@@ -498,6 +504,46 @@ async function writeDistributionManifest(outputDir, fileName, version, channel, 
     return manifest;
 }
 
+/** 将两个已完成的 Portable 与安装入口聚合为一个不展开大目录的本地 depot。 */
+async function buildAggregateDepot(outputDir, distribution) {
+    const baseName = "neuro-book-desktop-spike-win-x64";
+    const files = [...DESKTOP_AGGREGATE_DEPOT_ENTRIES];
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const sourcePaths = new Map([
+        ["install-desktop.ps1", join(repoRoot, "scripts", "install", "install-desktop.ps1")],
+        ["windows-bun-stage0.ps1", join(repoRoot, "scripts", "install", "windows-bun-stage0.ps1")],
+        ...files.slice(2).map((file) => [file, join(outputDir, file)]),
+    ]);
+    const stageRoot = await mkdtemp(join(outputDir, ".stage-aggregate-"));
+    try {
+        for (const file of files) {
+            const source = sourcePaths.get(file);
+            if (!source || !(await stat(source).catch(() => null))?.isFile()) {
+                throw new Error(`Aggregate depot 缺少文件：${file}`);
+            }
+            await copyFile(source, join(stageRoot, file));
+        }
+        await freezeTimes(stageRoot);
+        const archiveEntries = await collectEntries(stageRoot);
+        if (archiveEntries.length !== files.length || archiveEntries.some((entry, index) => entry.archivePath !== files[index])) {
+            throw new Error("Aggregate depot ZIP 条目顺序不符合固定合同。" );
+        }
+        const archive = join(outputDir, DESKTOP_AGGREGATE_DEPOT_ARCHIVE);
+        await writeZipArchive(archive, archiveEntries, 2000);
+        if (distribution.schema !== "nbook.desktop-distribution/v1") {
+            throw new Error(`Aggregate depot 只接受 ${"nbook.desktop-distribution/v1"} distribution manifest。`);
+        }
+        const sidecar = await createDesktopAggregateDepotManifest({stagingRoot: stageRoot, archivePath: archive});
+        if (sidecar.distributionManifest !== DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST || sidecar.distributionSchema !== distribution.schema) {
+            throw new Error("Aggregate depot sidecar 与 distribution manifest 不一致。" );
+        }
+        await writeFile(join(outputDir, `${baseName}.manifest.json`), `${JSON.stringify(sidecar, null, 4)}\n`, "utf8");
+        return {archive, manifest: sidecar};
+    } finally {
+        await rm(stageRoot, {recursive: true, force: true});
+    }
+}
+
 async function main() {
     const args = parseArgs(process.argv.slice(2));
     await mkdir(args.outputDir, {recursive: true});
@@ -527,6 +573,7 @@ async function main() {
             {id: "tauri-envelope", componentVersion: tauri.manifest.runtime.envelopeVersion, archive: tauri.archive, required: false},
         ],
     );
+    const aggregate = await buildAggregateDepot(args.outputDir, distribution);
     let shells = null;
     if (args.shellOutputDir) {
         await mkdir(args.shellOutputDir, {recursive: true});
@@ -554,6 +601,7 @@ async function main() {
         electron: electron.archive,
         tauri: tauri.archive,
         distribution,
+        aggregate,
         ...(shells ? {shells} : {}),
     }, null, 4));
 }

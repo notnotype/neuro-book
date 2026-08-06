@@ -54,7 +54,7 @@ Electron 与 Tauri 在 Task 140 内继续并行；本 ADR 不冻结最终框架�
 ### 单实例与设备 Root
 
 1. 每个登录用户只有一个 NeuroBook Desktop。第二实例转发协议、文件和启动参数并激活首实例。
-2. Electron Windows 使用用户级 named pipe；不能用随 Portable 改变的 `userData` 作为单实例身份。macOS/Linux 可使用系统提供的应用单实例机制。
+2. Electron 使用 Electron 系统单实例锁，并把锁身份固定在用户级 Desktop identity root，使其不随 Portable 安装路径或 WebView profile 改变。macOS/Linux 可使用系统提供的应用单实例机制。
 3. Tauri 使用官方 single-instance 插件或系统 mutex。禁止磁盘 lock 文件和依赖 `Drop`/`process::exit()` 的清理假设；异常退出后锁必须由操作系统释放。
 4. Electron 显式设置 Desktop Local Root 与 WebView/session Root；Tauri 显式设置 WebView2 data directory。Portable 的 Root 随包相对定位，不同 Portable 不共享 cookie。
 5. 窗口 bounds、最大化和全屏保存在 Desktop Local Root；恢复时钳制到当前可见显示器。

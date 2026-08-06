@@ -24,31 +24,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$stage0Script = Join-Path $PSScriptRoot "windows-bun-stage0.ps1"
+if (-not (Test-Path -LiteralPath $stage0Script -PathType Leaf)) {
+    throw "找不到 NeuroBook Bun Stage 0：$stage0Script"
+}
+. $stage0Script
+Clear-NeuroBookStage0Environment
 
 function Resolve-Bun {
     param([string]$ExplicitPath)
-    $candidate = $ExplicitPath
-    if (-not $candidate -and $env:NEURO_BOOK_STAGE0_BUN_PATH) { $candidate = $env:NEURO_BOOK_STAGE0_BUN_PATH }
-    if (-not $candidate) {
-        $command = Get-Command bun.exe -ErrorAction SilentlyContinue
-        if ($command) { $candidate = $command.Source }
-    }
-    if (-not $candidate) {
-        throw "找不到 Bun Runtime。先运行 scripts/install/install.ps1 准备 Bun，或通过 -BunPath 传入 bun.exe。"
-    }
-    $resolved = (Resolve-Path -LiteralPath $candidate).Path
-    $version = (& $resolved --version 2>$null).Trim()
-    $parsedVersion = $null
-    try {
-        if ($version -notmatch '^\d+\.\d+(?:\.\d+)?$') { throw "invalid" }
-        $parsedVersion = [version]$version
-    } catch {
-        throw "Bun Runtime 版本无法解析，当前为：$version"
-    }
-    if ($LASTEXITCODE -ne 0 -or $parsedVersion -lt [version]"1.3.0") {
-        throw "Bun Runtime 版本必须为 1.3 或更新版本，当前为：$version"
-    }
-    return $resolved
+    return Ensure-NeuroBookBun -ExplicitPath $ExplicitPath -AllowDownload
 }
 
 $depotCount = 0

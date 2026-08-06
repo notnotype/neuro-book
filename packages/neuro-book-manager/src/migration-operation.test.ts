@@ -454,6 +454,29 @@ describe("Journaled application migration", () => {
         await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 
+    it("窗口 ready 后宿主完整复核失败仍终止候选并回滚 start operation", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-on-ready-failure-"));
+        roots.push(root);
+        const terminate = vi.fn().mockResolvedValue(undefined);
+        migrations.plan.mockResolvedValue({runId: "start-on-ready-failure", status: "already_current", steps: migrationSteps("start-on-ready-failure")});
+        migrations.launch.mockResolvedValueOnce({
+            ready: Promise.resolve(),
+            completion: Promise.resolve({code: 0, signal: null}),
+            shutdown: vi.fn(),
+            terminate,
+        });
+
+        await expect(startManagedApplication(root, productManifest(), {
+            healthCheck: true,
+            onReady: async () => {
+                throw new Error("full verification failed");
+            },
+        })).rejects.toThrow("full verification failed");
+
+        expect(terminate).toHaveBeenCalledTimes(1);
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
+    });
+
     it("ready后以Session Store lease compromised退出时返回专用提示", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-start-ready-compromised-"));
         roots.push(root);
