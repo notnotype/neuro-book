@@ -1991,6 +1991,8 @@ const enUS = {
             syncSessionFailed: "Failed to sync Agent session",
             loadSessionFailed: "Failed to load Agent session",
             refreshLinkedFailed: "Failed to refresh linked Agents",
+            linkedUnavailableTitle: "Linked conversations unavailable",
+            linkedUnavailableMessage: "{count} linked conversation(s) are unavailable. You can keep using the current conversation.",
             runFailed: "Agent run failed",
             reconnectFailed: "Failed to reconnect Agent event stream",
             userTerminated: "User chose to stop this run.",

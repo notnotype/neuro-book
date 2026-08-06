@@ -96,9 +96,24 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
     let recoveryGeneration = 0;
     let connectionGeneration = 0;
+    let automaticRecoveryConnectionGeneration = -1;
     let stopped = false;
     let backoffSessionId: number | null = null;
+    const attemptedAutomaticRecoveryReasons = new Set<AgentSessionStreamRecoveryReason>();
     const reconnectBackoff = new SseReconnectBackoff();
+
+    const resetAutomaticRecoveryAttempts = (generation = connectionGeneration): void => {
+        automaticRecoveryConnectionGeneration = generation;
+        attemptedAutomaticRecoveryReasons.clear();
+    };
+
+    const restoreConnectionStatusAfterRecoveryFailure = (targetSessionId: number): void => {
+        const activeController = controller.value;
+        const streamAlive = activeController !== null
+            && !activeController.signal.aborted
+            && sessionId.value === targetSessionId;
+        options.session.applyConnectionStatus(streamAlive ? "connected" : "idle");
+    };
 
     const clearReconnectTimer = (): void => {
         if (!reconnectTimer) {
@@ -162,6 +177,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         if (behavior.force) {
             recoveryGeneration += 1;
             recoveryPromise = null;
+            resetAutomaticRecoveryAttempts();
         }
         const generation = recoveryGeneration;
         const isCurrent = (): boolean => generation === recoveryGeneration
@@ -186,6 +202,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 if (!isCurrent()) {
                     return false;
                 }
+                resetAutomaticRecoveryAttempts();
                 reconnectBackoff.reset();
                 reconnectAttempt.value = 0;
                 const activeController = controller.value;
@@ -206,6 +223,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 if (!isCurrent()) {
                     return false;
                 }
+                options.session.clearRecoveryRequest();
+                restoreConnectionStatusAfterRecoveryFailure(targetSessionId);
                 if (behavior.reportError) {
                     options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
                     return false;
@@ -224,6 +243,33 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
 
     /** 普通恢复共用当前 single-flight，当前错误由 stream 的错误出口处理。 */
     const syncRecovery = async (reason: AgentSessionStreamRecoveryReason): Promise<boolean> => {
+        return runRecovery(reason, {force: false, reportError: true});
+    };
+
+    /**
+     * SSE 自动恢复按连接代与原因限流。正在进行的 single-flight 可以继续复用，
+     * 但一次真实失败后，同一连接不会被相同控制事件持续打回 recovery。
+     */
+    const syncAutomaticRecovery = async (
+        reason: AgentSessionStreamRecoveryReason,
+        generation: number,
+    ): Promise<boolean> => {
+        const targetSessionId = options.activeSessionId.value;
+        if (!targetSessionId || generation !== connectionGeneration) {
+            return false;
+        }
+        if (automaticRecoveryConnectionGeneration !== generation) {
+            resetAutomaticRecoveryAttempts(generation);
+        }
+        if (recoveryPromise?.sessionId === targetSessionId) {
+            return recoveryPromise.promise;
+        }
+        if (attemptedAutomaticRecoveryReasons.has(reason)) {
+            options.session.clearRecoveryRequest();
+            restoreConnectionStatusAfterRecoveryFailure(targetSessionId);
+            return false;
+        }
+        attemptedAutomaticRecoveryReasons.add(reason);
         return runRecovery(reason, {force: false, reportError: true});
     };
 
@@ -261,7 +307,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             } else if (reasons.includes("linked_agent_changed")) {
                 reason = "linked_agent_changed";
             }
-            await syncRecovery(reason);
+            await syncAutomaticRecovery(reason, generation);
         }
     };
 
@@ -279,6 +325,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         controller.value?.abort();
         const nextController = new AbortController();
         const nextConnectionGeneration = ++connectionGeneration;
+        resetAutomaticRecoveryAttempts(nextConnectionGeneration);
         controller.value = nextController;
         sessionId.value = targetSessionId;
         stopped = false;
@@ -350,6 +397,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         reconnectBackoff.reset();
         reconnectAttempt.value = 0;
         connectionGeneration += 1;
+        resetAutomaticRecoveryAttempts();
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;
@@ -361,6 +409,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         stopped = true;
         clearReconnectTimer();
         connectionGeneration += 1;
+        resetAutomaticRecoveryAttempts();
         controller.value?.abort();
         controller.value = null;
         sessionId.value = null;

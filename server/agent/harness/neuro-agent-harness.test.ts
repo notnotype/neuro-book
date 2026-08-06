@@ -7310,6 +7310,72 @@ describe("NeuroAgentHarness", () => {
         ]);
     });
 
+    it("关联 Session 文件缺失时保留主 Session，并分别统计 owned 与 owner 方向", async () => {
+        const parentWithMissingChild = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const missingChild = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            parentSessionId: parentWithMissingChild.sessionId,
+        });
+        await harness.getSessionRelations(parentWithMissingChild.sessionId);
+        await rm(join(root, ".nbook", "agent", "sessions", `${String(missingChild.sessionId)}.jsonl`));
+
+        await expect(harness.getSessionRelations(parentWithMissingChild.sessionId)).resolves.toEqual({
+            sessionId: parentWithMissingChild.sessionId,
+            linkedAgents: [],
+            linkedByAgents: [],
+            unavailableLinkedAgents: 1,
+        });
+        await expect(harness.getSessionRecovery(parentWithMissingChild.sessionId)).resolves.toMatchObject({
+            summary: expect.objectContaining({sessionId: parentWithMissingChild.sessionId}),
+            linkedAgents: [],
+            linkedByAgents: [],
+            unavailableLinkedAgents: 1,
+        });
+
+        const missingOwner = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const childWithMissingOwner = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            parentSessionId: missingOwner.sessionId,
+        });
+        await harness.getSessionRelations(childWithMissingOwner.sessionId);
+        await rm(join(root, ".nbook", "agent", "sessions", `${String(missingOwner.sessionId)}.jsonl`));
+
+        await expect(harness.getSessionRelations(childWithMissingOwner.sessionId)).resolves.toEqual({
+            sessionId: childWithMissingOwner.sessionId,
+            linkedAgents: [],
+            linkedByAgents: [],
+            unavailableLinkedAgents: 1,
+        });
+        await expect(harness.getSessionRecovery(childWithMissingOwner.sessionId)).resolves.toMatchObject({
+            summary: expect.objectContaining({sessionId: childWithMissingOwner.sessionId}),
+            linkedAgents: [],
+            linkedByAgents: [],
+            unavailableLinkedAgents: 1,
+        });
+    });
+
+    it("主 Session 自身缺失时 recovery 仍返回 SESSION_NOT_FOUND", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        await rm(join(root, ".nbook", "agent", "sessions", `${String(created.sessionId)}.jsonl`));
+
+        await expect(harness.getSessionRecovery(created.sessionId)).rejects.toMatchObject({
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: created.sessionId,
+        });
+    });
+
     it("relation index rebuild 期间创建 child 不会丢失 pending link", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",

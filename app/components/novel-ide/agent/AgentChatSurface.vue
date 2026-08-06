@@ -1328,6 +1328,21 @@ const loadActiveSystemPrompt = async (refresh = false): Promise<void> => {
 };
 
 let linkedAgentRelationsRequestId = 0;
+const unavailableLinkedAgentWarningKeys = new Set<string>();
+
+const notifyUnavailableLinkedAgents = (targetSessionId: number, count: number | undefined): void => {
+    if (!count || count < 1) {
+        return;
+    }
+    const key = `${String(targetSessionId)}:${String(count)}`;
+    if (unavailableLinkedAgentWarningKeys.has(key)) {
+        return;
+    }
+    unavailableLinkedAgentWarningKeys.add(key);
+    notification.warning(t("agent.chatSurface.linkedUnavailableMessage", {count}), {
+        title: t("agent.chatSurface.linkedUnavailableTitle"),
+    });
+};
 
 /**
  * 只刷新关联 Agent 面板数据，不触碰当前对话消息流。
@@ -1345,6 +1360,7 @@ const refreshLinkedAgentRelations = async (): Promise<void> => {
             return;
         }
         session.applyRelations(relations);
+        notifyUnavailableLinkedAgents(targetSessionId, relations.unavailableLinkedAgents);
     } catch (error) {
         if (requestId !== linkedAgentRelationsRequestId || activeSessionId.value !== targetSessionId) {
             return;
@@ -2579,6 +2595,7 @@ const sessionStream = useAgentSessionStream({
     applyRecoverySideEffects: async (recovery, result, owner) => {
         if (!owner.isCurrent()) return;
         syncSessionModelState(recovery.summary);
+        notifyUnavailableLinkedAgents(recovery.summary.sessionId, recovery.unavailableLinkedAgents);
         if (result.historyWindowReset) {
             await nextTick();
             if (!owner.isCurrent()) return;
@@ -2970,6 +2987,7 @@ async function resetWorkspaceSessionState(attempt?: AgentSurfaceActivationAttemp
     inlineEditorSessionLoading.value = false;
     sessionStream.stop();
     inlineEditorStream.stop();
+    unavailableLinkedAgentWarningKeys.clear();
     const drafts = ensureComposerDraftSession();
     if (drafts) {
         drafts.update(inputText.value);
