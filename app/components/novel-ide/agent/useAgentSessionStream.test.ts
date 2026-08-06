@@ -136,6 +136,134 @@ describe("useAgentSessionStream", () => {
         stream.stop();
     });
 
+    it("同一连接内自动 recovery 失败后不重复请求同一原因", async () => {
+        const session = useAgentSession();
+        session.applyRecovery({
+            ...recovery(1, 1),
+            history: {entries: [userEntry("existing", "保留当前正文")], previousCursor: null},
+        });
+        let emit!: (event: AgentSessionEventDto) => void | Promise<void>;
+        const getSessionRecovery = vi.fn(async () => {
+            throw new Error("recovery failed");
+        });
+        const onError = vi.fn();
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery,
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, signal, options) => {
+                    emit = onEvent;
+                    options?.onOpen?.();
+                    await untilAbort(signal);
+                }),
+            },
+            onError,
+        });
+
+        await stream.start(1);
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed"}));
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed again"}));
+
+        expect(getSessionRecovery).toHaveBeenCalledTimes(1);
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(session.durableEntries.value.map((entry) => entry.id)).toEqual(["existing"]);
+        expect(session.needsRecovery.value).toBe(false);
+        expect(session.connectionStatus.value).toBe("connected");
+        stream.stop();
+    });
+
+    it("同一连接内不同自动 recovery 原因可以分别尝试", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 1));
+        let emit!: (event: AgentSessionEventDto) => void | Promise<void>;
+        const getSessionRecovery = vi.fn()
+            .mockRejectedValueOnce(new Error("snapshot recovery failed"))
+            .mockResolvedValueOnce(recovery(1, 2));
+        const onError = vi.fn();
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery,
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, signal, options) => {
+                    emit = onEvent;
+                    options?.onOpen?.();
+                    await untilAbort(signal);
+                }),
+            },
+            onError,
+        });
+
+        await stream.start(1);
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed"}));
+        await emit(control(2, {type: "session_projection_invalidated", reason: "linked_agent_changed"}));
+
+        expect(getSessionRecovery).toHaveBeenCalledTimes(2);
+        expect(onError).toHaveBeenCalledTimes(1);
+        expect(session.lastSeq.value).toBe(2);
+        stream.stop();
+    });
+
+    it("手动强制 recovery 可在自动失败后重试", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 1));
+        let emit!: (event: AgentSessionEventDto) => void | Promise<void>;
+        const getSessionRecovery = vi.fn()
+            .mockRejectedValueOnce(new Error("automatic recovery failed"))
+            .mockResolvedValueOnce(recovery(1, 4));
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery,
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, signal, options) => {
+                    emit = onEvent;
+                    options?.onOpen?.();
+                    await untilAbort(signal);
+                }),
+            },
+        });
+
+        await stream.start(1);
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed"}));
+        await expect(stream.refreshRecovery("manual_refresh")).resolves.toBe(true);
+
+        expect(getSessionRecovery).toHaveBeenCalledTimes(2);
+        expect(session.lastSeq.value).toBe(4);
+        stream.stop();
+    });
+
+    it("重新连接后允许相同自动 recovery 原因再次尝试", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 1));
+        let emit!: (event: AgentSessionEventDto) => void | Promise<void>;
+        const getSessionRecovery = vi.fn()
+            .mockRejectedValueOnce(new Error("first connection failed"))
+            .mockResolvedValueOnce(recovery(1, 5));
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId: ref(1),
+            api: {
+                getSessionRecovery,
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, onEvent, signal, options) => {
+                    emit = onEvent;
+                    options?.onOpen?.();
+                    await untilAbort(signal);
+                }),
+            },
+        });
+
+        await stream.start(1);
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed"}));
+        await stream.reconnectNow();
+        await emit(control(2, {type: "snapshot_required", reason: "trimmed again"}));
+
+        expect(getSessionRecovery).toHaveBeenCalledTimes(2);
+        expect(session.lastSeq.value).toBe(5);
+        stream.stop();
+    });
+
     it("活动连接应用 recovery 后从返回 cursor 重新订阅", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(1, 5));
@@ -371,6 +499,8 @@ describe("useAgentSessionStream", () => {
 
         expect(session.durableEntries.value.map((entry) => entry.id)).toEqual(["existing"]);
         expect(session.historyError.value).toBe("cursor 已失效");
+        expect(session.needsRecovery.value).toBe(false);
+        expect(session.connectionStatus.value).toBe("idle");
         expect(applyRecoverySideEffects).not.toHaveBeenCalled();
     });
 

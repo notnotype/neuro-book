@@ -439,6 +439,8 @@ export type AgentSessionRelationsDto = {
     sessionId: number;
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
+    /** 关联目标已不存在时的局部降级数量；主对话仍然可用。 */
+    unavailableLinkedAgents?: number;
 };
 
 export type AgentPendingUserInputDto = {
@@ -790,6 +792,8 @@ export type AgentSessionRecoveryDto = {
     tree: SessionTreeNode[];
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
+    /** 关联目标已不存在时的局部降级数量；主对话仍然可用。 */
+    unavailableLinkedAgents?: number;
     pendingUserInputs: AgentPendingUserInputDto[];
     steerQueue: AgentQueuedMessageListDto;
     followUpQueue: AgentFollowUpQueueStateDto;

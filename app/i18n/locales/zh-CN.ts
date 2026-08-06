@@ -2014,6 +2014,8 @@ const zhCN = {
             syncSessionFailed: "同步 Agent session 失败",
             loadSessionFailed: "加载 Agent session 失败",
             refreshLinkedFailed: "刷新关联 Agent 失败",
+            linkedUnavailableTitle: "关联对话不可用",
+            linkedUnavailableMessage: "有 {count} 个关联对话已不可用，当前对话仍可继续。",
             runFailed: "Agent 运行失败",
             reconnectFailed: "重新连接 Agent 事件流失败",
             userTerminated: "用户选择终止本轮。",
