@@ -176,7 +176,7 @@ describe("agent collaboration tool definitions", () => {
     });
 
     it("invoke_agent background 即时返回 job，完成结果卡沿用规范化结果合同", async () => {
-        let runJob: ((context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>) | undefined;
+        let runJob: ((context: {signal: AbortSignal}) => Promise<{resultPreview: string; result?: unknown; message?: string}>) | undefined;
         const invokeAgent = vi.fn(async () => ({
             sessionId: 2,
             invocationId: "background-invocation",
@@ -188,7 +188,7 @@ describe("agent collaboration tool definitions", () => {
             invokeAgent,
             abortInvocation: vi.fn(async () => undefined),
             jobs: {
-                spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; message?: string}>}) {
+                spawn(spec: {run: (context: {signal: AbortSignal}) => Promise<{resultPreview: string; result?: unknown; message?: string}>}) {
                     runJob = spec.run;
                     return {
                         job: {jobId: "job-test"},
@@ -220,6 +220,12 @@ describe("agent collaboration tool definitions", () => {
         const controller = new AbortController();
         const outcome = await runJob!({signal: controller.signal});
         expect(outcome.resultPreview).toBe("background result");
+        expect(outcome.result).toMatchObject({
+            status: "completed",
+            sessionId: 2,
+            finalMessage: "background result",
+            data: {chapterCount: 3},
+        });
         expect(outcome.message).toContain('"status": "completed"');
         expect(outcome.message).toContain('"sessionId": 2');
         expect(outcome.message).toContain('"finalMessage": "background result"');

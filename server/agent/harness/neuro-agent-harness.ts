@@ -672,7 +672,8 @@ export class NeuroAgentHarness {
             }
             return false;
         });
-        // 后台任务启动恢复（PLAN-E）：上次进程遗留的 running/waiting job 标 interrupted 并给 owner 补发中断通知
+        this.startBackgroundTask("agent.followup.recover", this.recoverDurableFollowUps());
+        // 后台 Job durable 恢复：加载历史、迁移旧 active JSONL，并幂等恢复 pending 结果回流。
         void this.jobs.recoverInterrupted().catch((error) => {
             void appLogger.warn("agent.jobs.recoverFailed", {
                 error: error instanceof Error ? error.message : String(error),
@@ -1050,6 +1051,78 @@ export class NeuroAgentHarness {
             : {...input, clientMessageId: input.clientMessageId ?? randomUUID()};
         const {message, ...rest} = normalized;
         return this.invokeCore({...rest, source: {kind: "raw", message}});
+    }
+
+    /**
+     * 把内部系统结果可靠写入 Session 的 durable follow-up queue。
+     *
+     * accepted 只表示队列项已持久化，或同一 delivery 已经写成 Session custom_message；
+     * 不等待 Provider 回合完成。deliveryId 同时作为 queue item ID 与最终消息去重键。
+     */
+    async enqueueDurableSystemFollowUp(input: {
+        sessionId: number;
+        text: string;
+        deliveryId: string;
+        clientMessageId: string;
+    }): Promise<{state: "queued" | "persisted"; deliveryId: string; clientMessageId: string}> {
+        const result = await this.withSessionMutation(input.sessionId, async () => {
+            const snapshot = await this.repo.readSession(input.sessionId);
+            const committed = snapshot.entries.some((entry) => entry.type === "custom_message"
+                && entry.sourceQueueItemId === input.deliveryId);
+            if (committed) {
+                return {
+                    state: "persisted" as const,
+                    deliveryId: input.deliveryId,
+                    clientMessageId: input.clientMessageId,
+                };
+            }
+
+            const queue = this.followUpQueueState(input.sessionId, this.repo.reduce(snapshot));
+            const existing = queue.items.find((item) => item.id === input.deliveryId);
+            if (existing) {
+                const existingText = existing.message ? storedInputMarkdown(existing.message) : undefined;
+                if (existing.clientMessageId !== input.clientMessageId
+                    || existing.messageIdentity !== "system"
+                    || existingText !== input.text) {
+                    throw new Error(`durable system follow-up deliveryId 冲突：${input.deliveryId}`);
+                }
+                return {
+                    state: "queued" as const,
+                    deliveryId: input.deliveryId,
+                    clientMessageId: input.clientMessageId,
+                };
+            }
+
+            const item: StoredFollowUpQueueItem = {
+                id: input.deliveryId,
+                clientMessageId: input.clientMessageId,
+                kind: "followup",
+                message: {
+                    content: createStoredUserMessage(input.text).content,
+                },
+                caller: {kind: "system"},
+                messageIdentity: "system",
+                createdAt: Date.now(),
+            };
+            await this.setFollowUpQueueState(input.sessionId, queue.status === "paused"
+                ? {...queue, items: [...queue.items, item]}
+                : {status: "ready", items: [...queue.items, item]});
+            this.eventHub.publish({
+                sessionId: input.sessionId,
+                kind: "session",
+                event: {
+                    type: "follow_up_queued",
+                    item: projectQueuedMessage(item),
+                },
+            });
+            return {
+                state: "queued" as const,
+                deliveryId: input.deliveryId,
+                clientMessageId: input.clientMessageId,
+            };
+        });
+        this.startBackgroundTask("agent.followup.drain", this.drainFollowUps(input.sessionId));
+        return result;
     }
 
     /** 已完成 admission 的 queue 输入直接进入 core，禁止重新解码或保存 attachment。 */
@@ -6016,6 +6089,30 @@ export class NeuroAgentHarness {
             },
         });
         return item;
+    }
+
+    /** 启动时恢复所有 ready durable follow-up queue；每个 Session 独立 drain，互不阻塞。 */
+    private async recoverDurableFollowUps(): Promise<void> {
+        const summaries = await this.repo.listSessions();
+        for (const summary of summaries) {
+            try {
+                const snapshot = await this.repo.readSession(summary.sessionId);
+                const queue = this.readFollowUpQueueState(this.repo.reduce(snapshot));
+                if (!queue || queue.items.length === 0) {
+                    continue;
+                }
+                this.followUpQueues.set(summary.sessionId, queue);
+                this.startBackgroundTask(
+                    `agent.followup.recover.${String(summary.sessionId)}`,
+                    this.drainFollowUps(summary.sessionId),
+                );
+            } catch (error) {
+                void appLogger.warn("agent.followup.recoverFailed", {
+                    sessionId: summary.sessionId,
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+        }
     }
 
     private async drainSteers(input: {

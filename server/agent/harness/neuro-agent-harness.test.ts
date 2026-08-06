@@ -28,6 +28,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {StoredAgentMessage, StoredToolResultMessage} from "nbook/server/agent/messages/stored-types";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
+import {encodeFollowUpQueue} from "nbook/server/agent/messages/stored-message-codec";
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
@@ -8127,6 +8128,134 @@ describe("NeuroAgentHarness", () => {
             releaseTool.resolve();
             await running.catch(() => undefined);
         }
+    });
+
+    it("durable system follow-up 以稳定 deliveryId 在 queue 和 committed entry 双重去重", async () => {
+        const toolStarted = createDeferred();
+        const releaseTool = createDeferred();
+        harness.tools.register({
+            key: "durable_system_followup_gate",
+            name: "durable_system_followup_gate",
+            label: "Durable System Follow-up Gate",
+            description: "让 durable system follow-up 在当前 invocation 忙碌时排队。",
+            parameters: Type.Object({}),
+            async execute() {
+                toolStarted.resolve();
+                await releaseTool.promise;
+                return {
+                    content: [{type: "text", text: "released"}],
+                    details: {},
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.durable-system-followup",
+                name: "Durable System Follow-up",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["durable_system_followup_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("durable_system_followup_gate", {}, {id: "durable-system-followup-gate"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("原始 invocation 完成"),
+            fauxAssistantMessage("durable system follow-up 已处理"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.durable-system-followup",
+            initial: {},
+        });
+        const delivery = {
+            sessionId: created.sessionId,
+            text: "<system-reminder>后台 Job 完成</system-reminder>",
+            deliveryId: "delivery-job-1",
+            clientMessageId: "d0fe20a9-939f-40f0-8263-fd0bf6d5e640",
+        };
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "开始后台任务"},
+        });
+        try {
+            await toolStarted.promise;
+            await expect(harness.enqueueDurableSystemFollowUp(delivery)).resolves.toMatchObject({
+                state: "queued",
+                deliveryId: delivery.deliveryId,
+            });
+            await expect(harness.enqueueDurableSystemFollowUp(delivery)).resolves.toMatchObject({
+                state: "queued",
+                deliveryId: delivery.deliveryId,
+            });
+            const queued = harness.repo.reduce(await harness.repo.readSession(created.sessionId))
+                .customState[AGENT_FOLLOW_UP_QUEUE_STATE_KEY] as {items: Array<{id: string}>};
+            expect(queued.items).toEqual([expect.objectContaining({id: delivery.deliveryId})]);
+
+            releaseTool.resolve();
+            await running;
+            await harness.drainBackgroundTasks();
+
+            await expect(harness.enqueueDurableSystemFollowUp(delivery)).resolves.toMatchObject({
+                state: "persisted",
+                deliveryId: delivery.deliveryId,
+            });
+            const entries = (await harness.repo.readSession(created.sessionId)).entries;
+            expect(entries.filter((entry) => entry.type === "custom_message"
+                && entry.sourceQueueItemId === delivery.deliveryId)).toHaveLength(1);
+        } finally {
+            releaseTool.resolve();
+            await running.catch(() => undefined);
+        }
+    });
+
+    it("Harness 重启后自动 drain 已持久化的 ready follow-up queue", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+        const deliveryId = "delivery-restart-1";
+        await harness.repo.appendEntry(created.sessionId, {
+            type: "custom",
+            key: AGENT_FOLLOW_UP_QUEUE_STATE_KEY,
+            value: encodeFollowUpQueue({
+                status: "ready",
+                items: [{
+                    id: deliveryId,
+                    clientMessageId: "2f9282c6-6dfc-4394-92fc-60a307d66a65",
+                    kind: "followup",
+                    message: {
+                        content: [{type: "text", text: "<system-reminder>重启后继续回流</system-reminder>"}],
+                    },
+                    caller: {kind: "system"},
+                    messageIdentity: "system",
+                    createdAt: 1,
+                }],
+            }),
+        });
+        await harness.dispose();
+        faux.setResponses([fauxAssistantMessage("重启回流已处理")]);
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "system-profiles"), join(root, "user-profiles")),
+            modelResolver: () => faux.getModel(),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+
+        await harness.drainBackgroundTasks();
+
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries.filter((entry) => entry.type === "custom_message"
+            && entry.sourceQueueItemId === deliveryId)).toHaveLength(1);
+        expect(harness.repo.reduce(snapshot).customState[AGENT_FOLLOW_UP_QUEUE_STATE_KEY]).toMatchObject({
+            status: "ready",
+            items: [],
+        });
     });
 
     it("idle system invocation 直接写入 custom_message，不伪装成用户消息", async () => {

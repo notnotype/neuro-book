@@ -157,6 +157,7 @@ export const agentCollaborationTools = {
                         const compact = compactInvokeAgentResult(result, invocation.sessionId);
                         return {
                             resultPreview: compact.finalMessage.slice(0, 300),
+                            result: compact,
                             message: `agent #${invocation.sessionId} 返回：\n${JSON.stringify(compact, null, 2)}`,
                         };
                     },
