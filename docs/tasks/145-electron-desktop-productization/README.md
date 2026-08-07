@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**Windows x64 内部 beta candidate 已完成代码与自动化收口，尚未作为公开发行版发布。** Product candidate 的 Source revision 为 `37ca96bc`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**Windows x64 内部 beta candidate 已完成代码与自动化收口，尚未作为公开发行版发布。** Product candidate 的 Source revision 为 `eac5185838479dc37ab2ff1fe6418cf46f40ba57`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v2`：记录 `installationScope`、程序根、用户 Root、组件 receipts 和默认保留 State Root 的卸载策略；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -54,22 +54,24 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 ### 最终 Product A/B
 
 - Build A/B 均为 3241 个文件、134016535 bytes。
-- image identity：`sha256:5eb2ee830d0d4fe2e7da817564007d2a6ac309f0010fb06e9c7dd3b3d97e3e77`。
+- image identity：`sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf`；version 为 `0.9.3-canary.20260807.175842Z.771ac42b`，revision 为 `eac5185838479dc37ab2ff1fe6418cf46f40ba57`。
 - A/B 的 shape digest 与 payload identity 一致；Build warning 仅为 Nuxt sourcemap、chunk size 和 `node:sqlite` external 提示。
 
 ### 最终 Portable/Depot
 
 同一 Product image、同一 Manager/Electron dist 组包两次，结果逐字节一致：
 
-- Electron Portable：9608 个文件、985584699 bytes payload，ZIP 389349707 bytes，SHA-256 `d1ee3f2a9a06bb4f38cb35fe2f9281d93e02bf425fd9025be8248f7384982232`。
-- Tauri Portable：9531 个文件、630952015 bytes payload，ZIP 243582137 bytes，SHA-256 `6f0098d8f9b2f1b8aa8cc0f9bef25092ac3fece88eec4b2e32c4ebc775f1765c`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
-- Aggregate Depot：7 个文件、632947326 bytes payload，ZIP 627839386 bytes，SHA-256 `910c2c364babbb9d53b50a641c3fb0262d9a35dfa8cdabb0c6d871003682c601`。
+- Electron Portable：9608 个文件、985584745 bytes payload，ZIP 389349704 bytes，SHA-256 `d655ad0fcd0e0fa2683eaeedd4032ae3e9790ff429c510c4e3c007f531553e0b`。
+- Tauri Portable：9531 个文件、630952015 bytes payload，ZIP 243582149 bytes，SHA-256 `b251d9c7650778852412808dbbfa5547db429f4f683aeefdf362735fbbb4b009`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
+- Aggregate Depot：7 个文件、632947335 bytes payload，ZIP 627839358 bytes，SHA-256 `849dcaa38578c615895a7cca53a3f472994d8e95c80e959a440e82c82b9ff6c7`。
+- 同一输入连续组包两次：Electron、Tauri、Aggregate Depot 及 shell ZIP 的文件摘要和字节数均逐字节一致。
 
 ### 仓库外 Product 与 Electron 验收
 
-- Product archive 在祖先目录没有 `node_modules` 的 `C:\nbook-t145-final-product-37ca-5eb2ee83` 中通过 migration、全部 Windows release checks、Profile HTTP 编译、sqlite-vec、Sharp、Workspace CLI、hostile `NODE_PATH`、错误/正确 shutdown token、graceful shutdown 和 State Root 移动删除。
+- Product archive 在祖先目录没有 `node_modules` 的 `C:\nbook-t145-eac51858-product` 中通过 migration、全部 Windows release checks、Profile HTTP 编译、sqlite-vec、Sharp、Workspace CLI、hostile `NODE_PATH`、错误/正确 shutdown token、graceful shutdown 和 State Root 移动删除。
 - 最终 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
 - 最终主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
+- 本次打包 Electron 的一次真实启动记录：启动页可见 `241.90 ms`，Product 后台验证完成 `1394.28 ms`，Product ready `11377.68 ms`，Desktop Bridge ready `11565.09 ms`，正式窗口 ready `11567.06 ms`。这是一轮观测值，不替代五次冷/暖启动统计；若需继续优化，应单开 Product Runtime 启动 profiling 任务。
 - 当前用户安装/卸载：安装根、State/Cache/Desktop roots、`neurobook://`、开始菜单和桌面快捷方式均实际验证；卸载删除程序、Cache、Desktop/WebView、注册项和快捷方式并保留 State Root。
 - 全局安装的非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”；真正的 UAC 提升安装尚未在本机自动化执行。
 

@@ -1,8 +1,8 @@
 {
     "schema": "nbook.task-145-final-acceptance/v1",
     "source": {
-        "revision": "37ca96bc",
-        "productImageId": "sha256:5eb2ee830d0d4fe2e7da817564007d2a6ac309f0010fb06e9c7dd3b3d97e3e77",
+        "revision": "eac5185838479dc37ab2ff1fe6418cf46f40ba57",
+        "productImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
         "product": {
             "files": 3241,
             "bytes": 134016535,
@@ -13,22 +13,22 @@
     "portable": {
         "electron": {
             "payloadFiles": 9608,
-            "payloadBytes": 985584699,
-            "archiveBytes": 389349707,
-            "sha256": "sha256:d1ee3f2a9a06bb4f38cb35fe2f9281d93e02bf425fd9025be8248f7384982232"
+            "payloadBytes": 985584745,
+            "archiveBytes": 389349704,
+            "sha256": "sha256:d655ad0fcd0e0fa2683eaeedd4032ae3e9790ff429c510c4e3c007f531553e0b"
         },
         "tauri": {
             "payloadFiles": 9531,
             "payloadBytes": 630952015,
-            "archiveBytes": 243582137,
-            "sha256": "sha256:6f0098d8f9b2f1b8aa8cc0f9bef25092ac3fece88eec4b2e32c4ebc775f1765c",
+            "archiveBytes": 243582149,
+            "sha256": "sha256:b251d9c7650778852412808dbbfa5547db429f4f683aeefdf362735fbbb4b009",
             "uiAcceptance": "not-run"
         },
         "aggregateDepot": {
             "payloadFiles": 7,
-            "payloadBytes": 632947326,
-            "archiveBytes": 627839386,
-            "sha256": "sha256:910c2c364babbb9d53b50a641c3fb0262d9a35dfa8cdabb0c6d871003682c601"
+            "payloadBytes": 632947335,
+            "archiveBytes": 627839358,
+            "sha256": "sha256:849dcaa38578c615895a7cca53a3f472994d8e95c80e959a440e82c82b9ff6c7"
         },
         "repeatPackaging": {
             "runs": 2,
@@ -75,6 +75,15 @@
             "passed": true,
             "behavior": "fail-closed"
         }
+    },
+    "startupObserved": {
+        "runs": 1,
+        "startupPageVisibleMs": 241.9,
+        "productVerificationCompleteMs": 1394.28,
+        "productReadyMs": 11377.68,
+        "bridgeReadyMs": 11565.09,
+        "windowReadyMs": 11567.06,
+        "coldWarmFiveRunSeries": "not-run"
     },
     "provider": {
         "offlineTestWarning": true,
