@@ -838,18 +838,18 @@ function updateDesktopCloseBehavior(value: string): void {
                 </div>
             </section>
 
-            <div class="flex min-h-0 flex-1 gap-6">
+            <div class="flex min-h-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
                 <!-- 左侧导航栏 - 清爽无边框 -->
-            <aside class="flex w-[220px] shrink-0 flex-col pb-2">
-                <div class="mb-3 mt-1 px-3">
+            <aside class="flex w-full min-w-0 flex-col pb-2 md:w-[220px] md:shrink-0">
+                <div class="mb-3 mt-1 hidden px-3 md:block">
                     <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{{ activeScope === "browser" ? t("settings.scope.browserState") : t("settings.scope.configFile") }}</div>
                 </div>
 
-                <div class="flex flex-col gap-1.5">
+                <div class="flex min-w-0 gap-1.5 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0">
                     <button
                         v-for="item in visibleSectionItems"
                         :key="item.value"
-                        class="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200"
+                        class="group relative flex min-w-max shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-all duration-200 md:w-full md:gap-3 md:px-2.5 md:py-2.5"
                         :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_color-mix(in_srgb,var(--shadow-color)_4%,transparent)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
                         @click="selectSection(item.value)"
                     >
@@ -859,14 +859,14 @@ function updateDesktopCloseBehavior(value: string): void {
                         </div>
                         
                         <div class="min-w-0 flex-1">
-                            <span class="block text-[13px] font-medium">{{ item.label }}</span>
-                            <span class="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">{{ item.description }}</span>
+                            <span class="block whitespace-nowrap text-xs font-medium md:text-[13px]">{{ item.label }}</span>
+                            <span class="mt-0.5 hidden truncate text-[10px] text-[var(--text-muted)] md:block">{{ item.description }}</span>
                         </div>
                     </button>
                 </div>
 
                 <!-- 底部版本信息 -->
-                <div class="mt-auto pt-4">
+                <div class="mt-auto hidden pt-4 md:block">
                     <div class="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-15 px-3.5 py-3 shadow-sm">
                         <div class="min-w-0">
                             <div class="truncate text-[11px] font-medium leading-relaxed text-[var(--text-secondary)]">{{ versionLabel }}</div>
