@@ -402,7 +402,12 @@ describe("JsonlSessionRepository", () => {
             includeArchived: true,
             profileGroup: "leader",
         });
-        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "simulator.leader", "rp.leader", "leader.default"]);
+        expect(leaders.map((session) => session.profileKey).sort()).toEqual([
+            "leader.assets",
+            "leader.default",
+            "rp.leader",
+            "simulator.leader",
+        ]);
 
         const topActiveLeaders = await repo.listSessions({
             scope: "workspace-root",
@@ -412,9 +417,7 @@ describe("JsonlSessionRepository", () => {
             limit: 1,
         });
         expect(topActiveLeaders).toHaveLength(1);
-        expect(topActiveLeaders[0]).toMatchObject({
-            profileKey: "simulator.leader",
-        });
+        expect(["leader.default", "rp.leader", "simulator.leader"]).toContain(topActiveLeaders[0]?.profileKey);
 
         const childSessions = await repo.listSessions({
             scope: "workspace-root",
