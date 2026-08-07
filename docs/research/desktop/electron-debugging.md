@@ -72,6 +72,18 @@ CDP 只证明渲染层的几何和计算样式，不证明 Windows 原生拖动�
 - 原始 CDP 用于附加到已经启动的真实 Portable，特别适合确认“打包后到底加载了哪份 CSS/JS”以及采集几何尺寸。
 - 两者都不能单独证明系统托盘、原生菜单、文件对话框、快捷方式、真实窗口移动/吸附或安装卸载行为。上述项目需要 Windows UI Automation 或用户授权的可见验收。
 
+## Manager GUI 与最终 Portable
+
+Task 145 起，Manager GUI 与主应用共用同一个 Electron Runtime。验证 Manager 时对最终 Portable 启动：
+
+```powershell
+<portable-root>\desktop\NeuroBook-Electron.exe --manager-gui --remote-debugging-port=9225
+```
+
+它的 target URL 应为 `file:///.../desktop/resources/app.asar/manager.html`；页面应能看到安装范围和 Provider 类型 `<select>`。Provider 离线测试允许返回 warning，但测试后 API Key 输入框必须为空，不能出现在 stdout、NDJSON 或日志中。关闭 Manager GUI 后再启动主应用使用不同 CDP 端口，避免把两个入口的窗口误判为同一个页面。
+
+最终 Portable 的检查顺序固定为：先读取 `manifest.json` 和 `product.imageId`，再用 CDP 检查标题栏/页面几何，最后关闭窗口并确认 Electron、Product、loopback 端口和 State Root 句柄均已收口。安装回归应额外检查 `%LOCALAPPDATA%/Programs/NeuroBook`、用户级 State/Cache/Desktop roots、开始菜单/桌面快捷方式和 `HKCU` 注册项；全局安装必须在提升权限环境单独执行，非提升环境只能作为 fail-closed 证据。
+
 测试和诊断脚本都应使用隔离临时根，并清理子进程、调试端口和临时文件。不要为了让 smoke 通过而关闭 `contextIsolation`、sandbox、CSP 或 origin 校验。
 
 ## 共享 Workbench Chrome smoke

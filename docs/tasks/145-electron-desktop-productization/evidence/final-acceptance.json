@@ -1,0 +1,93 @@
+{
+    "schema": "nbook.task-145-final-acceptance/v1",
+    "source": {
+        "revision": "f05d05cb",
+        "productImageId": "sha256:0deba01e511812cce7d7577dceead063fd7ac4802555ac1eba8e91393b9879cc",
+        "product": {
+            "files": 3241,
+            "bytes": 134016535,
+            "builds": 2,
+            "identityStable": true
+        }
+    },
+    "portable": {
+        "electron": {
+            "payloadFiles": 9608,
+            "payloadBytes": 985584699,
+            "archiveBytes": 389349713,
+            "sha256": "sha256:c633e4cd65f64b8c913de53aba4f2c46c2c97c3fed6e02b9450b28e0b6642483"
+        },
+        "tauri": {
+            "payloadFiles": 9531,
+            "payloadBytes": 630952015,
+            "archiveBytes": 243582140,
+            "sha256": "sha256:acb46a24649e50265fad26610439c781db798aed9871108a3c6a5898bea7bcb9",
+            "uiAcceptance": "not-run"
+        },
+        "aggregateDepot": {
+            "payloadFiles": 7,
+            "payloadBytes": 632947335,
+            "archiveBytes": 627839364,
+            "sha256": "sha256:7555b299a6e13d314603a3d720ec068f70732143bbca0cb7bad24cb99c286fa9"
+        },
+        "repeatPackaging": {
+            "runs": 2,
+            "payloadShapeStable": true,
+            "archivesByteIdentical": true
+        }
+    },
+    "checks": {
+        "managerTests": {
+            "filesPassed": 40,
+            "filesSkipped": 1,
+            "testsPassed": 289,
+            "testsSkipped": 3
+        },
+        "managerReleaseContract": {
+            "filesPassed": 1,
+            "testsPassed": 1
+        },
+        "desktopContract": {
+            "filesPassed": 8,
+            "testsPassed": 31
+        },
+        "managerTypecheck": "passed",
+        "rootTypecheck": "passed",
+        "productWindowsSmoke": "passed",
+        "managerGuiPortableCdp": "passed",
+        "electronPortableCdp": {
+            "passed": true,
+            "titleBar": {
+                "y": 0,
+                "height": 36
+            },
+            "pageRootY": 36,
+            "oldHeaderCount": 0,
+            "backdropFilter": false,
+            "gracefulShutdown": true
+        },
+        "userInstallUninstall": {
+            "passed": true,
+            "stateRootPreserved": true,
+            "registrationRemoved": true
+        },
+        "machineInstallWithoutElevation": {
+            "passed": true,
+            "behavior": "fail-closed"
+        }
+    },
+    "provider": {
+        "offlineTestWarning": true,
+        "apiKeyClearedAfterTest": true,
+        "onlineSuccess": "not-run"
+    },
+    "notCovered": [
+        "elevated machine install/UAC",
+        "native tray and Snap Layout",
+        "real provider success",
+        "Tauri visible UI",
+        "macOS app bundle",
+        "public signing",
+        "background updater"
+    ]
+}
