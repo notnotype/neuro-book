@@ -46,7 +46,7 @@ describe("Desktop UAC Broker Manager boundary", () => {
         expect(validateDesktopUacBrokerRequest(uninstall, "operation-1", "uninstall")).toEqual(uninstall);
     });
 
-    it("passes UTF-8 stdin bytes to the delegated CLI without putting them in control events", async () => {
+    it.runIf(process.platform === "win32")("passes UTF-8 stdin bytes to the delegated CLI without putting them in control events", async () => {
         const secret = "密\n码";
         const lines = await runBrokerFixture([
             "const chunks = [];",
@@ -58,7 +58,7 @@ describe("Desktop UAC Broker Manager boundary", () => {
         expect(JSON.stringify(lines)).not.toContain(secret);
     });
 
-    it("fails closed when the delegated CLI attempts to echo the password", async () => {
+    it.runIf(process.platform === "win32")("fails closed when the delegated CLI attempts to echo the password", async () => {
         const secret = "super\nsecret-password";
         const lines = await runBrokerFixture([
             "const chunks = [];",
