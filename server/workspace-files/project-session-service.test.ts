@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -43,7 +44,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "shared-open");
         const lifecycle = controlLifecycle(prepared);
         const runtime = new ProjectSessionRuntime();
@@ -73,7 +74,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = {...preparedProject(workspaceRoot, "control-open"), change: "created" as const};
         const lifecycle = controlLifecycle(prepared);
         const runtime = new ProjectSessionRuntime();
@@ -114,7 +115,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "control-intents");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -156,7 +157,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index", fileIndexMutations),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "metadata-running");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -189,7 +190,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "metadata-close-race");
         let notifyEntered: (() => void) | null = null;
         const entered = new Promise<void>((resolve) => {
@@ -246,7 +247,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "publication-order");
         const ref = prepared.workspace.ref;
         const listEntered = deferred<void>();
@@ -292,7 +293,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "shutdown-abort");
         const updateEntered = deferred<void>();
         const abortUpdate = deferred<void>();
@@ -345,7 +346,7 @@ describe("ProjectSessionService", () => {
             },
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "opening-abort");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -384,7 +385,7 @@ describe("ProjectSessionService", () => {
                 }),
             },
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const seed = preparedProject(workspaceRoot, "sweep-a");
         const lifecycle = controlLifecycle(seed, {
             prepareOpen: vi.fn(async (ref) => preparedProject(workspaceRoot, ref.projectRoot)),
@@ -417,7 +418,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "maintenance-data-plane");
         const runtime = new ProjectSessionRuntime();
         const updateEntered = deferred<void>();
@@ -490,7 +491,7 @@ describe("ProjectSessionService", () => {
                 }),
             },
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "sweep-close-race");
         const service = new ProjectSessionService(workspaceRoot, {
             lifecycle: controlLifecycle(prepared),
@@ -516,7 +517,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "close-entry");
         const lifecycle = controlLifecycle(prepared);
         const runtime = new ProjectSessionRuntime();
@@ -542,7 +543,7 @@ describe("ProjectSessionService", () => {
             recordingModule("history", closeOrder),
             recordingModule("file-index", closeOrder),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "externally-replaced");
         let notifyReplaced: (() => void) | null = null;
         const stopObservation = vi.fn();
@@ -603,7 +604,7 @@ describe("ProjectSessionService", () => {
                 start: () => ({ready: Promise.resolve(), close}),
             },
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "close-retry");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -629,7 +630,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "release-failed-delete");
         vi.mocked(prepared.occupancy.release).mockRejectedValueOnce(new Error("occupancy release failed"));
         const lifecycle = controlLifecycle(prepared);
@@ -655,7 +656,7 @@ describe("ProjectSessionService", () => {
             immediateModule("history"),
             immediateModule("file-index"),
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "shutdown-service");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -698,7 +699,7 @@ describe("ProjectSessionService", () => {
                 start: () => ({ready: Promise.resolve(), close: fileIndexClose}),
             },
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "shutdown-retry");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -743,7 +744,7 @@ describe("ProjectSessionService", () => {
             immediateModule("file-index"),
             {token: lazyToken, start: lazyStart},
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "module-data-plane");
         const service = new ProjectSessionService(workspaceRoot, {
             lifecycle: controlLifecycle(prepared),
@@ -786,7 +787,7 @@ describe("ProjectSessionService", () => {
                 start: () => ({ready: Promise.resolve(), close: fileIndexClose}),
             },
         ]));
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "opening-cleanup");
         const lifecycle = controlLifecycle(prepared);
         const service = new ProjectSessionService(workspaceRoot, {
@@ -814,7 +815,7 @@ describe("ProjectSessionService", () => {
         ]));
         let now = 3_000;
         let agentActive = true;
-        const workspaceRoot = absoluteFsPath("C:/workspace-root");
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
         const prepared = preparedProject(workspaceRoot, "service-sweep");
         const runtime = new ProjectSessionRuntime({now: () => now, graceMs: 100});
         const service = new ProjectSessionService(workspaceRoot, {

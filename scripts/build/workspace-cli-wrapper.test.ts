@@ -50,7 +50,7 @@ describe("workspace CLI wrapper", () => {
 
         const result = await runWrapper(fixture, ["node", "chapter one"]);
 
-        await expectProductInvocation(result, fixture, ["node", "chapter one"]);
+        await expectProductInvocation(result, fixture, ["command", "workspace", "node", "chapter one"]);
     });
 
     it.skipIf(process.platform === "win32")("POSIX包装器在bundle缺失时回退Source入口", async () => {

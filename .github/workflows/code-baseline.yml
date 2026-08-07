@@ -58,6 +58,8 @@ jobs:
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install --frozen-lockfile --linker hoisted
+      - name: Generate Prisma clients
+        run: bun run generate
       - name: Run typecheck
         run: bun run typecheck
 
@@ -76,6 +78,8 @@ jobs:
         uses: oven-sh/setup-bun@v2
       - name: Install dependencies
         run: bun install --frozen-lockfile --linker hoisted
+      - name: Generate Prisma clients
+        run: bun run generate
       - name: Generate Nuxt types
         # vitest 依赖根 tsconfig.json extends ./.nuxt/tsconfig.json（见 tsconfig.json）；
         # 不先 prepare 生成 .nuxt/，oxc 解析 global-setup 等文件时会报 Tsconfig not found。

@@ -2,7 +2,7 @@ import {AgentJobManager} from "nbook/server/agent/jobs/agent-job-manager";
 import {spawnWorkflowJob} from "nbook/server/agent/workflow/workflow-job";
 import {createDefaultEffectiveConfig} from "nbook/server/config/normalizer";
 import type {RunView, WorkflowDefinition} from "nbook/server/vendor/nb-workflow/index";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -238,12 +238,12 @@ describe("spawnWorkflowJob cancellation", () => {
 
 /** 构造只用于exact identity断言的Project generation。 */
 function readyProject(): ReadyProjectSessionRef {
-    const workspaceRoot = absoluteFsPath("C:/workflow-job-test");
+    const workspaceRoot = testAbsoluteFsPath("workflow-job-test");
     const ref = projectWorkspaceRef("project");
     return Object.freeze({
         workspace: resolvedProjectWorkspace(
             ref,
-            absoluteFsPath("C:/workflow-job-test/project"),
+            testAbsoluteFsPath("workflow-job-test", "project"),
             createProjectWorkspaceKey(workspaceRoot, ref),
         ),
         generation: 7,

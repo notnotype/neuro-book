@@ -1,4 +1,4 @@
-import {access, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
+import {access, chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
@@ -829,6 +829,7 @@ describe("v3 file tools", () => {
         const userBinPath = join(workspaceRoot, ".nbook", "agent", "bin", "workspace");
         await mkdir(dirname(userBinPath), {recursive: true});
         await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-path-test\n", "utf-8");
+        if (process.platform !== "win32") await chmod(userBinPath, 0o755);
         const tool = mustTool("bash", harness);
 
         try {
@@ -848,6 +849,7 @@ describe("v3 file tools", () => {
         const userBinPath = join(workspaceRoot, ".nbook", "agent", "bin", "workspace");
         await mkdir(dirname(userBinPath), {recursive: true});
         await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-test\n", "utf-8");
+        if (process.platform !== "win32") await chmod(userBinPath, 0o755);
         const tool = mustTool("bash", harness);
 
         try {

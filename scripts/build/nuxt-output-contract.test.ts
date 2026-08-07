@@ -110,13 +110,16 @@ describe("Nuxt raw Product output", () => {
     });
 
     it("Product island matcher 覆盖 bare、Bun、pnpm 与 scoped package", () => {
+        const sharpPlatformPackage = productRuntimeIslandPackageNames()
+            .find((packageName) => packageName.startsWith("@img/sharp-"));
+        expect(sharpPlatformPackage).toBeTruthy();
         expect(isProductRuntimeIslandModule("typescript")).toBe(true);
         expect(isProductRuntimeIslandModule("typescript/lib/typescript.js?raw")).toBe(true);
         expect(isProductRuntimeIslandModule("C:\\repo\\node_modules\\.bun\\typescript@5.9.3\\node_modules\\typescript\\lib\\typescript.js"))
             .toBe(true);
         expect(isProductRuntimeIslandModule("/repo/node_modules/.pnpm/jsdom@29.1.1/node_modules/jsdom/lib/api.js"))
             .toBe(true);
-        expect(isProductRuntimeIslandModule("/repo/node_modules/@img/sharp-win32-x64/lib/sharp.node"))
+        expect(isProductRuntimeIslandModule(`/repo/node_modules/${sharpPlatformPackage}/lib/sharp.node`))
             .toBe(true);
         expect(isProductRuntimeIslandModule("zod/v4")).toBe(false);
         expect(isProductRuntimeIslandModule("\0virtual:typescript")).toBe(false);

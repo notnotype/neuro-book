@@ -1,7 +1,7 @@
 import {describe, expect, it, vi} from "vitest";
 import {readFile} from "node:fs/promises";
 import path from "node:path";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -73,12 +73,12 @@ describe("Project file data-plane mutation guard", () => {
 
 /** 构造 mutation guard 测试使用的 exact ready generation。 */
 function readyProject(slug: string): ReadyProjectSessionRef {
-    const workspaceRoot = absoluteFsPath("C:/workspace-root");
+    const workspaceRoot = testAbsoluteFsPath("project-data-plane", "workspace-root");
     const ref = projectWorkspaceRef(slug);
     return {
         workspace: resolvedProjectWorkspace(
             ref,
-            absoluteFsPath(`C:/workspace-root/${slug}`),
+            testAbsoluteFsPath("project-data-plane", "workspace-root", slug),
             createProjectWorkspaceKey(workspaceRoot, ref),
         ),
         generation: 1,
@@ -89,7 +89,13 @@ function readyProject(slug: string): ReadyProjectSessionRef {
 function fileTarget(project: ReadyProjectSessionRef): ResolvedFileTarget {
     return {
         kind: "project",
-        absolutePath: absoluteFsPath(`C:/workspace-root/${project.workspace.ref.projectRoot}/manuscript/a.md`),
+        absolutePath: testAbsoluteFsPath(
+            "project-data-plane",
+            "workspace-root",
+            project.workspace.ref.projectRoot,
+            "manuscript",
+            "a.md",
+        ),
         project,
         relativePath: "manuscript/a.md",
     };

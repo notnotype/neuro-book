@@ -1,5 +1,5 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -876,11 +876,11 @@ function occupancyHandleWithRelease(release: () => Promise<void>): ProjectOccupa
 
 /** 构造只包含Lifecycle公开字段的PreparedProjectOpen。 */
 function preparedProject(projectRootInput: string, occupancy: ProjectOccupancyHandle): PreparedProjectOpen {
-    const workspaceRoot = absoluteFsPath("C:/nbook-test/workspace");
+    const workspaceRoot = testAbsoluteFsPath("project-session-runtime", "workspace");
     const ref = projectWorkspaceRef(projectRootInput);
     const workspace = resolvedProjectWorkspace(
         ref,
-        absoluteFsPath(`C:/nbook-test/workspace/${projectRootInput}`),
+        testAbsoluteFsPath("project-session-runtime", "workspace", projectRootInput),
         createProjectWorkspaceKey(workspaceRoot, ref),
     );
     return Object.freeze({

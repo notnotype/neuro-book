@@ -1,7 +1,7 @@
 import {describe, expect, it, vi, beforeEach} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 
-const root = absoluteFsPath("C:/test/workspace/novel-7");
+const root = testAbsoluteFsPath("workspace-upload-project", "workspace", "novel-7");
 
 describe("POST /api/workspace-files/upload-project", () => {
     beforeEach(() => {

@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 
-const WORKSPACE_ROOT = absoluteFsPath("C:/test/workspace");
+const WORKSPACE_ROOT = testAbsoluteFsPath("control-plane", "workspace");
 
 describe("Project 控制面不要求 open", () => {
     beforeEach(() => {

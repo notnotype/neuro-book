@@ -1,5 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -49,8 +50,8 @@ describe("project-session HMR boundaries", () => {
     });
 
     it("复用旧Service并由新mapper与guard识别旧typed errors，最终只关闭一次", async () => {
-        const workspaceRoot = absoluteFsPath("C:/workspace-root-hmr");
-        const otherRoot = absoluteFsPath("C:/workspace-root-other");
+        const workspaceRoot = testAbsoluteFsPath("project-session-hmr", "workspace-root");
+        const otherRoot = testAbsoluteFsPath("project-session-hmr", "other-root");
         const prepared = preparedProject(workspaceRoot, "alpha");
         const moduleClose = {
             database: vi.fn(async () => undefined),

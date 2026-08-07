@@ -1,6 +1,6 @@
 import {Readable} from "node:stream";
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     createProjectWorkspaceKey,
     projectWorkspaceRef,
@@ -17,7 +17,7 @@ describe("GET /api/workspace-files/download", () => {
     it("只按 projectRoot 解析 Project Workspace，忽略 root 查询参数", async () => {
         const target = {
             kind: "project-workspace" as const,
-            root: absoluteFsPath("C:/test/workspace/novel-1"),
+            root: testAbsoluteFsPath("workspace-download", "workspace", "novel-1"),
             projectRoot: projectWorkspaceRef("novel-1").projectRoot,
         };
         const resolveWorkspaceFileTarget = vi.fn(async () => target);
@@ -25,7 +25,7 @@ describe("GET /api/workspace-files/download", () => {
         const workspace = resolvedProjectWorkspace(
             ref,
             target.root,
-            createProjectWorkspaceKey(absoluteFsPath("C:/test/workspace"), ref),
+            createProjectWorkspaceKey(testAbsoluteFsPath("workspace-download", "workspace"), ref),
         );
         const createProjectWorkspaceZipStream = vi.fn(async () => ({
             root: target.root,
@@ -75,7 +75,7 @@ describe("GET /api/workspace-files/download", () => {
     it("user-assets 继续使用普通 workspace archive", async () => {
         const target = {
             kind: "user-assets" as const,
-            root: absoluteFsPath("C:/test/state/.nbook"),
+            root: testAbsoluteFsPath("workspace-download", "state", ".nbook"),
         };
         const resolveWorkspaceFileTarget = vi.fn(async () => target);
         const createWorkspaceZipStream = vi.fn(async () => ({

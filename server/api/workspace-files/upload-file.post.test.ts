@@ -1,5 +1,5 @@
 import {describe, expect, it, vi, beforeEach} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 
 describe("POST /api/workspace-files/upload-file", () => {
     beforeEach(() => {
@@ -16,7 +16,7 @@ describe("POST /api/workspace-files/upload-file", () => {
     });
 
     it("resolves user-assets uploads to Workspace Root .nbook", async () => {
-        const root = absoluteFsPath("C:/test/workspace/.nbook");
+        const root = testAbsoluteFsPath("workspace-upload-file", "workspace", ".nbook");
         const resolveWorkspaceFileTarget = vi.fn(async () => ({kind: "user-assets" as const, root}));
         const uploadWorkspaceFile = vi.fn(async () => ({written: 1, skipped: 0, totalBytes: 3, files: []}));
 

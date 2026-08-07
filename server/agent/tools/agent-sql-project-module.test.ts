@@ -4,7 +4,8 @@ import {
     PROJECT_AGENT_SQL_MODULE_TOKEN,
     projectAgentSqlModule,
 } from "nbook/server/agent/tools/agent-sql-project-module";
-import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {
     PROJECT_DATABASE_MODULE_TOKEN,
     type ProjectDatabaseModuleHandle,
@@ -66,8 +67,8 @@ describe("Project Agent SQL Module Interface", () => {
             },
             clientClosed() {},
         });
-        const firstPath = absoluteFsPath("C:\\workspace\\first\\.nbook\\project.sqlite");
-        const secondPath = absoluteFsPath("C:\\workspace\\second\\.nbook\\project.sqlite");
+        const firstPath = testAbsoluteFsPath("agent-sql", "workspace", "first", ".nbook", "project.sqlite");
+        const secondPath = testAbsoluteFsPath("agent-sql", "workspace", "second", ".nbook", "project.sqlite");
         const first = module.start(projectModuleContext(databaseHandle(firstPath)));
         const second = module.start(projectModuleContext(databaseHandle(secondPath)));
 
@@ -97,7 +98,7 @@ describe("Project Agent SQL Module Interface", () => {
     });
 
     it("client close失败后保留精确实例并允许同handle重试", async () => {
-        const databasePath = absoluteFsPath("C:\\workspace\\retry\\.nbook\\project.sqlite");
+        const databasePath = testAbsoluteFsPath("agent-sql", "workspace", "retry", ".nbook", "project.sqlite");
         let openCount = 0;
         let closeCount = 0;
         const firstFailure = new Error("native handle仍被占用");

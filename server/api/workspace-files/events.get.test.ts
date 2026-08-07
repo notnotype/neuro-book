@@ -1,5 +1,5 @@
 import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 type WorkspaceFileEventsHandlerFactory = typeof import("nbook/server/api/workspace-files/events.get")["createWorkspaceFileEventsHandler"];
@@ -14,7 +14,7 @@ type TestEventStream = {
 let createWorkspaceFileEventsHandler: WorkspaceFileEventsHandlerFactory;
 const target = {
     kind: "project-workspace" as const,
-    root: absoluteFsPath("C:/test/workspace/novel-1"),
+    root: testAbsoluteFsPath("workspace-events", "workspace", "novel-1"),
     projectRoot: projectWorkspaceRef("novel-1").projectRoot,
 };
 

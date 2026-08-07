@@ -11,6 +11,7 @@ import {
     sanitizeAppLogValue,
     serializeAppLogError,
 } from "nbook/server/app-logs/logger";
+import {testHostPath} from "nbook/server/runtime/paths/test-path";
 
 const cleanupRoots: string[] = [];
 
@@ -31,18 +32,20 @@ async function tempLogRoot(): Promise<string> {
 
 describe("app logs logger", () => {
     it("resolves explicit log directory before environment fallbacks", () => {
+        const productRoot = testHostPath("app-logs", "product");
+        const repoRoot = testHostPath("app-logs", "repo");
         expect(resolveAppLogDirectory({
-            cwd: "C:/Product",
+            cwd: productRoot,
             env: {NEURO_BOOK_LOG_DIR: "data/logs"} as NodeJS.ProcessEnv,
-        }).replaceAll("\\", "/")).toBe("C:/Product/data/logs");
+        })).toBe(path.join(productRoot, "data", "logs"));
         expect(resolveAppLogDirectory({
-            cwd: "C:/Product",
+            cwd: productRoot,
             env: {NODE_ENV: "production"} as NodeJS.ProcessEnv,
-        }).replaceAll("\\", "/")).toBe("C:/Product/logs");
+        })).toBe(path.join(productRoot, "logs"));
         expect(resolveAppLogDirectory({
-            cwd: "C:/Repo",
+            cwd: repoRoot,
             env: {} as NodeJS.ProcessEnv,
-        }).replaceAll("\\", "/")).toBe("C:/Repo/workspace/.nbook/logs");
+        })).toBe(path.join(repoRoot, "workspace", ".nbook", "logs"));
     });
 
     it("redacts common secret fields recursively", () => {

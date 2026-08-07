@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 
 describe("GET /api/workspace-files/read", () => {
@@ -26,7 +26,7 @@ describe("GET /api/workspace-files/read", () => {
         vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
             resolveWorkspaceFileTarget: vi.fn(async () => ({
                 kind: "project-workspace",
-                root: absoluteFsPath("C:/test/workspace/not-open"),
+                root: testAbsoluteFsPath("workspace-read", "workspace", "not-open"),
                 projectRoot: projectWorkspaceRef("not-open").projectRoot,
             })),
         }));

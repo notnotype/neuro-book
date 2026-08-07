@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
@@ -68,7 +68,7 @@ describe("Project HTTP data-plane operation guard", () => {
         });
         const target: WorkspaceFileTarget = {
             kind: "project-workspace",
-            root: absoluteFsPath("C:/workspace-root/guard"),
+            root: testAbsoluteFsPath("project-open-guard", "workspace-root", "guard"),
             projectRoot: projectWorkspaceRef("guard").projectRoot,
         };
         const {withProjectTargetOperation} = await import("nbook/server/workspace-files/project-open-guard");
@@ -110,7 +110,7 @@ describe("Project HTTP data-plane operation guard", () => {
         mocks.runReadyProjectOperation.mockImplementation((_ready, operation) => operation());
         const target: WorkspaceFileTarget = {
             kind: "project-workspace",
-            root: absoluteFsPath("C:/workspace-root/mutation"),
+            root: testAbsoluteFsPath("project-open-guard", "workspace-root", "mutation"),
             projectRoot: projectWorkspaceRef("mutation").projectRoot,
         };
         const {withProjectTargetMutation} = await import("nbook/server/workspace-files/project-open-guard");
@@ -128,7 +128,7 @@ describe("Project HTTP data-plane operation guard", () => {
         mocks.mutatePlain.mockImplementation((_target, operation) => operation());
         const target: WorkspaceFileTarget = {
             kind: "workspace-root",
-            root: absoluteFsPath("C:/workspace-root/plain-mutation"),
+            root: testAbsoluteFsPath("project-open-guard", "workspace-root", "plain-mutation"),
         };
         const {withProjectTargetMutation} = await import("nbook/server/workspace-files/project-open-guard");
         const handler = vi.fn(async () => "mutated");

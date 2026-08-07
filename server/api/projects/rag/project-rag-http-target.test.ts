@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {testAbsoluteFsPath} from "nbook/server/runtime/paths/test-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 const PROJECT_REF = {projectRoot: "rag-ready"};
@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("nbook/server/runtime/paths/runtime-paths", () => ({
-    runtimePathsFromEnv: () => ({workspaceRoot: absoluteFsPath("C:/workspace-root")}),
+    runtimePathsFromEnv: () => ({workspaceRoot: testAbsoluteFsPath("project-rag", "workspace-root")}),
 }));
 
 vi.mock("nbook/server/api/projects/project-control-plane", () => ({
@@ -43,7 +43,7 @@ describe("Project RAG HTTP target", () => {
         expect(mocks.requireActiveReadyProject).toHaveBeenCalledOnce();
         expect(mocks.requireActiveReadyProject).toHaveBeenCalledWith(PROJECT_REF);
         expect(target).toEqual({
-            workspaceRoot: absoluteFsPath("C:/workspace-root"),
+            workspaceRoot: testAbsoluteFsPath("project-rag", "workspace-root"),
             project: ready,
         });
     });
@@ -62,7 +62,7 @@ describe("Project RAG HTTP target", () => {
         expect(mocks.runReadyProjectOperation).toHaveBeenCalledWith(ready, expect.any(Function));
         expect(handler).toHaveBeenCalledOnce();
         expect(handler).toHaveBeenCalledWith({
-            workspaceRoot: absoluteFsPath("C:/workspace-root"),
+            workspaceRoot: testAbsoluteFsPath("project-rag", "workspace-root"),
             project: ready,
         });
     });

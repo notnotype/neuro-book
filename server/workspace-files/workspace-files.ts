@@ -1037,6 +1037,9 @@ function isWorkspaceReferenceTarget(target: string): boolean {
     if (!normalizedTarget) {
         return false;
     }
+    if (path.isAbsolute(normalizedTarget) || path.win32.isAbsolute(normalizedTarget)) {
+        return true;
+    }
     if (normalizedTarget.startsWith("/")) {
         return false;
     }
