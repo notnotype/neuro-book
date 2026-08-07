@@ -1,5 +1,10 @@
 import {createError, defineEventHandler} from "h3";
 import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
+import {
+    clearProductShutdownSignal,
+    setProductShutdownSignal,
+    type ProductHttpShutdownEvent,
+} from "nbook/server/runtime/shutdown/product-http-lifecycle";
 
 /**
  * 为每个 HTTP 请求持有进程级 drain lease。
@@ -10,14 +15,13 @@ export default defineEventHandler((event) => {
     if (!release) {
         throw createError({statusCode: 503, message: "NeuroBook 正在关闭。"});
     }
-    event.context.productShutdownSignal = release.signal;
+    const shutdownEvent = event as unknown as ProductHttpShutdownEvent;
+    setProductShutdownSignal(shutdownEvent, release.signal);
     let released = false;
     const releaseOnce = (): void => {
         if (released) return;
         released = true;
-        if (event.context.productShutdownSignal === release.signal) {
-            delete event.context.productShutdownSignal;
-        }
+        clearProductShutdownSignal(shutdownEvent, release.signal);
         release.release();
     };
     event.node.res.once("finish", releaseOnce);

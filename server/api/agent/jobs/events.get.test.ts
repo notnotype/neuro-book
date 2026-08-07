@@ -26,7 +26,7 @@ describe("GET /api/agent/jobs/events", () => {
         await handler({node: {res: response}} as never);
 
         expect(subscribeEvents).toHaveBeenCalledWith({eventEpoch: "epoch-1", after: 12});
-        expect(writeAgentEventStream).toHaveBeenCalledWith(response, subscription);
+        expect(writeAgentEventStream).toHaveBeenCalledWith(response, subscription, {shutdownSignal: undefined});
     });
 
     it.each([

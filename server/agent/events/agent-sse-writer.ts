@@ -30,6 +30,11 @@ class AgentSseClosedError extends Error {
     }
 }
 
+export type AgentSseWriterOptions = {
+    /** Product 进程进入 draining 时主动收口该长连接。 */
+    shutdownSignal?: AbortSignal;
+};
+
 /**
  * 以 Node response backpressure 写出 Agent SSE。任一时刻最多有一个 frame 进入
  * response；write(false) 后必须等 drain，subscription overflow 可立即打断等待。
@@ -37,6 +42,7 @@ class AgentSseClosedError extends Error {
 export async function writeAgentEventStream<Event extends AgentSseFrame>(
     response: AgentSseResponse,
     subscription: AgentSseSubscription<Event>,
+    options: AgentSseWriterOptions = {},
 ): Promise<void> {
     response.setHeader("content-type", "text/event-stream; charset=utf-8");
     response.setHeader("cache-control", "no-cache, no-transform");
@@ -55,9 +61,14 @@ export async function writeAgentEventStream<Event extends AgentSseFrame>(
             response.destroy();
         }
     };
+    const abortFromProductShutdown = (): void => {
+        subscription.close("consumer_closed");
+        abortWriter();
+    };
     response.once("close", closeFromResponse);
     response.once("error", errorFromResponse);
     subscription.signal.addEventListener("abort", abortWriter, {once: true});
+    options.shutdownSignal?.addEventListener("abort", abortFromProductShutdown, {once: true});
 
     try {
         await writeFrame(response, subscription.connected, subscription.signal);
@@ -78,6 +89,7 @@ export async function writeAgentEventStream<Event extends AgentSseFrame>(
         response.off("close", closeFromResponse);
         response.off("error", errorFromResponse);
         subscription.signal.removeEventListener("abort", abortWriter);
+        options.shutdownSignal?.removeEventListener("abort", abortFromProductShutdown);
         if (!subscription.signal.aborted) {
             subscription.close("consumer_closed");
         }

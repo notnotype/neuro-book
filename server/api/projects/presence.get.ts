@@ -3,6 +3,11 @@ import {requireProjectRefQuery} from "nbook/server/api/projects/project-control-
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {acquireUserPresence} from "nbook/server/workspace-files/project-session";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
+import {
+    bindProductShutdownSignal,
+    readProductShutdownSignal,
+    type ProductHttpShutdownEvent,
+} from "nbook/server/runtime/shutdown/product-http-lifecycle";
 
 /** 心跳间隔：保持 SSE 连接活性，避免代理层按空闲断连；也让断连能在下个心跳被发现。 */
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -23,15 +28,18 @@ export default defineEventHandler(async (event) => {
     const eventStream = createEventStream(event);
     let streamClosed = false;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let unbindProductShutdown = () => undefined;
 
     // 统一清理：onClosed 回调与 push 断连判定都会走这里；release 本身幂等，双触发安全。
     const cleanup = () => {
+        if (streamClosed) return;
         streamClosed = true;
         if (heartbeatTimer) {
             clearInterval(heartbeatTimer);
             heartbeatTimer = null;
         }
         release();
+        unbindProductShutdown();
     };
 
     /**
@@ -60,6 +68,13 @@ export default defineEventHandler(async (event) => {
         cleanup();
         eventStream.close();
     });
+    unbindProductShutdown = bindProductShutdownSignal(
+        readProductShutdownSignal(event as unknown as ProductHttpShutdownEvent),
+        () => {
+            cleanup();
+            void eventStream.close().catch(() => undefined);
+        },
+    );
 
     // H3 的 push 会等待 TransformStream reader 消费；必须先启动 send，否则首帧会因背压永久等待。
     const sending = eventStream.send();

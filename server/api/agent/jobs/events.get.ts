@@ -2,6 +2,7 @@ import {createError, getQuery} from "h3";
 import {useAgentHarness} from "nbook/server/agent/http";
 import {writeAgentEventStream} from "nbook/server/agent/events/agent-sse-writer";
 import {AgentJobEventsQueryDtoSchema} from "nbook/shared/dto/agent-job.dto";
+import {readProductShutdownSignal, type ProductHttpShutdownEvent} from "nbook/server/runtime/shutdown/product-http-lifecycle";
 
 /** 订阅无过滤的全局 Job 事件流；HTTP 快照是恢复真相。 */
 export default defineEventHandler(async (event) => {
@@ -18,5 +19,9 @@ export default defineEventHandler(async (event) => {
         eventEpoch: query.eventEpoch,
         after: query.after,
     });
-    await writeAgentEventStream(event.node.res, subscription);
+    await writeAgentEventStream(
+        event.node.res,
+        subscription,
+        {shutdownSignal: readProductShutdownSignal(event as unknown as ProductHttpShutdownEvent)},
+    );
 });

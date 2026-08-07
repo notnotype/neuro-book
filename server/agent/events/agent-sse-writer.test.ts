@@ -137,6 +137,50 @@ describe("writeAgentEventStream", () => {
         expect(response.listenerCount("error")).toBe(0);
     });
 
+    it("Product shutdown signal 会关闭长连接并结束 pending subscription", async () => {
+        const hub = new AgentSessionEventHub();
+        const connected = hub.connectedEvent(1);
+        const subscriptionController = new AbortController();
+        const productShutdownController = new AbortController();
+        let resolveNext: ((result: IteratorResult<PublishedAgentSessionEvent>) => void) | null = null;
+        const close = vi.fn(() => {
+            subscriptionController.abort();
+            resolveNext?.({done: true, value: undefined});
+            resolveNext = null;
+        });
+        const subscription: AgentSessionEventSubscription = {
+            connected,
+            signal: subscriptionController.signal,
+            close,
+            async next() {
+                return await new Promise<IteratorResult<PublishedAgentSessionEvent>>((resolvePromise) => {
+                    resolveNext = resolvePromise;
+                });
+            },
+            async return() {
+                close("consumer_closed");
+                return {done: true, value: undefined};
+            },
+            [Symbol.asyncIterator]() {
+                return this;
+            },
+        };
+        const response = new FakeResponse([true]);
+        const writing = writeAgentEventStream(response, subscription, {
+            shutdownSignal: productShutdownController.signal,
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+
+        productShutdownController.abort();
+        await writing;
+
+        expect(close).toHaveBeenCalledWith("consumer_closed");
+        expect(response.destroyed).toBe(true);
+        expect(response.listenerCount("close")).toBe(0);
+        expect(response.listenerCount("error")).toBe(0);
+    });
+
     it("真实 paused socket 下 response buffer 有界，queue overflow 会打断 drain", async () => {
         const hub = new AgentSessionEventHub({
             subscriberQueueLimit: 8,

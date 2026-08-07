@@ -11,6 +11,11 @@ import {
 } from "nbook/server/workspace-files/project-open-guard";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
+import {
+    bindProductShutdownSignal,
+    readProductShutdownSignal,
+    type ProductHttpShutdownEvent,
+} from "nbook/server/runtime/shutdown/product-http-lifecycle";
 
 type WorkspaceFileEventsDependencies = {
     createEventStream: typeof createEventStream;
@@ -19,10 +24,6 @@ type WorkspaceFileEventsDependencies = {
     subscribeWorkspaceTreeIndex: typeof subscribeWorkspaceTreeIndex;
     startProjectTargetOperation?: typeof startProjectTargetOperation;
     workspaceTreeIndexOptionsForTarget?: typeof workspaceTreeIndexOptionsForTarget;
-};
-
-type WorkspaceFileEventsContext = {
-    productShutdownSignal?: AbortSignal;
 };
 
 /**
@@ -44,7 +45,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             dependencies.runtimePaths(),
             {projectRoot, workspaceKind},
         );
-        const requestShutdownSignal = (event.context as WorkspaceFileEventsContext | undefined)?.productShutdownSignal;
+        const requestShutdownSignal = readProductShutdownSignal(event as unknown as ProductHttpShutdownEvent);
         const startOperation = dependencies.startProjectTargetOperation ?? ((_, start) => (
             start(undefined, new AbortController().signal).result
         ));
@@ -54,6 +55,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             let setupSettled = false;
             let closeSettled = false;
             let unsubscribe: (() => void) | null = null;
+            let unbindProductShutdown = () => undefined;
             let settleCompletion: () => void = () => undefined;
             const completion = new Promise<void>((resolve) => {
                 settleCompletion = resolve;
@@ -72,7 +74,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
                 streamClosed = true;
                 unsubscribe?.();
                 signal.removeEventListener("abort", finish);
-                requestShutdownSignal?.removeEventListener("abort", finish);
+                unbindProductShutdown();
                 void eventStream.close().catch(() => undefined).finally(() => {
                     closeSettled = true;
                     settleIfClosed();
@@ -103,11 +105,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             } else {
                 signal.addEventListener("abort", finish, {once: true});
             }
-            if (requestShutdownSignal?.aborted) {
-                finish();
-            } else {
-                requestShutdownSignal?.addEventListener("abort", finish, {once: true});
-            }
+            unbindProductShutdown = bindProductShutdownSignal(requestShutdownSignal, finish);
 
             const result = (async () => {
                 try {
