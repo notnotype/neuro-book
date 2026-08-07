@@ -13,7 +13,15 @@
 - Job 状态：`running | waiting | completed | failed | cancelled | interrupted`。
 - `deliveryStatus`：执行状态之外的结果回流状态。`not_required` 表示没有 owner 或显式关闭回流；`pending` 表示等待直接投递或进入队列；`accepted` 表示已直接接收或可靠进入 follow-up queue；`failed` 表示投递失败，失败原因在 `deliveryError`，不改写 Job 的执行终态。
 
-Job 历史仍以运行期内存 Map 为列表真相。`jobs.jsonl` 是 append-only 恢复/审计薄登记表；服务重启后的历史 Job 不重新进入内存列表。
+Job 的运行期列表由内存 Map 投影，跨进程 durable truth 位于 `<Workspace Root>/.nbook/agent/jobs/<jobId>.json`。每个文件保存公开终态、完整 `result`、已解析的 kind 详情、Session/usage 摘要和结果回流的稳定消息身份；服务重启后终态历史重新加载到列表。
+
+## Durable 历史与重启
+
+- terminal Job 必须先完成单文件的原子 durable commit，再发布 `completed`、`failed`、`cancelled` 或 `interrupted` 的列表快照和 SSE 事件。commit 失败时不得公开 `completed`。
+- 进程启动会读取所有 durable 文件。`running` / `waiting` 只能收口为 `interrupted`，不会伪造旧结果，也不会重启旧 Workflow；已完成 Job 的完整结果仍可通过详情接口读取。
+- 旧 `jobs.jsonl` 只作为迁移输入：只把遗留 `running` / `waiting` 行转换为 `interrupted`，不能从旧登记表伪造 terminal result；原文件保留供审计，之后不再追加。
+- 单个 JSON 文件损坏或身份不匹配时，会移出正常 `jobs/` 目录并保留原始内容，其他 Job 继续恢复；该 Job 不会被猜测为 completed。
+- “清除已结束”显式删除对应 durable 文件；`deliveryStatus=pending` 的 Job 必须等结果可靠进入队列或被标记 `failed` 后才能删除。不设置猜测性 TTL。
 
 ## HTTP 快照
 

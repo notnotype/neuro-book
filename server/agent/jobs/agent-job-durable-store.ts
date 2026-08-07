@@ -31,7 +31,6 @@ const DurableAgentJobRecordSchema = z.object({
     snapshot: AgentJobSnapshotSchema,
     result: DurableJsonValueSchema.optional(),
     detail: DurableJsonValueSchema.optional(),
-    workflowRun: DurableJsonValueSchema.optional(),
     delivery: DurableAgentJobDeliverySchema.optional(),
 }).strict();
 
@@ -42,7 +41,6 @@ export type DurableAgentJobRecord = {
     snapshot: AgentJobSnapshot;
     result?: JsonValue;
     detail?: JsonValue;
-    workflowRun?: JsonValue;
     delivery?: DurableAgentJobDelivery;
 };
 
@@ -95,6 +93,23 @@ export class AgentJobDurableStore {
             throw new Error(`Agent Job durable 文件身份不匹配：${jobId}`);
         }
         return parsed;
+    }
+
+    /**
+     * 将无法解析或身份不匹配的单文件移出正常历史目录，保留原始内容供人工诊断。
+     */
+    async quarantine(jobId: string): Promise<string | null> {
+        if (!this.enabled) {
+            return null;
+        }
+        const target = this.pathFor(jobId);
+        if (!existsSync(target)) {
+            return null;
+        }
+        const quarantined = join(this.root, `.${basename(target)}.corrupt.${randomUUID()}`);
+        await rename(target, quarantined);
+        await this.syncDirectoryBestEffort();
+        return quarantined;
     }
 
     async listJobIds(): Promise<string[]> {

@@ -27,6 +27,7 @@ export function createJobTools() {
             ])),
         }),
         async executeWithContext(context, _toolCallId, params): Promise<NeuroToolResult> {
+            await context.harness.jobs.recoverInterrupted();
             const input = params as {all?: boolean; status?: AgentJobSnapshot["status"]};
             const jobs = context.harness.jobs.list({
                 ownerSessionId: input.all ? undefined : context.sessionId,
@@ -46,9 +47,10 @@ export function createJobTools() {
             jobId: Type.String(),
         }),
         async executeWithContext(context, _toolCallId, params): Promise<NeuroToolResult> {
+            await context.harness.jobs.recoverInterrupted();
             const input = params as {jobId: string};
             const job = await context.harness.jobs.get(input.jobId);
-            if (!job) throw new Error(`job ${input.jobId} 不存在（重启后旧 job 只在登记表留痕，不可查询）`);
+            if (!job) throw new Error(`job ${input.jobId} 不存在（已完成任务会在重启后保留；旧登记表中没有终态结果的任务不可查询）`);
             return {
                 content: [{type: "text", text: JSON.stringify(job, null, 2)}],
                 details: normalizeToolResultDetails({job} as unknown as JsonValue),
@@ -63,6 +65,7 @@ export function createJobTools() {
             jobId: Type.String(),
         }),
         async executeWithContext(context, _toolCallId, params): Promise<NeuroToolResult> {
+            await context.harness.jobs.recoverInterrupted();
             const input = params as {jobId: string};
             const job = await context.harness.jobs.get(input.jobId);
             if (!job) throw new Error(`job ${input.jobId} 不存在`);

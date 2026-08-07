@@ -6,7 +6,9 @@ export default defineEventHandler(async (event) => {
     const jobId = getRouterParam(event, "jobId");
     if (!jobId) throw createError({statusCode: 400, message: "jobId 必填"});
     try {
-        return {job: await useAgentHarness().jobs.cancel(jobId)};
+        const harness = useAgentHarness();
+        await harness.jobs.recoverInterrupted();
+        return {job: await harness.jobs.cancel(jobId)};
     } catch (error) {
         throw createError({statusCode: 400, message: error instanceof Error ? error.message : String(error)});
     }

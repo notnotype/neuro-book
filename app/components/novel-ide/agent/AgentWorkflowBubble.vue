@@ -31,6 +31,7 @@ type WorkflowCatalogResponse = {
 };
 
 const userInputContext = inject(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, null);
+const {t} = useI18n();
 const ideStore = useNovelIdeStore();
 const catalogProjectRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "" : ideStore.currentProjectRoot);
 const runState = shallowRef<WorkflowDemoRunState | null>(null);
@@ -273,7 +274,9 @@ async function pollRun(revision: number, expectedRunId: string): Promise<void> {
         }
         if (resolveApiErrorStatus(error) === 404) {
             runUnavailable.value = true;
-            pollError.value = "该 workflow run 已不可查询，可能因服务重启而中断";
+            pollError.value = matchingJob.value?.status === "completed"
+                ? t("ide.agentJobs.runDetailsUnavailable")
+                : "该 workflow run 已不可查询，可能因服务重启而中断";
         } else {
             pollError.value = resolveApiErrorMessage(error, "读取 workflow 状态失败");
         }

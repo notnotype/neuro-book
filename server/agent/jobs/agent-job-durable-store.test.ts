@@ -46,6 +46,10 @@ describe("AgentJobDurableStore", () => {
         await mkdir(root, {recursive: true});
         await writeFile(resolve(root, "job_corrupt.json"), "{\"schemaVersion\":1}\n", "utf8");
         await expect(store.read("job_corrupt")).rejects.toThrow();
+        const quarantined = await store.quarantine("job_corrupt");
+        expect(quarantined).toEqual(expect.stringContaining(".job_corrupt.json.corrupt."));
+        await expect(store.read("job_corrupt")).resolves.toBeNull();
+        expect(await readdir(root)).toEqual([expect.stringContaining(".job_corrupt.json.corrupt.")]);
         await rm(root, {recursive: true, force: true});
     });
 });

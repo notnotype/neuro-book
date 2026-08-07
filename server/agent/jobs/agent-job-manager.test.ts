@@ -482,6 +482,29 @@ describe("AgentJobManager", () => {
         await rm(root, {recursive: true, force: true});
     });
 
+    it("恢复时隔离损坏的单 Job 文件并继续加载其它历史", async () => {
+        const root = resolve(".agent", "agent-job-corrupt-history-test", randomUUID());
+        const registryPath = resolve(root, "jobs.jsonl");
+        const store = new AgentJobDurableStore(resolve(root, "jobs"));
+        await mkdir(resolve(root, "jobs"), {recursive: true});
+        await writeFile(resolve(root, "jobs", "job_corrupt.json"), "{\"schemaVersion\":1}\n", "utf8");
+        await store.write(durableCompletedRecord("job_valid", undefined));
+
+        const jobs = new AgentJobManager(() => {
+            throw new Error("corrupt history test should not deliver");
+        }, registryPath);
+        await jobs.recoverInterrupted();
+
+        expect(jobs.list().map((job) => job.jobId)).toEqual(["job_valid"]);
+        const files = await readdir(resolve(root, "jobs"));
+        expect(files).toHaveLength(2);
+        expect(files).toEqual(expect.arrayContaining([
+            "job_valid.json",
+            expect.stringContaining(".job_corrupt.json.corrupt."),
+        ]));
+        await rm(root, {recursive: true, force: true});
+    });
+
     it("terminal pending 在重启后使用原稳定 ID 重投并更新为 accepted", async () => {
         const root = resolve(".agent", "agent-job-pending-test", randomUUID());
         const registryPath = resolve(root, "jobs.jsonl");

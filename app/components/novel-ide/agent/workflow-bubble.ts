@@ -120,7 +120,11 @@ export function shouldPollWorkflowRun(input: {
 export function resolveWorkflowBubbleStatus(input: WorkflowBubbleStatusInput): WorkflowBubbleStatus {
     if (input.pendingApproval) return "approval";
     if (input.hasBackgroundJob) {
-        if (input.runUnavailable) return "interrupted";
+        if (input.runUnavailable) {
+            if (input.jobStatus && isAgentJobTerminalStatus(input.jobStatus)) return input.jobStatus;
+            if (input.runStatus && isWorkflowTerminalStatus(input.runStatus)) return input.runStatus;
+            return "interrupted";
+        }
         if (input.runStatus) return input.runStatus;
         if (input.jobStatus) {
             if (isAgentJobTerminalStatus(input.jobStatus)) return input.jobStatus;

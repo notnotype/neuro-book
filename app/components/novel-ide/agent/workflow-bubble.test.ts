@@ -126,6 +126,10 @@ describe("workflow bubble view model", () => {
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "completed", runStatus: "completed"})).toBe("completed");
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "failed", runStatus: "failed"})).toBe("failed");
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "cancelled"})).toBe("cancelled");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "completed", runUnavailable: true})).toBe("completed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "failed", runUnavailable: true})).toBe("failed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", runStatus: "completed", runUnavailable: true})).toBe("completed");
+        expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", runUnavailable: true})).toBe("interrupted");
         expect(resolveWorkflowBubbleStatus({...base, jobStatus: "running", jobUnavailable: true})).toBe("running");
         expect(resolveWorkflowBubbleStatus({...base, jobUnavailable: true})).toBe("starting");
         expect(resolveWorkflowBubbleStatus({...base, jobUnavailable: true, runStatus: "completed"})).toBe("completed");

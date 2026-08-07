@@ -28,7 +28,7 @@ const cancelRequested = ref(false);
 // AgentJobDetail.result 含递归 JsonValue，整体替换不做深响应展开。
 const detail = shallowRef<AgentJobDetail | null>(null);
 const detailLoading = ref(false);
-/** 404：job 已不在内存（服务重启），结果不可查询且不再重试 */
+/** 404：job 已被清除或没有可恢复的终态记录，结果不可查询且不再重试 */
 const detailUnavailable = ref(false);
 const detailError = ref("");
 let detailFetched = false;

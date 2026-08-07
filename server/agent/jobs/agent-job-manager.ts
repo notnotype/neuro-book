@@ -96,7 +96,6 @@ type JobRecord = {
     snapshot: AgentJobSnapshot;
     result?: JsonValue;
     persistedDetail?: JsonValue;
-    workflowRun?: JsonValue;
     delivery?: DurableAgentJobDelivery;
     detail?: JobDetailProvider;
     controller?: AbortController;
@@ -326,16 +325,7 @@ export class AgentJobManager {
             if (this.jobs.has(jobId)) {
                 continue;
             }
-            let durable: DurableAgentJobRecord | null;
-            try {
-                durable = await this.durableStore.read(jobId);
-            } catch (error) {
-                void appLogger.error("agent.jobs.durableReadFailed", {
-                    jobId,
-                    error: error instanceof Error ? error.message : String(error),
-                }, error, "读取 Agent Job durable 历史失败");
-                continue;
-            }
+            const durable = await this.readDurableRecord(jobId);
             if (!durable) {
                 continue;
             }
@@ -479,7 +469,6 @@ export class AgentJobManager {
             snapshot: terminalSnapshot,
             ...(result === undefined ? {} : {result}),
             ...(persistedDetail === undefined ? {} : {detail: persistedDetail}),
-            ...(record.workflowRun === undefined ? {} : {workflowRun: record.workflowRun}),
             ...(delivery === undefined ? {} : {delivery}),
         })) {
             return;
@@ -640,7 +629,6 @@ export class AgentJobManager {
             snapshot: {...durable.snapshot},
             ...(retainPayload && durable.result !== undefined ? {result: durable.result} : {}),
             ...(retainPayload && durable.detail !== undefined ? {persistedDetail: durable.detail} : {}),
-            ...(retainPayload && durable.workflowRun !== undefined ? {workflowRun: durable.workflowRun} : {}),
             ...(deliveryMutable && durable.delivery ? {delivery: {...durable.delivery}} : {}),
             promise: Promise.resolve(),
         };
@@ -650,7 +638,6 @@ export class AgentJobManager {
         record.snapshot = {...durable.snapshot};
         record.result = durable.result;
         record.persistedDetail = durable.detail;
-        record.workflowRun = durable.workflowRun;
         record.delivery = durable.delivery ? {...durable.delivery} : undefined;
     }
 
@@ -677,9 +664,19 @@ export class AgentJobManager {
         try {
             return await this.durableStore.read(jobId);
         } catch (error) {
+            let quarantinedPath: string | null = null;
+            try {
+                quarantinedPath = await this.durableStore.quarantine(jobId);
+            } catch (quarantineError) {
+                void appLogger.warn("agent.jobs.durableQuarantineFailed", {
+                    jobId,
+                    error: quarantineError instanceof Error ? quarantineError.message : String(quarantineError),
+                });
+            }
             void appLogger.warn("agent.jobs.detailDurableReadFailed", {
                 jobId,
                 error: error instanceof Error ? error.message : String(error),
+                ...(quarantinedPath === null ? {} : {quarantinedPath}),
             });
             return null;
         }
@@ -712,7 +709,6 @@ export class AgentJobManager {
             snapshot: {...record.snapshot},
             ...(record.result === undefined ? {} : {result: record.result}),
             ...(record.persistedDetail === undefined ? {} : {detail: record.persistedDetail}),
-            ...(record.workflowRun === undefined ? {} : {workflowRun: record.workflowRun}),
             ...(record.delivery === undefined ? {} : {delivery: {...record.delivery}}),
         };
     }

@@ -5,7 +5,9 @@ import {useAgentHarness} from "nbook/server/agent/http";
 export default defineEventHandler(async (event) => {
     const jobId = getRouterParam(event, "jobId");
     if (!jobId) throw createError({statusCode: 400, message: "jobId 必填"});
-    const job = await useAgentHarness().jobs.get(jobId);
+    const harness = useAgentHarness();
+    await harness.jobs.recoverInterrupted();
+    const job = await harness.jobs.get(jobId);
     if (!job) throw createError({statusCode: 404, message: `job ${jobId} 不存在`});
     return {job};
 });

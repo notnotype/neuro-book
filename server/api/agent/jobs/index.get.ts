@@ -3,7 +3,7 @@ import {useAgentHarness} from "nbook/server/agent/http";
 import {AgentJobListQueryDtoSchema} from "nbook/shared/dto/agent-job.dto";
 
 /** 后台任务恢复快照（?ownerSessionId=&status=），游标与列表在同一同步读取中取得。 */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
     const parsed = AgentJobListQueryDtoSchema.safeParse(getQuery(event));
     if (!parsed.success) {
         throw createError({
@@ -12,5 +12,7 @@ export default defineEventHandler((event) => {
             data: {code: "INVALID_AGENT_JOB_LIST_QUERY", issues: parsed.error.issues},
         });
     }
-    return useAgentHarness().jobs.recovery(parsed.data);
+    const harness = useAgentHarness();
+    await harness.jobs.recoverInterrupted();
+    return harness.jobs.recovery(parsed.data);
 });

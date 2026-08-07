@@ -14,7 +14,9 @@ export default defineEventHandler(async (event) => {
         });
     }
     const query = parsed.data;
-    const subscription = useAgentHarness().jobs.subscribeEvents({
+    const harness = useAgentHarness();
+    await harness.jobs.recoverInterrupted();
+    const subscription = harness.jobs.subscribeEvents({
         eventEpoch: query.eventEpoch,
         after: query.after,
     });

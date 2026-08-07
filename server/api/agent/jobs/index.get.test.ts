@@ -14,17 +14,19 @@ describe("GET /api/agent/jobs", () => {
             eventCursor: {eventEpoch: "epoch-1", after: 12},
         };
         const recovery = vi.fn(() => response);
+        const recoverInterrupted = vi.fn(async () => {});
         vi.doMock("h3", async (importOriginal) => ({
             ...(await importOriginal<typeof import("h3")>()),
             getQuery: vi.fn(() => ({ownerSessionId: "7", status: "waiting"})),
         }));
         vi.doMock("nbook/server/agent/http", () => ({
-            useAgentHarness: vi.fn(() => ({jobs: {recovery}})),
+            useAgentHarness: vi.fn(() => ({jobs: {recovery, recoverInterrupted}})),
         }));
 
         const handler = (await import("nbook/server/api/agent/jobs/index.get")).default;
 
-        expect(handler({} as never)).toEqual(response);
+        await expect(handler({} as never)).resolves.toEqual(response);
+        expect(recoverInterrupted).toHaveBeenCalledOnce();
         expect(recovery).toHaveBeenCalledWith({ownerSessionId: 7, status: "waiting"});
     });
 
