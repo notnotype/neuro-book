@@ -5,6 +5,11 @@ export type ProductShutdownStep = {
     close(): Promise<void>;
 };
 
+export type ProductRequestLease = {
+    signal: AbortSignal;
+    release: () => void;
+};
+
 export type ProductShutdownControllerOptions = {
     /** 测试可替换退出动作；生产缺省退出当前 Product 进程。 */
     exit?: (code: number) => void;
@@ -28,6 +33,7 @@ export class ProductShutdownController {
     private requestedExitCode = 0;
     private draining = false;
     private activeRequests = 0;
+    private readonly requestAbortControllers = new Set<AbortController>();
     private drainWaiter: (() => void) | null = null;
     private readonly exit: (code: number) => void;
     private readonly schedule: (task: () => void) => void;
@@ -48,19 +54,23 @@ export class ProductShutdownController {
      * 为一个已进入的 HTTP 请求取得进程级 lease。
      * draining 后返回 null；成功时调用方必须在 response finish/close 时释放一次。
      */
-    enterRequest(): (() => void) | null {
+    enterRequest(): ProductRequestLease | null {
         if (this.draining) return null;
+        const abortController = new AbortController();
+        this.requestAbortControllers.add(abortController);
         this.activeRequests += 1;
         let released = false;
-        return () => {
+        const release = (): void => {
             if (released) return;
             released = true;
+            this.requestAbortControllers.delete(abortController);
             this.activeRequests -= 1;
             if (this.activeRequests === 0) {
                 this.drainWaiter?.();
                 this.drainWaiter = null;
             }
         };
+        return {signal: abortController.signal, release};
     }
 
     /** 执行一次关闭；并发和完成后的重复调用返回同一个 Promise。 */
@@ -97,6 +107,9 @@ export class ProductShutdownController {
     private async runSteps(): Promise<void> {
         const failures: Error[] = [];
         this.draining = true;
+        for (const abortController of this.requestAbortControllers) {
+            abortController.abort(new Error("Product 正在进入关闭流程。"));
+        }
         try {
             await this.waitForRequests();
         } catch (error) {

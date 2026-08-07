@@ -21,6 +21,10 @@ type WorkspaceFileEventsDependencies = {
     workspaceTreeIndexOptionsForTarget?: typeof workspaceTreeIndexOptionsForTarget;
 };
 
+type WorkspaceFileEventsContext = {
+    productShutdownSignal?: AbortSignal;
+};
+
 /**
  * 创建 workspace 文件事件 SSE handler，便于测试注入可控依赖。
  */
@@ -40,6 +44,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             dependencies.runtimePaths(),
             {projectRoot, workspaceKind},
         );
+        const requestShutdownSignal = (event.context as WorkspaceFileEventsContext | undefined)?.productShutdownSignal;
         const startOperation = dependencies.startProjectTargetOperation ?? ((_, start) => (
             start(undefined, new AbortController().signal).result
         ));
@@ -67,6 +72,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
                 streamClosed = true;
                 unsubscribe?.();
                 signal.removeEventListener("abort", finish);
+                requestShutdownSignal?.removeEventListener("abort", finish);
                 void eventStream.close().catch(() => undefined).finally(() => {
                     closeSettled = true;
                     settleIfClosed();
@@ -96,6 +102,11 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
                 finish();
             } else {
                 signal.addEventListener("abort", finish, {once: true});
+            }
+            if (requestShutdownSignal?.aborted) {
+                finish();
+            } else {
+                requestShutdownSignal?.addEventListener("abort", finish, {once: true});
             }
 
             const result = (async () => {

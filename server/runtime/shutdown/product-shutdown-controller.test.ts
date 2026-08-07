@@ -57,17 +57,32 @@ describe("ProductShutdownController", () => {
         const controller = new ProductShutdownController([
             {name: "owner", close: async () => { order.push("owner"); }},
         ]);
-        const release = controller.enterRequest();
-        expect(release).not.toBeNull();
+        const lease = controller.enterRequest();
+        expect(lease).not.toBeNull();
 
         const shutdown = controller.shutdown();
         expect(controller.enterRequest()).toBeNull();
         await Promise.resolve();
         expect(order).toEqual([]);
 
-        release?.();
+        lease?.release();
         await shutdown;
         expect(order).toEqual(["owner"]);
+    });
+
+    it("进入 draining 时先 abort 已进入请求，再等待它们释放", async () => {
+        const controller = new ProductShutdownController([
+            {name: "owner", close: async () => undefined},
+        ]);
+        const lease = controller.enterRequest();
+        expect(lease).not.toBeNull();
+        expect(lease?.signal.aborted).toBe(false);
+
+        const shutdown = controller.shutdown();
+        expect(lease?.signal.aborted).toBe(true);
+
+        lease?.release();
+        await shutdown;
     });
 
     it("HTTP drain 超时后继续关闭 owner 并聚合 drain 错误", async () => {
@@ -77,7 +92,8 @@ describe("ProductShutdownController", () => {
             [{name: "owner", close}],
             {drainTimeoutMs: 100},
         );
-        expect(controller.enterRequest()).not.toBeNull();
+        const lease = controller.enterRequest();
+        expect(lease).not.toBeNull();
 
         try {
             const shutdown = controller.shutdown();

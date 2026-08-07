@@ -126,6 +126,32 @@ describe("GET /api/workspace-files/events", () => {
         expect(eventStream.close).toHaveBeenCalledOnce();
     });
 
+    it("Product 进入 draining 时关闭长连接并清理订阅", async () => {
+        const requestController = new AbortController();
+        const unsubscribe = vi.fn();
+        const eventStream = createEventStreamMock();
+        const handler = createWorkspaceFileEventsHandler({
+            createEventStream: vi.fn(() => eventStream) as never,
+            runtimePaths: vi.fn(() => ({} as never)),
+            resolveWorkspaceFileTarget: vi.fn(async () => target),
+            subscribeWorkspaceTreeIndex: vi.fn(async () => unsubscribe) as never,
+            startProjectTargetOperation: vi.fn((_target, start) => (
+                start({fileIndex: {}} as never, new AbortController().signal).result
+            )) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
+        });
+
+        await expect(handler({
+            context: {productShutdownSignal: requestController.signal},
+        } as never)).resolves.toBe("sent");
+
+        requestController.abort();
+        await flushAsyncTasks();
+
+        expect(eventStream.close).toHaveBeenCalledOnce();
+        expect(unsubscribe).toHaveBeenCalledOnce();
+    });
+
     it("客户端断开导致 push closed-stream 错误时会清理订阅", async () => {
         const unsubscribe = vi.fn();
         let subscribedHandler: ((payload: unknown) => Promise<void>) | null = null;

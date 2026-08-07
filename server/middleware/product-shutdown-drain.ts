@@ -10,11 +10,15 @@ export default defineEventHandler((event) => {
     if (!release) {
         throw createError({statusCode: 503, message: "NeuroBook 正在关闭。"});
     }
+    event.context.productShutdownSignal = release.signal;
     let released = false;
     const releaseOnce = (): void => {
         if (released) return;
         released = true;
-        release();
+        if (event.context.productShutdownSignal === release.signal) {
+            delete event.context.productShutdownSignal;
+        }
+        release.release();
     };
     event.node.res.once("finish", releaseOnce);
     event.node.res.once("close", releaseOnce);
