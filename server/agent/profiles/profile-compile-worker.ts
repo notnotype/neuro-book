@@ -61,11 +61,7 @@ type ProfileCompileEntryTask = {
 
 type CompileWorkerPaths = {
     entry: string;
-    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS runtime。 */
-    runtime?: string;
-    /** Product 使用预编译 worker 时为空；Source Node worker 才需要 TS loader。 */
-    tsconfig?: string;
-    tsxApiUrl?: string;
+    /** Product 使用预编译 worker 时为空；Source worker 才需要 TS loader。 */
     tsxLoaderUrl?: string;
     precompiled: boolean;
 };
@@ -718,13 +714,8 @@ async function createCompileWorker(): Promise<Worker> {
     if (workerPaths.precompiled) {
         return new Worker(pathToFileURL(workerPaths.entry));
     }
-    if (process.versions.bun) {
-        return new Worker(pathToFileURL(workerPaths.entry), {
-            execArgv: ["--import", requiredWorkerPath(workerPaths.tsxLoaderUrl, "tsx loader")],
-        });
-    }
-    return new Worker(renderNodeWorkerSource(workerPaths), {
-        eval: true,
+    return new Worker(pathToFileURL(workerPaths.entry), {
+        execArgv: ["--import", requiredWorkerPath(workerPaths.tsxLoaderUrl, "tsx loader")],
     });
 }
 
@@ -755,20 +746,12 @@ export async function resolveProfileCompileWorkerPathsForRoot(
     }
     return {
         entry,
-        runtime,
-        tsconfig: resolvePreferredTsconfig(root),
         precompiled: false,
-        ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
-    };
-}
-
-/**
- * 从指定上下文解析 TSX worker 依赖，避免 worker 使用 cwd 裸包名解析。
- */
-function resolveTsxPackageUrls(requireRoot: string, productRuntime: boolean): {tsxApiUrl: string; tsxLoaderUrl: string} {
-    return {
-        tsxApiUrl: resolvePackageUrl(requireRoot, "tsx/esm/api", productRuntime),
-        tsxLoaderUrl: resolvePackageUrl(requireRoot, "tsx", productRuntime),
+        tsxLoaderUrl: resolvePackageUrl(
+            existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry,
+            "tsx",
+            false,
+        ),
     };
 }
 
@@ -786,50 +769,6 @@ function resolvePackageUrl(requireRoot: string, specifier: string, productRuntim
         }
         throw error;
     }
-}
-
-/**
- * 优先使用 Nuxt server tsconfig，缺失时回退根 tsconfig。
- */
-function resolvePreferredTsconfig(root: string): string {
-    const serverTsconfig = resolve(root, ".nuxt", "tsconfig.server.json");
-    if (existsSync(serverTsconfig)) {
-        return serverTsconfig;
-    }
-    return resolve(root, "tsconfig.json");
-}
-
-function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
-    const entry = requiredWorkerPath(paths.entry, "entry");
-    const runtime = requiredWorkerPath(paths.runtime, "runtime");
-    const tsconfig = requiredWorkerPath(paths.tsconfig, "tsconfig");
-    const tsxApiUrl = requiredWorkerPath(paths.tsxApiUrl, "tsx API");
-    return `
-    import {parentPort} from "node:worker_threads";
-    import {pathToFileURL} from "node:url";
-
-    if (!parentPort) {
-        throw new Error("profile compile worker parentPort missing");
-    }
-
-    const parentURL = pathToFileURL(${JSON.stringify(entry)}).href;
-    const runtimeURL = pathToFileURL(${JSON.stringify(runtime)}).href;
-    const tsconfig = ${JSON.stringify(tsconfig)};
-    const {tsImport} = await import(${JSON.stringify(tsxApiUrl)});
-    const {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} = await tsImport(runtimeURL, {parentURL, tsconfig});
-
-    parentPort.on("message", async (message) => {
-        const result = message.mode === "all"
-            ? await runProfileCompileAll(message.input)
-            : message.mode === "entry"
-                ? await runProfileCompileEntry(message.input)
-            : await runProfileCompile(message.input);
-        parentPort.postMessage({
-            id: message.id,
-            result,
-        });
-    });
-`;
 }
 
 /** 可选 Product/Source 路径在进入具体执行分支后必须完整。 */

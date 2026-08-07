@@ -84,5 +84,8 @@ jobs:
         # vitest 依赖根 tsconfig.json extends ./.nuxt/tsconfig.json（见 tsconfig.json）；
         # 不先 prepare 生成 .nuxt/，oxc 解析 global-setup 等文件时会报 Tsconfig not found。
         run: bunx nuxt prepare
+      - name: Install test runtime dependencies
+        # Agent bash 合同会真实执行 rg；GitHub Ubuntu runner 不保证预装 ripgrep。
+        run: sudo apt-get update && sudo apt-get install --yes ripgrep
       - name: Run full tests
         run: bun run test -- --reporter=dot
