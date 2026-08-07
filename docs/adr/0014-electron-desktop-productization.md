@@ -24,6 +24,7 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 
 - `user`：程序位于 `%LOCALAPPDATA%/Programs/NeuroBook`。
 - `machine`：程序位于 `%ProgramFiles%/NeuroBook`，需要提升权限；State、Cache、Desktop/WebView 仍按登录用户隔离。
+- Manager GUI 的跨权限传递尚未冻结；推荐方案见 Proposed [ADR 0016](0016-windows-desktop-uac-broker.md)。在该 ADR Accepted 和真实 UAC 验收前，machine scope 只允许已提升 CLI/PowerShell 入口，GUI 必须 fail closed。
 - Portable：程序和用户数据跟随解压根移动。
 - `Desktop Installation Manifest v2` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts 和默认保留 State Root 的卸载策略。
 - 卸载默认删除程序、Cache、Desktop/WebView 和有界日志，保留 State Root；明确选择删除数据时才删除托管 State Root，外部 Project Workspace 永不删除。

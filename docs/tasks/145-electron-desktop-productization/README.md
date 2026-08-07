@@ -18,6 +18,10 @@
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
 - `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录。
 
+Machine scope 的真实 GUI UAC 传递仍未完成：当前非管理员 GUI 直接 fail closed，已提升的
+`install-desktop.ps1`/CLI 入口可继续使用。推荐的 named-pipe Broker 方案记录在 Proposed
+[ADR 0016](../../adr/0016-windows-desktop-uac-broker.md)，在用户确认并完成真实 UAC 验收前不把它写成已完成。
+
 ## 合同
 
 - 当前用户安装：`%LOCALAPPDATA%/Programs/NeuroBook`。
