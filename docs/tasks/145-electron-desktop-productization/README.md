@@ -56,6 +56,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - `bun run manager:build`、`bun run --cwd desktop/spikes/electron build`：通过；Electron 生成 `main.mjs`、`preload.cjs`、`manager-main.mjs`、`manager-preload.cjs`。
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
 - UAC Broker focused：共享协议 4 个测试通过；Manager Broker 3 个测试通过，覆盖 machine action 白名单、UTF-8 stdin 字节传递、secret pipe 握手和 CLI 输出回显 fail-closed。
+- PR #88 的最新 CI（commit `ec63a755`）已通过：Windows/macOS Desktop Contract、Linux/macOS Product、Typecheck、Full tests 和 Community files/docs；其中 UAC named-pipe 集成测试仅在 Windows runner 执行，非 Windows runner 显式跳过。
 
 ### 最终 Product A/B
 
