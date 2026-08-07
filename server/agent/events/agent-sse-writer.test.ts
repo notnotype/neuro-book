@@ -181,6 +181,25 @@ describe("writeAgentEventStream", () => {
         expect(response.listenerCount("error")).toBe(0);
     });
 
+    it("注册前已经 aborted 的 Product shutdown signal 会立即关闭长连接", async () => {
+        const hub = new AgentSessionEventHub();
+        const subscription = new CountingSubscription([hub.connectedEvent(1)]);
+        const response = new FakeResponse([true]);
+        const productShutdownController = new AbortController();
+        productShutdownController.abort();
+
+        await writeAgentEventStream(response, subscription, {
+            shutdownSignal: productShutdownController.signal,
+        });
+
+        expect(subscription.signal.aborted).toBe(true);
+        expect(subscription.closeReason).toBe("consumer_closed");
+        expect(response.destroyed).toBe(true);
+        expect(response.frames).toHaveLength(0);
+        expect(response.listenerCount("close")).toBe(0);
+        expect(response.listenerCount("error")).toBe(0);
+    });
+
     it("真实 paused socket 下 response buffer 有界，queue overflow 会打断 drain", async () => {
         const hub = new AgentSessionEventHub({
             subscriberQueueLimit: 8,

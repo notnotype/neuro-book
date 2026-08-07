@@ -1,3 +1,5 @@
+import {bindProductShutdownSignal} from "nbook/server/runtime/shutdown/product-http-lifecycle";
+
 /** SSE writer 消费的不可变帧最小表面。 */
 export type AgentSseFrame = {
     readonly frame: Buffer;
@@ -68,7 +70,7 @@ export async function writeAgentEventStream<Event extends AgentSseFrame>(
     response.once("close", closeFromResponse);
     response.once("error", errorFromResponse);
     subscription.signal.addEventListener("abort", abortWriter, {once: true});
-    options.shutdownSignal?.addEventListener("abort", abortFromProductShutdown, {once: true});
+    const unbindProductShutdown = bindProductShutdownSignal(options.shutdownSignal, abortFromProductShutdown);
 
     try {
         await writeFrame(response, subscription.connected, subscription.signal);
@@ -89,7 +91,7 @@ export async function writeAgentEventStream<Event extends AgentSseFrame>(
         response.off("close", closeFromResponse);
         response.off("error", errorFromResponse);
         subscription.signal.removeEventListener("abort", abortWriter);
-        options.shutdownSignal?.removeEventListener("abort", abortFromProductShutdown);
+        unbindProductShutdown();
         if (!subscription.signal.aborted) {
             subscription.close("consumer_closed");
         }
