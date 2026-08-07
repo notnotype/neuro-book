@@ -264,6 +264,42 @@ describe("useAgentSessionStream", () => {
         stream.stop();
     });
 
+    it("连接切换后旧 recovery 响应不会重置新连接", async () => {
+        const session = useAgentSession();
+        session.applyRecovery(recovery(1, 1));
+        const activeSessionId = ref<number | null>(1);
+        const oldRecovery = deferred<AgentSessionRecoveryDto>();
+        const newRecovery = deferred<AgentSessionRecoveryDto>();
+        const getSessionRecovery = vi.fn()
+            .mockImplementationOnce(() => oldRecovery.promise)
+            .mockImplementationOnce(() => newRecovery.promise);
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId,
+            api: {
+                getSessionRecovery,
+                subscribeSessionEvents: vi.fn(async (_sessionId, _cursor, _onEvent, signal, options) => {
+                    options?.onOpen?.();
+                    await untilAbort(signal);
+                }),
+            },
+        });
+
+        const stale = stream.syncRecovery("snapshot_required");
+        await stream.reconnectNow();
+        const current = stream.syncRecovery("snapshot_required");
+
+        expect(getSessionRecovery).toHaveBeenCalledTimes(2);
+        oldRecovery.resolve(recovery(1, 2));
+        await expect(stale).resolves.toBe(false);
+        expect(session.lastSeq.value).toBe(1);
+
+        newRecovery.resolve(recovery(1, 3));
+        await expect(current).resolves.toBe(true);
+        expect(session.lastSeq.value).toBe(3);
+        stream.stop();
+    });
+
     it("活动连接应用 recovery 后从返回 cursor 重新订阅", async () => {
         const session = useAgentSession();
         session.applyRecovery(recovery(1, 5));

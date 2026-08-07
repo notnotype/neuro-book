@@ -93,7 +93,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
     const lastDisconnectReason = ref("");
     let ready: ConnectionReady | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let recoveryPromise: {sessionId: number; promise: Promise<boolean>} | null = null;
+    let recoveryPromise: {sessionId: number; connectionGeneration: number; promise: Promise<boolean>} | null = null;
     let recoveryGeneration = 0;
     let connectionGeneration = 0;
     let automaticRecoveryConnectionGeneration = -1;
@@ -171,7 +171,10 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         if (!targetSessionId) {
             return false;
         }
-        if (!behavior.force && recoveryPromise?.sessionId === targetSessionId) {
+        const recoveryConnectionGeneration = connectionGeneration;
+        if (!behavior.force
+            && recoveryPromise?.sessionId === targetSessionId
+            && recoveryPromise.connectionGeneration === recoveryConnectionGeneration) {
             return recoveryPromise.promise;
         }
         if (behavior.force) {
@@ -181,11 +184,16 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }
         const generation = recoveryGeneration;
         const isCurrent = (): boolean => generation === recoveryGeneration
+            && recoveryConnectionGeneration === connectionGeneration
             && targetSessionId === options.activeSessionId.value;
         if (reason !== "manual_refresh" && reason !== "invoke_error_fallback") {
             options.session.applyConnectionStatus("recovering");
         }
-        const request = {sessionId: targetSessionId, promise: Promise.resolve(false)};
+        const request = {
+            sessionId: targetSessionId,
+            connectionGeneration: recoveryConnectionGeneration,
+            promise: Promise.resolve(false),
+        };
         const promise = (async () => {
             try {
                 const recovery = await options.api.getSessionRecovery(targetSessionId);

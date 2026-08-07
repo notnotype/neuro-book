@@ -2519,7 +2519,6 @@ async function resetWorkspaceSessionState(attempt?: AgentSurfaceActivationAttemp
     sessionListRequestGuard.invalidate();
     sessionListLoading.value = false;
     sessionStream.stop();
-    inlineEditorStream.stop();
     unavailableLinkedAgentWarningKeys.clear();
     const drafts = ensureComposerDraftSession();
     if (drafts) {
