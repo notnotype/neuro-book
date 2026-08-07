@@ -30,6 +30,7 @@ if (!mainResult.success || !preloadResult.success) {
     process.exit(1);
 }
 await copyFile(resolve(root, "..", "tauri", "icons", "icon.ico"), resolve(output, "icon.ico"));
+await copyFile(resolve(root, "src", "startup.html"), resolve(output, "startup.html"));
 console.log(JSON.stringify({
     output,
     outputs: [...mainResult.outputs, ...preloadResult.outputs].map((item) => item.path),

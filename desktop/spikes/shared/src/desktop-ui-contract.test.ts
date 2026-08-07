@@ -29,6 +29,27 @@ describe("Desktop UI shell contract", () => {
         expect(packager).toContain('join(appStagingRoot, "preload.cjs")');
     });
 
+    it("shows the main window on a local startup page before Product ready", async () => {
+        const build = await readFile(resolve("desktop/spikes/electron/build.mjs"), "utf8");
+        const main = await readFile(resolve("desktop/spikes/electron/src/main.ts"), "utf8");
+        const preload = await readFile(resolve("desktop/spikes/electron/src/preload.ts"), "utf8");
+        const startup = await readFile(resolve("desktop/spikes/electron/src/startup.html"), "utf8");
+        const packager = await readFile(resolve("desktop/spikes/package-portable.mjs"), "utf8");
+
+        expect(build).toContain('resolve(root, "src", "startup.html")');
+        expect(main).toContain("createInteractiveWindow(config)");
+        expect(main).toContain("await window.loadFile(startupPagePath())");
+        expect(main).toContain("const localLaunch =");
+        expect(main).toContain("t140:startup-action");
+        expect(main).toContain("assertStartupFrame");
+        expect(preload).toContain('window.location.protocol === "file:"');
+        expect(preload).toContain("neuroBookStartup");
+        expect(startup).toContain("data-stage");
+        expect(startup).toContain("data-action=\"repair\"");
+        expect(packager).toContain('join(envelopeDist, "startup.html")');
+        expect(packager).toContain('join(appStagingRoot, "startup.html")');
+    });
+
     it("uses one persistent Activity Bar instead of page-owned horizontal headers", async () => {
         const indexPage = await readFile(resolve("app/pages/index.vue"), "utf8");
         const picker = await readFile(resolve("app/components/novel-ide/ProjectPickerScreen.vue"), "utf8");
@@ -49,6 +70,8 @@ describe("Desktop UI shell contract", () => {
 
     it("keeps title-bar menus responsive and exposes project, search, and Agent panel controls", async () => {
         const titleBar = await readFile(resolve("app/components/common/DesktopTitleBar.vue"), "utf8");
+        const indexPage = await readFile(resolve("app/pages/index.vue"), "utf8");
+        const welcome = await readFile(resolve("app/components/markdown-studio/MarkdownStudioWelcome.vue"), "utf8");
 
         expect(titleBar).toContain("useWorkbenchChrome");
         expect(titleBar).toContain("resolveTitleBarMenuPresentation");
@@ -66,6 +89,12 @@ describe("Desktop UI shell contract", () => {
         expect(titleBar).toContain("grid-template-columns: auto minmax(120px, 1fr) auto auto");
         expect(titleBar).toContain("compactMenuItemKeydown");
         expect(titleBar).not.toContain("color-mix(in srgb, var(--bg-main) 92%, transparent)");
+        expect(indexPage).toContain("agentPanelMaxWidth");
+        expect(indexPage).toContain("agentPanelOverlay");
+        expect(indexPage).toContain("data-agent-panel");
+        expect(welcome).toContain("welcome-action-grid");
+        expect(welcome).not.toContain("studio-agent-modes-grid");
+        expect(welcome).not.toContain("welcome-agent-card");
     });
 
     it("uses one opaque dialog surface language without blur and keeps full dialogs inset", async () => {
@@ -75,8 +104,10 @@ describe("Desktop UI shell contract", () => {
         expect(dialog).toContain('overlayType: "opaque"');
         expect(dialog).not.toContain('"blur"');
         expect(dialog).not.toContain("backdrop-blur");
-        expect(dialog).toContain('width: "min(1200px, calc(100vw - 64px))"');
-        expect(dialog).toContain('height: "min(720px, calc(100vh - 96px))"');
+        expect(dialog).toContain('width: "min(1120px, calc(100vw - 48px))"');
+        expect(dialog).toContain('height: "min(640px, calc(100dvh - 80px))"');
+        expect(dialog).toContain("data-dialog-size");
+        expect(dialogWindow).toContain("data-dialog-window");
         expect(dialog).toContain("0 18px 44px");
         expect(dialogWindow).not.toContain("backdrop-filter");
         expect(dialogWindow).toContain("background: var(--bg-panel)");

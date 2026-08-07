@@ -88,59 +88,20 @@ const quickActions = computed<WelcomeAction[]>(() => {
     ];
 });
 
-const primaryAction = computed(() => quickActions.value[0] ?? null);
-const secondaryQuickActions = computed(() => quickActions.value.slice(1));
-
-const commonLocations = computed<WelcomeAction[]>(() => {
-    if (!novelWorkspace.value) {
-        return [
-            {
-                id: "assets-root",
-                label: t("markdownStudio.welcome.userAssets"),
-                description: "skills、profiles、templates",
-                iconClass: "i-lucide-folder-cog",
-                action: () => emit("open-files"),
-            },
-            {
-                id: "assets-profile",
-                label: "Profile",
-                description: t("markdownStudio.welcome.profileWorkbenchTsxDescription"),
-                iconClass: "i-lucide-file-code-2",
-                action: () => emit("open-profile-workbench"),
-            },
-        ];
+const primaryAction = computed<WelcomeAction | null>(() => {
+    const recent = visibleTabs.value[0];
+    if (novelWorkspace.value && recent) {
+        return {
+            id: "continue",
+            label: recent.title,
+            description: recent.path,
+            iconClass: tabIconClass(recent),
+            action: () => emit("select-tab", recent.path),
+        };
     }
-    return [
-        {
-            id: "manuscript",
-            label: "manuscript",
-            description: t("markdownStudio.welcome.manuscriptDescription"),
-            iconClass: "i-lucide-book-open-text",
-            action: () => emit("open-path", "manuscript/"),
-        },
-        {
-            id: "lorebook-root",
-            label: "lorebook",
-            description: t("markdownStudio.welcome.lorebookDescription"),
-            iconClass: "i-lucide-library-big",
-            action: () => emit("open-path", "lorebook/"),
-        },
-        {
-            id: "manual",
-            label: "manual",
-            description: t("markdownStudio.welcome.docsDescription"),
-            iconClass: "i-lucide-book-marked",
-            action: () => emit("open-path", "manual/README.md"),
-        },
-        {
-            id: "reference",
-            label: "reference",
-            description: t("markdownStudio.welcome.materialsDescription"),
-            iconClass: "i-lucide-archive",
-            action: () => emit("open-path", "reference/"),
-        },
-    ];
+    return quickActions.value[0] ?? null;
 });
+const secondaryQuickActions = computed(() => quickActions.value.filter((action) => action.id !== primaryAction.value?.id));
 
 function tabIconClass(tab: WorkspaceEditorTab): string {
     if (tab.editorKind === "markdown") return "i-lucide-file-text";
@@ -182,19 +143,18 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 
         <div v-else class="studio-welcome-container mx-auto flex w-full flex-col" :class="{ 'is-compact': props.compact }">
             <header class="studio-welcome-hero">
-                <div class="flex min-w-0 items-start gap-4">
-                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-text)]">
-                        <span :class="novelWorkspace ? 'i-lucide-pen-line' : 'i-lucide-folder-cog'" class="h-5 w-5"></span>
+                <div class="min-w-0">
+                    <div class="welcome-eyebrow">
+                        <span :class="novelWorkspace ? 'i-lucide-pen-line' : 'i-lucide-folder-cog'" class="h-4 w-4"></span>
+                        <span>MARKDOWN STUDIO</span>
                     </div>
-                    <div class="min-w-0">
-                        <h1 class="text-2xl font-semibold text-[var(--text-main)]">{{ welcomeTitle }}</h1>
-                        <p class="mt-1.5 max-w-[620px] text-sm leading-6 text-[var(--text-secondary)]">{{ welcomeDescription }}</p>
-                    </div>
+                    <h1 class="mt-2 text-2xl font-semibold text-[var(--text-main)]">{{ welcomeTitle }}</h1>
+                    <p class="mt-1.5 max-w-[680px] text-sm leading-6 text-[var(--text-secondary)]">{{ welcomeDescription }}</p>
                 </div>
-                <div class="flex shrink-0 flex-wrap gap-2">
-                    <button v-if="primaryAction" type="button" class="welcome-primary-action" @click="primaryAction.action">
+                <div class="welcome-hero-actions">
+                    <button v-if="primaryAction" type="button" class="welcome-primary-action" :title="primaryAction.description" @click="primaryAction.action">
                         <span :class="primaryAction.iconClass" class="h-4 w-4"></span>
-                        <span>{{ primaryAction.label }}</span>
+                        <span class="max-w-[190px] truncate">{{ primaryAction.label }}</span>
                     </button>
                     <button type="button" class="welcome-secondary-action" @click="emit('open-files')">
                         <span class="i-lucide-folder-tree h-4 w-4"></span>
@@ -203,69 +163,43 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
                 </div>
             </header>
 
-            <div class="studio-welcome-main">
-                <div class="studio-welcome-primary-column">
-                    <section class="welcome-section">
-                        <h2 class="welcome-section-title">{{ t("markdownStudio.welcome.continueSection") }}</h2>
-                        <div v-if="visibleTabs.length > 0" class="welcome-tab-list">
-                            <button v-for="tab in visibleTabs" :key="tab.path" type="button" class="welcome-tab-row" :title="tab.path" @click="emit('select-tab', tab.path)">
-                                <span :class="tabIconClass(tab)" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                                <span class="min-w-0 flex-1">
-                                    <span class="block truncate text-sm font-medium text-[var(--text-main)]" :class="tab.preview ? 'italic' : ''">{{ tab.title }}</span>
-                                    <span class="block truncate text-xs text-[var(--text-secondary)]">{{ tab.path }}</span>
-                                </span>
-                                <span v-if="tab.dirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"></span>
-                            </button>
-                        </div>
-                        <button v-else type="button" class="welcome-empty-row" @click="novelWorkspace ? emit('open-path', 'manuscript/') : emit('open-files')">
-                            <span class="i-lucide-arrow-right h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                            <span>{{ t("markdownStudio.welcome.noOpenFiles") }}</span>
-                        </button>
-                    </section>
-
-                    <section v-if="secondaryQuickActions.length > 0" class="welcome-section">
-                        <h2 class="welcome-section-title">{{ t("markdownStudio.welcome.startSection") }}</h2>
-                        <div class="welcome-quick-grid">
-                            <button v-for="action in secondaryQuickActions" :key="action.id" type="button" class="welcome-row" @click="action.action">
-                                <span :class="action.iconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                                <span class="min-w-0">
-                                    <span class="block text-sm font-medium text-[var(--text-main)]">{{ action.label }}</span>
-                                    <span class="mt-0.5 block text-xs leading-5 text-[var(--text-secondary)]">{{ action.description }}</span>
-                                </span>
-                            </button>
-                        </div>
-                    </section>
-                </div>
-
-                <aside class="studio-welcome-secondary-column">
-                    <section class="welcome-agent-card">
-                        <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent-bg)] text-[var(--accent-text)]">
-                            <span class="i-lucide-bot h-4 w-4"></span>
-                        </div>
-                        <div>
-                            <h2 class="text-sm font-semibold text-[var(--text-main)]">{{ t("markdownStudio.welcome.agentGuideTitle") }}</h2>
-                            <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.openAgentDescription") }}</p>
-                        </div>
-                        <button type="button" class="welcome-agent-button" @click="emit('open-agent-panel')">
-                            <span class="i-lucide-panel-right-open h-4 w-4"></span>
-                            <span>{{ t("markdownStudio.welcome.openAgent") }}</span>
-                        </button>
-                    </section>
-
-                    <section class="welcome-section">
-                        <h2 class="welcome-section-title">{{ t("markdownStudio.welcome.projectEntries") }}</h2>
-                        <div class="welcome-location-list">
-                            <button v-for="entry in commonLocations" :key="entry.id" type="button" class="welcome-location-row" @click="entry.action">
-                                <span :class="entry.iconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
-                                <span class="min-w-0 flex-1">
-                                    <span class="block truncate text-sm font-medium text-[var(--text-main)]">{{ entry.label }}</span>
-                                    <span class="block truncate text-xs text-[var(--text-secondary)]">{{ entry.description }}</span>
-                                </span>
-                            </button>
-                        </div>
-                    </section>
-                </aside>
+            <div class="welcome-action-grid">
+                <button v-for="action in secondaryQuickActions" :key="action.id" type="button" class="welcome-action-card" @click="action.action">
+                    <span :class="action.iconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                    <span class="min-w-0">
+                        <span class="block truncate text-sm font-medium text-[var(--text-main)]">{{ action.label }}</span>
+                        <span class="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{{ action.description }}</span>
+                    </span>
+                </button>
+                <button v-if="novelWorkspace" type="button" class="welcome-action-card" @click="emit('open-agent-panel')">
+                    <span class="i-lucide-panel-right-open h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                    <span class="min-w-0">
+                        <span class="block truncate text-sm font-medium text-[var(--text-main)]">{{ t("markdownStudio.welcome.openAgent") }}</span>
+                        <span class="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.openAgentDescription") }}</span>
+                    </span>
+                </button>
             </div>
+
+            <section class="welcome-recent-section">
+                <div class="welcome-section-heading">
+                    <h2 class="welcome-section-title">{{ t("markdownStudio.welcome.continueSection") }}</h2>
+                    <span v-if="visibleTabs.length > 0" class="welcome-section-hint">{{ visibleTabs.length }} / 5</span>
+                </div>
+                <div v-if="visibleTabs.length > 0" class="welcome-tab-list">
+                    <button v-for="tab in visibleTabs.slice(0, 5)" :key="tab.path" type="button" class="welcome-tab-row" :title="tab.path" @click="emit('select-tab', tab.path)">
+                        <span :class="tabIconClass(tab)" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                        <span class="min-w-0 flex-1">
+                            <span class="block truncate text-sm font-medium text-[var(--text-main)]" :class="tab.preview ? 'italic' : ''">{{ tab.title }}</span>
+                            <span class="block truncate text-xs text-[var(--text-secondary)]">{{ tab.path }}</span>
+                        </span>
+                        <span v-if="tab.dirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"></span>
+                    </button>
+                </div>
+                <button v-else type="button" class="welcome-empty-row" @click="novelWorkspace ? emit('open-path', 'manuscript/') : emit('open-files')">
+                    <span class="i-lucide-arrow-right h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
+                    <span>{{ t("markdownStudio.welcome.noOpenFiles") }}</span>
+                </button>
+            </section>
         </div>
     </section>
 </template>
@@ -276,8 +210,8 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 }
 
 .studio-welcome-container {
-    max-width: 980px;
-    gap: 1.25rem;
+    max-width: 820px;
+    gap: 1rem;
 }
 
 .studio-welcome-container.is-compact {
@@ -286,32 +220,69 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 
 .studio-welcome-hero {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     justify-content: space-between;
-    gap: 1.5rem;
-    padding: 0.5rem 0 1.25rem;
+    gap: 1rem;
+    padding: 0.25rem 0 1rem;
     border-bottom: 1px solid var(--border-color);
 }
 
-.studio-welcome-main {
-    display: grid;
-    min-height: 0;
-    gap: 1.25rem;
-    grid-template-columns: minmax(0, 1fr) 300px;
+.welcome-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--accent-text);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
 }
 
-.studio-welcome-primary-column,
-.studio-welcome-secondary-column,
-.welcome-section {
+.welcome-hero-actions {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.welcome-action-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.welcome-action-card {
+    display: flex;
+    min-width: 0;
+    min-height: 58px;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.75rem;
+    color: var(--text-secondary);
+    text-align: left;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.welcome-action-card:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+}
+
+.welcome-recent-section {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.65rem;
 }
 
-.studio-welcome-primary-column,
-.studio-welcome-secondary-column {
-    gap: 1.1rem;
+.welcome-section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
 }
 
 .welcome-section-title {
@@ -323,8 +294,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 }
 
 .welcome-primary-action,
-.welcome-secondary-action,
-.welcome-agent-button {
+.welcome-secondary-action {
     display: inline-flex;
     height: 34px;
     align-items: center;
@@ -355,21 +325,13 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 .welcome-secondary-action:hover,
 .welcome-row:hover,
 .welcome-tab-row:hover,
-.welcome-location-row:hover,
 .welcome-empty-row:hover {
     background: var(--bg-hover);
     border-color: var(--border-strong);
 }
 
-.welcome-quick-grid {
-    display: grid;
-    gap: 0.75rem;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .welcome-row,
 .welcome-tab-row,
-.welcome-location-row,
 .welcome-empty-row {
     display: flex;
     align-items: center;
@@ -387,8 +349,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
     padding: 0.75rem;
 }
 
-.welcome-tab-list,
-.welcome-location-list {
+.welcome-tab-list {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
@@ -399,11 +360,6 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
     padding: 0.5rem 0.75rem;
 }
 
-.welcome-location-row {
-    min-height: 46px;
-    padding: 0.45rem 0.65rem;
-}
-
 .welcome-empty-row {
     min-height: 46px;
     padding: 0.6rem 0.75rem;
@@ -411,41 +367,24 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
     font-size: 12px;
 }
 
-.welcome-agent-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-color);
-    border-radius: 10px;
-}
-
-.welcome-agent-button {
-    align-self: flex-start;
-    color: var(--accent-text);
-    background: var(--accent-bg);
-    border: 1px solid var(--accent-main);
-}
-
-.welcome-agent-button:hover {
-    background: var(--bg-hover);
+.welcome-section-hint {
+    color: var(--text-muted);
+    font-size: 11px;
 }
 
 @container (max-width: 760px) {
     .studio-welcome-hero {
         align-items: flex-start;
         flex-direction: column;
-        gap: 1rem;
     }
 
-    .studio-welcome-main {
-        grid-template-columns: 1fr;
+    .welcome-hero-actions {
+        justify-content: flex-start;
     }
 }
 
 @container (max-width: 520px) {
-    .welcome-quick-grid {
+    .welcome-action-grid {
         grid-template-columns: 1fr;
     }
 }

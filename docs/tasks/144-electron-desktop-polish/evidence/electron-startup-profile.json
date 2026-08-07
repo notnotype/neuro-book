@@ -1,0 +1,32 @@
+{
+    "schema": "nbook.task144.electron-startup-profile/v1",
+    "capturedAt": "2026-08-07T13:50:26.093Z",
+    "scope": "envelope-visible-acceptance-with-existing-verified-product",
+    "productImage": {
+        "imageId": "sha256:abeaf860cc54ef39a46861414ba31a4124ae902016842f3ba74ff64a6f3add2c",
+        "sourceRevision": "5b6a90a8dcf4bc9def93ca9d660fc2187cc71813"
+    },
+    "electron": {
+        "startupPageVisibleMs": 599.6,
+        "productReadyMs": 7491.39,
+        "bridgeReadyMs": 7700.73,
+        "windowReadyMs": 7702.18,
+        "titleBar": {
+            "y": 0,
+            "height": 35.997596740722656
+        },
+        "pageShell": {
+            "y": 35.997596740722656
+        },
+        "quit": {
+            "method": "Desktop Bridge file.quit via CDP",
+            "processTreeClosed": true,
+            "cdpPortClosed": true
+        }
+    },
+    "limitations": [
+        "Product image predates the Task 144 frontend changes.",
+        "This is one visible run, not the required five cold and five warm startup samples.",
+        "This evidence is not a clean Product Build A/B or release Portable baseline."
+    ]
+}

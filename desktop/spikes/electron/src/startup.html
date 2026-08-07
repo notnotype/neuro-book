@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="color-scheme" content="light dark">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeuroBook</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: "Segoe UI", system-ui, sans-serif;
+            background: #f4ecd8;
+            color: #5b4e3d;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: #f4ecd8;
+        }
+        main {
+            width: min(440px, calc(100vw - 48px));
+            padding: 36px 40px;
+            text-align: center;
+        }
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            color: #2d261d;
+            font-size: 24px;
+            font-weight: 650;
+        }
+        .mark {
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            border: 1px solid #d9c6a1;
+            border-radius: 50%;
+            color: #c8642d;
+            font-size: 17px;
+        }
+        [data-stage] {
+            min-height: 24px;
+            margin: 24px 0 14px;
+            color: #806c52;
+            font-size: 14px;
+        }
+        .progress {
+            height: 4px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #e5d5b6;
+        }
+        .progress::after {
+            content: "";
+            display: block;
+            width: 35%;
+            height: 100%;
+            border-radius: inherit;
+            background: #d96f35;
+            animation: progress 1.2s ease-in-out infinite;
+        }
+        [data-error] {
+            display: none;
+            margin-top: 18px;
+            padding: 12px;
+            border: 1px solid #d6a079;
+            border-radius: 8px;
+            background: #f7e7d4;
+            color: #8a3f1e;
+            font-size: 13px;
+            line-height: 1.5;
+            text-align: left;
+            white-space: pre-wrap;
+        }
+        [data-actions] {
+            display: none;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 14px;
+        }
+        button {
+            min-height: 34px;
+            padding: 0 12px;
+            border: 1px solid #d9c6a1;
+            border-radius: 7px;
+            background: #fbf4e4;
+            color: #5b4e3d;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+        }
+        button:hover { background: #eee0c3; }
+        button[data-action="quit"] {
+            border-color: #c8642d;
+            background: #d96f35;
+            color: #fffaf0;
+        }
+        @keyframes progress {
+            0% { transform: translateX(-120%); }
+            100% { transform: translateX(320%); }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <div class="brand"><span class="mark">✎</span><span>NeuroBook</span></div>
+        <p data-stage>正在启动 NeuroBook...</p>
+        <div class="progress" data-progress></div>
+        <div data-error role="alert"></div>
+        <div data-actions>
+            <button type="button" data-action="retry">重试</button>
+            <button type="button" data-action="repair">修复后重试</button>
+            <button type="button" data-action="open-logs">打开日志</button>
+            <button type="button" data-action="quit">退出</button>
+        </div>
+    </main>
+    <script>
+        (() => {
+            const stage = document.querySelector("[data-stage]");
+            const error = document.querySelector("[data-error]");
+            const actions = document.querySelector("[data-actions]");
+            const progress = document.querySelector("[data-progress]");
+            const bridge = window.neuroBookStartup;
+            const setStage = (value) => { if (stage) stage.textContent = value; };
+            const setError = (value) => {
+                if (!error || !actions || !progress) return;
+                error.textContent = value || "";
+                error.style.display = value ? "block" : "none";
+                actions.style.display = value ? "grid" : "none";
+                progress.style.display = value ? "none" : "block";
+            };
+            bridge?.onStage(setStage);
+            bridge?.onError(setError);
+            document.querySelectorAll("[data-action]").forEach((button) => {
+                button.addEventListener("click", () => bridge?.action(button.dataset.action));
+            });
+        })();
+    </script>
+</body>
+</html>

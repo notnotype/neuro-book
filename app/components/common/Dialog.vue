@@ -39,14 +39,14 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
         maxHeight: "calc(100vh - 32px)",
     },
     xl: {
-        width: "min(1040px, calc(100vw - 48px))",
-        height: "min(720px, calc(100vh - 64px))",
-        maxHeight: "calc(100vh - 64px)",
+        width: "min(960px, calc(100vw - 48px))",
+        height: "min(600px, calc(100dvh - 80px))",
+        maxHeight: "calc(100dvh - 80px)",
     },
     full: {
-        width: "min(1200px, calc(100vw - 64px))",
-        height: "min(720px, calc(100vh - 96px))",
-        maxHeight: "calc(100vh - 96px)",
+        width: "min(1120px, calc(100vw - 48px))",
+        height: "min(640px, calc(100dvh - 80px))",
+        maxHeight: "calc(100dvh - 80px)",
     },
 };
 
@@ -241,8 +241,10 @@ onMounted(() => {
                 'bg-transparent'
             ]" @pointerdown.self="handleOverlayPointerDown" @pointerup.self="handleOverlayPointerUp" @contextmenu.self="handleOverlayContextMenu">
                 <!-- 对话框主体 -->
-                <div 
+                <div
                     class="nb-dialog-surface flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transform"
+                    :data-dialog-size="props.size"
+                    data-dialog-surface
                     :style="{ width: resolvedWidth, height: resolvedHeight, maxHeight: resolvedMaxHeight }"
                 >
                     <!-- header 区域 -->

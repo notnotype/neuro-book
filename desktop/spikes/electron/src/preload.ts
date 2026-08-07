@@ -17,3 +17,22 @@ const bridge: DesktopBridge = {
     },
 };
 contextBridge.exposeInMainWorld("neuroBookDesktop", bridge);
+
+if (window.location.protocol === "file:") {
+    const startupBridge = {
+        action: (action: string): void => {
+            ipcRenderer.send("t140:startup-action", action);
+        },
+        onStage: (listener: (stage: string) => void): (() => void) => {
+            const handler = (_event: Electron.IpcRendererEvent, stage: string): void => listener(stage);
+            ipcRenderer.on("neurobook:startup-stage", handler);
+            return () => ipcRenderer.removeListener("neurobook:startup-stage", handler);
+        },
+        onError: (listener: (message: string) => void): (() => void) => {
+            const handler = (_event: Electron.IpcRendererEvent, message: string): void => listener(message);
+            ipcRenderer.on("neurobook:startup-error", handler);
+            return () => ipcRenderer.removeListener("neurobook:startup-error", handler);
+        },
+    };
+    contextBridge.exposeInMainWorld("neuroBookStartup", startupBridge);
+}

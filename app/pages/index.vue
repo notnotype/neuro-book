@@ -368,6 +368,9 @@ const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSes
 const agentModeRunning = computed(() => agentSurfaceRef.value?.running ?? false);
 const agentModeSessionActionId = computed(() => agentSurfaceRef.value?.sessionActionId ?? null);
 const agentModeReservedWidth = computed(() => 56 + (agentSessionPanelOpen.value ? agentSessionPanelWidth.value : 0) + 340);
+const {width: viewportWidth} = useWindowSize();
+const agentPanelMaxWidth = computed(() => Math.max(360, Math.floor((viewportWidth.value || 1280) * 0.45)));
+const agentPanelOverlay = computed(() => viewportWidth.value > 0 && viewportWidth.value < 800);
 const agentStudioMaxWidth = computed(() => {
     if (!import.meta.client) {
         return 620;
@@ -385,7 +388,7 @@ const agentStudioPanelOpen = computed(() => workspaceBootstrapped.value && agent
 const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
     size: computed(() => agentPanelWidth.value),
     minSize: 320,
-    maxSize: 720,
+    maxSize: agentPanelMaxWidth,
     edge: "left",
     enabled: computed(() => !isAgentMode.value && displayAgentPanelOpen.value),
     syncDuringResize: true,
@@ -2512,7 +2515,7 @@ onBeforeUnmount(() => {
             @logout="void logout()"
         />
 
-        <div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <!-- 未选择 Project：项目选择界面接管整页 -->
         <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
@@ -2690,6 +2693,7 @@ onBeforeUnmount(() => {
                 class="mode-transition-agent relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-[width,flex,opacity,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
                 :class="[
                     isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 border-l border-[var(--border-color)] opacity-100',
+                    agentPanelOverlay && !isAgentMode ? 'absolute right-0 top-0 bottom-0 min-w-0 border-l border-[var(--border-color)] shadow-2xl' : '',
                     layoutTransitionDirection ? 'transition-none' : '',
                     resizingAgentPanel ? 'select-none transition-none' : '',
                 ]"

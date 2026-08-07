@@ -34,7 +34,7 @@ const props = withDefaults(defineProps<{
     title: "",
     width: 560,
     height: "auto",
-    maxHeight: "calc(100vh - 32px)",
+    maxHeight: "calc(100dvh - 80px)",
     closable: true,
     closeOnEsc: true,
     busy: false,
@@ -141,7 +141,7 @@ onMounted(() => {
     <!-- 浮动窗口（无遮罩，页面保持可交互） -->
     <Teleport v-if="isMounted" :to="teleportTarget">
         <Transition name="nb-dialog-window">
-            <div v-if="modelValue" ref="windowRef" class="nb-dialog-window fixed z-[8990] flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] text-[var(--text-main)]" :style="windowStyle">
+            <div v-if="modelValue" ref="windowRef" class="nb-dialog-window fixed z-[8990] flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] text-[var(--text-main)]" data-dialog-window data-dialog-surface :style="windowStyle">
                 <!-- 标题栏（拖动手柄） -->
                 <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] pr-2">
                     <div ref="dragHandleRef" class="flex min-w-0 flex-1 cursor-move touch-none select-none items-center gap-2 py-2 pl-4">
