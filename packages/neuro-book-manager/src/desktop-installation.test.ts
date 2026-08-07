@@ -15,11 +15,13 @@ const productMocks = vi.hoisted(() => ({
 }));
 const appCommandMocks = vi.hoisted(() => ({
     createAdmin: vi.fn(),
+    enableAuthentication: vi.fn(),
 }));
 
 vi.mock("#manager/process", () => processMocks);
 vi.mock("#manager/product", () => ({verifyInstalledProductRuntimeImage: productMocks.verify}));
 vi.mock("#manager/app-commands", () => ({createAdmin: appCommandMocks.createAdmin}));
+vi.mock("#manager/config", () => ({enableAuthentication: appCommandMocks.enableAuthentication}));
 
 import {
     assertDesktopPortableInstallable,
@@ -50,6 +52,7 @@ beforeEach(() => {
     processMocks.runCaptureResult.mockReset().mockResolvedValue({stdout: "", stderr: "", exitCode: 1, signal: null});
     productMocks.verify.mockReset().mockResolvedValue(undefined);
     appCommandMocks.createAdmin.mockReset().mockResolvedValue(undefined);
+    appCommandMocks.enableAuthentication.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(async () => {
@@ -155,6 +158,9 @@ describe("Desktop installation lifecycle", () => {
             expect.anything(),
             "admin",
             "correct horse battery staple",
+        );
+        expect(appCommandMocks.enableAuthentication).toHaveBeenCalledWith(
+            join(root, "LocalAppData", "NeuroBook", "data"),
         );
     });
 

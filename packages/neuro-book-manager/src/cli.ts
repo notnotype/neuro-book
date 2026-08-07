@@ -34,7 +34,7 @@ import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseCha
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
-import {configureDesktopProvider} from "#manager/desktop-provider";
+import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -448,6 +448,9 @@ desktop.command("install")
             } else if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
                 adminPassword = await promptResult(p.password({message: "设置 NeuroBook 管理员密码", mask: "*"}));
             }
+            if (adminPassword === undefined) {
+                throw new Error("--enable-auth 必须同时提供管理员密码；交互模式使用隐藏输入，自动化模式使用 --password-stdin。" );
+            }
         }
         if (options.json) printNdjson({kind: "stage", stage: "validating-input"});
         const result = await installDesktopFromLocalDepot({
@@ -553,21 +556,7 @@ desktop.command("configure-provider")
     .option("--json", "以单行 NDJSON 输出回执。", false)
     .action(async (options: {json: boolean}) => {
         const {root, manifest} = await currentInstallation();
-        if (!process.stdin.isTTY) {
-            // stdin is intentionally read as raw UTF-8; do not trim secrets.
-        } else {
-            throw new Error("configure-provider 必须通过 stdin 传入 JSON。");
-        }
-        const chunks: Buffer[] = [];
-        for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-        const value = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-            name?: string;
-            baseURL?: string;
-            api?: string;
-            apiKey?: string;
-            model?: string;
-            discoverModels?: boolean;
-        };
+        const value = await readDesktopProviderInput();
         const roots = installationPaths(root, manifest.roots);
         const result = await configureDesktopProvider(roots.state, {
             name: value.name ?? "",
@@ -579,6 +568,16 @@ desktop.command("configure-provider")
         });
         if (options.json) printNdjson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
         else printJson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
+    });
+desktop.command("test-provider")
+    .description("通过 stdin 测试自定义 Provider 的可达性；失败只显示警告，不阻止保存。")
+    .requiredOption("--stdin-json", "从 stdin 读取 Provider JSON。")
+    .option("--json", "以单行 NDJSON 输出回执。", false)
+    .action(async (options: {json: boolean}) => {
+        const result = await testDesktopProvider(await readDesktopProviderInput());
+        const output = {kind: "provider-test", ...result};
+        if (options.json) printNdjson(output);
+        else printJson(output);
     });
 
 const runtime = program.command("runtime").description("管理 Bun Runtime。");
@@ -873,4 +872,33 @@ function printObject(value: object): void {
     for (const [key, item] of Object.entries(value)) {
         console.log(`${key}: ${typeof item === "object" ? JSON.stringify(item) : String(item)}`);
     }
+}
+
+async function readDesktopProviderInput(): Promise<{
+    name: string;
+    baseURL: string;
+    api: string;
+    apiKey: string;
+    model: string;
+    discoverModels?: boolean;
+}> {
+    if (process.stdin.isTTY) throw new Error("Provider JSON 必须通过 stdin 传入。");
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+    const value = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+        name?: string;
+        baseURL?: string;
+        api?: string;
+        apiKey?: string;
+        model?: string;
+        discoverModels?: boolean;
+    };
+    return {
+        name: value.name ?? "",
+        baseURL: value.baseURL ?? "",
+        api: value.api ?? "",
+        apiKey: value.apiKey ?? "",
+        model: value.model ?? "",
+        discoverModels: value.discoverModels,
+    };
 }

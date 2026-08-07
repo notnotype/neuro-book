@@ -23,5 +23,10 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(packager).toContain('join(envelopeDist, "manager-preload.cjs")');
         expect(packager).toContain("NeuroBook-Manager.cmd");
         expect(html).toContain("校验并安装");
+        expect(html).toContain("--password-stdin");
+        expect(html).toContain('$("adminPassword").value = ""');
+        expect(html).toContain('id="apiKey" type="password"');
+        expect(html).toContain('value="openai-responses"');
+        expect(html).not.toContain('id="api" value="openai-completions"');
     });
 });

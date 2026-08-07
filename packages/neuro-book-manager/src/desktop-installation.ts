@@ -20,6 +20,7 @@ import {
 
 import {downloadVerified, extractZip} from "#manager/download";
 import {createAdmin} from "#manager/app-commands";
+import {enableAuthentication} from "#manager/config";
 import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
@@ -119,7 +120,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         await ensureDirectory(roots.cache);
         await ensureDirectory(roots.desktop);
         await ensureDirectory(roots.webview);
-        if (options.adminPassword === undefined && !(await pathExists(join(roots.state, "config.yaml")))) {
+        if (!(await pathExists(join(roots.state, "config.yaml")))) {
             await writeFile(join(roots.state, "config.yaml"), "auth:\n    enabled: false\n", "utf8");
         }
         await writeDesktopRuntimeConfig(installationRoot);
@@ -129,6 +130,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         if (options.connection.mode === "local") {
             if (options.adminPassword !== undefined) {
                 await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
+                await enableAuthentication(roots.state);
             }
         }
         await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath);

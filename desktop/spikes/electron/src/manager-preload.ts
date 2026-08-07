@@ -1,7 +1,7 @@
 import {contextBridge, ipcRenderer} from "electron";
 
 type ManagerRunInput = {
-    action: "install" | "status" | "doctor" | "repair" | "uninstall" | "configure-provider";
+    action: "install" | "status" | "doctor" | "repair" | "uninstall" | "configure-provider" | "test-provider";
     args: string[];
     stdin?: string;
 };

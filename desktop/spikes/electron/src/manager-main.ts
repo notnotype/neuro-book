@@ -7,7 +7,7 @@ import {fileURLToPath, pathToFileURL} from "node:url";
 import {createInterface} from "node:readline";
 
 type ManagerRunInput = {
-    action: "install" | "status" | "doctor" | "repair" | "uninstall" | "configure-provider";
+    action: "install" | "status" | "doctor" | "repair" | "uninstall" | "configure-provider" | "test-provider";
     args: string[];
     stdin?: string;
 };
@@ -17,7 +17,7 @@ type ManagerRunResult = {
     signal: string | null;
 };
 
-const ALLOWED_ACTIONS = new Set<ManagerRunInput["action"]>(["install", "status", "doctor", "repair", "uninstall", "configure-provider"]);
+const ALLOWED_ACTIONS = new Set<ManagerRunInput["action"]>(["install", "status", "doctor", "repair", "uninstall", "configure-provider", "test-provider"]);
 let lastInstallationRoot: string | null = null;
 
 export async function runManagerGui(): Promise<void> {

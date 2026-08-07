@@ -2,9 +2,9 @@ import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 
-import {configureDesktopProvider} from "#manager/desktop-provider";
+import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
 
 describe("desktop provider first-run configuration", () => {
     it("writes a runnable custom provider without exposing a secret in the result", async () => {
@@ -48,5 +48,62 @@ describe("desktop provider first-run configuration", () => {
         } finally {
             await rm(root, {recursive: true, force: true});
         }
+    });
+
+    it("does not fail installation when the provider is offline", async () => {
+        const fetchMock = vi.fn().mockRejectedValue(new Error("offline"));
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            const result = await testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1",
+                api: "openai-completions",
+                apiKey: "secret",
+                model: "writer",
+            });
+            expect(result).toEqual({ok: false, status: null, warning: expect.stringContaining("离线")});
+            expect(fetchMock).toHaveBeenCalledWith(
+                new URL("https://provider.example/v1/models"),
+                expect.objectContaining({headers: {Authorization: "Bearer secret"}}),
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("accepts a successful HTTP check without echoing the API key", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response("{}", {status: 200}));
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            const result = await testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1/",
+                api: "openai-responses",
+                apiKey: "secret",
+                model: "writer",
+            });
+            expect(result).toEqual({ok: true, status: 200, warning: null});
+            expect(fetchMock.mock.calls[0]?.[0]).toEqual(new URL("https://provider.example/v1/models"));
+            expect(JSON.stringify(result)).not.toContain("secret");
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("rejects unsupported API types and credentials embedded in the URL", async () => {
+        await expect(testDesktopProvider({
+            name: "Provider",
+            baseURL: "https://provider.example/v1",
+            api: "custom-api",
+            apiKey: "",
+            model: "writer",
+        })).rejects.toThrow("不支持的 Provider API 类型");
+        await expect(testDesktopProvider({
+            name: "Provider",
+            baseURL: "https://user:secret@provider.example/v1",
+            api: "openai-completions",
+            apiKey: "",
+            model: "writer",
+        })).rejects.toThrow("不能携带用户名或密码");
     });
 });

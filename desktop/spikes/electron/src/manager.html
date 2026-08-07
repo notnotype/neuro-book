@@ -43,10 +43,19 @@
             <input id="baseURL" placeholder="Base URL，例如 https://api.example.com/v1">
             <input id="model" placeholder="默认模型 ID">
         </div>
-        <input id="api" value="openai-completions" aria-label="API 类型">
+        <select id="api" aria-label="API 类型">
+            <option value="openai-completions">OpenAI Chat Completions</option>
+            <option value="openai-responses">OpenAI Responses</option>
+            <option value="anthropic-messages">Anthropic Messages</option>
+            <option value="google-generative-ai">Google Generative AI</option>
+            <option value="bedrock-converse-stream">Bedrock Converse Stream</option>
+        </select>
         <input id="apiKey" type="password" placeholder="API Key（只通过 stdin 传递）">
-        <p class="muted">本地 Desktop 默认关闭 auth；只有显式填写管理员密码并选择启用时才创建管理员。Provider 连接失败不阻止保存。</p>
+        <label><input id="enableAuth" type="checkbox"> 安装后启用本地登录</label>
+        <input id="adminPassword" type="password" placeholder="管理员密码（仅在启用登录时使用）">
+        <p class="muted">本地 Desktop 默认关闭 auth；只有显式勾选并填写管理员密码时才创建管理员。Provider 连接失败不阻止保存。</p>
         <div class="row">
+            <button class="secondary" id="testProvider">测试 Provider</button>
             <button id="install">校验并安装</button>
             <button class="secondary" id="repair">修复组件</button>
             <button class="secondary" id="status">检查状态</button>
@@ -65,6 +74,24 @@
     const log = (value) => { const text = typeof value === "string" ? value : JSON.stringify(value); $("log").textContent += `\n${text}`; $("log").scrollTop = $("log").scrollHeight; };
     $("choose").addEventListener("click", async () => { const path = await bridge.chooseDepot(); if (path) $("depot").value = path; });
     $("quit").addEventListener("click", () => bridge.quit());
+    function providerInput() {
+        return {
+            name: $("providerName").value.trim(),
+            baseURL: $("baseURL").value.trim(),
+            api: $("api").value.trim(),
+            apiKey: $("apiKey").value,
+            model: $("model").value.trim(),
+        };
+    }
+    $("testProvider").addEventListener("click", async () => {
+        const result = await bridge.run({
+            action: "test-provider",
+            args: ["desktop", "test-provider", "--stdin-json", "--json"],
+            stdin: JSON.stringify(providerInput()),
+        });
+        $("apiKey").value = "";
+        log({kind: "provider-test-process-exit", ...result});
+    });
     async function runSimple(action, args) {
         const result = await bridge.run({action, args});
         log({kind: `${action}-process-exit`, ...result});
@@ -77,14 +104,16 @@
         if (!depot) { log("请先选择 Depot 或 Portable ZIP。"); return; }
         $("install").disabled = true;
         const args = ["desktop", "install", "--archive", depot, "--scope", $("scope").value, "--envelope", "electron", "--yes", "--json"];
+        const adminPassword = $("adminPassword").value;
+        if ($("enableAuth").checked) {
+            if (!adminPassword) { log("启用登录时必须填写管理员密码。"); $("install").disabled = false; return; }
+            args.push("--enable-auth", "--password-stdin");
+        }
         log({kind: "stage", stage: "starting"});
-        const result = await bridge.run({action: "install", args});
+        const result = await bridge.run({action: "install", args, ...(adminPassword ? {stdin: adminPassword} : {})});
+        $("adminPassword").value = "";
         log({kind: "process-exit", ...result});
-        const providerName = $("providerName").value.trim();
-        const baseURL = $("baseURL").value.trim();
-        const apiKey = $("apiKey").value;
-        const model = $("model").value.trim();
-        const api = $("api").value.trim();
+        const {name: providerName, baseURL, apiKey, model, api} = providerInput();
         if (result.exitCode === 0 && providerName && baseURL && apiKey && model) {
             log({kind: "stage", stage: "saving-provider"});
             const providerResult = await bridge.run({
