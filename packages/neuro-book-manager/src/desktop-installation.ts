@@ -14,6 +14,7 @@ import {
     type DesktopDistributionManifest,
     type DesktopEnvelope,
     type DesktopInstallationManifest,
+    type DesktopInstallationScope,
     type DesktopShellArchiveManifest,
 } from "nbook/shared/desktop-contract";
 
@@ -42,6 +43,7 @@ export type DesktopLocalDepot = {
     envelope: DesktopEnvelope;
     channel: "stable" | "canary";
     connection: DesktopConnection;
+    installationScope?: DesktopInstallationScope;
     installationRoot?: string;
     addCliToUserPath: boolean;
     /** 本地 Product 首次安装时创建管理员；远端连接不允许携带该值。 */
@@ -80,13 +82,10 @@ export type PortableArchiveManifest = {
     toolPack: {digest: string};
 };
 
-/** 从本地 depot 安装 Windows 用户级 Desktop；远端模式只安装壳并探测服务端能力。 */
+/** 从本地 depot 安装 Windows Desktop；远端模式只安装壳并探测服务端能力。 */
 export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): Promise<DesktopInstallResult> {
     assertWindowsDesktopHost();
     if (options.connection.mode === "remote") return installDesktopShellFromLocalDepot(options);
-    if (options.connection.mode === "local" && options.adminPassword === undefined) {
-        throw new Error("本地 Desktop 首次安装必须提供管理员密码。" );
-    }
     if (options.shellArchivePath !== undefined) throw new Error("本地 Desktop 安装必须使用完整 Portable archive，不接受 shell archive。" );
     if (options.archivePath !== undefined && options.distributionManifestPath !== undefined) {
         throw new Error("本地 Desktop 安装不能同时提供 archive 和 distribution manifest。" );
@@ -94,7 +93,9 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
     if (!options.archivePath && !options.distributionManifestPath) {
         throw new Error("本地 Desktop 安装缺少 Portable archive 或 distribution manifest。" );
     }
-    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot());
+    const installationScope = options.installationScope ?? "user";
+    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot(installationScope));
+    await assertInstallationScopeWritable(installationRoot, installationScope);
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
@@ -118,12 +119,17 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         await ensureDirectory(roots.cache);
         await ensureDirectory(roots.desktop);
         await ensureDirectory(roots.webview);
+        if (options.adminPassword === undefined && !(await pathExists(join(roots.state, "config.yaml")))) {
+            await writeFile(join(roots.state, "config.yaml"), "auth:\n    enabled: false\n", "utf8");
+        }
         await writeDesktopRuntimeConfig(installationRoot);
         await writeManagerWrappers(installationRoot, applicationManifest);
         const desktopManifest = await createDesktopInstallationManifest(options, installationRoot, applicationManifest, portable);
         await writeJsonAtomic(join(roots.desktop, DESKTOP_INSTALLATION_FILE), desktopManifest);
         if (options.connection.mode === "local") {
-            await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
+            if (options.adminPassword !== undefined) {
+                await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
+            }
         }
         await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath);
         return {installationRoot, stateRoot: roots.state, cacheRoot: roots.cache, desktopRoot: roots.desktop, manifest: desktopManifest, applicationManifest};
@@ -154,7 +160,9 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     }
     if (options.addCliToUserPath) throw new Error("远端 Desktop 只安装壳，不携带 Manager CLI，不能修改用户 PATH。" );
     const capability = await probeRemoteDesktopCapability(options.connection.baseUrl, options.connection.insecureHttpAccepted);
-    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot());
+    const installationScope = options.installationScope ?? "user";
+    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot(installationScope));
+    await assertInstallationScopeWritable(installationRoot, installationScope);
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
@@ -364,19 +372,30 @@ async function createDesktopInstallationManifest(
     const manager = applicationManifest.components.manager;
     const managerRuntime = applicationManifest.components.managerRuntime;
     if (managerRuntime.provider !== "managed") throw new Error("Desktop 安装需要 managed Bun Runtime。" );
+    const installationScope = options.installationScope ?? "user";
+    const components = [
+        {id: "product" as const, version: applicationManifest.appVersion, path: ".output", sha256: portable.product.imageId},
+        {id: "bun" as const, version: managerRuntime.version, path: managerRuntime.path, sha256: `sha256:${managerRuntime.executableSha256}`},
+        {id: "manager-cli" as const, version: manager.version, path: manager.path, sha256: `sha256:${manager.bundleSha256}`},
+        {id: "tool-pack" as const, version: "portable", path: "tools", sha256: portable.toolPack.digest},
+        {id: envelopeId as "electron-envelope" | "tauri-envelope", version: portable.runtime.envelopeVersion, path: envelopePath, sha256: await fileSha256(root, envelopePath)},
+    ];
     const value = {
-        schema: "nbook.desktop-installation/v1",
+        schema: "nbook.desktop-installation/v2",
         installationId: randomUUID(),
+        installationScope,
+        programRoot: ".",
+        userRoots: desktopUserRoots(applicationManifest.roots),
         envelope: options.envelope,
         channel: options.channel,
         connection: options.connection,
-        components: [
-            {id: "product", version: applicationManifest.appVersion, path: ".output", sha256: portable.product.imageId},
-            {id: "bun", version: managerRuntime.version, path: managerRuntime.path, sha256: `sha256:${managerRuntime.executableSha256}`},
-            {id: "manager-cli", version: manager.version, path: manager.path, sha256: `sha256:${manager.bundleSha256}`},
-            {id: "tool-pack", version: "portable", path: "tools", sha256: portable.toolPack.digest},
-            {id: envelopeId, version: portable.runtime.envelopeVersion, path: envelopePath, sha256: await fileSha256(root, envelopePath)},
-        ],
+        components,
+        receipts: components.map((component) => ({...component, source: "depot" as const})),
+        uninstall: {
+            preserveStateRootByDefault: true as const,
+            deleteStateRootRequiresExplicit: true as const,
+            preserveExternalProjectWorkspace: true as const,
+        },
         addCliToUserPath: options.addCliToUserPath,
         installedAt: now,
         updatedAt: now,
@@ -392,20 +411,30 @@ function createRemoteDesktopInstallationManifest(
     if (options.connection.mode !== "remote") throw new Error("远端 Desktop 清单必须使用 remote connection。" );
     const envelopeId = options.envelope === "electron" ? "electron-envelope" : "tauri-envelope";
     const now = new Date().toISOString();
+    const components = [{id: envelopeId as "electron-envelope" | "tauri-envelope", version: shell.envelopeVersion, path: shell.envelopePath, sha256: shell.envelopeSha256}];
     return parseDesktopInstallationManifest({
-        schema: "nbook.desktop-installation/v1",
+        schema: "nbook.desktop-installation/v2",
         installationId: randomUUID(),
+        installationScope: options.installationScope ?? "user",
+        programRoot: ".",
+        userRoots: INSTALLED_WINDOWS_ROOT_LOCATORS,
         envelope: options.envelope,
         channel: options.channel,
         connection: options.connection,
-        components: [{id: envelopeId, version: shell.envelopeVersion, path: shell.envelopePath, sha256: shell.envelopeSha256}],
+        components,
+        receipts: components.map((component) => ({...component, source: "depot" as const})),
+        uninstall: {
+            preserveStateRootByDefault: true as const,
+            deleteStateRootRequiresExplicit: true as const,
+            preserveExternalProjectWorkspace: true as const,
+        },
         addCliToUserPath: options.addCliToUserPath,
         installedAt: now,
         updatedAt: now,
     });
 }
 
-/** 注册用户级开始菜单、桌面快捷方式、卸载项和 neurobook:// 协议。 */
+/** 注册开始菜单、桌面快捷方式、卸载项和 neurobook:// 协议。 */
 export async function registerWindowsDesktop(root: string, manifest: DesktopInstallationManifest, addCliToUserPath: boolean, uninstallLauncher?: string): Promise<void> {
     const envelopeId = manifest.envelope === "electron" ? "electron-envelope" : "tauri-envelope";
     const envelope = manifest.components.find((component) => component.id === envelopeId);
@@ -416,17 +445,28 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
     // exercised from a POSIX CI runner with a mocked Windows host.
     const managerCommandPath = win32.join(root, ".runtime", "bin", "neuro-book.cmd");
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
-    const startMenu = join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "NeuroBook");
-    const desktop = join(process.env.USERPROFILE ?? homedir(), "Desktop");
+    const commonAppData = process.env.ProgramData ?? join(process.env.SystemDrive ?? "C:", "ProgramData");
+    const startMenuBase = manifest.installationScope === "machine"
+        ? join(commonAppData, "Microsoft", "Windows", "Start Menu", "Programs")
+        : join(appData, "Microsoft", "Windows", "Start Menu", "Programs");
+    const desktopBase = manifest.installationScope === "machine"
+        ? (process.env.PUBLIC ? join(process.env.PUBLIC, "Desktop") : join(commonAppData, "Desktop"))
+        : join(process.env.USERPROFILE ?? homedir(), "Desktop");
+    const startMenu = join(startMenuBase, "NeuroBook");
+    const desktop = desktopBase;
     const shortcutPaths = [join(startMenu, "NeuroBook.lnk"), join(desktop, "NeuroBook.lnk")];
-    const uninstallKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook";
-    const protocolKey = "HKCU\\Software\\Classes\\neurobook";
+    const managerLauncher = join(root, "desktop", "NeuroBook-Manager.cmd");
+    const managerShortcut = join(startMenu, "NeuroBook Manager.lnk");
+    const registryHive = manifest.installationScope === "machine" ? "HKLM" : "HKCU";
+    const uninstallKey = `${registryHive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook`;
+    const protocolKey = `${registryHive}\\Software\\Classes\\neurobook`;
     const previousPath = addCliToUserPath ? await readUserPath() : null;
     try {
         await ensureDirectory(startMenu);
         await ensureDirectory(desktop);
         await createShortcut(shortcutPaths[0]!, executable, root);
         await createShortcut(shortcutPaths[1]!, executable, root);
+        if (await pathExists(managerLauncher)) await createShortcut(managerShortcut, managerLauncher, root);
         await regAdd(uninstallKey, "DisplayName", "NeuroBook");
         await regAdd(uninstallKey, "InstallLocation", root);
         let uninstallCommand: string;
@@ -469,13 +509,22 @@ export async function removeWindowsDesktopRegistration(
 ): Promise<void> {
     assertWindowsDesktopHost();
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
+    const commonAppData = process.env.ProgramData ?? join(process.env.SystemDrive ?? "C:", "ProgramData");
+    const startMenuBase = manifest.installationScope === "machine"
+        ? join(commonAppData, "Microsoft", "Windows", "Start Menu", "Programs")
+        : join(appData, "Microsoft", "Windows", "Start Menu", "Programs");
+    const desktopBase = manifest.installationScope === "machine"
+        ? (process.env.PUBLIC ? join(process.env.PUBLIC, "Desktop") : join(commonAppData, "Desktop"))
+        : join(process.env.USERPROFILE ?? homedir(), "Desktop");
     const shortcutPaths = [
-        join(appData, "Microsoft", "Windows", "Start Menu", "Programs", "NeuroBook", "NeuroBook.lnk"),
-        join(process.env.USERPROFILE ?? homedir(), "Desktop", "NeuroBook.lnk"),
+        join(startMenuBase, "NeuroBook", "NeuroBook.lnk"),
+        join(desktopBase, "NeuroBook.lnk"),
+        join(startMenuBase, "NeuroBook", "NeuroBook Manager.lnk"),
     ];
     await Promise.all(shortcutPaths.map((path) => rm(path, {force: true})));
-    await regDelete("HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook");
-    await regDelete("HKCU\\Software\\Classes\\neurobook");
+    const registryHive = manifest.installationScope === "machine" ? "HKLM" : "HKCU";
+    await regDelete(`${registryHive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook`);
+    await regDelete(`${registryHive}\\Software\\Classes\\neurobook`);
     if (manifest.addCliToUserPath) {
         if (previousPath) await writeUserPath(previousPath);
         else await removeUserPath(dirname(join(root, ".runtime", "bin", "neuro-book.cmd")));
@@ -611,9 +660,49 @@ function assertWindowsDesktopHost(): void {
     if (process.arch !== "x64") throw new Error(`Desktop Windows 用户级安装只支持 x64，当前为 ${process.arch}。`);
 }
 
-function defaultInstallationRoot(): string {
+function defaultInstallationRoot(scope: "user" | "machine" = "user"): string {
+    if (scope === "machine") {
+        return join(process.env.ProgramFiles ?? join(process.env.SystemDrive ?? "C:", "Program Files"), "NeuroBook");
+    }
     const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
     return join(localAppData, DEFAULT_INSTALLATION_ROOT);
+}
+
+function desktopUserRoots(roots: InstallationManifest["roots"]): {
+    state: {base: "local-app-data" | "user-app-data"; path: string};
+    cache: {base: "local-app-data" | "user-cache"; path: string};
+    desktop: {base: "local-app-data" | "user-app-data"; path: string};
+    webview: {base: "local-app-data" | "user-app-data"; path: string};
+} {
+    const state = roots.state;
+    const cache = roots.cache;
+    const desktop = roots.desktop;
+    const webview = roots.webview;
+    if (!["local-app-data", "user-app-data"].includes(state.base)
+        || !["local-app-data", "user-cache"].includes(cache.base)
+        || !["local-app-data", "user-app-data"].includes(desktop.base)
+        || !["local-app-data", "user-app-data"].includes(webview.base)) {
+        throw new Error("Desktop 安装的用户 Root locator 必须指向用户级目录。");
+    }
+    return {
+        state: {base: state.base as "local-app-data" | "user-app-data", path: state.path},
+        cache: {base: cache.base as "local-app-data" | "user-cache", path: cache.path},
+        desktop: {base: desktop.base as "local-app-data" | "user-app-data", path: desktop.path},
+        webview: {base: webview.base as "local-app-data" | "user-app-data", path: webview.path},
+    };
+}
+
+async function assertInstallationScopeWritable(root: string, scope: "user" | "machine"): Promise<void> {
+    if (scope !== "machine") return;
+    const parent = dirname(root);
+    try {
+        await ensureDirectory(parent);
+        const probe = join(parent, `.neurobook-write-probe-${randomUUID()}`);
+        await writeFile(probe, "probe\n", "utf8");
+        await rm(probe, {force: true});
+    } catch (error) {
+        throw new Error(`全局安装需要管理员权限写入 ${parent}；请使用提升权限的 Manager GUI 重试。原因：${error instanceof Error ? error.message : String(error)}`);
+    }
 }
 
 function managerDesktopCacheRoot(): string {

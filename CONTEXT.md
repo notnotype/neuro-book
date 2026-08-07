@@ -64,9 +64,17 @@ _Avoid_: direct child process, PID tree scan, global process killer
 独立 npm 包 `@notnotype/neuro-book-manager` 提供的安装、更新、启动、诊断、Runtime 和 Tool 管理器，公开命令为 `neuro-book`。
 _Avoid_: application dependency installer
 
+**NeuroBook Manager GUI**:
+与主 Electron 共享 Chromium 载荷的独立安装向导进程。它只调用 Manager CLI/Supervisor 的结构化合同，显示安装、修复、组件检查和卸载状态，不直接执行 Product、数据库、Provider 或 shutdown 逻辑。
+_Avoid_: GUI-owned installer, second Electron runtime, Product replacement
+
 **Desktop Envelope**:
 围绕 Product Runtime 的 Electron 或 Tauri 宿主，拥有窗口、单实例、菜单、托盘、WebView profile 和设备本地状态；它通过 Manager/Supervisor 合同启动 Product，不复制业务命令。
 _Avoid_: Product replacement, browser-only shell, GUI Manager
+
+**Desktop Installation Manifest v2**:
+本机桌面安装的真相源，记录 `user`/`machine` 安装范围、程序相对根、State/Cache/Desktop/WebView 用户 locators、组件 receipts 和默认保留 State Root 的卸载策略；不保存 API Key、cookie 或 shutdown token。
+_Avoid_: portable payload manifest, absolute installation path, user content backup
 
 **Workspace Root `.nbook`**:
 Workspace Root 的全局控制区，保存 Global Config、用户 assets、Agent 资源覆盖层和全局运行状态。

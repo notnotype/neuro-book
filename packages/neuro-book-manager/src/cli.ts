@@ -34,6 +34,7 @@ import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseCha
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
+import {configureDesktopProvider} from "#manager/desktop-provider";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -381,11 +382,14 @@ desktop.command("install")
     .option("--channel <channel>", "发行通道：stable 或 canary。", parseChannel)
     .option("--remote <url>", "连接远端 Product；不传则使用本机 Product。")
     .option("--allow-insecure-http", "允许局域网 HTTP 远端；安装后状态仍标记为不安全。", false)
-    .option("--dir <path>", "Installation Root，默认 %LOCALAPPDATA%\\Programs\\NeuroBook。")
+    .option("--scope <scope>", "安装范围：user（当前用户，默认）或 machine（Program Files，需要管理员权限）。", "user")
+    .option("--dir <path>", "Installation Root；未指定时按 scope 选择默认目录。")
     .option("--runtime-provider <provider>", "Runtime provider；当前本地 depot 只支持 managed。", "managed")
     .option("--tool-provider <provider>", "Tool provider；当前本地 depot 只支持 managed。", "managed")
     .option("--add-cli-to-path", "把 Manager CLI 加入当前用户 PATH。", false)
+    .option("--enable-auth", "安装后启用本地 Product 鉴权，并通过密码创建管理员。", false)
     .option("--password-stdin", "从 stdin 读取本地 Product 首次管理员密码；保持原始 UTF-8 字节，不 trim。", false)
+    .option("--json", "以 NDJSON 输出阶段和完成回执，供 Manager GUI 使用。", false)
     .option("--yes", "跳过交互确认。", false)
     .action(async (options: {
         archive?: string;
@@ -395,11 +399,14 @@ desktop.command("install")
         channel?: ReleaseChannel;
         remote?: string;
         allowInsecureHttp: boolean;
+        scope: string;
         dir?: string;
         runtimeProvider: string;
         toolProvider: string;
         addCliToPath: boolean;
+        enableAuth: boolean;
         passwordStdin: boolean;
+        json: boolean;
         yes: boolean;
     }) => {
         if (process.platform !== "win32") throw new Error("Desktop 用户级安装当前只支持 Windows；macOS 仅完成安装合同与 CI 准备。" );
@@ -407,8 +414,14 @@ desktop.command("install")
         if (options.runtimeProvider !== "managed" || options.toolProvider !== "managed") {
             throw new Error("本地 Portable depot 当前只提供 managed Bun、Git/Bash 和 rg；system provider 选择将在 Manager 下载合同接入后开放。" );
         }
+        if (options.scope !== "user" && options.scope !== "machine") {
+            throw new Error(`不支持的 Desktop 安装范围：${options.scope}`);
+        }
         const remoteUrl = options.remote ? new URL(options.remote) : null;
         if (remoteUrl && options.passwordStdin) throw new Error("远端 Desktop 安装不能读取本地管理员密码。" );
+        if (!remoteUrl && options.passwordStdin && !options.enableAuth) {
+            throw new Error("--password-stdin 只有与 --enable-auth 一起使用时才会读取密码。");
+        }
         const depotArguments = [options.archive, options.shellArchive, options.distributionManifest].filter((value) => value !== undefined);
         if (depotArguments.length !== 1) throw new Error("Desktop 安装必须且只能提供 --archive、--shell-archive 或 --distribution-manifest 之一。" );
         if (remoteUrl) {
@@ -428,22 +441,22 @@ desktop.command("install")
         }
         let adminPassword: string | undefined;
         // 远端 shell 没有 Product Installation Manifest，不能伪装成可执行的本地实例加入索引。
-        if (!remoteUrl) {
+        if (!remoteUrl && options.enableAuth) {
             if (options.passwordStdin) {
                 if (process.stdin.isTTY) throw new Error("--password-stdin 需要从管道读取密码，不能与交互 TTY 同时使用。" );
                 adminPassword = await readPasswordStdin();
             } else if (!options.yes && process.stdin.isTTY && process.stdout.isTTY) {
                 adminPassword = await promptResult(p.password({message: "设置 NeuroBook 管理员密码", mask: "*"}));
-            } else {
-                throw new Error("本地 Desktop 首次安装需要管理员密码；交互运行请不要传 --yes，自动化运行请传 --password-stdin。" );
             }
         }
+        if (options.json) printNdjson({kind: "stage", stage: "validating-input"});
         const result = await installDesktopFromLocalDepot({
             ...(options.archive ? {archivePath: options.archive} : {}),
             ...(options.shellArchive ? {shellArchivePath: options.shellArchive} : {}),
             ...(options.distributionManifest ? {distributionManifestPath: options.distributionManifest} : {}),
             envelope: options.envelope,
             channel: options.channel ?? "canary",
+            installationScope: options.scope as "user" | "machine",
             connection: remoteUrl
                 ? {mode: "remote", baseUrl: remoteUrl.origin, insecureHttpAccepted: remoteUrl.protocol === "http:"}
                 : {mode: "local"},
@@ -460,7 +473,20 @@ desktop.command("install")
                 preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
             });
         }
-        p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}${result.remoteProductVersion ? `\n远端 Product：${result.remoteProductVersion}` : ""}`);
+        if (options.json) {
+            printNdjson({
+                kind: "complete",
+                installationRoot: result.installationRoot,
+                stateRoot: result.stateRoot,
+                cacheRoot: result.cacheRoot,
+                desktopRoot: result.desktopRoot,
+                connection: result.manifest.connection.mode,
+                installationScope: result.manifest.installationScope,
+                remoteProductVersion: result.remoteProductVersion ?? null,
+            });
+        } else {
+            p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}${result.remoteProductVersion ? `\n远端 Product：${result.remoteProductVersion}` : ""}`);
+        }
     });
 desktop.command("supervise")
     .description("通过 stdin/stdout NDJSON 为 Desktop Envelope 编排 Product 生命周期。")
@@ -510,6 +536,37 @@ desktop.command("reset")
             installationRoot: root,
         });
         p.outro(`桌面本地状态已重置：${desktopRoot}`);
+    });
+desktop.command("configure-provider")
+    .description("通过 stdin 写入一个自定义 Provider；API Key 不得出现在 argv 或环境变量。")
+    .requiredOption("--stdin-json", "从 stdin 读取 Provider JSON。")
+    .action(async () => {
+        const {root, manifest} = await currentInstallation();
+        if (!process.stdin.isTTY) {
+            // stdin is intentionally read as raw UTF-8; do not trim secrets.
+        } else {
+            throw new Error("configure-provider 必须通过 stdin 传入 JSON。");
+        }
+        const chunks: Buffer[] = [];
+        for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
+        const value = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
+            name?: string;
+            baseURL?: string;
+            api?: string;
+            apiKey?: string;
+            model?: string;
+            discoverModels?: boolean;
+        };
+        const roots = installationPaths(root, manifest.roots);
+        const result = await configureDesktopProvider(roots.state, {
+            name: value.name ?? "",
+            baseURL: value.baseURL ?? "",
+            api: value.api ?? "",
+            apiKey: value.apiKey ?? "",
+            model: value.model ?? "",
+            discoverModels: value.discoverModels,
+        });
+        printJson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
     });
 
 const runtime = program.command("runtime").description("管理 Bun Runtime。");
@@ -782,6 +839,13 @@ function assertTool(value: string): asserts value is "rg" | "git" {
 /** 输出机器可读 JSON。 */
 function printJson(value: object): void {
     console.log(JSON.stringify(value, null, 4));
+}
+
+/** 输出 Manager GUI 使用的单行 NDJSON；值中不得出现原始换行。 */
+function printNdjson(value: object): void {
+    const line = JSON.stringify(value);
+    if (line.includes("\n") || line.includes("\r")) throw new Error("Manager GUI NDJSON 不允许原始换行。");
+    console.log(line);
 }
 
 /** 输出适合终端快速查看的顶层键值。 */

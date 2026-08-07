@@ -114,7 +114,7 @@ describe("Desktop Portable manifest", () => {
 });
 
 describe("Desktop installation lifecycle", () => {
-    it("在触碰 depot 前拒绝缺少本地管理员密码或远端携带密码", async () => {
+    it("本地安装允许默认关闭 auth，并拒绝远端携带密码", async () => {
         setWindowsHost();
         const base = {
             archivePath: join(tmpdir(), "does-not-exist.zip"),
@@ -123,7 +123,7 @@ describe("Desktop installation lifecycle", () => {
             addCliToUserPath: false,
         };
         await expect(installDesktopFromLocalDepot({...base, connection: {mode: "local"}}))
-            .rejects.toThrow("必须提供管理员密码");
+            .rejects.toThrow("Portable archive 不存在");
         await expect(installDesktopFromLocalDepot({...base, connection: {mode: "remote", baseUrl: "https://example.com", insecureHttpAccepted: false}, adminPassword: "secret"}))
             .rejects.toThrow("不能接收本地管理员密码");
     });
@@ -467,12 +467,26 @@ function componentsManifest(hashes: Map<string, string>): InstallationComponents
 
 function desktopManifest(): DesktopInstallationManifest {
     return {
-        schema: "nbook.desktop-installation/v1",
+        schema: "nbook.desktop-installation/v2",
         installationId: "test-installation",
+        installationScope: "user",
+        programRoot: ".",
+        userRoots: {
+            state: {base: "local-app-data", path: "NeuroBook/data"},
+            cache: {base: "local-app-data", path: "NeuroBook/cache"},
+            desktop: {base: "local-app-data", path: "NeuroBook/desktop"},
+            webview: {base: "local-app-data", path: "NeuroBook/desktop/webview"},
+        },
         envelope: "electron",
         channel: "canary",
         connection: {mode: "local"},
         components: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`}],
+        receipts: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`, source: "depot"}],
+        uninstall: {
+            preserveStateRootByDefault: true,
+            deleteStateRootRequiresExplicit: true,
+            preserveExternalProjectWorkspace: true,
+        },
         addCliToUserPath: false,
         installedAt: "2026-08-05T00:00:00.000Z",
         updatedAt: "2026-08-05T00:00:00.000Z",

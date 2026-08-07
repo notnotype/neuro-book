@@ -1,9 +1,9 @@
 # ADR 0013：Desktop Envelope、发行组件与宿主交互
 
-- 状态：Accepted
+- 状态：Accepted（Spike 基础；生产首发边界由 [ADR 0014](0014-electron-desktop-productization.md) 冻结）
 - 日期：2026-08-05
 - 更新：2026-08-06（Workbench Chrome、Activity Bar 与 Desktop Bridge v2）
-- 关联任务：[Task 143](../tasks/143-desktop-envelope-installation-spike/README.md)、[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Issue #66](https://github.com/notnotype/neuro-book/issues/66)
+- 关联任务：[Task 143](../tasks/143-desktop-envelope-installation-spike/README.md)、[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 145](../tasks/145-electron-desktop-productization/README.md)、[Issue #66](https://github.com/notnotype/neuro-book/issues/66)
 - 依赖决策：[ADR 0009](0009-product-runtime-image-generation.md)、[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0012](0012-release-candidate-activation.md)
 
 ## 背景
@@ -57,7 +57,7 @@ Electron 与 Tauri 在 Task 143 内继续并行；本 ADR 不冻结最终框架�
 
 ### Manager CLI 与 Supervisor
 
-现有程序统一称为 **NeuroBook Manager CLI**。未来图形化 NeuroBook Manager 必须复用同一合同，本任务不实现 GUI Manager。
+现有程序统一称为 **NeuroBook Manager CLI**。Task 145 新增的 Manager GUI 是它的薄向导壳，必须复用同一合同；GUI 不拥有安装或 Product 生命周期。
 
 1. 安装、更新、repair、卸载、组件下载、checksum、回滚、migration、管理员创建、Product 启停和进程树均由 Manager CLI 拥有。
 2. Envelope 只启动 Manager 的 `Desktop Supervisor Protocol v1`，通过 stdin/stdout NDJSON 接收阶段、ready、完整复核、停止和失败事件；不解析 Product Runtime Contract、不执行 migration、不持有 shutdown token。

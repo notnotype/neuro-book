@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeuroBook Manager</title>
+    <style>
+        :root { color-scheme: light; font-family: "Segoe UI", sans-serif; background: #f4ecd8; color: #3d3024; }
+        body { margin: 0; min-height: 100vh; background: #f4ecd8; }
+        main { max-width: 680px; margin: 0 auto; padding: 32px 36px 40px; }
+        h1 { margin: 0 0 8px; font-size: 26px; }
+        p { color: #806f59; line-height: 1.5; }
+        section { margin-top: 24px; padding: 20px; border: 1px solid #ddc9a6; border-radius: 14px; background: #fffaf0; box-shadow: 0 12px 32px rgba(70, 48, 24, .08); }
+        label { display: block; margin: 12px 0 6px; font-weight: 600; }
+        input, select { width: 100%; box-sizing: border-box; border: 1px solid #d8c39c; border-radius: 8px; padding: 10px 12px; background: #fffdf8; color: inherit; }
+        .row { display: flex; gap: 10px; align-items: center; }
+        .row > * { flex: 1; }
+        button { border: 1px solid #c96739; border-radius: 8px; padding: 10px 14px; background: #d96f3d; color: #fff; font-weight: 600; cursor: pointer; }
+        button.secondary { background: #fffaf0; color: #8a4c29; border-color: #d8b88f; }
+        button:disabled { opacity: .55; cursor: default; }
+        #log { max-height: 180px; overflow: auto; white-space: pre-wrap; font: 12px/1.45 Consolas, monospace; background: #f1e5cc; padding: 10px; border-radius: 8px; }
+        .muted { font-size: 13px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>NeuroBook Manager</h1>
+    <p>安装、修复和运行时检查由 Manager CLI 执行；这个窗口只负责引导和显示结果。</p>
+    <section>
+        <label for="scope">安装范围</label>
+        <select id="scope">
+            <option value="user">当前用户（推荐）</option>
+            <option value="machine">全局安装（需要管理员权限）</option>
+        </select>
+        <label for="depot">离线 Depot / Portable ZIP</label>
+        <div class="row">
+            <input id="depot" placeholder="请选择本地 .zip 或 distribution manifest" readonly>
+            <button class="secondary" id="choose">选择</button>
+        </div>
+        <label for="providerName">首个 Provider（可选）</label>
+        <input id="providerName" placeholder="例如：本地 OpenAI 兼容服务">
+        <div class="row">
+            <input id="baseURL" placeholder="Base URL，例如 https://api.example.com/v1">
+            <input id="model" placeholder="默认模型 ID">
+        </div>
+        <input id="api" value="openai-completions" aria-label="API 类型">
+        <input id="apiKey" type="password" placeholder="API Key（只通过 stdin 传递）">
+        <p class="muted">本地 Desktop 默认关闭 auth；只有显式填写管理员密码并选择启用时才创建管理员。Provider 连接失败不阻止保存。</p>
+        <div class="row">
+            <button id="install">校验并安装</button>
+            <button class="secondary" id="quit">退出</button>
+        </div>
+    </section>
+    <section>
+        <strong>阶段与日志</strong>
+        <div id="log" aria-live="polite">等待操作…</div>
+    </section>
+</main>
+<script>
+    const bridge = window.neuroBookManager;
+    const $ = (id) => document.getElementById(id);
+    const log = (value) => { const text = typeof value === "string" ? value : JSON.stringify(value); $("log").textContent += `\n${text}`; $("log").scrollTop = $("log").scrollHeight; };
+    $("choose").addEventListener("click", async () => { const path = await bridge.chooseDepot(); if (path) $("depot").value = path; });
+    $("quit").addEventListener("click", () => bridge.quit());
+    $("install").addEventListener("click", async () => {
+        const depot = $("depot").value;
+        if (!depot) { log("请先选择 Depot 或 Portable ZIP。"); return; }
+        $("install").disabled = true;
+        const args = ["desktop", "install", "--archive", depot, "--scope", $("scope").value, "--envelope", "electron", "--yes", "--json"];
+        log({kind: "stage", stage: "starting"});
+        const result = await bridge.run({action: "install", args});
+        log({kind: "process-exit", ...result});
+        $("install").disabled = false;
+    });
+    bridge.onEvent(log);
+</script>
+</body>
+</html>

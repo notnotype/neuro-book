@@ -1,6 +1,6 @@
 export const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v2";
 export const DESKTOP_DISTRIBUTION_SCHEMA = "nbook.desktop-distribution/v1";
-export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v1";
+export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v2";
 export const DESKTOP_SETTINGS_SCHEMA = "nbook.desktop-settings/v1";
 export const DESKTOP_SUPERVISOR_SCHEMA = "nbook.desktop-supervisor/v1";
 export const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
@@ -58,6 +58,7 @@ export type DesktopAppearance = "light" | "dark";
 export type DesktopPlatform = "windows" | "macos" | "linux";
 export type DesktopMenuPresentation = "renderer" | "native";
 export type DesktopWindowControls = "overlay" | "custom" | "traffic-lights";
+export type DesktopInstallationScope = "user" | "machine";
 
 export type DesktopComponentArchive = {
     kind: "path" | "url";
@@ -100,6 +101,27 @@ export type DesktopInstalledComponent = {
     version: string;
     path: string;
     sha256: string;
+};
+
+export type DesktopComponentReceipt = {
+    id: DesktopComponentId;
+    version: string;
+    path: string;
+    sha256: string;
+    source: "depot" | "network" | "managed";
+};
+
+export type DesktopUninstallPolicy = {
+    preserveStateRootByDefault: true;
+    deleteStateRootRequiresExplicit: true;
+    preserveExternalProjectWorkspace: true;
+};
+
+export type DesktopInstallationUserRoots = {
+    state: {base: "local-app-data" | "user-app-data"; path: string};
+    cache: {base: "local-app-data" | "user-cache"; path: string};
+    desktop: {base: "local-app-data" | "user-app-data"; path: string};
+    webview: {base: "local-app-data" | "user-app-data"; path: string};
 };
 
 export type DesktopConnection =
@@ -161,10 +183,15 @@ export function desktopUserInstallationContract(
 export type DesktopInstallationManifest = {
     schema: typeof DESKTOP_INSTALLATION_SCHEMA;
     installationId: string;
+    installationScope: DesktopInstallationScope;
+    programRoot: ".";
+    userRoots: DesktopInstallationUserRoots;
     envelope: DesktopEnvelope;
     channel: DesktopChannel;
     connection: DesktopConnection;
     components: DesktopInstalledComponent[];
+    receipts: DesktopComponentReceipt[];
+    uninstall: DesktopUninstallPolicy;
     addCliToUserPath: boolean;
     installedAt: string;
     updatedAt: string;
@@ -279,19 +306,56 @@ export function parseDesktopShellArchiveManifest(value: unknown): DesktopShellAr
 /** 严格解析 Desktop Installation Manifest。输入是本机磁盘上的不可信 JSON。 */
 export function parseDesktopInstallationManifest(value: unknown): DesktopInstallationManifest {
     const root = object(value, "Desktop Installation Manifest");
-    exactKeys(root, ["schema", "installationId", "envelope", "channel", "connection", "components", "addCliToUserPath", "installedAt", "updatedAt"], "Desktop Installation Manifest");
+    exactKeys(root, [
+        "schema",
+        "installationId",
+        "installationScope",
+        "programRoot",
+        "userRoots",
+        "envelope",
+        "channel",
+        "connection",
+        "components",
+        "receipts",
+        "uninstall",
+        "addCliToUserPath",
+        "installedAt",
+        "updatedAt",
+    ], "Desktop Installation Manifest");
     literal(root.schema, DESKTOP_INSTALLATION_SCHEMA, "schema");
     const installationId = nonEmptyString(root.installationId, "installationId");
+    const installationScope = member(root.installationScope, ["user", "machine"] as const, "installationScope");
+    literal(root.programRoot, ".", "programRoot");
+    const userRoots = parseDesktopInstallationUserRoots(root.userRoots);
     const envelope = member(root.envelope, DESKTOP_ENVELOPES, "envelope");
     const channel = member(root.channel, DESKTOP_CHANNELS, "channel");
     const connection = parseConnection(root.connection);
     if (!Array.isArray(root.components)) throw new Error("components 必须是数组。");
     const components = root.components.map((item, index) => parseInstalledComponent(item, index));
     assertUnique(components.map((item) => item.id), "Desktop Installation components");
+    if (!Array.isArray(root.receipts)) throw new Error("receipts 必须是数组。");
+    const receipts = root.receipts.map((item, index) => parseDesktopComponentReceipt(item, index));
+    assertUnique(receipts.map((item) => item.id), "Desktop Installation receipts");
+    const uninstall = parseDesktopUninstallPolicy(root.uninstall);
     const addCliToUserPath = boolean(root.addCliToUserPath, "addCliToUserPath");
     const installedAt = isoDate(root.installedAt, "installedAt");
     const updatedAt = isoDate(root.updatedAt, "updatedAt");
-    return {schema: DESKTOP_INSTALLATION_SCHEMA, installationId, envelope, channel, connection, components, addCliToUserPath, installedAt, updatedAt};
+    return {
+        schema: DESKTOP_INSTALLATION_SCHEMA,
+        installationId,
+        installationScope,
+        programRoot: ".",
+        userRoots,
+        envelope,
+        channel,
+        connection,
+        components,
+        receipts,
+        uninstall,
+        addCliToUserPath,
+        installedAt,
+        updatedAt,
+    };
 }
 
 /** 严格解析 Desktop 设备设置，并校验缩放范围。 */
@@ -452,6 +516,58 @@ function parseInstalledComponent(value: unknown, index: number): DesktopInstalle
         version: nonEmptyString(root.version, `${label}.version`),
         path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
         sha256: sha256(root.sha256, `${label}.sha256`),
+    };
+}
+
+function parseDesktopComponentReceipt(value: unknown, index: number): DesktopComponentReceipt {
+    const label = `receipts[${String(index)}]`;
+    const root = object(value, label);
+    exactKeys(root, ["id", "version", "path", "sha256", "source"], label);
+    return {
+        id: member(root.id, DESKTOP_COMPONENT_IDS, `${label}.id`),
+        version: nonEmptyString(root.version, `${label}.version`),
+        path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
+        sha256: sha256(root.sha256, `${label}.sha256`),
+        source: member(root.source, ["depot", "network", "managed"] as const, `${label}.source`),
+    };
+}
+
+function parseDesktopInstallationUserRoots(value: unknown): DesktopInstallationUserRoots {
+    const root = object(value, "userRoots");
+    exactKeys(root, ["state", "cache", "desktop", "webview"], "userRoots");
+    type UserBase = "local-app-data" | "user-app-data" | "user-cache";
+    const parseRoot = (
+        input: unknown,
+        label: string,
+        bases: readonly UserBase[],
+    ): {base: UserBase; path: string} => {
+        const item = object(input, label);
+        exactKeys(item, ["base", "path"], label);
+        const base = member(item.base, bases, `${label}.base`);
+        const path = nonEmptyString(item.path, `${label}.path`);
+        if (path.startsWith("/") || path.startsWith("\\") || path.includes(":") || path.split(/[\\/]/u).some((segment) => !segment || segment === "." || segment === "..")) {
+            throw new Error(`${label}.path 必须是无逃逸的用户目录相对路径。`);
+        }
+        return {base, path: path.replaceAll("\\", "/")};
+    };
+    return {
+        state: parseRoot(root.state, "userRoots.state", ["local-app-data", "user-app-data"]) as DesktopInstallationUserRoots["state"],
+        cache: parseRoot(root.cache, "userRoots.cache", ["local-app-data", "user-cache"]) as DesktopInstallationUserRoots["cache"],
+        desktop: parseRoot(root.desktop, "userRoots.desktop", ["local-app-data", "user-app-data"]) as DesktopInstallationUserRoots["desktop"],
+        webview: parseRoot(root.webview, "userRoots.webview", ["local-app-data", "user-app-data"]) as DesktopInstallationUserRoots["webview"],
+    };
+}
+
+function parseDesktopUninstallPolicy(value: unknown): DesktopUninstallPolicy {
+    const root = object(value, "uninstall");
+    exactKeys(root, ["preserveStateRootByDefault", "deleteStateRootRequiresExplicit", "preserveExternalProjectWorkspace"], "uninstall");
+    literal(root.preserveStateRootByDefault, true, "uninstall.preserveStateRootByDefault");
+    literal(root.deleteStateRootRequiresExplicit, true, "uninstall.deleteStateRootRequiresExplicit");
+    literal(root.preserveExternalProjectWorkspace, true, "uninstall.preserveExternalProjectWorkspace");
+    return {
+        preserveStateRootByDefault: true,
+        deleteStateRootRequiresExplicit: true,
+        preserveExternalProjectWorkspace: true,
     };
 }
 

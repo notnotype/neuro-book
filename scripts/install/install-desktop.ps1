@@ -6,6 +6,8 @@ param(
     [string]$DistributionManifest,
     [ValidateSet("electron", "tauri")]
     [string]$Envelope = "electron",
+    [ValidateSet("user", "machine")]
+    [string]$Scope = "user",
     [ValidateSet("stable", "canary")]
     [string]$Channel = "canary",
     [string]$Remote,
@@ -19,6 +21,7 @@ param(
     [string]$ToolProvider = "managed",
     [switch]$AddCliToPath,
     [switch]$PasswordStdin,
+    [switch]$EnableAuth,
     [switch]$Yes,
     [string]$ManagerTag = "canary"
 )
@@ -53,6 +56,7 @@ $bun = Resolve-Bun -ExplicitPath $BunPath
 $managerOptions = @(
     "desktop", "install",
     "--envelope", $Envelope,
+    "--scope", $Scope,
     "--channel", $Channel,
     "--runtime-provider", $RuntimeProvider,
     "--tool-provider", $ToolProvider
@@ -65,6 +69,7 @@ if ($AllowInsecureHttp) { $managerOptions += "--allow-insecure-http" }
 if ($InstallRoot) { $managerOptions += @("--dir", $InstallRoot) }
 if ($AddCliToPath) { $managerOptions += "--add-cli-to-path" }
 if ($PasswordStdin) { $managerOptions += "--password-stdin" }
+if ($EnableAuth) { $managerOptions += "--enable-auth" }
 if ($Yes) { $managerOptions += "--yes" }
 
 $managerLocalAppData = $env:LOCALAPPDATA

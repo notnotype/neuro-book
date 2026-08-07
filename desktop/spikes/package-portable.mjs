@@ -223,7 +223,10 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
     const envelopeDist = resolve(sourceRoot, "..", "..", "..", "dist");
     await copyFile(join(envelopeDist, "main.mjs"), join(appStagingRoot, "main.mjs"));
     await copyFile(join(envelopeDist, "preload.cjs"), join(appStagingRoot, "preload.cjs"));
+    await copyFile(join(envelopeDist, "manager-main.mjs"), join(appStagingRoot, "manager-main.mjs"));
+    await copyFile(join(envelopeDist, "manager-preload.cjs"), join(appStagingRoot, "manager-preload.cjs"));
     await copyFile(join(envelopeDist, "startup.html"), join(appStagingRoot, "startup.html"));
+    await copyFile(join(envelopeDist, "manager.html"), join(appStagingRoot, "manager.html"));
     await writeFile(join(appStagingRoot, "package.json"), `${JSON.stringify({
         name: "neuro-book-portable-electron-envelope",
         version: "0.0.0",
@@ -235,6 +238,7 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
     await createPackage(appStagingRoot, join(resourcesRoot, "app.asar"));
     await rm(appStagingRoot, {recursive: true, force: true});
     await copyFile(join(envelopeDist, "icon.ico"), join(resourcesRoot, "icon.ico"));
+    await writeFile(join(targetRoot, "NeuroBook-Manager.cmd"), "@echo off\r\nstart \"\" \"%~dp0NeuroBook-Electron.exe\" --manager-gui %*\r\n", "utf8");
 }
 
 /** 建立一个没有用户内容的 Portable stage。 */

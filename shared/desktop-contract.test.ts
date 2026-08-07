@@ -236,6 +236,14 @@ function installation(connection: {mode: "local"} | {mode: "remote"; baseUrl: st
     return {
         schema: DESKTOP_INSTALLATION_SCHEMA,
         installationId: "test-installation",
+        installationScope: "user",
+        programRoot: ".",
+        userRoots: {
+            state: {base: "local-app-data", path: "NeuroBook/data"},
+            cache: {base: "local-app-data", path: "NeuroBook/cache"},
+            desktop: {base: "local-app-data", path: "NeuroBook/desktop"},
+            webview: {base: "local-app-data", path: "NeuroBook/desktop/webview"},
+        },
         envelope: "electron" as const,
         channel: "canary" as const,
         connection,
@@ -245,6 +253,18 @@ function installation(connection: {mode: "local"} | {mode: "remote"; baseUrl: st
             path: "components/electron",
             sha256: digest("c"),
         }],
+        receipts: [{
+            id: "electron-envelope" as const,
+            version: "43.2.0",
+            path: "components/electron",
+            sha256: digest("c"),
+            source: "depot" as const,
+        }],
+        uninstall: {
+            preserveStateRootByDefault: true as const,
+            deleteStateRootRequiresExplicit: true as const,
+            preserveExternalProjectWorkspace: true as const,
+        },
         addCliToUserPath: false,
         installedAt: "2026-08-05T00:00:00.000Z",
         updatedAt: "2026-08-05T00:00:00.000Z",

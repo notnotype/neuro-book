@@ -1012,7 +1012,17 @@ app.on("before-quit", (event) => {
     void closeApplication();
 });
 
-void main().catch(async (error: unknown) => {
+async function dispatchEntry(): Promise<void> {
+    if (process.argv.includes("--manager-gui")) {
+        const managerEntry = resolve(import.meta.dirname, "manager-main.mjs");
+        const module = await import(pathToFileURL(managerEntry).href) as {runManagerGui: () => Promise<void>};
+        await module.runManagerGui();
+        return;
+    }
+    await main();
+}
+
+void dispatchEntry().catch(async (error: unknown) => {
     diagnostics.error({
         kind: "electron-fatal",
         message: error instanceof Error ? error.message : String(error),
