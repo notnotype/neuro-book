@@ -67,7 +67,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 仓库外 Product 与 Electron 验收
 
-- Product archive 在祖先目录没有 `node_modules` 的 `C:\nbook-t145-final-product-f05-0deba01e` 中通过 migration、全部 Windows release checks、Profile HTTP 编译、sqlite-vec、Sharp、Workspace CLI、hostile `NODE_PATH`、错误/正确 shutdown token、graceful shutdown 和 State Root 移动删除。
+- Product archive 在祖先目录没有 `node_modules` 的 `C:\nbook-t145-final-product-37ca-5eb2ee83` 中通过 migration、全部 Windows release checks、Profile HTTP 编译、sqlite-vec、Sharp、Workspace CLI、hostile `NODE_PATH`、错误/正确 shutdown token、graceful shutdown 和 State Root 移动删除。
 - 最终 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
 - 最终主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
 - 当前用户安装/卸载：安装根、State/Cache/Desktop roots、`neurobook://`、开始菜单和桌面快捷方式均实际验证；卸载删除程序、Cache、Desktop/WebView、注册项和快捷方式并保留 State Root。
