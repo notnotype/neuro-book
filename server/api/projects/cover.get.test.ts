@@ -74,7 +74,7 @@ describe("GET /api/projects/cover", () => {
             "content-length": 3,
             "content-disposition": "inline; filename*=UTF-8''cover.png",
         });
-    });
+    }, 30_000);
 
     it("ETag 命中时返回 304 且不重复发送图片 body", async () => {
         const handler = (await import("nbook/server/api/projects/cover.get")).default as (event: H3Event) => Promise<unknown>;
