@@ -6,7 +6,21 @@ import {installationTarget} from "#manager/installation-path";
 
 /** 确保目录存在。 */
 export async function ensureDirectory(path: string): Promise<void> {
-    await mkdir(path, {recursive: true});
+    try {
+        await mkdir(path, {recursive: true});
+    } catch (error) {
+        // Bun on Windows may report EEXIST for an existing read-only directory
+        // (for example the user's Desktop). Treat that as success only after
+        // verifying that the target is still a directory; a file or a race
+        // that replaced the path remains a hard failure.
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
+            throw error;
+        }
+        const info = await stat(path);
+        if (!info.isDirectory()) {
+            throw error;
+        }
+    }
 }
 
 /** 原子写入 UTF-8 文本。 */
