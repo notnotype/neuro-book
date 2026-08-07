@@ -48,6 +48,9 @@
         <p class="muted">本地 Desktop 默认关闭 auth；只有显式填写管理员密码并选择启用时才创建管理员。Provider 连接失败不阻止保存。</p>
         <div class="row">
             <button id="install">校验并安装</button>
+            <button class="secondary" id="repair">修复组件</button>
+            <button class="secondary" id="status">检查状态</button>
+            <button class="secondary" id="uninstall">卸载</button>
             <button class="secondary" id="quit">退出</button>
         </div>
     </section>
@@ -62,6 +65,13 @@
     const log = (value) => { const text = typeof value === "string" ? value : JSON.stringify(value); $("log").textContent += `\n${text}`; $("log").scrollTop = $("log").scrollHeight; };
     $("choose").addEventListener("click", async () => { const path = await bridge.chooseDepot(); if (path) $("depot").value = path; });
     $("quit").addEventListener("click", () => bridge.quit());
+    async function runSimple(action, args) {
+        const result = await bridge.run({action, args});
+        log({kind: `${action}-process-exit`, ...result});
+    }
+    $("repair").addEventListener("click", () => runSimple("repair", ["desktop", "repair", "--json"]));
+    $("status").addEventListener("click", () => runSimple("status", ["status", "--json"]));
+    $("uninstall").addEventListener("click", () => runSimple("uninstall", ["uninstall", "--yes"]));
     $("install").addEventListener("click", async () => {
         const depot = $("depot").value;
         if (!depot) { log("请先选择 Depot 或 Portable ZIP。"); return; }
@@ -70,6 +80,25 @@
         log({kind: "stage", stage: "starting"});
         const result = await bridge.run({action: "install", args});
         log({kind: "process-exit", ...result});
+        const providerName = $("providerName").value.trim();
+        const baseURL = $("baseURL").value.trim();
+        const apiKey = $("apiKey").value;
+        const model = $("model").value.trim();
+        const api = $("api").value.trim();
+        if (result.exitCode === 0 && providerName && baseURL && apiKey && model) {
+            log({kind: "stage", stage: "saving-provider"});
+            const providerResult = await bridge.run({
+                action: "configure-provider",
+                args: ["desktop", "configure-provider", "--stdin-json", "--json"],
+                stdin: JSON.stringify({name: providerName, baseURL, api, apiKey, model}),
+            });
+            $("apiKey").value = "";
+            log({kind: "provider-process-exit", ...providerResult});
+        }
+        if (result.exitCode === 0) {
+            log({kind: "stage", stage: "launching-neurobook"});
+            await bridge.launchInstalled().catch((error) => log({kind: "launch-failed", message: String(error)}));
+        }
         $("install").disabled = false;
     });
     bridge.onEvent(log);

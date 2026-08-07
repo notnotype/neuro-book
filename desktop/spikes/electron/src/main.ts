@@ -68,6 +68,7 @@ const DEFAULT_WINDOW_STATE: WindowState = {x: 80, y: 80, width: 1280, height: 84
 const SUPERVISOR_START_TIMEOUT_MS = 45_000;
 const WINDOW_LOAD_TIMEOUT_MS = 45_000;
 const startupStartedAt = performance.now();
+const managerEntry = process.argv.includes("--manager-gui");
 const diagnostics = new ElectronDiagnostics();
 let windowStateWrite: Promise<void> = Promise.resolve();
 
@@ -1007,6 +1008,7 @@ function applyDesktopSettings(): void {
 }
 
 app.on("before-quit", (event) => {
+    if (managerEntry) return;
     if (closing || allowWindowClose) return;
     event.preventDefault();
     void closeApplication();

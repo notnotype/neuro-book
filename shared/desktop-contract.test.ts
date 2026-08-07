@@ -77,6 +77,10 @@ describe("Desktop contracts", () => {
             baseUrl: "http://192.168.1.8",
             insecureHttpAccepted: true,
         })).connection).toMatchObject({baseUrl: "http://192.168.1.8"});
+        expect(() => parseDesktopInstallationManifest({
+            ...local,
+            receipts: [{...local.receipts[0]!, sha256: digest("d")}],
+        })).toThrow("receipts 必须与 components");
         expect(() => parseDesktopInstallationManifest(installation({
             mode: "remote",
             baseUrl: "http://example.com",

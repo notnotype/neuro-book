@@ -18,7 +18,7 @@ import {
     type DesktopShellArchiveManifest,
 } from "nbook/shared/desktop-contract";
 
-import {extractZip} from "#manager/download";
+import {downloadVerified, extractZip} from "#manager/download";
 import {createAdmin} from "#manager/app-commands";
 import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
@@ -734,8 +734,21 @@ async function resolveDepotArchive(
     }
     const component = manifest.components.find((item) => item.id === componentId);
     if (!component) throw new Error(`Desktop distribution manifest 缺少 ${componentId} 组件。`);
-    if (component.archive.kind !== "path" || component.archive.format !== "zip") {
-        throw new Error("当前本地 Manager 只接受同一 depot 根内的 ZIP path archive；HTTPS 下载尚未接入。" );
+    if (component.archive.format !== "zip") {
+        throw new Error("Desktop distribution 当前只支持 ZIP 组件。" );
+    }
+    if (component.archive.kind === "url") {
+        const digest = component.archive.sha256.slice("sha256:".length);
+        const archivePath = join(managerDesktopCacheRoot(), "downloads", `${digest}.zip`);
+        const cached = await lstat(archivePath).catch(() => null);
+        if (!cached?.isFile() || cached.isSymbolicLink() || cached.size !== component.archive.bytes) {
+            await downloadVerified(component.archive.location, archivePath, digest);
+        }
+        const info = await lstat(archivePath);
+        if (!info.isFile() || info.isSymbolicLink() || info.size !== component.archive.bytes) {
+            throw new Error(`Desktop distribution 下载结果字节数不匹配：${archivePath}`);
+        }
+        return archivePath;
     }
     const depotRoot = dirname(manifestPath);
     const archivePath = resolve(depotRoot, component.archive.location);

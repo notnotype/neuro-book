@@ -14,6 +14,12 @@
 
 ## 已打包 Electron 的 CDP 诊断
 
+Task 145 的 Manager GUI 与主应用共用同一个 Electron executable。调试向导时使用
+`NeuroBook-Electron.exe --manager-gui --remote-debugging-port=<port>`；它加载
+`manager.html`，通过 `manager-preload.cjs` 调用 Manager CLI，不会加载 Product origin。
+因此 Manager GUI 的 CDP target 与主应用 target 必须分开记录，不能把向导页面的可见结果当成
+Product/Workbench 验收。
+
 CDP（Chrome DevTools Protocol）适合附加到已经运行的 Portable，不需要改业务代码。
 
 1. 在隔离的临时根启动打包后的 Electron，并只绑定 loopback 调试端口：

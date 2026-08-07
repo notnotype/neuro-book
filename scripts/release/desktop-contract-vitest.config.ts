@@ -68,6 +68,7 @@ export default defineConfig({
             "desktop/spikes/shared/src/electron-packaging-contract.test.ts",
             "desktop/spikes/shared/src/desktop-distribution-packaging-contract.test.ts",
             "desktop/spikes/shared/src/desktop-ui-contract.test.ts",
+            "desktop/spikes/shared/src/manager-gui-contract.test.ts",
         ],
     },
 });

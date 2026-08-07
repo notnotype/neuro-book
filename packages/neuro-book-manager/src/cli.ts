@@ -32,7 +32,7 @@ import {runManagerTui} from "#manager/tui";
 import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflight} from "#manager/source-adoption";
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
-import {runDesktopSupervisor} from "#manager/desktop-supervisor";
+import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
 import {configureDesktopProvider} from "#manager/desktop-provider";
 import {updateInstallation} from "#manager/updater";
@@ -494,6 +494,16 @@ desktop.command("supervise")
         const {root, manifest} = await currentInstallation();
         await runDesktopSupervisor({root, manifest});
     });
+desktop.command("repair")
+    .description("复核 Product Runtime Image 并原子重建 Manager receipt。")
+    .option("--json", "以单行 NDJSON 输出回执。", false)
+    .action(async (options: {json: boolean}) => {
+        const {root, manifest} = await currentInstallation();
+        if (options.json) printNdjson({kind: "stage", stage: "repairing"});
+        await repairDesktopInstallation(root, manifest);
+        if (options.json) printNdjson({kind: "complete", action: "repair"});
+        else p.outro("Desktop Runtime receipt 已修复。");
+    });
 desktop.command("uninstall")
     .description("卸载只含远端 Envelope 的 Desktop；默认保留 State Root。")
     .requiredOption("--dir <path>", "远端 Desktop Installation Root。")
@@ -540,7 +550,8 @@ desktop.command("reset")
 desktop.command("configure-provider")
     .description("通过 stdin 写入一个自定义 Provider；API Key 不得出现在 argv 或环境变量。")
     .requiredOption("--stdin-json", "从 stdin 读取 Provider JSON。")
-    .action(async () => {
+    .option("--json", "以单行 NDJSON 输出回执。", false)
+    .action(async (options: {json: boolean}) => {
         const {root, manifest} = await currentInstallation();
         if (!process.stdin.isTTY) {
             // stdin is intentionally read as raw UTF-8; do not trim secrets.
@@ -566,7 +577,8 @@ desktop.command("configure-provider")
             model: value.model ?? "",
             discoverModels: value.discoverModels,
         });
-        printJson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
+        if (options.json) printNdjson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
+        else printJson({kind: "provider-configured", providerId: result.providerId, modelKey: result.modelKey});
     });
 
 const runtime = program.command("runtime").description("管理 Bun Runtime。");
@@ -646,7 +658,15 @@ async function main(): Promise<void> {
         }
         await program.parseAsync(process.argv);
     } catch (error) {
-        p.log.error(formatCliError(error));
+        if (process.argv.includes("--json")) {
+            printNdjson({
+                kind: "failure",
+                message: formatCliError(error),
+                recoverable: true,
+            });
+        } else {
+            p.log.error(formatCliError(error));
+        }
         process.exitCode = 1;
     }
 }

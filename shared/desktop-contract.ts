@@ -336,6 +336,12 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
     if (!Array.isArray(root.receipts)) throw new Error("receipts 必须是数组。");
     const receipts = root.receipts.map((item, index) => parseDesktopComponentReceipt(item, index));
     assertUnique(receipts.map((item) => item.id), "Desktop Installation receipts");
+    if (receipts.length !== components.length || receipts.some((receipt) => {
+        const component = components.find((item) => item.id === receipt.id);
+        return !component || component.version !== receipt.version || component.path !== receipt.path || component.sha256 !== receipt.sha256;
+    })) {
+        throw new Error("Desktop Installation receipts 必须与 components 逐项一致。");
+    }
     const uninstall = parseDesktopUninstallPolicy(root.uninstall);
     const addCliToUserPath = boolean(root.addCliToUserPath, "addCliToUserPath");
     const installedAt = isoDate(root.installedAt, "installedAt");

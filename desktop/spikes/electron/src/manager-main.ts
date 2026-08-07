@@ -2,11 +2,12 @@ import {app, BrowserWindow, dialog, ipcMain} from "electron";
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {join, resolve} from "node:path";
+import {homedir} from "node:os";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {createInterface} from "node:readline";
 
 type ManagerRunInput = {
-    action: "install" | "status" | "doctor" | "uninstall" | "configure-provider";
+    action: "install" | "status" | "doctor" | "repair" | "uninstall" | "configure-provider";
     args: string[];
     stdin?: string;
 };
@@ -16,7 +17,8 @@ type ManagerRunResult = {
     signal: string | null;
 };
 
-const ALLOWED_ACTIONS = new Set<ManagerRunInput["action"]>(["install", "status", "doctor", "uninstall", "configure-provider"]);
+const ALLOWED_ACTIONS = new Set<ManagerRunInput["action"]>(["install", "status", "doctor", "repair", "uninstall", "configure-provider"]);
+let lastInstallationRoot: string | null = null;
 
 export async function runManagerGui(): Promise<void> {
     const root = resolve(process.resourcesPath, "..", "..");
@@ -25,7 +27,17 @@ export async function runManagerGui(): Promise<void> {
     if (!existsSync(managerPath) || !existsSync(bunPath)) {
         throw new Error("NeuroBook Manager GUI 找不到随包携带的 Manager CLI 或 Bun Runtime。");
     }
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir();
+    const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+    const managerLocalRoot = resolve(localAppData, "NeuroBook", "manager-gui");
+    app.setPath("userData", managerLocalRoot);
+    app.setPath("sessionData", join(managerLocalRoot, "webview"));
     await app.whenReady();
+    if (process.argv.includes("--headless")) {
+        console.log(JSON.stringify({kind: "manager-gui-ready", managerPath, bunPath}));
+        app.quit();
+        return;
+    }
     const window = new BrowserWindow({
         width: 760,
         height: 680,
@@ -51,6 +63,12 @@ export async function runManagerGui(): Promise<void> {
     ipcMain.handle("manager:run", async (_event, input: ManagerRunInput) => {
         validateRunInput(input);
         return await run(input);
+    });
+    ipcMain.handle("manager:launch-installed", async () => {
+        if (!lastInstallationRoot) throw new Error("尚未得到可启动的 Installation Root。");
+        const executable = join(lastInstallationRoot, "desktop", "NeuroBook-Electron.exe");
+        if (!existsSync(executable)) throw new Error("安装完成回执中的 Electron Envelope 不存在。");
+        spawn(executable, [], {cwd: lastInstallationRoot, detached: true, stdio: "ignore", windowsHide: false}).unref();
     });
     ipcMain.on("manager:quit", () => window.close());
     await window.loadURL(pathToFileURL(resolve(import.meta.dirname, "manager.html")).href);
@@ -86,7 +104,11 @@ async function runManagerCli(
             for await (const line of reader) {
                 if (!line.trim()) continue;
                 try {
-                    emit(JSON.parse(line));
+                    const value = JSON.parse(line) as Record<string, unknown>;
+                    if (value.kind === "complete" && typeof value.installationRoot === "string") {
+                        lastInstallationRoot = resolve(value.installationRoot);
+                    }
+                    emit(value);
                 } catch {
                     emit({kind: "log", stream: "stdout", message: line.slice(0, 16 * 1024)});
                 }

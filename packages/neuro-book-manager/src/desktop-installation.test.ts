@@ -376,6 +376,23 @@ describe("Desktop installation lifecycle", () => {
         expect(uninstallCall?.[1]).toEqual(expect.arrayContaining([expect.stringContaining(".runtime\\bin\\neuro-book.cmd")]));
         expect(uninstallCall?.[1]).not.toEqual(expect.arrayContaining([expect.stringContaining("neuro-book desktop")]));
     });
+
+    it("machine scope 使用 HKLM 和公共快捷方式根", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-registration-"));
+        roots.push(root);
+        process.env.ProgramData = join(root, "ProgramData");
+        process.env.PUBLIC = join(root, "Public");
+        await mkdir(join(root, ".runtime", "bin"), {recursive: true});
+        await writeFile(join(root, ".runtime", "bin", "neuro-book.cmd"), "@echo off\n", "utf8");
+
+        const manifest = {...desktopManifest(), installationScope: "machine" as const};
+        await registerWindowsDesktop(root, manifest, false);
+        const registryCalls = processMocks.run.mock.calls.filter(([command]) => command === "reg.exe");
+        expect(registryCalls.some(([, args]) => args.includes("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook"))).toBe(true);
+        expect(registryCalls.some(([, args]) => args.includes("HKLM\\Software\\Classes\\neurobook"))).toBe(true);
+        await removeWindowsDesktopRegistration(root, manifest);
+    });
 });
 
 function setWindowsHost(): void {

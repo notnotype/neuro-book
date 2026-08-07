@@ -88,6 +88,9 @@ describe("Windows Stage 0合同", () => {
         expect(desktopWindowsScript).toContain("[string]$DistributionManifest");
         expect(desktopWindowsScript).toContain("--distribution-manifest");
         expect(desktopWindowsScript).toContain("-Archive、-ShellArchive 或 -DistributionManifest 之一");
+        expect(desktopWindowsScript).toContain('[ValidateSet("user", "machine")]');
+        expect(desktopWindowsScript).toContain('"--scope", $Scope');
+        expect(desktopWindowsScript).toContain("--enable-auth");
     });
 
     it.runIf(process.platform === "win32")("PowerShell脚本语法有效", async () => {

@@ -25,6 +25,12 @@ export type DesktopSupervisorOptions = {
     output?: NodeJS.WritableStream;
 };
 
+/** 供 Manager GUI/CLI 使用的受管 Runtime receipt 修复，不启动 Product。 */
+export async function repairDesktopInstallation(root: string, manifest: InstallationManifest): Promise<void> {
+    const paths = installationPaths(resolve(root), manifest.roots);
+    await repairReceipt(resolve(root), manifest, paths.deploy);
+}
+
 type ActiveRun = {
     requestId: string;
     controller: AbortController;

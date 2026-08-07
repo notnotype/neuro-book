@@ -79,7 +79,7 @@ Electron 与 Tauri 在 Task 143 内继续并行；本 ADR 不冻结最终框架�
 
 远端 Desktop 使用独立 `nbook.desktop-shell/v1` shell depot。该 depot 只允许 `manifest.json` 和 `desktop/`，并记录所选 Envelope 的路径、版本、SHA-256 与 WebView 类型；Manager 安装前请求服务端 `/api/app/desktop-capability`，验证 DesktopBridge v2 后才落盘，不把 Product、Bun、Manager CLI 或 Tool Pack 复制进远端安装根。其卸载注册表调用 Manager 的 `desktop uninstall --dir` 逻辑命令，默认保留 State Root。
 
-`Desktop Installation Manifest v1` 描述本机选择的 Envelope、local/remote、channel、已安装组件和 CLI PATH 决定。组件路径只能相对 Installation Root；远端只持久化规范 origin 和 HTTP 风险确认，不持久化密码或 cookie。
+Spike 阶段的 `Desktop Installation Manifest v1` 只描述本机选择的 Envelope、local/remote、channel、已安装组件和 CLI PATH 决定。生产阶段由 [ADR 0014](0014-electron-desktop-productization.md) 升级为 `Desktop Installation Manifest v2`，额外记录安装范围、用户 Root、组件 receipts 和卸载策略；组件路径仍只能相对 Installation Root，远端只持久化规范 origin 和 HTTP 风险确认，不持久化密码或 cookie。
 
 Canonical 组件只构建一次：Source、平台 Product、Bun、Manager CLI、Electron/Tauri Envelope、Tool Pack 与 WebView2 Runtime Pack。Tool Pack 独立安装，Manager 只把受管 Git/Bash/rg 注入 Product 私有 PATH；只有用户明确选择时才把 NeuroBook CLI 加入用户 PATH。
 

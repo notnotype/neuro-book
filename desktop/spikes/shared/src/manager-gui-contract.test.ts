@@ -16,9 +16,9 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(main).toContain("--manager-gui");
         expect(manager).toContain("nodeIntegration: false");
         expect(manager).toContain("contextIsolation: true");
-        expect(manager).toContain('manager:run');
+        expect(manager).toContain('"manager:run"');
         expect(preload).toContain("contextBridge.exposeInMainWorld");
-        expect(manager).not.toContain("AUTH_ADMIN_PASSWORD");
+        expect(manager).toContain("AUTH_ADMIN_PASSWORD: undefined");
         expect(packager).toContain('join(envelopeDist, "manager-main.mjs")');
         expect(packager).toContain('join(envelopeDist, "manager-preload.cjs")');
         expect(packager).toContain("NeuroBook-Manager.cmd");
