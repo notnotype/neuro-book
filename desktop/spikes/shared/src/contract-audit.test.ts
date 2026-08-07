@@ -4,7 +4,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 import {auditProductContract} from "./contract-audit";
 
-describe("Task 140 Product Contract adapter", () => {
+describe("Task 143 Product Contract adapter", () => {
     const roots: string[] = [];
 
     afterEach(async () => {

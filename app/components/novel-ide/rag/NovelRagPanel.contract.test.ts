@@ -66,7 +66,7 @@ describe("NovelRagPanel contract", () => {
         expect(inspector).toContain("/api/projects/rag/inspector");
         expect(inspector).toContain("/api/projects/rag/debug");
         expect(inspector).toContain("size=\"full\"");
-        expect(inspector).toContain("overlay-type=\"blur\"");
+        expect(inspector).toContain("overlay-type=\"opaque\"");
         expect(inspector).toContain("NovelRagInspectorSidebar");
         expect(inspector).toContain("NovelRagInspectorMain");
         expect(inspector).toContain("NovelRagInspectorDetail");

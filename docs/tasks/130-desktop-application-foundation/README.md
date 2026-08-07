@@ -619,10 +619,10 @@ Desktop Product 已由 Manager 强制监听 `127.0.0.1`，不能把“免登录�
 - 相关聚焦验证通过：Session/runtime、Product startup/shutdown、shared shutdown/source-dev 共 11 个文件 / 65 个测试；Manager 独立 Vitest 配置下 `app-commands`、`migration-operation`、Owned Process 共 3 个文件 / 47 个测试。另一次两进程复现中，A 阻塞事件循环超过 30 秒，B 第 62 次尝试接管 stale lease；A 记录 `AGENT_SESSION_STORE_LEASE_COMPROMISED`，原始 cause 为 `Unable to update lock within the stale threshold`，输出 draining 与 session-store close，并以 75 退出。父进程确认旧 release 没有删除 B 的新锁，B 正常释放后锁才消失。
 - 复现 harness 首次使用固定睡眠窗口时，旧 owner 退出与 B 释放之间存在不可稳定观察的时序，未把该次断言失败记为业务失败；改为“父进程确认 A 退出后写 marker，B 再释放”的同步后复现通过。harness 与临时 Workspace Root 均已清理。浏览器验收、正式 Release archive、五平台 Candidate、真实 Docker/Podman 和 merge 状态仍未由本轮本地证据替代。
 
-### 2026-08-04：Task 140 Windows-first Desktop Envelope 对照 spike
+### 2026-08-04：Task 143 Windows-first Desktop Envelope 对照 spike
 
 - Electron 43.2.0 与 Tauri 2.11.5 均以薄壳形式复用 verified Product Runtime Contract v4、动态 loopback、随机 shutdown token 和既有 Product lifecycle；Electron main/preload 与 Tauri Rust 均未复制数据库、Profile、Workspace 或 Manager 逻辑。Electron 的 `nodeIntegration=false`、`contextIsolation=true`、`sandbox=true`，Tauri capability 只保留窗口权限，CSP 只允许 loopback。
-- 同一仓库外 Product fixture 上，两种壳均通过动态端口 health/version、数据库/Application State 准备、14 个 system profiles 准备和认证 graceful shutdown；Application Root 前后 3,239 个文件的 tree digest 保持 `sha256:a99cf1d0a1e9e563b177a7955ddf21f87a92e20c28656b8d04f3a9c3a762aa25`。focused TypeScript/Vitest/security、Electron bundle、Rust fmt/test/release build 全部通过，测量见 Task 140。
+- 同一仓库外 Product fixture 上，两种壳均通过动态端口 health/version、数据库/Application State 准备、14 个 system profiles 准备和认证 graceful shutdown；Application Root 前后 3,239 个文件的 tree digest 保持 `sha256:a99cf1d0a1e9e563b177a7955ddf21f87a92e20c28656b8d04f3a9c3a762aa25`。focused TypeScript/Vitest/security、Electron bundle、Rust fmt/test/release build 全部通过，测量见 Task 143。
 - 结果只完成 Windows 自动化 spike，不冻结最终框架：SSE/WebSocket、编辑器、剪贴板、拖放、文件对话框、真实 Origin 行为、冷启动/RSS、压缩安装器、WebView2 分发和跨平台 runner 仍未完成。Tauri 的 forced fallback 仍是 spike-only `taskkill /T /F`，生产实现必须接入共享 Owned Process/Job Object 或等价 supervisor；真实窗口验收需用户授权。
 
 ## TODO / Follow-ups

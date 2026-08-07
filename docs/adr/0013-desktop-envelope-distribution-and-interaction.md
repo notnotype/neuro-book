@@ -3,7 +3,7 @@
 - 状态：Accepted
 - 日期：2026-08-05
 - 更新：2026-08-06（Workbench Chrome、Activity Bar 与 Desktop Bridge v2）
-- 关联任务：[Task 140](../tasks/140-desktop-envelope-installation-spike/README.md)、[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Issue #66](https://github.com/notnotype/neuro-book/issues/66)
+- 关联任务：[Task 143](../tasks/143-desktop-envelope-installation-spike/README.md)、[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Issue #66](https://github.com/notnotype/neuro-book/issues/66)
 - 依赖决策：[ADR 0009](0009-product-runtime-image-generation.md)、[ADR 0010](0010-desktop-storage-loopback-shutdown.md)、[ADR 0012](0012-release-candidate-activation.md)
 
 ## 背景
@@ -22,7 +22,7 @@ NeuroBook 同时需要普通浏览器、连接本机 Product 的 Desktop Local �
 2. Desktop Local：Envelope 连接 Manager Supervisor 启动的本地 Product。
 3. Desktop Remote：Envelope 连接用户配置的服务端。HTTPS 默认允许；HTTP 只允许 loopback 或私有 IPv4，并要求安装时二次确认，运行期间持续显示不安全状态。
 
-Electron 与 Tauri 在 Task 140 内继续并行；本 ADR 不冻结最终框架。自动门禁完成后必须保留两者差异，不用单个 exe 大小、系统 WebView 或 Chromium 的表面数字代替完整安装成本。
+Electron 与 Tauri 在 Task 143 内继续并行；本 ADR 不冻结最终框架。自动门禁完成后必须保留两者差异，不用单个 exe 大小、系统 WebView 或 Chromium 的表面数字代替完整安装成本。
 
 ### 窗口与标题栏
 
@@ -61,7 +61,7 @@ Electron 与 Tauri 在 Task 140 内继续并行；本 ADR 不冻结最终框架�
 
 1. 安装、更新、repair、卸载、组件下载、checksum、回滚、migration、管理员创建、Product 启停和进程树均由 Manager CLI 拥有。
 2. Envelope 只启动 Manager 的 `Desktop Supervisor Protocol v1`，通过 stdin/stdout NDJSON 接收阶段、ready、完整复核、停止和失败事件；不解析 Product Runtime Contract、不执行 migration、不持有 shutdown token。
-3. 安装/更新完成完整 Runtime Image 验证并写 Manager verification receipt。普通启动先核对控制面与 receipt，窗口 ready 后后台执行完整 payload 复核；后台失败必须关闭 Product 并进入 repair 页面。
+3. 安装/更新完成完整 Runtime Image 验证并写 Manager verification receipt。普通启动在 migration 或 Product spawn 前完成一次完整 payload 复核，并把这次验证绑定的 receipt 授权传给受管子进程，避免每个命令重复遍历；窗口 ready 只表示服务可用，不再把“ready 后才验货”作为安全边界。
 4. 每次本地启动生成 startup nonce。ready 必须同时匹配动态端口、Product 版本和 nonce；仅返回 HTTP 200 的其他进程不构成 ready。端口竞争最多重试三次，每次都终止本次候选。
 5. Supervisor 正常停止先执行认证 graceful shutdown 和 30 秒 drain，再由 Owned Process/Job Object 强制兜底并报告 `graceful` 或 `forced`。
 
@@ -85,13 +85,13 @@ Canonical 组件只构建一次：Source、平台 Product、Bun、Manager CLI、
 
 Windows Installed 固定使用 `%LOCALAPPDATA%\Programs\NeuroBook`，创建当前用户的开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`；不注册未稳定的文件扩展名，不需要 UAC。默认卸载保留 State Root，只有“同时删除数据”才删除托管用户数据。
 
-Task 140 的当前实现由 `install-desktop.ps1` 作为临时 CLI 向导入口，转交 Manager 完成上述安装事务。它已覆盖 Windows x64 本地 depot 的 dirty/image/checksum 复核、stdin/隐藏 TTY 管理员创建、注册失败回滚和卸载资源清理；这不是图形化 Manager，也不构成签名安装器或 updater。
+Task 143 的当前实现由 `install-desktop.ps1` 作为临时 CLI 向导入口，转交 Manager 完成上述安装事务。它已覆盖 Windows x64 本地 depot 的 dirty/image/checksum 复核、stdin/隐藏 TTY 管理员创建、注册失败回滚和卸载资源清理；这不是图形化 Manager，也不构成签名安装器或 updater。
 
 Electron ASAR 只包含 main/preload/本地 Splash/Recovery；Product、Source、Bun 和 native islands 不进 ASAR。Tauri 依赖系统 WebView，缺失 WebView2 时由独立 Runtime Pack 补齐。Portable 是验收输出，不作为后续构建输入。
 
 ### macOS
 
-macOS 目标是签名、公证的 `~/Applications/NeuroBook.app`。Source、Product、Bun 和 Manager 位于 `~/Library/Application Support/NeuroBook/installation`，Cache 位于 `~/Library/Caches/NeuroBook`；更新不得修改已签名 `.app`。x64/ARM64 分包，不做 Universal 或 Portable。Task 140 不使用签名凭据，也不声称 macOS 安装已通过。
+macOS 目标是签名、公证的 `~/Applications/NeuroBook.app`。Source、Product、Bun 和 Manager 位于 `~/Library/Application Support/NeuroBook/installation`，Cache 位于 `~/Library/Caches/NeuroBook`；更新不得修改已签名 `.app`。x64/ARM64 分包，不做 Universal 或 Portable。Task 143 不使用签名凭据，也不声称 macOS 安装已通过。
 
 ## 后果
 

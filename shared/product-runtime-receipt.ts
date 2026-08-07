@@ -88,29 +88,29 @@ export async function readProductRuntimeVerificationReceipt(receiptPath: string)
     return parseProductRuntimeVerificationReceipt(JSON.parse(await readFile(resolve(receiptPath), "utf8")) as unknown);
 }
 
-/** 快验控制面与回执的一致性；不遍历 payload，供启动前使用。 */
+/** 快验控制面与回执的一致性；不遍历 payload，供诊断或显式检查使用。 */
 export async function verifyProductRuntimeReceiptControlPlane(
     imageRoot: string,
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeImageManifest> {
-    return (await inspectProductRuntimeReceiptControlPlane(imageRoot, receiptPath, expectedIdentity)).manifest;
+    return (await inspectProductRuntimeReceipt(imageRoot, receiptPath, expectedIdentity, false)).manifest;
 }
 
 /**
- * Manager 在 Installation Manifest 约束下完成控制面快验，并把本次读到的精确回执内容授权给子进程。
- * 授权只存在于进程环境，不写入 Runtime Image 或 State Root。
+ * Manager 在启动任何 Product 子进程前完整验证镜像，并把本次读到的精确回执内容授权给子进程。
+ * 授权只存在于进程环境，不写入 Runtime Image 或 State Root；它不能替代启动前的完整验证。
  */
-export async function authorizeProductRuntimeReceiptControlPlane(
+export async function authorizeProductRuntimeReceiptFully(
     imageRoot: string,
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeReceiptAuthorization> {
-    return (await inspectProductRuntimeReceiptControlPlane(imageRoot, receiptPath, expectedIdentity)).authorization;
+    return (await inspectProductRuntimeReceipt(imageRoot, receiptPath, expectedIdentity, true)).authorization;
 }
 
 /**
- * Product bootstrap 消费 Manager 已批准的回执授权，只复核控制面；ready 后仍由 Manager 完整遍历 payload。
+ * Product bootstrap 消费 Manager 已在启动前完整验证过的回执授权，只复核控制面。
  * 回执路径固定在当前 Application Root 的 `.deploy`，不能借此验证任意外部文件。
  */
 export async function verifyAuthorizedProductRuntimeReceiptControlPlane(
@@ -177,21 +177,14 @@ export async function verifyProductRuntimeReceiptFully(
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeImageManifest> {
-    const absoluteReceiptPath = resolve(receiptPath);
-    const receiptText = await readFile(absoluteReceiptPath, "utf8");
-    const receipt = parseProductRuntimeVerificationReceipt(JSON.parse(receiptText) as unknown);
-    const verified = await new ProductRuntimeImageVerifier().openVerified(imageRoot, expectedIdentity, {allowPreviousRuntimeContract: true});
-    assertReceiptMatchesManifest(receipt, verified.manifest);
-    if (await readFile(absoluteReceiptPath, "utf8") !== receiptText) {
-        throw new Error("Product Runtime verification receipt 在验证期间发生变化。");
-    }
-    return verified.manifest;
+    return (await inspectProductRuntimeReceipt(imageRoot, receiptPath, expectedIdentity, true)).manifest;
 }
 
-async function inspectProductRuntimeReceiptControlPlane(
+async function inspectProductRuntimeReceipt(
     imageRoot: string,
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
+    full: boolean,
 ): Promise<{
     manifest: ProductRuntimeImageManifest;
     authorization: ProductRuntimeReceiptAuthorization;
@@ -199,11 +192,10 @@ async function inspectProductRuntimeReceiptControlPlane(
     const absoluteReceiptPath = resolve(receiptPath);
     const receiptText = await readFile(absoluteReceiptPath, "utf8");
     const receipt = parseProductRuntimeVerificationReceipt(JSON.parse(receiptText) as unknown);
-    const verified = await new ProductRuntimeImageVerifier().openControlPlane(
-        imageRoot,
-        expectedIdentity,
-        {allowPreviousRuntimeContract: true},
-    );
+    const verifier = new ProductRuntimeImageVerifier();
+    const verified = full
+        ? await verifier.openVerified(imageRoot, expectedIdentity, {allowPreviousRuntimeContract: true})
+        : await verifier.openControlPlane(imageRoot, expectedIdentity, {allowPreviousRuntimeContract: true});
     assertReceiptMatchesManifest(receipt, verified.manifest);
     if (await readFile(absoluteReceiptPath, "utf8") !== receiptText) {
         throw new Error("Product Runtime verification receipt 在验证期间发生变化。");

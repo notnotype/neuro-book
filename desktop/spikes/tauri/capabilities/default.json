@@ -1,7 +1,7 @@
 {
     "$schema": "../gen/schemas/desktop-schema.json",
     "identifier": "default",
-    "description": "Task 140 loopback window only; no shell, filesystem, or arbitrary process capability.",
+    "description": "Task 143 loopback window only; no shell, filesystem, or arbitrary process capability.",
     "windows": ["main"],
     "permissions": [
         "core:event:allow-listen"

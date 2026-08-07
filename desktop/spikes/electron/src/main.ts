@@ -371,11 +371,10 @@ async function waitForSupervisor(
                 if (event.requestId !== requestId) return;
                 if (event.type === "stage") {
                     const stageLabels = {
-                        "quick-verify": "快速验证 Product...",
+                        "full-verify": "完整验证 Product...",
                         migration: "执行数据迁移...",
                         "starting-product": "启动本地服务...",
                         "waiting-ready": "等待本地服务就绪...",
-                        "background-verify": "后台完整验证...",
                         "stopping-product": "正在关闭本地服务...",
                         repairing: "正在修复 Product 回执...",
                     } as const;

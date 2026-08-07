@@ -225,11 +225,10 @@ export type DesktopSupervisorRequest =
     | {schema: typeof DESKTOP_SUPERVISOR_SCHEMA; requestId: string; type: "repair"};
 
 export type DesktopSupervisorStage =
-    | "quick-verify"
+    | "full-verify"
     | "migration"
     | "starting-product"
     | "waiting-ready"
-    | "background-verify"
     | "stopping-product"
     | "repairing";
 
@@ -376,7 +375,7 @@ export function parseDesktopSupervisorEvent(value: unknown): DesktopSupervisorEv
     const type = member(root.type, ["stage", "ready", "verified", "stopped", "failure", "logs"] as const, "type");
     if (type === "stage") {
         exactKeys(root, ["schema", "requestId", "type", "stage"], "Desktop Supervisor stage event");
-        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, stage: member(root.stage, ["quick-verify", "migration", "starting-product", "waiting-ready", "background-verify", "stopping-product", "repairing"] as const, "stage")};
+        return {schema: DESKTOP_SUPERVISOR_SCHEMA, requestId, type, stage: member(root.stage, ["full-verify", "migration", "starting-product", "waiting-ready", "stopping-product", "repairing"] as const, "stage")};
     }
     if (type === "ready") {
         exactKeys(root, ["schema", "requestId", "type", "url", "origin", "version", "startupNonce"], "Desktop Supervisor ready event");

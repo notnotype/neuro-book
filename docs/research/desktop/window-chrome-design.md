@@ -1,6 +1,6 @@
 # Desktop Window Chrome 视觉方向
 
-状态：Proposed follow-up（2026-08-06）。本记录承接 Task 140 的真实窗口验收，不代表已经冻结 Electron/Tauri 的最终实现。
+状态：Proposed follow-up（2026-08-06）。本记录承接 Task 143 的真实窗口验收，不代表已经冻结 Electron/Tauri 的最终实现。
 
 ## 用户反馈
 

@@ -1,4 +1,4 @@
-# Task 140 - Electron / Tauri Desktop Envelope Spike
+# Task 143 - Electron / Tauri Desktop Envelope Spike
 
 > 这是 Task 130 的后续验证任务。它只验证桌面壳，不替换 Product、Manager、Runtime Contract、State Root、Cache Root 或 Owned Process 的所有权。
 
@@ -72,7 +72,7 @@ Electron main / Tauri Rust envelope
 - `desktop/spikes/shared/`：只放测试 fixture、测量 schema 和 envelope 与 Product Contract 的适配测试，不复制领域逻辑。
 - `desktop/spikes/electron/`：Electron main、preload、最小 renderer、CSP、单实例和窗口/进程生命周期；`nodeIntegration: false`、`contextIsolation: true`、sandbox 和最小 IPC。
 - `desktop/spikes/tauri/`：Rust/Tauri main、WebView2 配置、最小 capability、sidecar/Manager 启停和窗口生命周期；不引入 nightly。
-- `docs/tasks/140-desktop-envelope-installation-spike/evidence/`：只保存脱敏的版本、测量、日志摘要和失败报告，不保存 State Root、token、用户内容或完整 WebView profile。
+- `docs/tasks/143-desktop-envelope-installation-spike/evidence/`：只保存脱敏的版本、测量、日志摘要和失败报告，不保存 State Root、token、用户内容或完整 WebView profile。
 
 ## Iteration / Stop Rules
 
@@ -140,7 +140,7 @@ Electron main / Tauri Rust envelope
 
 ## Portable Packaging Phase
 
-本阶段继续使用同一 Task 140，不创建第三个桌面架构。目标是生成两个 Product-only Desktop Envelope spike ZIP：
+本阶段继续使用同一 Task 143，不创建第三个桌面架构。目标是生成两个 Product-only Desktop Envelope spike ZIP：
 
 ```text
 portable-root/

@@ -8,9 +8,8 @@ import {
     type DesktopSupervisorRequest,
 } from "nbook/shared/desktop-contract";
 import {
-    authorizeProductRuntimeReceiptControlPlane,
+    authorizeProductRuntimeReceiptFully,
     verifyProductRuntimeReceiptFully,
-    type ProductRuntimeReceiptAuthorization,
 } from "nbook/shared/product-runtime-receipt";
 import type {ProductRuntimeExpectedIdentity} from "nbook/shared/product-runtime-image-verifier";
 
@@ -90,8 +89,8 @@ export async function runDesktopSupervisor(options: DesktopSupervisorOptions): P
         }
         if (request.type === "verify") {
             try {
-                emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "quick-verify"});
-                await verifyReceipt(root, options.manifest, paths.deploy, true);
+                emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "full-verify"});
+                await verifyReceipt(root, options.manifest, paths.deploy);
                 emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "full"});
             } catch (error) {
                 fail(request.requestId, "verification-failed", error, true);
@@ -122,9 +121,13 @@ async function startDesktop(
     fail: (requestId: string, code: string, error: unknown, recoverable?: boolean) => void,
 ): Promise<void> {
     try {
-        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "quick-verify"});
-        const productRuntimeReceipt = await verifyReceipt(root, manifest, deployRoot, false);
-        if (!productRuntimeReceipt) throw new Error("Desktop Product 快验没有返回启动授权。");
+        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "full-verify"});
+        const productRuntimeReceipt = await authorizeProductRuntimeReceiptFully(
+            resolve(root, nativeProductPath(manifest)),
+            join(deployRoot, "product-runtime-receipt.json"),
+            productRuntimeExpectedIdentity(manifest),
+        );
+        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "full"});
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "migration"});
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "starting-product"});
         await startInstallationApplication(root, {
@@ -148,9 +151,6 @@ async function startDesktop(
                     version: manifest.appVersion.startsWith("v") ? manifest.appVersion : `v${manifest.appVersion}`,
                     startupNonce: nonce,
                 });
-                emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "background-verify"});
-                await verifyReceipt(root, manifest, deployRoot, true);
-                emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "full"});
             },
         });
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stopped", shutdown: "graceful"});
@@ -163,27 +163,13 @@ async function verifyReceipt(
     root: string,
     manifest: InstallationManifest,
     deployRoot: string,
-    full: boolean,
-): Promise<ProductRuntimeReceiptAuthorization | null> {
-    const product = nativeProduct(manifest.components.product);
-    if (!product) throw new Error("Desktop Local 需要 native Product Runtime Image；Container Profile 不能作为 Desktop Local。");
-    const expected: ProductRuntimeExpectedIdentity = {
-        version: product.version,
-        revision: product.revision,
-        dirty: false,
-        platform: product.platform,
-        imageId: product.imageId,
-        sourceDigest: product.sourceDigest,
-        lockfileSha256: product.lockfileSha256,
-        builderContractVersion: product.builderContractVersion,
-    };
-    const imageRoot = resolve(root, product.path);
+): Promise<void> {
     const receiptPath = join(deployRoot, "product-runtime-receipt.json");
-    if (full) {
-        await verifyProductRuntimeReceiptFully(imageRoot, receiptPath, expected);
-        return null;
-    }
-    return await authorizeProductRuntimeReceiptControlPlane(imageRoot, receiptPath, expected);
+    await verifyProductRuntimeReceiptFully(
+        resolve(root, nativeProductPath(manifest)),
+        receiptPath,
+        productRuntimeExpectedIdentity(manifest),
+    );
 }
 
 async function repairReceipt(root: string, manifest: InstallationManifest, deployRoot: string): Promise<void> {
@@ -195,4 +181,25 @@ async function repairReceipt(root: string, manifest: InstallationManifest, deplo
 
 function nativeProduct(product: ProductComponent | undefined): Exclude<ProductComponent, {provider: "container"}> | null {
     return product && product.provider !== "container" ? product : null;
+}
+
+function nativeProductPath(manifest: InstallationManifest): string {
+    const product = nativeProduct(manifest.components.product);
+    if (!product) throw new Error("Desktop Local 需要 native Product Runtime Image；Container Profile 不能作为 Desktop Local。");
+    return product.path;
+}
+
+function productRuntimeExpectedIdentity(manifest: InstallationManifest): ProductRuntimeExpectedIdentity {
+    const product = nativeProduct(manifest.components.product);
+    if (!product) throw new Error("Desktop Local 需要 native Product Runtime Image；Container Profile 不能作为 Desktop Local。");
+    return {
+        version: product.version,
+        revision: product.revision,
+        dirty: false,
+        platform: product.platform,
+        imageId: product.imageId,
+        sourceDigest: product.sourceDigest,
+        lockfileSha256: product.lockfileSha256,
+        builderContractVersion: product.builderContractVersion,
+    };
 }

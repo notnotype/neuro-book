@@ -1,6 +1,6 @@
 # Electron 桌面调试记录
 
-这份文档记录 NeuroBook Desktop Envelope 在 Windows 上调试“源码已经修复，但实际 Portable 仍表现异常”这类问题的固定方法。它是调试参考，不是生产启动参数，也不替代 Task 140 的自动化和人工验收矩阵。
+这份文档记录 NeuroBook Desktop Envelope 在 Windows 上调试“源码已经修复，但实际 Portable 仍表现异常”这类问题的固定方法。它是调试参考，不是生产启动参数，也不替代 Task 143 的自动化和人工验收矩阵。
 
 ## 何时阅读和使用
 
