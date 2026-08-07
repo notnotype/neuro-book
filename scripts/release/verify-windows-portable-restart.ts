@@ -213,14 +213,17 @@ async function createAdmin(root: string, manifest: InstallationManifest): Promis
         "admin",
         "create",
         ADMIN_USERNAME,
+        "--password-stdin",
     ], {
         cwd: root,
-        env: {...process.env, NO_COLOR: "1", AUTH_ADMIN_PASSWORD: ADMIN_PASSWORD},
-        stdin: "ignore",
+        env: {...process.env, NO_COLOR: "1", AUTH_ADMIN_PASSWORD: undefined},
+        stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
         windowsHide: true,
     });
+    await child.stdin.write(new TextEncoder().encode(ADMIN_PASSWORD));
+    await child.stdin.end();
     const [exitCode, output, diagnostic] = await Promise.all([
         child.exited,
         new Response(child.stdout).text(),

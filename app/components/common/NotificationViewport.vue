@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import {useNotification, type NotificationItem, type NotificationPosition} from "nbook/app/composables/useNotification";
 
+const props = withDefaults(defineProps<{desktop?: boolean}>(), {
+    desktop: false,
+});
+
 type NotificationGroup = {
     key: string;
     position: NotificationPosition;
@@ -103,7 +107,7 @@ function badgeToneClass(item: NotificationItem): string {
 
 <template>
     <ClientOnly>
-        <div class="pointer-events-none fixed inset-0 z-[9800]">
+        <div class="pointer-events-none fixed inset-0 z-[9800]" :class="{'notification-viewport--desktop': props.desktop}">
             <div
                 v-for="group in groupedNotifications"
                 :key="group.key"
@@ -162,5 +166,11 @@ function badgeToneClass(item: NotificationItem): string {
 
 .nb-notification-move {
     transition: transform 0.22s ease;
+}
+</style>
+
+<style>
+.notification-viewport--desktop {
+    top: 36px;
 }
 </style>

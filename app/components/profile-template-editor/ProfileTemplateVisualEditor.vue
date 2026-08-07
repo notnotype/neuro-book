@@ -2360,7 +2360,7 @@ onBeforeUnmount(() => {
             v-model="createDialogOpen"
             title="新建 TSX Profile"
             width="560px"
-            overlay-type="blur"
+            overlay-type="opaque"
             :busy="creating"
             @confirm="void createUserProfile()"
         >

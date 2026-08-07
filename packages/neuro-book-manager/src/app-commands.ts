@@ -2,15 +2,20 @@ import {randomBytes} from "node:crypto";
 import {join, resolve} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
-import {spawnOwnedProcess} from "@notnotype/owned-process";
+import {spawnOwnedProcess, type OwnedProcessStdio} from "@notnotype/owned-process";
 import {
     PRODUCT_BUN_RUNTIME_ARGS,
     PRODUCT_RUNTIME_COMMAND_BOOTSTRAP,
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
+    PRODUCT_STARTUP_NONCE_ENVIRONMENT,
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
+import {
+    productRuntimeReceiptEnvironment,
+    type ProductRuntimeReceiptAuthorization,
+} from "nbook/shared/product-runtime-receipt";
 
 import {enableAuthentication, ensureWritableRuntimeRoots, loadStateEnv} from "#manager/config";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
@@ -72,6 +77,16 @@ export type StartApplicationOptions = {
     stateRoot?: string;
     /** 嵌入宿主结束自身生命周期时请求Manager完整关闭Product。 */
     shutdownSignal?: AbortSignal;
+    /** Desktop Supervisor 为本次候选注入的启动关联 nonce。 */
+    startupNonce?: string;
+    /** Desktop 候选的动态 loopback 端口；不写回 State Root。 */
+    port?: number;
+    /** 宿主拥有机器可读 stdout 时，Product 的普通启动输出必须转移到指定 stdio。 */
+    productStdout?: OwnedProcessStdio;
+    /** ready 后由宿主消费的结构化回调。 */
+    onReady?: (ready: {port: number; startupNonce?: string}) => Promise<void>;
+    /** Desktop Supervisor 在当前 Installation Manifest 下批准的只读 Product 回执。 */
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization;
 };
 
 export type PortableForegroundOptions = StartApplicationOptions & {
@@ -127,6 +142,8 @@ export type ApplicationLaunchOptions = PortableForegroundOptions & {
 export interface ApplicationLaunch {
     readonly ready: Promise<void>;
     readonly completion: Promise<{code: number | null; signal: string | null}>;
+    readonly port: number;
+    readonly startupNonce?: string;
     /** 正常关闭先请求 Product 收口资源；超时或协议失败后终止 Owned Process。 */
     shutdown(): Promise<void>;
     /** 启动、更新或迁移失败时立即终止候选 Owned Process。 */
@@ -168,10 +185,17 @@ export async function launchApplication(
         console.warn(`\n警告：${formatStateRootIntegrityWarning(stateIntegrity)}\n`);
     }
     activateManagedTools(root, manifest.components.tools);
-    const execution = await verifyApplicationExecution(root, manifest);
+    const execution = await verifyApplicationExecution(root, manifest, {
+        productRuntimeReceipt: options.productRuntimeReceipt,
+    });
     if (execution.kind === "container-product") {
         let terminated = false;
         let candidateContainerId: string | null = null;
+        const containerEnvironment = await loadStateEnv(stateRoot);
+        const containerPort = Number(containerEnvironment.NUXT_PORT ?? containerEnvironment.PORT ?? "3000");
+        if (!Number.isInteger(containerPort) || containerPort < 1 || containerPort > 65535) {
+            throw new Error(`Container Application 端口非法：${String(containerPort)}`);
+        }
         const ready = startDocker(
             execution.image,
             root,
@@ -203,15 +227,20 @@ export async function launchApplication(
         return {
             ready,
             completion,
+            port: containerPort,
             shutdown: stop,
             terminate: stop,
         };
     }
     const shutdownToken = randomBytes(32).toString("base64url");
+    const startupNonce = options.startupNonce;
     const bun = resolveBun(root, manifest);
     const env: NodeJS.ProcessEnv = {
         ...await applicationEnvironment(root, stateRoot, manifest.profile === "source-dev", roots.cache),
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
+        ...(startupNonce ? {[PRODUCT_STARTUP_NONCE_ENVIRONMENT]: startupNonce} : {}),
+        ...(options.port ? {PORT: String(options.port), NUXT_PORT: String(options.port), NITRO_PORT: String(options.port)} : {}),
+        ...(options.productRuntimeReceipt ? productRuntimeReceiptEnvironment(options.productRuntimeReceipt) : {}),
         BUN: bun,
     };
     if (execution.kind === "native-product") delete env.NODE_PATH;
@@ -229,7 +258,7 @@ export async function launchApplication(
         env,
         // Manager独占宿主stdin；Windows上同时读取并继承同一pipe会阻塞Product启动。
         stdin: "ignore",
-        stdout: "inherit",
+        stdout: options.productStdout ?? "inherit",
         stderr: "inherit",
         windowsHide: manifest.profile !== "windows-portable",
         graceMs: 2_000,
@@ -240,9 +269,15 @@ export async function launchApplication(
         signal: result.signal,
     }));
     const healthCheck = options.healthCheck !== false;
-    const port = Number(env.NUXT_PORT ?? env.PORT ?? "3000");
+    const port = options.port ?? Number(env.NUXT_PORT ?? env.PORT ?? "3000");
     const ready = healthCheck
-        ? waitForApplicationReady(port, manifest.appVersion, completion, options.startupTimeoutMs ?? 120_000)
+        ? waitForApplicationReady(
+            port,
+            manifest.appVersion,
+            completion,
+            options.startupTimeoutMs ?? 120_000,
+            startupNonce,
+        )
         : Promise.resolve();
     if (manifest.profile === "windows-portable" && healthCheck && options.openBrowser) {
         void ready.then(() => run("cmd.exe", ["/c", "start", "", `http://127.0.0.1:${String(port)}`], {
@@ -254,6 +289,8 @@ export async function launchApplication(
     return {
         ready,
         completion,
+        port,
+        startupNonce,
         shutdown: () => {
             if (!shutdownPromise) {
                 shutdownPromise = shutdownNativeProduct({
@@ -281,6 +318,7 @@ export async function planApplicationStateMigration(
     applicationRoot = root,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<ApplicationMigrationPlan> {
     const args = applicationMigrationArgs(applicationRoot, manifest, ["--plan", "--run-id", runId]);
     const runner = manifest.profile === "source-dev"
@@ -296,6 +334,7 @@ export async function planApplicationStateMigration(
         applicationRoot,
         containerComposePath,
         containerStateRoot,
+        productRuntimeReceipt,
     );
     if (report.action !== "plan" || report.runId !== runId) {
         throw new Error("Application State migration plan 返回了不一致的报告。");
@@ -349,13 +388,13 @@ export async function rollbackApplicationStateMigration(
     if (report.status !== "not_started" && report.status !== "rolled_back") throw new Error(`Application State rollback 状态非法：${report.status}`);
 }
 
-/** 创建或重置管理员。 */
-export async function createAdmin(root: string, manifest: InstallationManifest, username?: string): Promise<void> {
+/** 创建或重置管理员；自动密码只在显式传入时经 stdin 交给 Product。 */
+export async function createAdmin(root: string, manifest: InstallationManifest, username?: string, passwordOverride?: string): Promise<void> {
     assertInstallationHostCompatible(manifest);
     activateManagedTools(root, manifest.components.tools);
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = roots.state;
-    const password = process.env.AUTH_ADMIN_PASSWORD;
+    const password = passwordOverride !== undefined ? passwordOverride : process.env.AUTH_ADMIN_PASSWORD;
     const passwordInput = password === undefined ? null : new TextEncoder().encode(password);
     const passwordArgs = passwordInput ? ["--password-stdin"] : [];
     const execution = await verifyApplicationExecution(root, manifest);
@@ -524,8 +563,17 @@ async function runApplicationMigrationCommand(
     applicationRoot: string,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<ApplicationMigrationReport> {
-    const output = await runApplicationCommand(root, manifest, args, applicationRoot, containerComposePath, containerStateRoot);
+    const output = await runApplicationCommand(
+        root,
+        manifest,
+        args,
+        applicationRoot,
+        containerComposePath,
+        containerStateRoot,
+        productRuntimeReceipt,
+    );
     const value: unknown = JSON.parse(output);
     if (!Value.Check(ApplicationMigrationReportSchema, value)) {
         throw new Error("Application State migration 返回了无效报告。");
@@ -546,10 +594,13 @@ async function runApplicationCommand(
     applicationRoot = root,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<string> {
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = containerStateRoot ?? roots.state;
-    const execution = await verifyApplicationExecution(applicationRoot, manifest);
+    const execution = await verifyApplicationExecution(applicationRoot, manifest, {
+        productRuntimeReceipt,
+    });
     if (execution.kind === "container-product") {
         return runDockerApplicationCommand(
             execution.image,
@@ -567,6 +618,7 @@ async function runApplicationCommand(
             execution.kind === "source-dev",
             containerStateRoot ? join(containerStateRoot, ".cache") : roots.cache,
         ),
+        ...(productRuntimeReceipt ? productRuntimeReceiptEnvironment(productRuntimeReceipt) : {}),
         BUN: bun,
     };
     if (execution.kind === "native-product") delete env.NODE_PATH;
@@ -577,11 +629,13 @@ async function runApplicationCommand(
 }
 
 /** 等待候选 HTTP 与版本就绪；ready 前任何进程终态都视为启动失败。 */
-async function waitForApplicationReady(
+/** 等待候选 HTTP 与版本就绪；导出供 Desktop Supervisor 的协议回归测试复用。 */
+export async function waitForApplicationReady(
     port: number,
     expectedVersion: string,
     completion: Promise<{code: number | null; signal: string | null}>,
     timeoutMs: number,
+    expectedStartupNonce?: string,
 ): Promise<void> {
     if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`Application 端口非法：${String(port)}`);
     const completionState: {
@@ -603,12 +657,16 @@ async function waitForApplicationReady(
         try {
             const response = await fetch(`http://127.0.0.1:${String(port)}/api/app/version`, {
                 signal: AbortSignal.timeout(1_000),
+                ...(expectedStartupNonce ? {headers: {"x-neuro-book-startup-nonce": expectedStartupNonce}} : {}),
             });
             if (response.ok) {
-                const value = await response.json() as {versionLabel?: string};
+                const value = await response.json() as {versionLabel?: string; startupNonce?: string};
                 const expected = expectedVersion.startsWith("v") ? expectedVersion : `v${expectedVersion}`;
                 if (value.versionLabel !== expected) {
                     throw new Error(`Product 版本接口返回 ${value.versionLabel ?? "<missing>"}，期望 ${expected}。`);
+                }
+                if (expectedStartupNonce && value.startupNonce !== expectedStartupNonce) {
+                    throw new Error("Product 启动 nonce 与本次候选不一致。");
                 }
                 return;
             }
@@ -617,7 +675,8 @@ async function waitForApplicationReady(
             lastError = error instanceof Error ? error.message : String(error);
         }
         if (Date.now() >= nextProgressAt) {
-            console.log(`Product健康检查仍在等待：${lastError}`);
+            // Desktop Supervisor 的 stdout 是 NDJSON 控制通道；等待日志只能进入 stderr。
+            console.error(`Product健康检查仍在等待：${lastError}`);
             nextProgressAt = Date.now() + 10_000;
         }
         await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));

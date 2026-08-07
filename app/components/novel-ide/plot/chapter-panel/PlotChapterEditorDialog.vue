@@ -168,7 +168,7 @@ function submit(): void {
         :title="dialogTitle"
         width="720px"
         show-cancel
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

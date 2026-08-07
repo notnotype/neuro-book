@@ -22,7 +22,7 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.modelLibrary')" width="800px" height="85%" overlay-type="blur" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.modelLibrary')" width="800px" height="85%" overlay-type="opaque" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
         <!-- Model Library 与当前 Provider 可用性明确分离。 -->
         <div class="flex h-full flex-col gap-4 px-1 py-2">
             <div class="relative shrink-0"><span class="i-lucide-search absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"></span><input :value="props.searchQuery" type="text" :placeholder="t('settings.panels.models.searchModels')" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] pl-9 pr-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]" @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)" /></div>

@@ -32,7 +32,7 @@ function closeDialog(): void {
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('markdownStudio.tutorial.title')" width="min(680px, calc(100vw - 32px))" :show-footer="false" overlay-type="blur" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="props.modelValue" :title="t('markdownStudio.tutorial.title')" width="min(680px, calc(100vw - 32px))" :show-footer="false" overlay-type="opaque" @update:model-value="emit('update:modelValue', $event)">
         <!-- 教程 Agent 预留内容 -->
         <div class="flex flex-col gap-4">
             <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-4 py-3">

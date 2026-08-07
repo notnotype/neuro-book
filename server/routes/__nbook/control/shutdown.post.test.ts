@@ -3,6 +3,8 @@ import {EventEmitter} from "node:events";
 import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "nbook/shared/product-runtime-contract";
 
 const mocks = vi.hoisted(() => ({requestProcessExit: vi.fn()}));
+const originalHost = process.env.HOST;
+const originalNitroHost = process.env.NITRO_HOST;
 
 vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
     productShutdownController: {requestProcessExit: mocks.requestProcessExit},
@@ -18,10 +20,27 @@ describe("POST /__nbook/control/shutdown", () => {
 
     afterEach(() => {
         delete process.env[PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT];
+        restoreEnvironment("HOST", originalHost);
+        restoreEnvironment("NITRO_HOST", originalNitroHost);
     });
 
     it("拒绝非 loopback 请求", async () => {
         expect(capture(() => shutdownHandler(event("192.168.1.20", "Bearer launch-secret") as never)))
+            .toMatchObject({statusCode: 403});
+        expect(mocks.requestProcessExit).not.toHaveBeenCalled();
+    });
+
+    it("socket 地址缺失时只接受明确的 loopback 监听", () => {
+        process.env.NITRO_HOST = "127.0.0.1";
+        const request = event(undefined, "Bearer launch-secret");
+
+        expect(shutdownHandler(request as never)).toEqual({accepted: true});
+        request.node.res.emit("finish");
+        expect(mocks.requestProcessExit).toHaveBeenCalledTimes(1);
+
+        vi.clearAllMocks();
+        process.env.NITRO_HOST = "0.0.0.0";
+        expect(capture(() => shutdownHandler(event(undefined, "Bearer launch-secret") as never)))
             .toMatchObject({statusCode: 403});
         expect(mocks.requestProcessExit).not.toHaveBeenCalled();
     });
@@ -64,7 +83,7 @@ describe("POST /__nbook/control/shutdown", () => {
 });
 
 /** 构造 route 所需的最小 Node request/response。 */
-function event(remoteAddress: string, authorization?: string) {
+function event(remoteAddress: string | undefined, authorization?: string) {
     const response = Object.assign(new EventEmitter(), {statusCode: 200});
     return {
         node: {
@@ -75,6 +94,14 @@ function event(remoteAddress: string, authorization?: string) {
             res: response,
         },
     };
+}
+
+function restoreEnvironment(name: "HOST" | "NITRO_HOST", value: string | undefined): void {
+    if (value === undefined) {
+        delete process.env[name];
+    } else {
+        process.env[name] = value;
+    }
 }
 
 /** 捕获同步 H3 handler 抛出的结构化错误。 */

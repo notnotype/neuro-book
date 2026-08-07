@@ -633,7 +633,7 @@ watch(plotPlanningFocusId, (focusId) => {
             title="作废决策"
             width="480px"
             show-cancel
-            overlay-type="blur"
+            overlay-type="opaque"
             :busy="savingDrop"
             @request-close="dropVisible = false"
             @update:model-value="dropVisible = $event"

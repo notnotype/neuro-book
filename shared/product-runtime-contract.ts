@@ -6,12 +6,15 @@ export const PRODUCT_RUNTIME_CONTRACT_PATH = "server/runtime-contract.json";
 export const PRODUCT_RUNTIME_COMMAND_BOOTSTRAP = "server/commands/product-command.mjs";
 /** Product Runtime 禁止 Bun 在缺包时联网或从全局 cache 隐式补装依赖。 */
 export const PRODUCT_BUN_RUNTIME_ARGS = ["--no-install", "--no-env-file"] as const;
-export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v4";
-export const PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v3";
+export const PRODUCT_RUNTIME_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v5";
+export const PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA = "nbook.product-runtime-contract/v4";
 export const PRODUCT_SHUTDOWN_PROTOCOL = "http-loopback-token/v1";
 export const PRODUCT_SHUTDOWN_PATH = "/__nbook/control/shutdown";
 export const PRODUCT_SHUTDOWN_TIMEOUT_MS = 30_000;
 export const PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT = "NEURO_BOOK_SHUTDOWN_TOKEN";
+export const PRODUCT_STARTUP_NONCE_ENVIRONMENT = "NEURO_BOOK_STARTUP_NONCE";
+export const PRODUCT_STARTUP_READY_PATH = "/api/app/version";
+export const PRODUCT_MANAGER_VERIFICATION_PROTOCOL = "runtime-image-receipt/v1";
 /** Product 丢失 Agent Session Store runtime lease；Manager据此给出可操作提示。 */
 export const PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED = 75;
 
@@ -46,20 +49,9 @@ export const PRODUCT_RUNTIME_CHECK_IDS = [
     "world-engine-config",
 ] as const;
 
-const PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS = [
-    "profile-compile",
-    "variable-authoring",
-    "sqlite-vec",
-    "sharp-image-variant",
-    "application-state",
-    "workspace-cli",
-    "web-fetch",
-] as const;
-
 export type ProductRuntimeCommandId = typeof PRODUCT_RUNTIME_COMMAND_IDS[number];
 export type ProductRuntimeInternalId = typeof PRODUCT_RUNTIME_INTERNAL_IDS[number];
 export type ProductRuntimeCheckId = typeof PRODUCT_RUNTIME_CHECK_IDS[number];
-export type ProductRuntimePreviousCheckId = typeof PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS[number];
 export type ProductRuntimeLaunchMode = "command" | "check";
 
 export type ProductRuntimeInvocation = {
@@ -79,12 +71,16 @@ export type ProductRuntimeContract = {
         timeoutMs: typeof PRODUCT_SHUTDOWN_TIMEOUT_MS;
         tokenEnvironment: typeof PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT;
     };
+    startup: {
+        nonceEnvironment: typeof PRODUCT_STARTUP_NONCE_ENVIRONMENT;
+        readyPath: typeof PRODUCT_STARTUP_READY_PATH;
+        managerVerification: typeof PRODUCT_MANAGER_VERIFICATION_PROTOCOL;
+    };
 };
 
 /** 只供 Manager 验证已安装旧镜像；新建候选和 Product bootstrap 不接受此版本。 */
-export type PreviousProductRuntimeContract = Omit<ProductRuntimeContract, "schema" | "checks"> & {
+export type PreviousProductRuntimeContract = Omit<ProductRuntimeContract, "schema" | "startup"> & {
     schema: typeof PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA;
-    checks: Record<ProductRuntimePreviousCheckId, ProductRuntimeInvocation>;
 };
 
 export type ParsedProductRuntimeContract = ProductRuntimeContract | PreviousProductRuntimeContract;
@@ -145,6 +141,11 @@ export function createProductRuntimeContract(entries: ProductRuntimeEntryMap): P
             timeoutMs: PRODUCT_SHUTDOWN_TIMEOUT_MS,
             tokenEnvironment: PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
         },
+        startup: {
+            nonceEnvironment: PRODUCT_STARTUP_NONCE_ENVIRONMENT,
+            readyPath: PRODUCT_STARTUP_READY_PATH,
+            managerVerification: PRODUCT_MANAGER_VERIFICATION_PROTOCOL,
+        },
     };
 }
 
@@ -156,16 +157,22 @@ export function parseProductRuntimeContract(
     options: {allowPrevious?: boolean} = {},
 ): ParsedProductRuntimeContract {
     const root = object(value, "Product Runtime Contract");
-    exactKeys(root, ["schema", "commands", "internal", "checks", "shutdown"], "Product Runtime Contract");
     const schema = root.schema;
     const isCurrent = schema === PRODUCT_RUNTIME_CONTRACT_SCHEMA;
     const isPrevious = schema === PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA;
     if (!isCurrent && !(options.allowPrevious && isPrevious)) {
         throw new Error(`Product Runtime Contract schema 不受支持：${String(schema)}`);
     }
+    exactKeys(
+        root,
+        isCurrent
+            ? ["schema", "commands", "internal", "checks", "shutdown", "startup"]
+            : ["schema", "commands", "internal", "checks", "shutdown"],
+        "Product Runtime Contract",
+    );
     const commands = invocationMap(root.commands, PRODUCT_RUNTIME_COMMAND_IDS, "commands");
     const internal = invocationMap(root.internal, PRODUCT_RUNTIME_INTERNAL_IDS, "internal");
-    const checks = invocationMap(root.checks, isCurrent ? PRODUCT_RUNTIME_CHECK_IDS : PRODUCT_RUNTIME_PREVIOUS_CHECK_IDS, "checks");
+    const checks = invocationMap(root.checks, PRODUCT_RUNTIME_CHECK_IDS, "checks");
     const shutdown = object(root.shutdown, "shutdown");
     exactKeys(shutdown, ["protocol", "path", "timeoutMs", "tokenEnvironment"], "shutdown");
     if (shutdown.protocol !== PRODUCT_SHUTDOWN_PROTOCOL
@@ -174,6 +181,7 @@ export function parseProductRuntimeContract(
         || shutdown.tokenEnvironment !== PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT) {
         throw new Error("Product Runtime Contract shutdown 合同不受支持。");
     }
+    const startup = isCurrent ? parseStartup(root.startup) : undefined;
     const parsed = {
         schema,
         commands: commands as Record<ProductRuntimeCommandId, ProductRuntimeInvocation>,
@@ -185,8 +193,25 @@ export function parseProductRuntimeContract(
             timeoutMs: PRODUCT_SHUTDOWN_TIMEOUT_MS,
             tokenEnvironment: PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
         },
+        ...(startup ? {startup} : {}),
     } as ParsedProductRuntimeContract;
     return parsed;
+}
+
+/** 严格解析 Manager 与 Product 的启动关联及验证回执协议。 */
+function parseStartup(value: unknown): ProductRuntimeContract["startup"] {
+    const startup = object(value, "startup");
+    exactKeys(startup, ["nonceEnvironment", "readyPath", "managerVerification"], "startup");
+    if (startup.nonceEnvironment !== PRODUCT_STARTUP_NONCE_ENVIRONMENT
+        || startup.readyPath !== PRODUCT_STARTUP_READY_PATH
+        || startup.managerVerification !== PRODUCT_MANAGER_VERIFICATION_PROTOCOL) {
+        throw new Error("Product Runtime Contract startup 合同不受支持。");
+    }
+    return {
+        nonceEnvironment: PRODUCT_STARTUP_NONCE_ENVIRONMENT,
+        readyPath: PRODUCT_STARTUP_READY_PATH,
+        managerVerification: PRODUCT_MANAGER_VERIFICATION_PROTOCOL,
+    };
 }
 
 /** 读取并严格解析一个 Runtime Image 的运行合同。 */

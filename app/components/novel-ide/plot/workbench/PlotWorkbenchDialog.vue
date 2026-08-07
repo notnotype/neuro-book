@@ -300,7 +300,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
     <Dialog
         :model-value="props.modelValue"
         size="full"
-        overlay-type="blur"
+        overlay-type="opaque"
         :show-footer="false"
         :close-on-overlay="false"
         body-class="!gap-0 !overflow-hidden !p-0"

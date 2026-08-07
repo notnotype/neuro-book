@@ -12,6 +12,7 @@
 - 测试范围按风险匹配：复杂、共享合同和用户流程需要验证；简单文档或局部改动不主动扩展测试。除非用户授权，不自动进行浏览器验收。
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件。
 - 测试和运行产生的临时根放在 `.agent/tmp/<test-name>-<uuid>/`，不要在仓库、`.worktree/` 或快照目录创建业务临时数据。
+- 处理 Electron/Tauri 桌面 UI、Portable 产物、标题栏、窗口生命周期或打包后页面问题时，先阅读 [`docs/research/desktop/electron-debugging.md`](docs/research/desktop/electron-debugging.md)。该文档规定源码与实际产物的双重检查、CDP/Playwright 调试分层和 OS 级验收边界。
 
 ## 汇报与提问：让不读源码的人能拍板
 

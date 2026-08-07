@@ -39,14 +39,14 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
         maxHeight: "calc(100vh - 32px)",
     },
     xl: {
-        width: "min(1080px, calc(100vw - 20px))",
-        height: "min(780px, calc(100vh - 20px))",
-        maxHeight: "calc(100vh - 20px)",
+        width: "min(1040px, calc(100vw - 48px))",
+        height: "min(720px, calc(100vh - 64px))",
+        maxHeight: "calc(100vh - 64px)",
     },
     full: {
-        width: "calc(100vw - 24px)",
-        height: "calc(100vh - 24px)",
-        maxHeight: "calc(100vh - 24px)",
+        width: "min(1200px, calc(100vw - 64px))",
+        height: "min(720px, calc(100vh - 96px))",
+        maxHeight: "calc(100vh - 96px)",
     },
 };
 
@@ -73,8 +73,8 @@ const props = withDefaults(defineProps<{
     maxHeight?: string;
     /** Teleport 目标，传入 false 禁用 teleport */
     teleportTarget?: string | boolean;
-    /** 遮罩层效果：全透明、高斯模糊、不透明半黑 */
-    overlayType?: "transparent" | "blur" | "opaque";
+    /** 遮罩层效果：全透明或不透明半黑 */
+    overlayType?: "transparent" | "opaque";
     /** 是否显示底部自带的取消按钮 */
     showCancel?: boolean;
     /** 是否显示底部区域 */
@@ -93,7 +93,7 @@ const props = withDefaults(defineProps<{
     closeOnOverlay: true,
     closeOnEsc: true,
     teleportTarget: `.${IDE_THEME_HOST_CLASS}`,
-    overlayType: "transparent",
+    overlayType: "opaque",
     showCancel: false,
     showFooter: true,
     busy: false,
@@ -236,14 +236,13 @@ onMounted(() => {
     <!-- 对话框遮罩 + 容器 -->
     <Teleport v-if="isMounted" :to="typeof teleportTarget === 'string' ? teleportTarget : 'body'" :disabled="teleportTarget === false">
         <Transition name="nb-dialog">
-            <div v-if="modelValue" class="fixed inset-0 z-[9000] flex items-center justify-center transition-colors duration-300" :class="[
-                overlayType === 'blur' ? 'bg-black/20 backdrop-blur-sm' :
-                overlayType === 'opaque' ? 'bg-black/50' : 
+            <div v-if="modelValue" class="fixed inset-0 z-[9000] flex items-center justify-center transition-colors duration-200" :class="[
+                overlayType === 'opaque' ? 'bg-black/50' :
                 'bg-transparent'
             ]" @pointerdown.self="handleOverlayPointerDown" @pointerup.self="handleOverlayPointerUp" @contextmenu.self="handleOverlayContextMenu">
                 <!-- 对话框主体 -->
                 <div 
-                    class="flex flex-col overflow-hidden rounded-xl shadow-[0_12px_48px_color-mix(in_srgb,var(--shadow-color)_22%,transparent)] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transition-all duration-300 transform"
+                    class="nb-dialog-surface flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transform"
                     :style="{ width: resolvedWidth, height: resolvedHeight, maxHeight: resolvedMaxHeight }"
                 >
                     <!-- header 区域 -->
@@ -278,15 +277,20 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* ---- 优化后的过渡动画 ---- */
+.nb-dialog-surface {
+    box-shadow:
+        0 18px 44px color-mix(in srgb, var(--shadow-color) 24%, transparent),
+        0 4px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
+}
+
 .nb-dialog-enter-active,
 .nb-dialog-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity 0.18s ease;
 }
 
 .nb-dialog-enter-active > div,
 .nb-dialog-leave-active > div {
-    transition: transform 0.3s cubic-bezier(0.34, 1.15, 0.64, 1), opacity 0.3s ease;
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.18s ease;
 }
 
 .nb-dialog-enter-from,
@@ -295,12 +299,12 @@ onMounted(() => {
 }
 
 .nb-dialog-enter-from > div {
-    transform: scale(0.92) translateY(10px);
+    transform: scale(0.97) translateY(8px);
     opacity: 0;
 }
 
 .nb-dialog-leave-to > div {
-    transform: scale(0.96) translateY(5px);
+    transform: scale(0.98) translateY(4px);
     opacity: 0;
 }
 </style>

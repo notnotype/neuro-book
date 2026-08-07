@@ -28,7 +28,7 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         cwd: spec.cwd,
         // 监督器必须使用宿主环境；目标 env 只通过 IPC 传递。
         env: process.env,
-        stdio: [spec.stdin === "inherit" ? 0 : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],
+        stdio: [spec.stdin === "inherit" ? 0 : spec.stdin === "pipe" ? "pipe" : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],
     });
     let settled = false;
     let terminationReason: OwnedProcessTerminationReason | undefined;
@@ -80,11 +80,15 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
         args: spec.args ?? [],
         cwd: spec.cwd,
         env: spec.env,
+        stdin: spec.stdin ?? "ignore",
+        stdout: spec.stdout ?? "pipe",
+        stderr: spec.stderr ?? "pipe",
         graceMs,
         hardKillWaitMs,
     });
 
     return {
+        stdin: supervisor.stdin ?? undefined,
         stdout: supervisor.stdout ?? undefined,
         stderr: supervisor.stderr ?? undefined,
         completion,

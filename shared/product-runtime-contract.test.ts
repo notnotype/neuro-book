@@ -36,17 +36,24 @@ describe("Product Runtime Contract", () => {
         })).toThrow("可迁移 .mjs 路径");
     });
 
-    it("新镜像只接受 v4，Manager 旧镜像读取可显式接受 v3", () => {
+    it("新镜像只接受 v5，Manager 旧镜像读取可显式接受 v4", () => {
         const current = contractFixture();
-        const {"world-engine-config": _removed, ...previousChecks} = current.checks;
+        const {startup: _removed, ...previousContract} = current;
         const previous = {
-            ...current,
+            ...previousContract,
             schema: PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA,
-            checks: previousChecks,
         };
         expect(() => parseProductRuntimeContract(previous)).toThrow("schema 不受支持");
         expect(parseProductRuntimeContract(previous, {allowPrevious: true}).schema)
             .toBe(PRODUCT_RUNTIME_PREVIOUS_CONTRACT_SCHEMA);
+    });
+
+    it("声明 startup nonce、ready endpoint 与 Manager verification receipt", () => {
+        expect(contractFixture().startup).toEqual({
+            nonceEnvironment: "NEURO_BOOK_STARTUP_NONCE",
+            readyPath: "/api/app/version",
+            managerVerification: "runtime-image-receipt/v1",
+        });
     });
 
     it("交互式CLI保留调用cwd，其余命令固定Application Root", () => {

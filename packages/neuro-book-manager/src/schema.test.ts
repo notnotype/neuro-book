@@ -4,7 +4,7 @@ import {describe, expect, it} from "vitest";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
-import {INSTALLED_WINDOWS_ROOT_LOCATORS, INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
+import {INSTALLED_MACOS_ROOT_LOCATORS, INSTALLED_WINDOWS_ROOT_LOCATORS, INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import {migrateOperationJournal, parseInstallationManifest, parseOperationJournal, parseReleaseManifest, parseReleaseManifestEnvelope} from "#manager/schema";
 import {PRODUCT_PLATFORMS} from "#manager/types";
 
@@ -25,6 +25,17 @@ describe("Manager manifest schemas", () => {
         expect(() => parseInstallationManifest({
             ...productManifest(),
             roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        })).not.toThrow();
+        expect(() => parseInstallationManifest({
+            ...productManifest(),
+            roots: INSTALLED_MACOS_ROOT_LOCATORS,
+            components: {
+                ...productManifest().components,
+                product: {
+                    ...productManifest().components.product,
+                    platform: "darwin-aarch64" as const,
+                },
+            },
         })).not.toThrow();
         for (const path of ["", ".", "../data", "data/../cache", "C:/data", "/data"]) {
             expect(() => parseInstallationManifest({

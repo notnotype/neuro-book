@@ -23,7 +23,7 @@ afterEach(async () => {
 });
 
 describe("Windows Product release command secret transport", () => {
-    it("覆盖Runtime Contract v4的全部 release check", () => {
+    it("覆盖Runtime Contract v5的全部 release check", () => {
         expect(WINDOWS_PRODUCT_RELEASE_CHECKS).toEqual(PRODUCT_RUNTIME_CHECK_IDS);
         expect(WINDOWS_PRODUCT_RELEASE_CHECKS).toContain("world-engine-config");
         expect(WINDOWS_PRODUCT_HTTP_PROFILE_SOURCE).toContain("tools: toolset()");

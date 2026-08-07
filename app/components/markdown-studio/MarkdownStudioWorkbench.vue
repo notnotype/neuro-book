@@ -29,7 +29,6 @@ const props = withDefaults(defineProps<{
     monacoTemporaryFontSize?: number | null;
     activeTabRows?: number;
     compact?: boolean;
-    agentModeActive?: boolean;
     workspaceMode?: WorkspaceMode;
     referenceRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
@@ -40,7 +39,6 @@ const props = withDefaults(defineProps<{
     enableQuickTriggers?: boolean;
 }>(), {
     activeTabRows: 3,
-    agentModeActive: false,
     workspaceMode: "novel",
     referenceRefreshKey: "",
     resolveMenu: () => ({
@@ -70,10 +68,6 @@ const emit = defineEmits<{
     (e: "create-markdown-file"): void;
     (e: "create-lorebook-entry"): void;
     (e: "open-agent-panel"): void;
-    (e: "switch-agent-mode"): void;
-    (e: "toggle-agent-surface"): void;
-    (e: "open-bookshelf"): void;
-    (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "more"): void;
     (e: "inline-ai-reference", reference: InlineEditReference): void;
@@ -115,7 +109,6 @@ watch(() => props.activePath, () => {
                 v-if="!props.activePath || !props.node"
                 :node="props.node"
                 :tabs="props.tabs"
-                :agent-mode-active="props.agentModeActive"
                 :compact="props.compact"
                 :workspace-mode="props.workspaceMode"
                 @select-tab="emit('select-tab', $event)"
@@ -125,10 +118,6 @@ watch(() => props.activePath, () => {
                 @create-markdown-file="emit('create-markdown-file')"
                 @create-lorebook-entry="emit('create-lorebook-entry')"
                 @open-agent-panel="emit('open-agent-panel')"
-                @switch-agent-mode="emit('switch-agent-mode')"
-                @toggle-agent-surface="emit('toggle-agent-surface')"
-                @open-bookshelf="emit('open-bookshelf')"
-                @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />
 
@@ -192,7 +181,6 @@ watch(() => props.activePath, () => {
                 v-else
                 :node="props.node"
                 :tabs="props.tabs"
-                :agent-mode-active="props.agentModeActive"
                 :compact="props.compact"
                 :workspace-mode="props.workspaceMode"
                 @select-tab="emit('select-tab', $event)"
@@ -202,10 +190,6 @@ watch(() => props.activePath, () => {
                 @create-markdown-file="emit('create-markdown-file')"
                 @create-lorebook-entry="emit('create-lorebook-entry')"
                 @open-agent-panel="emit('open-agent-panel')"
-                @switch-agent-mode="emit('switch-agent-mode')"
-                @toggle-agent-surface="emit('toggle-agent-surface')"
-                @open-bookshelf="emit('open-bookshelf')"
-                @open-user-assets="emit('open-user-assets')"
                 @open-profile-workbench="emit('open-profile-workbench')"
             />
         </div>

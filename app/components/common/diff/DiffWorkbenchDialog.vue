@@ -101,7 +101,7 @@ function handleAction(action: DiffWorkbenchAction): void {
         :closable="false"
         :close-on-overlay="false"
         :close-on-esc="false"
-        overlay-type="blur"
+        overlay-type="opaque"
         body-class="min-h-0"
         @update:model-value="emit('update:modelValue', $event)"
     >

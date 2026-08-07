@@ -2,7 +2,7 @@ import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
-const headerPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeHeader.vue", import.meta.url));
+const activityBarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeActivityBar.vue", import.meta.url));
 const indexPagePath = fileURLToPath(new URL("../pages/index.vue", import.meta.url));
 const previewPagePath = fileURLToPath(new URL("../pages/world-engine.preview.vue", import.meta.url));
 const workbenchPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue", import.meta.url));
@@ -39,8 +39,8 @@ async function readSource(path: string): Promise<string> {
 }
 
 describe("World Engine IDE entry", () => {
-    it("保留 Header 入口并打开当前 Project 的工作台", async () => {
-        const header = await readSource(headerPath);
+    it("保留 Activity Bar 入口并打开当前 Project 的工作台", async () => {
+        const activityBar = await readSource(activityBarPath);
         const indexPage = await readSource(indexPagePath);
         const previewPage = await readSource(previewPagePath);
         const workbench = await readSource(workbenchPath);
@@ -67,9 +67,9 @@ describe("World Engine IDE entry", () => {
         const timeline = await readSource(timelinePath);
         const realWorkbenchUtil = await readSource(realWorkbenchUtilPath);
 
-        expect(header).toContain("open-world-engine");
-        expect(header).toContain("ide.header.worldEngine");
-        expect(header).toContain("i-lucide-globe-2");
+        expect(activityBar).toContain('case "world": emit("open-world-engine"); return;');
+        expect(activityBar).toContain("ide.header.worldEngine");
+        expect(activityBar).toContain("i-lucide-globe-2");
         expect(indexPage).toContain("WorldEngineWorkbenchDialog");
         expect(indexPage).toContain("openWorldEngineWorkbench");
         expect(indexPage).toContain(":project-root=\"currentProjectRoot\"");

@@ -20,7 +20,8 @@ describe("Novel IDE Settings Current Project contract", () => {
     it("没有当前 Project 或位于 user-assets 时拒绝进入 Project scope", async () => {
         const source = (await readFile(settingsDialogPath, "utf8")).replace(/\r\n/g, "\n");
 
-        expect(source).toContain('scope === "project" && (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot)');
+        expect(source).toContain('const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"');
+        expect(source).toContain('if (scope === "project" && !projectScopeAvailable.value)');
         expect(source).toContain('([workspaceKind, currentProjectRoot]) => {');
         expect(source).toContain('(workspaceKind === "user-assets" || !currentProjectRoot) && activeScope.value === "project"');
     });

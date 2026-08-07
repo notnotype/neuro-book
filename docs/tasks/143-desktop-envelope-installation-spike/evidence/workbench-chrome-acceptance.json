@@ -1,0 +1,158 @@
+{
+    "schema": "nbook.desktop-workbench-chrome-acceptance/v1",
+    "capturedAt": "2026-08-07T00:54:33.485Z",
+    "source": {
+        "revision": "15d4794689dde5e5d54716a918092389b9b6c3eb",
+        "dirty": false
+    },
+    "environment": {
+        "platform": "win32",
+        "arch": "x64",
+        "node": "v24.13.0",
+        "bun": "1.3.14",
+        "electron": "43.2.0",
+        "rustc": "1.97.1",
+        "cargo": "1.97.1"
+    },
+    "product": {
+        "contract": "nbook.product-runtime-contract/v5",
+        "imageId": "sha256:a330b98936df7694135c020e98fb824648192767d6e25a09405f3f14305d95f3",
+        "sourceDigest": "sha256:975cd19808ca8cb172aabeea5b5fd7f04c0895c7912f23d065764242f441c216",
+        "payload": {
+            "files": 3242,
+            "bytes": 134549619,
+            "treeDigest": "sha256:bdb3134994f8a0c1d910d12e332219d8007f2bd243b8177112627c12e175b8a9",
+            "shapeDigest": "sha256:02a79fe1c685066f7b9f3706b6a84c648cd34b3fe5aab324aff34cf5729030c5"
+        },
+        "owners": {
+            "authoring-kit": {"files": 513, "bytes": 14746686},
+            "commands": {"files": 109, "bytes": 10748820},
+            "frontend": {"files": 181, "bytes": 15899867},
+            "native-islands": {"files": 2059, "bytes": 75260633},
+            "runtime-meta": {"files": 3, "bytes": 5069},
+            "server-bundle": {"files": 1, "bytes": 12558780},
+            "system-assets": {"files": 376, "bytes": 5329764}
+        },
+        "reproducibility": {
+            "builds": ["workbench-a", "workbench-b"],
+            "imageIdEqual": true,
+            "treeDigestEqual": true,
+            "shapeDigestEqual": true,
+            "payloadFilesEqual": true,
+            "controlDifferences": [
+                "runtime-image.json.createdAt",
+                "runtime-image.ready.manifestSha256"
+            ]
+        }
+    },
+    "components": {
+        "managerBundle": {"files": 1, "bytes": 959025},
+        "electronRuntime": {"files": 75, "bytes": 364266454},
+        "electronEnvelopeDist": {"files": 3, "bytes": 286729},
+        "tauriReleaseExecutable": {"files": 1, "bytes": 9951744},
+        "toolPack": {
+            "files": 6293,
+            "bytes": 387904585,
+            "digest": "sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c",
+            "git": "2.41.0.windows.2",
+            "bash": "5.2.15",
+            "ripgrep": "15.1.0"
+        }
+    },
+    "portable": {
+        "batches": ["workbench-a", "workbench-b"],
+        "filesEqual": true,
+        "electron": {
+            "payload": {
+                "files": 9622,
+                "bytes": 986458107,
+                "digest": "sha256:0c01ae361128ed6f2a9c925a0d1eb7d17c8e8c91144b47886654a4bcb099c7c4"
+            },
+            "zipBytes": 389600838,
+            "zipSha256": "sha256:a0c407457ba727d1b6082e456dad33093c3488455d9b89cf76fa559949203201"
+        },
+        "tauri": {
+            "payload": {
+                "files": 9546,
+                "bytes": 631855763,
+                "digest": "sha256:9379969d1b76a471b8dd6e428ed1ba8cc5426ab6d57a8158005f1bcc5ebd4e40"
+            },
+            "zipBytes": 243840895,
+            "zipSha256": "sha256:e0621a538c08aca161cf606ee6477e6c9b1040e4422004205cf81ffc8a451a29"
+        },
+        "aggregateDepot": {
+            "files": 7,
+            "payloadBytes": 633455563,
+            "zipBytes": 628342701,
+            "zipSha256": "sha256:e362886aa441c08acea33bd93075af34e1a4c08dcc924e9c397a9ff6e3c5ef63"
+        }
+    },
+    "browser": {
+        "sourceDevSmoke": {
+            "edgeHeadless": "passed",
+            "edgeHeaded": "passed",
+            "desktopTitleBars": 1,
+            "desktopTitleBarHeight": 36,
+            "desktopContentY": 36,
+            "desktopActivityBarY": 36,
+            "browserTitleBars": 0,
+            "browserContentY": 0,
+            "viewports": [480, 800, 1024, 1440],
+            "inlineSession": "created and selected",
+            "agentIdeSwitch": "passed"
+        },
+        "electronPortableCdp": {
+            "passed": true,
+            "url": "dynamic loopback",
+            "desktopTitleBars": 1,
+            "oldHeaders": 0,
+            "titleBar": {"y": 0, "height": 36, "width": 1280},
+            "pageShell": {"y": 36, "height": 804},
+            "activityBar": {"x": 0, "y": 36, "width": 48, "height": 804},
+            "dragRegions": ["brand", "title"],
+            "noDragRegions": ["File menu", "application controls"],
+            "settingsDialog": "passed",
+            "quit": "graceful",
+            "remainingProcesses": 0
+        }
+    },
+    "runtimeSmoke": {
+        "root": "repository-external temporary root; ancestor has no node_modules",
+        "nodePath": "",
+        "electron": {
+            "exitCode": 0,
+            "shutdown": "graceful",
+            "imageVerifiedAfterRun": true,
+            "stateRootMove": true,
+            "remainingProcesses": 0
+        },
+        "tauri": {
+            "gracefulExitCode": 0,
+            "forcedExitCode": 0,
+            "immediateRestart": true,
+            "imageVerifiedAfterRun": true,
+            "stateRootMove": true,
+            "remainingProcesses": 0
+        }
+    },
+    "tests": {
+        "rootTypecheck": "passed",
+        "scriptsTypecheck": "passed",
+        "desktopContract": "7 files / 28 tests passed",
+        "adjacentUi": "6 files / 21 tests passed",
+        "managerDesktopInstallation": "1 file / 12 tests passed",
+        "managerTypecheck": "passed",
+        "electronBundle": "passed",
+        "tauriFmt": "passed",
+        "tauriCheck": "passed",
+        "tauriRelease": "passed",
+        "securityAudit": "all checks passed"
+    },
+    "limitations": [
+        "Docker CLI is unavailable on the acceptance host, so B/S Docker was not rerun; the no-Bridge B/S surface passed the shared Edge smoke.",
+        "Tauri exposed one real visible window and passed graceful, forced, and immediate-restart runtime smoke, but WebView2 did not expose the requested CDP port.",
+        "Computer Use identified the unique Tauri window but lost its Node REPL execution context before screenshot and input actions; Tauri native drag, maximize, menu, tray, and Snap Layout remain manual acceptance items.",
+        "State Root move succeeded for both Portable packages. Recursive deletion was not executed because the local command policy rejected the destructive command; no Product or Envelope process retained a handle.",
+        "macOS packages, signing, notarization, WebView2 offline distribution, stable cold-start/RSS, and the final Electron/Tauri framework choice remain outside this evidence."
+    ]
+}

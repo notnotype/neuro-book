@@ -30,6 +30,7 @@
         "release/install-dependencies.ts",
         "release/verify-windows-portable-restart.ts",
         "release/manager-release-contract.test.ts",
-        "release/manager-release-vitest.config.ts"
+        "release/manager-release-vitest.config.ts",
+        "release/desktop-contract-vitest.config.ts"
     ]
 }

@@ -346,6 +346,26 @@ describe("Journaled application migration", () => {
         }
     });
 
+    it("Desktop Supervisor 的动态端口会写入首次 State Root", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-dynamic-port-"));
+        roots.push(root);
+        const manifest = productManifest();
+        const port = 43127;
+        migrations.plan.mockResolvedValue({runId: "start-dynamic-port", status: "already_current", steps: migrationSteps("start-dynamic-port")});
+        migrations.launch.mockImplementationOnce(async () => {
+            const env = await readFile(join(root, "data", ".env"), "utf8");
+            expect(env).toContain(`NUXT_PORT=${port}`);
+            return {
+                ready: Promise.resolve(),
+                completion: Promise.resolve({code: 0, signal: null}),
+                shutdown: vi.fn(),
+                terminate: vi.fn(),
+            };
+        });
+
+        await startManagedApplication(root, manifest, {healthCheck: true, port});
+    });
+
     it("嵌入宿主关闭生命周期信号时请求 graceful shutdown 并等待 Product 终态", async () => {
         const root = await mkdtemp(join(tmpdir(), "manager-start-host-lifecycle-"));
         roots.push(root);
@@ -429,6 +449,29 @@ describe("Journaled application migration", () => {
         }));
 
         await expect(startManagedApplication(root, productManifest(), {healthCheck: true})).rejects.toThrow("health timeout");
+
+        expect(terminate).toHaveBeenCalledTimes(1);
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
+    });
+
+    it("窗口 ready 后宿主完整复核失败仍终止候选并回滚 start operation", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-on-ready-failure-"));
+        roots.push(root);
+        const terminate = vi.fn().mockResolvedValue(undefined);
+        migrations.plan.mockResolvedValue({runId: "start-on-ready-failure", status: "already_current", steps: migrationSteps("start-on-ready-failure")});
+        migrations.launch.mockResolvedValueOnce({
+            ready: Promise.resolve(),
+            completion: Promise.resolve({code: 0, signal: null}),
+            shutdown: vi.fn(),
+            terminate,
+        });
+
+        await expect(startManagedApplication(root, productManifest(), {
+            healthCheck: true,
+            onReady: async () => {
+                throw new Error("full verification failed");
+            },
+        })).rejects.toThrow("full verification failed");
 
         expect(terminate).toHaveBeenCalledTimes(1);
         await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);

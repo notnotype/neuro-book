@@ -270,7 +270,15 @@ export async function startInstallationApplication(
         }
         assertInstallationHostCompatible(activeManifest);
         const id = randomUUID();
-        const plan = await planApplicationStateMigration(paths.root, activeManifest, id);
+        const plan = await planApplicationStateMigration(
+            paths.root,
+            activeManifest,
+            id,
+            paths.root,
+            undefined,
+            undefined,
+            options.productRuntimeReceipt,
+        );
         if (options.healthCheck === false && plan.status !== "already_current") {
             throw new Error("Windows Portable 存在待执行迁移时不能使用 --no-health-check。");
         }
@@ -290,13 +298,13 @@ export async function startInstallationApplication(
         });
         let launch: Awaited<ReturnType<typeof launchApplication>> | null = null;
         try {
-            await ensureStateFiles(stateRoot, 3000, activeManifest.profile !== "windows-portable");
+            await ensureStateFiles(stateRoot, options.port ?? 3000, activeManifest.profile !== "windows-portable");
             journal = await prepareJournaledApplicationState(paths.root, activeManifest, journal, stateRoot, service);
             journal = await applyJournaledApplicationMigrations(paths.root, activeManifest, journal);
             journal = await updateOperation(journal, "migrated");
             launch = await launchApplication(paths.root, activeManifest, {
                 ...options,
-                openBrowser: true,
+                openBrowser: options.openBrowser ?? true,
                 onContainerStarting: async () => {
                     journal = await prepareCandidateContainer(journal);
                 },
@@ -308,6 +316,10 @@ export async function startInstallationApplication(
                 },
             });
             await launch.ready;
+            await options.onReady?.({
+                port: launch.port,
+                ...(launch.startupNonce ? {startupNonce: launch.startupNonce} : {}),
+            });
             journal = await updateOperation(journal, "healthy");
             await commitOperation(journal);
             launchResult.launch = launch;

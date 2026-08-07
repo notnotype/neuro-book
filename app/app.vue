@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import NotificationViewport from "nbook/app/components/common/NotificationViewport.vue";
+import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import { useDialog } from "nbook/app/composables/useDialog";
 import { useNotification } from "nbook/app/composables/useNotification";
+import {provideWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
+
+provideWorkbenchChrome();
 
 if (import.meta.client) {
     const dialog = useDialog();
@@ -12,14 +16,32 @@ if (import.meta.client) {
     (window as any).$dialog = dialog;
     (window as any).$notify = notification;
 }
+
+const desktopAvailable = computed(() => import.meta.client && Boolean(window.neuroBookDesktop));
 </script>
 
 <template>
-    <NuxtPage/>
-    <NotificationViewport />
+    <DesktopTitleBar />
+    <div :class="{ 'desktop-page-shell': desktopAvailable }">
+        <NuxtPage/>
+    </div>
+    <NotificationViewport :desktop="desktopAvailable" />
 </template>
 
 <style>
+
+.desktop-page-shell {
+    display: flex;
+    height: calc(100dvh - 36px);
+    min-height: 0;
+    overflow: hidden;
+    flex-direction: column;
+}
+
+.desktop-page-shell > * {
+    height: 100%;
+    min-height: 0;
+}
 
 *, ::after, ::before, ::backdrop, ::file-selector-button {
     box-sizing: border-box;

@@ -12,6 +12,7 @@ import {
     productExitErrorMessage,
     rollbackApplicationStateMigration,
     runPortableForeground,
+    waitForApplicationReady,
 } from "#manager/app-commands";
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
 import {currentProductPlatform} from "#manager/platform";
@@ -94,6 +95,59 @@ describe("Product exit diagnostics", () => {
 });
 
 describe("Product ready退出诊断", () => {
+    it("健康检查等待日志写入stderr，不污染Supervisor的stdout协议", async () => {
+        vi.useFakeTimers();
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, {status: 503}));
+        const completion = new Promise<{code: number | null; signal: string | null}>(() => undefined);
+        const ready = waitForApplicationReady(3000, "0.8.0-canary.1", completion, 10_500);
+        const outcome = ready.then(
+            () => null,
+            (reason: unknown) => reason,
+        );
+
+        try {
+            await vi.advanceTimersByTimeAsync(10_500);
+            await expect(outcome).resolves.toMatchObject({message: expect.stringContaining("健康检查超时")});
+            expect(log).not.toHaveBeenCalledWith(expect.stringContaining("健康检查仍在等待"));
+            expect(error).toHaveBeenCalledWith(expect.stringContaining("健康检查仍在等待"));
+        } finally {
+            vi.useRealTimers();
+            log.mockRestore();
+            error.mockRestore();
+            fetch.mockRestore();
+        }
+    });
+
+    it("ready检查把启动nonce放入版本请求头，普通响应不公开nonce", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        const nonce = "n".repeat(43);
+        const terminate = vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "startup-failure" as const}));
+        ownedProcess.spawn.mockReturnValue({completion: terminal.promise, terminate});
+        const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+            const headers = new Headers(init?.headers);
+            return Response.json({
+                versionLabel: "v0.8.0-canary.1",
+                ...(headers.get("x-neuro-book-startup-nonce") ? {startupNonce: nonce} : {}),
+            });
+        });
+
+        try {
+            const launch = await launchApplication(root, productManifest(), {startupNonce: nonce});
+            await launch.ready;
+            expect(fetch).toHaveBeenCalledWith(
+                "http://127.0.0.1:3000/api/app/version",
+                expect.objectContaining({headers: {"x-neuro-book-startup-nonce": nonce}}),
+            );
+            await launch.terminate();
+            expect(terminate).toHaveBeenCalledWith("startup-failure");
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
     it("ready前以0退出仍立即报告Product提前退出", async () => {
         const root = await nativeProductRoot();
         ownedProcess.spawn.mockReturnValue({
@@ -428,6 +482,26 @@ describe("原生 Product shutdown", () => {
                     headers: {authorization: `Bearer ${token}`},
                 }),
             );
+        } finally {
+            fetch.mockRestore();
+        }
+    });
+
+    it("允许机器可读宿主隔离Product stdout", async () => {
+        const root = await nativeProductRoot();
+        const terminal = deferred<{exitCode: number | null; signal: NodeJS.Signals | null}>();
+        ownedProcess.spawn.mockReturnValue({
+            completion: terminal.promise,
+            terminate: vi.fn(async () => ({exitCode: 0, signal: null, terminationReason: "shutdown" as const})),
+        });
+        const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({versionLabel: "v0.8.0-canary.1"}));
+
+        try {
+            const launch = await launchApplication(root, productManifest(), {productStdout: "ignore"});
+            await launch.ready;
+            expect(ownedProcess.spawn).toHaveBeenCalledWith(expect.objectContaining({stdout: "ignore", stderr: "inherit"}));
+            terminal.resolve({exitCode: 0, signal: null});
+            await launch.completion;
         } finally {
             fetch.mockRestore();
         }

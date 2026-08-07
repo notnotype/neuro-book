@@ -1,0 +1,223 @@
+# Task 143 - Electron / Tauri Desktop Envelope Spike
+
+> 这是 Task 130 的后续验证任务。它只验证桌面壳，不替换 Product、Manager、Runtime Contract、State Root、Cache Root 或 Owned Process 的所有权。
+
+## Relative documents refs
+
+- [Task 130：桌面应用前置架构、发行载荷与存储生命周期](../130-desktop-application-foundation/README.md)
+- [ADR 0009：Product Runtime Image 生成与消费](../../adr/0009-product-runtime-image-generation.md)
+- [ADR 0010：桌面存储、loopback 与关闭生命周期](../../adr/0010-desktop-storage-loopback-shutdown.md)
+- [AGENTS.md](../../../AGENTS.md)
+- [Issue #66](https://github.com/notnotype/neuro-book/issues/66)
+
+## User Request / Topic
+
+在现有 Product Runtime Image、Manager 和生命周期合同之上，分别做一个 Electron 与 Tauri 的 Windows-first Desktop Envelope spike。用户当前偏向 Electron，但最终选择必须由同一验收矩阵的实测证据决定；本任务不提前把任何一个框架标记为正式生产方案。
+
+## Goal
+
+执行 `GOAL.md` 中的长期 unattended spike：建立两个最薄的桌面壳，验证它们能从仓库外打开 verified Product、连接动态 loopback、承载真实前端并完成有认证的优雅关闭；记录体积、文件数、启动、内存、权限和失败证据。保持业务逻辑在 Product/Manager 内，保持 Electron 依赖只在 spike 包，保持 Tauri 使用 stable MSVC，不引入 nightly 或新的长期运行时。
+
+成功必须同时满足：
+
+- 两个壳都通过同一份 Product Runtime Contract resolver 启动现有 verified Product，不复制 Profile、Workspace、数据库、迁移或 shutdown 实现。
+- 两个壳都实现单实例、动态端口、loopback 控制凭据、health/version、优雅关闭和强制收口后的进程/句柄检查。
+- 两个壳都保存可复现的配置、版本、命令、日志、测量和失败分类；自动化检查与人工浏览器验收分开报告。
+- 只在 Windows 真实证据足够时提出跨平台推断；macOS/Linux 不因 Windows 通过而宣称完成。
+
+## Non-goals
+
+- 不把桌面壳并入生产发行、不修改根 Product dependencies、不移动 Product 领域代码。
+- 不用 Electron main 或 Tauri Rust 重写 Manager、数据库、Agent、Profile、Workspace 或安装更新流程。
+- 不为 Bun Product 自造 ASAR/虚拟文件系统；不把完整 Source、Skill 依赖或 native island 塞进桌面壳。
+- 未获得用户授权时不自动执行真实浏览器或窗口验收；获得授权后仍需把可重复的 Playwright/CDP 证据与原生 OS 行为分开报告。
+
+## Current State
+
+- Task 130 已提供 verified Runtime Image、Product Runtime Contract v5、Manager 进程编排、loopback shutdown、State/Cache Root 和 Windows Product smoke。
+- 当前仓库已经有 `desktop/spikes/electron` 与 `desktop/spikes/tauri` 的 Windows-first spike 实现；NeuroBook Manager CLI 已补齐 Windows 用户级安装事务，但图形化 Manager、签名安装器、更新器和最终框架选择仍不在本任务冻结。
+- 本机已有 `rustup-msvc` stable MSVC toolchain、Visual Studio 2022 Community、Windows SDK 和 WebView2 Runtime。
+- Electron 不进入根依赖；spike worktree 内单独安装并记录版本。
+
+## Architecture Boundary
+
+```text
+Electron main / Tauri Rust envelope
+    -> Desktop Local Root、单实例、窗口、原生对话框
+    -> Manager / verified Product Runtime Contract
+    -> http://127.0.0.1:<dynamic-port>
+    -> existing Bun Product
+```
+
+桌面壳拥有窗口、单实例、WebView profile、桌面 lease 和原生系统交互；Manager 拥有安装、迁移、版本切换、Product 启停和 rollback；Product 拥有业务 API、Agent、数据库、Profile、Workspace 和统一 shutdown controller。动态 loopback token 只在内存/进程环境中传递，不写入 WebView 或磁盘。
+
+## Shared Matrix
+
+两种壳必须用同一个 verified Product、同一个 State/Cache Root fixture、同一份场景编号和同一套计时/尺寸口径：
+
+| ID | 场景 | 证据 |
+| --- | --- | --- |
+| S1 | verified image / contract / source identity | resolver 输出、manifest、失败日志 |
+| S2 | 动态端口 health/version 与同源 cookie | HTTP 结果、端口、cookie 属性 |
+| S3 | SSE/WebSocket 长连接和断开 | 连接事件、关闭原因 |
+| S4 | Monaco、TipTap、剪贴板、拖放、下载、文件对话框 | 自动 harness 结果；真实 UI 另列人工项 |
+| S5 | Origin/CSP、Electron isolation 或 Tauri capability | 配置审计和拒绝越权检查 |
+| S6 | 单实例与第二次启动转发/退出 | 进程树和退出码 |
+| S7 | Product crash / Manager shutdown / 30s graceful drain / forced fallback | shutdown trace、Owned Process 终态 |
+| S8 | State Root 可移动、Cache/WebView profile 可回收 | move/delete 检查 |
+| S9 | 启动时间、RSS、文件数、逻辑/压缩大小 | 同机 measurement JSON |
+
+## Spike Shape
+
+- `desktop/spikes/shared/`：只放测试 fixture、测量 schema 和 envelope 与 Product Contract 的适配测试，不复制领域逻辑。
+- `desktop/spikes/electron/`：Electron main、preload、最小 renderer、CSP、单实例和窗口/进程生命周期；`nodeIntegration: false`、`contextIsolation: true`、sandbox 和最小 IPC。
+- `desktop/spikes/tauri/`：Rust/Tauri main、WebView2 配置、最小 capability、sidecar/Manager 启停和窗口生命周期；不引入 nightly。
+- `docs/tasks/143-desktop-envelope-installation-spike/evidence/`：只保存脱敏的版本、测量、日志摘要和失败报告，不保存 State Root、token、用户内容或完整 WebView profile。
+
+## Iteration / Stop Rules
+
+每个实验先记录假设、命令和预期，再运行最小场景；失败时先保留复现和环境证据，不能通过放宽 CSP、关闭 isolation/capability、使用固定 token、绕过 verified image 或复制 Product 逻辑来“修绿”。同一阻断连续三次仍无新证据时停止该路径，报告阻断、已尝试路径和需要人工决定的选项。
+
+## Verification / Test
+
+- focused tests：共享 resolver、配置审计、单实例、shutdown、路径/凭据不落盘。
+- Electron：安装后 `npm`/Bun 只在 spike 目录工作；执行 package build、main/preload smoke 和仓库外 Product launch。
+- Tauri：`cargo metadata`、`cargo test`、`cargo build` 与 WebView2/sidecar smoke。
+- Product：复用 Task 130 verified image 和现有 Windows verifier；不在本任务重做 clean A/B build。
+- UI：共享 Workbench Chrome 先用普通 Chromium + mock Desktop Bridge 验证 B/S/Desktop 差异，再用真实 Envelope 做 CDP/可见窗口验收。文件对话框、拖放、托盘、Snap Layout 等原生行为必须单列，不能由 DOM smoke 代替。
+
+## Implementation Walkthrough
+
+- 2026-08-04：创建 Issue #66、从 `origin/master` 建立 `feat/i66-t140-desktop-envelope-installation-spike` worktree；确认 Rust/MSVC/WebView2 前置已安装。随后以当前合同迁移到 `feat/i66-t140-desktop-envelope-hardening` 继续收口。
+- 2026-08-04：Electron 依赖只安装在 `desktop/spikes/electron`，版本为 Electron 43.2.0；Tauri 使用 Rust 1.97.1 stable MSVC 与 Tauri 2.11.5。两个壳都通过共享 Product launcher 解析 Product Runtime Contract；当日历史 fixture 使用 v4，后续 clean fixture 已升级为 v5，未复制数据库、Profile、Workspace 或 shutdown 业务实现。
+- 2026-08-04：完成 Electron main/preload 与 Tauri Rust/WebView2 最小壳。Electron 固定 `nodeIntegration=false`、`contextIsolation=true`、`sandbox=true`，只暴露只读状态 IPC；Tauri 只声明窗口 capability，CSP 仅允许 loopback，未声明 shell/fs 权限。两个壳都使用动态端口和每次启动随机 256-bit shutdown token，token 不写磁盘、URL 或 WebView storage。
+- 2026-08-04：以仓库外、非当前 checkout 构建的 Windows verified Product fixture（source revision `4947c1e4ab7643c71d875bae4083a56412f06ee3`，历史 Contract v4）完成两次 headless launch。Electron 端口 `37641`、Tauri 端口 `37642` 均通过 version health、数据库/Application State 准备、14 个 system profiles 准备和认证 graceful shutdown；Application Root 前后均为 3,239 文件，digest `sha256:a99cf1d0a1e9e563b177a7955ddf21f87a92e20c28656b8d04f3a9c3a762aa25`。
+- 2026-08-04：最终 focused 门禁通过：spike TypeScript typecheck、Contract Vitest `1 file / 1 test`、security audit、Electron bundle、Tauri `cargo fmt --check`、`cargo test`（0 个 Rust 单测）和 `cargo build --release`。测量见 [measurement.json](evidence/measurement.json)：Product fixture 3,239 文件 / 133,936,301 bytes；Electron runtime 75 文件 / 364,266,454 bytes，Envelope bundle 2 文件 / 41,349 bytes；Tauri release exe 1 文件 / 8,921,088 bytes，PDB 6,279,168 bytes。
+- 2026-08-04：测量只记录逻辑文件数与字节数，没有把 Electron runtime、WebView2 或最终安装器压缩大小冒充已知结果。Tauri 的当前构建关闭正式 bundle，WebView2 Evergreen/Fixed/Bootstrapper 分发成本尚未测量。
+- 2026-08-05：在当前 checkout 的空 `NEURO_BOOK_OUTPUT_DIR` 完成 clean Build A。Runtime Image manifest 报告 `dirty=false`、source revision `9c1c0f3564fbb1543a9ef198bccf31d9c1eef112`、source digest `sha256:d2d110e00f0957c36507f587107457aa819d1b4a9e6dd3355205f8bb662cde45`、imageId `sha256:f4010c53f1ae261a7574294be41dbb737a91d31439d3be8ce5b809dd6fbbb4e3`，共 3,242 个文件 / 134,529,839 bytes，shape digest `sha256:5548e16f91f23d3cedf43aa61c15a8cc65fdcde06673aa18346b464f45ce62d4`。Owner inventory 为 authoring-kit 513/14,745,912、commands 109/10,748,046、frontend 181/15,882,924、native-islands 2,059/75,260,633、runtime-meta 3/5,069、server-bundle 1/12,557,491、system-assets 376/5,329,764；该候选已通过 Product Runtime Image verifier，但文档随后还会进入最终 Build B。
+- 2026-08-05：修复空 Portable State Root 的端口生命周期缺陷：首次启动不再把未配置端口误判为固定 `3000`，由 Supervisor 选择的动态端口写入首次 `.env`；已有 `.env` 仍严格检查显式端口。Manager focused 2 files / 25 tests、typecheck 和 bundle 通过。
+- 2026-08-05：文档收口前完成 clean Build C2。Runtime Image manifest 报告 `dirty=false`、source revision `b1ba910e2c0de18cad50de31161a1bb7bcb7812f`、source digest `sha256:55b7663e08c00c146af902f93e7f5d69a66fc253b2d51179dca71bfc201965ce`、imageId `sha256:3fdf7e692d533050d7356045d1a5459cf28f008425ce4ade081cf6451e11fcd3`，共 3,242 个文件 / 134,529,839 bytes，tree digest `sha256:82f8777b01150ee090035ad3ef0f685a4c1b68622dce62e7b67e89af33400a04`，shape digest 仍为 `sha256:5548e16f91f23d3cedf43aa61c15a8cc65fdcde06673aa18346b464f45ce62d4`。Owner inventory 为 authoring-kit 513/14,745,912、commands 109/10,748,046、frontend 181/15,882,924、native-islands 2,059/75,260,633、runtime-meta 3/5,069、server-bundle 1/12,557,491、system-assets 376/5,329,764；C2 仅作为历史证据，之后的 stdio 和 startup nonce 修复尚未进入该镜像。
+- 2026-08-05：修复 Owned Process 监督器的 stdout/stderr 继承策略，避免 Product 日志污染 Supervisor NDJSON；修正 Tauri 64 字符 startup nonce 与 `/api/app/version` 合同不一致的问题。两项修复都必须在新的 source-locked Product Image、Portable 组包和 Tauri headless smoke 中重新验证。
+- 2026-08-05：完成早期 source-locked Build A/B（后续被 `7a001aaf` Source 冻结后的重建取代）。两次构建均 `dirty=false`、revision `3623d32c66aa7ab0a9ad4769e4405036ea9d5433`、source digest `sha256:c5fea97c659ca9035aaa82a63c99615649d070cc91d23a575d215bec429667bf`、imageId `sha256:7f70530cbdb076c27f32285802d4f891515ec1dfec9582522f1e4fd3b7ac40e2`，Product inventory 均为 3,242 文件 / 134,532,224 bytes，tree digest `sha256:e5afa0d9dc500b5acfe366e4a6385ecea3c3fa3b24031801ca6470a3088ad626`，shape digest `sha256:917c43569fa43d60045dacb23c5de6d71fb1d3100a2779cd4d464ada2d814aab`。Owner inventory 为 authoring-kit 513/14,746,686、commands 109/10,748,820、frontend 181/15,882,924、native-islands 2,059/75,260,633、runtime-meta 3/5,069、server-bundle 1/12,558,328、system-assets 376/5,329,764；A/B 的 manifest、payload identity 和文件内容完全一致，只有 `createdAt` 不同。
+- 2026-08-05：早期 Windows Portable 两次组包逐字节一致（后续被 `7a001aaf` Source 冻结后的 E/F 重建取代）。Electron payload 为 9,623 文件 / 986,194,835 bytes、ZIP 为 389,496,381 bytes；Tauri payload 为 9,546 文件 / 631,727,064 bytes、ZIP 为 243,786,881 bytes。当前 E/F 的完整摘要见下方 final Build A/B rebuild 小节。
+- 2026-08-05：补齐 NeuroBook Manager CLI 的 Windows 用户级安装事务：`scripts/install/install-desktop.ps1` 只负责准备 Bun 并转交 Manager；本地模式在安装事务内通过 stdin/隐藏 TTY 创建管理员，远端模式不接收本地密码；安装前拒绝 dirty Product，复核 Product、Manager、Bun、rg、PortableGit/bash 与 Envelope；安装完成后写相对 wrapper、开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`，注册失败和卸载都清理同一组资源。Portable 数据根不会被复制到 Installed 根，State Root 默认保留。
+- 2026-08-05：收口远端 Desktop 安装路径：`desktop install --remote` 不再接受完整 Product Portable，而是要求独立 `nbook.desktop-shell/v1` shell depot；Manager 先请求 `/api/app/desktop-capability` 并解析 Product 版本，再只写入 Envelope、远端连接清单和 Desktop/WebView locator。远端安装拒绝 Product、Bun、Tool Pack 和 CLI PATH；卸载注册表改为调用 `neuro-book desktop uninstall --dir ...`，默认保留 State Root；`desktop/spikes/package-portable.mjs` 通过可选 `--shell-output-dir` 生成 Electron/Tauri shell ZIP 与 sidecar manifest。
+- 2026-08-05：补齐 `nbook.desktop-user-installation/v1` 的 Windows x64 与 macOS x64/arm64 路径合同。macOS 只完成 Application Support/Caches locator、Manager schema 和 CI 合同检查，不声称签名、公证或正式 `.app` 已通过。
+- 2026-08-05：安装收口后的 focused 回归为 Manager `38 files / 276 tests passed; 1 file / 3 tests skipped`，其中 `desktop-installation.test.ts` 覆盖 Portable strict manifest、独立 shell manifest、distribution manifest 组件选择与 checksum、远端 capability、Product/Tool Pack 隔离、clean/image/checksum、密码模式、相对 wrapper、注册回滚和卸载清理；Manager typecheck、pack check、Desktop Contract `1 file / 9 tests`、Electron bundle/audit、Tauri `cargo fmt --check`/`cargo check` 均通过。独立无全局 Agent fixture 的安装脚本合同为 `1 file / 10 passed / 9 skipped`。该回归不重跑已完成的双 clean build 或仓库外 Portable smoke。
+- 2026-08-05：`desktop/spikes/package-portable.mjs` 现在为 Portable depot 和独立 shell depot 各生成 `nbook.desktop-distribution/v1` sidecar。`neuro-book desktop install --distribution-manifest <path>` 由 Manager 解析 Windows x64、通道、Envelope 组件、同根相对路径、ZIP 字节数和 SHA-256 后再进入安装事务；合同中的 HTTPS 组件仍只完成严格解析，本地 Manager 不假装提供联网下载。
+- 2026-08-05：最终包在仓库外、祖先无 `node_modules`、清空 `NODE_PATH` 的临时根完成 Electron 与 Tauri headless smoke。两者均启动同一 Contract v5 Product、动态 loopback、迁移、14 个 system profiles、version health 和认证 graceful shutdown；Electron 额外在保持运行期间验证错误 token HTTP `401`，两包均完成 Application Root `.output` 前后 3,244 文件同 digest 检查、State Root move/delete 和进程树收口。Focused 门禁为 Desktop 5 files/17 tests、security audit 全项通过、Electron bundle、Desktop TS typecheck、Manager 37 files/263 tests（1 skipped file/3 skipped tests）、Manager typecheck、Tauri `cargo fmt --check`/`cargo check`。
+- 2026-08-05：根据安装后交互复核补做 Electron 启动与托盘加固。启动页现在显示 Product 检查、Supervisor 启动、ready/full verification 等阶段；本地启动失败不会立即退出，而是提供重试、经 Manager Supervisor 修复回执后重试、打开日志和退出。托盘改为复用现有 `desktop/spikes/tauri/icons/icon.ico`，并由 Electron build/Portable staging 带入 `resources/icon.ico`；新增桌面合同断言覆盖启动恢复入口和非空图标加载。该批次只验证构建和合同，不声称真实窗口视觉或托盘人工验收完成。
+- 2026-08-05：使用现有最终 Product/Portable 输入重新组包，打包器保持拒绝 Scoop shim Bun 的门禁；改用真实 Bun 1.3.14 后 Electron/Tauri 两个 ZIP 均成功生成，历史包已确认图标随 Envelope 携带。将当前 `main.mjs`、`preload.mjs` 和图标替换进仓库外解压的旧版 Electron ZIP 后运行 `--headless`，退出码为 0；Product 日志记录动态端口启动、`GET /api/app/version` 和 `POST /__nbook/control/shutdown`，无残留 Electron/Product 进程。该 smoke 复用了历史 verified Product image，不重新声明 Build A/B。
+- 2026-08-05：补齐托盘关闭策略边界：当用户关闭托盘后仍保留 `tray` 设置时，Electron/Tauri 不再把窗口隐藏到没有入口的托盘；`ask` 只有在托盘启用时才弹出隐藏选择，否则直接走统一 graceful shutdown。桌面合同测试仍为 5 files / 20 tests，Electron bundle、Tauri `cargo fmt --check` 和 `cargo check` 通过。
+- 2026-08-05：在同一 verified Product image 上重建 ASAR/Portable，Electron 为 9,622 个 payload 文件 / 986,432,016 bytes / ZIP 389,591,229 bytes，Tauri 为 9,546 个文件 / 631,716,228 bytes / ZIP 243,800,254 bytes；两批同输入组包的 ZIP、manifest 和 payload digest 均一致。Tauri Windows Supervisor 改用 Job Object（`KILL_ON_JOB_CLOSE` + `TerminateJobObject`）拥有 Manager 及其后代，仓库外新包 graceful smoke 退出 0，`--t140-force --headless` smoke 退出 0 且报告 `forced`、无残留进程；安全审计同时拒绝 `taskkill` fallback。证据见 [asar-packaging.json](evidence/asar-packaging.json)。
+- 2026-08-05：本轮收口补齐 Portable Envelope 的真实 `sha256:` 字段，Manager 在解压候选和安装前再次核对 Envelope 内容；Tauri manifest 版本从当前 `Cargo.toml` 读取，不再硬编码旧框架版本。Windows 用户 PATH 查询保留 `REG_SZ`/`REG_EXPAND_SZ` 类型，只有明确的注册表值不存在才按空 PATH 处理，其余 `reg.exe` 错误 fail closed；安装 staging 改到 Installation Root 同级，避免跨盘 `rename` 的 `EXDEV`。
+- 2026-08-05：Product `/api/app/version` 的 startup nonce 只在请求带有本次 Manager 注入的精确 header 时返回，并固定 `Cache-Control: no-store`；Manager ready probe 已覆盖该 header，Electron 的启动失败日志入口和 Electron 日志目录统一归 `State Root/logs`。Tauri 关闭请求增加进程内一次性 claim，窗口事件、确认框超时和 JS 回调不会并发执行多次 Supervisor shutdown。
+- 2026-08-05：Source 冻结后完成最终 Build A/B 重建与 E/F Portable 组包。Product 两次均 `dirty=false`、revision `7a001aaf3961907b86e27f17c7f3b011f1b7dbc2`、imageId `sha256:b20de896a3fa63591bf5c2ba067803c0ed707e9a0984b200562c10f0d28bf895`，3,242 文件 / 134,532,815 bytes；E/F 两次 Portable payload、manifest 和 ZIP 摘要完全一致。最终 focused 门禁包含根 typecheck、Manager `38` 个测试文件（`278 passed / 3 skipped`）、Desktop Contract `2 files / 11 tests`、Electron bundle、Tauri `cargo fmt --check`/`cargo check`、Product/Authoring Cache/Windows verifier、security audit；旧 stale Tauri/Manager bundle 曾使 headless smoke 失败，重建两个二进制后已通过。
+
+## Acceptance Matrix
+
+| ID | 当前结果 | 证据 / 边界 |
+| --- | --- | --- |
+| S1 | 通过（最终 Build A/B） | 两次 clean build 的 verified Product image、Contract v5、source identity、owner policy/inventory、tree/shape digest 和 payload 文件内容完全一致；构建机绝对路径、`.bun`、`.pnpm` 泄漏为 0。 |
+| S2 | 通过（headless） | 两个壳均通过动态 `127.0.0.1` port 的 version health；cookie 属性尚未单独做浏览器检查。 |
+| S3 | 未完成 | SSE/WebSocket 长连接与断开没有在真实窗口中验证。 |
+| S4 | 未完成 | Monaco、TipTap、剪贴板、拖放、下载和文件对话框只生成了人工验收范围，没有自动点击或视觉验收。 |
+| S5 | 自动审计通过 | Electron isolation/sandbox/navigation、Tauri loopback CSP/capability 均通过静态安全审计；页面运行时 Origin 行为仍需人工验收。 |
+| S6 | 通过（focused） | Electron `requestSingleInstanceLock` 与 Tauri lock fixture 的第二实例竞争已通过；没有把第二实例 UI 转发冒充为完整人工验收。 |
+| S7 | 部分通过 | 两个壳均完成 Product-owned migration、动态 health、认证 graceful shutdown、错误 token `401` 和退出后进程树收口；Electron 复用 Owned Process，Tauri Windows Supervisor 现在由 Job Object 拥有并通过 `TerminateJobObject` 完成 forced smoke。crash/disconnect 后的完整矩阵和跨平台强制收口仍未完成。 |
+| S8 | clean Portable 自动 smoke 通过（最终 Build A/B + ASAR follow-up） | 两包均从仓库外且祖先无 `node_modules`、清空 `NODE_PATH` 的临时根启动；14 个 system profiles、动态 loopback health/version、认证 graceful shutdown、`.output` immutable digest 和 State Root move/delete 均通过；Electron 保持运行期间额外验证错误 token `401`。ASAR follow-up 重新验证了 Electron ASAR 入口和 Tauri headless graceful shutdown。`data/`、`.cache/` 和 WebView profile 是运行期 owner，不纳入 immutable Product payload digest；完整 WebView profile 回收仍未验证。 |
+| S9 | clean Portable measurement 通过（含 ASAR follow-up） | 当前 E/F 的 Product、owner inventory、Portable payload/ZIP identity 和 ZIP 摘要见 [final-build-a-b.json](evidence/final-build-a-b.json)。Job Object 版本 ASAR follow-up 的旧数字仍保留作历史证据：Electron 9,622 文件 / 986,432,016 bytes、ZIP 389,591,229 bytes；Tauri 9,546 文件 / 631,716,228 bytes、ZIP 243,800,254 bytes。Tool Pack 为 6,293 文件 / 387,904,585 bytes / digest `sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c`；稳定 RSS、正式安装器/updater 和 WebView2 分发成本仍未测量。 |
+| S10 | CLI 用户级安装合同通过（focused + real Windows smoke） | Manager 安装/注册/回滚/卸载测试覆盖本地密码、远端 shell capability/version、远端 Product/Tool Pack 隔离、dirty/checksum/image identity、相对 wrapper 和 Windows 资源清理；真实 Windows smoke 又验证 stdin 密码、默认用户级安装根、快捷方式、HKCU 注册项、`neurobook://` 和 State Root 保留。macOS 仅通过路径合同与 CI 配置检查。 |
+
+## Findings and Follow-ups
+
+- 本 spike 证明两个桌面壳可以保持薄层边界，复用 Product Runtime Contract v5 和现有生命周期；Tauri Windows forced fallback 已通过 Job Object 黑盒验证，但它没有证明任何框架已经达到生产发布条件，也没有修改 ADR 0009/0010 的最终选择。
+- Tauri 的单文件 release executable 明显小于 Electron Chromium runtime，但这不是完整安装包对比：Tauri 仍需 WebView2 分发策略，Electron 还需把 runtime、Product Image、Bun 和资源一起计入安装载荷。
+- Tauri Windows spike 已接入受控 Job Object；正式实现仍需补齐 crash/disconnect、非 Windows 进程组和签名发行链路的完整收口验证。
+- 生产实现前必须完成真实窗口的 S3/S4/S5/S8 场景，并分别测量冷启动、RSS、压缩安装器、WebView2 Evergreen/Fixed/Bootstrapper 与升级/卸载行为。
+- 最终 Build A/B 与两次 Portable 组包已覆盖 stdio、startup nonce、Contract、生命周期和 Windows-first 自动化矩阵；旧 C2/旧 ZIP 仅保留为历史证据。上述证据仍不构成跨平台完成或 Electron/Tauri 的生产选择。
+- 2026-08-06：真实窗口复核新增视觉 follow-up：当前标题栏虽已满足文档流和拖动 CSS 合同，但 `color-mix(..., transparent)` 与 native overlay 的组合仍显得像半透明浮层；右上角系统按钮的视觉权重也偏高。按 VS Code 方向，后续应改为不透明、低对比、连续的桌面 chrome，保留 Windows 原生窗口按钮和 36px 几何；具体建议见 [`window-chrome-design.md`](../../research/desktop/window-chrome-design.md)。本记录只登记方向，尚未修改实现或冻结色值。
+
+## Portable Packaging Phase
+
+本阶段继续使用同一 Task 143，不创建第三个桌面架构。目标是生成两个 Product-only Desktop Envelope spike ZIP：
+
+```text
+portable-root/
+├─ .output/                  # immutable、已验证的 Windows Product Runtime Image
+├─ runtime/bun.exe           # 随包 Bun runtime
+├─ desktop/                  # Envelope、launcher bundle、桌面 runtime
+├─ data/                     # Portable State Root；用户内容 owner
+├─ .cache/                   # Portable Cache Root；可重建数据
+└─ manifest.json             # image、source、runtime、root 和 webview identity
+```
+
+Electron 包携带完整 Chromium runtime；Tauri 包只携带 release executable，并在 manifest 中明确依赖系统 WebView2 Evergreen。两个包都提供包相对 launcher 与 `--headless` smoke，不要求普通用户设置 `T140_*` 环境变量。包内不携带完整 Source、根 `node_modules`、用户数据、固定 token 或未经验证的 `.output`。
+
+Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录中完成，且清空 `NODE_PATH`；必须检查 Product Contract、动态端口、migration/Profile 准备、认证 shutdown、immutable Product payload digest、端口/进程收口和包内绝对路径泄漏。`data/`、`.cache/`、Desktop/WebView root 是可写 owner，不能用整个 Portable 根 digest 冒充只读证明。两次从同一输入组包的 payload identity 必须一致，时间戳不计入比较。
+
+本阶段已提供 Windows 用户级安装的 Manager CLI 事务，但仍不提供图形化 Manager、签名安装器、updater、跨平台正式包或最终 Electron/Tauri 决策。Tauri Windows forced fallback 已使用 Job Object 单独验证；系统 WebView2、Electron Chromium 体积、完整 crash/disconnect 生命周期和真实窗口交互仍单独记录，不以单个 exe 大小代替完整 portable 包结论。
+
+## Portable Packaging Result (2026-08-05, historical dirty spike)
+
+- 使用 verified Product image `sha256:5a35e96ad4f642c555d7dba63a656087e5cb813683aabbb87642166faca5749b`、Contract v4、Bun 1.3.14，在同一 Windows x64 输入上连续生成 K/L 两批 ZIP。Product image 的 source revision 为 `d08199fdc56a6b8e7e3ec0670daa009d5b99c732`，`dirty=true`，所以该段只保留作历史 spike 证据，不能作为正式 Release 或当前 clean baseline。
+- 最终交付目录为 worktree 外的 `.agent/artifacts/t140-desktop-portable/`，包含：
+- `neuro-book-electron-portable-win-x64.zip`：3,324 文件、597,293,364 bytes，ZIP 230,564,235 bytes，payload digest `sha256:eb3340c9987721e8f5697be8c9fcd98b98cc4d50ee526b21a89d7e50d2ef6310`。
+  - `neuro-book-tauri-portable-win-x64.zip`：3,247 文件、241,920,090 bytes，ZIP 84,492,619 bytes，payload digest `sha256:318cee4013c90cfe025a89e32cbd22123f7b5cc474772296b371123a0617cb67`。
+- K/L 的 Electron payload digest、Tauri payload digest、ZIP SHA-256 和 payload shape 均一致；ZIP SHA-256 分别为 `c8aa5356a249285406ff0a7b27fc5c08a601510a498264ca5d38c2ac2e711010` 与 `49041726c3cfbefba33b6862b687a21dffaf7a68a0c52d72bf9298da8b92e5c1`。Electron 携带 75 文件 Chromium runtime；Tauri 只携带 release executable，manifest 标明 `Microsoft WebView2 Evergreen` 为系统前置条件。
+- 两包均从仓库外且祖先无 `node_modules` 的临时根启动，清空 `NODE_PATH`，自动执行 Product-owned SQLite/Application State migration，准备 14 个 system profiles，通过动态 loopback health/version；无效 shutdown token 返回 `401`，随后由 envelope 内存中的 token 完成认证 graceful shutdown。Electron 动态端口为 `59372`；Tauri 动态端口为 `9883`；两次退出码均为 0。
+- 两包的 Application Root 均为 3,240 文件、134,488,581 bytes，digest `sha256:c2e250be2deb50d567c3510aef1b33e6310c94a4246cc311829d3d67d2fe2144`，启动前后不变。两个 State Root 均完成移出/移回，Product 进程退出后可删除，Application Root 和 Cache Root 不受影响。
+- 本轮补修了三个 packaging 级问题：Electron `resources/app` 反推 portable root 少退一层；Windows Scoop shim 不能作为随包 Bun，打包器现在拒绝 `shims` 与 `node_modules/.bin` 路径；Tauri 与 Electron 的 headless 参数统一支持 `--headless`。空 Portable State Root 的 migration 由共享 launcher 的 `prepare` 合同步骤完成。
+- 仍未完成的门禁：真实窗口及 SSE/WebSocket、Monaco/TipTap、剪贴板、拖放、下载、文件对话框和 Origin 行为；稳定 RSS；WebView2 Evergreen/Fixed/Bootstrapper 分发成本；完整 crash/disconnect 生命周期矩阵；签名图形安装器、updater、图形化卸载器和跨平台 runner。不得据此冻结 Electron/Tauri 生产选择。
+
+## Portable Packaging Result (2026-08-05, clean C2)
+
+- 使用 verified Product image `sha256:3fdf7e692d533050d7356045d1a5459cf28f008425ce4ade081cf6451e11fcd3`、Contract v5、Bun 1.3.14 和 Tool Pack `sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c`，在同一 Windows x64 输入上连续生成两批 ZIP。Product image `dirty=false`，source revision `b1ba910e2c0de18cad50de31161a1bb7bcb7812f`。
+- `neuro-book-electron-portable-win-x64.zip`：9,623 文件、986,190,469 bytes，ZIP 389,495,337 bytes，payload digest `sha256:8f03205320d053e4629d2c2bfe24c6c1c8ffc8dc64534cd29379be1f80778407`，ZIP SHA-256 `50676CB6A5224FEAF7C66644B22A0EA40E719050094EBC6B700E42A42D9C1A11`。Electron 携带 75 文件 Chromium runtime。
+- `neuro-book-tauri-portable-win-x64.zip`：9,546 文件、631,757,465 bytes，ZIP 243,795,710 bytes，payload digest `sha256:eca610463a112582c56db0238362d3836bc9a7615f99a6c52cf059b3a75b9b90`，ZIP SHA-256 `B4B7797AF2B758086CD085D092DB945448791AF4549DEF32086C06E26CF11018`。Tauri manifest 标明 `Microsoft WebView2 Evergreen` 为系统前置条件。
+- 两批的 payload digest、ZIP SHA-256 和 payload shape 完全一致。两包都从仓库外、祖先无 `node_modules` 的临时根启动，清空 `NODE_PATH`，并通过 Product-owned migration、14 个 system profiles、动态 loopback health/version、无效 token `401`、认证 graceful shutdown、Application Root digest 保持和 State Root move/delete；最终 source-locked Build A/B 见下一节，本段仅保留 C2 历史证据。
+
+## Portable Packaging Result (2026-08-06, final Build A/B rebuild)
+
+- 逐项环境、owner inventory、ZIP/manifest identity、黑盒 smoke 和 focused 门禁见 [final-build-a-b.json](evidence/final-build-a-b.json)；旧 [measurement.json](evidence/measurement.json) 保留为历史 dirty Contract v4 fixture。
+- 最终输入为 verified Product image `sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b`、Contract v5、source revision `7d5972b8889c5ff49963baed178a45cc1a57cdac`、source digest `sha256:844baf9dbec2ef603b0489698ec5df47f90c9ac1c331ae69b1485411fef69f18`、`dirty=false`。Build A/B 的 inventory、owner policy、tree/shape digest 和 payload 文件内容完全一致，只有 manifest `createdAt` 不同；Product payload 为 3,242 文件 / 134,536,961 bytes。
+- Electron Portable 为 9,622 文件 / 986,442,188 bytes，ZIP 389,594,292 bytes，payload digest `sha256:7fcf79a455353137e962732cbf2f69bffd1483c9f9dd0ead0df0467793a04c33`，ZIP SHA-256 `E818E4930909C15E409E7E03172EA6720DC71C708BCB0D07BEBA784F8C0C8172`；Tauri Portable 为 9,546 文件 / 631,809,252 bytes，ZIP 243,829,892 bytes，payload digest `sha256:746ac04d35848a37be5a0b99930cf76cc756a79bf383528c85496d6a1fbf37b4`，ZIP SHA-256 `E7622B23A06DCD818BB70C08FF53F92A83A2648396DED2DC369B2D248D5BEB22`。两批使用 Bun 1.3.14 和 Tool Pack 6,293 文件 / 387,904,585 bytes / digest `sha256:74932c8d99a61c0ec7022b6860545ce58c8d201cedc0a2a805d26f424892ce0c`；Electron runtime 为 75 文件 / 364,266,454 bytes，Tauri release executable 为 9,912,320 bytes、PDB 为 6,500,352 bytes。
+- 两批在仓库外、祖先无 `node_modules`、清空 `NODE_PATH` 的临时根通过 Contract、migration、14 个 system profiles、动态 loopback health/version、认证 graceful shutdown、`.output` immutable digest、State Root move/delete 和进程收口；Electron 黑盒额外验证错误 token `401`，Tauri 额外验证 graceful 与 Job Object forced headless 收口。最终 `.output` smoke 为 3,244 文件，前后 digest `sha256:90f2d4dda31229d434fccefb6294e456d728618ea43910d2fe19e57ec1264855` 保持一致；Electron 使用 bundled Chromium，Tauri manifest 明确依赖系统 WebView2，未携带 WebView2。
+- 诊断：本次 Electron headless 初始未输出 ready 是 smoke 父进程遗留 `T140_*` 显式配置与用户级单实例身份复用，清理配置并隔离临时 `LOCALAPPDATA` 后通过；PowerShell 5.1 的大 JSON/递归删除兼容性只影响脚本收尾，不改变产品结果。重建 `cargo build --release` 与 `bun run manager:build` 后，当前 A/B 与 Portable smoke 均正常退出。
+- 这两个 ZIP 仍是未签名 Windows spike 产物，不是签名图形安装器、updater、图形化卸载器或框架选型结论。真实窗口/SSE/WebSocket/Monaco/TipTap/剪贴板/拖放/文件对话框、冷启动/RSS、WebView2 分发、跨平台 runner 和完整 crash/disconnect 矩阵仍需后续授权和任务；Tauri Windows Job Object forced fallback 已由后续 ASAR follow-up 补证。
+
+## Desktop User Installation Result (2026-08-05)
+
+- `install-desktop.ps1` 是临时 CLI 向导入口：负责准备 Bun，随后调用 NeuroBook Manager CLI；本地模式可传完整 Portable 或 distribution manifest，远端模式可传独立 shell archive 或 shell distribution manifest。下载、复制、校验、回滚、注册和卸载的所有权仍在 Manager。
+- Windows 本地安装必须在事务内设置管理员密码，密码只经隐藏 TTY 或 stdin 传给 Product；远端安装先完成 capability/version 探测，只保存服务端 origin、HTTP 风险确认和 Envelope，不读取本地管理员密码，也不复制 Product/Bun/Tool Pack。
+- 用户级 Installation Root 为 `%LOCALAPPDATA%/Programs/NeuroBook`，State/Cache/Desktop/WebView 使用 `local-app-data` locator；Portable 的 `data/`、`.cache/` 不会遮蔽用户级数据。安装失败先删除候选 Installation Root，再回滚快捷方式、注册表和可选 CLI PATH。
+- macOS 已登记 `~/Applications/NeuroBook.app`、Application Support、Caches 与 x64/arm64 分包合同，并在 `desktop-envelope-contract.yml` 做 Bun/Manager/合同检查；没有签名凭据、真实 `.app`、公证或安装 smoke 证据。
+- 2026-08-05：补跑真实 Windows 用户级安装/卸载 smoke（[desktop-user-installation-smoke.json](evidence/desktop-user-installation-smoke.json)）。`install-desktop.ps1` 通过 stdin 设置管理员 `admin`，安装到 `%LOCALAPPDATA%/Programs/NeuroBook`，创建 Desktop manifest、开始菜单/桌面快捷方式、HKCU 卸载项和 `neurobook://`；随后 Manager 卸载删除程序、快捷方式和注册项，同时保留 State Root。此前遗留的旧 `neurobook://` 注册项已在 smoke 前确认指向已删除临时目录并清理，不计入本次安装结果。
+
+- 2026-08-06：补齐 Desktop Menu Contract 的页面消费链。自绘标题栏改为 File/Edit/View/Help 下拉菜单，Electron 原生菜单与 Tauri 事件统一覆盖 15 个公开命令；Settings、编辑命令、缩放、刷新和 About 均有实际行为，文档入口在尚未嵌入 Desktop 时给出明确提示，不再静默 no-op。新增共享分发器与未知命令拒绝测试，Desktop Contract 为 3 files / 15 tests；本轮完成 source-locked Product A/B、两个新 Portable 的组包和仓库外 smoke，完整数字见 [final-build-a-b.json](evidence/final-build-a-b.json)。
+- 2026-08-06：补记 Electron 可见 UI 调试经验见 [`docs/research/desktop/electron-debugging.md`](../../research/desktop/electron-debugging.md)。真实 Portable 通过 `--remote-debugging-port` 接入 CDP 后确认，标题栏遮挡问题来自运行包仍加载旧的 `position: fixed` 与顶部 padding，而不是其他窗口覆盖；标题栏改为文档流后再收紧桌面 shell 高度，Electron 已恢复拖动。Playwright/CDP 的分工和托盘、原生对话框、真实窗口移动等未覆盖边界已单独记录。
+- 2026-08-06：完成 VS Code 式 Workbench Chrome 重构。Desktop 只保留一个 36px 标题栏；书架、Project、用户资产、IDE 和 Agent 模式共享 48px Activity Bar，Account/Settings 固定在底部；Project Picker 的品牌 Header、工作区 `NovelIdeHeader`、IDE Agent Drawer 和旧 `rightPanel*` 状态均已删除。Desktop 的 Agent 按钮移到标题栏并切换模式，B/S 使用 Activity Bar；Inline Editor Agent 通过独立 controller 保持创建、恢复和调用 Session，不再依赖隐藏挂载的 `AgentChatSurface`。
+- 2026-08-06：Desktop Bridge 原子升级到 v2，新增 `platform`、`menuPresentation`、`windowControls` 与枚举型 appearance。Electron preload、Tauri 注入、远端 capability、Manager 安装验证和共享合同同步升级，不保留 v1 fallback。标题栏使用四区网格和整体菜单折叠；Electron 使用 Window Controls Overlay 安全区，Tauri 使用独立自绘按钮区。
+- 2026-08-06：新增 `desktop:workbench-browser-smoke`。隔离 Source Dev 上的 headless 与 headed Edge 验收均通过，覆盖单标题栏、`y=0`/36px、内容从 `y=36` 开始、Activity Bar 几何、800/1024/1440 与 480px 菜单形态、键盘焦点恢复、书架 Settings、Inline Session、Agent/IDE 切换和 B/S 零顶部占位；截图保存于本轮 `.agent/tmp` evidence。聚焦门禁为根 typecheck、scripts typecheck、Desktop Contract `7 files / 28 tests`、相邻 UI `6 files / 21 tests`、Manager `1 file / 12 tests`、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 全部通过。
+
+## Workbench Chrome Acceptance (2026-08-07)
+
+- 完整证据见 [workbench-chrome-acceptance.json](evidence/workbench-chrome-acceptance.json)。冻结 Source 为 `15d4794689dde5e5d54716a918092389b9b6c3eb`；Product Build A/B 均 `dirty=false`，imageId `sha256:a330b98936df7694135c020e98fb824648192767d6e25a09405f3f14305d95f3`，3,242 文件 / 134,549,619 bytes。tree/shape、owner inventory 和 Product payload 逐字节一致；控制面只有 `createdAt` 以及由其派生的 ready manifest 摘要不同。
+- 两次 Portable 组包的 7 个输出文件逐字节一致。Electron payload 为 9,622 文件 / 986,458,107 bytes，ZIP 389,600,838 bytes；Tauri payload 为 9,546 文件 / 631,855,763 bytes，ZIP 243,840,895 bytes；聚合 Depot ZIP 为 628,342,701 bytes。
+- 仓库外、祖先无 `node_modules`、清空 `NODE_PATH` 的真实包验收通过：Electron graceful；Tauri graceful 后立即重启并 forced；三次退出码均为 0，镜像复核通过且没有残留进程。两包 State Root 均可移动，说明 Product/Envelope 没有残留句柄；递归删除命令被本地命令策略拒绝，因此本轮不把 State Root 实际删除写成已通过。
+- 真实 Electron Portable 通过本机 CDP 完成可见验收：标题栏 `y=0`/36px、内容与 Activity Bar 从 `y=36` 开始、Activity Bar 宽 48px，品牌/标题是 drag region，File 菜单和应用控制为 no-drag；Settings 可打开，File/Quit 完成 graceful shutdown，进程和 CDP 端口均收口。
+- 真实 Tauri Portable 已出现唯一 `NeuroBook Tauri Envelope Spike` 窗口，并通过 headless graceful/forced/立即重启。WebView2 未开放请求的 CDP 端口；Computer Use 在识别唯一窗口后丢失 Node REPL 执行上下文，因此 Tauri 原生拖动、最大化、菜单、托盘和 Snap Layout 仍保留为人工验收项。当前主机没有 Docker CLI，B/S Docker 未重跑；无 Bridge 的 B/S 页面已由共享 Edge smoke 验证无标题栏和顶部空白。
+
+## Aggregate Depot Result (2026-08-06)
+
+- 在同一 verified Product image 上生成 G/H 两批 Windows x64 聚合 Depot；固定顶层只包含 7 个文件：`install-desktop.ps1`、`windows-bun-stage0.ps1`、distribution manifest、两个 Portable ZIP 及其 manifest。聚合层不重复展开 Product、Bun、Tool Pack 或 Portable 内容。
+- 解压后的固定七项 staging 根、sidecar 和 ZIP 均通过共享 verifier；payload 为 7 files / 633,438,014 bytes，ZIP 为 628,325,258 bytes，SHA-256 为 `sha256:590f71ed346c0fe4f4d40e2959c595ec1a56755ac8dfa103c9c70162870e5e7e`。G/H 的 ZIP、manifest、payload shape 和 payload bytes 均一致，证据见 [aggregate-depot.json](evidence/aggregate-depot.json)。
+- 该 Depot 是未签名 Windows spike 交付，用于验证“脚本 + 两种 Envelope”聚合形状；它不是正式安装器、updater、Release 资产或 Electron/Tauri 最终选型结论。
+
+## Contract hardening follow-up (2026-08-06)
+
+- Product Platform Checks 暴露了一个真实的跨平台安装合同问题：Manager 在模拟 Windows host 的 POSIX runner 上用宿主 `path.join` 生成 Registry `UninstallString`，导致期望的 `.runtime\bin\neuro-book.cmd` 变成 POSIX 分隔符；生产代码现在只在 Registry 命令值处使用 `path.win32.join`，物理文件检查仍使用宿主路径，Manager 回归重新通过。
+- Desktop Envelope Contract workflow 不执行 `nuxt prepare`，而根 `tsconfig.json` 会继承生成的 `.nuxt/tsconfig.json`。独立 Vitest 配置现在关闭 OXC 并显式使用 standalone esbuild TypeScript transform（含 Windows/POSIX 路径规范化），在暂时移出 `.nuxt` 的本地验证中仍为 4 files / 19 tests 通过；不会把 Nuxt 生成目录变成桌面合同的隐式前置。
+- 同一 CI run 的根 Typecheck 与 Full tests advisory 失败来自既有基线：Typecheck 是 Prisma generated client/隐式 `any` 缺失，Full tests 是 POSIX runner 使用 `C:/...` 伪路径；没有把这些与本轮 Desktop Contract 修复混报为桌面回归。
+- 提交 `25d5df8a` 的 CI 已完成：Desktop Envelope Contract 在 macOS x64、macOS arm64、Windows x64 全部通过；Product Platform 在 Linux x64、Linux arm64、macOS x64、macOS arm64 全部通过；Community and Docs Checks 通过。Code Baseline 仍为 advisory failure，实际为 25 个 full-test 文件 / 79 个测试因 POSIX `C:/...` fixture 被绝对路径门禁拒绝，及既有 Prisma generated client、两个 `transactionClient` 隐式 `any`；不属于本轮桌面修复回归。
+- 提交 `906271b4` 的最终 CI 已完成：Desktop Envelope Contract 在 Windows x64、macOS x64、macOS arm64 全部通过；Product Platform 在 Linux x64、Linux arm64、darwin x64、darwin arm64 全部通过；Community and Docs Checks 通过。Code Baseline 仍为 advisory failure：Typecheck 仍是 Prisma generated client 缺失和两个 `transactionClient` 隐式 `any`；Full tests 为 464 passed、3 skipped，24 个文件 / 78 个测试失败，均由 POSIX runner 使用 `C:/...` 伪路径触发绝对路径门禁；不属于本轮桌面回归。

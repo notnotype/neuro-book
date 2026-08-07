@@ -13,6 +13,10 @@ import {
     type ProductRuntimeImageManifest,
 } from "nbook/scripts/build/product-runtime-image-builder";
 import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
+import {
+    createProductRuntimeVerificationReceipt,
+    writeProductRuntimeVerificationReceipt,
+} from "nbook/shared/product-runtime-receipt";
 
 const RUNTIME_IMAGE_BUILDER_CONTRACT = PRODUCT_RUNTIME_BUILDER_CONTRACT_VERSION;
 
@@ -157,6 +161,26 @@ export function verifyInstalledProductRuntimeImage(
         lockfileSha256: product.lockfileSha256,
         builderContractVersion: product.builderContractVersion,
     }, {allowPreviousRuntimeContract: true});
+}
+
+/** 完整复核已安装 Product，并把本次验证的代次写入 Manager deploy receipt。 */
+export async function issueInstalledProductRuntimeReceipt(
+    installationRoot: string,
+    product: Exclude<ProductComponent, {provider: "container"}>,
+    receiptPath: string,
+): Promise<void> {
+    const imageRoot = resolve(installationRoot, product.path);
+    const verified = await new ProductRuntimeImageVerifier().openVerified(imageRoot, {
+        version: product.version,
+        revision: product.revision,
+        dirty: false,
+        platform: product.platform,
+        imageId: product.imageId,
+        sourceDigest: product.sourceDigest,
+        lockfileSha256: product.lockfileSha256,
+        builderContractVersion: product.builderContractVersion,
+    }, {allowPreviousRuntimeContract: true});
+    await writeProductRuntimeVerificationReceipt(receiptPath, createProductRuntimeVerificationReceipt(verified.manifest));
 }
 
 /** 统一执行完整 Runtime Image 验证；旧合同兼容只由已安装实例读取方显式开启。 */

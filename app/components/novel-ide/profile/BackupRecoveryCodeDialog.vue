@@ -236,7 +236,7 @@ watch(() => props.modelValue, (visible) => {
 
 <template>
     <!-- 云备份恢复码独立模态框：完整恢复码只在这里出现。 -->
-    <Dialog :model-value="modelValue" size="lg" :title="title" :busy="busy" :close-on-overlay="false" overlay-type="blur" @request-close="close">
+    <Dialog :model-value="modelValue" size="lg" :title="title" :busy="busy" :close-on-overlay="false" overlay-type="opaque" @request-close="close">
         <template v-if="mode === 'prepare'">
             <div class="flex gap-3 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-3 text-[var(--status-danger)]">
                 <span class="i-lucide-triangle-alert mt-0.5 h-5 w-5 shrink-0"></span>

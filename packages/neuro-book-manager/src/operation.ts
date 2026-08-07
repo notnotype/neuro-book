@@ -139,6 +139,34 @@ export function operationEffect<K extends OperationEffect["kind"]>(journal: Oper
     return journal.effects.find((effect) => effect.kind === kind) as Extract<OperationEffect, {kind: K}> | undefined;
 }
 
+/** 在写入新 Product 回执前记录旧回执并持久化恢复屏障。 */
+export async function prepareProductRuntimeReceiptSwitch(journal: OperationJournal, receiptPath: string): Promise<OperationJournal> {
+    const expectedPath = resolve(journal.root, ".deploy", "product-runtime-receipt.json");
+    if (resolve(receiptPath) !== expectedPath) throw new Error(`Product Runtime receipt 必须位于受管 .deploy：${receiptPath}`);
+    const previousState = await pathExists(receiptPath) ? "present" as const : "missing" as const;
+    const backupPath = previousState === "present" ? join(journal.backupRoot, "product-runtime-receipt.json") : undefined;
+    let next = await setOperationEffect(journal, {
+        kind: "receipt-switch",
+        state: "planned",
+        owner: "receipt",
+        path: ".deploy/product-runtime-receipt.json",
+        previousState,
+        ...(backupPath ? {backupPath} : {}),
+    });
+    if (backupPath) {
+        await ensureDirectory(resolve(backupPath, ".."));
+        await copyFile(receiptPath, backupPath);
+    }
+    return next;
+}
+
+/** 新回执原子写入且完整验证成功后提交回执切换Effect。 */
+export function completeProductRuntimeReceiptSwitch(journal: OperationJournal): Promise<OperationJournal> {
+    const effect = operationEffect(journal, "receipt-switch");
+    if (!effect) throw new Error("Product Runtime receipt切换缺少planned intent。");
+    return setOperationEffect(journal, {...effect, state: "applied"});
+}
+
 /** 返回指定组件切换Effect。 */
 export function componentSwitchEffect(journal: OperationJournal, owner: Extract<OperationEffect, {kind: "component-switch"}>["owner"]): Extract<OperationEffect, {kind: "component-switch"}> | undefined {
     return journal.effects.find((effect) => effect.kind === "component-switch" && effect.owner === owner) as Extract<OperationEffect, {kind: "component-switch"}> | undefined;
@@ -237,6 +265,17 @@ async function cleanupCommittedEffects(journal: OperationJournal, includeRetired
     let changed = false;
     const effects: OperationEffect[] = [];
     for (const effect of journal.effects) {
+        if (includeRetired && effect.kind === "receipt-switch" && effect.backupPath) {
+            try {
+                await removePath(effect.backupPath);
+                changed = true;
+                effects.push({...effect, backupPath: undefined, cleanupError: undefined});
+            } catch (error) {
+                changed = true;
+                effects.push({...effect, cleanupError: error instanceof Error ? error.message : String(error)});
+            }
+            continue;
+        }
         const shouldRemove = effect.kind === "path-create" && (effect.owner === "staging" || effect.owner === "backup")
             || includeRetired && effect.kind === "path-retire";
         if (includeRetired && effect.kind === "docker-image" && effect.previousImage && !effect.previousImageRetired) {
@@ -369,8 +408,29 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
             await cp(wrapper.backupPath, runtimeBin, {recursive: true});
         }
     }
-    if (!journal.previousManifest && operationEffect(journal, "git-checkout")) await removeMaterializedRepository(root);
     const rollbackEffects = [...journal.effects];
+    const receipt = operationEffect(journal, "receipt-switch");
+    if (receipt) {
+        const receiptPath = installationTarget(root, receipt.path);
+        try {
+            if (receipt.previousState === "present") {
+                if (!receipt.backupPath || !await pathExists(receipt.backupPath)) {
+                    throw new Error(`Product Runtime receipt恢复副本不存在：${receipt.backupPath ?? "<missing>"}`);
+                }
+                await ensureDirectory(resolve(receiptPath, ".."));
+                await copyFile(receipt.backupPath, receiptPath);
+            } else {
+                await rm(receiptPath, {force: true});
+            }
+            if (receipt.backupPath) await rm(receipt.backupPath, {force: true});
+            const index = rollbackEffects.findIndex((candidate) => candidate.kind === "receipt-switch");
+            if (index >= 0) rollbackEffects[index] = {...receipt, state: "applied", cleanupError: undefined};
+        } catch (error) {
+            const index = rollbackEffects.findIndex((candidate) => candidate.kind === "receipt-switch");
+            if (index >= 0) rollbackEffects[index] = {...receipt, cleanupError: error instanceof Error ? error.message : String(error)};
+        }
+    }
+    if (!journal.previousManifest && operationEffect(journal, "git-checkout")) await removeMaterializedRepository(root);
     for (const effect of [...journal.effects].reverse()) {
         if (effect.kind !== "path-create" || effect.owner === "state") continue;
         try {
@@ -452,6 +512,9 @@ function rebaseMovedPortableCommit(journal: OperationJournal, currentRoot: strin
     };
     const effects = journal.effects.map((effect): OperationEffect => {
         if (effect.kind === "wrapper-switch" && effect.backupPath) {
+            return {...effect, backupPath: rebase(effect.backupPath)};
+        }
+        if (effect.kind === "receipt-switch" && effect.backupPath) {
             return {...effect, backupPath: rebase(effect.backupPath)};
         }
         if (effect.kind === "compose" && effect.previousCompose) {

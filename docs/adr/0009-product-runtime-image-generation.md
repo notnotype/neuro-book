@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-03（World Engine Product schema 自包含、Runtime Contract v4 与旧 v3 Manager 读取边界）
+- 更新：2026-08-05（Product Runtime Contract v5、Desktop Envelope 复用与 stdio/nonce 发行门禁）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)
 
 ## 背景
@@ -19,7 +19,7 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 4. Runtime Image 只有在以下证据一致时才 ready：Source identity、lockfile、平台、Runtime 版本、Product Runtime Contract 摘要、规范平台 owner/预算 policy 及其摘要、owner inventory、tree digest、shape digest、manifest 与最后写入的 ready marker。构建期间 Source 变化直接失败；每次复核必须重新枚举 tracked 与 untracked Source，不能复用首次路径集。
 5. Release、Windows Portable、Docker、staging、Manager doctor/import/install/update 和 smoke 只能消费 `openVerified()` 成功且外部代次身份匹配的镜像。Manager 的 start、admin、migration 与 recovery 先收窄为 `VerifiedApplicationExecution`；独立 Product bootstrap 还会在解析逻辑命令前执行完整自洽验证并删除 `NODE_PATH`。单独存在 `server/index.mjs` 不构成可执行或可归档条件。
 6. 状态展示和实例发现可以使用 `openControlPlane()`，但它只验证 manifest/ready/contract 控制文件及合同入口存在性，返回独立只读类型；执行、激活、安装和归档禁止使用该结果。实测完整验证冷启动约 13.3 秒、热缓存约 1.08 秒，轻量验证约 4-9 毫秒。
-7. Product Runtime Contract v4 是所有新 Product 消费者唯一的逻辑入口。正式命令为 `start`、`migrate-database`、`migrate-application-state`、`create-admin`、`profile`、`variable`、`workspace`；发布检查包含 Profile、Variable、sqlite-vec、Sharp、Application State、Workspace、`web-fetch` 与 `world-engine-config`。未知 schema、未知 ID、路径逃逸、缺失入口或不允许的附加参数立即失败，不保留 `server/scripts` fallback。Manager 只在已安装旧 Product 的读取边界显式接受 v3；候选、发布和 Product bootstrap 仍严格要求 v4。
+7. Product Runtime Contract v5 是所有新 Product 消费者唯一的逻辑入口。正式命令为 `start`、`migrate-database`、`migrate-application-state`、`create-admin`、`profile`、`variable`、`workspace`；发布检查包含 Profile、Variable、sqlite-vec、Sharp、Application State、Workspace、`web-fetch` 与 `world-engine-config`。未知 schema、未知 ID、路径逃逸、缺失入口或不允许的附加参数立即失败，不保留 `server/scripts` fallback。Manager 只在已安装旧 Product 的读取边界显式接受 v3/v4；候选、发布和 Product bootstrap 仍严格要求 v5。
 8. Nitro 只根据真实 ESM module specifier 发现 external Seed；普通字符串、注释、source map 和客户端资源清单不形成 Seed。绝对 file URL、Bun `.bun` 和 pnpm `.pnpm` 路径统一规范化到 Product 内部，物理包与根 hoisted 包版本不一致时失败。
 9. 最终 Nitro server 使用单 bundle；命令使用一次多入口构建和 shared chunks；Profile 编译使用与 Product revision 绑定的 Authoring Kit；native addon、动态 package、worker、`createRequire` 与必须读取 package 形状的依赖进入显式 package islands。命令入口必须由 Bun metafile 的 `entryPoint` 建立映射，不能从输出文件名反推。
 10. `native-islands.json` 使用 v2 合同登记无法静态解析的 dynamic import：每项必须包含 Product 相对路径模式、精确数量、保留原因和对应 smoke。最终闭包扫描 `server/index.mjs`、commands、Authoring Kit 与 `server/assets/**/*.mjs`；未登记、重复命中、数量漂移或逃逸镜像的引用全部失败。

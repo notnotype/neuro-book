@@ -27,6 +27,8 @@ const props = defineProps<{
     activeTab: NovelIdeTab | null;
     userAssetsMode?: boolean;
     width: number;
+    workspaceTitle: string;
+    workspaceItems: DropdownItem[];
 }>();
 
 defineOptions({
@@ -37,6 +39,8 @@ const emit = defineEmits<{
     (e: "update:width", value: number): void;
     (e: "close"): void;
     (e: "openWorldEngine"): void;
+    (e: "openHome"): void;
+    (e: "switchWorkspace", value: string): void;
 }>();
 
 const {t} = useI18n();
@@ -355,36 +359,60 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                 <div class="ml-0.5 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="isResizing ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
             </div>
 
-            <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
-                <span class="text-[11px] font-medium tracking-[0.24em] text-[var(--text-secondary)]">
-                    {{ displayTitle }}
-                </span>
-
-                <div class="flex items-center gap-0.5">
-                    <input ref="singleFileInputRef" class="hidden" type="file" @change="(event) => void handleSingleFileSelected(event)">
-                    <input ref="projectDirectoryInputRef" class="hidden" type="file" multiple webkitdirectory @change="(event) => void handleProjectDirectorySelected(event)">
-                    <input ref="projectZipInputRef" class="hidden" type="file" accept=".zip,application/zip" @change="(event) => void handleProjectZipSelected(event)">
-
-                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadSingleTitle')" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
-                        <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
+            <div class="shrink-0 border-b border-[var(--border-color)]">
+                <div class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
+                    <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.bookshelfTitle')" @click="emit('openHome')">
+                        <span class="i-lucide-library h-4 w-4"></span>
                     </button>
-                    <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
-                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadProjectTitle')" :disabled="uploadingProject">
-                            <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
+                    <Dropdown
+                        v-if="!props.userAssetsMode"
+                        class="min-w-0 flex-1"
+                        :items="props.workspaceItems"
+                        menu-class="left-0 top-full mt-1 w-full"
+                        menu-max-height="min(360px, calc(100vh - 96px))"
+                        compact
+                        @select="emit('switchWorkspace', $event)"
+                    >
+                        <button type="button" class="flex h-7 w-full min-w-0 items-center gap-1.5 rounded-md px-2 text-left text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="props.workspaceTitle">
+                            <span class="i-lucide-book-open h-3.5 w-3.5 shrink-0"></span>
+                            <span class="min-w-0 flex-1 truncate">{{ props.workspaceTitle }}</span>
+                            <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
                         </button>
                     </Dropdown>
-                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="downloadButtonTitle" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
-                        <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
-                    </button>
-                    <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.syncAssetsTitle')" :disabled="syncingAssets" @click="void syncSystemAssets()">
-                        <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
-                    </button>
-                    <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.toolPanel.viewSyncConflicts')" @click="syncWarningsOpen = true">
-                        <span class="i-lucide-triangle-alert h-4 w-4"></span>
-                    </button>
-                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
-                        <span class="i-lucide-minus h-4 w-4"></span>
-                    </button>
+                    <div v-else class="min-w-0 flex-1 truncate px-2 text-xs text-[var(--text-secondary)]">{{ props.workspaceTitle }}</div>
+                </div>
+
+                <div class="flex items-center justify-between px-3 py-2">
+                    <span class="text-[11px] font-medium tracking-[0.24em] text-[var(--text-secondary)]">
+                        {{ displayTitle }}
+                    </span>
+
+                    <div class="flex items-center gap-0.5">
+                        <input ref="singleFileInputRef" class="hidden" type="file" @change="(event) => void handleSingleFileSelected(event)">
+                        <input ref="projectDirectoryInputRef" class="hidden" type="file" multiple webkitdirectory @change="(event) => void handleProjectDirectorySelected(event)">
+                        <input ref="projectZipInputRef" class="hidden" type="file" accept=".zip,application/zip" @change="(event) => void handleProjectZipSelected(event)">
+
+                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadSingleTitle')" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
+                            <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
+                        </button>
+                        <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadProjectTitle')" :disabled="uploadingProject">
+                                <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
+                            </button>
+                        </Dropdown>
+                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="downloadButtonTitle" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
+                            <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
+                        </button>
+                        <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.syncAssetsTitle')" :disabled="syncingAssets" @click="void syncSystemAssets()">
+                            <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
+                        </button>
+                        <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.toolPanel.viewSyncConflicts')" @click="syncWarningsOpen = true">
+                            <span class="i-lucide-triangle-alert h-4 w-4"></span>
+                        </button>
+                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
+                            <span class="i-lucide-minus h-4 w-4"></span>
+                        </button>
+                    </div>
                 </div>
             </div>
 

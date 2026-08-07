@@ -89,7 +89,7 @@ watch(() => props.modelValue, (visible) => {
         :title="props.title"
         width="760px"
         show-cancel
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="loading"
         @update:model-value="emit('update:modelValue', $event)"
     >

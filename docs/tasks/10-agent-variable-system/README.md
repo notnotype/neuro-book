@@ -1343,12 +1343,9 @@ watchPath: "client.currentProjectWorkspace"
 - `client.*` ack 后的 overlay 已提升到 invocation 级共享 state；同一 invocation 后续新建 accessor 也能 read-after-write。
 - Project/global patch 如果 `variables.json` 已写入但 session audit entry 失败，工具会返回明确半提交错误，提示先 `variable_read` 确认当前值，避免重复 patch。
 - 新增 Agent runtime 变量 CLI：
-  - `assets/workspace/.nbook/agent/bin/variable`
-  - `assets/workspace/.nbook/agent/bin/variable.cmd`
-  - `assets/workspace/.nbook/agent/scripts/variable.ts`
-  - 项目根 convenience script：`scripts/variable.ts`
+  - 稳定入口为 `.nbook/agent/bin/variable` 与 `.nbook/agent/bin/variable.cmd`；Source checkout wrapper 调用 Product-owned source entry，发行物通过 Product Runtime Contract 的 `variable` 逻辑命令解析。
   - 支持 `variable definition status/check/compile --global` 与 `variable definition status/check/compile --project <projectWorkspace>`。
-  - 当前是 repo-backed runtime shim；开发环境可用，生产发布需要把项目根脚本能力一并打包到 Agent runtime。
+  - 下方早期记录中的 repo-backed shim、`scripts/variable.ts` 与 `assets/workspace/.nbook/agent/scripts/variable.ts` 只保留为历史证据；不恢复旧路径 fallback。
 - `variable_schema` 现在返回与查询相关的 definition issue；无关 namespace 的 stale definition 不会阻塞当前 namespace schema 查询。
 
 ## TODO / Follow-ups

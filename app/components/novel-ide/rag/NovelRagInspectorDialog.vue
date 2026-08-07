@@ -296,7 +296,7 @@ watch(() => props.projectRoot, () => {
     <Dialog
         :model-value="props.modelValue"
         size="full"
-        overlay-type="blur"
+        overlay-type="opaque"
         :close-on-overlay="false"
         :show-footer="false"
         body-class="!gap-0 !overflow-hidden !p-0"

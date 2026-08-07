@@ -20,9 +20,10 @@ import {createCustomThemeId, themeVarsToCustomVars} from "nbook/app/utils/theme/
 import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
+import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "nbook/shared/desktop-contract";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
+type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
 type SettingsScope = "boot" | "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
 type ThemeEditorMode = "create" | "edit" | "copy";
@@ -73,6 +74,8 @@ const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const desktopSettings = ref<DesktopSettings>({...DEFAULT_DESKTOP_SETTINGS});
+const desktopStatus = ref<DesktopStatus | null>(null);
 const themeEditorOpen = ref(false);
 const themeEditorMode = ref<ThemeEditorMode>("create");
 const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
@@ -134,6 +137,12 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
     },
+    {
+        value: "desktop",
+        label: t("settings.section.desktop.label"),
+        description: t("settings.section.desktop.description"),
+        iconClass: "i-lucide-panels-top-left",
+    },
 ]);
 
 const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
@@ -165,8 +174,12 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
 
 const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
-const browserSections: SettingsSection[] = ["frontend", "editor"];
+const browserSections: SettingsSection[] = ["frontend", "editor", "desktop"];
 const bootConfigSections: SettingsSection[] = ["security"];
+const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
+const desktopAvailable = computed(() => Boolean(desktopBridge.value));
+const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"
+    && Boolean(novelIdeStore.currentProjectRoot));
 
 /** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
 type ThemeCard = {
@@ -274,7 +287,7 @@ const visibleSectionItems = computed(() => {
         : activeScope.value === "project"
             ? projectConfigSections
             : globalConfigSections;
-    return frontendSectionItems.value.filter((item) => allowed.includes(item.value));
+    return frontendSectionItems.value.filter((item) => allowed.includes(item.value) && (item.value !== "desktop" || desktopAvailable.value));
 });
 
 const versionLabel = computed(() => {
@@ -310,6 +323,7 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
         case "frontend":
         case "editor":
         case "security":
+        case "desktop":
             return null;
     }
 });
@@ -389,7 +403,8 @@ function selectScope(scope: SettingsScope): void {
     if (!canLeaveCurrentPanel()) {
         return;
     }
-    if (scope === "project" && (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentProjectRoot)) {
+    if (scope === "project" && !projectScopeAvailable.value) {
+        notification.info(t("settings.scope.project.unavailable"));
         activeScope.value = "global";
         activeSection.value = "models";
         return;
@@ -699,6 +714,9 @@ watch(() => props.modelValue, (open) => {
         return;
     }
     void loadAppVersion();
+    if (desktopBridge.value) {
+        void loadDesktopSettings();
+    }
 }, {immediate: true});
 
 watch([
@@ -713,6 +731,40 @@ watch([
 
 watch(activeScope, alignActiveSectionToScope, {immediate: true});
 
+/** 读取 Desktop Envelope 的设备设置；B/S 页面不会执行。 */
+async function loadDesktopSettings(): Promise<void> {
+    const bridge = desktopBridge.value;
+    if (!bridge) return;
+    try {
+        const [settings, status] = await Promise.all([bridge.settings(), bridge.status()]);
+        desktopSettings.value = settings;
+        desktopStatus.value = status;
+    } catch {
+        desktopStatus.value = null;
+    }
+}
+
+/** 通过 Desktop Bridge 更新设备设置，不触碰 Product State Root。 */
+async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>): Promise<void> {
+    const bridge = desktopBridge.value;
+    if (!bridge) return;
+    try {
+        desktopSettings.value = await bridge.updateSettings(patch);
+    } catch (error) {
+        notification.error(error instanceof Error ? error.message : t("settings.desktop.updateFailed"));
+    }
+}
+
+const desktopCloseOptions = computed<SelectOption[]>(() => [
+    {value: "ask", label: t("settings.desktop.closeAsk")},
+    {value: "tray", label: t("settings.desktop.closeTray")},
+    {value: "quit", label: t("settings.desktop.closeQuit")},
+]);
+
+function updateDesktopCloseBehavior(value: string): void {
+    if (value === "ask" || value === "tray" || value === "quit") void updateDesktopSettings({closeBehavior: value as DesktopCloseBehavior});
+}
+
 </script>
 
 <template>
@@ -721,7 +773,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
         :title="t('settings.title')"
         width="min(1440px, calc(100vw - 48px))"
         height="90vh"
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="false"
         :show-footer="false"
         @request-close="closeDialog"
@@ -740,8 +792,8 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                                 type="button"
                                 class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
                                 :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
-                                :title="scope.description"
+                                :disabled="scope.value === 'project' && !projectScopeAvailable"
+                                :title="scope.value === 'project' && !projectScopeAvailable ? t('settings.scope.project.unavailable') : scope.description"
                                 @click="selectScope(scope.value)"
                             >
                                 <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>
@@ -1164,6 +1216,47 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                             </div>
                         </div>
 
+                        <!-- Desktop Envelope 设备设置；B/S 页面不会显示该分区。 -->
+                        <div v-else-if="activeSection === 'desktop' && desktopAvailable" key="desktop" class="space-y-4 pt-1">
+                            <div class="rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-5 py-4 text-[var(--text-main)]">
+                                <div class="flex items-start gap-3">
+                                    <span class="i-lucide-panels-top-left mt-0.5 h-5 w-5 shrink-0 text-[var(--status-info)]"></span>
+                                    <div class="min-w-0">
+                                        <h3 class="text-sm font-semibold">{{ t("settings.desktop.title") }}</h3>
+                                        <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.desktop.description") }}</p>
+                                        <p v-if="desktopStatus" class="mt-2 text-[11px] text-[var(--text-muted)]">{{ desktopStatus.connection === "local" ? t("settings.desktop.localStatus") : t("settings.desktop.remoteStatus") }} · {{ desktopStatus.version }}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
+                                <div class="flex items-center justify-between gap-4">
+                                    <div>
+                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.zoomTitle") }}</div>
+                                        <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.zoomDescription") }}</div>
+                                    </div>
+                                    <output class="text-sm font-semibold text-[var(--accent-main)]">{{ Math.round(desktopSettings.zoomFactor * 100) }}%</output>
+                                </div>
+                                <input class="mt-4 w-full accent-[var(--accent-main)]" type="range" min="0.75" max="2" step="0.05" :value="desktopSettings.zoomFactor" @change="updateDesktopSettings({zoomFactor: Number(($event.target as HTMLInputElement).value)})">
+                            </label>
+
+                            <button type="button" class="flex w-full items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="updateDesktopSettings({trayEnabled: !desktopSettings.trayEnabled})">
+                                <span>
+                                    <span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.trayTitle") }}</span>
+                                    <span class="mt-1 block text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.trayDescription") }}</span>
+                                </span>
+                                <span class="h-2.5 w-2.5 shrink-0 rounded-full" :class="desktopSettings.trayEnabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
+                            </button>
+
+                            <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
+                                <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.closeTitle") }}</div>
+                                <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.closeDescription") }}</div>
+                                <div class="mt-3 max-w-sm">
+                                    <FormSelect :model-value="desktopSettings.closeBehavior" :options="desktopCloseOptions" @update:model-value="updateDesktopCloseBehavior" />
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- 模型设定 -->
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
@@ -1214,7 +1307,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
         :model-value="Boolean(themeDeleteTarget)"
         :title="t('settings.frontend.themeDeleteTitle')"
         width="420px"
-        overlay-type="blur"
+        overlay-type="opaque"
         show-cancel
         @confirm="void confirmDeleteTheme()"
         @request-close="themeDeleteTarget = null"

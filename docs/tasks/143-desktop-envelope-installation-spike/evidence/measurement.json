@@ -1,0 +1,117 @@
+{
+    "schema": "nbook.desktop-envelope-spike-measurement/v1",
+    "capturedAt": "2026-08-05T01:28:59.779Z",
+    "environment": {
+        "platform": "win32",
+        "arch": "x64",
+        "node": "v24.13.0",
+        "bun": "1.3.14",
+        "electron": "43.2.0",
+        "tauri": "2.11.5",
+        "rustc": "1.97.1",
+        "cargo": "1.97.1"
+    },
+    "product": {
+        "imageId": "sha256:5a35e96ad4f642c555d7dba63a656087e5cb813683aabbb87642166faca5749b",
+        "contract": "nbook.product-runtime-contract/v4",
+        "sourceRevision": "d08199fdc56a6b8e7e3ec0670daa009d5b99c732",
+        "sourceDigest": "sha256:0d54aa02b8fc60854c3c2dfab27178570dd01e997a52b714f4f79a4b24b68470",
+        "dirty": true,
+        "payload": {
+            "files": 3238,
+            "bytes": 134484107
+        },
+        "applicationRoot": {
+            "files": 3240,
+            "bytes": 134488581,
+            "treeDigest": "sha256:c2e250be2deb50d567c3510aef1b33e6310c94a4246cc311829d3d67d2fe2144"
+        }
+    },
+    "runtimeComponents": {
+        "bun": {
+            "files": 1,
+            "bytes": 98480216
+        },
+        "electronRuntime": {
+            "files": 75,
+            "bytes": 364266454
+        },
+        "electronEnvelopeBundle": {
+            "files": 2,
+            "bytes": 44159
+        },
+        "tauriReleaseExecutable": {
+            "files": 1,
+            "bytes": 8937472
+        },
+        "tauriReleaseDebugSymbols": {
+            "files": 1,
+            "bytes": 6287360
+        }
+    },
+    "portable": {
+        "electron": {
+            "payload": {
+                "files": 3324,
+                "bytes": 597293364,
+                "digest": "sha256:eb3340c9987721e8f5697be8c9fcd98b98cc4d50ee526b21a89d7e50d2ef6310"
+            },
+            "zipBytes": 230564235,
+            "zipSha256": "c8aa5356a249285406ff0a7b27fc5c08a601510a498264ca5d38c2ac2e711010",
+            "webview": "bundled-chromium"
+        },
+        "tauri": {
+            "payload": {
+                "files": 3247,
+                "bytes": 241920090,
+                "digest": "sha256:318cee4013c90cfe025a89e32cbd22123f7b5cc474772296b371123a0617cb67"
+            },
+            "zipBytes": 84492619,
+            "zipSha256": "49041726c3cfbefba33b6862b687a21dffaf7a68a0c52d72bf9298da8b92e5c1",
+            "webview": "system-evergreen"
+        },
+        "reproducibility": {
+            "batches": ["t140-desktop-portable-k", "t140-desktop-portable-l"],
+            "electronPayloadDigestEqual": true,
+            "tauriPayloadDigestEqual": true,
+            "electronZipSha256Equal": true,
+            "tauriZipSha256Equal": true,
+            "payloadShapeEqual": true
+        }
+    },
+    "smoke": {
+        "root": "repository-external temporary root; ancestor has no node_modules",
+        "ancestorNodeModules": false,
+        "nodePath": "",
+        "electron": {
+            "exitCode": 0,
+            "startupMs": 14878,
+            "port": 59372,
+            "contract": "nbook.product-runtime-contract/v4",
+            "migration": "complete",
+            "profiles": 14,
+            "shutdown": "graceful",
+            "applicationRootDigestUnchanged": true,
+            "stateRootMove": true,
+            "stateRootDelete": true
+        },
+        "tauri": {
+            "exitCode": 0,
+            "startupMs": 14444,
+            "port": 9883,
+            "contract": "nbook.product-runtime-contract/v4",
+            "migration": "complete",
+            "profiles": 14,
+            "shutdown": "graceful",
+            "applicationRootDigestUnchanged": true,
+            "stateRootMove": true,
+            "stateRootDelete": true
+        }
+    },
+    "limitations": [
+        "Product image dirty=true; this is a spike artifact and not a release candidate.",
+        "SSE/WebSocket, Monaco/TipTap, clipboard, drag/drop, downloads, file dialogs and real Origin behavior remain manual UI work.",
+        "Tauri WebView2 Evergreen distribution cost and production-grade Owned Process/Job Object forced fallback remain unverified.",
+        "RSS, installer/updater/uninstaller and cross-platform runners remain unmeasured."
+    ]
+}

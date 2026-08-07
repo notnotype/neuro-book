@@ -29,7 +29,7 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
     const supervisor = spawn(supervisorRuntime, ["-e", options.supervisorSource ?? WINDOWS_SUPERVISOR_SOURCE], {
         // 监督器使用宿主Runtime环境；目标env只通过IPC传递，不能让调用方裁剪PATH后破坏ownership建立。
         env: process.env,
-        stdio: [spec.stdin === "inherit" ? 0 : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],
+        stdio: [spec.stdin === "inherit" ? 0 : spec.stdin === "pipe" ? "pipe" : "ignore", spec.stdout ?? "pipe", spec.stderr ?? "pipe", "ipc"],
         windowsHide: spec.windowsHide ?? true,
     });
     let settled = false;
@@ -87,11 +87,14 @@ export function spawnWindowsOwnedProcess(spec: OwnedProcessSpec, options: Window
         cwd: spec.cwd,
         env: spec.env,
         stdin: spec.stdin ?? "ignore",
+        stdout: spec.stdout ?? "pipe",
+        stderr: spec.stderr ?? "pipe",
         windowsHide: spec.windowsHide ?? true,
         graceMs,
     });
 
     return {
+        stdin: supervisor.stdin ?? undefined,
         stdout: supervisor.stdout ?? undefined,
         stderr: supervisor.stderr ?? undefined,
         completion,

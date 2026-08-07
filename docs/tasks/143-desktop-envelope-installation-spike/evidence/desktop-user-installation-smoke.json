@@ -1,0 +1,35 @@
+{
+    "schema": "nbook.desktop-user-installation-smoke/v1",
+    "capturedAt": "2026-08-05",
+    "environment": {
+        "platform": "win32",
+        "architecture": "x64",
+        "archive": "neuro-book-electron-portable-win-x64.zip",
+        "manager": "packages/neuro-book-manager/dist/neuro-book.mjs",
+        "passwordTransport": "stdin",
+        "passwordInArgv": false,
+        "passwordInEnvironment": false
+    },
+    "install": {
+        "exitCode": 0,
+        "installationRoot": "%LOCALAPPDATA%/Programs/NeuroBook",
+        "stateRoot": "%LOCALAPPDATA%/NeuroBook/data",
+        "desktopManifest": true,
+        "adminUsername": "admin",
+        "startMenuShortcut": true,
+        "desktopShortcut": true,
+        "uninstallRegistry": true,
+        "protocolRegistry": true
+    },
+    "uninstall": {
+        "exitCode": 0,
+        "installationRootRemoved": true,
+        "startMenuShortcutRemoved": true,
+        "desktopShortcutRemoved": true,
+        "uninstallRegistryRemoved": true,
+        "protocolRegistryRemoved": true,
+        "stateRootPreserved": true,
+        "temporaryRootRemoved": true
+    },
+    "boundary": "This is a real Windows user-level Manager CLI transaction using an unsigned local depot. It does not prove a signed graphical installer, updater, macOS package, or final Electron/Tauri selection."
+}

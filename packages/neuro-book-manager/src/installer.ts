@@ -34,6 +34,8 @@ import {
     commitOperation,
     createOperation,
     operationEffect,
+    prepareProductRuntimeReceiptSwitch,
+    completeProductRuntimeReceiptSwitch,
     pathCreateEffect,
     pathRetireEffect,
     prepareCandidateContainer,
@@ -47,7 +49,7 @@ import {assertProfileSupported, currentProductPlatform} from "#manager/platform"
 import {installationPaths} from "#manager/paths";
 import {installationRootLocators} from "#manager/root-locators";
 import {portableLaunchers, writePortableLaunchers} from "#manager/portable-launchers";
-import {buildSourceProduct, installSourceDependencies} from "#manager/product";
+import {buildSourceProduct, installSourceDependencies, issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {profileDefinition} from "#manager/profiles";
 import {parseInstallationManifest} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
@@ -171,6 +173,13 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
                 },
             });
             await healthLaunch.ready;
+            const installedProduct = result.manifest.components.product;
+            if (installedProduct && installedProduct.provider !== "container" && await pathExists(join(paths.root, installedProduct.path))) {
+                const receiptPath = join(paths.deploy, "product-runtime-receipt.json");
+                journal = await prepareProductRuntimeReceiptSwitch(journal, receiptPath);
+                await issueInstalledProductRuntimeReceipt(paths.root, installedProduct, receiptPath);
+                journal = await completeProductRuntimeReceiptSwitch(journal);
+            }
             const previousContainerState = operationEffect(journal, "compose")?.previousState;
             const keepContainerRunning = (activeOptions.profile === "ghcr" || activeOptions.profile === "source-docker")
                 && (mode === "fresh" || previousContainerState === "running");

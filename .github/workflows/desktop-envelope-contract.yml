@@ -1,0 +1,53 @@
+name: Desktop Envelope Contract Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-envelope-contract.yml"
+      - "desktop/**"
+      - "packages/neuro-book-manager/**"
+      - "scripts/install/install-desktop.ps1"
+      - "scripts/release/desktop-contract-vitest.config.ts"
+      - "shared/desktop-contract.ts"
+      - "shared/desktop-contract.test.ts"
+      - "package.json"
+      - "bun.lock"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  contracts:
+    name: ${{ matrix.platform }} desktop contracts
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+          - platform: macos-x64
+            runner: macos-15-intel
+          - platform: macos-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Verify Desktop contracts
+        run: bun run test:desktop-contract
+      - name: Verify Manager type contracts
+        run: bun run manager:typecheck
+      - name: Verify Manager focused paths and installation schemas
+        run: >-
+          bun --bun ../../node_modules/vitest/vitest.mjs run
+          --config vitest.config.ts
+          src/desktop-installation.test.ts
+          src/paths.test.ts
+          src/schema.test.ts
+        working-directory: packages/neuro-book-manager

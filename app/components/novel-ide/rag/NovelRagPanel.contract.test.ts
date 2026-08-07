@@ -8,9 +8,8 @@ const ragInspectorPath = fileURLToPath(new URL("./NovelRagInspectorDialog.vue", 
 const ragInspectorSidebarPath = fileURLToPath(new URL("./NovelRagInspectorSidebar.vue", import.meta.url));
 const ragInspectorMainPath = fileURLToPath(new URL("./NovelRagInspectorMain.vue", import.meta.url));
 const ragInspectorDetailPath = fileURLToPath(new URL("./NovelRagInspectorDetail.vue", import.meta.url));
-const sidebarPath = fileURLToPath(new URL("../NovelIdeSidebar.vue", import.meta.url));
+const activityBarPath = fileURLToPath(new URL("../NovelIdeActivityBar.vue", import.meta.url));
 const toolPanelPath = fileURLToPath(new URL("../NovelIdeToolPanel.vue", import.meta.url));
-const headerPath = fileURLToPath(new URL("../NovelIdeHeader.vue", import.meta.url));
 const indexPagePath = fileURLToPath(new URL("../../../pages/index.vue", import.meta.url));
 
 describe("NovelRagPanel contract", () => {
@@ -18,11 +17,11 @@ describe("NovelRagPanel contract", () => {
         expect(NOVEL_IDE_TABS).not.toContain("rag");
         expect(isNovelIdeTab("rag")).toBe(false);
 
-        const sidebar = await readFile(sidebarPath, "utf-8");
+        const activityBar = await readFile(activityBarPath, "utf-8");
         const toolPanel = await readFile(toolPanelPath, "utf-8");
-        expect(sidebar).not.toContain("value: \"rag\"");
-        expect(sidebar).not.toContain("label: \"RAG\"");
-        expect(sidebar).toContain("props.userAssetsMode ? items.filter((item) => item.value === \"files\") : items");
+        expect(activityBar).not.toContain("\"rag\"");
+        expect(activityBar).not.toContain("label: \"RAG\"");
+        expect(activityBar).toContain("createWorkbenchActivityItems");
         expect(toolPanel).not.toContain("NovelRagPanel");
         expect(toolPanel).not.toContain("activeTab === 'rag' && !props.userAssetsMode");
     });
@@ -52,22 +51,22 @@ describe("NovelRagPanel contract", () => {
         expect(panel).toContain("失败原因：");
     });
 
-    it("隐藏 Header RAG Inspector 入口，但保留独立 dialog 实现", async () => {
-        const header = await readFile(headerPath, "utf-8");
+    it("隐藏 Activity Bar RAG Inspector 入口，但保留独立 dialog 实现", async () => {
+        const activityBar = await readFile(activityBarPath, "utf-8");
         const indexPage = await readFile(indexPagePath, "utf-8");
         const inspector = await readFile(ragInspectorPath, "utf-8");
         const inspectorSidebar = await readFile(ragInspectorSidebarPath, "utf-8");
         const inspectorMain = await readFile(ragInspectorMainPath, "utf-8");
         const inspectorDetail = await readFile(ragInspectorDetailPath, "utf-8");
 
-        expect(header).not.toContain("open-rag-inspector");
-        expect(header).not.toContain("title=\"RAG Inspector\"");
+        expect(activityBar).not.toContain("open-rag-inspector");
+        expect(activityBar).not.toContain("title=\"RAG Inspector\"");
         expect(indexPage).not.toContain("NovelRagInspectorDialog");
         expect(indexPage).not.toContain("ragInspectorOpen");
         expect(inspector).toContain("/api/projects/rag/inspector");
         expect(inspector).toContain("/api/projects/rag/debug");
         expect(inspector).toContain("size=\"full\"");
-        expect(inspector).toContain("overlay-type=\"blur\"");
+        expect(inspector).toContain("overlay-type=\"opaque\"");
         expect(inspector).toContain("NovelRagInspectorSidebar");
         expect(inspector).toContain("NovelRagInspectorMain");
         expect(inspector).toContain("NovelRagInspectorDetail");

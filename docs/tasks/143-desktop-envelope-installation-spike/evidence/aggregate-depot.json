@@ -1,0 +1,60 @@
+{
+    "schema": "nbook.desktop-envelope-spike-aggregate-depot/v1",
+    "capturedAt": "2026-08-06",
+    "platform": "windows-x64",
+    "product": {
+        "imageId": "sha256:8aae90a2d5953e1eb2aa4e7aac4326b232f80ddbcc8082bc15f8e239819cb49b",
+        "contract": "nbook.product-runtime-contract/v5",
+        "dirty": false
+    },
+    "batches": {
+        "G": {
+            "stagingRoot": "temporary staging root",
+            "archive": "neuro-book-desktop-spike-win-x64.zip",
+            "manifest": "neuro-book-desktop-spike-win-x64.manifest.json"
+        },
+        "H": {
+            "stagingRoot": "temporary staging root",
+            "archive": "neuro-book-desktop-spike-win-x64.zip",
+            "manifest": "neuro-book-desktop-spike-win-x64.manifest.json"
+        }
+    },
+    "entries": [
+        "install-desktop.ps1",
+        "windows-bun-stage0.ps1",
+        "neuro-book-desktop-spike-win-x64.distribution.json",
+        "neuro-book-electron-portable-win-x64.zip",
+        "neuro-book-electron-portable-win-x64.manifest.json",
+        "neuro-book-tauri-portable-win-x64.zip",
+        "neuro-book-tauri-portable-win-x64.manifest.json"
+    ],
+    "payload": {
+        "files": 7,
+        "bytes": 633438014
+    },
+    "archive": {
+        "path": "neuro-book-desktop-spike-win-x64.zip",
+        "bytes": 628325258,
+        "sha256": "sha256:590f71ed346c0fe4f4d40e2959c595ec1a56755ac8dfa103c9c70162870e5e7e"
+    },
+    "verification": {
+        "sharedVerifier": "passed",
+        "sidecarSchema": "nbook.desktop-depot/v1",
+        "distributionSchema": "nbook.desktop-distribution/v1",
+        "gAndHArchiveBytesEqual": true,
+        "gAndHArchiveSha256Equal": true,
+        "gAndHManifestEqual": true,
+        "gAndHPayloadShapeEqual": true,
+        "gAndHPayloadBytesEqual": true
+    },
+    "scope": {
+        "signed": false,
+        "formalInstaller": false,
+        "frameworkDecision": false,
+        "notes": [
+            "聚合 ZIP 只登记七项交付文件，不重复展开 Product、Bun、Tool Pack 或 Portable 内容。",
+            "G/H 输出在解压后的固定七项 staging 根上通过共享 verifier，并逐字节一致。",
+            "这是 Windows 未签名 spike depot，不是正式安装器、updater 或 Release 资产。"
+        ]
+    }
+}

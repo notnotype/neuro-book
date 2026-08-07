@@ -346,7 +346,13 @@ onBeforeUnmount(() => {
                         </Dropdown>
 
                         <Dropdown :items="sessionDropdownItems" root-class="relative inline-block" menu-class="left-0 bottom-full mb-1.5 w-56" compact @select="selectSessionMenu">
-                            <button class="inline-flex h-8 max-w-[14rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" :title="t('ide.inlineAi.selectSession')">
+                            <button
+                                class="inline-flex h-8 max-w-[14rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                                type="button"
+                                :title="t('ide.inlineAi.selectSession')"
+                                data-inline-agent-action="session-menu"
+                                :data-inline-agent-session-id="props.activeSessionId ?? undefined"
+                            >
                                 <span :class="props.sessionLoading ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-message-square-more'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                                 <span class="truncate">{{ props.sessionLabel }}</span>
                                 <span class="i-lucide-chevron-up h-3 w-3 text-[var(--text-muted)]"></span>
@@ -358,6 +364,7 @@ onBeforeUnmount(() => {
                             type="button"
                             :disabled="props.sessionLoading || props.running"
                             :title="t('ide.inlineAi.createSession')"
+                            data-inline-agent-action="create-session"
                             @click="emit('create-session')"
                         >
                             <span class="i-lucide-plus h-3.5 w-3.5"></span>
@@ -414,6 +421,7 @@ onBeforeUnmount(() => {
             <button
                 class="flex h-6 w-12 items-center justify-center rounded-t-full border border-b-0 border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :title="t('ide.inlineAi.expandBar')"
+                data-inline-agent-action="expand-bar"
                 @click="toggleExpanded"
             >
                 <span class="i-lucide-sparkles h-3.5 w-3.5"></span>

@@ -130,7 +130,7 @@ function submit(): void {
         title="添加节拍"
         width="560px"
         show-cancel
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

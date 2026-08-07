@@ -161,6 +161,9 @@ describe("Product command metafile", () => {
         ]);
 
         expect(bootstrap).toContain('from "nbook/shared/product-runtime-image-verifier"');
+        expect(bootstrap).toContain("productRuntimeReceiptAuthorizationFromEnvironment");
+        expect(bootstrap).toContain("verifyAuthorizedProductRuntimeReceiptControlPlane");
+        expect(bootstrap).toContain("openSelfVerified");
         expect(verifier).not.toContain("product-runtime-image-builder");
         expect(verifier).not.toContain("proper-lockfile");
         expect(builder).toContain('from "nbook/shared/product-runtime-image-verifier"');
