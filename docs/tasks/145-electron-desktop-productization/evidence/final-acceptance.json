@@ -66,6 +66,14 @@
             "backdropFilter": false,
             "gracefulShutdown": true
         },
+        "remoteElectronProtocolSmoke": {
+            "passed": true,
+            "connection": "remote",
+            "originMatched": true,
+            "pageLoaded": true,
+            "gracefulShutdown": true,
+            "scope": "loopback capability service; full remote Product/B/S UI not run"
+        },
         "userInstallUninstall": {
             "passed": true,
             "stateRootPreserved": true,

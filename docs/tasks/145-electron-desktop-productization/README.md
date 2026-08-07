@@ -76,6 +76,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 最终 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
 - 最终主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
 - 本次打包 Electron 的一次真实启动记录：启动页可见 `241.90 ms`，Product 后台验证完成 `1394.28 ms`，Product ready `11377.68 ms`，Desktop Bridge ready `11565.09 ms`，正式窗口 ready `11567.06 ms`。这是一轮观测值，不替代五次冷/暖启动统计；若需继续优化，应单开 Product Runtime 启动 profiling 任务。
+- 远端协议 smoke 使用真实打包 Electron 连接 loopback capability 服务通过：Bridge 返回 `connection=remote`，origin 精确匹配，远端页面成功加载并 graceful shutdown；这不是完整远端 Product/B/S UI 验收。
 - 当前用户安装/卸载：安装根、State/Cache/Desktop roots、`neurobook://`、开始菜单和桌面快捷方式均实际验证；卸载删除程序、Cache、Desktop/WebView、注册项和快捷方式并保留 State Root。
 - 全局安装的非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”；真正的 UAC 提升安装尚未在本机自动化执行。
 
