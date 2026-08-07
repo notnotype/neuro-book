@@ -55,7 +55,7 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             let setupSettled = false;
             let closeSettled = false;
             let unsubscribe: (() => void) | null = null;
-            let unbindProductShutdown = () => undefined;
+            let unbindProductShutdown: () => void = () => undefined;
             let settleCompletion: () => void = () => undefined;
             const completion = new Promise<void>((resolve) => {
                 settleCompletion = resolve;

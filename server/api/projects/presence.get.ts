@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
     const eventStream = createEventStream(event);
     let streamClosed = false;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-    let unbindProductShutdown = () => undefined;
+    let unbindProductShutdown: () => void = () => undefined;
 
     // 统一清理：onClosed 回调与 push 断连判定都会走这里；release 本身幂等，双触发安全。
     const cleanup = () => {

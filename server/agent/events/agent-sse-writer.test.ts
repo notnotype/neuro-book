@@ -1,8 +1,12 @@
 import {EventEmitter} from "node:events";
 import {once} from "node:events";
 import {createServer, request, type ServerResponse} from "node:http";
-import {describe, expect, it} from "vitest";
-import {writeAgentEventStream, type AgentSseResponse} from "nbook/server/agent/events/agent-sse-writer";
+import {describe, expect, it, vi} from "vitest";
+import {
+    writeAgentEventStream,
+    type AgentSseResponse,
+    type AgentSseSubscription,
+} from "nbook/server/agent/events/agent-sse-writer";
 import {AgentSessionEventHub, type AgentSessionEventSubscription, type PublishedAgentSessionEvent} from "nbook/server/agent/events/session-event-hub";
 
 class FakeResponse extends EventEmitter implements AgentSseResponse {
@@ -143,15 +147,12 @@ describe("writeAgentEventStream", () => {
         const subscriptionController = new AbortController();
         const productShutdownController = new AbortController();
         let resolveNext: ((result: IteratorResult<PublishedAgentSessionEvent>) => void) | null = null;
-        const close = vi.fn(() => {
+        const close = vi.fn((_reason?: "consumer_closed") => {
             subscriptionController.abort();
             resolveNext?.({done: true, value: undefined});
             resolveNext = null;
         });
-        const subscription: AgentSessionEventSubscription = {
-            connected,
-            signal: subscriptionController.signal,
-            close,
+        const iterator: AsyncIterator<PublishedAgentSessionEvent> = {
             async next() {
                 return await new Promise<IteratorResult<PublishedAgentSessionEvent>>((resolvePromise) => {
                     resolveNext = resolvePromise;
@@ -161,10 +162,15 @@ describe("writeAgentEventStream", () => {
                 close("consumer_closed");
                 return {done: true, value: undefined};
             },
-            [Symbol.asyncIterator]() {
-                return this;
-            },
         };
+        const subscription = {
+            connected,
+            signal: subscriptionController.signal,
+            close,
+            [Symbol.asyncIterator]() {
+                return iterator;
+            },
+        } satisfies AgentSseSubscription<PublishedAgentSessionEvent>;
         const response = new FakeResponse([true]);
         const writing = writeAgentEventStream(response, subscription, {
             shutdownSignal: productShutdownController.signal,
