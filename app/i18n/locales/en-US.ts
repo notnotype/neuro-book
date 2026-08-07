@@ -2020,6 +2020,7 @@ const enUS = {
             reconnectFailed: "Failed to reconnect Agent event stream",
             userTerminated: "User chose to stop this run.",
             stopped: "Stop requested",
+            stopRunFailed: "Failed to stop Agent run",
             submitAnswersFailed: "Failed to submit answers",
             cancelUserInputFailed: "Failed to cancel user input",
             switchModeFailed: "Failed to switch Agent mode",

@@ -1505,7 +1505,7 @@ const stopRun = async (): Promise<void> => {
         await agentApi.abortSession(activeSessionId.value, {reason: "user abort"});
         await syncActiveSessionRecovery();
     } catch (error) {
-        console.error("停止 Agent 运行失败", error);
+        notification.error(resolveApiErrorMessage(error, t("agent.chatSurface.stopRunFailed")));
     }
 };
 
