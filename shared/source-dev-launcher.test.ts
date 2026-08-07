@@ -1,4 +1,5 @@
 import type {OwnedProcessCompletion, OwnedProcessLease} from "@notnotype/owned-process";
+import {resolve} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
@@ -26,26 +27,45 @@ describe("Source Dev launcher", () => {
 
     it("公开入口以Owned Process启动内部dev:runtime并传播自然退出码", async () => {
         mocks.spawnOwnedProcess.mockReturnValue(lease(Promise.resolve({exitCode: 7, signal: null})));
+        const sourceCheckout = process.cwd();
 
         await expect(runSourceDev({
-            cwd: "C:/source-checkout",
+            cwd: sourceCheckout,
             env: {PORT: "43130", SOURCE_DEV_MARKER: "kept"},
         })).resolves.toBe(7);
 
         expect(mocks.spawnOwnedProcess).toHaveBeenCalledWith(expect.objectContaining({
             command: process.execPath,
             args: ["--no-install", "run", "dev:runtime"],
-            cwd: "C:/source-checkout",
+            cwd: sourceCheckout,
             env: expect.objectContaining({
                 PORT: "43130",
                 SOURCE_DEV_MARKER: "kept",
                 HOST: "127.0.0.1",
                 NITRO_HOST: "127.0.0.1",
+                NEURO_BOOK_CACHE_ROOT: resolve(sourceCheckout, ".agent", "cache"),
                 [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/u),
             }),
             stdin: "inherit",
             stdout: "inherit",
             stderr: "inherit",
+        }));
+    });
+
+    it("显式Cache Root保持原值，不由Source Dev launcher重写", async () => {
+        mocks.spawnOwnedProcess.mockReturnValue(lease(Promise.resolve({exitCode: 0, signal: null})));
+
+        await expect(runSourceDev({
+            cwd: process.cwd(),
+            env: {
+                NEURO_BOOK_CACHE_ROOT: "C:/custom-cache",
+            },
+        })).resolves.toBe(0);
+
+        expect(mocks.spawnOwnedProcess).toHaveBeenCalledWith(expect.objectContaining({
+            env: expect.objectContaining({
+                NEURO_BOOK_CACHE_ROOT: "C:/custom-cache",
+            }),
         }));
     });
 

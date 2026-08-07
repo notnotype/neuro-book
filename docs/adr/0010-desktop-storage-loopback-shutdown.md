@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-07-29
-- 更新：2026-08-05（Installation Mutation、Windows 自卸载、Candidate 验收、Session Store lease 失效关闭与 Desktop Envelope root 边界）
+- 更新：2026-08-07（Installation Mutation、Windows 自卸载、Candidate 验收、Session Store lease 失效关闭、Desktop Envelope root 边界与 Source Dev Cache Root）
 - 关联任务：[Task 130](../tasks/130-desktop-application-foundation/README.md)、[Task 105](../tasks/105-unified-installation-manager/README.md)、[Task 117](../tasks/117-windows-process-tree-lifecycle/README.md)、[ADR 0002](0002-bounded-rebuildable-runtime-artifacts.md)
 - 取代范围：[ADR 0006](0006-image-variant-and-original-ownership.md) 中 Image Variant Cache 的物理 locator 由本 ADR 的 Cache Root 决定；其 512 MiB、10000 项等领域预算不变。
 
@@ -37,7 +37,7 @@ WebView Root       = <Installation Root>/data/.desktop/webview
 
 1. Installation manifest 保存有类型的 `{base: "installation-root" | "local-app-data", path}` locator，不保存不可迁移的绝对路径。相对路径必须是非空子路径，拒绝绝对路径、`.`、空 segment 和 `..`。
 2. Product `RuntimePaths` 只消费 Application、State、Cache 三个 root。Desktop Local/WebView locator 由 Manager 和未来 Desktop Envelope 拥有，不暴露给 Product 领域代码。
-3. `NEURO_BOOK_CACHE_ROOT` 是 Product Cache Root Adapter。未显式设置时仅为 Source dev/隔离测试回退到 `State Root/cache`；受管启动总是由 Manager 注入明确值。
+3. `NEURO_BOOK_CACHE_ROOT` 是 Product Cache Root Adapter。通用 `runtimePathsFromEnv()` 未显式设置时回退到 `State Root/cache`；受管启动总是由 Manager 注入明确值。Source Dev launcher 另有专门的默认注入合同，见下文。
 4. 不覆盖 `HOME` 或 `USERPROFILE`。
 5. Manager、容器和独立 Product 启动器共用同一个环境 Adapter。继承环境先合入、State Root `.env` 可覆盖普通应用配置，最后由 Adapter 固定 Application/State/Cache Root、`State Root/logs`、llmlint state/cache、Bun install cache 和受管监听地址；用户配置不能把这些 owner 重定向到未声明路径。
 
@@ -79,6 +79,7 @@ Authoring Cache 的 128 个 lease / 256 MiB 是创建前与消费前的离散门
 2. launcher 与 Manager 复用同一 `shutdownNativeProduct()`：首次 Ctrl+C/SIGTERM 请求认证 loopback shutdown，第二次信号立即强制收口；graceful 与 force 同时失败必须聚合报告。launcher 自身异常退出时由监督 IPC 断连收口后代树。
 3. Source Dev 未显式声明监听 host 时固定使用 `127.0.0.1`。显式 `localhost` 或 IPv6 loopback 时，shutdown client 必须请求同一 loopback 地址；不得因地址族不一致把正常数据 flush 静默降级为强杀。
 4. Agent Session Store 的 `runtime.lease` owner metadata 只用于竞争错误诊断。互斥、15 秒 heartbeat、30 秒 stale 接管仍由 `proper-lockfile` 决定；禁止按 metadata PID 自动杀进程、提前抢锁或删除 `.lock`。普通 `ELOCKED` 表示获取时已有 owner；`ECOMPROMISED` 表示当前 owner 已失去所有权，两者都不得被解释为普通正文文件占用。
+5. Source Dev launcher 在未显式配置 `NEURO_BOOK_CACHE_ROOT` 时向内部 `dev:runtime` 注入 `<checkout>/.agent/cache`；显式配置保持原值。这样 Source Dev 的图片变体和其它可重建缓存不会落到 checkout 根目录的 `cache/`，同时不改变通用 Runtime Paths 对直接启动和隔离测试的 `State Root/cache` 回退。
 
 ### Secret 传递
 
