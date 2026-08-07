@@ -220,6 +220,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
+    const agentPanelWidth = ref(400);
     const agentSessionPanelOpen = ref(true);
     const agentSessionPanelWidth = ref(280);
     const agentStudioPanelOpen = ref(true);
@@ -1908,6 +1909,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         initializeWorkspace,
         lastSyncedFileContent,
         layoutMode,
+        agentPanelWidth,
         agentSessionPanelOpen,
         agentSessionPanelWidth,
         agentStudioPanelOpen,
@@ -2008,7 +2010,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             key: "novel.ide.local",
             pick: [
             "activeLeftTab",
-            "layoutMode",
+            "agentPanelWidth",
             "agentSessionPanelOpen",
             "agentSessionPanelWidth",
             "agentStudioPanelOpen",

@@ -5,7 +5,7 @@ import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
  * 通用浮动窗口组件（非模态）。
  *
  * 与 Dialog 的区别：没有遮罩层，页面其余部分保持可见、可交互；
- * 窗口本体毛玻璃底、可通过标题栏拖动。适合"边调整边看页面实时变化"
+ * 窗口本体使用与 Dialog 一致的不透明表面、可通过标题栏拖动。适合"边调整边看页面实时变化"
  * 的工具面板场景（如主题编辑器）。模态确认类交互请继续用 Dialog。
  */
 
@@ -141,7 +141,7 @@ onMounted(() => {
     <!-- 浮动窗口（无遮罩，页面保持可交互） -->
     <Teleport v-if="isMounted" :to="teleportTarget">
         <Transition name="nb-dialog-window">
-            <div v-if="modelValue" ref="windowRef" class="nb-dialog-window fixed z-[8990] flex flex-col overflow-hidden rounded-xl border border-[var(--border-color)] text-[var(--text-main)]" :style="windowStyle">
+            <div v-if="modelValue" ref="windowRef" class="nb-dialog-window fixed z-[8990] flex flex-col overflow-hidden rounded-lg border border-[var(--border-color)] text-[var(--text-main)]" :style="windowStyle">
                 <!-- 标题栏（拖动手柄） -->
                 <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] pr-2">
                     <div ref="dragHandleRef" class="flex min-w-0 flex-1 cursor-move touch-none select-none items-center gap-2 py-2 pl-4">
@@ -170,23 +170,21 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* 毛玻璃窗体：透出后方页面，保证"实时看页面变化"的观感 */
 .nb-dialog-window {
-    background: color-mix(in srgb, var(--bg-panel) 86%, transparent);
-    backdrop-filter: blur(14px);
+    background: var(--bg-panel);
     box-shadow:
-        0 18px 48px color-mix(in srgb, var(--shadow-color) 26%, transparent),
-        0 2px 10px color-mix(in srgb, var(--shadow-color) 14%, transparent);
+        0 18px 44px color-mix(in srgb, var(--shadow-color) 24%, transparent),
+        0 4px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
 }
 
 .nb-dialog-window-enter-active,
 .nb-dialog-window-leave-active {
-    transition: opacity 0.22s ease, transform 0.22s cubic-bezier(0.34, 1.15, 0.64, 1);
+    transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .nb-dialog-window-enter-from,
 .nb-dialog-window-leave-to {
     opacity: 0;
-    transform: scale(0.96) translateY(8px);
+    transform: scale(0.98) translateY(6px);
 }
 </style>

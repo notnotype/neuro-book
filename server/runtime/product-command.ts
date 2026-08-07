@@ -10,6 +10,10 @@ import {
     resolveProductRuntimeCommand,
 } from "nbook/shared/product-runtime-contract";
 import {ProductRuntimeImageVerifier} from "nbook/shared/product-runtime-image-verifier";
+import {
+    productRuntimeReceiptAuthorizationFromEnvironment,
+    verifyAuthorizedProductRuntimeReceiptControlPlane,
+} from "nbook/shared/product-runtime-receipt";
 
 /** 固定 bootstrap：把逻辑 command/check ID 解析成当前镜像的实际 bundle 入口。 */
 async function main(): Promise<void> {
@@ -19,12 +23,17 @@ async function main(): Promise<void> {
     }
     const imageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
     delete process.env.NODE_PATH;
-    await new ProductRuntimeImageVerifier().openSelfVerified(imageRoot);
-    const contract = await readProductRuntimeContract(imageRoot);
     const applicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();
     if (!applicationRoot) {
         throw new Error("Product Runtime command 缺少 NEURO_BOOK_APPLICATION_ROOT；必须由 Manager、Desktop Envelope 或 CLI wrapper 显式注入。");
     }
+    const receiptAuthorization = productRuntimeReceiptAuthorizationFromEnvironment(process.env);
+    if (receiptAuthorization) {
+        await verifyAuthorizedProductRuntimeReceiptControlPlane(imageRoot, applicationRoot, receiptAuthorization);
+    } else {
+        await new ProductRuntimeImageVerifier().openSelfVerified(imageRoot);
+    }
+    const contract = await readProductRuntimeContract(imageRoot);
     const childEnvironment: NodeJS.ProcessEnv = {
         ...process.env,
         NEURO_BOOK_APPLICATION_ROOT: applicationRoot,

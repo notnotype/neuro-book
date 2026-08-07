@@ -836,7 +836,7 @@ onBeforeUnmount(() => {
         </main>
 
         <!-- Project 封面设置：只负责上传、替换与清除，不扩展成综合编辑器。 -->
-        <Dialog :model-value="coverDialogOpen" size="md" :title="t('ide.picker.coverDialogTitle')" :busy="coverBusy" :show-footer="false" overlay-type="blur" @request-close="closeCoverDialog" @update:model-value="updateCoverDialogOpen">
+        <Dialog :model-value="coverDialogOpen" size="md" :title="t('ide.picker.coverDialogTitle')" :busy="coverBusy" :show-footer="false" overlay-type="opaque" @request-close="closeCoverDialog" @update:model-value="updateCoverDialogOpen">
             <div v-if="coverDialogProject" class="space-y-4">
                 <button v-if="coverPreviewUrl || coverDialogProject.cover" type="button" class="mx-auto block w-full max-w-[240px] focus-visible:outline-none" :aria-label="t('ide.imagePreview.openOriginal')" @click="previewCoverOriginal">
                     <span class="relative block aspect-[2/3] overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] focus-visible:ring-2 focus-visible:ring-[var(--accent-main)]">

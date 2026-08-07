@@ -12,6 +12,10 @@ import {
     type ProductRuntimeCommandId,
 } from "nbook/shared/product-runtime-contract";
 import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
+import {
+    productRuntimeReceiptEnvironment,
+    type ProductRuntimeReceiptAuthorization,
+} from "nbook/shared/product-runtime-receipt";
 
 import {enableAuthentication, ensureWritableRuntimeRoots, loadStateEnv} from "#manager/config";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
@@ -81,6 +85,8 @@ export type StartApplicationOptions = {
     productStdout?: OwnedProcessStdio;
     /** ready 后由宿主消费的结构化回调。 */
     onReady?: (ready: {port: number; startupNonce?: string}) => Promise<void>;
+    /** Desktop Supervisor 在当前 Installation Manifest 下批准的只读 Product 回执。 */
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization;
 };
 
 export type PortableForegroundOptions = StartApplicationOptions & {
@@ -179,7 +185,9 @@ export async function launchApplication(
         console.warn(`\n警告：${formatStateRootIntegrityWarning(stateIntegrity)}\n`);
     }
     activateManagedTools(root, manifest.components.tools);
-    const execution = await verifyApplicationExecution(root, manifest);
+    const execution = await verifyApplicationExecution(root, manifest, {
+        productRuntimeReceipt: options.productRuntimeReceipt,
+    });
     if (execution.kind === "container-product") {
         let terminated = false;
         let candidateContainerId: string | null = null;
@@ -232,6 +240,7 @@ export async function launchApplication(
         [PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]: shutdownToken,
         ...(startupNonce ? {[PRODUCT_STARTUP_NONCE_ENVIRONMENT]: startupNonce} : {}),
         ...(options.port ? {PORT: String(options.port), NUXT_PORT: String(options.port), NITRO_PORT: String(options.port)} : {}),
+        ...(options.productRuntimeReceipt ? productRuntimeReceiptEnvironment(options.productRuntimeReceipt) : {}),
         BUN: bun,
     };
     if (execution.kind === "native-product") delete env.NODE_PATH;
@@ -309,6 +318,7 @@ export async function planApplicationStateMigration(
     applicationRoot = root,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<ApplicationMigrationPlan> {
     const args = applicationMigrationArgs(applicationRoot, manifest, ["--plan", "--run-id", runId]);
     const runner = manifest.profile === "source-dev"
@@ -324,6 +334,7 @@ export async function planApplicationStateMigration(
         applicationRoot,
         containerComposePath,
         containerStateRoot,
+        productRuntimeReceipt,
     );
     if (report.action !== "plan" || report.runId !== runId) {
         throw new Error("Application State migration plan 返回了不一致的报告。");
@@ -552,8 +563,17 @@ async function runApplicationMigrationCommand(
     applicationRoot: string,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<ApplicationMigrationReport> {
-    const output = await runApplicationCommand(root, manifest, args, applicationRoot, containerComposePath, containerStateRoot);
+    const output = await runApplicationCommand(
+        root,
+        manifest,
+        args,
+        applicationRoot,
+        containerComposePath,
+        containerStateRoot,
+        productRuntimeReceipt,
+    );
     const value: unknown = JSON.parse(output);
     if (!Value.Check(ApplicationMigrationReportSchema, value)) {
         throw new Error("Application State migration 返回了无效报告。");
@@ -574,10 +594,13 @@ async function runApplicationCommand(
     applicationRoot = root,
     containerComposePath?: string,
     containerStateRoot?: string,
+    productRuntimeReceipt?: ProductRuntimeReceiptAuthorization,
 ): Promise<string> {
     const roots = resolveInstallationRoots(root, manifest.roots);
     const stateRoot = containerStateRoot ?? roots.state;
-    const execution = await verifyApplicationExecution(applicationRoot, manifest);
+    const execution = await verifyApplicationExecution(applicationRoot, manifest, {
+        productRuntimeReceipt,
+    });
     if (execution.kind === "container-product") {
         return runDockerApplicationCommand(
             execution.image,
@@ -595,6 +618,7 @@ async function runApplicationCommand(
             execution.kind === "source-dev",
             containerStateRoot ? join(containerStateRoot, ".cache") : roots.cache,
         ),
+        ...(productRuntimeReceipt ? productRuntimeReceiptEnvironment(productRuntimeReceipt) : {}),
         BUN: bun,
     };
     if (execution.kind === "native-product") delete env.NODE_PATH;

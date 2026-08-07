@@ -270,7 +270,15 @@ export async function startInstallationApplication(
         }
         assertInstallationHostCompatible(activeManifest);
         const id = randomUUID();
-        const plan = await planApplicationStateMigration(paths.root, activeManifest, id);
+        const plan = await planApplicationStateMigration(
+            paths.root,
+            activeManifest,
+            id,
+            paths.root,
+            undefined,
+            undefined,
+            options.productRuntimeReceipt,
+        );
         if (options.healthCheck === false && plan.status !== "already_current") {
             throw new Error("Windows Portable 存在待执行迁移时不能使用 --no-health-check。");
         }

@@ -11,12 +11,11 @@ import {
 } from "nbook/app/utils/workbench-chrome";
 
 const props = defineProps<{
-    activeTab: NovelIdeTab | "sessions" | null;
+    activeTab: NovelIdeTab | null;
     desktopAvailable: boolean;
     surfaceActive: boolean;
     userAssetsMode: boolean;
-    agentMode: boolean;
-    agentJobsActiveCount: number;
+    agentPanelOpen: boolean;
     currentUser: AuthUserDto | null;
 }>();
 
@@ -24,12 +23,9 @@ const emit = defineEmits<{
     (event: "open-home"): void;
     (event: "open-tab", value: NovelIdeTab): void;
     (event: "open-world-engine"): void;
-    (event: "open-agent-jobs"): void;
     (event: "open-trace-viewer"): void;
     (event: "open-history-inbox"): void;
-    (event: "open-user-assets"): void;
-    (event: "open-profile-workbench"): void;
-    (event: "toggle-layout-mode"): void;
+    (event: "toggle-agent-panel"): void;
     (event: "open-settings"): void;
     (event: "open-profile"): void;
     (event: "open-admin"): void;
@@ -45,7 +41,7 @@ const activityItems = computed(() => createWorkbenchActivityItems({
 const activityBarRef = ref<HTMLElement | null>(null);
 const primaryGroupRef = ref<HTMLElement | null>(null);
 const footerRef = ref<HTMLElement | null>(null);
-const agentModeRef = ref<HTMLElement | null>(null);
+const agentPanelRef = ref<HTMLElement | null>(null);
 const moreRootRef = ref<HTMLElement | null>(null);
 const moreButtonRef = ref<HTMLButtonElement | null>(null);
 const moreItemRefs = ref<HTMLButtonElement[]>([]);
@@ -72,12 +68,9 @@ const iconClasses: Record<WorkbenchActivityItemId, string> = {
     characters: "i-lucide-users-round",
     plot: "i-lucide-git-branch",
     world: "i-lucide-globe-2",
-    jobs: "i-lucide-list-checks",
     trace: "i-lucide-activity",
     history: "i-lucide-inbox",
-    "user-assets": "i-lucide-folder-cog",
-    profile: "i-lucide-file-code-2",
-    "agent-mode": "i-lucide-bot",
+    "agent-panel": "i-lucide-bot",
     account: "i-lucide-user-round",
     settings: "i-lucide-settings",
 };
@@ -88,12 +81,9 @@ const labels = computed<Record<WorkbenchActivityItemId, string>>(() => ({
     characters: t("ide.toolPanel.characters"),
     plot: t("ide.header.plotWorkbench"),
     world: t("ide.header.worldEngine"),
-    jobs: t("ide.header.agentJobsTitle"),
     trace: t("ide.header.traceViewerTitle"),
     history: t("ide.header.historyInboxTitle"),
-    "user-assets": t("ide.header.userAssetsTitle"),
-    profile: t("ide.header.profileWorkbenchTitle"),
-    "agent-mode": props.agentMode ? t("ide.header.switchToIde") : t("ide.header.switchToAgent"),
+    "agent-panel": props.agentPanelOpen ? t("ide.header.closeAgentPanel") : t("ide.header.openAgentPanel"),
     account: t("ide.header.accountMenu"),
     settings: t("settings.title"),
 }));
@@ -104,9 +94,8 @@ function active(item: WorkbenchActivityItem): boolean {
         case "files":
         case "characters":
         case "plot":
-            return !props.agentMode && props.activeTab === item.id;
-        case "user-assets": return props.userAssetsMode;
-        case "agent-mode": return props.agentMode;
+            return props.activeTab === item.id;
+        case "agent-panel": return props.agentPanelOpen;
         default: return false;
     }
 }
@@ -123,12 +112,9 @@ function invoke(item: WorkbenchActivityItem): void {
         case "characters":
         case "plot": emit("open-tab", item.id); return;
         case "world": emit("open-world-engine"); return;
-        case "jobs": emit("open-agent-jobs"); return;
         case "trace": emit("open-trace-viewer"); return;
         case "history": emit("open-history-inbox"); return;
-        case "user-assets": emit("open-user-assets"); return;
-        case "profile": emit("open-profile-workbench"); return;
-        case "agent-mode": emit("toggle-layout-mode"); return;
+        case "agent-panel": emit("toggle-agent-panel"); return;
         case "settings": emit("open-settings"); return;
         case "account": return;
     }
@@ -143,7 +129,7 @@ function resolveFixedActivityHeight(): number {
     return paddingBlock
         + (primaryGroupRef.value?.offsetHeight ?? 0)
         + (footerRef.value?.offsetHeight ?? 0)
-        + (agentModeRef.value ? 44 : 0);
+        + (agentPanelRef.value ? 44 : 0);
 }
 
 function measureSecondaryItems(): void {
@@ -230,7 +216,7 @@ function invokeOverflow(item: WorkbenchActivityItem): void {
 
 onMounted(() => {
     resizeObserver = new ResizeObserver(() => measureSecondaryItems());
-    for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentModeRef.value]) {
+    for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentPanelRef.value]) {
         if (target) resizeObserver.observe(target);
     }
     measureSecondaryItems();
@@ -245,7 +231,7 @@ watch(
     ],
     () => nextTick(() => {
         resizeObserver?.disconnect();
-        for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentModeRef.value]) {
+        for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentPanelRef.value]) {
             if (target) resizeObserver?.observe(target);
         }
         measureSecondaryItems();
@@ -296,7 +282,6 @@ onBeforeUnmount(() => {
                 @click="invoke(item)"
             >
                 <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
-                <span v-if="item.id === 'jobs' && props.agentJobsActiveCount > 0" class="absolute right-0 top-0 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--accent-main)] px-1 text-[9px] font-semibold leading-none text-[var(--text-inverse)]">{{ props.agentJobsActiveCount > 99 ? "99+" : props.agentJobsActiveCount }}</span>
             </button>
 
             <div v-if="secondaryItems.overflow.length > 0" ref="moreRootRef" class="relative mb-1 h-10 w-10 shrink-0">
@@ -335,24 +320,23 @@ onBeforeUnmount(() => {
                     >
                         <span :class="iconClasses[item.id]" class="h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
                         <span class="min-w-0 flex-1 truncate">{{ labels[item.id] }}</span>
-                        <span v-if="item.id === 'jobs' && props.agentJobsActiveCount > 0" class="shrink-0 rounded-full bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-semibold text-[var(--text-inverse)]">{{ props.agentJobsActiveCount > 99 ? "99+" : props.agentJobsActiveCount }}</span>
                     </button>
                 </div>
             </div>
 
             <button
-                v-if="activityItems.agentMode"
-                ref="agentModeRef"
+                v-if="activityItems.agentPanel"
+                ref="agentPanelRef"
                 type="button"
                 class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
-                :class="props.agentMode ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                :disabled="activityItems.agentMode.disabled"
-                :aria-pressed="props.agentMode"
-                :title="actionTitle(activityItems.agentMode)"
-                data-activity-id="agent-mode"
-                @click="invoke(activityItems.agentMode)"
+                :class="props.agentPanelOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :disabled="activityItems.agentPanel.disabled"
+                :aria-pressed="props.agentPanelOpen"
+                :title="actionTitle(activityItems.agentPanel)"
+                data-activity-id="agent-panel"
+                @click="invoke(activityItems.agentPanel)"
             >
-                <span :class="iconClasses['agent-mode']" class="h-[18px] w-[18px]"></span>
+                <span :class="iconClasses['agent-panel']" class="h-[18px] w-[18px]"></span>
             </button>
         </div>
 

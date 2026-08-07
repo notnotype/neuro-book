@@ -773,7 +773,7 @@ function updateDesktopCloseBehavior(value: string): void {
         :title="t('settings.title')"
         width="min(1440px, calc(100vw - 48px))"
         height="90vh"
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="false"
         :show-footer="false"
         @request-close="closeDialog"
@@ -1307,7 +1307,7 @@ function updateDesktopCloseBehavior(value: string): void {
         :model-value="Boolean(themeDeleteTarget)"
         :title="t('settings.frontend.themeDeleteTitle')"
         width="420px"
-        overlay-type="blur"
+        overlay-type="opaque"
         show-cancel
         @confirm="void confirmDeleteTheme()"
         @request-close="themeDeleteTarget = null"

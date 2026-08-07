@@ -7,17 +7,21 @@ import {
     type ShallowRef,
 } from "vue";
 
-export type WorkbenchLayoutMode = "ide" | "agent";
+export type WorkbenchProjectItem = Readonly<{
+    projectRoot: string;
+    title: string;
+}>;
 
 export type WorkbenchChromeRegistration = Readonly<{
     title: () => string;
     appearance: () => "light" | "dark";
     surfaceActive: () => boolean;
-    layoutMode: () => WorkbenchLayoutMode;
-    studioPanelOpen: () => boolean;
-    agentJobsActiveCount: () => number;
-    toggleLayoutMode: () => void | Promise<void>;
-    toggleStudioPanel: () => void;
+    currentProjectRoot: () => string | null;
+    projects: () => readonly WorkbenchProjectItem[];
+    agentPanelOpen: () => boolean;
+    openBookshelf: () => void | Promise<void>;
+    switchProject: (projectRoot: string) => void | Promise<void>;
+    toggleAgentPanel: () => void | Promise<void>;
 }>;
 
 export type WorkbenchChromeRegistry = Readonly<{

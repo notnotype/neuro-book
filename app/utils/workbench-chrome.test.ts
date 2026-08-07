@@ -22,7 +22,7 @@ describe("Workbench Chrome", () => {
         })).toBe("compact");
     });
 
-    it("keeps global navigation visible while disabling project-only actions on the bookshelf", () => {
+    it("keeps the desktop activity bar focused on project tools and moves global navigation into the title bar", () => {
         const bookshelf = createWorkbenchActivityItems({
             desktopAvailable: true,
             surfaceActive: false,
@@ -30,19 +30,16 @@ describe("Workbench Chrome", () => {
         });
 
         expect(bookshelf.primary.map((item) => [item.id, item.disabled])).toEqual([
-            ["home", false],
             ["files", true],
             ["characters", true],
             ["plot", true],
             ["world", true],
         ]);
         expect(bookshelf.secondary.map((item) => [item.id, item.disabled])).toEqual([
-            ["jobs", true],
             ["trace", true],
             ["history", true],
-            ["user-assets", false],
         ]);
-        expect(bookshelf.agentMode).toBeNull();
+        expect(bookshelf.agentPanel).toBeNull();
         expect(bookshelf.footer.map((item) => item.id)).toEqual(["account", "settings"]);
 
         const browserWorkspace = createWorkbenchActivityItems({
@@ -50,10 +47,14 @@ describe("Workbench Chrome", () => {
             surfaceActive: true,
             userAssetsMode: false,
         });
-        expect(browserWorkspace.agentMode).toEqual(expect.objectContaining({
-            id: "agent-mode",
+        expect(browserWorkspace.primary[0]).toEqual({
+            id: "home",
             disabled: false,
-        }));
+        });
+        expect(browserWorkspace.agentPanel).toEqual({
+            id: "agent-panel",
+            disabled: false,
+        });
     });
 
     it("折叠次要入口时为 More 保留完整按钮位", () => {

@@ -63,6 +63,7 @@ type WindowState = {
 const DEFAULT_WINDOW_STATE: WindowState = {x: 80, y: 80, width: 1280, height: 840, maximized: false, fullscreen: false};
 const SUPERVISOR_START_TIMEOUT_MS = 45_000;
 const WINDOW_LOAD_TIMEOUT_MS = 45_000;
+const startupStartedAt = performance.now();
 let windowStateWrite: Promise<void> = Promise.resolve();
 
 let window: BrowserWindow | null = null;
@@ -97,6 +98,7 @@ let closing: Promise<void> | null = null;
 let allowWindowClose = false;
 let desktopSettings: DesktopSettings = DEFAULT_DESKTOP_SETTINGS;
 let splashStage = "正在启动 NeuroBook...";
+let reportedSplashStage = "";
 
 /** 从显式环境或 Portable 根读取 Manager/Product 配置。 */
 function readConfig(): DesktopConfig {
@@ -258,6 +260,14 @@ async function selectPort(requested: number): Promise<number> {
 /** 更新启动页阶段；启动页关闭后忽略更新，避免恢复路径掩盖原始错误。 */
 function setSplashStage(stage: string): void {
     splashStage = stage;
+    if (stage !== reportedSplashStage) {
+        reportedSplashStage = stage;
+        console.log(JSON.stringify({
+            kind: "electron-startup-stage",
+            stage,
+            elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100,
+        }));
+    }
     if (!splash || splash.isDestroyed()) return;
     const escaped = JSON.stringify(stage);
     void splash.webContents.executeJavaScript(`document.querySelector("[data-stage]").textContent = ${escaped};`, true).catch(() => undefined);
@@ -667,6 +677,7 @@ async function flushWindowState(): Promise<void> {
 
 async function main(): Promise<void> {
     const config = readConfig();
+    const headless = process.argv.includes("--t140-headless") || process.argv.includes("--headless");
     // Session/profile 属于当前安装；单实例身份必须使用稳定的用户级根，不能随 Portable 变化。
     app.setPath("userData", desktopIdentityRoot());
     app.setPath("sessionData", join(config.desktopRoot, "webview"));
@@ -681,6 +692,7 @@ async function main(): Promise<void> {
         window?.webContents.send("neurobook:second-instance", {args, cwd: workingDirectory.slice(0, 4096)});
     });
     await app.whenReady();
+    if (!headless) splash = createSplash();
     await loadDesktopSettings(config.desktopRoot);
     ipcMain.handle("t140:status", (event) => {
         assertTrustedFrame(event);
@@ -727,8 +739,6 @@ async function main(): Promise<void> {
         runElectronMenuCommand(command as DesktopMenuCommandId);
     });
     installMenu();
-    const headless = process.argv.includes("--t140-headless") || process.argv.includes("--headless");
-    if (!headless) splash = createSplash();
     if (config.remoteUrl) {
         setSplashStage("检查远端 Desktop capability...");
         remoteStatus = await probeRemote(config.remoteUrl);
@@ -744,8 +754,8 @@ async function main(): Promise<void> {
     if (headless) {
         const forceShutdown = process.argv.includes("--t140-force");
         console.log(JSON.stringify(config.remoteUrl
-            ? {kind: "electron-remote-ready", origin: remoteStatus?.origin, version: remoteStatus?.version}
-            : {kind: "electron-headless-ready", port: running?.config.port, contract: running?.audit.schema}));
+            ? {kind: "electron-remote-ready", origin: remoteStatus?.origin, version: remoteStatus?.version, elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100}
+            : {kind: "electron-headless-ready", port: running?.config.port, contract: running?.audit.schema, elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100}));
         const holdMs = Number(process.env.T140_HOLD_MS ?? "0");
         if (Number.isInteger(holdMs) && holdMs > 0) await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, holdMs));
         if (forceShutdown && running) {
@@ -795,6 +805,10 @@ async function main(): Promise<void> {
     window.show();
     window.focus();
     window.moveTop();
+    console.log(JSON.stringify({
+        kind: "electron-window-ready",
+        elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100,
+    }));
     window.on("close", (event) => {
         queueWindowStateSave(config.desktopRoot);
         if (allowWindowClose) return;

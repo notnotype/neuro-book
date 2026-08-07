@@ -1911,7 +1911,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             title="新建卷"
             width="440px"
             show-cancel
-            overlay-type="blur"
+            overlay-type="opaque"
             :busy="savingAct"
             @request-close="actDialogVisible = false"
             @update:model-value="actDialogVisible = $event"
@@ -1941,7 +1941,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             title="删除确认"
             width="420px"
             show-cancel
-            overlay-type="blur"
+            overlay-type="opaque"
             @update:model-value="deleteTarget = null"
             @confirm="confirmDelete"
         >

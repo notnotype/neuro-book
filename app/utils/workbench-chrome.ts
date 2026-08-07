@@ -15,12 +15,9 @@ export type WorkbenchActivityItemId =
     | "characters"
     | "plot"
     | "world"
-    | "jobs"
     | "trace"
     | "history"
-    | "user-assets"
-    | "profile"
-    | "agent-mode"
+    | "agent-panel"
     | "account"
     | "settings";
 
@@ -38,7 +35,7 @@ export type WorkbenchActivityContext = Readonly<{
 export type WorkbenchActivityItems = Readonly<{
     primary: WorkbenchActivityItem[];
     secondary: WorkbenchActivityItem[];
-    agentMode: WorkbenchActivityItem | null;
+    agentPanel: WorkbenchActivityItem | null;
     footer: WorkbenchActivityItem[];
 }>;
 
@@ -68,21 +65,19 @@ export function createWorkbenchActivityItems(
     const novelOnlyDisabled = projectDisabled || context.userAssetsMode;
     return {
         primary: [
-            {id: "home", disabled: false},
+            ...(!context.desktopAvailable ? [{id: "home" as const, disabled: false}] : []),
             {id: "files", disabled: projectDisabled},
             {id: "characters", disabled: novelOnlyDisabled},
             {id: "plot", disabled: novelOnlyDisabled},
             {id: "world", disabled: novelOnlyDisabled},
         ],
         secondary: [
-            {id: "jobs", disabled: projectDisabled},
             {id: "trace", disabled: projectDisabled},
             {id: "history", disabled: novelOnlyDisabled},
-            {id: context.userAssetsMode ? "profile" : "user-assets", disabled: false},
         ],
-        agentMode: context.desktopAvailable
+        agentPanel: context.desktopAvailable
             ? null
-            : {id: "agent-mode", disabled: projectDisabled},
+            : {id: "agent-panel", disabled: projectDisabled},
         footer: [
             {id: "account", disabled: false},
             {id: "settings", disabled: false},

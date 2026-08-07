@@ -1,6 +1,6 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {mkdir, readFile, rename, rm, writeFile} from "node:fs/promises";
-import {dirname, resolve} from "node:path";
+import {dirname, isAbsolute, resolve, win32} from "node:path";
 
 import {
     ProductRuntimeImageVerifier,
@@ -10,6 +10,13 @@ import {
 } from "nbook/shared/product-runtime-image-verifier";
 
 export const PRODUCT_RUNTIME_RECEIPT_SCHEMA = "nbook.product-runtime-receipt/v1";
+export const PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT = "NEURO_BOOK_PRODUCT_RUNTIME_RECEIPT_PATH";
+export const PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT = "NEURO_BOOK_PRODUCT_RUNTIME_RECEIPT_SHA256";
+
+export type ProductRuntimeReceiptAuthorization = Readonly<{
+    path: string;
+    sha256: string;
+}>;
 
 export type ProductRuntimeVerificationReceipt = {
     schema: typeof PRODUCT_RUNTIME_RECEIPT_SCHEMA;
@@ -87,10 +94,81 @@ export async function verifyProductRuntimeReceiptControlPlane(
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeImageManifest> {
-    const receipt = await readProductRuntimeVerificationReceipt(receiptPath);
-    const verified = await new ProductRuntimeImageVerifier().openControlPlane(imageRoot, expectedIdentity, {allowPreviousRuntimeContract: true});
+    return (await inspectProductRuntimeReceiptControlPlane(imageRoot, receiptPath, expectedIdentity)).manifest;
+}
+
+/**
+ * Manager 在 Installation Manifest 约束下完成控制面快验，并把本次读到的精确回执内容授权给子进程。
+ * 授权只存在于进程环境，不写入 Runtime Image 或 State Root。
+ */
+export async function authorizeProductRuntimeReceiptControlPlane(
+    imageRoot: string,
+    receiptPath: string,
+    expectedIdentity: ProductRuntimeExpectedIdentity,
+): Promise<ProductRuntimeReceiptAuthorization> {
+    return (await inspectProductRuntimeReceiptControlPlane(imageRoot, receiptPath, expectedIdentity)).authorization;
+}
+
+/**
+ * Product bootstrap 消费 Manager 已批准的回执授权，只复核控制面；ready 后仍由 Manager 完整遍历 payload。
+ * 回执路径固定在当前 Application Root 的 `.deploy`，不能借此验证任意外部文件。
+ */
+export async function verifyAuthorizedProductRuntimeReceiptControlPlane(
+    imageRoot: string,
+    applicationRoot: string,
+    authorization: ProductRuntimeReceiptAuthorization,
+    expectedIdentity?: ProductRuntimeExpectedIdentity,
+): Promise<ProductRuntimeImageManifest> {
+    const expectedReceiptPath = resolve(applicationRoot, ".deploy", "product-runtime-receipt.json");
+    const authorizedPath = resolve(authorization.path);
+    if (authorizedPath !== expectedReceiptPath) {
+        throw new Error("Product Runtime receipt 授权路径不是当前 Installation Root 的受管回执。");
+    }
+    assertReceiptSha256(authorization.sha256, "Product Runtime receipt 授权摘要");
+    const receiptText = await readFile(authorizedPath, "utf8");
+    if (productRuntimeReceiptSha256(receiptText) !== authorization.sha256) {
+        throw new Error("Product Runtime receipt 授权摘要与磁盘内容不一致。");
+    }
+    const receipt = parseProductRuntimeVerificationReceipt(JSON.parse(receiptText) as unknown);
+    const verified = await new ProductRuntimeImageVerifier().openControlPlane(
+        imageRoot,
+        expectedIdentity ?? expectedIdentityFromReceipt(receipt),
+        {allowPreviousRuntimeContract: true},
+    );
     assertReceiptMatchesManifest(receipt, verified.manifest);
+    if (await readFile(authorizedPath, "utf8") !== receiptText) {
+        throw new Error("Product Runtime verification receipt 在验证期间发生变化。");
+    }
     return verified.manifest;
+}
+
+/** 将内存授权投影为 Product command 子进程环境。 */
+export function productRuntimeReceiptEnvironment(
+    authorization: ProductRuntimeReceiptAuthorization,
+): NodeJS.ProcessEnv {
+    const path = authorization.path.trim();
+    if (!path || !isPortableAbsolutePath(path)) {
+        throw new Error("Product Runtime receipt 授权路径必须是绝对路径。");
+    }
+    assertReceiptSha256(authorization.sha256, "Product Runtime receipt 授权摘要");
+    return {
+        [PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT]: path,
+        [PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT]: authorization.sha256,
+    };
+}
+
+/** 从 Product command 环境读取成对授权；缺一项时 fail closed。 */
+export function productRuntimeReceiptAuthorizationFromEnvironment(
+    environment: Readonly<Record<string, string | undefined>>,
+): ProductRuntimeReceiptAuthorization | null {
+    const path = environment[PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT]?.trim() ?? "";
+    const sha256 = environment[PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT]?.trim() ?? "";
+    if (!path && !sha256) return null;
+    if (!path || !sha256) {
+        throw new Error("Product Runtime receipt 启动授权必须同时提供路径和摘要。");
+    }
+    productRuntimeReceiptEnvironment({path, sha256});
+    return {path, sha256};
 }
 
 /** 完整复核镜像并确认安装回执仍绑定同一代次。 */
@@ -99,10 +177,71 @@ export async function verifyProductRuntimeReceiptFully(
     receiptPath: string,
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeImageManifest> {
-    const receipt = await readProductRuntimeVerificationReceipt(receiptPath);
+    const absoluteReceiptPath = resolve(receiptPath);
+    const receiptText = await readFile(absoluteReceiptPath, "utf8");
+    const receipt = parseProductRuntimeVerificationReceipt(JSON.parse(receiptText) as unknown);
     const verified = await new ProductRuntimeImageVerifier().openVerified(imageRoot, expectedIdentity, {allowPreviousRuntimeContract: true});
     assertReceiptMatchesManifest(receipt, verified.manifest);
+    if (await readFile(absoluteReceiptPath, "utf8") !== receiptText) {
+        throw new Error("Product Runtime verification receipt 在验证期间发生变化。");
+    }
     return verified.manifest;
+}
+
+async function inspectProductRuntimeReceiptControlPlane(
+    imageRoot: string,
+    receiptPath: string,
+    expectedIdentity: ProductRuntimeExpectedIdentity,
+): Promise<{
+    manifest: ProductRuntimeImageManifest;
+    authorization: ProductRuntimeReceiptAuthorization;
+}> {
+    const absoluteReceiptPath = resolve(receiptPath);
+    const receiptText = await readFile(absoluteReceiptPath, "utf8");
+    const receipt = parseProductRuntimeVerificationReceipt(JSON.parse(receiptText) as unknown);
+    const verified = await new ProductRuntimeImageVerifier().openControlPlane(
+        imageRoot,
+        expectedIdentity,
+        {allowPreviousRuntimeContract: true},
+    );
+    assertReceiptMatchesManifest(receipt, verified.manifest);
+    if (await readFile(absoluteReceiptPath, "utf8") !== receiptText) {
+        throw new Error("Product Runtime verification receipt 在验证期间发生变化。");
+    }
+    return {
+        manifest: verified.manifest,
+        authorization: {
+            path: absoluteReceiptPath,
+            sha256: productRuntimeReceiptSha256(receiptText),
+        },
+    };
+}
+
+function expectedIdentityFromReceipt(receipt: ProductRuntimeVerificationReceipt): ProductRuntimeExpectedIdentity {
+    return {
+        version: receipt.version,
+        revision: receipt.revision,
+        dirty: receipt.dirty,
+        platform: receipt.platform,
+        imageId: receipt.imageId,
+        sourceDigest: receipt.sourceDigest,
+        lockfileSha256: receipt.lockfileSha256,
+        builderContractVersion: receipt.builderContractVersion,
+    };
+}
+
+function productRuntimeReceiptSha256(text: string): string {
+    return `sha256:${createHash("sha256").update(text).digest("hex")}`;
+}
+
+function assertReceiptSha256(value: string, label: string): void {
+    if (!/^sha256:[a-f0-9]{64}$/u.test(value)) {
+        throw new Error(`${label} 必须是 sha256 摘要。`);
+    }
+}
+
+function isPortableAbsolutePath(value: string): boolean {
+    return isAbsolute(value) || win32.isAbsolute(value);
 }
 
 function assertReceiptMatchesManifest(receipt: ProductRuntimeVerificationReceipt, manifest: ProductRuntimeImageManifest): void {

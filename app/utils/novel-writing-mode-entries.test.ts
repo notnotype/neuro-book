@@ -48,6 +48,11 @@ describe("Novel writing mode entries", () => {
         expect(welcome).not.toContain("open-rag-inspector");
         expect(welcome).not.toContain("id: \"simulation\"");
         expect(welcome).not.toContain("open-path\", \"simulation/");
+        expect(welcome).not.toContain("switch-agent-mode");
+        expect(welcome).not.toContain("toggle-agent-surface");
+        expect(welcome).not.toContain("open-user-assets");
+        expect(welcome).not.toContain("studio-agent-modes-grid");
+        expect(welcome).toContain("open-agent-panel");
     });
 
     it("Plot World Context 可以转到真实 World Engine Workbench", async () => {

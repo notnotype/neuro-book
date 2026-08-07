@@ -4,8 +4,10 @@ import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 import {verifyApplicationExecution} from "#manager/application-execution";
 import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtures/runtime-image";
+import {issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
+import {authorizeProductRuntimeReceiptControlPlane} from "nbook/shared/product-runtime-receipt";
 
 const roots: string[] = [];
 const VERSION = "0.8.0-canary.1";
@@ -32,6 +34,41 @@ describe("Verified Application Execution", () => {
 
         await expect(verifyApplicationExecution(fixture.root, fixture.manifest))
             .rejects.toThrow("payload digest 不一致");
+    });
+
+    it("Desktop 回执授权只做控制面快验，payload 篡改由 ready 后完整复核拦截", async () => {
+        const fixture = await nativeFixture();
+        const product = fixture.manifest.components.product;
+        if (!product || product.provider === "container") throw new Error("测试 fixture 缺少 native Product");
+        const receiptPath = join(fixture.root, ".deploy", "product-runtime-receipt.json");
+        await issueInstalledProductRuntimeReceipt(fixture.root, product, receiptPath);
+        const authorization = await authorizeProductRuntimeReceiptControlPlane(
+            join(fixture.root, ".output"),
+            receiptPath,
+            {
+                version: product.version,
+                revision: product.revision,
+                dirty: false,
+                platform: product.platform,
+                imageId: product.imageId,
+                sourceDigest: product.sourceDigest,
+                lockfileSha256: product.lockfileSha256,
+                builderContractVersion: product.builderContractVersion,
+            },
+        );
+        await writeFile(join(fixture.root, ".output", "server", "commands", "all.mjs"), "export const tampered = true;\n", "utf8");
+
+        await expect(verifyApplicationExecution(fixture.root, fixture.manifest, {
+            productRuntimeReceipt: authorization,
+        })).resolves.toMatchObject({
+            kind: "native-product",
+            identity: {imageId: fixture.imageId},
+        });
+        await expect(verifyApplicationExecution(fixture.root, fixture.manifest))
+            .rejects.toThrow("payload digest 不一致");
+        await expect(verifyApplicationExecution(fixture.root, fixture.manifest, {
+            productRuntimeReceipt: {...authorization, sha256: `sha256:${"0".repeat(64)}`},
+        })).rejects.toThrow("授权摘要");
     });
 
     it("Source Dev 明确跳过 Runtime Image 验证", async () => {

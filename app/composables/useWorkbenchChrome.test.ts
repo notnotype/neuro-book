@@ -8,16 +8,19 @@ describe("Workbench Chrome registry", () => {
             title: () => "我的书架",
             appearance: () => "light" as const,
             surfaceActive: () => false,
-            layoutMode: () => "ide" as const,
-            studioPanelOpen: () => false,
-            agentJobsActiveCount: () => 0,
-            toggleLayoutMode: () => undefined,
-            toggleStudioPanel: () => undefined,
+            currentProjectRoot: () => null,
+            projects: () => [],
+            agentPanelOpen: () => false,
+            openBookshelf: () => undefined,
+            switchProject: () => undefined,
+            toggleAgentPanel: () => undefined,
         };
         const workspace = {
             ...bookshelf,
             title: () => "第一部",
             surfaceActive: () => true,
+            currentProjectRoot: () => "first-book",
+            projects: () => [{projectRoot: "first-book", title: "第一部"}],
         };
 
         const releaseBookshelf = registry.register(bookshelf);

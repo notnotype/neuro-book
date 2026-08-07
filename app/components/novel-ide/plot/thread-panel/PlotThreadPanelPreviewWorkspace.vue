@@ -644,7 +644,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
         title="删除确认"
         width="420px"
         show-cancel
-        overlay-type="blur"
+        overlay-type="opaque"
         @update:model-value="deleteTarget = null"
         @confirm="confirmDelete"
     >

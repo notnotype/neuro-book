@@ -6,7 +6,6 @@ import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mo
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
-import AgentJobsDialog from "nbook/app/components/novel-ide/jobs/AgentJobsDialog.vue";
 import NovelIdeActivityBar from "nbook/app/components/novel-ide/NovelIdeActivityBar.vue";
 import NovelIdeProfileDialog from "nbook/app/components/novel-ide/NovelIdeProfileDialog.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
@@ -32,7 +31,6 @@ import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
 import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
-import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
@@ -75,8 +73,7 @@ const accountProfileOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const traceViewerOpen = ref(false);
 const historyInboxOpen = ref(false);
-// 后台任务中心只在 Project 数据面内挂载。
-const agentJobsOpen = ref(false);
+const agentPanelOpen = ref(false);
 const historyInboxRefreshKey = ref(0);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
@@ -86,6 +83,7 @@ const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
+const agentResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
 const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
@@ -122,6 +120,7 @@ const {
     loadingWorkspace,
     restoringWorkspaceFile,
     layoutMode,
+    agentPanelWidth,
     agentSessionPanelOpen,
     agentSessionPanelWidth,
     agentStudioFileTreeWidth,
@@ -188,12 +187,11 @@ const projectSurfaceActive = computed(() => workspaceBootstrapped.value && (
         && projectSession.state.value.ready.projectRoot === currentProjectRoot.value,
     ))
 ));
-const chromeJobsFeed = useAgentJobsFeed(projectSurfaceActive);
 const agentProjectReadyRevision = computed(() => projectSession.state.value.status === "ready"
     ? projectSession.state.value.ready.revision
     : null);
 watch(projectSurfaceActive, (active) => {
-    if (!active) agentJobsOpen.value = false;
+    if (!active) agentPanelOpen.value = false;
 });
 // Task 129：未选择 Project 时渲染项目选择界面。状态完全派生自 store，删除最后一本书 / URL 指向不存在的
 // Project / 裸 `/` 三条路径自动收敛到同一状态，不额外维护一份开关。
@@ -361,8 +359,9 @@ const buildProjectRoute = (projectTarget: string): string => {
 };
 
 const consumingRouteOpenPath = ref(false);
+const displayAgentPanelOpen = computed(() => workspaceBootstrapped.value && agentPanelOpen.value);
 const isAgentMode = computed(() => layoutMode.value === "agent");
-const agentSurfaceActive = computed(() => projectSurfaceActive.value && isAgentMode.value);
+const agentSurfaceActive = computed(() => projectSurfaceActive.value && (displayAgentPanelOpen.value || isAgentMode.value));
 const agentModeSessions = computed(() => agentSurfaceRef.value?.sessions ?? []);
 const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSessionId ?? null);
 const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
@@ -383,6 +382,17 @@ const agentStudioPanelVisible = computed({
     },
 });
 const agentStudioPanelOpen = computed(() => workspaceBootstrapped.value && agentStudioPanelVisible.value);
+const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
+    size: computed(() => agentPanelWidth.value),
+    minSize: 320,
+    maxSize: 720,
+    edge: "left",
+    enabled: computed(() => !isAgentMode.value && displayAgentPanelOpen.value),
+    syncDuringResize: true,
+    onResize: (width) => {
+        agentPanelWidth.value = width;
+    },
+});
 const {isResizing: resizingAgentStudioPanel, panelStyle: agentStudioPanelStyle} = useResizablePanel(agentStudioResizeHandleRef, {
     size: computed(() => agentStudioPanelWidth.value),
     minSize: 320,
@@ -412,6 +422,12 @@ const agentStudioStyle = computed(() => {
     }
     return agentStudioPanelOpen.value ? agentStudioPanelStyle.value : {width: "0px"};
 });
+const agentSlotStyle = computed(() => {
+    if (isAgentMode.value) {
+        return {};
+    }
+    return displayAgentPanelOpen.value ? agentPanelStyle.value : {width: "0px"};
+});
 const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (!workspaceBootstrapped.value) {
         return "files";
@@ -426,7 +442,7 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
 });
 const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
 const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
-const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
+const displaySidebarActiveTab = computed<NovelIdeTab | null>(() => displayActiveLeftTab.value);
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value
     ? t("ide.header.userAssets")
     : currentNovel.value?.title ?? currentProjectRoot.value);
@@ -1517,14 +1533,15 @@ const toggleAgentLayoutMode = async (): Promise<void> => {
 };
 
 /**
- * 进入 Agent 模式并选择指定 Session。
+ * 打开右侧 Agent 面板并选择指定 Session。
  */
 async function showAgentSession(sessionId: number): Promise<void> {
-    if (!isAgentMode.value) {
+    if (isAgentMode.value) {
         await runLayoutModeTransition(() => {
-            layoutMode.value = "agent";
+            layoutMode.value = "ide";
         });
     }
+    agentPanelOpen.value = true;
     await nextTick();
     const surface = agentSurfaceRef.value;
     if (!surface) return;
@@ -1585,7 +1602,27 @@ const renameAgentModeSession = async (session: AgentSessionSummaryDto): Promise<
  * 关闭当前 Agent 槽位。
  */
 const closeAgentSurface = (): void => {
-    layoutMode.value = "ide";
+    if (isAgentMode.value) {
+        layoutMode.value = "ide";
+    }
+    agentPanelOpen.value = false;
+};
+
+/**
+ * 标题栏与 B/S Activity Bar 共用的 Agent 侧栏开关。
+ * 面板关闭时不挂载完整 Agent Surface，避免普通启动提前建立 Session/SSE。
+ */
+const toggleAgentPanel = async (): Promise<void> => {
+    if (!projectSurfaceActive.value) return;
+    if (isAgentMode.value) {
+        await runLayoutModeTransition(() => {
+            layoutMode.value = "ide";
+        });
+    }
+    agentPanelOpen.value = !agentPanelOpen.value;
+    if (!agentPanelOpen.value) return;
+    await nextTick();
+    await agentSurfaceRef.value?.ensureSessionReady();
 };
 
 /**
@@ -1598,14 +1635,11 @@ const toggleAgentModeStudio = (): void => {
 /**
  * 处理左侧窄 sidebar 的模式入口。
  */
-const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
-    if (tab === "sessions") {
-        agentSessionPanelOpen.value = !agentSessionPanelOpen.value;
-        return;
-    }
+const handleSidebarToggle = (tab: NovelIdeTab): void => {
     if (isAgentMode.value) {
         void runLayoutModeTransition(() => {
             layoutMode.value = "ide";
+            agentPanelOpen.value = false;
             activeLeftTab.value = tab;
         });
         return;
@@ -1808,7 +1842,7 @@ const releaseProjectSurface = async (): Promise<void> => {
     settingsDialogOpen.value = false;
     traceViewerOpen.value = false;
     historyInboxOpen.value = false;
-    agentJobsOpen.value = false;
+    agentPanelOpen.value = false;
     profileWorkbenchOpen.value = false;
     frontmatterProfileKind.value = null;
     await projectSession.release();
@@ -2158,32 +2192,14 @@ async function consumeWorkspaceOpenPathFromRoute(): Promise<void> {
 }
 
 /**
- * 从欢迎页进入 Agent 模式。
+ * 从欢迎页打开右侧 Agent 面板。
  */
 async function openWelcomeAgentPanel(): Promise<void> {
-    await openWelcomeAgentMode();
-}
-
-/**
- * 从欢迎页切入 Agent Mode；如果已经在 Agent Mode，则确保 session 已准备好。
- */
-async function openWelcomeAgentMode(): Promise<void> {
-    if (!isAgentMode.value) {
-        await toggleAgentLayoutMode();
+    if (!agentPanelOpen.value) {
+        await toggleAgentPanel();
         return;
     }
     await agentSurfaceRef.value?.ensureSessionReady();
-}
-
-/**
- * 从欢迎页执行顶部 Agent / Studio 主按钮同等动作。
- */
-function toggleWelcomeAgentSurface(): void {
-    if (isAgentMode.value) {
-        toggleAgentModeStudio();
-        return;
-    }
-    void openWelcomeAgentMode();
 }
 
 /**
@@ -2361,11 +2377,15 @@ useWorkbenchChromeRegistration({
     },
     appearance: () => activeThemeAppearance.value,
     surfaceActive: () => projectSurfaceActive.value,
-    layoutMode: () => layoutMode.value,
-    studioPanelOpen: () => agentStudioPanelOpen.value,
-    agentJobsActiveCount: () => chromeJobsFeed.activeCount.value,
-    toggleLayoutMode: () => toggleAgentLayoutMode(),
-    toggleStudioPanel: toggleAgentModeStudio,
+    currentProjectRoot: () => currentProjectRoot.value || null,
+    projects: () => novels.value.map((novel) => ({
+        projectRoot: novel.projectRoot,
+        title: novel.title,
+    })),
+    agentPanelOpen: () => displayAgentPanelOpen.value,
+    openBookshelf: () => openProjectPicker(),
+    switchProject: (projectRoot) => handleSwitchNovel(projectRoot),
+    toggleAgentPanel: () => toggleAgentPanel(),
 });
 
 onMounted(() => {
@@ -2478,18 +2498,14 @@ onBeforeUnmount(() => {
             :desktop-available="Boolean(desktopBridge)"
             :surface-active="projectSurfaceActive"
             :user-assets-mode="isUserAssetsWorkspace"
-            :agent-mode="isAgentMode"
-            :agent-jobs-active-count="chromeJobsFeed.activeCount.value"
+            :agent-panel-open="displayAgentPanelOpen"
             :current-user="currentUser"
             @open-home="void openProjectPicker()"
             @open-tab="handleSidebarToggle"
             @open-world-engine="openWorldEngineWorkbench"
-            @open-agent-jobs="agentJobsOpen = true"
             @open-trace-viewer="traceViewerOpen = true"
             @open-history-inbox="historyInboxOpen = true"
-            @open-user-assets="openUserAssets"
-            @open-profile-workbench="profileWorkbenchOpen = true"
-            @toggle-layout-mode="void toggleAgentLayoutMode()"
+            @toggle-agent-panel="void toggleAgentPanel()"
             @open-settings="settingsDialogOpen = true"
             @open-profile="accountProfileOpen = true"
             @open-admin="void openAdmin()"
@@ -2580,7 +2596,6 @@ onBeforeUnmount(() => {
                             :workspace-view-mode="displayCurrentWorkspaceViewMode"
                             :theme="activeThemeId"
                             :compact="isAgentMode"
-                            :agent-mode-active="isAgentMode"
                             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
                             :editor-preferences="markdownEditorPreferences"
                             :monaco-preferences="monacoEditorPreferences"
@@ -2607,10 +2622,6 @@ onBeforeUnmount(() => {
                             @create-markdown-file="void createWelcomeMarkdownFile()"
                             @create-lorebook-entry="void createWelcomeLorebookEntry()"
                             @open-agent-panel="void openWelcomeAgentPanel()"
-                            @switch-agent-mode="void openWelcomeAgentMode()"
-                            @toggle-agent-surface="toggleWelcomeAgentSurface"
-                            @open-bookshelf="void openProjectPicker()"
-                            @open-user-assets="openUserAssets"
                             @open-profile-workbench="profileWorkbenchOpen = true"
                             @inline-ai-reference="addInlineAiReference"
                         />
@@ -2672,17 +2683,28 @@ onBeforeUnmount(() => {
                 />
             </main>
 
-            <!-- Agent 模式主工作区 -->
+            <!-- Agent Chat Surface：默认是 IDE 右侧面板；未来 Agent layout 仍复用同一实例。 -->
             <section
-                v-if="isAgentMode"
-                class="mode-transition-agent relative z-30 order-2 flex h-full min-h-0 min-w-[340px] flex-[1.2] shrink-0 flex-col border-x border-[var(--border-color)] bg-[var(--bg-panel)] opacity-100 transition-[width,flex,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                :class="layoutTransitionDirection ? 'transition-none' : ''"
+                v-if="isAgentMode || displayAgentPanelOpen"
+                data-agent-panel
+                class="mode-transition-agent relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-[width,flex,opacity,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                :class="[
+                    isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 border-l border-[var(--border-color)] opacity-100',
+                    layoutTransitionDirection ? 'transition-none' : '',
+                    resizingAgentPanel ? 'select-none transition-none' : '',
+                ]"
+                :style="agentSlotStyle"
             >
+                <template v-if="!isAgentMode">
+                    <div ref="agentResizeHandleRef" data-agent-panel-resize-handle class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+                    </div>
+                </template>
                 <AgentChatSurface
                     ref="agentSurfaceRef"
                     class="contain-layout-paint min-h-0 flex-1"
                     :active="agentSurfaceActive"
-                    layout="workbench"
+                    :layout="isAgentMode ? 'workbench' : 'drawer'"
                     :novel-id="displayNovelIdForAgent"
                     :project-ready-revision="agentProjectReadyRevision"
                     :history-inbox-refresh-key="historyInboxRefreshKey"
@@ -2699,7 +2721,6 @@ onBeforeUnmount(() => {
         <NovelIdeProfileDialog v-model="accountProfileOpen" />
         <AgentTraceViewerDialog v-if="projectSurfaceActive" v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" :theme="activeThemeId" />
-        <AgentJobsDialog v-if="projectSurfaceActive && agentJobsOpen" v-model="agentJobsOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-if="projectSurfaceActive"

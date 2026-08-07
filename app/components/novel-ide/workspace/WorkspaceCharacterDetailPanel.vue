@@ -442,7 +442,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         :title="editForm?.title || t('ide.workspace.character.profileTitle')"
         width="min(1280px, calc(100vw - 160px))"
         height="min(760px, calc(100vh - 96px))"
-        overlay-type="blur"
+        overlay-type="opaque"
         :show-footer="false"
         @update:model-value="updateDialogVisible"
     >

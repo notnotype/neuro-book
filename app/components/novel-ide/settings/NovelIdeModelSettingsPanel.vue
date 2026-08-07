@@ -613,7 +613,7 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
         :title="t('settings.panels.models.validationIssuesTitle')"
         width="680px"
         height="70%"
-        overlay-type="blur"
+        overlay-type="opaque"
         :show-footer="false"
     >
         <!-- 完整模型配置问题列表 -->
@@ -663,7 +663,7 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
         v-model="deleteProviderDialogOpen"
         :title="t('settings.panels.models.deleteProviderTitle')"
         width="420px"
-        overlay-type="blur"
+        overlay-type="opaque"
         show-cancel
         @confirm="confirmDeleteActiveProvider"
     >

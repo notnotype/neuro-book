@@ -29,7 +29,7 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" width="800px" height="85%" overlay-type="blur" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" width="800px" height="85%" overlay-type="opaque" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
         <!-- Automatic Model Discovery 本次会话结果。 -->
         <div class="flex h-full flex-col gap-4 px-1 py-2">
             <div class="flex shrink-0 items-center gap-3">

@@ -8,6 +8,19 @@ function isLoopbackAddress(address: string | undefined): boolean {
     return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
 }
 
+/**
+ * Nuxt dev 的 Node adapter 可能不暴露 socket.remoteAddress。
+ * 只有进程明确绑定 loopback 时才能使用该 fallback；0.0.0.0、:: 或缺省监听仍拒绝。
+ */
+function isLoopbackRequest(address: string | undefined): boolean {
+    if (isLoopbackAddress(address)) return true;
+    if (address !== undefined) return false;
+    const configuredHost = (process.env.NITRO_HOST?.trim() || process.env.HOST?.trim() || "")
+        .toLowerCase()
+        .replace(/^\[|\]$/gu, "");
+    return configuredHost === "127.0.0.1" || configuredHost === "localhost" || configuredHost === "::1";
+}
+
 /** 使用恒定时间比较 Manager 为本次 Product launch 生成的 bearer token。 */
 function matchesShutdownToken(authorization: string | undefined, expectedToken: string): boolean {
     if (!authorization) return false;
@@ -20,7 +33,8 @@ function matchesShutdownToken(authorization: string | undefined, expectedToken: 
 
 /** Manager 专用 loopback shutdown 控制面；正常用户鉴权不能访问此入口。 */
 export default defineEventHandler((event): {accepted: true} => {
-    if (!isLoopbackAddress(event.node.req.socket.remoteAddress)) {
+    const remoteAddress = event.node.req.socket.remoteAddress;
+    if (!isLoopbackRequest(remoteAddress)) {
         throw createError({statusCode: 403, message: "Product shutdown 只接受 loopback 请求。"});
     }
     const expectedToken = process.env[PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT]?.trim();

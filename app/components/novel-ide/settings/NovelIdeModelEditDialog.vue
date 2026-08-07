@@ -184,7 +184,7 @@ function updateOpen(value: boolean): void {
         width="min(980px, calc(100vw - 24px))"
         height="min(760px, calc(100vh - 24px))"
         max-height="calc(100vh - 24px)"
-        overlay-type="blur"
+        overlay-type="opaque"
         :show-footer="props.confirmMode ?? false"
         :show-cancel="props.confirmMode ?? false"
         body-class="!min-h-0 !gap-0 !overflow-hidden !p-0"

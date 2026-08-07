@@ -4,7 +4,11 @@ import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {
+    PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT,
+    PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT,
     PRODUCT_RUNTIME_RECEIPT_SCHEMA,
+    productRuntimeReceiptAuthorizationFromEnvironment,
+    productRuntimeReceiptEnvironment,
     readProductRuntimeVerificationReceipt,
     writeProductRuntimeVerificationReceipt,
 } from "nbook/shared/product-runtime-receipt";
@@ -39,6 +43,24 @@ describe("Product Runtime verification receipt", () => {
         expect(await readProductRuntimeVerificationReceipt(path)).toEqual(receipt);
         expect(await readFile(path, "utf8")).not.toContain(root.replaceAll("\\", "/"));
         await expect(readProductRuntimeVerificationReceipt(path).then(() => undefined)).resolves.toBeUndefined();
+    });
+
+    it("启动授权必须同时携带回执路径和内容摘要", () => {
+        const authorization = {
+            path: "C:\\NeuroBook\\.deploy\\product-runtime-receipt.json",
+            sha256: digest("1"),
+        };
+        expect(productRuntimeReceiptEnvironment(authorization)).toEqual({
+            [PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT]: authorization.path,
+            [PRODUCT_RUNTIME_RECEIPT_SHA256_ENVIRONMENT]: authorization.sha256,
+        });
+        expect(productRuntimeReceiptAuthorizationFromEnvironment({
+            ...productRuntimeReceiptEnvironment(authorization),
+        })).toEqual(authorization);
+        expect(productRuntimeReceiptAuthorizationFromEnvironment({})).toBeNull();
+        expect(() => productRuntimeReceiptAuthorizationFromEnvironment({
+            [PRODUCT_RUNTIME_RECEIPT_PATH_ENVIRONMENT]: authorization.path,
+        })).toThrow("必须同时提供");
     });
 });
 

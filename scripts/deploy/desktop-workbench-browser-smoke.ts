@@ -34,6 +34,23 @@ type SmokeEvidence = {
         pageRoot: Geometry;
         activityBar: Geometry;
     };
+    desktopInteractions: {
+        welcome: {
+            clientHeight: number;
+            scrollHeight: number;
+        };
+        agentPanel: {
+            initialWidth: number;
+            resizedWidth: number;
+        };
+        dialog: {
+            surface: Geometry;
+            overlayBackgroundColor: string;
+            overlayBackdropFilter: string;
+            surfaceBackgroundColor: string;
+            surfaceBoxShadow: string;
+        };
+    };
     menuPresentation: Record<string, "full" | "compact">;
 };
 
@@ -64,7 +81,12 @@ export async function runDesktopWorkbenchBrowserSmoke(options: SmokeOptions): Pr
         const menuPresentation = await verifyResponsiveMenus(desktopPage);
         await verifyBookshelfSettings(desktopPage);
         const projectRoot = await ensureAcceptanceProject(desktopPage);
-        await verifyDesktopProject(desktopPage, options.url, projectRoot, options.evidenceDir);
+        const desktopInteractions = await verifyDesktopProject(
+            desktopPage,
+            options.url,
+            projectRoot,
+            options.evidenceDir,
+        );
         await desktop.close();
 
         const browserContext = await browser.newContext({viewport: {width: 1024, height: 768}});
@@ -78,6 +100,7 @@ export async function runDesktopWorkbenchBrowserSmoke(options: SmokeOptions): Pr
             projectRoot,
             desktopGeometry,
             browserGeometry,
+            desktopInteractions,
             menuPresentation,
         };
         await writeFile(
@@ -165,6 +188,15 @@ async function verifyDesktopBookshelf(
     await expectCount(page, ".desktop-title-bar", 1, "Desktop 只能有一个横向标题栏");
     await expectCount(page, ".ide-header", 0, "旧 IDE Header 必须删除");
     await expectCount(page, ".workbench-activity-bar", 1, "Activity Bar 必须常驻");
+    await expectCount(page, '[data-activity-id="home"]', 0, "Desktop 书架入口必须移到标题栏");
+    await expectCount(page, '[data-activity-id="jobs"]', 0, "Activity Bar 不再展示后台任务中心");
+    await expectCount(page, '[data-activity-id="user-assets"]', 0, "Activity Bar 不再展示用户资产");
+    await expectCount(page, '[data-activity-id="agent-mode"]', 0, "Desktop 不再暴露 Agent 整页模式入口");
+    await page.locator('[data-titlebar-action="project-switcher"]').waitFor({state: "visible"});
+    await page.locator("[data-titlebar-search]").waitFor({state: "visible"});
+    assert(await page.locator("[data-titlebar-search]").isDisabled(), "标题栏搜索占位必须明确禁用");
+    await verifyTitleBarOrder(page);
+    await verifyActivityBarOrder(page);
     const titleBar = await geometry(page, ".desktop-title-bar");
     const pageShell = await geometry(page, ".desktop-page-shell");
     const activityBar = await geometry(page, ".workbench-activity-bar");
@@ -187,6 +219,13 @@ async function verifyResponsiveMenus(page: Page): Promise<Record<string, "full" 
     }
 
     await page.setViewportSize({width: 1440, height: 900});
+    const projectMenu = page.locator('[data-titlebar-action="project-switcher"]');
+    await projectMenu.focus();
+    await projectMenu.press("ArrowDown");
+    await assertFocused(page, '[data-menu="project"] [role="menuitem"]');
+    await page.keyboard.press("Escape");
+    await assertFocused(page, '[data-titlebar-action="project-switcher"]');
+
     const fileMenu = page.locator('[data-menu-button="File"]');
     await fileMenu.focus();
     await fileMenu.press("ArrowDown");
@@ -227,7 +266,7 @@ async function ensureAcceptanceProject(page: Page): Promise<string> {
     const createResponse = await page.request.post(new URL("/api/projects", page.url()).href, {
         data: {
             title: `Desktop Workbench ${Date.now()}`,
-            summary: "Task 140 browser smoke",
+            summary: "Task 143 browser smoke",
         },
     });
     assert(createResponse.ok(), `创建验收 Project 失败：HTTP ${createResponse.status()}`);
@@ -242,7 +281,8 @@ async function verifyDesktopProject(
     baseUrl: string,
     projectRoot: string,
     evidenceDir: string,
-): Promise<void> {
+): Promise<SmokeEvidence["desktopInteractions"]> {
+    await page.setViewportSize({width: 1280, height: 840});
     await openWorkbench(page, projectUrl(baseUrl, projectRoot));
     const filesButton = page.locator('[data-activity-id="files"]');
     await filesButton.waitFor({state: "visible", timeout: 30_000});
@@ -253,12 +293,16 @@ async function verifyDesktopProject(
     );
     assert(!await filesButton.isDisabled(), "Project 工作面 Files 入口不应禁用");
 
+    const welcome = await verifyWelcomeFitsViewport(page, evidenceDir);
+    await verifyProjectSwitcher(page, projectRoot);
+    const dialog = await verifyWorldEngineDialog(page, evidenceDir);
+
     const filePath = `manuscript/desktop-workbench-${Date.now()}.md`;
     const createFileResponse = await page.request.post(new URL("/api/workspace-files/create-file", page.url()).href, {
         data: {
             projectRoot,
             path: filePath,
-            content: "# Desktop Workbench\n\n用于 Task 140 Inline Agent 验收。\n",
+            content: "# Desktop Workbench\n\n用于 Task 143 Inline Agent 验收。\n",
         },
     });
     assert(createFileResponse.ok(), `创建 Inline 验收文件失败：HTTP ${createFileResponse.status()}`);
@@ -278,22 +322,45 @@ async function verifyDesktopProject(
         {timeout: 30_000},
     );
     assert(Number(await sessionMenu.getAttribute("data-inline-agent-session-id")) > 0, "Inline Session 创建后必须成为当前 Session");
-    await expectCount(page, ".mode-transition-agent", 0, "Inline Session 创建后仍不应挂载 Agent Surface");
+    await expectCount(page, ".mode-transition-agent", 0, "Inline Session 创建后仍不应提前挂载 Agent Surface");
 
-    const agentToggle = page.locator('[data-titlebar-action="toggle-agent"]');
+    const agentToggle = page.locator('[data-titlebar-action="toggle-agent-panel"]');
     assert(!await agentToggle.isDisabled(), "Project 工作面标题栏 Agent 按钮不应禁用");
     await agentToggle.click();
-    await page.locator('.novel-ide-page[data-workbench-layout-mode="agent"]').waitFor({state: "visible", timeout: 30_000});
-    await page.locator(".mode-transition-agent").waitFor({state: "visible", timeout: 30_000});
-    await expectCount(page, ".workbench-activity-bar", 1, "Agent 模式仍必须保留 Activity Bar");
-    await page.locator(".mode-transition-paper").waitFor({state: "detached", timeout: 2_000});
-    await agentToggle.click();
+    const agentPanel = page.locator("[data-agent-panel]");
+    await agentPanel.waitFor({state: "visible", timeout: 30_000});
     await page.locator('.novel-ide-page[data-workbench-layout-mode="ide"]').waitFor({state: "visible", timeout: 30_000});
-    await page.locator(".mode-transition-agent").waitFor({state: "detached", timeout: 30_000});
-    await expectCount(page, ".ide-prompt-bar", 1, "返回 IDE 模式后只能保留一个 Inline Prompt Bar");
+    assert(await agentToggle.getAttribute("aria-pressed") === "true", "Agent 按钮打开后必须反映面板状态");
+    await expectCount(page, '[data-activity-id="agent-mode"]', 0, "Agent 面板不应恢复整页模式入口");
+    const initialPanel = await geometry(page, "[data-agent-panel]");
+    const resizeHandle = page.locator("[data-agent-panel-resize-handle]");
+    const resizeBox = await resizeHandle.boundingBox();
+    assert(resizeBox !== null, "Agent 面板调宽手柄缺失");
+    await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(resizeBox.x - 72, resizeBox.y + resizeBox.height / 2, {steps: 6});
+    await page.mouse.up();
+    await page.waitForTimeout(160);
+    const resizedPanel = await geometry(page, "[data-agent-panel]");
+    assert(
+        resizedPanel.width >= initialPanel.width + 48,
+        `Agent 面板拖宽未生效：${String(initialPanel.width)} -> ${String(resizedPanel.width)}`,
+    );
+    await page.screenshot({path: resolve(evidenceDir, "desktop-agent-panel.png")});
+    await agentToggle.click();
+    await agentPanel.waitFor({state: "detached", timeout: 30_000});
+    await expectCount(page, ".ide-prompt-bar", 1, "关闭 Agent 面板后只能保留一个 Inline Prompt Bar");
     await promptBar.waitFor({state: "visible", timeout: 30_000});
     await page.waitForTimeout(450);
     await page.screenshot({path: resolve(evidenceDir, "desktop-project.png")});
+    return {
+        welcome,
+        agentPanel: {
+            initialWidth: initialPanel.width,
+            resizedWidth: resizedPanel.width,
+        },
+        dialog,
+    };
 }
 
 async function verifyBrowserProject(
@@ -306,11 +373,13 @@ async function verifyBrowserProject(
     const activityBar = await geometry(page, ".workbench-activity-bar");
     assertNear(pageRoot.y, 0, "B/S 页面起点");
     assertNear(activityBar.y, 0, "B/S Activity Bar 起点");
-    const agentModeButton = page.locator('[data-activity-id="agent-mode"]');
-    await agentModeButton.waitFor({state: "visible", timeout: 30_000});
-    await agentModeButton.click();
+    await expectCount(page, '[data-activity-id="agent-mode"]', 0, "B/S 不再暴露 Agent 整页模式");
+    const agentPanelButton = page.locator('[data-activity-id="agent-panel"]');
+    await agentPanelButton.waitFor({state: "visible", timeout: 30_000});
+    await agentPanelButton.click();
     await page.locator(".mode-transition-agent").waitFor({state: "visible", timeout: 30_000});
-    await expectCount(page, ".workbench-activity-bar", 1, "B/S Agent 模式仍必须保留 Activity Bar");
+    await page.locator('.novel-ide-page[data-workbench-layout-mode="ide"]').waitFor({state: "visible", timeout: 30_000});
+    await expectCount(page, ".workbench-activity-bar", 1, "B/S Agent 面板仍必须保留 Activity Bar");
     await page.screenshot({path: resolve(evidenceDir, "browser-project.png")});
     return {pageRoot, activityBar};
 }
@@ -323,8 +392,157 @@ async function verifyActivityFooter(page: Page, activityBar: Geometry): Promise<
     assert(account.bottom <= settings.top + 1, "Account 与 Settings 顺序错误");
 }
 
+async function verifyTitleBarOrder(page: Page): Promise<void> {
+    const regions = await Promise.all([
+        geometry(page, ".desktop-title-bar__brand"),
+        geometry(page, ".desktop-title-bar__menus"),
+        geometry(page, '[data-titlebar-action="project-switcher"]'),
+        geometry(page, "[data-titlebar-search]"),
+        geometry(page, '[data-titlebar-action="toggle-agent-panel"]'),
+        geometry(page, ".desktop-title-bar__window-controls"),
+    ]);
+    const labels = ["品牌", "应用菜单", "Project 切换", "搜索", "Agent", "窗口按钮"];
+    for (let index = 0; index < regions.length - 1; index += 1) {
+        const current = regions[index];
+        const next = regions[index + 1];
+        assert(
+            current && next && current.right <= next.left + 1,
+            `标题栏顺序错误：${labels[index]} 进入 ${labels[index + 1]} 区域`,
+        );
+    }
+}
+
+async function verifyActivityBarOrder(page: Page): Promise<void> {
+    const ids = await page.locator(".workbench-activity-bar [data-activity-id]").evaluateAll((elements) => elements
+        .filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        })
+        .map((element) => element.getAttribute("data-activity-id")));
+    const expected = ["files", "characters", "plot", "world", "trace", "history", "account", "settings"];
+    assert(
+        JSON.stringify(ids) === JSON.stringify(expected),
+        `Activity Bar 顺序错误：${JSON.stringify(ids)}`,
+    );
+}
+
+async function verifyWelcomeFitsViewport(
+    page: Page,
+    evidenceDir: string,
+): Promise<SmokeEvidence["desktopInteractions"]["welcome"]> {
+    const welcome = page.locator(".studio-welcome-root");
+    await welcome.waitFor({state: "visible", timeout: 30_000});
+    const metrics = await welcome.evaluate((element) => ({
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+    }));
+    assert(
+        metrics.scrollHeight <= metrics.clientHeight + 1,
+        `欢迎页在 1280×840 下仍需纵向滚动：${String(metrics.scrollHeight)} > ${String(metrics.clientHeight)}`,
+    );
+    await page.screenshot({path: resolve(evidenceDir, "desktop-welcome.png")});
+    return metrics;
+}
+
+async function verifyProjectSwitcher(page: Page, projectRoot: string): Promise<void> {
+    const switcher = page.locator('[data-titlebar-action="project-switcher"]');
+    await switcher.click();
+    const activeProject = page.locator(`[data-menu="project"] [data-project-root="${projectRoot}"]`);
+    await activeProject.waitFor({state: "visible", timeout: 10_000});
+    assert(await activeProject.getAttribute("aria-current") === "page", "Project 下拉未标记当前 Project");
+    await page.locator('[data-menu="project"] [data-project-root=""]').click();
+    await page.waitForFunction(() => !new URL(window.location.href).searchParams.has("project"), undefined, {
+        timeout: 30_000,
+    });
+    await page.locator('[data-titlebar-action="project-switcher"]').click();
+    const projectItem = page.locator(`[data-menu="project"] [data-project-root="${projectRoot}"]`);
+    await projectItem.waitFor({state: "visible", timeout: 10_000});
+    await projectItem.click();
+    await page.waitForFunction(
+        (expectedProjectRoot) => new URL(window.location.href).searchParams.get("project") === expectedProjectRoot,
+        projectRoot,
+        {timeout: 30_000},
+    );
+    await page.waitForFunction(
+        () => !document.querySelector<HTMLButtonElement>('[data-activity-id="files"]')?.disabled,
+        undefined,
+        {timeout: 30_000},
+    );
+}
+
+async function verifyWorldEngineDialog(
+    page: Page,
+    evidenceDir: string,
+): Promise<SmokeEvidence["desktopInteractions"]["dialog"]> {
+    await page.locator('[data-activity-id="world"]').click();
+    const workbench = page.locator(".world-engine-workbench-dialog");
+    await workbench.waitFor({state: "visible", timeout: 30_000});
+    const surface = page.locator(".nb-dialog-surface").filter({has: workbench});
+    await page.waitForTimeout(240);
+    const layout = await surface.evaluate((element) => {
+        const value = element.getBoundingClientRect();
+        const parent = element.parentElement;
+        if (!parent) throw new Error("Dialog 遮罩层缺失");
+        const overlayValue = parent.getBoundingClientRect();
+        const overlayStyle = getComputedStyle(parent);
+        const surfaceStyle = getComputedStyle(element);
+        return {
+            surface: {
+                x: value.x,
+                y: value.y,
+                width: value.width,
+                height: value.height,
+                top: value.top,
+                right: value.right,
+                bottom: value.bottom,
+                left: value.left,
+            },
+            overlay: {
+                width: overlayValue.width,
+                height: overlayValue.height,
+                backgroundColor: overlayStyle.backgroundColor,
+                backdropFilter: overlayStyle.backdropFilter,
+            },
+            surfaceStyle: {
+                backgroundColor: surfaceStyle.backgroundColor,
+                boxShadow: surfaceStyle.boxShadow,
+            },
+        };
+    });
+    assert(layout.surface.width <= 1201, `Full Dialog 宽度超过 1200px：${String(layout.surface.width)}`);
+    assert(layout.surface.height <= 721, `Full Dialog 高度超过 720px：${String(layout.surface.height)}`);
+    assert(
+        layout.overlay.width - layout.surface.width >= 63,
+        `Full Dialog 横向留白不足 64px：${String(layout.overlay.width - layout.surface.width)}`,
+    );
+    assert(
+        layout.overlay.height - layout.surface.height >= 95,
+        `Full Dialog 纵向留白不足 96px：${String(layout.overlay.height - layout.surface.height)}`,
+    );
+    assert(
+        layout.overlay.backgroundColor !== "rgba(0, 0, 0, 0)" && layout.overlay.backgroundColor !== "transparent",
+        `Dialog 遮罩没有变暗：${layout.overlay.backgroundColor}`,
+    );
+    assert(
+        layout.overlay.backdropFilter === "none" || layout.overlay.backdropFilter === "",
+        `Dialog 遮罩不应模糊背景：${layout.overlay.backdropFilter}`,
+    );
+    assert(isOpaqueColor(layout.surfaceStyle.backgroundColor), `Dialog 表面必须不透明：${layout.surfaceStyle.backgroundColor}`);
+    assert(layout.surfaceStyle.boxShadow !== "none", "Dialog 表面必须保留统一阴影");
+    await page.screenshot({path: resolve(evidenceDir, "desktop-world-dialog.png")});
+    await page.keyboard.press("Escape");
+    await workbench.waitFor({state: "detached", timeout: 10_000});
+    return {
+        surface: layout.surface,
+        overlayBackgroundColor: layout.overlay.backgroundColor,
+        overlayBackdropFilter: layout.overlay.backdropFilter,
+        surfaceBackgroundColor: layout.surfaceStyle.backgroundColor,
+        surfaceBoxShadow: layout.surfaceStyle.boxShadow,
+    };
+}
+
 async function assertTitleBarRegionsDoNotOverlap(page: Page): Promise<void> {
-    const title = await geometry(page, ".desktop-title-bar__title");
+    const title = await geometry(page, ".desktop-title-bar__center");
     const controls = await geometry(page, ".desktop-title-bar__controls");
     assert(title.right <= controls.left + 1, "标题拖动区进入应用控制区");
     const windowControls = page.locator(".desktop-title-bar__window-controls");
@@ -386,6 +604,14 @@ function assertNear(actual: number, expected: number, label: string): void {
     if (Math.abs(actual - expected) > 1) {
         throw new Error(`${label}：期望 ${String(expected)}，实际 ${String(actual)}`);
     }
+}
+
+function isOpaqueColor(color: string): boolean {
+    const match = color.match(/^rgba?\((.+)\)$/u);
+    if (!match) return color !== "transparent";
+    const parts = match[1]?.split(",").map((part) => part.trim()) ?? [];
+    if (parts.length < 4) return true;
+    return Number(parts[3]) >= 0.99;
 }
 
 function parseOptions(args: string[]): SmokeOptions {

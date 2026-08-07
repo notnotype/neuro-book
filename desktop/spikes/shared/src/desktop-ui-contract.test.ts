@@ -43,19 +43,43 @@ describe("Desktop UI shell contract", () => {
         expect(activityBar).not.toContain("useAgentJobsFeed");
         expect(activityBar).toContain("NovelIdeAccountMenu");
         expect(activityBar).toContain("ide.activityBar.moreActions");
+        expect(activityBar).not.toContain('"user-assets"');
+        expect(activityBar).not.toContain('"jobs"');
     });
 
-    it("keeps title-bar menus responsive and reserves explicit drag and control zones", async () => {
+    it("keeps title-bar menus responsive and exposes project, search, and Agent panel controls", async () => {
         const titleBar = await readFile(resolve("app/components/common/DesktopTitleBar.vue"), "utf8");
 
         expect(titleBar).toContain("useWorkbenchChrome");
         expect(titleBar).toContain("resolveTitleBarMenuPresentation");
         expect(titleBar).toContain("ResizeObserver");
         expect(titleBar).toContain("titlebar-area-width");
-        expect(titleBar).toContain("desktop-title-bar__mode");
-        expect(titleBar).toContain("toggleLayoutMode");
+        expect(titleBar).toContain('data-titlebar-action="project-switcher"');
+        expect(titleBar).toContain("data-titlebar-search");
+        expect(titleBar).toContain('data-titlebar-action="toggle-agent-panel"');
+        expect(titleBar).toContain(':data-project-root="item.projectRoot ?? \'\'"');
+        expect(titleBar).toContain("openBookshelf");
+        expect(titleBar).toContain("switchProject");
+        expect(titleBar).toContain("toggleAgentPanel");
+        expect(titleBar).not.toContain("toggleLayoutMode");
+        expect(titleBar).not.toContain("toggleStudioPanel");
         expect(titleBar).toContain("grid-template-columns: auto minmax(120px, 1fr) auto auto");
         expect(titleBar).toContain("compactMenuItemKeydown");
         expect(titleBar).not.toContain("color-mix(in srgb, var(--bg-main) 92%, transparent)");
+    });
+
+    it("uses one opaque dialog surface language without blur and keeps full dialogs inset", async () => {
+        const dialog = await readFile(resolve("app/components/common/Dialog.vue"), "utf8");
+        const dialogWindow = await readFile(resolve("app/components/common/DialogWindow.vue"), "utf8");
+
+        expect(dialog).toContain('overlayType: "opaque"');
+        expect(dialog).not.toContain('"blur"');
+        expect(dialog).not.toContain("backdrop-blur");
+        expect(dialog).toContain('width: "min(1200px, calc(100vw - 64px))"');
+        expect(dialog).toContain('height: "min(720px, calc(100vh - 96px))"');
+        expect(dialog).toContain("0 18px 44px");
+        expect(dialogWindow).not.toContain("backdrop-filter");
+        expect(dialogWindow).toContain("background: var(--bg-panel)");
+        expect(dialogWindow).toContain("0 18px 44px");
     });
 });

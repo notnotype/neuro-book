@@ -442,7 +442,7 @@ watch(threadTags, (value) => {
         :title="dialogTitle"
         width="700px"
         show-cancel
-        overlay-type="blur"
+        overlay-type="opaque"
         :busy="props.saving"
         @request-close="handleDialogRequestClose"
         @update:model-value="emit('update:visible', $event)"
