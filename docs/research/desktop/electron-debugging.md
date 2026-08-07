@@ -66,6 +66,14 @@ CDP 只证明渲染层的几何和计算样式，不证明 Windows 原生拖动�
 - 原始 CDP 用于附加到已经启动的真实 Portable，特别适合确认“打包后到底加载了哪份 CSS/JS”以及采集几何尺寸。
 - 两者都不能单独证明系统托盘、原生菜单、文件对话框、快捷方式、真实窗口移动/吸附或安装卸载行为。上述项目需要 Windows UI Automation 或用户授权的可见验收。
 
+真实 Portable 的 Playwright-over-CDP 脚本使用 Node 执行：
+
+```powershell
+node .agent/tmp/<electron-cdp-script>.mjs
+```
+
+2026-08-07 的 Electron 43.2.0 / Playwright Core 1.61.1 验收中，Bun 1.3.14 可以读取 `http://127.0.0.1:<port>/json/version`，但 `chromium.connectOverCDP()` 在取得 `webSocketDebuggerUrl` 后等待 30 秒超时；同一脚本改由 Node 执行立即连接成功。遇到这种情况先换 Node 复核，不要把驱动 Runtime 的 WebSocket 兼容问题误报成 Electron 或 Product 启动失败。
+
 测试和诊断脚本都应使用隔离临时根，并清理子进程、调试端口和临时文件。不要为了让 smoke 通过而关闭 `contextIsolation`、sandbox、CSP 或 origin 校验。
 
 ## 共享 Workbench Chrome smoke

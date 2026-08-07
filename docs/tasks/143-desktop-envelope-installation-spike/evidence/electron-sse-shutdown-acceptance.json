@@ -1,0 +1,172 @@
+{
+    "schema": "nbook.task143.electron-sse-shutdown-acceptance/v1",
+    "capturedAt": "2026-08-07T11:23:46.069Z",
+    "source": {
+        "revision": "5b6a90a8dcf4bc9def93ca9d660fc2187cc71813",
+        "dirty": false,
+        "fixCommits": [
+            "42724e44",
+            "72c9f52c",
+            "6bb87ab6",
+            "5b6a90a8"
+        ]
+    },
+    "tests": {
+        "focusedShutdown": {
+            "files": 6,
+            "tests": 33,
+            "passed": true
+        },
+        "runtimeTypecheck": {
+            "passed": true
+        },
+        "rootTypecheck": {
+            "passed": true
+        },
+        "desktopContract": {
+            "files": 8,
+            "tests": 30,
+            "passed": true
+        }
+    },
+    "product": {
+        "builds": [
+            "t140-product-shutdown-5b6a90a8-A",
+            "t140-product-shutdown-5b6a90a8-B"
+        ],
+        "sourceDigest": "sha256:9d872ca312b35ea69128684bd8fa61d92064790d6ff047821035fc41a4c2347e",
+        "imageId": "sha256:abeaf860cc54ef39a46861414ba31a4124ae902016842f3ba74ff64a6f3add2c",
+        "payload": {
+            "files": 3242,
+            "bytes": 134536764,
+            "treeDigest": "sha256:4a8de61ff80ff9e1685ebb09f6532c77368756060b1ec5affc2a455425936480",
+            "shapeDigest": "sha256:b70eea3d8dfa7793c80b8e161f60f7c3f6223ae1145263bcb7b7b07c81acbccb"
+        },
+        "owners": {
+            "authoring-kit": {
+                "files": 513,
+                "bytes": 14746686
+            },
+            "commands": {
+                "files": 109,
+                "bytes": 10753620
+            },
+            "frontend": {
+                "files": 181,
+                "bytes": 15880856
+            },
+            "native-islands": {
+                "files": 2059,
+                "bytes": 75260633
+            },
+            "runtime-meta": {
+                "files": 3,
+                "bytes": 5069
+            },
+            "server-bundle": {
+                "files": 1,
+                "bytes": 12560136
+            },
+            "system-assets": {
+                "files": 376,
+                "bytes": 5329764
+            }
+        },
+        "reproducibility": {
+            "payloadFileSha256Drift": 0,
+            "imageIdEqual": true,
+            "treeDigestEqual": true,
+            "shapeDigestEqual": true,
+            "allowedControlDifferences": [
+                "runtime-image.json.createdAt",
+                "runtime-image.ready.manifestSha256"
+            ]
+        }
+    },
+    "portable": {
+        "productInput": "t140-product-shutdown-5b6a90a8-B",
+        "batches": [
+            "t140-portable-shutdown-5b6a90a8-P1",
+            "t140-portable-shutdown-5b6a90a8-P2"
+        ],
+        "allSevenOutputsByteIdentical": true,
+        "electron": {
+            "payload": {
+                "files": 9622,
+                "bytes": 986451442,
+                "digest": "sha256:1cd3c6794e0ca6ed3cf30831d675ea8844bc66b7be8658d27bb3c4019116807b"
+            },
+            "archive": {
+                "bytes": 389600709,
+                "sha256": "sha256:e065596fee7f6d0b5b435699bf651a23e01e9eb54fe70b1b4f0151db2de67c6d"
+            },
+            "manifestSha256": "sha256:0c61ef33e8349fda3039366df88aca9cc93d1cbe5801661b9ab4608a758298de"
+        },
+        "tauriGeneratedBySharedPackager": {
+            "archiveBytes": 243839885,
+            "archiveSha256": "sha256:488f2f0ebd74dff959df487abb1a9876c3d027d725686b5b3a6b511d8616f2ae",
+            "uiAcceptanceRun": false
+        },
+        "aggregateDepot": {
+            "archiveBytes": 628341994,
+            "archiveSha256": "sha256:15c4176589959a85f67cacb4d012723388a428f665e570f7cf73d3d4da1ec530"
+        }
+    },
+    "electronVisibleAcceptance": {
+        "installationRoot": "C:/Users/notnotype/AppData/Local/Temp/t140-electron-shutdown-5b6a90a8-final-20260807-1921",
+        "localAppDataRoot": "C:/Users/notnotype/AppData/Local/NeuroBook-T140-Shutdown-5b6a90a8-Final-20260807-1921",
+        "cdpPort": 9231,
+        "productPort": 62320,
+        "startup": {
+            "productVerificationCompleteMs": 1202.84,
+            "productReadyMs": 9763.36,
+            "windowReadyMs": 9971.32
+        },
+        "project": {
+            "projectRoot": "cdp-shutdown-final-5b6a90a8",
+            "createStatus": 200,
+            "openStatus": 200
+        },
+        "eventStreams": {
+            "workspaceFiles": {
+                "path": "/api/workspace-files/events",
+                "status": 200,
+                "shutdownDurationMs": 1621.47
+            },
+            "projectPresence": {
+                "path": "/api/projects/presence",
+                "status": 200,
+                "shutdownDurationMs": 1780.36
+            }
+        },
+        "shutdown": {
+            "controlStatus": 202,
+            "controlDurationMs": 0.83,
+            "envelopeResult": "graceful",
+            "envelopeCompletionAfterShutdownStageMs": 565,
+            "failurePatternMatches": 0,
+            "scopedProcessCountAfterExit": 0,
+            "cdpListenerCountAfterExit": 0,
+            "productListenerCountAfterExit": 0,
+            "stateRootMoveSucceeded": true,
+            "productImageReverifiedAfterExit": true
+        },
+        "expectedDrainRejection": {
+            "count": 1,
+            "method": "POST",
+            "path": "/api/projects/open",
+            "status": 503,
+            "message": "NeuroBook 正在关闭。",
+            "classification": "draining contract rejected a new business request; shutdown still completed gracefully"
+        },
+        "driver": {
+            "nodePlaywrightCdp": "passed",
+            "bunPlaywrightCdp": "timed out while opening the CDP websocket; not an application failure"
+        }
+    },
+    "limitations": [
+        "The visible run exercised Workspace Files and Project Presence SSE; Agent Jobs and Agent Session shutdown remain covered by focused automated tests rather than this UI run.",
+        "Tauri visible UI was not rerun because the current task prioritizes Electron.",
+        "The expected 503 draining rejection is still recorded by the generic request logger at error level."
+    ]
+}

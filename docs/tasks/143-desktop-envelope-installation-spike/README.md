@@ -208,6 +208,14 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 真实 Electron Portable 通过本机 CDP 完成可见验收：标题栏 `y=0`/36px、内容与 Activity Bar 从 `y=36` 开始、Activity Bar 宽 48px，品牌/标题是 drag region，File 菜单和应用控制为 no-drag；Settings 可打开，File/Quit 完成 graceful shutdown，进程和 CDP 端口均收口。
 - 真实 Tauri Portable 已出现唯一 `NeuroBook Tauri Envelope Spike` 窗口，并通过 headless graceful/forced/立即重启。WebView2 未开放请求的 CDP 端口；Computer Use 在识别唯一窗口后丢失 Node REPL 执行上下文，因此 Tauri 原生拖动、最大化、菜单、托盘和 Snap Layout 仍保留为人工验收项。当前主机没有 Docker CLI，B/S Docker 未重跑；无 Bridge 的 B/S 页面已由共享 Edge smoke 验证无标题栏和顶部空白。
 
+## Electron Event Stream Shutdown Acceptance (2026-08-07)
+
+- 完整证据见 [electron-sse-shutdown-acceptance.json](evidence/electron-sse-shutdown-acceptance.json)。最初真实 Portable 在 Workspace Files SSE 已退出后仍于约 20 秒后进入 `product.shutdown.failed`；根因不是单一路由，而是 Product 没有把进程级 draining signal 统一投影给 Presence、Agent Jobs 和 Agent Session 等长连接。当前 middleware 为已进入请求注入共享 signal，Workspace Files、Presence 和 Agent SSE writer 均消费同一生命周期；Agent writer 还覆盖了 signal 在监听注册前已经 aborted 的竞态。
+- 最终 Source 为 `5b6a90a8dcf4bc9def93ca9d660fc2187cc71813`、`dirty=false`。Product Build A/B 的 3,242 个 payload 文件逐项 SHA-256 差异为 0，imageId `sha256:abeaf860cc54ef39a46861414ba31a4124ae902016842f3ba74ff64a6f3add2c`，134,536,764 bytes；tree/shape 和 owner inventory 一致，只有 `createdAt` 与 ready manifest 摘要不同。
+- 从同一个 verified Build B 连续生成 Portable P1/P2，固定 7 个输出文件逐字节一致。Electron payload 为 9,622 文件 / 986,451,442 bytes，ZIP 为 389,600,709 bytes，SHA-256 `sha256:e065596fee7f6d0b5b435699bf651a23e01e9eb54fe70b1b4f0151db2de67c6d`。共享打包器仍生成 Tauri 和 Aggregate Depot，但本轮没有继续做 Tauri 可见 UI。
+- 最终 Electron 真包在仓库外、祖先无 `node_modules` 的目录启动，窗口 ready 为 9,971.32 ms。CDP 创建并打开 Project 后确认 `/api/workspace-files/events` 与 `/api/projects/presence` 两条真实 SSE；File → Quit 后两条流分别于 1,621.47 / 1,780.36 ms 完成，Envelope 在进入关闭阶段后约 565 ms 提交 `graceful`。包内进程、CDP 9231、Product 62320 均收口，State Root 可移动，退出后 Product image 再验证通过，`product.shutdown.failed`、`Product graceful shutdown 失败`、`start-failed` 和“关闭不完整”均为 0 命中。
+- draining 后仍有一个前端请求尝试 `POST /api/projects/open`，按合同收到 `503 NeuroBook 正在关闭。`，通用请求 logger 将其记录为 error；它没有阻塞 graceful shutdown，也不等于 forced fallback。真实 UI 本轮覆盖 Workspace Files 与 Presence；Agent Jobs/Session 的已提前 aborted、pending subscription 和 backpressure 路径由 6 个测试文件 / 33 项聚焦测试覆盖。根 typecheck、Runtime typecheck 与 Desktop Contract 8 文件 / 30 项均通过。
+
 ## Aggregate Depot Result (2026-08-06)
 
 - 在同一 verified Product image 上生成 G/H 两批 Windows x64 聚合 Depot；固定顶层只包含 7 个文件：`install-desktop.ps1`、`windows-bun-stage0.ps1`、distribution manifest、两个 Portable ZIP 及其 manifest。聚合层不重复展开 Product、Bun、Tool Pack 或 Portable 内容。
