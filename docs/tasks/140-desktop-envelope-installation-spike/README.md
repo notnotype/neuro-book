@@ -200,6 +200,14 @@ Portable 验收必须在仓库外、祖先没有 `node_modules` 的临时目录�
 - 2026-08-06：Desktop Bridge 原子升级到 v2，新增 `platform`、`menuPresentation`、`windowControls` 与枚举型 appearance。Electron preload、Tauri 注入、远端 capability、Manager 安装验证和共享合同同步升级，不保留 v1 fallback。标题栏使用四区网格和整体菜单折叠；Electron 使用 Window Controls Overlay 安全区，Tauri 使用独立自绘按钮区。
 - 2026-08-06：新增 `desktop:workbench-browser-smoke`。隔离 Source Dev 上的 headless 与 headed Edge 验收均通过，覆盖单标题栏、`y=0`/36px、内容从 `y=36` 开始、Activity Bar 几何、800/1024/1440 与 480px 菜单形态、键盘焦点恢复、书架 Settings、Inline Session、Agent/IDE 切换和 B/S 零顶部占位；截图保存于本轮 `.agent/tmp` evidence。聚焦门禁为根 typecheck、scripts typecheck、Desktop Contract `7 files / 28 tests`、相邻 UI `6 files / 21 tests`、Manager `1 file / 12 tests`、Electron bundle、Tauri `cargo fmt --check`/`cargo check` 全部通过。
 
+## Workbench Chrome Acceptance (2026-08-07)
+
+- 完整证据见 [workbench-chrome-acceptance.json](evidence/workbench-chrome-acceptance.json)。冻结 Source 为 `15d4794689dde5e5d54716a918092389b9b6c3eb`；Product Build A/B 均 `dirty=false`，imageId `sha256:a330b98936df7694135c020e98fb824648192767d6e25a09405f3f14305d95f3`，3,242 文件 / 134,549,619 bytes。tree/shape、owner inventory 和 Product payload 逐字节一致；控制面只有 `createdAt` 以及由其派生的 ready manifest 摘要不同。
+- 两次 Portable 组包的 7 个输出文件逐字节一致。Electron payload 为 9,622 文件 / 986,458,107 bytes，ZIP 389,600,838 bytes；Tauri payload 为 9,546 文件 / 631,855,763 bytes，ZIP 243,840,895 bytes；聚合 Depot ZIP 为 628,342,701 bytes。
+- 仓库外、祖先无 `node_modules`、清空 `NODE_PATH` 的真实包验收通过：Electron graceful；Tauri graceful 后立即重启并 forced；三次退出码均为 0，镜像复核通过且没有残留进程。两包 State Root 均可移动，说明 Product/Envelope 没有残留句柄；递归删除命令被本地命令策略拒绝，因此本轮不把 State Root 实际删除写成已通过。
+- 真实 Electron Portable 通过本机 CDP 完成可见验收：标题栏 `y=0`/36px、内容与 Activity Bar 从 `y=36` 开始、Activity Bar 宽 48px，品牌/标题是 drag region，File 菜单和应用控制为 no-drag；Settings 可打开，File/Quit 完成 graceful shutdown，进程和 CDP 端口均收口。
+- 真实 Tauri Portable 已出现唯一 `NeuroBook Tauri Envelope Spike` 窗口，并通过 headless graceful/forced/立即重启。WebView2 未开放请求的 CDP 端口；Computer Use 在识别唯一窗口后丢失 Node REPL 执行上下文，因此 Tauri 原生拖动、最大化、菜单、托盘和 Snap Layout 仍保留为人工验收项。当前主机没有 Docker CLI，B/S Docker 未重跑；无 Bridge 的 B/S 页面已由共享 Edge smoke 验证无标题栏和顶部空白。
+
 ## Aggregate Depot Result (2026-08-06)
 
 - 在同一 verified Product image 上生成 G/H 两批 Windows x64 聚合 Depot；固定顶层只包含 7 个文件：`install-desktop.ps1`、`windows-bun-stage0.ps1`、distribution manifest、两个 Portable ZIP 及其 manifest。聚合层不重复展开 Product、Bun、Tool Pack 或 Portable 内容。
