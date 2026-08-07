@@ -33,7 +33,7 @@ import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflig
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
-import {installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
+import {defaultDesktopInstallationRoot, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
 import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
@@ -416,6 +416,9 @@ desktop.command("install")
         }
         if (options.scope !== "user" && options.scope !== "machine") {
             throw new Error(`不支持的 Desktop 安装范围：${options.scope}`);
+        }
+        if (options.dir && resolve(options.dir) !== resolve(defaultDesktopInstallationRoot(options.scope as "user" | "machine"))) {
+            throw new Error("Windows Installed v1 使用固定 Installation Root；请省略 --dir，或传入当前 scope 对应的 canonical 路径。" );
         }
         const remoteUrl = options.remote ? new URL(options.remote) : null;
         if (remoteUrl && options.passwordStdin) throw new Error("远端 Desktop 安装不能读取本地管理员密码。" );

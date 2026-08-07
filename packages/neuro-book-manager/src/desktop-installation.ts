@@ -95,7 +95,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
         throw new Error("本地 Desktop 安装缺少 Portable archive 或 distribution manifest。" );
     }
     const installationScope = options.installationScope ?? "user";
-    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot(installationScope));
+    const installationRoot = resolve(options.installationRoot ?? defaultDesktopInstallationRoot(installationScope));
     await assertInstallationScopeWritable(installationRoot, installationScope);
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
@@ -163,7 +163,7 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     if (options.addCliToUserPath) throw new Error("远端 Desktop 只安装壳，不携带 Manager CLI，不能修改用户 PATH。" );
     const capability = await probeRemoteDesktopCapability(options.connection.baseUrl, options.connection.insecureHttpAccepted);
     const installationScope = options.installationScope ?? "user";
-    const installationRoot = resolve(options.installationRoot ?? defaultInstallationRoot(installationScope));
+    const installationRoot = resolve(options.installationRoot ?? defaultDesktopInstallationRoot(installationScope));
     await assertInstallationScopeWritable(installationRoot, installationScope);
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
@@ -662,7 +662,7 @@ function assertWindowsDesktopHost(): void {
     if (process.arch !== "x64") throw new Error(`Desktop Windows 用户级安装只支持 x64，当前为 ${process.arch}。`);
 }
 
-function defaultInstallationRoot(scope: "user" | "machine" = "user"): string {
+export function defaultDesktopInstallationRoot(scope: "user" | "machine" = "user"): string {
     if (scope === "machine") {
         return join(process.env.ProgramFiles ?? join(process.env.SystemDrive ?? "C:", "Program Files"), "NeuroBook");
     }
