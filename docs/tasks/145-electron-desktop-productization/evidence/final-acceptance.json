@@ -1,8 +1,8 @@
 {
     "schema": "nbook.task-145-final-acceptance/v1",
     "source": {
-        "revision": "f05d05cb",
-        "productImageId": "sha256:0deba01e511812cce7d7577dceead063fd7ac4802555ac1eba8e91393b9879cc",
+        "revision": "37ca96bc",
+        "productImageId": "sha256:5eb2ee830d0d4fe2e7da817564007d2a6ac309f0010fb06e9c7dd3b3d97e3e77",
         "product": {
             "files": 3241,
             "bytes": 134016535,
@@ -14,21 +14,21 @@
         "electron": {
             "payloadFiles": 9608,
             "payloadBytes": 985584699,
-            "archiveBytes": 389349713,
-            "sha256": "sha256:c633e4cd65f64b8c913de53aba4f2c46c2c97c3fed6e02b9450b28e0b6642483"
+            "archiveBytes": 389349707,
+            "sha256": "sha256:d1ee3f2a9a06bb4f38cb35fe2f9281d93e02bf425fd9025be8248f7384982232"
         },
         "tauri": {
             "payloadFiles": 9531,
             "payloadBytes": 630952015,
-            "archiveBytes": 243582140,
-            "sha256": "sha256:acb46a24649e50265fad26610439c781db798aed9871108a3c6a5898bea7bcb9",
+            "archiveBytes": 243582137,
+            "sha256": "sha256:6f0098d8f9b2f1b8aa8cc0f9bef25092ac3fece88eec4b2e32c4ebc775f1765c",
             "uiAcceptance": "not-run"
         },
         "aggregateDepot": {
             "payloadFiles": 7,
-            "payloadBytes": 632947335,
-            "archiveBytes": 627839364,
-            "sha256": "sha256:7555b299a6e13d314603a3d720ec068f70732143bbca0cb7bad24cb99c286fa9"
+            "payloadBytes": 632947326,
+            "archiveBytes": 627839386,
+            "sha256": "sha256:910c2c364babbb9d53b50a641c3fb0262d9a35dfa8cdabb0c6d871003682c601"
         },
         "repeatPackaging": {
             "runs": 2,

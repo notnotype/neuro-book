@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**Windows x64 内部 beta candidate 已完成代码与自动化收口，尚未作为公开发行版发布。** 最终 Source commit 为 `f05d05cb`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**Windows x64 内部 beta candidate 已完成代码与自动化收口，尚未作为公开发行版发布。** Product candidate 的 Source revision 为 `37ca96bc`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v2`：记录 `installationScope`、程序根、用户 Root、组件 receipts 和默认保留 State Root 的卸载策略；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -54,16 +54,16 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 ### 最终 Product A/B
 
 - Build A/B 均为 3241 个文件、134016535 bytes。
-- image identity：`sha256:0deba01e511812cce7d7577dceead063fd7ac4802555ac1eba8e91393b9879cc`。
+- image identity：`sha256:5eb2ee830d0d4fe2e7da817564007d2a6ac309f0010fb06e9c7dd3b3d97e3e77`。
 - A/B 的 shape digest 与 payload identity 一致；Build warning 仅为 Nuxt sourcemap、chunk size 和 `node:sqlite` external 提示。
 
 ### 最终 Portable/Depot
 
 同一 Product image、同一 Manager/Electron dist 组包两次，结果逐字节一致：
 
-- Electron Portable：9608 个文件、985584699 bytes payload，ZIP 389349713 bytes，SHA-256 `c633e4cd65f64b8c913de53aba4f2c46c2c97c3fed6e02b9450b28e0b6642483`。
-- Tauri Portable：9531 个文件、630952015 bytes payload，ZIP 243582140 bytes，SHA-256 `acb46a24649e50265fad26610439c781db798aed9871108a3c6a5898bea7bcb9`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
-- Aggregate Depot：7 个文件、632947335 bytes payload，ZIP 627839364 bytes，SHA-256 `7555b299a6e13d314603a3d720ec068f70732143bbca0cb7bad24cb99c286fa9`。
+- Electron Portable：9608 个文件、985584699 bytes payload，ZIP 389349707 bytes，SHA-256 `d1ee3f2a9a06bb4f38cb35fe2f9281d93e02bf425fd9025be8248f7384982232`。
+- Tauri Portable：9531 个文件、630952015 bytes payload，ZIP 243582137 bytes，SHA-256 `6f0098d8f9b2f1b8aa8cc0f9bef25092ac3fece88eec4b2e32c4ebc775f1765c`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
+- Aggregate Depot：7 个文件、632947326 bytes payload，ZIP 627839386 bytes，SHA-256 `910c2c364babbb9d53b50a641c3fb0262d9a35dfa8cdabb0c6d871003682c601`。
 
 ### 仓库外 Product 与 Electron 验收
 
