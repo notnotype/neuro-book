@@ -16,7 +16,7 @@
     "dev:runtime": "bun run migration:check && nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets && nuxt dev --no-fork",
     "dev:warmup": "bun scripts/cli/warmup-dev-server.mjs",
     "nuxt:build": "bun scripts/build/build-product-runtime-image.ts",
-    "nuxt:build:raw": "nuxt build --dotenv .env.product --preset node-server",
+    "nuxt:build:raw": "bun node_modules/nuxt/bin/nuxt.mjs build --dotenv .env.product --preset node-server",
     "product:measure": "bun scripts/build/measure-product-runtime-image.ts",
     "product:policy:check": "bun scripts/build/check-product-runtime-policies.ts --require-all",
     "nuxt:preview": "nuxt preview",
