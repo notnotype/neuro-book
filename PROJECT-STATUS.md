@@ -25,7 +25,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 | Project 生命周期与存储 | 生命周期、快照、路径和运行产物合同已实现；跨环境发布验收未完成 | [Task 118](docs/tasks/118-project-catalog-snapshot-path-integration/README.md)、[Task 125](docs/tasks/125-runtime-artifact-storage-lifecycle/README.md) |
 | Product Runtime / Manager | `0.9.3-canary` 五平台、Portable、容器和公开资产验收通过；stable、签名安装器和正式 Desktop 方案仍未完成 | [Task 105](docs/tasks/105-unified-installation-manager/README.md)、[Task 130](docs/tasks/130-desktop-application-foundation/README.md)、[Task 117](docs/tasks/117-windows-process-tree-lifecycle/README.md) |
 | Task 143 Desktop Envelope | Windows-first Electron/Tauri spike 已完成合同和共享 Workbench Chrome 验收；生产化转入 Task 145 | [Task 143](docs/tasks/143-desktop-envelope-installation-spike/README.md) |
-| Task 145 Electron Desktop Productization | Windows x64 内部 beta candidate 已完成代码、Product/Portable 组包、Manager GUI CDP、当前用户安装/卸载和 Product 生命周期验收；全局 GUI UAC（Proposed [ADR 0016](docs/adr/0016-windows-desktop-uac-broker.md)）、原生托盘/Snap、公开签名、updater 和 macOS 实包仍未完成 | [Task 145](docs/tasks/145-electron-desktop-productization/README.md)、[ADR 0014](docs/adr/0014-electron-desktop-productization.md)、[#87](https://github.com/notnotype/neuro-book/issues/87) |
+| Task 145 Electron Desktop Productization | Windows x64 内部 beta candidate 已完成代码、Product/Portable 组包、Manager GUI CDP、当前用户安装/卸载和 Product 生命周期验收；machine-scope GUI UAC Broker 已实现并通过协议/secret 自动化，真实 UAC 允许后的安装/修复/卸载仍未完成；原生托盘/Snap、公开签名、updater 和 macOS 实包仍未完成 | [Task 145](docs/tasks/145-electron-desktop-productization/README.md)、[ADR 0014](docs/adr/0014-electron-desktop-productization.md)、[#87](https://github.com/notnotype/neuro-book/issues/87) |
 | Agent 资产安装协议 | 方案已起草并完成自审，尚未实施 | [Task 135](docs/tasks/135-agent-asset-install-protocol/README.md) |
 | llmlint | 3.0.0 已同步到 sibling、内置 vendored runtime 和 user runtime | [Task 51](docs/tasks/51-anti-ai-slop-skill/README.md) |
 
@@ -56,7 +56,7 @@ NeuroBook 当前处于快速开发阶段，产品主线已经收敛到 **Novel �
 ## 当前风险与验收缺口
 
 - **发布链路**：仍需完成 Linux/macOS baseline、正式五平台 Candidate、真实 Docker/rootless Podman、最终 Portable verifier、桌面壳生命周期和公开 Release 证据。
-- **Electron beta**：Task 145 已达到 Windows x64 本地内部 beta candidate；仍不能称为公开安装版。全局安装只验证了非提升环境的 fail-closed，真实 UAC 提升安装、公开签名、后台 updater、原生托盘/Snap、macOS `.app` 和真实 Provider 成功连接仍需后续任务。
+- **Electron beta**：Task 145 已达到 Windows x64 本地内部 beta candidate；仍不能称为公开安装版。machine-scope UAC Broker 的取消路径和 secret 安全已验证，但真实 UAC 允许后的安装/修复/卸载、公开签名、后台 updater、原生托盘/Snap、macOS `.app` 和真实 Provider 成功连接仍需后续任务。
 - **产品验收**：多项 Task 的 focused tests 和 typecheck 已通过，但浏览器人工验收、真实 Project Workspace、真实 provider/model 和作者视角写作 smoke 不能由单测替代。
 - **写作产品线**：下一阶段重点是 dogfooding、章节写作与修订反馈、World Engine 体验打磨，以及 `memory.jsonl` / `state.md` 是否显式提交等产品决策，见 [#21](https://github.com/notnotype/neuro-book/issues/21)。
 - **未决方向**：一次性对话模型接入见 [#19](https://github.com/notnotype/neuro-book/issues/19)；整书导入见 [#22](https://github.com/notnotype/neuro-book/issues/22)；Session 摘要空闲触发见 [#23](https://github.com/notnotype/neuro-book/issues/23)。

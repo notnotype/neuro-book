@@ -8,7 +8,7 @@
 
 ## 背景
 
-当前用户安装、Portable 和 Manager CLI 的安装事务已经闭环；全局安装还缺少从普通权限 Manager GUI 进入 UAC 提升后的完整交互。现有
+当前用户安装、Portable 和 Manager CLI 的安装事务已经闭环；全局安装还缺少从普通权限 Manager GUI 进入 UAC 提升后的真实允许/修复/卸载可见验收。现有
 [`install-desktop.ps1`](../../scripts/install/install-desktop.ps1) 可以调用
 `Start-Process -Verb RunAs`，但提升后的进程脱离原来的 NDJSON/stdin 通道，并且在
 `--password-stdin` 场景下明确拒绝继续。
@@ -19,11 +19,11 @@ Manager GUI 不能把管理员密码放进命令行参数、环境变量、普�
 
 Manager GUI 保持普通权限，machine-scope 操作由一个一次性的 elevated Manager Broker 执行。Broker 仍调用同一个 Manager CLI 逻辑，只增加跨权限传输层：
 
-1. GUI 主进程生成一次性随机 pipe 名称、连接 nonce 和 operation ID，并创建只允许当前用户/System 访问的 Windows named pipe。
+1. GUI 主进程生成一次性随机 pipe 名称、连接 nonce 和 operation ID，并创建一次性 Windows named pipe；控制管道和独立 secret 管道都必须完成身份握手。
 2. GUI 通过 `Start-Process -Verb RunAs` 启动安装根内的 Manager/Bun Broker；命令行只包含非敏感的 pipe 名称、nonce、operation ID 和逻辑命令 ID。
-3. Broker 连接后先完成 nonce、父进程/operation 身份和协议版本握手，再接收安装参数。
-4. 参数和阶段事件使用版本化 NDJSON；管理员密码使用独立的内存字节帧写入 CLI stdin，不进入 NDJSON、argv、环境变量、磁盘或日志。
-5. Broker 只允许一个请求、一个完成回执或一个失败回执；UAC 取消、pipe 断开、超时和校验失败都回滚 staging，并把明确状态回传 GUI。
+3. Broker 连接后先完成 nonce、父进程/operation 身份和协议版本握手，再接收白名单动作参数。
+4. 参数和阶段事件使用版本化 NDJSON；管理员密码使用独立 secret 管道的 nonce 握手后以内存字节帧写入 CLI stdin，不进入 NDJSON、argv、环境变量、磁盘或日志。
+5. Broker 只允许一个请求（`desktop-install`、`desktop-repair` 或 `uninstall`）、一个完成回执或一个失败回执；UAC 取消、pipe 断开、超时和校验失败都回滚 staging，并把明确状态回传 GUI。
 6. GUI 继续展示阶段、Retry、Repair、Open Logs 和 Quit；CLI 直接从已提升终端运行的合同保持不变。
 
 ## 不变量

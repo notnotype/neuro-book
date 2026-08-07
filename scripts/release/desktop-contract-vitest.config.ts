@@ -62,6 +62,7 @@ export default defineConfig({
         environment: "node",
         include: [
             "shared/desktop-contract.test.ts",
+            "shared/desktop-uac-broker.test.ts",
             "shared/desktop-menu-command.test.ts",
             "app/composables/useWorkbenchChrome.test.ts",
             "app/utils/workbench-chrome.test.ts",

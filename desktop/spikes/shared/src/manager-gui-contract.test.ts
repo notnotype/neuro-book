@@ -19,6 +19,11 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(manager).toContain('"manager:run"');
         expect(preload).toContain("contextBridge.exposeInMainWorld");
         expect(manager).toContain("AUTH_ADMIN_PASSWORD: undefined");
+        expect(manager).toContain("validateSecretPipeHello");
+        expect(manager).toContain("desktop-repair");
+        expect(manager).toContain('return "uninstall"');
+        expect(manager).toContain("windowsCommandLineQuote");
+        expect(manager).toContain("UAC 未批准或提升进程未连接");
         expect(packager).toContain('join(envelopeDist, "manager-main.mjs")');
         expect(packager).toContain('join(envelopeDist, "manager-preload.cjs")');
         expect(packager).toContain("NeuroBook-Manager.cmd");

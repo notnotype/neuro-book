@@ -76,6 +76,10 @@ _Avoid_: Product replacement, browser-only shell, GUI Manager
 本机桌面安装的真相源，记录 `user`/`machine` 安装范围、程序相对根、State/Cache/Desktop/WebView 用户 locators、组件 receipts 和默认保留 State Root 的卸载策略；不保存 API Key、cookie 或 shutdown token。
 _Avoid_: portable payload manifest, absolute installation path, user content backup
 
+**Windows Machine-scope UAC Broker**:
+Manager GUI 为 `Program Files` 安装、修复和卸载创建的一次性提升边界；控制管道使用版本化 NDJSON 与 `operationId/nonce`，管理员密码只在独立 secret 管道完成同样身份握手后写入 Manager CLI stdin。它不拥有安装事务，只转发白名单动作并回传阶段事件。
+_Avoid_: GUI-owned install, password in argv/env/log, arbitrary elevated shell
+
 **Workspace Root `.nbook`**:
 Workspace Root 的全局控制区，保存 Global Config、用户 assets、Agent 资源覆盖层和全局运行状态。
 _Avoid_: assets folder, user workspace

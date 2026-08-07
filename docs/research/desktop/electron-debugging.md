@@ -84,6 +84,18 @@ Task 145 起，Manager GUI 与主应用共用同一个 Electron Runtime。验证
 
 最终 Portable 的检查顺序固定为：先读取 `manifest.json` 和 `product.imageId`，再用 CDP 检查标题栏/页面几何，最后关闭窗口并确认 Electron、Product、loopback 端口和 State Root 句柄均已收口。安装回归应额外检查 `%LOCALAPPDATA%/Programs/NeuroBook`、用户级 State/Cache/Desktop roots、开始菜单/桌面快捷方式和 `HKCU` 注册项；全局安装必须在提升权限环境单独执行，非提升环境只能作为 fail-closed 证据。
 
+### Machine-scope UAC 验收
+
+Manager GUI 的 machine-scope 操作由一次性 UAC Broker 转交同一个 Manager CLI。CDP 只能填写 Depot、选择安装范围并读取 Manager 的 NDJSON 阶段；UAC 同意/取消、Program Files 写入、HKLM 注册和公共快捷方式属于 Windows 原生权限边界，不能用 Renderer JavaScript 代替。
+
+验收时分别记录三条结果：
+
+- UAC 取消或提升进程未连接：GUI 必须收到 `uac-cancelled`，不应创建 `Program Files/NeuroBook`、HKLM 项、公共快捷方式或 staging；
+- UAC 允许：安装、修复和卸载阶段必须仍由 Broker 调用 Manager CLI，控制管道使用 `operationId/nonce`，密码（如启用 auth）只走独立 secret 管道后写入 CLI stdin；
+- Broker/pipe 中断：GUI 显示失败并回收临时 pipe，State Root 按卸载合同保留。
+
+不要把 UAC 提示截图或系统事件当成 Manager 成功；必须继续检查安装 manifest、receipt、注册项、State/Cache/Desktop Root 和进程树。密码不得写入 CDP trace、截图、命令行、环境变量、NDJSON 或普通日志。
+
 测试和诊断脚本都应使用隔离临时根，并清理子进程、调试端口和临时文件。不要为了让 smoke 通过而关闭 `contextIsolation`、sandbox、CSP 或 origin 校验。
 
 ## 共享 Workbench Chrome smoke

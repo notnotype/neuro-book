@@ -35,6 +35,7 @@ import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstalle
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {defaultDesktopInstallationRoot, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
 import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
+import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -493,6 +494,32 @@ desktop.command("install")
         } else {
             p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}${result.remoteProductVersion ? `\n远端 Product：${result.remoteProductVersion}` : ""}`);
         }
+    });
+desktop.command("broker")
+    .description("Manager GUI 的 machine-scope UAC Broker；只接受一次受限安装、修复或卸载请求。")
+    .requiredOption("--pipe <pipe>", "GUI 创建的一次性控制 named pipe。")
+    .requiredOption("--nonce <nonce>", "GUI 创建的一次性连接 nonce。")
+    .requiredOption("--operation-id <operationId>", "GUI 创建的一次性 operation ID。")
+    .requiredOption("--action <action>", "提升动作：desktop-install、desktop-repair 或 uninstall。")
+    .option("--secret-pipe <pipe>", "仅用于内存中的管理员密码字节，不传入控制 NDJSON。")
+    .action(async (options: {
+        pipe: string;
+        nonce: string;
+        operationId: string;
+        action: "desktop-install" | "desktop-repair" | "uninstall";
+        secretPipe?: string;
+    }) => {
+        if (!["desktop-install", "desktop-repair", "uninstall"].includes(options.action)) {
+            throw new Error("Desktop UAC Broker action 不受支持。");
+        }
+        await runDesktopUacBroker({
+            pipe: options.pipe,
+            nonce: options.nonce,
+            operationId: options.operationId,
+            action: options.action,
+            managerExecutable,
+            ...(options.secretPipe ? {secretPipe: options.secretPipe} : {}),
+        });
     });
 desktop.command("supervise")
     .description("通过 stdin/stdout NDJSON 为 Desktop Envelope 编排 Product 生命周期。")

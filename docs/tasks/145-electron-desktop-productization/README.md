@@ -16,11 +16,12 @@
 - `desktop configure-provider --stdin-json`，API Key 只经 stdin 写入现有 Global Config（`State Root/workspace/.nbook/config.json`）；
 - 与主 Electron 共用 Chromium 的 Manager GUI 入口：`--manager-gui`、`manager-main.mjs`、`manager-preload.cjs` 和本地向导页面；
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
-- `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录。
+- `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录；
+- machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手。
 
-Machine scope 的真实 GUI UAC 传递仍未完成：当前非管理员 GUI 直接 fail closed，已提升的
-`install-desktop.ps1`/CLI 入口可继续使用。推荐的 named-pipe Broker 方案记录在 Proposed
-[ADR 0016](../../adr/0016-windows-desktop-uac-broker.md)，在用户确认并完成真实 UAC 验收前不把它写成已完成。
+Machine scope 的真实 GUI UAC 仍未完成最终验收：代码和自动化 Broker 测试已落地，UAC 未批准路径已在真实 GUI 中返回
+`uac-cancelled` 且未执行安装；本机尚未完成一次点击“允许”后的真实提升安装、修复、卸载闭环。Proposed
+[ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 在完成该可见验收前保持 Proposed。
 
 ## 合同
 
@@ -34,7 +35,7 @@ Machine scope 的真实 GUI UAC 传递仍未完成：当前非管理员 GUI 直�
 
 ### Manager CLI / GUI
 
-Manager CLI 增加 `desktop install --scope user|machine --enable-auth --json`，`--json` 输出单行阶段/完成事件供 GUI 消费。Manager GUI 通过同一 Electron Runtime 的 `--manager-gui` 入口运行，使用安全 preload 调用 CLI，未向 Renderer 暴露 shell、文件系统或 Manager secret。
+Manager CLI 增加 `desktop install --scope user|machine --enable-auth --json`，`--json` 输出单行阶段/完成事件供 GUI 消费。Manager GUI 通过同一 Electron Runtime 的 `--manager-gui` 入口运行，使用安全 preload 调用 CLI，未向 Renderer 暴露 shell、文件系统或 Manager secret。machine scope 由一次性 UAC Broker 只接受白名单动作：`desktop install`、`desktop repair` 和当前安装的 `uninstall`。
 
 GUI 当前提供 Depot 选择、用户/全局安装选择、Provider 类型/Base URL/模型/API Key、离线测试警告、auth 选择、安装/修复/状态/卸载和退出；Provider 测试失败仍允许保存，API Key 在测试后清空。安装、校验、迁移、注册和卸载仍由 CLI 完成。
 
@@ -50,10 +51,11 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 聚焦和构建门禁
 
-- `bun run manager:test`：40 个测试文件通过、1 个跳过；289 个测试通过、3 个跳过；Manager release contract 1/1 通过。
-- `bun run manager:typecheck`、`bun run typecheck`、`bun run test:desktop-contract`：通过；Desktop Contract 为 8 个文件 / 31 个测试。
+- `bun run manager:test`：41 个测试文件通过、1 个跳过；292 个测试通过、3 个跳过；Manager release contract 1/1 通过。
+- `bun run manager:typecheck`、`bun run typecheck`、`bun run test:desktop-contract`：通过；Desktop Contract 为 9 个文件 / 35 个测试。
 - `bun run manager:build`、`bun run --cwd desktop/spikes/electron build`：通过；Electron 生成 `main.mjs`、`preload.cjs`、`manager-main.mjs`、`manager-preload.cjs`。
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
+- UAC Broker focused：共享协议 4 个测试通过；Manager Broker 3 个测试通过，覆盖 machine action 白名单、UTF-8 stdin 字节传递、secret pipe 握手和 CLI 输出回显 fail-closed。
 
 ### 最终 Product A/B
 
@@ -79,6 +81,8 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 远端协议 smoke 使用真实打包 Electron 连接 loopback capability 服务通过：Bridge 返回 `connection=remote`，origin 精确匹配，远端页面成功加载并 graceful shutdown；这不是完整远端 Product/B/S UI 验收。
 - 当前用户安装/卸载：安装根、State/Cache/Desktop roots、`neurobook://`、开始菜单和桌面快捷方式均实际验证；卸载删除程序、Cache、Desktop/WebView、注册项和快捷方式并保留 State Root。
 - 全局安装的非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”；真正的 UAC 提升安装尚未在本机自动化执行。
+- 新版 Electron Portable（当前 UAC Broker 代码）已重新组包并解压到隔离临时根；Manager GUI CDP 触发 machine install 后，未批准/未连接路径在 45 秒内返回 `uac-cancelled`，未创建 `Program Files/NeuroBook`。UAC “允许”后的真实安装、修复、卸载仍未验证。
+- 最终 UAC Broker 代码组包使用既有 candidate Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf`：Electron Portable 9,608 个文件 / 985,614,739 bytes，ZIP 389,356,806 bytes，SHA-256 `c438f9350bcd9c58493b17fbfd09024a46399c46bd2aa004a357493252197212`；Aggregate Depot 7 个文件 / 632,952,159 bytes，ZIP 627,844,403 bytes，SHA-256 `da867dcc82a5ff57196bed3a2a485767ed05604e5499539cfa2903a965d64fea`。该包已通过 Manager GUI headless smoke；未把未完成的 UAC “允许”路径写成通过。
 
 ## 偏差与后续
 

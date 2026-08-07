@@ -10,6 +10,7 @@ on:
       - "scripts/release/desktop-contract-vitest.config.ts"
       - "shared/desktop-contract.ts"
       - "shared/desktop-contract.test.ts"
+      - "shared/desktop-uac-broker.test.ts"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
