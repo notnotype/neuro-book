@@ -771,8 +771,7 @@ function updateDesktopCloseBehavior(value: string): void {
     <Dialog
         :model-value="props.modelValue"
         :title="t('settings.title')"
-        width="min(1440px, calc(100vw - 48px))"
-        height="90vh"
+        size="full"
         overlay-type="opaque"
         :busy="false"
         :show-footer="false"

@@ -262,6 +262,7 @@ export async function startInstallationApplication(
     options: StartApplicationOptions = {},
 ): Promise<void> {
     const launchResult: {launch?: Awaited<ReturnType<typeof launchApplication>>} = {};
+    let readyResult: {port: number; startupNonce?: string} | undefined;
     await mutateInstallation(root, async (mutation) => {
         const paths = installationPaths(mutation.root, mutation.manifest.roots);
         const activeManifest = mutation.manifest;
@@ -316,10 +317,10 @@ export async function startInstallationApplication(
                 },
             });
             await launch.ready;
-            await options.onReady?.({
+            readyResult = {
                 port: launch.port,
                 ...(launch.startupNonce ? {startupNonce: launch.startupNonce} : {}),
-            });
+            };
             journal = await updateOperation(journal, "healthy");
             await commitOperation(journal);
             launchResult.launch = launch;
@@ -331,6 +332,18 @@ export async function startInstallationApplication(
     });
     if (!launchResult.launch) throw new Error("Application launch 未建立 completion ownership。");
     const launch = launchResult.launch;
+    // 只有在 mutateInstallation 释放 Installation lease 后才通知宿主 ready。
+    // 否则宿主一收到 ready 就可能强制收口，留下仍在 stale 窗口内的 manager lease，
+    // 使下一次启动被误判为“另一个 Manager 操作正在执行”。
+    try {
+        await options.onReady?.(readyResult ?? {
+            port: launch.port,
+            ...(launch.startupNonce ? {startupNonce: launch.startupNonce} : {}),
+        });
+    } catch (error) {
+        await terminateFailedLaunch(launch, error);
+        throw error;
+    }
     let rejectShutdown!: (error: unknown) => void;
     const shutdownFailure = new Promise<never>((_resolvePromise, rejectPromise) => {
         rejectShutdown = rejectPromise;

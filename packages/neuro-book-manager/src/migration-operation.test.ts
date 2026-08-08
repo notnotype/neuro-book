@@ -10,6 +10,7 @@ import {
     planJournaledApplicationMigrations,
     startInstallationApplication,
 } from "#manager/migration-operation";
+import {mutateInstallation} from "#manager/installation-mutation";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {createOperation} from "#manager/operation";
 import {currentProductPlatform} from "#manager/platform";
@@ -364,6 +365,33 @@ describe("Journaled application migration", () => {
         });
 
         await startManagedApplication(root, manifest, {healthCheck: true, port});
+    });
+
+    it("宿主 ready 回调只在 Installation lease 释放后触发", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-start-ready-after-lease-"));
+        roots.push(root);
+        const manifest = productManifest();
+        const terminal = deferred<{code: number | null; signal: string | null}>();
+        migrations.plan.mockResolvedValue({
+            runId: "start-ready-after-lease",
+            status: "already_current",
+            steps: migrationSteps("start-ready-after-lease"),
+        });
+        migrations.launch.mockResolvedValueOnce({
+            ready: Promise.resolve(),
+            completion: terminal.promise,
+            shutdown: vi.fn(),
+            terminate: vi.fn(),
+        });
+
+        const onReady = vi.fn(async () => {
+            await expect(mutateInstallation(root, async () => undefined)).resolves.toBeUndefined();
+            terminal.resolve({code: 0, signal: null});
+        });
+
+        await startManagedApplication(root, manifest, {healthCheck: true, onReady});
+
+        expect(onReady).toHaveBeenCalledOnce();
     });
 
     it("嵌入宿主关闭生命周期信号时请求 graceful shutdown 并等待 Product 终态", async () => {

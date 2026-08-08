@@ -91,8 +91,8 @@ function statusDotClass(status: ProfileLoadStatus): string {
             <div class="mt-1 text-[11px] leading-4 text-[var(--text-secondary)] opacity-80">{{ t("settings.panels.profileModels.nav.profilesHint") }}</div>
         </div>
 
-        <!-- 滚动区高度跟随弹窗：90vh 是 NovelIdeSettingsDialog 的 height，330px ≈ header + 配置目标栏 + 搜索框 + 默认设置入口 + 分组标题。改弹窗高度时这里必须同步。 -->
-        <div class="flex max-h-[calc(90vh-330px)] min-h-[120px] flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
+        <!-- 列表由 Dialog body 统一滚动，不再复制 Dialog 的视口高度预算。 -->
+        <div class="flex min-h-[120px] flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
             <button
                 v-for="item in filteredItems"
                 :key="item.profileKey"
