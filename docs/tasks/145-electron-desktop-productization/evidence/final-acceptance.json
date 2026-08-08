@@ -164,8 +164,22 @@
             "installationRootRemoved": true
         },
         "currentCheckpointUserInstall": {
-            "status": "not-run",
-            "reason": "当前 checkpoint 已重新验证 Portable headless/CDP 和组包；用户级安装/卸载沿用此前同合同证据，未重复安装。"
+            "status": "passed",
+            "installationScope": "user",
+            "sourceRevision": "8edef0f2348611abcfc312d6a2efa8603cb1797e",
+            "installationManifestSchema": "nbook.desktop-installation/v3",
+            "runtimeLocatorSchema": "nbook.desktop-installation-runtime/v1",
+            "portableHeadless": "passed",
+            "statusJson": "passed",
+            "uninstall": {
+                "exitCode": 0,
+                "result": "ok",
+                "stateRootPreserved": true,
+                "cacheRootRemoved": true,
+                "desktopRootRemoved": true,
+                "installationRootRemoved": true
+            },
+            "sandbox": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\t145-current-user-install-8edef0f2"
         },
         "machineInstallWithoutElevation": {
             "passed": true,
