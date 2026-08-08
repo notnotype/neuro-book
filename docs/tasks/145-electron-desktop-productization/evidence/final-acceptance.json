@@ -64,7 +64,7 @@
         "productImageVerifierAB": "passed",
         "portablePayloadVerifier": "passed",
         "pullRequest88Ci": {
-            "head": "912bc0930f3f482f23192abd1d84b8a30e797afb",
+            "head": "e5ec153421ada0992e31756c75cd0dee8fc8d136",
             "passed": [
                 "windows-x64 desktop contracts",
                 "linux-x64-glibc Product",

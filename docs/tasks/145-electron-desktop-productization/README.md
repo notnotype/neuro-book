@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**当前分支 HEAD `912bc093` 的 Electron 壳门禁、聚焦测试、同一 verified Product image 的重组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**代码提交 `e5ec1534` 的 Electron 壳门禁、聚焦测试、同一 verified Product image 的重组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
