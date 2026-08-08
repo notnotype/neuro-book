@@ -64,7 +64,7 @@
         "productImageVerifierAB": "passed",
         "portablePayloadVerifier": "passed",
         "pullRequest88Ci": {
-            "head": "048ba5d0f0929043f2772a4396aa12d46fa73d47",
+            "head": "624b9cb90b2647d8043144cdd6e2114204f7e9ee",
             "passed": [
                 "windows-x64 desktop contracts",
                 "linux-x64-glibc Product",
@@ -74,13 +74,11 @@
                 "macos-x64 desktop contracts",
                 "macos-arm64 desktop contracts",
                 "Typecheck (advisory)",
-                "Community files and docs"
+                "Community files and docs",
+                "Full tests (advisory)"
             ],
-            "failedAdvisory": {
-                "name": "Full tests (advisory)",
-                "test": "server/agent/harness/neuro-agent-harness.black-box.test.ts > 外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用",
-                "reason": "30 秒超时；与本地独立复现的 Harness cancellation baseline 相同，未修改或归因于 Task 145。"
-            }
+            "allChecksPassed": true,
+            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；624b9cb9 已通过。"
         },
         "portableHeadless": {
             "passed": true,
