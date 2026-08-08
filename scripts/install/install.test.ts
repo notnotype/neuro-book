@@ -87,7 +87,7 @@ describe("Windows Stage 0合同", () => {
     it("透传本地 Desktop distribution manifest 并保持 depot 参数互斥", () => {
         expect(desktopWindowsScript).toContain("[string]$DistributionManifest");
         expect(desktopWindowsScript).toContain("--distribution-manifest");
-        expect(desktopWindowsScript).toContain("-Archive、-ShellArchive 或 -DistributionManifest 之一");
+        expect(desktopWindowsScript).toContain("-Archive、-ShellArchive、-DistributionManifest 或 -DistributionManifestUrl 之一");
         expect(desktopWindowsScript).toContain('[ValidateSet("user", "machine")]');
         expect(desktopWindowsScript).toContain('"--scope", $Scope');
         expect(desktopWindowsScript).toContain("--enable-auth");

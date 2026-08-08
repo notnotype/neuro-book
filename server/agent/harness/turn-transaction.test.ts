@@ -8,11 +8,13 @@ import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 describe("turn transaction", () => {
     it("completed outcome 会写回 RunFrame 并返回 completed transaction", () => {
         const frame = fakeFrame();
-        const assistant = createAssistantTextMessage({text: "done"});
+        const timestamp = 1;
+        const assistant = createAssistantTextMessage({text: "done", timestamp});
         const toolResult = createTextToolResult({
             toolCallId: "tool-1",
             toolName: "report_result",
             text: "ok",
+            timestamp,
         });
         const turn: RuntimeTurn = {
             index: 1,
@@ -24,6 +26,7 @@ describe("turn transaction", () => {
                     toolCallId: "tool-1",
                     toolName: "report_result",
                     text: "ok",
+                    timestamp,
                 }),
                 event: toolResult,
             }],
