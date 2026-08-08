@@ -74,11 +74,24 @@
                 "macos-x64 desktop contracts",
                 "macos-arm64 desktop contracts",
                 "Typecheck (advisory)",
-                "Community files and docs",
-                "Full tests (advisory)"
+                "Community files and docs"
             ],
-            "allChecksPassed": true,
-            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；912bc093 已通过。"
+            "requiredChecksPassed": true,
+            "allChecksPassed": false,
+            "advisory": {
+                "name": "Full tests (advisory)",
+                "status": "failed",
+                "passedFiles": 494,
+                "skippedFiles": 3,
+                "failedTests": [
+                    "server/agent/harness/neuro-agent-harness.black-box.test.ts > Running provider 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果",
+                    "server/agent/harness/neuro-agent-harness.black-box.test.ts > 外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用"
+                ],
+                "retryObservedFailures": [
+                    "server/agent/harness/neuro-agent-harness.test.ts > rename 命令锁定标题后 summarizer 只更新 summary，summarize 命令解锁并立即重跑：ENOTEMPTY 清理竞态"
+                ],
+                "scope": "既有 Harness 黑盒/清理基线，不涉及 Electron 壳或本轮文档变更。"
+            }
         },
         "installedManifestGate": {
             "status": "passed",
