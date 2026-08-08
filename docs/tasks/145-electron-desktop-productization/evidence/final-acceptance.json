@@ -181,6 +181,25 @@
             },
             "sandbox": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\t145-current-user-install-8edef0f2"
         },
+        "currentCheckpointDeleteDataUninstall": {
+            "status": "passed",
+            "installationScope": "user",
+            "installExitCode": 0,
+            "uninstallExitCode": 0,
+            "stateRootPreserved": false,
+            "programRootRemoved": true,
+            "cacheRootRemoved": true,
+            "desktopRootRemoved": true,
+            "resultOk": true,
+            "sandbox": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\t145-current-user-delete-data-8edef0f2"
+        },
+        "currentCheckpointMachineInstallWithoutElevation": {
+            "status": "passed",
+            "behavior": "fail-closed",
+            "exitCode": 1,
+            "stateRootTouched": false,
+            "message": "全局安装需要管理员权限写入 C:\\Program Files"
+        },
         "machineInstallWithoutElevation": {
             "passed": true,
             "behavior": "fail-closed",
