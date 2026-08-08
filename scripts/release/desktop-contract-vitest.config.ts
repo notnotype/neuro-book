@@ -70,6 +70,8 @@ export default defineConfig({
             "desktop/shared/src/desktop-distribution-packaging-contract.test.ts",
             "desktop/shared/src/desktop-ui-contract.test.ts",
             "desktop/shared/src/manager-gui-contract.test.ts",
+            "desktop/shared/src/installed-root.test.ts",
+            "desktop/shared/src/electron-startup-contract.test.ts",
         ],
     },
 });

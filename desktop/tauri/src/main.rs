@@ -333,6 +333,7 @@ fn config() -> Result<Config, String> {
         "desktop",
         portable_root.join("data").join(".desktop"),
     )?;
+    validate_installed_manifest(&portable_root, &desktop_root)?;
     let remote_url = read_remote_url(&desktop_root)?;
     Ok(Config {
         image_root: portable_root.join(".output"),
@@ -436,6 +437,61 @@ fn is_canonical_installed_root(root: &Path) -> bool {
         .into_iter()
         .chain(std::iter::once(program_files.join("NeuroBook")))
         .any(|candidate| same_path(&candidate, root))
+}
+
+fn validate_installed_manifest(root: &Path, desktop_root: &Path) -> Result<(), String> {
+    if !is_canonical_installed_root(root) {
+        return Ok(());
+    }
+    let path = desktop_root.join("desktop-installation.json");
+    let text = fs::read_to_string(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            "Installed Desktop 缺少 desktop-installation.json，请通过 Manager Repair 修复。"
+                .to_string()
+        } else {
+            format!("读取 Installed Desktop Installation Manifest 失败：{error}")
+        }
+    })?;
+    let value: Value = serde_json::from_str(&text).map_err(|error| {
+        format!("Installed Desktop Installation Manifest 无效，请通过 Manager Repair 修复：{error}")
+    })?;
+    if value.get("schema").and_then(Value::as_str) != Some("nbook.desktop-installation/v3") {
+        return Err(
+            "Installed Desktop Installation Manifest schema 不受支持，请通过 Manager Repair 修复。"
+                .to_string(),
+        );
+    }
+    let scope = value
+        .get("installationScope")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Installed Desktop Installation Manifest 缺少 installationScope，请通过 Manager Repair 修复。".to_string())?;
+    let expected_root = if scope == "machine" {
+        std::env::var_os("ProgramFiles")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("SystemDrive")
+                    .map(|value| PathBuf::from(value).join("Program Files"))
+            })
+            .unwrap_or_else(|| PathBuf::from(r"C:\Program Files"))
+            .join("NeuroBook")
+    } else if scope == "user" {
+        let local_app_data = std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var_os("USERPROFILE")
+                    .map(|value| PathBuf::from(value).join("AppData").join("Local"))
+            })
+            .ok_or_else(|| {
+                "Installed Desktop 缺少 LOCALAPPDATA，不能验证 Installation Root。".to_string()
+            })?;
+        local_app_data.join("Programs").join("NeuroBook")
+    } else {
+        return Err("Installed Desktop Installation Manifest installationScope 不受支持，请通过 Manager Repair 修复。".to_string());
+    };
+    if !same_path(&expected_root, root) {
+        return Err("Installed Desktop Installation Manifest 的 installationScope 与 Installation Root 不一致，请通过 Manager Repair 修复。".to_string());
+    }
+    Ok(())
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {

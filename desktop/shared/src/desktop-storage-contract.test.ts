@@ -16,6 +16,8 @@ describe("Desktop storage contract", () => {
         expect(source).toContain('正在修复 Product 回执');
         expect(source).toContain('打开日志');
         expect(source).toContain('desktopSettings.closeBehavior === "ask" && desktopSettings.trayEnabled');
+        expect(source).toContain('requireInstalledManifest(portableRoot, runtimeRoots.desktop)');
+        expect(source).toContain("Installed Desktop 缺少 desktop-installation.json");
     });
 
     it("将 Tauri WebView2 数据目录放在 Desktop Local Root 下", async () => {

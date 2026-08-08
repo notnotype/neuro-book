@@ -31,7 +31,9 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(html).toContain('id="adminPassword" type="password"');
         expect(html).toContain("id=\"enableAuth\"");
         expect(html).toContain('kind: "install"');
-        expect(html).toContain('kind: "uninstall", deleteData: false');
+        expect(html).toContain('kind: "uninstall", deleteData');
+        expect(html).toContain('id="deleteData" type="checkbox"');
+        expect(html).toContain("托管的 State Root");
         expect(html).toContain('$("adminPassword").value = ""');
         expect(html).toContain('id="apiKey" type="password"');
         expect(html).toContain('value="openai-responses"');

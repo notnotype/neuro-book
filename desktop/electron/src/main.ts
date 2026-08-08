@@ -30,6 +30,10 @@ import {
     type DesktopSupervisorEvent,
 } from "nbook/shared/desktop-contract";
 import {ElectronDiagnostics} from "nbook/desktop/electron/src/diagnostics";
+import {
+    isCanonicalInstalledRoot,
+    requireInstalledManifest,
+} from "nbook/desktop/shared/src/installed-root";
 import {auditProductContract, type ContractAudit} from "../../shared/src/contract-audit";
 
 type DesktopConfig = {
@@ -139,6 +143,7 @@ function readConfig(): DesktopConfig {
     }
     const portableRoot = resolve(process.resourcesPath, "..", "..");
     const runtimeRoots = readRuntimeRoots(portableRoot);
+    requireInstalledManifest(portableRoot, runtimeRoots.desktop);
     const privatePathEntries = readManagedToolPathEntries(portableRoot, runtimeRoots.desktop);
     return {
         imageRoot: join(portableRoot, ".output"),
@@ -212,6 +217,28 @@ function readRuntimeRoots(root: string): {state: string; cache: string; desktop:
     };
 }
 
+/** 即使 Installed locator 损坏，也要先显示启动页而不是静默退出。 */
+function startupFallbackConfig(): DesktopConfig {
+    const portableRoot = resolve(process.resourcesPath, "..", "..");
+    const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir();
+    const localAppData = process.env.LOCALAPPDATA
+        ?? (process.platform === "darwin"
+            ? join(home, "Library", "Application Support")
+            : join(home, "AppData", "Local"));
+    return {
+        imageRoot: join(portableRoot, ".output"),
+        applicationRoot: portableRoot,
+        stateRoot: join(localAppData, "NeuroBook", "data"),
+        cacheRoot: join(localAppData, "NeuroBook", "cache"),
+        desktopRoot: join(localAppData, "NeuroBook", "desktop"),
+        manager: join(portableRoot, "manager", "neuro-book.mjs"),
+        bun: join(portableRoot, "runtime", process.platform === "win32" ? "bun.exe" : "bun"),
+        privatePathEntries: [],
+        port: 0,
+        remoteUrl: null,
+    };
+}
+
 function resolveApplicationRuntime(root: string, desktopRoot: string): string {
     const manifestPath = join(desktopRoot, "desktop-installation.json");
     if (!existsSync(manifestPath)) return join(root, "runtime", "bun.exe");
@@ -232,14 +259,6 @@ function readManagedToolPathEntries(root: string, desktopRoot: string): string[]
         }
     }
     return [...new Set(entries)];
-}
-
-function isCanonicalInstalledRoot(root: string): boolean {
-    const localAppData = resolve(process.env.LOCALAPPDATA
-        ?? join(process.env.USERPROFILE ?? process.env.HOME ?? homedir(), "AppData", "Local"));
-    const programFiles = resolve(process.env.ProgramFiles ?? join(process.env.SystemDrive ?? "C:", "Program Files"));
-    return [join(localAppData, "Programs", "NeuroBook"), join(programFiles, "NeuroBook")]
-        .some((candidate) => samePath(candidate, root));
 }
 
 function samePath(left: string, right: string): boolean {
@@ -875,9 +894,17 @@ async function createInteractiveWindow(config: DesktopConfig): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    const config = readConfig();
-    diagnostics.setLogRoot(join(config.stateRoot, "logs"));
     const headless = process.argv.includes("--desktop-headless") || process.argv.includes("--headless");
+    let config: DesktopConfig;
+    let configError: Error | null = null;
+    try {
+        config = readConfig();
+    } catch (error) {
+        if (headless) throw error;
+        config = startupFallbackConfig();
+        configError = error instanceof Error ? error : new Error(String(error));
+    }
+    diagnostics.setLogRoot(join(config.stateRoot, "logs"));
     // Session/profile 属于当前安装；单实例身份必须使用稳定的用户级根，不能随 Portable 变化。
     app.setPath("userData", desktopIdentityRoot());
     app.setPath("sessionData", join(config.desktopRoot, "webview"));
@@ -902,6 +929,18 @@ async function main(): Promise<void> {
         elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100,
     });
     if (!headless) await createInteractiveWindow(config);
+    while (configError) {
+        if (!await recoverStartup(config, configError)) {
+            await closeApplication({kind: "electron-startup-failure", reason: configError.message});
+            return;
+        }
+        try {
+            config = readConfig();
+            configError = null;
+        } catch (error) {
+            configError = error instanceof Error ? error : new Error(String(error));
+        }
+    }
     ipcMain.handle("neurobook:desktop:status", (event) => {
         assertTrustedFrame(event);
         return running ? {

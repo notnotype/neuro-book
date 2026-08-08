@@ -55,8 +55,8 @@
             "testsPassed": 1
         },
         "desktopContract": {
-            "filesPassed": 9,
-            "testsPassed": 36
+            "filesPassed": 11,
+            "testsPassed": 40
         },
         "managerTypecheck": "passed",
         "rootTypecheck": "passed",
@@ -64,7 +64,7 @@
         "productImageVerifierAB": "passed",
         "portablePayloadVerifier": "passed",
         "pullRequest88Ci": {
-            "head": "624b9cb90b2647d8043144cdd6e2114204f7e9ee",
+            "head": "6316375e438f0968503a8d1690dfa1d0047ee90d",
             "passed": [
                 "windows-x64 desktop contracts",
                 "linux-x64-glibc Product",
@@ -78,7 +78,38 @@
                 "Full tests (advisory)"
             ],
             "allChecksPassed": true,
-            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；624b9cb9 已通过。"
+            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；6316375e 已通过。"
+        },
+        "installedManifestGate": {
+            "status": "passed",
+            "testsPassed": 2,
+            "scope": "canonical Installed root 缺失、损坏或 scope 不一致时 fail closed"
+        },
+        "followUpRepackaging": {
+            "productImageId": "sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813",
+            "runs": 2,
+            "archivesByteIdentical": true,
+            "outputRoots": [
+                "C:\\t145-followup-6316375e-desktop-d",
+                "C:\\t145-followup-6316375e-desktop-e"
+            ],
+            "electron": {
+                "payloadFiles": 9608,
+                "payloadBytes": 985666179,
+                "archiveBytes": 389368122,
+                "sha256": "sha256:3eac41b6173c2377d3374c58e7636d41ab8918dd92b08089667bafed6942d2b1"
+            },
+            "tauri": {
+                "archiveBytes": 243586839,
+                "sha256": "sha256:6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23",
+                "uiAcceptance": "not-run"
+            },
+            "aggregateDepot": {
+                "payloadFiles": 7,
+                "payloadBytes": 632970677,
+                "archiveBytes": 627862209,
+                "sha256": "sha256:9e3eb366f6bf670b42dffef2d671b8a6f146f78a718c6538ae736b2f0197ce13"
+            }
         },
         "portableHeadless": {
             "passed": true,
@@ -87,7 +118,24 @@
             "gracefulShutdown": true,
             "processTreeClosed": true
         },
+        "followUpPortableHeadless": {
+            "portableRoot": "C:\\t145-followup-6316375e-portable-smoke-d",
+            "productImageId": "sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813",
+            "nodePath": "C:\\t145-invalid-node-path",
+            "managerGuiHeadless": true,
+            "productReadyPort": 1108,
+            "shutdown": "forced",
+            "processTreeClosed": true
+        },
         "managerGuiHeadless": "passed",
+        "followUpManagerGuiCdp": {
+            "url": "file:///C:/t145-followup-6316375e-portable-smoke-d/desktop/resources/app.asar/manager.html",
+            "stateRootControl": true,
+            "installationScopeControl": true,
+            "providerControl": true,
+            "deleteDataControl": true,
+            "closedProcessTree": true
+        },
         "userInstallUninstall": {
             "passed": true,
             "installationManifestSchema": "nbook.desktop-installation/v3",

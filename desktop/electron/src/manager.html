@@ -69,6 +69,7 @@
         <label><input id="enableAuth" type="checkbox"> 安装后启用本地登录</label>
         <input id="adminPassword" type="password" placeholder="管理员密码（仅在启用登录时使用）">
         <p class="muted">本地 Desktop 默认关闭 auth；只有显式勾选并填写管理员密码时才创建管理员。Provider 连接失败不阻止保存。</p>
+        <label><input id="deleteData" type="checkbox"> 卸载时同时删除托管 State Root（不可恢复）</label>
         <div class="row">
             <button class="secondary" id="testProvider">测试 Provider</button>
             <button id="install">校验并安装</button>
@@ -110,7 +111,11 @@
     }
     $("repair").addEventListener("click", () => runSimple("repair"));
     $("status").addEventListener("click", () => runSimple("status"));
-    $("uninstall").addEventListener("click", () => bridge.run({kind: "uninstall", deleteData: false}).then((result) => log({kind: "uninstall-process-exit", ...result})));
+    $("uninstall").addEventListener("click", () => {
+        const deleteData = $("deleteData").checked;
+        if (deleteData && !window.confirm("这会删除 NeuroBook 托管的 State Root，外部 Project Workspace 不受影响。确定继续吗？")) return;
+        bridge.run({kind: "uninstall", deleteData}).then((result) => log({kind: "uninstall-process-exit", ...result}));
+    });
     $("install").addEventListener("click", async () => {
         const depot = $("depot").value;
         const manifestURL = $("manifestURL").value.trim();
@@ -136,7 +141,7 @@
         $("adminPassword").value = "";
         log({kind: "process-exit", ...result});
         const {name: providerName, baseURL, apiKey, model, api} = providerInput();
-        if (result.exitCode === 0 && providerName && baseURL && apiKey && model) {
+        if (result.exitCode === 0 && providerName && baseURL && model) {
             log({kind: "stage", stage: "saving-provider"});
             const providerResult = await bridge.run({kind: "configure-provider", provider: {name: providerName, baseURL, api, apiKey, model}});
             $("apiKey").value = "";

@@ -58,4 +58,5 @@ Manager GUI 保持普通权限，machine-scope 操作由一个一次性的 eleva
 - 新包的 uninstall 入口改为 `--json` NDJSON，修复了 Broker 将 ANSI/多行人类输出误判为无效消息的问题；Installed user/machine 两类 canonical root 均由 lease、intent 和外置 Host 校验。
 - Programs and Features 的 machine uninstall 入口只指向安装根外 `%LOCALAPPDATA%\NeuroBook\manager\uninstall\<installationId>` 下的轻量 launcher；launcher 只建立绑定 installation ID/root/manifest digest 的 UAC 请求，不复制卸载逻辑。
 - Follow-up 已验证 launcher 使用 manifest 中的 `manager/neuro-book.mjs` 相对路径；repair/uninstall 缺少 `--root` 时 fail closed。Follow-up 后真实 UAC 允许路径仍需在没有既有托管 State Root 的干净用户环境中，以当前最终包重跑；本轮的阻断是安装所有权保护，不是 UAC 协议失败。
+- 随后从当前安装的 launcher 再次尝试 machine uninstall 时，自动化终端未获得可见 UAC consent，launcher 以 `exit=1` 结束且 Program Files、State/Cache/Desktop 根未被触碰；该结果只记录为环境无法承接提升，不改变成功/取消路径合同。
 - UAC 取消路径仍保持 fail-closed；成功卸载默认保留 State Root，删除 Program Files、Cache、Desktop/WebView、HKLM 注册和公共快捷方式。

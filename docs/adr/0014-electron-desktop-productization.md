@@ -30,6 +30,7 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 - provider 选择分为 `managed` 和 `system`：Manager 自身始终保留可修复的 managed Bun；Product Bun 与 Git/Bash/rg 可以使用 system，但只检测 PATH 和版本，不自动调用系统包管理器。managed 工具只注入 Product 私有 PATH。
 - 卸载默认删除程序、Cache、Desktop/WebView 和有界日志，保留 State Root；明确选择删除数据时才删除托管 State Root，外部 Project Workspace 永不删除。
 - Manager GUI 的安装完成事件只作为候选输入；GUI 必须在启动主 Electron 前重新读取并校验 Desktop Installation Manifest、安装范围、Electron Envelope 路径和 checksum，不能复用上一次操作的裸 Installation Root。
+- Canonical Installed root 缺少 `runtime-locators.json` 或 `desktop-installation.json`、manifest 损坏或 installation scope 与程序根不一致时，Envelope 必须停在本地启动页并引导 Manager Repair；不得回落到 Portable 的 `data/.cache` 布局。Portable 只有在非 canonical root 且没有安装清单时才使用 installation-scoped roots。
 
 ### 首次引导与认证
 
