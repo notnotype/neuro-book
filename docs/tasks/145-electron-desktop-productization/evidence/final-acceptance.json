@@ -1,40 +1,40 @@
 {
     "schema": "nbook.task-145-final-acceptance/v1",
-    "evidenceRoot": "C:\\t145-evidence-cdb48aa930bf4b4bba2f542c965907c1",
+    "evidenceRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\t145-electron-final-8edef0f2",
     "source": {
-        "revision": "b2e6d986ec04672922725bd1db3fc13c95297c7c",
-        "sourceDigest": "sha256:0a1596aeb274ecbe6b46b8669efbcb1ef2e0b2e259fb325b973546796c07e14c",
-        "productImageId": "sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813",
-        "treeDigest": "sha256:f442d09a2a40c11cafc4fb3014ca511e7698f15be27e45248d86716e4923d781",
-        "shapeDigest": "sha256:5af1d40bfd4713bb2957fc2a28c914e412dace32bfef1e0f11573e5c6825a009",
+        "revision": "8edef0f2348611abcfc312d6a2efa8603cb1797e",
+        "sourceDigest": "sha256:cecbc399edbd7ab4146c5c7401cda4e85400dfd7633dc02b37c476746d3b8393",
+        "productImageId": "sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d",
+        "treeDigest": "sha256:03684226781cd709a8fad601ef0ae11dd887cfeb4595612a9ad5c3b4035f4b3d",
+        "shapeDigest": "sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7",
         "product": {
             "files": 3241,
-            "bytes": 134016535,
+            "bytes": 134016408,
             "builds": 2,
             "identityStable": true
         }
     },
     "portable": {
         "electron": {
-            "payloadFiles": 9609,
-            "payloadBytes": 985663532,
-            "payloadDigest": "sha256:100213d7d22a4b91bb50ac902f7548b3a5a230af6255888672094281ef07ccf1",
-            "archiveBytes": 389367434,
-            "sha256": "sha256:870f6349a1249a7515c32f4cee183f2b2527994320054f8f31ad6d48a39ce81"
+            "payloadFiles": 9608,
+            "payloadBytes": 985666335,
+            "payloadDigest": "sha256:77a83eb6769b2d8af50a2deba7aac6fd7aedb46e695085dac89b02f117549320",
+            "archiveBytes": 389368123,
+            "sha256": "sha256:19ede9713a7ac6c85ef3f437434cc55687dee4dec40ffa2756c737acaa848ef8"
         },
         "tauri": {
-            "payloadFiles": 9532,
-            "payloadBytes": 630965108,
-            "payloadDigest": "sha256:7b33b5de0c92d8c30f607fb8eafd84a419f89f5238b1d8df5c40c49a1c63d142",
-            "archiveBytes": 243586839,
-            "sha256": "sha256:6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23",
+            "payloadFiles": 9531,
+            "payloadBytes": 630965092,
+            "payloadDigest": "sha256:119366809e22c414f65206471db3e5e59ab7d2472b21d4def656cd8fe9b32843",
+            "archiveBytes": 243586814,
+            "sha256": "sha256:510d71d583dd9d15a1c7c45174259259800e3b2e52018622532ff108dd3e30a2",
             "uiAcceptance": "not-run"
         },
         "aggregateDepot": {
             "payloadFiles": 7,
-            "payloadBytes": 632969989,
-            "archiveBytes": 627861550,
-            "sha256": "sha256:555cd546d3ba9b5cc85d472f5ca680f6876e2a0f6e1c22b8f1f6afa35b2e1230"
+            "payloadBytes": 632970653,
+            "archiveBytes": 627861992,
+            "sha256": "sha256:d8187e4d190d920b4ed0f6ca805154ea4fc4d6498069d7b302bcef82893c1010"
         },
         "repeatPackaging": {
             "runs": 2,
@@ -47,7 +47,7 @@
         "managerTests": {
             "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 295,
+            "testsPassed": 296,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -60,6 +60,11 @@
         },
         "managerTypecheck": "passed",
         "rootTypecheck": "passed",
+        "settingsContract": {
+            "filesPassed": 2,
+            "testsPassed": 5,
+            "scope": "统一 Dialog full 预设、遮罩和 Profile 导航滚动预算"
+        },
         "electronBundle": "passed",
         "productImageVerifierAB": "passed",
         "portablePayloadVerifier": "passed",
@@ -187,10 +192,39 @@
         }
     },
     "startupObserved": {
-        "headlessRuns": 1,
-        "headlessReadyMs": 15210.07,
+        "headlessRuns": 11,
+        "headlessReadyMs": 4209.8,
         "headlessGracefulShutdown": true,
-        "coldWarmFiveRunSeries": "not-run",
+        "coldWarmFiveRunSeries": {
+            "cold": {
+                "runs": 5,
+                "productReadyMs": {
+                    "average": 4209.23,
+                    "minimum": 3985.97,
+                    "maximum": 4793.56
+                },
+                "wallMs": {
+                    "average": 4553.18,
+                    "minimum": 4249.46,
+                    "maximum": 5094.57
+                },
+                "allGraceful": true
+            },
+            "warm": {
+                "runs": 5,
+                "productReadyMs": {
+                    "average": 4262.34,
+                    "minimum": 4083.78,
+                    "maximum": 4331.78
+                },
+                "wallMs": {
+                    "average": 4504.56,
+                    "minimum": 4338.9,
+                    "maximum": 4568.04
+                },
+                "allGraceful": true
+            }
+        },
         "visibleCdp": {
             "startupPageObserved": true,
             "titleBar": {
@@ -201,6 +235,13 @@
             "projectCreated": true,
             "agentPanelOpened": true,
             "dialogOverlay": "black-translucent-no-blur",
+            "settingsDialog": {
+                "size": "full",
+                "width": 1120,
+                "height": 640,
+                "backdropFilter": "none",
+                "overlayBackground": "rgba(0, 0, 0, 0.5)"
+            },
             "quitGraceful": true,
             "processTreeClosed": true
         }
@@ -214,7 +255,6 @@
         "follow-up final-package machine UAC install/repair/uninstall",
         "Programs and Features external uninstall launcher with current package",
         "system provider real startup",
-        "five cold and five warm startup series",
         "native tray and Snap Layout",
         "real provider success",
         "Tauri visible UI",

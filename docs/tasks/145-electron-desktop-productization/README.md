@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**代码提交 `e5ec1534` 的 Electron 壳门禁、聚焦测试、同一 verified Product image 的重组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**当前 checkpoint `8edef0f2` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `8edef0f2348611abcfc312d6a2efa8603cb1797e`，Product image 为 `sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -111,8 +111,16 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### Follow-up 2026-08-08：本轮收口与仍未完成事项
 
-- 本轮 focused 证据：Manager 41 files / 295 tests、Manager typecheck、根 typecheck、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
-- 已运行：Follow-up 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外 Portable headless、Manager GUI headless、当前最终包主 Electron CDP（书架、Project、标题栏、Activity Bar、Agent 面板、Dialog、File → Quit）、最终包当前用户安装/状态/卸载、system provider、machine 非提升 fail-closed。
-- 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、五次冷/暖启动、真实托盘/Snap/file dialog、真实 Provider 成功连接。
+- 本轮 focused 证据：Manager 41 files / 296 tests、Manager typecheck、根 typecheck、设置合同 2 files / 5 tests、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
+- 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、最终包当前用户安装/状态/卸载、system provider、machine 非提升 fail-closed。
+- 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、真实托盘/Snap/file dialog、真实 Provider 成功连接。
 - 本轮再次从当前安装的外置 launcher 发起 machine uninstall；自动化终端未获得可见 UAC consent，launcher 以 `exit=1` 结束，Program Files 安装和用户数据均未被触碰。该结果只能证明当前环境无法承接提升，不替代成功/取消两条 UAC 验收。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。
+
+### Follow-up 2026-08-08：checkpoint 8edef0f2 后的最终输入
+
+- Product A/B 均为 3241 个文件、134016408 bytes；`imageId=sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`，tree digest `sha256:03684226781cd709a8fad601ef0ae11dd887cfeb4595612a9ad5c3b4035f4b3d`，shape digest `sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7`。
+- Electron Portable payload 为 9608 个文件、985666335 bytes；连同 sidecar manifest 后输出目录为 9609 个文件。ZIP 389368123 bytes，SHA-256 `sha256:19ede9713a7ac6c85ef3f437434cc55687dee4dec40ffa2756c737acaa848ef8`。Tauri ZIP 243586814 bytes，Depot ZIP 627861992 bytes；同一输入连续组包两次，七个归档/manifest 逐字节一致。
+- 新 Portable headless graceful smoke：10 次均 exit code 0；5×冷启动 Product ready 平均 4209.23 ms、wall 平均 4553.18 ms，5×暖启动 Product ready 平均 4262.34 ms、wall 平均 4504.56 ms。每次 shutdown 均为 `graceful`。
+- 新 Portable CDP 的配置中心实际使用 `data-dialog-size="full"`，尺寸 1120×640；遮罩为 `rgba(0,0,0,.5)`，`backdrop-filter=none`，统一阴影生效；关闭后 Electron/Product 进程均收口。Manager GUI headless exit code 0。
+- 该批次修复了 ready 回调在 Installation lease 释放前触发的竞态，以及配置中心和 Profile 导航残留的 90vh 尺寸耦合；修复均已进入 checkpoint，不改变安装、State Root、UAC 或 Product Runtime 合同。
