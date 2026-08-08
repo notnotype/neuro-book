@@ -1,4 +1,4 @@
-export const DESKTOP_UAC_BROKER_SCHEMA = "nbook.desktop-uac-broker/v1" as const;
+export const DESKTOP_UAC_BROKER_SCHEMA = "nbook.desktop-uac-broker/v2" as const;
 export const DESKTOP_UAC_MAX_CONTROL_LINE_BYTES = 256 * 1024;
 export const DESKTOP_UAC_MAX_SECRET_BYTES = 4096;
 export const DESKTOP_UAC_MAX_ARGUMENTS = 128;
@@ -27,6 +27,10 @@ export type DesktopUacBrokerRequest = {
     action: DesktopUacBrokerAction;
     args: string[];
     secretBytes: number;
+    installationId: string | null;
+    installationRoot: string;
+    manifestSha256: string | null;
+    deleteData: boolean;
 };
 
 export type DesktopUacBrokerEvent =
@@ -134,7 +138,18 @@ function parseHello(root: Record<string, unknown>): DesktopUacBrokerHello {
 }
 
 function parseRequest(root: Record<string, unknown>): DesktopUacBrokerRequest {
-    assertExactKeys(root, ["schema", "type", "operationId", "action", "args", "secretBytes"]);
+    assertExactKeys(root, [
+        "schema",
+        "type",
+        "operationId",
+        "action",
+        "args",
+        "secretBytes",
+        "installationId",
+        "installationRoot",
+        "manifestSha256",
+        "deleteData",
+    ]);
     if (!isBrokerAction(root.action)) throw new Error("Desktop UAC Broker action 不受支持。");
     if (!Array.isArray(root.args)
         || root.args.length > DESKTOP_UAC_MAX_ARGUMENTS
@@ -147,6 +162,18 @@ function parseRequest(root: Record<string, unknown>): DesktopUacBrokerRequest {
         || root.secretBytes > DESKTOP_UAC_MAX_SECRET_BYTES) {
         throw new Error("Desktop UAC Broker secretBytes 超出范围。");
     }
+    const installationId = root.installationId === null ? null : nonEmptyString(root.installationId, "installationId");
+    const installationRoot = nonEmptyString(root.installationRoot, "installationRoot");
+    if (!isAbsoluteDesktopPath(installationRoot)) {
+        throw new Error("Desktop UAC Broker installationRoot 必须是绝对路径。");
+    }
+    const manifestSha256 = root.manifestSha256 === null ? null : root.manifestSha256;
+    if (manifestSha256 !== null && !isSha256(manifestSha256)) {
+        throw new Error("Desktop UAC Broker manifestSha256 无效。");
+    }
+    if (typeof root.deleteData !== "boolean") {
+        throw new Error("Desktop UAC Broker deleteData 无效。");
+    }
     return {
         schema: DESKTOP_UAC_BROKER_SCHEMA,
         type: "request",
@@ -154,6 +181,10 @@ function parseRequest(root: Record<string, unknown>): DesktopUacBrokerRequest {
         action: root.action,
         args: [...root.args],
         secretBytes: root.secretBytes,
+        installationId,
+        installationRoot,
+        manifestSha256,
+        deleteData: root.deleteData,
     };
 }
 
@@ -243,6 +274,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isSafeInteger(value: unknown): value is number {
     return typeof value === "number" && Number.isSafeInteger(value);
+}
+
+function isSha256(value: unknown): value is string {
+    return typeof value === "string" && /^sha256:[a-f0-9]{64}$/u.test(value);
+}
+
+function isAbsoluteDesktopPath(value: string): boolean {
+    return value.startsWith("/")
+        || value.startsWith("\\\\")
+        || /^[A-Za-z]:[\\/]/u.test(value);
 }
 
 function isBrokerAction(value: unknown): value is DesktopUacBrokerAction {

@@ -1,8 +1,12 @@
 {
     "schema": "nbook.task-145-final-acceptance/v1",
+    "evidenceRoot": "C:\\t145-evidence-cdb48aa930bf4b4bba2f542c965907c1",
     "source": {
-        "revision": "eac5185838479dc37ab2ff1fe6418cf46f40ba57",
-        "productImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
+        "revision": "64be3ecda4cd5775907e29fd93ffd8ea211359d8",
+        "sourceDigest": "sha256:1c883a6d4e004aa85ae514462b817bb19f2d506ebf39203177178a2240372e70",
+        "productImageId": "sha256:1a00883a9177516d8426b9d9728d3a98b2aca0eb43fe8b31ed04daf27d734dd1",
+        "treeDigest": "sha256:aee7b9dde9f4217425c1a78f306025eac2676f401eb26ef40f4178c890a77aaa",
+        "shapeDigest": "sha256:5af1d40bfd4713bb2957fc2a28c914e412dace32bfef1e0f11573e5c6825a009",
         "product": {
             "files": 3241,
             "bytes": 134016535,
@@ -13,25 +17,28 @@
     "portable": {
         "electron": {
             "payloadFiles": 9608,
-            "payloadBytes": 985584745,
-            "archiveBytes": 389349704,
-            "sha256": "sha256:d655ad0fcd0e0fa2683eaeedd4032ae3e9790ff429c510c4e3c007f531553e0b"
+            "payloadBytes": 985662013,
+            "payloadDigest": "sha256:94c2fbb3b6a3e5002369698093917a648187cd6628db59c603d9467ca11c55d2",
+            "archiveBytes": 389367433,
+            "sha256": "sha256:fa93578759e8ab53f3bafcc0456535a0898cca1e0ad0549705ceee2c9545d606"
         },
         "tauri": {
             "payloadFiles": 9531,
-            "payloadBytes": 630952015,
-            "archiveBytes": 243582149,
-            "sha256": "sha256:b251d9c7650778852412808dbbfa5547db429f4f683aeefdf362735fbbb4b009",
+            "payloadBytes": 630965108,
+            "payloadDigest": "sha256:e8a56c3e449aa881e2aa73aad8221af464694611eb301fbc52060b8eb33bf0a6",
+            "archiveBytes": 243586836,
+            "sha256": "sha256:9b1e6ad6fc2a04f40b7e86f4f3f5479f47d7310178f93276e9f4244c09d02e81",
             "uiAcceptance": "not-run"
         },
         "aggregateDepot": {
             "payloadFiles": 7,
-            "payloadBytes": 632947335,
-            "archiveBytes": 627839358,
-            "sha256": "sha256:849dcaa38578c615895a7cca53a3f472994d8e95c80e959a440e82c82b9ff6c7"
+            "payloadBytes": 632969985,
+            "archiveBytes": 627861528,
+            "sha256": "sha256:e82447ab541c8b865b6be67570311b431b66d054178c9c5f982d3b03dd03139b"
         },
         "repeatPackaging": {
             "runs": 2,
+            "sameVerifiedProductImage": true,
             "payloadShapeStable": true,
             "archivesByteIdentical": true
         }
@@ -40,7 +47,7 @@
         "managerTests": {
             "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 293,
+            "testsPassed": 295,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -48,80 +55,51 @@
             "testsPassed": 1
         },
         "desktopContract": {
-            "filesPassed": 8,
-            "testsPassed": 31
+            "filesPassed": 9,
+            "testsPassed": 36
         },
         "managerTypecheck": "passed",
         "rootTypecheck": "passed",
-        "productWindowsSmoke": "passed",
-        "managerGuiPortableCdp": "passed",
-        "electronPortableCdp": {
+        "electronBundle": "passed",
+        "productImageVerifierAB": "passed",
+        "portablePayloadVerifier": "passed",
+        "portableHeadless": {
             "passed": true,
-            "titleBar": {
-                "y": 0,
-                "height": 36
-            },
-            "pageRootY": 36,
-            "oldHeaderCount": 0,
-            "backdropFilter": false,
-            "gracefulShutdown": true
-        },
-        "remoteElectronProtocolSmoke": {
-            "passed": true,
-            "connection": "remote",
-            "originMatched": true,
-            "pageLoaded": true,
+            "nodePath": "invalid external path",
+            "productRuntimeContract": "nbook.product-runtime-contract/v5",
             "gracefulShutdown": true,
-            "scope": "loopback capability service; full remote Product/B/S UI not run"
+            "processTreeClosed": true
         },
+        "managerGuiHeadless": "passed",
         "userInstallUninstall": {
             "passed": true,
+            "installationManifestSchema": "nbook.desktop-installation/v3",
+            "runtimeLocatorSchema": "nbook.desktop-installation-runtime/v1",
             "stateRootPreserved": true,
-            "registrationRemoved": true
+            "cacheRootRemoved": true,
+            "desktopRootRemoved": true,
+            "installationRootRemoved": true
         },
         "machineInstallWithoutElevation": {
             "passed": true,
-            "behavior": "fail-closed"
+            "behavior": "fail-closed",
+            "message": "全局安装需要管理员权限写入 C:\\Program Files"
         },
-        "machineScopeUac": {
-            "passed": true,
-            "package": {
-                "productImageId": "sha256:06df9a0285c878a7d04fe85790731e9219ceefb3fa5e614848819404693fbba8",
-                "electronArchiveBytes": 389357038,
-                "electronArchiveSha256": "sha256:bb7d707b8afaf8061be617279120ccb731c71fa976565d9e8681116afa19ca2a"
-            },
+        "historicalBeforeFollowUpMachineScopeUac": {
+            "status": "passed-before-follow-up",
+            "installationManifestSchema": "nbook.desktop-installation/v2",
             "installationScope": "machine",
             "programRoot": "C:\\Program Files\\NeuroBook",
-            "installationManifestSchema": "nbook.desktop-installation/v2",
-            "install": {
-                "passed": true,
-                "registryHive": "HKLM",
-                "protocol": "HKLM",
-                "publicShortcuts": true,
-                "stateRootCreated": true
-            },
-            "repair": {
-                "passed": true
-            },
-            "uninstall": {
-                "passed": true,
-                "programRootRemoved": true,
-                "registrationRemoved": true,
-                "publicShortcutsRemoved": true,
-                "cacheRootRemoved": true,
-                "desktopRootRemoved": true,
-                "stateRootPreserved": true,
-                "stateConfigSha256": "sha256:f104b5e7ca77e9f2a0630a6b152bb03620b6da4deeced8d6e97ad4d7d68cb975"
-            }
+            "stateRootPreserved": true,
+            "registrationRemoved": true,
+            "publicShortcutsRemoved": true,
+            "notReRunWithCurrentImage": true
         }
     },
     "startupObserved": {
-        "runs": 1,
-        "startupPageVisibleMs": 241.9,
-        "productVerificationCompleteMs": 1394.28,
-        "productReadyMs": 11377.68,
-        "bridgeReadyMs": 11565.09,
-        "windowReadyMs": 11567.06,
+        "headlessRuns": 1,
+        "headlessReadyMs": 15210.07,
+        "headlessGracefulShutdown": true,
         "coldWarmFiveRunSeries": "not-run"
     },
     "provider": {
@@ -130,6 +108,10 @@
         "onlineSuccess": "not-run"
     },
     "notCovered": [
+        "follow-up final-package machine UAC install/repair/uninstall",
+        "Programs and Features external uninstall launcher with current package",
+        "system provider real startup",
+        "five cold and five warm startup series",
         "native tray and Snap Layout",
         "real provider success",
         "Tauri visible UI",

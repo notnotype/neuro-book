@@ -4,6 +4,7 @@ param(
     [string]$Archive,
     [string]$ShellArchive,
     [string]$DistributionManifest,
+    [string]$DistributionManifestUrl,
     [ValidateSet("electron", "tauri")]
     [string]$Envelope = "electron",
     [ValidateSet("user", "machine")]
@@ -15,9 +16,9 @@ param(
     [string]$InstallRoot,
     [string]$ManagerPath,
     [string]$BunPath,
-    [ValidateSet("managed")]
+    [ValidateSet("managed", "system")]
     [string]$RuntimeProvider = "managed",
-    [ValidateSet("managed")]
+    [ValidateSet("managed", "system")]
     [string]$ToolProvider = "managed",
     [switch]$AddCliToPath,
     [switch]$PasswordStdin,
@@ -72,8 +73,9 @@ $depotCount = 0
 if ($Archive) { $depotCount++ }
 if ($ShellArchive) { $depotCount++ }
 if ($DistributionManifest) { $depotCount++ }
+if ($DistributionManifestUrl) { $depotCount++ }
 if ($depotCount -ne 1) {
-    throw "Desktop 安装必须且只能传 -Archive、-ShellArchive 或 -DistributionManifest 之一。"
+    throw "Desktop 安装必须且只能传 -Archive、-ShellArchive、-DistributionManifest 或 -DistributionManifestUrl 之一。"
 }
 if ($Remote -and $Archive) {
     throw "远端 Desktop 安装不能传 -Archive；它不携带 Product、Bun 或 Tool Pack。"
@@ -93,6 +95,7 @@ $managerOptions = @(
 if ($Archive) { $managerOptions += @("--archive", (Resolve-Path -LiteralPath $Archive).Path) }
 if ($ShellArchive) { $managerOptions += @("--shell-archive", (Resolve-Path -LiteralPath $ShellArchive).Path) }
 if ($DistributionManifest) { $managerOptions += @("--distribution-manifest", (Resolve-Path -LiteralPath $DistributionManifest).Path) }
+if ($DistributionManifestUrl) { $managerOptions += @("--distribution-manifest-url", $DistributionManifestUrl) }
 if ($Remote) { $managerOptions += @("--remote", $Remote) }
 if ($AllowInsecureHttp) { $managerOptions += "--allow-insecure-http" }
 if ($InstallRoot) { $managerOptions += @("--dir", $InstallRoot) }

@@ -25,7 +25,7 @@ type GitHubReleaseResponse = {
 
 /** 下载文件并验证 SHA256。 */
 export async function downloadVerified(url: string, target: string, sha256: string): Promise<void> {
-    const response = await fetch(url, {headers: {"User-Agent": "neuro-book-manager"}});
+    const response = await fetch(url, {headers: {"User-Agent": "neuro-book-manager"}, redirect: "error"});
     if (!response.ok) {
         throw new Error(`下载失败 ${response.status}：${url}`);
     }

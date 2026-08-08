@@ -1,6 +1,0 @@
-**/node_modules/
-**/dist/
-**/target/
-tauri/gen/
-artifacts/
-packages/

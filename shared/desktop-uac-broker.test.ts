@@ -31,6 +31,10 @@ describe("Desktop UAC Broker protocol", () => {
             action: "desktop-install",
             args: ["desktop", "install", "--scope", "machine", "--password-stdin"],
             secretBytes: 12,
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         };
         const event = {
             schema: DESKTOP_UAC_BROKER_SCHEMA,
@@ -71,6 +75,10 @@ describe("Desktop UAC Broker protocol", () => {
             action: "desktop-install",
             args: ["desktop", "install", "--scope", "machine"],
             secretBytes: 0,
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         };
 
         expect(() => parseDesktopUacBrokerLine(JSON.stringify({...request, extra: true}))).toThrow("未知字段");
@@ -93,6 +101,10 @@ describe("Desktop UAC Broker protocol", () => {
             action: "desktop-install",
             args: ["desktop", "install", "--scope", "machine", argument],
             secretBytes: DESKTOP_UAC_MAX_SECRET_BYTES,
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         } as const;
         expect(parseDesktopUacBrokerLine(JSON.stringify(request))).toEqual(request);
         expect(() => parseDesktopUacBrokerLine(JSON.stringify({

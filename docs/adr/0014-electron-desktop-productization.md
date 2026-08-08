@@ -26,8 +26,10 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 - `machine`：程序位于 `%ProgramFiles%/NeuroBook`，需要提升权限；State、Cache、Desktop/WebView 仍按登录用户隔离。
 - Manager GUI 通过已 Accepted 的 [ADR 0016](0016-windows-desktop-uac-broker.md) 一次性 UAC Broker 请求 machine-scope 安装、修复和卸载；Broker 的协议、secret 传递和真实 Windows UAC 生命周期已通过 Task 145 验收。
 - Portable：程序和用户数据跟随解压根移动。
-- `Desktop Installation Manifest v2` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts 和默认保留 State Root 的卸载策略。
+- `Desktop Installation Manifest v3` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略。`v2` 不是兼容输入，必须由 Manager repair/reinstall 生成 v3。
+- provider 选择分为 `managed` 和 `system`：Manager 自身始终保留可修复的 managed Bun；Product Bun 与 Git/Bash/rg 可以使用 system，但只检测 PATH 和版本，不自动调用系统包管理器。managed 工具只注入 Product 私有 PATH。
 - 卸载默认删除程序、Cache、Desktop/WebView 和有界日志，保留 State Root；明确选择删除数据时才删除托管 State Root，外部 Project Workspace 永不删除。
+- Manager GUI 的安装完成事件只作为候选输入；GUI 必须在启动主 Electron 前重新读取并校验 Desktop Installation Manifest、安装范围、Electron Envelope 路径和 checksum，不能复用上一次操作的裸 Installation Root。
 
 ### 首次引导与认证
 
@@ -41,6 +43,7 @@ Provider 配置使用当前 Global Config 合同：`State Root/workspace/.nbook/
 - 离线 Depot：包含共享 Electron Runtime、Manager GUI、主 Electron、verified Product、Bun 和可选 Tool Pack。
 - Product、Source、Bun 和 native islands 不进入 ASAR；Electron 壳代码、启动页和 Manager GUI 进入 `app.asar`。
 - 首版不实现后台 updater，不声称公开代码签名；manifest 保留来源和签名字段的扩展位置。
+- Portable 包内的 `installation.json` 是未安装模板；其时间字段沿用 verified Product 的稳定构建时间，实际 user/machine 安装时间由 Manager 安装事务写入。
 
 ## 后果
 

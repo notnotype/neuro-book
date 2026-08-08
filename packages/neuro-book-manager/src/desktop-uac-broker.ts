@@ -1,9 +1,12 @@
 import {spawn} from "node:child_process";
 import {createConnection, type Socket} from "node:net";
+import {createHash} from "node:crypto";
+import {readFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {createInterface} from "node:readline";
 
 import {
+    DESKTOP_UAC_BROKER_SCHEMA,
     DESKTOP_UAC_MAX_SECRET_BYTES,
     encodeDesktopUacBrokerLine,
     parseDesktopUacBrokerLine,
@@ -12,6 +15,7 @@ import {
     type DesktopUacBrokerRequest,
     type DesktopUacBrokerSecretHello,
 } from "nbook/shared/desktop-uac-broker";
+import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
 
 type BrokerOptions = {
     pipe: string;
@@ -20,6 +24,10 @@ type BrokerOptions = {
     operationId: string;
     action: DesktopUacBrokerAction;
     managerExecutable: string;
+    installationId: string | null;
+    installationRoot: string;
+    manifestSha256: string | null;
+    deleteData: boolean;
 };
 
 type ChildProcess = ReturnType<typeof spawn>;
@@ -44,13 +52,14 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
     control.once("close", closeChild);
     try {
         send(control, {
-            schema: "nbook.desktop-uac-broker/v1",
+            schema: DESKTOP_UAC_BROKER_SCHEMA,
             type: "hello",
             operationId: options.operationId,
             nonce: options.nonce,
         });
 
         const request = await readRequest(control, options);
+        await verifyBoundInstallation(options);
         const secret = request.secretBytes > 0
             ? await readSecret(options.secretPipe, request.secretBytes, options.operationId, options.nonce)
             : undefined;
@@ -78,26 +87,54 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                 stdin.end();
             }
 
-            const stdout = child.stdout;
-            if (stdout) forwardLines(stdout, control, "stdout", secretGuard);
-            const stderr = child.stderr;
-            if (stderr) forwardLines(stderr, control, "stderr", secretGuard);
-
-            const [exitCode, signal] = await waitForExit(child);
-            send(control, {
-                schema: "nbook.desktop-uac-broker/v1",
-                type: "event",
-                operationId: options.operationId,
-                event: {kind: "complete", exitCode, signal},
-            });
-            completed = true;
+            const drains = [
+                child.stdout ? forwardLines(child.stdout, control, "stdout", secretGuard) : Promise.resolve(),
+                child.stderr ? forwardLines(child.stderr, control, "stderr", secretGuard) : Promise.resolve(),
+            ];
+            try {
+                const [exitCode, signal] = await Promise.race([
+                    waitForExit(child).then((value) => ({kind: "exit" as const, value})),
+                    ...drains.map((drain) => drain.then(
+                        () => new Promise<never>(() => undefined),
+                        (error: unknown) => Promise.reject(error),
+                    )),
+                ]).then(async (result) => {
+                    if (!result || result.kind !== "exit") throw new Error("Desktop UAC Broker 输出处理状态无效。");
+                    await Promise.all(drains);
+                    return result.value;
+                });
+                send(control, {
+                    schema: DESKTOP_UAC_BROKER_SCHEMA,
+                    type: "event",
+                    operationId: options.operationId,
+                    event: {kind: "complete", exitCode, signal},
+                });
+                completed = true;
+            } catch (error) {
+                closeChild();
+                await waitForExit(child).catch(() => undefined);
+                await Promise.allSettled(drains);
+                if (!control.destroyed) {
+                    send(control, {
+                        schema: DESKTOP_UAC_BROKER_SCHEMA,
+                        type: "event",
+                        operationId: options.operationId,
+                        event: {
+                            kind: "failure",
+                            code: "broker-output-failure",
+                            message: error instanceof Error ? error.message : String(error),
+                        },
+                    });
+                }
+                completed = true;
+            }
         } finally {
             secret?.fill(0);
         }
     } catch (error) {
         if (!completed && !control.destroyed) {
             send(control, {
-                schema: "nbook.desktop-uac-broker/v1",
+                schema: DESKTOP_UAC_BROKER_SCHEMA,
                 type: "event",
                 operationId: options.operationId,
                 event: {
@@ -115,20 +152,48 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
     }
 }
 
+async function verifyBoundInstallation(options: BrokerOptions): Promise<void> {
+    if (options.manifestSha256 === null) return;
+    const localAppData = process.env.LOCALAPPDATA;
+    if (!localAppData) throw new Error("Desktop UAC Broker 缺少 LOCALAPPDATA，不能验证安装身份。");
+    const manifestPath = resolve(localAppData, "NeuroBook", "desktop", "desktop-installation.json");
+    const text = await readFile(manifestPath, "utf8");
+    const digest = `sha256:${createHash("sha256").update(text, "utf8").digest("hex")}`;
+    if (digest !== options.manifestSha256) throw new Error("Desktop UAC Broker manifest 摘要已变化，请重新执行操作。");
+    const manifest = parseDesktopInstallationManifest(JSON.parse(text) as unknown);
+    if (manifest.installationId !== options.installationId) {
+        throw new Error("Desktop UAC Broker installationId 已变化，请重新执行操作。");
+    }
+    const expectedRoot = manifest.installationScope === "machine"
+        ? resolve(process.env.ProgramFiles ?? resolve(process.env.SystemDrive ?? "C:", "Program Files"), "NeuroBook")
+        : resolve(localAppData, "Programs", "NeuroBook");
+    if (!samePath(expectedRoot, options.installationRoot)) {
+        throw new Error("Desktop UAC Broker Installation Root 与 manifest 不一致。");
+    }
+}
+
 async function readRequest(control: Socket, options: BrokerOptions): Promise<DesktopUacBrokerRequest> {
     const line = await readOneLine(control);
     const parsed = parseDesktopUacBrokerLine(line);
     if (parsed.type !== "request") throw new Error("Desktop UAC Broker request 类型不匹配。");
-    return validateDesktopUacBrokerRequest(parsed, options.operationId, options.action);
+    return validateDesktopUacBrokerRequest(parsed, options.operationId, options.action, options);
 }
 
 export function validateDesktopUacBrokerRequest(
     request: DesktopUacBrokerRequest,
     operationId: string,
     expectedAction: DesktopUacBrokerAction = "desktop-install",
+    expectedBinding?: Pick<BrokerOptions, "installationId" | "installationRoot" | "manifestSha256" | "deleteData">,
 ): DesktopUacBrokerRequest {
     if (request.operationId !== operationId || request.action !== expectedAction) {
         throw new Error("Desktop UAC Broker request 身份或 action 不匹配。");
+    }
+    if (expectedBinding !== undefined
+        && (request.installationId !== expectedBinding.installationId
+            || request.manifestSha256 !== expectedBinding.manifestSha256
+            || request.deleteData !== expectedBinding.deleteData
+            || !samePath(request.installationRoot, expectedBinding.installationRoot))) {
+        throw new Error("Desktop UAC Broker request 安装身份或删除范围不匹配。");
     }
     if (request.action === "desktop-install") {
         if (request.args[0] !== "desktop" || request.args[1] !== "install") {
@@ -137,12 +202,33 @@ export function validateDesktopUacBrokerRequest(
         if (!hasMachineScope(request.args)) {
             throw new Error("Desktop UAC Broker 只允许 machine scope。");
         }
+        if (request.installationId !== null || request.manifestSha256 !== null || request.deleteData) {
+            throw new Error("Desktop UAC Broker install 不得绑定已有安装或删除数据。");
+        }
     } else if (request.action === "desktop-repair") {
-        if (request.args[0] !== "desktop" || request.args[1] !== "repair") {
+        if (!request.args.includes("desktop") || !request.args.includes("repair")) {
             throw new Error("Desktop UAC Broker 只允许 desktop repair。");
         }
-    } else if (request.args[0] !== "uninstall") {
-        throw new Error("Desktop UAC Broker 只允许 uninstall。");
+        if (request.installationId === null || request.manifestSha256 === null || request.deleteData) {
+            throw new Error("Desktop UAC Broker repair 必须绑定已有安装且不能删除数据。");
+        }
+    } else {
+        if (!request.args.includes("uninstall")) throw new Error("Desktop UAC Broker 只允许 uninstall。");
+        if (request.installationId === null || request.manifestSha256 === null) {
+            throw new Error("Desktop UAC Broker uninstall 必须绑定已有安装。");
+        }
+    }
+    const rootArgument = optionValue(request.args, "--root");
+    if (request.action !== "desktop-install") {
+        if (rootArgument === undefined) {
+            throw new Error("Desktop UAC Broker repair/uninstall 必须显式绑定 --root。");
+        }
+        if (!samePath(rootArgument, request.installationRoot)) {
+            throw new Error("Desktop UAC Broker 命令 root 与绑定 Installation Root 不匹配。");
+        }
+    }
+    if (request.action === "uninstall" && request.deleteData !== request.args.includes("--delete-data")) {
+        throw new Error("Desktop UAC Broker deleteData 与卸载参数不匹配。");
     }
     const hasPasswordStdin = request.args.includes("--password-stdin");
     if (request.action !== "desktop-install" && (hasPasswordStdin || request.secretBytes > 0)) {
@@ -166,7 +252,7 @@ async function readSecret(
     if (!secretPipe) throw new Error("Desktop UAC Broker 缺少 secret pipe。");
     const socket = await connectPipe(secretPipe);
     send(socket, {
-        schema: "nbook.desktop-uac-broker/v1",
+        schema: DESKTOP_UAC_BROKER_SCHEMA,
         type: "secret-hello",
         operationId,
         nonce,
@@ -221,14 +307,14 @@ async function writeSecretToStdin(
     });
 }
 
-function forwardLines(
+async function forwardLines(
     stream: NodeJS.ReadableStream,
     control: Socket,
     streamName: "stdout" | "stderr",
     secretGuard: SecretLeakGuard | undefined,
-): void {
+): Promise<void> {
     const reader = createInterface({input: stream, crlfDelay: Infinity});
-    void (async () => {
+    try {
         for await (const line of reader) {
             if (control.destroyed) return;
             const safeLine = line.slice(0, 16 * 1024);
@@ -242,7 +328,7 @@ function forwardLines(
                     const value: unknown = JSON.parse(safeLine);
                     if (isRecord(value)) {
                         send(control, {
-                            schema: "nbook.desktop-uac-broker/v1",
+                            schema: DESKTOP_UAC_BROKER_SCHEMA,
                             type: "event",
                             operationId: currentOperationId(control),
                             event: {kind: "json", value},
@@ -254,26 +340,15 @@ function forwardLines(
                 }
             }
             send(control, {
-                schema: "nbook.desktop-uac-broker/v1",
+                schema: DESKTOP_UAC_BROKER_SCHEMA,
                 type: "event",
                 operationId: currentOperationId(control),
                 event: {kind: "log", stream: streamName, message: safeLine},
             });
         }
-    })().catch((error: unknown) => {
-        if (!control.destroyed) {
-            send(control, {
-                schema: "nbook.desktop-uac-broker/v1",
-                type: "event",
-                operationId: currentOperationId(control),
-                event: {
-                    kind: "failure",
-                    code: "broker-output-failure",
-                    message: error instanceof Error ? error.message : String(error),
-                },
-            });
-        }
-    });
+    } finally {
+        reader.close();
+    }
 }
 
 type SecretLeakGuard = {
@@ -307,7 +382,7 @@ function currentOperationId(control: Socket): string {
 }
 
 function send(control: Socket, value: DesktopUacBrokerEvent | {
-    schema: "nbook.desktop-uac-broker/v1";
+    schema: typeof DESKTOP_UAC_BROKER_SCHEMA;
     type: "hello";
     operationId: string;
     nonce: string;
@@ -354,6 +429,18 @@ function hasMachineScope(args: string[]): boolean {
         if (args[index] === "--scope=machine") return true;
     }
     return false;
+}
+
+function optionValue(args: string[], option: string): string | undefined {
+    const index = args.indexOf(option);
+    if (index < 0) return undefined;
+    return args[index + 1];
+}
+
+function samePath(left: string, right: string): boolean {
+    const a = resolve(left);
+    const b = resolve(right);
+    return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

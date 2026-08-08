@@ -25,6 +25,10 @@ describe("Desktop UAC Broker Manager boundary", () => {
             action: "desktop-install",
             args: ["desktop", "install", "--scope", "machine", "--password-stdin"],
             secretBytes: 7,
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         };
         expect(validateDesktopUacBrokerRequest(request, "operation-1")).toEqual(request);
         expect(() => validateDesktopUacBrokerRequest({...request, operationId: "other"}, "operation-1")).toThrow("身份");
@@ -37,13 +41,23 @@ describe("Desktop UAC Broker Manager boundary", () => {
         const repair = {
             ...request,
             action: "desktop-repair" as const,
-            args: ["desktop", "repair", "--json"],
+            args: ["--root", "C:\\Program Files\\NeuroBook", "desktop", "repair", "--json"],
             secretBytes: 0,
+            installationId: "installation-1",
+            manifestSha256: `sha256:${"a".repeat(64)}`,
         };
         expect(validateDesktopUacBrokerRequest(repair, "operation-1", "desktop-repair")).toEqual(repair);
         expect(() => validateDesktopUacBrokerRequest(repair, "operation-1", "desktop-install")).toThrow("action");
-        const uninstall = {...repair, action: "uninstall" as const, args: ["uninstall", "--yes"]};
+        const uninstall = {
+            ...repair,
+            action: "uninstall" as const,
+            args: ["--root", "C:\\Program Files\\NeuroBook", "uninstall", "--yes"],
+        };
         expect(validateDesktopUacBrokerRequest(uninstall, "operation-1", "uninstall")).toEqual(uninstall);
+        expect(() => validateDesktopUacBrokerRequest({
+            ...uninstall,
+            args: ["uninstall", "--yes"],
+        }, "operation-1", "uninstall")).toThrow("必须显式绑定 --root");
     });
 
     it.runIf(process.platform === "win32")("passes UTF-8 stdin bytes to the delegated CLI without putting them in control events", async () => {
@@ -92,6 +106,10 @@ async function runBrokerFixture(managerSource: string, secret: string): Promise<
             operationId: "operation-1",
             action: "desktop-install",
             managerExecutable,
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         });
         const control = await controlSocketPromise;
         const reader = createInterface({input: control, crlfDelay: Infinity});
@@ -121,6 +139,10 @@ async function runBrokerFixture(managerSource: string, secret: string): Promise<
             action: "desktop-install",
             args: ["desktop", "install", "--scope", "machine", "--password-stdin"],
             secretBytes: Buffer.byteLength(secret, "utf8"),
+            installationId: null,
+            installationRoot: "C:\\Program Files\\NeuroBook",
+            manifestSha256: null,
+            deleteData: false,
         })}\n`);
         const secretSocket = await secretSocketPromise;
         const secretReader = createInterface({input: secretSocket, crlfDelay: Infinity});

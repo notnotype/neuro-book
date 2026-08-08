@@ -251,6 +251,35 @@ function installation(connection: {mode: "local"} | {mode: "remote"; baseUrl: st
         envelope: "electron" as const,
         channel: "canary" as const,
         connection,
+        providers: {
+            managerRuntime: {
+                provider: "managed" as const,
+                version: "1.3.14",
+                path: "runtime/bun.exe",
+                sha256: digest("a"),
+            },
+            applicationRuntime: {
+                provider: "managed" as const,
+                version: "1.3.14",
+                path: "runtime/bun.exe",
+                sha256: digest("b"),
+            },
+            tools: {
+                rg: {
+                    provider: "managed" as const,
+                    version: "14.1.1",
+                    path: "tools/rg.exe",
+                    sha256: digest("c"),
+                },
+                git: {
+                    provider: "managed" as const,
+                    version: "2.51.0",
+                    path: "tools/git.exe",
+                    sha256: digest("d"),
+                    bashPath: "tools/bash.exe",
+                },
+            },
+        },
         components: [{
             id: "electron-envelope" as const,
             version: "43.2.0",

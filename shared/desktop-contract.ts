@@ -1,6 +1,6 @@
 export const DESKTOP_BRIDGE_SCHEMA = "nbook.desktop-bridge/v2";
 export const DESKTOP_DISTRIBUTION_SCHEMA = "nbook.desktop-distribution/v1";
-export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v2";
+export const DESKTOP_INSTALLATION_SCHEMA = "nbook.desktop-installation/v3";
 export const DESKTOP_SETTINGS_SCHEMA = "nbook.desktop-settings/v1";
 export const DESKTOP_SUPERVISOR_SCHEMA = "nbook.desktop-supervisor/v1";
 export const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
@@ -103,6 +103,34 @@ export type DesktopInstalledComponent = {
     sha256: string;
 };
 
+export type DesktopManagedProvider = {
+    provider: "managed";
+    version: string;
+    path: string;
+    sha256: string;
+};
+
+export type DesktopSystemProvider = {
+    provider: "system";
+    version: string;
+    executable: string;
+};
+
+export type DesktopProviderLocator = DesktopManagedProvider | DesktopSystemProvider;
+
+export type DesktopToolProviderLocator =
+    | DesktopManagedProvider & {bashPath?: string}
+    | DesktopSystemProvider & {bashExecutable?: string};
+
+export type DesktopInstallationProviders = {
+    managerRuntime: DesktopProviderLocator;
+    applicationRuntime: DesktopProviderLocator;
+    tools: {
+        rg: DesktopToolProviderLocator;
+        git: DesktopToolProviderLocator;
+    };
+};
+
 export type DesktopComponentReceipt = {
     id: DesktopComponentId;
     version: string;
@@ -189,6 +217,7 @@ export type DesktopInstallationManifest = {
     envelope: DesktopEnvelope;
     channel: DesktopChannel;
     connection: DesktopConnection;
+    providers: DesktopInstallationProviders;
     components: DesktopInstalledComponent[];
     receipts: DesktopComponentReceipt[];
     uninstall: DesktopUninstallPolicy;
@@ -315,6 +344,7 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
         "envelope",
         "channel",
         "connection",
+        "providers",
         "components",
         "receipts",
         "uninstall",
@@ -324,12 +354,16 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
     ], "Desktop Installation Manifest");
     literal(root.schema, DESKTOP_INSTALLATION_SCHEMA, "schema");
     const installationId = nonEmptyString(root.installationId, "installationId");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(installationId)) {
+        throw new Error("installationId 必须是单段安全标识。");
+    }
     const installationScope = member(root.installationScope, ["user", "machine"] as const, "installationScope");
     literal(root.programRoot, ".", "programRoot");
     const userRoots = parseDesktopInstallationUserRoots(root.userRoots);
     const envelope = member(root.envelope, DESKTOP_ENVELOPES, "envelope");
     const channel = member(root.channel, DESKTOP_CHANNELS, "channel");
     const connection = parseConnection(root.connection);
+    const providers = parseDesktopInstallationProviders(root.providers);
     if (!Array.isArray(root.components)) throw new Error("components 必须是数组。");
     const components = root.components.map((item, index) => parseInstalledComponent(item, index));
     assertUnique(components.map((item) => item.id), "Desktop Installation components");
@@ -355,6 +389,7 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
         envelope,
         channel,
         connection,
+        providers,
         components,
         receipts,
         uninstall,
@@ -523,6 +558,94 @@ function parseInstalledComponent(value: unknown, index: number): DesktopInstalle
         path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
         sha256: sha256(root.sha256, `${label}.sha256`),
     };
+}
+
+function parseDesktopInstallationProviders(value: unknown): DesktopInstallationProviders {
+    const root = object(value, "providers");
+    exactKeys(root, ["managerRuntime", "applicationRuntime", "tools"], "providers");
+    const tools = object(root.tools, "providers.tools");
+    exactKeys(tools, ["rg", "git"], "providers.tools");
+    return {
+        managerRuntime: parseProviderLocator(root.managerRuntime, "providers.managerRuntime"),
+        applicationRuntime: parseProviderLocator(root.applicationRuntime, "providers.applicationRuntime"),
+        tools: {
+            rg: parseToolProviderLocator(tools.rg, "providers.tools.rg"),
+            git: parseToolProviderLocator(tools.git, "providers.tools.git"),
+        },
+    };
+}
+
+function parseProviderLocator(value: unknown, label: string): DesktopProviderLocator {
+    const root = object(value, label);
+    if (root.provider === "managed") {
+        exactKeys(root, ["provider", "version", "path", "sha256"], label);
+        return {
+            provider: "managed",
+            version: nonEmptyString(root.version, `${label}.version`),
+            path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
+            sha256: sha256(root.sha256, `${label}.sha256`),
+        };
+    }
+    if (root.provider === "system") {
+        exactKeys(root, ["provider", "version", "executable"], label);
+        return {
+            provider: "system",
+            version: nonEmptyString(root.version, `${label}.version`),
+            executable: commandName(root.executable, `${label}.executable`),
+        };
+    }
+    throw new Error(`${label}.provider 不受支持。`);
+}
+
+function parseToolProviderLocator(value: unknown, label: string): DesktopToolProviderLocator {
+    const root = object(value, label);
+    if (root.provider === "managed") {
+        const hasBashPath = Object.prototype.hasOwnProperty.call(root, "bashPath");
+        exactKeys(root, [
+            "provider",
+            "version",
+            "path",
+            "sha256",
+            ...(hasBashPath ? ["bashPath"] : []),
+        ], label);
+        const bashPath = !hasBashPath || root.bashPath === undefined
+            ? undefined
+            : desktopRelativePath(nonEmptyString(root.bashPath, `${label}.bashPath`), `${label}.bashPath`);
+        return {
+            provider: "managed",
+            version: nonEmptyString(root.version, `${label}.version`),
+            path: desktopRelativePath(nonEmptyString(root.path, `${label}.path`), `${label}.path`),
+            sha256: sha256(root.sha256, `${label}.sha256`),
+            ...(bashPath ? {bashPath} : {}),
+        };
+    }
+    if (root.provider === "system") {
+        const hasBashExecutable = Object.prototype.hasOwnProperty.call(root, "bashExecutable");
+        exactKeys(root, [
+            "provider",
+            "version",
+            "executable",
+            ...(hasBashExecutable ? ["bashExecutable"] : []),
+        ], label);
+        const bashExecutable = !hasBashExecutable || root.bashExecutable === undefined
+            ? undefined
+            : commandName(root.bashExecutable, `${label}.bashExecutable`);
+        return {
+            provider: "system",
+            version: nonEmptyString(root.version, `${label}.version`),
+            executable: commandName(root.executable, `${label}.executable`),
+            ...(bashExecutable ? {bashExecutable} : {}),
+        };
+    }
+    throw new Error(`${label}.provider 不受支持。`);
+}
+
+function commandName(value: unknown, label: string): string {
+    const result = nonEmptyString(value, label);
+    if (result.includes("/") || result.includes("\\") || result.includes(":")) {
+        throw new Error(`${label} 必须是系统命令名，不能持久化绝对路径。`);
+    }
+    return result;
 }
 
 function parseDesktopComponentReceipt(value: unknown, index: number): DesktopComponentReceipt {

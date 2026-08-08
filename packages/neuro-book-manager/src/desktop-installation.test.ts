@@ -34,6 +34,7 @@ import {
     verifyDesktopPortablePayload,
     verifyDesktopShellPayload,
     uninstallRemoteDesktopInstallation,
+    writeMachineUninstallLauncher,
     writeManagerWrappers,
 } from "#manager/desktop-installation";
 import type {DesktopInstallationManifest} from "nbook/shared/desktop-contract";
@@ -162,6 +163,32 @@ describe("Desktop installation lifecycle", () => {
         expect(appCommandMocks.enableAuthentication).toHaveBeenCalledWith(
             join(root, "LocalAppData", "NeuroBook", "data"),
         );
+    });
+
+    it("安装目标在校验后被其他进程抢先创建时不删除对方目录", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-install-race-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        productMocks.verify.mockImplementationOnce(async () => {
+            await mkdir(installRoot, {recursive: true});
+            await writeFile(join(installRoot, "owned-by-other-process"), "keep", "utf8");
+        });
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow();
+        await expect(readFile(join(installRoot, "owned-by-other-process"), "utf8")).resolves.toBe("keep");
     });
 
     it("Manager wrapper 只使用相对 Installation Root 路径", async () => {
@@ -383,6 +410,33 @@ describe("Desktop installation lifecycle", () => {
         expect(uninstallCall?.[1]).not.toEqual(expect.arrayContaining([expect.stringContaining("neuro-book desktop")]));
     });
 
+    it("machine scope 的 Programs and Features 卸载项使用安装根外 launcher", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-launcher-"));
+        const installationRoot = join(root, "Installation");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        const launcher = await writeMachineUninstallLauncher(installationRoot, "installation-1");
+        const script = await readFile(launcher, "utf8");
+        expect(launcher).not.toContain(installationRoot);
+        expect(script).toContain("Start-Process");
+        expect(script).toContain("-Verb RunAs");
+        expect(script).toContain('Join-Path $Root "manager\\neuro-book.mjs"');
+        expect(script).not.toContain(".runtime\\manager\\neuro-book.mjs");
+
+        const manifest = {...desktopManifest(), installationScope: "machine" as const};
+        await registerWindowsDesktop(installationRoot, manifest, false, launcher);
+        const uninstallCall = processMocks.run.mock.calls.find(([command, args]) => command === "reg.exe" && args.includes("UninstallString"));
+        expect(uninstallCall?.[1]).toEqual(expect.arrayContaining([
+            expect.stringContaining(`-File "${launcher}"`),
+        ]));
+        expect(uninstallCall?.[1]).not.toEqual(expect.arrayContaining([
+            expect.stringContaining(".runtime\\bin\\neuro-book.cmd"),
+        ]));
+    });
+
     it("machine scope 使用 HKLM 和公共快捷方式根", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-registration-"));
@@ -490,7 +544,7 @@ function componentsManifest(hashes: Map<string, string>): InstallationComponents
 
 function desktopManifest(): DesktopInstallationManifest {
     return {
-        schema: "nbook.desktop-installation/v2",
+        schema: "nbook.desktop-installation/v3",
         installationId: "test-installation",
         installationScope: "user",
         programRoot: ".",
@@ -503,6 +557,14 @@ function desktopManifest(): DesktopInstallationManifest {
         envelope: "electron",
         channel: "canary",
         connection: {mode: "local"},
+        providers: {
+            managerRuntime: {provider: "managed", version: "1.3.14", path: "runtime/bun.exe", sha256: `sha256:${"b".repeat(64)}`},
+            applicationRuntime: {provider: "managed", version: "1.3.14", path: "runtime/bun.exe", sha256: `sha256:${"b".repeat(64)}`},
+            tools: {
+                rg: {provider: "managed", version: "14.1.1", path: "tools/rg.exe", sha256: `sha256:${"a".repeat(64)}`},
+                git: {provider: "managed", version: "2.51.0", path: "tools/git.exe", sha256: `sha256:${"c".repeat(64)}`, bashPath: "tools/bash.exe"},
+            },
+        },
         components: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`}],
         receipts: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`, source: "depot"}],
         uninstall: {

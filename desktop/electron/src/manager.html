@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>NeuroBook Manager</title>
+    <style>
+        :root { color-scheme: light; font-family: "Segoe UI", sans-serif; background: #f4ecd8; color: #3d3024; }
+        body { margin: 0; min-height: 100vh; background: #f4ecd8; }
+        main { max-width: 680px; margin: 0 auto; padding: 32px 36px 40px; }
+        h1 { margin: 0 0 8px; font-size: 26px; }
+        p { color: #806f59; line-height: 1.5; }
+        section { margin-top: 24px; padding: 20px; border: 1px solid #ddc9a6; border-radius: 14px; background: #fffaf0; box-shadow: 0 12px 32px rgba(70, 48, 24, .08); }
+        label { display: block; margin: 12px 0 6px; font-weight: 600; }
+        input, select { width: 100%; box-sizing: border-box; border: 1px solid #d8c39c; border-radius: 8px; padding: 10px 12px; background: #fffdf8; color: inherit; }
+        .row { display: flex; gap: 10px; align-items: center; }
+        .row > * { flex: 1; }
+        button { border: 1px solid #c96739; border-radius: 8px; padding: 10px 14px; background: #d96f3d; color: #fff; font-weight: 600; cursor: pointer; }
+        button.secondary { background: #fffaf0; color: #8a4c29; border-color: #d8b88f; }
+        button:disabled { opacity: .55; cursor: default; }
+        #log { max-height: 180px; overflow: auto; white-space: pre-wrap; font: 12px/1.45 Consolas, monospace; background: #f1e5cc; padding: 10px; border-radius: 8px; }
+        .muted { font-size: 13px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>NeuroBook Manager</h1>
+    <p>安装、修复和运行时检查由 Manager CLI 执行；这个窗口只负责引导和显示结果。</p>
+    <section>
+        <label for="scope">安装范围</label>
+        <select id="scope">
+            <option value="user">当前用户（推荐）</option>
+            <option value="machine">全局安装（需要管理员权限）</option>
+        </select>
+        <label for="depot">离线 Depot / Portable ZIP</label>
+        <div class="row">
+            <input id="depot" placeholder="请选择本地 .zip 或 distribution manifest" readonly>
+            <button class="secondary" id="choose">选择</button>
+        </div>
+        <label for="manifestURL">HTTPS distribution manifest（可选）</label>
+        <input id="manifestURL" placeholder="https://.../desktop.distribution.json">
+        <label for="runtimeProvider">Product Bun</label>
+        <select id="runtimeProvider">
+            <option value="managed">随包托管 Bun</option>
+            <option value="system">使用系统 Bun（需已在 PATH）</option>
+        </select>
+        <label for="toolProvider">Git / Bash / rg</label>
+        <select id="toolProvider">
+            <option value="managed">随包托管工具</option>
+            <option value="system">使用系统工具（需已在 PATH）</option>
+        </select>
+        <label>State Root</label>
+         <p class="muted" id="stateRoot">正在读取当前用户固定路径…</p>
+        <label><input id="addCliToPath" type="checkbox"> 将 NeuroBook CLI 加入当前用户 PATH</label>
+        <label for="providerName">首个 Provider（可选）</label>
+        <input id="providerName" placeholder="例如：本地 OpenAI 兼容服务">
+        <div class="row">
+            <input id="baseURL" placeholder="Base URL，例如 https://api.example.com/v1">
+            <input id="model" placeholder="默认模型 ID">
+        </div>
+        <select id="api" aria-label="API 类型">
+            <option value="openai-completions">OpenAI Chat Completions</option>
+            <option value="openai-responses">OpenAI Responses</option>
+            <option value="anthropic-messages">Anthropic Messages</option>
+            <option value="google-generative-ai">Google Generative AI</option>
+            <option value="bedrock-converse-stream">Bedrock Converse Stream</option>
+        </select>
+        <input id="apiKey" type="password" placeholder="API Key（只通过 stdin 传递）">
+        <label><input id="enableAuth" type="checkbox"> 安装后启用本地登录</label>
+        <input id="adminPassword" type="password" placeholder="管理员密码（仅在启用登录时使用）">
+        <p class="muted">本地 Desktop 默认关闭 auth；只有显式勾选并填写管理员密码时才创建管理员。Provider 连接失败不阻止保存。</p>
+        <div class="row">
+            <button class="secondary" id="testProvider">测试 Provider</button>
+            <button id="install">校验并安装</button>
+            <button class="secondary" id="repair">修复组件</button>
+            <button class="secondary" id="status">检查状态</button>
+            <button class="secondary" id="uninstall">卸载</button>
+            <button class="secondary" id="quit">退出</button>
+        </div>
+    </section>
+    <section>
+        <strong>阶段与日志</strong>
+        <div id="log" aria-live="polite">等待操作…</div>
+    </section>
+</main>
+<script>
+     const bridge = window.neuroBookManager;
+     const $ = (id) => document.getElementById(id);
+     const log = (value) => { const text = typeof value === "string" ? value : JSON.stringify(value); $("log").textContent += `\n${text}`; $("log").scrollTop = $("log").scrollHeight; };
+     bridge.stateRoot().then((path) => { $("stateRoot").textContent = path; }).catch(() => { $("stateRoot").textContent = "无法读取固定 State Root"; });
+    $("choose").addEventListener("click", async () => { const path = await bridge.chooseDepot(); if (path) $("depot").value = path; });
+    $("quit").addEventListener("click", () => bridge.quit());
+    function providerInput() {
+        return {
+            name: $("providerName").value.trim(),
+            baseURL: $("baseURL").value.trim(),
+            api: $("api").value.trim(),
+            apiKey: $("apiKey").value,
+            model: $("model").value.trim(),
+        };
+    }
+    $("testProvider").addEventListener("click", async () => {
+        const result = await bridge.run({kind: "test-provider", provider: providerInput()});
+        $("apiKey").value = "";
+        log({kind: "provider-test-process-exit", ...result});
+    });
+    async function runSimple(action) {
+        const result = await bridge.run({kind: action});
+        log({kind: `${action}-process-exit`, ...result});
+    }
+    $("repair").addEventListener("click", () => runSimple("repair"));
+    $("status").addEventListener("click", () => runSimple("status"));
+    $("uninstall").addEventListener("click", () => bridge.run({kind: "uninstall", deleteData: false}).then((result) => log({kind: "uninstall-process-exit", ...result})));
+    $("install").addEventListener("click", async () => {
+        const depot = $("depot").value;
+        const manifestURL = $("manifestURL").value.trim();
+        if (!depot && !manifestURL) { log("请先选择 Depot、Portable ZIP 或填写 HTTPS manifest。"); return; }
+        if (depot && manifestURL) { log("本地 Depot 与 HTTPS manifest 只能选择一个。"); return; }
+        $("install").disabled = true;
+        const adminPassword = $("adminPassword").value;
+        if ($("enableAuth").checked) {
+            if (!adminPassword) { log("启用登录时必须填写管理员密码。"); $("install").disabled = false; return; }
+        }
+        log({kind: "stage", stage: "starting"});
+        const result = await bridge.run({
+            kind: "install",
+            source: depot ? {kind: "path", value: depot} : {kind: "https-manifest", value: manifestURL},
+            scope: $("scope").value,
+            channel: "canary",
+            runtimeProvider: $("runtimeProvider").value,
+            toolProvider: $("toolProvider").value,
+            addCliToPath: $("addCliToPath").checked,
+            enableAuth: $("enableAuth").checked,
+            ...(adminPassword ? {adminPassword} : {}),
+        });
+        $("adminPassword").value = "";
+        log({kind: "process-exit", ...result});
+        const {name: providerName, baseURL, apiKey, model, api} = providerInput();
+        if (result.exitCode === 0 && providerName && baseURL && apiKey && model) {
+            log({kind: "stage", stage: "saving-provider"});
+            const providerResult = await bridge.run({kind: "configure-provider", provider: {name: providerName, baseURL, api, apiKey, model}});
+            $("apiKey").value = "";
+            log({kind: "provider-process-exit", ...providerResult});
+        }
+        if (result.exitCode === 0) {
+            log({kind: "stage", stage: "launching-neurobook"});
+            await bridge.launchInstalled().catch((error) => log({kind: "launch-failed", message: String(error)}));
+        }
+        $("install").disabled = false;
+    });
+    bridge.onEvent(log);
+</script>
+</body>
+</html>

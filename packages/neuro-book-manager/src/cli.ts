@@ -403,14 +403,15 @@ desktop.command("install")
     .option("--archive <path>", "本地模式使用的 Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
     .option("--shell-archive <path>", "远端模式使用的独立 Desktop Envelope ZIP；不得包含 Product、Bun 或 Tool Pack。")
     .option("--distribution-manifest <path>", "使用本地 Desktop Distribution Manifest；组件 ZIP 必须位于 manifest 根目录内。")
+    .option("--distribution-manifest-url <url>", "从 HTTPS 下载 Desktop Distribution Manifest；组件摘要仍由 Manager 校验。")
     .option("--envelope <envelope>", "桌面壳：electron 或 tauri。", "electron")
     .option("--channel <channel>", "发行通道：stable 或 canary。", parseChannel)
     .option("--remote <url>", "连接远端 Product；不传则使用本机 Product。")
     .option("--allow-insecure-http", "允许局域网 HTTP 远端；安装后状态仍标记为不安全。", false)
     .option("--scope <scope>", "安装范围：user（当前用户，默认）或 machine（Program Files，需要管理员权限）。", "user")
     .option("--dir <path>", "Installation Root；未指定时按 scope 选择默认目录。")
-    .option("--runtime-provider <provider>", "Runtime provider；当前本地 depot 只支持 managed。", "managed")
-    .option("--tool-provider <provider>", "Tool provider；当前本地 depot 只支持 managed。", "managed")
+    .option("--runtime-provider <provider>", "Runtime provider：managed 或 system。", "managed")
+    .option("--tool-provider <provider>", "Tool provider：managed 或 system。", "managed")
     .option("--add-cli-to-path", "把 Manager CLI 加入当前用户 PATH。", false)
     .option("--enable-auth", "安装后启用本地 Product 鉴权，并通过密码创建管理员。", false)
     .option("--password-stdin", "从 stdin 读取本地 Product 首次管理员密码；保持原始 UTF-8 字节，不 trim。", false)
@@ -420,6 +421,7 @@ desktop.command("install")
         archive?: string;
         shellArchive?: string;
         distributionManifest?: string;
+        distributionManifestUrl?: string;
         envelope: string;
         channel?: ReleaseChannel;
         remote?: string;
@@ -436,8 +438,9 @@ desktop.command("install")
     }) => {
         if (process.platform !== "win32") throw new Error("Desktop 用户级安装当前只支持 Windows；macOS 仅完成安装合同与 CI 准备。" );
         if (options.envelope !== "electron" && options.envelope !== "tauri") throw new Error(`不支持的 Desktop envelope：${options.envelope}`);
-        if (options.runtimeProvider !== "managed" || options.toolProvider !== "managed") {
-            throw new Error("本地 Portable depot 当前只提供 managed Bun、Git/Bash 和 rg；system provider 选择将在 Manager 下载合同接入后开放。" );
+        if (!["managed", "system"].includes(options.runtimeProvider)
+            || !["managed", "system"].includes(options.toolProvider)) {
+            throw new Error("Runtime/Tool provider 只支持 managed 或 system。" );
         }
         if (options.scope !== "user" && options.scope !== "machine") {
             throw new Error(`不支持的 Desktop 安装范围：${options.scope}`);
@@ -450,7 +453,7 @@ desktop.command("install")
         if (!remoteUrl && options.passwordStdin && !options.enableAuth) {
             throw new Error("--password-stdin 只有与 --enable-auth 一起使用时才会读取密码。");
         }
-        const depotArguments = [options.archive, options.shellArchive, options.distributionManifest].filter((value) => value !== undefined);
+        const depotArguments = [options.archive, options.shellArchive, options.distributionManifest, options.distributionManifestUrl].filter((value) => value !== undefined);
         if (depotArguments.length !== 1) throw new Error("Desktop 安装必须且只能提供 --archive、--shell-archive 或 --distribution-manifest 之一。" );
         if (remoteUrl) {
             if (options.archive) throw new Error("远端 Desktop 安装不能使用完整 --archive。" );
@@ -485,6 +488,7 @@ desktop.command("install")
             ...(options.archive ? {archivePath: options.archive} : {}),
             ...(options.shellArchive ? {shellArchivePath: options.shellArchive} : {}),
             ...(options.distributionManifest ? {distributionManifestPath: options.distributionManifest} : {}),
+            ...(options.distributionManifestUrl ? {distributionManifestUrl: options.distributionManifestUrl} : {}),
             envelope: options.envelope,
             channel: options.channel ?? "canary",
             installationScope: options.scope as "user" | "machine",
@@ -493,6 +497,8 @@ desktop.command("install")
                 : {mode: "local"},
             installationRoot: options.dir,
             addCliToUserPath: options.addCliToPath,
+            runtimeProvider: options.runtimeProvider as "managed" | "system",
+            toolProvider: options.toolProvider as "managed" | "system",
             managerExecutable,
             ...(adminPassword !== undefined ? {adminPassword} : {}),
         });
@@ -525,12 +531,20 @@ desktop.command("broker")
     .requiredOption("--nonce <nonce>", "GUI 创建的一次性连接 nonce。")
     .requiredOption("--operation-id <operationId>", "GUI 创建的一次性 operation ID。")
     .requiredOption("--action <action>", "提升动作：desktop-install、desktop-repair 或 uninstall。")
+    .requiredOption("--installation-root <path>", "绑定本次操作的 canonical Installation Root。")
+    .option("--installation-id <id>", "绑定已有 Desktop Installation Manifest 的 installationId。")
+    .option("--manifest-sha256 <digest>", "绑定已有 Desktop Installation Manifest 的摘要。")
+    .option("--delete-data", "绑定卸载是否删除 State Root。", false)
     .option("--secret-pipe <pipe>", "仅用于内存中的管理员密码字节，不传入控制 NDJSON。")
     .action(async (options: {
         pipe: string;
         nonce: string;
         operationId: string;
         action: "desktop-install" | "desktop-repair" | "uninstall";
+        installationRoot: string;
+        installationId?: string;
+        manifestSha256?: string;
+        deleteData: boolean;
         secretPipe?: string;
     }) => {
         if (!["desktop-install", "desktop-repair", "uninstall"].includes(options.action)) {
@@ -542,6 +556,10 @@ desktop.command("broker")
             operationId: options.operationId,
             action: options.action,
             managerExecutable,
+            installationRoot: options.installationRoot,
+            installationId: options.installationId ?? null,
+            manifestSha256: options.manifestSha256 ?? null,
+            deleteData: options.deleteData,
             ...(options.secretPipe ? {secretPipe: options.secretPipe} : {}),
         });
     });

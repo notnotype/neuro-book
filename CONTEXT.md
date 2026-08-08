@@ -72,7 +72,7 @@ _Avoid_: GUI-owned installer, second Electron runtime, Product replacement
 围绕 Product Runtime 的 Electron 或 Tauri 宿主，拥有窗口、单实例、菜单、托盘、WebView profile 和设备本地状态；它通过 Manager/Supervisor 合同启动 Product，不复制业务命令。
 _Avoid_: Product replacement, browser-only shell, GUI Manager
 
-**Desktop Installation Manifest v2**:
+**Desktop Installation Manifest v3**:
 本机桌面安装的真相源，记录 `user`/`machine` 安装范围、程序相对根、State/Cache/Desktop/WebView 用户 locators、组件 receipts 和默认保留 State Root 的卸载策略；不保存 API Key、cookie 或 shutdown token。
 _Avoid_: portable payload manifest, absolute installation path, user content backup
 
