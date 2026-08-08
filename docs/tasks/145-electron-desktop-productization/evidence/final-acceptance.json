@@ -200,6 +200,21 @@
             "stateRootTouched": false,
             "message": "全局安装需要管理员权限写入 C:\\Program Files"
         },
+        "currentCheckpointProviderMatrix": {
+            "systemApplicationRuntimeManagedTools": {
+                "status": "passed",
+                "applicationRuntime": "system",
+                "managerRuntime": "managed",
+                "git": "managed",
+                "rg": "managed",
+                "globalPathMutation": false
+            },
+            "systemAll": {
+                "status": "fail-closed",
+                "message": "Git Bash 未返回版本信息。",
+                "partialManifestWritten": false
+            }
+        },
         "machineInstallWithoutElevation": {
             "passed": true,
             "behavior": "fail-closed",

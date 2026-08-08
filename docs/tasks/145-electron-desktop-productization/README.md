@@ -124,4 +124,5 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 新 Portable headless graceful smoke：10 次均 exit code 0；5×冷启动 Product ready 平均 4209.23 ms、wall 平均 4553.18 ms，5×暖启动 Product ready 平均 4262.34 ms、wall 平均 4504.56 ms。每次 shutdown 均为 `graceful`。
 - 新 Portable CDP 的配置中心实际使用 `data-dialog-size="full"`，尺寸 1120×640；遮罩为 `rgba(0,0,0,.5)`，`backdrop-filter=none`，统一阴影生效；关闭后 Electron/Product 进程均收口。Manager GUI headless exit code 0。
 - 当前 checkpoint 用户级安装默认卸载已保留 State Root；第二个隔离 sandbox 使用 `--delete-data` 卸载后 State/Cache/Desktop/Installation Root 均删除。当前包 machine 非提升安装返回 `exitCode=1` 的管理员权限错误，隔离 State Root 未触碰。
+- Provider 矩阵补测：`system Bun + managed Git/rg` 安装成功且不修改全局 PATH；`system Bun + system Git/rg` 因本机 Bash shim 无版本输出而 fail-closed，未写半成品 Manifest。
 - 该批次修复了 ready 回调在 Installation lease 释放前触发的竞态，以及配置中心和 Profile 导航残留的 90vh 尺寸耦合；修复均已进入 checkpoint，不改变安装、State Root、UAC 或 Product Runtime 合同。
