@@ -1,5 +1,6 @@
 import {existsSync, readFileSync} from "node:fs";
-import {join, resolve} from "node:path";
+import {join} from "node:path";
+import {win32 as windowsPath} from "node:path";
 
 import {
     parseDesktopInstallationManifest,
@@ -30,22 +31,22 @@ export function isCanonicalInstalledRoot(
     const localAppData = environment.localAppData
         ?? environment.LOCALAPPDATA
         ?? (environment.userProfile ?? environment.USERPROFILE
-            ? join(environment.userProfile ?? environment.USERPROFILE!, "AppData", "Local")
+            ? windowsPath.join(environment.userProfile ?? environment.USERPROFILE!, "AppData", "Local")
             : undefined)
         ?? (environment.home ?? environment.HOME
-            ? join(environment.home ?? environment.HOME!, "AppData", "Local")
+            ? windowsPath.join(environment.home ?? environment.HOME!, "AppData", "Local")
             : undefined);
     const programFiles = environment.programFiles
         ?? environment.ProgramFiles
         ?? (environment.systemDrive ?? environment.SystemDrive
-            ? join(environment.systemDrive ?? environment.SystemDrive!, "Program Files")
+            ? windowsPath.join(environment.systemDrive ?? environment.SystemDrive!, "Program Files")
             : "C:\\Program Files");
     const candidates = [
-        ...(localAppData ? [join(localAppData, "Programs", "NeuroBook")] : []),
-        join(programFiles, "NeuroBook"),
+        ...(localAppData ? [windowsPath.join(localAppData, "Programs", "NeuroBook")] : []),
+        windowsPath.join(programFiles, "NeuroBook"),
     ];
-    const normalized = resolve(root).toLowerCase();
-    return candidates.some((candidate) => resolve(candidate).toLowerCase() === normalized);
+    const normalized = windowsPath.resolve(root).toLowerCase();
+    return candidates.some((candidate) => windowsPath.resolve(candidate).toLowerCase() === normalized);
 }
 
 /**
@@ -80,20 +81,20 @@ export function requireInstalledManifest(
         );
     }
     const expectedRoot = manifest.installationScope === "machine"
-        ? resolve(environment.programFiles
+        ? windowsPath.resolve(environment.programFiles
             ?? environment.ProgramFiles
             ?? (environment.systemDrive ?? environment.SystemDrive
-                ? join(environment.systemDrive ?? environment.SystemDrive!, "Program Files")
+                ? windowsPath.join(environment.systemDrive ?? environment.SystemDrive!, "Program Files")
                 : "C:\\Program Files"), "NeuroBook")
-        : resolve(environment.localAppData
+        : windowsPath.resolve(environment.localAppData
             ?? environment.LOCALAPPDATA
             ?? (environment.userProfile ?? environment.USERPROFILE
-                ? join(environment.userProfile ?? environment.USERPROFILE!, "AppData", "Local")
+                ? windowsPath.join(environment.userProfile ?? environment.USERPROFILE!, "AppData", "Local")
                 : undefined)
             ?? (environment.home ?? environment.HOME
-                ? join(environment.home ?? environment.HOME!, "AppData", "Local")
+                ? windowsPath.join(environment.home ?? environment.HOME!, "AppData", "Local")
                 : "C:\\Users\\Default\\AppData\\Local"), "Programs", "NeuroBook");
-    if (resolve(root).toLowerCase() !== expectedRoot.toLowerCase()) {
+    if (windowsPath.resolve(root).toLowerCase() !== expectedRoot.toLowerCase()) {
         throw new Error("Installed Desktop Installation Manifest 的 installationScope 与 Installation Root 不一致，请通过 Manager Repair 修复。");
     }
     return manifest;
