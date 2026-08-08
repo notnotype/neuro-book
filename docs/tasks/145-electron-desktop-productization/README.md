@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**当前分支 HEAD `6316375e` 的 Electron 壳门禁、聚焦测试、同一 verified Product image 的重组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**当前分支 HEAD `912bc093` 的 Electron 壳门禁、聚焦测试、同一 verified Product image 的重组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -62,7 +62,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
 - UAC Broker focused：共享协议 4 个测试通过；Manager Broker 3 个测试通过，覆盖 machine action 白名单、UTF-8 stdin 字节传递、secret pipe 握手和 CLI 输出回显 fail-closed。
 - 基础 machine root focused：InstallationMutation、Windows Uninstall Host、UAC Broker 共 3 files / 15 tests 通过；Desktop Manager GUI Contract 1/1 通过。Follow-up 的安装/UAC focused 为 2 files / 18 tests。
-- PR #88 在当前 HEAD `6316375e` 的 CI：Windows/Linux/macOS Desktop/Product、Typecheck、Community files/docs 和 `Full tests (advisory)` 全部通过。此前 `048ba5d0` 的 advisory 失败是 Harness cancellation 运行时竞态，当前 CI 已恢复；本地全量测试仍记录到相同领域的独立超时，不能把本地一次性失败写成当前 CI 状态。
+- PR #88 在当前 HEAD `912bc093` 的 CI：Windows/Linux/macOS Desktop/Product、Typecheck、Community files/docs 和 `Full tests (advisory)` 全部通过。此前 `048ba5d0` 的 advisory 失败是 Harness cancellation 运行时竞态，当前 CI 已恢复；本地全量测试仍记录到相同领域的独立超时，不能把本地一次性失败写成当前 CI 状态。
 - Follow-up 新增回归：machine-scope 外置卸载 launcher 按安装清单中的 `manager/neuro-book.mjs` 生成，不再硬编码不存在的 `.runtime/manager`；UAC repair/uninstall 缺少 `--root` 时 fail closed。两文件 / 18 个 Manager focused tests 通过。
 - Follow-up 已完成生产目录和命名收口：`desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging` 使用正式路径；活动源代码改用 `NBOOK_DESKTOP_DEV_*` 和 `--desktop-*` 测试入口，Tauri release binary 为 `neuro-book-tauri-envelope.exe`。迁移后的 `desktop-security-audit`、`cargo fmt --check`、`cargo check --locked`、Electron bundle 均通过。
 - Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；295 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check --locked` 和 Desktop Contract（11 个文件 / 40 个测试）；`git diff --check` 通过。全量 `bun run test` 为 494 个测试文件通过、1 个跳过、3 个失败；失败分别是 Git 文本扫描 5 秒超时、忽略 AbortSignal 的 Harness 黑盒用例 30 秒超时，以及全套并发清理的 `ENOTEMPTY`。其中 Git 扫描单独以 60 秒预算通过，Harness 黑盒用例单独仍可复现超时，第三项单独运行通过；这些是独立基线问题，不归因于 Electron 改动。

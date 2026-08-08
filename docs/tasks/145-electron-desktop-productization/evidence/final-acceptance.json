@@ -64,7 +64,7 @@
         "productImageVerifierAB": "passed",
         "portablePayloadVerifier": "passed",
         "pullRequest88Ci": {
-            "head": "6316375e438f0968503a8d1690dfa1d0047ee90d",
+            "head": "912bc0930f3f482f23192abd1d84b8a30e797afb",
             "passed": [
                 "windows-x64 desktop contracts",
                 "linux-x64-glibc Product",
@@ -78,7 +78,7 @@
                 "Full tests (advisory)"
             ],
             "allChecksPassed": true,
-            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；6316375e 已通过。"
+            "previousTransientFailure": "048ba5d0 的 Full tests advisory 曾因 Harness cancellation 运行时竞态失败；912bc093 已通过。"
         },
         "installedManifestGate": {
             "status": "passed",
