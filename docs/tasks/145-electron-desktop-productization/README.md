@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**Windows x64 内部 beta candidate 已完成代码与自动化收口，尚未作为公开发行版发布。** Product candidate 的 Source revision 为 `eac5185838479dc37ab2ff1fe6418cf46f40ba57`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**Windows x64 内部 beta candidate 已完成代码、自动化和真实 machine-scope 生命周期验收，尚未作为公开发行版发布。** Product candidate 的 Source revision 为 `eac5185838479dc37ab2ff1fe6418cf46f40ba57`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v2`：记录 `installationScope`、程序根、用户 Root、组件 receipts 和默认保留 State Root 的卸载策略；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -17,11 +17,12 @@
 - 与主 Electron 共用 Chromium 的 Manager GUI 入口：`--manager-gui`、`manager-main.mjs`、`manager-preload.cjs` 和本地向导页面；
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
 - `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录；
-- machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手。
+- machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手；
+- machine-scope 的真实 Windows UAC install、repair、uninstall 已通过；卸载后 Program Files、HKLM、协议、公共快捷方式、Cache 和 Desktop/WebView 删除，State Root 保留；
+- 修复了 machine canonical root 仍被 Installed v1 校验拒绝，以及 GUI uninstall 未传 `--json` 导致 UAC Broker 解析失败的两个回归。
 
-Machine scope 的真实 GUI UAC 仍未完成最终验收：代码和自动化 Broker 测试已落地，UAC 未批准路径已在真实 GUI 中返回
-`uac-cancelled` 且未执行安装；本机尚未完成一次点击“允许”后的真实提升安装、修复、卸载闭环。Proposed
-[ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 在完成该可见验收前保持 Proposed。
+真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；成功路径已在本机完成，见下方证据。
+[ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 已 Accepted。
 
 ## 合同
 
@@ -51,11 +52,12 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 聚焦和构建门禁
 
-- `bun run manager:test`：41 个测试文件通过、1 个跳过；292 个测试通过、3 个跳过；Manager release contract 1/1 通过。
+- `bun run manager:test`：41 个测试文件通过、1 个跳过；293 个测试通过、3 个跳过；Manager release contract 1/1 通过。
 - `bun run manager:typecheck`、`bun run typecheck`、`bun run test:desktop-contract`：通过；Desktop Contract 为 9 个文件 / 35 个测试。
 - `bun run manager:build`、`bun run --cwd desktop/spikes/electron build`：通过；Electron 生成 `main.mjs`、`preload.cjs`、`manager-main.mjs`、`manager-preload.cjs`。
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
 - UAC Broker focused：共享协议 4 个测试通过；Manager Broker 3 个测试通过，覆盖 machine action 白名单、UTF-8 stdin 字节传递、secret pipe 握手和 CLI 输出回显 fail-closed。
+- machine root focused：InstallationMutation、Windows Uninstall Host、UAC Broker 共 3 files / 15 tests 通过；Desktop Manager GUI Contract 1/1 通过。
 - PR #88 的最新 CI（commit `ec63a755`）已通过：Windows/macOS Desktop Contract、Linux/macOS Product、Typecheck、Full tests 和 Community files/docs；其中 UAC named-pipe 集成测试仅在 Windows runner 执行，非 Windows runner 显式跳过。
 
 ### 最终 Product A/B
@@ -81,9 +83,10 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 本次打包 Electron 的一次真实启动记录：启动页可见 `241.90 ms`，Product 后台验证完成 `1394.28 ms`，Product ready `11377.68 ms`，Desktop Bridge ready `11565.09 ms`，正式窗口 ready `11567.06 ms`。这是一轮观测值，不替代五次冷/暖启动统计；若需继续优化，应单开 Product Runtime 启动 profiling 任务。
 - 远端协议 smoke 使用真实打包 Electron 连接 loopback capability 服务通过：Bridge 返回 `connection=remote`，origin 精确匹配，远端页面成功加载并 graceful shutdown；这不是完整远端 Product/B/S UI 验收。
 - 当前用户安装/卸载：安装根、State/Cache/Desktop roots、`neurobook://`、开始菜单和桌面快捷方式均实际验证；卸载删除程序、Cache、Desktop/WebView、注册项和快捷方式并保留 State Root。
-- 全局安装的非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”；真正的 UAC 提升安装尚未在本机自动化执行。
-- 新版 Electron Portable（当前 UAC Broker 代码）已重新组包并解压到隔离临时根；Manager GUI CDP 触发 machine install 后，未批准/未连接路径在 45 秒内返回 `uac-cancelled`，未创建 `Program Files/NeuroBook`。UAC “允许”后的真实安装、修复、卸载仍未验证。
-- 最终 UAC Broker 代码组包使用既有 candidate Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf`：Electron Portable 9,608 个文件 / 985,614,739 bytes，ZIP 389,356,806 bytes，SHA-256 `c438f9350bcd9c58493b17fbfd09024a46399c46bd2aa004a357493252197212`；Aggregate Depot 7 个文件 / 632,952,159 bytes，ZIP 627,844,403 bytes，SHA-256 `da867dcc82a5ff57196bed3a2a485767ed05604e5499539cfa2903a965d64fea`。该包已通过 Manager GUI headless smoke；未把未完成的 UAC “允许”路径写成通过。
+- 全局安装的非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”；真实 UAC 允许路径已在本机完成 install、repair、uninstall。
+- 修复后的 Electron Portable 重新组包并解压到隔离临时根；Manager GUI CDP 触发 machine install、repair、uninstall 均通过真实 UAC Broker。新包 Product image 为 `sha256:06df9a0285c878a7d04fe85790731e9219ceefb3fa5e614848819404693fbba8`，Electron ZIP 389,357,038 bytes，SHA-256 `bb7d707b8afaf8061be617279120ccb731c71fa976565d9e8681116afa19ca2a`。
+- 成功卸载后的核对：`C:\Program Files\NeuroBook`、HKLM uninstall、HKLM `neurobook://`、`C:\Users\Public\Desktop\NeuroBook.lnk`、公共开始菜单快捷方式、Cache Root 和 Desktop Root 均不存在；State Root 保留，`config.yaml` SHA-256 为 `F104B5E7CA77E9F2A0630A6B152BB03620B6DA4DEECED8D6E97AD4D7D68CB975`。
+- 先前 candidate Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 的 Portable/Depot 数字继续作为基础包记录；本轮修复后的验证包另记录为 Product image `sha256:06df9a0285c878a7d04fe85790731e9219ceefb3fa5e614848819404693fbba8`，Electron ZIP 389,357,038 bytes，SHA-256 `bb7d707b8afaf8061be617279120ccb731c71fa976565d9e8681116afa19ca2a`。
 
 ## 偏差与后续
 

@@ -24,7 +24,7 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 
 - `user`：程序位于 `%LOCALAPPDATA%/Programs/NeuroBook`。
 - `machine`：程序位于 `%ProgramFiles%/NeuroBook`，需要提升权限；State、Cache、Desktop/WebView 仍按登录用户隔离。
-- Manager GUI 通过 Proposed [ADR 0016](0016-windows-desktop-uac-broker.md) 的一次性 UAC Broker 请求 machine-scope 安装、修复和卸载；Broker 的协议与 secret 自动化已实现，但在该 ADR Accepted 和真实 UAC 允许后的可见验收前，machine scope 仍不能写成已完成。
+- Manager GUI 通过已 Accepted 的 [ADR 0016](0016-windows-desktop-uac-broker.md) 一次性 UAC Broker 请求 machine-scope 安装、修复和卸载；Broker 的协议、secret 传递和真实 Windows UAC 生命周期已通过 Task 145 验收。
 - Portable：程序和用户数据跟随解压根移动。
 - `Desktop Installation Manifest v2` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts 和默认保留 State Root 的卸载策略。
 - 卸载默认删除程序、Cache、Desktop/WebView 和有界日志，保留 State Root；明确选择删除数据时才删除托管 State Root，外部 Project Workspace 永不删除。

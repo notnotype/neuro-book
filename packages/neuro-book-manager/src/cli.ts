@@ -335,8 +335,9 @@ program.command("doctor")
 program.command("uninstall")
     .description("卸载当前或指定安装；默认保留 State Root 用户数据。")
     .option("--delete-data", "同时删除托管 State Root；外部 Project Workspace 永不删除。", false)
+    .option("--json", "输出单行 NDJSON 完成回执。", false)
     .option("--yes", "确认执行卸载。", false)
-    .action(async (options: {deleteData: boolean; yes: boolean}) => {
+    .action(async (options: {deleteData: boolean; json: boolean; yes: boolean}) => {
         const {root, manifest} = await currentInstallation();
         if (!options.yes) {
             if (!process.stdin.isTTY || !process.stdout.isTTY) {
@@ -363,9 +364,32 @@ program.command("uninstall")
         const instance = findManagerInstance(config, root);
         if (instance) await forgetManagerInstance(instance.id);
         if (result.status === "scheduled") {
+            if (options.json) {
+                printNdjson({
+                    kind: "complete",
+                    action: "uninstall",
+                    status: result.status,
+                    installationRoot: result.installationRoot,
+                    stateRoot: result.stateRoot,
+                    statePreserved: result.statePreserved,
+                    resultPath: result.resultPath,
+                });
+                return;
+            }
             p.outro(result.statePreserved
                 ? `卸载已安排；当前命令退出后删除程序，用户数据保留在：${result.stateRoot}\n结果记录：${result.resultPath}`
                 : `卸载已安排；当前命令退出后删除程序和托管用户数据。\n结果记录：${result.resultPath}`);
+            return;
+        }
+        if (options.json) {
+            printNdjson({
+                kind: "complete",
+                action: "uninstall",
+                status: result.status,
+                installationRoot: result.installationRoot,
+                stateRoot: result.stateRoot,
+                statePreserved: result.statePreserved,
+            });
             return;
         }
         p.outro(result.statePreserved

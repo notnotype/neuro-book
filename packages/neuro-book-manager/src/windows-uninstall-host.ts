@@ -228,10 +228,15 @@ try {
         }
     } elseif ($intent.layout -eq "installed-windows") {
         $localAppData = Resolve-CanonicalPath $env:LOCALAPPDATA
-        if (-not (Test-SamePath $root (Join-Path $localAppData "Programs\NeuroBook"))) { throw "The Installed v1 program root does not match." }
-        if (-not (Test-SamePath $state (Join-Path $localAppData "NeuroBook\data"))) { throw "The Installed v1 State Root does not match." }
-        if (-not (Test-SamePath $cache (Join-Path $localAppData "NeuroBook\cache"))) { throw "The Installed v1 Cache Root does not match." }
-        if (-not (Test-SamePath $desktop (Join-Path $localAppData "NeuroBook\desktop"))) { throw "The Installed v1 Desktop Root does not match." }
+        $programFiles = if ($env:ProgramFiles) { Resolve-CanonicalPath $env:ProgramFiles } else { Resolve-CanonicalPath (Join-Path $env:SystemDrive "Program Files") }
+        $programRoots = @(
+            (Join-Path $localAppData "Programs\NeuroBook"),
+            (Join-Path $programFiles "NeuroBook")
+        )
+        if (-not ($programRoots | Where-Object { Test-SamePath $root $_ })) { throw "The Installed Windows program root does not match." }
+        if (-not (Test-SamePath $state (Join-Path $localAppData "NeuroBook\data"))) { throw "The Installed Windows State Root does not match." }
+        if (-not (Test-SamePath $cache (Join-Path $localAppData "NeuroBook\cache"))) { throw "The Installed Windows Cache Root does not match." }
+        if (-not (Test-SamePath $desktop (Join-Path $localAppData "NeuroBook\desktop"))) { throw "The Installed Windows Desktop Root does not match." }
     } else {
         throw "The uninstall layout is invalid."
     }
@@ -304,15 +309,18 @@ function assertWindowsUninstallIntent(intent: WindowsUninstallIntent, root: stri
         }
         return;
     }
-    const expectedRoot = resolve(localAppDataRoot(), "Programs", "NeuroBook");
-    const expectedRoots = resolveInstallationRoots(expectedRoot, INSTALLED_WINDOWS_ROOT_LOCATORS);
+    const allowedProgramRoots = [
+        resolve(localAppDataRoot(), "Programs", "NeuroBook"),
+        resolve(process.env.ProgramFiles ?? join(process.env.SystemDrive ?? "C:", "Program Files"), "NeuroBook"),
+    ];
+    const expectedRoots = resolveInstallationRoots(allowedProgramRoots[0]!, INSTALLED_WINDOWS_ROOT_LOCATORS);
     if (
-        !samePath(root, expectedRoot)
+        !allowedProgramRoots.some((candidate) => samePath(root, candidate))
         || !samePath(intent.stateRoot, expectedRoots.state)
         || !samePath(intent.cacheRoot, expectedRoots.cache)
         || !samePath(intent.desktopRoot, expectedRoots.desktop)
     ) {
-        throw new Error("Windows Installed v1 uninstall intent 不符合固定 owner 布局。" );
+        throw new Error("Windows Installed uninstall intent 不符合固定 owner 布局。" );
     }
 }
 

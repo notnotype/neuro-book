@@ -29,6 +29,7 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(packager).toContain("NeuroBook-Manager.cmd");
         expect(html).toContain("校验并安装");
         expect(html).toContain("--password-stdin");
+        expect(html).toContain('"uninstall", "--yes", "--json"');
         expect(html).toContain('$("adminPassword").value = ""');
         expect(html).toContain('id="apiKey" type="password"');
         expect(html).toContain('value="openai-responses"');

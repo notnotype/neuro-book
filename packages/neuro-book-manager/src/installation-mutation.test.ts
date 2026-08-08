@@ -107,7 +107,7 @@ describe("InstallationMutation", () => {
         await expect(mutateInstallation(root, async () => undefined)).rejects.toThrow("Windows 卸载已安排");
     });
 
-    it.runIf(process.platform === "win32")("Installed v1 拒绝固定 Programs/NeuroBook 之外的目录", async () => {
+    it.runIf(process.platform === "win32")("Windows Installed 拒绝固定 Programs/NeuroBook 之外的目录", async () => {
         const sandbox = testSandbox("installed-root");
         vi.stubEnv("LOCALAPPDATA", join(sandbox, "Local"));
         const root = join(sandbox, "arbitrary-installed-root");
@@ -118,6 +118,16 @@ describe("InstallationMutation", () => {
         const canonicalRoot = join(sandbox, "Local", "Programs", "NeuroBook");
         await mkdir(canonicalRoot, {recursive: true});
         await expect(installationLeasePath(canonicalRoot)).resolves.toMatch(/leases[\\/]installed-v1$/u);
+    });
+
+    it.runIf(process.platform === "win32")("Installed v2 machine root 使用独立 lease 且允许 mutation", async () => {
+        const sandbox = testSandbox("installed-machine-root");
+        vi.stubEnv("ProgramFiles", join(sandbox, "Program Files"));
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        await prepareInstallation(root, manifest("product-bun"));
+
+        await expect(mutateInstallation(root, async (mutation) => mutation.manifest.profile)).resolves.toBe("product-bun");
+        await expect(installationLeasePath(root)).resolves.toMatch(/leases[\\/]installed-machine-v2$/u);
     });
 });
 

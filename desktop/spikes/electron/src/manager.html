@@ -98,7 +98,7 @@
     }
     $("repair").addEventListener("click", () => runSimple("repair", ["desktop", "repair", "--json"]));
     $("status").addEventListener("click", () => runSimple("status", ["status", "--json"]));
-    $("uninstall").addEventListener("click", () => runSimple("uninstall", ["uninstall", "--yes"]));
+    $("uninstall").addEventListener("click", () => runSimple("uninstall", ["uninstall", "--yes", "--json"]));
     $("install").addEventListener("click", async () => {
         const depot = $("depot").value;
         if (!depot) { log("请先选择 Depot 或 Portable ZIP。"); return; }

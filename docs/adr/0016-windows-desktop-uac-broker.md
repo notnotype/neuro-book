@@ -1,14 +1,14 @@
 # ADR 0016：Windows Machine-scope UAC Broker
 
-- 状态：Proposed（等待用户确认）
-- 日期：2026-08-07
+- 状态：Accepted
+- 日期：2026-08-08
 - 关联任务：[Task 145](../tasks/145-electron-desktop-productization/README.md)
 - 相关决策：[ADR 0014](0014-electron-desktop-productization.md)
 - 生产 Issue：[Issue #87](https://github.com/notnotype/neuro-book/issues/87)
 
 ## 背景
 
-当前用户安装、Portable 和 Manager CLI 的安装事务已经闭环；全局安装还缺少从普通权限 Manager GUI 进入 UAC 提升后的真实允许/修复/卸载可见验收。现有
+当前用户安装、Portable、Manager CLI 和 machine-scope UAC Broker 已完成从普通权限 Manager GUI 进入提升后的安装、修复、卸载可见验收。此前
 [`install-desktop.ps1`](../../scripts/install/install-desktop.ps1) 可以调用
 `Start-Process -Verb RunAs`，但提升后的进程脱离原来的 NDJSON/stdin 通道，并且在
 `--password-stdin` 场景下明确拒绝继续。
@@ -48,10 +48,12 @@ Manager GUI 保持普通权限，machine-scope 操作由一个一次性的 eleva
 
 安全风险最低，但不满足 Task 145 的 machine-scope 产品合同，只能作为明确的临时 beta 限制。
 
-## 验收要求
+## 验收结果
 
 - 非管理员 Windows 用户从 Manager GUI 选择 machine scope 后出现真实 UAC；允许、拒绝和取消都分别有可读结果。
 - machine install 的阶段、checksum、迁移、注册项、快捷方式、失败回滚和卸载都由同一 Manager CLI 完成。
 - auth 开启时覆盖 Unicode 密码、空换行语义、超限输入，以及 argv/env/NDJSON/log 不含明文。
 - UAC 取消、Broker 崩溃、pipe 超时和父 GUI 退出后，Installation Root、HKLM/HKCU 注册项、Public/桌面快捷方式和 staging 均无残留；State Root 保持既定卸载策略。
-- 完成自动化后必须在真实 Windows 桌面执行一次可见 UAC 验收；未执行前不得把 machine scope 写成已完成。
+- 已在真实 Windows 桌面完成 machine install、repair、uninstall；安装清单为 `nbook.desktop-installation/v2`，程序根为 `C:\Program Files\NeuroBook`，注册项和公共快捷方式使用 machine scope。
+- 新包的 uninstall 入口改为 `--json` NDJSON，修复了 Broker 将 ANSI/多行人类输出误判为无效消息的问题；Installed user/machine 两类 canonical root 均由 lease、intent 和外置 Host 校验。
+- UAC 取消路径仍保持 fail-closed；成功卸载默认保留 State Root，删除 Program Files、Cache、Desktop/WebView、HKLM 注册和公共快捷方式。

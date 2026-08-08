@@ -38,9 +38,9 @@
     },
     "checks": {
         "managerTests": {
-            "filesPassed": 40,
+            "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 289,
+            "testsPassed": 293,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -82,6 +82,37 @@
         "machineInstallWithoutElevation": {
             "passed": true,
             "behavior": "fail-closed"
+        },
+        "machineScopeUac": {
+            "passed": true,
+            "package": {
+                "productImageId": "sha256:06df9a0285c878a7d04fe85790731e9219ceefb3fa5e614848819404693fbba8",
+                "electronArchiveBytes": 389357038,
+                "electronArchiveSha256": "sha256:bb7d707b8afaf8061be617279120ccb731c71fa976565d9e8681116afa19ca2a"
+            },
+            "installationScope": "machine",
+            "programRoot": "C:\\Program Files\\NeuroBook",
+            "installationManifestSchema": "nbook.desktop-installation/v2",
+            "install": {
+                "passed": true,
+                "registryHive": "HKLM",
+                "protocol": "HKLM",
+                "publicShortcuts": true,
+                "stateRootCreated": true
+            },
+            "repair": {
+                "passed": true
+            },
+            "uninstall": {
+                "passed": true,
+                "programRootRemoved": true,
+                "registrationRemoved": true,
+                "publicShortcutsRemoved": true,
+                "cacheRootRemoved": true,
+                "desktopRootRemoved": true,
+                "stateRootPreserved": true,
+                "stateConfigSha256": "sha256:f104b5e7ca77e9f2a0630a6b152bb03620b6da4deeced8d6e97ad4d7d68cb975"
+            }
         }
     },
     "startupObserved": {
@@ -99,7 +130,6 @@
         "onlineSuccess": "not-run"
     },
     "notCovered": [
-        "elevated machine install/UAC",
         "native tray and Snap Layout",
         "real provider success",
         "Tauri visible UI",
