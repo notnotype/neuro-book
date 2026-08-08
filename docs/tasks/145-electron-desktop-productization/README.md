@@ -84,11 +84,11 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### Follow-up 壳门禁后的重组包
 
-本轮只替换 Electron/Tauri Envelope 与 Manager GUI，不重跑 Product A/B；输入仍是已验证的 Product image `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`。最后一轮同一输入连续组包两次（`C:\t145-followup-6316375e-desktop-d`、`C:\t145-followup-6316375e-desktop-e`），六个归档/manifest 摘要逐字节一致：
+本轮只替换 Electron/Tauri Envelope 与 Manager GUI，不重跑 Product A/B；输入仍是已验证的 Product image `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`。最后一轮同一输入连续组包两次（`C:\t145-followup-6316375e-desktop-f`、`C:\t145-followup-6316375e-desktop-g`），六个归档/manifest 摘要逐字节一致：
 
-- Electron Portable：9,608 个 payload 文件、985,666,179 bytes，ZIP 389,368,122 bytes，SHA-256 `3eac41b6173c2377d3374c58e7636d41ab8918dd92b08089667bafed6942d2b1`。
+- Electron Portable：9,608 个 payload 文件、985,666,351 bytes，ZIP 389,368,150 bytes，SHA-256 `873cdd7c94bb51171b7ee3c767517f9bbf2c20bc2929d15e5ccf9630e34c74b9`。
 - Tauri Portable：ZIP 243,586,839 bytes，SHA-256 `6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23`。
-- Aggregate Depot：7 个文件、632,970,677 bytes payload，ZIP 627,862,209 bytes，SHA-256 `9e3eb366f6bf670b42dffef2d671b8a6f146f78a718c6538ae736b2f0197ce13`。
+- Aggregate Depot：7 个文件、632,970,705 bytes payload，ZIP 627,862,215 bytes，SHA-256 `2431dd7ab04c914335eafd822c3b5ecd436086f819844c5fe737cbab101bb5f5`。
 
 新 Electron Portable 的仓库外 headless Product、Manager GUI headless 和 Manager GUI CDP 均通过；它们不替代真实 machine UAC、托盘或窗口 Snap 验收。
 
