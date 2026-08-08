@@ -1,6 +1,6 @@
 # Project Status
 
-> 截至 2026-08-07。本文只记录仓库级现状，不替代 `docs/tasks/` 中的实现 walkthrough；具体 TODO 和后续安排以对应 Issue、Task 为准。
+> 截至 2026-08-08。本文只记录仓库级现状，不替代 `docs/tasks/` 中的实现 walkthrough；具体 TODO 和后续安排以对应 Issue、Task 为准。
 
 ## 一句话结论
 
