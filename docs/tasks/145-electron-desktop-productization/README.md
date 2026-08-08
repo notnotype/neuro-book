@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**Follow-up 的代码、聚焦测试、clean Product A/B、Portable/Depot 重复组包、仓库外 Portable 直启和当前用户安装/卸载均已通过；machine-scope 的真实 UAC install/repair/uninstall 仍沿用 Follow-up 前的基线证据，尚未在本轮最终包上重跑。** 当前 verified Product Source revision 为 `64be3ecda4cd5775907e29fd93ffd8ea211359d8`，Product image 为 `sha256:1a00883a9177516d8426b9d9728d3a98b2aca0eb43fe8b31ed04daf27d734dd1`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**当前提交 `b2e6d986` 的代码、聚焦测试、clean Product A/B、同一 verified image 的 Portable/Depot 重复组包、仓库外 Portable 直启、当前用户安装/卸载和主 Electron CDP 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product image 为 `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -18,13 +18,13 @@
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
 - `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录；
 - machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手；
-- machine-scope 的真实 Windows UAC install、repair、uninstall 已通过；卸载后 Program Files、HKLM、协议、公共快捷方式、Cache 和 Desktop/WebView 删除，State Root 保留；
+- machine-scope GUI 已接入一次性 UAC Broker；当前最终包的非提升路径已按合同 fail-closed，真实提升路径因实际用户 State Root 已存在而未执行，历史包的成功 UAC 证据单独标记为基线，不作为当前包证据；
 - 修复了 machine canonical root 仍被 Installed v1 校验拒绝，以及 GUI uninstall 未传 `--json` 导致 UAC Broker 解析失败的两个回归。
 - Follow-up 已将 Manager GUI `manager:run` 收窄为 typed operation，补充页面/frame/origin 导航门禁、固定 State Root 展示和 stdout/stderr drain；UAC 控制合同升级为 v2，repair/uninstall 绑定 installation root、installation ID、manifest 摘要和 deleteData；
 - Follow-up 已让 Electron 从安装清单解析 application runtime 与 managed tool 私有 PATH，并在生产启动时不再自动消费 `NBOOK_DESKTOP_DEV_*` 环境覆盖；缺失 Installed locator 时 fail closed 到 Repair。
 - Follow-up 又将 Manager GUI 的安装完成回执绑定到已验证的 Desktop Installation Manifest、安装范围和 Electron Envelope checksum；Portable 模板不再写入固定构建日期，安装时间由实际 Manager 安装事务生成。
 
-真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；成功路径已在本机完成，见下方证据。
+真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；历史包的成功路径保留在基线证据中，当前最终包的成功路径仍需在干净用户环境重跑。
 [ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 已 Accepted。
 
 ## 合同
@@ -61,36 +61,36 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
 - UAC Broker focused：共享协议 4 个测试通过；Manager Broker 3 个测试通过，覆盖 machine action 白名单、UTF-8 stdin 字节传递、secret pipe 握手和 CLI 输出回显 fail-closed。
 - 基础 machine root focused：InstallationMutation、Windows Uninstall Host、UAC Broker 共 3 files / 15 tests 通过；Desktop Manager GUI Contract 1/1 通过。Follow-up 的安装/UAC focused 为 2 files / 18 tests。
-- PR #88 的最新 CI（commit `ec63a755`）已通过：Windows/macOS Desktop Contract、Linux/macOS Product、Typecheck、Full tests 和 Community files/docs；其中 UAC named-pipe 集成测试仅在 Windows runner 执行，非 Windows runner 显式跳过。
+- PR #88 在推送 `b2e6d986` 后已重新排队；最终结论以该提交的 CI 为准。上一轮 `ec63a755` 的通过状态不替代本提交的 CI。
 - Follow-up 新增回归：machine-scope 外置卸载 launcher 按安装清单中的 `manager/neuro-book.mjs` 生成，不再硬编码不存在的 `.runtime/manager`；UAC repair/uninstall 缺少 `--root` 时 fail closed。两文件 / 18 个 Manager focused tests 通过。
 - Follow-up 已完成生产目录和命名收口：`desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging` 使用正式路径；活动源代码改用 `NBOOK_DESKTOP_DEV_*` 和 `--desktop-*` 测试入口，Tauri release binary 为 `neuro-book-tauri-envelope.exe`。迁移后的 `desktop-security-audit`、`cargo fmt --check`、`cargo check --locked`、Electron bundle 均通过。
-- Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；295 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle 和 Desktop Contract（9 个文件 / 36 个测试）；`git diff --check` 通过。
+- Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；295 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle 和 Desktop Contract（9 个文件 / 36 个测试）；`git diff --check` 通过。全量 `bun run test` 为 494 个测试文件通过、1 个跳过、3 个失败；失败分别是 Git 文本扫描 5 秒超时、忽略 AbortSignal 的 Harness 黑盒用例 30 秒超时，以及全套并发清理的 `ENOTEMPTY`。其中 Git 扫描单独以 60 秒预算通过，Harness 黑盒用例单独仍可复现超时，第三项单独运行通过；这些是独立基线问题，不归因于 Electron 改动。
 
 ### 最终 Product A/B
 
 - Build A/B 均为 3241 个文件、134016535 bytes，`imageId`、tree digest、shape digest、Source digest 和 lockfile digest 完全一致。
-- image identity：`sha256:1a00883a9177516d8426b9d9728d3a98b2aca0eb43fe8b31ed04daf27d734dd1`；version 为 `0.9.3-canary.20260807.175842Z.771ac42b`，revision 为 `64be3ecda4cd5775907e29fd93ffd8ea211359d8`。
+- image identity：`sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product 为 3241 个文件 / 134016535 bytes；tree digest 为 `sha256:f442d09a2a40c11cafc4fb3014ca511e7698f15be27e45248d86716e4923d781`，shape digest 为 `sha256:5af1d40bfd4713bb2957fc2a28c914e412dace32bfef1e0f11573e5c6825a009`。
 - Build warning 仅为 Nuxt sourcemap、chunk size 和 `node:sqlite` external 提示；A/B 没有发现 Product payload 漂移。
 
 ### 最终 Portable/Depot
 
 同一 Product image、同一 Manager/Electron dist 组包两次，结果逐字节一致：
 
-- Electron Portable：9608 个文件、985662013 bytes payload，ZIP 389367433 bytes，SHA-256 `fa93578759e8ab53f3bafcc0456535a0898cca1e0ad0549705ceee2c9545d606`。
-- Tauri Portable：9531 个文件、630965108 bytes payload，ZIP 243586836 bytes，SHA-256 `9b1e6ad6fc2a04f40b7e86f4f3f5479f47d7310178f93276e9f4244c09d02e81`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
-- Aggregate Depot：7 个文件、632969985 bytes payload，ZIP 627861528 bytes，SHA-256 `e82447ab541c8b865b6be67570311b431b66d054178c9c5f982d3b03dd03139b`。
+- Electron Portable：9609 个文件、985663532 bytes payload，ZIP 389367434 bytes，SHA-256 `870f6349a1249a7515c32f4cee183f2b2527994320054f8f31ad6d48a39ce81c`。
+- Tauri Portable：9532 个文件、630965108 bytes payload，ZIP 243586839 bytes，SHA-256 `6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
+- Aggregate Depot：7 个文件、632969989 bytes payload，ZIP 627861550 bytes，SHA-256 `555cd546d3ba9b5cc85d472f5ca680f6876e2a0f6e1c22b8f1f6afa35b2e1230`。
 - 使用同一 verified Product image、同一 Manager/Electron dist 连续组包两次：Electron、Tauri、Aggregate Depot 及 sidecar manifest 均逐字节一致。
 
 ### 仓库外 Product 与 Electron 验收
 
-- 仓库外最终 Portable 在 `C:\t145-evidence-cdb48aa930bf4b4bba2f542c965907c1\portable-final` 解压后，以祖先无 `node_modules`、无效 `NODE_PATH`、隔离 `LOCALAPPDATA` 通过 Product/Supervisor headless 启动和 graceful shutdown；Manager GUI headless 也通过。
+- 仓库外当前最终 Portable 在 `C:\t145-current-b2e6d986-portable-smoke` 解压后，以祖先无 `node_modules`、无效 `NODE_PATH`、隔离 `LOCALAPPDATA` 通过 Product/Supervisor headless 启动和 graceful shutdown；Manager GUI headless 也通过。
 - 最终 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
 - 最终主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
 - 本次打包 Electron 的一次真实启动记录：启动页可见 `241.90 ms`，Product 后台验证完成 `1394.28 ms`，Product ready `11377.68 ms`，Desktop Bridge ready `11565.09 ms`，正式窗口 ready `11567.06 ms`。这是一轮观测值，不替代五次冷/暖启动统计；若需继续优化，应单开 Product Runtime 启动 profiling 任务。
 - 远端协议 smoke 使用真实打包 Electron 连接 loopback capability 服务通过：Bridge 返回 `connection=remote`，origin 精确匹配，远端页面成功加载并 graceful shutdown；这不是完整远端 Product/B/S UI 验收。
-- 最终 Electron Portable ZIP 完成一次隔离当前用户安装→顶层 `status`→卸载；生成 `nbook.desktop-installation/v3` 和外置 locator，卸载删除程序、Cache、Desktop/WebView 并保留 State Root。
-- 最终包的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标；Follow-up 后的真实 UAC 允许路径仍沿用 Follow-up 前基线证据。
-- Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍有效：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；本轮没有把旧 image/旧 ZIP 数字冒充为当前最终包。
+- 最终 Electron Portable ZIP 完成一次隔离当前用户安装→顶层 `status`→卸载；生成 `nbook.desktop-installation/v3` 和外置 locator，卸载删除程序、Cache、Desktop/WebView 并保留 State Root。另以当前最终包验证了 system provider 的 managed/system manifest 解析、Product 启动和 `--delete-data` 卸载。
+- 最终包的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标。尝试通过 Manager GUI 触发真实 UAC 时，提升后的安装前置检查发现实际用户 `%LOCALAPPDATA%\NeuroBook\data` 已存在而 Installation Root 不存在，返回“Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖”，因此本轮没有修改或删除该用户 State Root，也没有把该次尝试记为成功。
+- Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍单独保留：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；它使用旧包/旧 manifest，不能替代当前最终包证据。
 
 ## 偏差与后续
 
@@ -101,6 +101,6 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 ### Follow-up 2026-08-08：本轮收口与仍未完成事项
 
 - 本轮 focused 证据：Manager 41 files / 295 tests、Manager typecheck、根 typecheck、Desktop Contract 9 files / 36 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
-- 已运行：Follow-up 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外 Portable headless、Manager GUI headless、最终包当前用户安装/状态/卸载、machine 非提升 fail-closed。
-- 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、五次冷/暖启动、system provider 真实启动。
+- 已运行：Follow-up 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外 Portable headless、Manager GUI headless、当前最终包主 Electron CDP（书架、Project、标题栏、Activity Bar、Agent 面板、Dialog、File → Quit）、最终包当前用户安装/状态/卸载、system provider、machine 非提升 fail-closed。
+- 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、五次冷/暖启动、真实托盘/Snap/file dialog、真实 Provider 成功连接。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。

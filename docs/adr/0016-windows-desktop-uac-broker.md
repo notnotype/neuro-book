@@ -8,7 +8,7 @@
 
 ## 背景
 
-当前用户安装、Portable、Manager CLI 和 machine-scope UAC Broker 已完成从普通权限 Manager GUI 进入提升后的安装、修复、卸载可见验收。此前
+当前用户安装、Portable、Manager CLI 和 machine-scope UAC Broker 已完成协议与非提升 fail-closed 验证；历史包曾从普通权限 Manager GUI 进入提升后的安装、修复、卸载可见验收。此前
 [`install-desktop.ps1`](../../scripts/install/install-desktop.ps1) 可以调用
 `Start-Process -Verb RunAs`，但提升后的进程脱离原来的 NDJSON/stdin 通道，并且在
 `--password-stdin` 场景下明确拒绝继续。
@@ -54,8 +54,8 @@ Manager GUI 保持普通权限，machine-scope 操作由一个一次性的 eleva
 - machine install 的阶段、checksum、迁移、注册项、快捷方式、失败回滚和卸载都由同一 Manager CLI 完成。
 - auth 开启时覆盖 Unicode 密码、空换行语义、超限输入，以及 argv/env/NDJSON/log 不含明文。
 - UAC 取消、Broker 崩溃、pipe 超时和父 GUI 退出后，Installation Root、HKLM/HKCU 注册项、Public/桌面快捷方式和 staging 均无残留；State Root 保持既定卸载策略。
-- 已在真实 Windows 桌面完成 machine install、repair、uninstall；当前安装清单合同为 `nbook.desktop-installation/v3`，程序根为 `C:\Program Files\NeuroBook`，注册项和公共快捷方式使用 machine scope。
+- 历史包已在真实 Windows 桌面完成 machine install、repair、uninstall；当前安装清单合同为 `nbook.desktop-installation/v3`，程序根为 `C:\Program Files\NeuroBook`，注册项和公共快捷方式使用 machine scope。Follow-up 的当前最终包尝试因实际用户 State Root 已存在而按 fail-closed 合同停止，尚未重新取得成功回执。
 - 新包的 uninstall 入口改为 `--json` NDJSON，修复了 Broker 将 ANSI/多行人类输出误判为无效消息的问题；Installed user/machine 两类 canonical root 均由 lease、intent 和外置 Host 校验。
 - Programs and Features 的 machine uninstall 入口只指向安装根外 `%LOCALAPPDATA%\NeuroBook\manager\uninstall\<installationId>` 下的轻量 launcher；launcher 只建立绑定 installation ID/root/manifest digest 的 UAC 请求，不复制卸载逻辑。
-- Follow-up 已验证 launcher 使用 manifest 中的 `manager/neuro-book.mjs` 相对路径；repair/uninstall 缺少 `--root` 时 fail closed。Follow-up 后真实 UAC 允许路径仍需在最终包上重跑。
+- Follow-up 已验证 launcher 使用 manifest 中的 `manager/neuro-book.mjs` 相对路径；repair/uninstall 缺少 `--root` 时 fail closed。Follow-up 后真实 UAC 允许路径仍需在没有既有托管 State Root 的干净用户环境中，以当前最终包重跑；本轮的阻断是安装所有权保护，不是 UAC 协议失败。
 - UAC 取消路径仍保持 fail-closed；成功卸载默认保留 State Root，删除 Program Files、Cache、Desktop/WebView、HKLM 注册和公共快捷方式。
