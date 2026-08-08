@@ -112,7 +112,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 ### Follow-up 2026-08-08：本轮收口与仍未完成事项
 
 - 本轮 focused 证据：Manager 41 files / 296 tests、Manager typecheck、根 typecheck、设置合同 2 files / 5 tests、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
-- 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、最终包当前用户安装/状态/卸载、system provider、machine 非提升 fail-closed。
+- 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、system provider、machine 非提升 fail-closed。当前 checkpoint 的用户级安装/状态/卸载未重复执行；此前最终包的同合同证据仍保留。
 - 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、真实托盘/Snap/file dialog、真实 Provider 成功连接。
 - 本轮再次从当前安装的外置 launcher 发起 machine uninstall；自动化终端未获得可见 UAC consent，launcher 以 `exit=1` 结束，Program Files 安装和用户数据均未被触碰。该结果只能证明当前环境无法承接提升，不替代成功/取消两条 UAC 验收。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。

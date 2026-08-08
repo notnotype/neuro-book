@@ -163,6 +163,10 @@
             "desktopRootRemoved": true,
             "installationRootRemoved": true
         },
+        "currentCheckpointUserInstall": {
+            "status": "not-run",
+            "reason": "当前 checkpoint 已重新验证 Portable headless/CDP 和组包；用户级安装/卸载沿用此前同合同证据，未重复安装。"
+        },
         "machineInstallWithoutElevation": {
             "passed": true,
             "behavior": "fail-closed",
