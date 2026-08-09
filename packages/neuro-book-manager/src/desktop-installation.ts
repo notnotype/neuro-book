@@ -793,19 +793,27 @@ if (-not (Test-Path -LiteralPath $manager) -or -not (Test-Path -LiteralPath $bun
 }
 $localAppData = $env:LOCALAPPDATA
 if (-not $localAppData) { $localAppData = Join-Path $HOME "AppData\Local" }
-$cacheBase = Join-Path $localAppData "NeuroBook\cache\manager-runtime"
-$cacheRoot = Join-Path $cacheBase "${installationId}"
-$cachedManager = Join-Path $cacheRoot "neuro-book.mjs"
-$stdoutPath = Join-Path $cacheRoot "uninstall.stdout.log"
-$stderrPath = Join-Path $cacheRoot "uninstall.stderr.log"
-New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+$runRoot = Join-Path $localAppData "NeuroBook\manager\uninstall-runs\${installationId}"
+$cachedManager = Join-Path $runRoot "neuro-book.mjs"
+$stdoutPath = Join-Path $runRoot "uninstall.stdout.log"
+$stderrPath = Join-Path $runRoot "uninstall.stderr.log"
+New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 Copy-Item -LiteralPath $manager -Destination $cachedManager -Force
 try {
     $arguments = @("--no-install", $cachedManager, "--root", $Root, "uninstall", "--yes", "--json")
-    $child = Start-Process -FilePath $bun -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru
+    $escapePowerShell = {
+        param([string]$Value)
+        return "'" + $Value.Replace("'", "''") + "'"
+    }
+    $elevatedCommand = "& " + (& $escapePowerShell $bun) + " --no-install " + (& $escapePowerShell $cachedManager) + " --root " + (& $escapePowerShell $Root) + " uninstall --yes --json 1> " + (& $escapePowerShell $stdoutPath) + " 2> " + (& $escapePowerShell $stderrPath) + "; exit $LASTEXITCODE"
+    $elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedCommand))
+    $child = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $elevatedEncoded) -Verb RunAs -WindowStyle Hidden -Wait -PassThru
     if ($child.ExitCode -ne 0) { exit $child.ExitCode }
     $resultPath = $null
-    foreach ($line in @(Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)) {
+    foreach ($line in @(
+        (Get-Content -LiteralPath $stdoutPath -Encoding UTF8 -ErrorAction SilentlyContinue)
+        (Get-Content -LiteralPath $stderrPath -Encoding UTF8 -ErrorAction SilentlyContinue)
+    )) {
         try {
             $event = $line | ConvertFrom-Json
             if ($event.kind -eq "complete" -and $event.resultPath) {
@@ -828,8 +836,9 @@ try {
     }
     $hostResult = Get-Content -LiteralPath $canonicalResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($hostResult.ok -ne $true) { throw "外置卸载 Host 返回失败：$([string]$hostResult.error)" }
-} finally {
-    Remove-Item -LiteralPath $cacheRoot -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction SilentlyContinue
+} catch {
+    throw
 }
 $launcherRoot = $PSScriptRoot.Replace("'", "''")
 $cleanupCommand = "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$launcherRoot' -Recurse -Force -ErrorAction SilentlyContinue"

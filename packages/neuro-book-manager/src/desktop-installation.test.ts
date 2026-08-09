@@ -477,10 +477,16 @@ describe("Desktop installation lifecycle", () => {
         expect(launcher).not.toContain(installationRoot);
         expect(script).toContain("Start-Process");
         expect(script).toContain("-Verb RunAs");
-        expect(script).toContain("-RedirectStandardOutput");
+        expect(script).not.toContain("-RedirectStandardOutput");
+        expect(script).toContain("elevatedCommand");
+        expect(script).toContain("1>");
+        expect(script).toContain("2>");
+        expect(script).toContain("LASTEXITCODE");
         expect(script).toContain("resultPath");
         expect(script).toContain("expectedResultRoot");
         expect(script).toContain("canonicalResultPath");
+        expect(script).toContain("NeuroBook\\manager\\uninstall-runs");
+        expect(script).not.toContain("NeuroBook\\cache\\manager-runtime");
         expect(script).toContain("等待外置卸载 Host 最终回执超时");
         expect(script).toContain("外置卸载 Host 返回失败");
         expect(script).toContain("-EncodedCommand");

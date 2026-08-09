@@ -12,14 +12,15 @@ import {
 } from "nbook/shared/product-runtime-contract";
 import {createProductRuntimeEnvironment} from "nbook/shared/product-runtime-environment";
 
-const productRoot = resolveProductRoot();
-const entry = resolve(productRoot, ".output", "server", "index.mjs");
-const stateRoot = resolveStateRoot(productRoot);
-const cacheRoot = resolveCacheRoot(productRoot, stateRoot);
+const productImageRoot = resolveProductImageRoot();
+const applicationRoot = resolveApplicationRoot(productImageRoot);
+const entry = resolve(productImageRoot, "server", "index.mjs");
+const stateRoot = resolveStateRoot(applicationRoot);
+const cacheRoot = resolveCacheRoot(applicationRoot, stateRoot);
 const stateEnv = ensureProductEnv(stateRoot);
 const productEnv = createProductRuntimeEnvironment({
-    applicationRoot: productRoot,
-    productImageRoot: resolve(productRoot, ".output"),
+    applicationRoot,
+    productImageRoot,
     stateRoot,
     cacheRoot,
     development: false,
@@ -29,11 +30,11 @@ const productEnv = createProductRuntimeEnvironment({
     runtimeExecutable: process.execPath,
 });
 
-await runInternal(productRoot, productEnv, "check-migrations");
-await runInternal(productRoot, productEnv, "prepare-system-assets");
+await runInternal(productImageRoot, applicationRoot, productEnv, "check-migrations");
+await runInternal(productImageRoot, applicationRoot, productEnv, "prepare-system-assets");
 
 const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...process.argv.slice(2)], {
-    cwd: productRoot,
+    cwd: applicationRoot,
     env: productEnv,
     stdio: "inherit",
     windowsHide: false,
@@ -51,8 +52,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 }
 
 /** Product wrapper 只按 Runtime Contract internal ID 执行启动前步骤。 */
-async function runInternal(root, env, id) {
-    const imageRoot = resolve(root, ".output");
+async function runInternal(imageRoot, applicationRoot, env, id) {
     const contract = await readProductRuntimeContract(imageRoot);
     const invocation = resolveProductRuntimeInternal(contract, id);
     await run(process.execPath, [
@@ -60,7 +60,7 @@ async function runInternal(root, env, id) {
         resolve(imageRoot, ...invocation.entry.split("/")),
         ...invocation.fixedArgs,
     ], {
-        cwd: root,
+        cwd: applicationRoot,
         env,
     });
 }
@@ -83,13 +83,24 @@ child.on("exit", (code, signal) => {
 
 /**
  * 从 Product command bundle 启动时，向上定位带 `.output/server/index.mjs` 的 Product Root。
+ * Windows machine 安装会把只读 Product image 投影到 Cache Root；此时
+ * `NEURO_BOOK_PRODUCT_IMAGE_ROOT` 是投影的 `.output`，而 Application Root 仍
+ * 由 Manager 注入到 Program Files 安装根。
  */
-function resolveProductRoot() {
+function resolveProductImageRoot() {
+    const configured = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
+    if (configured) {
+        const imageRoot = resolve(configured);
+        if (!existsSync(resolve(imageRoot, "server", "index.mjs"))) {
+            throw new Error(`NEURO_BOOK_PRODUCT_IMAGE_ROOT 缺少 server/index.mjs：${imageRoot}`);
+        }
+        return imageRoot;
+    }
     let current = dirname(fileURLToPath(import.meta.url));
     while (true) {
         const candidateEntry = resolve(current, ".output", "server", "index.mjs");
         if (existsSync(candidateEntry)) {
-            return current;
+            return resolve(current, ".output");
         }
         const parent = resolve(current, "..");
         if (parent === current) {
@@ -97,6 +108,11 @@ function resolveProductRoot() {
         }
         current = parent;
     }
+}
+
+function resolveApplicationRoot(imageRoot) {
+    const configured = process.env.NEURO_BOOK_APPLICATION_ROOT?.trim();
+    return configured ? resolve(configured) : resolve(imageRoot, "..");
 }
 
 /** Manager 可把运行状态放在 Product Root 外，例如 Windows Portable data/。 */

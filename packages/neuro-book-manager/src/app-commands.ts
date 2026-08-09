@@ -1,5 +1,5 @@
 import {randomBytes} from "node:crypto";
-import {join, resolve} from "node:path";
+import {isAbsolute, join, relative, resolve, sep} from "node:path";
 import {Type, type Static} from "typebox";
 import {Value} from "typebox/value";
 import {spawnOwnedProcess, type OwnedProcessStdio} from "@notnotype/owned-process";
@@ -486,8 +486,10 @@ export async function applicationEnvironment(
     development: boolean,
     cacheRoot = join(stateRoot, "cache"),
 ): Promise<NodeJS.ProcessEnv> {
+    const productImageRoot = resolveProductImageRoot(root);
     return createProductRuntimeEnvironment({
         applicationRoot: root,
+        productImageRoot,
         stateRoot,
         cacheRoot,
         development,
@@ -552,7 +554,23 @@ function productCommandArgs(root: string, id: ProductRuntimeCommandId, args: str
 
 /** Runtime Contract bootstrap 的唯一磁盘位置；CLI flag 不参与路径存在性判断。 */
 function productCommandPath(root: string): string {
-    return join(root, ".output", ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/"));
+    return join(resolveProductImageRoot(root), ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/"));
+}
+
+function resolveProductImageRoot(root: string): string {
+    const override = process.env.NEURO_BOOK_PRODUCT_EXECUTION_IMAGE_ROOT?.trim();
+    if (!override) return join(root, ".output");
+    const imageRoot = resolve(override);
+    const cacheRoot = process.env.NEURO_BOOK_CACHE_ROOT?.trim();
+    if (!isAbsolute(imageRoot) || (cacheRoot && !isWithin(resolve(cacheRoot), imageRoot))) {
+        throw new Error(`Product Runtime execution image 必须位于 Cache Root：${imageRoot}`);
+    }
+    return imageRoot;
+}
+
+function isWithin(root: string, target: string): boolean {
+    const relativePath = relative(resolve(root), resolve(target));
+    return relativePath === "" || (!relativePath.startsWith(`..${sep}`) && relativePath !== ".." && !isAbsolute(relativePath));
 }
 
 /** 执行并严格解析 Product runner 的唯一 JSON 报告。 */

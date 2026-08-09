@@ -34,11 +34,15 @@ import {
     isCanonicalInstalledRoot,
     requireInstalledManifest,
 } from "nbook/desktop/shared/src/installed-root";
-import {materializeMachineManagerScript} from "nbook/desktop/shared/src/manager-runtime";
+import {
+    materializeMachineManagerScript,
+    materializeMachineProductImage,
+} from "nbook/desktop/shared/src/manager-runtime";
 import {auditProductContract, type ContractAudit} from "../../shared/src/contract-audit";
 
 type DesktopConfig = {
     imageRoot: string;
+    productExecutionImageRoot: string | null;
     applicationRoot: string;
     stateRoot: string;
     cacheRoot: string;
@@ -131,6 +135,7 @@ function readConfig(): DesktopConfig {
         if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error("Electron Desktop development config 的 NBOOK_DESKTOP_DEV_PORT 必须是 0-65535 的整数。");
         return {
             imageRoot: resolve(required("NBOOK_DESKTOP_DEV_PRODUCT_IMAGE_ROOT")),
+            productExecutionImageRoot: null,
             applicationRoot: resolve(required("NBOOK_DESKTOP_DEV_APPLICATION_ROOT")),
             stateRoot: resolve(required("NBOOK_DESKTOP_DEV_STATE_ROOT")),
             cacheRoot: resolve(required("NBOOK_DESKTOP_DEV_CACHE_ROOT")),
@@ -148,6 +153,7 @@ function readConfig(): DesktopConfig {
     const privatePathEntries = readManagedToolPathEntries(portableRoot, runtimeRoots.desktop);
     return {
         imageRoot: join(portableRoot, ".output"),
+        productExecutionImageRoot: null,
         applicationRoot: portableRoot,
         stateRoot: runtimeRoots.state,
         cacheRoot: runtimeRoots.cache,
@@ -228,6 +234,7 @@ function startupFallbackConfig(): DesktopConfig {
             : join(home, "AppData", "Local"));
     return {
         imageRoot: join(portableRoot, ".output"),
+        productExecutionImageRoot: null,
         applicationRoot: portableRoot,
         stateRoot: join(localAppData, "NeuroBook", "data"),
         cacheRoot: join(localAppData, "NeuroBook", "cache"),
@@ -279,6 +286,10 @@ function productEnvironment(config: DesktopConfig): NodeJS.ProcessEnv {
         Path: privatePath,
         NODE_PATH: undefined,
         AUTH_ADMIN_PASSWORD: undefined,
+        NEURO_BOOK_CACHE_ROOT: config.cacheRoot,
+        ...(config.productExecutionImageRoot
+            ? {NEURO_BOOK_PRODUCT_EXECUTION_IMAGE_ROOT: config.productExecutionImageRoot}
+            : {}),
     };
     for (const key of Object.keys(environment)) {
         if (key.startsWith("NBOOK_DESKTOP_DEV_")) delete environment[key];
@@ -374,19 +385,24 @@ function setStartupError(message: string): void {
 async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     setStartupStage("检查 Product Runtime...");
     const resolvedConfig = {...config, port: await selectPort(config.port)};
-    const managerExecutable = await materializeMachineManagerScript(
-        resolvedConfig.manager,
+    const executionImageRoot = await materializeMachineProductImage(
+        resolvedConfig.imageRoot,
         resolvedConfig.cacheRoot,
     );
-    const audit = await auditProductContract(resolvedConfig.imageRoot);
+    const runtimeConfig = {
+        ...resolvedConfig,
+        productExecutionImageRoot: samePath(executionImageRoot, resolvedConfig.imageRoot) ? null : executionImageRoot,
+    };
+    const managerExecutable = await materializeMachineManagerScript(runtimeConfig.manager, runtimeConfig.cacheRoot);
+    const audit = await auditProductContract(runtimeConfig.imageRoot);
     if (audit.unsafeEntries.length > 0) throw new Error(`Electron Desktop 拒绝不安全 Product Contract：${audit.unsafeEntries.join(",")}`);
     const startupNonce = randomBytes(32).toString("base64url");
     const requestId = randomBytes(16).toString("hex");
     const lease = spawnOwnedProcess({
-        command: resolvedConfig.bun,
-        args: [...PRODUCT_BUN_RUNTIME_ARGS, managerExecutable, "--root", resolvedConfig.applicationRoot, "desktop", "supervise"],
-        cwd: resolvedConfig.applicationRoot,
-        env: productEnvironment(resolvedConfig),
+        command: runtimeConfig.bun,
+        args: [...PRODUCT_BUN_RUNTIME_ARGS, managerExecutable, "--root", runtimeConfig.applicationRoot, "desktop", "supervise"],
+        cwd: runtimeConfig.applicationRoot,
+        env: productEnvironment(runtimeConfig),
         stdout: "pipe",
         stderr: "pipe",
         stdin: "pipe",
@@ -427,7 +443,7 @@ async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     }));
     try {
         const observed = await ready;
-        const runtime = {...resolvedConfig, port: observed.port};
+        const runtime = {...runtimeConfig, port: observed.port};
         const shutdown = async (): Promise<"graceful" | "forced"> => {
             if (lease.stdin?.writable) {
                 lease.stdin.write(desktopSupervisorLine({schema: "nbook.desktop-supervisor/v1", requestId, type: "stop"}));
