@@ -362,7 +362,6 @@ function launchElevatedBroker(
     const command = `Start-Process -FilePath ${powerShellLiteral(bunPath)} -WorkingDirectory ${powerShellLiteral(resolve(managerPath, "..", ".."))} -Verb RunAs -ArgumentList ${powerShellLiteral(argumentList)} -Wait`;
     const child = spawn("powershell.exe", [
         "-NoProfile",
-        "-NonInteractive",
         "-ExecutionPolicy",
         "Bypass",
         "-Command",

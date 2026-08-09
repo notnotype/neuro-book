@@ -24,6 +24,11 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(manager).toContain('return "uninstall"');
         expect(manager).toContain("windowsCommandLineQuote");
         expect(manager).toContain("UAC 未批准或提升进程未连接");
+        const elevatedLaunchStart = manager.indexOf("function launchElevatedBroker");
+        const elevatedLaunchEnd = manager.indexOf("async function receiveElevatedEvents");
+        expect(elevatedLaunchStart).toBeGreaterThanOrEqual(0);
+        expect(elevatedLaunchEnd).toBeGreaterThan(elevatedLaunchStart);
+        expect(manager.slice(elevatedLaunchStart, elevatedLaunchEnd)).not.toContain('"-NonInteractive"');
         expect(packager).toContain('join(envelopeDist, "manager-main.mjs")');
         expect(packager).toContain('join(envelopeDist, "manager-preload.cjs")');
         expect(packager).toContain("NeuroBook-Manager.cmd");
