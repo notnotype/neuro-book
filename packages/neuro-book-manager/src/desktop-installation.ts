@@ -796,16 +796,45 @@ if (-not $localAppData) { $localAppData = Join-Path $HOME "AppData\Local" }
 $cacheBase = Join-Path $localAppData "NeuroBook\cache\manager-runtime"
 $cacheRoot = Join-Path $cacheBase "${installationId}"
 $cachedManager = Join-Path $cacheRoot "neuro-book.mjs"
+$stdoutPath = Join-Path $cacheRoot "uninstall.stdout.log"
+$stderrPath = Join-Path $cacheRoot "uninstall.stderr.log"
 New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
 Copy-Item -LiteralPath $manager -Destination $cachedManager -Force
 try {
     $arguments = @("--no-install", $cachedManager, "--root", $Root, "uninstall", "--yes", "--json")
-    $child = Start-Process -FilePath $bun -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+    $child = Start-Process -FilePath $bun -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -Wait -PassThru
     if ($child.ExitCode -ne 0) { exit $child.ExitCode }
+    $resultPath = $null
+    foreach ($line in @(Get-Content -LiteralPath $stdoutPath -ErrorAction SilentlyContinue)) {
+        try {
+            $event = $line | ConvertFrom-Json
+            if ($event.kind -eq "complete" -and $event.resultPath) {
+                $resultPath = [string]$event.resultPath
+            }
+        } catch {
+            continue
+        }
+    }
+    if (-not $resultPath) { throw "卸载命令没有返回外置 Host resultPath。" }
+    $expectedResultRoot = [IO.Path]::GetFullPath((Join-Path $localAppData "NeuroBook\uninstall-results")).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $canonicalResultPath = [IO.Path]::GetFullPath($resultPath)
+    if (-not $canonicalResultPath.StartsWith($expectedResultRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "卸载 Host resultPath 越出受管结果目录。"
+    }
+    $deadline = [DateTime]::UtcNow.AddMinutes(5)
+    while (-not (Test-Path -LiteralPath $canonicalResultPath)) {
+        if ([DateTime]::UtcNow -ge $deadline) { throw "等待外置卸载 Host 最终回执超时。" }
+        Start-Sleep -Milliseconds 200
+    }
+    $hostResult = Get-Content -LiteralPath $canonicalResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($hostResult.ok -ne $true) { throw "外置卸载 Host 返回失败：$([string]$hostResult.error)" }
 } finally {
     Remove-Item -LiteralPath $cacheRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
-Remove-Item -LiteralPath $PSScriptRoot -Recurse -Force -ErrorAction SilentlyContinue
+$launcherRoot = $PSScriptRoot.Replace("'", "''")
+$cleanupCommand = "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$launcherRoot' -Recurse -Force -ErrorAction SilentlyContinue"
+$cleanupEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cleanupCommand))
+Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $cleanupEncoded) -WindowStyle Hidden | Out-Null
 `;
     await writeFile(launcher, script, "utf8");
     return launcher;

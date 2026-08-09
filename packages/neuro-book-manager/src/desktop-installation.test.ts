@@ -477,6 +477,14 @@ describe("Desktop installation lifecycle", () => {
         expect(launcher).not.toContain(installationRoot);
         expect(script).toContain("Start-Process");
         expect(script).toContain("-Verb RunAs");
+        expect(script).toContain("-RedirectStandardOutput");
+        expect(script).toContain("resultPath");
+        expect(script).toContain("expectedResultRoot");
+        expect(script).toContain("canonicalResultPath");
+        expect(script).toContain("等待外置卸载 Host 最终回执超时");
+        expect(script).toContain("外置卸载 Host 返回失败");
+        expect(script).toContain("-EncodedCommand");
+        expect(script).toContain("Start-Sleep -Milliseconds 500");
         expect(script).toContain('Join-Path $Root "manager\\neuro-book.mjs"');
         expect(script).not.toContain(".runtime\\manager\\neuro-book.mjs");
 
