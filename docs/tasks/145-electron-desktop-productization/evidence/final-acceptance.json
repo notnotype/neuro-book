@@ -269,14 +269,18 @@
                     ]
                 },
                 "externalLauncherUninstall": {
-                    "status": "passed",
+                    "status": "program-removed-launcher-residue-observed",
                     "programRootRemoved": true,
                     "cacheRootRemoved": true,
                     "desktopRootRemoved": true,
                     "hklmRegistrationRemoved": true,
                     "protocolRegistrationRemoved": true,
                     "stateRootPreserved": true,
-                    "bootConfigPreserved": true
+                    "bootConfigPreserved": true,
+                    "hostReceiptObserved": false,
+                    "launcherRootRemoved": false,
+                    "followUpFix": "4a40b554",
+                    "followUpFixFocusedTest": "packages/neuro-book-manager/src/desktop-installation.test.ts"
                 },
                 "scope": "current Manager GUI/UAC helper with legacy depot payload; not evidence for current final Product image"
             },
@@ -415,6 +419,7 @@
     "notCovered": [
         "follow-up final-package machine UAC install/repair/uninstall",
         "Programs and Features external uninstall launcher with current package",
+        "post-fix external uninstall launcher receipt and self-cleanup real rerun",
         "system provider real startup",
         "Windows Snap Layout flyout",
         "visible Windows file chooser selection",
