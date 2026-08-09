@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**当前 checkpoint `8edef0f2` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** 当前最终 Product image 的 machine-scope install/repair 仍未完成；不过 2026-08-09 已用修复后的当前分支 Manager GUI/UAC helper 对一份旧 Depot payload 完成过真实 machine install，并随后由外置 launcher 完成卸载。该次只证明 Manager/UAC/安装事务链路，不把旧 Product image 作为当前最终包证据。当前 verified Product Source revision 为 `8edef0f2348611abcfc312d6a2efa8603cb1797e`，Product image 为 `sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**当前最新 checkpoint `30e9dfe3` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** 当前最终 Product image 的 machine-scope install/repair 仍未完成；2026-08-09 的真实 UAC 尝试在本自动化会话中被 Windows 安全桌面自动取消，未创建或覆盖当前最终安装。此前用修复后的当前分支 Manager GUI/UAC helper 对旧 Depot payload 完成过真实 machine install，并随后由外置 launcher 卸载；该次只证明 Manager/UAC/安装事务链路，不把旧 Product image 作为当前最终包证据。当前 verified Product Source revision 为 `30e9dfe32e37fc8ef0e31ab942e2019c2091cf36`，Product image 为 `sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -137,3 +137,11 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 当前 checkpoint 用户级安装默认卸载已保留 State Root；第二个隔离 sandbox 使用 `--delete-data` 卸载后 State/Cache/Desktop/Installation Root 均删除。当前包 machine 非提升安装返回 `exitCode=1` 的管理员权限错误，隔离 State Root 未触碰。
 - Provider 矩阵补测：`system Bun + managed Git/rg` 安装成功且不修改全局 PATH；`system Bun + system Git/rg` 因本机 Bash shim 无版本输出而 fail-closed，未写半成品 Manifest。
 - 该批次修复了 ready 回调在 Installation lease 释放前触发的竞态，以及配置中心和 Profile 导航残留的 90vh 尺寸耦合；修复均已进入 checkpoint，不改变安装、State Root、UAC 或 Product Runtime 合同。
+
+### Follow-up 2026-08-09：machine runtime projection 后的最终重建
+
+- 在 Source `30e9dfe32e37fc8ef0e31ab942e2019c2091cf36` 上重新完成 clean Product A/B。两次均为 3241 个文件、134016681 bytes，`imageId=sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65`，tree digest `sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca7`，shape digest `sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7`；manifest 去除 `createdAt` 后完全一致。
+- 新镜像已包含 `server/commands/product-start.mjs` 的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`/`NEURO_BOOK_APPLICATION_ROOT` 分离；该修复用于避免从 `C:\Program Files` 直接加载 Bun Product 脚本的 Windows `EPERM`。
+- 使用新镜像、重建后的 Manager/Electron dist、Bun `1.3.14` 和同一 Tool Pack 连续组包两次，Electron ZIP 为 389371963 bytes、Tauri ZIP 为 243596394 bytes、Aggregate Depot ZIP 为 627874804 bytes；7 个归档/manifest 逐字节一致。新 Electron Portable 在仓库外且祖先无 `node_modules` 的目录中以无效 `NODE_PATH` 完成 headless Product ready、Manager GUI ready 和 graceful shutdown。
+- 本轮 focused 门禁重新通过：Manager 41 files / 299 passed / 3 skipped、Manager typecheck、Desktop Contract 12 files / 44 passed、根 typecheck、Electron bundle 和 `git diff --check`。
+- 当前机上仍有旧的 `C:\Program Files\NeuroBook` Portable/test 残留（`nbook.desktop-portable/v1`，不是 Installed v3 manifest）以及 HKLM 注册项；普通用户移动/删除被 Windows ACL 拒绝。调用正式外置 launcher 的提升请求在本自动化会话中被安全桌面自动取消，没有生成新的 Host receipt；State Root `AppData\Local\NeuroBook\data` 保持未修改。因而当前最终包的 machine install/repair/Programs and Features uninstall 仍未验证，必须由用户可见 UAC “是”确认后在干净 State Root 重跑。

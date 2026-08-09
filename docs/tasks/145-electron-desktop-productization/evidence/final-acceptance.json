@@ -1,15 +1,15 @@
 {
     "schema": "nbook.task-145-final-acceptance/v1",
-    "evidenceRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\t145-electron-final-8edef0f2",
+    "evidenceRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\t145-final-machine-runtime-e28b3b3175ef45ca941b82c8e155c695",
     "source": {
-        "revision": "8edef0f2348611abcfc312d6a2efa8603cb1797e",
-        "sourceDigest": "sha256:cecbc399edbd7ab4146c5c7401cda4e85400dfd7633dc02b37c476746d3b8393",
-        "productImageId": "sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d",
-        "treeDigest": "sha256:03684226781cd709a8fad601ef0ae11dd887cfeb4595612a9ad5c3b4035f4b3d",
+        "revision": "30e9dfe32e37fc8ef0e31ab942e2019c2091cf36",
+        "sourceDigest": "sha256:8a50d060489a43e0c29b9d240a0a8f9eae334a9ded49f353a90ef9964711654b",
+        "productImageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
+        "treeDigest": "sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca",
         "shapeDigest": "sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7",
         "product": {
             "files": 3241,
-            "bytes": 134016408,
+            "bytes": 134016681,
             "builds": 2,
             "identityStable": true
         }
@@ -17,24 +17,24 @@
     "portable": {
         "electron": {
             "payloadFiles": 9608,
-            "payloadBytes": 985666335,
-            "payloadDigest": "sha256:77a83eb6769b2d8af50a2deba7aac6fd7aedb46e695085dac89b02f117549320",
-            "archiveBytes": 389368123,
-            "sha256": "sha256:19ede9713a7ac6c85ef3f437434cc55687dee4dec40ffa2756c737acaa848ef8"
+            "payloadBytes": 985681595,
+            "payloadDigest": "sha256:308e68244ad1c069050769a9b2b34f35c01bdd3a749c47492ca5e49d055c5b50",
+            "archiveBytes": 389371963,
+            "sha256": "sha256:bea3dce8ee3d8e6de58607eea8dca5cd96eefeb7bbbeaed2c59e207395751cfe"
         },
         "tauri": {
             "payloadFiles": 9531,
-            "payloadBytes": 630965092,
-            "payloadDigest": "sha256:119366809e22c414f65206471db3e5e59ab7d2472b21d4def656cd8fe9b32843",
-            "archiveBytes": 243586814,
-            "sha256": "sha256:510d71d583dd9d15a1c7c45174259259800e3b2e52018622532ff108dd3e30a2",
+            "payloadBytes": 630992345,
+            "payloadDigest": "sha256:0d08b27af903dac44dbadd3161436007db64a901054908e63cd952be2d72fce0",
+            "archiveBytes": 243596394,
+            "sha256": "sha256:dc7b3cd66c99f47d571fe8c1a6bd7fbcf270054ec0b9300227c48720cab40990",
             "uiAcceptance": "not-run"
         },
         "aggregateDepot": {
             "payloadFiles": 7,
-            "payloadBytes": 632970653,
-            "archiveBytes": 627861992,
-            "sha256": "sha256:d8187e4d190d920b4ed0f6ca805154ea4fc4d6498069d7b302bcef82893c1010"
+            "payloadBytes": 632984073,
+            "archiveBytes": 627874804,
+            "sha256": "sha256:d1dc513af53ee562ac5f111aa243dac3d3e964eb5c436f33213e4fb61209bb82"
         },
         "repeatPackaging": {
             "runs": 2,
@@ -415,6 +415,63 @@
             "visibleWindowsFileChooser": "not-run"
         },
         "snapLayoutFlyout": "not-run"
+    },
+    "latestRebuild": {
+        "commit": "30e9dfe32e37fc8ef0e31ab942e2019c2091cf36",
+        "product": {
+            "buildA": {
+                "path": ".agent/tmp/t145-product-a-machine-runtime-d5f459aacb4942b29fea5fa52ec2b51a/.output",
+                "imageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
+                "files": 3241,
+                "bytes": 134016681
+            },
+            "buildB": {
+                "path": ".agent/tmp/t145-product-b-machine-runtime-307a2531823c4b6abdd5f8da5435b90c/.output",
+                "imageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
+                "files": 3241,
+                "bytes": 134016681
+            },
+            "identityStable": true,
+            "treeDigest": "sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca",
+            "shapeDigest": "sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7",
+            "manifestEqualIgnoringCreatedAt": true,
+            "productStartWrapper": "server/commands/product-start.mjs"
+        },
+        "portable": {
+            "buildA": ".agent/tmp/t145-final-machine-runtime-e28b3b3175ef45ca941b82c8e155c695",
+            "buildB": ".agent/tmp/t145-final-machine-runtime-6a8fdbaae6994ba8bd7be5dde105730e",
+            "archivesByteIdentical": true,
+            "electronSha256": "sha256:bea3dce8ee3d8e6de58607eea8dca5cd96eefeb7bbbeaed2c59e207395751cfe",
+            "tauriSha256": "sha256:dc7b3cd66c99f47d571fe8c1a6bd7fbcf270054ec0b9300227c48720cab40990",
+            "aggregateSha256": "sha256:d1dc513af53ee562ac5f111aa243dac3d3e964eb5c436f33213e4fb61209bb82"
+        },
+        "headlessPortable": {
+            "root": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\.agent\\tmp\\t145-electron-final-extracted-65c865412f4343b795d969dadf0aee37",
+            "nodePath": "C:\\__neurobook_invalid_node_path__",
+            "electronHeadless": "passed",
+            "managerGuiHeadless": "passed",
+            "productReady": true,
+            "gracefulShutdown": true,
+            "processTreeClosed": true,
+            "managerRuntimeProjection": "not exercised by Portable; machine-specific projection remains pending"
+        },
+        "focused": {
+            "managerTests": "41 files / 299 passed / 3 skipped",
+            "managerTypecheck": "passed",
+            "desktopContract": "12 files / 44 passed",
+            "rootTypecheck": "passed",
+            "diffCheck": "passed",
+            "electronBundle": "passed"
+        },
+        "machineScope": {
+            "status": "blocked",
+            "reason": "Windows UAC secure-desktop consent was automatically cancelled in this session before the elevated Host connected.",
+            "existingProgramRoot": "C:\\Program Files\\NeuroBook",
+            "existingRootKind": "old Portable/test residue with nbook.desktop-portable/v1 manifest, not an installed v3 manifest",
+            "stateRootPreserved": true,
+            "currentFinalPackageInstallStarted": false,
+            "requiredNextAction": "A user-visible UAC approval in a clean State Root, followed by current Depot install, startup, Programs and Features uninstall, and receipt self-cleanup."
+        }
     },
     "notCovered": [
         "follow-up final-package machine UAC install/repair/uninstall",
