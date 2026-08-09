@@ -26,6 +26,7 @@ vi.mock("#manager/config", () => ({enableAuthentication: appCommandMocks.enableA
 import {
     assertDesktopPortableInstallable,
     assertDesktopShellInstallable,
+    inferWindowsDesktopInstallationScope,
     installDesktopFromLocalDepot,
     installDesktopShellFromLocalDepot,
     parseDesktopPortableManifest,
@@ -163,6 +164,59 @@ describe("Desktop installation lifecycle", () => {
         expect(appCommandMocks.enableAuthentication).toHaveBeenCalledWith(
             join(root, "LocalAppData", "NeuroBook", "data"),
         );
+    });
+
+    it("默认卸载留下的空 State Root 允许重新安装，但不会放行非空用户数据", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-reinstall-empty-state-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await mkdir(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true});
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).resolves.toMatchObject({installationRoot: installRoot});
+
+        await rm(installRoot, {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "cache"), {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "desktop"), {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true, force: true});
+        await mkdir(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true});
+        await writeFile(join(root, "LocalAppData", "NeuroBook", "data", "config.yaml"), "auth:\n    enabled: false\n", "utf8");
+        await writeFile(join(root, "LocalAppData", "NeuroBook", "data", "user-data.txt"), "keep", "utf8");
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).resolves.toMatchObject({installationRoot: installRoot});
+
+        await rm(installRoot, {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "cache"), {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "desktop"), {recursive: true, force: true});
+        await rm(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true, force: true});
+        await mkdir(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true});
+        await writeFile(join(root, "LocalAppData", "NeuroBook", "data", "user-data.txt"), "keep", "utf8");
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("拒绝覆盖");
     });
 
     it("安装目标在校验后被其他进程抢先创建时不删除对方目录", async () => {
@@ -452,6 +506,51 @@ describe("Desktop installation lifecycle", () => {
         expect(registryCalls.some(([, args]) => args.includes("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook"))).toBe(true);
         expect(registryCalls.some(([, args]) => args.includes("HKLM\\Software\\Classes\\neurobook"))).toBe(true);
         await removeWindowsDesktopRegistration(root, manifest);
+    });
+
+    it("旧 Product-only 安装没有 Desktop manifest 时，只按 HKLM InstallLocation 清理注册", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-legacy-product-machine-"));
+        roots.push(root);
+        process.env.ProgramData = join(root, "ProgramData");
+        process.env.PUBLIC = join(root, "Public");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        processMocks.runCaptureResult.mockImplementation(async (_command, args: string[]) => {
+            const key = args.find((value) => value.startsWith("HK"));
+            if (key?.startsWith("HKCU\\")) return {stdout: "", stderr: "ERROR: The system was unable to find the specified registry key or value.", exitCode: 1, signal: null};
+            return {
+                stdout: `HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook\r\n    InstallLocation    REG_SZ    ${root}\r\n`,
+                stderr: "",
+                exitCode: 0,
+                signal: null,
+            };
+        });
+
+        await expect(inferWindowsDesktopInstallationScope(root)).resolves.toBe("machine");
+        await removeWindowsDesktopRegistration(root, "machine");
+
+        const deletes = processMocks.run.mock.calls
+            .filter(([command, args]) => command === "reg.exe" && args.includes("DELETE"))
+            .map(([, args]) => args.join(" "));
+        expect(deletes.some((value) => value.includes("HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook"))).toBe(true);
+        expect(deletes.some((value) => value.includes("HKLM\\Software\\Classes\\neurobook"))).toBe(true);
+        expect(deletes.some((value) => value.includes("HKCU\\"))).toBe(false);
+    });
+
+    it("旧注册项同时匹配 user 和 machine 时拒绝猜测清理范围", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-legacy-ambiguous-"));
+        roots.push(root);
+        processMocks.runCaptureResult.mockResolvedValue({
+            stdout: `    InstallLocation    REG_SZ    ${root}\r\n`,
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+        });
+
+        await expect(inferWindowsDesktopInstallationScope(root)).rejects.toThrow("同时匹配 user 和 machine");
+        expect(processMocks.run).not.toHaveBeenCalled();
     });
 });
 

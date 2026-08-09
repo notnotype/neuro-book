@@ -17,6 +17,7 @@ import {
     type DesktopUacBrokerEvent,
 } from "nbook/shared/desktop-uac-broker";
 import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
+import {materializeMachineManagerScript} from "nbook/desktop/shared/src/manager-runtime";
 import type {
     ManagerGuiOperation,
     ManagerGuiProviderInput,
@@ -58,17 +59,21 @@ const UAC_OPERATION_TIMEOUT_MS = 30 * 60_000;
 export async function runManagerGui(): Promise<void> {
     const root = resolve(process.resourcesPath, "..", "..");
     const allowDevelopmentConfig = process.env.NBOOK_DESKTOP_DEVELOPMENT === "1" || process.argv.includes("--headless");
-    const managerPath = resolve(allowDevelopmentConfig
+    const sourceManagerPath = resolve(allowDevelopmentConfig
         ? process.env.NBOOK_MANAGER_CLI ?? join(root, "manager", "neuro-book.mjs")
         : join(root, "manager", "neuro-book.mjs"));
     const bunPath = resolve(allowDevelopmentConfig
         ? process.env.NBOOK_BUN_EXECUTABLE ?? join(root, "runtime", process.platform === "win32" ? "bun.exe" : "bun")
         : join(root, "runtime", process.platform === "win32" ? "bun.exe" : "bun"));
-    if (!existsSync(managerPath) || !existsSync(bunPath)) {
+    if (!existsSync(sourceManagerPath) || !existsSync(bunPath)) {
         throw new Error("NeuroBook Manager GUI 找不到随包携带的 Manager CLI 或 Bun Runtime。");
     }
     const home = process.env.USERPROFILE ?? process.env.HOME ?? homedir();
     const localAppData = process.env.LOCALAPPDATA ?? join(home, "AppData", "Local");
+    const managerPath = await materializeMachineManagerScript(
+        sourceManagerPath,
+        resolve(localAppData, "NeuroBook", "cache"),
+    );
     const managerLocalRoot = resolve(localAppData, "NeuroBook", "manager-gui");
     app.setPath("userData", managerLocalRoot);
     app.setPath("sessionData", join(managerLocalRoot, "webview"));

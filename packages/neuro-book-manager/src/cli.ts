@@ -33,7 +33,7 @@ import {adoptSourceInstallation, assertAdoptionPreflight, inspectAdoptionPreflig
 import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseChannel} from "#manager/types";
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
-import {defaultDesktopInstallationRoot, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
+import {defaultDesktopInstallationRoot, inferWindowsDesktopInstallationScope, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
 import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
 import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
 import {updateInstallation} from "#manager/updater";
@@ -355,11 +355,15 @@ program.command("uninstall")
         const desktopManifest = process.platform === "win32"
             ? await readDesktopInstallationManifest(root, manifest.roots)
             : null;
+        const legacyDesktopScope = process.platform === "win32" && desktopManifest === null
+            ? await inferWindowsDesktopInstallationScope(root)
+            : null;
         const result = await uninstallInstallation({
             installationRoot: root,
             deleteData: options.deleteData,
         });
         if (desktopManifest) await removeWindowsDesktopRegistration(root, desktopManifest);
+        else if (legacyDesktopScope) await removeWindowsDesktopRegistration(root, legacyDesktopScope);
         const config = await readManagerConfig();
         const instance = findManagerInstance(config, root);
         if (instance) await forgetManagerInstance(instance.id);

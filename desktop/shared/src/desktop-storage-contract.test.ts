@@ -13,6 +13,9 @@ describe("Desktop storage contract", () => {
         expect(source).toContain('window-state.json');
         expect(source).toContain('screen.getAllDisplays()');
         expect(source).toContain('nativeImage.createFromPath');
+        expect(source).toContain('kind: "electron-tray-installed"');
+        expect(source).toContain('if (window?.isMinimized()) window.restore()');
+        expect(source).toContain('kind: "electron-window-state"');
         expect(source).toContain('正在修复 Product 回执');
         expect(source).toContain('打开日志');
         expect(source).toContain('desktopSettings.closeBehavior === "ask" && desktopSettings.trayEnabled');

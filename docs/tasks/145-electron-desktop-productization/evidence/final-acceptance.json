@@ -47,7 +47,7 @@
         "managerTests": {
             "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 296,
+            "testsPassed": 299,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -231,6 +231,56 @@
             "uacBrokerCompleted": false,
             "reason": "当前登录用户的 %LOCALAPPDATA%\\NeuroBook\\data 已存在，安装事务按 fail-closed 合同拒绝接管；本轮没有移动、删除或覆盖用户数据。"
         },
+        "followUpMachineScopeUac": {
+            "managerUninstall": {
+                "status": "passed",
+                "managerRevision": "6e7696db6fc3abdb0ddde5e90b775743bafd1cf4",
+                "installationManifestSchema": "nbook.desktop-installation/v3",
+                "installationRoot": "C:\\Program Files\\NeuroBook",
+                "resultPath": "C:\\Users\\notnotype\\AppData\\Local\\NeuroBook\\uninstall-results\\e247f891-97f5-4d04-9ae4-5205543fb947.json",
+                "hostResult": {
+                    "ok": true,
+                    "token": "e247f891-97f5-4d04-9ae4-5205543fb947"
+                },
+                "programRootRemoved": true,
+                "cacheRootRemoved": true,
+                "desktopRootRemoved": true,
+                "stateRootPreserved": true,
+                "hklmRegistrationRemoved": true,
+                "scope": "existing machine install from pre-follow-up depot; validates current Manager uninstall/UAC Host"
+            },
+            "currentDepotInstall": {
+                "status": "uac-cancelled",
+                "scope": "machine",
+                "programRoot": "C:\\Program Files\\NeuroBook",
+                "stateRootTouched": false,
+                "programRootCreated": false,
+                "stdout": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\machine-uac-install.stdout.log",
+                "stderr": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\machine-uac-install.stderr.log",
+                "message": "Windows UAC 提升被取消；安装事务未启动。",
+                "managerGuiCdp": {
+                    "status": "observed",
+                    "remoteDebuggingPort": 9228,
+                    "eventSequence": [
+                        {
+                            "kind": "stage",
+                            "stage": "starting"
+                        },
+                        {
+                            "kind": "process-exit",
+                            "exitCode": null,
+                            "signal": "uac-cancelled"
+                        },
+                        {
+                            "kind": "failure",
+                            "code": "uac-cancelled",
+                            "message": "UAC 未批准或提升进程未连接，操作未执行。"
+                        }
+                    ],
+                    "programRootCreated": false
+                }
+            }
+        },
         "historicalBeforeFollowUpMachineScopeUac": {
             "status": "passed-before-follow-up",
             "installationManifestSchema": "nbook.desktop-installation/v2",
@@ -303,11 +353,40 @@
         "apiKeyClearedAfterTest": true,
         "onlineSuccess": "not-run"
     },
+    "nativeInteractionFollowUp": {
+        "status": "partial",
+        "script": "scripts/deploy/electron-native-acceptance.ts",
+        "evidenceRoots": [
+            ".agent/tmp/native-acceptance-evidence",
+            ".agent/tmp/native-acceptance-file-dialog"
+        ],
+        "testedEnvelope": "current branch desktop/electron/dist/main.mjs",
+        "testedProductRoot": ".agent/tmp/t145-uac-candidate-extracted",
+        "testedProductImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
+        "tray": {
+            "installed": true,
+            "iconEmpty": false
+        },
+        "window": {
+            "before": "1280x840 at (80,80)",
+            "maximized": "2576x1408 at (-8,-8)",
+            "restored": "1280x840 at (80,80)",
+            "maximizable": true
+        },
+        "fileDialog": {
+            "fileInputCount": 1,
+            "accept": "image/png,image/jpeg,image/webp",
+            "fileChooserEvent": "observed",
+            "visibleWindowsFileChooser": "not-run"
+        },
+        "snapLayoutFlyout": "not-run"
+    },
     "notCovered": [
         "follow-up final-package machine UAC install/repair/uninstall",
         "Programs and Features external uninstall launcher with current package",
         "system provider real startup",
-        "native tray and Snap Layout",
+        "Windows Snap Layout flyout",
+        "visible Windows file chooser selection",
         "real provider success",
         "Tauri visible UI",
         "macOS app bundle",

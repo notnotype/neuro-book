@@ -551,16 +551,22 @@ async function writeRemoteManagerLauncher(managerExecutable?: string): Promise<s
 /** 卸载时删除 Manager 创建的 Windows 注册项、快捷方式和可选 PATH 项。 */
 export async function removeWindowsDesktopRegistration(
     root: string,
-    manifest: DesktopInstallationManifest,
+    manifestOrScope: DesktopInstallationManifest | DesktopInstallationScope,
     previousPath?: UserPathValue | null,
 ): Promise<void> {
     assertWindowsDesktopHost();
+    const installationScope = typeof manifestOrScope === "string"
+        ? manifestOrScope
+        : manifestOrScope.installationScope;
+    const addCliToUserPath = typeof manifestOrScope === "string"
+        ? false
+        : manifestOrScope.addCliToUserPath;
     const appData = process.env.APPDATA ?? join(homedir(), "AppData", "Roaming");
     const commonAppData = process.env.ProgramData ?? join(process.env.SystemDrive ?? "C:", "ProgramData");
-    const startMenuBase = manifest.installationScope === "machine"
+    const startMenuBase = installationScope === "machine"
         ? join(commonAppData, "Microsoft", "Windows", "Start Menu", "Programs")
         : join(appData, "Microsoft", "Windows", "Start Menu", "Programs");
-    const desktopBase = manifest.installationScope === "machine"
+    const desktopBase = installationScope === "machine"
         ? (process.env.PUBLIC ? join(process.env.PUBLIC, "Desktop") : join(commonAppData, "Desktop"))
         : join(process.env.USERPROFILE ?? homedir(), "Desktop");
     const shortcutPaths = [
@@ -569,13 +575,37 @@ export async function removeWindowsDesktopRegistration(
         join(startMenuBase, "NeuroBook", "NeuroBook Manager.lnk"),
     ];
     await Promise.all(shortcutPaths.map((path) => rm(path, {force: true})));
-    const registryHive = manifest.installationScope === "machine" ? "HKLM" : "HKCU";
+    const registryHive = installationScope === "machine" ? "HKLM" : "HKCU";
     await regDelete(`${registryHive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook`);
     await regDelete(`${registryHive}\\Software\\Classes\\neurobook`);
-    if (manifest.addCliToUserPath) {
+    if (addCliToUserPath) {
         if (previousPath) await writeUserPath(previousPath);
         else await removeUserPath(dirname(join(root, ".runtime", "bin", "neuro-book.cmd")));
     }
+}
+
+/**
+ * 查找与指定 Installation Root 完全匹配的 Windows Desktop 注册范围。
+ *
+ * 旧的 product-bun 安装可能没有 desktop-installation.json，但如果它曾经
+ * 注册过 Programs and Features 或 neurobook://，注册表中的 InstallLocation
+ * 仍然能提供一个可验证的 owner。只有恰好一个 hive 精确匹配时才返回范围；
+ * 缺失或多个匹配都 fail closed，不猜测删除范围。
+ */
+export async function inferWindowsDesktopInstallationScope(
+    installationRoot: string,
+): Promise<DesktopInstallationScope | null> {
+    assertWindowsDesktopHost();
+    const root = canonicalWindowsPath(installationRoot);
+    const matches: DesktopInstallationScope[] = [];
+    for (const [scope, hive] of [["user", "HKCU"], ["machine", "HKLM"]] as const) {
+        const location = await readWindowsInstallLocation(hive);
+        if (location !== null && canonicalWindowsPath(location) === root) matches.push(scope);
+    }
+    if (matches.length > 1) {
+        throw new Error(`Windows Desktop 注册项同时匹配 user 和 machine Installation Root，拒绝猜测清理范围：${resolve(installationRoot)}`);
+    }
+    return matches[0] ?? null;
 }
 
 /** 卸载只含远端 Envelope 的用户级 Desktop；默认保留 State Root。 */
@@ -663,6 +693,36 @@ async function regDelete(key: string, ...extra: string[]): Promise<void> {
     await run("reg.exe", ["DELETE", key, ...extra, "/f"], {stdio: "ignore"}).catch(() => undefined);
 }
 
+async function readWindowsInstallLocation(hive: "HKCU" | "HKLM"): Promise<string | null> {
+    const key = `${hive}\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\NeuroBook`;
+    let result: RunCaptureResult;
+    try {
+        result = await runCaptureResult("reg.exe", ["QUERY", key, "/v", "InstallLocation"]);
+    } catch (error) {
+        throw new Error(`读取 ${hive} Desktop 卸载项失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (result.signal) {
+        throw new Error(`读取 ${hive} Desktop 卸载项被信号中断：${result.signal}`);
+    }
+    if (result.exitCode === 1) return null;
+    if (result.exitCode !== 0) {
+        throw new Error(`读取 ${hive} Desktop 卸载项失败：${result.stderr.trim() || result.stdout.trim() || `退出码 ${result.exitCode ?? "unknown"}`}`);
+    }
+    const match = result.stdout.match(/^\s*InstallLocation\s+REG_(?:SZ|EXPAND_SZ)\s+(.*?)\s*$/imu);
+    return match?.[1]?.trim() || null;
+}
+
+function canonicalWindowsPath(value: string): string {
+    const trimmed = value.trim();
+    const normalized = /^[A-Za-z]:[\\/]|^\\\\/u.test(trimmed)
+        ? win32.normalize(trimmed)
+        : resolve(trimmed);
+    const slashNormalized = normalized.replaceAll("\\", "/");
+    return slashNormalized.length > 1
+        ? slashNormalized.replace(/\/+$/u, "").toLocaleLowerCase()
+        : slashNormalized.toLocaleLowerCase();
+}
+
 export function parseDesktopPortableManifest(value: unknown): PortableArchiveManifest {
     if (!value || typeof value !== "object") throw new Error("Portable manifest 不是对象。");
     const root = value as Record<string, unknown>;
@@ -731,9 +791,20 @@ $bun = Join-Path $Root "runtime\bun.exe"
 if (-not (Test-Path -LiteralPath $manager) -or -not (Test-Path -LiteralPath $bun)) {
     throw "NeuroBook installation is incomplete."
 }
-$arguments = @("--no-install", $manager, "--root", $Root, "uninstall", "--yes", "--json")
-$child = Start-Process -FilePath $bun -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-if ($child.ExitCode -ne 0) { exit $child.ExitCode }
+$localAppData = $env:LOCALAPPDATA
+if (-not $localAppData) { $localAppData = Join-Path $HOME "AppData\Local" }
+$cacheBase = Join-Path $localAppData "NeuroBook\cache\manager-runtime"
+$cacheRoot = Join-Path $cacheBase "${installationId}"
+$cachedManager = Join-Path $cacheRoot "neuro-book.mjs"
+New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+Copy-Item -LiteralPath $manager -Destination $cachedManager -Force
+try {
+    $arguments = @("--no-install", $cachedManager, "--root", $Root, "uninstall", "--yes", "--json")
+    $child = Start-Process -FilePath $bun -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+    if ($child.ExitCode -ne 0) { exit $child.ExitCode }
+} finally {
+    Remove-Item -LiteralPath $cacheRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 Remove-Item -LiteralPath $PSScriptRoot -Recurse -Force -ErrorAction SilentlyContinue
 `;
     await writeFile(launcher, script, "utf8");
@@ -826,11 +897,28 @@ type DesktopInstallRoots = {
 async function assertFreshDesktopRoots(roots: DesktopInstallRoots): Promise<void> {
     const existing = [];
     for (const [name, path] of Object.entries(roots)) {
-        if (await pathExists(path)) existing.push(`${name}=${path}`);
+        if (!await pathExists(path)) continue;
+        if (name === "state" && await isReusableStateRoot(path)) continue;
+        existing.push(`${name}=${path}`);
     }
     if (existing.length > 0) {
         throw new Error(`Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖：${existing.join(", ")}`);
     }
+}
+
+async function isEmptyDirectory(path: string): Promise<boolean> {
+    const info = await lstat(path).catch(() => null);
+    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
+    return (await readdir(path)).length === 0;
+}
+
+async function isReusableStateRoot(path: string): Promise<boolean> {
+    if (await isEmptyDirectory(path)) return true;
+    const marker = await lstat(join(path, "config.yaml")).catch(() => null);
+    // config.yaml is the durable Boot Config written by Manager on first install.
+    // Its presence proves ownership without allowing an arbitrary leftover folder
+    // to be silently adopted; all other State Root contents remain untouched.
+    return Boolean(marker?.isFile() && !marker.isSymbolicLink());
 }
 
 async function ensureTrackedDirectory(path: string, createdRoots: string[]): Promise<void> {

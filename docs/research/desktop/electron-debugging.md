@@ -72,6 +72,8 @@ CDP 只证明渲染层的几何和计算样式，不证明 Windows 原生拖动�
 - 原始 CDP 用于附加到已经启动的真实 Portable，特别适合确认“打包后到底加载了哪份 CSS/JS”以及采集几何尺寸。
 - 两者都不能单独证明系统托盘、原生菜单、文件对话框、快捷方式、真实窗口移动/吸附或安装卸载行为。上述项目需要 Windows UI Automation 或用户授权的可见验收。
 
+原生线的可重复脚本是 `scripts/deploy/electron-native-acceptance.ts`（`bun run desktop:native-acceptance`）。它启动真实 Electron main，调用真实 `BrowserWindow.maximize()/unmaximize()`，从 Desktop 日志读取托盘图标是否为空，并通过已有封面入口检查 `input[type=file]` 与 `filechooser` 事件。`filechooser` 事件只能证明渲染器触发了文件选择请求；Windows 文件选择器的可见目录、过滤器、取消/选择结果仍要用 Windows UI automation 观察，不能把事件当成“已选文件”。
+
 ## Manager GUI 与最终 Portable
 
 Task 145 起，Manager GUI 与主应用共用同一个 Electron Runtime。验证 Manager 时对最终 Portable 启动：

@@ -34,6 +34,7 @@ import {
     isCanonicalInstalledRoot,
     requireInstalledManifest,
 } from "nbook/desktop/shared/src/installed-root";
+import {materializeMachineManagerScript} from "nbook/desktop/shared/src/manager-runtime";
 import {auditProductContract, type ContractAudit} from "../../shared/src/contract-audit";
 
 type DesktopConfig = {
@@ -373,13 +374,17 @@ function setStartupError(message: string): void {
 async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     setStartupStage("检查 Product Runtime...");
     const resolvedConfig = {...config, port: await selectPort(config.port)};
+    const managerExecutable = await materializeMachineManagerScript(
+        resolvedConfig.manager,
+        resolvedConfig.cacheRoot,
+    );
     const audit = await auditProductContract(resolvedConfig.imageRoot);
     if (audit.unsafeEntries.length > 0) throw new Error(`Electron Desktop 拒绝不安全 Product Contract：${audit.unsafeEntries.join(",")}`);
     const startupNonce = randomBytes(32).toString("base64url");
     const requestId = randomBytes(16).toString("hex");
     const lease = spawnOwnedProcess({
         command: resolvedConfig.bun,
-        args: [...PRODUCT_BUN_RUNTIME_ARGS, resolvedConfig.manager, "--root", resolvedConfig.applicationRoot, "desktop", "supervise"],
+        args: [...PRODUCT_BUN_RUNTIME_ARGS, managerExecutable, "--root", resolvedConfig.applicationRoot, "desktop", "supervise"],
         cwd: resolvedConfig.applicationRoot,
         env: productEnvironment(resolvedConfig),
         stdout: "pipe",
@@ -719,7 +724,8 @@ function installTray(): void {
     const packagedIconPath = resolve(process.resourcesPath, "icon.ico");
     const iconPath = existsSync(packagedIconPath) ? packagedIconPath : resolve(import.meta.dirname, "icon.ico");
     const icon = nativeImage.createFromPath(iconPath);
-    tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
+    const iconEmpty = icon.isEmpty();
+    tray = new Tray(iconEmpty ? nativeImage.createEmpty() : icon);
     tray.setToolTip("NeuroBook");
     tray.setContextMenu(Menu.buildFromTemplate([
         {label: "显示 NeuroBook", click: () => { window?.show(); }},
@@ -727,7 +733,12 @@ function installTray(): void {
         {type: "separator"},
         {label: "退出", click: () => void closeApplication()},
     ]));
-    tray.on("click", () => window?.show());
+    tray.on("click", () => {
+        if (window?.isMinimized()) window.restore();
+        window?.show();
+        window?.focus();
+    });
+    diagnostics.info({kind: "electron-tray-installed", iconPath, iconEmpty});
 }
 
 function installNavigationGuards(): void {
@@ -872,8 +883,14 @@ async function createInteractiveWindow(config: DesktopConfig): Promise<void> {
     const saveWindowState = () => queueWindowStateSave(config.desktopRoot);
     window.on("move", saveWindowState);
     window.on("resize", saveWindowState);
-    window.on("maximize", saveWindowState);
-    window.on("unmaximize", saveWindowState);
+    window.on("maximize", () => {
+        diagnostics.info({kind: "electron-window-state", state: "maximized"});
+        saveWindowState();
+    });
+    window.on("unmaximize", () => {
+        diagnostics.info({kind: "electron-window-state", state: "restored"});
+        saveWindowState();
+    });
     window.on("enter-full-screen", saveWindowState);
     window.on("leave-full-screen", saveWindowState);
     window.on("closed", () => { queueWindowStateSave(config.desktopRoot); window = null; void closeApplication(); });
@@ -1106,7 +1123,11 @@ async function saveDesktopSettings(root: string): Promise<void> {
 function applyDesktopSettings(): void {
     if (window) window.webContents.setZoomFactor(desktopSettings.zoomFactor);
     if (desktopSettings.trayEnabled) installTray();
-    else { tray?.destroy(); tray = null; }
+    else if (tray) {
+        tray.destroy();
+        tray = null;
+        diagnostics.info({kind: "electron-tray-disabled"});
+    }
 }
 
 app.on("before-quit", (event) => {

@@ -56,7 +56,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 聚焦和构建门禁
 
-- `bun run manager:test`：41 个测试文件通过、1 个跳过；295 个测试通过、3 个跳过；Manager release contract 1/1 通过。
+- `bun run manager:test`：41 个测试文件通过、1 个跳过；299 个测试通过、3 个跳过；Manager release contract 1/1 通过。
 - `bun run manager:typecheck`、`bun run typecheck`、`bun run test:desktop-contract`：通过；Desktop Contract 为 11 个文件 / 40 个测试，新增 canonical Installed Manifest 和 Electron 启动配置恢复回归。
 - `bun run manager:build`、`bun run --cwd desktop/electron build`：通过；Electron 生成 `main.mjs`、`preload.cjs`、`manager-main.mjs`、`manager-preload.cjs`。
 - `packages/neuro-book-manager/src/files.test.ts` 与 `desktop-installation.test.ts`：2 个文件 / 15 个测试通过；新增目录 `EEXIST` 回归覆盖。
@@ -65,7 +65,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 代码提交 `e5ec1534` 的必需检查（Windows/Linux/macOS Desktop/Product、Typecheck、Community files/docs）全部通过。`Full tests (advisory)` 在该提交重跑后仍未通过：`494 passed / 3 skipped`，两个 Harness 黑盒用例 30 秒超时；首次运行则是同一领域的 `ENOTEMPTY` 清理竞态。该 advisory 基线不涉及 Electron 壳或本轮文档变更，因此不改变桌面必需门禁结论，但不能把当前 CI 写成“全部通过”。
 - Follow-up 新增回归：machine-scope 外置卸载 launcher 按安装清单中的 `manager/neuro-book.mjs` 生成，不再硬编码不存在的 `.runtime/manager`；UAC repair/uninstall 缺少 `--root` 时 fail closed。两文件 / 18 个 Manager focused tests 通过。
 - Follow-up 已完成生产目录和命名收口：`desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging` 使用正式路径；活动源代码改用 `NBOOK_DESKTOP_DEV_*` 和 `--desktop-*` 测试入口，Tauri release binary 为 `neuro-book-tauri-envelope.exe`。迁移后的 `desktop-security-audit`、`cargo fmt --check`、`cargo check --locked`、Electron bundle 均通过。
-- Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；295 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check --locked` 和 Desktop Contract（11 个文件 / 40 个测试）；`git diff --check` 通过。全量 `bun run test` 为 494 个测试文件通过、1 个跳过、3 个失败；失败分别是 Git 文本扫描 5 秒超时、忽略 AbortSignal 的 Harness 黑盒用例 30 秒超时，以及全套并发清理的 `ENOTEMPTY`。其中 Git 扫描单独以 60 秒预算通过，Harness 黑盒用例单独仍可复现超时，第三项单独运行通过；这些是独立基线问题，不归因于 Electron 改动。
+- Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；299 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check --locked` 和 Desktop Contract（11 个文件 / 40 个测试）；`git diff --check` 通过。全量 `bun run test` 为 494 个测试文件通过、1 个跳过、3 个失败；失败分别是 Git 文本扫描 5 秒超时、忽略 AbortSignal 的 Harness 黑盒用例 30 秒超时，以及全套并发清理的 `ENOTEMPTY`。其中 Git 扫描单独以 60 秒预算通过，Harness 黑盒用例单独仍可复现超时，第三项单独运行通过；这些是独立基线问题，不归因于 Electron 改动。
 
 ### 最终 Product A/B
 
@@ -102,19 +102,28 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 最终 Electron Portable ZIP 完成一次隔离当前用户安装→顶层 `status`→卸载；生成 `nbook.desktop-installation/v3` 和外置 locator，卸载删除程序、Cache、Desktop/WebView 并保留 State Root。另以当前最终包验证了 system provider 的 managed/system manifest 解析、Product 启动和 `--delete-data` 卸载。
 - 最终包的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标。尝试通过 Manager GUI 触发真实 UAC 时，提升后的安装前置检查发现实际用户 `%LOCALAPPDATA%\NeuroBook\data` 已存在而 Installation Root 不存在，返回“Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖”，因此本轮没有修改或删除该用户 State Root，也没有把该次尝试记为成功。
 - Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍单独保留：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；它使用旧包/旧 manifest，不能替代当前最终包证据。
+- 2026-08-09 追加复核：在旧 machine 安装仍存在时，先关闭 Electron，再由当前分支 Manager CLI 直接执行外置 Host 卸载；Host 回执 `ok=true`（token `e247f891-97f5-4d04-9ae4-5205543fb947`），Program Files、Cache、Desktop/WebView 和 HKLM 注册项均已删除，`%LOCALAPPDATA%\NeuroBook\data\config.yaml` 保留。该证据验证当前 Manager 的 machine uninstall/UAC Host，不把旧 Product image 误写成当前最终 Product。
+- 随后使用同一已验证 Depot 通过脚本和 Manager GUI 多次尝试 machine install；Manager GUI CDP 收到 `starting → process-exit(uac-cancelled) → failure(uac-cancelled)`，未创建 `C:\Program Files\NeuroBook`，也未触碰 State Root。当前最终包的 machine install 成功路径仍需要用户在可见 UAC 窗口确认一次后才能补齐。
 
 ## 偏差与后续
 
 计划文字把 Provider 配置称为 State Root `config.yaml`；当前仓库已冻结的运行合同是 `State Root/workspace/.nbook/config.json`，`config.yaml` 只负责 Boot Config。为避免破坏 B/S、Product 和 CLI 既有真值源，本 Task 保留现有 Global Config 路径，并在 ADR 0014 明确记录该偏差。
 
-仍未在本 Task 声称完成：后台 updater、公开代码签名、macOS `.app`、远端 Desktop、文件扩展名关联、Tauri 可见 UI、真实托盘/Snap Layout/文件对话框和真实 Provider 成功连接。它们分别属于后续发行或原生验收任务，不影响当前 Windows 本地内部 beta candidate 的可复核性。
+仍未在本 Task 声称完成：后台 updater、公开代码签名、macOS `.app`、远端 Desktop、文件扩展名关联、Tauri 可见 UI、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作和真实 Provider 成功连接。它们分别属于后续发行或原生验收任务，不影响当前 Windows 本地内部 beta candidate 的可复核性。
+
+### Follow-up 2026-08-09：原生托盘、窗口状态与文件选择器
+
+- 新增 `scripts/deploy/electron-native-acceptance.ts` 与 `desktop:native-acceptance` 命令，使用真实 Electron `BrowserWindow` 记录窗口、托盘和文件选择入口；不把普通 Chromium smoke 当作原生证据。
+- 在当前分支的 Electron main 上验证：托盘创建事件记录 `iconEmpty=false`；窗口从 `1280×840` 最大化到 `2576×1408` 后恢复原 bounds，`BrowserWindow` 报告 `maximizable=true`；窗口最大化/还原事件写入 `desktop-envelope-current.jsonl`。
+- 封面选择入口存在，`input[type=file]` 接受 `image/png,image/jpeg,image/webp`；Playwright Electron 模式观察到 `filechooser` 事件。真正的 Windows 文件选择器可见操作和 Snap Layout 展开面板仍需 Windows UI automation / 用户手动确认。
+- 本批证据使用 `.agent/tmp/t145-uac-candidate-extracted` 的旧 Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 作为隔离载荷，不能替代最终 Product image 的重新组包证据。
 
 ### Follow-up 2026-08-08：本轮收口与仍未完成事项
 
 - 本轮 focused 证据：Manager 41 files / 296 tests、Manager typecheck、根 typecheck、设置合同 2 files / 5 tests、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
 - 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、当前包用户级安装/启动/状态/卸载、system provider、machine 非提升 fail-closed。
-- 尚未运行：Follow-up 后真实 Windows machine UAC install/repair/uninstall、Programs and Features 外置 launcher 的新包实测、真实托盘/Snap/file dialog、真实 Provider 成功连接。
-- 本轮再次从当前安装的外置 launcher 发起 machine uninstall；自动化终端未获得可见 UAC consent，launcher 以 `exit=1` 结束，Program Files 安装和用户数据均未被触碰。该结果只能证明当前环境无法承接提升，不替代成功/取消两条 UAC 验收。
+- 尚未运行：Follow-up 后当前最终包的 machine UAC install/repair、Programs and Features 外置 launcher 的当前包实测、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作、真实 Provider 成功连接。
+- 2026-08-09 已用当前分支 Manager 完成一次既有 machine 安装的外置 Host 卸载并取得 `ok=true`；随后当前 Depot 的 machine install 多次在脚本和 Manager GUI 的 Windows UAC 阶段被取消，未创建 Program Files 或触碰 State Root。该结果分别证明当前 Manager uninstall/UAC Host 成功，以及当前环境无法承接提升安装；不把取消路径写成当前最终包的 install 成功。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。
 
 ### Follow-up 2026-08-08：checkpoint 8edef0f2 后的最终输入
