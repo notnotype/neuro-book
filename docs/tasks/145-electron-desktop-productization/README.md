@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**当前 checkpoint `8edef0f2` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** machine-scope 的真实 UAC install/repair/uninstall 尚未在本轮最终包上完成：实际用户 State Root 已存在时，安装前置检查按合同拒绝覆盖，未触碰用户数据。当前 verified Product Source revision 为 `8edef0f2348611abcfc312d6a2efa8603cb1797e`，Product image 为 `sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**当前 checkpoint `8edef0f2` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** 当前最终 Product image 的 machine-scope install/repair 仍未完成；不过 2026-08-09 已用修复后的当前分支 Manager GUI/UAC helper 对一份旧 Depot payload 完成过真实 machine install，并随后由外置 launcher 完成卸载。该次只证明 Manager/UAC/安装事务链路，不把旧 Product image 作为当前最终包证据。当前 verified Product Source revision 为 `8edef0f2348611abcfc312d6a2efa8603cb1797e`，Product image 为 `sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -18,14 +18,14 @@
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
 - `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录；
 - machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手；
-- machine-scope GUI 已接入一次性 UAC Broker；当前最终包的非提升路径已按合同 fail-closed，真实提升路径因实际用户 State Root 已存在而未执行，历史包的成功 UAC 证据单独标记为基线，不作为当前包证据；
+- machine-scope GUI 已接入一次性 UAC Broker；当前最终包的非提升路径已按合同 fail-closed，旧 Depot 的真实提升 install/uninstall 证据单独标记为基线，不作为当前 Product image 证据；
 - 修复了 machine canonical root 仍被 Installed v1 校验拒绝，以及 GUI uninstall 未传 `--json` 导致 UAC Broker 解析失败的两个回归。
 - Follow-up 已将 Manager GUI `manager:run` 收窄为 typed operation，补充页面/frame/origin 导航门禁、固定 State Root 展示和 stdout/stderr drain；UAC 控制合同升级为 v2，repair/uninstall 绑定 installation root、installation ID、manifest 摘要和 deleteData；
 - Follow-up 已让 Electron 从安装清单解析 application runtime 与 managed tool 私有 PATH，并在生产启动时不再自动消费 `NBOOK_DESKTOP_DEV_*` 环境覆盖；缺失 Installed locator 时 fail closed 到 Repair。
 - Follow-up 又将 Manager GUI 的安装完成回执绑定到已验证的 Desktop Installation Manifest、安装范围和 Electron Envelope checksum；Portable 模板不再写入固定构建日期，安装时间由实际 Manager 安装事务生成。
 - Follow-up 复核发现 Installed locator 存在但 `desktop-installation.json` 缺失或 scope 不一致时仍可能落回 Portable runtime；Electron 与 Tauri 现在都在启动前 fail closed，并先显示启动页。Manager GUI 增加显式的“同时删除 State Root”确认，本地 Provider 没有 API Key 时也能保存。
 
-真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；历史包的成功路径保留在基线证据中，当前最终包的成功路径仍需在干净用户环境重跑。
+真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；当前最终 Product image 的成功 install/repair 路径仍需在干净用户环境重跑。
 [ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 已 Accepted。
 
 ## 合同
@@ -103,7 +103,8 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 最终包的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标。尝试通过 Manager GUI 触发真实 UAC 时，提升后的安装前置检查发现实际用户 `%LOCALAPPDATA%\NeuroBook\data` 已存在而 Installation Root 不存在，返回“Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖”，因此本轮没有修改或删除该用户 State Root，也没有把该次尝试记为成功。
 - Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍单独保留：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；它使用旧包/旧 manifest，不能替代当前最终包证据。
 - 2026-08-09 追加复核：在旧 machine 安装仍存在时，先关闭 Electron，再由当前分支 Manager CLI 直接执行外置 Host 卸载；Host 回执 `ok=true`（token `e247f891-97f5-4d04-9ae4-5205543fb947`），Program Files、Cache、Desktop/WebView 和 HKLM 注册项均已删除，`%LOCALAPPDATA%\NeuroBook\data\config.yaml` 保留。该证据验证当前 Manager 的 machine uninstall/UAC Host，不把旧 Product image 误写成当前最终 Product。
-- 随后使用同一已验证 Depot 通过脚本和 Manager GUI 多次尝试 machine install；Manager GUI CDP 收到 `starting → process-exit(uac-cancelled) → failure(uac-cancelled)`，未创建 `C:\Program Files\NeuroBook`，也未触碰 State Root。当前最终包的 machine install 成功路径仍需要用户在可见 UAC 窗口确认一次后才能补齐。
+- 随后用修复后的 Manager GUI（commit `7654e997`，提升 helper 不再使用 `-NonInteractive`）对旧 Depot payload `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 完成真实 machine install，生成 `nbook.desktop-installation/v3`、installation ID `56535935-a442-4948-8996-09611e18fc2c` 和 `C:\Program Files\NeuroBook`。安装版日志只写到 `electron-product-spawned`，没有出现 `product-ready`、`bridge-ready` 或 `window-ready`；因此该次不能声称安装后应用启动成功。随后外置 launcher 删除了 Program Files、Cache、Desktop/WebView、HKLM 和 `neurobook://` 注册，State Root 与 `config.yaml` 保留。
+- 当前最终 Depot 仍有一次 `uac-cancelled` 记录（Manager GUI CDP 事件为 `starting → process-exit(uac-cancelled) → failure(uac-cancelled)`），未创建 `C:\Program Files\NeuroBook`，也未触碰 State Root；所以最终 Product image 的 machine install/repair 成功路径仍需在干净用户环境重跑。
 
 ## 偏差与后续
 
@@ -123,7 +124,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 本轮 focused 证据：Manager 41 files / 296 tests、Manager typecheck、根 typecheck、设置合同 2 files / 5 tests、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
 - 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、当前包用户级安装/启动/状态/卸载、system provider、machine 非提升 fail-closed。
 - 尚未运行：Follow-up 后当前最终包的 machine UAC install/repair、Programs and Features 外置 launcher 的当前包实测、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作、真实 Provider 成功连接。
-- 2026-08-09 已用当前分支 Manager 完成一次既有 machine 安装的外置 Host 卸载并取得 `ok=true`；随后当前 Depot 的 machine install 多次在脚本和 Manager GUI 的 Windows UAC 阶段被取消，未创建 Program Files 或触碰 State Root。该结果分别证明当前 Manager uninstall/UAC Host 成功，以及当前环境无法承接提升安装；不把取消路径写成当前最终包的 install 成功。
+- 2026-08-09 已用当前分支 Manager 完成一次既有 machine 安装的外置 Host 卸载并取得 `ok=true`，并用修复后的 GUI helper 完成一次旧 Depot machine install 后再卸载；安装版启动停在 `product-spawned`，当前最终 Depot 的 machine install 仍因 UAC 取消而未取得提升成功回执。该结果分别证明当前 Manager uninstall/UAC Host 和旧 Depot install 事务可工作，不把旧 Product image 或取消路径写成当前最终包的 install 成功。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。
 
 ### Follow-up 2026-08-08：checkpoint 8edef0f2 后的最终输入

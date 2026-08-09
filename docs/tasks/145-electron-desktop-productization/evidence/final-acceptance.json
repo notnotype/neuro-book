@@ -249,6 +249,37 @@
                 "hklmRegistrationRemoved": true,
                 "scope": "existing machine install from pre-follow-up depot; validates current Manager uninstall/UAC Host"
             },
+            "legacyDepotMachineInstall": {
+                "status": "installed-then-uninstalled",
+                "managerRevision": "7654e997",
+                "installationScope": "machine",
+                "installationManifestSchema": "nbook.desktop-installation/v3",
+                "installationId": "56535935-a442-4948-8996-09611e18fc2c",
+                "installationRoot": "C:\\Program Files\\NeuroBook",
+                "productImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
+                "installUac": "passed",
+                "applicationStartup": {
+                    "status": "incomplete",
+                    "logPath": "C:\\Users\\notnotype\\AppData\\Local\\NeuroBook\\data\\logs\\desktop-envelope-current.jsonl",
+                    "lastStage": "electron-product-spawned",
+                    "missingStages": [
+                        "product-ready",
+                        "bridge-ready",
+                        "window-ready"
+                    ]
+                },
+                "externalLauncherUninstall": {
+                    "status": "passed",
+                    "programRootRemoved": true,
+                    "cacheRootRemoved": true,
+                    "desktopRootRemoved": true,
+                    "hklmRegistrationRemoved": true,
+                    "protocolRegistrationRemoved": true,
+                    "stateRootPreserved": true,
+                    "bootConfigPreserved": true
+                },
+                "scope": "current Manager GUI/UAC helper with legacy depot payload; not evidence for current final Product image"
+            },
             "currentDepotInstall": {
                 "status": "uac-cancelled",
                 "scope": "machine",
