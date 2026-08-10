@@ -31,7 +31,7 @@ const managerResult = await Bun.build({
     target: "node",
     format: "esm",
     naming: "manager-main.mjs",
-    external: ["electron"],
+    external: ["electron", "original-fs"],
     sourcemap: "none",
     minify: false,
 });

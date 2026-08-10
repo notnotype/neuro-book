@@ -49,12 +49,14 @@ describe("Electron portable packaging contract", () => {
         const source = await readFile(resolve("desktop/electron/src/manager-main.ts"), "utf8");
         const receipt = await readFile(resolve("desktop/electron/src/manager-launch-receipt.ts"), "utf8");
         expect(source).toContain("type ManagerLaunchReceipt");
-        expect(source).toContain("launchReceipt = await createLaunchReceipt(result.installationRoot)");
+        expect(source).toContain("launchReceipt = await createPhysicalLaunchReceipt(result.installationRoot)");
         expect(source).toContain("安装完成回执与当前 Installation Manifest 不一致");
         expect(source).not.toContain("if (!lastInstallationRoot)");
         expect(receipt).toContain('item.id === "electron-envelope"');
         expect(receipt).toContain('item.id === "electron-application"');
         expect(receipt).toContain('"Electron application"');
         expect(receipt).toContain("${label} checksum 不匹配");
+        expect(source).toContain('from "original-fs"');
+        expect(source).toContain("createPhysicalLaunchReceipt");
     });
 });

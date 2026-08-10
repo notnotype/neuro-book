@@ -7,6 +7,7 @@ import {join, resolve} from "node:path";
 import {homedir} from "node:os";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {createInterface} from "node:readline";
+import * as physicalFileSystem from "original-fs";
 import {spawnOwnedProcess} from "@notnotype/owned-process";
 
 import {
@@ -50,6 +51,10 @@ let lastObservedInstallationRoot: string | null = null;
 let launchReceipt: ManagerLaunchReceipt | null = null;
 const UAC_HANDSHAKE_TIMEOUT_MS = 30_000;
 const UAC_OPERATION_TIMEOUT_MS = 30 * 60_000;
+/** Electron 的 patched fs 会把 app.asar 映射为虚拟目录；receipt 必须检查磁盘上的真实 archive。 */
+const createPhysicalLaunchReceipt = async (installationRoot: string): Promise<ManagerLaunchReceipt> => {
+    return await createLaunchReceipt(installationRoot, process.env, physicalFileSystem);
+};
 
 export async function runManagerGui(): Promise<void> {
     const root = resolve(process.resourcesPath, "..", "..");
@@ -127,14 +132,14 @@ export async function runManagerGui(): Promise<void> {
             : await runManagerCli(bunPath, managerPath, invocation, operation, binding, window);
         if (result.installationRoot) lastObservedInstallationRoot = result.installationRoot;
         if (operation.kind === "install" && result.exitCode === 0 && result.installationRoot) {
-            launchReceipt = await createLaunchReceipt(result.installationRoot);
+            launchReceipt = await createPhysicalLaunchReceipt(result.installationRoot);
         }
         return result;
     });
     ipcMain.handle("manager:launch-installed", async (event) => {
         assertManagerFrame(event, window, managerPageUrl);
         if (!launchReceipt) throw new Error("尚未得到可验证的安装完成回执。");
-        const verified = await createLaunchReceipt(launchReceipt.installationRoot);
+        const verified = await createPhysicalLaunchReceipt(launchReceipt.installationRoot);
         if (verified.manifestSha256 !== launchReceipt.manifestSha256
             || verified.executableSha256 !== launchReceipt.executableSha256
             || verified.applicationSha256 !== launchReceipt.applicationSha256
@@ -720,7 +725,7 @@ async function managerBindingForOperation(operation: ManagerGuiOperation): Promi
         };
     }
     if (operation.kind === "configure-provider" && launchReceipt) {
-        const verified = await createLaunchReceipt(launchReceipt.installationRoot);
+        const verified = await createPhysicalLaunchReceipt(launchReceipt.installationRoot);
         if (!sameLaunchReceipt(verified, launchReceipt)) {
             launchReceipt = null;
             throw new Error("Provider 配置前的安装回执复核失败，请重新执行安装或修复。");

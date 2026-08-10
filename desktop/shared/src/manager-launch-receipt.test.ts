@@ -1,4 +1,5 @@
 import {createHash} from "node:crypto";
+import {existsSync, lstatSync, readFileSync} from "node:fs";
 import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
@@ -75,6 +76,26 @@ describe("Manager Electron launch receipt", () => {
                 LOCALAPPDATA: localAppData,
                 USERPROFILE: join(root, "User"),
             };
+            const electronPatchedFileSystem = {
+                existsSync,
+                readFileSync,
+                lstatSync(path: Parameters<typeof lstatSync>[0]) {
+                    const info = lstatSync(path);
+                    if (String(path).endsWith("app.asar")) {
+                        return new Proxy(info, {
+                            get(target, property) {
+                                if (property === "isFile") return () => false;
+                                if (property === "isDirectory") return () => true;
+                                const value = Reflect.get(target, property, target);
+                                return typeof value === "function" ? value.bind(target) : value;
+                            },
+                        });
+                    }
+                    return info;
+                },
+            };
+            await expect(createManagerLaunchReceipt(installationRoot, environment, electronPatchedFileSystem))
+                .rejects.toThrow("Electron application 不是普通文件");
             const receipt = await createManagerLaunchReceipt(installationRoot, environment);
             expect(receipt.applicationPath).toBe(applicationPath);
             expect(sameManagerLaunchReceipt(receipt, {...receipt})).toBe(true);
