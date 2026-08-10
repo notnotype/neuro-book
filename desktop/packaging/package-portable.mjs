@@ -19,6 +19,7 @@ import {promisify} from "node:util";
 
 import {createPackage} from "../electron/node_modules/@electron/asar/lib/asar.js";
 import {writeZipArchive} from "../../scripts/utils/zip.ts";
+import {parseDesktopPortableManifest} from "../../shared/desktop-contract.ts";
 import {ProductRuntimeImageVerifier} from "../../shared/product-runtime-image-verifier.ts";
 import {readProductRuntimeContract} from "../../shared/product-runtime-contract.ts";
 import {createProductRuntimeVerificationReceipt, writeProductRuntimeVerificationReceipt} from "../../shared/product-runtime-receipt.ts";
@@ -420,6 +421,7 @@ async function createElectronStage(args, verified, versions, stageRoot) {
         webview: {kind: "bundled-chromium", webviewRoot: "data/.desktop/webview"},
         payload: identity,
     };
+    parseDesktopPortableManifest(manifest);
     await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
     await freezeTimes(stageRoot);
     const scriptRoot = dirname(fileURLToPath(import.meta.url));

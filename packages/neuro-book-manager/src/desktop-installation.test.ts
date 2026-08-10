@@ -96,9 +96,52 @@ afterEach(async () => {
 });
 
 describe("Desktop Portable manifest", () => {
+    it("接受正式 packager 产出的完整 Portable manifest", () => {
+        const base = portableManifest("electron");
+        const manifest = {
+            ...base,
+            product: {
+                ...base.product,
+                sourceRevision: "f".repeat(40),
+                sourceDigest: `sha256:${"a".repeat(64)}`,
+                contractSchema: "nbook.product-runtime-contract/v5",
+                contractSha256: `sha256:${"b".repeat(64)}`,
+            },
+            runtime: {
+                ...base.runtime,
+                bunVersion: "1.3.14",
+            },
+            toolPack: {
+                files: 6279,
+                bytes: 387519258,
+                digest: `sha256:${"d".repeat(64)}`,
+            },
+            roots: {
+                application: ".",
+                state: "data",
+                cache: ".cache",
+                desktop: "data/.desktop",
+                webview: "data/.desktop/webview",
+            },
+            webview: {
+                kind: "bundled-chromium",
+                webviewRoot: "data/.desktop/webview",
+            },
+            payload: {
+                files: 9614,
+                bytes: 985773924,
+                digest: `sha256:${"c".repeat(64)}`,
+            },
+        };
+
+        expect(parseDesktopPortableManifest(manifest)).toEqual(manifest);
+    });
+
     it("严格校验 dirty 标记、Envelope 路径和 digest", () => {
         const manifest = portableManifest("electron");
         expect(parseDesktopPortableManifest(manifest)).toEqual(manifest);
+        const tauri = portableManifest("tauri");
+        expect(parseDesktopPortableManifest(tauri)).toEqual(tauri);
         expect(() => assertDesktopPortableInstallable({...manifest, product: {...manifest.product, dirty: true}}, "electron"))
             .toThrow("拒绝 dirty Product");
         expect(() => assertDesktopPortableInstallable(manifest, "tauri")).toThrow("命令选择");
@@ -108,12 +151,28 @@ describe("Desktop Portable manifest", () => {
         })).toThrow("product.dirty");
         expect(() => parseDesktopPortableManifest({
             ...manifest,
-            toolPack: {digest: "not-a-digest"},
+            toolPack: {...manifest.toolPack, digest: "not-a-digest"},
         })).toThrow("toolPack.digest");
         expect(() => parseDesktopPortableManifest({
             ...manifest,
             runtime: {...manifest.runtime, envelopePath: ""},
         })).toThrow("runtime.envelopePath");
+        expect(() => parseDesktopPortableManifest({
+            ...manifest,
+            product: {...manifest.product, sourceRevision: "not-a-revision"},
+        })).toThrow("product.sourceRevision");
+        expect(() => parseDesktopPortableManifest({
+            ...manifest,
+            roots: {...manifest.roots, state: "other-data"},
+        })).toThrow("roots.state");
+        expect(() => parseDesktopPortableManifest({
+            ...manifest,
+            webview: {...manifest.webview, kind: "system-evergreen"},
+        })).toThrow("webview.kind");
+        expect(() => parseDesktopPortableManifest({
+            ...manifest,
+            payload: {...manifest.payload, digest: "not-a-digest"},
+        })).toThrow("payload.digest");
     });
 
     it("校验 Product、运行时、Tool Pack 和 Envelope 的实际 checksum", async () => {
@@ -1267,8 +1326,24 @@ function portableManifest(kind: "electron" | "tauri"): DesktopPortableArchiveMan
     const common = {
         schema: "nbook.desktop-portable/v1" as const,
         platform: "windows-x64" as const,
-        product: {imagePath: ".output" as const, dirty: false, imageId: `sha256:${"e".repeat(64)}`},
-        toolPack: {digest: `sha256:${"d".repeat(64)}`},
+        product: {
+            imagePath: ".output" as const,
+            imageId: `sha256:${"e".repeat(64)}`,
+            sourceRevision: "f".repeat(40),
+            sourceDigest: `sha256:${"f".repeat(64)}`,
+            dirty: false,
+            contractSchema: "nbook.product-runtime-contract/v5",
+            contractSha256: `sha256:${"b".repeat(64)}`,
+        },
+        toolPack: {files: 3, bytes: 9, digest: `sha256:${"d".repeat(64)}`},
+        roots: {
+            application: "." as const,
+            state: "data" as const,
+            cache: ".cache" as const,
+            desktop: "data/.desktop" as const,
+            webview: "data/.desktop/webview" as const,
+        },
+        payload: {files: 7, bytes: 42, digest: `sha256:${"c".repeat(64)}`},
     };
     if (kind === "tauri") {
         return {
@@ -1276,10 +1351,12 @@ function portableManifest(kind: "electron" | "tauri"): DesktopPortableArchiveMan
             kind,
             runtime: {
                 bunPath: "runtime/bun.exe",
+                bunVersion: "1.3.14",
                 envelopePath: "desktop/NeuroBook-Tauri.exe",
                 envelopeVersion: "43.2.0",
                 envelopeSha256: `sha256:${digest(new TextEncoder().encode("desktop/NeuroBook-Tauri.exe"))}`,
             },
+            webview: {kind: "system-evergreen", webviewRoot: "data/.desktop/webview"},
         };
     }
     return {
@@ -1287,12 +1364,14 @@ function portableManifest(kind: "electron" | "tauri"): DesktopPortableArchiveMan
         kind,
         runtime: {
             bunPath: "runtime/bun.exe" as const,
+            bunVersion: "1.3.14",
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(new TextEncoder().encode("desktop/NeuroBook-Electron.exe"))}`,
             applicationPath: "desktop/resources/app.asar",
             applicationSha256: `sha256:${digest(new TextEncoder().encode("desktop/resources/app.asar"))}`,
         },
+        webview: {kind: "bundled-chromium", webviewRoot: "data/.desktop/webview"},
     };
 }
 

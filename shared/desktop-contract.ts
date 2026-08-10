@@ -100,12 +100,29 @@ export type DesktopShellArchiveManifest =
 type DesktopPortableArchiveManifestBase = {
     schema: typeof DESKTOP_PORTABLE_SCHEMA;
     platform: "windows-x64";
-    product: {imagePath: ".output"; dirty: boolean; imageId: string};
-    toolPack: {digest: string};
+    product: {
+        imagePath: ".output";
+        imageId: string;
+        sourceRevision: string;
+        sourceDigest: string;
+        dirty: boolean;
+        contractSchema: string;
+        contractSha256: string;
+    };
+    toolPack: {files: number; bytes: number; digest: string};
+    roots: {
+        application: ".";
+        state: "data";
+        cache: ".cache";
+        desktop: "data/.desktop";
+        webview: "data/.desktop/webview";
+    };
+    payload: {files: number; bytes: number; digest: string};
 };
 
 type DesktopPortableRuntimeBase = {
     bunPath: "runtime/bun.exe";
+    bunVersion: string;
     envelopePath: string;
     envelopeVersion: string;
     envelopeSha256: string;
@@ -118,10 +135,12 @@ export type DesktopPortableArchiveManifest =
             applicationPath: "desktop/resources/app.asar";
             applicationSha256: string;
         };
+        webview: {kind: "bundled-chromium"; webviewRoot: "data/.desktop/webview"};
     }
     | DesktopPortableArchiveManifestBase & {
         kind: "tauri";
         runtime: DesktopPortableRuntimeBase;
+        webview: {kind: "system-evergreen"; webviewRoot: "data/.desktop/webview"};
     };
 
 /** 可下载组件的不可变发行声明；组件本身只允许内容寻址 archive。 */
@@ -396,17 +415,40 @@ export function parseDesktopShellArchiveManifest(value: unknown): DesktopShellAr
 /** 严格解析完整 Desktop Portable manifest。 */
 export function parseDesktopPortableManifest(value: unknown): DesktopPortableArchiveManifest {
     const root = object(value, "Desktop Portable Manifest");
-    exactKeys(root, ["schema", "kind", "platform", "product", "runtime", "toolPack"], "Desktop Portable Manifest");
+    exactKeys(root, [
+        "schema",
+        "kind",
+        "platform",
+        "product",
+        "runtime",
+        "toolPack",
+        "roots",
+        "webview",
+        "payload",
+    ], "Desktop Portable Manifest");
     literal(root.schema, DESKTOP_PORTABLE_SCHEMA, "schema");
     const kind = member(root.kind, DESKTOP_ENVELOPES, "kind");
     literal(root.platform, "windows-x64", "platform");
     const product = object(root.product, "product");
-    exactKeys(product, ["imagePath", "dirty", "imageId"], "product");
+    exactKeys(product, [
+        "imagePath",
+        "imageId",
+        "sourceRevision",
+        "sourceDigest",
+        "dirty",
+        "contractSchema",
+        "contractSha256",
+    ], "product");
     literal(product.imagePath, ".output", "product.imagePath");
+    const sourceRevision = nonEmptyString(product.sourceRevision, "product.sourceRevision");
+    if (!/^[a-f0-9]{40,64}$/u.test(sourceRevision)) {
+        throw new Error("product.sourceRevision 必须是 40–64 位小写十六进制 revision。");
+    }
     const runtime = object(root.runtime, "runtime");
     const applicationKeys = kind === "electron" ? ["applicationPath", "applicationSha256"] : [];
     exactKeys(runtime, [
         "bunPath",
+        "bunVersion",
         "envelopePath",
         "envelopeVersion",
         "envelopeSha256",
@@ -419,24 +461,61 @@ export function parseDesktopPortableManifest(value: unknown): DesktopPortableArc
         throw new Error(`Portable Envelope 路径与壳类型不一致：${envelopePath}`);
     }
     const toolPack = object(root.toolPack, "toolPack");
-    exactKeys(toolPack, ["digest"], "toolPack");
+    exactKeys(toolPack, ["files", "bytes", "digest"], "toolPack");
+    const roots = object(root.roots, "roots");
+    exactKeys(roots, ["application", "state", "cache", "desktop", "webview"], "roots");
+    const webview = object(root.webview, "webview");
+    exactKeys(webview, ["kind", "webviewRoot"], "webview");
+    const payload = object(root.payload, "payload");
+    exactKeys(payload, ["files", "bytes", "digest"], "payload");
     const common: DesktopPortableArchiveManifestBase & {runtime: DesktopPortableRuntimeBase} = {
         schema: DESKTOP_PORTABLE_SCHEMA,
         platform: "windows-x64",
         product: {
             imagePath: ".output",
-            dirty: boolean(product.dirty, "product.dirty"),
             imageId: sha256(product.imageId, "product.imageId"),
+            sourceRevision,
+            sourceDigest: sha256(product.sourceDigest, "product.sourceDigest"),
+            dirty: boolean(product.dirty, "product.dirty"),
+            contractSchema: nonEmptyString(product.contractSchema, "product.contractSchema"),
+            contractSha256: sha256(product.contractSha256, "product.contractSha256"),
         },
         runtime: {
             bunPath: "runtime/bun.exe",
+            bunVersion: nonEmptyString(runtime.bunVersion, "runtime.bunVersion"),
             envelopePath,
             envelopeVersion: nonEmptyString(runtime.envelopeVersion, "runtime.envelopeVersion"),
             envelopeSha256: sha256(runtime.envelopeSha256, "runtime.envelopeSha256"),
         },
-        toolPack: {digest: sha256(toolPack.digest, "toolPack.digest")},
+        toolPack: {
+            files: nonNegativeInteger(toolPack.files, "toolPack.files"),
+            bytes: nonNegativeInteger(toolPack.bytes, "toolPack.bytes"),
+            digest: sha256(toolPack.digest, "toolPack.digest"),
+        },
+        roots: {
+            application: literal(roots.application, ".", "roots.application"),
+            state: literal(roots.state, "data", "roots.state"),
+            cache: literal(roots.cache, ".cache", "roots.cache"),
+            desktop: literal(roots.desktop, "data/.desktop", "roots.desktop"),
+            webview: literal(roots.webview, "data/.desktop/webview", "roots.webview"),
+        },
+        payload: {
+            files: nonNegativeInteger(payload.files, "payload.files"),
+            bytes: nonNegativeInteger(payload.bytes, "payload.bytes"),
+            digest: sha256(payload.digest, "payload.digest"),
+        },
     };
-    if (kind === "tauri") return {...common, kind};
+    const webviewRoot = literal(webview.webviewRoot, "data/.desktop/webview", "webview.webviewRoot");
+    if (kind === "tauri") {
+        return {
+            ...common,
+            kind,
+            webview: {
+                kind: literal(webview.kind, "system-evergreen", "webview.kind"),
+                webviewRoot,
+            },
+        };
+    }
     const applicationPath = desktopRelativePath(nonEmptyString(runtime.applicationPath, "runtime.applicationPath"), "runtime.applicationPath");
     if (applicationPath !== "desktop/resources/app.asar") {
         throw new Error(`Portable Electron application 路径不受支持：${applicationPath}`);
@@ -448,6 +527,10 @@ export function parseDesktopPortableManifest(value: unknown): DesktopPortableArc
             ...common.runtime,
             applicationPath,
             applicationSha256: sha256(runtime.applicationSha256, "runtime.applicationSha256"),
+        },
+        webview: {
+            kind: literal(webview.kind, "bundled-chromium", "webview.kind"),
+            webviewRoot,
         },
     };
 }
