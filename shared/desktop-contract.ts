@@ -312,6 +312,12 @@ export type DesktopStatus = {
 
 export type DesktopSettingsPatch = Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>;
 
+/** Windows/macOS 将第二次启动、协议和未来文件关联投影为同一个有界请求。 */
+export type DesktopLaunchRequest = {
+    args: string[];
+    cwd: string;
+};
+
 /** Renderer 唯一允许看到的宿主能力；不包含 shell、fs 或 Manager 控制凭据。 */
 export interface DesktopBridge {
     readonly schema: typeof DESKTOP_BRIDGE_SCHEMA;
@@ -322,6 +328,7 @@ export interface DesktopBridge {
     window(command: DesktopWindowCommandId): Promise<void>;
     menu(command: DesktopMenuCommandId): Promise<void>;
     onMenuCommand(listener: (command: DesktopMenuCommandId) => void): () => void;
+    onLaunchRequest(listener: (request: DesktopLaunchRequest) => void): () => void;
 }
 
 export type DesktopCapability = {
@@ -672,6 +679,26 @@ export function parseDesktopStatus(value: unknown): DesktopStatus {
         menuPresentation: member(root.menuPresentation, ["renderer", "native"] as const, "menuPresentation"),
         windowControls: member(root.windowControls, ["overlay", "custom", "traffic-lights"] as const, "windowControls"),
     };
+}
+
+/** 严格收窄单实例转发参数，避免无限 argv/cwd 进入 Renderer。 */
+export function parseDesktopLaunchRequest(value: unknown): DesktopLaunchRequest {
+    const root = object(value, "Desktop launch request");
+    exactKeys(root, ["args", "cwd"], "Desktop launch request");
+    if (!Array.isArray(root.args)) throw new Error("Desktop launch request args 必须是数组。");
+    if (root.args.length > 32) throw new Error("Desktop launch request args 最多包含 32 项。");
+    const args = root.args.map((arg, index) => {
+        if (typeof arg !== "string" || arg.includes("\0")) {
+            throw new Error(`Desktop launch request args[${String(index)}] 必须是不含 NUL 的字符串。`);
+        }
+        if (arg.length > 4096) {
+            throw new Error(`Desktop launch request args[${String(index)}] 最多包含 4096 个字符。`);
+        }
+        return arg;
+    });
+    const cwd = nonEmptyString(root.cwd, "Desktop launch request cwd");
+    if (cwd.length > 4096) throw new Error("Desktop launch request cwd 最多包含 4096 个字符。");
+    return {args, cwd};
 }
 
 /** 严格解析远端 Product 的 Desktop capability。 */

@@ -19,6 +19,7 @@ import {
     DESKTOP_MENU_COMMAND_IDS,
     parseDesktopCapability,
     parseDesktopInstallationManifest,
+    parseDesktopLaunchRequest,
     parseDesktopSupervisorEvent,
     parseDesktopSettings,
     patchDesktopSettings,
@@ -27,10 +28,12 @@ import {
     type DesktopSettings,
     type DesktopAppearance,
     type DesktopMenuCommandId,
+    type DesktopLaunchRequest,
     type DesktopStatus,
     type DesktopSupervisorEvent,
 } from "nbook/shared/desktop-contract";
 import {ElectronDiagnostics} from "nbook/desktop/electron/src/diagnostics";
+import {DesktopLaunchRequestBuffer} from "nbook/desktop/electron/src/launch-request-buffer";
 import {
     isCanonicalInstalledRoot,
     requireInstalledManifest,
@@ -88,6 +91,8 @@ let tray: Tray | null = null;
 let running: RunningProduct | null = null;
 let remoteStatus: DesktopStatus | null = null;
 let startupActionResolver: ((action: StartupAction) => void) | null = null;
+const pendingLaunchRequests = new DesktopLaunchRequestBuffer();
+let desktopLaunchRendererReady = false;
 
 function desktopPlatform(): DesktopStatus["platform"] {
     if (process.platform === "win32") return "windows";
@@ -811,6 +816,24 @@ function installNavigationGuards(): void {
     });
 }
 
+function expectedDesktopOrigin(): string | null {
+    return running
+        ? `http://127.0.0.1:${String(running.config.port)}`
+        : remoteStatus?.origin ?? null;
+}
+
+function queueDesktopLaunchRequest(value: unknown): void {
+    pendingLaunchRequests.push(value);
+    flushDesktopLaunchRequests();
+}
+
+function flushDesktopLaunchRequests(): void {
+    if (!desktopLaunchRendererReady || !window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+    for (const request of pendingLaunchRequests.drain()) {
+        window?.webContents.send("neurobook:second-instance", request);
+    }
+}
+
 async function loadWindowUrl(targetUrl: string): Promise<void> {
     if (!window) throw new Error("Electron 主窗口尚未创建。");
     let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -910,6 +933,17 @@ async function createInteractiveWindow(config: DesktopConfig): Promise<void> {
     window.webContents.on("preload-error", (_event, preloadPath, error) => {
         diagnostics.error({kind: "electron-preload-error", preloadPath, message: error.message});
     });
+    window.webContents.on("did-start-navigation", (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) desktopLaunchRendererReady = false;
+    });
+    window.webContents.on("did-finish-load", () => {
+        if (!window) return;
+        const expected = expectedDesktopOrigin();
+        const current = window.webContents.getURL();
+        if (!expected || !current || new URL(current).origin !== expected) return;
+        desktopLaunchRendererReady = true;
+        flushDesktopLaunchRequests();
+    });
     window.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
         if (isMainFrame) diagnostics.error({kind: "electron-load-error", errorCode, errorDescription, validatedURL});
     });
@@ -954,7 +988,12 @@ async function createInteractiveWindow(config: DesktopConfig): Promise<void> {
     });
     window.on("enter-full-screen", saveWindowState);
     window.on("leave-full-screen", saveWindowState);
-    window.on("closed", () => { queueWindowStateSave(config.desktopRoot); window = null; void closeApplication(); });
+    window.on("closed", () => {
+        queueWindowStateSave(config.desktopRoot);
+        desktopLaunchRendererReady = false;
+        window = null;
+        void closeApplication();
+    });
     if (savedWindowState.maximized) window.maximize();
     if (savedWindowState.fullscreen) window.setFullScreen(true);
 
@@ -987,14 +1026,18 @@ async function main(): Promise<void> {
     app.setPath("userData", desktopIdentityRoot());
     app.setPath("sessionData", join(config.desktopRoot, "webview"));
     app.setPath("logs", join(config.stateRoot, "logs"));
-    const launchData = {argv: process.argv.slice(1).slice(0, 32), cwd: process.cwd()};
+    const firstLaunchArgument = process.defaultApp ? 2 : 1;
+    const launchData: DesktopLaunchRequest = parseDesktopLaunchRequest({
+        args: process.argv.slice(firstLaunchArgument, firstLaunchArgument + 32),
+        cwd: process.cwd(),
+    });
     if (!app.requestSingleInstanceLock(launchData)) { app.quit(); return; }
-    app.on("second-instance", (_event, commandLine, workingDirectory) => {
+    if (launchData.args.some((arg) => !arg.startsWith("--"))) queueDesktopLaunchRequest(launchData);
+    app.on("second-instance", (_event, _commandLine, _workingDirectory, additionalData) => {
         if (window?.isMinimized()) window.restore();
         window?.show();
         window?.focus();
-        const args = commandLine.slice(1, 33).map((value) => value.slice(0, 4096));
-        window?.webContents.send("neurobook:second-instance", {args, cwd: workingDirectory.slice(0, 4096)});
+        queueDesktopLaunchRequest(parseDesktopLaunchRequest(additionalData));
     });
     await app.whenReady();
     installStartupActionHandler();

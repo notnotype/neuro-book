@@ -5,6 +5,7 @@ import {describe, expect, it} from "vitest";
 describe("Desktop storage contract", () => {
     it("在创建单实例锁前固定用户级 identity、sessionData 和 logs", async () => {
         const source = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
+        const preload = await readFile(resolve("desktop/electron/src/preload.ts"), "utf8");
         const startup = await readFile(resolve("desktop/electron/src/startup.html"), "utf8");
         const installedRoot = await readFile(resolve("desktop/shared/src/installed-root.ts"), "utf8");
         expect(source.indexOf('app.setPath("userData", desktopIdentityRoot())')).toBeGreaterThan(-1);
@@ -12,6 +13,12 @@ describe("Desktop storage contract", () => {
         expect(source.indexOf('app.setPath("logs", join(config.stateRoot, "logs"))')).toBeGreaterThan(-1);
         expect(source.indexOf('app.setPath("userData", desktopIdentityRoot())')).toBeLessThan(source.indexOf("app.requestSingleInstanceLock("));
         expect(source).toContain('window?.webContents.send("neurobook:second-instance"');
+        expect(source).toContain("parseDesktopLaunchRequest(additionalData)");
+        expect(source).toContain("process.defaultApp ? 2 : 1");
+        expect(source).toContain("flushDesktopLaunchRequests");
+        expect(preload).toContain("onLaunchRequest:");
+        expect(preload).toContain('ipcRenderer.on("neurobook:second-instance"');
+        expect(preload).toContain("pendingLaunchRequests");
         expect(source).toContain('window-state.json');
         expect(source).toContain('screen.getAllDisplays()');
         expect(source).toContain('nativeImage.createFromPath');

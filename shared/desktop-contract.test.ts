@@ -14,6 +14,7 @@ import {
     parseDesktopCapability,
     parseDesktopDistributionManifest,
     parseDesktopInstallationManifest,
+    parseDesktopLaunchRequest,
     parseDesktopStatus,
     parseDesktopShellArchiveManifest,
     parseDesktopSettings,
@@ -159,6 +160,19 @@ describe("Desktop contracts", () => {
         expect(parseDesktopStatus(status)).toEqual(status);
         expect(() => parseDesktopStatus({...status, platform: "android"})).toThrow("platform");
         expect(() => parseDesktopStatus({...status, extra: true})).toThrow("字段不匹配");
+    });
+
+    it("严格解析有界 Desktop 启动请求", () => {
+        const request = {
+            args: ["neurobook://open/task-145", "C:\\workspace\\book"],
+            cwd: "C:\\workspace",
+        };
+        expect(parseDesktopLaunchRequest(request)).toEqual(request);
+        expect(() => parseDesktopLaunchRequest({...request, extra: true})).toThrow("字段不匹配");
+        expect(() => parseDesktopLaunchRequest({...request, args: Array.from({length: 33}, () => "x")})).toThrow("最多包含 32");
+        expect(() => parseDesktopLaunchRequest({...request, args: ["x".repeat(4097)]})).toThrow("最多包含 4096");
+        expect(() => parseDesktopLaunchRequest({...request, cwd: ""})).toThrow("非空");
+        expect(() => parseDesktopLaunchRequest({...request, cwd: "x".repeat(4097)})).toThrow("最多包含 4096");
     });
 
     it("远端 shell depot 只接受匹配的 Envelope 路径和 checksum", () => {

@@ -1,3 +1,6 @@
+import {spawn} from "node:child_process";
+import {randomUUID} from "node:crypto";
+import {once} from "node:events";
 import {readFile, mkdir, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -26,7 +29,7 @@ type WindowSnapshot = {
 };
 
 type NativeAcceptanceEvidence = {
-    schema: "nbook.electron-native-acceptance/v1";
+    schema: "nbook.electron-native-acceptance/v2";
     window: {
         before: WindowSnapshot;
         maximized: WindowSnapshot;
@@ -44,6 +47,13 @@ type NativeAcceptanceEvidence = {
         fileChooserEvent: "observed" | "not-observable-over-cdp" | "not-requested";
         nativeUiRequired: boolean;
     };
+    launchRequest: {
+        protocol: string;
+        received: boolean;
+        args: string[];
+        cwd: string | null;
+        secondProcessExitCode: number | null;
+    };
     notes: string[];
 };
 
@@ -57,6 +67,7 @@ export async function run(options: Options): Promise<NativeAcceptanceEvidence> {
     const mainEntry = resolve("desktop", "electron", "dist", "main.mjs");
     const environment: NodeJS.ProcessEnv = {
         ...process.env,
+        LOCALAPPDATA: resolve(options.desktopRoot, "local-app-data"),
         NBOOK_DESKTOP_DEVELOPMENT: "1",
         NBOOK_DESKTOP_DEV_PRODUCT_IMAGE_ROOT: options.productRoot,
         NBOOK_DESKTOP_DEV_APPLICATION_ROOT: options.applicationRoot,
@@ -80,11 +91,12 @@ export async function run(options: Options): Promise<NativeAcceptanceEvidence> {
         await ensureProjectForFileDialog(page);
         const before = await windowSnapshot(app);
         const input = await inspectFileInput(page, options.openFileDialog, options.holdMs);
+        const launchRequest = await inspectLaunchRequest(page, electronExecutable, mainEntry, environment);
         const maximized = await runWindowTransition(app, "maximize");
         const restored = await runWindowTransition(app, "unmaximize");
         const tray = await readTrayEvidence(options.stateRoot);
         const evidence: NativeAcceptanceEvidence = {
-            schema: "nbook.electron-native-acceptance/v1",
+            schema: "nbook.electron-native-acceptance/v2",
             window: {
                 before,
                 maximized,
@@ -92,6 +104,7 @@ export async function run(options: Options): Promise<NativeAcceptanceEvidence> {
             },
             tray,
             fileDialog: input,
+            launchRequest,
             notes: [
                 "Window maximize/unmaximize is exercised through the real Electron BrowserWindow.",
                 "Windows Snap Layout flyout and native file chooser are OS-owned surfaces; verify them with Windows UI automation.",
@@ -106,6 +119,55 @@ export async function run(options: Options): Promise<NativeAcceptanceEvidence> {
     } finally {
         await app.close();
     }
+}
+
+async function inspectLaunchRequest(
+    page: Page,
+    electronExecutable: string,
+    mainEntry: string,
+    environment: NodeJS.ProcessEnv,
+): Promise<NativeAcceptanceEvidence["launchRequest"]> {
+    const protocol = `neurobook://acceptance/task-145-${randomUUID()}`;
+    await page.evaluate(() => {
+        const target = window as typeof window & {
+            __nbookLaunchRequests?: Array<{args: string[]; cwd: string}>;
+            __nbookLaunchUnsubscribe?: () => void;
+        };
+        target.__nbookLaunchRequests = [];
+        target.__nbookLaunchUnsubscribe = window.neuroBookDesktop?.onLaunchRequest((request) => {
+            target.__nbookLaunchRequests?.push(request);
+        });
+    });
+    const child = spawn(electronExecutable, [mainEntry, protocol], {
+        env: environment,
+        stdio: "ignore",
+        windowsHide: true,
+    });
+    const [exitCode] = await once(child, "exit") as [number | null, NodeJS.Signals | null];
+    if (exitCode !== 0) throw new Error(`Electron 第二实例退出码异常：${String(exitCode)}`);
+    await page.waitForFunction((expected) => {
+        const requests = (window as typeof window & {
+            __nbookLaunchRequests?: Array<{args: string[]; cwd: string}>;
+        }).__nbookLaunchRequests ?? [];
+        return requests.some((request) => request.args.includes(expected));
+    }, protocol, {timeout: 10_000});
+    const request = await page.evaluate((expected) => {
+        const target = window as typeof window & {
+            __nbookLaunchRequests?: Array<{args: string[]; cwd: string}>;
+            __nbookLaunchUnsubscribe?: () => void;
+        };
+        const match = target.__nbookLaunchRequests?.find((item) => item.args.includes(expected));
+        target.__nbookLaunchUnsubscribe?.();
+        delete target.__nbookLaunchUnsubscribe;
+        return match ?? null;
+    }, protocol);
+    return {
+        protocol,
+        received: request !== null,
+        args: request?.args ?? [],
+        cwd: request?.cwd ?? null,
+        secondProcessExitCode: exitCode,
+    };
 }
 
 async function waitForReady(page: Page): Promise<void> {
@@ -183,19 +245,21 @@ async function inspectFileInput(
 
 async function ensureProjectForFileDialog(page: Page): Promise<void> {
     const coverButton = page.locator('button[aria-label*="设置封面"], button[aria-label*="cover" i]').first();
-    if (await coverButton.count() > 0) return;
-    const title = `Native UI ${Date.now()}`;
-    const response = await page.evaluate(async (projectTitle) => {
-        const result = await fetch("/api/projects", {
-            method: "POST",
-            headers: {"content-type": "application/json"},
-            body: JSON.stringify({title: projectTitle, summary: "native acceptance"}),
+    const listResponse = await page.request.get(new URL("/api/projects", page.url()).href);
+    if (!listResponse.ok()) throw new Error(`读取原生验收 Project 失败：HTTP ${listResponse.status()}`);
+    const list = await listResponse.json() as {projects?: unknown[]};
+    if (!Array.isArray(list.projects) || list.projects.length === 0) {
+        const createResponse = await page.request.post(new URL("/api/projects", page.url()).href, {
+            data: {
+                title: `Native UI ${Date.now()}`,
+                summary: "native acceptance",
+            },
         });
-        return {status: result.status, body: await result.json() as unknown};
-    }, title);
-    if (response.status !== 200) throw new Error(`创建原生验收 Project 失败：HTTP ${response.status}`);
+        if (!createResponse.ok()) throw new Error(`创建原生验收 Project 失败：HTTP ${createResponse.status()}`);
+    }
     await page.reload({waitUntil: "domcontentloaded"});
     await page.locator(".novel-ide-page").waitFor({state: "visible", timeout: 60_000});
+    await coverButton.waitFor({state: "visible", timeout: 15_000});
 }
 
 async function readTrayEvidence(stateRoot: string): Promise<NativeAcceptanceEvidence["tray"]> {

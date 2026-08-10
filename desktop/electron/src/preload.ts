@@ -1,5 +1,26 @@
 import {contextBridge, ipcRenderer} from "electron";
-import type {DesktopAppearance, DesktopBridge, DesktopMenuCommandId, DesktopSettingsPatch, DesktopWindowCommandId} from "nbook/shared/desktop-contract";
+import {
+    parseDesktopLaunchRequest,
+    type DesktopAppearance,
+    type DesktopBridge,
+    type DesktopLaunchRequest,
+    type DesktopMenuCommandId,
+    type DesktopSettingsPatch,
+    type DesktopWindowCommandId,
+} from "nbook/shared/desktop-contract";
+import {DesktopLaunchRequestBuffer} from "nbook/desktop/electron/src/launch-request-buffer";
+
+const pendingLaunchRequests = new DesktopLaunchRequestBuffer();
+const launchRequestListeners = new Set<(request: DesktopLaunchRequest) => void>();
+
+ipcRenderer.on("neurobook:second-instance", (_event, value: unknown) => {
+    const request = parseDesktopLaunchRequest(value);
+    if (launchRequestListeners.size === 0) {
+        pendingLaunchRequests.push(request);
+        return;
+    }
+    for (const listener of launchRequestListeners) listener(request);
+});
 
 /** 暴露最小只读 Desktop 状态；不向页面暴露 Node、fs 或任意命令执行。 */
 const bridge: DesktopBridge = {
@@ -14,6 +35,11 @@ const bridge: DesktopBridge = {
         const handler = (_event: Electron.IpcRendererEvent, command: DesktopMenuCommandId): void => listener(command);
         ipcRenderer.on("neurobook:menu", handler);
         return () => ipcRenderer.removeListener("neurobook:menu", handler);
+    },
+    onLaunchRequest: (listener) => {
+        launchRequestListeners.add(listener);
+        for (const request of pendingLaunchRequests.drain()) listener(request);
+        return () => launchRequestListeners.delete(listener);
     },
 };
 contextBridge.exposeInMainWorld("neuroBookDesktop", bridge);
