@@ -29,6 +29,7 @@ import {
     createDesktopAggregateDepotManifest,
     inspectDesktopAggregateDepot,
 } from "../shared/src/desktop-aggregate-depot.ts";
+import {writeDesktopRuntimeWrappers} from "nbook/packages/neuro-book-manager/src/desktop-installation";
 
 const execFileAsync = promisify(execFile);
 const PORTABLE_SCHEMA = "nbook.desktop-portable/v1";
@@ -374,6 +375,7 @@ async function createElectronStage(args, verified, versions, stageRoot) {
         installedAt: portableTemplateTimestamp,
         updatedAt: portableTemplateTimestamp,
     };
+    await writeDesktopRuntimeWrappers(stageRoot, installationManifest);
     await mkdir(join(stageRoot, ".deploy"), {recursive: true});
     await writeFile(join(stageRoot, ".deploy", "installation.json"), `${JSON.stringify(installationManifest, null, 4)}\n`, "utf8");
     await writeProductRuntimeVerificationReceipt(

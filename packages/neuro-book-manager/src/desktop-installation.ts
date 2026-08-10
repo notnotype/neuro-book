@@ -32,9 +32,11 @@ import {
     type InstallationApplicationPreparation,
 } from "#manager/migration-operation";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
+import {writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {parseInstallationManifest} from "#manager/schema";
 import {run, runCaptureResult, type RunCaptureResult} from "#manager/process";
 import {verifyInstalledProductRuntimeImage} from "#manager/product";
+import {writeManagedToolWrappers} from "#manager/tools";
 import type {
     ApplicationRuntimeComponent,
     InstallationComponents,
@@ -185,7 +187,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
             await writeFile(join(roots.state, "config.yaml"), "auth:\n    enabled: false\n", "utf8");
         }
         await writeDesktopRuntimeConfig(installationRoot);
-        await writeManagerWrappers(installationRoot, applicationManifest);
+        await writeDesktopRuntimeWrappers(installationRoot, applicationManifest);
         desktopManifest = await createDesktopInstallationManifest(
             options,
             installationRoot,
@@ -500,19 +502,26 @@ async function writeDesktopRuntimeConfig(installationRoot: string): Promise<void
     });
 }
 
-/** 让系统安装仍可从开始菜单调用 Manager CLI；wrapper 不携带 secret。 */
-export async function writeManagerWrappers(
+/** 写入 Manager、Bun 与 managed tools 的稳定入口；PowerShell 入口不携带 secret。 */
+export async function writeDesktopRuntimeWrappers(
     root: string,
-    manifest: {components: Pick<InstallationComponents, "manager" | "managerRuntime">},
+    manifest: {components: Pick<InstallationComponents, "manager" | "managerRuntime" | "tools">},
 ): Promise<void> {
     const runtime = manifest.components.managerRuntime;
     if (runtime.provider !== "managed") throw new Error("Desktop 用户级安装必须携带 managed Bun Runtime。");
-    const manager = manifest.components.manager.path.replaceAll("/", "\\");
-    const bun = runtime.path.replaceAll("/", "\\");
+    await writeRuntimeWrapper(root, runtime);
+    await writeManagedToolWrappers(root, manifest.components.tools);
+    await writeManagerWrapper(root, manifest.components.manager, runtime);
+
+    const managerPath = manifest.components.manager.path.replaceAll("/", "\\");
+    const bunPath = runtime.path.replaceAll("/", "\\");
     const wrapperRoot = join(root, ".runtime", "bin");
     await ensureDirectory(wrapperRoot);
-    await writeFile(join(wrapperRoot, "neuro-book.cmd"), `@echo off\r\n"%~dp0..\\..\\${bun}" "%~dp0..\\..\\${manager}" %*\r\n`, "utf8");
-    await writeFile(join(wrapperRoot, "neuro-book.ps1"), `& (Join-Path $PSScriptRoot "..\\..\\${bun}") (Join-Path $PSScriptRoot "..\\..\\${manager}") @args\r\n`, "utf8");
+    await writeFile(
+        join(wrapperRoot, "neuro-book.ps1"),
+        `& (Join-Path $PSScriptRoot "..\\..\\${bunPath}") (Join-Path $PSScriptRoot "..\\..\\${managerPath}") @args\r\n`,
+        "utf8",
+    );
 }
 
 /** 在把候选移入用户级 Installation Root 前复核所有可执行组件身份。 */
@@ -1099,7 +1108,7 @@ export async function repairDesktopRuntimeState(
         );
     }
     await writeDesktopRuntimeConfig(installationRoot);
-    await writeManagerWrappers(installationRoot, projectedManifest);
+    await writeDesktopRuntimeWrappers(installationRoot, projectedManifest);
     let uninstallLauncher: string | undefined;
     if (desktopManifest.installationScope === "machine") {
         uninstallLauncher = await writeMachineUninstallLauncher(

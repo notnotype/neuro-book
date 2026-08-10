@@ -43,7 +43,7 @@ import {
     verifyDesktopShellPayload,
     uninstallRemoteDesktopInstallation,
     writeMachineUninstallLauncher,
-    writeManagerWrappers,
+    writeDesktopRuntimeWrappers,
 } from "#manager/desktop-installation";
 import type {DesktopInstallationManifest} from "nbook/shared/desktop-contract";
 import {
@@ -791,10 +791,10 @@ describe("Desktop installation lifecycle", () => {
         expect(persisted.components.applicationRuntime).toEqual(repaired.components.applicationRuntime);
     });
 
-    it("Manager wrapper 只使用相对 Installation Root 路径", async () => {
+    it("Desktop runtime wrappers 复用统一模板且只使用相对 Installation Root 路径", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-wrapper-"));
         roots.push(root);
-        await writeManagerWrappers(root, {
+        await writeDesktopRuntimeWrappers(root, {
             components: {
                 manager: {provider: "managed", version: "0.1.0", path: ".runtime/manager/neuro-book.mjs", bundleSha256: "a".repeat(64)},
                 managerRuntime: {
@@ -807,15 +807,50 @@ describe("Desktop installation lifecycle", () => {
                     license: "MIT",
                     redistribution: "test",
                 },
+                tools: {
+                    rg: {
+                        provider: "managed",
+                        version: "15.1.0",
+                        path: "tools/rg/rg.exe",
+                        executableSha256: "d".repeat(64),
+                        archiveSha256: "e".repeat(64),
+                        sourceUrl: "local:rg",
+                        license: "MIT",
+                        redistribution: "test",
+                    },
+                    git: {
+                        provider: "managed",
+                        distribution: "PortableGit",
+                        version: "2.41.0.windows.2",
+                        path: "tools/git/cmd/git.exe",
+                        bashPath: "tools/git/usr/bin/bash.exe",
+                        archiveSha256: "f".repeat(64),
+                        gitSha256: "1".repeat(64),
+                        bashSha256: "2".repeat(64),
+                        sourceUrl: "local:git",
+                        license: "GPL-2.0-only",
+                        redistribution: "test",
+                    },
+                },
             },
         });
         const cmd = await readFile(join(root, ".runtime", "bin", "neuro-book.cmd"), "utf8");
         const ps1 = await readFile(join(root, ".runtime", "bin", "neuro-book.ps1"), "utf8");
-        expect(cmd).toContain("%~dp0..\\..\\runtime\\bun.exe");
-        expect(cmd).toContain("%~dp0..\\..\\.runtime\\manager\\neuro-book.mjs");
+        const bun = await readFile(join(root, ".runtime", "bin", "bun.cmd"), "utf8");
+        const rg = await readFile(join(root, ".runtime", "bin", "rg.cmd"), "utf8");
+        const git = await readFile(join(root, ".runtime", "bin", "git.cmd"), "utf8");
+        const bash = await readFile(join(root, ".runtime", "bin", "bash.cmd"), "utf8");
+        expect(cmd).toContain('set "ROOT=%~dp0..\\.."');
+        expect(cmd).toContain('"%ROOT%\\runtime\\bun.exe"');
+        expect(cmd).toContain('"%ROOT%\\.runtime\\manager\\neuro-book.mjs"');
         expect(ps1).toContain("$PSScriptRoot \"..\\..\\runtime\\bun.exe\"");
-        expect(cmd).not.toContain(root);
-        expect(ps1).not.toContain(root);
+        expect(bun).toContain('"%ROOT%\\runtime\\bun.exe"');
+        expect(rg).toContain('"%ROOT%\\tools\\rg\\rg.exe"');
+        expect(git).toContain('"%ROOT%\\tools\\git\\cmd\\git.exe"');
+        expect(bash).toContain('"%ROOT%\\tools\\git\\usr\\bin\\bash.exe"');
+        for (const wrapper of [cmd, ps1, bun, rg, git, bash]) {
+            expect(wrapper).not.toContain(root);
+        }
     });
 
     it("远端模式只安装 shell、探测 capability，并拒绝 Product/Tool Pack 载荷", async () => {

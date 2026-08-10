@@ -24,6 +24,12 @@ describe("Electron portable packaging contract", () => {
         expect(packager).not.toContain("--tauri-exe");
     });
 
+    it("Portable 复用 Manager 的统一 runtime wrapper 合同", async () => {
+        const packager = await readFile(resolve("desktop/packaging/package-portable.mjs"), "utf8");
+        expect(packager).toContain("writeDesktopRuntimeWrappers");
+        expect(packager).toContain("await writeDesktopRuntimeWrappers(stageRoot, installationManifest)");
+    });
+
     it("运行时优先从 Electron resources 根读取托盘图标", async () => {
     const source = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
         expect(source).toContain('resolve(process.resourcesPath, "icon.ico")');
