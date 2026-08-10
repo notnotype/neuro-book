@@ -189,7 +189,7 @@ export function renderManagerWrapper(
             ? `"%ROOT%\\${runtime.path.replaceAll("/", "\\")}"`
             : `"${runtime.executable}"`;
         if (!machineProjection) {
-            return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${manager.path.replaceAll("/", "\\")}" %*\r\n`;
+            return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${manager.path.replaceAll("/", "\\")}" --root "%ROOT%" %*\r\n`;
         }
         const managerPath = manager.path.replaceAll("/", "\\");
         const projection = `%LOCALAPPDATA%\\NeuroBook\\cache\\${MANAGER_RUNTIME_PROJECTION_DIRECTORY}\\${manager.bundleSha256.toLowerCase()}\\${MANAGER_RUNTIME_PROJECTION_FILENAME}`;
@@ -219,7 +219,7 @@ export function renderManagerWrapper(
             "if errorlevel 1 exit /b %errorlevel%",
             "set \"MANAGER=%NBOOK_MANAGER_TARGET%\"",
             ":run-manager",
-            `${runtimeCommand} "%MANAGER%" %*`,
+            `${runtimeCommand} "%MANAGER%" --root "%ROOT%" %*`,
             "set \"NBOOK_MANAGER_EXIT=%ERRORLEVEL%\"",
             "endlocal & exit /b %NBOOK_MANAGER_EXIT%",
             "",
@@ -228,7 +228,7 @@ export function renderManagerWrapper(
     const runtimeCommand = runtime.provider === "managed"
         ? `"$ROOT/${runtime.path}"`
         : JSON.stringify(runtime.executable);
-    return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec ${runtimeCommand} "$ROOT/${manager.path}" "$@"\n`;
+    return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec ${runtimeCommand} "$ROOT/${manager.path}" --root "$ROOT" "$@"\n`;
 }
 
 /** 只有 canonical Windows machine Installation Root 才需要 Cache execution projection。 */

@@ -20,8 +20,7 @@ export function portableLaunchers(): PortableLauncher[] {
             name: `${name}.cmd`,
             content: [
                 "@echo off",
-                "for %%I in (\"%~dp0.\") do set \"NEURO_BOOK_ROOT=%%~fI\"",
-                `call "%~dp0.runtime\\bin\\neuro-book.cmd" --root "%NEURO_BOOK_ROOT%" ${command}`,
+                `call "%~dp0.runtime\\bin\\neuro-book.cmd" ${command}`,
                 "set \"NEURO_BOOK_EXIT_CODE=%ERRORLEVEL%\"",
                 "if \"%NEURO_BOOK_EXIT_CODE%\"==\"0\" exit /b 0",
                 "echo.",
@@ -33,7 +32,7 @@ export function portableLaunchers(): PortableLauncher[] {
         },
         {
             name: `${name}.ps1`,
-            content: `& (Join-Path $PSScriptRoot ".runtime\\bin\\neuro-book.cmd") --root $PSScriptRoot ${command}\nexit $LASTEXITCODE\n`,
+            content: `& (Join-Path $PSScriptRoot ".runtime\\bin\\neuro-book.cmd") ${command}\nexit $LASTEXITCODE\n`,
         },
     ]);
 }

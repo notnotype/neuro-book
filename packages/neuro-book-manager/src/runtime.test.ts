@@ -87,7 +87,7 @@ describe("portable manager wrapper", () => {
         const expected = join(localAppData, "NeuroBook", "cache", "manager-runtime", bundleSha256, "neuro-book.mjs");
         expect((await realpath(output.path)).toLocaleLowerCase("en-US"))
             .toBe((await realpath(expected)).toLocaleLowerCase("en-US"));
-        expect(output.args).toEqual(["status", "--json"]);
+        expect(output.args).toEqual(["--root", root, "status", "--json"]);
         expect(await sha256File(output.path)).toBe(bundleSha256);
 
         await writeFile(source, "console.log('tampered');\n", "utf8");

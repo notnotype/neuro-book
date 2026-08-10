@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("Windows Portable Launcher", () => {
-    it("六个入口都只委托Manager并显式传递Installation Root和退出码", async () => {
+    it("六个入口都只委托绑定自身Root的稳定Manager wrapper并传递退出码", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-portable-launchers-"));
         temporaryRoots.push(root);
 
@@ -32,11 +32,9 @@ describe("Windows Portable Launcher", () => {
             const content = await readFile(join(root, launcher.name), "utf8");
             expect(content).toBe(launcher.content);
             expect(content).toContain("neuro-book.cmd");
-            expect(content).toContain("--root");
+            expect(content).not.toContain("--root");
             expect(content).not.toContain("Set-Location");
             if (launcher.name.endsWith(".cmd")) {
-                expect(content).toContain("%~dp0.");
-                expect(content).toContain("NEURO_BOOK_ROOT");
                 expect(content).toContain("NEURO_BOOK_EXIT_CODE");
                 expect(content).toContain("pause");
             }
@@ -44,7 +42,7 @@ describe("Windows Portable Launcher", () => {
         }
     });
 
-    it("CMD入口把无尾分隔符的Root和完整子命令传给Manager", async () => {
+    it("CMD入口只把完整子命令传给已绑定Root的稳定wrapper", async () => {
         if (process.platform !== "win32") return;
         const root = await mkdtemp(join(tmpdir(), "nbook-portable-cmd-"));
         temporaryRoots.push(root);
@@ -53,8 +51,8 @@ describe("Windows Portable Launcher", () => {
         await writeFile(join(binRoot, "neuro-book.cmd"), [
             "@echo off",
             "> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~1",
-            ">> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~2",
-            ">> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~3",
+            "if not \"%~2\"==\"\" >> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~2",
+            "if not \"%~3\"==\"\" >> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~3",
             "if not \"%~4\"==\"\" >> \"%NEURO_BOOK_LAUNCHER_CAPTURE%\" echo %~4",
             "exit /b 0",
             "",
@@ -78,8 +76,6 @@ describe("Windows Portable Launcher", () => {
                 child.once("exit", (code) => code === 0 ? resolvePromise() : rejectPromise(new Error(`Launcher退出码：${code}`)));
             });
             expect((await readFile(capture, "utf8")).trim().split(/\r?\n/u)).toEqual([
-                "--root",
-                resolve(root),
                 ...fixture.command,
             ]);
         }
