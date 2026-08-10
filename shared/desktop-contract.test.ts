@@ -81,6 +81,11 @@ describe("Desktop contracts", () => {
             ...local,
             receipts: [{...local.receipts[0]!, sha256: digest("d")}],
         })).toThrow("receipts 必须与 components");
+        expect(() => parseDesktopInstallationManifest({
+            ...local,
+            components: local.components.filter((component) => component.id !== "electron-application"),
+            receipts: local.receipts.filter((receipt) => receipt.id !== "electron-application"),
+        })).toThrow("electron-application component");
         expect(() => parseDesktopInstallationManifest(installation({
             mode: "remote",
             baseUrl: "http://example.com",
@@ -164,6 +169,9 @@ describe("Desktop contracts", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: digest("e"),
+            applicationPath: "desktop/resources/app.asar",
+            applicationVersion: "0.9.0",
+            applicationSha256: digest("a"),
             webview: "bundled-chromium",
         } as const;
         expect(parseDesktopShellArchiveManifest(shell)).toEqual(shell);
@@ -280,19 +288,36 @@ function installation(connection: {mode: "local"} | {mode: "remote"; baseUrl: st
                 },
             },
         },
-        components: [{
-            id: "electron-envelope" as const,
-            version: "43.2.0",
-            path: "components/electron",
-            sha256: digest("c"),
-        }],
-        receipts: [{
-            id: "electron-envelope" as const,
-            version: "43.2.0",
-            path: "components/electron",
-            sha256: digest("c"),
-            source: "depot" as const,
-        }],
+        components: [
+            {
+                id: "electron-envelope" as const,
+                version: "43.2.0",
+                path: "desktop/NeuroBook-Electron.exe",
+                sha256: digest("c"),
+            },
+            {
+                id: "electron-application" as const,
+                version: "0.9.0",
+                path: "desktop/resources/app.asar",
+                sha256: digest("e"),
+            },
+        ],
+        receipts: [
+            {
+                id: "electron-envelope" as const,
+                version: "43.2.0",
+                path: "desktop/NeuroBook-Electron.exe",
+                sha256: digest("c"),
+                source: "depot" as const,
+            },
+            {
+                id: "electron-application" as const,
+                version: "0.9.0",
+                path: "desktop/resources/app.asar",
+                sha256: digest("e"),
+                source: "depot" as const,
+            },
+        ],
         uninstall: {
             preserveStateRootByDefault: true as const,
             deleteStateRootRequiresExplicit: true as const,

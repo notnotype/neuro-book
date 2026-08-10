@@ -35,7 +35,6 @@ import {
     inferWindowsDesktopInstallationScope,
     installDesktopFromLocalDepot,
     installDesktopShellFromLocalDepot,
-    parseDesktopPortableManifest,
     repairDesktopRuntimeState,
     registerWindowsDesktop,
     removeWindowsDesktopRegistration,
@@ -45,7 +44,11 @@ import {
     writeMachineUninstallLauncher,
     writeDesktopRuntimeWrappers,
 } from "#manager/desktop-installation";
-import type {DesktopInstallationManifest} from "nbook/shared/desktop-contract";
+import {
+    parseDesktopPortableManifest,
+    type DesktopInstallationManifest,
+    type DesktopPortableArchiveManifest,
+} from "nbook/shared/desktop-contract";
 import {
     DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
@@ -102,15 +105,15 @@ describe("Desktop Portable manifest", () => {
         expect(() => parseDesktopPortableManifest({
             ...manifest,
             product: {...manifest.product, dirty: "false"},
-        })).toThrow("dirty 标记");
+        })).toThrow("product.dirty");
         expect(() => parseDesktopPortableManifest({
             ...manifest,
             toolPack: {digest: "not-a-digest"},
-        })).toThrow("Tool Pack digest");
+        })).toThrow("toolPack.digest");
         expect(() => parseDesktopPortableManifest({
             ...manifest,
             runtime: {...manifest.runtime, envelopePath: ""},
-        })).toThrow("Envelope 路径");
+        })).toThrow("runtime.envelopePath");
     });
 
     it("校验 Product、运行时、Tool Pack 和 Envelope 的实际 checksum", async () => {
@@ -123,6 +126,7 @@ describe("Desktop Portable manifest", () => {
             "tools/git.exe",
             "tools/bash.exe",
             "desktop/NeuroBook-Electron.exe",
+            "desktop/resources/app.asar",
         ];
         await Promise.all(paths.map(async (path) => {
             await mkdir(dirname(join(root, path)), {recursive: true});
@@ -133,8 +137,13 @@ describe("Desktop Portable manifest", () => {
         const components = componentsManifest(hashes);
         const portable = portableManifest("electron");
         portable.runtime.envelopeSha256 = `sha256:${hashes.get("desktop/NeuroBook-Electron.exe")!}`;
+        portable.runtime.applicationSha256 = `sha256:${hashes.get("desktop/resources/app.asar")!}`;
 
         await expect(verifyDesktopPortablePayload(root, {components}, portable, "electron")).resolves.toBeUndefined();
+        await writeFile(join(root, "desktop/resources/app.asar"), "tampered", "utf8");
+        await expect(verifyDesktopPortablePayload(root, {components}, portable, "electron"))
+            .rejects.toThrow("Electron application checksum");
+        await writeFile(join(root, "desktop/resources/app.asar"), "desktop/resources/app.asar", "utf8");
         await writeFile(join(root, ".runtime/manager/neuro-book.mjs"), "tampered", "utf8");
         await expect(verifyDesktopPortablePayload(root, {components}, portable, "electron")).rejects.toThrow("Manager CLI checksum");
     });
@@ -736,6 +745,36 @@ describe("Desktop installation lifecycle", () => {
         expect(await pathExists(join(installRoot, "data"))).toBe(false);
     });
 
+    it("repair 在 app.asar 被篡改时 fail closed，不重建 locator 或注册项", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-app-integrity-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(localAppData, "Programs", "NeuroBook");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        const installed = await installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        });
+        const locatorPath = join(installRoot, "desktop", "runtime-locators.json");
+        await rm(locatorPath, {force: true});
+        await writeFile(join(installRoot, "desktop", "resources", "app.asar"), "tampered", "utf8");
+        processMocks.run.mockClear();
+
+        await expect(repairDesktopRuntimeState(installRoot, installed.applicationManifest!))
+            .rejects.toThrow("electron-application checksum 不匹配");
+        expect(await pathExists(locatorPath)).toBe(false);
+        expect(processMocks.run).not.toHaveBeenCalled();
+    });
+
     it("repair 在同一 v3 合同内把旧候选的 Product Bun 重新投影为 system provider", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-provider-projection-"));
@@ -875,11 +914,15 @@ describe("Desktop installation lifecycle", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(executable)}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationVersion: "0.9.1",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("electron-application"))}`,
             webview: "bundled-chromium",
         } as const;
         await writeFile(archive, zipSync({
             "manifest.json": strToU8(`${JSON.stringify(shellManifest)}\n`),
             "desktop/NeuroBook-Electron.exe": executable,
+            "desktop/resources/app.asar": strToU8("electron-application"),
         }));
         const archiveBytes = await readFile(archive);
         await writeFile(distributionManifest, `${JSON.stringify({
@@ -940,6 +983,9 @@ describe("Desktop installation lifecycle", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            applicationPath: "desktop/resources/app.asar" as const,
+            applicationVersion: "0.9.1",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("electron-application"))}`,
             webview: "bundled-chromium" as const,
         };
         expect(() => assertDesktopShellInstallable(shell, "tauri")).toThrow("命令选择");
@@ -960,6 +1006,9 @@ describe("Desktop installation lifecycle", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationVersion: "0.9.1",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("electron-application"))}`,
             webview: "bundled-chromium",
         })).rejects.toThrow("禁止的顶层内容");
     });
@@ -978,6 +1027,9 @@ describe("Desktop installation lifecycle", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationVersion: "0.9.1",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("electron-application"))}`,
             webview: "bundled-chromium",
         })).rejects.toThrow("缺少 manifest.json");
     });
@@ -998,6 +1050,9 @@ describe("Desktop installation lifecycle", () => {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
             envelopeSha256: `sha256:${digest(new TextEncoder().encode("electron"))}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationVersion: "0.9.1",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("electron-application"))}`,
             webview: "bundled-chromium",
         })).rejects.toThrow("禁止的 Product/Runtime owner");
     });
@@ -1206,19 +1261,38 @@ async function pathExists(path: string): Promise<boolean> {
     }
 }
 
-function portableManifest(kind: "electron" | "tauri") {
-    return {
+function portableManifest(kind: "electron"): Extract<DesktopPortableArchiveManifest, {kind: "electron"}>;
+function portableManifest(kind: "tauri"): Extract<DesktopPortableArchiveManifest, {kind: "tauri"}>;
+function portableManifest(kind: "electron" | "tauri"): DesktopPortableArchiveManifest {
+    const common = {
         schema: "nbook.desktop-portable/v1" as const,
-        kind,
         platform: "windows-x64" as const,
         product: {imagePath: ".output" as const, dirty: false, imageId: `sha256:${"e".repeat(64)}`},
+        toolPack: {digest: `sha256:${"d".repeat(64)}`},
+    };
+    if (kind === "tauri") {
+        return {
+            ...common,
+            kind,
+            runtime: {
+                bunPath: "runtime/bun.exe",
+                envelopePath: "desktop/NeuroBook-Tauri.exe",
+                envelopeVersion: "43.2.0",
+                envelopeSha256: `sha256:${digest(new TextEncoder().encode("desktop/NeuroBook-Tauri.exe"))}`,
+            },
+        };
+    }
+    return {
+        ...common,
+        kind,
         runtime: {
             bunPath: "runtime/bun.exe" as const,
-            envelopePath: kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe",
+            envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: "43.2.0",
-            envelopeSha256: `sha256:${digest(new TextEncoder().encode(kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe"))}`,
+            envelopeSha256: `sha256:${digest(new TextEncoder().encode("desktop/NeuroBook-Electron.exe"))}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationSha256: `sha256:${digest(new TextEncoder().encode("desktop/resources/app.asar"))}`,
         },
-        toolPack: {digest: `sha256:${"d".repeat(64)}`},
     };
 }
 
@@ -1314,7 +1388,7 @@ async function createAggregateDesktopDepot(
     return {archivePath, manifestPath, digest: digest(archiveBytes)};
 }
 
-async function createDesktopPortableArchive(path: string, portable: ReturnType<typeof portableManifest>): Promise<void> {
+async function createDesktopPortableArchive(path: string, portable: DesktopPortableArchiveManifest): Promise<void> {
     portable.runtime.envelopeSha256 = `sha256:${digest(new TextEncoder().encode(portable.runtime.envelopePath))}`;
     const files = {
         ".runtime/manager/neuro-book.mjs": "manager",
@@ -1323,6 +1397,9 @@ async function createDesktopPortableArchive(path: string, portable: ReturnType<t
         "tools/git.exe": "git",
         "tools/bash.exe": "bash",
         [portable.runtime.envelopePath]: portable.runtime.envelopePath,
+        ...(portable.kind === "electron"
+            ? {"desktop/resources/app.asar": "desktop/resources/app.asar"}
+            : {}),
     };
     const hashes = new Map<string, string>();
     for (const [file, value] of Object.entries(files)) {
@@ -1394,8 +1471,14 @@ function desktopManifest(): DesktopInstallationManifest {
                 git: {provider: "managed", version: "2.51.0", path: "tools/git.exe", sha256: `sha256:${"c".repeat(64)}`, bashPath: "tools/bash.exe"},
             },
         },
-        components: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`}],
-        receipts: [{id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`, source: "depot"}],
+        components: [
+            {id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`},
+            {id: "electron-application", version: "0.9.1", path: "desktop/resources/app.asar", sha256: `sha256:${"f".repeat(64)}`},
+        ],
+        receipts: [
+            {id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"e".repeat(64)}`, source: "depot"},
+            {id: "electron-application", version: "0.9.1", path: "desktop/resources/app.asar", sha256: `sha256:${"f".repeat(64)}`, source: "depot"},
+        ],
         uninstall: {
             preserveStateRootByDefault: true,
             deleteStateRootRequiresExplicit: true,

@@ -6,6 +6,7 @@ export const DESKTOP_SUPERVISOR_SCHEMA = "nbook.desktop-supervisor/v1";
 export const DESKTOP_CAPABILITY_SCHEMA = "nbook.desktop-capability/v1";
 export const DESKTOP_USER_INSTALLATION_SCHEMA = "nbook.desktop-user-installation/v1";
 export const DESKTOP_SHELL_SCHEMA = "nbook.desktop-shell/v1";
+export const DESKTOP_PORTABLE_SCHEMA = "nbook.desktop-portable/v1";
 
 export const DESKTOP_ENVELOPES = ["electron", "tauri"] as const;
 export const DESKTOP_CHANNELS = ["stable", "canary"] as const;
@@ -15,6 +16,7 @@ export const DESKTOP_COMPONENT_IDS = [
     "bun",
     "manager-cli",
     "electron-envelope",
+    "electron-application",
     "tauri-envelope",
     "tool-pack",
     "webview2-runtime",
@@ -76,15 +78,51 @@ export type DesktopDistributionComponent = {
 };
 
 /** 远端 Desktop 只需要的 Envelope depot；不得携带 Product、Bun 或 Tool Pack。 */
-export type DesktopShellArchiveManifest = {
+type DesktopShellArchiveManifestBase = {
     schema: typeof DESKTOP_SHELL_SCHEMA;
-    kind: DesktopEnvelope;
     platform: "windows-x64";
     envelopePath: string;
     envelopeVersion: string;
     envelopeSha256: string;
     webview: "bundled-chromium" | "system-evergreen";
 };
+
+export type DesktopShellArchiveManifest =
+    | DesktopShellArchiveManifestBase & {
+        kind: "electron";
+        applicationPath: "desktop/resources/app.asar";
+        applicationVersion: string;
+        applicationSha256: string;
+    }
+    | DesktopShellArchiveManifestBase & {kind: "tauri"};
+
+/** 完整 Desktop Portable 的壳与 Product 身份；Electron 应用代码单独保护。 */
+type DesktopPortableArchiveManifestBase = {
+    schema: typeof DESKTOP_PORTABLE_SCHEMA;
+    platform: "windows-x64";
+    product: {imagePath: ".output"; dirty: boolean; imageId: string};
+    toolPack: {digest: string};
+};
+
+type DesktopPortableRuntimeBase = {
+    bunPath: "runtime/bun.exe";
+    envelopePath: string;
+    envelopeVersion: string;
+    envelopeSha256: string;
+};
+
+export type DesktopPortableArchiveManifest =
+    | DesktopPortableArchiveManifestBase & {
+        kind: "electron";
+        runtime: DesktopPortableRuntimeBase & {
+            applicationPath: "desktop/resources/app.asar";
+            applicationSha256: string;
+        };
+    }
+    | DesktopPortableArchiveManifestBase & {
+        kind: "tauri";
+        runtime: DesktopPortableRuntimeBase;
+    };
 
 /** 可下载组件的不可变发行声明；组件本身只允许内容寻址 archive。 */
 export type DesktopDistributionManifest = {
@@ -314,21 +352,103 @@ export function parseDesktopDistributionManifest(value: unknown): DesktopDistrib
 /** 严格解析远端 Desktop 壳 depot manifest。 */
 export function parseDesktopShellArchiveManifest(value: unknown): DesktopShellArchiveManifest {
     const root = object(value, "Desktop Shell Archive Manifest");
-    exactKeys(root, ["schema", "kind", "platform", "envelopePath", "envelopeVersion", "envelopeSha256", "webview"], "Desktop Shell Archive Manifest");
     literal(root.schema, DESKTOP_SHELL_SCHEMA, "schema");
     const kind = member(root.kind, DESKTOP_ENVELOPES, "kind");
+    const applicationKeys = kind === "electron"
+        ? ["applicationPath", "applicationVersion", "applicationSha256"]
+        : [];
+    exactKeys(root, [
+        "schema",
+        "kind",
+        "platform",
+        "envelopePath",
+        "envelopeVersion",
+        "envelopeSha256",
+        ...applicationKeys,
+        "webview",
+    ], "Desktop Shell Archive Manifest");
     literal(root.platform, "windows-x64", "platform");
     const envelopePath = desktopRelativePath(nonEmptyString(root.envelopePath, "envelopePath"), "envelopePath");
     const expectedPath = kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
     if (envelopePath !== expectedPath) throw new Error(`Envelope 路径与壳类型不一致：${envelopePath}`);
-    return {
+    const common: DesktopShellArchiveManifestBase = {
         schema: DESKTOP_SHELL_SCHEMA,
-        kind,
         platform: "windows-x64",
         envelopePath,
         envelopeVersion: nonEmptyString(root.envelopeVersion, "envelopeVersion"),
         envelopeSha256: sha256(root.envelopeSha256, "envelopeSha256"),
         webview: member(root.webview, ["bundled-chromium", "system-evergreen"] as const, "webview"),
+    };
+    if (kind === "tauri") return {...common, kind};
+    const applicationPath = desktopRelativePath(nonEmptyString(root.applicationPath, "applicationPath"), "applicationPath");
+    if (applicationPath !== "desktop/resources/app.asar") {
+        throw new Error(`Electron application 路径不受支持：${applicationPath}`);
+    }
+    return {
+        ...common,
+        kind,
+        applicationPath,
+        applicationVersion: nonEmptyString(root.applicationVersion, "applicationVersion"),
+        applicationSha256: sha256(root.applicationSha256, "applicationSha256"),
+    };
+}
+
+/** 严格解析完整 Desktop Portable manifest。 */
+export function parseDesktopPortableManifest(value: unknown): DesktopPortableArchiveManifest {
+    const root = object(value, "Desktop Portable Manifest");
+    exactKeys(root, ["schema", "kind", "platform", "product", "runtime", "toolPack"], "Desktop Portable Manifest");
+    literal(root.schema, DESKTOP_PORTABLE_SCHEMA, "schema");
+    const kind = member(root.kind, DESKTOP_ENVELOPES, "kind");
+    literal(root.platform, "windows-x64", "platform");
+    const product = object(root.product, "product");
+    exactKeys(product, ["imagePath", "dirty", "imageId"], "product");
+    literal(product.imagePath, ".output", "product.imagePath");
+    const runtime = object(root.runtime, "runtime");
+    const applicationKeys = kind === "electron" ? ["applicationPath", "applicationSha256"] : [];
+    exactKeys(runtime, [
+        "bunPath",
+        "envelopePath",
+        "envelopeVersion",
+        "envelopeSha256",
+        ...applicationKeys,
+    ], "runtime");
+    literal(runtime.bunPath, "runtime/bun.exe", "runtime.bunPath");
+    const envelopePath = desktopRelativePath(nonEmptyString(runtime.envelopePath, "runtime.envelopePath"), "runtime.envelopePath");
+    const expectedEnvelopePath = kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
+    if (envelopePath !== expectedEnvelopePath) {
+        throw new Error(`Portable Envelope 路径与壳类型不一致：${envelopePath}`);
+    }
+    const toolPack = object(root.toolPack, "toolPack");
+    exactKeys(toolPack, ["digest"], "toolPack");
+    const common: DesktopPortableArchiveManifestBase & {runtime: DesktopPortableRuntimeBase} = {
+        schema: DESKTOP_PORTABLE_SCHEMA,
+        platform: "windows-x64",
+        product: {
+            imagePath: ".output",
+            dirty: boolean(product.dirty, "product.dirty"),
+            imageId: sha256(product.imageId, "product.imageId"),
+        },
+        runtime: {
+            bunPath: "runtime/bun.exe",
+            envelopePath,
+            envelopeVersion: nonEmptyString(runtime.envelopeVersion, "runtime.envelopeVersion"),
+            envelopeSha256: sha256(runtime.envelopeSha256, "runtime.envelopeSha256"),
+        },
+        toolPack: {digest: sha256(toolPack.digest, "toolPack.digest")},
+    };
+    if (kind === "tauri") return {...common, kind};
+    const applicationPath = desktopRelativePath(nonEmptyString(runtime.applicationPath, "runtime.applicationPath"), "runtime.applicationPath");
+    if (applicationPath !== "desktop/resources/app.asar") {
+        throw new Error(`Portable Electron application 路径不受支持：${applicationPath}`);
+    }
+    return {
+        ...common,
+        kind,
+        runtime: {
+            ...common.runtime,
+            applicationPath,
+            applicationSha256: sha256(runtime.applicationSha256, "runtime.applicationSha256"),
+        },
     };
 }
 
@@ -367,6 +487,7 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
     if (!Array.isArray(root.components)) throw new Error("components 必须是数组。");
     const components = root.components.map((item, index) => parseInstalledComponent(item, index));
     assertUnique(components.map((item) => item.id), "Desktop Installation components");
+    assertDesktopEnvelopeComponents(envelope, components);
     if (!Array.isArray(root.receipts)) throw new Error("receipts 必须是数组。");
     const receipts = root.receipts.map((item, index) => parseDesktopComponentReceipt(item, index));
     assertUnique(receipts.map((item) => item.id), "Desktop Installation receipts");
@@ -397,6 +518,29 @@ export function parseDesktopInstallationManifest(value: unknown): DesktopInstall
         installedAt,
         updatedAt,
     };
+}
+
+/** 壳可执行文件与实际 Electron 应用代码必须同时进入安装真相源。 */
+function assertDesktopEnvelopeComponents(
+    envelope: DesktopEnvelope,
+    components: DesktopInstalledComponent[],
+): void {
+    const executableId = envelope === "electron" ? "electron-envelope" : "tauri-envelope";
+    const executablePath = envelope === "electron"
+        ? "desktop/NeuroBook-Electron.exe"
+        : "desktop/NeuroBook-Tauri.exe";
+    const executable = components.find((component) => component.id === executableId);
+    if (!executable || executable.path !== executablePath) {
+        throw new Error(`Desktop Installation Manifest 缺少固定路径的 ${executableId} component。`);
+    }
+    const application = components.find((component) => component.id === "electron-application");
+    if (envelope === "electron") {
+        if (!application || application.path !== "desktop/resources/app.asar") {
+            throw new Error("Desktop Installation Manifest 缺少固定路径的 electron-application component。");
+        }
+    } else if (application) {
+        throw new Error("Tauri Installation Manifest 不能包含 electron-application component。");
+    }
 }
 
 /** 严格解析 Desktop 设备设置，并校验缩放范围。 */

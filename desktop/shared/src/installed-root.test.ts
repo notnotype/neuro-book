@@ -55,6 +55,7 @@ describe("installed Desktop root manifest gate", () => {
                     {id: "manager-cli", version: "0.1.0", path: "manager/neuro-book.mjs", sha256: `sha256:${"e".repeat(64)}`},
                     {id: "tool-pack", version: "portable", path: "tools", sha256: `sha256:${"f".repeat(64)}`},
                     {id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"1".repeat(64)}`},
+                    {id: "electron-application", version: "0.9.3", path: "desktop/resources/app.asar", sha256: `sha256:${"2".repeat(64)}`},
                 ],
                 receipts: [
                     {id: "product", version: "0.9.3", path: ".output", sha256: `sha256:${"d".repeat(64)}`, source: "depot"},
@@ -62,6 +63,7 @@ describe("installed Desktop root manifest gate", () => {
                     {id: "manager-cli", version: "0.1.0", path: "manager/neuro-book.mjs", sha256: `sha256:${"e".repeat(64)}`, source: "depot"},
                     {id: "tool-pack", version: "portable", path: "tools", sha256: `sha256:${"f".repeat(64)}`, source: "depot"},
                     {id: "electron-envelope", version: "43.2.0", path: "desktop/NeuroBook-Electron.exe", sha256: `sha256:${"1".repeat(64)}`, source: "depot"},
+                    {id: "electron-application", version: "0.9.3", path: "desktop/resources/app.asar", sha256: `sha256:${"2".repeat(64)}`, source: "depot"},
                 ],
                 uninstall: {
                     preserveStateRootByDefault: true,

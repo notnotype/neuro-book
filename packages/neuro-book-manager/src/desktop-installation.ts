@@ -8,6 +8,7 @@ import {
     parseDesktopCapability,
     parseDesktopDistributionManifest,
     parseDesktopInstallationManifest,
+    parseDesktopPortableManifest,
     parseDesktopShellArchiveManifest,
     desktopRemoteOrigin,
     type DesktopCapability,
@@ -16,6 +17,7 @@ import {
     type DesktopEnvelope,
     type DesktopInstallationManifest,
     type DesktopInstallationScope,
+    type DesktopPortableArchiveManifest,
     type DesktopInstallationProviders,
     type DesktopProviderLocator,
     type DesktopToolProviderLocator,
@@ -115,15 +117,6 @@ export async function readDesktopInstallationManifest(
     const value = await readJson(join(roots.desktop, DESKTOP_INSTALLATION_FILE));
     return value === null ? null : parseDesktopInstallationManifest(value);
 }
-
-export type PortableArchiveManifest = {
-    schema: "nbook.desktop-portable/v1";
-    kind: DesktopEnvelope;
-    platform: "windows-x64";
-    product: {imagePath: ".output"; dirty: boolean; imageId: string};
-    runtime: {bunPath: "runtime/bun.exe"; envelopePath: string; envelopeVersion: string; envelopeSha256: string};
-    toolPack: {digest: string};
-};
 
 /** 从本地 depot 安装 Windows Desktop；远端模式只安装壳并探测服务端能力。 */
 export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): Promise<DesktopInstallResult> {
@@ -381,6 +374,15 @@ export async function verifyDesktopShellPayload(root: string, shell: DesktopShel
     if (await sha256File(envelopePath) !== shell.envelopeSha256.slice("sha256:".length)) {
         throw new Error("远端 shell Envelope checksum 不匹配。" );
     }
+    if (shell.kind === "electron") {
+        const applicationPath = join(root, shell.applicationPath);
+        if (!await pathExists(applicationPath)) {
+            throw new Error(`远端 shell 缺少 Electron application：${shell.applicationPath}`);
+        }
+        if (await sha256File(applicationPath) !== shell.applicationSha256.slice("sha256:".length)) {
+            throw new Error("远端 shell Electron application checksum 不匹配。");
+        }
+    }
 }
 
 /** 递归读取壳目录并拒绝符号链接，避免把其他 owner 藏在 Envelope 目录内。 */
@@ -398,7 +400,7 @@ async function collectShellEntries(root: string, prefix = ""): Promise<string[]>
 }
 
 /** 在解压内容进入安装事务前固定 Envelope 身份和 clean Product 要求。 */
-export function assertDesktopPortableInstallable(portable: PortableArchiveManifest, envelope: DesktopEnvelope): void {
+export function assertDesktopPortableInstallable(portable: DesktopPortableArchiveManifest, envelope: DesktopEnvelope): void {
     if (portable.kind !== envelope) {
         throw new Error(`Portable envelope 为 ${portable.kind}，命令选择为 ${envelope}。`);
     }
@@ -526,7 +528,7 @@ export async function writeDesktopRuntimeWrappers(
 export async function verifyDesktopPortablePayload(
     root: string,
     manifest: {components: InstallationComponents},
-    portable: PortableArchiveManifest,
+    portable: DesktopPortableArchiveManifest,
     envelope: DesktopEnvelope,
 ): Promise<void> {
     const product = manifest.components.product;
@@ -543,6 +545,19 @@ export async function verifyDesktopPortablePayload(
     if (portable.runtime.envelopePath !== envelopePath) throw new Error(`Desktop Portable Envelope 路径与命令选择不一致：${portable.runtime.envelopePath}`);
     if (!await pathExists(join(root, envelopePath))) throw new Error(`Desktop Portable 缺少 Envelope：${envelopePath}`);
     if (`sha256:${await sha256File(join(root, envelopePath))}` !== portable.runtime.envelopeSha256) throw new Error("Desktop Portable Envelope checksum 不匹配。");
+    if (portable.kind === "electron") {
+        const applicationPath = portable.runtime.applicationPath;
+        const applicationSha256 = portable.runtime.applicationSha256;
+        if (applicationPath !== "desktop/resources/app.asar" || !applicationSha256) {
+            throw new Error("Desktop Portable 缺少 Electron application identity。");
+        }
+        if (!await pathExists(join(root, applicationPath))) {
+            throw new Error(`Desktop Portable 缺少 Electron application：${applicationPath}`);
+        }
+        if (`sha256:${await sha256File(join(root, applicationPath))}` !== applicationSha256) {
+            throw new Error("Desktop Portable Electron application checksum 不匹配。");
+        }
+    }
     const toolPack = manifest.components.tools;
     const rg = toolPack.rg;
     if (!rg || rg.provider !== "managed" || await sha256File(join(root, rg.path)) !== rg.executableSha256) {
@@ -562,7 +577,7 @@ async function createDesktopInstallationManifest(
     options: DesktopLocalDepot,
     root: string,
     applicationManifest: InstallationManifest,
-    portable: PortableArchiveManifest,
+    portable: DesktopPortableArchiveManifest,
     providers: DesktopInstallationProviders,
 ): Promise<DesktopInstallationManifest> {
     const now = new Date().toISOString();
@@ -580,6 +595,14 @@ async function createDesktopInstallationManifest(
             ? [{id: "tool-pack" as const, version: "portable", path: "tools", sha256: portable.toolPack.digest}]
             : []),
         {id: envelopeId as "electron-envelope" | "tauri-envelope", version: portable.runtime.envelopeVersion, path: envelopePath, sha256: await fileSha256(root, envelopePath)},
+        ...(portable.kind === "electron"
+            ? [{
+                id: "electron-application" as const,
+                version: applicationManifest.appVersion,
+                path: "desktop/resources/app.asar",
+                sha256: await fileSha256(root, "desktop/resources/app.asar"),
+            }]
+            : []),
     ];
     const value = {
         schema: DESKTOP_INSTALLATION_SCHEMA,
@@ -613,7 +636,17 @@ function createRemoteDesktopInstallationManifest(
     if (options.connection.mode !== "remote") throw new Error("远端 Desktop 清单必须使用 remote connection。" );
     const envelopeId = options.envelope === "electron" ? "electron-envelope" : "tauri-envelope";
     const now = new Date().toISOString();
-    const components = [{id: envelopeId as "electron-envelope" | "tauri-envelope", version: shell.envelopeVersion, path: shell.envelopePath, sha256: shell.envelopeSha256}];
+    const components = [
+        {id: envelopeId as "electron-envelope" | "tauri-envelope", version: shell.envelopeVersion, path: shell.envelopePath, sha256: shell.envelopeSha256},
+        ...(shell.kind === "electron"
+            ? [{
+                id: "electron-application" as const,
+                version: shell.applicationVersion,
+                path: shell.applicationPath,
+                sha256: shell.applicationSha256,
+            }]
+            : []),
+    ];
     return parseDesktopInstallationManifest({
         schema: DESKTOP_INSTALLATION_SCHEMA,
         installationId: randomUUID(),
@@ -898,40 +931,6 @@ function canonicalWindowsPath(value: string): string {
         : slashNormalized.toLocaleLowerCase();
 }
 
-export function parseDesktopPortableManifest(value: unknown): PortableArchiveManifest {
-    if (!value || typeof value !== "object") throw new Error("Portable manifest 不是对象。");
-    const root = value as Record<string, unknown>;
-    if (root.schema !== "nbook.desktop-portable/v1") throw new Error("Portable manifest schema 不受支持。");
-    if (root.kind !== "electron" && root.kind !== "tauri") throw new Error("Portable manifest envelope 无效。");
-    if (root.platform !== "windows-x64") throw new Error("Desktop 用户级安装只接受 Windows x64 Portable。");
-    const product = root.product;
-    const runtime = root.runtime;
-    const toolPack = root.toolPack;
-    if (!product || typeof product !== "object" || (product as Record<string, unknown>).imagePath !== ".output") throw new Error("Portable manifest 缺少 Product Image。");
-    if (!runtime || typeof runtime !== "object" || (runtime as Record<string, unknown>).bunPath !== "runtime/bun.exe") throw new Error("Portable manifest 缺少 Bun Runtime。");
-    if (!toolPack || typeof toolPack !== "object") throw new Error("Portable manifest 缺少 Tool Pack。");
-    const imageId = (product as Record<string, unknown>).imageId;
-    const dirty = (product as Record<string, unknown>).dirty;
-    const envelopeVersion = (runtime as Record<string, unknown>).envelopeVersion;
-    const envelopePath = (runtime as Record<string, unknown>).envelopePath;
-    const envelopeSha256 = (runtime as Record<string, unknown>).envelopeSha256;
-    const toolDigest = (toolPack as Record<string, unknown>).digest;
-    if (typeof imageId !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(imageId)) throw new Error("Portable Product imageId 无效。");
-    if (typeof dirty !== "boolean") throw new Error("Portable Product dirty 标记无效。");
-    if (typeof envelopeVersion !== "string" || !envelopeVersion.trim()) throw new Error("Portable Envelope version 缺失。");
-    if (typeof envelopePath !== "string" || !envelopePath.trim()) throw new Error("Portable Envelope 路径缺失。");
-    if (typeof envelopeSha256 !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(envelopeSha256)) throw new Error("Portable Envelope checksum 无效。");
-    if (typeof toolDigest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(toolDigest)) throw new Error("Portable Tool Pack digest 无效。");
-    return {
-        schema: "nbook.desktop-portable/v1",
-        kind: root.kind,
-        platform: "windows-x64",
-        product: {imagePath: ".output", dirty, imageId},
-        runtime: {bunPath: "runtime/bun.exe", envelopePath, envelopeVersion, envelopeSha256},
-        toolPack: {digest: toolDigest},
-    };
-}
-
 async function fileSha256(root: string, relativePath: string): Promise<string> {
     const digest = createHash("sha256").update(await readFile(join(root, relativePath))).digest("hex");
     return `sha256:${digest}`;
@@ -1082,6 +1081,7 @@ export async function repairDesktopRuntimeState(
     if (installationRoot.toLowerCase() !== expectedRoot.toLowerCase()) {
         throw new Error("Desktop repair 的 Installation Root 与 manifest scope 不一致。");
     }
+    await verifyDesktopInstalledEnvelope(installationRoot, desktopManifest);
     const managerRuntime = applicationManifest.components.managerRuntime;
     const desktopManagerRuntime = desktopManifest.providers.managerRuntime;
     if (managerRuntime.provider !== "managed"
@@ -1123,6 +1123,30 @@ export async function repairDesktopRuntimeState(
         uninstallLauncher,
     );
     return projectedManifest;
+}
+
+/** Repair 与安装后启动都必须验证壳可执行文件和 Electron app.asar。 */
+export async function verifyDesktopInstalledEnvelope(
+    installationRootInput: string,
+    manifest: DesktopInstallationManifest,
+): Promise<void> {
+    const installationRoot = resolve(installationRootInput);
+    const requiredIds = manifest.envelope === "electron"
+        ? ["electron-envelope", "electron-application"] as const
+        : ["tauri-envelope"] as const;
+    for (const id of requiredIds) {
+        const component = manifest.components.find((candidate) => candidate.id === id);
+        if (!component) throw new Error(`Desktop Installation Manifest 缺少 ${id}。`);
+        const path = join(installationRoot, component.path);
+        const info = await lstat(path).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink()) {
+            throw new Error(`Desktop ${id} 不存在或不是普通文件：${component.path}`);
+        }
+        const actual = `sha256:${await sha256File(path)}`;
+        if (actual !== component.sha256) {
+            throw new Error(`Desktop ${id} checksum 不匹配。`);
+        }
+    }
 }
 
 function managedRipgrep(tools: InstallationComponents["tools"]): DesktopToolProviderLocator {

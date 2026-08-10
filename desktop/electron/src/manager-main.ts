@@ -3,7 +3,7 @@ import {spawn} from "node:child_process";
 import {createHash, randomBytes, randomUUID} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
 import {createServer, type Server, type Socket} from "node:net";
-import {isAbsolute, join, relative, resolve} from "node:path";
+import {join, resolve} from "node:path";
 import {homedir} from "node:os";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {createInterface} from "node:readline";
@@ -38,16 +38,11 @@ import {
     validateManagerOperation,
 } from "./manager-operation";
 import type {SensitiveOutputGuard} from "./manager-operation";
-
-type ManagerLaunchReceipt = {
-    installationRoot: string;
-    installationId: string;
-    installationScope: "user" | "machine";
-    manifestPath: string;
-    manifestSha256: string;
-    executablePath: string;
-    executableSha256: string;
-};
+import {
+    createManagerLaunchReceipt as createLaunchReceipt,
+    sameManagerLaunchReceipt as sameLaunchReceipt,
+    type ManagerLaunchReceipt,
+} from "./manager-launch-receipt";
 
 type ManagerBinding = ManagerOperationBinding;
 
@@ -142,6 +137,7 @@ export async function runManagerGui(): Promise<void> {
         const verified = await createLaunchReceipt(launchReceipt.installationRoot);
         if (verified.manifestSha256 !== launchReceipt.manifestSha256
             || verified.executableSha256 !== launchReceipt.executableSha256
+            || verified.applicationSha256 !== launchReceipt.applicationSha256
             || verified.installationId !== launchReceipt.installationId
             || verified.installationScope !== launchReceipt.installationScope) {
             launchReceipt = null;
@@ -766,15 +762,6 @@ async function managerBindingForOperation(operation: ManagerGuiOperation): Promi
     };
 }
 
-function sameLaunchReceipt(left: ManagerLaunchReceipt, right: ManagerLaunchReceipt): boolean {
-    return sameWindowsPath(left.installationRoot, right.installationRoot)
-        && left.installationId === right.installationId
-        && left.installationScope === right.installationScope
-        && left.manifestSha256 === right.manifestSha256
-        && left.executableSha256 === right.executableSha256
-        && sameWindowsPath(left.executablePath, right.executablePath);
-}
-
 function parseProviderTestEvent(value: unknown): ManagerGuiProviderTestResult | null {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
@@ -795,59 +782,6 @@ function parseProviderTestEvent(value: unknown): ManagerGuiProviderTestResult | 
         discoverySupported: record.discoverySupported,
         models: record.models as string[] | null,
     };
-}
-
-async function createLaunchReceipt(rootInput: string): Promise<ManagerLaunchReceipt> {
-    const installationRoot = resolve(rootInput);
-    const localAppData = process.env.LOCALAPPDATA
-        ?? join(process.env.USERPROFILE ?? process.env.HOME ?? homedir(), "AppData", "Local");
-    const manifestPath = join(localAppData, "NeuroBook", "desktop", "desktop-installation.json");
-    if (!existsSync(manifestPath)) throw new Error("安装完成回执缺少 Desktop Installation Manifest。");
-    const manifestText = readFileSync(manifestPath, "utf8");
-    const manifest = parseDesktopInstallationManifest(JSON.parse(manifestText) as unknown);
-    const expectedRoot = defaultInstallationRoot(manifest.installationScope);
-    if (!sameWindowsPath(installationRoot, expectedRoot)) {
-        throw new Error("安装完成回执的 Installation Root 与 manifest scope 不一致。");
-    }
-    if (manifest.envelope !== "electron") {
-        throw new Error("安装完成回执不是 Electron Installation Manifest。");
-    }
-    const component = manifest.components.find((item) => item.id === "electron-envelope");
-    if (!component || !isSafeRelativePath(component.path)) {
-        throw new Error("安装完成回执缺少安全的 Electron Envelope component。");
-    }
-    const executablePath = resolve(installationRoot, ...component.path.split(/[\\/]/u));
-    const relativeExecutable = relative(installationRoot, executablePath);
-    if (!relativeExecutable
-        || relativeExecutable.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-        || isAbsolute(relativeExecutable)
-        || !existsSync(executablePath)) {
-        throw new Error("安装完成回执中的 Electron Envelope 不存在或越出 Installation Root。");
-    }
-    const executableSha256 = `sha256:${createHash("sha256").update(readFileSync(executablePath)).digest("hex")}`;
-    if (executableSha256 !== component.sha256) {
-        throw new Error("安装完成回执中的 Electron Envelope checksum 不匹配。");
-    }
-    return {
-        installationRoot,
-        installationId: manifest.installationId,
-        installationScope: manifest.installationScope,
-        manifestPath: resolve(manifestPath),
-        manifestSha256: `sha256:${createHash("sha256").update(manifestText, "utf8").digest("hex")}`,
-        executablePath,
-        executableSha256,
-    };
-}
-
-function isSafeRelativePath(path: string): boolean {
-    return path.length > 0
-        && !isAbsolutePath(path)
-        && !path.includes("\0")
-        && path.split(/[\\/]/u).every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
-}
-
-function isAbsolutePath(path: string): boolean {
-    return path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/u.test(path);
 }
 
 function readInstalledBinding(root: string, deleteData: boolean): ManagerBinding | null {

@@ -8,6 +8,8 @@ describe("Electron portable packaging contract", () => {
         expect(packager).toMatch(/createPackage\(appStagingRoot, join\(resourcesRoot, "app\.asar"\)\)/u);
         expect(packager).toContain('await rm(appStagingRoot, {recursive: true, force: true});');
         expect(packager).toContain('join(resourcesRoot, "icon.ico")');
+        expect(packager).toContain('applicationPath: "desktop/resources/app.asar"');
+        expect(packager).toContain('applicationSha256: `sha256:${await fileSha256(join(stageRoot, "desktop/resources/app.asar"))}`');
         expect(packager).not.toContain('join(targetRoot, "resources", "app", "main.mjs")');
         expect(packager).not.toContain('join(targetRoot, "resources", "app", "icon.ico")');
         expect(packager).toContain("portableTemplateTimestamp = verified.manifest.createdAt");
@@ -45,9 +47,14 @@ describe("Electron portable packaging contract", () => {
 
     it("Manager 只有在复核安装清单和 Envelope 摘要后才允许自动启动", async () => {
         const source = await readFile(resolve("desktop/electron/src/manager-main.ts"), "utf8");
+        const receipt = await readFile(resolve("desktop/electron/src/manager-launch-receipt.ts"), "utf8");
         expect(source).toContain("type ManagerLaunchReceipt");
         expect(source).toContain("launchReceipt = await createLaunchReceipt(result.installationRoot)");
         expect(source).toContain("安装完成回执与当前 Installation Manifest 不一致");
         expect(source).not.toContain("if (!lastInstallationRoot)");
+        expect(receipt).toContain('item.id === "electron-envelope"');
+        expect(receipt).toContain('item.id === "electron-application"');
+        expect(receipt).toContain('"Electron application"');
+        expect(receipt).toContain("${label} checksum 不匹配");
     });
 });

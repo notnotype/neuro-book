@@ -402,6 +402,8 @@ async function createElectronStage(args, verified, versions, stageRoot) {
             envelopePath: "desktop/NeuroBook-Electron.exe",
             envelopeVersion: versions.electron,
             envelopeSha256: `sha256:${await fileSha256(join(stageRoot, "desktop/NeuroBook-Electron.exe"))}`,
+            applicationPath: "desktop/resources/app.asar",
+            applicationSha256: `sha256:${await fileSha256(join(stageRoot, "desktop/resources/app.asar"))}`,
         },
         toolPack: {
             files: toolIdentity.files,
@@ -442,7 +444,7 @@ async function buildElectronPortable(args, verified, versions, outputDir) {
 }
 
 /** 建立只含 Desktop Envelope 的远端 shell depot；Product/Bun/Manager/Tool Pack 均不进入。 */
-async function createElectronShellStage(args, versions, stageRoot) {
+async function createElectronShellStage(args, versions, applicationVersion, stageRoot) {
     await mkdir(stageRoot, {recursive: true});
     await copyElectronRuntime(args.electronRuntime, stageRoot);
     const envelopePath = "desktop/NeuroBook-Electron.exe";
@@ -453,6 +455,9 @@ async function createElectronShellStage(args, versions, stageRoot) {
         envelopePath,
         envelopeVersion: versions.electron,
         envelopeSha256: `sha256:${await fileSha256(join(stageRoot, envelopePath))}`,
+        applicationPath: "desktop/resources/app.asar",
+        applicationVersion,
+        applicationSha256: `sha256:${await fileSha256(join(stageRoot, "desktop/resources/app.asar"))}`,
         webview: "bundled-chromium",
     };
     await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
@@ -463,10 +468,10 @@ async function createElectronShellStage(args, versions, stageRoot) {
 }
 
 /** 生成独立 shell ZIP 和 sidecar manifest。 */
-async function buildElectronShell(args, versions, outputDir) {
+async function buildElectronShell(args, versions, applicationVersion, outputDir) {
     const stageRoot = await mkdtemp(join(outputDir, ".stage-electron-shell-"));
     try {
-        const {manifest, archiveEntries} = await createElectronShellStage(args, versions, stageRoot);
+        const {manifest, archiveEntries} = await createElectronShellStage(args, versions, applicationVersion, stageRoot);
         const baseName = "neuro-book-electron-shell-win-x64";
         const archive = join(outputDir, `${baseName}.zip`);
         await writeZipArchive(archive, archiveEntries, 2000);
@@ -580,7 +585,7 @@ async function main() {
             throw new Error(`Shell 输出目录必须为空：${args.shellOutputDir}`);
         }
         shells = {
-            electron: await buildElectronShell(args, versions, args.shellOutputDir),
+            electron: await buildElectronShell(args, versions, verified.manifest.version, args.shellOutputDir),
         };
         shells.distribution = await writeDistributionManifest(
             args.shellOutputDir,
