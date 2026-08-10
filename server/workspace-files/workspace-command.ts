@@ -14,12 +14,20 @@ import {
     createWorkspaceContentState,
     createWorkspaceDirectory,
     parseMarkdownDocument,
+    renderMarkdownDocument,
     resolveWorkspacePath,
     statWorkspacePath,
     toWorkspaceDisplayPath,
     type WorkspaceFileIssue,
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
+import {
+    decodeBookText,
+    splitBookChapters,
+    type ChapterPatternDescription,
+    type ChapterSplitMode,
+    type ChapterSplitPoints,
+} from "nbook/server/workspace-files/book-chapter-splitting";
 import {
     isProjectInUseError,
     isProjectLockReleaseFailedError,
@@ -66,6 +74,18 @@ type WorkspaceNodeValidateOptions = {
     json: boolean;
     recursive: boolean;
     fixMissing: boolean;
+};
+
+type WorkspaceNodeImportBookOptions = {
+    volume?: string;
+    chaptersPerVolume: string;
+    singleVolume: boolean;
+    splitPattern?: string;
+    patternJson?: string;
+    splitPoints?: string;
+    apply: boolean;
+    force: boolean;
+    json: boolean;
 };
 
 type WorkspaceSchemaOptions = {
@@ -139,6 +159,7 @@ type ParsedContentNode = {
 const program = new Command();
 const INVOCATION_CWD = process.cwd();
 const PROJECT_CLI_SCHEMA = "nbook.workspace-cli/v1" as const;
+const IMPORT_BOOK_SCHEMA = "nbook.import-book/v1" as const;
 const DEFAULT_TEMPLATE_NAME = "default" as const;
 
 program
@@ -347,6 +368,67 @@ nodeCommand
             if (result.issues.some((issue) => issue.level === "P1" || issue.level === "P2")) {
                 process.exitCode = 1;
             }
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+nodeCommand
+    .command("import-book")
+    .description("导入整本书到 manuscript：切章（模式库/AI 描述/逃生口）→ dry-run 统计 → 确认后落盘")
+    .argument("<source>", "书稿来源：单个 .txt/.md 文件，或含 full.md 的番茄导入目录，或一堆按顺序命名的 .md/.txt 文件目录")
+    .option("--volume <dir>", "目标卷目录名（相对 Project Workspace），默认按分卷规则自动生成", "")
+    .option("--chapters-per-volume <n>", "每卷章数，默认 100", "100")
+    .option("--single-volume", "全部章节放进一个卷", false)
+    .option("--split-pattern <regex>", "手工指定章节标记正则（逃生口，行首匹配）", "")
+    .option("--pattern-json <json>", "AI 章节标记描述（结构化），由切章 workflow 生成", "")
+    .option("--split-points <json>", "AI 给出的每章起始行号", "")
+    .option("--apply", "确认落盘（默认只输出 dry-run 统计，不写文件）", false)
+    .option("--force", "覆盖已存在的章节文件", false)
+    .option("--json", "输出 JSON", false)
+    .action(async (source: string, options: WorkspaceNodeImportBookOptions) => {
+        try {
+            const root = await resolveWorkspaceContentRoot();
+            const sourcePath = resolveImportBookSource(root, source);
+            const buffer = await readImportBookSource(sourcePath);            const {text, encoding} = decodeBookText(buffer);
+
+            const splitPattern = options.splitPattern?.trim() || "";
+            const patternDescription = parseOptionalJson<ChapterPatternDescription>(options.patternJson, "pattern-json");
+            const splitPoints = parseOptionalJson<ChapterSplitPoints>(options.splitPoints, "split-points");
+            const regex = splitPattern ? new RegExp(splitPattern) : undefined;
+            const split = splitBookChapters({text, regex, pattern: patternDescription, splitPoints});
+
+            const volumePlan = planVolumes(split.parts.length, options);
+            if (options.json) {
+                console.log(JSON.stringify({
+                    schemaVersion: IMPORT_BOOK_SCHEMA,
+                    ok: true,
+                    applied: false,
+                    source: sourcePath.displayPath,
+                    encoding,
+                    mode: split.stats.mode,
+                    patternKey: split.stats.patternKey,
+                    confidence: split.stats.confidence,
+                    total: split.stats.total,
+                    distribution: split.stats.distribution,
+                    anomalies: split.stats.anomalies,
+                    volumePlan,
+                    previews: split.parts.slice(0, 40).map((part) => ({index: part.index, heading: part.heading, words: part.words})),
+                    hint: split.stats.confidence === "low"
+                        ? "切章置信度低：建议检查 dry-run 统计，必要时用 --split-pattern / --pattern-json / --split-points 重新切分"
+                        : "",
+                }, null, 2));
+                return;
+            }
+            printImportBookPreview(split.stats, volumePlan);
+
+            if (!options.apply) {
+                console.log("这是 dry-run 预览，未写入任何文件。确认无误后加 --apply 落盘。");
+                return;
+            }
+            const written = await applyImportBook(root, split.parts, volumePlan, options.force);
+            console.log(`已导入 ${written.length} 章${written.length > 0 ? `：${written.join("、")}` : ""}`);
         } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
             process.exitCode = 1;
@@ -918,4 +1000,182 @@ function readSchemaType(field: Record<string, unknown>): string {
  */
 function readSchemaDescription(field: Record<string, unknown>): string {
     return typeof field.description === "string" ? field.description : "";
+}
+
+/**
+ * import-book 的 source 解析：目录或文件；目录优先读 full.md，否则按文件名顺序拼接正文文件。
+ * 返回绝对路径（供读取）与展示路径（供输出）。
+ */
+function resolveImportBookSource(root: string, source: string): {absolutePath: string; displayPath: string} {
+    const value = source.trim();
+    if (!value) {
+        throw new Error("书稿来源不能为空");
+    }
+    const absolute = absoluteFsPath(path.isAbsolute(value) ? path.resolve(value) : path.resolve(root, value));
+    const relative = relativeFilePathInside(root, absolute);
+    return {
+        absolutePath: absolute,
+        displayPath: relative !== null ? toWorkspaceDisplayPath(root, absolute) : absolute,
+    };
+}
+
+/**
+ * 读取书稿内容：单文件直接读；目录先尝试 full.md，否则按名称排序拼接正文文件。
+ */
+async function readImportBookSource(source: {absolutePath: string}): Promise<Buffer> {
+    const stat = await fs.stat(source.absolutePath).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") {
+            throw new Error(`书稿来源不存在：${source.absolutePath}`);
+        }
+        throw error;
+    });
+    if (stat.isFile()) {
+        return await fs.readFile(source.absolutePath);
+    }
+    if (!stat.isDirectory()) {
+        throw new Error(`书稿来源既不是文件也不是目录：${source.absolutePath}`);
+    }
+    const fullPath = path.join(source.absolutePath, "full.md");
+    try {
+        return await fs.readFile(fullPath);
+    } catch (error) {
+        if (typeof error !== "object" || error === null || (error as NodeJS.ErrnoException).code !== "ENOENT") {
+            throw error;
+        }
+    }
+    const entries = await fs.readdir(source.absolutePath, {withFileTypes: true});
+    const bookFiles = entries
+        .filter((entry) => entry.isFile() && /\.(?:md|txt)$/iu.test(entry.name))
+        .map((entry) => entry.name)
+        .sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+    if (bookFiles.length === 0) {
+        throw new Error(`书稿目录中没有可读的 .md/.txt 文件（也没有 full.md）：${source.absolutePath}`);
+    }
+    const parts = await Promise.all(bookFiles.map((name) => fs.readFile(path.join(source.absolutePath, name))));
+    return Buffer.concat(parts);
+}
+
+/**
+ * 解析可选的 JSON 参数；空串返回 undefined，非法 JSON 直接报错。
+ */
+function parseOptionalJson<T>(value: string | undefined, optionName: string): T | undefined {
+    const trimmed = value?.trim() || "";
+    if (!trimmed) {
+        return undefined;
+    }
+    try {
+        return JSON.parse(trimmed) as T;
+    } catch (error) {
+        throw new Error(`--${optionName} 不是合法 JSON：${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * 规划卷目录：--single-volume 一卷；否则每 --chapters-per-volume 章一卷。
+ */
+function planVolumes(
+    chapterCount: number,
+    options: Pick<WorkspaceNodeImportBookOptions, "volume" | "chaptersPerVolume" | "singleVolume">,
+): {volume: string; chapters: number}[] {
+    if (options.volume?.trim()) {
+        return [{volume: options.volume.trim(), chapters: chapterCount}];
+    }
+    if (options.singleVolume || chapterCount === 0) {
+        return [{volume: "001-volume", chapters: chapterCount}];
+    }
+    const perVolume = Math.max(1, Math.floor(Number(options.chaptersPerVolume) || 100));
+    const plan: {volume: string; chapters: number}[] = [];
+    let remaining = chapterCount;
+    let volumeIndex = 1;
+    while (remaining > 0) {
+        const count = Math.min(perVolume, remaining);
+        plan.push({volume: `${String(volumeIndex).padStart(3, "0")}-volume`, chapters: count});
+        remaining -= count;
+        volumeIndex += 1;
+    }
+    return plan;
+}
+
+/**
+ * 打印 dry-run 统计（非 JSON 模式）。
+ */
+function printImportBookPreview(stats: {
+    mode: ChapterSplitMode;
+    patternKey: string | null;
+    confidence: "high" | "low";
+    total: number;
+    distribution: [number, number, number, number, number];
+    anomalies: {index: number; heading: string; words: number}[];
+}, volumePlan: {volume: string; chapters: number}[]): void {
+    const [min, p25, median, p75, max] = stats.distribution;
+    console.log(`切章方式：${stats.mode}${stats.patternKey ? `（${stats.patternKey}）` : ""}，置信度：${stats.confidence}`);
+    console.log(`共 ${stats.total} 章；字数分布 min/p25/中位/p75/max：${min}/${p25}/${median}/${p75}/${max}`);
+    console.log(`分卷：${volumePlan.map((plan) => `${plan.volume}（${plan.chapters} 章）`).join("、")}`);
+    if (stats.anomalies.length > 0) {
+        console.log(`字数异常（<500 或 >12000）：${stats.anomalies.map((item) => `#${item.index} ${item.heading}（${item.words} 字）`).join("、")}`);
+    }
+}
+
+/**
+ * 把切好的章节写入 manuscript：卷目录/章节目录按 {3位序号}-{volume|chapter} 命名。
+ * 已存在且未 --force 时跳过；--force 覆盖 index.md。返回实际写入的目录相对路径。
+ */
+async function applyImportBook(
+    root: string,
+    parts: {index: number; heading: string; text: string}[],
+    volumePlan: {volume: string; chapters: number}[],
+    force: boolean,
+): Promise<string[]> {
+    const written: string[] = [];
+    let partOffset = 0;
+    for (const volume of volumePlan) {
+        const volumeRelative = path.posix.join("manuscript", volume.volume);
+        for (let offset = 0; offset < volume.chapters; offset++) {
+            const part = parts[partOffset + offset];
+            if (!part) {
+                break;
+            }
+            const chapterName = `${String(part.index).padStart(3, "0")}-chapter`;
+            const chapterRelative = path.posix.join(volumeRelative, chapterName);
+            const resolved = resolveWorkspacePath(root, chapterRelative);
+            const indexPath = path.join(resolved, "index.md");
+            const content = renderImportBookChapter(part.heading, part.text);
+            try {
+                await fs.stat(indexPath);
+                if (!force) {
+                    continue;
+                }
+                await fs.writeFile(indexPath, content, "utf-8");
+            } catch (error) {
+                if (typeof error !== "object" || error === null || (error as NodeJS.ErrnoException).code !== "ENOENT") {
+                    throw error;
+                }
+                await fs.mkdir(resolved, {recursive: true});
+                await fs.writeFile(indexPath, content, "utf-8");
+            }
+            written.push(chapterRelative);
+        }
+        partOffset += volume.chapters;
+    }
+    return written;
+}
+
+/**
+ * 渲染导入章节的内容节点 index.md：正文原样保留（含标题行），frontmatter 标记导入来源。
+ */
+function renderImportBookChapter(heading: string, body: string): string {
+    return renderMarkdownDocument({
+        title: heading,
+        type: "chapter",
+        subtype: null,
+        status: "draft",
+        icon: null,
+        aliases: [],
+        tags: [],
+        summary: "",
+        refs: [],
+        retrieval: {enabled: true, trigger: null},
+        governance: {source: "imported", review: "proposed"},
+        ext: {},
+    }, body);
 }
