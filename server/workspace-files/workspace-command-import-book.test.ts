@@ -159,6 +159,49 @@ describe("Workspace CLI import-book", {timeout: 120_000}, () => {
     });
 });
 
+describe("Workspace CLI set-summary", {timeout: 120_000}, () => {
+    async function createImportedFixture(): Promise<Fixture> {
+        const fixture = await createFixture();
+        await writeFile(join(fixture.workspaceRoot, "book.txt"), buildBook(["第一章 重生", "第二章 入学"]), "utf8");
+        const imported = await runWorkspace(fixture, ["node", "import-book", "book.txt", "--apply"]);
+        expect(imported.code).toBe(0);
+        return fixture;
+    }
+
+    it("单章 --summary 写回 frontmatter", async () => {
+        const fixture = await createImportedFixture();
+        const result = await runWorkspace(fixture, ["node", "set-summary", "manuscript/001-volume/001-chapter", "--summary", "主角重生回到十年前", "--json"]);
+        expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+        expect(parseJson(result.stdout)).toMatchObject([{path: "manuscript/001-volume/001-chapter/", summary: "主角重生回到十年前"}]);
+        const content = await readFile(join(fixture.workspaceRoot, "manuscript", "001-volume", "001-chapter", "index.md"), "utf8");
+        expect(content).toContain("summary: 主角重生回到十年前");
+        expect(content).toContain("她站在校门口");
+    });
+
+    it("--stdin JSON Lines 批量写回，保留正文", async () => {
+        const fixture = await createImportedFixture();
+        const stdin = [
+            JSON.stringify({path: "manuscript/001-volume/001-chapter", summary: "第一章摘要"}),
+            JSON.stringify({path: "manuscript/001-volume/002-chapter", summary: "第二章摘要"}),
+        ].join("\n");
+        const result = await runWorkspaceWithStdin(fixture, ["node", "set-summary", "--stdin", "--json"], stdin);
+        expect(result.code, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
+        expect(parseJson(result.stdout)).toMatchObject([
+            {path: "manuscript/001-volume/001-chapter/", summary: "第一章摘要"},
+            {path: "manuscript/001-volume/002-chapter/", summary: "第二章摘要"},
+        ]);
+        const first = await readFile(join(fixture.workspaceRoot, "manuscript", "001-volume", "001-chapter", "index.md"), "utf8");
+        expect(first).toContain("summary: 第一章摘要");
+        expect(first).toContain("第一章 重生");    });
+
+    it("--stdin 非法 JSON 报错", async () => {
+        const fixture = await createImportedFixture();
+        const result = await runWorkspaceWithStdin(fixture, ["node", "set-summary", "--stdin"], "not-json\n");
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("不是合法");
+    });
+});
+
 type Fixture = {
     workspaceRoot: string;
     env: NodeJS.ProcessEnv;
@@ -188,14 +231,26 @@ async function createFixture(): Promise<Fixture> {
 }
 
 async function runWorkspace(fixture: Fixture, args: string[], cwd = fixture.workspaceRoot): Promise<CliResult> {
+    return await runSpawn(fixture, args, undefined, cwd);
+}
+
+async function runWorkspaceWithStdin(fixture: Fixture, args: string[], stdin: string, cwd = fixture.workspaceRoot): Promise<CliResult> {
+    return await runSpawn(fixture, args, stdin, cwd);
+}
+
+async function runSpawn(fixture: Fixture, args: string[], stdin: string | undefined, cwd: string): Promise<CliResult> {
     return await new Promise((resolveResult, rejectResult) => {
         const bunExecutable = process.versions.bun ? process.execPath : (process.env.BUN || "bun");
         const child = spawn(bunExecutable, ["run", "--no-install", workspaceCommand, ...args], {
             cwd,
             env: fixture.env,
-            stdio: ["ignore", "pipe", "pipe"],
+            stdio: ["pipe", "pipe", "pipe"],
             windowsHide: true,
         });
+        if (stdin !== undefined) {
+            child.stdin.write(stdin);
+        }
+        child.stdin.end();
         const stdout: Buffer[] = [];
         const stderr: Buffer[] = [];
         child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));

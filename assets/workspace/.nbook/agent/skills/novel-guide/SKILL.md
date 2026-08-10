@@ -55,6 +55,7 @@ NeuroBook 的写作 skill 分三层。本文件是唯一的全局路线图；各
 | `book-deconstruct` | 整本外部书稿的商业拆书：章节采样后逐章分析钩子/承诺/爽点/节奏，汇总拆书报告 | `novel-genre-research` 竞品分析；输入=番茄导入目录或单 .md 书稿 |
 | `character-qa-fanout` | 角色理解题批量生成候选答案（分组扇出），供用户逐题挑选 | `novel-technique-character-card-workshop` 的可选批量模式；默认逐题交互不用它 |
 | `split-book` | 按章拆书分析书稿结构与剧情脉络（轻量单文件版） | 快速看结构用它；完整商业拆书用 `book-deconstruct` |
+| `chapter-digest` | 整书导入管线第二步：批量生成章节摘要（summary/人物/事件），由 leader 写回 frontmatter | 导入书稿进 `manuscript/` 后、续写/结构提取前；配合 `workspace node set-summary` 落盘 |
 
 ## 阶段判断速查
 

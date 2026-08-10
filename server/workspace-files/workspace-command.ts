@@ -88,6 +88,18 @@ type WorkspaceNodeImportBookOptions = {
     json: boolean;
 };
 
+type WorkspaceNodeSetSummaryOptions = {
+    stdin: boolean;
+    null: boolean;
+    summary: string;
+    json: boolean;
+};
+
+type SetSummaryInput = {
+    path: string;
+    summary: string;
+};
+
 type WorkspaceSchemaOptions = {
     json: boolean;
 };
@@ -429,6 +441,48 @@ nodeCommand
             }
             const written = await applyImportBook(root, split.parts, volumePlan, options.force);
             console.log(`已导入 ${written.length} 章${written.length > 0 ? `：${written.join("、")}` : ""}`);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+nodeCommand
+    .command("set-summary")
+    .description("批量写回内容节点 frontmatter.summary；单章用 --summary，批量用 --stdin JSON Lines")
+    .argument("[targets...]", "内容节点目录或 index.md；与 --stdin 二选一")
+    .option("--stdin", "从 stdin 读取 JSON Lines：每行 {path, summary}", false)
+    .option("-0, --null", "stdin 使用 NUL 分隔", false)
+    .option("--summary <text>", "单章模式：要写回的摘要（与 targets 配合）", "")
+    .option("--json", "输出 JSON", false)
+    .action(async (targets: string[], options: WorkspaceNodeSetSummaryOptions) => {
+        try {
+            const inputs = await collectSetSummaryInputs(targets, options);
+            const resolvedTargets = await resolveWorkspaceTargets(inputs.map((input) => input.path));
+            const root = assertSingleWorkspaceRoot(resolvedTargets);
+            const summaryByPath = new Map(resolvedTargets.map((target, index) => [target.relativePath, inputs[index]?.summary ?? ""]));
+
+            const updated: {path: string; summary: string}[] = [];
+            for (const target of resolvedTargets) {
+                const summary = summaryByPath.get(target.relativePath);
+                if (summary === undefined) {
+                    continue;
+                }
+                const next = await setContentSummary(root, target.relativePath, summary);
+                updated.push(next);
+            }
+
+            if (options.json) {
+                console.log(JSON.stringify(updated, null, 2));
+                return;
+            }
+            if (updated.length === 0) {
+                console.log("没有需要更新的内容节点");
+                return;
+            }
+            for (const item of updated) {
+                console.log(`${item.path}\t${formatTextField(item.summary)}`);
+            }
         } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
             process.exitCode = 1;
@@ -1178,4 +1232,62 @@ function renderImportBookChapter(heading: string, body: string): string {
         governance: {source: "imported", review: "proposed"},
         ext: {},
     }, body);
+}
+
+/**
+ * 合并 set-summary 的目标：--stdin 时读 JSON Lines，否则用 targets + --summary。
+ */
+async function collectSetSummaryInputs(targets: string[], options: WorkspaceNodeSetSummaryOptions): Promise<SetSummaryInput[]> {
+    if (options.stdin) {
+        const lines = splitStdinTargets(await readStdinText(), options.null);
+        return lines.map((line, index) => {
+            try {
+                const parsed = JSON.parse(line) as unknown;
+                if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                    throw new Error("不是对象");
+                }
+                const input = parsed as Partial<SetSummaryInput>;
+                if (typeof input.path !== "string" || !input.path.trim()) {
+                    throw new Error("缺少 path 字段");
+                }
+                if (typeof input.summary !== "string") {
+                    throw new Error("summary 必须是字符串");
+                }
+                return {path: input.path.trim(), summary: input.summary};
+            } catch (error) {
+                throw new Error(`stdin 第 ${index + 1} 行不是合法 {path, summary} JSON：${error instanceof Error ? error.message : String(error)}`);
+            }
+        });
+    }
+    if (targets.length === 0) {
+        throw new Error("需要提供内容节点路径，或使用 --stdin");
+    }
+    const summary = options.summary;
+    if (summary === "") {
+        throw new Error("单章模式需要 --summary 参数");
+    }
+    return targets.map((target) => ({path: target, summary}));
+}
+
+/**
+ * 写回单个内容节点的 frontmatter.summary，返回更新后的摘要。
+ */
+async function setContentSummary(root: string, relativePath: string, summary: string): Promise<{path: string; summary: string}> {
+    const node = await statWorkspacePath(root, relativePath);
+    if (!node.isDirectory || !node.contentNode) {
+        throw new Error(`目标不是标准内容节点目录: ${node.path}`);
+    }
+    const indexPath = path.join(node.absolutePath, "index.md");
+    const content = await fs.readFile(indexPath, "utf-8");
+    const parsed = parseMarkdownDocument(content);
+    if (parsed.error) {
+        throw new Error(`frontmatter 解析失败: ${node.path}`);
+    }
+    if (parsed.frontmatter.summary === summary) {
+        return {path: node.path, summary};
+    }
+
+    const nextFrontmatter = {...parsed.frontmatter, summary};
+    await fs.writeFile(indexPath, renderMarkdownDocument(nextFrontmatter, parsed.body), "utf-8");
+    return {path: node.path, summary};
 }

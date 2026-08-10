@@ -109,6 +109,79 @@ describe("bundled workflows", () => {
         expect(view.journal.some((record) => record.kind === "agents.create")).toBe(false);
     });
 
+    test("chapter-digest 真读章节文件、并发提取摘要并返回写回负载", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        agents.register("adhoc", (turn): {message: string; data: JsonValue} => {
+            const chapter = turn.message?.match(/章节「(.*?)」/u)?.[1] ?? "未知";
+            return {
+                message: `${chapter} 摘要完成`,
+                data: {summary: `${chapter} 摘要`, characters: ["阿青"], events: ["事件甲"]},
+            };
+        });
+        const runner = new WorkflowRunner({sessions, agents}, {
+            workspace: createMemoryWorkspace({
+                "manuscript/001-volume/001-chapter/index.md": "第一章 重生\n正文甲。",
+                "manuscript/001-volume/002-chapter/index.md": "第二章 入学\n正文乙。",
+            }),
+        });
+
+        const view = await runner.start(await workflow("chapter-digest"), {
+            chapterPaths: "manuscript/001-volume/001-chapter,manuscript/001-volume/002-chapter",
+        });
+
+        expect(view.status).toBe("completed");
+        expect(view.result).toMatchObject({
+            processed: 2,
+            totalListed: 2,
+            digests: [
+                {path: "manuscript/001-volume/001-chapter", summary: "第一章 重生 摘要", characters: ["阿青"], events: ["事件甲"]},
+                {path: "manuscript/001-volume/002-chapter", summary: "第二章 入学 摘要", characters: ["阿青"], events: ["事件甲"]},
+            ],
+        });
+        expectAdhocParticipants(view.journal, 2);
+    });
+
+    test("chapter-digest 缺 chapterPaths 在创建任何 Agent 前失败", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        let invokes = 0;
+        agents.register("adhoc", () => {
+            invokes++;
+            return {message: "不应调用"};
+        });
+        const runner = new WorkflowRunner({sessions, agents}, {});
+
+        const view = await runner.start(await workflow("chapter-digest"), {});
+
+        expect(view).toMatchObject({status: "failed", error: "必须提供 chapterPaths：章节目录清单，逗号或换行分隔。"});
+        expect(invokes).toBe(0);
+    });
+
+    test("chapter-digest 超出 limit 只处理前 N 章并报告总数", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        agents.register("adhoc", () => ({
+            message: "摘要完成",
+            data: {summary: "摘要", characters: [], events: []},
+        }));
+        const workspace = createMemoryWorkspace({
+            "manuscript/001-chapter/index.md": "第一章\n正文。",
+            "manuscript/002-chapter/index.md": "第二章\n正文。",
+            "manuscript/003-chapter/index.md": "第三章\n正文。",
+        });
+        const runner = new WorkflowRunner({sessions, agents}, {workspace});
+
+        const view = await runner.start(await workflow("chapter-digest"), {
+            chapterPaths: ["manuscript/001-chapter", "manuscript/002-chapter", "manuscript/003-chapter"].join("\n"),
+            limit: "2",
+        });
+
+        expect(view.status).toBe("completed");
+        expect(view.result).toMatchObject({processed: 2, totalListed: 3});
+        expectAdhocParticipants(view.journal, 2);
+    });
+
     test("write-review-loop 真跑两轮结构化评审修订并返回最终稿", async () => {
         const sessions = new MemorySessionStore();
         const agents = new MockAgentPort(sessions);
