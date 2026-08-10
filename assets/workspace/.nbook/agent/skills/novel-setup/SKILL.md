@@ -22,8 +22,8 @@ when_to_use: 用户要开新书、从酒馆卡或已有书稿建项目、续写�
 先分流，再进入阶段一：
 
 - **新开**：用户从零开始。若连题材、主角、核心矛盾都说不清，先转 `novel-idea-exploration` 聊出故事概述，再回来。
-- **导入**：已有外部素材。先用对应 import skill 落素材（酒馆卡用 `novel-import-silly-tavern-card`，书稿用 `novel-import-tomato-reference`），再从素材现状判断四阶段各缺什么，缺哪补哪。
-- **续写**：用户有已写正文（自己写的或导入的）。当作导入的特例处理：正文进 manuscript 或 reference，从正文和已有设定反推定位与世界书缺口，再按缺口走阶段。
+- **导入**：已有外部素材。酒馆卡用 `novel-import-silly-tavern-card`；整部外部书稿（txt/md/番茄目录，要进 manuscript 续写或迁移）用 `novel-import-book` 走完整导入管线；只做竞品拆书的外部书稿用 `novel-import-tomato-reference` 落 `reference/tomato/`。素材落位后，从素材现状判断四阶段各缺什么，缺哪补哪。
+- **续写**：用户有已写正文（自己写的或导入的）。当作导入的特例处理：正文在 `manuscript/`（导入管线已完成切章+摘要+承载树），从正文和已有设定反推定位与世界书缺口，再按缺口走阶段；World Engine 初始化走阶段四的「续写场景」流程，只做结尾切片。
 
 老项目中途缺某一块（比如有 lorebook 但没 World Engine）时，直接进对应阶段，不要从阶段一重走。
 
