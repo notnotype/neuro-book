@@ -182,6 +182,70 @@ describe("bundled workflows", () => {
         expectAdhocParticipants(view.journal, 2);
     });
 
+    test("book-structure-extract 按卷分批粗提取后汇总去重", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        agents.register("adhoc", (turn): {message: string; data: JsonValue} => {
+            if (turn.message?.startsWith("以下是全书")) {
+                return {
+                    message: "全书汇总完成",
+                    data: {
+                        threads: [{name: "main-revenge", title: "复仇主线", description: "主角复仇线"}],
+                        characters: [{name: "阿青", summary: "主角", arc: "复仇者 → 守护者"}],
+                        worldFacts: [{title: "天元大陆", summary: "修炼世界", category: "location"}],
+                        openHooks: [{description: "失落钥匙", seededChapter: "第 5 章"}],
+                    },
+                };
+            }
+            return {
+                message: "卷提取完成",
+                data: {
+                    threads: [{name: "main-revenge", title: "复仇主线", description: "主角复仇线"}],
+                    characters: [{name: "阿青", summary: "主角", arc: "复仇者 → 守护者"}],
+                    worldFacts: [{title: "天元大陆", summary: "修炼世界", category: "location"}],
+                    openHooks: [{description: "失落钥匙", seededChapter: "第 5 章"}],
+                },
+            };
+        });
+        const runner = new WorkflowRunner({sessions, agents}, {});
+
+        const view = await runner.start(await workflow("book-structure-extract"), {
+            summaries: JSON.stringify([
+                {path: "manuscript/001-volume/001-chapter/", title: "第一章 重生", summary: "主角重生"},
+                {path: "manuscript/002-volume/001-chapter/", title: "第一章 成长", summary: "主角修炼"},
+            ]),
+        });
+
+        expect(view.status).toBe("completed");
+        expect(view.result).toMatchObject({
+            chapterCount: 2,
+            volumeBatches: 2,
+            structure: {
+                threads: [{name: "main-revenge", title: "复仇主线"}],
+                characters: [{name: "阿青", summary: "主角"}],
+                worldFacts: [{title: "天元大陆", category: "location"}],
+                openHooks: [{description: "失落钥匙"}],
+            },
+        });
+        expectAdhocParticipants(view.journal, 3);
+    });
+
+    test("book-structure-extract 缺 summaries 在创建任何 Agent 前失败", async () => {
+        const sessions = new MemorySessionStore();
+        const agents = new MockAgentPort(sessions);
+        let invokes = 0;
+        agents.register("adhoc", () => {
+            invokes++;
+            return {message: "不应调用"};
+        });
+        const runner = new WorkflowRunner({sessions, agents}, {});
+
+        const view = await runner.start(await workflow("book-structure-extract"), {});
+
+        expect(view).toMatchObject({status: "failed", error: "必须提供 summaries：逐章摘要 JSON 数组（{path, title, summary}）。"});
+        expect(invokes).toBe(0);
+    });
+
     test("write-review-loop 真跑两轮结构化评审修订并返回最终稿", async () => {
         const sessions = new MemorySessionStore();
         const agents = new MockAgentPort(sessions);

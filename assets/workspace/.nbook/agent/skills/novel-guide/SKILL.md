@@ -16,6 +16,7 @@ NeuroBook 的写作 skill 分三层。本文件是唯一的全局路线图；各
 | --- | --- |
 | `novel-import-silly-tavern-card` | 导入本地 SillyTavern 角色卡 / worldbook 到当前 Project Workspace |
 | `novel-import-tomato-reference` | 导入番茄小说等外部书稿到 `reference/tomato/`，供拆书分析 |
+| `novel-import-book` | 整书导入管线：外部书稿 → `manuscript/` 切章落盘 → 逐章摘要 → 承载树重建 → 结构提取（主线/角色/世界观/钩子）确认落库 |
 
 **2. 随时可用层** —— 不挂在主流程上，任何阶段都可以进入：
 
@@ -56,6 +57,7 @@ NeuroBook 的写作 skill 分三层。本文件是唯一的全局路线图；各
 | `character-qa-fanout` | 角色理解题批量生成候选答案（分组扇出），供用户逐题挑选 | `novel-technique-character-card-workshop` 的可选批量模式；默认逐题交互不用它 |
 | `split-book` | 按章拆书分析书稿结构与剧情脉络（轻量单文件版） | 快速看结构用它；完整商业拆书用 `book-deconstruct` |
 | `chapter-digest` | 整书导入管线第二步：批量生成章节摘要（summary/人物/事件），由 leader 写回 frontmatter | 导入书稿进 `manuscript/` 后、续写/结构提取前；配合 `workspace node set-summary` 落盘 |
+| `book-structure-extract` | 整书导入管线第四步：按逐章摘要提取主线/角色/世界观/未解钩子提议，用户确认后落库 | `chapter-digest` 完成后；`novel-import-book` 第 5 步 |
 
 ## 阶段判断速查
 

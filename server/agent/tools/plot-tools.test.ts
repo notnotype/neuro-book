@@ -107,12 +107,13 @@ describe("plot tools", () => {
         })).toBe(false);
     });
 
-    it("读写元数据：7 个 save_* 标注 mutatesWorkspace、8 个 get_* 不标（只读模式硬门控依据，Task 97 D8）", () => {
+    it("读写元数据：写工具标注 mutatesWorkspace、读工具不标（只读模式硬门控依据，Task 97 D8）", () => {
         const tools = createPlotTools();
         const mutating = tools.filter((item) => item.mutatesWorkspace).map((item) => item.key).sort();
         const readonly = tools.filter((item) => !item.mutatesWorkspace).map((item) => item.key).sort();
 
         expect(mutating).toEqual([
+            "bootstrap_carrier_tree",
             "save_promise_beat",
             "save_story_act",
             "save_story_chapter",

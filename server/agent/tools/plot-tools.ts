@@ -559,6 +559,9 @@ export function createPlotTools(): NeuroAgentTool[] {
                 return plotResult(await facade.updateStoryDecision(resolvedDecisionId, payload));
             });
         }),
+        tool("bootstrap_carrier_tree", "Scan the manuscript directory tree and rebuild the carrier side of the plot tree: create a StoryAct per volume directory and a StoryChapter per chapter directory, then write `chapter: <name>` back-references into each chapter's Prose index.md frontmatter. Idempotent — reruns skip existing entities and pointers. Use once after importing a finished book into manuscript/ so the plot tree mirrors the actual chapters.", ProjectScopedSchema, {mutates: true}, async (context, input) => (
+            runPlotOperation(context, input.projectRoot, async (facade) => plotResult(await facade.bootstrapCarrierTree()))
+        )),
     ];
 }
 
