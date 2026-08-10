@@ -1,3 +1,4 @@
+import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {createInterface} from "node:readline";
 import {createServer} from "node:net";
@@ -617,7 +618,28 @@ async function repairProduct(config: DesktopConfig): Promise<void> {
     }
 }
 
-/** 启动失败后让用户选择恢复动作；修复仍通过 Manager Supervisor 合同执行。 */
+/**
+ * Installed Desktop 的修复可能需要 UAC；由正式 Manager GUI 承接交互和提升，
+ * Electron 启动页只负责打开入口并继续等待用户重试。
+ */
+async function openManagerGui(config: DesktopConfig): Promise<void> {
+    await new Promise<void>((resolvePromise, rejectPromise) => {
+        const child = spawn(process.execPath, ["--manager-gui"], {
+            cwd: config.applicationRoot,
+            detached: true,
+            stdio: "ignore",
+            windowsHide: false,
+        });
+        child.once("error", rejectPromise);
+        child.once("spawn", () => {
+            child.unref();
+            diagnostics.info({kind: "electron-manager-gui-opened"});
+            resolvePromise();
+        });
+    });
+}
+
+/** 启动失败后让用户选择恢复动作；Installed 交给 Manager GUI，Portable 复用 Supervisor。 */
 async function recoverStartup(config: DesktopConfig, error: unknown): Promise<boolean> {
     let failure = error;
     while (true) {
@@ -631,6 +653,11 @@ async function recoverStartup(config: DesktopConfig, error: unknown): Promise<bo
         }
         if (action === "repair") {
             try {
+                if (isCanonicalInstalledRoot(config.applicationRoot)) {
+                    await openManagerGui(config);
+                    failure = new Error("NeuroBook Manager 已打开；完成修复后请点击重试。");
+                    continue;
+                }
                 await repairProduct(config);
             } catch (repairError) {
                 failure = repairError;
@@ -650,6 +677,21 @@ function waitForStartupAction(): Promise<StartupAction> {
     }
     return new Promise<StartupAction>((resolvePromise) => {
         startupActionResolver = resolvePromise;
+    });
+}
+
+/**
+ * 配置/locator 错误会在 main() 中阻塞等待恢复动作，因此必须在进入恢复循环前
+ * 注册 handler；放到正常 Desktop Bridge 初始化之后会让启动页四个按钮永久失效。
+ */
+function installStartupActionHandler(): void {
+    ipcMain.on("neurobook:desktop:startup-action", (event, action: string) => {
+        assertStartupFrame(event);
+        if (action !== "retry" && action !== "repair" && action !== "open-logs" && action !== "quit") {
+            throw new Error("启动恢复动作不受支持。");
+        }
+        startupActionResolver?.(action);
+        startupActionResolver = null;
     });
 }
 
@@ -955,6 +997,7 @@ async function main(): Promise<void> {
         window?.webContents.send("neurobook:second-instance", {args, cwd: workingDirectory.slice(0, 4096)});
     });
     await app.whenReady();
+    installStartupActionHandler();
     diagnostics.info({
         kind: "electron-app-ready",
         elapsedMs: Math.round((performance.now() - startupStartedAt) * 100) / 100,
@@ -1020,14 +1063,6 @@ async function main(): Promise<void> {
         assertTrustedFrame(event);
         if (!DESKTOP_MENU_COMMAND_IDS.includes(command as DesktopMenuCommandId)) throw new Error("Desktop Menu command 不受支持。");
         runElectronMenuCommand(command as DesktopMenuCommandId);
-    });
-    ipcMain.on("neurobook:desktop:startup-action", (event, action: string) => {
-        assertStartupFrame(event);
-        if (action !== "retry" && action !== "repair" && action !== "open-logs" && action !== "quit") {
-            throw new Error("启动恢复动作不受支持。");
-        }
-        startupActionResolver?.(action);
-        startupActionResolver = null;
     });
     installMenu();
     const localLaunch = config.remoteUrl
