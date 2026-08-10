@@ -33,7 +33,17 @@ export function loadBootConfigSync(): BootConfig {
         throw error;
     }
 
-    const parsed = yaml.parse(expandEnvTemplate(text, process.env)) as unknown;
+    return parseBootConfigText(text, process.env);
+}
+
+/**
+ * 解析指定文本形式的 Boot Config。
+ *
+ * Manager 在接管保留的 State Root 前复用该合同，避免仅凭同名文件存在
+ * 就把任意非空目录认作 NeuroBook 用户数据。
+ */
+export function parseBootConfigText(text: string, environment: NodeJS.ProcessEnv = process.env): BootConfig {
+    const parsed = yaml.parse(expandEnvTemplate(text, environment)) as unknown;
     if (parsed === null || parsed === undefined) {
         return {};
     }

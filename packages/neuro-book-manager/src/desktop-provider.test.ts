@@ -4,9 +4,28 @@ import {join} from "node:path";
 
 import {describe, expect, it, vi} from "vitest";
 
-import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
+import {
+    configureDesktopProvider,
+    parseDesktopProviderInput,
+    testDesktopProvider,
+} from "#manager/desktop-provider";
 
 describe("desktop provider first-run configuration", () => {
+    it("strictly parses the stdin contract", () => {
+        const value = {
+            name: "Provider",
+            baseURL: "https://provider.example/v1",
+            api: "openai-responses",
+            apiKey: "",
+            model: "writer",
+            discoverModels: true,
+        };
+        expect(parseDesktopProviderInput(value)).toEqual(value);
+        expect(() => parseDesktopProviderInput({...value, unknown: true})).toThrow("未知字段");
+        expect(() => parseDesktopProviderInput({...value, discoverModels: "yes"})).toThrow("字段类型");
+        expect(() => parseDesktopProviderInput(null)).toThrow("顶层必须是对象");
+    });
+
     it("writes a runnable custom provider without exposing a secret in the result", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-provider-"));
         try {
@@ -61,7 +80,13 @@ describe("desktop provider first-run configuration", () => {
                 apiKey: "secret",
                 model: "writer",
             });
-            expect(result).toEqual({ok: false, status: null, warning: expect.stringContaining("离线")});
+            expect(result).toEqual({
+                ok: false,
+                status: null,
+                warning: expect.stringContaining("离线"),
+                discoverySupported: true,
+                models: null,
+            });
             expect(fetchMock).toHaveBeenCalledWith(
                 new URL("https://provider.example/v1/models"),
                 expect.objectContaining({headers: {Authorization: "Bearer secret"}}),
@@ -82,9 +107,115 @@ describe("desktop provider first-run configuration", () => {
                 apiKey: "secret",
                 model: "writer",
             });
-            expect(result).toEqual({ok: true, status: 200, warning: null});
+            expect(result).toEqual({
+                ok: true,
+                status: 200,
+                warning: null,
+                discoverySupported: true,
+                models: null,
+            });
             expect(fetchMock.mock.calls[0]?.[0]).toEqual(new URL("https://provider.example/v1/models"));
             expect(JSON.stringify(result)).not.toContain("secret");
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("discovers a bounded deduplicated OpenAI-compatible model list", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+            data: [
+                {id: "writer"},
+                {id: "writer"},
+                {id: "reasoner"},
+                {id: ""},
+                {id: "bad\nmodel"},
+                {id: "x".repeat(257)},
+                {notId: "ignored"},
+            ],
+        }), {status: 200}));
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            const result = await testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1",
+                api: "openai-responses",
+                apiKey: "secret",
+                model: "",
+                discoverModels: true,
+            });
+            expect(result).toEqual({
+                ok: true,
+                status: 200,
+                warning: null,
+                discoverySupported: true,
+                models: ["writer", "reasoner"],
+            });
+            expect(JSON.stringify(result)).not.toContain("secret");
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("does not pretend that non-OpenAI APIs support model discovery", async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            await expect(testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1",
+                api: "anthropic-messages",
+                apiKey: "secret",
+                model: "claude",
+                discoverModels: true,
+            })).resolves.toEqual({
+                ok: false,
+                status: null,
+                warning: expect.stringContaining("不支持自动模型发现"),
+                discoverySupported: false,
+                models: null,
+            });
+            expect(fetchMock).not.toHaveBeenCalled();
+            await expect(testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1",
+                api: "anthropic-messages",
+                apiKey: "secret",
+                model: "claude",
+                discoverModels: false,
+            })).resolves.toEqual({
+                ok: false,
+                status: null,
+                warning: expect.stringContaining("不支持通用 /models 连接检查"),
+                discoverySupported: false,
+                models: null,
+            });
+            expect(fetchMock).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it("stops reading model discovery responses after the 1 MiB budget", async () => {
+        const fetchMock = vi.fn().mockResolvedValue(new Response(
+            new Uint8Array(1024 * 1024 + 1),
+            {status: 200},
+        ));
+        vi.stubGlobal("fetch", fetchMock);
+        try {
+            await expect(testDesktopProvider({
+                name: "Provider",
+                baseURL: "https://provider.example/v1",
+                api: "openai-responses",
+                apiKey: "secret",
+                model: "",
+                discoverModels: true,
+            })).resolves.toEqual({
+                ok: true,
+                status: 200,
+                warning: expect.stringContaining("超过 1 MiB"),
+                discoverySupported: true,
+                models: [],
+            });
         } finally {
             vi.unstubAllGlobals();
         }
@@ -105,5 +236,12 @@ describe("desktop provider first-run configuration", () => {
             apiKey: "",
             model: "writer",
         })).rejects.toThrow("不能携带用户名或密码");
+        await expect(testDesktopProvider({
+            name: "Provider",
+            baseURL: "https://provider.example/v1",
+            api: "openai-completions",
+            apiKey: "密".repeat(8_193),
+            model: "writer",
+        })).rejects.toThrow("超过 16 KiB");
     });
 });

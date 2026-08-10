@@ -203,6 +203,17 @@ function Get-Sha256([string]$Path) {
         $stream.Dispose()
     }
 }
+function Write-HostResult([hashtable]$Result) {
+    $resultDirectory = [IO.Path]::GetDirectoryName($ResultPath)
+    New-Item -ItemType Directory -Path $resultDirectory -Force | Out-Null
+    $temporaryResult = Join-Path $resultDirectory ("." + [IO.Path]::GetFileName($ResultPath) + "." + [guid]::NewGuid().ToString("N") + ".tmp")
+    try {
+        $Result | ConvertTo-Json -Compress | Set-Content -LiteralPath $temporaryResult -Encoding UTF8
+        Move-Item -LiteralPath $temporaryResult -Destination $ResultPath -Force
+    } finally {
+        Remove-Item -LiteralPath $temporaryResult -Force -ErrorAction SilentlyContinue
+    }
+}
 try {
     $deadline = [DateTime]::UtcNow.AddMinutes(5)
     while (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) {
@@ -258,13 +269,11 @@ try {
         }
     }
     $result = @{ok=$true; token=$ExpectedToken; installationRoot=$root; completedAt=[DateTime]::UtcNow.ToString("o")}
-    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($ResultPath)) -Force | Out-Null
-    $result | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+    Write-HostResult $result
     Remove-Item -LiteralPath $PSScriptRoot -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
     $result = @{ok=$false; token=$ExpectedToken; error=$_.Exception.Message; completedAt=[DateTime]::UtcNow.ToString("o")}
-    New-Item -ItemType Directory -Path ([IO.Path]::GetDirectoryName($ResultPath)) -Force | Out-Null
-    $result | ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding UTF8
+    Write-HostResult $result
     exit 1
 }
 `;

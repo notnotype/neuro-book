@@ -11,6 +11,7 @@ import {
     inspectDesktopAggregateDepot,
     validateDesktopAggregateDepotEntries,
     verifyDesktopAggregateDepot,
+    verifyDesktopAggregateDepotArchive,
     type DesktopAggregateDirectoryEntry,
 } from "nbook/desktop/shared/src/desktop-aggregate-depot";
 
@@ -32,12 +33,15 @@ async function fixture(): Promise<{root: string; stagingRoot: string; archivePat
 }
 
 describe("Desktop aggregate depot packaging contract", () => {
-    it("固定为七项，并通过真实 staging、ZIP、sidecar 的闭环校验", async () => {
+    it("固定为五项 Electron beta 载荷，并通过真实 staging、ZIP、sidecar 的闭环校验", async () => {
         const paths = await fixture();
         try {
+            await expect(verifyDesktopAggregateDepotArchive(paths)).resolves.toMatchObject({
+                schema: "nbook.desktop-depot/v1",
+            });
             const manifest = await verifyDesktopAggregateDepot(paths);
             expect(manifest.entries).toEqual([...DESKTOP_AGGREGATE_DEPOT_ENTRIES]);
-            expect(manifest.payload).toEqual({files: 7, bytes: expect.any(Number)});
+            expect(manifest.payload).toEqual({files: 5, bytes: expect.any(Number)});
             expect(manifest.archive.bytes).toBe((await readFile(paths.archivePath)).byteLength);
         } finally {
             await rm(paths.root, {recursive: true, force: true});
@@ -52,6 +56,17 @@ describe("Desktop aggregate depot packaging contract", () => {
             await writeFile(join(paths.stagingRoot, DESKTOP_AGGREGATE_DEPOT_ENTRIES[0]), "restored\n", "utf8");
             await writeFile(join(paths.stagingRoot, "unexpected.txt"), "unexpected\n", "utf8");
             await expect(inspectDesktopAggregateDepot(paths.stagingRoot)).rejects.toThrow("未登记文件");
+        } finally {
+            await rm(paths.root, {recursive: true, force: true});
+        }
+    });
+
+    it("sidecar 必须是固定文件名的普通文件", async () => {
+        const paths = await fixture();
+        try {
+            await rm(paths.manifestPath);
+            await mkdir(paths.manifestPath);
+            await expect(verifyDesktopAggregateDepotArchive(paths)).rejects.toThrow("必须是普通文件");
         } finally {
             await rm(paths.root, {recursive: true, force: true});
         }
@@ -91,7 +106,7 @@ describe("Desktop aggregate depot packaging contract", () => {
             restored.archive.bytes = (await readFile(paths.archivePath)).byteLength;
             restored.archive.sha256 = `sha256:${"0".repeat(64)}`;
             await writeFile(paths.manifestPath, `${JSON.stringify(restored)}\n`, "utf8");
-            await expect(verifyDesktopAggregateDepot(paths)).rejects.toThrow("archive");
+            await expect(verifyDesktopAggregateDepotArchive(paths)).rejects.toThrow("archive");
         } finally {
             await rm(paths.root, {recursive: true, force: true});
         }

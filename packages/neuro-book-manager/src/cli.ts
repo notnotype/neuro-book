@@ -34,7 +34,12 @@ import type {InstallProfile, InstallationManifest, OfflineInspection, ReleaseCha
 import {resetDesktopLocalState, uninstallInstallation} from "#manager/uninstaller";
 import {repairDesktopInstallation, runDesktopSupervisor} from "#manager/desktop-supervisor";
 import {defaultDesktopInstallationRoot, inferWindowsDesktopInstallationScope, installDesktopFromLocalDepot, readDesktopInstallationManifest, removeWindowsDesktopRegistration, uninstallRemoteDesktopInstallation} from "#manager/desktop-installation";
-import {configureDesktopProvider, testDesktopProvider} from "#manager/desktop-provider";
+import {
+    configureDesktopProvider,
+    DESKTOP_PROVIDER_INPUT_MAX_BYTES,
+    parseDesktopProviderInput,
+    testDesktopProvider,
+} from "#manager/desktop-provider";
 import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
@@ -405,6 +410,7 @@ const desktop = program.command("desktop").description("管理 Desktop Local/Web
 desktop.command("install")
     .description("从本地 Product Portable 或独立 shell depot 安装 Windows 用户级 Desktop；下载与更新由 Manager 托管。")
     .option("--archive <path>", "本地模式使用的 Electron/Tauri Portable ZIP；必须来自已验证的本地 depot。")
+    .option("--depot <path>", "本地模式使用的 Electron 聚合 Depot ZIP；必须带同目录 sidecar。")
     .option("--shell-archive <path>", "远端模式使用的独立 Desktop Envelope ZIP；不得包含 Product、Bun 或 Tool Pack。")
     .option("--distribution-manifest <path>", "使用本地 Desktop Distribution Manifest；组件 ZIP 必须位于 manifest 根目录内。")
     .option("--distribution-manifest-url <url>", "从 HTTPS 下载 Desktop Distribution Manifest；组件摘要仍由 Manager 校验。")
@@ -415,7 +421,8 @@ desktop.command("install")
     .option("--scope <scope>", "安装范围：user（当前用户，默认）或 machine（Program Files，需要管理员权限）。", "user")
     .option("--dir <path>", "Installation Root；未指定时按 scope 选择默认目录。")
     .option("--runtime-provider <provider>", "Runtime provider：managed 或 system。", "managed")
-    .option("--tool-provider <provider>", "Tool provider：managed 或 system。", "managed")
+    .option("--git-provider <provider>", "Git/Bash provider：managed 或 system。", "managed")
+    .option("--rg-provider <provider>", "ripgrep provider：managed 或 system。", "managed")
     .option("--add-cli-to-path", "把 Manager CLI 加入当前用户 PATH。", false)
     .option("--enable-auth", "安装后启用本地 Product 鉴权，并通过密码创建管理员。", false)
     .option("--password-stdin", "从 stdin 读取本地 Product 首次管理员密码；保持原始 UTF-8 字节，不 trim。", false)
@@ -423,6 +430,7 @@ desktop.command("install")
     .option("--yes", "跳过交互确认。", false)
     .action(async (options: {
         archive?: string;
+        depot?: string;
         shellArchive?: string;
         distributionManifest?: string;
         distributionManifestUrl?: string;
@@ -433,7 +441,8 @@ desktop.command("install")
         scope: string;
         dir?: string;
         runtimeProvider: string;
-        toolProvider: string;
+        gitProvider: string;
+        rgProvider: string;
         addCliToPath: boolean;
         enableAuth: boolean;
         passwordStdin: boolean;
@@ -443,8 +452,9 @@ desktop.command("install")
         if (process.platform !== "win32") throw new Error("Desktop 用户级安装当前只支持 Windows；macOS 仅完成安装合同与 CI 准备。" );
         if (options.envelope !== "electron" && options.envelope !== "tauri") throw new Error(`不支持的 Desktop envelope：${options.envelope}`);
         if (!["managed", "system"].includes(options.runtimeProvider)
-            || !["managed", "system"].includes(options.toolProvider)) {
-            throw new Error("Runtime/Tool provider 只支持 managed 或 system。" );
+            || !["managed", "system"].includes(options.gitProvider)
+            || !["managed", "system"].includes(options.rgProvider)) {
+            throw new Error("Runtime/Git/rg provider 只支持 managed 或 system。" );
         }
         if (options.scope !== "user" && options.scope !== "machine") {
             throw new Error(`不支持的 Desktop 安装范围：${options.scope}`);
@@ -457,10 +467,13 @@ desktop.command("install")
         if (!remoteUrl && options.passwordStdin && !options.enableAuth) {
             throw new Error("--password-stdin 只有与 --enable-auth 一起使用时才会读取密码。");
         }
-        const depotArguments = [options.archive, options.shellArchive, options.distributionManifest, options.distributionManifestUrl].filter((value) => value !== undefined);
-        if (depotArguments.length !== 1) throw new Error("Desktop 安装必须且只能提供 --archive、--shell-archive 或 --distribution-manifest 之一。" );
+        const depotArguments = [options.archive, options.depot, options.shellArchive, options.distributionManifest, options.distributionManifestUrl].filter((value) => value !== undefined);
+        if (depotArguments.length !== 1) {
+            throw new Error("Desktop 安装必须且只能提供 --archive、--depot、--shell-archive、--distribution-manifest 或 --distribution-manifest-url 之一。" );
+        }
         if (remoteUrl) {
             if (options.archive) throw new Error("远端 Desktop 安装不能使用完整 --archive。" );
+            if (options.depot) throw new Error("远端 Desktop 安装不能使用本地 Product --depot。" );
             if (remoteUrl.protocol !== "https:" && !(remoteUrl.protocol === "http:" && options.allowInsecureHttp)) {
                 throw new Error("远端 Desktop 默认要求 HTTPS；局域网 HTTP 必须显式传入 --allow-insecure-http。" );
             }
@@ -490,6 +503,7 @@ desktop.command("install")
         if (options.json) printNdjson({kind: "stage", stage: "validating-input"});
         const result = await installDesktopFromLocalDepot({
             ...(options.archive ? {archivePath: options.archive} : {}),
+            ...(options.depot ? {aggregateDepotPath: options.depot} : {}),
             ...(options.shellArchive ? {shellArchivePath: options.shellArchive} : {}),
             ...(options.distributionManifest ? {distributionManifestPath: options.distributionManifest} : {}),
             ...(options.distributionManifestUrl ? {distributionManifestUrl: options.distributionManifestUrl} : {}),
@@ -502,17 +516,35 @@ desktop.command("install")
             installationRoot: options.dir,
             addCliToUserPath: options.addCliToPath,
             runtimeProvider: options.runtimeProvider as "managed" | "system",
-            toolProvider: options.toolProvider as "managed" | "system",
+            gitProvider: options.gitProvider as "managed" | "system",
+            rgProvider: options.rgProvider as "managed" | "system",
             managerExecutable,
             ...(adminPassword !== undefined ? {adminPassword} : {}),
+            ...(options.json ? {
+                onStage: (stage) => printNdjson({kind: "stage", stage}),
+            } : {}),
         });
+        let managerRegistrationWarning: string | null = null;
         if (!remoteUrl) {
-            await registerManagerInstance({
-                root: result.installationRoot,
-                name: "NeuroBook",
-                makeDefault: true,
-                preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
-            });
+            try {
+                await registerManagerInstance({
+                    root: result.installationRoot,
+                    name: "NeuroBook",
+                    makeDefault: true,
+                    preferences: {channel: result.manifest.channel, installDirectory: result.installationRoot},
+                });
+            } catch (error) {
+                managerRegistrationWarning = error instanceof Error ? error.message : String(error);
+                if (options.json) {
+                    printNdjson({
+                        kind: "warning",
+                        code: "manager-instance-registration-failed",
+                        message: managerRegistrationWarning,
+                    });
+                } else {
+                    console.warn(`Desktop 已安装，但 Manager 实例索引未更新：${managerRegistrationWarning}`);
+                }
+            }
         }
         if (options.json) {
             printNdjson({
@@ -524,6 +556,8 @@ desktop.command("install")
                 connection: result.manifest.connection.mode,
                 installationScope: result.manifest.installationScope,
                 remoteProductVersion: result.remoteProductVersion ?? null,
+                applicationPreparation: result.applicationPreparation ?? null,
+                managerRegistration: managerRegistrationWarning === null ? "registered" : "warning",
             });
         } else {
             p.outro(`Desktop 安装完成：${result.installationRoot}\nState Root：${result.stateRoot}\n连接：${result.manifest.connection.mode}${result.remoteProductVersion ? `\n远端 Product：${result.remoteProductVersion}` : ""}`);
@@ -960,21 +994,14 @@ async function readDesktopProviderInput(): Promise<{
 }> {
     if (process.stdin.isTTY) throw new Error("Provider JSON 必须通过 stdin 传入。");
     const chunks: Buffer[] = [];
-    for await (const chunk of process.stdin) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-    const value = JSON.parse(Buffer.concat(chunks).toString("utf8")) as {
-        name?: string;
-        baseURL?: string;
-        api?: string;
-        apiKey?: string;
-        model?: string;
-        discoverModels?: boolean;
-    };
-    return {
-        name: value.name ?? "",
-        baseURL: value.baseURL ?? "",
-        api: value.api ?? "",
-        apiKey: value.apiKey ?? "",
-        model: value.model ?? "",
-        discoverModels: value.discoverModels,
-    };
+    let totalBytes = 0;
+    for await (const chunk of process.stdin) {
+        const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+        totalBytes += bytes.byteLength;
+        if (totalBytes > DESKTOP_PROVIDER_INPUT_MAX_BYTES) {
+            throw new Error("Provider JSON 超过 64 KiB。");
+        }
+        chunks.push(bytes);
+    }
+    return parseDesktopProviderInput(JSON.parse(Buffer.concat(chunks, totalBytes).toString("utf8")) as unknown);
 }

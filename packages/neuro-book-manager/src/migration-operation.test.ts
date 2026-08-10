@@ -8,6 +8,7 @@ import {
     applyJournaledApplicationMigrations,
     migrateCurrentApplicationState,
     planJournaledApplicationMigrations,
+    prepareInstalledApplication,
     startInstallationApplication,
 } from "#manager/migration-operation";
 import {mutateInstallation} from "#manager/installation-mutation";
@@ -562,6 +563,47 @@ describe("Journaled application migration", () => {
 
         expect(migrations.plan).not.toHaveBeenCalled();
         expect(migrations.launch).not.toHaveBeenCalled();
+    });
+
+    it("安装准备复用 migration/start 合同，在动态端口 ready 后立即 graceful shutdown", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-install-prepare-"));
+        roots.push(root);
+        const manifest = productManifest();
+        await writeInstallationManifest(join(root, ".deploy", "installation.json"), manifest);
+        migrations.plan.mockResolvedValue({
+            runId: "install-prepare-current",
+            status: "already_current",
+            steps: migrationSteps("install-prepare-current"),
+        });
+        const shutdown = vi.fn().mockResolvedValue(undefined);
+        migrations.launch.mockImplementation(async (
+            _root: string,
+            _manifest: InstallationManifest,
+            options: ApplicationLaunchOptions,
+        ) => ({
+            ready: Promise.resolve(),
+            completion: Promise.resolve({code: 0, signal: null}),
+            shutdown,
+            terminate: vi.fn(),
+            port: options.port!,
+            startupNonce: options.startupNonce,
+        }));
+
+        const result = await prepareInstalledApplication(root);
+
+        expect(result).toMatchObject({migration: "checked", health: "ready"});
+        expect(result.port).toBeGreaterThan(0);
+        expect(migrations.launch).toHaveBeenCalledWith(root, manifest, expect.objectContaining({
+            healthCheck: true,
+            openBrowser: false,
+            productStdout: "ignore",
+            port: result.port,
+            startupNonce: expect.any(String),
+            shutdownSignal: expect.any(AbortSignal),
+            onReady: expect.any(Function),
+        }));
+        expect(shutdown).toHaveBeenCalledOnce();
+        await expect(readdir(join(root, ".deploy", "operations"))).resolves.toEqual([]);
     });
 });
 

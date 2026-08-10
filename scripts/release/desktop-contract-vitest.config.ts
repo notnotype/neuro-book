@@ -73,6 +73,7 @@ export default defineConfig({
             "desktop/shared/src/manager-runtime.test.ts",
             "desktop/shared/src/installed-root.test.ts",
             "desktop/shared/src/electron-startup-contract.test.ts",
+            "desktop/shared/src/windows-uninstall-result.test.ts",
         ],
     },
 });

@@ -1,6 +1,6 @@
 import {createReadStream} from "node:fs";
 import {createHash} from "node:crypto";
-import {lstat, readdir, readFile, stat} from "node:fs/promises";
+import {lstat, readdir, readFile} from "node:fs/promises";
 import {basename, resolve} from "node:path";
 
 export const DESKTOP_AGGREGATE_DEPOT_SCHEMA = "nbook.desktop-depot/v1" as const;
@@ -10,15 +10,13 @@ export const DESKTOP_AGGREGATE_DEPOT_ARCHIVE = "neuro-book-desktop-depot-win-x64
 export const DESKTOP_AGGREGATE_DEPOT_MANIFEST = "neuro-book-desktop-depot-win-x64.manifest.json";
 export const DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST = "neuro-book-desktop-depot-win-x64.distribution.json";
 
-/** 聚合 depot 的固定顶层载荷；Product、Bun、Tool Pack 不在此层重复展开。 */
+/** Electron 内部 beta depot 的固定顶层载荷；Product、Bun、Tool Pack 不在此层重复展开。 */
 export const DESKTOP_AGGREGATE_DEPOT_ENTRIES = [
     "install-desktop.ps1",
     "windows-bun-stage0.ps1",
     DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
     "neuro-book-electron-portable-win-x64.zip",
     "neuro-book-electron-portable-win-x64.manifest.json",
-    "neuro-book-tauri-portable-win-x64.zip",
-    "neuro-book-tauri-portable-win-x64.manifest.json",
 ] as const;
 
 type AggregateDepotEntryName = typeof DESKTOP_AGGREGATE_DEPOT_ENTRIES[number];
@@ -215,27 +213,54 @@ export async function createDesktopAggregateDepotManifest(input: {
     };
 }
 
+/** 在解压前复核固定文件名、sidecar、ZIP 大小和 ZIP SHA-256。 */
+export async function verifyDesktopAggregateDepotArchive(input: {
+    archivePath: string;
+    manifestPath: string;
+}): Promise<DesktopAggregateDepotManifest> {
+    const manifestPath = resolve(input.manifestPath);
+    if (basename(manifestPath) !== DESKTOP_AGGREGATE_DEPOT_MANIFEST) {
+        throw new Error(`Desktop aggregate depot manifest 文件名不符合合同：${basename(manifestPath)}`);
+    }
+    const manifestInfo = await lstat(manifestPath);
+    if (!manifestInfo.isFile() || manifestInfo.isSymbolicLink()) {
+        throw new Error(`Desktop aggregate depot manifest 必须是普通文件：${manifestPath}`);
+    }
+    if (manifestInfo.size > 1024 * 1024) {
+        throw new Error("Desktop aggregate depot manifest 超过 1 MiB。" );
+    }
+    const manifest = parseDesktopAggregateDepotManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
+    const archivePath = resolve(input.archivePath);
+    if (basename(archivePath) !== DESKTOP_AGGREGATE_DEPOT_ARCHIVE) {
+        throw new Error(`Desktop aggregate depot archive 文件名不符合合同：${basename(archivePath)}`);
+    }
+    const archiveInfo = await lstat(archivePath);
+    if (!archiveInfo.isFile() || archiveInfo.isSymbolicLink()) {
+        throw new Error(`Desktop aggregate depot archive 必须是普通文件：${archivePath}`);
+    }
+    const actualArchive = {
+        bytes: archiveInfo.size,
+        sha256: `sha256:${await sha256File(archivePath)}`,
+    };
+    if (actualArchive.bytes !== manifest.archive.bytes || actualArchive.sha256 !== manifest.archive.sha256) {
+        throw new Error("Desktop aggregate depot archive 与 sidecar 不一致。" );
+    }
+    return manifest;
+}
+
 /** 复核 staging、sidecar、ZIP 大小和 ZIP SHA-256；任何一项不一致都失败。 */
 export async function verifyDesktopAggregateDepot(input: {
     stagingRoot: string;
     archivePath: string;
     manifestPath: string;
 }): Promise<DesktopAggregateDepotManifest> {
-    if (basename(resolve(input.manifestPath)) !== DESKTOP_AGGREGATE_DEPOT_MANIFEST) {
-        throw new Error(`Desktop aggregate depot manifest 文件名不符合合同：${basename(resolve(input.manifestPath))}`);
-    }
-    const manifest = parseDesktopAggregateDepotManifest(JSON.parse(await readFile(input.manifestPath, "utf8")) as unknown);
-    const expected = await createDesktopAggregateDepotManifest(input);
-    if (JSON.stringify(manifest.payload) !== JSON.stringify(expected.payload)) {
+    const manifest = await verifyDesktopAggregateDepotArchive(input);
+    const payload = await inspectDesktopAggregateDepot(input.stagingRoot);
+    if (JSON.stringify(manifest.payload) !== JSON.stringify({
+        files: payload.files,
+        bytes: payload.bytes,
+    })) {
         throw new Error("Desktop aggregate depot payload 与 sidecar 不一致。" );
-    }
-    const archivePath = resolve(input.archivePath);
-    const actualArchive = {
-        bytes: (await stat(archivePath)).size,
-        sha256: `sha256:${await sha256File(archivePath)}`,
-    };
-    if (actualArchive.bytes !== manifest.archive.bytes || actualArchive.sha256 !== manifest.archive.sha256) {
-        throw new Error("Desktop aggregate depot archive 与 sidecar 不一致。" );
     }
     return manifest;
 }

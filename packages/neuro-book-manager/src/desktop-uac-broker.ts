@@ -1,8 +1,7 @@
-import {spawn} from "node:child_process";
 import {createConnection, type Socket} from "node:net";
 import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
-import {dirname, resolve} from "node:path";
+import {dirname, resolve, win32} from "node:path";
 import {createInterface} from "node:readline";
 
 import {
@@ -16,6 +15,13 @@ import {
     type DesktopUacBrokerSecretHello,
 } from "nbook/shared/desktop-uac-broker";
 import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
+import {spawnOwnedProcess, type OwnedProcessLease} from "@notnotype/owned-process";
+import {
+    parseDesktopDelegatedUninstallReceipt,
+    removeDesktopMachineUninstallLauncher,
+    waitForWindowsUninstallHostResult,
+    type DesktopDelegatedUninstallReceipt,
+} from "nbook/desktop/shared/src/windows-uninstall-result";
 
 type BrokerOptions = {
     pipe: string;
@@ -30,8 +36,6 @@ type BrokerOptions = {
     deleteData: boolean;
 };
 
-type ChildProcess = ReturnType<typeof spawn>;
-
 /**
  * Elevated Manager entrypoint.
  *
@@ -44,10 +48,10 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
     if (process.platform !== "win32") throw new Error("Desktop UAC Broker 只支持 Windows。");
     const control = await connectPipe(options.pipe);
     controlOperationIds.set(control, options.operationId);
-    let child: ChildProcess | null = null;
+    let child: OwnedProcessLease | null = null;
     let completed = false;
     const closeChild = (): void => {
-        if (child && child.exitCode === null) child.kill();
+        if (child) void child.terminate("host-disconnect").catch(() => undefined);
     };
     control.once("close", closeChild);
     try {
@@ -68,7 +72,16 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                 ? new TextDecoder("utf-8", {fatal: true}).decode(secret)
                 : undefined;
             const secretGuard = secretText === undefined ? undefined : createSecretLeakGuard(secretText);
-            child = spawn(process.execPath, ["--no-install", options.managerExecutable, ...request.args], {
+            const observed = {uninstallReceipt: null as DesktopDelegatedUninstallReceipt | null};
+            const observeManagerJson = (value: Record<string, unknown>): void => {
+                const receipt = parseDesktopDelegatedUninstallReceipt(value);
+                if (!receipt) return;
+                if (observed.uninstallReceipt) throw new Error("Desktop UAC Broker 收到重复的 uninstall 完成回执。");
+                observed.uninstallReceipt = receipt;
+            };
+            child = spawnOwnedProcess({
+                command: process.execPath,
+                args: ["--no-install", options.managerExecutable, ...request.args],
                 cwd: resolve(dirname(options.managerExecutable), ".."),
                 env: {
                     ...process.env,
@@ -76,8 +89,12 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                     AUTH_ADMIN_PASSWORD: undefined,
                     NBOOK_MANAGER_ELEVATED: "1",
                 },
-                stdio: ["pipe", "pipe", "pipe"],
+                stdin: "pipe",
+                stdout: "pipe",
+                stderr: "pipe",
                 windowsHide: true,
+                graceMs: 1_000,
+                hardKillWaitMs: 5_000,
             });
             const stdin = child.stdin;
             if (!stdin) throw new Error("Desktop UAC Broker 无法打开 Manager CLI stdin。");
@@ -88,12 +105,15 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
             }
 
             const drains = [
-                child.stdout ? forwardLines(child.stdout, control, "stdout", secretGuard) : Promise.resolve(),
+                child.stdout ? forwardLines(child.stdout, control, "stdout", secretGuard, observeManagerJson) : Promise.resolve(),
                 child.stderr ? forwardLines(child.stderr, control, "stderr", secretGuard) : Promise.resolve(),
             ];
             try {
                 const [exitCode, signal] = await Promise.race([
-                    waitForExit(child).then((value) => ({kind: "exit" as const, value})),
+                    child.completion.then(({exitCode, signal}) => ({
+                        kind: "exit" as const,
+                        value: [exitCode, signal] as [number | null, string | null],
+                    })),
                     ...drains.map((drain) => drain.then(
                         () => new Promise<never>(() => undefined),
                         (error: unknown) => Promise.reject(error),
@@ -103,6 +123,19 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                     await Promise.all(drains);
                     return result.value;
                 });
+                if (request.action === "uninstall" && exitCode === 0 && signal === null) {
+                    const receipt = observed.uninstallReceipt;
+                    if (!receipt) {
+                        throw new Error("Desktop UAC Broker uninstall 缺少最终 CLI 回执。");
+                    }
+                    if (receipt.status === "scheduled") {
+                        await waitForWindowsUninstallHostResult(
+                            receipt.resultPath,
+                            request.installationRoot,
+                        );
+                    }
+                    await removeDesktopMachineUninstallLauncher(request.installationId);
+                }
                 send(control, {
                     schema: DESKTOP_UAC_BROKER_SCHEMA,
                     type: "event",
@@ -111,8 +144,8 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                 });
                 completed = true;
             } catch (error) {
-                closeChild();
-                await waitForExit(child).catch(() => undefined);
+                await child.terminate("startup-failure").catch(() => undefined);
+                await child.completion.catch(() => undefined);
                 await Promise.allSettled(drains);
                 if (!control.destroyed) {
                     send(control, {
@@ -144,7 +177,7 @@ export async function runDesktopUacBroker(options: BrokerOptions): Promise<void>
                 },
             });
         }
-        closeChild();
+        if (child) await child.terminate("startup-failure").catch(() => undefined);
         throw error;
     } finally {
         control.removeListener("close", closeChild);
@@ -199,8 +232,9 @@ export function validateDesktopUacBrokerRequest(
         if (request.args[0] !== "desktop" || request.args[1] !== "install") {
             throw new Error("Desktop UAC Broker 只允许 desktop install。");
         }
-        if (!hasMachineScope(request.args)) {
-            throw new Error("Desktop UAC Broker 只允许 machine scope。");
+        validateDesktopInstallArguments(request.args);
+        if (!sameWindowsPath(request.installationRoot, canonicalMachineInstallationRoot())) {
+            throw new Error("Desktop UAC Broker install 只允许 canonical Program Files Installation Root。");
         }
         if (request.installationId !== null || request.manifestSha256 !== null || request.deleteData) {
             throw new Error("Desktop UAC Broker install 不得绑定已有安装或删除数据。");
@@ -312,6 +346,7 @@ async function forwardLines(
     control: Socket,
     streamName: "stdout" | "stderr",
     secretGuard: SecretLeakGuard | undefined,
+    onJson?: (value: Record<string, unknown>) => void,
 ): Promise<void> {
     const reader = createInterface({input: stream, crlfDelay: Infinity});
     try {
@@ -324,19 +359,21 @@ async function forwardLines(
                 secretGuard.check(`${safeLine}\n`);
             }
             if (streamName === "stdout") {
+                let value: unknown;
                 try {
-                    const value: unknown = JSON.parse(safeLine);
-                    if (isRecord(value)) {
-                        send(control, {
-                            schema: DESKTOP_UAC_BROKER_SCHEMA,
-                            type: "event",
-                            operationId: currentOperationId(control),
-                            event: {kind: "json", value},
-                        });
-                        continue;
-                    }
+                    value = JSON.parse(safeLine) as unknown;
                 } catch {
                     // Plain output is forwarded as bounded diagnostic text.
+                }
+                if (isRecord(value)) {
+                    onJson?.(value);
+                    send(control, {
+                        schema: DESKTOP_UAC_BROKER_SCHEMA,
+                        type: "event",
+                        operationId: currentOperationId(control),
+                        event: {kind: "json", value},
+                    });
+                    continue;
                 }
             }
             send(control, {
@@ -356,15 +393,21 @@ type SecretLeakGuard = {
 };
 
 function createSecretLeakGuard(secret: string): SecretLeakGuard {
+    const representations = [...new Set([
+        secret,
+        secret.replace(/\r\n?/gu, "\n"),
+        JSON.stringify(secret).slice(1, -1),
+        JSON.stringify(secret.replace(/\r\n?/gu, "\n")).slice(1, -1),
+    ].filter((value) => value.length > 0))];
     let tail = "";
-    const keep = Math.max(secret.length - 1, 0);
+    const keep = Math.max(...representations.map((value) => value.length - 1), 0);
     return {
         check(chunk: string): void {
             const candidate = tail + chunk;
-            if (candidate.includes(secret)) {
+            if (representations.some((value) => candidate.includes(value))) {
                 throw new Error("Desktop UAC Broker 检测到未预期的 Secret 输出。");
             }
-            tail = candidate.slice(-keep);
+            tail = keep > 0 ? candidate.slice(-keep) : "";
         },
     };
 }
@@ -416,19 +459,85 @@ async function connectPipe(path: string): Promise<Socket> {
     });
 }
 
-async function waitForExit(child: ChildProcess): Promise<[number | null, string | null]> {
-    return await new Promise((resolve, reject) => {
-        child.once("error", reject);
-        child.once("exit", (code, signal) => resolve([code, signal]));
-    });
+function validateDesktopInstallArguments(args: string[]): void {
+    const valueOptions = new Map<string, readonly string[] | null>([
+        ["--archive", null],
+        ["--depot", null],
+        ["--distribution-manifest", null],
+        ["--distribution-manifest-url", null],
+        ["--scope", ["machine"]],
+        ["--channel", ["stable", "canary"]],
+        ["--runtime-provider", ["managed", "system"]],
+        ["--git-provider", ["managed", "system"]],
+        ["--rg-provider", ["managed", "system"]],
+        ["--envelope", ["electron"]],
+    ]);
+    const switches = new Set([
+        "--yes",
+        "--json",
+        "--add-cli-to-path",
+        "--enable-auth",
+        "--password-stdin",
+    ]);
+    const seen = new Map<string, string>();
+    const enabled = new Set<string>();
+    for (let index = 2; index < args.length; index += 1) {
+        const option = args[index]!;
+        if (switches.has(option)) {
+            if (enabled.has(option)) throw new Error(`Desktop UAC Broker install 参数重复：${option}`);
+            enabled.add(option);
+            continue;
+        }
+        if (!valueOptions.has(option)) {
+            throw new Error(`Desktop UAC Broker install 包含未允许参数：${option}`);
+        }
+        if (seen.has(option)) throw new Error(`Desktop UAC Broker install 参数重复：${option}`);
+        const value = args[index + 1];
+        if (!value || value.startsWith("--") || value.includes("\0")) {
+            throw new Error(`Desktop UAC Broker install 参数缺少值：${option}`);
+        }
+        const allowed = valueOptions.get(option);
+        if (allowed && !allowed.includes(value)) {
+            throw new Error(`Desktop UAC Broker install 参数值无效：${option}`);
+        }
+        seen.set(option, value);
+        index += 1;
+    }
+    const sourceOptions = ["--archive", "--depot", "--distribution-manifest", "--distribution-manifest-url"]
+        .filter((option) => seen.has(option));
+    if (sourceOptions.length !== 1) {
+        throw new Error("Desktop UAC Broker install 必须且只能绑定一个本地或 HTTPS 发行来源。");
+    }
+    for (const required of [
+        "--scope",
+        "--channel",
+        "--runtime-provider",
+        "--git-provider",
+        "--rg-provider",
+        "--envelope",
+    ]) {
+        if (!seen.has(required)) throw new Error(`Desktop UAC Broker install 缺少参数：${required}`);
+    }
+    if (!enabled.has("--yes") || !enabled.has("--json")) {
+        throw new Error("Desktop UAC Broker install 必须使用非交互 JSON 合同。");
+    }
+    if (seen.has("--distribution-manifest-url")
+        && !seen.get("--distribution-manifest-url")!.startsWith("https://")) {
+        throw new Error("Desktop UAC Broker install 在线 manifest 必须使用 HTTPS。");
+    }
+    if (enabled.has("--enable-auth") !== enabled.has("--password-stdin")) {
+        throw new Error("Desktop UAC Broker install auth 与 password stdin 参数不一致。");
+    }
 }
 
-function hasMachineScope(args: string[]): boolean {
-    for (let index = 0; index < args.length; index += 1) {
-        if (args[index] === "--scope" && args[index + 1] === "machine") return true;
-        if (args[index] === "--scope=machine") return true;
-    }
-    return false;
+function canonicalMachineInstallationRoot(): string {
+    const programFiles = process.env.ProgramFiles
+        ?? `${process.env.SystemDrive ?? "C:"}\\Program Files`;
+    return win32.resolve(programFiles, "NeuroBook");
+}
+
+function sameWindowsPath(left: string, right: string): boolean {
+    return win32.resolve(left).toLowerCase() === win32.resolve(right).toLowerCase();
 }
 
 function optionValue(args: string[], option: string): string | undefined {

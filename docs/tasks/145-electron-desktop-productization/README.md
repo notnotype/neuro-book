@@ -8,7 +8,7 @@
 
 ## 当前状态
 
-**当前最新 checkpoint `30e9dfe3` 的 Electron 壳门禁、聚焦测试、Product A/B、重复组包和仓库外 Portable/Manager smoke 已通过。** 当前最终 Product image 的 machine-scope install/repair 仍未完成；2026-08-09 的真实 UAC 尝试在本自动化会话中被 Windows 安全桌面自动取消，未创建或覆盖当前最终安装。此前用修复后的当前分支 Manager GUI/UAC helper 对旧 Depot payload 完成过真实 machine install，并随后由外置 launcher 卸载；该次只证明 Manager/UAC/安装事务链路，不把旧 Product image 作为当前最终包证据。当前 verified Product Source revision 为 `30e9dfe32e37fc8ef0e31ab942e2019c2091cf36`，Product image 为 `sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65`；Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**2026-08-10 的最终收口代码门禁已通过，但新的 code-freeze revision、Product/Portable/Depot A/B、当前包 machine UAC 和 Windows Sandbox 仍未完成，因此本节不把历史包写成当前 beta 通过。** 上一个可复核构建 checkpoint 仍是 `30e9dfe3` / Product image `sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65`；它只作为重建前基线。2026-08-09 的真实 UAC 尝试在本自动化会话中被 Windows 安全桌面自动取消，未创建或覆盖当前最终安装。此前用修复后的当前分支 Manager GUI/UAC helper 对旧 Depot payload 完成过真实 machine install，并随后由外置 launcher 卸载；该次只证明 Manager/UAC/安装事务链路，不把旧 Product image 作为当前最终包证据。Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -25,6 +25,12 @@
 - Follow-up 又将 Manager GUI 的安装完成回执绑定到已验证的 Desktop Installation Manifest、安装范围和 Electron Envelope checksum；Portable 模板不再写入固定构建日期，安装时间由实际 Manager 安装事务生成。
 - Follow-up 复核发现 Installed locator 存在但 `desktop-installation.json` 缺失或 scope 不一致时仍可能落回 Portable runtime；Electron 与 Tauri 现在都在启动前 fail closed，并先显示启动页。Manager GUI 增加显式的“同时删除 State Root”确认，本地 Provider 没有 API Key 时也能保存。
 - 追加修复 `4a40b554`：Programs and Features 外置 launcher 现在解析并等待 Host 的最终 `resultPath/ok=true` 回执，成功后异步清理自身；Host 失败或超时保留 launcher 以便重试。本修复已有 Manager focused 回归，但尚未用新的最终 Depot 做真实 machine 重跑。
+- 最终收口将聚合 Depot 变成可直接选择的正式来源：安装前验证邻接 sidecar、固定五项、ZIP bytes/SHA-256 和内置 distribution manifest；嵌套 Portable 只在本次事务中短期展开，成功或失败后回收，不再额外留下约一份 Electron Portable 的长期缓存。
+- Windows 离线脚本可以从本地 Portable 精确提取并校验 managed Bun 与单文件 Manager bundle，再调用正式 Manager；PowerShell 不复制 Product payload 安装、migration、注册或回滚。
+- Manifest v3 的 Product Bun、Git/Bash 和 rg provider 现在同步投影到 Product `installation.json`。Electron 始终使用 managed Manager Bun 启动 Supervisor，避免 system Bun 消失时连 Repair 都无法运行；system provider 只影响 Product/工具执行。
+- 安装完成事件现在位于 Product Runtime 校验、Application State migration plan、一次 HTTP ready 和 graceful shutdown 之后。health/migration 失败会撤销 Windows 注册、程序根和本事务创建的用户 Root；原 PATH 快照也随事务恢复。
+- user 与 machine 程序根因共享同一组 State/Cache/Desktop Root 而禁止并存；有效 State Root 的重装复用要求真实目录、可解析 Boot Config 及已登记所有权字段，symlink/junction、任意 YAML 和未知非空目录全部 fail closed。
+- Manager GUI/CLI 的普通与 UAC 卸载路径都等待外置 Host 的最终 `ok=true`；结构化输出校验错误不再降级为普通日志。Manager 实例索引写入失败只产生明确 warning，不会把已经提交的有效安装误报为失败。
 
 真实 UAC 的取消/未连接路径仍返回 `uac-cancelled` 且不执行安装；当前最终 Product image 的成功 install/repair 路径仍需在干净用户环境重跑。
 [ADR 0016](../../adr/0016-windows-desktop-uac-broker.md) 已 Accepted。
@@ -33,9 +39,11 @@
 
 - 当前用户安装：`%LOCALAPPDATA%/Programs/NeuroBook`。
 - 全局安装：`%ProgramFiles%/NeuroBook`，需要可写 `Program Files` 的提升权限；State、Cache、Desktop/WebView 仍使用登录用户的根。
+- user 与 machine 安装共享用户 Root，同一登录用户不能同时保留两个程序根；另一 scope 的安装或残留必须先 Repair/Uninstall。
 - Portable：沿用 Installation Root 下的 `data/`、`.cache/` 和 `data/.desktop/`。
 - 只注册 `neurobook://`、开始菜单、桌面快捷方式和卸载项；不注册 `.nbook` 文件扩展名。
 - Desktop 默认关闭 auth；Provider 连接测试与远端连接、后台 updater、公开签名、macOS 实包和 Tauri 可见 UI 不在本 Task。
+- Installed 的成功回执表示 payload、manifest/locator、Windows 注册、migration、HTTP ready 与 graceful shutdown 均已完成；首次正式启动不承担“把未验证安装变成可用安装”的职责。
 
 ## 实现记录
 
@@ -57,6 +65,10 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 聚焦和构建门禁
 
+- 2026-08-10 最终收口当前代码门禁：`bun run manager:test` 为 41 files passed / 1 skipped、318 tests passed / 3 skipped，Manager release contract 1/1；`bun run manager:typecheck`、`bun run manager:build`、根 `bun run typecheck` 和 Electron bundle 通过。
+- Desktop Contract 为 13 files / 49 tests；安装/migration/provider/UAC/Windows Host 聚焦批次为 5 files / 69 tests，Manager GUI typed operation 为 1 file / 11 tests；`bun run test:install` 为 13 passed / 9 skipped。
+- `desktop/packaging/security-audit.mjs` 的 Electron/Manager sandbox、origin/frame、preload、CSP 和 Tauri headless 合同全部为 `true`；`git diff --check` 通过。
+- 上述结果只证明 code gate。新的 clean Product A/B、Electron Portable A/B、Electron-only Depot A/B、仓库外安装和真实 machine/Sandbox 验收仍在 code-freeze 后执行，不能沿用下方历史构建数字。
 - `bun run manager:test`：41 个测试文件通过、1 个跳过；299 个测试通过、3 个跳过；Manager release contract 1/1 通过。
 - `bun run manager:typecheck`、`bun run typecheck`、`bun run test:desktop-contract`：通过；Desktop Contract 为 11 个文件 / 40 个测试，新增 canonical Installed Manifest 和 Electron 启动配置恢复回归。
 - `bun run manager:build`、`bun run --cwd desktop/electron build`：通过；Electron 生成 `main.mjs`、`preload.cjs`、`manager-main.mjs`、`manager-preload.cjs`。

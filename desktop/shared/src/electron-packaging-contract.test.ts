@@ -4,7 +4,7 @@ import {describe, expect, it} from "vitest";
 
 describe("Electron portable packaging contract", () => {
     it("将壳代码归档到 app.asar，且图标保留为 native resource", async () => {
-    const packager = await readFile(resolve("desktop/packaging/package-portable.mjs"), "utf8");
+        const packager = await readFile(resolve("desktop/packaging/package-portable.mjs"), "utf8");
         expect(packager).toMatch(/createPackage\(appStagingRoot, join\(resourcesRoot, "app\.asar"\)\)/u);
         expect(packager).toContain('await rm(appStagingRoot, {recursive: true, force: true});');
         expect(packager).toContain('join(resourcesRoot, "icon.ico")');
@@ -12,6 +12,16 @@ describe("Electron portable packaging contract", () => {
         expect(packager).not.toContain('join(targetRoot, "resources", "app", "icon.ico")');
         expect(packager).toContain("portableTemplateTimestamp = verified.manifest.createdAt");
         expect(packager).not.toContain('const now = "2026-08-05T00:00:00.000Z"');
+    });
+
+    it("生产组包入口只生成 Electron Portable 和 Electron-only Depot", async () => {
+        const packager = await readFile(resolve("desktop/packaging/package-portable.mjs"), "utf8");
+        expect(packager).toContain("buildElectronPortable");
+        expect(packager).toContain("neuro-book-electron-portable-win-x64");
+        expect(packager).not.toContain("tauriExecutable");
+        expect(packager).not.toContain("versions.tauri");
+        expect(packager).not.toContain("NeuroBook-Tauri");
+        expect(packager).not.toContain("--tauri-exe");
     });
 
     it("运行时优先从 Electron resources 根读取托盘图标", async () => {

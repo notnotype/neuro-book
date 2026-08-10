@@ -1,5 +1,5 @@
 import {createHash} from "node:crypto";
-import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {dirname, join} from "node:path";
 import {strToU8, zipSync} from "fflate";
@@ -17,11 +17,17 @@ const appCommandMocks = vi.hoisted(() => ({
     createAdmin: vi.fn(),
     enableAuthentication: vi.fn(),
 }));
+const migrationMocks = vi.hoisted(() => ({
+    prepareInstalledApplication: vi.fn(),
+}));
 
 vi.mock("#manager/process", () => processMocks);
 vi.mock("#manager/product", () => ({verifyInstalledProductRuntimeImage: productMocks.verify}));
 vi.mock("#manager/app-commands", () => ({createAdmin: appCommandMocks.createAdmin}));
 vi.mock("#manager/config", () => ({enableAuthentication: appCommandMocks.enableAuthentication}));
+vi.mock("#manager/migration-operation", () => ({
+    prepareInstalledApplication: migrationMocks.prepareInstalledApplication,
+}));
 
 import {
     assertDesktopPortableInstallable,
@@ -30,6 +36,7 @@ import {
     installDesktopFromLocalDepot,
     installDesktopShellFromLocalDepot,
     parseDesktopPortableManifest,
+    repairDesktopRuntimeState,
     registerWindowsDesktop,
     removeWindowsDesktopRegistration,
     verifyDesktopPortablePayload,
@@ -39,6 +46,12 @@ import {
     writeManagerWrappers,
 } from "#manager/desktop-installation";
 import type {DesktopInstallationManifest} from "nbook/shared/desktop-contract";
+import {
+    DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
+    DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
+    DESKTOP_AGGREGATE_DEPOT_ENTRIES,
+    DESKTOP_AGGREGATE_DEPOT_MANIFEST,
+} from "nbook/desktop/shared/src/desktop-aggregate-depot";
 import type {InstallationComponents, InstallationManifest} from "#manager/types";
 
 const roots: string[] = [];
@@ -47,14 +60,21 @@ const originalArch = process.arch;
 const originalAppData = process.env.APPDATA;
 const originalUserProfile = process.env.USERPROFILE;
 const originalLocalAppData = process.env.LOCALAPPDATA;
+const originalProgramFiles = process.env.ProgramFiles;
 
 beforeEach(() => {
+    process.env.ProgramFiles = join(tmpdir(), `nbook-desktop-test-program-files-${String(process.pid)}`);
     processMocks.run.mockReset().mockResolvedValue(undefined);
     processMocks.runCapture.mockReset().mockResolvedValue("");
     processMocks.runCaptureResult.mockReset().mockResolvedValue({stdout: "", stderr: "", exitCode: 1, signal: null});
     productMocks.verify.mockReset().mockResolvedValue(undefined);
     appCommandMocks.createAdmin.mockReset().mockResolvedValue(undefined);
     appCommandMocks.enableAuthentication.mockReset().mockResolvedValue(undefined);
+    migrationMocks.prepareInstalledApplication.mockReset().mockResolvedValue({
+        port: 43123,
+        migration: "checked",
+        health: "ready",
+    });
 });
 
 afterEach(async () => {
@@ -66,6 +86,8 @@ afterEach(async () => {
     else process.env.USERPROFILE = originalUserProfile;
     if (originalLocalAppData === undefined) delete process.env.LOCALAPPDATA;
     else process.env.LOCALAPPDATA = originalLocalAppData;
+    if (originalProgramFiles === undefined) delete process.env.ProgramFiles;
+    else process.env.ProgramFiles = originalProgramFiles;
     vi.unstubAllGlobals();
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
@@ -164,6 +186,389 @@ describe("Desktop installation lifecycle", () => {
         expect(appCommandMocks.enableAuthentication).toHaveBeenCalledWith(
             join(root, "LocalAppData", "NeuroBook", "data"),
         );
+        expect(migrationMocks.prepareInstalledApplication.mock.invocationCallOrder[0])
+            .toBeLessThan(appCommandMocks.createAdmin.mock.invocationCallOrder[0]!);
+    });
+
+    it("migration 或健康检查失败时撤销系统注册、安装根和本事务创建的用户 Root", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-health-rollback-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        const localAppData = join(root, "LocalAppData");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        migrationMocks.prepareInstalledApplication.mockRejectedValueOnce(new Error("health failed"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+            adminPassword: "must-not-run",
+        })).rejects.toThrow("health failed");
+
+        expect(appCommandMocks.createAdmin).not.toHaveBeenCalled();
+        expect(await pathExists(installRoot)).toBe(false);
+        expect(await pathExists(join(localAppData, "NeuroBook", "data"))).toBe(false);
+        expect(await pathExists(join(localAppData, "NeuroBook", "cache"))).toBe(false);
+        expect(await pathExists(join(localAppData, "NeuroBook", "desktop"))).toBe(false);
+        expect(processMocks.run.mock.calls.some(([command, args]) =>
+            command === "reg.exe" && args.includes("DELETE"))).toBe(true);
+    });
+
+    it("Portable 内嵌 channel 与命令选择不一致时在移动安装根前失败", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-channel-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "stable",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("Portable 通道为 canary");
+        expect(await pathExists(installRoot)).toBe(false);
+    });
+
+    it("canonical user 与 machine 程序根不能同时指向同一组用户数据", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-scope-conflict-"));
+        const localAppData = join(root, "LocalAppData");
+        const programFiles = join(root, "ProgramFiles");
+        const userInstallRoot = join(localAppData, "Programs", "NeuroBook");
+        const machineInstallRoot = join(programFiles, "NeuroBook");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.ProgramFiles = programFiles;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await mkdir(machineInstallRoot, {recursive: true});
+        await writeFile(join(machineInstallRoot, "existing-installation"), "keep", "utf8");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationScope: "user",
+            installationRoot: userInstallRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("不能并存");
+
+        await expect(readFile(join(machineInstallRoot, "existing-installation"), "utf8"))
+            .resolves.toBe("keep");
+        expect(await pathExists(userInstallRoot)).toBe(false);
+    });
+
+    it("从固定五项 aggregate Depot 校验 sidecar 后安装内置 Electron Portable", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-aggregate-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(root, "Installation");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        const depot = await createAggregateDesktopDepot(root);
+
+        await expect(installDesktopFromLocalDepot({
+            aggregateDepotPath: depot.archivePath,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).resolves.toMatchObject({installationRoot: installRoot});
+
+        const cacheParent = join(localAppData, "NeuroBook", "manager", "desktop", "depots");
+        expect(await readdir(cacheParent).catch(() => [])).toEqual([]);
+    });
+
+    it("aggregate Depot 对 sidecar、固定形状、路径逃逸和 channel 全部 fail closed 并回收 staging", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-aggregate-invalid-"));
+        const localAppData = join(root, "LocalAppData");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+
+        const checksumDepotRoot = join(root, "checksum");
+        const checksumDepot = await createAggregateDesktopDepot(checksumDepotRoot);
+        const checksumSidecar = JSON.parse(await readFile(checksumDepot.manifestPath, "utf8")) as {archive: {sha256: string}};
+        checksumSidecar.archive.sha256 = `sha256:${"0".repeat(64)}`;
+        await writeFile(checksumDepot.manifestPath, `${JSON.stringify(checksumSidecar)}\n`, "utf8");
+        await expect(installDesktopFromLocalDepot({
+            aggregateDepotPath: checksumDepot.archivePath,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallChecksum"),
+            addCliToUserPath: false,
+        })).rejects.toThrow("archive 与 sidecar 不一致");
+
+        const missingDepot = await createAggregateDesktopDepot(join(root, "missing"), {
+            omitEntry: "windows-bun-stage0.ps1",
+        });
+        await expect(installDesktopFromLocalDepot({
+            aggregateDepotPath: missingDepot.archivePath,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallMissing"),
+            addCliToUserPath: false,
+        })).rejects.toThrow("缺少文件");
+
+        const escapedPath = join(root, "escaped.txt");
+        const escapeDepot = await createAggregateDesktopDepot(join(root, "escape"), {
+            extraEntries: {"../escaped.txt": strToU8("escape")},
+        });
+        await expect(installDesktopFromLocalDepot({
+            aggregateDepotPath: escapeDepot.archivePath,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallEscape"),
+            addCliToUserPath: false,
+        })).rejects.toThrow();
+        expect(await pathExists(escapedPath)).toBe(false);
+
+        const channelDepot = await createAggregateDesktopDepot(join(root, "channel"), {channel: "stable"});
+        await expect(installDesktopFromLocalDepot({
+            aggregateDepotPath: channelDepot.archivePath,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallChannel"),
+            addCliToUserPath: false,
+        })).rejects.toThrow("manifest 通道为 stable");
+
+        const cacheParent = join(localAppData, "NeuroBook", "manager", "desktop", "depots");
+        expect((await readdir(cacheParent).catch(() => [])).some((name) => name.startsWith(".aggregate-"))).toBe(false);
+    });
+
+    it("HTTPS distribution 对同长度篡改缓存重新校验并下载", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-https-cache-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        const archiveBytes = await readFile(archive);
+        const archiveDigest = digest(archiveBytes);
+        const componentURL = "https://downloads.example/neuro-book-electron-portable-win-x64.zip";
+        const manifest = distributionManifestForUrl(archiveBytes, archiveDigest, componentURL);
+        const cachePath = join(localAppData, "NeuroBook", "manager", "desktop", "downloads", `${archiveDigest}.zip`);
+        await mkdir(dirname(cachePath), {recursive: true});
+        await writeFile(cachePath, new Uint8Array(archiveBytes.byteLength).fill(1));
+        const fetchMock = vi.fn(async (input: string | URL) => {
+            const url = String(input);
+            if (url === "https://downloads.example/desktop.distribution.json") {
+                return new Response(JSON.stringify(manifest), {status: 200});
+            }
+            if (url === componentURL) {
+                return new Response(archiveBytes, {status: 200});
+            }
+            throw new Error(`unexpected URL: ${url}`);
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(installDesktopFromLocalDepot({
+            distributionManifestUrl: "https://downloads.example/desktop.distribution.json",
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).resolves.toMatchObject({installationRoot: installRoot});
+
+        expect(await readFile(cachePath)).toEqual(archiveBytes);
+        expect(fetchMock).toHaveBeenCalledWith(
+            componentURL,
+            expect.objectContaining({redirect: "error"}),
+        );
+    });
+
+    it("HTTPS distribution 的错误组件摘要失败且 HTTP manifest 不发起请求", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-https-checksum-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        const archiveBytes = await readFile(archive);
+        const archiveDigest = digest(archiveBytes);
+        const componentURL = "https://downloads.example/neuro-book-electron-portable-win-x64.zip";
+        const manifest = distributionManifestForUrl(archiveBytes, archiveDigest, componentURL);
+        const corruptBytes = new Uint8Array(archiveBytes.byteLength).fill(2);
+        const fetchMock = vi.fn(async (input: string | URL) => {
+            const url = String(input);
+            if (url.endsWith("desktop.distribution.json")) {
+                return new Response(JSON.stringify(manifest), {status: 200});
+            }
+            return new Response(corruptBytes, {status: 200});
+        });
+        vi.stubGlobal("fetch", fetchMock);
+
+        await expect(installDesktopFromLocalDepot({
+            distributionManifestUrl: "https://downloads.example/desktop.distribution.json",
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("SHA256 校验失败");
+        expect(await pathExists(installRoot)).toBe(false);
+
+        fetchMock.mockClear();
+        await expect(installDesktopFromLocalDepot({
+            distributionManifestUrl: "http://downloads.example/desktop.distribution.json",
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("只接受 HTTPS");
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("Product Bun、Git/Bash 和 rg provider 可以独立选择", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-independent-providers-"));
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        processMocks.runCaptureResult.mockImplementation(async (command: string) => ({
+            stdout: {
+                bun: "1.3.14\n",
+                rg: "ripgrep 14.1.1\n",
+                git: "git version 2.51.0.windows.1\n",
+                bash: "GNU bash, version 5.2.37(1)-release (x86_64-pc-msys)\n",
+            }[command] ?? "",
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+        }));
+
+        const result = await installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+            runtimeProvider: "system",
+            gitProvider: "system",
+            rgProvider: "system",
+        });
+
+        expect(result.manifest.providers.managerRuntime.provider).toBe("managed");
+        expect(result.manifest.providers.applicationRuntime).toMatchObject({
+            provider: "system",
+            executable: "bun",
+            version: "1.3.14",
+        });
+        expect(result.manifest.providers.tools.git).toMatchObject({
+            provider: "system",
+            executable: "git",
+            bashExecutable: "bash",
+        });
+        expect(result.manifest.providers.tools.rg).toMatchObject({
+            provider: "system",
+            executable: "rg",
+        });
+        expect(result.applicationManifest?.components.applicationRuntime).toMatchObject({
+            provider: "system",
+            executable: "bun",
+            version: "1.3.14",
+        });
+        expect(result.applicationManifest?.components.tools.git).toMatchObject({
+            provider: "system",
+            executable: "git",
+        });
+        expect(result.applicationManifest?.components.tools.rg).toMatchObject({
+            provider: "system",
+            executable: "rg",
+        });
+        expect(result.manifest.components.some((component) => component.id === "tool-pack")).toBe(false);
+        expect(await pathExists(join(installRoot, "tools"))).toBe(false);
+        expect(migrationMocks.prepareInstalledApplication).toHaveBeenCalledWith(installRoot);
+        expect(processMocks.runCaptureResult.mock.calls.map(([command]) => command)).toEqual(["bun", "rg", "git", "bash"]);
+    });
+
+    it("system provider 拒绝过旧 Bun 和伪造的工具版本输出", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-system-provider-version-"));
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = join(root, "LocalAppData");
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        processMocks.runCaptureResult.mockResolvedValue({
+            stdout: "1.2.9\n",
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+        });
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallOldBun"),
+            addCliToUserPath: false,
+            runtimeProvider: "system",
+            gitProvider: "managed",
+            rgProvider: "managed",
+        })).rejects.toThrow("至少需要 1.3.0");
+
+        processMocks.runCaptureResult.mockResolvedValue({
+            stdout: "some shim\n",
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+        });
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: join(root, "InstallFakeRg"),
+            addCliToUserPath: false,
+            runtimeProvider: "managed",
+            gitProvider: "managed",
+            rgProvider: "system",
+        })).rejects.toThrow("ripgrep 返回的版本格式无效");
     });
 
     it("默认卸载留下的空 State Root 允许重新安装，但不会放行非空用户数据", async () => {
@@ -217,6 +622,60 @@ describe("Desktop installation lifecycle", () => {
             installationRoot: installRoot,
             addCliToUserPath: false,
         })).rejects.toThrow("拒绝覆盖");
+
+        await rm(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true, force: true});
+        await mkdir(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true});
+        await writeFile(join(root, "LocalAppData", "NeuroBook", "data", "config.yaml"), "unrelated: true\n", "utf8");
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("拒绝覆盖");
+
+        await rm(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true, force: true});
+        await mkdir(join(root, "LocalAppData", "NeuroBook", "data"), {recursive: true});
+        await writeFile(join(root, "LocalAppData", "NeuroBook", "data", "config.yaml"), "auth: [not-an-object]\n", "utf8");
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("拒绝覆盖");
+    });
+
+    it("State Root 本身是 symlink 或 junction 时拒绝接管", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-reinstall-linked-state-"));
+        const localAppData = join(root, "LocalAppData");
+        const stateRoot = join(localAppData, "NeuroBook", "data");
+        const externalStateRoot = join(root, "ExternalState");
+        const installRoot = join(root, "Installation");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await mkdir(externalStateRoot, {recursive: true});
+        await writeFile(join(externalStateRoot, "config.yaml"), "auth:\n    enabled: false\n", "utf8");
+        await mkdir(dirname(stateRoot), {recursive: true});
+        await symlink(externalStateRoot, stateRoot, "junction");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("拒绝覆盖");
+        await expect(readFile(join(externalStateRoot, "config.yaml"), "utf8"))
+            .resolves.toBe("auth:\n    enabled: false\n");
     });
 
     it("安装目标在校验后被其他进程抢先创建时不删除对方目录", async () => {
@@ -243,6 +702,93 @@ describe("Desktop installation lifecycle", () => {
             addCliToUserPath: false,
         })).rejects.toThrow();
         await expect(readFile(join(installRoot, "owned-by-other-process"), "utf8")).resolves.toBe("keep");
+    });
+
+    it("repair 从缺失 locator 状态重建 Installed runtime，而不回退 Portable root", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-locator-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(localAppData, "Programs", "NeuroBook");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        const installed = await installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        });
+        const locatorPath = join(installRoot, "desktop", "runtime-locators.json");
+        await rm(locatorPath, {force: true});
+
+        await repairDesktopRuntimeState(installRoot, installed.applicationManifest!);
+
+        const locator = JSON.parse(await readFile(locatorPath, "utf8")) as {schema: string; state: {base: string; path: string}};
+        expect(locator).toMatchObject({
+            schema: "nbook.desktop-installation-runtime/v1",
+            state: {base: "local-app-data", path: "NeuroBook/data"},
+        });
+        expect(await pathExists(join(installRoot, "data"))).toBe(false);
+    });
+
+    it("repair 在同一 v3 合同内把旧候选的 Product Bun 重新投影为 system provider", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-provider-projection-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(localAppData, "Programs", "NeuroBook");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        processMocks.runCaptureResult.mockResolvedValue({
+            stdout: "1.3.14\n",
+            stderr: "",
+            exitCode: 0,
+            signal: null,
+        });
+        const installed = await installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+            runtimeProvider: "system",
+            gitProvider: "managed",
+            rgProvider: "managed",
+        });
+        const current = installed.applicationManifest!;
+        const stale: InstallationManifest = {
+            ...current,
+            components: {
+                ...current.components,
+                applicationRuntime: current.components.managerRuntime,
+            },
+        };
+        await writeFile(
+            join(installRoot, ".deploy", "installation.json"),
+            `${JSON.stringify(stale, null, 4)}\n`,
+            "utf8",
+        );
+
+        const repaired = await repairDesktopRuntimeState(installRoot, stale);
+        const persisted = JSON.parse(
+            await readFile(join(installRoot, ".deploy", "installation.json"), "utf8"),
+        ) as InstallationManifest;
+
+        expect(repaired.components.applicationRuntime).toMatchObject({
+            provider: "system",
+            executable: "bun",
+            version: "1.3.14",
+        });
+        expect(persisted.components.applicationRuntime).toEqual(repaired.components.applicationRuntime);
     });
 
     it("Manager wrapper 只使用相对 Installation Root 路径", async () => {
@@ -448,6 +994,36 @@ describe("Desktop installation lifecycle", () => {
         expect(await pathExists(desktopShortcut)).toBe(false);
     });
 
+    it("machine 安装注册失败时清理本事务创建的外置 launcher", async () => {
+        setWindowsHost();
+        const root = await mkdtemp(join(tmpdir(), "nbook-desktop-machine-launcher-rollback-"));
+        const localAppData = join(root, "LocalAppData");
+        const installRoot = join(root, "ProgramFiles", "NeuroBook");
+        const archive = join(root, "electron.zip");
+        roots.push(root);
+        process.env.LOCALAPPDATA = localAppData;
+        process.env.APPDATA = join(root, "AppData");
+        process.env.USERPROFILE = join(root, "User");
+        process.env.ProgramData = join(root, "ProgramData");
+        process.env.PUBLIC = join(root, "Public");
+        await createDesktopPortableArchive(archive, portableManifest("electron"));
+        processMocks.run.mockRejectedValueOnce(new Error("registration failure"));
+
+        await expect(installDesktopFromLocalDepot({
+            archivePath: archive,
+            envelope: "electron",
+            channel: "canary",
+            connection: {mode: "local"},
+            installationScope: "machine",
+            installationRoot: installRoot,
+            addCliToUserPath: false,
+        })).rejects.toThrow("registration failure");
+
+        expect(await pathExists(installRoot)).toBe(false);
+        const launcherBase = join(localAppData, "NeuroBook", "manager", "uninstall");
+        expect(await readdir(launcherBase).catch(() => [])).toEqual([]);
+    });
+
     it("注册表卸载项使用安装根内的 Manager wrapper", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-uninstall-command-"));
@@ -472,7 +1048,12 @@ describe("Desktop installation lifecycle", () => {
         process.env.LOCALAPPDATA = join(root, "LocalAppData");
         process.env.APPDATA = join(root, "AppData");
         process.env.USERPROFILE = join(root, "User");
-        const launcher = await writeMachineUninstallLauncher(installationRoot, "installation-1");
+        const launcher = await writeMachineUninstallLauncher(
+            installationRoot,
+            "installation-1",
+            "manager/neuro-book.mjs",
+            "managed-runtime/bun.exe",
+        );
         const script = await readFile(launcher, "utf8");
         expect(launcher).not.toContain(installationRoot);
         expect(script).toContain("Start-Process");
@@ -492,7 +1073,14 @@ describe("Desktop installation lifecycle", () => {
         expect(script).toContain("-EncodedCommand");
         expect(script).toContain("Start-Sleep -Milliseconds 500");
         expect(script).toContain('Join-Path $Root "manager\\neuro-book.mjs"');
+        expect(script).toContain('Join-Path $Root "managed-runtime\\bun.exe"');
         expect(script).not.toContain(".runtime\\manager\\neuro-book.mjs");
+        await expect(writeMachineUninstallLauncher(
+            installationRoot,
+            "installation-2",
+            "manager/neuro-book.mjs",
+            "../outside/bun.exe",
+        )).rejects.toThrow("Manager Runtime 路径必须是安全的相对路径");
 
         const manifest = {...desktopManifest(), installationScope: "machine" as const};
         await registerWindowsDesktop(installationRoot, manifest, false, launcher);
@@ -596,6 +1184,98 @@ function portableManifest(kind: "electron" | "tauri") {
         },
         toolPack: {digest: `sha256:${"d".repeat(64)}`},
     };
+}
+
+function distributionManifestForUrl(
+    archiveBytes: Uint8Array,
+    archiveDigest: string,
+    componentURL: string,
+) {
+    return {
+        schema: "nbook.desktop-distribution/v1",
+        version: "0.9.1",
+        channel: "canary",
+        platform: "windows",
+        architecture: "x64",
+        components: [{
+            id: "electron-envelope",
+            version: "43.2.0",
+            archive: {
+                kind: "url",
+                location: componentURL,
+                sha256: `sha256:${archiveDigest}`,
+                bytes: archiveBytes.byteLength,
+                format: "zip",
+            },
+            required: true,
+        }],
+    };
+}
+
+async function createAggregateDesktopDepot(
+    root: string,
+    options: {
+        channel?: "stable" | "canary";
+        omitEntry?: string;
+        extraEntries?: Record<string, Uint8Array>;
+    } = {},
+): Promise<{archivePath: string; manifestPath: string; digest: string}> {
+    await mkdir(root, {recursive: true});
+    const portableSource = join(root, "portable-source.zip");
+    await createDesktopPortableArchive(portableSource, portableManifest("electron"));
+    const portableBytes = await readFile(portableSource);
+    const portableName = "neuro-book-electron-portable-win-x64.zip";
+    const portableSidecarName = "neuro-book-electron-portable-win-x64.manifest.json";
+    const distribution = {
+        schema: "nbook.desktop-distribution/v1",
+        version: "0.9.1",
+        channel: options.channel ?? "canary",
+        platform: "windows",
+        architecture: "x64",
+        components: [{
+            id: "electron-envelope",
+            version: "43.2.0",
+            archive: {
+                kind: "path",
+                location: portableName,
+                sha256: `sha256:${digest(portableBytes)}`,
+                bytes: portableBytes.byteLength,
+                format: "zip",
+            },
+            required: true,
+        }],
+    };
+    const entries: Record<string, Uint8Array> = {
+        "install-desktop.ps1": strToU8("Write-Host install\n"),
+        "windows-bun-stage0.ps1": strToU8("function Ensure-NeuroBookBun {}\n"),
+        [DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST]: strToU8(`${JSON.stringify(distribution)}\n`),
+        [portableName]: portableBytes,
+        [portableSidecarName]: strToU8(`${JSON.stringify({
+            archive: {bytes: portableBytes.byteLength, sha256: `sha256:${digest(portableBytes)}`},
+        })}\n`),
+    };
+    if (options.omitEntry) delete entries[options.omitEntry];
+    Object.assign(entries, options.extraEntries ?? {});
+
+    const archivePath = join(root, DESKTOP_AGGREGATE_DEPOT_ARCHIVE);
+    const archiveBytes = zipSync(entries);
+    await writeFile(archivePath, archiveBytes);
+    const manifestPath = join(root, DESKTOP_AGGREGATE_DEPOT_MANIFEST);
+    const payloadBytes = Object.values(entries).reduce((total, value) => total + value.byteLength, 0);
+    await writeFile(manifestPath, `${JSON.stringify({
+        schema: "nbook.desktop-depot/v1",
+        platform: "windows-x64",
+        distributionManifest: DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
+        entries: [...DESKTOP_AGGREGATE_DEPOT_ENTRIES],
+        payload: {files: DESKTOP_AGGREGATE_DEPOT_ENTRIES.length, bytes: payloadBytes},
+        archive: {
+            path: DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
+            bytes: archiveBytes.byteLength,
+            sha256: `sha256:${digest(archiveBytes)}`,
+        },
+        distributionSchema: "nbook.desktop-distribution/v1",
+    })}\n`, "utf8");
+    return {archivePath, manifestPath, digest: digest(archiveBytes)};
 }
 
 async function createDesktopPortableArchive(path: string, portable: ReturnType<typeof portableManifest>): Promise<void> {

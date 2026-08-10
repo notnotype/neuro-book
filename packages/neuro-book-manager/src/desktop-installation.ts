@@ -1,7 +1,7 @@
 import {createHash, randomUUID} from "node:crypto";
 import {copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, isAbsolute, join, relative, resolve, sep, win32} from "node:path";
+import {basename, dirname, isAbsolute, join, relative, resolve, sep, win32} from "node:path";
 
 import {
     DESKTOP_INSTALLATION_SCHEMA,
@@ -27,11 +27,29 @@ import {createAdmin} from "#manager/app-commands";
 import {enableAuthentication} from "#manager/config";
 import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
+import {
+    prepareInstalledApplication,
+    type InstallationApplicationPreparation,
+} from "#manager/migration-operation";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, resolveInstallationRoots} from "#manager/root-locators";
 import {parseInstallationManifest} from "#manager/schema";
 import {run, runCaptureResult, type RunCaptureResult} from "#manager/process";
 import {verifyInstalledProductRuntimeImage} from "#manager/product";
-import type {InstallationComponents, InstallationManifest, InstallationRootLocators} from "#manager/types";
+import type {
+    ApplicationRuntimeComponent,
+    InstallationComponents,
+    InstallationManifest,
+    InstallationRootLocators,
+    ToolComponents,
+} from "#manager/types";
+import {parseBootConfigText} from "nbook/server/config/boot-config";
+import {
+    DESKTOP_AGGREGATE_DEPOT_ARCHIVE,
+    DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST,
+    DESKTOP_AGGREGATE_DEPOT_MANIFEST,
+    verifyDesktopAggregateDepot,
+    verifyDesktopAggregateDepotArchive,
+} from "nbook/desktop/shared/src/desktop-aggregate-depot";
 
 const DESKTOP_RUNTIME_SCHEMA = "nbook.desktop-installation-runtime/v1" as const;
 const DESKTOP_INSTALLATION_FILE = "desktop-installation.json";
@@ -41,6 +59,8 @@ const DESKTOP_DEFAULT_ADMIN_USERNAME = "admin";
 export type DesktopLocalDepot = {
     /** 本地模式使用完整 Product Portable；远端模式改用 shellArchivePath。 */
     archivePath?: string;
+    /** Electron 离线聚合 Depot ZIP；必须带同目录 sidecar，并从内置 distribution manifest 解析 Portable。 */
+    aggregateDepotPath?: string;
     /** 远端模式只携带 Desktop Envelope，不携带 Product、Bun 或 Tool Pack。 */
     shellArchivePath?: string;
     /** 本地 distribution manifest；archive location 必须是同一 depot 根内的相对 ZIP 路径。 */
@@ -54,12 +74,23 @@ export type DesktopLocalDepot = {
     installationRoot?: string;
     addCliToUserPath: boolean;
     runtimeProvider?: "managed" | "system";
-    toolProvider?: "managed" | "system";
+    gitProvider?: "managed" | "system";
+    rgProvider?: "managed" | "system";
     /** 本地 Product 首次安装时创建管理员；远端连接不允许携带该值。 */
     adminPassword?: string;
     /** 当前 Manager CLI 自身入口；远端 shell 的卸载注册由它生成稳定 launcher。 */
     managerExecutable?: string;
+    /** CLI/GUI 只消费白名单阶段；安装副作用仍由本 Module 独占。 */
+    onStage?: (stage: DesktopInstallStage) => void;
 };
+
+export type DesktopInstallStage =
+    | "extracting"
+    | "verifying"
+    | "installing"
+    | "registering"
+    | "migration-health"
+    | "configuring-auth";
 
 export type DesktopInstallResult = {
     installationRoot: string;
@@ -68,6 +99,7 @@ export type DesktopInstallResult = {
     desktopRoot: string;
     manifest: DesktopInstallationManifest;
     applicationManifest?: InstallationManifest;
+    applicationPreparation?: InstallationApplicationPreparation;
     /** 远端安装前探测到的 Product 版本；本地模式为空。 */
     remoteProductVersion?: string;
 };
@@ -96,15 +128,14 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
     assertWindowsDesktopHost();
     if (options.connection.mode === "remote") return installDesktopShellFromLocalDepot(options);
     if (options.shellArchivePath !== undefined) throw new Error("本地 Desktop 安装必须使用完整 Portable archive，不接受 shell archive。" );
-    if (options.archivePath !== undefined
-        && (options.distributionManifestPath !== undefined || options.distributionManifestUrl !== undefined)) {
-        throw new Error("本地 Desktop 安装不能同时提供 archive 和 distribution manifest。" );
-    }
-    if (!options.archivePath && !options.distributionManifestPath && !options.distributionManifestUrl) {
-        throw new Error("本地 Desktop 安装缺少 Portable archive 或 distribution manifest。" );
-    }
-    if (options.distributionManifestPath !== undefined && options.distributionManifestUrl !== undefined) {
-        throw new Error("本地 Desktop 安装不能同时提供本地和在线 distribution manifest。" );
+    const localSources = [
+        options.archivePath,
+        options.aggregateDepotPath,
+        options.distributionManifestPath,
+        options.distributionManifestUrl,
+    ].filter((value) => value !== undefined);
+    if (localSources.length !== 1) {
+        throw new Error("本地 Desktop 安装必须且只能提供 Portable archive、aggregate Depot 或 distribution manifest。" );
     }
     const installationScope = options.installationScope ?? "user";
     const installationRoot = resolve(options.installationRoot ?? defaultDesktopInstallationRoot(installationScope));
@@ -112,60 +143,121 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
-    const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
-    if (!await pathExists(archivePath)) throw new Error(`Desktop Portable archive 不存在：${archivePath}`);
-
+    await assertNoConflictingCanonicalDesktopRoot(installationRoot);
+    const resolvedDepot = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
+    const archivePath = resolvedDepot.archivePath;
     const installationParent = dirname(installationRoot);
-    await ensureDirectory(installationParent);
-    const staging = await mkdtemp(join(installationParent, `.neurobook-stage-${randomUUID()}-`));
+    let staging: string | undefined;
     let movedToInstallation = false;
     const createdRoots: string[] = [];
     let uninstallLauncher: string | undefined;
+    let desktopManifest: DesktopInstallationManifest | undefined;
+    let registration: WindowsDesktopRegistrationReceipt | undefined;
     try {
+        if (!await pathExists(archivePath)) throw new Error(`Desktop Portable archive 不存在：${archivePath}`);
+        await ensureDirectory(installationParent);
+        staging = await mkdtemp(join(installationParent, `.neurobook-stage-${randomUUID()}-`));
+        options.onStage?.("extracting");
         await extractZip(archivePath, staging);
         const portable = parseDesktopPortableManifest(await readJson(join(staging, "manifest.json")));
         assertDesktopPortableInstallable(portable, options.envelope);
-        const applicationManifest = await prepareInstalledManifest(staging);
-        await verifyDesktopPortablePayload(staging, applicationManifest, portable, options.envelope);
+        const portableApplicationManifest = await readPortableApplicationManifest(staging);
+        if (portableApplicationManifest.channel !== options.channel) {
+            throw new Error(`Desktop Portable 通道为 ${portableApplicationManifest.channel}，命令选择为 ${options.channel}。`);
+        }
+        options.onStage?.("verifying");
+        await verifyDesktopPortablePayload(staging, portableApplicationManifest, portable, options.envelope);
+        const providers = await createDesktopInstallationProviders(options, portableApplicationManifest);
+        const applicationManifest = await prepareInstalledManifest(staging, portableApplicationManifest, providers);
+        await removeUnselectedManagedPayload(staging, providers);
         const roots = resolveInstallationRoots(installationRoot, applicationManifest.roots);
-        await assertFreshDesktopRoots(roots);
+        const preexistingRoots = await assertFreshDesktopRoots(roots);
         await removePortableDataRoots(staging);
         await ensureDirectory(dirname(installationRoot));
         await rename(staging, installationRoot);
         movedToInstallation = true;
-        await ensureTrackedDirectory(roots.state, createdRoots);
-        await ensureTrackedDirectory(roots.cache, createdRoots);
-        await ensureTrackedDirectory(roots.desktop, createdRoots);
-        await ensureTrackedDirectory(roots.webview, createdRoots);
+        options.onStage?.("installing");
+        await ensureTrackedDirectory(roots.state, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.cache, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.desktop, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.webview, createdRoots, preexistingRoots);
         if (!(await pathExists(join(roots.state, "config.yaml")))) {
             await writeFile(join(roots.state, "config.yaml"), "auth:\n    enabled: false\n", "utf8");
         }
         await writeDesktopRuntimeConfig(installationRoot);
         await writeManagerWrappers(installationRoot, applicationManifest);
-        const desktopManifest = await createDesktopInstallationManifest(options, installationRoot, applicationManifest, portable);
+        desktopManifest = await createDesktopInstallationManifest(
+            options,
+            installationRoot,
+            applicationManifest,
+            portable,
+            providers,
+        );
         await writeJsonAtomic(join(roots.desktop, DESKTOP_INSTALLATION_FILE), desktopManifest);
-        if (options.connection.mode === "local") {
-            if (options.adminPassword !== undefined) {
-                await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
-                await enableAuthentication(roots.state);
-            }
-        }
         if (desktopManifest.installationScope === "machine") {
+            const managerRuntime = applicationManifest.components.managerRuntime;
+            if (managerRuntime.provider !== "managed") {
+                throw new Error("Desktop machine 安装需要 managed Manager Runtime。");
+            }
             uninstallLauncher = await writeMachineUninstallLauncher(
                 installationRoot,
                 desktopManifest.installationId,
                 applicationManifest.components.manager.path,
+                managerRuntime.path,
             );
         }
-        await registerWindowsDesktop(installationRoot, desktopManifest, options.addCliToUserPath, uninstallLauncher);
-        return {installationRoot, stateRoot: roots.state, cacheRoot: roots.cache, desktopRoot: roots.desktop, manifest: desktopManifest, applicationManifest};
+        options.onStage?.("registering");
+        registration = await registerWindowsDesktop(
+            installationRoot,
+            desktopManifest,
+            options.addCliToUserPath,
+            uninstallLauncher,
+        );
+        options.onStage?.("migration-health");
+        const applicationPreparation = await prepareInstalledApplication(installationRoot);
+        if (options.adminPassword !== undefined) {
+            options.onStage?.("configuring-auth");
+            await createAdmin(installationRoot, applicationManifest, DESKTOP_DEFAULT_ADMIN_USERNAME, options.adminPassword);
+            await enableAuthentication(roots.state);
+        }
+        return {
+            installationRoot,
+            stateRoot: roots.state,
+            cacheRoot: roots.cache,
+            desktopRoot: roots.desktop,
+            manifest: desktopManifest,
+            applicationManifest,
+            applicationPreparation,
+        };
     } catch (error) {
-        if (movedToInstallation) await rm(installationRoot, {recursive: true, force: true}).catch(() => undefined);
-        if (uninstallLauncher) await rm(uninstallLauncher, {force: true}).catch(() => undefined);
-        await removeCreatedDesktopRoots(createdRoots);
+        const rollbackErrors: unknown[] = [];
+        if (registration && desktopManifest) {
+            await removeWindowsDesktopRegistration(
+                installationRoot,
+                desktopManifest,
+                registration.previousUserPath,
+            )
+                .catch((rollbackError) => rollbackErrors.push(rollbackError));
+        }
+        if (movedToInstallation) {
+            await rm(installationRoot, {recursive: true, force: true})
+                .catch((rollbackError) => rollbackErrors.push(rollbackError));
+        }
+        if (uninstallLauncher) {
+            await rm(dirname(uninstallLauncher), {recursive: true, force: true})
+                .catch((rollbackError) => rollbackErrors.push(rollbackError));
+        }
+        await removeCreatedDesktopRoots(createdRoots, rollbackErrors);
+        if (rollbackErrors.length > 0) {
+            throw new AggregateError(
+                [error, ...rollbackErrors],
+                "Desktop 安装失败，且一个或多个本事务路径无法完整回滚。",
+            );
+        }
         throw error;
     } finally {
-        await rm(staging, {recursive: true, force: true});
+        if (staging) await rm(staging, {recursive: true, force: true});
+        await resolvedDepot.cleanup();
     }
 }
 
@@ -180,6 +272,7 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     if (options.connection.mode !== "remote") throw new Error("shell archive 只用于远端 Desktop 安装。" );
     if (options.adminPassword !== undefined) throw new Error("远端 Desktop 安装不能接收本地管理员密码。" );
     if (options.archivePath !== undefined) throw new Error("远端 Desktop 安装不能使用完整 Portable archive，请提供 shell archive。" );
+    if (options.aggregateDepotPath !== undefined) throw new Error("远端 Desktop 安装不能使用本地 Product aggregate Depot。" );
     if (options.shellArchivePath !== undefined
         && (options.distributionManifestPath !== undefined || options.distributionManifestUrl !== undefined)) {
         throw new Error("远端 Desktop 安装不能同时提供 shell archive 和 distribution manifest。" );
@@ -195,28 +288,30 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
     if (await pathExists(installationRoot)) {
         throw new Error(`Desktop Installation Root 已存在，更新请使用 Manager update：${installationRoot}`);
     }
-    const archivePath = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
-    if (!await pathExists(archivePath)) throw new Error(`Desktop shell archive 不存在：${archivePath}`);
-
+    await assertNoConflictingCanonicalDesktopRoot(installationRoot);
+    const resolvedDepot = await resolveDepotArchive(options, options.envelope === "electron" ? "electron-envelope" : "tauri-envelope");
+    const archivePath = resolvedDepot.archivePath;
     const installationParent = dirname(installationRoot);
-    await ensureDirectory(installationParent);
-    const staging = await mkdtemp(join(installationParent, `.neurobook-stage-remote-${randomUUID()}-`));
+    let staging: string | undefined;
     let movedToInstallation = false;
     const createdRoots: string[] = [];
     try {
+        if (!await pathExists(archivePath)) throw new Error(`Desktop shell archive 不存在：${archivePath}`);
+        await ensureDirectory(installationParent);
+        staging = await mkdtemp(join(installationParent, `.neurobook-stage-remote-${randomUUID()}-`));
         await extractZip(archivePath, staging);
         const shell = parseDesktopShellArchiveManifest(await readJson(join(staging, "manifest.json")));
         assertDesktopShellInstallable(shell, options.envelope);
         await verifyDesktopShellPayload(staging, shell);
         const roots = resolveInstallationRoots(installationRoot, INSTALLED_WINDOWS_ROOT_LOCATORS);
-        await assertFreshDesktopRoots(roots);
+        const preexistingRoots = await assertFreshDesktopRoots(roots);
         await ensureDirectory(dirname(installationRoot));
         await rename(staging, installationRoot);
         movedToInstallation = true;
-        await ensureTrackedDirectory(roots.state, createdRoots);
-        await ensureTrackedDirectory(roots.cache, createdRoots);
-        await ensureTrackedDirectory(roots.desktop, createdRoots);
-        await ensureTrackedDirectory(roots.webview, createdRoots);
+        await ensureTrackedDirectory(roots.state, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.cache, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.desktop, createdRoots, preexistingRoots);
+        await ensureTrackedDirectory(roots.webview, createdRoots, preexistingRoots);
         await writeDesktopRuntimeConfig(installationRoot);
         const desktopManifest = createRemoteDesktopInstallationManifest(options, shell);
         await writeJsonAtomic(join(roots.desktop, DESKTOP_INSTALLATION_FILE), desktopManifest);
@@ -235,7 +330,8 @@ export async function installDesktopShellFromLocalDepot(options: DesktopLocalDep
         await removeCreatedDesktopRoots(createdRoots);
         throw error;
     } finally {
-        await rm(staging, {recursive: true, force: true});
+        if (staging) await rm(staging, {recursive: true, force: true});
+        await resolvedDepot.cleanup();
     }
 }
 
@@ -307,22 +403,82 @@ export function assertDesktopPortableInstallable(portable: PortableArchiveManife
     if (portable.product.dirty) throw new Error("Desktop 用户级安装拒绝 dirty Product Portable。" );
 }
 
-/** 将 Portable 的 Application Manifest 切换为 Windows 用户级 locator。 */
-async function prepareInstalledManifest(staging: string): Promise<InstallationManifest> {
-    const path = join(staging, ".deploy", "installation.json");
-    const value = await readJson(path);
-    const portable = parseInstallationManifest(value);
+/** 在改写前读取 Portable 自带的完整 Application Manifest。 */
+async function readPortableApplicationManifest(staging: string): Promise<InstallationManifest> {
+    const portable = parseInstallationManifest(await readJson(join(staging, ".deploy", "installation.json")));
     if (portable.profile !== "windows-portable") throw new Error("Desktop 本地 depot 必须来自 windows-portable Product 包。");
+    return portable;
+}
+
+/** 将 Portable Application Manifest 切换为 Installed locators 与实际 provider。 */
+async function prepareInstalledManifest(
+    staging: string,
+    portable: InstallationManifest,
+    providers: DesktopInstallationProviders,
+): Promise<InstallationManifest> {
+    const path = join(staging, ".deploy", "installation.json");
     const installed: InstallationManifest = {
         ...portable,
         profile: "product-bun",
         roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        components: projectInstalledApplicationComponents(portable.components, providers),
         installedAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
     };
     parseInstallationManifest(installed);
     await writeInstallationManifest(path, installed);
     return installed;
+}
+
+/** Product、Manager 与 Desktop Manifest 必须消费同一 provider 选择。 */
+function projectInstalledApplicationComponents(
+    components: InstallationComponents,
+    providers: DesktopInstallationProviders,
+): InstallationComponents {
+    let applicationRuntime: ApplicationRuntimeComponent;
+    if (providers.applicationRuntime.provider === "managed") {
+        if (components.applicationRuntime.provider !== "managed"
+            || components.applicationRuntime.path !== providers.applicationRuntime.path
+            || components.applicationRuntime.executableSha256 !== providers.applicationRuntime.sha256.slice("sha256:".length)) {
+            throw new Error("Desktop managed Product Bun provider 与 Portable Application Manifest 不一致。");
+        }
+        applicationRuntime = components.applicationRuntime;
+    } else {
+        applicationRuntime = {
+            provider: "system",
+            version: providers.applicationRuntime.version,
+            executable: providers.applicationRuntime.executable,
+        };
+    }
+    const tools: ToolComponents = {
+        ...components.tools,
+        rg: providers.tools.rg.provider === "managed"
+            ? components.tools.rg
+            : {
+                provider: "system",
+                version: providers.tools.rg.version,
+                executable: providers.tools.rg.executable,
+            },
+        git: providers.tools.git.provider === "managed"
+            ? components.tools.git
+            : {
+                provider: "system",
+                version: providers.tools.git.version,
+                executable: providers.tools.git.executable,
+            },
+    };
+    if (!tools.rg || !tools.git) throw new Error("Desktop Application Manifest 缺少 Git 或 rg provider。");
+    return {...components, applicationRuntime, tools};
+}
+
+/** 两个工具都由系统提供时，不把未被 manifest 引用的完整 Tool Pack 留在安装根。 */
+async function removeUnselectedManagedPayload(
+    staging: string,
+    providers: DesktopInstallationProviders,
+): Promise<void> {
+    if (providers.tools.git.provider === "system" && providers.tools.rg.provider === "system") {
+        await rm(join(staging, "tools"), {recursive: true, force: true});
+    }
 }
 
 /** 安装根只保存程序，Portable 的空 data/cache 目录不能遮蔽 local-app-data owner。 */
@@ -400,6 +556,7 @@ async function createDesktopInstallationManifest(
     root: string,
     applicationManifest: InstallationManifest,
     portable: PortableArchiveManifest,
+    providers: DesktopInstallationProviders,
 ): Promise<DesktopInstallationManifest> {
     const now = new Date().toISOString();
     const envelopePath = options.envelope === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
@@ -407,13 +564,14 @@ async function createDesktopInstallationManifest(
     const manager = applicationManifest.components.manager;
     const managerRuntime = applicationManifest.components.managerRuntime;
     if (managerRuntime.provider !== "managed") throw new Error("Desktop 安装需要 managed Bun Runtime。" );
-    const providers = await createDesktopInstallationProviders(options, applicationManifest);
     const installationScope = options.installationScope ?? "user";
     const components = [
         {id: "product" as const, version: applicationManifest.appVersion, path: ".output", sha256: portable.product.imageId},
         {id: "bun" as const, version: managerRuntime.version, path: managerRuntime.path, sha256: `sha256:${managerRuntime.executableSha256}`},
         {id: "manager-cli" as const, version: manager.version, path: manager.path, sha256: `sha256:${manager.bundleSha256}`},
-        {id: "tool-pack" as const, version: "portable", path: "tools", sha256: portable.toolPack.digest},
+        ...(providers.tools.git.provider === "managed" || providers.tools.rg.provider === "managed"
+            ? [{id: "tool-pack" as const, version: "portable", path: "tools", sha256: portable.toolPack.digest}]
+            : []),
         {id: envelopeId as "electron-envelope" | "tauri-envelope", version: portable.runtime.envelopeVersion, path: envelopePath, sha256: await fileSha256(root, envelopePath)},
     ];
     const value = {
@@ -479,8 +637,17 @@ function createRemoteDesktopInstallationManifest(
     });
 }
 
+type WindowsDesktopRegistrationReceipt = {
+    previousUserPath: UserPathValue | null;
+};
+
 /** 注册开始菜单、桌面快捷方式、卸载项和 neurobook:// 协议。 */
-export async function registerWindowsDesktop(root: string, manifest: DesktopInstallationManifest, addCliToUserPath: boolean, uninstallLauncher?: string): Promise<void> {
+export async function registerWindowsDesktop(
+    root: string,
+    manifest: DesktopInstallationManifest,
+    addCliToUserPath: boolean,
+    uninstallLauncher?: string,
+): Promise<WindowsDesktopRegistrationReceipt> {
     const envelopeId = manifest.envelope === "electron" ? "electron-envelope" : "tauri-envelope";
     const envelope = manifest.components.find((component) => component.id === envelopeId);
     if (!envelope) throw new Error(`Desktop Installation Manifest 缺少 ${envelopeId}。`);
@@ -525,6 +692,7 @@ export async function registerWindowsDesktop(root: string, manifest: DesktopInst
         await regAdd(protocolKey, "URL Protocol", "");
         await regAdd(`${protocolKey}\\shell\\open\\command`, "", `"${executable}" "%1"`);
         if (addCliToUserPath) await addUserPath(dirname(manager));
+        return {previousUserPath: previousPath};
     } catch (error) {
         await removeWindowsDesktopRegistration(root, manifest, previousPath).catch(() => undefined);
         throw error;
@@ -767,18 +935,12 @@ export async function writeMachineUninstallLauncher(
     installationRoot: string,
     installationId: string,
     managerRelativePath = "manager/neuro-book.mjs",
+    managerRuntimeRelativePath = "runtime/bun.exe",
 ): Promise<string> {
-    const normalizedManagerPath = managerRelativePath.replaceAll("\\", "/");
-    if (
-        !normalizedManagerPath
-        || normalizedManagerPath.startsWith("/")
-        || /^[A-Za-z]:/u.test(normalizedManagerPath)
-        || normalizedManagerPath.split("/").some((segment) => !segment || segment === "." || segment === "..")
-        || /['"\r\n]/u.test(normalizedManagerPath)
-    ) {
-        throw new Error(`Machine uninstall launcher 的 Manager 路径必须是安全的相对路径：${managerRelativePath}`);
-    }
+    const normalizedManagerPath = machineLauncherRelativePath(managerRelativePath, "Manager");
+    const normalizedRuntimePath = machineLauncherRelativePath(managerRuntimeRelativePath, "Manager Runtime");
     const managerWindowsPath = normalizedManagerPath.replaceAll("/", "\\");
+    const runtimeWindowsPath = normalizedRuntimePath.replaceAll("/", "\\");
     const launcherRoot = join(managerDesktopUninstallRoot(), installationId);
     await ensureDirectory(launcherRoot);
     const launcher = join(launcherRoot, "uninstall.ps1");
@@ -787,7 +949,7 @@ export async function writeMachineUninstallLauncher(
 )
 $ErrorActionPreference = "Stop"
 $manager = Join-Path $Root "${managerWindowsPath}"
-$bun = Join-Path $Root "runtime\bun.exe"
+$bun = Join-Path $Root "${runtimeWindowsPath}"
 if (-not (Test-Path -LiteralPath $manager) -or -not (Test-Path -LiteralPath $bun)) {
     throw "NeuroBook installation is incomplete."
 }
@@ -849,6 +1011,20 @@ Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoLogo", "-NoProfile"
     return launcher;
 }
 
+function machineLauncherRelativePath(path: string, label: string): string {
+    const normalized = path.replaceAll("\\", "/");
+    if (
+        !normalized
+        || normalized.startsWith("/")
+        || /^[A-Za-z]:/u.test(normalized)
+        || normalized.split("/").some((segment) => !segment || segment === "." || segment === "..")
+        || /['"\r\n]/u.test(normalized)
+    ) {
+        throw new Error(`Machine uninstall launcher 的 ${label} 路径必须是安全的相对路径：${path}`);
+    }
+    return normalized;
+}
+
 async function createDesktopInstallationProviders(
     options: DesktopLocalDepot,
     applicationManifest: InstallationManifest,
@@ -867,44 +1043,110 @@ async function createDesktopInstallationProviders(
         ? await resolveSystemProvider("bun", "Product Bun")
         : managedManagerRuntime;
     const tools = applicationManifest.components.tools;
-    if (options.toolProvider === "system") {
-        const rg = await resolveSystemProvider("rg", "ripgrep");
-        const git = await resolveSystemProvider("git", "Git");
-        const bash = await resolveSystemProvider("bash", "Git Bash");
-        return {
-            managerRuntime: managedManagerRuntime,
-            applicationRuntime,
-            tools: {
-                rg,
-                git: {...git, bashExecutable: bash.executable},
-            },
-        };
-    }
-    if (!tools.rg || tools.rg.provider !== "managed") {
-        throw new Error("Desktop Portable 缺少 managed ripgrep，不能按 managed Tool provider 安装。" );
-    }
-    if (!tools.git || tools.git.provider !== "managed") {
-        throw new Error("Desktop Portable 缺少 managed PortableGit，不能按 managed Tool provider 安装。" );
-    }
+    const rg = options.rgProvider === "system"
+        ? await resolveSystemProvider("rg", "ripgrep")
+        : managedRipgrep(tools);
+    const git = options.gitProvider === "system"
+        ? await systemGitProvider()
+        : managedGit(tools);
     return {
         managerRuntime: managedManagerRuntime,
         applicationRuntime,
-        tools: {
-            rg: {
-                provider: "managed",
-                version: tools.rg.version,
-                path: tools.rg.path,
-                sha256: `sha256:${tools.rg.executableSha256}`,
-            },
-            git: {
-                provider: "managed",
-                version: tools.git.version,
-                path: tools.git.path,
-                sha256: `sha256:${tools.git.gitSha256}`,
-                bashPath: tools.git.bashPath,
-            },
-        },
+        tools: {rg, git},
     };
+}
+
+/**
+ * Repair 重新建立 Envelope 启动所需的 locator、Manager wrappers 与 Windows 注册。
+ *
+ * Desktop manifest 仍是安装身份真值；它缺失或与 canonical root 不一致时拒绝猜测。
+ */
+export async function repairDesktopRuntimeState(
+    installationRootInput: string,
+    applicationManifest: InstallationManifest,
+): Promise<InstallationManifest> {
+    assertWindowsDesktopHost();
+    const installationRoot = resolve(installationRootInput);
+    const desktopManifest = await readDesktopInstallationManifest(installationRoot, applicationManifest.roots);
+    if (!desktopManifest) {
+        throw new Error("Desktop repair 缺少 nbook.desktop-installation/v3 manifest，不能重建运行 locator。");
+    }
+    const expectedRoot = resolve(defaultDesktopInstallationRoot(desktopManifest.installationScope));
+    if (installationRoot.toLowerCase() !== expectedRoot.toLowerCase()) {
+        throw new Error("Desktop repair 的 Installation Root 与 manifest scope 不一致。");
+    }
+    const managerRuntime = applicationManifest.components.managerRuntime;
+    const desktopManagerRuntime = desktopManifest.providers.managerRuntime;
+    if (managerRuntime.provider !== "managed"
+        || desktopManagerRuntime.provider !== "managed"
+        || managerRuntime.path !== desktopManagerRuntime.path
+        || managerRuntime.executableSha256 !== desktopManagerRuntime.sha256.slice("sha256:".length)) {
+        throw new Error("Desktop repair 的 managed Manager Runtime 与 Installation Manifest v3 不一致。");
+    }
+    const projectedManifest: InstallationManifest = {
+        ...applicationManifest,
+        components: projectInstalledApplicationComponents(
+            applicationManifest.components,
+            desktopManifest.providers,
+        ),
+    };
+    parseInstallationManifest(projectedManifest);
+    if (JSON.stringify(projectedManifest.components) !== JSON.stringify(applicationManifest.components)) {
+        projectedManifest.updatedAt = new Date().toISOString();
+        await writeInstallationManifest(
+            join(installationRoot, ".deploy", "installation.json"),
+            projectedManifest,
+        );
+    }
+    await writeDesktopRuntimeConfig(installationRoot);
+    await writeManagerWrappers(installationRoot, projectedManifest);
+    let uninstallLauncher: string | undefined;
+    if (desktopManifest.installationScope === "machine") {
+        uninstallLauncher = await writeMachineUninstallLauncher(
+            installationRoot,
+            desktopManifest.installationId,
+            projectedManifest.components.manager.path,
+            managerRuntime.path,
+        );
+    }
+    await registerWindowsDesktop(
+        installationRoot,
+        desktopManifest,
+        desktopManifest.addCliToUserPath,
+        uninstallLauncher,
+    );
+    return projectedManifest;
+}
+
+function managedRipgrep(tools: InstallationComponents["tools"]): DesktopToolProviderLocator {
+    if (!tools.rg || tools.rg.provider !== "managed") {
+        throw new Error("Desktop Portable 缺少 managed ripgrep，不能按 managed rg provider 安装。" );
+    }
+    return {
+        provider: "managed",
+        version: tools.rg.version,
+        path: tools.rg.path,
+        sha256: `sha256:${tools.rg.executableSha256}`,
+    };
+}
+
+function managedGit(tools: InstallationComponents["tools"]): DesktopInstallationProviders["tools"]["git"] {
+    if (!tools.git || tools.git.provider !== "managed") {
+        throw new Error("Desktop Portable 缺少 managed PortableGit，不能按 managed Git provider 安装。" );
+    }
+    return {
+        provider: "managed",
+        version: tools.git.version,
+        path: tools.git.path,
+        sha256: `sha256:${tools.git.gitSha256}`,
+        bashPath: tools.git.bashPath,
+    };
+}
+
+async function systemGitProvider(): Promise<DesktopInstallationProviders["tools"]["git"]> {
+    const git = await resolveSystemProvider("git", "Git");
+    const bash = await resolveSystemProvider("bash", "Git Bash");
+    return {...git, bashExecutable: bash.executable};
 }
 
 async function resolveSystemProvider(
@@ -922,7 +1164,30 @@ async function resolveSystemProvider(
     }
     const version = result.stdout.split(/\r?\n/u)[0]?.trim();
     if (!version) throw new Error(`${label} 未返回版本信息。`);
+    validateSystemProviderVersion(command, version, label);
     return {provider: "system", version, executable: command};
+}
+
+function validateSystemProviderVersion(command: string, version: string, label: string): void {
+    if (command === "bun") {
+        const match = version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/u);
+        if (!match) throw new Error(`${label} 返回的版本格式无效：${version}`);
+        const current = match.slice(1, 4).map(Number);
+        const minimum = [1, 3, 0];
+        const supported = current.some((part, index) =>
+            part > minimum[index]!
+            && current.slice(0, index).every((prefix, prefixIndex) => prefix === minimum[prefixIndex]))
+            || current.every((part, index) => part === minimum[index]);
+        if (!supported) throw new Error(`${label} 版本过低：${version}；至少需要 1.3.0。`);
+        return;
+    }
+    const patterns: Record<string, RegExp> = {
+        git: /^git version \d+\.\d+(?:\.\d+)?(?:[.\w-]*)?$/u,
+        bash: /^GNU bash, version \d+\.\d+(?:\.\d+)?(?:[^\r\n]*)$/u,
+        rg: /^ripgrep \d+\.\d+(?:\.\d+)?(?:[^\r\n]*)$/u,
+    };
+    const pattern = patterns[command];
+    if (!pattern?.test(version)) throw new Error(`${label} 返回的版本格式无效：${version}`);
 }
 
 type DesktopInstallRoots = {
@@ -932,42 +1197,72 @@ type DesktopInstallRoots = {
     webview: string;
 };
 
-async function assertFreshDesktopRoots(roots: DesktopInstallRoots): Promise<void> {
+async function assertFreshDesktopRoots(roots: DesktopInstallRoots): Promise<Set<string>> {
     const existing = [];
+    const reusable = new Set<string>();
     for (const [name, path] of Object.entries(roots)) {
         if (!await pathExists(path)) continue;
-        if (name === "state" && await isReusableStateRoot(path)) continue;
+        if (name === "state" && await isReusableStateRoot(path)) {
+            reusable.add(desktopRootKey(path));
+            continue;
+        }
         existing.push(`${name}=${path}`);
     }
     if (existing.length > 0) {
         throw new Error(`Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖：${existing.join(", ")}`);
     }
-}
-
-async function isEmptyDirectory(path: string): Promise<boolean> {
-    const info = await lstat(path).catch(() => null);
-    if (!info?.isDirectory() || info.isSymbolicLink()) return false;
-    return (await readdir(path)).length === 0;
+    return reusable;
 }
 
 async function isReusableStateRoot(path: string): Promise<boolean> {
-    if (await isEmptyDirectory(path)) return true;
+    const root = await lstat(path).catch(() => null);
+    if (!root?.isDirectory() || root.isSymbolicLink()) return false;
+    if ((await readdir(path)).length === 0) return true;
     const marker = await lstat(join(path, "config.yaml")).catch(() => null);
-    // config.yaml is the durable Boot Config written by Manager on first install.
-    // Its presence proves ownership without allowing an arbitrary leftover folder
-    // to be silently adopted; all other State Root contents remain untouched.
-    return Boolean(marker?.isFile() && !marker.isSymbolicLink());
+    if (!marker?.isFile() || marker.isSymbolicLink()) return false;
+    try {
+        const config = parseBootConfigText(await readFile(join(path, "config.yaml"), "utf8"));
+        return ["auth", "server", "database"].some((key) => Object.hasOwn(config, key));
+    } catch {
+        return false;
+    }
 }
 
-async function ensureTrackedDirectory(path: string, createdRoots: string[]): Promise<void> {
-    if (await pathExists(path)) return;
-    await ensureDirectory(path);
+async function ensureTrackedDirectory(
+    path: string,
+    createdRoots: string[],
+    preexistingRoots: Set<string>,
+): Promise<void> {
+    if (preexistingRoots.has(desktopRootKey(path))) {
+        if (!await isReusableStateRoot(path)) {
+            throw new Error(`Desktop State Root 在安装事务期间发生变化；拒绝继续：${path}`);
+        }
+        return;
+    }
+    await ensureDirectory(dirname(path));
+    try {
+        await mkdir(path);
+    } catch (error) {
+        if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "EEXIST") {
+            throw new Error(`Desktop 用户 Root 在安装事务期间被其它进程创建；拒绝接管：${path}`);
+        }
+        throw error;
+    }
     createdRoots.push(path);
 }
 
-async function removeCreatedDesktopRoots(createdRoots: string[]): Promise<void> {
+function desktopRootKey(path: string): string {
+    const normalized = resolve(path);
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+async function removeCreatedDesktopRoots(
+    createdRoots: string[],
+    rollbackErrors?: unknown[],
+): Promise<void> {
     for (const path of [...createdRoots].reverse()) {
-        await rm(path, {recursive: true, force: true}).catch(() => undefined);
+        await rm(path, {recursive: true, force: true})
+            .catch((error) => rollbackErrors?.push(error));
     }
 }
 
@@ -982,6 +1277,27 @@ export function defaultDesktopInstallationRoot(scope: "user" | "machine" = "user
     }
     const localAppData = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
     return join(localAppData, DEFAULT_INSTALLATION_ROOT);
+}
+
+/**
+ * user 与 machine 安装共享同一 State/Cache/Desktop Root，不能并存两个程序根。
+ *
+ * 发现另一 scope 的有效或残留程序目录时交给 Repair/Uninstall 处理，不依据内容猜测
+ * 或静默接管；非 canonical 测试/Portable 根不参与该 Installed-only 约束。
+ */
+async function assertNoConflictingCanonicalDesktopRoot(installationRoot: string): Promise<void> {
+    const target = desktopRootKey(installationRoot);
+    const userRoot = defaultDesktopInstallationRoot("user");
+    const machineRoot = defaultDesktopInstallationRoot("machine");
+    const canonical = [userRoot, machineRoot].map(desktopRootKey);
+    if (!canonical.includes(target)) return;
+    const conflicting = target === desktopRootKey(userRoot) ? machineRoot : userRoot;
+    if (await pathExists(conflicting)) {
+        throw new Error(
+            `检测到另一安装范围的 NeuroBook 程序根：${conflicting}。`
+            + "user 与 machine 安装共享用户数据，不能并存；请先通过 Manager Repair 或卸载处理现有安装。",
+        );
+    }
 }
 
 function desktopUserRoots(roots: InstallationManifest["roots"]): {
@@ -1026,64 +1342,122 @@ function managerDesktopCacheRoot(): string {
     return join(localAppData, "NeuroBook", "manager", "desktop");
 }
 
+type ResolvedDesktopDepotArchive = {
+    archivePath: string;
+    cleanup: () => Promise<void>;
+};
+
 /** 从本地 distribution manifest 解析并校验所选 Envelope 的 ZIP。 */
 async function resolveDepotArchive(
     options: DesktopLocalDepot,
     componentId: "electron-envelope" | "tauri-envelope",
-): Promise<string> {
-    if (!options.distributionManifestPath && !options.distributionManifestUrl) {
+): Promise<ResolvedDesktopDepotArchive> {
+    const aggregate = options.aggregateDepotPath
+        ? await materializeDesktopAggregateDepot(options.aggregateDepotPath)
+        : undefined;
+    const cleanup = async (): Promise<void> => {
+        if (!aggregate) return;
+        await rm(aggregate.root, {recursive: true, force: true}).catch((error) => {
+            console.warn(`Desktop aggregate Depot 临时展开目录未能清理：${aggregate.root}\n${error instanceof Error ? error.message : String(error)}`);
+        });
+    };
+    if (!aggregate && !options.distributionManifestPath && !options.distributionManifestUrl) {
         const archivePath = options.archivePath ?? options.shellArchivePath;
         if (!archivePath) throw new Error("Desktop depot 缺少 archive 路径。" );
-        return resolve(archivePath);
+        return {archivePath: resolve(archivePath), cleanup};
     }
-    const manifestPath = options.distributionManifestPath
-        ? resolve(options.distributionManifestPath)
-        : await downloadDistributionManifest(options.distributionManifestUrl!);
-    const manifestInfo = await lstat(manifestPath).catch(() => null);
-    if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) {
-        throw new Error(`Desktop distribution manifest 不存在或不是普通文件：${manifestPath}`);
-    }
-    const manifest: DesktopDistributionManifest = parseDesktopDistributionManifest(await readJson(manifestPath));
-    if (manifest.platform !== "windows" || manifest.architecture !== "x64") {
-        throw new Error("Desktop distribution manifest 只支持 Windows x64 本地 depot。" );
-    }
-    if (manifest.channel !== options.channel) {
-        throw new Error(`Desktop distribution manifest 通道为 ${manifest.channel}，命令选择为 ${options.channel}。`);
-    }
-    const component = manifest.components.find((item) => item.id === componentId);
-    if (!component) throw new Error(`Desktop distribution manifest 缺少 ${componentId} 组件。`);
-    if (component.archive.format !== "zip") {
-        throw new Error("Desktop distribution 当前只支持 ZIP 组件。" );
-    }
-    if (component.archive.kind === "url") {
-        if (!component.archive.location.startsWith("https://")) {
-            throw new Error("在线 Desktop distribution 的组件 URL 必须使用 HTTPS。" );
+    try {
+        const manifestPath = aggregate?.manifestPath ?? (options.distributionManifestPath
+            ? resolve(options.distributionManifestPath)
+            : await downloadDistributionManifest(options.distributionManifestUrl!));
+        const manifestInfo = await lstat(manifestPath).catch(() => null);
+        if (!manifestInfo?.isFile() || manifestInfo.isSymbolicLink()) {
+            throw new Error(`Desktop distribution manifest 不存在或不是普通文件：${manifestPath}`);
         }
-        const digest = component.archive.sha256.slice("sha256:".length);
-        const archivePath = join(managerDesktopCacheRoot(), "downloads", `${digest}.zip`);
-        const cached = await lstat(archivePath).catch(() => null);
-        if (!cached?.isFile() || cached.isSymbolicLink() || cached.size !== component.archive.bytes) {
-            await downloadVerified(component.archive.location, archivePath, digest);
+        const manifest: DesktopDistributionManifest = parseDesktopDistributionManifest(await readJson(manifestPath));
+        if (manifest.platform !== "windows" || manifest.architecture !== "x64") {
+            throw new Error("Desktop distribution manifest 只支持 Windows x64 本地 depot。" );
         }
-        const info = await lstat(archivePath);
-        if (!info.isFile() || info.isSymbolicLink() || info.size !== component.archive.bytes) {
-            throw new Error(`Desktop distribution 下载结果字节数不匹配：${archivePath}`);
+        if (manifest.channel !== options.channel) {
+            throw new Error(`Desktop distribution manifest 通道为 ${manifest.channel}，命令选择为 ${options.channel}。`);
         }
-        return archivePath;
+        const component = manifest.components.find((item) => item.id === componentId);
+        if (!component) throw new Error(`Desktop distribution manifest 缺少 ${componentId} 组件。`);
+        if (component.archive.format !== "zip") {
+            throw new Error("Desktop distribution 当前只支持 ZIP 组件。" );
+        }
+        if (component.archive.kind === "url") {
+            if (!component.archive.location.startsWith("https://")) {
+                throw new Error("在线 Desktop distribution 的组件 URL 必须使用 HTTPS。" );
+            }
+            const digest = component.archive.sha256.slice("sha256:".length);
+            const archivePath = join(managerDesktopCacheRoot(), "downloads", `${digest}.zip`);
+            const cached = await lstat(archivePath).catch(() => null);
+            const cachedDigest = cached?.isFile() && !cached.isSymbolicLink() && cached.size === component.archive.bytes
+                ? await sha256File(archivePath)
+                : null;
+            if (cachedDigest?.toLowerCase() !== digest.toLowerCase()) {
+                await downloadVerified(component.archive.location, archivePath, digest);
+            }
+            const info = await lstat(archivePath);
+            if (!info.isFile() || info.isSymbolicLink() || info.size !== component.archive.bytes) {
+                throw new Error(`Desktop distribution 下载结果字节数不匹配：${archivePath}`);
+            }
+            if ((await sha256File(archivePath)).toLowerCase() !== digest.toLowerCase()) {
+                throw new Error(`Desktop distribution 下载结果 checksum 不匹配：${archivePath}`);
+            }
+            return {archivePath, cleanup};
+        }
+        const depotRoot = dirname(manifestPath);
+        const archivePath = resolve(depotRoot, component.archive.location);
+        const escaped = relative(depotRoot, archivePath);
+        if (!escaped || escaped === ".." || escaped.startsWith(`..${sep}`) || isAbsolute(escaped)) {
+            throw new Error("Desktop distribution archive 路径越出 manifest 根目录。" );
+        }
+        const info = await lstat(archivePath).catch(() => null);
+        if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Desktop distribution archive 不存在或不是普通文件：${archivePath}`);
+        if (info.size !== component.archive.bytes) throw new Error(`Desktop distribution archive 字节数不匹配：${archivePath}`);
+        if (`sha256:${await sha256File(archivePath)}` !== component.archive.sha256) {
+            throw new Error(`Desktop distribution archive checksum 不匹配：${archivePath}`);
+        }
+        return {archivePath, cleanup};
+    } catch (error) {
+        await cleanup();
+        throw error;
     }
-    const depotRoot = dirname(manifestPath);
-    const archivePath = resolve(depotRoot, component.archive.location);
-    const escaped = relative(depotRoot, archivePath);
-    if (!escaped || escaped === ".." || escaped.startsWith(`..${sep}`) || isAbsolute(escaped)) {
-        throw new Error("Desktop distribution archive 路径越出 manifest 根目录。" );
+}
+
+/**
+ * 验证并展开 Electron 聚合 Depot。
+ *
+ * ZIP 与邻接 sidecar 在解压前先核对摘要；解压结果只允许共享合同登记的五个普通文件。
+ * 本地用户已持有原始 Depot，嵌套 Portable 只做本次事务的短期展开；成功或失败后
+ * 都删除，避免每次安装额外遗留一份约 390 MiB 的长期缓存。
+ */
+async function materializeDesktopAggregateDepot(
+    archiveInput: string,
+): Promise<{manifestPath: string; root: string}> {
+    const archivePath = resolve(archiveInput);
+    if (basename(archivePath) !== DESKTOP_AGGREGATE_DEPOT_ARCHIVE) {
+        throw new Error(`Desktop aggregate Depot 文件名必须为 ${DESKTOP_AGGREGATE_DEPOT_ARCHIVE}。`);
     }
-    const info = await lstat(archivePath).catch(() => null);
-    if (!info?.isFile() || info.isSymbolicLink()) throw new Error(`Desktop distribution archive 不存在或不是普通文件：${archivePath}`);
-    if (info.size !== component.archive.bytes) throw new Error(`Desktop distribution archive 字节数不匹配：${archivePath}`);
-    if (`sha256:${await sha256File(archivePath)}` !== component.archive.sha256) {
-        throw new Error(`Desktop distribution archive checksum 不匹配：${archivePath}`);
+    const manifestPath = join(dirname(archivePath), DESKTOP_AGGREGATE_DEPOT_MANIFEST);
+    const manifest = await verifyDesktopAggregateDepotArchive({archivePath, manifestPath});
+    const digest = manifest.archive.sha256.slice("sha256:".length);
+    const cacheParent = join(managerDesktopCacheRoot(), "depots");
+    await ensureDirectory(cacheParent);
+    const staging = await mkdtemp(join(cacheParent, `.aggregate-${digest}-`));
+    try {
+        await extractZip(archivePath, staging);
+        await verifyDesktopAggregateDepot({stagingRoot: staging, archivePath, manifestPath});
+        return {
+            manifestPath: join(staging, DESKTOP_AGGREGATE_DEPOT_DISTRIBUTION_MANIFEST),
+            root: staging,
+        };
+    } catch (error) {
+        await rm(staging, {recursive: true, force: true});
+        throw error;
     }
-    return archivePath;
 }
 
 function managerDesktopUninstallRoot(): string {

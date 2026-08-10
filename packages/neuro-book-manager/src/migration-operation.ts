@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {createServer} from "node:net";
 import {join} from "node:path";
 import {
     applyApplicationStateMigration,
@@ -32,6 +33,12 @@ import type {InstallationManifest, OperationJournal} from "#manager/types";
 export type ApplicationServiceState =
     | {kind: "native"}
     | {kind: "container"; inspection: DockerApplicationInspection};
+
+export type InstallationApplicationPreparation = {
+    port: number;
+    migration: "checked";
+    health: "ready";
+};
 
 /**
  * 在当前 installation operation 中执行 Product-owned Application State migration。
@@ -368,4 +375,48 @@ export async function startInstallationApplication(
         options.shutdownSignal?.removeEventListener("abort", shutdownOnHost);
     }
     assertProductExit(result, "NeuroBook 服务退出");
+}
+
+/**
+ * 安装完成回执发出前，对已提交的 Product 执行正式 migration plan 与一次健康启动。
+ *
+ * 复用前台启动的 Journal、migration、HTTP ready 和 graceful shutdown 合同；调用方
+ * 不得在 Electron/GUI 中复制这些步骤。动态端口只用于本次候选，不作为监听所有权。
+ */
+export async function prepareInstalledApplication(root: string): Promise<InstallationApplicationPreparation> {
+    const port = await selectLoopbackPort();
+    const shutdown = new AbortController();
+    let ready = false;
+    await startInstallationApplication(root, {
+        healthCheck: true,
+        openBrowser: false,
+        productStdout: "ignore",
+        port,
+        startupNonce: randomUUID(),
+        shutdownSignal: shutdown.signal,
+        onReady: async () => {
+            ready = true;
+            shutdown.abort();
+        },
+    });
+    if (!ready) throw new Error("安装健康检查未观察到 Product ready。");
+    return {port, migration: "checked", health: "ready"};
+}
+
+/** 选择一个临时可用的 IPv4 loopback 端口；Product 的 nonce/ready 仍负责拒绝串线。 */
+async function selectLoopbackPort(): Promise<number> {
+    return await new Promise<number>((resolvePromise, rejectPromise) => {
+        const probe = createServer();
+        probe.once("error", rejectPromise);
+        probe.listen({host: "127.0.0.1", port: 0}, () => {
+            const address = probe.address();
+            if (!address || typeof address === "string") {
+                probe.close();
+                rejectPromise(new Error("Manager 无法读取安装健康检查的动态 loopback 端口。"));
+                return;
+            }
+            const port = address.port;
+            probe.close((error) => error ? rejectPromise(error) : resolvePromise(port));
+        });
+    });
 }

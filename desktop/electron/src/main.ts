@@ -48,7 +48,7 @@ type DesktopConfig = {
     cacheRoot: string;
     desktopRoot: string;
     manager: string;
-    bun: string;
+    managerBun: string;
     privatePathEntries: string[];
     port: number;
     remoteUrl: string | null;
@@ -141,7 +141,7 @@ function readConfig(): DesktopConfig {
             cacheRoot: resolve(required("NBOOK_DESKTOP_DEV_CACHE_ROOT")),
             desktopRoot: resolve(required("NBOOK_DESKTOP_DEV_DESKTOP_ROOT")),
             manager: resolve(required("NBOOK_DESKTOP_DEV_MANAGER")),
-            bun: required("NBOOK_DESKTOP_DEV_BUN_EXECUTABLE"),
+            managerBun: required("NBOOK_DESKTOP_DEV_BUN_EXECUTABLE"),
             privatePathEntries: [],
             port,
             remoteUrl: process.env.NBOOK_DESKTOP_DEV_REMOTE_URL?.trim() || null,
@@ -159,7 +159,7 @@ function readConfig(): DesktopConfig {
         cacheRoot: runtimeRoots.cache,
         desktopRoot: runtimeRoots.desktop,
         manager: join(portableRoot, "manager", "neuro-book.mjs"),
-        bun: resolveApplicationRuntime(portableRoot, runtimeRoots.desktop),
+        managerBun: resolveManagerRuntime(portableRoot, runtimeRoots.desktop),
         privatePathEntries,
         port: 0,
         remoteUrl: readRemoteUrl(runtimeRoots.desktop),
@@ -240,18 +240,21 @@ function startupFallbackConfig(): DesktopConfig {
         cacheRoot: join(localAppData, "NeuroBook", "cache"),
         desktopRoot: join(localAppData, "NeuroBook", "desktop"),
         manager: join(portableRoot, "manager", "neuro-book.mjs"),
-        bun: join(portableRoot, "runtime", process.platform === "win32" ? "bun.exe" : "bun"),
+        managerBun: join(portableRoot, "runtime", process.platform === "win32" ? "bun.exe" : "bun"),
         privatePathEntries: [],
         port: 0,
         remoteUrl: null,
     };
 }
 
-function resolveApplicationRuntime(root: string, desktopRoot: string): string {
+function resolveManagerRuntime(root: string, desktopRoot: string): string {
     const manifestPath = join(desktopRoot, "desktop-installation.json");
     if (!existsSync(manifestPath)) return join(root, "runtime", "bun.exe");
     const manifest = parseDesktopInstallationManifest(JSON.parse(readFileSync(manifestPath, "utf8")) as unknown);
-    const runtime = manifest.providers.applicationRuntime;
+    const runtime = manifest.providers.managerRuntime;
+    if (manifest.connection.mode === "local" && runtime.provider !== "managed") {
+        throw new Error("Desktop Local 的 Manager Runtime 必须由安装包托管，请通过 Manager Repair 修复。");
+    }
     return runtime.provider === "managed" ? join(root, ...runtime.path.split(/[\\/]/u)) : runtime.executable;
 }
 
@@ -399,7 +402,7 @@ async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     const startupNonce = randomBytes(32).toString("base64url");
     const requestId = randomBytes(16).toString("hex");
     const lease = spawnOwnedProcess({
-        command: runtimeConfig.bun,
+        command: runtimeConfig.managerBun,
         args: [...PRODUCT_BUN_RUNTIME_ARGS, managerExecutable, "--root", runtimeConfig.applicationRoot, "desktop", "supervise"],
         cwd: runtimeConfig.applicationRoot,
         env: productEnvironment(runtimeConfig),
@@ -569,7 +572,7 @@ async function repairProduct(config: DesktopConfig): Promise<void> {
     setStartupStage("正在修复 Product 回执...");
     const requestId = randomBytes(16).toString("hex");
     const lease = spawnOwnedProcess({
-        command: config.bun,
+        command: config.managerBun,
         args: [...PRODUCT_BUN_RUNTIME_ARGS, config.manager, "--root", config.applicationRoot, "desktop", "supervise"],
         cwd: config.applicationRoot,
         env: productEnvironment(config),

@@ -1,4 +1,4 @@
-import {app, BrowserWindow, dialog, ipcMain} from "electron";
+import {app, BrowserWindow, dialog, ipcMain, shell} from "electron";
 import {spawn} from "node:child_process";
 import {createHash, randomBytes, randomUUID} from "node:crypto";
 import {existsSync, readFileSync} from "node:fs";
@@ -7,6 +7,7 @@ import {isAbsolute, join, relative, resolve} from "node:path";
 import {homedir} from "node:os";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {createInterface} from "node:readline";
+import {spawnOwnedProcess} from "@notnotype/owned-process";
 
 import {
     DESKTOP_UAC_BROKER_SCHEMA,
@@ -18,16 +19,25 @@ import {
 } from "nbook/shared/desktop-uac-broker";
 import {parseDesktopInstallationManifest} from "nbook/shared/desktop-contract";
 import {materializeMachineManagerScript} from "nbook/desktop/shared/src/manager-runtime";
+import {
+    parseDesktopDelegatedUninstallReceipt,
+    waitForWindowsUninstallHostResult,
+    type DesktopDelegatedUninstallReceipt,
+} from "nbook/desktop/shared/src/windows-uninstall-result";
 import type {
+    ManagerCliInvocation,
+    ManagerGuiLocalSourceKind,
     ManagerGuiOperation,
-    ManagerGuiProviderInput,
+    ManagerGuiProviderTestResult,
+    ManagerOperationBinding,
+    ManagerRunResult,
 } from "./manager-operation";
-
-type ManagerRunResult = {
-    exitCode: number | null;
-    signal: string | null;
-    installationRoot?: string;
-};
+import {
+    createSensitiveOutputGuard,
+    managerInvocation,
+    validateManagerOperation,
+} from "./manager-operation";
+import type {SensitiveOutputGuard} from "./manager-operation";
 
 type ManagerLaunchReceipt = {
     installationRoot: string;
@@ -39,17 +49,7 @@ type ManagerLaunchReceipt = {
     executableSha256: string;
 };
 
-type ManagerCliInvocation = {
-    args: string[];
-    stdin?: string;
-};
-
-type ManagerBinding = {
-    installationId: string | null;
-    installationRoot: string;
-    manifestSha256: string | null;
-    deleteData: boolean;
-};
+type ManagerBinding = ManagerOperationBinding;
 
 let lastObservedInstallationRoot: string | null = null;
 let launchReceipt: ManagerLaunchReceipt | null = null;
@@ -98,28 +98,38 @@ export async function runManagerGui(): Promise<void> {
     });
     const managerPageUrl = pathToFileURL(resolve(import.meta.dirname, "manager.html")).href;
     installManagerNavigationGuards(window, managerPageUrl);
-    ipcMain.handle("manager:choose-depot", async (event) => {
-        assertManagerFrame(event, managerPageUrl);
+    ipcMain.handle("manager:choose-depot", async (event, sourceKind: ManagerGuiLocalSourceKind) => {
+        assertManagerFrame(event, window, managerPageUrl);
+        if (!["portable-archive", "aggregate-depot", "distribution-manifest"].includes(sourceKind)) {
+            throw new Error("Manager GUI 本地安装来源类型无效。");
+        }
         const result = await dialog.showOpenDialog(window, {
             title: "选择 NeuroBook Desktop Depot",
             properties: ["openFile"],
-            filters: [{name: "NeuroBook Depot", extensions: ["zip", "json"]}],
+            filters: sourceKind === "distribution-manifest"
+                ? [{name: "NeuroBook Distribution Manifest", extensions: ["json"]}]
+                : [{name: "NeuroBook Desktop Archive", extensions: ["zip"]}],
         });
         return result.canceled ? null : result.filePaths[0] ?? null;
     });
     ipcMain.handle("manager:state-root", (event) => {
-        assertManagerFrame(event, managerPageUrl);
+        assertManagerFrame(event, window, managerPageUrl);
         return join(localAppData, "NeuroBook", "data");
     });
+    ipcMain.handle("manager:open-logs", async (event) => {
+        assertManagerFrame(event, window, managerPageUrl);
+        const logsRoot = join(localAppData, "NeuroBook", "data", "logs");
+        return await shell.openPath(logsRoot);
+    });
     ipcMain.handle("manager:run", async (_event, input: ManagerGuiOperation) => {
-        assertManagerFrame(_event, managerPageUrl);
+        assertManagerFrame(_event, window, managerPageUrl);
         const operation = validateManagerOperation(input);
         if (operation.kind === "install") launchReceipt = null;
         const binding = await managerBindingForOperation(operation);
         const invocation = managerInvocation(operation, binding);
         const result = process.platform === "win32" && machineScopedAction(operation, binding)
             ? await runManagerCliElevated(bunPath, managerPath, invocation, binding, window)
-            : await runManagerCli(bunPath, managerPath, invocation, window);
+            : await runManagerCli(bunPath, managerPath, invocation, operation, binding, window);
         if (result.installationRoot) lastObservedInstallationRoot = result.installationRoot;
         if (operation.kind === "install" && result.exitCode === 0 && result.installationRoot) {
             launchReceipt = await createLaunchReceipt(result.installationRoot);
@@ -127,7 +137,7 @@ export async function runManagerGui(): Promise<void> {
         return result;
     });
     ipcMain.handle("manager:launch-installed", async (event) => {
-        assertManagerFrame(event, managerPageUrl);
+        assertManagerFrame(event, window, managerPageUrl);
         if (!launchReceipt) throw new Error("尚未得到可验证的安装完成回执。");
         const verified = await createLaunchReceipt(launchReceipt.installationRoot);
         if (verified.manifestSha256 !== launchReceipt.manifestSha256
@@ -145,7 +155,7 @@ export async function runManagerGui(): Promise<void> {
         }).unref();
     });
     ipcMain.on("manager:quit", (event) => {
-        assertManagerFrame(event, managerPageUrl);
+        assertManagerFrame(event, window, managerPageUrl);
         window.close();
     });
     await window.loadURL(managerPageUrl);
@@ -157,57 +167,107 @@ async function runManagerCli(
     bunPath: string,
     managerPath: string,
     input: ManagerCliInvocation,
+    operation: ManagerGuiOperation,
+    binding: ManagerBinding,
     window: BrowserWindow,
 ): Promise<ManagerRunResult> {
-    const child = spawn(bunPath, ["--no-install", managerPath, ...input.args], {
+    const lease = spawnOwnedProcess({
+        command: bunPath,
+        args: ["--no-install", managerPath, ...input.args],
         cwd: resolve(managerPath, "..", ".."),
         env: managerChildEnvironment(),
-        stdio: ["pipe", "pipe", "pipe"],
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
         windowsHide: true,
+        graceMs: 1_000,
+        hardKillWaitMs: 5_000,
     });
+    const stdin = lease.stdin;
+    if (!stdin) throw new Error("Manager GUI 无法打开 Manager CLI stdin。");
     if (input.stdin !== undefined) {
-        child.stdin.write(Buffer.from(input.stdin, "utf8"));
-        child.stdin.end();
+        stdin.write(Buffer.from(input.stdin, "utf8"));
+        stdin.end();
     } else {
-        child.stdin.end();
+        stdin.end();
     }
     let installationRoot: string | undefined;
+    let providerTest: ManagerGuiProviderTestResult | undefined;
+    const observed = {uninstallReceipt: null as DesktopDelegatedUninstallReceipt | null};
+    const outputGuard = createSensitiveOutputGuard(input.sensitiveValues ?? []);
     const emit = (value: unknown): void => {
         if (isManagerComplete(value) && value.installationRoot) {
             installationRoot = resolve(value.installationRoot);
         }
+        const parsedProviderTest = parseProviderTestEvent(value);
+        if (parsedProviderTest) providerTest = parsedProviderTest;
+        const uninstallReceipt = parseDesktopDelegatedUninstallReceipt(value);
+        if (uninstallReceipt) {
+            if (observed.uninstallReceipt) throw new Error("Manager CLI 返回重复的 uninstall 完成回执。");
+            observed.uninstallReceipt = uninstallReceipt;
+        }
         if (!window.isDestroyed()) window.webContents.send("manager:event", value);
     };
-    const stdoutDrain = child.stdout
-        ? consumeManagerOutput(child.stdout, "stdout", emit)
+    const stdoutDrain = lease.stdout
+        ? consumeManagerOutput(lease.stdout, "stdout", emit, outputGuard)
         : Promise.resolve();
-    const stderrDrain = child.stderr
-        ? consumeManagerOutput(child.stderr, "stderr", emit)
+    const stderrDrain = lease.stderr
+        ? consumeManagerOutput(lease.stderr, "stderr", emit, outputGuard)
         : Promise.resolve();
-    const result = await new Promise<ManagerRunResult>((resolvePromise, rejectPromise) => {
-        child.once("error", rejectPromise);
-        child.once("exit", (exitCode, signal) => resolvePromise({exitCode, signal}));
-    });
-    await Promise.all([stdoutDrain, stderrDrain]);
-    return {...result, ...(installationRoot ? {installationRoot} : {})};
+    const drains = [stdoutDrain, stderrDrain];
+    try {
+        const completion = await Promise.race([
+            lease.completion,
+            ...drains.map((drain) => drain.then(
+                () => new Promise<never>(() => undefined),
+                (error: unknown) => Promise.reject(error),
+            )),
+        ]);
+        await Promise.all(drains);
+        if (operation.kind === "uninstall" && completion.exitCode === 0 && completion.signal === null) {
+            const receipt = observed.uninstallReceipt;
+            if (!receipt) throw new Error("Manager CLI uninstall 缺少最终回执。");
+            if (receipt.status === "scheduled") {
+                await waitForWindowsUninstallHostResult(receipt.resultPath, binding.installationRoot);
+            }
+        }
+        return {
+            exitCode: completion.exitCode,
+            signal: completion.signal,
+            ...(installationRoot ? {installationRoot} : {}),
+            ...(providerTest ? {providerTest} : {}),
+        };
+    } catch (error) {
+        await lease.terminate("manager-output-failure").catch(() => undefined);
+        await lease.completion.catch(() => undefined);
+        await Promise.allSettled(drains);
+        throw error;
+    }
 }
 
 async function consumeManagerOutput(
     stream: NodeJS.ReadableStream,
     streamName: "stdout" | "stderr",
     emit: (value: unknown) => void,
+    outputGuard: SensitiveOutputGuard | null,
 ): Promise<void> {
     const reader = createInterface({input: stream, crlfDelay: Infinity});
     try {
         for await (const line of reader) {
             if (!line.trim()) continue;
+            outputGuard?.check(`${line}\n`);
             if (streamName === "stdout") {
+                let value: Record<string, unknown> | null = null;
                 try {
-                    const value = JSON.parse(line) as Record<string, unknown>;
-                    emit(value);
-                    continue;
+                    value = JSON.parse(line) as Record<string, unknown>;
                 } catch {
                     // Plain stdout is still forwarded as bounded diagnostic text.
+                }
+                if (value !== null) {
+                    // Parsed protocol events must fail closed. Validation or duplicate
+                    // receipt errors are not downgraded to ordinary log lines.
+                    emit(value);
+                    continue;
                 }
             }
             emit({kind: "log", stream: streamName, message: line.slice(0, 16 * 1024)});
@@ -636,115 +696,13 @@ function installManagerNavigationGuards(window: BrowserWindow, managerPageUrl: s
 
 function assertManagerFrame(
     event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
+    window: BrowserWindow,
     managerPageUrl: string,
 ): void {
-    if (event.senderFrame?.url !== managerPageUrl) {
+    if (event.sender !== window.webContents
+        || event.senderFrame !== window.webContents.mainFrame
+        || event.senderFrame.url !== managerPageUrl) {
         throw new Error("Manager GUI IPC 拒绝非本地向导页面请求。");
-    }
-}
-
-function validateManagerOperation(input: ManagerGuiOperation): ManagerGuiOperation {
-    if (!input || typeof input !== "object" || typeof input.kind !== "string") {
-        throw new Error("Manager GUI 操作无效。");
-    }
-    const value = input as ManagerGuiOperation;
-    switch (value.kind) {
-        case "install":
-            if ((value.scope !== "user" && value.scope !== "machine")
-                || (value.channel !== "stable" && value.channel !== "canary")
-                || (value.runtimeProvider !== "managed" && value.runtimeProvider !== "system")
-                || (value.toolProvider !== "managed" && value.toolProvider !== "system")
-                || (value.source.kind !== "path" && value.source.kind !== "https-manifest")
-                || typeof value.source.value !== "string"
-                || value.source.value.length === 0
-                || value.source.value.includes("\0")) {
-                throw new Error("Manager GUI 安装参数无效。");
-            }
-            if (value.source.kind === "https-manifest" && !value.source.value.startsWith("https://")) {
-                throw new Error("在线 Desktop manifest 必须使用 HTTPS。");
-            }
-            if (value.adminPassword !== undefined
-                && Buffer.byteLength(value.adminPassword, "utf8") > DESKTOP_UAC_MAX_SECRET_BYTES) {
-                throw new Error("管理员密码超过 4096 bytes。");
-            }
-            if (value.enableAuth && !value.adminPassword) {
-                throw new Error("启用 auth 时必须提供管理员密码。");
-            }
-            return value;
-        case "configure-provider":
-        case "test-provider":
-            validateProviderInput(value.provider);
-            return value;
-        case "status":
-        case "doctor":
-        case "repair":
-            return value;
-        case "uninstall":
-            if (typeof value.deleteData !== "boolean") throw new Error("卸载 deleteData 参数无效。");
-            return value;
-        default:
-            throw new Error("Manager GUI 操作不受支持。");
-    }
-}
-
-function validateProviderInput(provider: ManagerGuiProviderInput): void {
-    if (!provider || typeof provider !== "object"
-        || typeof provider.name !== "string"
-        || typeof provider.baseURL !== "string"
-        || typeof provider.api !== "string"
-        || typeof provider.apiKey !== "string"
-        || typeof provider.model !== "string"
-        || provider.apiKey.includes("\0")
-        || Buffer.byteLength(provider.apiKey, "utf8") > 16 * 1024) {
-        throw new Error("Manager GUI Provider 参数无效。");
-    }
-}
-
-function managerInvocation(operation: ManagerGuiOperation, binding: ManagerBinding): ManagerCliInvocation {
-    switch (operation.kind) {
-        case "install": {
-            const args = [
-                "desktop", "install",
-                operation.source.kind === "https-manifest"
-                    ? "--distribution-manifest-url"
-                    : operation.source.value.toLowerCase().endsWith(".json")
-                        ? "--distribution-manifest"
-                        : "--archive",
-                operation.source.value,
-                "--scope", operation.scope,
-                "--channel", operation.channel,
-                "--runtime-provider", operation.runtimeProvider,
-                "--tool-provider", operation.toolProvider,
-                "--envelope", "electron",
-                "--yes", "--json",
-            ];
-            if (operation.addCliToPath) args.push("--add-cli-to-path");
-            if (operation.enableAuth) args.push("--enable-auth", "--password-stdin");
-            return {
-                args,
-                ...(operation.adminPassword !== undefined ? {stdin: operation.adminPassword} : {}),
-            };
-        }
-        case "status":
-            return {args: ["status", "--json"]};
-        case "doctor":
-            return {args: ["doctor", "--json"]};
-        case "repair":
-            return {args: ["--root", binding.installationRoot, "desktop", "repair", "--json"]};
-        case "uninstall":
-            return {
-                args: ["--root", binding.installationRoot, "uninstall", "--yes", "--json", ...(operation.deleteData ? ["--delete-data"] : [])],
-            };
-        case "configure-provider":
-            return {
-                args: ["desktop", "configure-provider", "--stdin-json", "--json"],
-                stdin: JSON.stringify(operation.provider),
-            };
-        case "test-provider":
-            return {
-                args: ["desktop", "test-provider", "--stdin-json", "--json"],
-                stdin: JSON.stringify(operation.provider),
-            };
     }
 }
 
@@ -757,7 +715,33 @@ async function managerBindingForOperation(operation: ManagerGuiOperation): Promi
             deleteData: false,
         };
     }
-    if (operation.kind === "repair" || operation.kind === "uninstall") {
+    if (operation.kind === "test-provider") {
+        return {
+            installationId: null,
+            installationRoot: resolve(process.cwd()),
+            manifestSha256: null,
+            deleteData: false,
+        };
+    }
+    if (operation.kind === "configure-provider" && launchReceipt) {
+        const verified = await createLaunchReceipt(launchReceipt.installationRoot);
+        if (!sameLaunchReceipt(verified, launchReceipt)) {
+            launchReceipt = null;
+            throw new Error("Provider 配置前的安装回执复核失败，请重新执行安装或修复。");
+        }
+        launchReceipt = verified;
+        return {
+            installationId: verified.installationId,
+            installationRoot: verified.installationRoot,
+            manifestSha256: verified.manifestSha256,
+            deleteData: false,
+        };
+    }
+    if (operation.kind === "status"
+        || operation.kind === "doctor"
+        || operation.kind === "repair"
+        || operation.kind === "configure-provider"
+        || operation.kind === "uninstall") {
         const candidates = [
             lastObservedInstallationRoot,
             defaultInstallationRoot("machine"),
@@ -779,6 +763,37 @@ async function managerBindingForOperation(operation: ManagerGuiOperation): Promi
         installationRoot: resolve(process.cwd()),
         manifestSha256: null,
         deleteData: false,
+    };
+}
+
+function sameLaunchReceipt(left: ManagerLaunchReceipt, right: ManagerLaunchReceipt): boolean {
+    return sameWindowsPath(left.installationRoot, right.installationRoot)
+        && left.installationId === right.installationId
+        && left.installationScope === right.installationScope
+        && left.manifestSha256 === right.manifestSha256
+        && left.executableSha256 === right.executableSha256
+        && sameWindowsPath(left.executablePath, right.executablePath);
+}
+
+function parseProviderTestEvent(value: unknown): ManagerGuiProviderTestResult | null {
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (record.kind !== "provider-test"
+        || typeof record.ok !== "boolean"
+        || (record.status !== null && typeof record.status !== "number")
+        || (record.warning !== null && typeof record.warning !== "string")
+        || typeof record.discoverySupported !== "boolean"
+        || (record.models !== null
+            && (!Array.isArray(record.models)
+                || record.models.some((model) => typeof model !== "string")))) {
+        return null;
+    }
+    return {
+        ok: record.ok,
+        status: record.status as number | null,
+        warning: record.warning as string | null,
+        discoverySupported: record.discoverySupported,
+        models: record.models as string[] | null,
     };
 }
 

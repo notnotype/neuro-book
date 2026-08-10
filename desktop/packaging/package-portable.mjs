@@ -49,7 +49,7 @@ function parseArgs(argv) {
         values.set(key, value);
         index += 1;
     }
-    const required = ["--image", "--output-dir", "--electron-runtime", "--tauri-exe", "--manager", "--tool-pack"];
+    const required = ["--image", "--output-dir", "--electron-runtime", "--manager", "--tool-pack"];
     for (const key of required) {
         if (!values.has(key)) throw new Error(`缺少参数：${key}`);
     }
@@ -67,7 +67,6 @@ function parseArgs(argv) {
         outputDir: resolve(values.get("--output-dir")),
         shellOutputDir: values.has("--shell-output-dir") ? resolve(values.get("--shell-output-dir")) : null,
         electronRuntime: resolve(values.get("--electron-runtime")),
-        tauriExecutable: resolve(values.get("--tauri-exe")),
         managerExecutable: resolve(values.get("--manager")),
         toolPack: resolve(values.get("--tool-pack")),
         bunExecutable,
@@ -166,15 +165,13 @@ async function assertPortableText(root, sourceRoot) {
 }
 
 /** 读取 Bun 与 Electron 版本，写入脱敏 manifest。 */
-async function runtimeVersions(bunExecutable, electronPackage, tauriCargo) {
+async function runtimeVersions(bunExecutable, electronPackage) {
     const bun = (await execFileAsync(bunExecutable, ["--version"], {windowsHide: true})).stdout.trim();
     const electron = JSON.parse(await readFile(electronPackage, "utf8"));
-    const cargo = await readFile(tauriCargo, "utf8");
-    const tauriVersion = cargo.match(/^\s*version\s*=\s*"([^"]+)"/mu)?.[1];
-    if (!/^\d+\.\d+\.\d+$/u.test(bun) || typeof electron.version !== "string" || !tauriVersion) {
+    if (!/^\d+\.\d+\.\d+$/u.test(bun) || typeof electron.version !== "string") {
         throw new Error("无法读取 portable runtime 版本。");
     }
-    return {bun, electron: electron.version, tauri: tauriVersion};
+    return {bun, electron: electron.version};
 }
 
 /** 读取 Tool Pack 中的真实可执行文件位置与版本；不接受 shim 或缺失依赖。 */
@@ -246,8 +243,8 @@ async function copyElectronRuntime(sourceRoot, stageRoot) {
     await writeFile(join(targetRoot, "NeuroBook-Manager.cmd"), "@echo off\r\nstart \"\" \"%~dp0NeuroBook-Electron.exe\" --manager-gui %*\r\n", "utf8");
 }
 
-/** 建立一个没有用户内容的 Portable stage。 */
-async function createStage(kind, args, verified, versions, stageRoot) {
+/** 建立一个没有用户内容的 Electron Portable stage。 */
+async function createElectronStage(args, verified, versions, stageRoot) {
     await mkdir(stageRoot, {recursive: true});
     await copyTree(args.imageRoot, join(stageRoot, ".output"));
     await mkdir(join(stageRoot, "runtime"), {recursive: true});
@@ -256,11 +253,7 @@ async function createStage(kind, args, verified, versions, stageRoot) {
     await mkdir(join(stageRoot, "manager"), {recursive: true});
     await copyTree(args.toolPack, join(stageRoot, "tools"));
     await copyFile(args.managerExecutable, join(stageRoot, "manager", "neuro-book.mjs"));
-    if (kind === "electron") {
-        await copyElectronRuntime(args.electronRuntime, stageRoot);
-    } else {
-        await copyFile(args.tauriExecutable, join(stageRoot, "desktop", "NeuroBook-Tauri.exe"));
-    }
+    await copyElectronRuntime(args.electronRuntime, stageRoot);
 
     for (const path of [
         "data/.keep",
@@ -390,7 +383,7 @@ async function createStage(kind, args, verified, versions, stageRoot) {
     const identity = await payloadIdentity(stageRoot);
     const manifest = {
         schema: PORTABLE_SCHEMA,
-        kind,
+        kind: "electron",
         platform: "windows-x64",
         product: {
             imagePath: ".output",
@@ -404,9 +397,9 @@ async function createStage(kind, args, verified, versions, stageRoot) {
         runtime: {
             bunPath: "runtime/bun.exe",
             bunVersion: versions.bun,
-            envelopePath: kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe",
-            envelopeVersion: kind === "electron" ? versions.electron : versions.tauri,
-            envelopeSha256: `sha256:${await fileSha256(join(stageRoot, kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe"))}`,
+            envelopePath: "desktop/NeuroBook-Electron.exe",
+            envelopeVersion: versions.electron,
+            envelopeSha256: `sha256:${await fileSha256(join(stageRoot, "desktop/NeuroBook-Electron.exe"))}`,
         },
         toolPack: {
             files: toolIdentity.files,
@@ -420,9 +413,7 @@ async function createStage(kind, args, verified, versions, stageRoot) {
             desktop: "data/.desktop",
             webview: "data/.desktop/webview",
         },
-        webview: kind === "electron"
-            ? {kind: "bundled-chromium", webviewRoot: "data/.desktop/webview"}
-            : {kind: "system-evergreen", provider: "Microsoft WebView2 Evergreen", install: "not-included", webviewRoot: "data/.desktop/webview"},
+        webview: {kind: "bundled-chromium", webviewRoot: "data/.desktop/webview"},
         payload: identity,
     };
     await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
@@ -433,12 +424,12 @@ async function createStage(kind, args, verified, versions, stageRoot) {
     return {manifest, archiveEntries};
 }
 
-/** 生成两个 ZIP 以及不含本机路径的 manifest sidecar。 */
-async function buildPortable(kind, args, verified, versions, outputDir) {
-    const stageRoot = await mkdtemp(join(outputDir, `.stage-${kind}-`));
+/** 生成 Electron Portable ZIP 以及不含本机路径的 manifest sidecar。 */
+async function buildElectronPortable(args, verified, versions, outputDir) {
+    const stageRoot = await mkdtemp(join(outputDir, ".stage-electron-"));
     try {
-        const {manifest, archiveEntries} = await createStage(kind, args, verified, versions, stageRoot);
-        const baseName = `neuro-book-${kind}-portable-win-x64`;
+        const {manifest, archiveEntries} = await createElectronStage(args, verified, versions, stageRoot);
+        const baseName = "neuro-book-electron-portable-win-x64";
         const archive = join(outputDir, `${baseName}.zip`);
         await writeZipArchive(archive, archiveEntries, 2000);
         await writeFile(join(outputDir, `${baseName}.manifest.json`), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
@@ -449,23 +440,18 @@ async function buildPortable(kind, args, verified, versions, outputDir) {
 }
 
 /** 建立只含 Desktop Envelope 的远端 shell depot；Product/Bun/Manager/Tool Pack 均不进入。 */
-async function createShellStage(kind, args, versions, stageRoot) {
+async function createElectronShellStage(args, versions, stageRoot) {
     await mkdir(stageRoot, {recursive: true});
-    if (kind === "electron") {
-        await copyElectronRuntime(args.electronRuntime, stageRoot);
-    } else {
-        await mkdir(join(stageRoot, "desktop"), {recursive: true});
-        await copyFile(args.tauriExecutable, join(stageRoot, "desktop", "NeuroBook-Tauri.exe"));
-    }
-    const envelopePath = kind === "electron" ? "desktop/NeuroBook-Electron.exe" : "desktop/NeuroBook-Tauri.exe";
+    await copyElectronRuntime(args.electronRuntime, stageRoot);
+    const envelopePath = "desktop/NeuroBook-Electron.exe";
     const manifest = {
         schema: "nbook.desktop-shell/v1",
-        kind,
+        kind: "electron",
         platform: "windows-x64",
         envelopePath,
-        envelopeVersion: kind === "electron" ? versions.electron : versions.tauri,
+        envelopeVersion: versions.electron,
         envelopeSha256: `sha256:${await fileSha256(join(stageRoot, envelopePath))}`,
-        webview: kind === "electron" ? "bundled-chromium" : "system-evergreen",
+        webview: "bundled-chromium",
     };
     await writeFile(join(stageRoot, "manifest.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
     await freezeTimes(stageRoot);
@@ -475,11 +461,11 @@ async function createShellStage(kind, args, versions, stageRoot) {
 }
 
 /** 生成独立 shell ZIP 和 sidecar manifest。 */
-async function buildShell(kind, args, versions, outputDir) {
-    const stageRoot = await mkdtemp(join(outputDir, `.stage-${kind}-shell-`));
+async function buildElectronShell(args, versions, outputDir) {
+    const stageRoot = await mkdtemp(join(outputDir, ".stage-electron-shell-"));
     try {
-        const {manifest, archiveEntries} = await createShellStage(kind, args, versions, stageRoot);
-        const baseName = `neuro-book-${kind}-shell-win-x64`;
+        const {manifest, archiveEntries} = await createElectronShellStage(args, versions, stageRoot);
+        const baseName = "neuro-book-electron-shell-win-x64";
         const archive = join(outputDir, `${baseName}.zip`);
         await writeZipArchive(archive, archiveEntries, 2000);
         await writeFile(join(outputDir, `${baseName}.manifest.json`), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
@@ -518,7 +504,7 @@ async function writeDistributionManifest(outputDir, fileName, version, channel, 
     return manifest;
 }
 
-/** 将两个已完成的 Portable 与安装入口聚合为一个不展开大目录的本地 depot。 */
+/** 将 Electron Portable 与安装入口聚合为一个不展开大目录的本地 depot。 */
 async function buildAggregateDepot(outputDir, distribution) {
     const baseName = "neuro-book-desktop-depot-win-x64";
     const files = [...DESKTOP_AGGREGATE_DEPOT_ENTRIES];
@@ -573,18 +559,15 @@ async function main() {
     const versions = await runtimeVersions(
         args.bunExecutable,
         join(args.electronRuntime, "..", "package.json"),
-        resolve(dirname(args.tauriExecutable), "..", "..", "Cargo.toml"),
     );
-    const electron = await buildPortable("electron", args, verified, versions, args.outputDir);
-    const tauri = await buildPortable("tauri", args, verified, versions, args.outputDir);
+    const electron = await buildElectronPortable(args, verified, versions, args.outputDir);
     const distribution = await writeDistributionManifest(
         args.outputDir,
         "neuro-book-desktop-depot-win-x64.distribution.json",
         verified.manifest.version,
         args.channel,
         [
-            {id: "electron-envelope", componentVersion: electron.manifest.runtime.envelopeVersion, archive: electron.archive, required: false},
-            {id: "tauri-envelope", componentVersion: tauri.manifest.runtime.envelopeVersion, archive: tauri.archive, required: false},
+            {id: "electron-envelope", componentVersion: electron.manifest.runtime.envelopeVersion, archive: electron.archive, required: true},
         ],
     );
     const aggregate = await buildAggregateDepot(args.outputDir, distribution);
@@ -595,8 +578,7 @@ async function main() {
             throw new Error(`Shell 输出目录必须为空：${args.shellOutputDir}`);
         }
         shells = {
-            electron: await buildShell("electron", args, versions, args.shellOutputDir),
-            tauri: await buildShell("tauri", args, versions, args.shellOutputDir),
+            electron: await buildElectronShell(args, versions, args.shellOutputDir),
         };
         shells.distribution = await writeDistributionManifest(
             args.shellOutputDir,
@@ -604,8 +586,7 @@ async function main() {
             verified.manifest.version,
             args.channel,
             [
-                {id: "electron-envelope", componentVersion: shells.electron.manifest.envelopeVersion, archive: shells.electron.archive, required: false},
-                {id: "tauri-envelope", componentVersion: shells.tauri.manifest.envelopeVersion, archive: shells.tauri.archive, required: false},
+                {id: "electron-envelope", componentVersion: shells.electron.manifest.envelopeVersion, archive: shells.electron.archive, required: true},
             ],
         );
     }
@@ -613,7 +594,6 @@ async function main() {
         imageId: verified.manifest.imageId,
         bun: versions.bun,
         electron: electron.archive,
-        tauri: tauri.archive,
         distribution,
         aggregate,
         ...(shells ? {shells} : {}),

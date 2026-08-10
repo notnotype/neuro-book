@@ -1,7 +1,9 @@
 import {spawn} from "node:child_process";
+import {createHash} from "node:crypto";
 import {chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
+import {strToU8, zipSync} from "fflate";
 
 import {afterEach, beforeAll, describe, expect, it} from "vitest";
 
@@ -87,10 +89,18 @@ describe("Windows Stage 0合同", () => {
     it("透传本地 Desktop distribution manifest 并保持 depot 参数互斥", () => {
         expect(desktopWindowsScript).toContain("[string]$DistributionManifest");
         expect(desktopWindowsScript).toContain("--distribution-manifest");
-        expect(desktopWindowsScript).toContain("-Archive、-ShellArchive、-DistributionManifest 或 -DistributionManifestUrl 之一");
+        expect(desktopWindowsScript).toContain("-Archive、-Depot、-ShellArchive、-DistributionManifest 或 -DistributionManifestUrl 之一");
+        expect(desktopWindowsScript).toContain('"--depot", (Resolve-Path -LiteralPath $Depot).Path');
         expect(desktopWindowsScript).toContain('[ValidateSet("user", "machine")]');
         expect(desktopWindowsScript).toContain('"--scope", $Scope');
+        expect(desktopWindowsScript).toContain('"--git-provider", $GitProvider');
+        expect(desktopWindowsScript).toContain('"--rg-provider", $RgProvider');
+        expect(desktopWindowsScript).not.toContain("--tool-provider");
         expect(desktopWindowsScript).toContain("--enable-auth");
+        expect(desktopWindowsScript).toContain('[ValidateSet("electron")]');
+        expect(desktopWindowsScript).toContain("Initialize-NeuroBookOfflineBootstrap");
+        expect(desktopWindowsScript).toContain('$zip.GetEntry(".deploy/installation.json")');
+        expect(desktopWindowsScript).toContain("Manager/Bun checksum 不匹配");
     });
 
     it.runIf(process.platform === "win32")("PowerShell脚本语法有效", async () => {
@@ -103,6 +113,55 @@ describe("Windows Stage 0合同", () => {
         const command = `$tokens = $null; $errors = $null; [System.Management.Automation.Language.Parser]::ParseFile('${desktopWindowsScriptPath.replaceAll("'", "''")}', [ref]$tokens, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Out-String | Write-Error; exit 1 }`;
         const result = await spawnCommand(powershellCommand, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command], process.env);
         expect(result.code).toBe(0);
+    });
+
+    it.runIf(process.platform === "win32")("离线 Bootstrap 在执行本地 Manager 前拒绝缺失的 Bun 载荷", async () => {
+        const parent = resolve(".agent/tmp");
+        await mkdir(parent, {recursive: true});
+        const root = await mkdtemp(join(parent, "desktop-offline-bootstrap-"));
+        roots.push(root);
+        const archive = join(root, "neuro-book-electron-portable-win-x64.zip");
+        const manager = strToU8("console.log('manager')\n");
+        const managerHash = createHash("sha256").update(manager).digest("hex");
+        const runtimeHash = "b".repeat(64);
+        const manifest = {
+            schemaVersion: 5,
+            profile: "windows-portable",
+            components: {
+                manager: {
+                    provider: "managed",
+                    path: "manager/neuro-book.mjs",
+                    bundleSha256: managerHash,
+                },
+                managerRuntime: {
+                    provider: "managed",
+                    version: "1.3.14",
+                    path: "runtime/bun.exe",
+                    executableSha256: runtimeHash,
+                },
+            },
+        };
+        await writeFile(archive, zipSync({
+            ".deploy/installation.json": strToU8(JSON.stringify(manifest)),
+            "manager/neuro-book.mjs": manager,
+        }));
+
+        const result = await spawnCommand(powershellCommand, [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            desktopWindowsScriptPath,
+            "-Archive",
+            archive,
+            "-Scope",
+            "user",
+            "-Yes",
+        ], process.env);
+
+        expect(result.code).toBe(1);
+        expect(result.stderr).toContain("Bun Runtime 缺失");
     });
 
     it.runIf(process.platform === "win32")("显式本机Bun默认不产生Stage 0 metadata，而显式授权才产生", async () => {

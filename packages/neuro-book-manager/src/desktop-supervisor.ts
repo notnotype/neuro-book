@@ -14,8 +14,10 @@ import {
 import type {ProductRuntimeExpectedIdentity} from "nbook/shared/product-runtime-image-verifier";
 
 import {startInstallationApplication} from "#manager/migration-operation";
+import {mutateInstallation} from "#manager/installation-mutation";
 import {installationPaths} from "#manager/paths";
 import {issueInstalledProductRuntimeReceipt} from "#manager/product";
+import {repairDesktopRuntimeState} from "#manager/desktop-installation";
 import type {InstallationManifest, ProductComponent} from "#manager/types";
 
 export type DesktopSupervisorOptions = {
@@ -26,9 +28,14 @@ export type DesktopSupervisorOptions = {
 };
 
 /** 供 Manager GUI/CLI 使用的受管 Runtime receipt 修复，不启动 Product。 */
-export async function repairDesktopInstallation(root: string, manifest: InstallationManifest): Promise<void> {
-    const paths = installationPaths(resolve(root), manifest.roots);
-    await repairReceipt(resolve(root), manifest, paths.deploy);
+export async function repairDesktopInstallation(root: string, _manifest: InstallationManifest): Promise<void> {
+    await mutateInstallation(resolve(root), async (mutation) => {
+        const paths = installationPaths(mutation.root, mutation.manifest.roots);
+        await repairReceipt(mutation.root, mutation.manifest, paths.deploy);
+        if (process.platform === "win32") {
+            await repairDesktopRuntimeState(mutation.root, mutation.manifest);
+        }
+    });
 }
 
 type ActiveRun = {

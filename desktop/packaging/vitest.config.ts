@@ -13,6 +13,7 @@ export default defineConfig({
         environment: "node",
         globals: true,
         include: [
+            "desktop/electron/src/**/*.test.ts",
             "desktop/shared/src/**/*.test.ts",
             "shared/desktop-contract.test.ts",
             "shared/product-runtime-contract.test.ts",

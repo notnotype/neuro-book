@@ -25,6 +25,8 @@ Manager GUI 保持普通权限，machine-scope 操作由一个一次性的 eleva
 4. 参数和阶段事件使用版本化 NDJSON；管理员密码使用独立 secret 管道的 nonce 握手后以内存字节帧写入 CLI stdin，不进入 NDJSON、argv、环境变量、磁盘或日志。
 5. Broker 只允许一个请求（`desktop-install`、`desktop-repair` 或 `uninstall`）、一个完成回执或一个失败回执；UAC 取消、pipe 断开、超时和校验失败都回滚 staging，并把明确状态回传 GUI。
 6. GUI 继续展示阶段、Retry、Repair、Open Logs 和 Quit；CLI 直接从已提升终端运行的合同保持不变。
+7. Broker 必须等待 delegated CLI 退出且 stdout/stderr 全部 EOF 后才能发送 `complete`。结构化事件校验、重复卸载回执或 Secret 输出门禁失败时立即终止完整子进程树，排空管道并返回失败；不能把协议错误降级为普通日志。
+8. machine uninstall 的 CLI `scheduled` 只表示外置 Host 已接管，不表示卸载完成。Broker、Manager GUI 和 Programs and Features launcher 都必须等待绑定 token/root 的 Host `ok=true` 回执；`ok=false`、畸形回执或超时保持失败/待处理状态。
 
 ## 不变量
 
