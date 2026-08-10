@@ -24,7 +24,7 @@ export async function maintainRuntime(root: string, managerExecutable: string, v
         await assertManagerUpgrade(MANAGER_VERSION, current.managerVersion, current.components.manager.bundleSha256, managerExecutable);
         const createdPaths: string[] = [];
         const retiredPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, roots: current.roots, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
         try {
             journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
             const recordCreated = async (path: string): Promise<void> => {
@@ -61,7 +61,7 @@ export async function maintainRuntime(root: string, managerExecutable: string, v
             await commitOperation(journal);
             return next;
         } catch (error) {
-            await recoverFailedOperation(root, error);
+            await recoverFailedOperation(root, error, current.roots);
             throw error;
         }
     });
@@ -80,7 +80,7 @@ export async function maintainTool(root: string, tool: ManagedToolName, managerE
         await assertManagerUpgrade(MANAGER_VERSION, current.managerVersion, current.components.manager.bundleSha256, managerExecutable);
         const createdPaths: string[] = [];
         const retiredPaths: string[] = [];
-        let journal = await createOperation({id: randomUUID(), action: "update", root, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
+        let journal = await createOperation({id: randomUUID(), action: "update", root, roots: current.roots, containerEngine: current.containerEngine, backupRoot: join(paths.backups, randomUUID()), previousManifest: current, nextManifest: null});
         try {
             journal = await setOperationEffect(journal, {kind: "component-switch", state: "planned", owner: "managed-assets"});
             const recordCreated = async (path: string): Promise<void> => {
@@ -113,7 +113,7 @@ export async function maintainTool(root: string, tool: ManagedToolName, managerE
             await commitOperation(journal);
             return next;
         } catch (error) {
-            await recoverFailedOperation(root, error);
+            await recoverFailedOperation(root, error, current.roots);
             throw error;
         }
     });

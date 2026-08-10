@@ -105,6 +105,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
             id,
             action: "update",
             root: paths.root,
+            roots: options.manifest.roots,
             containerEngine: options.manifest.containerEngine,
             effects: [pathCreateEffect(stagingRelative)],
             backupRoot: backup,
@@ -310,7 +311,7 @@ export async function updateInstallation(input: UpdateOptions): Promise<UpdateRe
         } catch (error) {
             // Source Dev的migrationRoot位于staged worktree，rollback完成前必须保留executor。
             if (healthLaunch) await terminateFailedLaunch(healthLaunch, error);
-            await recoverFailedOperation(paths.root, error);
+            await recoverFailedOperation(paths.root, error, options.manifest.roots);
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             throw error;
         }

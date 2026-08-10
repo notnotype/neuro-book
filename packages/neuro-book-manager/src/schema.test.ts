@@ -123,18 +123,20 @@ describe("Manager manifest schemas", () => {
         expect(() => parseInstallationManifest({...container, containerEngine: null})).toThrow("Container Engine");
     });
 
-    it("Operation Journal v5固定并校验Manifest engine", () => {
+    it("Operation Journal v6固定并校验Manifest engine 与 Root Locator", () => {
         const manifest = dockerManifest();
         const journal = operationJournal(manifest);
         expect(parseOperationJournal(journal, "memory.json").containerEngine).toBe("podman");
         expect(() => parseOperationJournal({...journal, containerEngine: "docker"}, "memory.json")).toThrow("不一致");
+        expect(() => parseOperationJournal({...journal, roots: INSTALLED_WINDOWS_ROOT_LOCATORS}, "memory.json")).toThrow("Root Locator不一致");
         expect(() => parseOperationJournal({...journal, schemaVersion: 1}, "memory.json")).toThrow("不符合 schema");
     });
 
-    it("Operation Journal v3只在读取边界转换为v5 Application State记录", () => {
+    it("Operation Journal v3只在读取边界转换为v6 Application State记录", () => {
         const current = operationJournal(dockerManifest());
+        const {roots: _roots, ...legacyCurrent} = current;
         const legacy = {
-            ...current,
+            ...legacyCurrent,
             schemaVersion: 3,
             attachmentMigration: {
                 runId: "operation-attachment",
@@ -150,20 +152,28 @@ describe("Manager manifest schemas", () => {
         };
 
         expect(migrateOperationJournal(legacy, "memory.json")).toMatchObject({
-            schemaVersion: 5,
+            schemaVersion: 6,
+            roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
             applicationStateMigration: {runId: "operation", state: "applied"},
         });
     });
 
-    it("Operation Journal v4只在读取边界转换为v5，且新 schema 才允许 start", () => {
-        const legacy = {...operationJournal(dockerManifest()), schemaVersion: 4};
+    it("Operation Journal v4/v5只在读取边界转换为v6，且新 schema 才允许 start", () => {
+        const current = operationJournal(dockerManifest());
+        const {roots: _roots, ...legacyCurrent} = current;
+        const legacyV4 = {...legacyCurrent, schemaVersion: 4};
+        const legacyV5 = {...legacyCurrent, schemaVersion: 5, action: "start"};
 
-        expect(migrateOperationJournal(legacy, "memory.json")).toMatchObject({
-            schemaVersion: 5,
+        expect(migrateOperationJournal(legacyV4, "memory.json")).toMatchObject({
+            schemaVersion: 6,
             action: "update",
         });
+        expect(migrateOperationJournal(legacyV5, "memory.json")).toMatchObject({
+            schemaVersion: 6,
+            action: "start",
+        });
         expect(parseOperationJournal({...operationJournal(dockerManifest()), action: "start"}, "memory.json"))
-            .toMatchObject({schemaVersion: 5, action: "start"});
+            .toMatchObject({schemaVersion: 6, action: "start"});
     });
 
     it("可在严格payload解析前读取Release envelope", () => {
@@ -272,11 +282,12 @@ function dockerManifest() {
 function operationJournal(manifest: ReturnType<typeof dockerManifest>) {
     const now = "2026-07-16T00:00:00.000Z";
     return {
-        schemaVersion: 5 as const,
+        schemaVersion: 6 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
         root: JOURNAL_ROOT,
+        roots: manifest.roots,
         containerEngine: "podman" as const,
         effects: [],
         backupRoot: join(JOURNAL_ROOT, ".deploy", "backups", "operation"),

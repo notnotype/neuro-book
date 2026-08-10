@@ -4,6 +4,10 @@ import {basename, dirname, join, relative, resolve} from "node:path";
 
 import {extractArchive, githubReleaseAsset} from "#manager/download";
 import {ensureDirectory, pathExists, removePath, sha256File, writeTextAtomic} from "#manager/files";
+import {
+    MANAGER_RUNTIME_PROJECTION_DIRECTORY,
+    MANAGER_RUNTIME_PROJECTION_FILENAME,
+} from "#manager/manager-runtime-projection";
 import {managedAssetRoot, materializeManagedAsset} from "#manager/managed-asset-repository";
 import {currentProductPlatform, executableName} from "#manager/platform";
 import {runCapture} from "#manager/process";
@@ -164,7 +168,7 @@ export async function writeManagerWrapper(root: string, manager: ManagerComponen
     if (process.platform === "win32") {
         await writeTextAtomic(
             join(binRoot, "neuro-book.cmd"),
-            renderManagerWrapper(manager, runtime),
+            renderManagerWrapper(manager, runtime, "win32", isCanonicalMachineInstallationRoot(root)),
         );
         return;
     }
@@ -174,17 +178,67 @@ export async function writeManagerWrapper(root: string, manager: ManagerComponen
 }
 
 /** 生成稳定Manager wrapper；安装与doctor必须消费同一模板。 */
-export function renderManagerWrapper(manager: ManagerComponent, runtime: ManagerRuntimeComponent, platform: NodeJS.Platform = process.platform): string {
+export function renderManagerWrapper(
+    manager: ManagerComponent,
+    runtime: ManagerRuntimeComponent,
+    platform: NodeJS.Platform = process.platform,
+    machineProjection = false,
+): string {
     if (platform === "win32") {
         const runtimeCommand = runtime.provider === "managed"
             ? `"%ROOT%\\${runtime.path.replaceAll("/", "\\")}"`
             : `"${runtime.executable}"`;
-        return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${manager.path.replaceAll("/", "\\")}" %*\r\n`;
+        if (!machineProjection) {
+            return `@echo off\r\nset "ROOT=%~dp0..\\.."\r\n${runtimeCommand} "%ROOT%\\${manager.path.replaceAll("/", "\\")}" %*\r\n`;
+        }
+        const managerPath = manager.path.replaceAll("/", "\\");
+        const projection = `%LOCALAPPDATA%\\NeuroBook\\cache\\${MANAGER_RUNTIME_PROJECTION_DIRECTORY}\\${manager.bundleSha256.toLowerCase()}\\${MANAGER_RUNTIME_PROJECTION_FILENAME}`;
+        const materialize = [
+            "$ErrorActionPreference='Stop'",
+            "function Get-Sha256([string]$path){$stream=[System.IO.File]::OpenRead($path);$sha=[System.Security.Cryptography.SHA256]::Create();try{return ([System.BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose();$stream.Dispose()}}",
+            "$source=$env:NBOOK_MANAGER_SOURCE",
+            "$target=$env:NBOOK_MANAGER_TARGET",
+            "$expected=$env:NBOOK_MANAGER_SHA256.ToLowerInvariant()",
+            "$sourceHash=Get-Sha256 $source",
+            "if($sourceHash -ne $expected){throw 'Manager source checksum mismatch'}",
+            "$valid=$false",
+            "if(Test-Path -LiteralPath $target -PathType Leaf){$valid=((Get-Sha256 $target) -eq $expected)}",
+            "if(-not $valid){$parent=Split-Path -Parent $target;[void][System.IO.Directory]::CreateDirectory($parent);$temporary=Join-Path $parent ('.neuro-book-'+[guid]::NewGuid().ToString('N')+'.mjs');try{Copy-Item -LiteralPath $source -Destination $temporary -Force;if((Get-Sha256 $temporary) -ne $expected){throw 'Manager projection checksum mismatch'};Move-Item -LiteralPath $temporary -Destination $target -Force}finally{if(Test-Path -LiteralPath $temporary){Remove-Item -LiteralPath $temporary -Force}}}",
+        ].join(";");
+        return [
+            "@echo off",
+            "setlocal",
+            "for %%I in (\"%~dp0..\\..\") do set \"ROOT=%%~fI\"",
+            `set "MANAGER=%ROOT%\\${managerPath}"`,
+            "if \"%LOCALAPPDATA%\"==\"\" echo NeuroBook Manager requires LOCALAPPDATA for machine installation. 1>&2",
+            "if \"%LOCALAPPDATA%\"==\"\" exit /b 1",
+            "set \"NBOOK_MANAGER_SOURCE=%MANAGER%\"",
+            `set "NBOOK_MANAGER_TARGET=${projection}"`,
+            `set "NBOOK_MANAGER_SHA256=${manager.bundleSha256.toLowerCase()}"`,
+            `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${materialize}"`,
+            "if errorlevel 1 exit /b %errorlevel%",
+            "set \"MANAGER=%NBOOK_MANAGER_TARGET%\"",
+            ":run-manager",
+            `${runtimeCommand} "%MANAGER%" %*`,
+            "set \"NBOOK_MANAGER_EXIT=%ERRORLEVEL%\"",
+            "endlocal & exit /b %NBOOK_MANAGER_EXIT%",
+            "",
+        ].join("\r\n");
     }
     const runtimeCommand = runtime.provider === "managed"
         ? `"$ROOT/${runtime.path}"`
         : JSON.stringify(runtime.executable);
     return `#!/bin/sh\nROOT="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"\nexec ${runtimeCommand} "$ROOT/${manager.path}" "$@"\n`;
+}
+
+/** 只有 canonical Windows machine Installation Root 才需要 Cache execution projection。 */
+export function isCanonicalMachineInstallationRoot(root: string): boolean {
+    if (process.platform !== "win32") return false;
+    const machineRoot = resolve(
+        process.env.ProgramFiles ?? join(process.env.SystemDrive ?? "C:", "Program Files"),
+        "NeuroBook",
+    );
+    return resolve(root).toLocaleLowerCase("en-US") === machineRoot.toLocaleLowerCase("en-US");
 }
 
 /** 返回 Runtime 真实可执行文件。 */

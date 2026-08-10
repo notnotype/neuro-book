@@ -5,6 +5,7 @@ import {valid} from "semver";
 import {isAbsolute, join, resolve} from "node:path";
 
 import {PRODUCT_ASSET_NAMES} from "#manager/platform";
+import {installationPaths} from "#manager/paths";
 import {
     PRODUCT_PLATFORMS,
     type InstallationManifest,
@@ -304,7 +305,7 @@ const OperationEffectSchema = Type.Union([
     }, {additionalProperties: false}),
 ]);
 
-export const OperationJournalSchema = Type.Object({
+const OperationJournalV5Schema = Type.Object({
     schemaVersion: Type.Literal(5),
     id: Type.String({minLength: 1}),
     action: Type.Union([Type.Literal("install"), Type.Literal("update"), Type.Literal("start")]),
@@ -328,6 +329,12 @@ export const OperationJournalSchema = Type.Object({
     outcome: Type.Optional(Type.Union([Type.Literal("success"), Type.Literal("rolled-back")])),
     createdAt: Type.String({pattern: ISO_DATE_PATTERN}),
     updatedAt: Type.String({pattern: ISO_DATE_PATTERN}),
+}, {additionalProperties: false});
+
+export const OperationJournalSchema = Type.Object({
+    ...OperationJournalV5Schema.properties,
+    schemaVersion: Type.Literal(6),
+    roots: InstallationRootLocatorsSchema,
 }, {additionalProperties: false});
 
 /** v4 已使用统一 Application State operation，但尚未表达 start action。 */
@@ -453,9 +460,16 @@ export function parseOperationJournal(value: unknown, path: string): OperationJo
         throw new Error(`Operation root必须是绝对路径：${journal.root}`);
     }
     const journalRoot = resolve(journal.root);
-    assertAbsolutePathWithin(join(journalRoot, ".deploy", "backups"), journal.backupRoot, "Operation backupRoot");
+    assertOperationRootLocators(journal.roots);
     if (journal.previousManifest) parseInstallationManifest(journal.previousManifest);
     if (journal.nextManifest) parseInstallationManifest(journal.nextManifest);
+    for (const manifest of [journal.previousManifest, journal.nextManifest]) {
+        if (manifest && !rootLocatorsEqual(journal.roots, manifest.roots)) {
+            throw new Error(`Operation journal与Installation Manifest的Root Locator不一致：${path}`);
+        }
+    }
+    const paths = installationPaths(journalRoot, journal.roots);
+    assertAbsolutePathWithin(paths.backups, journal.backupRoot, "Operation backupRoot");
     const effectIdentities = new Set<string>();
     for (const effect of journal.effects) {
         assertOperationEffect(journal, effect, path);
@@ -584,7 +598,10 @@ function assertOperationEffect(journal: OperationJournal, effect: OperationJourn
 function assertOwnedEffectPath(journal: OperationJournal, owner: string, input: string, kind: "path-create" | "path-retire"): void {
     const path = input.replaceAll("\\", "/");
     if (owner === "staging" && path.startsWith(".deploy/staging/")) return;
-    if (owner === "backup" && path.startsWith(".deploy/backups/")) return;
+    if (owner === "backup" && (
+        path.startsWith(".deploy/backups/")
+        || path.startsWith("manager-state/backups/")
+    )) return;
     if (owner === "source" && path === "node_modules") return;
     if (owner === "runtime" && path.startsWith(".runtime/bun/")) return;
     if (owner === "tool" && path.startsWith(".runtime/tools/")) return;
@@ -687,13 +704,29 @@ function assertReleaseStateMigrationSemantics(stateMigration: ReleaseManifest["s
 }
 
 /** 把旧 Attachment 专用 journal 一次性转换为 Product-owned operation 记录。 */
-export function migrateOperationJournal(value: unknown, path: string): OperationJournal {
+export function migrateOperationJournal(
+    value: unknown,
+    path: string,
+    fallbackRoots: InstallationRootLocators = INSTALLATION_SCOPED_ROOT_LOCATORS,
+): OperationJournal {
     if (typeof value !== "object" || value === null || !("schemaVersion" in value)) {
         return parseOperationJournal(value, path);
     }
+    if (value.schemaVersion === 5) {
+        assertSchema(OperationJournalV5Schema, value, `Operation journal v5 不符合可迁移 schema：${path}`);
+        return parseOperationJournal({
+            ...value,
+            schemaVersion: 6,
+            roots: legacyOperationRoots(value as Static<typeof OperationJournalV5Schema>, fallbackRoots),
+        }, path);
+    }
     if (value.schemaVersion === 4) {
         assertSchema(OperationJournalV4Schema, value, `Operation journal v4 不符合可迁移 schema：${path}`);
-        return parseOperationJournal({...value, schemaVersion: 5}, path);
+        return parseOperationJournal({
+            ...value,
+            schemaVersion: 6,
+            roots: legacyOperationRoots(value as Static<typeof OperationJournalV4Schema>, fallbackRoots),
+        }, path);
     }
     if (value.schemaVersion !== 3) return parseOperationJournal(value, path);
     assertSchema(OperationJournalV3Schema, value, `Operation journal v3 不符合可迁移 schema：${path}`);
@@ -701,7 +734,8 @@ export function migrateOperationJournal(value: unknown, path: string): Operation
     const {attachmentMigration, ...base} = legacy;
     const converted: OperationJournal = {
         ...base,
-        schemaVersion: 5,
+        schemaVersion: 6,
+        roots: legacyOperationRoots(legacy, fallbackRoots),
         ...(attachmentMigration ? {
             applicationStateMigration: {
                 runId: attachmentMigration.runId.slice(0, -"-attachment".length),
@@ -710,6 +744,25 @@ export function migrateOperationJournal(value: unknown, path: string): Operation
         } : {}),
     };
     return parseOperationJournal(converted, path);
+}
+
+function legacyOperationRoots(value: {
+    previousManifest: InstallationManifest | null;
+    nextManifest: InstallationManifest | null;
+}, fallbackRoots: InstallationRootLocators): InstallationRootLocators {
+    return value.nextManifest?.roots ?? value.previousManifest?.roots ?? fallbackRoots;
+}
+
+function assertOperationRootLocators(roots: InstallationRootLocators): void {
+    const supported = [
+        INSTALLATION_SCOPED_ROOT_LOCATORS,
+        PORTABLE_ROOT_LOCATORS,
+        INSTALLED_WINDOWS_ROOT_LOCATORS,
+        INSTALLED_MACOS_ROOT_LOCATORS,
+    ];
+    if (!supported.some((candidate) => rootLocatorsEqual(roots, candidate))) {
+        throw new Error("Operation journal的Root Locator布局非法。");
+    }
 }
 
 function assertInstallationSemantics(manifest: InstallationManifest): void {

@@ -843,7 +843,8 @@ describe("Desktop installation lifecycle", () => {
         expect(cmd).toContain('set "ROOT=%~dp0..\\.."');
         expect(cmd).toContain('"%ROOT%\\runtime\\bun.exe"');
         expect(cmd).toContain('"%ROOT%\\.runtime\\manager\\neuro-book.mjs"');
-        expect(ps1).toContain("$PSScriptRoot \"..\\..\\runtime\\bun.exe\"");
+        expect(ps1).toContain("$PSScriptRoot \"neuro-book.cmd\"");
+        expect(ps1).toContain("exit $LASTEXITCODE");
         expect(bun).toContain('"%ROOT%\\runtime\\bun.exe"');
         expect(rg).toContain('"%ROOT%\\tools\\rg\\rg.exe"');
         expect(git).toContain('"%ROOT%\\tools\\git\\cmd\\git.exe"');

@@ -615,6 +615,7 @@ async function fixture(id: string) {
         id,
         action: "update",
         root,
+        roots: manifest.roots,
         containerEngine: manifest.containerEngine,
         backupRoot: join(root, ".deploy", "backups", id),
         previousManifest: manifest,

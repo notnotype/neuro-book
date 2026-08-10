@@ -221,6 +221,7 @@ export async function migrateCurrentApplicationState(
         id,
         action: "update",
         root: paths.root,
+        roots: manifest.roots,
         containerEngine: manifest.containerEngine,
         backupRoot: join(paths.backups, id),
         previousManifest: manifest,
@@ -255,7 +256,7 @@ export async function migrateCurrentApplicationState(
         return true;
     } catch (error) {
         if (launch) await terminateFailedLaunch(launch, error);
-        await recoverFailedOperation(paths.root, error);
+        await recoverFailedOperation(paths.root, error, manifest.roots);
         throw error;
     }
 }
@@ -296,6 +297,7 @@ export async function startInstallationApplication(
             id,
             action: "start",
             root: paths.root,
+            roots: activeManifest.roots,
             containerEngine: activeManifest.containerEngine,
             backupRoot: join(paths.backups, id),
             previousManifest: activeManifest,
@@ -333,7 +335,7 @@ export async function startInstallationApplication(
             launchResult.launch = launch;
         } catch (error) {
             if (launch) await terminateFailedLaunch(launch, error);
-            await recoverFailedOperation(paths.root, error);
+            await recoverFailedOperation(paths.root, error, activeManifest.roots);
             throw error;
         }
     });

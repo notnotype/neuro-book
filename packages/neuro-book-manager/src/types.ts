@@ -589,11 +589,13 @@ export type OperationEffect =
     | SqliteBackupEffect;
 
 export type OperationJournal = {
-    schemaVersion: 5;
+    schemaVersion: 6;
     id: string;
     action: "install" | "update" | "start";
     phase: OperationPhase;
     root: string;
+    /** Journal 与 backup 的持久 locator 身份；fresh install 不能依赖尚未写出的 Manifest。 */
+    roots: InstallationRootLocators;
     /** 本次事务固定使用的容器引擎；非容器事务为null。 */
     containerEngine: ContainerEngine | null;
     /** 所有物理动作的字段级ownership账本；动作前planned，完成后applied。 */

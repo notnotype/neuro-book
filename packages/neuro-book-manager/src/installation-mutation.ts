@@ -8,7 +8,7 @@ import {ensureDirectory, pathExists} from "#manager/files";
 import {readInstallationManifest} from "#manager/manifest-store";
 import {recoverInterruptedOperations} from "#manager/operation";
 import {installationPaths} from "#manager/paths";
-import {localAppDataRoot} from "#manager/root-locators";
+import {installationRootLocators, localAppDataRoot} from "#manager/root-locators";
 import type {InstallProfile, InstallationManifest} from "#manager/types";
 import {pendingWindowsUninstall, type WindowsUninstallIntent} from "#manager/windows-uninstall-host";
 
@@ -73,10 +73,17 @@ async function mutateExistingInstallation<T>(
         if (pendingUninstall && !allowPendingUninstall) {
             throw new Error(`Windows 卸载已安排，拒绝执行其他 Manager 操作：${installationRoot}`);
         }
-        if (!pendingUninstall) await recoverInterruptedOperations(installationRoot);
+        const manifestBeforeRecovery = await readInstallationManifest(installationPaths(installationRoot).manifest);
+        if (!manifestBeforeRecovery) {
+            throw new Error(`Installation Manifest不存在，拒绝修改未受管目录：${installationRoot}`);
+        }
+        assertInstalledRoot(installationRoot, manifestBeforeRecovery);
+        if (!pendingUninstall) {
+            await recoverInterruptedOperations(installationRoot, manifestBeforeRecovery.roots);
+        }
         const manifest = await readInstallationManifest(installationPaths(installationRoot).manifest);
         if (!manifest) {
-            throw new Error(`Installation Manifest不存在，拒绝修改未受管目录：${installationRoot}`);
+            throw new Error(`Operation recovery 后 Installation Manifest不存在：${installationRoot}`);
         }
         assertInstalledRoot(installationRoot, manifest);
         return task(Object.freeze({root: installationRoot, manifest, pendingUninstall}));
@@ -96,7 +103,7 @@ export async function mutateFreshInstallation<T>(
         if (await pendingWindowsUninstall(installationRoot)) {
             throw new Error(`Windows 卸载已安排，拒绝重新安装：${installationRoot}`);
         }
-        await recoverInterruptedOperations(installationRoot);
+        await recoverInterruptedOperations(installationRoot, installationRootLocators(profile));
         if (await readInstallationManifest(installationPaths(installationRoot).manifest)) {
             throw new Error("Installation Root 已由 NeuroBook Manager 管理，请使用 neuro-book update。");
         }

@@ -14,6 +14,7 @@ export type InstallationPaths = {
     cache: string;
     desktop: string;
     webview: string;
+    managerState: string;
     manifest: string;
     staging: string;
     backups: string;
@@ -28,15 +29,19 @@ export function installationPaths(
     const absoluteRoot = resolve(root);
     const deploy = join(absoluteRoot, ".deploy");
     const resolvedRoots = resolveInstallationRoots(absoluteRoot, locators);
+    const managerState = locators.desktop.base === "installation-root"
+        ? deploy
+        : join(resolvedRoots.desktop, "manager");
     return {
         root: absoluteRoot,
         deploy,
         runtime: join(absoluteRoot, ".runtime"),
         ...resolvedRoots,
+        managerState,
         manifest: join(deploy, "installation.json"),
         staging: join(deploy, "staging"),
-        backups: join(deploy, "backups"),
-        operations: join(deploy, "operations"),
+        backups: join(managerState, "backups"),
+        operations: join(managerState, "operations"),
     };
 }
 

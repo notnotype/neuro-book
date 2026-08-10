@@ -145,6 +145,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
             id,
             action: "install",
             root: paths.root,
+            roots: installationRootLocators(activeOptions.profile),
             containerEngine,
             effects: [pathCreateEffect(relative(paths.root, staging).replaceAll("\\", "/"))],
             backupRoot: backup,
@@ -220,7 +221,7 @@ async function installInternal(options: InstallOptions, mode: "fresh" | "adopt",
             return result.manifest;
         } catch (error) {
             if (healthLaunch) await terminateFailedLaunch(healthLaunch, error);
-            await recoverFailedOperation(paths.root, error);
+            await recoverFailedOperation(paths.root, error, installationRootLocators(activeOptions.profile));
             if (stagedWorktree) await removeStagedWorktree(paths.root, stagedWorktree).catch(() => undefined);
             throw error;
         }

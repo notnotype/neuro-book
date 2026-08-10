@@ -3,8 +3,10 @@ import {dirname, join} from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {TEST_RUNTIME_IMAGE_IDENTITY} from "#manager/fixtures/runtime-image";
-import {installationLeasePath, mutateInstallation} from "#manager/installation-mutation";
+import {installationLeasePath, mutateFreshInstallation, mutateInstallation} from "#manager/installation-mutation";
 import {writeInstallationManifest} from "#manager/manifest-store";
+import {createOperation} from "#manager/operation";
+import {installationPaths} from "#manager/paths";
 import {INSTALLED_WINDOWS_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
 
@@ -128,6 +130,54 @@ describe("InstallationMutation", () => {
 
         await expect(mutateInstallation(root, async (mutation) => mutation.manifest.profile)).resolves.toBe("product-bun");
         await expect(installationLeasePath(root)).resolves.toMatch(/leases[\\/]installed-machine-v2$/u);
+    });
+
+    it.runIf(process.platform === "win32")("已有 machine 安装在 mutation 前恢复 Desktop Local Root journal", async () => {
+        const sandbox = testSandbox("installed-machine-recovery");
+        vi.stubEnv("ProgramFiles", join(sandbox, "Program Files"));
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        const current = manifest("product-bun");
+        await prepareInstallation(root, current);
+        const paths = installationPaths(root, current.roots);
+        await createOperation({
+            id: "interrupted-start",
+            action: "start",
+            root,
+            roots: current.roots,
+            containerEngine: null,
+            backupRoot: join(paths.backups, "interrupted-start"),
+            previousManifest: current,
+            nextManifest: current,
+        });
+
+        await expect(mutateInstallation(root, async (mutation) => mutation.manifest)).resolves.toEqual(current);
+
+        await expect(stat(join(paths.operations, "interrupted-start.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(root, ".deploy", "operations"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it.runIf(process.platform === "win32")("fresh machine 安装在 Manifest 写出前恢复持久 locator journal", async () => {
+        const sandbox = testSandbox("fresh-machine-recovery");
+        vi.stubEnv("ProgramFiles", join(sandbox, "Program Files"));
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        const roots = INSTALLED_WINDOWS_ROOT_LOCATORS;
+        const paths = installationPaths(root, roots);
+        await mkdir(root, {recursive: true});
+        await createOperation({
+            id: "interrupted-install",
+            action: "install",
+            root,
+            roots,
+            containerEngine: null,
+            backupRoot: join(paths.backups, "interrupted-install"),
+            previousManifest: null,
+            nextManifest: null,
+        });
+
+        await expect(mutateFreshInstallation(root, "product-bun", async () => "ready")).resolves.toBe("ready");
+
+        await expect(stat(join(paths.operations, "interrupted-install.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(root, ".deploy", "operations"))).rejects.toMatchObject({code: "ENOENT"});
     });
 });
 

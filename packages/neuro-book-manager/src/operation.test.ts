@@ -8,16 +8,22 @@ import {removePath} from "#manager/files";
 import {
     commitOperation,
     completeProductRuntimeReceiptSwitch,
-    createOperation,
+    createOperation as createOperationWithRoots,
     pathCreateEffect,
     pathRetireEffect,
     prepareProductRuntimeReceiptSwitch,
-    recoverInterruptedOperations,
+    recoverInterruptedOperations as recoverInterruptedOperationsWithRoots,
     rollbackOperation,
     updateOperation,
 } from "#manager/operation";
+import {writeInstallationManifest} from "#manager/manifest-store";
+import {installationPaths} from "#manager/paths";
 import {currentProductPlatform} from "#manager/platform";
-import {INSTALLATION_SCOPED_ROOT_LOCATORS, PORTABLE_ROOT_LOCATORS} from "#manager/root-locators";
+import {
+    INSTALLED_WINDOWS_ROOT_LOCATORS,
+    INSTALLATION_SCOPED_ROOT_LOCATORS,
+    PORTABLE_ROOT_LOCATORS,
+} from "#manager/root-locators";
 import {parseOperationJournal} from "#manager/schema";
 import {sourceDockerImageName} from "#manager/source-docker-image";
 import type {InstallationManifest} from "#manager/types";
@@ -52,6 +58,27 @@ const JOURNAL_ROOT = join(tmpdir(), "neuro-book-operation-fixture");
 const OUTSIDE_ROOT = join(tmpdir(), "neuro-book-operation-outside");
 const CONTAINER_IMAGE_ID = `sha256:${"8".repeat(64)}`;
 
+type CreateOperationInput = Parameters<typeof createOperationWithRoots>[0];
+
+function createOperation(
+    input: Omit<CreateOperationInput, "roots"> & {roots?: CreateOperationInput["roots"]},
+): ReturnType<typeof createOperationWithRoots> {
+    return createOperationWithRoots({
+        ...input,
+        roots: input.roots
+            ?? input.nextManifest?.roots
+            ?? input.previousManifest?.roots
+            ?? INSTALLATION_SCOPED_ROOT_LOCATORS,
+    });
+}
+
+function recoverInterruptedOperations(
+    root: string,
+    roots = INSTALLATION_SCOPED_ROOT_LOCATORS,
+): ReturnType<typeof recoverInterruptedOperationsWithRoots> {
+    return recoverInterruptedOperationsWithRoots(root, roots);
+}
+
 beforeEach(() => {
     execution.verify.mockResolvedValue({
         kind: "container-product",
@@ -66,13 +93,110 @@ beforeEach(() => {
     });
 });
 
-afterEach(async () => Promise.all(roots.splice(0).map((root) => removePath(root))));
+afterEach(async () => {
+    vi.unstubAllEnvs();
+    await Promise.all(roots.splice(0).map((root) => removePath(root)));
+});
 beforeEach(() => {
     vi.clearAllMocks();
     git.revision.mockResolvedValue("a".repeat(40));
 });
 
 describe("Operation recovery", () => {
+    it.runIf(process.platform === "win32")("Installed Windows 将运行期 journal 保存在 Desktop Local Root", async () => {
+        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-"));
+        roots.push(sandbox);
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        const localData = join(sandbox, "LocalAppData");
+        await mkdir(join(root, ".deploy"), {recursive: true});
+        vi.stubEnv("LOCALAPPDATA", localData);
+        const manifest = {
+            ...nativeManifest("1.0.0", "a".repeat(40)),
+            roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        };
+        const paths = installationPaths(root, manifest.roots);
+
+        const journal = await createOperation({
+            id: "installed-runtime",
+            action: "start",
+            root,
+            containerEngine: null,
+            backupRoot: join(paths.backups, "installed-runtime"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+        });
+
+        await expect(stat(join(paths.operations, "installed-runtime.json"))).resolves.toMatchObject({
+            isFile: expect.any(Function),
+        });
+        await expect(stat(join(root, ".deploy", "operations"))).rejects.toMatchObject({code: "ENOENT"});
+
+        await commitOperation(journal);
+        await expect(stat(join(paths.operations, "installed-runtime.json"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it.runIf(process.platform === "win32")("Installed Windows 从 Desktop Local Root 恢复未完成 journal", async () => {
+        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-recovery-"));
+        roots.push(sandbox);
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        const localData = join(sandbox, "LocalAppData");
+        vi.stubEnv("LOCALAPPDATA", localData);
+        const manifest = {
+            ...nativeManifest("1.0.0", "a".repeat(40)),
+            roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        };
+        const paths = installationPaths(root, manifest.roots);
+        await writeInstallationManifest(paths.manifest, manifest);
+        await createOperation({
+            id: "installed-interrupted",
+            action: "start",
+            root,
+            containerEngine: null,
+            backupRoot: join(paths.backups, "installed-interrupted"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+        });
+
+        await expect(recoverInterruptedOperations(root, manifest.roots)).resolves.toEqual(manifest);
+
+        await expect(stat(join(paths.operations, "installed-interrupted.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(join(root, ".deploy", "operations"))).rejects.toMatchObject({code: "ENOENT"});
+    });
+
+    it.runIf(process.platform === "win32")("Installed Windows 将旧 v5 Program Files journal 迁移到外置恢复路径", async () => {
+        const sandbox = await mkdtemp(join(tmpdir(), "manager-operation-installed-v5-"));
+        roots.push(sandbox);
+        const root = join(sandbox, "Program Files", "NeuroBook");
+        const localData = join(sandbox, "LocalAppData");
+        vi.stubEnv("LOCALAPPDATA", localData);
+        const manifest = {
+            ...nativeManifest("1.0.0", "a".repeat(40)),
+            roots: INSTALLED_WINDOWS_ROOT_LOCATORS,
+        };
+        const paths = installationPaths(root, manifest.roots);
+        await writeInstallationManifest(paths.manifest, manifest);
+        const journal = await createOperation({
+            id: "installed-v5",
+            action: "start",
+            root,
+            containerEngine: null,
+            backupRoot: join(paths.backups, "installed-v5"),
+            previousManifest: manifest,
+            nextManifest: manifest,
+        });
+        const currentPath = join(paths.operations, "installed-v5.json");
+        await removePath(currentPath);
+        const {roots: _roots, ...legacy} = journal;
+        const legacyPath = join(root, ".deploy", "operations", "installed-v5.json");
+        await mkdir(join(legacyPath, ".."), {recursive: true});
+        await writeFile(legacyPath, `${JSON.stringify({...legacy, schemaVersion: 5}, null, 4)}\n`, "utf8");
+
+        await expect(recoverInterruptedOperations(root, manifest.roots)).resolves.toEqual(manifest);
+
+        await expect(stat(currentPath)).rejects.toMatchObject({code: "ENOENT"});
+        await expect(stat(legacyPath)).rejects.toMatchObject({code: "ENOENT"});
+    });
+
     it("回滚 receipt 切换时恢复旧回执并清除 backup", async () => {
         const root = await operationRoot();
         const receiptPath = join(root, ".deploy", "product-runtime-receipt.json");
@@ -151,6 +275,7 @@ describe("Operation recovery", () => {
         expect(() => parseOperationJournal({...journal, effects: [{kind: "path-create", state: "planned", owner: "staging", path: "."}]}, "memory.json")).toThrow("非根目录项");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "path-retire", state: "planned", owner: "tool", path: "./"}]}, "memory.json")).toThrow("非根目录项");
         expect(() => parseOperationJournal({...journal, effects: [{kind: "path-create", state: "planned", owner: "runtime", path: ".runtime//bun"}]}, "memory.json")).toThrow("非根目录项");
+        expect(() => parseOperationJournal({...journal, effects: [{kind: "path-create", state: "planned", owner: "backup", path: "manager-state/backups/../outside"}]}, "memory.json")).toThrow("非根目录项");
         expect(() => parseOperationJournal({
             ...journal,
             applicationStateMigration: {runId: "operation", state: "planned"},
@@ -803,7 +928,7 @@ describe("Operation recovery", () => {
         await updateOperation(journal, "committed", {outcome: "success"});
         await rename(root, moved);
 
-        await recoverInterruptedOperations(moved);
+        await recoverInterruptedOperations(moved, PORTABLE_ROOT_LOCATORS);
 
         await expect(stat(join(moved, ".deploy", "staging", "portable-move"))).rejects.toMatchObject({code: "ENOENT"});
         await expect(stat(join(moved, ".deploy", "operations", "portable-move.json"))).rejects.toMatchObject({code: "ENOENT"});
@@ -829,7 +954,7 @@ describe("Operation recovery", () => {
         await updateOperation(journal, "committed", {outcome: "success", effects});
         await rename(root, moved);
 
-        await expect(recoverInterruptedOperations(moved)).rejects.toThrow("必须移回原位置");
+        await expect(recoverInterruptedOperations(moved, PORTABLE_ROOT_LOCATORS)).rejects.toThrow("必须移回原位置");
     });
 
     it("旧Docker实例重启失败时保留未完成journal供下次继续恢复", async () => {
@@ -941,11 +1066,12 @@ function nativeManifestWithManagedRg(version: string, revision: string): Install
 function operationJournal() {
     const now = "2026-07-12T00:00:00.000Z";
     return {
-        schemaVersion: 5 as const,
+        schemaVersion: 6 as const,
         id: "operation",
         action: "update" as const,
         phase: "planned" as const,
         root: JOURNAL_ROOT,
+        roots: INSTALLATION_SCOPED_ROOT_LOCATORS,
         containerEngine: null,
         effects: [],
         backupRoot: join(JOURNAL_ROOT, ".deploy", "backups", "operation"),

@@ -1,15 +1,19 @@
-import {chmod, mkdtemp, mkdir, readFile, writeFile} from "node:fs/promises";
+import {chmod, mkdtemp, mkdir, readFile, realpath, writeFile} from "node:fs/promises";
+import {execFile} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
-import {afterEach, describe, expect, it} from "vitest";
+import {promisify} from "node:util";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {removePath} from "#manager/files";
 import {sha256File} from "#manager/files";
 import {installManagerExecutable, resolveManagerRuntime, writeManagerWrapper} from "#manager/runtime";
 
 const roots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
+    vi.unstubAllEnvs();
     await Promise.all(roots.splice(0).map((root) => removePath(root)));
 });
 
@@ -38,6 +42,70 @@ describe("portable manager wrapper", () => {
         const wrapper = await readFile(join(root, ".runtime", "bin", process.platform === "win32" ? "neuro-book.cmd" : "neuro-book"), "utf8");
         expect(wrapper).not.toContain(root);
         expect(wrapper).toContain("manager/0.1.0/neuro-book.mjs".replaceAll("/", process.platform === "win32" ? "\\" : "/"));
+    });
+
+    it.runIf(process.platform === "win32")("machine wrapper 从校验后的用户 Cache 投影执行 Manager", async () => {
+        const sandbox = await mkdtemp(join(tmpdir(), "nbook-machine-manager-wrapper-"));
+        roots.push(sandbox);
+        const programFiles = join(sandbox, "Program Files");
+        const root = join(programFiles, "NeuroBook");
+        const source = join(root, "manager", "neuro-book.mjs");
+        vi.stubEnv("ProgramFiles", programFiles);
+        await mkdir(join(source, ".."), {recursive: true});
+        await writeFile(source, "console.log(JSON.stringify({path: import.meta.path, args: Bun.argv.slice(2)}));\n", "utf8");
+        const bundleSha256 = await sha256File(source);
+        await writeManagerWrapper(root, {
+            provider: "managed",
+            version: "0.1.0",
+            path: "manager/neuro-book.mjs",
+            bundleSha256,
+        }, {
+            provider: "system",
+            version: process.versions.bun ?? "1.3.0",
+            executable: process.execPath,
+        });
+        const wrapper = join(root, ".runtime", "bin", "neuro-book.cmd");
+        const localAppData = join(sandbox, "LocalAppData");
+
+        const result = await execFileAsync(process.env.ComSpec ?? "cmd.exe", [
+            "/d",
+            "/c",
+            "call",
+            wrapper,
+            "status",
+            "--json",
+        ], {
+            env: {
+                ...process.env,
+                ProgramFiles: programFiles,
+                LOCALAPPDATA: localAppData,
+            },
+            windowsHide: true,
+        });
+        const output = JSON.parse(result.stdout.trim()) as {path: string; args: string[]};
+
+        const expected = join(localAppData, "NeuroBook", "cache", "manager-runtime", bundleSha256, "neuro-book.mjs");
+        expect((await realpath(output.path)).toLocaleLowerCase("en-US"))
+            .toBe((await realpath(expected)).toLocaleLowerCase("en-US"));
+        expect(output.args).toEqual(["status", "--json"]);
+        expect(await sha256File(output.path)).toBe(bundleSha256);
+
+        await writeFile(source, "console.log('tampered');\n", "utf8");
+        await expect(execFileAsync(process.env.ComSpec ?? "cmd.exe", [
+            "/d",
+            "/c",
+            "call",
+            wrapper,
+            "doctor",
+            "--json",
+        ], {
+            env: {
+                ...process.env,
+                ProgramFiles: programFiles,
+                LOCALAPPDATA: localAppData,
+            },
+            windowsHide: true,
+        })).rejects.toMatchObject({code: 1});
     });
 
     it("校验并接管 Stage 0 Bun", async () => {

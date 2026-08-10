@@ -513,13 +513,11 @@ export async function writeDesktopRuntimeWrappers(
     await writeManagedToolWrappers(root, manifest.components.tools);
     await writeManagerWrapper(root, manifest.components.manager, runtime);
 
-    const managerPath = manifest.components.manager.path.replaceAll("/", "\\");
-    const bunPath = runtime.path.replaceAll("/", "\\");
     const wrapperRoot = join(root, ".runtime", "bin");
     await ensureDirectory(wrapperRoot);
     await writeFile(
         join(wrapperRoot, "neuro-book.ps1"),
-        `& (Join-Path $PSScriptRoot "..\\..\\${bunPath}") (Join-Path $PSScriptRoot "..\\..\\${managerPath}") @args\r\n`,
+        "& (Join-Path $PSScriptRoot \"neuro-book.cmd\") @args\r\nexit $LASTEXITCODE\r\n",
         "utf8",
     );
 }

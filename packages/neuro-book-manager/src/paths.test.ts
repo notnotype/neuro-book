@@ -1,6 +1,6 @@
 import {join, resolve} from "node:path";
 
-import {describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
 import {installationPaths} from "#manager/paths";
 import {
@@ -17,6 +17,10 @@ import {
 } from "#manager/root-locators";
 
 describe("Installation Root 路径", () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it("非桌面安装使用 Installation Root 内的明确子目录", () => {
         const root = resolve("fixtures", "neuro-book");
         const paths = installationPaths(root, INSTALLATION_SCOPED_ROOT_LOCATORS);
@@ -41,8 +45,11 @@ describe("Installation Root 路径", () => {
 
     it("Installed Windows 使用 local-app-data Adapter，不随程序目录移动", () => {
         const localData = resolve("fixtures", "local-app-data");
+        vi.stubEnv("LOCALAPPDATA", localData);
+        vi.stubEnv("XDG_DATA_HOME", localData);
+        const installationRoot = resolve("fixtures", "neuro-book");
         const roots = resolveInstallationRoots(
-            resolve("fixtures", "neuro-book"),
+            installationRoot,
             INSTALLED_WINDOWS_ROOT_LOCATORS,
             localData,
         );
@@ -52,6 +59,10 @@ describe("Installation Root 路径", () => {
             desktop: join(localData, "NeuroBook", "desktop"),
             webview: join(localData, "NeuroBook", "desktop", "webview"),
         });
+        const paths = installationPaths(installationRoot, INSTALLED_WINDOWS_ROOT_LOCATORS);
+        expect(paths.manifest).toBe(join(installationRoot, ".deploy", "installation.json"));
+        expect(paths.operations).toBe(join(localData, "NeuroBook", "desktop", "manager", "operations"));
+        expect(paths.backups).toBe(join(localData, "NeuroBook", "desktop", "manager", "backups"));
         expect(installationRootLocators("product-bun", "win32")).toBe(INSTALLED_WINDOWS_ROOT_LOCATORS);
         expect(installationRootLocators("product-bun", "linux")).toBe(INSTALLATION_SCOPED_ROOT_LOCATORS);
         expect(installationRootLocators("windows-portable", "win32")).toBe(PORTABLE_ROOT_LOCATORS);

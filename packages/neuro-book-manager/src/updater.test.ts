@@ -150,6 +150,7 @@ describe("Release Update预检", () => {
             id: "restore-current-manifest",
             action: "update",
             root,
+            roots: current.roots,
             containerEngine: null,
             backupRoot: join(root, ".deploy", "backups", "restore-current-manifest"),
             previousManifest: current,

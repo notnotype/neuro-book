@@ -13,7 +13,7 @@ import {assertInstallationHostCompatible} from "#manager/platform";
 import {verifyInstalledProductRuntimeControlPlane, verifyInstalledProductRuntimeImage} from "#manager/product";
 import {runCapture} from "#manager/process";
 import {installationRootDataPaths} from "#manager/root-locators";
-import {renderManagerWrapper, renderRuntimeWrapper} from "#manager/runtime";
+import {isCanonicalMachineInstallationRoot, renderManagerWrapper, renderRuntimeWrapper} from "#manager/runtime";
 import {parseInstallationManifest} from "#manager/schema";
 import {formatStateRootIntegrityWarning, inspectInstallationStateIntegrity, stateRootIntegrityFailed} from "#manager/state-integrity";
 import {renderToolWrapper} from "#manager/tools";
@@ -343,7 +343,18 @@ async function checkSystemTool(checks: InstallationCheck[], name: string, tool: 
 }
 
 async function checkWrappers(checks: InstallationCheck[], root: string, manifest: InstallationManifest): Promise<void> {
-    await checkWrapper(checks, "manager.wrapper", "manager", wrapperPath(root, "neuro-book"), renderManagerWrapper(manifest.components.manager, manifest.components.managerRuntime));
+    await checkWrapper(
+        checks,
+        "manager.wrapper",
+        "manager",
+        wrapperPath(root, "neuro-book"),
+        renderManagerWrapper(
+            manifest.components.manager,
+            manifest.components.managerRuntime,
+            process.platform,
+            isCanonicalMachineInstallationRoot(root),
+        ),
+    );
     if (manifest.components.managerRuntime.provider === "managed") {
         await checkWrapper(checks, "runtime.wrapper", "runtime", wrapperPath(root, "bun"), renderRuntimeWrapper(manifest.components.managerRuntime));
     }

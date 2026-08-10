@@ -11,12 +11,13 @@ import {installationTarget} from "#manager/installation-path";
 import {readInstallationManifest, writeInstallationManifest} from "#manager/manifest-store";
 import {installationPaths} from "#manager/paths";
 import {installSourceDependencies} from "#manager/product";
-import {resolveInstallationRoots} from "#manager/root-locators";
+import {resolveInstallationRoots, rootLocatorsEqual} from "#manager/root-locators";
 import {runtimeExecutable, writeManagerWrapper, writeRuntimeWrapper} from "#manager/runtime";
 import {migrateOperationJournal, parseOperationJournal} from "#manager/schema";
 import {writeManagedToolWrappers} from "#manager/tools";
 import type {
     InstallationManifest,
+    InstallationRootLocators,
     OperationEffect,
     OperationJournal,
     OperationPathOwner,
@@ -30,7 +31,7 @@ type OperationInput = Omit<OperationJournal, "schemaVersion" | "phase" | "effect
 /** 创建持久化Operation Journal；backup ownership在任何backup写入前进入Ledger。 */
 export async function createOperation(input: OperationInput): Promise<OperationJournal> {
     const now = new Date().toISOString();
-    const backupPath = relative(input.root, input.backupRoot).replaceAll("\\", "/");
+    const backupPath = operationBackupEffectPath(input);
     const effects = upsertEffect(input.effects ?? [], {
         kind: "path-create",
         state: "planned",
@@ -39,13 +40,13 @@ export async function createOperation(input: OperationInput): Promise<OperationJ
     });
     const journal: OperationJournal = {
         ...input,
-        schemaVersion: 5,
+        schemaVersion: 6,
         phase: "planned",
         effects,
         createdAt: now,
         updatedAt: now,
     };
-    parseOperationJournal(journal, `${input.root}/.deploy/operations/${input.id}.json`);
+    parseOperationJournal(journal, operationJournalPath(journal));
     await writeOperation(journal);
     return journal;
 }
@@ -53,7 +54,7 @@ export async function createOperation(input: OperationInput): Promise<OperationJ
 /** 原子更新Operation phase与非Effect恢复信息。 */
 export async function updateOperation(journal: OperationJournal, phase: OperationPhase, patch: Partial<OperationJournal> = {}): Promise<OperationJournal> {
     const next = {...journal, ...patch, phase, updatedAt: new Date().toISOString()};
-    parseOperationJournal(next, `${next.root}/.deploy/operations/${next.id}.json`);
+    parseOperationJournal(next, operationJournalPath(next));
     await writeOperation(next);
     return next;
 }
@@ -181,23 +182,68 @@ export async function commitOperation(journal: OperationJournal): Promise<Operat
 }
 
 /** 在mutating command开始前恢复上次未完成操作。 */
-export async function recoverInterruptedOperations(root: string): Promise<InstallationManifest | null> {
-    const paths = installationPaths(root);
-    if (await pathExists(paths.operations)) for (const entry of await readdir(paths.operations, {withFileTypes: true})) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        const path = join(paths.operations, entry.name);
-        const value = await readJson(path);
-        if (!value || typeof value !== "object") throw new Error(`Operation journal损坏：${path}`);
-        if ("schemaVersion" in value && (value.schemaVersion === 1 || value.schemaVersion === 2)) {
-            if ("phase" in value && value.phase === "committed") continue;
-            throw new Error(`发现未完成的Operation Journal v${String(value.schemaVersion)}，v3 Manager拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
+export async function recoverInterruptedOperations(
+    root: string,
+    requestedRoots?: InstallationRootLocators,
+): Promise<InstallationManifest | null> {
+    const manifestPath = installationPaths(root).manifest;
+    const manifestBeforeRecovery = await readInstallationManifest(manifestPath);
+    const roots = requestedRoots ?? manifestBeforeRecovery?.roots;
+    if (!roots) {
+        throw new Error(`Operation recovery 缺少 Root Locator，且 Installation Manifest 不存在：${root}`);
+    }
+    if (manifestBeforeRecovery && !rootLocatorsEqual(roots, manifestBeforeRecovery.roots)) {
+        throw new Error(`Operation recovery 的 Root Locator 与 Installation Manifest 不一致：${root}`);
+    }
+    const paths = installationPaths(root, roots);
+    const legacyOperations = installationPaths(root).operations;
+    const operationRoots = samePath(paths.operations, legacyOperations)
+        ? [paths.operations]
+        : [paths.operations, legacyOperations];
+    const candidates: Array<{path: string; value: Record<string, unknown>; journal: OperationJournal}> = [];
+    const byId = new Map<string, {path: string; value: Record<string, unknown>; journal: OperationJournal}>();
+    const duplicatePaths = new Map<string, string[]>();
+    for (const operations of operationRoots) {
+        if (!await pathExists(operations)) continue;
+        for (const entry of await readdir(operations, {withFileTypes: true})) {
+            if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+            const path = join(operations, entry.name);
+            const value = await readJson(path);
+            if (!value || typeof value !== "object") throw new Error(`Operation journal损坏：${path}`);
+            if ("schemaVersion" in value && (value.schemaVersion === 1 || value.schemaVersion === 2)) {
+                if ("phase" in value && value.phase === "committed") continue;
+                throw new Error(`发现未完成的Operation Journal v${String(value.schemaVersion)}，v3 Manager拒绝自动恢复：${path}\n请备份实例并人工核对Manifest、Product、数据库、Git和Compose状态。`);
+            }
+            const journal = migrateOperationJournal(value, path, roots);
+            if (!rootLocatorsEqual(journal.roots, roots)) {
+                throw new Error(`Operation journal的Root Locator与当前安装不一致：${path}`);
+            }
+            const existing = byId.get(journal.id);
+            if (existing) {
+                if (JSON.stringify(existing.journal) !== JSON.stringify(journal)) {
+                    throw new Error(`发现身份相同但内容不一致的Operation journal：${existing.path} / ${path}`);
+                }
+                duplicatePaths.set(journal.id, [...duplicatePaths.get(journal.id) ?? [], path]);
+                continue;
+            }
+            const candidate = {path, value: value as Record<string, unknown>, journal};
+            byId.set(journal.id, candidate);
+            candidates.push(candidate);
         }
-        let journal = migrateOperationJournal(value, path);
-        if ("schemaVersion" in value && (value.schemaVersion === 3 || value.schemaVersion === 4)) {
-            await writeJsonAtomic(path, journal);
-        }
+    }
+    for (const candidate of candidates) {
+        let {journal} = candidate;
+        const originalPath = candidate.path;
         if (!samePath(journal.root, root)) {
-            journal = rebaseMovedPortableCommit(journal, root, path);
+            journal = rebaseMovedPortableCommit(journal, root, originalPath);
+        }
+        const canonicalPath = operationJournalPath(journal);
+        if (candidate.value.schemaVersion !== 6 || !samePath(originalPath, canonicalPath)) {
+            await writeOperation(journal);
+            if (!samePath(originalPath, canonicalPath)) await rm(originalPath, {force: true});
+        }
+        for (const duplicatePath of duplicatePaths.get(journal.id) ?? []) {
+            if (!samePath(duplicatePath, canonicalPath)) await rm(duplicatePath, {force: true});
         }
         if (journal.phase === "committed") {
             const cleaned = await cleanupCommittedEffects(journal, journal.outcome === "success");
@@ -208,7 +254,7 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
         if (git) {
             const head = await repositoryRevision(root);
             if (head !== git.previousRevision && head !== git.targetRevision) {
-                throw new Error(`Git HEAD既不是Operation的previous也不是target，拒绝自动恢复：${head}\nOperation：${path}`);
+                throw new Error(`Git HEAD既不是Operation的previous也不是target，拒绝自动恢复：${head}\nOperation：${canonicalPath}`);
             }
             if (head === git.targetRevision && journal.nextManifest && journal.phase === "healthy") {
                 let nextJournal = journal;
@@ -235,7 +281,7 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
                 continue;
             }
             if (head === git.targetRevision) {
-                throw new Error(`Git HEAD已到target，但Operation尚未到达healthy commit point，拒绝自动提交Manifest：${path}`);
+                throw new Error(`Git HEAD已到target，但Operation尚未到达healthy commit point，拒绝自动提交Manifest：${canonicalPath}`);
             }
         }
         await rollbackOperation(journal);
@@ -249,9 +295,13 @@ export async function recoverInterruptedOperations(root: string): Promise<Instal
  * 恢复失败时同时保留原始错误，并阻止调用方清理 staging/backup；这些资产可能仍是
  * Journal 指向的 Product migration runner 或逐字节恢复依据。
  */
-export async function recoverFailedOperation(root: string, failure: unknown): Promise<void> {
+export async function recoverFailedOperation(
+    root: string,
+    failure: unknown,
+    roots?: InstallationRootLocators,
+): Promise<void> {
     try {
-        await recoverInterruptedOperations(root);
+        await recoverInterruptedOperations(root, roots);
     } catch (recoveryError) {
         throw new AggregateError(
             [failure, recoveryError],
@@ -306,7 +356,7 @@ async function cleanupCommittedEffects(journal: OperationJournal, includeRetired
             continue;
         }
         try {
-            await removePath(installationTarget(journal.root, effect.path));
+            await removePath(operationEffectTarget(journal, effect));
             changed = changed || effect.cleanupError !== undefined || effect.kind === "path-retire" && effect.state !== "applied";
             effects.push(effect.kind === "path-retire" ? {...effect, state: "applied", cleanupError: undefined} : {...effect, cleanupError: undefined});
         } catch (error) {
@@ -434,7 +484,7 @@ export async function rollbackOperation(initialJournal: OperationJournal): Promi
     for (const effect of [...journal.effects].reverse()) {
         if (effect.kind !== "path-create" || effect.owner === "state") continue;
         try {
-            await removePath(installationTarget(root, effect.path));
+            await removePath(operationEffectTarget(journal, effect));
         } catch (error) {
             const index = rollbackEffects.findIndex((candidate) => effectIdentity(candidate) === effectIdentity(effect));
             rollbackEffects[index] = {...effect, cleanupError: error instanceof Error ? error.message : String(error)};
@@ -473,13 +523,13 @@ export async function backupRuntimeWrappers(root: string, backupRoot: string): P
 }
 
 function writeOperation(journal: OperationJournal): Promise<void> {
-    return writeJsonAtomic(join(journal.root, ".deploy", "operations", `${journal.id}.json`), journal);
+    return writeJsonAtomic(operationJournalPath(journal), journal);
 }
 
 /** cleanup 全部成功后 Journal 已无恢复价值；只有具体 cleanupError 才保留重试依据。 */
 async function removeCleanJournal(journal: OperationJournal): Promise<void> {
     if (journal.effects.some((effect) => "cleanupError" in effect && effect.cleanupError)) return;
-    await rm(join(journal.root, ".deploy", "operations", `${journal.id}.json`), {force: true});
+    await rm(operationJournalPath(journal), {force: true});
 }
 
 /**
@@ -549,7 +599,7 @@ function samePath(left: string, right: string): boolean {
 function operationPathOwner(path: string): OperationPathOwner {
     const normalized = path.replaceAll("\\", "/");
     if (normalized.startsWith(".deploy/staging/")) return "staging";
-    if (normalized.startsWith(".deploy/backups/")) return "backup";
+    if (normalized.startsWith(".deploy/backups/") || normalized.startsWith("manager-state/backups/")) return "backup";
     if (normalized === "node_modules") return "source";
     if (normalized.startsWith(".runtime/bun/")) return "runtime";
     if (normalized.startsWith(".runtime/tools/")) return "tool";
@@ -558,6 +608,31 @@ function operationPathOwner(path: string): OperationPathOwner {
     const launchers = new Set(["Start Neuro Book.cmd", "Start Neuro Book.ps1", "Update Neuro Book.cmd", "Update Neuro Book.ps1", "Create Admin.cmd", "Create Admin.ps1"]);
     if (launchers.has(normalized)) return "portable-launcher";
     throw new Error(`无法从固定Installation布局确定Effect owner：${path}`);
+}
+
+function operationBackupEffectPath(input: OperationInput): string {
+    const paths = installationPaths(input.root, input.roots);
+    const relativeBackup = relative(paths.managerState, resolve(input.backupRoot)).replaceAll("\\", "/");
+    if (paths.managerState === paths.deploy) {
+        return relative(input.root, input.backupRoot).replaceAll("\\", "/");
+    }
+    return `manager-state/${relativeBackup}`;
+}
+
+function operationJournalPath(journal: OperationJournal): string {
+    const paths = installationPaths(journal.root, journal.roots);
+    return join(paths.operations, `${journal.id}.json`);
+}
+
+function operationEffectTarget(
+    journal: OperationJournal,
+    effect: Extract<OperationEffect, {kind: "path-create" | "path-retire"}>,
+): string {
+    if (effect.kind === "path-create" && effect.owner === "backup" && effect.path.startsWith("manager-state/")) {
+        const paths = installationPaths(journal.root, journal.roots);
+        return installationTarget(paths.managerState, effect.path.slice("manager-state/".length));
+    }
+    return installationTarget(journal.root, effect.path);
 }
 
 function upsertEffect(effects: OperationEffect[], effect: OperationEffect): OperationEffect[] {
