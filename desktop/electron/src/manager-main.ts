@@ -96,6 +96,15 @@ export async function runManagerGui(): Promise<void> {
             sandbox: true,
         },
     });
+    // Manager 是一次性独立入口，没有托盘或后台职责；无论用户点击窗口关闭
+    // 还是页面内“退出”，都由同一个幂等入口结束 Electron 进程。
+    let quitRequested = false;
+    const quitManager = (): void => {
+        if (quitRequested) return;
+        quitRequested = true;
+        app.quit();
+    };
+    window.once("closed", quitManager);
     const managerPageUrl = pathToFileURL(resolve(import.meta.dirname, "manager.html")).href;
     installManagerNavigationGuards(window, managerPageUrl);
     ipcMain.handle("manager:choose-depot", async (event, sourceKind: ManagerGuiLocalSourceKind) => {
@@ -157,7 +166,7 @@ export async function runManagerGui(): Promise<void> {
     });
     ipcMain.on("manager:quit", (event) => {
         assertManagerFrame(event, window, managerPageUrl);
-        window.close();
+        quitManager();
     });
     await window.loadURL(managerPageUrl);
     window.show();

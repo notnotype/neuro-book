@@ -19,6 +19,9 @@ describe("Manager GUI shared Electron payload contract", () => {
         expect(manager).toContain("event.sender !== window.webContents");
         expect(manager).toContain("event.senderFrame !== window.webContents.mainFrame");
         expect(manager).toContain('"manager:run"');
+        expect(manager).toContain('window.once("closed", quitManager)');
+        expect(manager).toContain('"manager:quit"');
+        expect(manager).toContain("quitManager()");
         expect(preload).toContain("contextBridge.exposeInMainWorld");
         expect(preload).toContain('"manager:open-logs"');
         expect(manager).toContain("AUTH_ADMIN_PASSWORD: undefined");
