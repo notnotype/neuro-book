@@ -121,7 +121,9 @@ PR #88 在 `339853fb` 上 push 后 CI 有 5 项必检 fail，已修复并推送 
 - `packages/neuro-book-manager/vitest.config.ts`：改用独立 esbuild transform（`oxc: false`），消除 CI 无 `.nuxt/tsconfig.json` 时 transform `server/config/boot-config.ts` 的 `TSCONFIG_ERROR`；与 `desktop-contract-vitest.config.ts` 先例一致。
 - `.github/workflows/code-baseline.yml`：typecheck job 增加 `bun install --cwd desktop/electron --frozen-lockfile`，修复 CI 上 `Cannot find module 'electron'`。
 
-修复后必检全部通过：windows-x64/macos-x64/macos-arm64 desktop contracts、linux-x64/aarch64/darwin-x64/aarch64 Product、Typecheck (advisory)、Community files and docs。`Full tests (advisory)` 仍为既有 Harness 黑盒 30 秒超时基线（见下方历史 checkpoint 记录，`e5ec1534` 时代已存在），PR diff 不包含相关测试文件，本轮重跑两次失败组合漂移，判定与桌面改动无关。该提交不改动 server、desktop/shared 业务代码和 Manager 业务源码，Product image `sha256:c5f208...`、Electron Portable/Depot 的 digest 与 final acceptance 证据保持有效。
+修复后必检全部通过：windows-x64/macos-x64/macos-arm64 desktop contracts、linux-x64/aarch64/darwin-x64/aarch64 Product、Typecheck (advisory)、Community files and docs。`Full tests (advisory)` 仍为既有 Harness 黑盒 30 秒超时基线（见下方历史 checkpoint 记录，`e5ec1534` 时代已存在），PR diff 不包含相关测试文件，本轮重跑两次失败组合漂移，判定与桌面改动无关，已另开 [Issue #90](https://github.com/notnotype/neuro-book/issues/90) 单独治理。该提交不改动 server、desktop/shared 业务代码和 Manager 业务源码，Product image `sha256:c5f208...`、Electron Portable/Depot 的 digest 与 final acceptance 证据保持有效。
+
+Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandbox-acceptance/`：宿主机准备脚本、`.wsb` 映射配置、Sandbox 内分阶段验收脚本与 README），宿主机输入目录已生成；该路径含 Sandbox 内 UAC 交互与删除数据操作，等待用户在场执行。
 
 ### 历史 checkpoint（重建前基线，不代表当前包）
 
