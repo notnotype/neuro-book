@@ -243,7 +243,7 @@ async function runManagerCli(
             ...(providerTest ? {providerTest} : {}),
         };
     } catch (error) {
-        await lease.terminate("manager-output-failure").catch(() => undefined);
+        await lease.terminate("abort").catch(() => undefined);
         await lease.completion.catch(() => undefined);
         await Promise.allSettled(drains);
         throw error;

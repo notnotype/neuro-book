@@ -18,7 +18,9 @@ describe("Electron startup recovery contract", () => {
         expect(source).toContain("startupFallbackConfig");
         expect(source).toContain("await createInteractiveWindow(config)");
         expect(source).toContain("recoverStartup(config, configError)");
-        expect(source).toContain("await closeApplication({kind: \"electron-startup-failure\"");
+        expect(source).toContain("await closeApplication(() => ({");
+        expect(source).toContain("kind: \"electron-startup-failure\"");
+        expect(source).not.toContain("await closeApplication({kind: \"electron-startup-failure\"");
         expect(source).toContain("await openManagerGui(config)");
         expect(source).toContain('ipcMain.on("neurobook:desktop:startup-action"');
         expect(startup).toContain('data-action="repair">打开 Manager 修复');

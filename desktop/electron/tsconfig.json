@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "baseUrl": "../..",
+        "paths": {
+            "nbook/*": [
+                "./*"
+            ]
+        },
+        "strict": true,
+        "skipLibCheck": true,
+        "noEmit": true
+    },
+    "files": [
+        "src/main.ts",
+        "src/preload.ts",
+        "src/manager-main.ts",
+        "src/manager-preload.ts"
+    ]
+}

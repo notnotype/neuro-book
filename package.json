@@ -26,7 +26,7 @@
     "system-assets:prepare": "bun scripts/build/prepare-system-assets.ts",
     "system-assets:typegen": "bun scripts/build/generate-profile-variable-types.ts",
     "profile:metadata": "bun scripts/build/prepare-system-assets.ts",
-    "typecheck": "nuxt typecheck --dotenv .env.typecheck --logLevel silent",
+    "typecheck": "nuxt typecheck --dotenv .env.typecheck --logLevel silent && bun run --cwd desktop/electron typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

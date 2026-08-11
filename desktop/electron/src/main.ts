@@ -1067,7 +1067,11 @@ async function main(): Promise<void> {
     if (!headless) await createInteractiveWindow(config);
     while (configError) {
         if (!await recoverStartup(config, configError)) {
-            await closeApplication({kind: "electron-startup-failure", reason: configError.message});
+            const reason = configError.message;
+            await closeApplication(() => ({
+                kind: "electron-startup-failure",
+                reason,
+            }));
             return;
         }
         try {

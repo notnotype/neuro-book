@@ -74,7 +74,7 @@ export type ManagerGuiOperation =
     | {kind: "test-provider"; provider: ManagerGuiProviderInput};
 
 export function validateManagerOperation(input: unknown): ManagerGuiOperation {
-    if (!input || typeof input !== "object" || typeof input.kind !== "string") {
+    if (!input || typeof input !== "object" || !("kind" in input) || typeof input.kind !== "string") {
         throw new Error("Manager GUI 操作无效。");
     }
     const value = input as ManagerGuiOperation;

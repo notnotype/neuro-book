@@ -20,13 +20,23 @@ export type InstalledRootEnvironment = {
     HOME?: string;
 };
 
+function currentInstalledRootEnvironment(): InstalledRootEnvironment {
+    return {
+        LOCALAPPDATA: process.env.LOCALAPPDATA,
+        ProgramFiles: process.env.ProgramFiles,
+        SystemDrive: process.env.SystemDrive,
+        USERPROFILE: process.env.USERPROFILE,
+        HOME: process.env.HOME,
+    };
+}
+
 /**
  * Installed roots are the only roots that may consume a user-scoped
  * Installation Manifest. Portable roots intentionally have no manifest.
  */
 export function isCanonicalInstalledRoot(
     root: string,
-    environment: InstalledRootEnvironment = process.env,
+    environment: InstalledRootEnvironment = currentInstalledRootEnvironment(),
 ): boolean {
     const localAppData = environment.localAppData
         ?? environment.LOCALAPPDATA
@@ -57,7 +67,7 @@ export function isCanonicalInstalledRoot(
 export function requireInstalledManifest(
     root: string,
     desktopRoot: string,
-    environment: InstalledRootEnvironment = process.env,
+    environment: InstalledRootEnvironment = currentInstalledRootEnvironment(),
 ): DesktopInstallationManifest | null {
     if (!isCanonicalInstalledRoot(root, environment)) return null;
     const manifestPath = join(desktopRoot, "desktop-installation.json");
