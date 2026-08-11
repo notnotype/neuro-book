@@ -20,9 +20,12 @@ function Wait-NeuroBookInstalled {
     param([int]$TimeoutSeconds = 900)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     while ((Get-Date) -lt $deadline) {
-        $manifest = "C:\Program Files\NeuroBook\desktop\desktop-installation.json"
+        $installationManifest = "C:\Program Files\NeuroBook\.deploy\installation.json"
+        $desktopManifest = Join-Path $env:LOCALAPPDATA "NeuroBook\desktop\desktop-installation.json"
         $wrapper = "C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd"
-        if ((Test-Path -LiteralPath $manifest -PathType Leaf) -and (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
+        if ((Test-Path -LiteralPath $installationManifest -PathType Leaf) `
+                -and (Test-Path -LiteralPath $desktopManifest -PathType Leaf) `
+                -and (Test-Path -LiteralPath $wrapper -PathType Leaf)) {
             return
         }
         Start-Sleep -Seconds 5
@@ -109,7 +112,8 @@ Write-Host "安装完成后本脚本继续（自动等待，最长 15 分钟）�
 Wait-NeuroBookInstalled
 Add-Event "machine-installed" @{
     programRoot = "C:\Program Files\NeuroBook"
-    manifest = Test-Path -LiteralPath "C:\Program Files\NeuroBook\desktop\desktop-installation.json"
+    installationManifest = Test-Path -LiteralPath "C:\Program Files\NeuroBook\.deploy\installation.json"
+    desktopManifest = Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA "NeuroBook\desktop\desktop-installation.json")
     wrapper = Test-Path -LiteralPath "C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd"
 }
 
@@ -140,7 +144,17 @@ try {
     $configured = Invoke-ProviderCli @("desktop", "configure-provider", "--stdin-json", "--json")
     $configuredText = ($configured | Out-String)
     if ($configuredText -match "sandbox-secret-key") { throw "configure-provider 输出泄漏 API Key。" }
-    Add-Event "provider-configured" @{secretLeaked = ($configuredText -match "sandbox-secret-key")}
+    $stateConfig = Join-Path $env:LOCALAPPDATA "NeuroBook\data\workspace\.nbook\config.json"
+    if (-not (Test-Path -LiteralPath $stateConfig -PathType Leaf)) {
+        throw "configure-provider 未写入 State Root config.json：$stateConfig"
+    }
+    $configText = Get-Content -LiteralPath $stateConfig -Raw
+    if ($configText -notmatch "sandbox-fake") { throw "State Root config.json 缺少 providerId=sandbox-fake。" }
+    Add-Event "provider-configured" @{
+        secretLeaked = ($configuredText -match "sandbox-secret-key")
+        stateConfigWritten = $true
+        providerIdPresent = ($configText -match "sandbox-fake")
+    }
 } finally {
     Stop-Process -Id $fakeServer.Id -Force -ErrorAction SilentlyContinue
 }
