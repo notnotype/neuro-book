@@ -1,53 +1,208 @@
 {
-    "schema": "nbook.task-145-final-acceptance/v1",
-    "evidenceRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\t145-final-machine-runtime-e28b3b3175ef45ca941b82c8e155c695",
+    "schema": "nbook.task-145-final-acceptance/v2",
+    "updatedAt": "2026-08-12",
+    "scope": "当前最终包单一证据；历史 checkpoint 只保留在 walkthrough 时间线。路径使用逻辑 locator 或仓库相对路径，不含本机用户名与 Secret。",
     "source": {
-        "revision": "30e9dfe32e37fc8ef0e31ab942e2019c2091cf36",
-        "sourceDigest": "sha256:8a50d060489a43e0c29b9d240a0a8f9eae334a9ded49f353a90ef9964711654b",
-        "productImageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
-        "treeDigest": "sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca",
-        "shapeDigest": "sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7",
-        "product": {
-            "files": 3241,
-            "bytes": 134016681,
-            "builds": 2,
-            "identityStable": true
-        }
+        "revision": "339853fb65a972854fc33d6e3b1b9fcdb92cdb36",
+        "sourceDigest": "sha256:25245d6b75ec63291b9bcac3231c225f20450584c5bae534aaaeb32305bd566b",
+        "lockfileSha256": "sha256:2fe27b0edf74c1738aa657fcbb9d797d6122daf356dbd17b8d6c6e8e50fea922",
+        "dirty": false
+    },
+    "product": {
+        "imageId": "sha256:c5f208754125491af2a0d7f61c53144df3dee79e489f55be373eed9f5c0f30dc",
+        "treeDigest": "sha256:16815e871d54a260fcbab2054d03f78cd7111e0510b85f9b56cd6ffcded7574a",
+        "shapeDigest": "sha256:84efc1ecdbdada7bcf9db8e2f3895118cfc7efcd0f304c8de3f346ec525c495a",
+        "contractSchema": "nbook.product-runtime-contract/v5",
+        "files": 3241,
+        "bytes": 134016722,
+        "builds": 2,
+        "identityStable": true,
+        "manifestEqualIgnoringCreatedAt": true,
+        "independentOpenSelfVerified": true,
+        "productStartWrapper": "server/commands/product-start.mjs"
     },
     "portable": {
-        "electron": {
-            "payloadFiles": 9608,
-            "payloadBytes": 985681595,
-            "payloadDigest": "sha256:308e68244ad1c069050769a9b2b34f35c01bdd3a749c47492ca5e49d055c5b50",
-            "archiveBytes": 389371963,
-            "sha256": "sha256:bea3dce8ee3d8e6de58607eea8dca5cd96eefeb7bbbeaed2c59e207395751cfe"
+        "electronPortableZip": {
+            "name": "neuro-book-electron-portable-win-x64.zip",
+            "bytes": 389512576,
+            "sha256": "sha256:2c67e58b2943ab4d797b23c917f453a505dca72275e93d616cc297049abffd79"
         },
-        "tauri": {
-            "payloadFiles": 9531,
-            "payloadBytes": 630992345,
-            "payloadDigest": "sha256:0d08b27af903dac44dbadd3161436007db64a901054908e63cd952be2d72fce0",
-            "archiveBytes": 243596394,
-            "sha256": "sha256:dc7b3cd66c99f47d571fe8c1a6bd7fbcf270054ec0b9300227c48720cab40990",
-            "uiAcceptance": "not-run"
+        "desktopDepotZip": {
+            "name": "neuro-book-desktop-depot-win-x64.zip",
+            "bytes": 386895036,
+            "sha256": "sha256:968cba7440921c7c2ab54e278b1619285900346047f18f0b96f836eef709ac1a"
         },
-        "aggregateDepot": {
-            "payloadFiles": 7,
-            "payloadBytes": 632984073,
-            "archiveBytes": 627874804,
-            "sha256": "sha256:d1dc513af53ee562ac5f111aa243dac3d3e964eb5c436f33213e4fb61209bb82"
+        "channel": "canary",
+        "fixedInputs": {
+            "managerBundleSha256": "sha256:1d59588282802dfb4c9bd2e07ef0f20d5df89480d8e8b49f136563855b18d2f7",
+            "electronMainSha256": "sha256:71137d559d53d523186b0bda207bfbd188a9c59f1ee16d18e32f8a74f4e232c4",
+            "managerMainSha256": "sha256:cfcf4693dc1230b2b644a96b1acda9a94f00ee91afeb0c99049ea7bbb346f80b",
+            "bunSha256": "sha256:0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c",
+            "bunVersion": "1.3.14",
+            "electronVersion": "43.2.0"
         },
         "repeatPackaging": {
             "runs": 2,
             "sameVerifiedProductImage": true,
-            "payloadShapeStable": true,
+            "fixedPayloadFilesByteIdentical": true,
             "archivesByteIdentical": true
+        },
+        "tauri": {
+            "status": "contract-and-history-only",
+            "visibleUi": "not-run",
+            "productionRepackage": "not-run"
         }
     },
-    "checks": {
+    "portableAcceptance": {
+        "extractedRoot": "C:\\Users\\Public\\Documents\\NeuroBookAcceptance\\t145-339853fb",
+        "ancestorWithoutNodeModules": true,
+        "hostileNodePath": true,
+        "isolatedLocalAppData": true,
+        "openSelfVerified": true,
+        "headlessGraceful": {
+            "exitCode": 0,
+            "shutdown": "graceful",
+            "elapsedMs": 13512.12,
+            "portAndProcessClosed": true
+        },
+        "headlessForced": {
+            "exitCode": 0,
+            "shutdown": "forced",
+            "elapsedMs": 4202.86,
+            "portAndProcessClosed": true
+        },
+        "managerGuiHeadless": {
+            "exitCode": 0,
+            "ready": "manager-gui-ready"
+        }
+    },
+    "hostMachine": {
+        "stateRoot": {
+            "locator": "local-app-data/NeuroBook/data",
+            "bootConfigSha256": "F104B5E7CA77E9F2A0630A6B152BB03620B6DA4DEECED8D6E97AD4D7D68CB975",
+            "preservedAcrossAllPhases": true
+        },
+        "uninstallOldMachine": {
+            "installationId": "727f8652-c25c-4396-9791-7f9c7efdcc09",
+            "scope": "machine",
+            "uac": "approved",
+            "exitCode": 0,
+            "programRootRemoved": true,
+            "hklmUninstallRemoved": true,
+            "protocolRemoved": true,
+            "publicShortcutRemoved": true,
+            "launcherRootRemoved": true,
+            "manifestRemoved": true,
+            "stateRootPreserved": true
+        },
+        "installCurrentDepot": {
+            "installationId": "e9ccfc62-b325-4e9d-9276-10106f148b67",
+            "scope": "machine",
+            "uac": "approved",
+            "manifestSchema": "nbook.desktop-installation/v3",
+            "locatorSchema": "nbook.desktop-installation-runtime/v1",
+            "programRoot": "Program Files/NeuroBook",
+            "hklmUninstallCreated": true,
+            "startMenuCreated": true,
+            "publicShortcutCreated": true,
+            "protocolRegistered": true,
+            "migration": "checked",
+            "health": "ready",
+            "managerInstanceRegistered": true,
+            "stateRootReused": true,
+            "bootConfigUnchanged": true,
+            "productReceipt": {
+                "imageId": "sha256:c5f208754125491af2a0d7f61c53144df3dee79e489f55be373eed9f5c0f30dc",
+                "applicationSha256": "sha256:1360f1b2d7cff2ba415bda91fa77ab695ab51328321c3605522852b2d9772fb2"
+            }
+        },
+        "installedHeadless": {
+            "gracefulFirstStart": {
+                "exitCode": 0,
+                "shutdown": "graceful",
+                "elapsedMs": 25699.07,
+                "note": "cold start includes full verify/migration/health probe with one reconnect wait"
+            },
+            "gracefulWarmStart": {
+                "exitCode": 0,
+                "shutdown": "graceful",
+                "elapsedMs": 4718.07
+            },
+            "forced": {
+                "exitCode": 0,
+                "shutdown": "forced",
+                "elapsedMs": 4097.05
+            },
+            "portAndProcessClosed": true
+        },
+        "visibleCdp": {
+            "titleBar": {
+                "y": 0,
+                "height": 36
+            },
+            "pageRootTop": 36,
+            "oldHeaders": 0,
+            "backdropFilter": "none",
+            "bridge": "object",
+            "quitGraceful": true,
+            "exitCode": 0
+        },
+        "singleInstance": {
+            "secondExitCode": 0,
+            "protocolRequest": true,
+            "argumentCount": 1,
+            "eventObserved": "electron-second-instance"
+        },
+        "repair": {
+            "locatorRemoved": true,
+            "repairPageShown": true,
+            "repairPageUrl": "file:///.../app.asar/startup.html",
+            "repairPageText": "Installed Desktop 缺少 runtime-locators.json，请通过 Manager Repair 修复。",
+            "noPortableFallback": true,
+            "repairUac": "approved",
+            "locatorRestoredSha256": "D52F628A8AAEDF9CFA4C1F974085C6995DA551931237264CF1B81F6A08ED7244",
+            "restartAfterRepair": "passed"
+        },
+        "uninstallCurrentMachine": {
+            "uac": "approved",
+            "exitCode": 0,
+            "programRootRemoved": true,
+            "hklmUninstallRemoved": true,
+            "protocolRemoved": true,
+            "publicShortcutRemoved": true,
+            "launcherRootRemoved": true,
+            "runRootRemoved": true,
+            "manifestRemoved": true,
+            "stateRootPreserved": true,
+            "bootConfigUnchanged": true,
+            "residue": "empty Start Menu Programs/NeuroBook directory remains; uninstall removes .lnk files but not the empty directory"
+        }
+    },
+    "provider": {
+        "scope": "local loopback fake /models service",
+        "testProvider": {
+            "ok": true,
+            "status": 200,
+            "discoverySupported": true,
+            "models": ["fake-model-a", "fake-model-b"]
+        },
+        "configureProvider": {
+            "providerId": "fake-local",
+            "modelKey": "fake-local/fake-model-a",
+            "target": "State Root/workspace/.nbook/config.json"
+        },
+        "secretHygiene": {
+            "apiKeyNotInArgv": true,
+            "apiKeyNotInEnv": true,
+            "apiKeyNotInLogs": true,
+            "apiKeyOnlyInStateRootConfig": true
+        }
+    },
+    "gates": {
         "managerTests": {
             "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 299,
+            "testsPassed": 326,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -55,435 +210,25 @@
             "testsPassed": 1
         },
         "desktopContract": {
-            "filesPassed": 11,
-            "testsPassed": 40
+            "filesPassed": 16,
+            "testsPassed": 57
         },
         "managerTypecheck": "passed",
         "rootTypecheck": "passed",
-        "settingsContract": {
-            "filesPassed": 2,
-            "testsPassed": 5,
-            "scope": "统一 Dialog full 预设、遮罩和 Profile 导航滚动预算"
-        },
         "electronBundle": "passed",
-        "productImageVerifierAB": "passed",
-        "portablePayloadVerifier": "passed",
-        "pullRequest88Ci": {
-            "head": "e5ec153421ada0992e31756c75cd0dee8fc8d136",
-            "passed": [
-                "windows-x64 desktop contracts",
-                "linux-x64-glibc Product",
-                "linux-aarch64-glibc Product",
-                "darwin-x64 Product",
-                "darwin-aarch64 Product",
-                "macos-x64 desktop contracts",
-                "macos-arm64 desktop contracts",
-                "Typecheck (advisory)",
-                "Community files and docs"
-            ],
-            "requiredChecksPassed": true,
-            "allChecksPassed": false,
-            "advisory": {
-                "name": "Full tests (advisory)",
-                "status": "failed",
-                "passedFiles": 494,
-                "skippedFiles": 3,
-                "failedTests": [
-                    "server/agent/harness/neuro-agent-harness.black-box.test.ts > Running provider 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果",
-                    "server/agent/harness/neuro-agent-harness.black-box.test.ts > 外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用"
-                ],
-                "retryObservedFailures": [
-                    "server/agent/harness/neuro-agent-harness.test.ts > rename 命令锁定标题后 summarizer 只更新 summary，summarize 命令解锁并立即重跑：ENOTEMPTY 清理竞态"
-                ],
-                "scope": "既有 Harness 黑盒/清理基线，不涉及 Electron 壳或本轮文档变更。"
-            }
-        },
-        "installedManifestGate": {
-            "status": "passed",
-            "testsPassed": 2,
-            "scope": "canonical Installed root 缺失、损坏或 scope 不一致时 fail closed"
-        },
-        "followUpRepackaging": {
-            "productImageId": "sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813",
-            "runs": 2,
-            "archivesByteIdentical": true,
-            "outputRoots": [
-                "C:\\t145-followup-6316375e-desktop-f",
-                "C:\\t145-followup-6316375e-desktop-g"
-            ],
-            "electron": {
-                "payloadFiles": 9608,
-                "payloadBytes": 985666351,
-                "archiveBytes": 389368150,
-                "sha256": "sha256:873cdd7c94bb51171b7ee3c767517f9bbf2c20bc2929d15e5ccf9630e34c74b9"
-            },
-            "tauri": {
-                "archiveBytes": 243586839,
-                "sha256": "sha256:6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23",
-                "uiAcceptance": "not-run"
-            },
-            "aggregateDepot": {
-                "payloadFiles": 7,
-                "payloadBytes": 632970705,
-                "archiveBytes": 627862215,
-                "sha256": "sha256:2431dd7ab04c914335eafd822c3b5ecd436086f819844c5fe737cbab101bb5f5"
-            }
-        },
-        "portableHeadless": {
-            "passed": true,
-            "nodePath": "invalid external path",
-            "productRuntimeContract": "nbook.product-runtime-contract/v5",
-            "gracefulShutdown": true,
-            "processTreeClosed": true
-        },
-        "followUpPortableHeadless": {
-            "portableRoot": "C:\\t145-followup-6316375e-portable-smoke-f",
-            "productImageId": "sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813",
-            "nodePath": "C:\\t145-invalid-node-path",
-            "managerGuiHeadless": true,
-            "productReadyPort": 54358,
-            "shutdown": "forced",
-            "processTreeClosed": true
-        },
-        "managerGuiHeadless": "passed",
-        "followUpManagerGuiCdp": {
-            "url": "file:///C:/t145-followup-6316375e-portable-smoke-f/desktop/resources/app.asar/manager.html",
-            "stateRootControl": true,
-            "installationScopeControl": true,
-            "providerControl": true,
-            "deleteDataControl": true,
-            "closedProcessTree": true
-        },
-        "userInstallUninstall": {
-            "passed": true,
-            "installationManifestSchema": "nbook.desktop-installation/v3",
-            "runtimeLocatorSchema": "nbook.desktop-installation-runtime/v1",
-            "stateRootPreserved": true,
-            "cacheRootRemoved": true,
-            "desktopRootRemoved": true,
-            "installationRootRemoved": true
-        },
-        "currentCheckpointUserInstall": {
-            "status": "passed",
-            "installationScope": "user",
-            "sourceRevision": "8edef0f2348611abcfc312d6a2efa8603cb1797e",
-            "installationManifestSchema": "nbook.desktop-installation/v3",
-            "runtimeLocatorSchema": "nbook.desktop-installation-runtime/v1",
-            "portableHeadless": "passed",
-            "statusJson": "passed",
-            "uninstall": {
-                "exitCode": 0,
-                "result": "ok",
-                "stateRootPreserved": true,
-                "cacheRootRemoved": true,
-                "desktopRootRemoved": true,
-                "installationRootRemoved": true
-            },
-            "sandbox": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\t145-current-user-install-8edef0f2"
-        },
-        "currentCheckpointDeleteDataUninstall": {
-            "status": "passed",
-            "installationScope": "user",
-            "installExitCode": 0,
-            "uninstallExitCode": 0,
-            "stateRootPreserved": false,
-            "programRootRemoved": true,
-            "cacheRootRemoved": true,
-            "desktopRootRemoved": true,
-            "resultOk": true,
-            "sandbox": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\t145-current-user-delete-data-8edef0f2"
-        },
-        "currentCheckpointMachineInstallWithoutElevation": {
-            "status": "passed",
-            "behavior": "fail-closed",
-            "exitCode": 1,
-            "stateRootTouched": false,
-            "message": "全局安装需要管理员权限写入 C:\\Program Files"
-        },
-        "currentCheckpointProviderMatrix": {
-            "systemApplicationRuntimeManagedTools": {
-                "status": "passed",
-                "applicationRuntime": "system",
-                "managerRuntime": "managed",
-                "git": "managed",
-                "rg": "managed",
-                "globalPathMutation": false
-            },
-            "systemAll": {
-                "status": "fail-closed",
-                "message": "Git Bash 未返回版本信息。",
-                "partialManifestWritten": false
-            }
-        },
-        "machineInstallWithoutElevation": {
-            "passed": true,
-            "behavior": "fail-closed",
-            "message": "全局安装需要管理员权限写入 C:\\Program Files"
-        },
-        "machineInstallCurrentFinalPackage": {
-            "status": "blocked-by-existing-user-state",
-            "attempted": true,
-            "installationScope": "machine",
-            "programRoot": "C:\\Program Files\\NeuroBook",
-            "message": "Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖",
-            "stateRootTouched": false,
-            "programRootCreated": false,
-            "uacBrokerCompleted": false,
-            "reason": "当前登录用户的 %LOCALAPPDATA%\\NeuroBook\\data 已存在，安装事务按 fail-closed 合同拒绝接管；本轮没有移动、删除或覆盖用户数据。"
-        },
-        "followUpMachineScopeUac": {
-            "managerUninstall": {
-                "status": "passed",
-                "managerRevision": "6e7696db6fc3abdb0ddde5e90b775743bafd1cf4",
-                "installationManifestSchema": "nbook.desktop-installation/v3",
-                "installationRoot": "C:\\Program Files\\NeuroBook",
-                "resultPath": "C:\\Users\\notnotype\\AppData\\Local\\NeuroBook\\uninstall-results\\e247f891-97f5-4d04-9ae4-5205543fb947.json",
-                "hostResult": {
-                    "ok": true,
-                    "token": "e247f891-97f5-4d04-9ae4-5205543fb947"
-                },
-                "programRootRemoved": true,
-                "cacheRootRemoved": true,
-                "desktopRootRemoved": true,
-                "stateRootPreserved": true,
-                "hklmRegistrationRemoved": true,
-                "scope": "existing machine install from pre-follow-up depot; validates current Manager uninstall/UAC Host"
-            },
-            "legacyDepotMachineInstall": {
-                "status": "installed-then-uninstalled",
-                "managerRevision": "7654e997",
-                "installationScope": "machine",
-                "installationManifestSchema": "nbook.desktop-installation/v3",
-                "installationId": "56535935-a442-4948-8996-09611e18fc2c",
-                "installationRoot": "C:\\Program Files\\NeuroBook",
-                "productImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
-                "installUac": "passed",
-                "applicationStartup": {
-                    "status": "incomplete",
-                    "logPath": "C:\\Users\\notnotype\\AppData\\Local\\NeuroBook\\data\\logs\\desktop-envelope-current.jsonl",
-                    "lastStage": "electron-product-spawned",
-                    "missingStages": [
-                        "product-ready",
-                        "bridge-ready",
-                        "window-ready"
-                    ]
-                },
-                "externalLauncherUninstall": {
-                    "status": "program-removed-launcher-residue-observed",
-                    "programRootRemoved": true,
-                    "cacheRootRemoved": true,
-                    "desktopRootRemoved": true,
-                    "hklmRegistrationRemoved": true,
-                    "protocolRegistrationRemoved": true,
-                    "stateRootPreserved": true,
-                    "bootConfigPreserved": true,
-                    "hostReceiptObserved": false,
-                    "launcherRootRemoved": false,
-                    "followUpFix": "4a40b554",
-                    "followUpFixFocusedTest": "packages/neuro-book-manager/src/desktop-installation.test.ts"
-                },
-                "scope": "current Manager GUI/UAC helper with legacy depot payload; not evidence for current final Product image"
-            },
-            "currentDepotInstall": {
-                "status": "uac-cancelled",
-                "scope": "machine",
-                "programRoot": "C:\\Program Files\\NeuroBook",
-                "stateRootTouched": false,
-                "programRootCreated": false,
-                "stdout": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\machine-uac-install.stdout.log",
-                "stderr": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\.worktree\\i87-t145-electron-productization\\.agent\\tmp\\machine-uac-install.stderr.log",
-                "message": "Windows UAC 提升被取消；安装事务未启动。",
-                "managerGuiCdp": {
-                    "status": "observed",
-                    "remoteDebuggingPort": 9228,
-                    "eventSequence": [
-                        {
-                            "kind": "stage",
-                            "stage": "starting"
-                        },
-                        {
-                            "kind": "process-exit",
-                            "exitCode": null,
-                            "signal": "uac-cancelled"
-                        },
-                        {
-                            "kind": "failure",
-                            "code": "uac-cancelled",
-                            "message": "UAC 未批准或提升进程未连接，操作未执行。"
-                        }
-                    ],
-                    "programRootCreated": false
-                }
-            }
-        },
-        "historicalBeforeFollowUpMachineScopeUac": {
-            "status": "passed-before-follow-up",
-            "installationManifestSchema": "nbook.desktop-installation/v2",
-            "installationScope": "machine",
-            "programRoot": "C:\\Program Files\\NeuroBook",
-            "stateRootPreserved": true,
-            "registrationRemoved": true,
-            "publicShortcutsRemoved": true,
-            "notReRunWithCurrentImage": true,
-            "notEvidenceForCurrentFinalPackage": true
-        }
-    },
-    "startupObserved": {
-        "headlessRuns": 11,
-        "headlessReadyMs": 4209.8,
-        "headlessGracefulShutdown": true,
-        "coldWarmFiveRunSeries": {
-            "cold": {
-                "runs": 5,
-                "productReadyMs": {
-                    "average": 4209.23,
-                    "minimum": 3985.97,
-                    "maximum": 4793.56
-                },
-                "wallMs": {
-                    "average": 4553.18,
-                    "minimum": 4249.46,
-                    "maximum": 5094.57
-                },
-                "allGraceful": true
-            },
-            "warm": {
-                "runs": 5,
-                "productReadyMs": {
-                    "average": 4262.34,
-                    "minimum": 4083.78,
-                    "maximum": 4331.78
-                },
-                "wallMs": {
-                    "average": 4504.56,
-                    "minimum": 4338.9,
-                    "maximum": 4568.04
-                },
-                "allGraceful": true
-            }
-        },
-        "visibleCdp": {
-            "startupPageObserved": true,
-            "titleBar": {
-                "top": 0,
-                "height": 36
-            },
-            "contentTop": 36,
-            "projectCreated": true,
-            "agentPanelOpened": true,
-            "dialogOverlay": "black-translucent-no-blur",
-            "settingsDialog": {
-                "size": "full",
-                "width": 1120,
-                "height": 640,
-                "backdropFilter": "none",
-                "overlayBackground": "rgba(0, 0, 0, 0.5)"
-            },
-            "quitGraceful": true,
-            "processTreeClosed": true
-        }
-    },
-    "provider": {
-        "offlineTestWarning": true,
-        "apiKeyClearedAfterTest": true,
-        "onlineSuccess": "not-run"
-    },
-    "nativeInteractionFollowUp": {
-        "status": "partial",
-        "script": "scripts/deploy/electron-native-acceptance.ts",
-        "evidenceRoots": [
-            ".agent/tmp/native-acceptance-evidence",
-            ".agent/tmp/native-acceptance-file-dialog"
-        ],
-        "testedEnvelope": "current branch desktop/electron/dist/main.mjs",
-        "testedProductRoot": ".agent/tmp/t145-uac-candidate-extracted",
-        "testedProductImageId": "sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf",
-        "tray": {
-            "installed": true,
-            "iconEmpty": false
-        },
-        "window": {
-            "before": "1280x840 at (80,80)",
-            "maximized": "2576x1408 at (-8,-8)",
-            "restored": "1280x840 at (80,80)",
-            "maximizable": true
-        },
-        "fileDialog": {
-            "fileInputCount": 1,
-            "accept": "image/png,image/jpeg,image/webp",
-            "fileChooserEvent": "observed",
-            "visibleWindowsFileChooser": "not-run"
-        },
-        "snapLayoutFlyout": "not-run"
-    },
-    "latestRebuild": {
-        "commit": "30e9dfe32e37fc8ef0e31ab942e2019c2091cf36",
-        "product": {
-            "buildA": {
-                "path": ".agent/tmp/t145-product-a-machine-runtime-d5f459aacb4942b29fea5fa52ec2b51a/.output",
-                "imageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
-                "files": 3241,
-                "bytes": 134016681
-            },
-            "buildB": {
-                "path": ".agent/tmp/t145-product-b-machine-runtime-307a2531823c4b6abdd5f8da5435b90c/.output",
-                "imageId": "sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65",
-                "files": 3241,
-                "bytes": 134016681
-            },
-            "identityStable": true,
-            "treeDigest": "sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca",
-            "shapeDigest": "sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7",
-            "manifestEqualIgnoringCreatedAt": true,
-            "productStartWrapper": "server/commands/product-start.mjs"
-        },
-        "portable": {
-            "buildA": ".agent/tmp/t145-final-machine-runtime-e28b3b3175ef45ca941b82c8e155c695",
-            "buildB": ".agent/tmp/t145-final-machine-runtime-6a8fdbaae6994ba8bd7be5dde105730e",
-            "archivesByteIdentical": true,
-            "electronSha256": "sha256:bea3dce8ee3d8e6de58607eea8dca5cd96eefeb7bbbeaed2c59e207395751cfe",
-            "tauriSha256": "sha256:dc7b3cd66c99f47d571fe8c1a6bd7fbcf270054ec0b9300227c48720cab40990",
-            "aggregateSha256": "sha256:d1dc513af53ee562ac5f111aa243dac3d3e964eb5c436f33213e4fb61209bb82"
-        },
-        "headlessPortable": {
-            "root": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\.agent\\tmp\\t145-electron-final-extracted-65c865412f4343b795d969dadf0aee37",
-            "nodePath": "C:\\__neurobook_invalid_node_path__",
-            "electronHeadless": "passed",
-            "managerGuiHeadless": "passed",
-            "productReady": true,
-            "gracefulShutdown": true,
-            "processTreeClosed": true,
-            "managerRuntimeProjection": "not exercised by Portable; machine-specific projection remains pending"
-        },
-        "focused": {
-            "managerTests": "41 files / 299 passed / 3 skipped",
-            "managerTypecheck": "passed",
-            "desktopContract": "12 files / 44 passed",
-            "rootTypecheck": "passed",
-            "diffCheck": "passed",
-            "electronBundle": "passed"
-        },
-        "machineScope": {
-            "status": "blocked",
-            "reason": "Windows UAC secure-desktop consent was automatically cancelled in this session before the elevated Host connected.",
-            "existingProgramRoot": "C:\\Program Files\\NeuroBook",
-            "existingRootKind": "old Portable/test residue with nbook.desktop-portable/v1 manifest, not an installed v3 manifest",
-            "stateRootPreserved": true,
-            "currentFinalPackageInstallStarted": false,
-            "requiredNextAction": "A user-visible UAC approval in a clean State Root, followed by current Depot install, startup, Programs and Features uninstall, and receipt self-cleanup."
-        }
+        "packagingSecurityAudit": "passed",
+        "gitDiffCheck": "passed"
     },
     "notCovered": [
-        "follow-up final-package machine UAC install/repair/uninstall",
-        "Programs and Features external uninstall launcher with current package",
-        "post-fix external uninstall launcher receipt and self-cleanup real rerun",
-        "system provider real startup",
-        "Windows Snap Layout flyout",
-        "visible Windows file chooser selection",
-        "real provider success",
-        "Tauri visible UI",
+        "Windows Sandbox --delete-data 全新环境卸载（保留给隔离环境，不拿真实 State Root 删除）",
+        "真实外部 Provider 成功连接",
+        "Windows Snap Layout 展开面板",
+        "可见的 Windows 文件选择器选择操作",
+        "Tauri 可见 UI",
+        "远端 Desktop",
         "macOS app bundle",
-        "public signing",
-        "background updater"
+        "公开代码签名",
+        "后台 updater",
+        "文件扩展名关联"
     ]
 }

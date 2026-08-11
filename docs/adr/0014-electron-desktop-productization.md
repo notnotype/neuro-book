@@ -25,7 +25,7 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 - `user`：程序位于 `%LOCALAPPDATA%/Programs/NeuroBook`。
 - `machine`：程序位于 `%ProgramFiles%/NeuroBook`，需要提升权限；State、Cache、Desktop/WebView 仍按登录用户隔离。
 - 两种 Installed scope 共享同一组用户 Root，因此同一登录用户不能同时保留 user 与 machine 程序根；发现另一 scope 的有效安装或残留时 fail closed，交给 Repair/Uninstall 处理。Portable 不参与该互斥。
-- Manager GUI 通过已 Accepted 的 [ADR 0016](0016-windows-desktop-uac-broker.md) 一次性 UAC Broker 请求 machine-scope 安装、修复和卸载；Broker 的协议、secret 传递和历史 Windows UAC 基线已通过验收。当前最终包仍需在不接管既有用户 State Root 的干净用户环境中重跑 machine UAC，不能把历史包结果当作当前包证据。
+- Manager GUI 通过已 Accepted 的 [ADR 0016](0016-windows-desktop-uac-broker.md) 一次性 UAC Broker 请求 machine-scope 安装、修复和卸载；Broker 的协议、secret 传递和真实宿主机验收已通过。2026-08-12 已用当前最终包（Source `339853fb`、Product image `sha256:c5f20875...`）在保留真实 State Root 的宿主机完成 machine install、Repair 和 Programs and Features uninstall（均为可见 UAC 批准）；State Root 全程保留。删除数据的破坏性路径只留给 Windows Sandbox 或显式用户授权，不拿真实用户数据做删除测试。
 - Portable：程序和用户数据跟随解压根移动。
 - `Desktop Installation Manifest v3` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略。`v2` 不是兼容输入，必须由 Manager repair/reinstall 生成 v3。
 - provider 选择分为 `managed` 和 `system`：Manager 自身始终保留可修复的 managed Bun；Product Bun 与 Git/Bash/rg 可以使用 system，但只检测 PATH 和版本，不自动调用系统包管理器。managed 工具只注入 Product 私有 PATH。
