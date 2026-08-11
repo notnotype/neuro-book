@@ -64,7 +64,7 @@ type RunningProduct = {
     version: string;
     lease: OwnedProcessLease;
     audit: ContractAudit;
-    shutdown: () => Promise<"graceful" | "forced">;
+    shutdown: (force?: boolean) => Promise<"graceful" | "forced">;
 };
 
 type StartupAction = "retry" | "repair" | "open-logs" | "quit";
@@ -454,20 +454,35 @@ async function launchProduct(config: DesktopConfig): Promise<RunningProduct> {
     try {
         const observed = await ready;
         const runtime = {...runtimeConfig, port: observed.port};
-        const shutdown = async (): Promise<"graceful" | "forced"> => {
-            if (lease.stdin?.writable) {
-                lease.stdin.write(desktopSupervisorLine({schema: "nbook.desktop-supervisor/v1", requestId, type: "stop"}));
-                lease.stdin.end();
+        const shutdown = async (force = false): Promise<"graceful" | "forced"> => {
+            let shutdownTimer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                if (force) {
+                    await lease.terminate("shutdown");
+                    return "forced";
+                }
+                if (lease.stdin?.writable) {
+                    lease.stdin.write(desktopSupervisorLine({schema: "nbook.desktop-supervisor/v1", requestId, type: "stop"}));
+                    lease.stdin.end();
+                }
+                const result = await Promise.race([
+                    lease.completion,
+                    new Promise<null>((resolvePromise) => {
+                        shutdownTimer = setTimeout(() => resolvePromise(null), 30_000);
+                    }),
+                ]);
+                if (result === null) {
+                    await lease.terminate("shutdown");
+                    return "forced";
+                }
+                return result.exitCode === 0 && result.signal === null ? "graceful" : "forced";
+            } finally {
+                if (shutdownTimer) clearTimeout(shutdownTimer);
+                reader.close();
+                lease.stdin?.destroy();
+                lease.stdout?.destroy();
+                lease.stderr?.destroy();
             }
-            const result = await Promise.race([
-                lease.completion,
-                new Promise<null>((resolvePromise) => setTimeout(() => resolvePromise(null), 30_000)),
-            ]);
-            if (result === null) {
-                await lease.terminate("shutdown");
-                return "forced";
-            }
-            return result.exitCode === 0 && result.signal === null ? "graceful" : "forced";
         };
         return {config: runtime, startupNonce, version: observed.version, lease, audit, shutdown};
     } catch (error) {
@@ -1149,7 +1164,7 @@ async function main(): Promise<void> {
         const holdMs = process.argv.includes("--headless") ? Number(process.env.NBOOK_DESKTOP_DEV_HOLD_MS ?? "0") : 0;
         if (Number.isInteger(holdMs) && holdMs > 0) await new Promise<void>((resolvePromise) => setTimeout(resolvePromise, holdMs));
         if (forceShutdown && running) {
-            await running.lease.terminate("shutdown");
+            await running.shutdown(true);
             running = null;
             allowWindowClose = true;
             tray?.destroy();

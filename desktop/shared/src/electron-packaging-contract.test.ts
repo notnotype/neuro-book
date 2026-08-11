@@ -39,14 +39,24 @@ describe("Electron portable packaging contract", () => {
     });
 
     it("headless 支持单独的 forced shutdown smoke", async () => {
-    const source = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
+        const source = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
         expect(source).toContain('process.argv.includes("--desktop-force")');
-        expect(source).toContain('running.lease.terminate("shutdown")');
+        expect(source).toContain("await running.shutdown(true);");
         expect(source).toContain('shutdown: "forced"');
         expect(source).toContain('const headlessEntry = process.argv.includes("--desktop-headless") || process.argv.includes("--headless")');
         const fatalHandler = source.slice(source.indexOf("void dispatchEntry().catch"));
         expect(fatalHandler).toContain("if (managerEntry || headlessEntry)");
         expect(fatalHandler).toContain("app.exit(1)");
+    });
+
+    it("Supervisor shutdown 清理 timeout 与 readline，避免 Electron 退出后残留进程", async () => {
+        const source = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
+        expect(source).toContain("let shutdownTimer: ReturnType<typeof setTimeout> | undefined;");
+        expect(source).toContain("if (shutdownTimer) clearTimeout(shutdownTimer);");
+        expect(source).toContain("reader.close();");
+        expect(source).toContain("lease.stdin?.destroy();");
+        expect(source).toContain("lease.stdout?.destroy();");
+        expect(source).toContain("lease.stderr?.destroy();");
     });
 
     it("Manager 只有在复核安装清单和 Envelope 摘要后才允许自动启动", async () => {
