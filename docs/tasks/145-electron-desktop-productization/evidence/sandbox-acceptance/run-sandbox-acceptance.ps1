@@ -42,27 +42,42 @@ function Wait-NeuroBookUninstalled {
     throw "等待 Programs and Features 卸载完成超时（$TimeoutSeconds 秒）。"
 }
 
-function Start-FakeModelsServer {
-    $listener = [System.Net.HttpListener]::new()
-    $listener.Prefixes.Add("http://127.0.0.1:18473/")
-    $listener.Start()
-    $job = Start-Job -ArgumentList $listener -ScriptBlock {
-        param($Http)
-        while ($Http.IsListening) {
-            try {
-                $context = $Http.GetContext()
-                $body = '{"data":[{"id":"sandbox-fake-a"},{"id":"sandbox-fake-b"}]}'
-                $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
-                $context.Response.StatusCode = 200
-                $context.Response.ContentType = "application/json"
-                $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
-                $context.Response.Close()
-            } catch {
-                break
-            }
-        }
+function Get-InstalledBunPath {
+    $manifestPath = "C:\Program Files\NeuroBook\.deploy\installation.json"
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $version = $manifest.components.managerRuntime.version
+    $bun = "C:\Program Files\NeuroBook\.runtime\bun\$version\bun.exe"
+    if (-not (Test-Path -LiteralPath $bun -PathType Leaf)) {
+        throw "找不到安装的 Bun Runtime：$bun"
     }
-    return $job
+    return $bun
+}
+
+# PS 5.1 的原生管道会给 stdin 无条件写入 UTF-8 BOM，Manager CLI 的 JSON
+# 解析会失败；必须用无 BOM 文件 + cmd 重定向传递 stdin（宿主机已验证）。
+function Invoke-ProviderCli {
+    param([string[]]$Arguments)
+    $wrapper = "C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd"
+    $jsonFile = Join-Path $WorkRoot "provider-input.json"
+    [System.IO.File]::WriteAllText($jsonFile, $providerJson, [System.Text.UTF8Encoding]::new($false))
+    $quoted = ($Arguments | ForEach-Object { "`"$_`"" }) -join " "
+    $commandLine = "`"$wrapper`" $quoted < `"$jsonFile`""
+    return cmd /c $commandLine 2>&1
+}
+
+function Start-FakeModelsServer {
+    $serve = @"
+Bun.serve({port:18473,hostname:'127.0.0.1',fetch(req){const u=new URL(req.url);if(u.pathname==='/models')return Response.json({data:[{id:'sandbox-fake-a'},{id:'sandbox-fake-b'}]});return new Response('not found',{status:404});}});setInterval(()=>{},1000);
+"@
+    $serverScript = Join-Path $WorkRoot "fake-models-server.js"
+    [System.IO.File]::WriteAllText($serverScript, $serve, [System.Text.UTF8Encoding]::new($false))
+    $bun = Get-InstalledBunPath
+    $proc = Start-Process -FilePath $bun -ArgumentList @($serverScript) -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 2
+    if ($proc.HasExited) {
+        throw "假 /models 服务启动失败（exit $($proc.ExitCode)）。"
+    }
+    return $proc
 }
 
 Add-Event "started" @{inputRoot = $InputRoot; evidenceRoot = $EvidenceRoot}
@@ -99,18 +114,18 @@ Add-Event "machine-installed" @{
 }
 
 # 4. Provider smoke：本地假 /models + configure/test，验证 API Key 保密与模型发现。
-$fakeJob = Start-FakeModelsServer
-try {
-    $providerJson = @{
-        name = "sandbox-fake"
-        baseURL = "http://127.0.0.1:18473"
-        api = "openai-responses"
-        apiKey = "sandbox-secret-key-0123456789"
-        model = ""
-        discoverModels = $true
-    } | ConvertTo-Json -Compress
+$providerJson = @{
+    name = "sandbox-fake"
+    baseURL = "http://127.0.0.1:18473"
+    api = "openai-responses"
+    apiKey = "sandbox-secret-key-0123456789"
+    model = ""
+    discoverModels = $true
+} | ConvertTo-Json -Compress
 
-    $testOutput = $providerJson | & "C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd" desktop test-provider --stdin-json --json 2>&1
+$fakeServer = Start-FakeModelsServer
+try {
+    $testOutput = Invoke-ProviderCli @("desktop", "test-provider", "--stdin-json", "--json")
     $testText = ($testOutput | Out-String)
     if ($testText -match "sandbox-secret-key") { throw "test-provider 输出泄漏 API Key。" }
     $testResult = $testOutput | Where-Object { $_ -match "provider-test" } | Select-Object -Last 1
@@ -122,13 +137,12 @@ try {
         throw "模型发现未返回 sandbox-fake-a。"
     }
 
-    $configured = $providerJson | & "C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd" desktop configure-provider --stdin-json --json 2>&1
+    $configured = Invoke-ProviderCli @("desktop", "configure-provider", "--stdin-json", "--json")
     $configuredText = ($configured | Out-String)
     if ($configuredText -match "sandbox-secret-key") { throw "configure-provider 输出泄漏 API Key。" }
     Add-Event "provider-configured" @{secretLeaked = ($configuredText -match "sandbox-secret-key")}
 } finally {
-    Stop-Job $fakeJob -ErrorAction SilentlyContinue | Out-Null
-    Remove-Job $fakeJob -Force -ErrorAction SilentlyContinue | Out-Null
+    Stop-Process -Id $fakeServer.Id -Force -ErrorAction SilentlyContinue
 }
 
 # 5. 启动验证（headless graceful）。
