@@ -112,6 +112,17 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - `bun run manager:test`：41 files passed / 1 skipped，326 tests passed / 3 skipped；Manager release contract 1/1。
 - `bun run manager:typecheck`、根 `bun run typecheck`（含 Nuxt + Electron）、`bun run test:desktop-contract`（16 files / 57 tests）、Electron bundle、`desktop/packaging/security-audit.mjs` 全部通过；`git diff --check` 通过。
 
+### 2026-08-12：CI 修复（53b4a79d）
+
+PR #88 在 `339853fb` 上 push 后 CI 有 5 项必检 fail，已修复并推送 `53b4a79d`（`fix(t145): repair desktop CI platform gates and tsconfig transform`），只改测试与 CI 配置，不改任何发行产物源码：
+
+- `desktop/shared/src/manager-runtime.test.ts`：补 `process.platform` mock（win32 + 还原），macOS/Linux runner 上 machine 投影测试走真实 Cache 投影路径，不再因守卫直接返回 source。
+- `packages/neuro-book-manager/src/desktop-installation.test.ts`：5 个依赖 Windows 路径语义的测试加 `it.runIf(process.platform === "win32")`，与仓库既有惯例一致。
+- `packages/neuro-book-manager/vitest.config.ts`：改用独立 esbuild transform（`oxc: false`），消除 CI 无 `.nuxt/tsconfig.json` 时 transform `server/config/boot-config.ts` 的 `TSCONFIG_ERROR`；与 `desktop-contract-vitest.config.ts` 先例一致。
+- `.github/workflows/code-baseline.yml`：typecheck job 增加 `bun install --cwd desktop/electron --frozen-lockfile`，修复 CI 上 `Cannot find module 'electron'`。
+
+修复后必检全部通过：windows-x64/macos-x64/macos-arm64 desktop contracts、linux-x64/aarch64/darwin-x64/aarch64 Product、Typecheck (advisory)、Community files and docs。`Full tests (advisory)` 仍为既有 Harness 黑盒 30 秒超时基线（见下方历史 checkpoint 记录，`e5ec1534` 时代已存在），PR diff 不包含相关测试文件，本轮重跑两次失败组合漂移，判定与桌面改动无关。该提交不改动 server、desktop/shared 业务代码和 Manager 业务源码，Product image `sha256:c5f208...`、Electron Portable/Depot 的 digest 与 final acceptance 证据保持有效。
+
 ### 历史 checkpoint（重建前基线，不代表当前包）
 
 ### 聚焦和构建门禁
