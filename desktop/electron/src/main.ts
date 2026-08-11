@@ -83,6 +83,7 @@ const SUPERVISOR_START_TIMEOUT_MS = 45_000;
 const WINDOW_LOAD_TIMEOUT_MS = 45_000;
 const startupStartedAt = performance.now();
 const managerEntry = process.argv.includes("--manager-gui");
+const headlessEntry = process.argv.includes("--desktop-headless") || process.argv.includes("--headless");
 const diagnostics = new ElectronDiagnostics();
 let windowStateWrite: Promise<void> = Promise.resolve();
 
@@ -1011,7 +1012,7 @@ async function createInteractiveWindow(config: DesktopConfig): Promise<void> {
 }
 
 async function main(): Promise<void> {
-    const headless = process.argv.includes("--desktop-headless") || process.argv.includes("--headless");
+    const headless = headlessEntry;
     let config: DesktopConfig;
     let configError: Error | null = null;
     try {
@@ -1251,7 +1252,11 @@ void dispatchEntry().catch(async (error: unknown) => {
         ...(error instanceof Error && error.stack ? {stack: error.stack} : {}),
     });
     startupActionResolver = null;
-    process.exitCode = 1;
     await diagnostics.flush();
+    if (managerEntry || headlessEntry) {
+        app.exit(1);
+        return;
+    }
+    process.exitCode = 1;
     app.quit();
 });

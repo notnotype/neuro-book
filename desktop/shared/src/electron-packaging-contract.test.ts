@@ -43,6 +43,10 @@ describe("Electron portable packaging contract", () => {
         expect(source).toContain('process.argv.includes("--desktop-force")');
         expect(source).toContain('running.lease.terminate("shutdown")');
         expect(source).toContain('shutdown: "forced"');
+        expect(source).toContain('const headlessEntry = process.argv.includes("--desktop-headless") || process.argv.includes("--headless")');
+        const fatalHandler = source.slice(source.indexOf("void dispatchEntry().catch"));
+        expect(fatalHandler).toContain("if (managerEntry || headlessEntry)");
+        expect(fatalHandler).toContain("app.exit(1)");
     });
 
     it("Manager 只有在复核安装清单和 Envelope 摘要后才允许自动启动", async () => {
