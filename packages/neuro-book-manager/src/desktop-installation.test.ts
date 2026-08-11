@@ -1198,28 +1198,35 @@ describe("Desktop installation lifecycle", () => {
         process.env.LOCALAPPDATA = join(root, "LocalAppData");
         process.env.APPDATA = join(root, "AppData");
         process.env.USERPROFILE = join(root, "User");
+        const manifestSha256 = `sha256:${"a".repeat(64)}`;
         const launcher = await writeMachineUninstallLauncher(
             installationRoot,
             "installation-1",
+            manifestSha256,
             "manager/neuro-book.mjs",
             "managed-runtime/bun.exe",
         );
         const script = await readFile(launcher, "utf8");
         expect(launcher).not.toContain(installationRoot);
         expect(script).toContain("Start-Process");
-        expect(script).toContain("-Verb RunAs");
-        expect(script).not.toContain("-RedirectStandardOutput");
-        expect(script).toContain("elevatedCommand");
+        expect(script).not.toContain("-Verb RunAs");
+        expect(script).not.toContain("elevatedCommand");
         expect(script).toContain("1>");
         expect(script).toContain("2>");
         expect(script).toContain("LASTEXITCODE");
-        expect(script).toContain("resultPath");
-        expect(script).toContain("expectedResultRoot");
-        expect(script).toContain("canonicalResultPath");
-        expect(script).toContain("NeuroBook\\manager\\uninstall-runs");
+        expect(script).toContain("desktop");
+        expect(script).toContain("broker-client");
+        expect(script).toContain("--installation-root");
+        expect(script).toContain("--installation-id");
+        expect(script).toContain("installation-1");
+        expect(script).toContain("--manifest-sha256");
+        expect(script).toContain(manifestSha256);
+        expect(script).not.toContain("--delete-data");
+        expect(script).toContain("NeuroBook\\manager\\uninstall-runs\\installation-1");
+        expect(script).not.toContain("${installationId}");
         expect(script).not.toContain("NeuroBook\\cache\\manager-runtime");
-        expect(script).toContain("等待外置卸载 Host 最终回执超时");
-        expect(script).toContain("外置卸载 Host 返回失败");
+        expect(script).toContain("cached-bun.exe");
+        expect(script).toContain("Copy-Item -LiteralPath $bun");
         expect(script).toContain("-EncodedCommand");
         expect(script).toContain("Start-Sleep -Milliseconds 500");
         expect(script).toContain('Join-Path $Root "manager\\neuro-book.mjs"');
@@ -1228,9 +1235,24 @@ describe("Desktop installation lifecycle", () => {
         await expect(writeMachineUninstallLauncher(
             installationRoot,
             "installation-2",
+            manifestSha256,
             "manager/neuro-book.mjs",
             "../outside/bun.exe",
         )).rejects.toThrow("Manager Runtime 路径必须是安全的相对路径");
+        await expect(writeMachineUninstallLauncher(
+            installationRoot,
+            "installation-3",
+            "sha256:not-a-digest",
+            "manager/neuro-book.mjs",
+            "managed-runtime/bun.exe",
+        )).rejects.toThrow("manifest SHA-256");
+        await expect(writeMachineUninstallLauncher(
+            installationRoot,
+            "../installation-4",
+            manifestSha256,
+            "manager/neuro-book.mjs",
+            "managed-runtime/bun.exe",
+        )).rejects.toThrow("installationId 必须是单段安全标识");
 
         const manifest = {...desktopManifest(), installationScope: "machine" as const};
         await registerWindowsDesktop(installationRoot, manifest, false, launcher);

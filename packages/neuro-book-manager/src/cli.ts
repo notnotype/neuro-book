@@ -41,6 +41,7 @@ import {
     testDesktopProvider,
 } from "#manager/desktop-provider";
 import {runDesktopUacBroker} from "#manager/desktop-uac-broker";
+import {runDesktopUacClient} from "nbook/desktop/shared/src/desktop-uac-client";
 import {updateInstallation} from "#manager/updater";
 import {inspectUpdatePreflight} from "#manager/update-preflight";
 import {MANAGER_VERSION} from "#manager/version-info";
@@ -600,6 +601,43 @@ desktop.command("broker")
             deleteData: options.deleteData,
             ...(options.secretPipe ? {secretPipe: options.secretPipe} : {}),
         });
+    });
+desktop.command("broker-client")
+    .description("Programs and Features 的一次性 machine uninstall UAC client。")
+    .requiredOption("--installation-root <path>", "绑定当前 machine Installation Root。")
+    .requiredOption("--installation-id <id>", "绑定当前 Desktop Installation Manifest installationId。")
+    .requiredOption("--manifest-sha256 <digest>", "绑定当前 Desktop Installation Manifest SHA-256。")
+    .action(async (options: {
+        installationRoot: string;
+        installationId: string;
+        manifestSha256: string;
+    }) => {
+        const installationRoot = resolve(options.installationRoot);
+        const result = await runDesktopUacClient({
+            bunPath: process.execPath,
+            managerPath: managerExecutable,
+            invocation: {
+                action: "uninstall",
+                args: ["--root", installationRoot, "uninstall", "--yes", "--json"],
+            },
+            binding: {
+                installationId: options.installationId,
+                installationRoot,
+                manifestSha256: options.manifestSha256,
+                deleteData: false,
+            },
+            onEvent: (event) => {
+                if (event.kind === "json") {
+                    printNdjson(event.value);
+                } else if (event.kind === "log" || event.kind === "failure") {
+                    printNdjson(event);
+                }
+            },
+        });
+        if (result.exitCode !== 0 || result.signal !== null) {
+            throw new Error(`Programs and Features 卸载失败：exitCode=${result.exitCode ?? "null"}, signal=${result.signal ?? "null"}`);
+        }
+        printNdjson({kind: "complete", action: "machine-uninstall", exitCode: 0});
     });
 desktop.command("supervise")
     .description("通过 stdin/stdout NDJSON 为 Desktop Envelope 编排 Product 生命周期。")

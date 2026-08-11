@@ -27,7 +27,7 @@ import {
 import {downloadVerified, extractZip} from "#manager/download";
 import {createAdmin} from "#manager/app-commands";
 import {enableAuthentication} from "#manager/config";
-import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic} from "#manager/files";
+import {ensureDirectory, pathExists, readJson, sha256File, writeJsonAtomic, writeTextAtomic} from "#manager/files";
 import {writeInstallationManifest} from "#manager/manifest-store";
 import {
     prepareInstalledApplication,
@@ -197,6 +197,7 @@ export async function installDesktopFromLocalDepot(options: DesktopLocalDepot): 
             uninstallLauncher = await writeMachineUninstallLauncher(
                 installationRoot,
                 desktopManifest.installationId,
+                await fileSha256(roots.desktop, DESKTOP_INSTALLATION_FILE),
                 applicationManifest.components.manager.path,
                 managerRuntime.path,
             );
@@ -940,15 +941,29 @@ async function fileSha256(root: string, relativePath: string): Promise<string> {
 export async function writeMachineUninstallLauncher(
     installationRoot: string,
     installationId: string,
+    manifestSha256: string,
     managerRelativePath = "manager/neuro-book.mjs",
     managerRuntimeRelativePath = "runtime/bun.exe",
 ): Promise<string> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(installationId)) {
+        throw new Error("Machine uninstall launcher 的 installationId 必须是单段安全标识。");
+    }
+    const normalizedManifestSha256 = manifestSha256.toLowerCase();
+    if (!/^sha256:[0-9a-f]{64}$/u.test(normalizedManifestSha256)) {
+        throw new Error("Machine uninstall launcher 的 manifest SHA-256 无效。");
+    }
     const normalizedManagerPath = machineLauncherRelativePath(managerRelativePath, "Manager");
     const normalizedRuntimePath = machineLauncherRelativePath(managerRuntimeRelativePath, "Manager Runtime");
     const managerWindowsPath = normalizedManagerPath.replaceAll("/", "\\");
     const runtimeWindowsPath = normalizedRuntimePath.replaceAll("/", "\\");
+    const runRelativePath = ["NeuroBook", "manager", "uninstall-runs", installationId].join("\\");
     const launcherRoot = join(managerDesktopUninstallRoot(), installationId);
+    const launcherRootExisted = await pathExists(launcherRoot);
     await ensureDirectory(launcherRoot);
+    const launcherRootInfo = await lstat(launcherRoot);
+    if (!launcherRootInfo.isDirectory() || launcherRootInfo.isSymbolicLink()) {
+        throw new Error("Machine uninstall launcher root 必须是普通目录。");
+    }
     const launcher = join(launcherRoot, "uninstall.ps1");
     const script = String.raw`param(
     [Parameter(Mandatory=$true)][string]$Root
@@ -961,49 +976,32 @@ if (-not (Test-Path -LiteralPath $manager) -or -not (Test-Path -LiteralPath $bun
 }
 $localAppData = $env:LOCALAPPDATA
 if (-not $localAppData) { $localAppData = Join-Path $HOME "AppData\Local" }
-$runRoot = Join-Path $localAppData "NeuroBook\manager\uninstall-runs\${installationId}"
+$runRoot = Join-Path $localAppData "${runRelativePath}"
 $cachedManager = Join-Path $runRoot "neuro-book.mjs"
+$cachedBun = Join-Path $runRoot "cached-bun.exe"
 $stdoutPath = Join-Path $runRoot "uninstall.stdout.log"
 $stderrPath = Join-Path $runRoot "uninstall.stderr.log"
 New-Item -ItemType Directory -Path $runRoot -Force | Out-Null
 Copy-Item -LiteralPath $manager -Destination $cachedManager -Force
+Copy-Item -LiteralPath $bun -Destination $cachedBun -Force
 try {
-    $arguments = @("--no-install", $cachedManager, "--root", $Root, "uninstall", "--yes", "--json")
-    $escapePowerShell = {
-        param([string]$Value)
-        return "'" + $Value.Replace("'", "''") + "'"
+    $arguments = @(
+        "--no-install",
+        $cachedManager,
+        "desktop",
+        "broker-client",
+        "--installation-root",
+        $Root,
+        "--installation-id",
+        "${installationId}",
+        "--manifest-sha256",
+        "${normalizedManifestSha256}"
+    )
+    & $cachedBun @arguments 1> $stdoutPath 2> $stderrPath
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        throw "Programs and Features UAC Broker 卸载失败，退出码 $exitCode；诊断日志保留在 $runRoot"
     }
-    $elevatedCommand = "& " + (& $escapePowerShell $bun) + " --no-install " + (& $escapePowerShell $cachedManager) + " --root " + (& $escapePowerShell $Root) + " uninstall --yes --json 1> " + (& $escapePowerShell $stdoutPath) + " 2> " + (& $escapePowerShell $stderrPath) + "; exit $LASTEXITCODE"
-    $elevatedEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($elevatedCommand))
-    $child = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $elevatedEncoded) -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-    if ($child.ExitCode -ne 0) { exit $child.ExitCode }
-    $resultPath = $null
-    foreach ($line in @(
-        (Get-Content -LiteralPath $stdoutPath -Encoding UTF8 -ErrorAction SilentlyContinue)
-        (Get-Content -LiteralPath $stderrPath -Encoding UTF8 -ErrorAction SilentlyContinue)
-    )) {
-        try {
-            $event = $line | ConvertFrom-Json
-            if ($event.kind -eq "complete" -and $event.resultPath) {
-                $resultPath = [string]$event.resultPath
-            }
-        } catch {
-            continue
-        }
-    }
-    if (-not $resultPath) { throw "卸载命令没有返回外置 Host resultPath。" }
-    $expectedResultRoot = [IO.Path]::GetFullPath((Join-Path $localAppData "NeuroBook\uninstall-results")).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-    $canonicalResultPath = [IO.Path]::GetFullPath($resultPath)
-    if (-not $canonicalResultPath.StartsWith($expectedResultRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-        throw "卸载 Host resultPath 越出受管结果目录。"
-    }
-    $deadline = [DateTime]::UtcNow.AddMinutes(5)
-    while (-not (Test-Path -LiteralPath $canonicalResultPath)) {
-        if ([DateTime]::UtcNow -ge $deadline) { throw "等待外置卸载 Host 最终回执超时。" }
-        Start-Sleep -Milliseconds 200
-    }
-    $hostResult = Get-Content -LiteralPath $canonicalResultPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    if ($hostResult.ok -ne $true) { throw "外置卸载 Host 返回失败：$([string]$hostResult.error)" }
     Remove-Item -LiteralPath $runRoot -Recurse -Force -ErrorAction SilentlyContinue
 } catch {
     throw
@@ -1013,7 +1011,14 @@ $cleanupCommand = "Start-Sleep -Milliseconds 500; Remove-Item -LiteralPath '$lau
 $cleanupEncoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($cleanupCommand))
 Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", $cleanupEncoded) -WindowStyle Hidden | Out-Null
 `;
-    await writeFile(launcher, script, "utf8");
+    try {
+        await writeTextAtomic(launcher, script);
+    } catch (error) {
+        if (!launcherRootExisted) {
+            await rm(launcherRoot, {recursive: true, force: true}).catch(() => undefined);
+        }
+        throw error;
+    }
     return launcher;
 }
 
@@ -1109,9 +1114,11 @@ export async function repairDesktopRuntimeState(
     await writeDesktopRuntimeWrappers(installationRoot, projectedManifest);
     let uninstallLauncher: string | undefined;
     if (desktopManifest.installationScope === "machine") {
+        const roots = resolveInstallationRoots(installationRoot, applicationManifest.roots);
         uninstallLauncher = await writeMachineUninstallLauncher(
             installationRoot,
             desktopManifest.installationId,
+            await fileSha256(roots.desktop, DESKTOP_INSTALLATION_FILE),
             projectedManifest.components.manager.path,
             managerRuntime.path,
         );

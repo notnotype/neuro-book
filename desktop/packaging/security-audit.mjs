@@ -8,6 +8,9 @@ const managerMain = await readFile(resolve(desktopRoot, "electron", "src", "mana
 const managerPreload = await readFile(resolve(desktopRoot, "electron", "src", "manager-preload.ts"), "utf8");
 const managerPage = await readFile(resolve(desktopRoot, "electron", "src", "manager.html"), "utf8");
 const startupPage = await readFile(resolve(desktopRoot, "electron", "src", "startup.html"), "utf8");
+const desktopUacClient = await readFile(resolve(desktopRoot, "shared", "src", "desktop-uac-client.ts"), "utf8");
+const desktopInstallation = await readFile(resolve(desktopRoot, "..", "packages", "neuro-book-manager", "src", "desktop-installation.ts"), "utf8");
+const installDesktopScript = await readFile(resolve(desktopRoot, "..", "scripts", "install", "install-desktop.ps1"), "utf8");
 const tauriConfig = JSON.parse(await readFile(resolve(desktopRoot, "tauri", "tauri.conf.json"), "utf8"));
 const tauriCapability = JSON.parse(await readFile(resolve(desktopRoot, "tauri", "capabilities", "default.json"), "utf8"));
 const tauriSource = await readFile(resolve(desktopRoot, "tauri", "src", "main.rs"), "utf8");
@@ -28,6 +31,14 @@ const checks = {
         && managerMain.includes("event.senderFrame.url !== managerPageUrl"),
     managerPreloadUsesContextBridge: managerPreload.includes("contextBridge.exposeInMainWorld"),
     managerPreloadDoesNotExposeNode: !managerPreload.includes("require(") && !managerPreload.includes("process."),
+    managerUsesSharedUacClient: managerMain.includes("runDesktopUacClient")
+        && !managerMain.includes("-Verb RunAs"),
+    desktopUacHasSingleElevationSeam: countOccurrences(desktopUacClient, "-Verb RunAs") === 1
+        && !desktopInstallation.includes("-Verb RunAs")
+        && !installDesktopScript.includes("-Verb RunAs"),
+    machineUninstallDelegatesToBrokerClient: desktopInstallation.includes('"broker-client"')
+        && desktopInstallation.includes("--manifest-sha256")
+        && !desktopInstallation.includes("$elevatedCommand"),
     localPagesDenyNetworkByCsp: [managerPage, startupPage].every((page) =>
         page.includes(`Content-Security-Policy" content="default-src 'none'`)),
     tauriUsesLoopbackCsp: typeof tauriConfig.app?.security?.csp === "string"
@@ -44,3 +55,7 @@ const checks = {
 const failed = Object.entries(checks).filter(([, passed]) => !passed).map(([name]) => name);
 console.log(JSON.stringify({kind: "desktop-security-audit", checks}, null, 4));
 if (failed.length > 0) throw new Error(`Desktop security audit failed: ${failed.join(",")}`);
+
+function countOccurrences(value, search) {
+    return value.split(search).length - 1;
+}

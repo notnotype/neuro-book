@@ -39,25 +39,7 @@ function Test-NeuroBookAdministrator {
 }
 
 if ($Scope -eq "machine" -and -not (Test-NeuroBookAdministrator)) {
-    if ($PasswordStdin) {
-        throw "machine scope + PasswordStdin 需要由已提升的 PowerShell 直接运行，以保留密码 stdin；请先以管理员身份重试。"
-    }
-    $forwarded = @{}
-    foreach ($entry in $PSBoundParameters.GetEnumerator()) {
-        $forwarded[$entry.Key] = $entry.Value
-    }
-    $forwarded["Scope"] = "machine"
-    $arguments = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
-    foreach ($entry in $forwarded.GetEnumerator()) {
-        if ($entry.Value -is [System.Management.Automation.SwitchParameter]) {
-            if ($entry.Value.IsPresent) { $arguments += "-$($entry.Key)" }
-        } else {
-            $arguments += "-$($entry.Key)"
-            $arguments += [string]$entry.Value
-        }
-    }
-    Start-Process -FilePath "pwsh.exe" -Verb RunAs -ArgumentList $arguments | Out-Null
-    exit 0
+    throw "全局安装需要管理员权限。请使用 NeuroBook Manager GUI 完成 UAC 安装，或在管理员 PowerShell 中重新运行本脚本。"
 }
 
 $stage0Script = Join-Path $PSScriptRoot "windows-bun-stage0.ps1"

@@ -101,6 +101,8 @@ describe("Windows Stage 0合同", () => {
         expect(desktopWindowsScript).toContain("Initialize-NeuroBookOfflineBootstrap");
         expect(desktopWindowsScript).toContain('$zip.GetEntry(".deploy/installation.json")');
         expect(desktopWindowsScript).toContain("Manager/Bun checksum 不匹配");
+        expect(desktopWindowsScript).not.toContain("-Verb RunAs");
+        expect(desktopWindowsScript).toContain("请使用 NeuroBook Manager GUI 完成 UAC 安装");
     });
 
     it.runIf(process.platform === "win32")("PowerShell脚本语法有效", async () => {
