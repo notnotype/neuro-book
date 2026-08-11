@@ -1,7 +1,7 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 
 import {
     isCanonicalMachineManagerPath,
@@ -11,8 +11,15 @@ import {
 } from "nbook/desktop/shared/src/manager-runtime";
 
 const roots: string[] = [];
+const originalPlatform = process.platform;
+
+beforeEach(() => {
+    // Machine 投影只在 Windows 语义下生效；测试在 POSIX runner 上也需要走真实投影路径。
+    Object.defineProperty(process, "platform", {configurable: true, value: "win32"});
+});
 
 afterEach(async () => {
+    Object.defineProperty(process, "platform", {configurable: true, value: originalPlatform});
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 

@@ -60,6 +60,10 @@ jobs:
         run: bun install --frozen-lockfile --linker hoisted
       - name: Generate Prisma clients
         run: bun run generate
+      - name: Install Desktop Electron dependencies
+        # desktop/electron 是独立包（不在根 workspaces），根 install 不会安装其依赖；
+        # typecheck 脚本会进入该目录，CI 必须先装好 electron 类型。
+        run: bun install --cwd desktop/electron --frozen-lockfile
       - name: Run typecheck
         run: bun run typecheck
 

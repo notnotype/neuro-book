@@ -312,7 +312,7 @@ describe("Desktop installation lifecycle", () => {
         expect(await pathExists(installRoot)).toBe(false);
     });
 
-    it("canonical user 与 machine 程序根不能同时指向同一组用户数据", async () => {
+    it.runIf(process.platform === "win32")("canonical user 与 machine 程序根不能同时指向同一组用户数据", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-scope-conflict-"));
         const localAppData = join(root, "LocalAppData");
@@ -772,7 +772,7 @@ describe("Desktop installation lifecycle", () => {
         await expect(readFile(join(installRoot, "owned-by-other-process"), "utf8")).resolves.toBe("keep");
     });
 
-    it("repair 从缺失 locator 状态重建 Installed runtime，而不回退 Portable root", async () => {
+    it.runIf(process.platform === "win32")("repair 从缺失 locator 状态重建 Installed runtime，而不回退 Portable root", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-locator-"));
         const localAppData = join(root, "LocalAppData");
@@ -804,7 +804,7 @@ describe("Desktop installation lifecycle", () => {
         expect(await pathExists(join(installRoot, "data"))).toBe(false);
     });
 
-    it("repair 在 app.asar 被篡改时 fail closed，不重建 locator 或注册项", async () => {
+    it.runIf(process.platform === "win32")("repair 在 app.asar 被篡改时 fail closed，不重建 locator 或注册项", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-app-integrity-"));
         const localAppData = join(root, "LocalAppData");
@@ -834,7 +834,7 @@ describe("Desktop installation lifecycle", () => {
         expect(processMocks.run).not.toHaveBeenCalled();
     });
 
-    it("repair 在同一 v3 合同内把旧候选的 Product Bun 重新投影为 system provider", async () => {
+    it.runIf(process.platform === "win32")("repair 在同一 v3 合同内把旧候选的 Product Bun 重新投影为 system provider", async () => {
         setWindowsHost();
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-repair-provider-projection-"));
         const localAppData = join(root, "LocalAppData");
@@ -889,7 +889,7 @@ describe("Desktop installation lifecycle", () => {
         expect(persisted.components.applicationRuntime).toEqual(repaired.components.applicationRuntime);
     });
 
-    it("Desktop runtime wrappers 复用统一模板且只使用相对 Installation Root 路径", async () => {
+    it.runIf(process.platform === "win32")("Desktop runtime wrappers 复用统一模板且只使用相对 Installation Root 路径", async () => {
         const root = await mkdtemp(join(tmpdir(), "nbook-desktop-wrapper-"));
         roots.push(root);
         await writeDesktopRuntimeWrappers(root, {
