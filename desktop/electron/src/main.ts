@@ -1032,13 +1032,26 @@ async function main(): Promise<void> {
         args: process.argv.slice(firstLaunchArgument, firstLaunchArgument + 32),
         cwd: process.cwd(),
     });
-    if (!app.requestSingleInstanceLock(launchData)) { app.quit(); return; }
+    if (!app.requestSingleInstanceLock(launchData)) { app.exit(0); return; }
     if (launchData.args.some((arg) => !arg.startsWith("--"))) queueDesktopLaunchRequest(launchData);
     app.on("second-instance", (_event, _commandLine, _workingDirectory, additionalData) => {
         if (window?.isMinimized()) window.restore();
         window?.show();
         window?.focus();
-        queueDesktopLaunchRequest(parseDesktopLaunchRequest(additionalData));
+        try {
+            const request = parseDesktopLaunchRequest(additionalData);
+            diagnostics.info({
+                kind: "electron-second-instance",
+                argumentCount: request.args.length,
+                protocolRequest: request.args.some((arg) => arg.startsWith("neurobook://")),
+            });
+            queueDesktopLaunchRequest(request);
+        } catch (error) {
+            diagnostics.error({
+                kind: "electron-second-instance-rejected",
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
     });
     await app.whenReady();
     installStartupActionHandler();

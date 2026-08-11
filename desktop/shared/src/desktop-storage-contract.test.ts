@@ -12,8 +12,12 @@ describe("Desktop storage contract", () => {
         expect(source.indexOf('app.setPath("sessionData", join(config.desktopRoot, "webview"))')).toBeGreaterThan(-1);
         expect(source.indexOf('app.setPath("logs", join(config.stateRoot, "logs"))')).toBeGreaterThan(-1);
         expect(source.indexOf('app.setPath("userData", desktopIdentityRoot())')).toBeLessThan(source.indexOf("app.requestSingleInstanceLock("));
+        expect(source).toContain("if (!app.requestSingleInstanceLock(launchData)) { app.exit(0); return; }");
+        expect(source).not.toContain("if (!app.requestSingleInstanceLock(launchData)) { app.quit(); return; }");
         expect(source).toContain('window?.webContents.send("neurobook:second-instance"');
         expect(source).toContain("parseDesktopLaunchRequest(additionalData)");
+        expect(source).toContain('kind: "electron-second-instance"');
+        expect(source).toContain('kind: "electron-second-instance-rejected"');
         expect(source).toContain("process.defaultApp ? 2 : 1");
         expect(source).toContain("flushDesktopLaunchRequests");
         expect(preload).toContain("onLaunchRequest:");
