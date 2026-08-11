@@ -123,7 +123,7 @@ PR #88 在 `339853fb` 上 push 后 CI 有 5 项必检 fail，已修复并推送 
 
 修复后必检全部通过：windows-x64/macos-x64/macos-arm64 desktop contracts、linux-x64/aarch64/darwin-x64/aarch64 Product、Typecheck (advisory)、Community files and docs。`Full tests (advisory)` 仍为既有 Harness 黑盒 30 秒超时基线（见下方历史 checkpoint 记录，`e5ec1534` 时代已存在），PR diff 不包含相关测试文件，本轮重跑两次失败组合漂移，判定与桌面改动无关，已另开 [Issue #90](https://github.com/notnotype/neuro-book/issues/90) 单独治理。该提交不改动 server、desktop/shared 业务代码和 Manager 业务源码，Product image `sha256:c5f208...`、Electron Portable/Depot 的 digest 与 final acceptance 证据保持有效。
 
-Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandbox-acceptance/`：宿主机准备脚本、`.wsb` 映射配置、Sandbox 内分阶段验收脚本与 README），宿主机输入目录已生成；该路径含 Sandbox 内 UAC 交互与删除数据操作，等待用户在场执行。
+Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandbox-acceptance/`：宿主机准备脚本、`.wsb` 映射配置、Sandbox 内分阶段验收脚本与 README），宿主机输入目录已生成；该路径含 Sandbox 内 UAC 交互与删除数据操作，等待用户在场执行。实现核对确认：Programs and Features 外置 launcher 的 `broker-client` 硬编码 `deleteData=false`（该入口固定保留 State Root），`--delete-data` 删除路径由 Manager CLI `uninstall --yes --delete-data` 承担（machine 安装经外置 UAC Host 删除 Program Files 与托管用户数据）；Sandbox 验收脚本与 README 已按此修正。
 
 ### 历史 checkpoint（重建前基线，不代表当前包）
 

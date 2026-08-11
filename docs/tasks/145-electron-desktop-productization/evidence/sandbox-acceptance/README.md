@@ -45,8 +45,16 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
    & 'C:\NeuroBook\input\depot-extracted\install-desktop.ps1' -Depot 'C:\NeuroBook\input\neuro-book-desktop-depot-win-x64.zip' -Scope machine -Channel canary -Yes
    ```
 
-2. **Programs and Features 卸载**：脚本提示后在 Sandbox 打开【设置 → 应用 →
-   已安装的应用】，找到 NeuroBook 卸载，确认【同时删除数据】，批准 UAC。
+2. **Manager CLI 卸载（删除数据）**：脚本提示后在 Sandbox 打开 PowerShell，
+   执行以下命令并批准 UAC：
+
+   ```powershell
+   & 'C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd' uninstall --yes --delete-data
+   ```
+
+   Programs and Features 卸载入口固定保留 State Root（不会提供“同时删除
+   数据”选项）；`--delete-data` 破坏性路径由 Manager CLI 承担，machine
+   安装会通过外置 UAC Host 删除 Program Files 与托管用户数据。
 
 脚本自动等待安装/卸载产物出现或消失（各最长 15 分钟），其余阶段（Provider
 smoke、headless 启动、消失项断言）自动执行。

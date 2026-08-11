@@ -168,9 +168,13 @@ Remove-Item Env:NBOOK_DESKTOP_DEV_HOLD_MS -ErrorAction SilentlyContinue
 Add-Event "start-product" @{exitCode = $startExit; outputTail = (($startResult | Select-Object -Last 5) -join "`n")}
 if ($startExit -ne 0) { throw "headless 启动退出码非零：$startExit" }
 
-# 6. Programs and Features 卸载（--delete-data，用户在 Sandbox 桌面批准 UAC）。
-Write-Host "请在 Sandbox 中打开【设置 → 应用 → 已安装的应用】，找到 NeuroBook 点击卸载，" -ForegroundColor Yellow
-Write-Host "确认选择【同时删除数据】，批准 UAC。卸载完成后本脚本继续（自动等待，最长 15 分钟）。" -ForegroundColor Yellow
+# 6. Manager CLI 卸载（--delete-data，用户在 Sandbox 桌面批准 UAC）。
+# Programs and Features 卸载入口固定保留 State Root（broker-client 硬编码
+# deleteData=false）；删除数据的破坏性路径由 `uninstall --yes --delete-data`
+# 承担，machine 安装会通过外置 UAC Host 删除 Program Files 与托管用户数据。
+Write-Host "请在 Sandbox 中打开 PowerShell 并执行以下命令（批准弹出的 UAC）：" -ForegroundColor Yellow
+Write-Host "  & 'C:\Program Files\NeuroBook\.runtime\bin\neuro-book.cmd' uninstall --yes --delete-data" -ForegroundColor Cyan
+Write-Host "卸载完成后本脚本继续（自动等待，最长 15 分钟）。" -ForegroundColor Yellow
 Wait-NeuroBookUninstalled
 Add-Event "uninstalled-delete-data" @{programRootRemoved = -not (Test-Path -LiteralPath "C:\Program Files\NeuroBook")}
 
