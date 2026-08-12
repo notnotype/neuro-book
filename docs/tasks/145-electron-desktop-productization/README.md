@@ -125,6 +125,32 @@ PR #88 在 `339853fb` 上 push 后 CI 有 5 项必检 fail，已修复并推送 
 
 Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandbox-acceptance/`：宿主机准备脚本、`.wsb` 映射配置、Sandbox 内分阶段验收脚本与 README），宿主机输入目录已生成；该路径含 Sandbox 内 UAC 交互与删除数据操作，等待用户在场执行。实现核对确认：Programs and Features 外置 launcher 的 `broker-client` 硬编码 `deleteData=false`（该入口固定保留 State Root），`--delete-data` 删除路径由 Manager CLI `uninstall --yes --delete-data` 承担（machine 安装经外置 UAC Host 删除 Program Files 与托管用户数据）；Sandbox 验收脚本与 README 已按此修正。
 
+### Follow-up 2026-08-12：Windows Sandbox 宿主侧无法稳定启动（门禁仍阻塞）
+
+2026-08-12 全天在宿主机对 Windows Sandbox 共进行 6 次启动尝试，全部未产出验收证据，
+门禁仍停在「等待沙盒可用 + 用户在场批准 UAC」。记录如下（避免后续把短暂窗口误认为成功）：
+
+- 9:23/10:23/10:49/13:19 四次：`Windows Sandbox` 窗口出现，但 8-11 分钟后窗口消失，
+  且窗口存活期间 Win+R 键盘注入（写 `C:\NeuroBook\evidence\ping.txt`）均未生效，
+  即 VM 桌面从未进入可交互状态；Hyper-V VmSwitch 日志显示 14:14 一次 VM 网卡创建后
+  约 110 秒即被删除（会话被销毁，未完成启动）。
+- 14:14/14:26/14:36 三次：连窗口都不出现（launcher 派生 `WindowsSandboxServer` 后直接退出，
+  无 VM 创建）；14:36 一次是在杀掉残留 server 后全新启动，仍无窗口。
+- 已排除的误判：WER 中 12:05 批量刷出的 `Kernel_124/15e/1e/3b` 报告对应的是 7 月 14-25 日
+  宿主机旧崩溃（Minidump/WHEA 文件名日期可证），不是今天的沙盒崩溃；Kernel-Power 566
+  （睡眠恢复）仅出现在 9:06/11:49/13:11，与 10:49/13:19 会话消失时刻不吻合，睡眠不是原因。
+- 无管理员权限，无法重启 `vmcompute`、重注册 Store 组件或清理沙盒基础镜像；`winget` 未登记
+  该 Store 包，无可用更新入口。最可能的修复是重启宿主机清掉 Hyper-V 异常状态，或由用户
+  手动从开始菜单打开默认沙盒验证组件本身是否可用。
+- 沙盒可用后的验收路径已全部就绪：`run-sandbox-acceptance.ps1`（校验 Depot SHA-256、
+  预创建外部 Workspace、轮询安装/卸载产物、Provider 假 `/models` smoke、headless 启动、
+  消失项断言），用户仅需在 Sandbox 内执行两条命令并各批准一次 UAC。宿主机侧还准备了
+  `step1/step2` 包裹脚本与键盘驱动，供重试时使用；这些是宿主机临时文件，不入库。
+
+在沙盒 `--delete-data` 全新环境卸载证据出现之前，Task 145 不标记为可发布内部 beta；
+宿主机 machine 全链路（旧装卸载→Depot 安装→启动/修复→卸载，State Root 全程保留）已通过，
+见 final-acceptance.json。
+
 ### 历史 checkpoint（重建前基线，不代表当前包）
 
 ### 聚焦和构建门禁
