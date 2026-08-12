@@ -1,6 +1,7 @@
 import {builtinModules} from "node:module";
+import {createHash} from "node:crypto";
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {copyFile, cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {dirname, isAbsolute, relative, resolve, sep} from "node:path";
 import {fileURLToPath} from "node:url";
 import {currentProductPlatform} from "nbook/packages/neuro-book-manager/src/platform";
@@ -45,6 +46,15 @@ export type ProductRuntimeBundleResult = {
     discoveredSeeds: string[];
     specifierRewrites: number;
     typescriptProjection: TypeScriptRuntimeProjection;
+    msvcRuntime?: ProductMsvcRuntimeResult;
+};
+
+/** win32-x64 Product 镜像内 app-local 部署的 MSVC Runtime（VC++ 2015-2022 Redistributable）。 */
+export type ProductMsvcRuntimeResult = {
+    dlls: Array<{name: string; sha256: string}>;
+    targets: string[];
+    files: number;
+    bytes: number;
 };
 
 /**
@@ -117,6 +127,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
             discoveredSeeds: moduleSpecifiers.seeds,
             specifierRewrites: moduleSpecifiers.rewrites,
             typescriptProjection: islandInventory.typescriptProjection,
+            ...(islandInventory.msvcRuntime ? {msvcRuntime: islandInventory.msvcRuntime} : {}),
         };
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});
@@ -260,6 +271,7 @@ async function copyNativeIslands(serverRoot: string): Promise<{
     files: number;
     bytes: number;
     typescriptProjection: TypeScriptRuntimeProjection;
+    msvcRuntime?: ProductMsvcRuntimeResult;
 }> {
     const definitions = productRuntimeIslandDefinitions();
     const packages = productRuntimeIslandPackageNames();
@@ -279,14 +291,75 @@ async function copyNativeIslands(serverRoot: string): Promise<{
         }
     }
     if (!typescriptProjection) throw new Error("Product package islands缺少TypeScript Runtime Projection。");
+    const msvcRuntime = process.platform === "win32" && process.arch === "x64"
+        ? await copyMsvcRuntime(serverRoot)
+        : undefined;
     const manifest = {
         schema: NATIVE_ISLAND_SCHEMA,
         platform: currentProductPlatform(),
         islands: definitions,
         opaqueImports: productOpaqueImportDefinitions(),
+        ...(msvcRuntime ? {msvcRuntime} : {}),
     };
     await writeFile(resolve(serverRoot, "native-islands.json"), `${JSON.stringify(manifest, null, 4)}\n`, "utf8");
-    return {packages, typescriptProjection, ...await directoryInventory(resolve(serverRoot, "node_modules"))};
+    return {packages, typescriptProjection, msvcRuntime, ...await directoryInventory(resolve(serverRoot, "node_modules"))};
+}
+
+/**
+ * 全新 Windows（例如 Windows Sandbox）没有 VC++ Redistributable 时，libsql/sharp/
+ * sqlite-vec/esbuild 的 MSVC prebuilt 会 LoadLibrary 失败；微软允许 app-local 部署
+ * MSVC Runtime。构建必须显式提供固定版本的 DLL 目录，缺失即 fail closed。
+ * DLL 复制到镜像内每个含 `.node` 的目录和 esbuild.exe 目录，使各 native 二进制
+ * 都能按自身目录解析依赖。
+ */
+const MSVC_RUNTIME_DLLS = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"] as const;
+
+async function copyMsvcRuntime(serverRoot: string): Promise<ProductMsvcRuntimeResult> {
+    const runtimeDir = process.env.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim();
+    if (!runtimeDir) {
+        throw new Error("win32-x64 Product 构建必须设置 NEURO_BOOK_MSVC_RUNTIME_DIR（固定版本 MSVC Runtime DLL 目录）。");
+    }
+    const dlls: ProductMsvcRuntimeResult["dlls"] = [];
+    for (const name of MSVC_RUNTIME_DLLS) {
+        const filePath = resolve(runtimeDir, name);
+        if (!(await stat(filePath).catch(() => null))?.isFile()) {
+            throw new Error(`MSVC Runtime DLL 缺失：${filePath}`);
+        }
+        dlls.push({name, sha256: await fileSha256(filePath)});
+    }
+    const targets = new Set<string>();
+    const walk = async (directory: string): Promise<void> => {
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const filePath = resolve(directory, entry.name);
+            if (entry.isDirectory()) {
+                await walk(filePath);
+            } else if (entry.isFile() && (entry.name.endsWith(".node") || entry.name === "esbuild.exe")) {
+                targets.add(directory);
+            }
+        }
+    };
+    await walk(resolve(serverRoot, "node_modules"));
+    if (targets.size === 0) {
+        throw new Error("MSVC Runtime 复制未发现任何 native 二进制目标。");
+    }
+    let bytes = 0;
+    for (const target of [...targets].sort()) {
+        for (const name of MSVC_RUNTIME_DLLS) {
+            const source = resolve(runtimeDir, name);
+            bytes += (await stat(source)).size;
+            await copyFile(source, resolve(target, name));
+        }
+    }
+    return {
+        dlls,
+        targets: [...targets].sort().map((target) => relative(serverRoot, target)),
+        files: targets.size * MSVC_RUNTIME_DLLS.length,
+        bytes,
+    };
+}
+
+async function fileSha256(filePath: string): Promise<string> {
+    return createHash("sha256").update(await readFile(filePath)).digest("hex");
 }
 
 /** Product bundle 最终不得留下构建机路径或候选外可达 import。 */

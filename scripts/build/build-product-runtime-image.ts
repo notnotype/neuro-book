@@ -144,6 +144,15 @@ export function productBuildEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
             environment[name] = value;
         }
     }
+    // MSVC Runtime DLL 是 win32-x64 发行镜像的固定构建输入（app-local 部署，
+    // 见 product-runtime-bundle.ts 的 copyMsvcRuntime）；必须显式提供，不静默透传。
+    const msvcRuntimeDir = source.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim();
+    if (process.platform === "win32" && process.arch === "x64") {
+        if (!msvcRuntimeDir) {
+            throw new Error("win32-x64 Product 构建必须设置 NEURO_BOOK_MSVC_RUNTIME_DIR（固定版本 MSVC Runtime DLL 目录）。");
+        }
+        environment.NEURO_BOOK_MSVC_RUNTIME_DIR = msvcRuntimeDir;
+    }
     return {
         ...environment,
         LANG: "C",

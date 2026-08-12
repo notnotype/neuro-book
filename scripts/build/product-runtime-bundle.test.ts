@@ -17,6 +17,15 @@ import {
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
 
+/** win32-x64 构建要求显式 MSVC Runtime DLL 目录；测试用假 DLL 覆盖复制路径。 */
+async function createFakeMsvcRuntimeDir(): Promise<string> {
+    const msvcRuntimeDir = await mkdtemp(join(tmpdir(), "nbook-msvc-runtime-"));
+    temporaryRoots.push(msvcRuntimeDir);
+    await Promise.all(["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"].map((name) =>
+        writeFile(join(msvcRuntimeDir, name), `fake-${name}`, "utf8")));
+    return msvcRuntimeDir;
+}
+
 afterEach(async () => {
     await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
@@ -55,6 +64,9 @@ describe("Product Runtime bundle", () => {
     it("把 native 物理 URL 收敛到镜像内 package island，并清除 package manager metadata", async () => {
         const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-"));
         temporaryRoots.push(outputRoot);
+        const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
+            ? await createFakeMsvcRuntimeDir()
+            : null;
         const serverRoot = join(outputRoot, "server");
         const scratchRoot = join(outputRoot, ".build-scratch");
         await mkdir(serverRoot, {recursive: true});
@@ -101,6 +113,7 @@ describe("Product Runtime bundle", () => {
                 ...process.env,
                 NEURO_BOOK_OUTPUT_DIR: outputRoot,
                 NEURO_BOOK_PRODUCT_SCRATCH_ROOT: scratchRoot,
+                ...(msvcRuntimeDir ? {NEURO_BOOK_MSVC_RUNTIME_DIR: msvcRuntimeDir} : {}),
             },
             windowsHide: true,
             maxBuffer: 16 * 1024 * 1024,
@@ -111,6 +124,7 @@ describe("Product Runtime bundle", () => {
             platform: string;
             islands: Array<{packages: string[]}>;
             opaqueImports: ReturnType<typeof productOpaqueImportDefinitions>;
+            msvcRuntime?: {dlls: Array<{name: string; sha256: string}>; targets: string[]};
         };
 
         expect(source).toContain("esbuild");
@@ -135,6 +149,13 @@ describe("Product Runtime bundle", () => {
         }));
         const islandPackages = islands.islands.flatMap((island) => island.packages);
         expect(islandPackages).toEqual(expect.arrayContaining(["jsdom", "typescript", "undici"]));
+        if (msvcRuntimeDir) {
+            expect(islands.msvcRuntime).toBeDefined();
+            expect(islands.msvcRuntime.dlls).toHaveLength(3);
+            expect(islands.msvcRuntime.targets.length).toBeGreaterThan(0);
+            await expect(access(join(serverRoot, "node_modules", "@libsql", "win32-x64-msvc", "vcruntime140.dll"))).resolves.toBeUndefined();
+            await expect(access(join(serverRoot, "node_modules", "@esbuild", "win32-x64", "vcruntime140.dll"))).resolves.toBeUndefined();
+        }
         await expect(access(join(serverRoot, "node_modules", "jsdom", "package.json"))).resolves.toBeUndefined();
         await expect(access(join(serverRoot, "node_modules", "typescript", "lib", "typescript.js"))).resolves.toBeUndefined();
         const executed = await execFileAsync("bun", ["--no-install", join(serverRoot, "index.mjs")], {
@@ -151,6 +172,9 @@ describe("Product Runtime bundle", () => {
         const outputRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-image-"));
         const scratchRoot = await mkdtemp(join(tmpdir(), "nbook-product-runtime-bundle-scratch-"));
         temporaryRoots.push(outputRoot, scratchRoot);
+        const msvcRuntimeDir = process.platform === "win32" && process.arch === "x64"
+            ? await createFakeMsvcRuntimeDir()
+            : null;
         await mkdir(join(outputRoot, "server"), {recursive: true});
         await writeFile(join(outputRoot, "server", "index.mjs"), "export default true;\n", "utf8");
 
@@ -160,6 +184,7 @@ describe("Product Runtime bundle", () => {
                 ...process.env,
                 NEURO_BOOK_OUTPUT_DIR: outputRoot,
                 NEURO_BOOK_PRODUCT_SCRATCH_ROOT: scratchRoot,
+                ...(msvcRuntimeDir ? {NEURO_BOOK_MSVC_RUNTIME_DIR: msvcRuntimeDir} : {}),
             },
             windowsHide: true,
         })).rejects.toThrow("scratch 必须位于候选镜像内");

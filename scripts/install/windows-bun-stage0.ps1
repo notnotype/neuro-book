@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param()
 
 # This file is dot-sourced by the Windows install entry points.  It deliberately
