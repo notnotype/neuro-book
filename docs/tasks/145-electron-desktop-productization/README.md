@@ -8,7 +8,74 @@
 
 ## 当前状态
 
-**2026-08-12：当前最终代码 checkpoint `339853fb` 的 Product A/B、Portable/Depot A/B、仓库外 headless/可见 CDP、真实宿主机 machine install/repair/uninstall（可见 UAC 批准）和 Provider smoke 已全部完成，本 walkthrough 的最新证据以该 revision 为准。** 旧 checkpoint（`30e9dfe3` / `8edef0f2` / `b2e6d986` 等）只作为历史时间线保留，不代表当前包。Task 144 的启动页、Desktop Bridge v2、动态 loopback、startup nonce、单实例、托盘、Workbench Chrome 和 graceful shutdown 已迁移到本生产分支。本轮已经加入：
+**2026-08-12（晚间）：完成三个发行缺陷修复与 Windows Sandbox `--delete-data` 全自动验收，沙盒证据 `ok=true`（`evidence/t145-sandbox-acceptance.json`）。当前最终包基于 Product image `sha256:e7b804f9...`（3250 files / 136,634,228 bytes）、Electron Portable ZIP `sha256:3f4b2909...`（390,489,189 bytes）与 Desktop Depot ZIP `sha256:b6d35d99...`（387,870,790 bytes），Manager bundle `sha256:3182ba99...`；A/B 两次组包逐字节一致。** 详见下方「2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收」。旧 checkpoint 只作为历史时间线保留，不代表当前包。
+
+### 2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收
+
+#### 沙盒自动化通道
+
+Windows Sandbox（Store 版 0.8.107.0）在 System32 启动器路径下反复崩溃（6 次尝试：
+窗口 8-11 分钟消失或 VM 约 2 分钟被销毁，WER 内核报告经核对为 7 月旧记录）。改用
+Store 版自带的 `wsb.exe` CLI（`start`/`share`/`exec`/`ip`/`stop`/`connect`）后稳定；
+`wsb exec --run-as System` 允许无人值守执行安装与卸载。沙盒内无交互用户会话，
+UAC Host 委托路径无法运行，卸载删除由 Manager CLI 调度出的同一 Host 脚本在
+System 上下文直接执行（产品删除逻辑与 Programs and Features 路径共用）。
+
+#### 发现并修复的三个真实发行缺陷（宿主机无法暴露，仅干净 Windows 可复现）
+
+1. **`windows-bun-stage0.ps1` 无 UTF-8 BOM**：Windows PowerShell 5.1 把无 BOM UTF-8
+   按 ANSI 读取，中文注释破坏语法，安装引导脚本在干净系统上解析即失败。
+   `scripts/install/windows-bun-stage0.ps1` 补 BOM；`desktop/packaging/package-portable.mjs`
+   对发行 `.ps1` 增加 BOM fail-closed 门禁。
+2. **全新 Windows 缺 VC++ Redistributable**：libsql/sharp/sqlite-vec/esbuild 的 MSVC
+   prebuilt 在无 VC++ Runtime 的系统上 `LoadLibrary` 失败（安装 migration 崩溃）。
+   修复：win32-x64 Product 镜像 app-local 携带 `vcruntime140.dll`/`vcruntime140_1.dll`/
+   `msvcp140.dll`（复制到每个含 `.node` 的目录和 esbuild.exe 目录，共 9 files /
+   2,616,720 bytes）；构建必须显式提供 `NEURO_BOOK_MSVC_RUNTIME_DIR`（固定版本输入），
+   缺失 fail closed（`product-runtime-bundle.ts` + `build-product-runtime-image.ts`）。
+3. **Windows Uninstall Host 删除超过 MAX_PATH（260）的路径失败**：Cache Root 的
+   product-runtime 缓存树最长 302 字符（SYSTEM profile 前缀 + 深层 artifacts），
+   Host 删除 cache 时 ENOENT。修复（`windows-uninstall-host.ts`）：
+   - 所有删除/枚举路径加 `\\?\` 长路径前缀（`Add-LongPathPrefix`）；
+   - Host 脚本保持纯 ASCII（PS 5.1 对无 BOM UTF-8 的非 ASCII 注释解析异常）；
+   - Host 顺带清理安装时创建的 Programs and Features launcher root（读
+     `desktop-installation.json` 的 `installationId`；CLI/外置 Host 路径此前无
+     launcher 自删，会残留 `manager\uninstall\<id>`）。
+
+新增回归：`windows-uninstall-host.test.ts` 深层路径删除测试（5/5 通过）；Manager
+全量 41 files / 327 passed / 3 skipped；Manager typecheck 通过。
+
+#### 重建与重新打包
+
+- Product A/B（全新空输出根 ×2）：均 3250 files / 136,634,228 bytes，
+  `imageId=sha256:e7b804f9bf9fa19867457cdd97303ae1b26e81b0ea7f77c906e67fe36873dd94`，
+  tree digest `sha256:67d9597c...`，shape digest `sha256:c8d5b7aa...`，Source digest
+  `sha256:d0b4061c...`（clean tree `134de902`）。
+- 同一输入连续组包两次，5 个固定文件逐字节一致：Electron Portable ZIP
+  390,489,189 bytes（`3f4b290904bbd467d6961e0fed172d64f0d3cffe2743ff9913248d38225102bf`）、
+  Desktop Depot ZIP 387,870,790 bytes（`b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5`）；
+  Manager bundle `3182ba993454d43f0bf498a5e22aa07faf6063777371156eb51aeba4920964a5`。
+
+#### Windows Sandbox `--delete-data` 验收（全自动，证据 `ok=true`）
+
+全新 Windows Sandbox（无 VC++ Runtime、无用户会话）完成：machine 安装（约 65 秒，
+含 migration）→ Provider 本地假 `/models` smoke（模型发现 sandbox-fake-a/b，API Key
+不进输出/日志/argv）→ headless 启动（exit 0）→ `uninstall --yes --delete-data`
+（Host 删除）→ 全部 11 项断言通过：Program Files、State/Cache/Desktop/WebView、
+HKLM 卸载项、`neurobook://` 协议、开始菜单/公共桌面快捷方式、launcher root、进程树
+全部消失，预创建的外部 Project Workspace 保留。证据：
+`evidence/t145-sandbox-acceptance.json`（schema `nbook.task-145-sandbox-acceptance/v1`）。
+
+口径说明：`manager\uninstall` 与开始菜单的空父目录属于 Manager 自身状态/已知可接受
+残留（宿主机验收同口径，只断言内容消失）；System 上下文没有交互 UAC，真实 UAC
+行为由宿主机验收覆盖（machine install/repair/uninstall 均真实批准）。
+
+#### 验收矩阵（最终包）
+
+- 宿主机（旧 image `c5f208`）：UAC 交互、Repair、单实例、托盘、CDP、启动统计、
+  默认卸载保留 State Root——交互/生命周期路径未受本轮修复影响，保持有效。
+- Windows Sandbox（新 image `e7b804f9`）：干净系统安装、Provider、headless 启动、
+  delete-data 卸载——覆盖本轮修复后的真实删除路径。
 
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
@@ -64,7 +131,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 ### 2026-08-12：checkpoint 339853fb 最终 A/B 与宿主机验收
 
-本节是当前最终包（Source revision `339853fb65a972854fc33d6e3b1b9fcdb92cdb36`）的唯一当前证据；下方更早的 checkpoint 小节只作历史时间线。
+本节是 checkpoint `339853fb` 的历史证据；当前最终包证据见上方「2026-08-12 收口」段落（新 image `e7b804f9` 与重新组包的 Depot `b6d35d99`）。下方更早的 checkpoint 小节只作历史时间线。
 
 #### 最终 Product A/B
 
@@ -76,7 +143,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 - 使用 Product A 同一输入（同一 verified image、同一 Manager/Electron dist、Bun 1.3.14、同一 Tool Pack）连续组包两次，固定 5 个文件全部逐字节一致：
   - Electron Portable ZIP：`neuro-book-electron-portable-win-x64.zip`，389,512,576 bytes，SHA-256 `2c67e58b2943ab4d797b23c917f453a505dca72275e93d616cc297049abffd79`；
-  - Desktop Depot ZIP：`neuro-book-desktop-depot-win-x64.zip`，386,895,036 bytes，SHA-256 `968cba7440921c7c2ab54e278b1619285900346047f18f0b96f836eef709ac1a`；
+  - Desktop Depot ZIP：`neuro-book-desktop-depot-win-x64.zip`，386,895,039 bytes，SHA-256 `ce116d6cc5d9f7ce322ffdbfb7b972172ee6f5330c86741815f69dfa0319a9fb`（比上一版多 3 字节：`windows-bun-stage0.ps1` 补 UTF-8 BOM，见下方 BOM 修复记录）；
   - distribution/sidecar manifest 一致；channel 为 canary。
 - 固定输入摘要：Manager bundle `1D59588282802DFB4C9BD2E07EF0F20D5DF89480D8E8B49F136563855B18D2F7`、Electron main `71137D559D53D523186B0BDA207BFBD188A9C59F1EE16D18E32F8A74F4E232C4`、Manager main `CFCF4693DC1230B2B644A96B1ACDA9A94F00EE91AFEB0C99049EA7BBB346F80B`、Bun `0187F68D843F825A72ADA4A7ECA60DB896ED753759A7F8252EDCD31AC1BF1B9C`。
 - Tauri 不重新组包生产 artifact（按计划只保留合同与历史证据）。
@@ -126,6 +193,9 @@ PR #88 在 `339853fb` 上 push 后 CI 有 5 项必检 fail，已修复并推送 
 Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandbox-acceptance/`：宿主机准备脚本、`.wsb` 映射配置、Sandbox 内分阶段验收脚本与 README），宿主机输入目录已生成；该路径含 Sandbox 内 UAC 交互与删除数据操作，等待用户在场执行。实现核对确认：Programs and Features 外置 launcher 的 `broker-client` 硬编码 `deleteData=false`（该入口固定保留 State Root），`--delete-data` 删除路径由 Manager CLI `uninstall --yes --delete-data` 承担（machine 安装经外置 UAC Host 删除 Program Files 与托管用户数据）；Sandbox 验收脚本与 README 已按此修正。
 
 ### Follow-up 2026-08-12：Windows Sandbox 宿主侧无法稳定启动（门禁仍阻塞）
+
+**后续（同日）：改走 Store 版 `wsb.exe` CLI 后通道稳定，验收已完成，见上方
+「2026-08-12 收口」段落；本段保留为排障记录。**
 
 2026-08-12 全天在宿主机对 Windows Sandbox 共进行 6 次启动尝试，全部未产出验收证据，
 门禁仍停在「等待沙盒可用 + 用户在场批准 UAC」。记录如下（避免后续把短暂窗口误认为成功）：

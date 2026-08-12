@@ -6,7 +6,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$expectedSha256 = "968cba7440921c7c2ab54e278b1619285900346047f18f0b96f836eef709ac1a"
+$expectedSha256 = "b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5"
 
 if (-not $DepotDirectory) {
     $DepotDirectory = Join-Path $PSScriptRoot "..\..\..\..\..\.agent\tmp\t145-final-339853fb-package-a\output"

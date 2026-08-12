@@ -6,6 +6,30 @@ Project Workspace 保留。**不拿宿主机真实 State Root 做删除测试。
 
 依赖：Windows Sandbox 功能已启用（`C:\Windows\System32\WindowsSandbox.exe` 存在）。
 
+## 0. 自动化通道（推荐；2026-08-12 已验证）
+
+System32 启动器在本机反复崩溃（见 Task 145 walkthrough 排障记录）；改用 Store 版
+`Windows Sandbox`（0.8.107.0）自带的 CLI 后稳定：
+
+```powershell
+$wsb = 'C:\Program Files\WindowsApps\MicrosoftWindows.WindowsSandbox_0.8.107.0_x64__cw5n1h2txyewy\wsb.exe'
+$id = [guid]::NewGuid().ToString()
+& $wsb start --id $id --raw
+& $wsb share --id $id -f <host-input-dir> -s C:\NeuroBook\input
+& $wsb share --id $id -f <host-evidence-dir> -s C:\NeuroBook\evidence -w
+& $wsb exec --id $id -c "cmd /c powershell -NoProfile -ExecutionPolicy Bypass -File C:\NeuroBook\input\run-sandbox-acceptance.ps1 -Automated > C:\NeuroBook\evidence\run-log.txt 2>&1 & exit /b %errorlevel%" -r System
+& $wsb stop --id $id
+```
+
+`-Automated` 用 `exec --run-as System` 执行安装与卸载（沙盒无交互用户会话，UAC
+Host 委托路径无法运行；删除由 Manager CLI 调度的同一 Host 脚本在 System 上下文
+执行）。验收脚本内 headless 启动后会等待进程树完全收口再卸载（避免 Host 删除的
+lockfile 竞态），并轮询 Host receipt `ok=true`。
+
+证据写入 `t145-sandbox-evidence\t145-sandbox-acceptance.json`
+（schema `nbook.task-145-sandbox-acceptance/v1`），要求 `ok=true` 且全部 `checks`
+为真；当前通过证据已入库 `evidence/t145-sandbox-acceptance.json`。
+
 ## 1. 宿主机准备（一次）
 
 ```powershell
@@ -14,7 +38,7 @@ Project Workspace 保留。**不拿宿主机真实 State Root 做删除测试。
 
 脚本会：
 
-- 校验最终 Depot ZIP（`sha256:968cba74...`）并复制到
+- 校验最终 Depot ZIP（`sha256:ce116d6c...`）并复制到
   `C:\Users\Public\Documents\NeuroBookAcceptance\t145-sandbox-input`；
 - 解压 Depot（提取 `install-desktop.ps1` / `windows-bun-stage0.ps1`）；
 - 创建可写证据目录 `t145-sandbox-evidence`。

@@ -3,38 +3,45 @@
     "updatedAt": "2026-08-12",
     "scope": "当前最终包单一证据；历史 checkpoint 只保留在 walkthrough 时间线。路径使用逻辑 locator 或仓库相对路径，不含本机用户名与 Secret。",
     "source": {
-        "revision": "339853fb65a972854fc33d6e3b1b9fcdb92cdb36",
-        "sourceDigest": "sha256:25245d6b75ec63291b9bcac3231c225f20450584c5bae534aaaeb32305bd566b",
+        "revision": "134de9022607192f314a0a6f1a0c935d0ce957c5",
+        "sourceDigest": "sha256:d0b4061cd3b3f8b6d12439fd0190bc92d2610efe5b1d580f68ea15b008d9425c",
         "lockfileSha256": "sha256:2fe27b0edf74c1738aa657fcbb9d797d6122daf356dbd17b8d6c6e8e50fea922",
-        "dirty": false
+        "dirty": false,
+        "note": "Product image built from the clean code-freeze tree at 134de902 (docs/evidence updates landed after the build)"
     },
     "product": {
-        "imageId": "sha256:c5f208754125491af2a0d7f61c53144df3dee79e489f55be373eed9f5c0f30dc",
-        "treeDigest": "sha256:16815e871d54a260fcbab2054d03f78cd7111e0510b85f9b56cd6ffcded7574a",
-        "shapeDigest": "sha256:84efc1ecdbdada7bcf9db8e2f3895118cfc7efcd0f304c8de3f346ec525c495a",
+        "imageId": "sha256:e7b804f9bf9fa19867457cdd97303ae1b26e81b0ea7f77c906e67fe36873dd94",
+        "treeDigest": "sha256:67d9597c63b0bdda6ec4fb71bd3f0db0892f726be2e239c3059197bee76c7f87",
+        "shapeDigest": "sha256:c8d5b7aaa1d8cd77a00be6238f05b8c816471fb48aed1bdad89b83ccdf0c71fc",
         "contractSchema": "nbook.product-runtime-contract/v5",
-        "files": 3241,
-        "bytes": 134016722,
+        "files": 3250,
+        "bytes": 136634228,
         "builds": 2,
         "identityStable": true,
         "manifestEqualIgnoringCreatedAt": true,
         "independentOpenSelfVerified": true,
-        "productStartWrapper": "server/commands/product-start.mjs"
+        "productStartWrapper": "server/commands/product-start.mjs",
+        "msvcRuntime": {
+            "dlls": ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"],
+            "targets": 3,
+            "files": 9,
+            "bytes": 2616720
+        }
     },
     "portable": {
         "electronPortableZip": {
             "name": "neuro-book-electron-portable-win-x64.zip",
-            "bytes": 389512576,
-            "sha256": "sha256:2c67e58b2943ab4d797b23c917f453a505dca72275e93d616cc297049abffd79"
+            "bytes": 390489189,
+            "sha256": "sha256:3f4b290904bbd467d6961e0fed172d64f0d3cffe2743ff9913248d38225102bf"
         },
         "desktopDepotZip": {
             "name": "neuro-book-desktop-depot-win-x64.zip",
-            "bytes": 386895036,
-            "sha256": "sha256:968cba7440921c7c2ab54e278b1619285900346047f18f0b96f836eef709ac1a"
+            "bytes": 387870790,
+            "sha256": "sha256:b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5"
         },
         "channel": "canary",
         "fixedInputs": {
-            "managerBundleSha256": "sha256:1d59588282802dfb4c9bd2e07ef0f20d5df89480d8e8b49f136563855b18d2f7",
+            "managerBundleSha256": "sha256:3182ba993454d43f0bf498a5e22aa07faf6063777371156eb51aeba4920964a5",
             "electronMainSha256": "sha256:71137d559d53d523186b0bda207bfbd188a9c59f1ee16d18e32f8a74f4e232c4",
             "managerMainSha256": "sha256:cfcf4693dc1230b2b644a96b1acda9a94f00ee91afeb0c99049ea7bbb346f80b",
             "bunSha256": "sha256:0187f68d843f825a72ada4a7eca60db896ed753759a7f8252edcd31ac1bf1b9c",
@@ -45,7 +52,8 @@
             "runs": 2,
             "sameVerifiedProductImage": true,
             "fixedPayloadFilesByteIdentical": true,
-            "archivesByteIdentical": true
+            "archivesByteIdentical": true,
+            "note": "Re-packaged on 2026-08-12 with the MSVC-runtime Product image, BOM-fixed install scripts and long-path-safe Manager bundle"
         },
         "tauri": {
             "status": "contract-and-history-only",
@@ -176,7 +184,21 @@
             "stateRootPreserved": true,
             "bootConfigUnchanged": true,
             "residue": "empty Start Menu Programs/NeuroBook directory remains; uninstall removes .lnk files but not the empty directory"
+            ,
+            "imageIdNote": "Host-machine chain was verified against the pre-fix Product image sha256:c5f208... (UAC/repair/single-instance/tray paths unchanged by the MSVC runtime and uninstall-host fixes); the new image e7b804f9... is covered by the sandbox acceptance below for install/migration/Provider/headless/delete-data uninstall"
         }
+    },
+    "sandbox": {
+        "schema": "nbook.task-145-sandbox-acceptance/v1",
+        "ok": true,
+        "evidence": "docs/tasks/145-electron-desktop-productization/evidence/t145-sandbox-acceptance.json",
+        "depotSha256": "sha256:b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5",
+        "runContext": "Store Windows Sandbox via wsb.exe CLI, exec --run-as System (no interactive user session; UAC host delegation cannot run there, product deletion executed by the real Host script which the CLI schedules)",
+        "machineInstall": "passed",
+        "providerSmoke": "passed (fake /models discovery, api key not leaked, config written)",
+        "headlessStart": "passed (exit 0)",
+        "deleteDataUninstall": "passed",
+        "checksAllTrue": true
     },
     "provider": {
         "scope": "local loopback fake /models service",
@@ -202,7 +224,7 @@
         "managerTests": {
             "filesPassed": 41,
             "filesSkipped": 1,
-            "testsPassed": 326,
+            "testsPassed": 327,
             "testsSkipped": 3
         },
         "managerReleaseContract": {
@@ -220,7 +242,6 @@
         "gitDiffCheck": "passed"
     },
     "notCovered": [
-        "Windows Sandbox --delete-data 全新环境卸载（保留给隔离环境，不拿真实 State Root 删除）",
         "真实外部 Provider 成功连接",
         "Windows Snap Layout 展开面板",
         "可见的 Windows 文件选择器选择操作",
