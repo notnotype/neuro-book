@@ -33,7 +33,7 @@ Sandbox 内映射：`C:\NeuroBook\input`（只读）、`C:\NeuroBook\evidence`�
 
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass -Force
-& "C:\NeuroBook\input\depot-extracted\run-sandbox-acceptance.ps1"
+& "C:\NeuroBook\input\run-sandbox-acceptance.ps1"
 ```
 
 脚本分两个 UAC 交互点，均需在 Sandbox 桌面人工批准：

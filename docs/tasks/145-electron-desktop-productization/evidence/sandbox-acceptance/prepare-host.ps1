@@ -36,6 +36,9 @@ foreach ($name in @(
     Copy-Item -LiteralPath (Join-Path $depotRoot $name) -Destination $inputRoot -Force
 }
 
+# Sandbox 内执行入口必须随输入一起映射（input 目录只读）。
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot "run-sandbox-acceptance.ps1") -Destination $inputRoot -Force
+
 $work = Join-Path $inputRoot "depot-extracted"
 if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }
 Expand-Archive -LiteralPath $depotZip -DestinationPath $work
