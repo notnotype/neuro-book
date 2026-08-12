@@ -178,18 +178,35 @@ function Test-SameOrWithin([string]$Root, [string]$Target) {
     if ([string]::Equals($canonicalRoot, $canonicalTarget, [StringComparison]::OrdinalIgnoreCase)) { return $true }
     return $canonicalTarget.StartsWith($canonicalRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
 }
-function Remove-OwnedPath([string]$Path) {
-    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }
+
+function Add-LongPathPrefix([string]$Path) {
+    if ($Path.StartsWith('\\?\')) { return $Path }
+    return '\\?\' + $Path
 }
+
+function Strip-LongPathPrefix([string]$Path) {
+    if ($Path.StartsWith('\\?\')) { return $Path.Substring(4) }
+    return $Path
+}
+
+function Remove-OwnedPath([string]$Path) {
+    # Deep trees (e.g. product-runtime cache) can exceed MAX_PATH (260);
+    # the \\?\ prefix enables long-path deletion. Script must stay ASCII:
+    # Windows PowerShell 5.1 misparses non-ASCII comments in BOM-less UTF-8.
+    $longPath = Add-LongPathPrefix $Path
+    if (Test-Path -LiteralPath $longPath) { Remove-Item -LiteralPath $longPath -Recurse -Force -ErrorAction Stop }
+}
+
 function Remove-TreeExcept([string]$Current, [string]$Preserve) {
     if (Test-SamePath $Current $Preserve) { return }
-    foreach ($entry in @(Get-ChildItem -LiteralPath $Current -Force -ErrorAction Stop)) {
-        $target = Resolve-CanonicalPath $entry.FullName
-        if (Test-SamePath $target $Preserve) { continue }
-        if (Test-SameOrWithin $target $Preserve) {
-            Remove-TreeExcept $target $Preserve
+    foreach ($entry in @(Get-ChildItem -LiteralPath (Add-LongPathPrefix $Current) -Force -ErrorAction Stop)) {
+        $target = Resolve-CanonicalPath (Strip-LongPathPrefix $entry.FullName)
+        $preserveCanonical = Resolve-CanonicalPath $Preserve
+        if (Test-SamePath $target $preserveCanonical) { continue }
+        if (Test-SameOrWithin $target $preserveCanonical) {
+            Remove-TreeExcept $target $preserveCanonical
         } else {
-            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+            Remove-Item -LiteralPath (Add-LongPathPrefix $target) -Recurse -Force -ErrorAction Stop
         }
     }
 }
@@ -250,6 +267,19 @@ try {
         if (-not (Test-SamePath $desktop (Join-Path $localAppData "NeuroBook\desktop"))) { throw "The Installed Windows Desktop Root does not match." }
     } else {
         throw "The uninstall layout is invalid."
+    }
+    # Remove the Programs and Features launcher root created at install time.
+    # The Programs and Features launcher deletes itself after running, but the
+    # CLI/external-Host uninstall path has no launcher self-cleanup.
+    # installationId lives in the Desktop Installation Manifest (desktop root).
+    $installationManifestPath = Join-Path $desktop "desktop-installation.json"
+    if (Test-Path -LiteralPath (Add-LongPathPrefix $installationManifestPath)) {
+        $installationManifest = Get-Content -LiteralPath (Add-LongPathPrefix $installationManifestPath) -Raw -Encoding UTF8 | ConvertFrom-Json
+        $installationId = [string]$installationManifest.installationId
+        if ($installationId -match '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') {
+            $launcherRoot = Join-Path $env:LOCALAPPDATA ("NeuroBook\manager\uninstall\" + $installationId)
+            Remove-OwnedPath $launcherRoot
+        }
     }
     if ($intent.deleteData) {
         if ($intent.layout -eq "installed-windows") {

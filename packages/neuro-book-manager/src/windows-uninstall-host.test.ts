@@ -91,19 +91,52 @@ describe.runIf(process.platform === "win32")("Windows Uninstall Host", () => {
         const stateRoot = join(localData, "NeuroBook", "data");
         const cacheRoot = join(localData, "NeuroBook", "cache");
         const desktopRoot = join(localData, "NeuroBook", "desktop");
+        const installationId = "test-install-0001";
+        const launcherRoot = join(localData, "NeuroBook", "manager", "uninstall", installationId);
         await Promise.all([
             write(root, ".runtime/bun/bun.exe", "runtime"),
+            write(desktopRoot, "desktop-installation.json", JSON.stringify({schemaVersion: 3, installationId, installationScope: "machine"})),
             write(stateRoot, "workspace/novel/book.md", "truth"),
             write(cacheRoot, "runtime/item", "cache"),
             write(desktopRoot, "webview/profile", "desktop"),
+            write(launcherRoot, "uninstall.ps1", "# launcher"),
         ]);
 
         const result = await runHost({sandbox, root, layout: "installed-windows", stateRoot, cacheRoot, desktopRoot, deleteData: true});
 
         expect(result.ok).toBe(true);
-        for (const target of [root, stateRoot, cacheRoot, desktopRoot]) {
+        for (const target of [root, stateRoot, cacheRoot, desktopRoot, launcherRoot]) {
             await expect(stat(target)).rejects.toMatchObject({code: "ENOENT"});
         }
+    }, WINDOWS_HOST_TEST_TIMEOUT_MS);
+
+    it("删除超过 MAX_PATH 的深层托管内容（\\?\\ 长路径前缀）", async () => {
+        const sandbox = testSandbox("host-deep-path");
+        const root = join(sandbox, "portable");
+        const deepSegment = "segment-0123456789abcdef";
+        const deepFile = join(
+            root,
+            ".cache",
+            "product-runtime",
+            ...Array.from({length: 10}, () => deepSegment),
+            "artifact-0123456789abcdef0123456789abcdef.mjs",
+        );
+        await mkdir(dirname(deepFile), {recursive: true});
+        await writeFile(deepFile, "deep");
+        expect(deepFile.length).toBeGreaterThan(260);
+
+        const result = await runHost({
+            sandbox,
+            root,
+            layout: "installation-scoped",
+            stateRoot: join(root, "data"),
+            cacheRoot: join(root, ".cache"),
+            desktopRoot: join(root, "data", ".desktop"),
+            deleteData: true,
+        });
+
+        expect(result.ok).toBe(true);
+        await expect(stat(deepFile)).rejects.toMatchObject({code: "ENOENT"});
     }, WINDOWS_HOST_TEST_TIMEOUT_MS);
 
     it("intent 摘要被篡改时零删除并写失败结果", async () => {
