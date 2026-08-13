@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$DepotDirectory = "",
-    [string]$TargetRoot = "C:\Users\Public\Documents\NeuroBookAcceptance"
+    [string]$TargetRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,6 +10,11 @@ $expectedSha256 = "cf7f2b2c156e744c395fa4418c339d906bc7f55817cbf792361ed4e0aa59e
 
 if (-not $DepotDirectory) {
     $DepotDirectory = Join-Path $PSScriptRoot "..\..\..\..\..\.agent\tmp\t145-final-339853fb-package-a\output"
+}
+if (-not $TargetRoot) {
+    # 验收输入/证据默认落在仓库 .agent/tmp 受控根，不写用户公共目录。
+    # 显式 -TargetRoot 仍可覆盖（例如 Windows Sandbox 需要宿主可访问的路径）。
+    $TargetRoot = Join-Path $PSScriptRoot "..\..\..\..\..\.agent\tmp\t145-sandbox"
 }
 $depotRoot = (Resolve-Path -LiteralPath $DepotDirectory).Path
 $depotZip = Join-Path $depotRoot "neuro-book-desktop-depot-win-x64.zip"

@@ -36,14 +36,20 @@ lockfile 竞态），并轮询 Host receipt `ok=true`。
 .\docs\tasks\145-electron-desktop-productization\evidence\sandbox-acceptance\prepare-host.ps1
 ```
 
-脚本会：
+脚本默认把输入/证据放在仓库受控临时根 `<repoRoot>\.agent\tmp\t145-sandbox\`（`t145-sandbox-input` /
+`t145-sandbox-evidence`），不再写用户公共目录；需要其它位置时显式传
+`-TargetRoot`。脚本会：
 
 - 校验最终 Depot ZIP（`sha256:cf7f2b2c...`）并复制到
-  `C:\Users\Public\Documents\NeuroBookAcceptance\t145-sandbox-input`；
+  `<TargetRoot>\t145-sandbox-input`；
 - 解压 Depot（提取 `install-desktop.ps1` / `windows-bun-stage0.ps1`）；
-- 创建可写证据目录 `t145-sandbox-evidence`。
+- 创建可写证据目录 `<TargetRoot>\t145-sandbox-evidence`；
+- 结尾打印输入/证据实际路径，供下一步修改 `.wsb` 映射。
 
 ## 2. 启动 Sandbox
+
+先把 `neuro-book-sandbox.wsb` 中两个 `HostFolder` 改成上一步打印的实际路径
+（该文件是模板，不能写死本机路径），再运行：
 
 ```powershell
 WindowsSandbox.exe .\docs\tasks\145-electron-desktop-productization\evidence\sandbox-acceptance\neuro-book-sandbox.wsb

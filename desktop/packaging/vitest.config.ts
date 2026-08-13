@@ -4,6 +4,7 @@ import {defineConfig} from "vitest/config";
 const root = fileURLToPath(new URL("../../", import.meta.url));
 
 export default defineConfig({
+    root,
     resolve: {
         alias: {
             nbook: root,
@@ -12,6 +13,8 @@ export default defineConfig({
     test: {
         environment: "node",
         globals: true,
+        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
+        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
         include: [
             "desktop/electron/src/**/*.test.ts",
             "desktop/shared/src/**/*.test.ts",

@@ -1,14 +1,15 @@
 <Configuration>
   <!-- Task 145 最终收口：全新环境 machine install + --delete-data 卸载验收。
-       先运行 prepare-host.ps1 生成 t145-sandbox-input / t145-sandbox-evidence。 -->
+       模板：HostFolder 必须改成 prepare-host.ps1 实际输出的路径
+       （默认 <repoRoot>\.agent\tmp\t145-sandbox\t145-sandbox-input 与 ...\t145-sandbox-evidence）。 -->
   <MappedFolders>
     <MappedFolder>
-      <HostFolder>C:\Users\Public\Documents\NeuroBookAcceptance\t145-sandbox-input</HostFolder>
+      <HostFolder>C:\PATH\TO\t145-sandbox-input</HostFolder>
       <SandboxFolder>C:\NeuroBook\input</SandboxFolder>
       <ReadOnly>true</ReadOnly>
     </MappedFolder>
     <MappedFolder>
-      <HostFolder>C:\Users\Public\Documents\NeuroBookAcceptance\t145-sandbox-evidence</HostFolder>
+      <HostFolder>C:\PATH\TO\t145-sandbox-evidence</HostFolder>
       <SandboxFolder>C:\NeuroBook\evidence</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>

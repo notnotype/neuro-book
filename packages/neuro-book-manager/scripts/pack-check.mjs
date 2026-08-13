@@ -1,9 +1,12 @@
-import {mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {mkdir, mkdtemp, readFile, readdir, rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 
 const packageRoot = resolve(import.meta.dir, "..");
-const temporaryRoot = await mkdtemp(join(tmpdir(), "neuro-book-manager-pack-"));
+// 仓库根：`packages/neuro-book-manager/scripts/` 向上三级。
+const repoRoot = resolve(import.meta.dir, "..", "..", "..");
+const managedTmpRoot = join(repoRoot, ".agent", "tmp");
+await mkdir(managedTmpRoot, {recursive: true});
+const temporaryRoot = await mkdtemp(join(managedTmpRoot, "manager-pack-"));
 
 try {
     await run(["bun", "pm", "pack", "--destination", temporaryRoot], packageRoot);

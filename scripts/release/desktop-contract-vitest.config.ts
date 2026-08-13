@@ -60,6 +60,8 @@ export default defineConfig({
     },
     test: {
         environment: "node",
+        setupFiles: ["server/workspace-files/vitest-tmpdir-setup.ts"],
+        globalSetup: ["server/workspace-files/vitest-global-setup.ts"],
         include: [
             "shared/desktop-contract.test.ts",
             "shared/desktop-uac-broker.test.ts",

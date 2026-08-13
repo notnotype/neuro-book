@@ -1,5 +1,6 @@
 import {mkdtemp, mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {join} from "node:path";
+import {dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
 import {writeZipArchive} from "nbook/scripts/utils/zip";
@@ -17,7 +18,9 @@ import {
 import {assertPowerShellBom} from "nbook/desktop/shared/src/powershell-bom";
 
 async function fixture(): Promise<{root: string; stagingRoot: string; archivePath: string; manifestPath: string}> {
-    const tempRoot = join(process.cwd(), ".agent", "tmp");
+    // 仓库根：`desktop/shared/src/` 向上三级；不依赖 process.cwd()。
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const tempRoot = join(repoRoot, ".agent", "tmp");
     await mkdir(tempRoot, {recursive: true});
     const root = await mkdtemp(join(tempRoot, "desktop-aggregate-contract-"));
     const staging = join(root, "staging");

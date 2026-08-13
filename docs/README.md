@@ -11,6 +11,7 @@
 - `docs/research/`：第三方库、外部资料和方案调研。
 - `docs/drafts/`：未定稿草案。
 - `docs/tasks/`：重大任务的持续 walkthrough；active task 使用 `{order}-{slug}`，已归档任务放入 `docs/tasks/archived/`。
+- `docs/testing/`：测试规范——临时目录与生命周期、测试组织、平台门禁和验收脚本路径约定。
 - `docs/changelog/`：历史版本的更新说明，按发布线分文件；英文镜像在 `docs/en/changelog/`。当前版本的更新说明在根目录 `RELEASE.md`，不放这里。
 - `docs/archived/`：过期但仍有参考价值的文档。
 

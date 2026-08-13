@@ -8,6 +8,7 @@ const rootDir = fileURLToPath(new URL("./", import.meta.url));
  * 统一使用 Node 环境，避免前端测试依赖和 Nuxt 浏览器运行时混进来。
  */
 export default defineConfig({
+    root: rootDir,
     resolve: {
         alias: {
             nbook: rootDir,
@@ -23,11 +24,13 @@ export default defineConfig({
         // 而单个 artifact 目前有 27.3 MiB（宿主实现被打进 bundle，见 Task 125 Phase 3）。
         // 这是承认当前 artifact 体积的真实成本，不是掩盖挂起——真正的修复是把 artifact 压小。
         hookTimeout: 60_000,
-        // run 级：回收上一次残留 fixture + 建立共享只读 system assets snapshot。
+        // run 级：先由 Agent fixture 设置 runId，再注册受控临时根清理；teardown 逆序执行。
         globalSetup: [
             "server/agent/test/global-setup.ts",
+            "server/workspace-files/vitest-global-setup.ts",
         ],
         setupFiles: [
+            "server/workspace-files/vitest-tmpdir-setup.ts",
             "server/agent/test/setup.ts",
         ],
         include: [
@@ -40,7 +43,9 @@ export default defineConfig({
             "scripts/build/**/*.test.ts",
             "scripts/ci/**/*.test.ts",
             "scripts/db/**/*.test.ts",
+            "scripts/deploy/**/*.test.ts",
             "scripts/install/**/*.test.ts",
+            "scripts/maintenance/**/*.test.ts",
             "scripts/release/**/*.test.ts",
             "server/**/*.test.ts",
             // Profile DSL 用 JSX，相关测试必须是 .tsx 才能被 oxc 解析。

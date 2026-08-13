@@ -1,8 +1,12 @@
 import {mkdir, rm, writeFile} from "node:fs/promises";
-import {resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 import {createProductRuntimeContract} from "nbook/shared/product-runtime-contract";
 import {auditProductContract} from "./contract-audit";
+
+/** 仓库根：`desktop/shared/src/` 向上三级。 */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 describe("Task 143 Product Contract adapter", () => {
     const roots: string[] = [];
@@ -12,7 +16,7 @@ describe("Task 143 Product Contract adapter", () => {
     });
 
     it("只接受 v5 commands 下的可迁移入口，并返回可脱敏审计结果", async () => {
-        const root = resolve(".agent", "tmp", "desktop-contract-audit", `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+        const root = join(REPO_ROOT, ".agent", "tmp", "desktop-contract-audit", `${Date.now()}-${Math.random().toString(16).slice(2)}`);
         roots.push(root);
         await mkdir(resolve(root, "server"), {recursive: true});
         await writeFile(resolve(root, "server", "runtime-contract.json"), JSON.stringify(createProductRuntimeContract({

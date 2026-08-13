@@ -57,6 +57,8 @@ export default defineConfig({
     test: {
         include: ["src/**/*.test.ts"],
         environment: "node",
+        setupFiles: ["../../server/workspace-files/vitest-tmpdir-setup.ts"],
+        globalSetup: ["../../server/workspace-files/vitest-global-setup.ts"],
         // Manager回归包含真实Git、PowerShell和子进程冷启动；共享runner负载下5秒不足以区分慢启动与挂死。
         testTimeout: 20_000,
     },

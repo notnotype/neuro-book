@@ -1,6 +1,7 @@
 import {mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {join} from "node:path";
+import {dirname, join, resolve} from "node:path";
+import {fileURLToPath} from "node:url";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {
@@ -99,7 +100,9 @@ describe("Windows Desktop uninstall final result", () => {
 });
 
 async function fixtureRoot(prefix: string): Promise<string> {
-    const base = join(process.cwd(), ".agent", "tmp");
+    // 仓库根：`desktop/shared/src/` 向上三级；不依赖 process.cwd()。
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    const base = join(repoRoot, ".agent", "tmp");
     await mkdir(base, {recursive: true});
     const root = await mkdtemp(join(base, prefix));
     roots.push(root);
