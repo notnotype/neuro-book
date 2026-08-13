@@ -62,12 +62,13 @@ describe("Product build environment", () => {
         expect(source.NUXT_DEVTOOLS).toBe("1");
     });
 
-    it("win32-x64 缺少 MSVC Runtime 目录时 fail closed", () => {
-        if (process.platform !== "win32" || process.arch !== "x64") {
-            expect(productBuildEnvironment({})).toBeDefined();
-            return;
+    it("win32-x64 无显式 MSVC Runtime 时注入仓库默认输入目录", () => {
+        const environment = productBuildEnvironment({});
+        if (process.platform === "win32" && process.arch === "x64") {
+            expect(environment.NEURO_BOOK_MSVC_RUNTIME_DIR).toMatch(/scripts[\\/]build[\\/]inputs[\\/]msvc-runtime$/u);
+        } else {
+            expect(environment).not.toHaveProperty("NEURO_BOOK_MSVC_RUNTIME_DIR");
         }
-        expect(() => productBuildEnvironment({})).toThrow("NEURO_BOOK_MSVC_RUNTIME_DIR");
     });
 
     it("五个平台只返回各自实测 baseline，正式 policy preflight 全部通过", () => {

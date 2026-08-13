@@ -313,12 +313,11 @@ async function copyNativeIslands(serverRoot: string): Promise<{
  * 都能按自身目录解析依赖。
  */
 const MSVC_RUNTIME_DLLS = ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll"] as const;
+/** Fixed-version MSVC Runtime as a repo build input (scripts/build/inputs/msvc-runtime); local and CI Windows builds share the same bytes. NEURO_BOOK_MSVC_RUNTIME_DIR can override it. */
+const MSVC_RUNTIME_DEFAULT_DIR = resolve(SOURCE_ROOT, "scripts", "build", "inputs", "msvc-runtime");
 
 async function copyMsvcRuntime(serverRoot: string): Promise<ProductMsvcRuntimeResult> {
-    const runtimeDir = process.env.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim();
-    if (!runtimeDir) {
-        throw new Error("win32-x64 Product 构建必须设置 NEURO_BOOK_MSVC_RUNTIME_DIR（固定版本 MSVC Runtime DLL 目录）。");
-    }
+    const runtimeDir = process.env.NEURO_BOOK_MSVC_RUNTIME_DIR?.trim() || MSVC_RUNTIME_DEFAULT_DIR;
     const dlls: ProductMsvcRuntimeResult["dlls"] = [];
     for (const name of MSVC_RUNTIME_DLLS) {
         const filePath = resolve(runtimeDir, name);
