@@ -14,6 +14,7 @@ import {
     verifyDesktopAggregateDepotArchive,
     type DesktopAggregateDirectoryEntry,
 } from "nbook/desktop/shared/src/desktop-aggregate-depot";
+import {assertPowerShellBom} from "nbook/desktop/packaging/package-portable.mjs";
 
 async function fixture(): Promise<{root: string; stagingRoot: string; archivePath: string; manifestPath: string}> {
     const tempRoot = join(process.cwd(), ".agent", "tmp");
@@ -33,6 +34,22 @@ async function fixture(): Promise<{root: string; stagingRoot: string; archivePat
 }
 
 describe("Desktop aggregate depot packaging contract", () => {
+    it("发行 .ps1 必须带 UTF-8 BOM（Windows PowerShell 5.1 解析合同）", async () => {
+        const paths = await fixture();
+        try {
+            const ps1 = join(paths.stagingRoot, "sample.ps1");
+            await writeFile(ps1, "# 中文注释\nWrite-Output ok\n", "utf8");
+            await expect(assertPowerShellBom(ps1)).rejects.toThrow("UTF-8 BOM");
+            await writeFile(ps1, "\uFEFF# 中文注释\nWrite-Output ok\n", "utf8");
+            await expect(assertPowerShellBom(ps1)).resolves.toBeUndefined();
+            const plain = join(paths.stagingRoot, "notes.txt");
+            await writeFile(plain, "no bom needed", "utf8");
+            await expect(assertPowerShellBom(plain)).resolves.toBeUndefined();
+        } finally {
+            await rm(paths.root, {recursive: true, force: true});
+        }
+    });
+
     it("固定为五项 Electron beta 载荷，并通过真实 staging、ZIP、sidecar 的闭环校验", async () => {
         const paths = await fixture();
         try {

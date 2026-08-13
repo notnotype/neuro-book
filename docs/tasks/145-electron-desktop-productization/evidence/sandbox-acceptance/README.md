@@ -38,7 +38,7 @@ lockfile 竞态），并轮询 Host receipt `ok=true`。
 
 脚本会：
 
-- 校验最终 Depot ZIP（`sha256:ce116d6c...`）并复制到
+- 校验最终 Depot ZIP（`sha256:cf7f2b2c...`）并复制到
   `C:\Users\Public\Documents\NeuroBookAcceptance\t145-sandbox-input`；
 - 解压 Depot（提取 `install-desktop.ps1` / `windows-bun-stage0.ps1`）；
 - 创建可写证据目录 `t145-sandbox-evidence`。

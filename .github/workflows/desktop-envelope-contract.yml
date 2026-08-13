@@ -6,6 +6,8 @@ on:
       - ".github/workflows/desktop-envelope-contract.yml"
       - "desktop/**"
       - "packages/neuro-book-manager/**"
+      - "scripts/build/**"
+      - "scripts/install/**"
       - "scripts/install/install-desktop.ps1"
       - "scripts/release/desktop-contract-vitest.config.ts"
       - "shared/desktop-contract.ts"
@@ -52,4 +54,13 @@ jobs:
           src/desktop-installation.test.ts
           src/paths.test.ts
           src/schema.test.ts
+          src/windows-uninstall-host.test.ts
         working-directory: packages/neuro-book-manager
+      - name: Verify Windows Product build and install paths
+        if: matrix.platform == 'windows-x64'
+        run: >-
+          bun --bun node_modules/vitest/vitest.mjs run
+          --config vitest.config.ts
+          scripts/build/product-runtime-bundle.test.ts
+          scripts/build/product-build-environment.test.ts
+          scripts/install/install.test.ts

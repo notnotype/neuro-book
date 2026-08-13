@@ -8,8 +8,33 @@
 
 ## 当前状态
 
-**2026-08-12（晚间）：完成三个发行缺陷修复与 Windows Sandbox `--delete-data` 全自动验收，沙盒证据 `ok=true`（`evidence/t145-sandbox-acceptance.json`）。当前最终包基于 Product image `sha256:e7b804f9...`（3250 files / 136,634,228 bytes）、Electron Portable ZIP `sha256:3f4b2909...`（390,489,189 bytes）与 Desktop Depot ZIP `sha256:b6d35d99...`（387,870,790 bytes），Manager bundle `sha256:3182ba99...`；A/B 两次组包逐字节一致。** 详见下方「2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收」。旧 checkpoint 只作为历史时间线保留，不代表当前包。
+**2026-08-12（晚间）：完成三个发行缺陷修复与 Windows Sandbox `--delete-data` 全自动验收，沙盒证据 `ok=true`（`evidence/t145-sandbox-acceptance.json`）。当前最终包基于 Product image `sha256:df2f4812...`（3250 files / 136,634,228 bytes，内容与 `e7b804f9` 文件级一致、仅 source 元数据不同）、Electron Portable ZIP `sha256:7ac0c915...`（390,489,189 bytes）与 Desktop Depot ZIP `sha256:cf7f2b2c...`（387,870,766 bytes），Manager bundle `sha256:3182ba99...`；A/B 两次组包逐字节一致。** 详见下方「2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收」。旧 checkpoint 只作为历史时间线保留，不代表当前包。
 
+### 2026-08-13 审查修复：CI 覆盖、默认 MSVC 输入与最终包重验
+
+对 Task 145 全链路做只读审查后补上的修复：
+
+- **发布链路断点**：release-container.yml 的 product-windows job（windows-latest）
+  与 product-runtime-baselines.yml 的 windows-x64 都会执行 Windows nuxt:build，
+  而 MSVC 门禁此前要求显式 env，发布会 fail closed。修复：固定版本 MSVC Runtime
+  DLL（VC++ 2015-2022 redist 14.51.36247.0，约 0.9 MB）入仓为
+  scripts/build/inputs/msvc-runtime，productBuildEnvironment/copyMsvcRuntime
+  默认使用该目录（NEURO_BOOK_MSVC_RUNTIME_DIR 仍可显式覆盖）——本地与 CI
+  同一字节、零 workflow 改动。
+- **CI 测试覆盖缺口**（win32-only 测试此前只在本地跑）：desktop-envelope-contract.yml
+  的 Manager focused 步骤加入 windows-uninstall-host.test.ts，并新增
+  windows-x64 专属步骤运行 product-runtime-bundle.test.ts（MSVC 复制分支）、
+  product-build-environment.test.ts、install.test.ts（PowerShell 语法/离线
+  Bootstrap 分支）；workflow paths 补充 scripts/build/**、scripts/install/**。
+- **BOM 门禁缺测试**：assertPowerShellBom 从嵌套函数提升为模块导出并加
+  import.meta.main 守卫（import 不再执行 CLI），
+  desktop-distribution-packaging-contract.test.ts 新增「无 BOM 拒绝 / 带 BOM
+  通过 / 非 ps1 跳过」用例（Desktop Contract 58/58）。
+- **最终包重验**：基于新 image（df2f4812）重新组包 A/B（逐字节一致），宿主机
+  仓库外 Portable 直启 headless exit 0（graceful shutdown，端口/进程收口）；
+  Windows Sandbox 全新环境再次通过 --delete-data 验收（ok=true，11/11）。
+  新旧 image 文件级完全一致（3252 文件路径/大小零差异），shape digest 相同，
+  仅 runtime-image.json 的 source 元数据变化。
 ### 2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收
 
 #### 沙盒自动化通道
@@ -48,12 +73,14 @@ System 上下文直接执行（产品删除逻辑与 Programs and Features 路�
 #### 重建与重新打包
 
 - Product A/B（全新空输出根 ×2）：均 3250 files / 136,634,228 bytes，
-  `imageId=sha256:e7b804f9bf9fa19867457cdd97303ae1b26e81b0ea7f77c906e67fe36873dd94`，
-  tree digest `sha256:67d9597c...`，shape digest `sha256:c8d5b7aa...`，Source digest
-  `sha256:d0b4061c...`（clean tree `134de902`）。
+  `imageId=sha256:df2f481299ec0968eb5e46739a30e0cf7c942f11406171e1d16651c8123a0741`，
+  tree digest `sha256:164b646d...`，shape digest `sha256:c8d5b7aa...`（与上一代一致），
+  Source digest `sha256:82f58733...`（clean tree `2892f648`，MSVC DLL 已入仓
+  `scripts/build/inputs/msvc-runtime` 作为默认构建输入；文件级对比与 `e7b804f9`
+  完全一致，仅 runtime-image.json 的 source 元数据不同）。
 - 同一输入连续组包两次，5 个固定文件逐字节一致：Electron Portable ZIP
-  390,489,189 bytes（`3f4b290904bbd467d6961e0fed172d64f0d3cffe2743ff9913248d38225102bf`）、
-  Desktop Depot ZIP 387,870,790 bytes（`b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5`）；
+  390,489,189 bytes（`7ac0c9159ea6887b9e5a199c8996d80ac2083acd5252739a17677fb14a53118d`）、
+  Desktop Depot ZIP 387,870,766 bytes（`cf7f2b2c156e744c395fa4418c339d906bc7f55817cbf792361ed4e0aa59eab3`）；
   Manager bundle `3182ba993454d43f0bf498a5e22aa07faf6063777371156eb51aeba4920964a5`。
 
 #### Windows Sandbox `--delete-data` 验收（全自动，证据 `ok=true`）

@@ -3,15 +3,15 @@
     "updatedAt": "2026-08-12",
     "scope": "当前最终包单一证据；历史 checkpoint 只保留在 walkthrough 时间线。路径使用逻辑 locator 或仓库相对路径，不含本机用户名与 Secret。",
     "source": {
-        "revision": "134de9022607192f314a0a6f1a0c935d0ce957c5",
-        "sourceDigest": "sha256:d0b4061cd3b3f8b6d12439fd0190bc92d2610efe5b1d580f68ea15b008d9425c",
+        "revision": "2892f6482f2cf8e97c6d372fba7a12f6bd9dd45e7f0ba31c3c2e5e05e1731d693",
+        "sourceDigest": "sha256:82f587334c8a2049eaa4842783c037d5b58e72f2ad669ea5cb0c034fa4177517",
         "lockfileSha256": "sha256:2fe27b0edf74c1738aa657fcbb9d797d6122daf356dbd17b8d6c6e8e50fea922",
         "dirty": false,
-        "note": "Product image built from the clean code-freeze tree at 134de902 (docs/evidence updates landed after the build)"
+        "note": "Product image built from the clean code-freeze tree at 2892f648 (MSVC runtime DLLs vendored into scripts/build/inputs/msvc-runtime; later workflow/test commits do not change the image)"
     },
     "product": {
-        "imageId": "sha256:e7b804f9bf9fa19867457cdd97303ae1b26e81b0ea7f77c906e67fe36873dd94",
-        "treeDigest": "sha256:67d9597c63b0bdda6ec4fb71bd3f0db0892f726be2e239c3059197bee76c7f87",
+        "imageId": "sha256:df2f481299ec0968eb5e46739a30e0cf7c942f11406171e1d16651c8123a0741",
+        "treeDigest": "sha256:164b646db065efc657fb61f1caccd3e159a0417189456f7a7c7270f38d608757",
         "shapeDigest": "sha256:c8d5b7aaa1d8cd77a00be6238f05b8c816471fb48aed1bdad89b83ccdf0c71fc",
         "contractSchema": "nbook.product-runtime-contract/v5",
         "files": 3250,
@@ -32,12 +32,12 @@
         "electronPortableZip": {
             "name": "neuro-book-electron-portable-win-x64.zip",
             "bytes": 390489189,
-            "sha256": "sha256:3f4b290904bbd467d6961e0fed172d64f0d3cffe2743ff9913248d38225102bf"
+            "sha256": "sha256:7ac0c9159ea6887b9e5a199c8996d80ac2083acd5252739a17677fb14a53118d"
         },
         "desktopDepotZip": {
             "name": "neuro-book-desktop-depot-win-x64.zip",
-            "bytes": 387870790,
-            "sha256": "sha256:b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5"
+            "bytes": 387870766,
+            "sha256": "sha256:cf7f2b2c156e744c395fa4418c339d906bc7f55817cbf792361ed4e0aa59eab3"
         },
         "channel": "canary",
         "fixedInputs": {
@@ -185,14 +185,14 @@
             "bootConfigUnchanged": true,
             "residue": "empty Start Menu Programs/NeuroBook directory remains; uninstall removes .lnk files but not the empty directory"
             ,
-            "imageIdNote": "Host-machine chain was verified against the pre-fix Product image sha256:c5f208... (UAC/repair/single-instance/tray paths unchanged by the MSVC runtime and uninstall-host fixes); the new image e7b804f9... is covered by the sandbox acceptance below for install/migration/Provider/headless/delete-data uninstall"
+            "imageIdNote": "Host-machine chain was verified against the pre-fix Product image sha256:c5f208... (UAC/repair/single-instance/tray paths unchanged by the MSVC runtime and uninstall-host fixes); the final image df2f4812... (content-identical to e7b804f9, same shape digest) is covered by the sandbox acceptance below for install/migration/Provider/headless/delete-data uninstall"
         }
     },
     "sandbox": {
         "schema": "nbook.task-145-sandbox-acceptance/v1",
         "ok": true,
         "evidence": "docs/tasks/145-electron-desktop-productization/evidence/t145-sandbox-acceptance.json",
-        "depotSha256": "sha256:b6d35d9909b07a082e6ffec5b950ec0d6ffb03b27567fb83b43bf9468535b3f5",
+        "depotSha256": "sha256:cf7f2b2c156e744c395fa4418c339d906bc7f55817cbf792361ed4e0aa59eab3",
         "runContext": "Store Windows Sandbox via wsb.exe CLI, exec --run-as System (no interactive user session; UAC host delegation cannot run there, product deletion executed by the real Host script which the CLI schedules)",
         "machineInstall": "passed",
         "providerSmoke": "passed (fake /models discovery, api key not leaked, config written)",

@@ -514,6 +514,23 @@ async function writeDistributionManifest(outputDir, fileName, version, channel, 
     return manifest;
 }
 
+
+/** Windows PowerShell 5.1 把无 BOM 的 UTF-8 脚本按 ANSI 读取，中文注释会破坏
+ * 语法导致整个安装引导失败；发行 .ps1 必须带 UTF-8 BOM（EF BB BF），否则 fail closed。 */
+export async function assertPowerShellBom(path) {
+    if (!path.toLowerCase().endsWith(".ps1")) return;
+    const handle = await open(path, "r");
+    try {
+        const head = Buffer.alloc(3);
+        const {bytesRead} = await handle.read(head, 0, 3, 0);
+        if (bytesRead < 3 || head[0] !== 0xef || head[1] !== 0xbb || head[2] !== 0xbf) {
+            throw new Error(`发行 PowerShell 脚本必须带 UTF-8 BOM（EF BB BF）：${path}`);
+        }
+    } finally {
+        await handle.close();
+    }
+}
+
 /** 将 Electron Portable 与安装入口聚合为一个不展开大目录的本地 depot。 */
 async function buildAggregateDepot(outputDir, distribution) {
     const baseName = "neuro-book-desktop-depot-win-x64";
@@ -526,21 +543,7 @@ async function buildAggregateDepot(outputDir, distribution) {
     ]);
     const stageRoot = await mkdtemp(join(outputDir, ".stage-aggregate-"));
 
-    /** Windows PowerShell 5.1 把无 BOM 的 UTF-8 脚本按 ANSI 读取，中文注释会破坏
-     * 语法导致整个安装引导失败；发行 .ps1 必须带 UTF-8 BOM（EF BB BF），否则 fail closed。 */
-    async function assertPowerShellBom(path) {
-        if (!path.toLowerCase().endsWith(".ps1")) return;
-        const handle = await open(path, "r");
-        try {
-            const head = Buffer.alloc(3);
-            const {bytesRead} = await handle.read(head, 0, 3, 0);
-            if (bytesRead < 3 || head[0] !== 0xef || head[1] !== 0xbb || head[2] !== 0xbf) {
-                throw new Error(`发行 PowerShell 脚本必须带 UTF-8 BOM（EF BB BF）：${path}`);
-            }
-        } finally {
-            await handle.close();
-        }
-    }
+
     try {
         for (const file of files) {
             const source = sourcePaths.get(file);
@@ -627,4 +630,6 @@ async function main() {
     }, null, 4));
 }
 
-await main();
+if (import.meta.main) {
+    await main();
+}
