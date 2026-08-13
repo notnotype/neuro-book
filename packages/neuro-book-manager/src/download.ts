@@ -23,9 +23,9 @@ type GitHubReleaseResponse = {
     }>;
 };
 
-/** 下载文件并验证 SHA256。 */
+/** 下载文件并验证 SHA256；GitHub Release 资产可能先返回临时 302。 */
 export async function downloadVerified(url: string, target: string, sha256: string): Promise<void> {
-    const response = await fetch(url, {headers: {"User-Agent": "neuro-book-manager"}, redirect: "error"});
+    const response = await fetch(url, {headers: {"User-Agent": "neuro-book-manager"}, redirect: "follow"});
     if (!response.ok) {
         throw new Error(`下载失败 ${response.status}：${url}`);
     }

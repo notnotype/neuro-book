@@ -1,11 +1,12 @@
+import {createHash} from "node:crypto";
 import {chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
 import {strToU8, zipSync} from "fflate";
-import {afterEach, describe, expect, it} from "vitest";
+import {afterEach, describe, expect, it, vi} from "vitest";
 
-import {extractTarGz, extractZip} from "#manager/download";
+import {downloadVerified, extractTarGz, extractZip} from "#manager/download";
 import {run} from "#manager/process";
 
 const roots: string[] = [];
@@ -67,6 +68,35 @@ describe("Archive Extraction Adapter", () => {
         expect((await stat(join(target, "runtime.mjs"))).mode & 0o777).toBe(0o764);
     });
 });
+
+describe("Verified Release download", () => {
+    it("跟随 GitHub Release 资产的临时重定向并校验最终内容", async () => {
+        const root = await fixtureRoot();
+        const target = join(root, "bun.zip");
+        const content = strToU8("verified-release-asset");
+        const digest = createHash("sha256").update(content).digest("hex");
+        const fetchMock = vi.fn((_input: string | URL | Request, init?: RequestInit) => init?.redirect === "follow"
+            ? Promise.resolve(new Response(content, {status: 200}))
+            : Promise.resolve(new Response(null, {
+                status: 302,
+                headers: {location: "https://objects.example/asset"},
+            })));
+        vi.stubGlobal("fetch", fetchMock);
+
+        try {
+            await downloadVerified("https://github.com/example/release/asset.zip", target, digest);
+            expect(await readFile(target, "utf8")).toBe("verified-release-asset");
+            expect(fetchMock).toHaveBeenNthCalledWith(
+                1,
+                "https://github.com/example/release/asset.zip",
+                expect.objectContaining({redirect: "follow"}),
+            );
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
+
 
 /** 创建每项测试独占的归档根。 */
 async function fixtureRoot(): Promise<string> {
