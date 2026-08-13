@@ -58,9 +58,7 @@ jobs:
         working-directory: packages/neuro-book-manager
       - name: Verify Windows Product build and install paths
         if: matrix.platform == 'windows-x64'
-        run: >-
-          bun --bun node_modules/vitest/vitest.mjs run
-          --config vitest.config.ts
-          scripts/build/product-runtime-bundle.test.ts
-          scripts/build/product-build-environment.test.ts
-          scripts/install/install.test.ts
+        run: |
+          bun run nuxt:prepare
+          bun run test scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts
+          bun run test:install
