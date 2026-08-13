@@ -157,6 +157,7 @@ function createReadTool(): NeuroAgentTool {
                 }
 
                 await recordReadContextAccess(context, contextAccess);
+                await recordRecoveryRead(context, target, buffer);
                 return formatTextRead(buffer, input, absolutePath);
             });
         },
@@ -235,6 +236,7 @@ function createWriteTool(): NeuroAgentTool {
                     before,
                     after: input.content,
                 });
+                await recordRecoveryWrite(context, target, input.content, "write");
                 return {
                     content: [{type: "text", text: `Successfully wrote ${Buffer.byteLength(input.content, "utf-8")} bytes to ${input.path}`}],
                     details: undefined,
@@ -292,6 +294,7 @@ function createEditTool(): NeuroAgentTool {
                     before: original,
                     after: updated,
                 });
+                await recordRecoveryWrite(context, target, updated, "edit");
                 const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
                 return {
                     content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
@@ -345,6 +348,9 @@ function createApplyPatchTool(): NeuroAgentTool {
                         before: change.originalExists ? change.original : null,
                         after: change.updated,
                     });
+                    if (change.updated !== null) {
+                        await recordRecoveryWrite(context, change.target, change.updated, "apply_patch");
+                    }
                 }
                 return {
                     content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
@@ -360,6 +366,41 @@ function createApplyPatchTool(): NeuroAgentTool {
             throw new Error("apply_patch 必须在 agent session workspace 内执行。");
         },
     };
+}
+
+async function recordRecoveryRead(context: ToolExecutionContext, target: ResolvedFileTarget, buffer: Buffer): Promise<void> {
+    if (!context.recoveryMaterials || !target.project || !target.relativePath || target.relativePath === ".") {
+        return;
+    }
+    try {
+        const fileStat = await stat(target.absolutePath);
+        if (!fileStat.isFile()) {
+            return;
+        }
+        context.recoveryMaterials.recordSuccess({
+            target,
+            source: "read",
+            content: buffer.toString("utf8"),
+            mtimeMs: fileStat.mtimeMs,
+        });
+    } catch {
+        // 恢复材料是辅助状态，不能把已成功的 read 变成工具失败。
+    }
+}
+
+async function recordRecoveryWrite(context: ToolExecutionContext, target: ResolvedFileTarget, content: string, source: "write" | "edit" | "apply_patch"): Promise<void> {
+    if (!context.recoveryMaterials || !target.project || !target.relativePath || target.relativePath === ".") {
+        return;
+    }
+    try {
+        const fileStat = await stat(target.absolutePath);
+        if (!fileStat.isFile()) {
+            return;
+        }
+        context.recoveryMaterials.recordSuccess({target, source, content, mtimeMs: fileStat.mtimeMs});
+    } catch {
+        // 恢复材料是辅助状态，不能把已成功的 write/edit/apply_patch 变成工具失败。
+    }
 }
 
 function createBashTool(): NeuroAgentTool {
