@@ -14,7 +14,7 @@ import {
     verifyDesktopAggregateDepotArchive,
     type DesktopAggregateDirectoryEntry,
 } from "nbook/desktop/shared/src/desktop-aggregate-depot";
-import {assertPowerShellBom} from "nbook/desktop/packaging/package-portable.mjs";
+import {assertPowerShellBom} from "nbook/desktop/shared/src/powershell-bom";
 
 async function fixture(): Promise<{root: string; stagingRoot: string; archivePath: string; manifestPath: string}> {
     const tempRoot = join(process.cwd(), ".agent", "tmp");
