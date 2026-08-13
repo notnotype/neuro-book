@@ -4,13 +4,21 @@ import {useModelDiscoverySession} from "nbook/app/components/novel-ide/settings/
 import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {DiscoveredProviderModelDto, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
+const notificationSpies = vi.hoisted(() => ({
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+}));
+
 vi.mock("nbook/app/composables/useNotification", () => ({
-    useNotification: () => ({success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn()}),
+    useNotification: () => notificationSpies,
 }));
 
 describe("Automatic Model Discovery frontend session", () => {
     beforeEach(() => {
         vi.stubGlobal("useI18n", () => ({t: (key: string) => key}));
+        vi.clearAllMocks();
     });
 
     afterEach(() => {
@@ -28,6 +36,7 @@ describe("Automatic Model Discovery frontend session", () => {
         vi.stubGlobal("$fetch", vi.fn(async () => ({
             models: [remoteModel({id: "remote-model", name: "Remote"})],
             message: "ok",
+            diagnostics: completeDiagnostics(),
         })));
         const session = createSession(provider);
 
@@ -35,6 +44,8 @@ describe("Automatic Model Discovery frontend session", () => {
 
         expect(session.discoveryGroups.value.flatMap((group) => group.models.map((model) => model.id))).toEqual(["remote-model"]);
         expect(session.discoveryGroups.value[0]?.models[0]?.state).toBe("enabled");
+        expect(notificationSpies.success).toHaveBeenCalledWith("ok");
+        expect(notificationSpies.warning).not.toHaveBeenCalled();
     });
 
     it("普通 OpenAI 发现使用 Provider Model API 补全 Responses", async () => {
@@ -42,6 +53,7 @@ describe("Automatic Model Discovery frontend session", () => {
         vi.stubGlobal("$fetch", vi.fn(async () => ({
             models: [remoteModel({api: null})],
             message: "ok",
+            diagnostics: completeDiagnostics(),
         })));
         const session = createSession(provider);
 
@@ -55,7 +67,7 @@ describe("Automatic Model Discovery frontend session", () => {
 
     it("发现请求显式声明凭据来源", async () => {
         const provider = reactive(createProvider({models: []}));
-        const fetchMock = vi.fn(async () => ({models: [], message: "ok"}));
+        const fetchMock = vi.fn(async () => ({models: [], message: "ok", diagnostics: completeDiagnostics()}));
         vi.stubGlobal("$fetch", fetchMock);
         const session = createSession(provider, "saved");
 
@@ -69,6 +81,32 @@ describe("Automatic Model Discovery frontend session", () => {
                 }),
             }),
         }));
+    });
+
+    it("部分发现结果保留模型并缓存诊断", async () => {
+        const provider = reactive(createProvider({models: []}));
+        const fetchMock = vi.fn(async () => ({
+            models: [remoteModel()],
+            message: "ok",
+            diagnostics: {
+                fetchedCount: 3,
+                returnedCount: 1,
+                skippedCount: 1,
+                duplicateCount: 1,
+                pageCount: 1,
+                truncated: false,
+                partial: true,
+            },
+        }));
+        vi.stubGlobal("$fetch", fetchMock);
+        const session = createSession(provider);
+
+        await session.discover();
+
+        expect(session.discoveryGroups.value).toHaveLength(1);
+        expect(session.discoveryDiagnostics.value).toMatchObject({skippedCount: 1, duplicateCount: 1, partial: true});
+        expect(notificationSpies.warning).toHaveBeenCalledWith(expect.stringContaining("settings.panels.models.discoveryPartial"));
+        expect(notificationSpies.success).not.toHaveBeenCalled();
     });
 
     it("缺少 Provider Model API 时阻止模型发现", async () => {
@@ -89,7 +127,7 @@ describe("Automatic Model Discovery frontend session", () => {
     it("provided Secret 内容变化会作废旧发现缓存", async () => {
         const provider = reactive(createProvider({models: []}));
         provider.options.apiKey = "first-secret";
-        vi.stubGlobal("$fetch", vi.fn(async () => ({models: [remoteModel()], message: "ok"})));
+        vi.stubGlobal("$fetch", vi.fn(async () => ({models: [remoteModel()], message: "ok", diagnostics: completeDiagnostics()})));
         const session = createSession(provider, "provided");
         await session.discover();
         expect(session.discoveryGroups.value).toHaveLength(1);
@@ -98,12 +136,29 @@ describe("Automatic Model Discovery frontend session", () => {
         await nextTick();
 
         expect(session.discoveryGroups.value).toEqual([]);
+        expect(session.discoveryDiagnostics.value).toBeNull();
+    });
+
+    it("Provider request options 变化会同时作废旧模型和诊断缓存", async () => {
+        const provider = reactive(createProvider({models: []}));
+        vi.stubGlobal("$fetch", vi.fn(async () => ({models: [remoteModel()], message: "ok", diagnostics: completeDiagnostics()})));
+        const session = createSession(provider, "provided");
+
+        await session.discover();
+        expect(session.discoveryGroups.value).toHaveLength(1);
+        expect(session.discoveryDiagnostics.value).not.toBeNull();
+
+        provider.options.requestOptions = '{"headers":{"X-Tenant":"tenant-b"}}';
+        await nextTick();
+
+        expect(session.discoveryGroups.value).toEqual([]);
+        expect(session.discoveryDiagnostics.value).toBeNull();
     });
 
     it("请求期间修改 Provider Model API 不会把旧协议结果绑定到新协议", async () => {
         const provider = reactive(createProvider({models: []}));
-        let resolveRequest: ((value: {models: DiscoveredProviderModelDto[]; message: string}) => void) | undefined;
-        vi.stubGlobal("$fetch", vi.fn(() => new Promise<{models: DiscoveredProviderModelDto[]; message: string}>((resolve) => {
+        let resolveRequest: ((value: {models: DiscoveredProviderModelDto[]; message: string; diagnostics: ReturnType<typeof completeDiagnostics>}) => void) | undefined;
+        vi.stubGlobal("$fetch", vi.fn(() => new Promise<{models: DiscoveredProviderModelDto[]; message: string; diagnostics: ReturnType<typeof completeDiagnostics>}>((resolve) => {
             resolveRequest = resolve;
         })));
         const session = createSession(provider, "saved");
@@ -111,10 +166,11 @@ describe("Automatic Model Discovery frontend session", () => {
         const discovering = session.discover();
         await nextTick();
         provider.modelApi = "openai-responses";
-        resolveRequest?.({models: [remoteModel()], message: "ok"});
+        resolveRequest?.({models: [remoteModel()], message: "ok", diagnostics: completeDiagnostics()});
         await discovering;
 
         expect(session.discoveryGroups.value).toEqual([]);
+        expect(session.discoveryDiagnostics.value).toBeNull();
     });
 });
 
@@ -207,5 +263,17 @@ function remoteModel(overrides: Partial<DiscoveredProviderModelDto> = {}): Disco
         headers: null,
         thinkingLevelMap: null,
         ...overrides,
+    };
+}
+
+function completeDiagnostics() {
+    return {
+        fetchedCount: 1,
+        returnedCount: 1,
+        skippedCount: 0,
+        duplicateCount: 0,
+        pageCount: 1,
+        truncated: false,
+        partial: false,
     };
 }

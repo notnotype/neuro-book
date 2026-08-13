@@ -330,6 +330,14 @@ describe("discoverProviderModels", () => {
             {id: "qwen-max", name: "qwen-max", group: "qwen"},
             {id: "qwen-plus", name: "qwen-plus", group: "qwen"},
         ]);
+        expect(result.diagnostics).toMatchObject({
+            fetchedCount: 4,
+            returnedCount: 2,
+            skippedCount: 1,
+            duplicateCount: 1,
+            pageCount: 1,
+            partial: true,
+        });
         expect(result.message).toContain("已从 Qwen 发现 2 个模型");
     });
 

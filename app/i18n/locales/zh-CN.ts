@@ -796,6 +796,8 @@ const zhCN = {
                 providerCheckFailed: "Provider 测试失败",
                 builtinModelsLoaded: "已从 Pi 内置目录读取 {count} 个模型。",
                 discoverFailed: "模型发现失败",
+                discoveryPartial: "发现结果不完整：跳过 {skipped} 条、去重 {duplicates} 条{truncated}，已保留可用模型。",
+                discoveryTruncated: "，已达到分页上限",
                 manualRequired: "手动添加模型时，模型名称和模型 ID 都不能为空",
                 manualAdded: "模型已加入当前 Provider 白名单",
                 modelCheckFailed: "模型健康检查失败",

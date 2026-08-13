@@ -798,6 +798,8 @@ const enUS = {
                 providerCheckFailed: "Provider check failed",
                 builtinModelsLoaded: "Loaded {count} models from the Pi built-in catalog.",
                 discoverFailed: "Model discovery failed",
+                discoveryPartial: "Discovery was partial: skipped {skipped}, deduplicated {duplicates}{truncated}; usable models were kept.",
+                discoveryTruncated: ", the pagination limit was reached",
                 manualRequired: "Model name and model ID are required when adding a model manually",
                 manualAdded: "Model added to the current Provider allowlist",
                 modelCheckFailed: "Model health check failed",

@@ -2,7 +2,7 @@
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import type {DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/model-settings-view";
+import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/model-settings-view";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -11,6 +11,7 @@ const props = defineProps<{
     searchQuery: string;
     discovering: boolean;
     expandedGroups: Record<string, boolean>;
+    diagnostics: DiscoveryDiagnosticsView | null;
     manualDraft: ManualModelDraft;
     modelApiOptions: ModelApiOption[];
 }>();
@@ -40,6 +41,11 @@ const {t} = useI18n();
                 <button class="flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="props.discovering" :title="t('settings.panels.models.refreshModels')" @click="emit('discover')">
                     <span class="h-4 w-4" :class="props.discovering ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'"></span>{{ t("settings.panels.models.refresh") }}
                 </button>
+            </div>
+
+            <div v-if="props.diagnostics?.partial" class="flex shrink-0 items-start gap-2 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">
+                <span class="i-lucide-triangle-alert mt-0.5 h-4 w-4 shrink-0"></span>
+                <span>{{ t("settings.panels.models.discoveryPartial", {skipped: props.diagnostics.skippedCount, duplicates: props.diagnostics.duplicateCount, truncated: props.diagnostics.truncated ? t("settings.panels.models.discoveryTruncated") : ""}) }}</span>
             </div>
 
             <div class="min-h-0 flex-1 overflow-y-auto rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 custom-scrollbar">

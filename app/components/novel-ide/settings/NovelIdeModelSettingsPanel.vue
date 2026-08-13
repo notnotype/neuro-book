@@ -226,6 +226,7 @@ const {
     discoveryExpandedGroups: libraryExpandedGroups,
     modelLibraryExpandedGroups,
     discoveryGroups: unifiedLibraryGroups,
+    discoveryDiagnostics,
     modelLibraryGroups,
     enabledModelIds,
     manualDraft: getManualModelDraft,
@@ -634,6 +635,7 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
         v-model="libraryDialogOpen"
         :provider-name="activeProvider.name"
         :groups="unifiedLibraryGroups"
+        :diagnostics="discoveryDiagnostics"
         :search-query="librarySearchQuery"
         :discovering="providerDiscoveringId === activeProvider.id"
         :expanded-groups="libraryExpandedGroups"

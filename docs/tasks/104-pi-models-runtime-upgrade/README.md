@@ -34,12 +34,54 @@
 - `bun run typecheck`：通过。
 - 未自动执行浏览器验收、真实 OpenCode Go 重放、构建或发布；设置页由用户手动验收。
 
+## 2026-08-12：Provider Discovery 可靠性与兼容性收口
+
+- 修复 OpenAI-compatible `/models` 对数字价格元数据的兼容；tokenrhythm 真实响应保持 `HTTP 200`，当前 smoke 可发现 `16` 个模型，包含 `deepseek-v4-flash`、`contextWindowTokens=1000000`、`maxTokens=384000` 和 `reasoning=true`。
+- Automatic Model Discovery 现在返回稳定的 `diagnostics` 统计：`fetchedCount`、`returnedCount`、`skippedCount`、`duplicateCount`、`pageCount`、`truncated` 和 `partial`。单个坏模型不会拖垮同一页的其它可用模型；空列表和全坏列表分别返回结构化 `empty-result` / `invalid-response` 错误。
+- Provider discovery 错误改用稳定错误码映射 HTTP 状态：配置错误为 `400`，上游 `401/403/429` 保留对应状态，超时为 `504`，其它上游或响应错误为 `502`；错误不会返回完整 URL、响应体、请求 Header 或 Secret。
+- discovery 请求可合并用户 `requestOptions.headers`，但 adapter 的认证与协议 Header 优先；`maxRetries` 不用于发现，也不自动重试上游错误。
+- Google Models Adapter 支持 `nextPageToken`，每次最多读取 `5` 页 / `5000` 条，并共享一次 `30_000ms` 总预算；达到上限会返回 `partial=true` 和 `truncated=true`，后续分页失败不会静默返回首屏结果。
+- 设置页缓存发现诊断；部分结果显示 warning，完整结果继续显示 success。诊断只显示跳过、重复和截断统计，不展示 adapter、远端 URL 或认证细节。
+
+### 本轮验证
+
+- Provider discovery、model settings、route、DTO、前端 discovery session 和候选补全聚焦测试：`6` 个文件、`75` 项通过；覆盖通知状态、诊断失效、request options 变化作废缓存、错误码/脱敏、价格 `null`、非法能力字段、Google `5000` 条上限和总超时预算。
+- `bun run typecheck`：通过。
+- `bun run generate:openapi`：成功；`provider-discover` response schema 已包含完整 `diagnostics` 字段。生成器造成的 `6` 个无关 workspace-files 空白差异已清理。
+- 真实 tokenrhythm Module smoke：上游 `/v1/models` 返回 `HTTP 200` 和 `16` 个模型；`deepseek-v4-flash` 解析为 `contextWindowTokens=1000000`、`maxTokens=384000`、`reasoning=true`；API Key 未进入返回值或 diagnostics。
+- 本地开发服务上的真实 `POST /api/config/models/provider-discover` 已返回 `HTTP 200`，响应包含 `16` 个模型和完整 diagnostics；响应体未包含 API Key。
+- 未运行浏览器验收。全仓基线独立运行：首次直接执行 `bun run test` 约 `604020ms` 后以退出码 `124` 超时；随后 verbose 基线汇总为 `497` 个测试文件（`493` 通过、`3` 个文件失败、`1` 个跳过）、`3479` 个测试（`3461` 通过、`4` 个失败、`14` 个跳过）。失败位于 workspace 临时根 sweep、Agent Harness 取消边界和 Agent variable 编译，未涉及本轮 discovery 改动；本轮不宣称全仓通过。
+
+## 2026-08-13：Provider Discovery 协议与代理安全修复
+
+- 代码审查复现两个 P1 问题：Bun 全局 `fetch` 不消费 Undici `dispatcher`，导致已配置 Provider proxy 的 discovery 仍直连 API Base；同时 Bun `fetch` 接受 `file:` URL，原 discovery 只做 URL 语法解析，因此可读取本地文件并把符合 Models envelope 的内容当成模型列表。
+- discovery 请求边界现在只接受 `http:` / `https:` API Base 和 proxy URL；`file:`、`data:` 等协议在任何网络或文件读取前返回结构化 `invalid-base-url`。Provider 持久化 DTO 不变。
+- 代理请求改用 Bun `1.3.14` 官方支持的 `fetch(..., {proxy})`，删除不生效的 Undici `ProxyAgent`、`dispatcher` 和伪清理逻辑。Product Runtime 使用 Bun `1.3.14` 启动，真实本地 smoke 使用不可解析的 `provider.invalid` 作为 API Base，结果为 `proxyHits=1`，返回 `task104-model`，证明请求由代理响应而非直连目标。
+- Source Dev/Nitro 默认由 Node `24.13.0` 运行；同一进程内 `fetch(..., {proxy})` 不消费 Bun 专属 `proxy` 字段并对 `provider.invalid` 返回 DNS 失败。该结果记录为运行时边界，不在本 PR 引入第二套 Node 请求实现；Product Runtime 的 Bun 启动路径是本任务正式产品验收合同。
+
+### 本轮自动化与产品验证
+
+- `bun run test -- server/models/discovery.test.ts server/utils/model-settings.test.ts server/api/config/models/provider-discover.post.test.ts shared/dto/app-settings.dto.test.ts app/components/novel-ide/settings/useModelDiscoverySession.test.ts app/components/novel-ide/settings/model-draft-factory.test.ts`：`6` 个文件、`77` 项通过。
+- `bun run test -- server/config/config-service.test.ts --testTimeout=120000 --hookTimeout=120000`：`1` 个文件、`60` 项通过，耗时 `64.98s`。
+- `bun run generate:openapi`：成功；`provider-discover` response schema 包含完整 `diagnostics` 字段；无关 route 生成差异已恢复。
+- `bun run typecheck`：首次执行因隔离 worktree 尚未安装 `desktop/electron` 依赖而报告 `58` 个依赖/类型诊断；在 `desktop/electron` 执行 `bun install --frozen-lockfile` 后重跑，Nuxt 与 Electron typecheck 均通过。
+- `bun run nuxt:build`：Product Runtime Image 构建完成，`files=3250`、`bytes=136632497`；`bun run nuxt:build:raw` 也成功。
+- `bun run docs:build`：成功；`git diff --check`：通过。
+- Product Runtime API 真实代理 smoke：`POST /api/config/models/provider-discover` 返回 `200`，`proxyHits=1`，`fetchedCount=3`、`returnedCount=1`、`skippedCount=1`、`duplicateCount=1`、`partial=true`，返回 `task104-model`；`file:///tmp/provider` route 返回 `400` 与 `invalid-base-url`，fixture 未命中。
+
+### 浏览器验收阻塞
+
+- 未生成浏览器“通过”证据。真实隔离 Source Dev 与 Product Runtime 均复现：新增 Provider 后 `activeProviderKey` 已指向 `provider-1-custom` 且 `activeProvider` 已解析，但右侧仍显示“未选择 Provider”；DOM 保留 `Transition name="fade-slide" mode="out-in"` 的离场分支。
+- 对比 `origin/master`，`NovelIdeModelSettingsPanel.vue` 的 Provider 新增/激活和 Transition 实现均已存在于主干；本 PR 对该文件只有 diagnostics 绑定差异。因此不在 Task 104 修复该基线 UI 问题、不生成桌面/窄屏截图或 acceptance JSON。
+- follow-up Issue [#100](https://github.com/notnotype/neuro-book/issues/100) 已创建，范围是修复新增 Provider 后详情面板保持未选择。Task 104 继续保持 `Status: Implementing`，不归档、不建立“已完成” reference。
+- 本轮未运行真实外部 Provider、全量测试、Docker smoke 或浏览器保存/重开链路；未使用真实 Provider、Secret、Project 或用户 State Root。
+
 ## Model Library / Provider Template / Automatic Discovery 实施结果（2026-07-18）
 
 本轮已完成核心合同硬切：
 
 - `server/models/model-library.ts` 与 `server/models/provider-template-library.ts` 分离 Model Library 和 Provider Template Library；旧 `catalog.ts`、Catalog route 与测试已删除，设置页改读 `/api/config/models/library` 和 `/api/config/models/provider-templates`。
-- Automatic Model Discovery Module 内部维护 OpenAI/OpenRouter/Anthropic/Google Adapter，并按已知主机或必填的连接级 `modelApi` 选择单一协议；未知 Provider 不会因响应失败切换鉴权形式。实现统一限制同 origin、禁止 redirect、timeout、流式 5 MiB 响应体上限、代理连接释放和错误摘要脱敏；Provider Config、DTO 与设置页不再保存或展示 Adapter/endpoint path。
+- Automatic Model Discovery Module 内部维护 OpenAI/OpenRouter/Anthropic/Google Adapter，并按已知主机或必填的连接级 `modelApi` 选择单一协议；未知 Provider 不会因响应失败切换鉴权形式。实现统一限制 HTTP(S)、同 origin、禁止 redirect、timeout、流式 5 MiB 响应体上限、Bun 原生 Provider proxy 请求和错误摘要脱敏；Provider Config、DTO 与设置页不再保存或展示 Adapter/endpoint path。
 - Provider Template 只复制明确精选的模型快照：MiMo Token Plan 保留 Secret-only 模型集，OpenRouter/OpenAI/Google 等普通连接模板不再把 Pi Registry 的数十或数百个模型机械写入用户配置，模型改由发现或 Model Library 显式添加。
 - Model Candidate Completion Module 按字段合并远端资料与精确 ID 的 Model Library 资料，并用 `CompleteCandidate | IncompleteCandidate` 约束不完整候选不能进入 Provider Config。
 - shared Provider Config Contract Module 现在校验全部已保存模型，包括 disabled 模型；`enabled` 只决定是否进入 runnable 集合。设置页文案已从“禁用模型草稿”收敛为“已停用模型”。

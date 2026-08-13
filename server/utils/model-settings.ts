@@ -119,11 +119,12 @@ export async function checkProviderConnection(
  */
 export async function discoverProviderModels(providerDraft: ModelProviderDraftDto): Promise<DiscoverProviderModelsResponseDto> {
     const startedAt = Date.now();
-    const models = await discoverProviderModelMetadata(providerDraft);
+    const result = await discoverProviderModelMetadata(providerDraft);
 
     return {
-        models,
-        message: `已从 ${providerDraft.name} 发现 ${models.length} 个模型，用时 ${String(Date.now() - startedAt)}ms。`,
+        models: result.models,
+        message: `已从 ${providerDraft.name} 发现 ${result.models.length} 个模型，用时 ${String(Date.now() - startedAt)}ms。`,
+        diagnostics: result.diagnostics,
     };
 }
 

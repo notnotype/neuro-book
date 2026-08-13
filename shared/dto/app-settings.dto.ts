@@ -142,6 +142,17 @@ export const DiscoveredProviderModelDtoSchema = z.object({
     thinkingLevelMap: PiThinkingLevelMapSchema,
 });
 
+/** Provider 远程模型发现的统计诊断；不包含远端 URL、Header 或 Secret。 */
+export const DiscoveryDiagnosticsDtoSchema = z.object({
+    fetchedCount: z.number().int().nonnegative(),
+    returnedCount: z.number().int().nonnegative(),
+    skippedCount: z.number().int().nonnegative(),
+    duplicateCount: z.number().int().nonnegative(),
+    pageCount: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    partial: z.boolean(),
+});
+
 /** 设置页连接请求明确选择的凭据来源，禁止服务端根据空字符串猜测。 */
 export const ProviderCredentialSourceSchema = z.enum(["provided", "saved", "cleared"]);
 
@@ -186,6 +197,7 @@ export const DiscoverProviderModelsRequestDtoSchema = z.object({
 export const DiscoverProviderModelsResponseDtoSchema = z.object({
     models: z.array(DiscoveredProviderModelDtoSchema).default([]),
     message: z.string().trim().min(1),
+    diagnostics: DiscoveryDiagnosticsDtoSchema,
 });
 
 /**
@@ -248,6 +260,7 @@ export type EnabledModelOptionDto = z.infer<typeof EnabledModelOptionDtoSchema>;
 export type AgentProfileModelConfigDto = z.infer<typeof AgentProfileModelConfigDtoSchema>;
 export type ModelProviderDraftDto = z.infer<typeof ModelProviderDraftDtoSchema>;
 export type DiscoveredProviderModelDto = z.infer<typeof DiscoveredProviderModelDtoSchema>;
+export type DiscoveryDiagnosticsDto = z.infer<typeof DiscoveryDiagnosticsDtoSchema>;
 export type CheckProviderRequestDto = z.infer<typeof CheckProviderRequestDtoSchema>;
 export type CheckProviderResponseDto = z.infer<typeof CheckProviderResponseDtoSchema>;
 export type DiscoverProviderModelsRequestDto = z.infer<typeof DiscoverProviderModelsRequestDtoSchema>;

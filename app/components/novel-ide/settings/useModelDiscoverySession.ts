@@ -4,7 +4,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {candidateFromLibrary, completeModelCandidate} from "nbook/app/components/novel-ide/settings/model-draft-factory";
 import {parseDraftInteger, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
 import type {DiscoveryListModel, ManualModelDraft, ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/model-settings-view";
-import type {ConfiguredModelDto, DiscoverProviderModelsResponseDto, DiscoveredProviderModelDto, ModelLibraryDto, ModelLibraryEntryDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
+import type {ConfiguredModelDto, DiscoveryDiagnosticsDto, DiscoverProviderModelsResponseDto, DiscoveredProviderModelDto, ModelLibraryDto, ModelLibraryEntryDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ModelDiscoverySessionOptions = {
@@ -24,6 +24,7 @@ type DiscoveryCacheEntry = {
     providerId: string;
     fingerprint: string;
     models: DiscoveredProviderModelDto[];
+    diagnostics: DiscoveryDiagnosticsDto;
 };
 
 /**
@@ -43,9 +44,12 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
     const modelLibrarySearchQuery = ref("");
     const discoveryExpandedGroups = ref<Record<string, boolean>>({});
     const modelLibraryExpandedGroups = ref<Record<string, boolean>>({});
-    /** Secret 不进入 fingerprint；本地 revision 只用于在凭据编辑后作废发现缓存。 */
+    /** Secret/Header 内容不进入 fingerprint；本地 revision 只用于在连接输入编辑后作废发现缓存。 */
     const credentialRevisions = ref<Record<string, number>>({});
     const credentialSnapshots = new Map<string, string>();
+    /** requestOptions 可能包含影响模型目录的额外 Header；只记录 revision，不把 Header 内容放进 fingerprint。 */
+    const requestOptionsRevisions = ref<Record<string, number>>({});
+    const requestOptionsSnapshots = new Map<string, string>();
 
     /** 获取指定 Provider 的手动候选草稿。 */
     function manualDraft(providerId: string): ManualModelDraft {
@@ -77,7 +81,8 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         try {
             await options.loadLibraries();
             const credentialRevision = credentialRevisions.value[provider.localKey] ?? 0;
-            const requestFingerprint = discoveryFingerprint(provider, credentialRevision);
+            const requestOptionsRevision = requestOptionsRevisions.value[provider.localKey] ?? 0;
+            const requestFingerprint = discoveryFingerprint(provider, credentialRevision, requestOptionsRevision);
             const providerRequest = options.buildProviderRequest(provider);
             const credentialSource = options.credentialSource(provider);
             const response = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
@@ -93,9 +98,14 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
                     providerId: providerRequest.id,
                     fingerprint: requestFingerprint,
                     models: response.models,
+                    diagnostics: response.diagnostics,
                 },
             };
-            notification.success(response.message);
+            if (response.diagnostics.partial) {
+                notification.warning(discoveryDiagnosticsMessage(response.diagnostics, t));
+            } else {
+                notification.success(response.message);
+            }
         } catch (error) {
             notification.error(resolveApiErrorMessage(error, t("settings.panels.models.discoverFailed")));
         } finally {
@@ -152,7 +162,11 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         }
         const models = new Map<string, DiscoveryListModel>();
         const cache = discoveredModels.value[provider.localKey];
-        const remoteModels = cache?.fingerprint === discoveryFingerprint(provider, credentialRevisions.value[provider.localKey] ?? 0) ? cache.models : [];
+        const remoteModels = cache?.fingerprint === discoveryFingerprint(
+            provider,
+            credentialRevisions.value[provider.localKey] ?? 0,
+            requestOptionsRevisions.value[provider.localKey] ?? 0,
+        ) ? cache.models : [];
         for (const remote of remoteModels) {
             const completed = completeModelCandidate(remote, options.findLibraryModel(remote.id), provider.modelApi.trim() || null);
             const state = savedState(remote.id);
@@ -165,6 +179,22 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
             });
         }
         return groupDiscoveryModels([...models.values()], discoverySearchQuery.value);
+    });
+
+    /** 当前连接对应的发现诊断；连接或凭据变化后与模型结果一起失效。 */
+    const discoveryDiagnostics = computed<DiscoveryDiagnosticsDto | null>(() => {
+        const provider = options.activeProvider.value;
+        if (!provider) {
+            return null;
+        }
+        const cache = discoveredModels.value[provider.localKey];
+        return cache?.fingerprint === discoveryFingerprint(
+            provider,
+            credentialRevisions.value[provider.localKey] ?? 0,
+            requestOptionsRevisions.value[provider.localKey] ?? 0,
+        )
+            ? cache.diagnostics
+            : null;
     });
 
     /** 切换发现列表模型的启用状态，或打开不完整候选编辑器。 */
@@ -281,6 +311,7 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
                 configured: provider.options.apiKeyConfigured,
                 cleared: provider.options.apiKeyCleared,
             }),
+            requestOptions: provider.options.requestOptions,
         } : null;
     }, (current) => {
         if (!current) {
@@ -294,6 +325,14 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
                 [current.localKey]: (credentialRevisions.value[current.localKey] ?? 0) + 1,
             };
         }
+        const previousRequestOptions = requestOptionsSnapshots.get(current.localKey);
+        requestOptionsSnapshots.set(current.localKey, current.requestOptions);
+        if (previousRequestOptions !== undefined && previousRequestOptions !== current.requestOptions) {
+            requestOptionsRevisions.value = {
+                ...requestOptionsRevisions.value,
+                [current.localKey]: (requestOptionsRevisions.value[current.localKey] ?? 0) + 1,
+            };
+        }
     }, {immediate: true});
 
     return {
@@ -305,6 +344,7 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
         discoveryExpandedGroups,
         modelLibraryExpandedGroups,
         discoveryGroups,
+        discoveryDiagnostics,
         modelLibraryGroups,
         enabledModelIds,
         manualDraft,
@@ -320,19 +360,31 @@ export function useModelDiscoverySession(options: ModelDiscoverySessionOptions) 
     };
 }
 
+function discoveryDiagnosticsMessage(
+    diagnostics: DiscoveryDiagnosticsDto,
+    translate: (key: string, params?: Record<string, unknown>) => string,
+): string {
+    return translate("settings.panels.models.discoveryPartial", {
+        skipped: diagnostics.skippedCount,
+        duplicates: diagnostics.duplicateCount,
+        truncated: diagnostics.truncated ? translate("settings.panels.models.discoveryTruncated") : "",
+    });
+}
+
 /** 创建空手动候选。 */
 function emptyManualDraft(): ManualModelDraft {
     return {name: "", id: "", api: "", group: "", contextWindowTokens: "", maxTokens: ""};
 }
 
 /** 生成不含 API key 的前端发现 fingerprint。 */
-function discoveryFingerprint(provider: ModelSettingsProviderDraft, credentialRevision: number): string {
+function discoveryFingerprint(provider: ModelSettingsProviderDraft, credentialRevision: number, requestOptionsRevision: number): string {
     return JSON.stringify({
         id: provider.id.trim(),
         modelApi: provider.modelApi.trim() || null,
         baseURL: normalizeDiscoveryEndpoint(provider.options.baseURL),
         proxy: normalizeDiscoveryEndpoint(provider.options.proxy),
         credentialRevision,
+        requestOptionsRevision,
         apiKeyState: provider.options.apiKeyCleared
             ? "cleared"
             : provider.options.apiKey.trim()

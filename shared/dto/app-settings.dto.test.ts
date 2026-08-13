@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, EnabledModelOptionDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {CheckModelRequestDtoSchema, CheckProviderRequestDtoSchema, ConfiguredModelDtoSchema, DiscoveryDiagnosticsDtoSchema, DiscoverProviderModelsResponseDtoSchema, EnabledModelOptionDtoSchema, ModelProviderDraftDtoSchema, ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
 import {inspectModelSettings} from "nbook/shared/models/provider-config-contract";
 
@@ -48,6 +48,19 @@ describe("Pi settings contracts", () => {
         const cost = {input: 1, output: 2, cacheRead: 0, cacheWrite: 0};
         (request.providers[0]!.models[0] as {cost: null | {input: number; output: number; cacheRead: number; cacheWrite: number; tiers: Array<{inputTokensAbove: number; input: number; output: number; cacheRead: number; cacheWrite: number}>}}).cost = {...cost, tiers: [{...cost, inputTokensAbove: 100}, {...cost, inputTokensAbove: 100}]};
         expect(() => ConfiguredModelDtoSchema.parse(request.providers[0]!.models[0])).toThrow("tier threshold 重复");
+    });
+
+    it("discovery diagnostics 保留部分结果统计", () => {
+        const diagnostics = DiscoveryDiagnosticsDtoSchema.parse({
+            fetchedCount: 4,
+            returnedCount: 2,
+            skippedCount: 1,
+            duplicateCount: 1,
+            pageCount: 1,
+            truncated: false,
+            partial: true,
+        });
+        expect(DiscoverProviderModelsResponseDtoSchema.parse({models: [], message: "ok", diagnostics}).diagnostics).toEqual(diagnostics);
     });
 });
 
