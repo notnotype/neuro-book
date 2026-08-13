@@ -471,9 +471,15 @@ describe("Desktop installation lifecycle", () => {
         })).resolves.toMatchObject({installationRoot: installRoot});
 
         expect(await readFile(cachePath)).toEqual(archiveBytes);
-        expect(fetchMock).toHaveBeenCalledWith(
-            componentURL,
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            1,
+            new URL("https://downloads.example/desktop.distribution.json"),
             expect.objectContaining({redirect: "error"}),
+        );
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            componentURL,
+            expect.objectContaining({redirect: "follow"}),
         );
     });
 
