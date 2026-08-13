@@ -195,6 +195,13 @@ async function waitUntil(predicate: () => boolean | Promise<boolean>, label: str
     throw new Error(`等待条件超时：${label}`);
 }
 
+/** 等待已返回 Provider 的 Promise continuation 排空，不绑定真实墙钟时长。 */
+async function nextEventLoopTurn(): Promise<void> {
+    const turn = Promise.withResolvers<void>();
+    setImmediate(turn.resolve);
+    await turn.promise;
+}
+
 describe("NeuroAgentHarness black-box contract", () => {
     let root: string;
     let faux: FauxModelsFixture;
@@ -1276,19 +1283,20 @@ describe("NeuroAgentHarness black-box contract", () => {
         }
     });
 
-    // 这两个用例的外层预算覆盖 full-suite 下的 Harness/Provider 初始化；
-    // 取消是否有界仍由用例内 300ms/1s race 精确约束。
+    // 取消前必须等到 Faux Provider 实际取走悬挂响应；activeInvocation=running 只表示 admission 完成。
+    // 300ms/1s race 是被测的公开取消上界，不用于等待测试状态推进。
     it("Running provider 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
         const profileKey = registerPlainProfile(harness, {
             key: "test.blackbox.forced-running-abort",
         });
-        let releaseProvider: (() => void) | undefined;
-        const providerGate = new Promise<void>((resolve) => {
-            releaseProvider = resolve;
-        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        const providerReturned = Promise.withResolvers<void>();
         faux.setResponses([
             async () => {
-                await providerGate;
+                providerStarted.resolve();
+                await providerGate.promise;
+                providerReturned.resolve();
                 return fauxAssistantMessage("late provider result");
             },
             fauxAssistantMessage("fresh invocation result"),
@@ -1302,44 +1310,50 @@ describe("NeuroAgentHarness black-box contract", () => {
             mode: "prompt",
             message: {text: "start hanging provider"},
         });
-        await waitUntil(async () => (await harness.getSessionRecovery(created.sessionId)).activeInvocation?.status === "running", "hanging provider active");
+        await providerStarted.promise;
 
-        const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop"});
-        const result = await Promise.race([
-            running,
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("running invocation did not settle after cancel")), 300)),
-        ]);
-        const recovery = await harness.getSessionRecovery(created.sessionId);
+        try {
+            const aborted = await harness.abortInvocation(created.sessionId, {reason: "force stop"});
+            const result = await Promise.race([
+                running,
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error("running invocation did not settle after cancel")), 300)),
+            ]);
+            const recovery = await harness.getSessionRecovery(created.sessionId);
 
-        expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
-        expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
-        expect(recovery.activeInvocation).toBeNull();
+            expect(aborted).toEqual({status: "aborted", sessionId: created.sessionId});
+            expect(result).toMatchObject({status: "error", invocationId: expect.any(String)});
+            expect(recovery.activeInvocation).toBeNull();
 
-        const next = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "start fresh invocation"},
-        });
-        expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation result"});
+            const next = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start fresh invocation"},
+            });
+            expect(next).toMatchObject({status: "completed", finalMessage: "fresh invocation result"});
 
-        releaseProvider!();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late provider result");
-        expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+            providerGate.resolve();
+            await providerReturned.promise;
+            await nextEventLoopTurn();
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late provider result");
+            expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+        } finally {
+            providerGate.resolve();
+        }
     }, 30_000);
 
     it("外部 signal 只取消 admission 接收的精确 invocation，不影响同 session 后续调用", async () => {
         const profileKey = registerPlainProfile(harness, {
             key: "test.blackbox.exact-signal-abort",
         });
-        let releaseProvider: (() => void) | undefined;
-        const providerGate = new Promise<void>((resolve) => {
-            releaseProvider = resolve;
-        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        const providerReturned = Promise.withResolvers<void>();
         faux.setResponses([
             async () => {
-                await providerGate;
+                providerStarted.resolve();
+                await providerGate.promise;
+                providerReturned.resolve();
                 return fauxAssistantMessage("late exact-signal result");
             },
             fauxAssistantMessage("new invocation survived"),
@@ -1355,27 +1369,32 @@ describe("NeuroAgentHarness black-box contract", () => {
             message: {text: "start signal-owned invocation"},
             signal: controller.signal,
         });
-        await waitUntil(async () => (await harness.getSessionRecovery(created.sessionId)).activeInvocation?.status === "running", "signal-owned invocation active");
+        await providerStarted.promise;
 
-        controller.abort(new Error("parent invocation cancelled"));
-        const cancelled = await Promise.race([
-            running,
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error("signal-owned invocation did not settle")), 1_000)),
-        ]);
-        expect(cancelled).toMatchObject({status: "error", invocationId: expect.any(String)});
+        try {
+            controller.abort(new Error("parent invocation cancelled"));
+            const cancelled = await Promise.race([
+                running,
+                new Promise<never>((_, reject) => setTimeout(() => reject(new Error("signal-owned invocation did not settle")), 1_000)),
+            ]);
+            expect(cancelled).toMatchObject({status: "error", invocationId: expect.any(String)});
 
-        const next = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "start new invocation"},
-        });
-        expect(next).toMatchObject({status: "completed", finalMessage: "new invocation survived"});
+            const next = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "start new invocation"},
+            });
+            expect(next).toMatchObject({status: "completed", finalMessage: "new invocation survived"});
 
-        releaseProvider!();
-        await new Promise((resolve) => setTimeout(resolve, 20));
-        const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late exact-signal result");
-        expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+            providerGate.resolve();
+            await providerReturned.promise;
+            await nextEventLoopTurn();
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            expect(visibleText(harness.repo.reduce(snapshot).messages)).not.toContain("late exact-signal result");
+            expect(lifecycleStatuses(snapshot)).toEqual(["start", "aborted", "start", "end"]);
+        } finally {
+            providerGate.resolve();
+        }
     }, 30_000);
 
     it("Running tool 忽略 AbortSignal 时 cancel 仍有界释放调用方，并隔离迟到结果", async () => {
