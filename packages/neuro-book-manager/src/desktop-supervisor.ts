@@ -8,7 +8,7 @@ import {
     type DesktopSupervisorRequest,
 } from "nbook/shared/desktop-contract";
 import {
-    authorizeProductRuntimeReceiptFully,
+    authorizeProductRuntimeReceiptControlPlane,
     verifyProductRuntimeReceiptFully,
 } from "nbook/shared/product-runtime-receipt";
 import type {ProductRuntimeExpectedIdentity} from "nbook/shared/product-runtime-image-verifier";
@@ -134,13 +134,13 @@ async function startDesktop(
     fail: (requestId: string, code: string, error: unknown, recoverable?: boolean) => void,
 ): Promise<void> {
     try {
-        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "full-verify"});
-        const productRuntimeReceipt = await authorizeProductRuntimeReceiptFully(
+        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "quick-verify"});
+        const productRuntimeReceipt = await authorizeProductRuntimeReceiptControlPlane(
             resolve(root, nativeProductPath(manifest)),
             join(deployRoot, "product-runtime-receipt.json"),
             productRuntimeExpectedIdentity(manifest),
         );
-        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "full"});
+        emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "verified", verification: "quick"});
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "migration"});
         emit({schema: "nbook.desktop-supervisor/v1", requestId: request.requestId, type: "stage", stage: "starting-product"});
         await startInstallationApplication(root, {

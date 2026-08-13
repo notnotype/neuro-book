@@ -524,6 +524,7 @@ async function waitForSupervisor(
                 if (event.requestId !== requestId) return;
                 if (event.type === "stage") {
                     const stageLabels = {
+                        "quick-verify": "快速确认 Product...",
                         "full-verify": "完整验证 Product...",
                         migration: "执行数据迁移...",
                         "starting-product": "启动本地服务...",
@@ -552,8 +553,10 @@ async function waitForSupervisor(
                     if (event.startupNonce !== startupNonce) throw new Error("Supervisor ready nonce 与本次启动不一致。");
                     readyPort = Number(new URL(event.url).port);
                     readyVersion = event.version;
+                } else if (event.type === "verified" && event.verification === "quick") {
+                    setStartupStage("Product 启动授权已确认。");
                 } else if (event.type === "verified" && event.verification === "full") {
-                    setStartupStage("Product 后台验证完成。");
+                    setStartupStage("Product 完整验证完成。");
                 } else if (event.type === "failure") {
                     const error = new Error(`Manager Supervisor 失败：${event.code} ${event.message}`);
                     if (settled) {

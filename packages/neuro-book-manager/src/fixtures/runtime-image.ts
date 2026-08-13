@@ -98,6 +98,7 @@ export async function buildTestRuntimeImage(input: {
                 writeFile(join(imageRoot, "server", "index.mjs"), "export {};\n", "utf8"),
                 writeFile(join(imageRoot, ...PRODUCT_RUNTIME_COMMAND_BOOTSTRAP.split("/")), "export {};\n", "utf8"),
                 writeFile(join(imageRoot, ...entry.split("/")), "export {};\n", "utf8"),
+                writeFile(join(imageRoot, "server", "commands", "fixture-payload.mjs"), "export const fixturePayload = true;\n", "utf8"),
                 writeFile(
                     join(imageRoot, ...PRODUCT_RUNTIME_CONTRACT_PATH.split("/")),
                     `${JSON.stringify(contract, null, 2)}\n`,

@@ -49,6 +49,28 @@ describe("Desktop UI shell contract", () => {
         expect(packager).toContain('join(envelopeDist, "startup.html")');
         expect(packager).toContain('join(appStagingRoot, "startup.html")');
     });
+    it("把 Supervisor quick/full 阶段投影为不同的启动授权文案", async () => {
+        const main = await readFile(resolve("desktop/electron/src/main.ts"), "utf8");
+        const supervisor = await readFile(resolve("packages/neuro-book-manager/src/desktop-supervisor.ts"), "utf8");
+        const startDesktop = supervisor.slice(
+            supervisor.indexOf("async function startDesktop("),
+            supervisor.indexOf("async function verifyReceipt("),
+        );
+
+        expect(main).toContain('"quick-verify": "快速确认 Product..."');
+        expect(main).toContain('"full-verify": "完整验证 Product..."');
+        expect(main).toContain('event.verification === "quick"');
+        expect(main).toContain("Product 启动授权已确认。");
+        expect(main).toContain('event.verification === "full"');
+        expect(main).toContain("Product 完整验证完成。");
+        expect(startDesktop).toContain("authorizeProductRuntimeReceiptControlPlane");
+        expect(startDesktop).toContain('stage: "quick-verify"');
+        expect(startDesktop).toContain('verification: "quick"');
+        expect(startDesktop).not.toContain('stage: "full-verify"');
+        expect(startDesktop).not.toContain('verification: "full"');
+        expect(supervisor).toContain('stage: "full-verify"');
+        expect(supervisor).toContain('verification: "full"');
+    });
 
     it("uses one persistent Activity Bar instead of page-owned horizontal headers", async () => {
         const indexPage = await readFile(resolve("app/pages/index.vue"), "utf8");

@@ -136,7 +136,7 @@ HKLM 卸载项、`neurobook://` 协议、开始菜单/公共桌面快捷方式�
 - Portable：沿用 Installation Root 下的 `data/`、`.cache/` 和 `data/.desktop/`。
 - 只注册 `neurobook://`、开始菜单、桌面快捷方式和卸载项；不注册 `.nbook` 文件扩展名。
 - Desktop 默认关闭 auth；Provider 连接测试与远端连接、后台 updater、公开签名、macOS 实包和 Tauri 可见 UI 不在本 Task。
-- Installed 的成功回执表示 payload、manifest/locator、Windows 注册、migration、HTTP ready 与 graceful shutdown 均已完成；首次正式启动不承担“把未验证安装变成可用安装”的职责。
+- Installed 的成功回执表示 payload、manifest/locator、Windows 注册、migration、HTTP ready 与 graceful shutdown 都已完成；安装、更新、Repair、doctor 和显式 `verify` 由 Manager 完整验证 payload 并签发/更新 receipt。首次及后续普通启动在 migration/Product spawn 前使用该 receipt 做 quick control-plane authorization，不重复扫描 payload；因此普通启动不承诺发现所有安装后 payload 文件篡改。控制面失败仍 fail closed 并引导 Repair；用户遇到普通启动失败时，先运行 Manager `doctor` 或显式 `verify`，再按报告执行 Repair。
 
 ## 实现记录
 
@@ -153,6 +153,12 @@ GUI 当前提供 Depot 选择、用户/全局安装选择、Provider 类型/Base
 ### 载荷
 
 Electron main/preload/manager entry/manager preload/启动页/Manager 页面都进入 `app.asar`；Product、Source、Bun、Tool Pack 和 native islands 保持在 ASAR 外。Portable 仍只构建一次 Electron Runtime，不复制第二份 Chromium。
+
+### 2026-08-13：启动快速路径取舍
+
+- `startDesktop()` 现在发出 `quick-verify` 阶段，消费 Manager 已完整验证的 receipt，检查 receipt 摘要、Runtime Image manifest、ready marker、Runtime Contract 和合同入口；返回的授权继续传入 migration 与 Product spawn 前的 `verifyApplicationExecution()` 控制面复检。
+- 显式 Supervisor `verify`、`repair` 以及 Manager 安装/更新/doctor 保持 `full-verify` 和完整 payload digest 复核。普通启动对非控制面 payload 的篡改可能放到下一次完整 Manager 验证才发现；控制面或 receipt 篡改仍在 spawn 前拒绝。
+- 这条 quick 结果不是完整 payload 验证。普通启动失败时回退入口是 Manager `doctor` / 显式 `verify`，确认损坏后使用 Repair；旧安装缺少或损坏 receipt 时不自动生成 receipt，也不回退为完整启动扫描。
 
 ## 验证
 

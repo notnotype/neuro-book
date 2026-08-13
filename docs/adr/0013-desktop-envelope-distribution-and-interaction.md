@@ -61,7 +61,7 @@ Electron 与 Tauri 在 Task 143 内继续并行；本 ADR 不冻结最终框架�
 
 1. 安装、更新、repair、卸载、组件下载、checksum、回滚、migration、管理员创建、Product 启停和进程树均由 Manager CLI 拥有。
 2. Envelope 只启动 Manager 的 `Desktop Supervisor Protocol v1`，通过 stdin/stdout NDJSON 接收阶段、ready、完整复核、停止和失败事件；不解析 Product Runtime Contract、不执行 migration、不持有 shutdown token。
-3. 安装/更新完成完整 Runtime Image 验证并写 Manager verification receipt。普通启动在 migration 或 Product spawn 前完成一次完整 payload 复核，并把这次验证绑定的 receipt 授权传给受管子进程，避免每个命令重复遍历；窗口 ready 只表示服务可用，不再把“ready 后才验货”作为安全边界。
+3. 安装/更新完成时由 Manager 完整验证 Runtime Image 并写入 verification receipt。普通启动在 migration 和 Product spawn 前消费该 receipt 做 Runtime 控制面 quick authorization：复核 receipt 内容摘要、receipt/manifest identity、ready marker、Runtime Contract 和合同入口存在性，不重复遍历 payload；该授权传给受管子进程，Application execution 仍在 spawn 前复做同一控制面检查。Manager 的安装、更新、Repair、doctor 和显式 `verify` 路径继续执行完整 payload 复核。安装后非控制面 payload 被篡改时，普通启动可能直到下一次 Manager 完整验证才发现；ready 只表示服务可用，不再把“ready 后才验货”作为安全边界。
 4. 每次本地启动生成 startup nonce。ready 必须同时匹配动态端口、Product 版本和 nonce；仅返回 HTTP 200 的其他进程不构成 ready。端口竞争最多重试三次，每次都终止本次候选。
 5. Supervisor 正常停止先执行认证 graceful shutdown 和 30 秒 drain，再由 Owned Process/Job Object 强制兜底并报告 `graceful` 或 `forced`。
 

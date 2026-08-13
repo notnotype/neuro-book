@@ -1,4 +1,4 @@
-import {mkdir, mkdtemp, rename, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rename, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
@@ -7,11 +7,16 @@ import {buildTestRuntimeImage, TEST_RUNTIME_IMAGE_PLATFORM} from "#manager/fixtu
 import {issueInstalledProductRuntimeReceipt} from "#manager/product";
 import {INSTALLATION_SCOPED_ROOT_LOCATORS} from "#manager/root-locators";
 import type {InstallationManifest} from "#manager/types";
-import {authorizeProductRuntimeReceiptFully} from "nbook/shared/product-runtime-receipt";
+import {
+    authorizeProductRuntimeReceiptControlPlane,
+    authorizeProductRuntimeReceiptFully,
+    verifyProductRuntimeReceiptFully,
+} from "nbook/shared/product-runtime-receipt";
 
 const roots: string[] = [];
 const VERSION = "0.8.0-canary.1";
 const REVISION = "a".repeat(40);
+type NativeFixture = {root: string; manifest: InstallationManifest; imageId: string};
 
 afterEach(async () => {
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
@@ -47,19 +52,88 @@ describe("Verified Application Execution", () => {
         await expect(authorizeProductRuntimeReceiptFully(
             join(fixture.root, ".output"),
             receiptPath,
-            {
-                version: product.version,
-                revision: product.revision,
-                dirty: false,
-                platform: product.platform,
-                imageId: product.imageId,
-                sourceDigest: product.sourceDigest,
-                lockfileSha256: product.lockfileSha256,
-                builderContractVersion: product.builderContractVersion,
-            },
+            productExpectedIdentity(product),
         )).rejects.toThrow("payload digest 不一致");
         await expect(verifyApplicationExecution(fixture.root, fixture.manifest))
             .rejects.toThrow("payload digest 不一致");
+    });
+
+    it("普通启动快验允许非控制面 payload 变化，而 Manager 完整验证拒绝", async () => {
+        const fixture = await nativeFixture();
+        const product = fixture.manifest.components.product;
+        if (!product || product.provider === "container") throw new Error("测试 fixture 缺少 native Product");
+        const receiptPath = join(fixture.root, ".deploy", "product-runtime-receipt.json");
+        await issueInstalledProductRuntimeReceipt(fixture.root, product, receiptPath);
+        const payloadPath = join(fixture.root, ".output", "server", "commands", "fixture-payload.mjs");
+        await writeFile(payloadPath, "export const fixturePayload = false;\n", "utf8");
+
+        const authorization = await authorizeProductRuntimeReceiptControlPlane(
+            join(fixture.root, ".output"),
+            receiptPath,
+            productExpectedIdentity(product),
+        );
+        await expect(verifyApplicationExecution(fixture.root, fixture.manifest, {productRuntimeReceipt: authorization}))
+            .resolves.toMatchObject({kind: "native-product", imageRoot: join(fixture.root, ".output")});
+        await expect(verifyProductRuntimeReceiptFully(
+            join(fixture.root, ".output"),
+            receiptPath,
+            productExpectedIdentity(product),
+        )).rejects.toThrow("payload digest 不一致");
+    });
+
+    it("普通启动在控制面文件或回执变化时于 Product spawn 前拒绝", async () => {
+        const cases = [
+            {
+                name: "runtime manifest",
+                message: "ready marker",
+                mutate: async (fixture: NativeFixture): Promise<void> => {
+                    const path = join(fixture.root, ".output", "runtime-image.json");
+                    await writeFile(path, `${await readFile(path, "utf8")}\n`, "utf8");
+                },
+            },
+            {
+                name: "ready marker",
+                message: "ready marker",
+                mutate: async (fixture: NativeFixture): Promise<void> => {
+                    const path = join(fixture.root, ".output", "runtime-image.ready");
+                    const ready = JSON.parse(await readFile(path, "utf8")) as {schema: string; imageId: string; manifestSha256: string};
+                    ready.imageId = `sha256:${"0".repeat(64)}`;
+                    await writeFile(path, `${JSON.stringify(ready)}\n`, "utf8");
+                },
+            },
+            {
+                name: "runtime contract",
+                message: "runtime contract 摘要",
+                mutate: async (fixture: NativeFixture): Promise<void> => {
+                    const path = join(fixture.root, ".output", "server", "runtime-contract.json");
+                    await writeFile(path, `${await readFile(path, "utf8")}\n`, "utf8");
+                },
+            },
+            {
+                name: "receipt",
+                message: "授权摘要与磁盘内容不一致",
+                mutate: async (fixture: NativeFixture): Promise<void> => {
+                    const path = join(fixture.root, ".deploy", "product-runtime-receipt.json");
+                    await writeFile(path, `${await readFile(path, "utf8")}\n`, "utf8");
+                },
+            },
+        ] as const;
+
+        for (const testCase of cases) {
+            const fixture = await nativeFixture();
+            const product = fixture.manifest.components.product;
+            if (!product || product.provider === "container") throw new Error(`测试 fixture 缺少 native Product：${testCase.name}`);
+            const receiptPath = join(fixture.root, ".deploy", "product-runtime-receipt.json");
+            await issueInstalledProductRuntimeReceipt(fixture.root, product, receiptPath);
+            const authorization = await authorizeProductRuntimeReceiptControlPlane(
+                join(fixture.root, ".output"),
+                receiptPath,
+                productExpectedIdentity(product),
+            );
+            await testCase.mutate(fixture);
+            await expect(verifyApplicationExecution(fixture.root, fixture.manifest, {productRuntimeReceipt: authorization}))
+                .rejects.toThrow(testCase.message);
+        }
     });
 
     it("Source Dev 明确跳过 Runtime Image 验证", async () => {
@@ -77,7 +151,7 @@ describe("Verified Application Execution", () => {
 });
 
 /** 使用正式 Builder 生成可由 Installation Manifest 外部身份验证的 Native Product。 */
-async function nativeFixture(): Promise<{root: string; manifest: InstallationManifest; imageId: string}> {
+async function nativeFixture(): Promise<NativeFixture> {
     const root = await mkdtemp(join(tmpdir(), "manager-verified-execution-"));
     roots.push(root);
     const sourceRoot = join(root, "source-fixture");
@@ -105,6 +179,18 @@ async function nativeFixture(): Promise<{root: string; manifest: InstallationMan
         redistribution: "test fixture",
     });
     return {root, manifest, imageId: image.manifest.imageId};
+}
+function productExpectedIdentity(product: Exclude<InstallationManifest["components"]["product"], undefined | {provider: "container"}>) {
+    return {
+        version: product.version,
+        revision: product.revision,
+        dirty: false,
+        platform: product.platform,
+        imageId: product.imageId,
+        sourceDigest: product.sourceDigest,
+        lockfileSha256: product.lockfileSha256,
+        builderContractVersion: product.builderContractVersion,
+    };
 }
 
 /** 建立执行验证测试所需的最小 Installation Manifest。 */

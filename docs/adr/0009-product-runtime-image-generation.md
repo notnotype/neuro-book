@@ -18,7 +18,7 @@ Manager 已拥有安装锁、Operation Journal、migration、健康检查、切�
 3. 非受管 Source checkout 使用窄的 `LocalProductPublisher` 原子更新本地 `.output`。检测到受管 installation manifest 时，publisher 拒绝绕过 Manager。设置 `NEURO_BOOK_OUTPUT_DIR` 时只向调用方给定的空 staging root 发布 ready candidate。
 4. Runtime Image 只有在以下证据一致时才 ready：Source identity、lockfile、平台、Runtime 版本、Product Runtime Contract 摘要、规范平台 owner/预算 policy 及其摘要、owner inventory、tree digest、shape digest、manifest 与最后写入的 ready marker。构建期间 Source 变化直接失败；每次复核必须重新枚举 tracked 与 untracked Source，不能复用首次路径集。
 5. Release、Windows Portable、Docker、staging、Manager doctor/import/install/update 和 smoke 只能消费 `openVerified()` 成功且外部代次身份匹配的镜像。Manager 的 start、admin、migration 与 recovery 先收窄为 `VerifiedApplicationExecution`；独立 Product bootstrap 还会在解析逻辑命令前执行完整自洽验证并删除 `NODE_PATH`。单独存在 `server/index.mjs` 不构成可执行或可归档条件。
-6. 状态展示和实例发现可以使用 `openControlPlane()`，但它只验证 manifest/ready/contract 控制文件及合同入口存在性，返回独立只读类型；执行、激活、安装和归档禁止使用该结果。实测完整验证冷启动约 13.3 秒、热缓存约 1.08 秒，轻量验证约 4-9 毫秒。
+6. 状态展示和实例发现可以使用 `openControlPlane()`，它只验证 manifest/ready/contract 控制文件及合同入口存在性，返回独立只读类型；普通 Desktop start 只有在 Manager 已完整验证并签发且绑定同一代次的 receipt 后，才能把该控制面结果用于 quick authorization，且授权会在 Application execution 的 Product spawn 前再次复核。任何独立 `openControlPlane()` 结果仍禁止作为执行、安装、激活或归档证据。实测完整验证冷启动约 13.3 秒、热缓存约 1.08 秒，轻量验证约 4-9 毫秒。
 7. Product Runtime Contract v5 是所有新 Product 消费者唯一的逻辑入口。正式命令为 `start`、`migrate-database`、`migrate-application-state`、`create-admin`、`profile`、`variable`、`workspace`；发布检查包含 Profile、Variable、sqlite-vec、Sharp、Application State、Workspace、`web-fetch` 与 `world-engine-config`。未知 schema、未知 ID、路径逃逸、缺失入口或不允许的附加参数立即失败，不保留 `server/scripts` fallback。Manager 只在已安装旧 Product 的读取边界显式接受 v3/v4；候选、发布和 Product bootstrap 仍严格要求 v5。
 8. Nitro 只根据真实 ESM module specifier 发现 external Seed；普通字符串、注释、source map 和客户端资源清单不形成 Seed。绝对 file URL、Bun `.bun` 和 pnpm `.pnpm` 路径统一规范化到 Product 内部，物理包与根 hoisted 包版本不一致时失败。
 9. 最终 Nitro server 使用单 bundle；命令使用一次多入口构建和 shared chunks；Profile 编译使用与 Product revision 绑定的 Authoring Kit；native addon、动态 package、worker、`createRequire` 与必须读取 package 形状的依赖进入显式 package islands。命令入口必须由 Bun metafile 的 `entryPoint` 建立映射，不能从输出文件名反推。
@@ -50,7 +50,7 @@ bundle 与 package islands 的组合符合 NeuroBook 的真实能力：大部分
 ## 后果
 
 - 构建比普通 `nuxt build` 多一次 Source 锁定、owner 盘点和全树摘要，但发布证据可复现，半成品不能进入发行链。
-- status/discovery 只展示控制面可信度；任何会运行代码的操作仍支付完整 payload 验证成本。
+- status/discovery 只展示控制面可信度；普通 Desktop start 是已完整验证 receipt 绑定的 quick control-plane 例外，其他会运行代码的操作仍支付完整 payload 验证成本。
 - Authoring Kit 不是任意 npm 开发环境。Profile 作者消费 `nbook/profile-sdk`，需要 writing 资源能力时可显式消费 `nbook/profile-sdk/writing`；Variable 作者消费 `nbook/variable-sdk`。底层实现依赖的登记与 smoke 不会自动把包提升成作者 Interface。
 - Windows x64 的 4,683 个文件、161,274,231 bytes 是 2026-07-29 的历史基线。2026-08-01 SDK/载荷收窄后的 3,229 个 payload 文件、133,132,675 bytes 已成为 canonical owner baseline。2026-08-02 Contract v3 与执行验证收口后的冻结 Source D/E 均为 3,231 个 payload 文件、133,213,461 bytes，Source/Contract/policy/owner/tree/shape identity 完全一致，排除 manifest/ready 后路径与逐文件 SHA-256 差异为 0；增长仍在现有 owner 10% 门禁内，不据此放宽 baseline。41,599,391-byte acceptance ZIP（SHA-256 `6C1C08C1F5BF08C6EC0EA263DD1480C409D496E14490BC7C45AD5F6D46022B19`）已在仓库外通过完整 Product smoke，但仍来自 dirty Source，不带正式 Release identity，不能替代 clean runner 正式归档。
 - Linux 与 macOS 尚无实机 owner baseline，当前构建会 fail closed，不能借用 Windows 数字。

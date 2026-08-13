@@ -30,7 +30,7 @@ Manager CLI 继续拥有安装、组件摘要、迁移、修复、回滚、卸�
 - `Desktop Installation Manifest v3` 必须记录安装范围、程序相对根、用户 Root locators、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略。`v2` 不是兼容输入，必须由 Manager repair/reinstall 生成 v3。
 - provider 选择分为 `managed` 和 `system`：Manager 自身始终保留可修复的 managed Bun；Product Bun 与 Git/Bash/rg 可以使用 system，但只检测 PATH 和版本，不自动调用系统包管理器。managed 工具只注入 Product 私有 PATH。
 - Desktop Manifest 与 Product `installation.json` 必须投影同一份 Product Bun、Git/Bash 和 rg provider；不能只改变 Electron 启动参数。Electron 始终使用 managed Manager Bun 启动 Supervisor，Supervisor 再按 Product manifest 选择 Application Runtime。
-- 安装完成回执只能在 Product Runtime 完整校验、Application State migration plan、一次 HTTP ready 和 graceful shutdown 都完成后生成。普通启动继续复用同一 Manager lifecycle，不在 Electron 中复制 migration 或健康检查。
+- 安装完成回执只能在 Product Runtime 完整校验、Application State migration plan、一次 HTTP ready 和 graceful shutdown 都完成后生成。首次及后续普通启动使用已验证 receipt 的 quick control-plane authorization，在 migration/Product spawn 前检查 receipt、manifest、ready marker、Runtime Contract 和合同入口，不重复扫描 payload；Manager 的安装、更新、Repair、doctor 和显式 `verify` 继续拥有完整 payload 验证。
 - 默认卸载保留的非空 State Root 只有在真实目录中的 `config.yaml` 能被 Boot Config parser 解析，且包含已登记的 `auth`、`server` 或 `database` 所有权字段时才允许重装复用；symlink/junction、任意 YAML 和未知非空目录都拒绝接管。
 - 卸载默认删除程序、Cache、Desktop/WebView 和有界日志，保留 State Root；明确选择删除数据时才删除托管 State Root，外部 Project Workspace 永不删除。
 - Manager GUI 的安装完成事件只作为候选输入；GUI 必须在启动主 Electron 前重新读取并校验 Desktop Installation Manifest、安装范围、Electron Envelope 路径和 checksum，不能复用上一次操作的裸 Installation Root。

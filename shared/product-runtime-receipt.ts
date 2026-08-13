@@ -98,7 +98,7 @@ export async function verifyProductRuntimeReceiptControlPlane(
 }
 
 /**
- * Manager 在启动任何 Product 子进程前完整验证镜像，并把本次读到的精确回执内容授权给子进程。
+ * Manager 在需要完整验证的 Product 子进程路径前完整验证镜像，并把本次读到的精确回执内容授权给子进程。
  * 授权只存在于进程环境，不写入 Runtime Image 或 State Root；它不能替代启动前的完整验证。
  */
 export async function authorizeProductRuntimeReceiptFully(
@@ -107,6 +107,17 @@ export async function authorizeProductRuntimeReceiptFully(
     expectedIdentity: ProductRuntimeExpectedIdentity,
 ): Promise<ProductRuntimeReceiptAuthorization> {
     return (await inspectProductRuntimeReceipt(imageRoot, receiptPath, expectedIdentity, true)).authorization;
+}
+/**
+ * Manager 普通 Desktop 启动只复核已签发回执与 Runtime 控制面，不遍历 payload。
+ * 完整 payload 验证仍由安装、更新、Repair、doctor 和显式 verify 路径拥有。
+ */
+export async function authorizeProductRuntimeReceiptControlPlane(
+    imageRoot: string,
+    receiptPath: string,
+    expectedIdentity: ProductRuntimeExpectedIdentity,
+): Promise<ProductRuntimeReceiptAuthorization> {
+    return (await inspectProductRuntimeReceipt(imageRoot, receiptPath, expectedIdentity, false)).authorization;
 }
 
 /**

@@ -132,6 +132,22 @@ describe("Desktop contracts", () => {
         expect(() => parseDesktopSupervisorRequest({...start, extra: true})).toThrow("字段不匹配");
         expect(() => parseDesktopSupervisorRequest({...start, port: 80})).toThrow("1024-65535");
     });
+    it("解析 quick/full Supervisor 验证阶段并拒绝未知阶段", () => {
+        const base = {
+            schema: DESKTOP_SUPERVISOR_SCHEMA,
+            requestId: "verify-1",
+            type: "stage",
+        } as const;
+        expect(parseDesktopSupervisorEvent({...base, stage: "quick-verify"})).toEqual({...base, stage: "quick-verify"});
+        expect(parseDesktopSupervisorEvent({...base, stage: "full-verify"})).toEqual({...base, stage: "full-verify"});
+        expect(() => parseDesktopSupervisorEvent({...base, stage: "not-a-stage"})).toThrow("stage 不受支持");
+        expect(parseDesktopSupervisorEvent({
+            schema: DESKTOP_SUPERVISOR_SCHEMA,
+            requestId: "verify-1",
+            type: "verified",
+            verification: "quick",
+        })).toMatchObject({verification: "quick"});
+    });
 
     it("只接受声明 DesktopBridge v2 的远端 capability", () => {
         const capability = {
