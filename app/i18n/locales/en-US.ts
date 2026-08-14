@@ -1587,6 +1587,7 @@ const enUS = {
             syncDetailsTitle: "User Assets Sync Details",
             syncDetailsDescription: "The following user overrides were kept, and system versions were not applied automatically. Open a diff to inspect changes.",
             userOverrideDiff: "User Override Diff",
+            collapsePanel: "Collapse panel",
             close: "Close",
         },
         bookshelf: {

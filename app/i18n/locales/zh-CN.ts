@@ -1585,6 +1585,7 @@ const zhCN = {
             syncDetailsTitle: "用户资产同步详情",
             syncDetailsDescription: "以下用户覆盖已保留，系统版本没有自动覆盖。可以打开 diff 查看差异。",
             userOverrideDiff: "用户覆盖 Diff",
+            collapsePanel: "收起面板",
             close: "关闭",
         },
         bookshelf: {

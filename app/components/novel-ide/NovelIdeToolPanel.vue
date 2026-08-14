@@ -2,6 +2,7 @@
 import {ref, useAttrs} from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
 import type {DiffWorkbenchActionPayload, DiffWorkbenchDocument} from "nbook/app/components/common/diff/diff-workbench.types";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
@@ -361,9 +362,11 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
 
             <div class="shrink-0 border-b border-[var(--border-color)]">
                 <div class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
-                    <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.bookshelfTitle')" @click="emit('openHome')">
-                        <span class="i-lucide-library h-4 w-4"></span>
-                    </button>
+                    <Tooltip :text="t('ide.header.bookshelfTitle')" placement="bottom">
+                        <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('openHome')">
+                            <span class="i-lucide-library h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
                     <Dropdown
                         v-if="!props.userAssetsMode"
                         class="min-w-0 flex-1"
@@ -392,26 +395,38 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                         <input ref="projectDirectoryInputRef" class="hidden" type="file" multiple webkitdirectory @change="(event) => void handleProjectDirectorySelected(event)">
                         <input ref="projectZipInputRef" class="hidden" type="file" accept=".zip,application/zip" @change="(event) => void handleProjectZipSelected(event)">
 
-                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadSingleTitle')" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
-                            <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
-                        </button>
-                        <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
-                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.uploadProjectTitle')" :disabled="uploadingProject">
-                                <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
+                        <Tooltip :text="t('ide.toolPanel.uploadSingleTitle')" placement="bottom">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="uploadingSingleFile" @click="openSingleFileUpload">
+                                <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
                             </button>
+                        </Tooltip>
+                        <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
+                            <Tooltip :text="t('ide.toolPanel.uploadProjectTitle')" placement="bottom">
+                                <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="uploadingProject">
+                                    <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
+                                </button>
+                            </Tooltip>
                         </Dropdown>
-                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="downloadButtonTitle" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
-                            <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
-                        </button>
-                        <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :title="t('ide.toolPanel.syncAssetsTitle')" :disabled="syncingAssets" @click="void syncSystemAssets()">
-                            <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
-                        </button>
-                        <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.toolPanel.viewSyncConflicts')" @click="syncWarningsOpen = true">
-                            <span class="i-lucide-triangle-alert h-4 w-4"></span>
-                        </button>
-                        <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
-                            <span class="i-lucide-minus h-4 w-4"></span>
-                        </button>
+                        <Tooltip :text="downloadButtonTitle" placement="bottom">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
+                                <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
+                            </button>
+                        </Tooltip>
+                        <Tooltip v-if="props.userAssetsMode" :text="t('ide.toolPanel.syncAssetsTitle')" placement="bottom">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="syncingAssets" @click="void syncSystemAssets()">
+                                <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
+                            </button>
+                        </Tooltip>
+                        <Tooltip v-if="props.userAssetsMode && lastSyncWarnings.length" :text="t('ide.toolPanel.viewSyncConflicts')" placement="bottom">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="syncWarningsOpen = true">
+                                <span class="i-lucide-triangle-alert h-4 w-4"></span>
+                            </button>
+                        </Tooltip>
+                        <Tooltip :text="t('ide.toolPanel.collapsePanel')" placement="bottom">
+                            <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
+                                <span class="i-lucide-minus h-4 w-4"></span>
+                            </button>
+                        </Tooltip>
                     </div>
                 </div>
             </div>

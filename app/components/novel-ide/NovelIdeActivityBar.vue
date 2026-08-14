@@ -3,6 +3,7 @@ import {onClickOutside} from "@vueuse/core";
 import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import NovelIdeAccountMenu from "nbook/app/components/novel-ide/NovelIdeAccountMenu.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import {
     createWorkbenchActivityItems,
     resolveActivityBarSecondaryItems,
@@ -250,54 +251,63 @@ onBeforeUnmount(() => {
     <aside ref="activityBarRef" class="workbench-activity-bar flex w-12 shrink-0 flex-col items-center border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] py-2" aria-label="Workbench navigation">
         <div class="flex min-h-0 w-full flex-1 flex-col items-center">
             <div ref="primaryGroupRef" class="flex w-full shrink-0 flex-col items-center">
-                <button
+                <Tooltip
                     v-for="item in activityItems.primary"
                     :key="item.id"
-                    type="button"
-                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
-                    :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                    :disabled="item.disabled"
-                    :aria-pressed="active(item)"
-                    :title="actionTitle(item)"
-                    :data-activity-id="item.id"
-                    @click="invoke(item)"
+                    :text="actionTitle(item)"
+                    placement="right"
                 >
-                    <span v-if="active(item)" class="absolute inset-y-1 left-0 w-0.5 rounded-r bg-[var(--accent-main)]"></span>
-                    <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
-                </button>
+                    <button
+                        type="button"
+                        class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
+                        :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        :disabled="item.disabled"
+                        :aria-pressed="active(item)"
+                        :data-activity-id="item.id"
+                        @click="invoke(item)"
+                    >
+                        <span v-if="active(item)" class="absolute inset-y-1 left-0 w-0.5 rounded-r bg-[var(--accent-main)]"></span>
+                        <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
+                    </button>
+                </Tooltip>
 
                 <div class="my-1 h-px w-7 bg-[var(--border-color)]"></div>
             </div>
 
-            <button
+            <Tooltip
                 v-for="item in secondaryItems.visible"
                 :key="item.id"
-                type="button"
-                class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : ''"
-                :disabled="item.disabled"
-                :aria-pressed="active(item)"
-                :title="actionTitle(item)"
-                :data-activity-id="item.id"
-                @click="invoke(item)"
+                :text="actionTitle(item)"
+                placement="right"
             >
-                <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
-            </button>
+                <button
+                    type="button"
+                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                    :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : ''"
+                    :disabled="item.disabled"
+                    :aria-pressed="active(item)"
+                    :data-activity-id="item.id"
+                    @click="invoke(item)"
+                >
+                    <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
+                </button>
+            </Tooltip>
 
             <div v-if="secondaryItems.overflow.length > 0" ref="moreRootRef" class="relative mb-1 h-10 w-10 shrink-0">
-                <button
-                    ref="moreButtonRef"
-                    type="button"
-                    class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    :title="t('ide.activityBar.more')"
-                    aria-haspopup="menu"
-                    :aria-expanded="moreOpen"
-                    aria-controls="workbench-activity-more-menu"
-                    @click="toggleMore"
-                    @keydown="handleMoreButtonKeydown"
-                >
-                    <span class="i-lucide-ellipsis h-[18px] w-[18px]"></span>
-                </button>
+                <Tooltip :text="moreOpen ? '' : t('ide.activityBar.more')" placement="right">
+                    <button
+                        ref="moreButtonRef"
+                        type="button"
+                        class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                        aria-haspopup="menu"
+                        :aria-expanded="moreOpen"
+                        aria-controls="workbench-activity-more-menu"
+                        @click="toggleMore"
+                        @keydown="handleMoreButtonKeydown"
+                    >
+                        <span class="i-lucide-ellipsis h-[18px] w-[18px]"></span>
+                    </button>
+                </Tooltip>
                 <div
                     v-if="moreOpen"
                     id="workbench-activity-more-menu"
@@ -324,20 +334,24 @@ onBeforeUnmount(() => {
                 </div>
             </div>
 
-            <button
+            <Tooltip
                 v-if="activityItems.agentPanel"
-                ref="agentPanelRef"
-                type="button"
-                class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
-                :class="props.agentPanelOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                :disabled="activityItems.agentPanel.disabled"
-                :aria-pressed="props.agentPanelOpen"
-                :title="actionTitle(activityItems.agentPanel)"
-                data-activity-id="agent-panel"
-                @click="invoke(activityItems.agentPanel)"
+                :text="actionTitle(activityItems.agentPanel)"
+                placement="right"
             >
-                <span :class="iconClasses['agent-panel']" class="h-[18px] w-[18px]"></span>
-            </button>
+                <button
+                    ref="agentPanelRef"
+                    type="button"
+                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
+                    :class="props.agentPanelOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                    :disabled="activityItems.agentPanel.disabled"
+                    :aria-pressed="props.agentPanelOpen"
+                    data-activity-id="agent-panel"
+                    @click="invoke(activityItems.agentPanel)"
+                >
+                    <span :class="iconClasses['agent-panel']" class="h-[18px] w-[18px]"></span>
+                </button>
+            </Tooltip>
         </div>
 
         <div ref="footerRef" class="mt-auto flex w-full shrink-0 flex-col items-center gap-1">
@@ -351,15 +365,16 @@ onBeforeUnmount(() => {
                     @logout="emit('logout')"
                 />
             </div>
-            <button
-                type="button"
-                class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                :title="labels.settings"
-                data-activity-id="settings"
-                @click="emit('open-settings')"
-            >
-                <span :class="iconClasses.settings" class="h-[18px] w-[18px]"></span>
-            </button>
+            <Tooltip :text="labels.settings" placement="right">
+                <button
+                    type="button"
+                    class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                    data-activity-id="settings"
+                    @click="emit('open-settings')"
+                >
+                    <span :class="iconClasses.settings" class="h-[18px] w-[18px]"></span>
+                </button>
+            </Tooltip>
         </div>
     </aside>
 </template>
