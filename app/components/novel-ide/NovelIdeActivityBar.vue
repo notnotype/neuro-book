@@ -102,7 +102,7 @@ function active(item: WorkbenchActivityItem): boolean {
 }
 
 function actionTitle(item: WorkbenchActivityItem): string {
-    return item.disabled ? `${labels.value[item.id]} · 请先打开一个 Project` : labels.value[item.id];
+    return item.disabled ? `${labels.value[item.id]} · ${t("ide.activityBar.needOpenProject")}` : labels.value[item.id];
 }
 
 function invoke(item: WorkbenchActivityItem): void {

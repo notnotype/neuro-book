@@ -63,4 +63,22 @@ describe("computeTooltipPosition", () => {
         const nearRight = computeTooltipPosition({left: 1240, top: 100, width: 40, height: 40}, tooltip, "bottom", VIEWPORT);
         expect(nearRight.x).toBe(VIEWPORT.width - TOOLTIP_VIEWPORT_PADDING - tooltip.width);
     });
+
+    it("clamps a flipped-left tooltip to the edge when the flipped side still cannot fit", () => {
+        // tooltip 比视口可用宽度还宽：右侧放不下翻到左侧，左侧也放不下，最终钳到左边缘。
+        const tooltip = {left: 0, top: 0, width: 1300, height: 28};
+
+        const result = computeTooltipPosition({left: 500, top: 200, width: 40, height: 40}, tooltip, "right", VIEWPORT);
+        expect(result.placement).toBe("left");
+        expect(result.x).toBe(TOOLTIP_VIEWPORT_PADDING);
+    });
+
+    it("keeps the tooltip inside the viewport when the viewport is smaller than the tooltip", () => {
+        const tinyViewport = {left: 0, top: 0, width: 100, height: 60};
+        const tooltip = {left: 0, top: 0, width: 300, height: 120};
+
+        const result = computeTooltipPosition({left: 0, top: 0, width: 40, height: 40}, tooltip, "right", tinyViewport);
+        expect(result.x).toBe(TOOLTIP_VIEWPORT_PADDING);
+        expect(result.y).toBe(TOOLTIP_VIEWPORT_PADDING);
+    });
 });

@@ -907,6 +907,7 @@ const enUS = {
         activityBar: {
             more: "More",
             moreActions: "More workbench actions",
+            needOpenProject: "Please open a Project first",
         },
         header: {
             openAdmin: "Admin Console",

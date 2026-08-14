@@ -905,6 +905,7 @@ const zhCN = {
         activityBar: {
             more: "更多",
             moreActions: "更多工作台入口",
+            needOpenProject: "请先打开一个 Project",
         },
         header: {
             openAdmin: "进入后台",
