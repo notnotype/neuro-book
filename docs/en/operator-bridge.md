@@ -95,7 +95,7 @@ For humans the subcommand can be omitted: the Manager detects the current direct
 - `.runtime` bundles Bun, rg, PortableGit/bash and a versioned Manager.
 - `data/` is the only user state directory that must survive a re-extraction.
 - `Start/Update/Create Admin` are only platform front ends for the Manager; they do not maintain a second update protocol.
-- Both the CMD and the PowerShell launcher pass the Portable Installation Root explicitly and forward the Manager exit code; do not add migration, update or runtime switching logic to a launcher.
+- Both CMD and PowerShell launchers call the `.runtime\\bin\\neuro-book.cmd` wrapper bound to their own Installation Root; the launchers themselves contain no `--root`, because the stable wrapper injects the bound root. Start/Update/Create Admin pass only `start`, `update`, or `admin create` and forward the Manager exit code; do not add migration, update or runtime switching logic to a launcher.
 
 ### ghcr
 

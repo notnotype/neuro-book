@@ -10,8 +10,8 @@ Once started, it listens on port **3000** by default (`NUXT_PORT` or `PORT` over
 .runtime/bin/neuro-book start
 ```
 
-::: warning The Manager has no stop command yet
-The Manager CLI has `install / manage / instances / adopt / update / start / status / doctor / runtime / tools / admin` — there is **no `stop`, `restart` or `uninstall`**. Stopping the service is on you and depends on how you deployed; see the table below. It also means the "shut the service down first" step required before updating a native product build is something you do by hand.
+::: warning The Manager does not provide stop or restart
+The Manager CLI has `install / manage / instances / adopt / update / start / status / doctor / runtime / tools / admin / uninstall`; **there is no `stop` or `restart` command**. Stopping the service is on you and depends on how you deployed; use the `uninstall` command below when removing an installation.
 :::
 
 | Deployment | How to stop |
@@ -37,6 +37,22 @@ The Manager only installs complete releases that have published a final `release
 ::: warning Currently in canary
 The project is still iterating fast. Known issues: under rootless Podman, `podman-compose stop` deletes the container along with it; Docker / Podman deployments on Apple Silicon have not been verified on real hardware.
 :::
+
+## Uninstalling and Data Retention
+
+By default, uninstall removes the program, Cache, Desktop/WebView and logs, but preserves user data in the State Root; an external Project Workspace is never deleted. Interactive terminals can confirm the operation; automation and non-TTY execution must pass `--yes` explicitly:
+
+```bash
+neuro-book uninstall --yes
+```
+
+Add `--delete-data` only when you explicitly want to remove the managed State Root:
+
+```bash
+neuro-book uninstall --yes --delete-data
+```
+
+Windows Portable and Installed Windows may finish deletion through an external Host after the current Manager exits. With `--json`, wait for the final receipt; do not treat `scheduled` as completed.
 
 ## Where Your Data Lives
 

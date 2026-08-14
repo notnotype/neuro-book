@@ -131,6 +131,7 @@ neuro-book update [--version <version> | --release-manifest <path-or-url>] [--dr
 neuro-book start
 neuro-book status [--json]
 neuro-book doctor [--json]
+neuro-book uninstall --yes [--delete-data] [--json]
 
 neuro-book runtime list
 neuro-book runtime install bun [--version <version>]
@@ -143,7 +144,7 @@ neuro-book tools path <rg|git>
 neuro-book admin create [username]
 ```
 
-`update/start/status/doctor/runtime/tools/admin` 支持全局 `--root <path>` 或 `--instance <name-or-id>`。未显式指定时，Manager 优先使用当前目录所属实例；目录外执行时使用用户配置中的默认实例。
+`update/start/status/doctor/runtime/tools/admin/uninstall` 支持全局 `--root <path>` 或 `--instance <name-or-id>`。未显式指定时，Manager 优先使用当前目录所属实例；目录外执行时使用用户配置中的默认实例。
 
 全局参数必须位于子命令前，例如`neuro-book --root <path> update`。应用或Runtime目标版本位于子命令后，例如`neuro-book install --version <app-version>`或`neuro-book runtime install bun --version <bun-version>`；裸`neuro-book --version`只输出Manager自身版本。
 
@@ -178,7 +179,7 @@ Managed Bun、ripgrep和PortableGit的版本目录是不可变组件。统一Man
 & '.\Start Neuro Book.cmd'
 ```
 
-包内已经包含源码、Windows Product、Bun、rg、PortableGit/bash 和 Manager。`Update Neuro Book.cmd` 调用统一 Manager；`Create Admin.cmd` 调用 `neuro-book admin create`。更新保留整个 `data/`。
+包内已经包含源码、Windows Product、Bun、rg、PortableGit/bash 和 Manager。`Start Neuro Book.cmd`、`Update Neuro Book.cmd` 和 `Create Admin.cmd` 都只调用绑定自身 Installation Root 的 `.runtime\\bin\\neuro-book.cmd`；这些 Launcher 本身不包含 `--root`，由稳定 wrapper 注入绑定 root。Start 传递 `start`，Update 传递 `update`，Create Admin 传递 `admin create`，三者都透传 Manager 退出码。更新保留整个 `data/`。
 
 旧版 `app/data/runtime/launcher` Portable 不承诺原地覆盖升级。首次迁移请重新解压新包，再把旧 `data/` 复制到新 Installation Root。
 
@@ -264,8 +265,8 @@ Release Manifest v5记录统一build ID、应用版本、Git revision、channel�
 
 ### v3/v4实例迁移到v5
 
-- 先停止实例并备份完整State Root。Windows Portable必须备份完整`data/`。
-- 在新的Installation Root重新安装相同Profile，只复用State Root；不要复制旧`.deploy`、`.runtime`、`.output`、generated Compose或wrapper。
+- 先停止实例并备份完整 State Root。Windows Portable 必须备份完整 `data/`；Windows Portable 或 Installed Windows 的 `uninstall --json` 可能先返回 `scheduled`，必须等待外置 Host 的最终回执。
+- 在新的 Installation Root 重新安装相同 Profile，只复用 State Root；不要复制旧 `.deploy`、`.runtime`、`.output`、generated Compose 或 wrapper。
 - Portable曾使用绝对`DATABASE_URL`临时修复登录时，迁移后恢复`file:./workspace/.nbook/neuro-book.sqlite`。
 - 旧`.deploy/installation.json`和未完成Operation不能复制到新安装。先在旧位置完成或人工核对Product、Git、Compose和SQLite状态，再只复用完整State Root。
 - 旧Agent Session包含完整Pi Model且无法证明Provider Config ID时，按[0.8.9 的迁移说明](./changelog/v0.8#session-model-refs)使用逐entry mapping维护命令。

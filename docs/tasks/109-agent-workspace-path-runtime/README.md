@@ -684,7 +684,8 @@ Profile/Harness             -> 上述稳定 Interface
 ### 2026-07-17 Manager全局Root与组件Version参数边界
 
 - 公开`.16`确认顶层Manager`--version`会截获install/update/runtime install的同名子命令参数。路径命令本身没有错误，但显式版本安装无法进入目标Profile，属于Task 105/109发布验收中发现的CLI边界漏洞。
-- Manager现启用Commander positional options：物理实例选择`--root/--instance`固定在子命令前，应用/Runtime版本固定在子命令后。Portable Launcher既有`neuro-book --root <portable-root> <command>`保持不变，避免为了兼容含义模糊的任意参数位置重新引入解析分支。
+- 历史实现（2026-07-17）：Manager现启用Commander positional options：物理实例选择`--root/--instance`固定在子命令前，应用/Runtime版本固定在子命令后。Portable Launcher既有`neuro-book --root <portable-root> <command>`保持不变，避免为了兼容含义模糊的任意参数位置重新引入解析分支。
+- 上述内容是 2026-07-17 的历史 Manager/Launcher 合同；当前 Windows Portable launcher 不再在入口脚本中携带 `--root`，而是调用绑定自身 Installation Root 的稳定 wrapper，由 wrapper 注入 root。
 - packed bundle回归同时验证顶层Manager版本与子命令应用版本路由；下一Manager版本为`.17`。该修复不改变RuntimePaths、WorkspaceRootRef、ProjectPath或Installation Manifest。
 
 ### 2026-07-17 只读Application Root与运行时staging收口

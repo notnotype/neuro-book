@@ -131,6 +131,7 @@ neuro-book update [--version <version> | --release-manifest <path-or-url>] [--dr
 neuro-book start
 neuro-book status [--json]
 neuro-book doctor [--json]
+neuro-book uninstall --yes [--delete-data] [--json]
 
 neuro-book runtime list
 neuro-book runtime install bun [--version <version>]
@@ -143,7 +144,7 @@ neuro-book tools path <rg|git>
 neuro-book admin create [username]
 ```
 
-`update/start/status/doctor/runtime/tools/admin` accept the global `--root <path>` or `--instance <name-or-id>`. With neither given, the Manager prefers the instance that owns the current directory; run from outside any instance, it uses the default instance from your user config.
+`update/start/status/doctor/runtime/tools/admin/uninstall` accept the global `--root <path>` or `--instance <name-or-id>`. With neither given, the Manager prefers the instance that owns the current directory; run from outside any instance, it uses the default instance from your user config.
 
 Global flags must come before the subcommand, for example `neuro-book --root <path> update`. Application or runtime target versions come after the subcommand, for example `neuro-book install --version <app-version>` or `neuro-book runtime install bun --version <bun-version>`; a bare `neuro-book --version` only prints the Manager's own version.
 
@@ -178,7 +179,7 @@ To launch it from PowerShell, remember the file name contains a space: you must 
 & '.\Start Neuro Book.cmd'
 ```
 
-The package already contains the source, the Windows product build, Bun, rg, PortableGit/bash and the Manager. `Update Neuro Book.cmd` calls the unified Manager; `Create Admin.cmd` calls `neuro-book admin create`. Updates preserve the whole `data/` directory.
+The package already contains the source, the Windows product build, Bun, rg, PortableGit/bash and the Manager. `Start Neuro Book.cmd`, `Update Neuro Book.cmd` and `Create Admin.cmd` all call the `.runtime\\bin\\neuro-book.cmd` wrapper bound to their own Installation Root; the launchers themselves contain no `--root`, because the stable wrapper injects the bound root. Start passes `start`, Update passes `update`, and Create Admin passes `admin create`; all three forward the Manager exit code. Updates preserve the whole `data/` directory.
 
 The older `app/data/runtime/launcher` portable makes no promise of an in-place upgrade. For the first migration, unzip the new package fresh and then copy the old `data/` into the new Installation Root.
 
@@ -258,14 +259,14 @@ neuro-book-windows-x64.zip
 ghcr.io/notnotype/neuro-book:<tag>
 ```
 
-Release manifest v3 records the application version, Git revision, channel, minimum Manager version, asset URLs and SHA256 for the five platforms, the Windows Portable asset, and the GHCR digest. All five platforms must be present and unique, and asset names must match their platform; the product packaging command also refuses to cross-label the current host's `.output` as another platform. The resolver reads the stable envelope first and tells you to upgrade the Manager, then parses the platform payload strictly. Installation manifest v4 and operation journal v3 are a hard cutover — old installations are not migrated automatically. The official release CLI verifies that the local Manager and the public npm bundle are the same version before creating the GitHub Release; the release workflow runs the same gate before any source, product or GHCR build and push.
+Release Manifest v5 records the unified build ID, application version, Git revision, channel, minimum Manager version, asset URLs and SHA256 for the five platforms, the Windows Portable asset, the GHCR digest and the Application State migration declaration. All five platforms must be present and unique, and Source, Product, Portable and Installation must belong to the same build ID; the product packaging command also refuses to cross-label the current host's `.output` as another platform. The resolver reads the stable envelope first and tells you to upgrade the Manager, then parses the platform payload strictly. Installation Manifest v5 and Operation Journal v5 are a hard cutover; old installations are not migrated automatically.
 
-### Migrating a v3 Instance to v4
+### Migrating older instances to v5
 
-- Stop the instance and back up the entire State Root first. For Windows Portable that means backing up all of `data/`.
+- Stop the instance and back up the entire State Root first. For Windows Portable, that means backing up all of `data/`; Windows Portable and Installed Windows may initially report `scheduled` from `uninstall --json`, so wait for the external Host's final receipt.
 - Reinstall the same profile into a new Installation Root and reuse only the State Root; do not copy the old `.deploy`, `.runtime`, `.output`, generated Compose file or wrapper.
 - If a portable install used an absolute `DATABASE_URL` as a temporary login fix, restore it to `file:./workspace/.nbook/neuro-book.sqlite` after migrating.
-- Unfinished operation journals at v1/v2 need a manual review of the manifest, product, Git, Compose and SQLite; the v3 Manager will neither convert nor ignore them.
+- Old installation manifests and unfinished operations require manual review of the manifest, product, Git, Compose and SQLite state; the v5 Manager neither converts nor ignores them.
 - When an old agent session carries a full Pi model and cannot prove its provider config ID, use the per-entry mapping maintenance command described in the [0.8.9 migration notes](./changelog/v0.8#session-model-refs).
 
 ## Recommended Acceptance Checks

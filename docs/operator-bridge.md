@@ -95,7 +95,7 @@ Release只有在正式`release-manifest.json`公开后才算装配完成。候�
 - `.runtime` 内置 Bun、rg、PortableGit/bash 和版本化 Manager。
 - `data/` 是唯一需要跨重新解压保留的用户状态目录。
 - `Start/Update/Create Admin` 只是 Manager 的平台前端，不维护第二套更新协议。
-- CMD与PowerShell Launcher都显式传入Portable Installation Root并透传Manager退出码；不要向Launcher增加migration、更新或Runtime切换逻辑。
+- CMD 与 PowerShell Launcher 都只调用绑定自身 Installation Root 的 `.runtime\\bin\\neuro-book.cmd`，Launcher 本身不包含 `--root`；稳定 wrapper 负责注入绑定 root。Start/Update/Create Admin 只传递 `start`、`update`、`admin create` 并透传 Manager 退出码；不要向 Launcher 增加 migration、更新或 Runtime 切换逻辑。
 
 ### ghcr
 

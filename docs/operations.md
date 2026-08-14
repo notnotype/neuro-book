@@ -10,8 +10,8 @@
 .runtime/bin/neuro-book start
 ```
 
-::: warning Manager 目前不提供 stop
-Manager CLI 有 `install / manage / instances / adopt / update / start / status / doctor / runtime / tools / admin`，**没有 `stop`、`restart` 或 `uninstall`**。停止服务需要按部署形态自己处理，见下表。这也意味着更新原生 Product 前要求的「先退出服务」需要你手动完成。
+::: warning Manager 目前不提供 stop 或 restart
+Manager CLI 有 `install / manage / instances / adopt / update / start / status / doctor / runtime / tools / admin / uninstall`；**没有 `stop` 或 `restart`**。停止服务需要按部署形态自己处理，卸载使用下方的 `uninstall` 命令。
 :::
 
 | 部署形态 | 停止方式 |
@@ -34,9 +34,25 @@ neuro-book update --channel canary     # 切换到 canary
 
 Manager 只安装已经发布了正式 `release-manifest.json` 的完整 Release，仍在构建或已取消的版本会被安全跳过。**这意味着你实际装到的版本可能低于文档描述的最新版本**——用 `neuro-book status` 查当前实际版本。
 
+
 ::: warning 当前处于 canary 阶段
 项目仍在快速迭代，已知问题包括：rootless Podman 环境下 `podman-compose stop` 会连带删除容器；Apple Silicon 上的 Docker / Podman 部署尚未实机验证。
 :::
+## 卸载与数据保留
+
+默认卸载删除程序、Cache、Desktop/WebView 和日志，但保留 State Root 中的用户数据；外部 Project Workspace 永不删除。交互终端可确认执行，自动化或非 TTY 必须显式传入 `--yes`：
+
+```bash
+neuro-book uninstall --yes
+```
+
+只有明确需要删除托管 State Root 时才追加 `--delete-data`：
+
+```bash
+neuro-book uninstall --yes --delete-data
+```
+
+Windows Portable 或 Installed Windows 可能在退出当前 Manager 后由外置 Host 完成删除；使用 `--json` 时等待最终回执，不要把 `scheduled` 当作卸载已完成。
 
 ## 你的数据在哪
 

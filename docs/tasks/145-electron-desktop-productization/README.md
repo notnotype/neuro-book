@@ -8,9 +8,13 @@
 
 ## 当前状态
 
-**2026-08-12（晚间）：完成三个发行缺陷修复与 Windows Sandbox `--delete-data` 全自动验收，沙盒证据 `ok=true`（`evidence/t145-sandbox-acceptance.json`）。当前最终包基于 Product image `sha256:df2f4812...`（3250 files / 136,634,228 bytes，内容与 `e7b804f9` 文件级一致、仅 source 元数据不同）、Electron Portable ZIP `sha256:7ac0c915...`（390,489,189 bytes）与 Desktop Depot ZIP `sha256:cf7f2b2c...`（387,870,766 bytes），Manager bundle `sha256:3182ba99...`；A/B 两次组包逐字节一致。** 详见下方「2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收」。旧 checkpoint 只作为历史时间线保留，不代表当前包。
+**截至 2026-08-14：Task 145 的 Windows x64 内部 Desktop beta 验收已收口；公开 Application Canary 另以 `v0.9.6-canary.20260814.024826Z.9653191d` 发布。** 内部 Desktop Portable/Depot、Windows machine UAC、Repair、卸载和 Sandbox `--delete-data` 证据仍登记在本 Task；公开 Application Canary 提供五平台 Product、Windows Portable、Source、安装脚本、manifest、`SHA256SUMS` 和 GHCR 镜像，**不包含 Electron Desktop ZIP/Depot**。以下历史段落中的 Product image、Desktop ZIP/Depot、安装 ID 和 checkpoint 只代表当时验证输入，不是公开 Canary 的资产身份。
 
-### 2026-08-13 审查修复：CI 覆盖、默认 MSVC 输入与最终包重验
+内部 beta 当前收口证据：Product image `sha256:df2f481299ec0968eb5e46739a30e0cf7c942f11406171e1d16651c8123a0741`；Electron Portable ZIP `sha256:7ac0c9159ea6887b9e5a199c8996d80ac2083acd5252739a17677fb14a53118d`（390,489,189 bytes）；Desktop Depot ZIP `sha256:cf7f2b2c156e744c395fa4418c339d906bc7f55817cbf792361ed4e0aa59eab3`（387,870,766 bytes）。Windows Sandbox 证据 `evidence/t145-sandbox-acceptance.json` 的 `ok=true`、11/11 检查属于内部 Desktop beta 验收，不是公开 Application Canary 资产证明。
+
+公开 Application Canary 身份：Release [`v0.9.6-canary.20260814.024826Z.9653191d`](https://github.com/notnotype/neuro-book/releases/tag/v0.9.6-canary.20260814.024826Z.9653191d)，source revision `778ef7d413650472df847601607e5983aa31e949`，workflow [`31764859358`](https://github.com/notnotype/neuro-book/actions/runs/31764859358)，minimum Manager `0.1.0-canary.54`，GHCR digest `sha256:34294b4aea2d991773eddb0739f4145ed5f2b70e91a7c142a4052fffa190ef57`。
+
+### 2026-08-13 审查修复：CI 覆盖、默认 MSVC 输入与内部 beta 包重验
 
 对 Task 145 全链路做只读审查后补上的修复：
 
@@ -30,11 +34,7 @@
   import.meta.main 守卫（import 不再执行 CLI），
   desktop-distribution-packaging-contract.test.ts 新增「无 BOM 拒绝 / 带 BOM
   通过 / 非 ps1 跳过」用例（Desktop Contract 58/58）。
-- **最终包重验**：基于新 image（df2f4812）重新组包 A/B（逐字节一致），宿主机
-  仓库外 Portable 直启 headless exit 0（graceful shutdown，端口/进程收口）；
-  Windows Sandbox 全新环境再次通过 --delete-data 验收（ok=true，11/11）。
-  新旧 image 文件级完全一致（3252 文件路径/大小零差异），shape digest 相同，
-  仅 runtime-image.json 的 source 元数据变化。
+- **历史包重验记录**：基于当时的新 image `df2f4812` 重新组包 A/B（逐字节一致），仓库外 Portable 直启 headless exit 0（graceful shutdown，端口/进程收口）；Windows Sandbox 全新环境再次通过 `--delete-data` 验收（`ok=true`，11/11）。新旧 image 文件级完全一致（3252 文件路径/大小零差异），shape digest 相同，仅 `runtime-image.json` 的 source 元数据变化。该段记录的是内部 beta 收口前的验证输入，公开 Canary 身份见文档顶部。
 ### 2026-08-12 收口：发行缺陷修复与 Windows Sandbox 验收
 
 #### 沙盒自动化通道
@@ -97,13 +97,10 @@ HKLM 卸载项、`neurobook://` 协议、开始菜单/公共桌面快捷方式�
 残留（宿主机验收同口径，只断言内容消失）；System 上下文没有交互 UAC，真实 UAC
 行为由宿主机验收覆盖（machine install/repair/uninstall 均真实批准）。
 
-#### 验收矩阵（最终包）
+#### 验收矩阵（2026-08-12 内部 beta 收口输入）
 
-- 宿主机（旧 image `c5f208`）：UAC 交互、Repair、单实例、托盘、CDP、启动统计、
-  默认卸载保留 State Root——交互/生命周期路径未受本轮修复影响，保持有效。
-- Windows Sandbox（新 image `e7b804f9`）：干净系统安装、Provider、headless 启动、
-  delete-data 卸载——覆盖本轮修复后的真实删除路径。
-
+- 宿主机（旧 image `c5f208`）：UAC 交互、Repair、单实例、托盘、CDP、启动统计、默认卸载保留 State Root。交互与生命周期路径未受本轮发行修复影响，作为内部 beta 历史证据保留。
+- Windows Sandbox（修复后 Depot `cf7f2b2...`，对应 Product image `df2f4812`）：干净系统安装、Provider、headless 启动、`delete-data` 卸载，覆盖本轮修复后的删除路径。
 - `Desktop Installation Manifest v3`：记录 `installationScope`、程序根、用户 Root、组件 receipts、Manager/Application Runtime 与 Git/rg provider，以及默认保留 State Root 的卸载策略；旧 v2 不静默兼容；
 - 当前用户与全局安装目录选择，machine scope 写入 `Program Files` 前执行权限门禁；
 - 本地 Desktop 默认写入 `auth.enabled: false`，只有显式 `--enable-auth` 才读取密码并创建管理员；
@@ -112,13 +109,13 @@ HKLM 卸载项、`neurobook://` 协议、开始菜单/公共桌面快捷方式�
 - Portable 将 Manager GUI 入口和 `NeuroBook-Manager.cmd` 放入同一 Electron 载荷，避免复制 Chromium；
 - `ensureDirectory()` 兼容 Windows/Bun 对已存在只读目录返回 `EEXIST` 的行为，同时仍拒绝把文件当目录；
 - machine-scope GUI 已接入一次性 UAC Broker：安装、修复和卸载均由提升后的同一 Manager CLI 执行，控制管道与密码管道分别进行 nonce/operation 身份握手；
-- machine-scope GUI 已接入一次性 UAC Broker；当前最终包的非提升路径已按合同 fail-closed，旧 Depot 的真实提升 install/uninstall 证据单独标记为基线，不作为当前 Product image 证据；
+- machine-scope GUI 已接入一次性 UAC Broker；内部 beta 收口包的非提升路径按合同 fail-closed，旧 Depot 的真实提升 install/uninstall 证据单独标记为基线，不作为 Product image 身份证明。
 - 修复了 machine canonical root 仍被 Installed v1 校验拒绝，以及 GUI uninstall 未传 `--json` 导致 UAC Broker 解析失败的两个回归。
 - Follow-up 已将 Manager GUI `manager:run` 收窄为 typed operation，补充页面/frame/origin 导航门禁、固定 State Root 展示和 stdout/stderr drain；UAC 控制合同升级为 v2，repair/uninstall 绑定 installation root、installation ID、manifest 摘要和 deleteData；
 - Follow-up 已让 Electron 从安装清单解析 application runtime 与 managed tool 私有 PATH，并在生产启动时不再自动消费 `NBOOK_DESKTOP_DEV_*` 环境覆盖；缺失 Installed locator 时 fail closed 到 Repair。
 - Follow-up 又将 Manager GUI 的安装完成回执绑定到已验证的 Desktop Installation Manifest、安装范围和 Electron Envelope checksum；Portable 模板不再写入固定构建日期，安装时间由实际 Manager 安装事务生成。
 - Follow-up 复核发现 Installed locator 存在但 `desktop-installation.json` 缺失或 scope 不一致时仍可能落回 Portable runtime；Electron 与 Tauri 现在都在启动前 fail closed，并先显示启动页。Manager GUI 增加显式的“同时删除 State Root”确认，本地 Provider 没有 API Key 时也能保存。
-- 追加修复 `4a40b554`：Programs and Features 外置 launcher 现在解析并等待 Host 的最终 `resultPath/ok=true` 回执，成功后异步清理自身；Host 失败或超时保留 launcher 以便重试。本修复已有 Manager focused 回归，但尚未用新的最终 Depot 做真实 machine 重跑。
+- 追加修复 `4a40b554`：Programs and Features 外置 launcher 现在解析并等待 Host 的最终 `resultPath/ok=true` 回执，成功后异步清理自身；Host 失败或超时保留 launcher 以便重试。该修复已有 Manager focused 回归；在该记录写入时尚未用新的内部 beta 收口 Depot 做真实 machine 重跑。
 - 最终收口将聚合 Depot 变成可直接选择的正式来源：安装前验证邻接 sidecar、固定五项、ZIP bytes/SHA-256 和内置 distribution manifest；嵌套 Portable 只在本次事务中短期展开，成功或失败后回收，不再额外留下约一份 Electron Portable 的长期缓存。
 - Windows 离线脚本可以从本地 Portable 精确提取并校验 managed Bun 与单文件 Manager bundle，再调用正式 Manager；PowerShell 不复制 Product payload 安装、migration、注册或回滚。
 - Manifest v3 的 Product Bun、Git/Bash 和 rg provider 现在同步投影到 Product `installation.json`。Electron 始终使用 managed Manager Bun 启动 Supervisor，避免 system Bun 消失时连 Repair 都无法运行；system provider 只影响 Product/工具执行。
@@ -161,18 +158,16 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 - 这条 quick 结果不是完整 payload 验证。普通启动失败时回退入口是 Manager `doctor` / 显式 `verify`，确认损坏后使用 Repair；旧安装缺少或损坏 receipt 时不自动生成 receipt，也不回退为完整启动扫描。
 
 ## 验证
+> 本节以下内容按时间线保留实现和验收证据；其中较早 checkpoint 的“尚未验证”或“门禁阻塞”描述可能已被后续记录取代。当前口径以本文件顶部“当前状态”以及之后日期更新为准。
 
-### 2026-08-12：checkpoint 339853fb 最终 A/B 与宿主机验收
+本节是 checkpoint `339853fb` 的历史证据。上方「2026-08-12 收口」段落记录后续内部 beta 收口输入：Product image `df2f4812...` 与 Depot `cf7f2b2...`；`e7b804f9` 与 `b6d35d99` 是更早的重建/组包历史标识。以下更早的 checkpoint 小节只作历史时间线，不能替代公开 `v0.9.6-canary` 的 source revision、manifest 或资产身份。
 
-本节是 checkpoint `339853fb` 的历史证据；当前最终包证据见上方「2026-08-12 收口」段落（新 image `e7b804f9` 与重新组包的 Depot `b6d35d99`）。下方更早的 checkpoint 小节只作历史时间线。
-
-#### 最终 Product A/B
-
+#### 历史 checkpoint `339853fb` 的 Product A/B
 - 两次 clean build 均为 3,241 个文件、134,016,722 bytes；manifest 排除 `createdAt` 后完全一致，独立 `openSelfVerified()` 均通过。
 - `imageId=sha256:c5f208754125491af2a0d7f61c53144df3dee79e489f55be373eed9f5c0f30dc`，tree digest `sha256:16815e871d54a260fcbab2054d03f78cd7111e0510b85f9b56cd6ffcded7574a`，shape digest `sha256:84efc1ecdbdada7bcf9db8e2f3895118cfc7efcd0f304c8de3f346ec525c495a`，Source digest `sha256:25245d6b75ec63291b9bcac3231c225f20450584c5bae534aaaeb32305bd566b`，lockfile digest `sha256:2fe27b0edf74c1738aa657fcbb9d797d6122daf356dbd17b8d6c6e8e50fea922`。
-- 最终 image 已包含 `server/commands/product-start.mjs` 的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`/`NEURO_BOOK_APPLICATION_ROOT` 分离；从 `C:\Program Files` 直接加载 Bun Product 脚本不再触发 Windows `EPERM`。
+- 该 checkpoint 的 image 已包含 `server/commands/product-start.mjs` 的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`/`NEURO_BOOK_APPLICATION_ROOT` 分离；从 `C:\Program Files` 直接加载 Bun Product 脚本不再触发 Windows `EPERM`。
 
-#### 最终 Portable / Depot A/B
+#### 历史 checkpoint `339853fb` 的 Portable / Depot A/B
 
 - 使用 Product A 同一输入（同一 verified image、同一 Manager/Electron dist、Bun 1.3.14、同一 Tool Pack）连续组包两次，固定 5 个文件全部逐字节一致：
   - Electron Portable ZIP：`neuro-book-electron-portable-win-x64.zip`，389,512,576 bytes，SHA-256 `2c67e58b2943ab4d797b23c917f453a505dca72275e93d616cc297049abffd79`；
@@ -190,12 +185,10 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 
 旧 machine 安装（installation ID `727f8652-c25c-4396-9791-7f9c7efdcc09`，旧 Product image）已通过当前 Manager 正式卸载：
 
-- Program Files、HKLM 卸载项、`neurobook://`（HKLM Classes）、公共桌面快捷方式、launcher/run root 全部删除；State Root `%LOCALAPPDATA%\NeuroBook\data` 保留，`config.yaml` SHA-256 `F104B5E7CA77E9F2A0630A6B152BB03620B6DA4DEECED8D6E97AD4D7D68CB975` 与卸载前一致。
-
-随后用当前最终 Depot 完成 machine 安装（可见 UAC 批准）：
+随后使用该 checkpoint 对应的 Desktop Depot 完成 machine 安装（可见 UAC 批准）：
 
 - 新 installation ID `e9ccfc62-b325-4e9d-9276-10106f148b67`；`nbook.desktop-installation/v3`、`nbook.desktop-installation-runtime/v1` locator、HKLM 卸载项、开始菜单/公共桌面快捷方式、`neurobook://` 注册全部生成；migration checked、HTTP health ready、Manager 实例已注册。
-- 安装时有效 State Root 复用成功：`config.yaml` SHA-256 未变；Portable/Depot 组件 receipts 与当前构建一致（Product image `c5f208...`、app.asar `1360f1b2d7cff2ba415bda91fa77ab695ab51328321c3605522852b2d9772fb2`、envelope 43.2.0）。
+- 安装时有效 State Root 复用成功：`config.yaml` SHA-256 未变；Portable/Depot 组件 receipts 与该 checkpoint 构建一致（Product image `c5f208...`、app.asar `1360f1b2d7cff2ba415bda91fa77ab695ab51328321c3605522852b2d9772fb2`、envelope 43.2.0）。
 - Installed headless：graceful exit 0（首启约 25.7 s，含完整验证/migration/health 探测；warm 约 4.7 s），forced exit 0（约 4.1 s），两种路径端口/进程均归零。
 - 可见窗口 CDP：标题栏 `y=0, height=36`，页面根 `y=36`，旧 Header 计数 0，`backdrop-filter=none`，Bridge quit 后 graceful、exit 0。
 - 单实例：第二实例带 `neurobook://open/project/demo` 立即退出，主实例记录 `electron-second-instance {argumentCount:1, protocolRequest:true}`，随后 Bridge quit 收口。
@@ -250,9 +243,7 @@ Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandb
   消失项断言），用户仅需在 Sandbox 内执行两条命令并各批准一次 UAC。宿主机侧还准备了
   `step1/step2` 包裹脚本与键盘驱动，供重试时使用；这些是宿主机临时文件，不入库。
 
-在沙盒 `--delete-data` 全新环境卸载证据出现之前，Task 145 不标记为可发布内部 beta；
-宿主机 machine 全链路（旧装卸载→Depot 安装→启动/修复→卸载，State Root 全程保留）已通过，
-见 final-acceptance.json。
+> 以上三行是 `wsb.exe` 通道稳定前的历史阻断记录；同日后续已通过 Store 版 `wsb.exe` CLI 完成 Sandbox `--delete-data` 验收，当前证据见 `evidence/t145-sandbox-acceptance.json`，不再以本段的“尚未出现证据”作为当前状态。
 
 ### 历史 checkpoint（重建前基线，不代表当前包）
 
@@ -273,13 +264,13 @@ Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandb
 - Follow-up 已完成生产目录和命名收口：`desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging` 使用正式路径；活动源代码改用 `NBOOK_DESKTOP_DEV_*` 和 `--desktop-*` 测试入口，Tauri release binary 为 `neuro-book-tauri-envelope.exe`。迁移后的 `desktop-security-audit`、`cargo fmt --check`、`cargo check --locked`、Electron bundle 均通过。
 - Follow-up 后重新通过 `bun run manager:test`（41 个测试文件通过、1 个跳过；299 个测试通过、3 个跳过）、Manager typecheck、根 typecheck、Electron bundle、Tauri `cargo fmt --check`/`cargo check --locked` 和 Desktop Contract（11 个文件 / 40 个测试）；`git diff --check` 通过。全量 `bun run test` 为 494 个测试文件通过、1 个跳过、3 个失败；失败分别是 Git 文本扫描 5 秒超时、忽略 AbortSignal 的 Harness 黑盒用例 30 秒超时，以及全套并发清理的 `ENOTEMPTY`。其中 Git 扫描单独以 60 秒预算通过，Harness 黑盒用例单独仍可复现超时，第三项单独运行通过；这些是独立基线问题，不归因于 Electron 改动。
 
-### 最终 Product A/B
+### 历史 checkpoint `b2e6d986` 的 Product A/B
 
 - Build A/B 均为 3241 个文件、134016535 bytes，`imageId`、tree digest、shape digest、Source digest 和 lockfile digest 完全一致。
 - image identity：`sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`；revision 为 `b2e6d986ec04672922725bd1db3fc13c95297c7c`，Product 为 3241 个文件 / 134016535 bytes；tree digest 为 `sha256:f442d09a2a40c11cafc4fb3014ca511e7698f15be27e45248d86716e4923d781`，shape digest 为 `sha256:5af1d40bfd4713bb2957fc2a28c914e412dace32bfef1e0f11573e5c6825a009`。
 - Build warning 仅为 Nuxt sourcemap、chunk size 和 `node:sqlite` external 提示；A/B 没有发现 Product payload 漂移。
 
-### 最终 Portable/Depot
+### 历史 checkpoint `b2e6d986` 的 Portable/Depot
 
 同一 Product image、同一 Manager/Electron dist 组包两次，结果逐字节一致：
 
@@ -288,52 +279,45 @@ Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandb
 - Aggregate Depot：7 个文件、632969989 bytes payload，ZIP 627861550 bytes，SHA-256 `555cd546d3ba9b5cc85d472f5ca680f6876e2a0f6e1c22b8f1f6afa35b2e1230`。
 - 使用同一 verified Product image、同一 Manager/Electron dist 连续组包两次：Electron、Tauri、Aggregate Depot 及 sidecar manifest 均逐字节一致。
 
-### Follow-up 壳门禁后的重组包
-
-本轮只替换 Electron/Tauri Envelope 与 Manager GUI，不重跑 Product A/B；输入仍是已验证的 Product image `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`。最后一轮同一输入连续组包两次（`C:\t145-followup-6316375e-desktop-f`、`C:\t145-followup-6316375e-desktop-g`），六个归档/manifest 摘要逐字节一致：
-
 - Electron Portable：9,608 个 payload 文件、985,666,351 bytes，ZIP 389,368,150 bytes，SHA-256 `873cdd7c94bb51171b7ee3c767517f9bbf2c20bc2929d15e5ccf9630e34c74b9`。
 - Tauri Portable：ZIP 243,586,839 bytes，SHA-256 `6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23`。
 - Aggregate Depot：7 个文件、632,970,705 bytes payload，ZIP 627,862,215 bytes，SHA-256 `2431dd7ab04c914335eafd822c3b5ecd436086f819844c5fe737cbab101bb5f5`。
 
-新 Electron Portable 的仓库外 headless Product、Manager GUI headless 和 Manager GUI CDP 均通过；它们不替代真实 machine UAC、托盘或窗口 Snap 验收。
+该历史 Electron Portable 的仓库外 headless Product、Manager GUI headless 和 Manager GUI CDP 均通过；它们不替代真实 machine UAC、托盘或窗口 Snap 验收。
 
 ### 仓库外 Product 与 Electron 验收
 
-- 仓库外当前最终 Portable 在 `C:\t145-current-b2e6d986-portable-smoke` 解压后，以祖先无 `node_modules`、无效 `NODE_PATH`、隔离 `LOCALAPPDATA` 通过 Product/Supervisor headless 启动和 graceful shutdown；Manager GUI headless 也通过。
-- 最终 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
-- 最终主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
+- 该历史轮次的 Portable 在 `C:\t145-current-b2e6d986-portable-smoke` 解压后，以祖先无 `node_modules`、无效 `NODE_PATH`、隔离 `LOCALAPPDATA` 通过 Product/Supervisor headless 启动和 graceful shutdown；Manager GUI headless 也通过。
+- 该历史轮次 Electron Portable 的 Manager GUI 从 `app.asar/manager.html` 加载；CDP 检查确认 2 个 `<select>`、Provider 离线测试返回 warning 且 API Key 清空。
+- 该历史轮次主 Electron CDP：标题栏 `y=0,height=36px`，页面根 `y=36`，旧 Header 计数为 0，未使用 `backdrop-filter`；关闭后 Electron/Product 进程均收口。
 - 本次打包 Electron 的一次真实启动记录：启动页可见 `241.90 ms`，Product 后台验证完成 `1394.28 ms`，Product ready `11377.68 ms`，Desktop Bridge ready `11565.09 ms`，正式窗口 ready `11567.06 ms`。这是一轮观测值，不替代五次冷/暖启动统计；若需继续优化，应单开 Product Runtime 启动 profiling 任务。
 - 远端协议 smoke 使用真实打包 Electron 连接 loopback capability 服务通过：Bridge 返回 `connection=remote`，origin 精确匹配，远端页面成功加载并 graceful shutdown；这不是完整远端 Product/B/S UI 验收。
-- 最终 Electron Portable ZIP 完成一次隔离当前用户安装→顶层 `status`→卸载；生成 `nbook.desktop-installation/v3` 和外置 locator，卸载删除程序、Cache、Desktop/WebView 并保留 State Root。另以当前最终包验证了 system provider 的 managed/system manifest 解析、Product 启动和 `--delete-data` 卸载。
-- 最终包的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标。尝试通过 Manager GUI 触发真实 UAC 时，提升后的安装前置检查发现实际用户 `%LOCALAPPDATA%\NeuroBook\data` 已存在而 Installation Root 不存在，返回“Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖”，因此本轮没有修改或删除该用户 State Root，也没有把该次尝试记为成功。
-- Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍单独保留：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；它使用旧包/旧 manifest，不能替代当前最终包证据。
-- 2026-08-09 追加复核：在旧 machine 安装仍存在时，先关闭 Electron，再由当前分支 Manager CLI 直接执行外置 Host 卸载；Host 回执 `ok=true`（token `e247f891-97f5-4d04-9ae4-5205543fb947`），Program Files、Cache、Desktop/WebView 和 HKLM 注册项均已删除，`%LOCALAPPDATA%\NeuroBook\data\config.yaml` 保留。该证据验证当前 Manager 的 machine uninstall/UAC Host，不把旧 Product image 误写成当前最终 Product。
+- 该历史轮次 Electron Portable ZIP 完成一次隔离当前用户安装→顶层 `status`→卸载；生成 `nbook.desktop-installation/v3` 和外置 locator，卸载删除程序、Cache、Desktop/WebView 并保留 State Root。另以该历史轮次验证了 system provider 的 managed/system manifest 解析、Product 启动和 `--delete-data` 卸载。
+- 该历史轮次的 machine-scope 非提升路径按合同 fail-closed，返回“全局安装需要管理员权限写入 C:\Program Files”，未创建 Program Files 目标。尝试通过 Manager GUI 触发真实 UAC 时，提升后的安装前置检查发现实际用户 `%LOCALAPPDATA%\NeuroBook\data` 已存在而 Installation Root 不存在，返回“Desktop 用户 Root 已存在但 Installation Root 尚未建立；拒绝覆盖”，因此本轮没有修改或删除该用户 State Root，也没有把该次尝试记为成功。
+- Follow-up 前完成的真实 machine-scope UAC install/repair/uninstall 基线仍单独保留：Programs and Features、HKLM、协议、公共快捷方式、Cache/Desktop 删除和 State Root 保留均已通过；它使用旧包/旧 manifest，不能替代当前内部 beta 收口证据。
+- 2026-08-09 追加复核：在旧 machine 安装仍存在时，先关闭 Electron，再由当前分支 Manager CLI 直接执行外置 Host 卸载；Host 回执 `ok=true`（token `e247f891-97f5-4d04-9ae4-5205543fb947`），Program Files、Cache、Desktop/WebView 和 HKLM 注册项均已删除，`%LOCALAPPDATA%\NeuroBook\data\config.yaml` 保留。该证据验证当前 Manager 的 machine uninstall/UAC Host，不把旧 Product image 误写成内部 beta 收口包或公开 Canary。
 - 随后用修复后的 Manager GUI（commit `7654e997`，提升 helper 不再使用 `-NonInteractive`）对旧 Depot payload `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 完成真实 machine install，生成 `nbook.desktop-installation/v3`、installation ID `56535935-a442-4948-8996-09611e18fc2c` 和 `C:\Program Files\NeuroBook`。安装版日志只写到 `electron-product-spawned`，没有出现 `product-ready`、`bridge-ready` 或 `window-ready`；因此该次不能声称安装后应用启动成功。随后外置 launcher 删除了 Program Files、Cache、Desktop/WebView、HKLM 和 `neurobook://` 注册，State Root 与 `config.yaml` 保留；复核发现这次旧 launcher 自身目录仍残留且未观察到新的 Host result 文件，已由 `4a40b554` 修复，尚未重新做真实 machine 回归。
-- 当前最终 Depot 仍有一次 `uac-cancelled` 记录（Manager GUI CDP 事件为 `starting → process-exit(uac-cancelled) → failure(uac-cancelled)`），未创建 `C:\Program Files\NeuroBook`，也未触碰 State Root；所以最终 Product image 的 machine install/repair 成功路径仍需在干净用户环境重跑。
+- 该历史轮次的 Depot 仍有一次 `uac-cancelled` 记录（Manager GUI CDP 事件为 `starting → process-exit(uac-cancelled) → failure(uac-cancelled)`），未创建 `C:\Program Files\NeuroBook`，也未触碰 State Root；后续内部 beta 收口证据见文档顶部。
 
-## 偏差与后续
+- 在该历史阶段仍未声称完成：后台 updater、公开代码签名、macOS `.app`、远端 Desktop、文件扩展名关联、Tauri 可见 UI、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作和真实外部 Provider 成功连接。Windows Sandbox `--delete-data` 的当时未完成状态已被同日 Store 版 `wsb.exe` CLI 验收取代，当前证据见 `evidence/t145-sandbox-acceptance.json`；删除数据的破坏性路径仍只允许在 Windows Sandbox 或显式用户授权下执行，不拿真实用户数据做删除测试。
 
-计划文字把 Provider 配置称为 State Root `config.yaml`；当前仓库已冻结的运行合同是 `State Root/workspace/.nbook/config.json`，`config.yaml` 只负责 Boot Config。为避免破坏 B/S、Product 和 CLI 既有真值源，本 Task 保留现有 Global Config 路径，并在 ADR 0014 明确记录该偏差。
-
-仍未在本 Task 声称完成：后台 updater、公开代码签名、macOS `.app`、远端 Desktop、文件扩展名关联、Tauri 可见 UI、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作、真实外部 Provider 成功连接和 Windows Sandbox `--delete-data` 全新环境卸载。宿主机 machine 全链路已在保留真实 State Root 的前提下通过；删除数据的破坏性路径保留给 Windows Sandbox 或显式用户授权，不拿真实用户数据做删除测试。上述未完成项分别属于后续发行或原生验收任务，不影响当前 Windows 本地内部 beta candidate 的可复核性。
 
 ### Follow-up 2026-08-09：原生托盘、窗口状态与文件选择器
 
 - 新增 `scripts/deploy/electron-native-acceptance.ts` 与 `desktop:native-acceptance` 命令，使用真实 Electron `BrowserWindow` 记录窗口、托盘和文件选择入口；不把普通 Chromium smoke 当作原生证据。
 - 在当前分支的 Electron main 上验证：托盘创建事件记录 `iconEmpty=false`；窗口从 `1280×840` 最大化到 `2576×1408` 后恢复原 bounds，`BrowserWindow` 报告 `maximizable=true`；窗口最大化/还原事件写入 `desktop-envelope-current.jsonl`。
 - 封面选择入口存在，`input[type=file]` 接受 `image/png,image/jpeg,image/webp`；Playwright Electron 模式观察到 `filechooser` 事件。真正的 Windows 文件选择器可见操作和 Snap Layout 展开面板仍需 Windows UI automation / 用户手动确认。
-- 本批证据使用 `.agent/tmp/t145-uac-candidate-extracted` 的旧 Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 作为隔离载荷，不能替代最终 Product image 的重新组包证据。
+- 本批证据使用 `.agent/tmp/t145-uac-candidate-extracted` 的旧 Product image `sha256:e35bbfe35f04ce5a7048eb01c516b3b866fe5fa3c12786d5e707d5baed10d8bf` 作为隔离载荷，不能替代内部 beta 收口包或公开 Canary 的身份证明。
 
 ### Follow-up 2026-08-08：本轮收口与仍未完成事项
 
 - 本轮 focused 证据：Manager 41 files / 296 tests、Manager typecheck、根 typecheck、设置合同 2 files / 5 tests、Desktop Contract 11 files / 40 tests、Electron bundle、Tauri release build、Tauri locator fail-closed 代码门禁和 packaging security audit 通过。
 - 已运行：checkpoint `8edef0f2` 后 clean Product A/B、同一 verified image 的 Electron/Tauri/Depot 重复组包、仓库外新 Portable headless、Manager GUI headless、主 Electron CDP（书架、标题栏、Activity Bar、配置中心 Dialog、File → Quit）、当前包 5×冷启动/5×暖启动、当前包用户级安装/启动/状态/卸载、system provider、machine 非提升 fail-closed。
-- 尚未运行：Follow-up 后当前最终包的 machine UAC install/repair、Programs and Features 外置 launcher 的当前包实测、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作、真实 Provider 成功连接。
-- 2026-08-09 已用当前分支 Manager 完成一次既有 machine 安装的外置 Host 卸载并取得 `ok=true`，并用修复后的 GUI helper 完成一次旧 Depot machine install 后再卸载；安装版启动停在 `product-spawned`，旧 launcher 目录残留问题已在 `4a40b554` 修复但未重跑，当前最终 Depot 的 machine install 仍因 UAC 取消而未取得提升成功回执。该结果分别证明当前 Manager uninstall/UAC Host 和旧 Depot install 事务可工作，不把旧 Product image 或取消路径写成当前最终包的 install 成功。
+- 在该 follow-up 当时尚未运行候选输入的 machine UAC install/repair、Programs and Features 外置 launcher 实测、Windows Snap Layout 展开面板、可见的 Windows 文件选择器操作和真实 Provider 成功连接；这些是旧 follow-up 的未完成项，不代表当前内部 beta 或公开 Canary 的状态。
+- 截至 2026-08-09，已用当时分支 Manager 完成一次既有 machine 安装的外置 Host 卸载并取得 `ok=true`，并用修复后的 GUI helper 完成一次旧 Depot machine install 后再卸载；安装版启动停在 `product-spawned`，旧 launcher 目录残留问题已在 `4a40b554` 修复但未重跑，当时的候选 Depot machine install 仍因 UAC 取消而未取得提升成功回执。该结果分别证明当时 Manager uninstall/UAC Host 和旧 Depot install 事务可工作，不把旧 Product image 或取消路径写成当前内部 beta 收口证据。
 - 生产源目录已收口为 `desktop/electron`、`desktop/tauri`、`desktop/shared`、`desktop/packaging`；Task 143 历史文档仍保留旧 `desktop/spikes` 路径作为历史证据。`NBOOK_DESKTOP_DEV_*` 仅允许显式 headless/development 配置，生产启动会忽略这些覆盖；活动源代码与测试不再命中旧 `T140_*`/`*-spike-*` 名称。
 
-### Follow-up 2026-08-08：checkpoint 8edef0f2 后的最终输入
+### Follow-up 2026-08-08：checkpoint 8edef0f2 后的历史输入
 
 - Product A/B 均为 3241 个文件、134016408 bytes；`imageId=sha256:387f637ec10f4334d73bb749879f3d47304dffbc73ce56de37a9d37f41d78e0d`，tree digest `sha256:03684226781cd709a8fad601ef0ae11dd887cfeb4595612a9ad5c3b4035f4b3d`，shape digest `sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7`。
 - Electron Portable payload 为 9608 个文件、985666335 bytes；连同 sidecar manifest 后输出目录为 9609 个文件。ZIP 389368123 bytes，SHA-256 `sha256:19ede9713a7ac6c85ef3f437434cc55687dee4dec40ffa2756c737acaa848ef8`。Tauri ZIP 243586814 bytes，Depot ZIP 627861992 bytes；同一输入连续组包两次，七个归档/manifest 逐字节一致。
@@ -343,10 +327,9 @@ Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandb
 - Provider 矩阵补测：`system Bun + managed Git/rg` 安装成功且不修改全局 PATH；`system Bun + system Git/rg` 因本机 Bash shim 无版本输出而 fail-closed，未写半成品 Manifest。
 - 该批次修复了 ready 回调在 Installation lease 释放前触发的竞态，以及配置中心和 Profile 导航残留的 90vh 尺寸耦合；修复均已进入 checkpoint，不改变安装、State Root、UAC 或 Product Runtime 合同。
 
-### Follow-up 2026-08-09：machine runtime projection 后的最终重建
+### Follow-up 2026-08-09：machine runtime projection 后的历史重建
 
 - 在 Source `30e9dfe32e37fc8ef0e31ab942e2019c2091cf36` 上重新完成 clean Product A/B。两次均为 3241 个文件、134016681 bytes，`imageId=sha256:25bbc74be7bfa9753d337ce15e789dbd56ae78fc3c0fb7a4912fa9c2a3449e65`，tree digest `sha256:911bf15a9d901e6c4f0e8148b6229d589ce71439e769cb7b0f5cd289a10744ca7`，shape digest `sha256:8b269a9572585b19f21e8f8b434aabbc81d5f8aa9d584cd55fd1e6ece427d1a7`；manifest 去除 `createdAt` 后完全一致。
-- 新镜像已包含 `server/commands/product-start.mjs` 的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`/`NEURO_BOOK_APPLICATION_ROOT` 分离；该修复用于避免从 `C:\Program Files` 直接加载 Bun Product 脚本的 Windows `EPERM`。
+- 新镜像已包含 `server/commands/product-start.mjs` 的 `NEURO_BOOK_PRODUCT_IMAGE_ROOT`/`NEURO_BOOK_APPLICATION_ROOT` 分离；该修复用于避免从 `C:\Program Files` 直接加载 Bun Product 脚本的 Windows `EPERM`。这是该历史轮次的输入，不是公开 Canary source revision。
 - 使用新镜像、重建后的 Manager/Electron dist、Bun `1.3.14` 和同一 Tool Pack 连续组包两次，Electron ZIP 为 389371963 bytes、Tauri ZIP 为 243596394 bytes、Aggregate Depot ZIP 为 627874804 bytes；7 个归档/manifest 逐字节一致。新 Electron Portable 在仓库外且祖先无 `node_modules` 的目录中以无效 `NODE_PATH` 完成 headless Product ready、Manager GUI ready 和 graceful shutdown。
-- 本轮 focused 门禁重新通过：Manager 41 files / 299 passed / 3 skipped、Manager typecheck、Desktop Contract 12 files / 44 passed、根 typecheck、Electron bundle 和 `git diff --check`。
-- 当前机上仍有旧的 `C:\Program Files\NeuroBook` Portable/test 残留（`nbook.desktop-portable/v1`，不是 Installed v3 manifest）以及 HKLM 注册项；普通用户移动/删除被 Windows ACL 拒绝。调用正式外置 launcher 的提升请求在本自动化会话中被安全桌面自动取消，没有生成新的 Host receipt；State Root `AppData\Local\NeuroBook\data` 保持未修改。因而当前最终包的 machine install/repair/Programs and Features uninstall 仍未验证，必须由用户可见 UAC “是”确认后在干净 State Root 重跑。
+- 该轮验收时机上仍有旧的 `C:\Program Files\NeuroBook` Portable/test 残留（`nbook.desktop-portable/v1`，不是 Installed v3 manifest）以及 HKLM 注册项；普通用户移动/删除被 Windows ACL 拒绝。调用正式外置 launcher 的提升请求在该自动化会话中被安全桌面自动取消，没有生成新的 Host receipt；State Root `AppData\Local\NeuroBook\data` 保持未修改。该轮的 machine install/repair/Programs and Features uninstall 尚未验证，不代表文档顶部记录的后续内部 beta 收口状态。

@@ -2,7 +2,7 @@
 
 这里只放当前版本。更早的版本见 [docs/changelog/](docs/changelog/)。
 
-## 0.9.4-canary（限量 canary） - 2026-08-14
+## 0.9.6-canary（限量 canary） - 2026-08-14
 
 这一轮把 Windows x64 桌面 beta 收口为可复核的内部候选包，并修复跨平台发布与 Agent 取消测试中的可靠性问题。它仍是限量 canary：现有公开发布流程提供五平台 Product、Windows Portable、Source、安装脚本、manifest、SHA256SUMS 和容器镜像；Electron Desktop ZIP/Depot 仍是内部 beta 产物，不是签名安装器。
 
@@ -18,6 +18,7 @@
 
 - 修复干净 Windows 上 PowerShell 5.1 读取引导脚本、缺少 VC++ Runtime，以及超过 MAX_PATH 的卸载目录导致安装或卸载失败的问题；发行包现在对这些输入和路径 fail closed 或使用 app-local 运行库 (#88)。
 - 修复 Agent 取消黑盒测试的同步竞态：测试现在等待 Provider 真正取走挂起响应后再取消，并在结束时释放 gate，避免新 invocation 误取旧响应而撞上 30 秒超时 (#99)。
+- 修复 Windows Portable 构建下载 GitHub Release 资产遇到正常临时 302 重定向时失败的问题；Manager 0.1.0-canary.54 现已通过公开 provenance 校验 (#103)。
 
 ### 内部维护
 
