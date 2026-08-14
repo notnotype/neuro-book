@@ -1,0 +1,23 @@
+{
+    "schema": "nbook.repository-research-adapter/v1",
+    "name": "neuro-book-plot-workbench",
+    "entryPath": "/plot-workbench.preview",
+    "command": [
+        "node",
+        "--import",
+        "tsx",
+        "scripts/deploy/plot-workbench-screenshot.ts"
+    ],
+    "arguments": [
+        "--runtime",
+        "--browser-executable",
+        "--evidence-dir",
+        "--media-dir",
+        "--headed"
+    ],
+    "viewports": [
+        [1440, 1000],
+        [390, 844]
+    ],
+    "mediaRootEnv": "HERMES_HOME/cache/images"
+}

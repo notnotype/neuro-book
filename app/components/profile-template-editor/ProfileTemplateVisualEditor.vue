@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Data} from "@dnd-kit/abstract";
-import {defaultPreset} from "@dnd-kit/dom";
 import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
 import type {DragDropProviderEmits} from "@dnd-kit/vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
@@ -2225,7 +2224,6 @@ onBeforeUnmount(() => {
         />
 
         <DragDropProvider
-            :plugins="defaultPreset.plugins"
             :sensors="dndSensors"
             @drag-start="handleNodeDragStart"
             @drag-over="handleNodeDragOver"

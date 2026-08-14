@@ -63,6 +63,7 @@
     "product:start": "bun scripts/deploy/product-runtime.mjs start",
     "product:create-admin": "bun scripts/deploy/product-runtime.mjs create-admin",
     "product:browser-smoke": "node --import tsx scripts/deploy/product-browser-smoke.ts",
+    "plot-workbench:screenshot": "node --import tsx scripts/deploy/plot-workbench-screenshot.ts",
     "desktop:workbench-browser-smoke": "node --import tsx scripts/deploy/desktop-workbench-browser-smoke.ts",
     "desktop:native-acceptance": "node --import tsx scripts/deploy/electron-native-acceptance.ts",
     "create-admin": "bun scripts/cli/create-admin.ts",

@@ -1,0 +1,13 @@
+{
+    "compilerOptions": {
+        "target": "ESNext",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "strict": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "baseUrl": "../..",
+        "paths": {"nbook/*": ["./*"]}
+    },
+    "include": ["../deploy/plot-workbench-screenshot.ts", "../deploy/preview-runtime.ts", "../../shared/application-ready.ts", "../../shared/product-runtime-shutdown.ts", "../../shared/product-runtime-contract.ts", "../../shared/research-run-contract.ts"]
+}

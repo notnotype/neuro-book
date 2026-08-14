@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import {
     isProductRuntimeIslandModule,
     productRuntimeIslandPackageNames,
@@ -45,6 +45,9 @@ export default defineNuxtConfig({
         nbook: rootDir,
     },
     vite: {
+        cacheDir: process.env.NEURO_BOOK_CACHE_ROOT?.trim()
+            ? join(process.env.NEURO_BOOK_CACHE_ROOT.trim(), "vite")
+            : undefined,
         server: {
             watch: {
                 ignored: runtimeWorkspaceWatchIgnore,
@@ -54,6 +57,7 @@ export default defineNuxtConfig({
             entries: [
                 "./app/app.vue",
                 "./app/pages/index.vue",
+                "./app/pages/plot-workbench.preview.vue",
             ],
             include: [
                 "@dnd-kit/dom",

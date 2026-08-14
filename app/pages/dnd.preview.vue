@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { DragDropProvider, KeyboardSensor, PointerSensor } from "@dnd-kit/vue";
 import type { DragDropProviderEmits } from "@dnd-kit/vue";
-import { defaultPreset } from "@dnd-kit/dom";
-import { isSortable } from "@dnd-kit/vue/sortable";
+import {isSortable} from "@dnd-kit/vue/sortable";
 import DndTestVolumeCard from "nbook/app/components/dnd-test/DndTestVolumeCard.vue";
 import { createDndTestVolumes } from "nbook/app/components/dnd-test/dnd-test.data";
 import {
@@ -317,7 +316,6 @@ const resetSnapshots = (): void => {
                 </div>
 
                 <DragDropProvider
-                    :plugins="defaultPreset.plugins"
                     :sensors="sensors"
                     @drag-start="handleDragStart"
                     @drag-over="handleDragOver"
