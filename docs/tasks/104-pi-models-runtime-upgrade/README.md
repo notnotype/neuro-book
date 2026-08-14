@@ -1,7 +1,13 @@
 # Pi Models Runtime Upgrade
 
-> Status: Implementing（核心模型发现与设置页重构已完成；Provider连接身份、凭据来源和Session脱敏已本地收口，完整Config Service/产品验收仍待完成）
+> Status: Completed（2026-08-14；Provider API / Automatic Model Discovery 实现已合并为 PR #101，Issue #100 的独立 UI 问题已按当前主线不可复现关闭；Task 104 不包含该 UI 修复）
 
+## 2026-08-14：Provider API / Automatic Model Discovery 收尾
+
+- PR [#101](https://github.com/notnotype/neuro-book/pull/101) 已于 `2026-08-14T04:24:41Z` 合并，squash commit 为 `779dafe7bea478a9d0a4d16f7c3ed1a8b8f8f5fb`；合并前后的 discovery 回归与 CI 记录保留在下方历史条目。
+- 已确认最终 Provider Discovery 合同：`partial = skippedCount > 0 || duplicateCount > 0 || truncated`；Google `generateContent` 候选固定 `input: ["text"]`；代理、`file:` URL 拒绝、错误码映射、诊断脱敏和 Product Bun smoke 均已有实现级验证。
+- Issue [#100](https://github.com/notnotype/neuro-book/issues/100) 是独立的 Provider 详情面板 UI 问题，不属于本 Task 的代码范围。其独立 Task 148 已在隔离浏览器中覆盖新增、切换、关闭/重开、分区往返及桌面/窄屏场景；当前主线未稳定复现，Issue #100 已关闭，未提交猜测性 UI 修复。
+- Task 104 的未完成边界仍是 Docker build smoke、真实外部 Provider/全量浏览器产品流程等，不把 Issue #100 的不可复现结论改写成 discovery 功能全量浏览器通过。
 ## 2026-07-19：Provider连接身份与Session模型脱敏收口
 
 - Provider Config ID现在是不可变连接身份；Base URL或proxy变化必须显式clone，不能沿用旧ID与Secret。后续交互验收确认`modelApi`只是候选补全偏好，已从连接身份中移除并允许在原Provider上直接修改。
@@ -71,12 +77,11 @@
 - `bun run docs:build`：成功；`git diff --check`：通过。
 - Product Runtime API 真实代理 smoke：`POST /api/config/models/provider-discover` 返回 `200`，`proxyHits=1`，`fetchedCount=3`、`returnedCount=1`、`skippedCount=1`、`duplicateCount=1`、`partial=true`，返回 `task104-model`；`file:///tmp/provider` route 返回 `400` 与 `invalid-base-url`，fixture 未命中。
 
-### 浏览器验收阻塞
+### 浏览器验收阻塞（历史记录，已由独立 Task 148 收尾）
 
-- 未生成浏览器“通过”证据。真实隔离 Source Dev 与 Product Runtime 均复现：新增 Provider 后 `activeProviderKey` 已指向 `provider-1-custom` 且 `activeProvider` 已解析，但右侧仍显示“未选择 Provider”；DOM 保留 `Transition name="fade-slide" mode="out-in"` 的离场分支。
-- 对比 `origin/master`，`NovelIdeModelSettingsPanel.vue` 的 Provider 新增/激活和 Transition 实现均已存在于主干；本 PR 对该文件只有 diagnostics 绑定差异。因此不在 Task 104 修复该基线 UI 问题、不生成桌面/窄屏截图或 acceptance JSON。
-- follow-up Issue [#100](https://github.com/notnotype/neuro-book/issues/100) 已创建，范围是修复新增 Provider 后详情面板保持未选择。Task 104 继续保持 `Status: Implementing`，不归档、不建立“已完成” reference。
-- 本轮未运行真实外部 Provider、全量测试、Docker smoke 或浏览器保存/重开链路；未使用真实 Provider、Secret、Project 或用户 State Root。
+- 2026-08-13 的原始阻塞记录保留在此处，用于说明 PR #101 为什么没有修改 Provider 详情 UI。
+- 后续 Task 148 在当前 `master` 基线、隔离 State Root、专用 Source Dev、Chromium `1440×1000` 与 `390×844` 下完成新增、切换、关闭/重开和分区往返验证；故障未稳定复现，Issue #100 已关闭。
+- Task 104 不把该结果改写成 discovery 功能的全量浏览器通过；真实外部 Provider、Docker smoke 和完整产品流程仍按本 Task 的未完成边界记录。
 
 ## Model Library / Provider Template / Automatic Discovery 实施结果（2026-07-18）
 

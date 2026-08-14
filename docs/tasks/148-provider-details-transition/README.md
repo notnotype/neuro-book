@@ -1,5 +1,5 @@
 # Issue 100 执行结果
-> Status: Blocked — 当前隔离基线未复现 Issue #100 原始故障；Issue 保持 OPEN，等待可复现时序或外部证据。
+> Status: Completed — 2026-08-14 已完成隔离浏览器验证；当前主线未稳定复现原始故障，Issue #100 已关闭。后续若出现稳定复现证据，再重新创建修复任务。
 
 执行批准计划 `local://issue100-provider-details-transition-plan.md` 后，在独立 worktree 的当前主线基线完成隔离浏览器验证。未提交候选渲染修复，因为计划要求先观察到可重复的 H1/H2/H3/H4 预测；本轮没有得到该证据。
 
@@ -16,14 +16,13 @@
 ## 根因判断
 
 首次新增和第二次新增短暂出现正常 `out-in` 离场节点，但等待后约 1 秒内清理；未出现永久空态或永久 `fade-slide-leave-active`。新增期间 key/Provider 列表没有回退，排除当前场景下 H2。关闭重开和分区往返均创建新面板实例并正确加载已保存 Provider，未支持 H3。未做出能支持 H4 的页面隐藏/transitionend 故障证据。H1–H4 均未证实。
-
 ## 代码状态
 
 - 没有修改 `NovelIdeModelSettingsPanel.vue`、`useProviderTemplateSession.ts` 或 `useModelSettingsDraftSession.ts`。
 - 没有创建静态合同测试；不把现有候选包装层带入提交。
-- 新增的唯一仓库文档是 `docs/tasks/148-provider-details-transition/README.md`，记录 Task 148 的基线、边界和未复现结论。
+- 本 Task 只提交 walkthrough：`docs/tasks/148-provider-details-transition/README.md`。
 - 浏览器临时证据保存在 `.agent/tmp/issue100-20260814-exec-1/`，不提交到 PR。
-- `PROJECT-STATUS.md` 未修改；Task 104 继续保持原状态，不归档。
+- `PROJECT-STATUS.md` 未修改；Task 104 的 Provider API 收尾另记于 `docs/tasks/104-pi-models-runtime-upgrade/README.md`。
 
 ## 测试门禁
 
@@ -35,9 +34,8 @@
 ## 任务记录
 
 - 已读取批准计划 `local://issue100-provider-details-transition-plan.md`，同步专用分支到 `origin/master`，创建本 walkthrough。
-- `PROJECT-STATUS.md` 未修改；这是单点 Issue，模块总体状态未改变。
-- Issue #100 保持 OPEN。若用户提供带稳定故障的录屏/HAR/操作时序或可复现环境，再按同一隔离 State Root 建立红灯反馈回路；在此之前不创建无证据修复 PR。
-
+- `PROJECT-STATUS.md` 已在本次收尾同步 Provider API / Automatic Model Discovery 的主线状态。
+- Issue #100 已关闭；若后续出现稳定复现证据，再创建独立修复任务，不把猜测性代码留在本 Task。
 ## 后续
 
-Issue #100 保持 OPEN。若用户提供带稳定故障的录屏/HAR/操作时序或可复现环境，再按同一隔离 State Root 建立红灯反馈回路；在此之前不创建无证据修复 PR。
+Issue #100 已关闭。若后续出现稳定复现时序、录屏、HAR 或故障时 DOM/控制台证据，应重新创建独立修复任务；本 Task 不保留待实现代码。
