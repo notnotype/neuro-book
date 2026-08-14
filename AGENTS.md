@@ -84,7 +84,7 @@ GitHub Issue 承载需求与 TODO，task walkthrough 记录重大任务，独立
 
 ## HTML/Vue
 
-- 通用组件优先复用 `app/components/common`：`NotificationViewport`、`Dialog`、`DialogWindow` 和 `form/FormColorField`。
+- 通用组件优先复用 `app/components/common`：`NotificationViewport`、`Dialog`、`DialogWindow`、`Tooltip` 和 `form/FormColorField`。
 - Novel IDE 普通界面颜色只消费 `app/utils/theme/README.md` 登记的主题变量，不新增 Tailwind 调色板或 `dark:` 变体；新增组件变量前确认现有变量无法表达，并同步登记到主题文档和 8 套内置主题。
 - 状态色使用 `warning`（草稿/待审/未保存）、`success`（完成/已同步）、`danger`（错误/删除/冲突）、`info`（运行中/引用/说明）和 `accent`（选中/当前/主操作）。内容、编辑器和 chip 分类色是例外，不按状态色重写。
 - World Engine 的 `--we-*` 只在 `app/styles/theme-vars.css` 的 `.world-engine-workbench-theme` 中映射；真实 Dialog 和 preview 使用该 class，不在局部样式反向覆盖全局变量。
