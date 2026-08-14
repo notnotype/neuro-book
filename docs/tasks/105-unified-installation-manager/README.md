@@ -7,7 +7,7 @@
 - 根因已复现并固定为两个 Manager 合同缺口：`compose run` 的 Podman provider 会在迁移 JSON 前输出裸容器 ID，而迁移解析器直接对完整 stdout 执行 `JSON.parse()`；同时 Podman provider 环境变量无条件写成 `podman-compose`，阻断仅提供 `podman compose` 委托能力的机器。
 - `packages/neuro-book-manager/src/app-commands.ts` 现在从首个以 `{` 开始的输出行解析迁移报告，保留报告 schema、runId、step 唯一性和状态门禁；`packages/neuro-book-manager/src/docker.ts` 先用 `commandAvailable("podman-compose")` 探测独立 provider，存在时固定 `PODMAN_COMPOSE_PROVIDER=podman-compose`，不存在时不新增变量并保留用户已有值。
 - 回归覆盖前置 64 位 hex ID、独立 provider 存在、独立 provider 缺失且用户已设置 provider、独立 provider 缺失且用户未设置 provider，以及 `podman compose` 委托探测路径。相关调用点已改为等待异步 Compose 选项，Docker provider 行为保持不变。
-- 验证：`bun run test -- src/docker.test.ts src/app-commands.test.ts` 为 2 个文件、58 项测试通过；`bun run test` 为 41 个文件通过、1 个跳过，335 项测试通过、3 项跳过；`bun run typecheck` 通过。
+- 验证：`bun run test -- src/docker.test.ts src/app-commands.test.ts` 为 2 个文件、59 项测试通过；`bun run test` 为 41 个文件通过、1 个跳过，336 项测试通过、3 项跳过；`bun run typecheck` 通过。
 - 本机没有 `podman` 或 `podman-compose` 命令，未执行 macOS / Podman machine 真实安装、更新、迁移和健康检查；上述委托分支由隔离命令探测模拟覆盖，真实双路径仍需 Linux/macOS 容器 runner 复验。
 
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
