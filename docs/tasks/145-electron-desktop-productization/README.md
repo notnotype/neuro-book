@@ -184,6 +184,7 @@ Electron main/preload/manager entry/manager preload/启动页/Manager 页面都�
 #### 宿主机 machine 全链路（真实可见 UAC 批准）
 
 旧 machine 安装（installation ID `727f8652-c25c-4396-9791-7f9c7efdcc09`，旧 Product image）已通过当前 Manager 正式卸载：
+- Program Files、HKLM 卸载项、`neurobook://`（HKLM Classes）、公共桌面快捷方式、launcher/run root 全部删除；State Root `%LOCALAPPDATA%\NeuroBook\data` 保留，`config.yaml` SHA-256 `F104B5E7CA77E9F2A0630A6B152BB03620B6DA4DEECED8D6E97AD4D7D68CB975` 与卸载前一致。
 
 随后使用该 checkpoint 对应的 Desktop Depot 完成 machine 安装（可见 UAC 批准）：
 
@@ -278,6 +279,10 @@ Windows Sandbox `--delete-data` 破坏性验收工具已就绪（`evidence/sandb
 - Tauri Portable：9532 个文件、630965108 bytes payload，ZIP 243586839 bytes，SHA-256 `6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23`；本轮只保留 headless/合同输入，不重新做 Tauri 可见 UI。
 - Aggregate Depot：7 个文件、632969989 bytes payload，ZIP 627861550 bytes，SHA-256 `555cd546d3ba9b5cc85d472f5ca680f6876e2a0f6e1c22b8f1f6afa35b2e1230`。
 - 使用同一 verified Product image、同一 Manager/Electron dist 连续组包两次：Electron、Tauri、Aggregate Depot 及 sidecar manifest 均逐字节一致。
+
+### Follow-up 壳门禁后的重组包
+
+本轮只替换 Electron/Tauri Envelope 与 Manager GUI，不重跑 Product A/B；输入仍是已验证的 Product image `sha256:2c6cc85a7cbbcbd77b73f6d135c55a02f73424befbfd89e2f8e818e0890ef813`。最后一轮同一输入连续组包两次（`C:\t145-followup-6316375e-desktop-f`、`C:\t145-followup-6316375e-desktop-g`），六个归档/manifest 摘要逐字节一致：
 
 - Electron Portable：9,608 个 payload 文件、985,666,351 bytes，ZIP 389,368,150 bytes，SHA-256 `873cdd7c94bb51171b7ee3c767517f9bbf2c20bc2929d15e5ccf9630e34c74b9`。
 - Tauri Portable：ZIP 243,586,839 bytes，SHA-256 `6f6d91d973a8b4cf3dcf3fa8b075aa79be24a056714b934f13e5cc5bc8e54e23`。

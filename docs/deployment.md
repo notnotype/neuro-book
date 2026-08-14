@@ -263,7 +263,7 @@ Release Manifest v5记录统一build ID、应用版本、Git revision、channel�
 
 官方release CLI先验证本地Manager与npm同版本公开bundle，再创建只读身份明确的Draft Candidate。workflow只从输入的release ID与revision构建；Source、五平台Product、Portable、公开下载、原生依赖、浏览器、Docker、rootless Podman与Windows数据复用全部通过后才公开Release，随后由独立job激活同一GHCR digest的版本别名。Candidate失败只保留Draft和候选OCI引用，不产生公开Release或正式OCI tag。
 
-### v3/v4实例迁移到v5
+### 旧版本实例迁移到 v5
 
 - 先停止实例并备份完整 State Root。Windows Portable 必须备份完整 `data/`；Windows Portable 或 Installed Windows 的 `uninstall --json` 可能先返回 `scheduled`，必须等待外置 Host 的最终回执。
 - 在新的 Installation Root 重新安装相同 Profile，只复用 State Root；不要复制旧 `.deploy`、`.runtime`、`.output`、generated Compose 或 wrapper。
