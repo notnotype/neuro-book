@@ -254,7 +254,7 @@ async function runAdapter(provider: ModelProviderDraftDto, baseURL: URL, adapter
             duplicateCount,
             pageCount,
             truncated,
-            partial: skippedCount > 0 || truncated,
+            partial: skippedCount > 0 || duplicateCount > 0 || truncated,
         };
         return {
             models: [...models.values()].sort((left, right) => left.id.localeCompare(right.id)),
@@ -483,7 +483,7 @@ function parseGoogleModels(payload: unknown): ParsedDiscoveryPage {
             group: deriveModelGroup(id),
             api: "google-generative-ai",
             reasoning: readBoolean(raw.reasoning) ?? readBoolean(raw.supportsReasoning),
-            input: null,
+            input: ["text"],
             contextWindowTokens: positiveInteger(raw.inputTokenLimit),
             maxTokens: positiveInteger(raw.outputTokenLimit),
             cost: null,

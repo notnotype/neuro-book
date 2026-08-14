@@ -58,10 +58,12 @@
 - discovery 请求边界现在只接受 `http:` / `https:` API Base 和 proxy URL；`file:`、`data:` 等协议在任何网络或文件读取前返回结构化 `invalid-base-url`。Provider 持久化 DTO 不变。
 - 代理请求改用 Bun `1.3.14` 官方支持的 `fetch(..., {proxy})`，删除不生效的 Undici `ProxyAgent`、`dispatcher` 和伪清理逻辑。Product Runtime 使用 Bun `1.3.14` 启动，真实本地 smoke 使用不可解析的 `provider.invalid` 作为 API Base，结果为 `proxyHits=1`，返回 `task104-model`，证明请求由代理响应而非直连目标。
 - Source Dev/Nitro 默认由 Node `24.13.0` 运行；同一进程内 `fetch(..., {proxy})` 不消费 Bun 专属 `proxy` 字段并对 `provider.invalid` 返回 DNS 失败。该结果记录为运行时边界，不在本 PR 引入第二套 Node 请求实现；Product Runtime 的 Bun 启动路径是本任务正式产品验收合同。
+- 审查回归已修复：Google `generateContent` 候选恢复已知的 `input=["text"]` 能力，不推断 `image`；仅发生重复模型时也将 `duplicateCount > 0` 标记为 `partial=true`，沿用设置页现有 warning 路径。
+- 本轮未改变 DTO、route 状态码、前端 partial 消费逻辑或保存前能力必填合同；重复项仍保留首个唯一模型并进入 diagnostics，正常 Google 多页结果保持 `partial=false`。
 
 ### 本轮自动化与产品验证
 
-- `bun run test -- server/models/discovery.test.ts server/utils/model-settings.test.ts server/api/config/models/provider-discover.post.test.ts shared/dto/app-settings.dto.test.ts app/components/novel-ide/settings/useModelDiscoverySession.test.ts app/components/novel-ide/settings/model-draft-factory.test.ts`：`6` 个文件、`77` 项通过。
+- `bun run test -- server/models/discovery.test.ts server/utils/model-settings.test.ts server/api/config/models/provider-discover.post.test.ts shared/dto/app-settings.dto.test.ts app/components/novel-ide/settings/useModelDiscoverySession.test.ts app/components/novel-ide/settings/model-draft-factory.test.ts`：`6` 个文件、`78` 项通过。
 - `bun run test -- server/config/config-service.test.ts --testTimeout=120000 --hookTimeout=120000`：`1` 个文件、`60` 项通过，耗时 `64.98s`。
 - `bun run generate:openapi`：成功；`provider-discover` response schema 包含完整 `diagnostics` 字段；无关 route 生成差异已恢复。
 - `bun run typecheck`：首次执行因隔离 worktree 尚未安装 `desktop/electron` 依赖而报告 `58` 个依赖/类型诊断；在 `desktop/electron` 执行 `bun install --frozen-lockfile` 后重跑，Nuxt 与 Electron typecheck 均通过。

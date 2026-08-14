@@ -83,15 +83,15 @@ describe("Automatic Model Discovery frontend session", () => {
         }));
     });
 
-    it("部分发现结果保留模型并缓存诊断", async () => {
+    it("仅有重复模型时保留模型并缓存 partial 诊断", async () => {
         const provider = reactive(createProvider({models: []}));
         const fetchMock = vi.fn(async () => ({
             models: [remoteModel()],
             message: "ok",
             diagnostics: {
-                fetchedCount: 3,
+                fetchedCount: 2,
                 returnedCount: 1,
-                skippedCount: 1,
+                skippedCount: 0,
                 duplicateCount: 1,
                 pageCount: 1,
                 truncated: false,
@@ -104,7 +104,7 @@ describe("Automatic Model Discovery frontend session", () => {
         await session.discover();
 
         expect(session.discoveryGroups.value).toHaveLength(1);
-        expect(session.discoveryDiagnostics.value).toMatchObject({skippedCount: 1, duplicateCount: 1, partial: true});
+        expect(session.discoveryDiagnostics.value).toMatchObject({skippedCount: 0, duplicateCount: 1, partial: true});
         expect(notificationSpies.warning).toHaveBeenCalledWith(expect.stringContaining("settings.panels.models.discoveryPartial"));
         expect(notificationSpies.success).not.toHaveBeenCalled();
     });

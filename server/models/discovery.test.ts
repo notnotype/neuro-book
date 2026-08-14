@@ -107,6 +107,26 @@ describe("Automatic Model Discovery", () => {
         });
     });
 
+    it("仅有重复模型时标记 partial", async () => {
+        globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({data: [
+            {id: "duplicate"},
+            {id: "duplicate"},
+        ]}))) as unknown as typeof fetch;
+
+        const result = await discoverProviderModelMetadata(createProvider("https://example.com/v1"));
+
+        expect(result.models.map((model) => model.id)).toEqual(["duplicate"]);
+        expect(result.diagnostics).toEqual({
+            fetchedCount: 2,
+            returnedCount: 1,
+            skippedCount: 0,
+            duplicateCount: 1,
+            pageCount: 1,
+            truncated: false,
+            partial: true,
+        });
+    });
+
     it("普通 Provider 的 pricing 保持未配置，避免猜测价格单位", async () => {
         globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({data: [{
             id: "custom-model",
@@ -150,7 +170,6 @@ describe("Automatic Model Discovery", () => {
                 "X-Remove": null,
             },
         }));
-
         const headers = new Headers((fetchMock.mock.calls[0]?.[1] as RequestInit).headers);
         expect(headers.get("x-tenant")).toBe("tenant-a");
         expect(headers.get("authorization")).toBe("Bearer secret");
@@ -169,7 +188,7 @@ describe("Automatic Model Discovery", () => {
 
         const result = await discoverProviderModelMetadata(createProvider("https://generativelanguage.googleapis.com/v1beta", "secret"));
         expect(result.models.map((model) => model.id)).toEqual(["gemini-first", "gemini-second"]);
-        expect(result.models[0]?.input).toBeNull();
+        expect(result.models.map((model) => model.input)).toEqual([["text"], ["text"]]);
         expect(result.diagnostics).toMatchObject({fetchedCount: 2, returnedCount: 2, pageCount: 2, partial: false});
         const [firstUrl, firstInit] = fetchMock.mock.calls[0] as [URL, RequestInit];
         const [secondUrl] = fetchMock.mock.calls[1] as [URL, RequestInit];
@@ -178,6 +197,7 @@ describe("Automatic Model Discovery", () => {
         expect(new Headers(firstInit.headers).has("authorization")).toBe(false);
         expect(JSON.stringify(result)).not.toContain("secret");
     });
+
 
     it("Google 达到分页上限时保留结果并标记截断", async () => {
         const fetchMock = vi.fn(async () => new Response(JSON.stringify({
