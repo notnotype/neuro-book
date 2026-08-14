@@ -7,6 +7,7 @@ import {parse} from "yaml";
 
 import {
     buildSourceDockerImage,
+    containerComposeEnvironment,
     inspectDockerApplication,
     resolveContainerEngine,
     runDockerApplicationCommand,
@@ -39,10 +40,42 @@ beforeEach(() => {
 });
 afterEach(async () => {
     delete process.env.NEURO_BOOK_CONTAINER_ENGINE;
+    delete process.env.PODMAN_COMPOSE_PROVIDER;
     await Promise.all(roots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 
 describe("Docker Compose部署合同", () => {
+    it("Podman存在独立provider时固定使用它", async () => {
+        processCommands.available.mockImplementation(async (command: string) => command === "podman-compose");
+
+        await expect(containerComposeEnvironment("podman")).resolves.toMatchObject({PODMAN_COMPOSE_PROVIDER: "podman-compose"});
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+
+    it("Podman缺少独立provider时保留用户provider选择", async () => {
+        process.env.PODMAN_COMPOSE_PROVIDER = "docker-compose";
+        processCommands.available.mockResolvedValue(false);
+
+        await expect(containerComposeEnvironment("podman")).resolves.toMatchObject({PODMAN_COMPOSE_PROVIDER: "docker-compose"});
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+    it("Podman缺少独立provider且用户未设置时不注入provider", async () => {
+        delete process.env.PODMAN_COMPOSE_PROVIDER;
+        processCommands.available.mockResolvedValue(false);
+
+        const environment = await containerComposeEnvironment("podman");
+
+        expect(environment.PODMAN_COMPOSE_PROVIDER).toBeUndefined();
+        expect(processCommands.available).toHaveBeenCalledWith("podman-compose");
+    });
+
+    it("Docker不读取Podman provider", async () => {
+        process.env.PODMAN_COMPOSE_PROVIDER = "docker-compose";
+
+        await expect(containerComposeEnvironment("docker")).resolves.toEqual(process.env);
+        expect(processCommands.available).not.toHaveBeenCalled();
+    });
+
     it("Docker验证失败时选择完整可用的Podman", async () => {
         processCommands.capture.mockImplementation(async (command: string, args: string[]) => {
             if (command === "docker" && args[0] === "compose") throw new Error("compose missing");
@@ -54,7 +87,16 @@ describe("Docker Compose部署合同", () => {
         });
         expect(processCommands.capture).toHaveBeenCalledWith("podman", ["info"]);
     });
+    it("Podman缺少独立provider时允许podman compose自行委托", async () => {
+        delete process.env.PODMAN_COMPOSE_PROVIDER;
+        processCommands.available.mockResolvedValue(false);
+        processCommands.capture.mockResolvedValue("podman-compose delegate\n");
 
+        await expect(resolveContainerEngine("podman")).resolves.toBe("podman");
+
+        const composeCall = processCommands.capture.mock.calls.find(([, args]) => args[0] === "compose");
+        expect(composeCall?.[2]?.env?.PODMAN_COMPOSE_PROVIDER).toBeUndefined();
+    });
     it("显式engine在info失败时不静默切换", async () => {
         processCommands.capture.mockImplementation(async (command: string, args: string[]) => {
             if (command === "docker" && args[0] === "info") throw new Error("daemon unavailable");
@@ -63,7 +105,6 @@ describe("Docker Compose部署合同", () => {
         await expect(resolveContainerEngine("docker")).rejects.toThrow("daemon或machine不可用");
         expect(processCommands.available).not.toHaveBeenCalledWith("podman");
     });
-
     it("环境变量只接受docker或podman", async () => {
         process.env.NEURO_BOOK_CONTAINER_ENGINE = "nerdctl";
         await expect(resolveContainerEngine()).rejects.toThrow("只接受docker或podman");
@@ -199,7 +240,7 @@ describe("Docker Compose部署合同", () => {
         expect(activated.services.app.volumes).toContain("../.cache:/app/cache");
     });
 
-    it("Podman Compose固定使用podman-compose provider", async () => {
+    it("Podman存在独立provider时Compose固定使用podman-compose provider", async () => {
         processCommands.capture.mockResolvedValue("migration-report");
         const root = await mkdtemp(join(tmpdir(), "nbook-compose-command-podman-"));
         roots.push(root);

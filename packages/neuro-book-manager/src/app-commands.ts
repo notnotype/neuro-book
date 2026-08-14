@@ -418,7 +418,7 @@ export async function createAdmin(root: string, manifest: InstallationManifest, 
             ...(username ? [username] : []),
             ...passwordArgs,
         ];
-        const options = withoutAdminPassword(containerComposeOptions(execution.engine, root));
+        const options = withoutAdminPassword(await containerComposeOptions(execution.engine, root));
         if (passwordInput) await runWithInput(execution.engine, args, passwordInput, options);
         else await run(execution.engine, args, options);
         return;
@@ -592,7 +592,10 @@ async function runApplicationMigrationCommand(
         containerStateRoot,
         productRuntimeReceipt,
     );
-    const value: unknown = JSON.parse(output);
+    // podman-compose 会在 compose run 的 stdout 前输出 pod ID；只从首个 JSON 行开始解析报告。
+    const jsonStart = output.search(/(?:^|\r?\n)[\t ]*\{/u);
+    const jsonOutput = jsonStart >= 0 ? output.slice(jsonStart).trimStart() : output;
+    const value: unknown = JSON.parse(jsonOutput);
     if (!Value.Check(ApplicationMigrationReportSchema, value)) {
         throw new Error("Application State migration 返回了无效报告。");
     }

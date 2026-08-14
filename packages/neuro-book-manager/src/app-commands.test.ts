@@ -310,7 +310,14 @@ describe("Application State migration command", () => {
             "docker-state",
         ]);
     });
+    it("容忍Podman Compose在迁移报告前输出容器ID", async () => {
+        const root = await mkdtemp(join(tmpdir(), "manager-podman-migration-noise-"));
+        roots.push(root);
+        docker.command.mockResolvedValue(`${"f".repeat(64)}\n${JSON.stringify(applicationMigrationReport("podman-state", "plan", "planned", 1))}`);
 
+        await expect(planApplicationStateMigration(root, {...dockerManifest(), containerEngine: "podman"}, "podman-state"))
+            .resolves.toMatchObject({runId: "podman-state", status: "planned"});
+    });
     it("拒绝错误runId与宽松JSON报告", async () => {
         const root = await nativeProductRoot();
         processCommands.capture.mockResolvedValueOnce(JSON.stringify(applicationMigrationReport("other-run", "plan", "planned", 1)));

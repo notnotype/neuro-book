@@ -2,6 +2,14 @@
 
 > 当前状态：实现中，Canary A公开索引已完成。`v0.8.19`的五平台Product、原生双架构OCI/manifest merge、Windows/Linux候选、公开payload、Windows完整`0.8.6 data/`复用、Docker x64/ARM64与rootless Podman链全部通过，最终`release-manifest.json`和`SHA256SUMS`已发布；它是最新已确认完整canary。当前工作树协议为Installation Manifest v5、Release Manifest v5、Operation Journal v5 和 Product-owned Application State catalog v3。2026-08-03 已实现外置 heartbeat lease、锁内 Manifest 重读、Product切换恢复、Windows外置自卸载Host与Draft Candidate激活协议，并使用公开Manager `.49`完成clean Windows归档、仓库外Product/Manager运行与两种自卸载终态验收。公开Canary A→B、跨Profile和五平台Candidate仍需Actions完成，不能把本地Windows证据写成公开生命周期已验证。Apple Silicon Docker Desktop/rootless Podman实机门禁继续豁免，但不得标记为已验证。
 
+## 2026-08-14：Issue #109 Podman Compose 迁移与 provider 选择修复
+
+- 根因已复现并固定为两个 Manager 合同缺口：`compose run` 的 Podman provider 会在迁移 JSON 前输出裸容器 ID，而迁移解析器直接对完整 stdout 执行 `JSON.parse()`；同时 Podman provider 环境变量无条件写成 `podman-compose`，阻断仅提供 `podman compose` 委托能力的机器。
+- `packages/neuro-book-manager/src/app-commands.ts` 现在从首个以 `{` 开始的输出行解析迁移报告，保留报告 schema、runId、step 唯一性和状态门禁；`packages/neuro-book-manager/src/docker.ts` 先用 `commandAvailable("podman-compose")` 探测独立 provider，存在时固定 `PODMAN_COMPOSE_PROVIDER=podman-compose`，不存在时不新增变量并保留用户已有值。
+- 回归覆盖前置 64 位 hex ID、独立 provider 存在、独立 provider 缺失且用户已设置 provider、独立 provider 缺失且用户未设置 provider，以及 `podman compose` 委托探测路径。相关调用点已改为等待异步 Compose 选项，Docker provider 行为保持不变。
+- 验证：`bun run test -- src/docker.test.ts src/app-commands.test.ts` 为 2 个文件、58 项测试通过；`bun run test` 为 41 个文件通过、1 个跳过，335 项测试通过、3 项跳过；`bun run typecheck` 通过。
+- 本机没有 `podman` 或 `podman-compose` 命令，未执行 macOS / Podman machine 真实安装、更新、迁移和健康检查；上述委托分支由隔离命令探测模拟覆盖，真实双路径仍需 Linux/macOS 容器 runner 复验。
+
 ## 2026-08-02：Installation Mutation、自卸载与发行候选治理
 
 - 所有 mutating command 进入用户级外置 `proper-lockfile` lease。Installed v1固定 `%LOCALAPPDATA%/Programs/NeuroBook` 与单一 `installed-v1` lease；Portable/Source以canonical Installation Root SHA-256隔离。lease不受Manager配置路径影响，也不会随卸载删除。
