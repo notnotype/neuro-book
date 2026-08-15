@@ -1863,46 +1863,41 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         v-if="totalDraftSliceCount"
                         type="button"
                         data-testid="world-workbench-draft-summary"
-                        class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2.5 text-[12px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50"
+                        class="inline-flex h-8 items-center gap-1 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2 text-[12px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50"
                         :disabled="workbenchActionBusy"
                         :title="draftSummaryTitle"
+                        :aria-label="t('worldEngine.workbenchPreview.drafts')"
                         @click="void showAllDraftSlices()"
                     >
                         <span class="i-lucide-list-todo h-3.5 w-3.5"></span>
-                        {{ t("worldEngine.workbenchPreview.drafts") }}
-                        <span class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ totalDraftSliceCount }}</span>
+                        <span class="rounded bg-[var(--we-bg-panel)] px-1 font-mono text-[10px]">{{ totalDraftSliceCount }}</span>
                     </button>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="void refreshWorldForCurrentTimeline()">
+                    <button type="button" title="刷新" aria-label="刷新" class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="void refreshWorldForCurrentTimeline()">
                         <span :class="loading ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-refresh-cw'" class="h-3.5 w-3.5"></span>
-                        刷新
                     </button>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy || !schema" @click="openSliceComposer">
+                    <button type="button" title="新建 Slice" aria-label="新建 Slice" class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy || !schema" @click="openSliceComposer">
                         <span class="i-lucide-file-plus-2 h-3.5 w-3.5"></span>
-                        新建 Slice
                     </button>
-                    <button type="button" class="hidden h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50 lg:inline-flex" :disabled="workbenchActionBusy || !schema || !selectedSlice" @click="void openSelectedSliceComposer()">
+                    <button type="button" title="编辑 Slice" aria-label="编辑 Slice" class="hidden h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50 lg:inline-flex" :disabled="workbenchActionBusy || !schema || !selectedSlice" @click="void openSelectedSliceComposer()">
                         <span class="i-lucide-pencil h-3.5 w-3.5"></span>
-                        编辑 Slice
                     </button>
-                    <button type="button" class="hidden h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:border-[var(--we-danger-border)] hover:bg-[var(--we-danger-soft)] hover:text-[var(--we-danger)] disabled:opacity-50 xl:inline-flex" :disabled="workbenchActionBusy || !selectedSlice" @click="void deleteSelectedSlice()">
+                    <button type="button" title="删除 Slice" aria-label="删除 Slice" class="hidden h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] transition-colors hover:border-[var(--we-danger-border)] hover:bg-[var(--we-danger-soft)] hover:text-[var(--we-danger)] disabled:opacity-50 xl:inline-flex" :disabled="workbenchActionBusy || !selectedSlice" @click="void deleteSelectedSlice()">
                         <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-trash-2'" class="h-3.5 w-3.5"></span>
-                        删除 Slice
                     </button>
                     <button
                         type="button"
                         data-testid="world-workbench-inspector-toggle"
-                        class="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] transition-colors"
+                        class="inline-flex h-8 items-center gap-1 rounded-md border px-1.5 transition-colors"
                         :class="inspectorButtonAttentionClass"
                         :title="inspectorButtonTitle"
+                        :aria-label="t('worldEngine.workbenchPreview.inspector')"
                         @click="toggleInspectorPanel"
                     >
                         <span :class="inspectorVisible ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="h-3.5 w-3.5"></span>
-                        {{ t("worldEngine.workbenchPreview.inspector") }}
-                        <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
+                        <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
                     </button>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openPreview">
+                    <button type="button" title="Preview" aria-label="Preview" class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-color)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openPreview">
                         <span class="i-lucide-external-link h-3.5 w-3.5"></span>
-                        Preview
                     </button>
                     <button type="button" data-testid="world-workbench-close" aria-label="关闭 World Engine Workbench" title="关闭 World Engine Workbench" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="void requestWorkbenchClose()">
                         <span class="i-lucide-x h-4 w-4"></span>

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import {computed, onMounted, reactive, ref, shallowRef, watch} from "vue";
+import {storeToRefs} from "pinia";
+import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import WorldEnginePreviewActions from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewActions.vue";
 import WorldEnginePreviewProjectPanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewProjectPanel.vue";
 import WorldEnginePreviewStatePanel from "nbook/app/components/novel-ide/world-engine/WorldEnginePreviewStatePanel.vue";
@@ -1156,14 +1159,19 @@ watch(selectedProjectRoot, (projectRoot) => {
     void activatePreviewProject(projectRoot);
 }, {flush: "sync"});
 
+const themeHostRef = ref<HTMLElement | null>(null);
+const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(useNovelIdeStore());
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
+
 onMounted(() => {
     void refreshProjects();
+    mountThemeHost(themeHostRef.value);
 });
 </script>
 
 <template>
     <!-- World Engine 调试页 -->
-    <div class="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)]">
+    <div ref="themeHostRef" class="min-h-screen bg-[var(--bg-main)] text-[var(--text-main)]">
         <!-- 页面头部 -->
         <header class="border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]">
             <div class="mx-auto flex max-w-[1760px] flex-col gap-4 px-5 py-5 lg:flex-row lg:items-end lg:justify-between">

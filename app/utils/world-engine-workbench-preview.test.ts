@@ -97,6 +97,10 @@ describe("World Engine Workbench preview redesign", () => {
         expect(page).toContain("WorldEngineWorkbenchPreviewMutationEditor");
         expect(page).toContain("WorldEngineWorkbenchPreviewInspector");
         expect(page).toContain("world-engine-workbench-preview world-engine-workbench-theme");
+        expect(page).toContain("useIdeTheme");
+        expect(page).toContain("mountThemeHost");
+        expect(page).toContain("storeToRefs");
+        expect(page).toContain("themeHostRef");
         expect(page).not.toContain("--we-bg-canvas: #f6f8f7");
         expect(page).not.toContain("--we-bg-panel: #ffffff");
         expect(page).not.toContain("--we-accent: #078768");

@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import {computed, onMounted, ref, shallowRef, watch} from "vue";
+import {storeToRefs} from "pinia";
+import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import WorldEngineWorkbenchPreviewInspector from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue";
 import WorldEngineWorkbenchPreviewMutationEditor from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewMutationEditor.vue";
 import WorldEngineWorkbenchPreviewSidebar from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSidebar.vue";
@@ -782,12 +785,19 @@ watch(() => [
     mutationEditorHeight.value,
 ] as const, persistLocalDraft, {deep: true});
 
+const themeHostRef = ref<HTMLElement | null>(null);
+const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(useNovelIdeStore());
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
+
 onMounted(restoreLocalDraft);
+onMounted(() => {
+    mountThemeHost(themeHostRef.value);
+});
 </script>
 
 <template>
     <!-- World Engine Workbench mock preview route -->
-    <div class="world-engine-workbench-preview world-engine-workbench-theme flex h-screen flex-col overflow-hidden bg-[var(--we-bg-canvas)] text-[var(--we-text-main)]">
+    <div ref="themeHostRef" class="world-engine-workbench-preview world-engine-workbench-theme flex h-screen flex-col overflow-hidden bg-[var(--we-bg-canvas)] text-[var(--we-text-main)]">
         <header class="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--we-border)] bg-[var(--we-bg-panel)] px-4 shadow-[0_1px_0_color-mix(in_srgb,var(--shadow-color)_4%,transparent)]">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[12px] font-bold text-[var(--we-accent)]">
                 WE

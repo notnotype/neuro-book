@@ -93,6 +93,10 @@ describe("World Engine IDE entry", () => {
         expect(indexPage).toContain("@saving-change=\"worldEngineWorkbenchSaving = $event\"");
         expect(indexPage).toContain("@open-workspace-path=\"void openWelcomeWorkspacePath($event)\"");
         expect(previewPage).toContain("previewAttrValueType");
+        expect(previewPage).toContain("useIdeTheme");
+        expect(previewPage).toContain("mountThemeHost");
+        expect(previewPage).toContain("storeToRefs");
+        expect(previewPage).toContain("themeHostRef");
         expect(previewPage).toContain("resolvePreviewAttrPath");
         expect(previewPage).toContain("selectPreviewProjectRoot");
         expect(previewPage).toContain("defaultMutationForPreviewSubject");
