@@ -1,6 +1,6 @@
 # 仓库调研与剧情工作台截图运行链路
 
-> Status: Active — 2026-08-14 已完成 Product Runtime 与 Source Dev 的真实双视口截图、严格 manifest 和 Hermes Skill 集成验收；真人 QQ 入站回传仍未验证。
+> Status: Implemented — 已完成 Product Runtime 与 Source Dev 的真实双视口截图、设置页真实双视口截图、严格 manifest 和 Hermes Skill 集成验收；OneBot 精确 manifest 媒体回传修复已部署；真人 QQ 入站与图片可见性仍未完成正式验收。
 
 ## 用户请求与目标
 
