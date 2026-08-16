@@ -437,3 +437,17 @@ _Avoid_: files-only panel, workspace switcher
 - "portable workspace" can mix program files with user data. Resolved: **Installation Root** names program/component ownership, **State Root** names physical user state, and **Workspace Root** names the logical project container.
 - "Windows portable" sounded like a separate updater protocol. Resolved: **Windows Release Zip** is the `windows-portable` Profile assembled from the same Source/Product/Runtime/Tool components and operated by **NeuroBook Manager**.
 - "data/workspace" exposed a platform-specific Project Path. Resolved: Windows Portable stores data physically under `data/`, but public Project Path remains `workspace/{project-slug}`.
+
+## Visual Tutorial Terms
+
+**Visual Tutorial Plan**:
+由视觉子代理针对当前截图生成的结构化区域与步骤描述；它只描述 evidence 相对来源、归一化箭头/框选/文字标记和教程说明，不拥有媒体写入或发送权限。
+_Avoid_: annotation image, MEDIA path, visual agent output
+
+**Annotated Tutorial Media**:
+由项目 adapter 根据 Visual Tutorial Plan 确定性生成、并写回当前运行 manifest `evidence.mediaFiles` 的版本化 PNG；它是可交付媒体，不是原始浏览器截图。
+_Avoid_: screenshot filename, evidence file, arbitrary edited image
+
+**Controlled Media Delivery**:
+OneBot 只接受当前通过 manifest 收口校验的 `evidence.mediaFiles` 安全绝对路径，并逐字发送这些路径；视觉子代理和主模型都不能自行授予发送权限。
+_Avoid_: basename delivery, stdout-derived path, old manifest media

@@ -7,6 +7,112 @@ export const REPOSITORY_RESEARCH_ADAPTER_SCHEMA = "nbook.repository-research-ada
 
 export type ResearchRunResult = "passed" | "environment-blocked" | "product-failure" | "unverified";
 
+export type ResearchAnnotationMark = Readonly<{
+    kind: "arrow" | "rectangle" | "label";
+    x: number;
+    y: number;
+    width?: number;
+    height?: number;
+    toX?: number;
+    toY?: number;
+    text?: string;
+}>;
+
+export type ResearchAnnotation = Readonly<{
+    stepId: string;
+    mediaFile: string;
+    source: string;
+    profile: string;
+    marks: readonly ResearchAnnotationMark[];
+}>;
+export type ResearchTutorialStep = Readonly<{
+    id: string;
+    title: string;
+    instruction: string;
+    source: string;
+    mediaFile: string;
+}>;
+export type ResearchVisionRegion = Readonly<{
+    id: string;
+    description: string;
+    source: string;
+    marks: readonly ResearchAnnotationMark[];
+}>;
+
+export type ResearchVisionPlan = Readonly<{
+    success: boolean;
+    profile: string;
+    regions: readonly ResearchVisionRegion[];
+    tutorialSteps: readonly Readonly<{
+        id: string;
+        title: string;
+        instruction: string;
+        source: string;
+        regionId: string;
+    }>[];
+    failureReason?: string;
+}>;
+
+/** 解析视觉子代理返回的结构化计划；每个教程步骤必须绑定一个独立标注区域。 */
+export function parseResearchVisionPlan(value: unknown): ResearchVisionPlan {
+    const root = object(value, "Research Vision Plan");
+    exactKeys(root, ["success", "profile", "regions", "tutorialSteps"], "Research Vision Plan", ["failureReason"]);
+    const success = booleanValue(root.success, "success");
+    const profile = boundedPublicString(root.profile, "profile", 96);
+    const failureReason = root.failureReason === undefined ? undefined : boundedPublicString(root.failureReason, "failureReason", 400);
+    if (!Array.isArray(root.regions) || root.regions.length < 1 || root.regions.length > MAX_MEDIA_FILES) {
+        throw new Error("regions 数量必须在 1 到 4 之间。");
+    }
+    if (!Array.isArray(root.tutorialSteps) || root.tutorialSteps.length < 1 || root.tutorialSteps.length > MAX_MEDIA_FILES) {
+        throw new Error("tutorialSteps 数量必须在 1 到 4 之间。");
+    }
+    const regions = root.regions.map((item, index) => parseVisionRegion(item, index));
+    const regionsById = new Map<string, ResearchVisionRegion>();
+    for (const region of regions) {
+        if (regionsById.has(region.id)) throw new Error(`regions.id 不能重复：${region.id}`);
+        regionsById.set(region.id, region);
+    }
+    const stepIds = new Set<string>();
+    const referencedRegionIds = new Set<string>();
+    const tutorialSteps = root.tutorialSteps.map((item, index) => {
+        const label = `tutorialSteps[${String(index)}]`;
+        const step = object(item, label);
+        exactKeys(step, ["id", "title", "instruction", "source", "regionId"], label);
+        const id = boundedPublicString(step.id, `${label}.id`, 64);
+        if (stepIds.has(id)) throw new Error(`${label}.id 不能重复。`);
+        stepIds.add(id);
+        const title = boundedPublicString(step.title, `${label}.title`, 160);
+        const instruction = boundedPublicString(step.instruction, `${label}.instruction`, 400);
+        const source = evidencePath(step.source, `${label}.source`);
+        const regionId = boundedPublicString(step.regionId, `${label}.regionId`, 64);
+        const region = regionsById.get(regionId);
+        if (!region) throw new Error(`${label}.regionId 未引用已声明区域：${regionId}`);
+        if (region.source !== source) throw new Error(`${label}.source 必须与其 regionId 的 source 一致。`);
+        if (referencedRegionIds.has(regionId)) throw new Error(`${label}.regionId 不能被多个步骤复用：${regionId}`);
+        referencedRegionIds.add(regionId);
+        return {id, title, instruction, source, regionId};
+    });
+    if (referencedRegionIds.size !== regions.length) throw new Error("每个标注区域必须恰好归属于一个教程步骤。");
+    if (!success && !failureReason) throw new Error("success=false 时必须提供 failureReason。");
+    return {success, profile, regions, tutorialSteps, ...(failureReason === undefined ? {} : {failureReason})};
+}
+
+
+function parseVisionRegion(value: unknown, index: number): ResearchVisionRegion {
+    const label = `regions[${String(index)}]`;
+    const root = object(value, label);
+    exactKeys(root, ["id", "description", "source", "marks"], label);
+    if (!Array.isArray(root.marks) || root.marks.length < 1 || root.marks.length > 16) {
+        throw new Error(`${label}.marks 数量必须在 1 到 16 之间。`);
+    }
+    return {
+        id: boundedPublicString(root.id, `${label}.id`, 64),
+        description: boundedPublicString(root.description, `${label}.description`, 240),
+        source: evidencePath(root.source, `${label}.source`),
+        marks: root.marks.map((mark, markIndex) => parseAnnotationMark(mark, `${label}.marks[${String(markIndex)}]`)),
+    };
+}
+
 export type ResearchRunManifest = Readonly<{
     schema: typeof RESEARCH_RUN_MANIFEST_SCHEMA;
     runId: string;
@@ -29,7 +135,13 @@ export type ResearchRunManifest = Readonly<{
         consoleErrors: number;
         pageErrors: number;
     };
-    evidence: {files: string[]; mediaFiles: string[]};
+    evidence: {
+        files: string[];
+        mediaFiles: string[];
+        profile?: string;
+        annotations?: ResearchAnnotation[];
+        tutorialSteps?: ResearchTutorialStep[];
+    };
     cleanup: {
         browser: "closed" | "killed" | "failed";
         service: "not-started" | "graceful" | "forced" | "failed";
@@ -145,10 +257,132 @@ function parseBrowser(value: unknown): ResearchRunManifest["browser"] {
 
 function parseEvidence(value: unknown): ResearchRunManifest["evidence"] {
     const root = object(value, "evidence");
-    exactKeys(root, ["files", "mediaFiles"], "evidence");
+    exactKeys(root, ["files", "mediaFiles"], "evidence", ["profile", "annotations", "tutorialSteps"]);
     const files = evidencePaths(root.files, "evidence.files", MAX_EVIDENCE_FILES);
     const mediaFiles = absolutePaths(root.mediaFiles, "evidence.mediaFiles", MAX_MEDIA_FILES);
-    return {files, mediaFiles};
+    const profile = optionalString(root.profile, "evidence.profile");
+    const annotations = parseAnnotations(root.annotations, files, mediaFiles);
+    const tutorialSteps = parseTutorialSteps(root.tutorialSteps, files, mediaFiles);
+    if ((annotations === undefined) !== (tutorialSteps === undefined)) {
+        throw new Error("annotations 与 tutorialSteps 必须同时存在或同时缺失。");
+    }
+    assertTutorialAnnotationLinks(annotations, tutorialSteps);
+    return {
+        files,
+        mediaFiles,
+        ...(profile === undefined ? {} : {profile}),
+        ...(annotations === undefined ? {} : {annotations}),
+        ...(tutorialSteps === undefined ? {} : {tutorialSteps}),
+    };
+}
+
+function parseAnnotations(
+    value: unknown,
+    files: readonly string[],
+    mediaFiles: readonly string[],
+): ResearchAnnotation[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_MEDIA_FILES) {
+        throw new Error("evidence.annotations 数量必须在 1 到 4 之间。");
+    }
+    const stepIds = new Set<string>();
+    const mediaTargets = new Set<string>();
+    return value.map((item, index) => {
+        const label = `evidence.annotations[${String(index)}]`;
+        const root = object(item, label);
+        exactKeys(root, ["stepId", "mediaFile", "source", "profile", "marks"], label);
+        const stepId = boundedPublicString(root.stepId, `${label}.stepId`, 64);
+        if (stepIds.has(stepId)) throw new Error(`${label}.stepId 不能重复。`);
+        stepIds.add(stepId);
+        const mediaFile = absolutePath(root.mediaFile, `${label}.mediaFile`);
+        if (!mediaFiles.includes(mediaFile)) throw new Error(`${label}.mediaFile 必须来自 mediaFiles。`);
+        if (mediaTargets.has(mediaFile)) throw new Error(`${label}.mediaFile 不能被多个步骤复用。`);
+        mediaTargets.add(mediaFile);
+        const source = evidencePath(root.source, `${label}.source`);
+        if (!files.includes(source)) throw new Error(`${label}.source 必须来自 evidence.files。`);
+        const profile = nonEmptyString(root.profile, `${label}.profile`);
+        if (!Array.isArray(root.marks) || root.marks.length < 1 || root.marks.length > 16) {
+            throw new Error(`${label}.marks 数量必须在 1 到 16 之间。`);
+        }
+        const marks = root.marks.map((mark, markIndex) => parseAnnotationMark(
+            mark,
+            `${label}.marks[${String(markIndex)}]`,
+        ));
+        return {stepId, mediaFile, source, profile, marks};
+    });
+}
+
+function parseTutorialSteps(
+    value: unknown,
+    files: readonly string[],
+    mediaFiles: readonly string[],
+): ResearchTutorialStep[] | undefined {
+    if (value === undefined) return undefined;
+    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_MEDIA_FILES) {
+        throw new Error("evidence.tutorialSteps 数量必须在 1 到 4 之间。");
+    }
+    const ids = new Set<string>();
+    const mediaTargets = new Set<string>();
+    return value.map((item, index) => {
+        const label = `evidence.tutorialSteps[${String(index)}]`;
+        const root = object(item, label);
+        exactKeys(root, ["id", "title", "instruction", "source", "mediaFile"], label);
+        const id = boundedPublicString(root.id, `${label}.id`, 64);
+        if (ids.has(id)) throw new Error(`${label}.id 不能重复。`);
+        ids.add(id);
+        const title = boundedPublicString(root.title, `${label}.title`, 160);
+        const instruction = boundedPublicString(root.instruction, `${label}.instruction`, 400);
+        const source = evidencePath(root.source, `${label}.source`);
+        if (!files.includes(source)) throw new Error(`${label}.source 必须来自 evidence.files。`);
+        const mediaFile = absolutePath(root.mediaFile, `${label}.mediaFile`);
+        if (!mediaFiles.includes(mediaFile)) throw new Error(`${label}.mediaFile 必须来自 mediaFiles。`);
+        if (mediaTargets.has(mediaFile)) throw new Error(`${label}.mediaFile 不能被多个步骤复用。`);
+        mediaTargets.add(mediaFile);
+        return {id, title, instruction, source, mediaFile};
+    });
+}
+
+function assertTutorialAnnotationLinks(
+    annotations: ResearchAnnotation[] | undefined,
+    tutorialSteps: ResearchTutorialStep[] | undefined,
+): void {
+    if (!annotations || !tutorialSteps) return;
+    if (annotations.length !== tutorialSteps.length) throw new Error("annotations 与 tutorialSteps 必须一一对应。");
+    const annotationsByStep = new Map(annotations.map((annotation) => [annotation.stepId, annotation]));
+    for (const step of tutorialSteps) {
+        const annotation = annotationsByStep.get(step.id);
+        if (!annotation) throw new Error(`教程步骤缺少对应标注：${step.id}`);
+        if (annotation.mediaFile !== step.mediaFile || annotation.source !== step.source) {
+            throw new Error(`教程步骤与标注媒体不一致：${step.id}`);
+        }
+    }
+}
+
+
+function parseAnnotationMark(value: unknown, label: string): ResearchAnnotationMark {
+    const root = object(value, label);
+    exactKeys(root, ["kind", "x", "y"], label, ["width", "height", "toX", "toY", "text"]);
+    const kind = member(root.kind, ["arrow", "rectangle", "label"] as const, `${label}.kind`);
+    const x = unitInterval(root.x, `${label}.x`);
+    const y = unitInterval(root.y, `${label}.y`);
+    const width = root.width === undefined ? undefined : unitInterval(root.width, `${label}.width`);
+    const height = root.height === undefined ? undefined : unitInterval(root.height, `${label}.height`);
+    const toX = root.toX === undefined ? undefined : unitInterval(root.toX, `${label}.toX`);
+    const toY = root.toY === undefined ? undefined : unitInterval(root.toY, `${label}.toY`);
+    const text = root.text === undefined ? undefined : boundedPublicString(root.text, `${label}.text`, 160);
+    if (kind === "arrow" && (toX === undefined || toY === undefined)) throw new Error(`${label} 箭头必须提供 toX 和 toY。`);
+    if (kind === "rectangle" && (width === undefined || height === undefined)) throw new Error(`${label} 框选必须提供 width 和 height。`);
+    if (kind === "label" && text === undefined) throw new Error(`${label} 文字标注必须提供 text。`);
+    return {
+        kind,
+        x,
+        y,
+        ...(width === undefined ? {} : {width}),
+        ...(height === undefined ? {} : {height}),
+        ...(toX === undefined ? {} : {toX}),
+        ...(toY === undefined ? {} : {toY}),
+        ...(text === undefined ? {} : {text}),
+    };
 }
 
 function parseCleanup(value: unknown): ResearchRunManifest["cleanup"] {
@@ -232,6 +466,26 @@ function portNumber(value: unknown, label: string): number {
 function member<const T extends readonly string[]>(value: unknown, values: T, label: string): T[number] {
     if (typeof value !== "string" || !values.includes(value)) throw new Error(`${label} 值无效：${String(value)}`);
     return value as T[number];
+}
+function unitInterval(value: unknown, label: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`${label} 必须是 0 到 1 之间的数字。`);
+    }
+    return value;
+}
+
+function optionalUnitInterval(value: unknown, label: string): number | undefined {
+    if (value === undefined) return undefined;
+    return unitInterval(value, label);
+}
+
+function boundedPublicString(value: unknown, label: string, maxLength: number): string {
+    const text = nonEmptyString(value, label);
+    if (text.length > maxLength) throw new Error(`${label} 长度不能超过 ${String(maxLength)}。`);
+    if (/(?:sk-[A-Za-z0-9]{8,}|bearer\s+[A-Za-z0-9._-]{16,})/iu.test(text)) {
+        throw new Error(`${label} 不能包含凭据内容。`);
+    }
+    return text;
 }
 
 function isoDate(value: unknown, label: string): string {

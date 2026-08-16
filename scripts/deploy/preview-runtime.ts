@@ -29,6 +29,8 @@ export type PreviewRuntimeOptions = {
     stateRoot: string;
     cacheRoot: string;
     browserMediaRoot: string;
+    /** 迁移完成后向隔离 State Root 注入本次预览所需的示例配置。 */
+    prepareStateRoot?: (stateRoot: string, mode: PreviewRuntimeMode) => Promise<void>;
 };
 
 export type PreviewRuntimeHandle = {
@@ -108,6 +110,7 @@ export async function startPreviewRuntime(options: PreviewRuntimeOptions): Promi
     try {
         await prepareOwnedRoots(roots);
         await migrateStateRoots(normalized, roots);
+        await prepareConfiguredStateRoots(normalized, roots);
     } catch (error) {
         await releaseLease().catch(() => undefined);
         await removeOwnedRoots(roots).catch(() => undefined);
@@ -462,6 +465,15 @@ async function migrateStateRoots(options: NormalizedOptions, roots: RuntimeRoots
     await Promise.all([
         migrateStateRoot(options, roots.productState, roots.productCache, "product"),
         migrateStateRoot(options, roots.devState, roots.devCache, "source-dev"),
+    ]);
+}
+
+async function prepareConfiguredStateRoots(options: NormalizedOptions, roots: RuntimeRoots): Promise<void> {
+    const prepare = options.prepareStateRoot;
+    if (!prepare) return;
+    await Promise.all([
+        prepare(roots.productState, "product"),
+        prepare(roots.devState, "source-dev"),
     ]);
 }
 

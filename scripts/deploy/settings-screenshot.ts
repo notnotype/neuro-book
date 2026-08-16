@@ -5,8 +5,9 @@ import {randomUUID} from "node:crypto";
 import {fileURLToPath} from "node:url";
 import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:path";
 import {createConnection} from "node:net";
+import sharp from "sharp";
 import {PreviewRuntimeStartupError, startPreviewRuntime, type PreviewRuntimeHandle} from "nbook/scripts/deploy/preview-runtime";
-import {parseResearchRunManifest, writeResearchRunManifest, type ResearchRunManifest} from "nbook/shared/research-run-contract";
+import {parseResearchRunManifest, parseResearchVisionPlan, writeResearchRunManifest, type ResearchAnnotation, type ResearchAnnotationMark, type ResearchRunManifest, type ResearchTutorialStep} from "nbook/shared/research-run-contract";
 import {chromium, type Browser, type BrowserServer, type ConsoleMessage, type Page, type Request, type Response} from "playwright-core";
 
 const execFileAsync = promisify(execFile);
@@ -24,12 +25,18 @@ type BrowserCleanup = "closed" | "killed" | "failed";
 type ServiceCleanup = "not-started" | "graceful" | "forced" | "failed";
 type CaptureFailureKind = "environment-blocked" | "product-failure";
 
+type ScreenshotProfile = "settings" | "api-config-tutorial";
+
 type CliOptions = {
     runtime: RuntimeModeArgument;
     browserExecutable: string;
     evidenceDir?: string;
     mediaDir?: string;
     headed: boolean;
+    profile: ScreenshotProfile;
+    annotate: boolean;
+    manifestPath?: string;
+    annotationPlanPath?: string;
 };
 
 type BrowserCapture = {
@@ -57,6 +64,11 @@ class ScreenshotFailure extends Error {
 
 async function main(): Promise<number> {
     const options = parseCli(process.argv.slice(2));
+    if (options.annotate) return annotateMain(options);
+    return captureMain(options);
+}
+
+async function captureMain(options: CliOptions): Promise<number> {
     const runId = `repository-settings-screenshot-${randomUUID()}`;
     const taskRoot = resolve(ROOT, ".agent", "tmp", runId);
     const evidenceDir = resolve(options.evidenceDir ?? join(taskRoot, "evidence"));
@@ -111,11 +123,14 @@ async function main(): Promise<number> {
                 stateRoot: runtimeStateRoot,
                 cacheRoot: runtimeCacheRoot,
                 browserMediaRoot: mediaDir,
+                ...(options.profile === "api-config-tutorial"
+                    ? {prepareStateRoot: prepareTutorialStateRoot}
+                    : {}),
             });
             await runtime.ready;
             const session = await launchBrowser(browserExecutable, options.headed);
             browserSession = session;
-            capture = await capturePreview(session.browser, runtime.url, evidenceDir, desktopScreenshot, mobileScreenshot);
+            capture = await capturePreview(session.browser, runtime.url, evidenceDir, desktopScreenshot, mobileScreenshot, options.profile);
             await writeFile(join(evidenceDir, browserEventsFile), `${JSON.stringify({criticalFailures: capture.criticalFailures, transientFailures: capture.transientFailures}, null, 4)}\n`, "utf8");
             capture.evidenceFiles = [desktopScreenshot, mobileScreenshot, browserEventsFile];
             if (capture.criticalFailures.length || capture.consoleErrors || capture.pageErrors) {
@@ -192,6 +207,7 @@ async function main(): Promise<number> {
             evidence: {
                 files: capture.evidenceFiles,
                 mediaFiles,
+                profile: options.profile,
             },
             cleanup: {
                 browser: browserCleanup,
@@ -214,7 +230,7 @@ async function main(): Promise<number> {
     }
 
     process.stdout.write(`result=${resultStatus}\nmanifest=${manifestPath}\n`);
-    for (const mediaFile of mediaFiles) process.stdout.write(`MEDIA:${mediaFile}\n`);
+    for (const mediaFile of resultStatus === "passed" ? mediaFiles : []) process.stdout.write(`MEDIA:${mediaFile}\n`);
     return resultStatus === "passed" ? 0 : 2;
 }
 
@@ -231,6 +247,8 @@ function parseCli(args: string[]): CliOptions {
         runtime: "auto",
         browserExecutable: process.env.NEURO_BOOK_BROWSER_EXECUTABLE?.trim() || "",
         headed: false,
+        profile: "settings",
+        annotate: false,
     };
     for (let index = 0; index < args.length; index += 1) {
         const name = args[index];
@@ -255,12 +273,217 @@ function parseCli(args: string[]): CliOptions {
             if (value !== "true" && value !== "false") throw new Error("--headed 必须是 true 或 false。");
             result.headed = value === "true";
             index += 1;
-        } else {
-            throw new Error(`未知参数：${name}`);
+        } else if (name === "--profile") {
+            if (value !== "settings" && value !== "api-config-tutorial") throw new Error("--profile 必须是 settings 或 api-config-tutorial。");
+            result.profile = value;
+            index += 1;
+        } else if (name === "--annotate") {
+            result.annotate = true;
+        } else if (name === "--manifest") {
+            if (!value || !isAbsolute(value)) throw new Error("--manifest 必须是绝对路径。");
+            result.manifestPath = value;
+            index += 1;
+        } else if (name === "--annotation-plan") {
+            if (!value || !isAbsolute(value)) throw new Error("--annotation-plan 必须是绝对路径。");
+            result.annotationPlanPath = value;
+            index += 1;
+         } else {
+             throw new Error(`未知参数：${name}`);
+         }
+     }
+    if (result.annotate && (!result.manifestPath || !result.annotationPlanPath)) {
+        throw new Error("--annotate 必须同时提供 --manifest 和 --annotation-plan。");
+    }
+     return result;
+ }
+/** 只向隔离 State Root 写入教程示例；不会读取或修改真实用户配置。 */
+async function prepareTutorialStateRoot(stateRoot: string, _mode: "product" | "source-dev"): Promise<void> {
+    const configRoot = resolve(stateRoot, "workspace", ".nbook");
+    await mkdir(configRoot, {recursive: true});
+    const config = {
+        models: {
+            default: "deepseek/deepseek-chat",
+            providers: [{
+                id: "deepseek",
+                name: "DeepSeek",
+                enabled: true,
+                modelApi: "openai-completions",
+                options: {
+                    apiKey: "tutorial-placeholder-not-secret",
+                    baseURL: "https://api.deepseek.com/v1",
+                    proxy: "",
+                    timeoutMs: 180000,
+                    requestOptions: {},
+                },
+                models: [{
+                    name: "DeepSeek Chat",
+                    id: "deepseek-chat",
+                    group: "DeepSeek",
+                    enabled: true,
+                    api: "openai-completions",
+                    reasoning: false,
+                    input: ["text"],
+                    maxTokens: 8192,
+                    contextWindowTokens: 128000,
+                    cost: null,
+                    compat: null,
+                    headers: null,
+                    thinkingLevelMap: null,
+                }],
+            }],
+        },
+    };
+    await writeFile(resolve(configRoot, "config.json"), `${JSON.stringify(config, null, 4)}\n`, {encoding: "utf8", flag: "w"});
+}
+/** 读取视觉计划，按每个教程步骤生成独立标注 PNG，并绑定回同一次运行 manifest。 */
+async function annotateMain(options: CliOptions): Promise<number> {
+    const manifestPath = options.manifestPath!;
+    let manifest: ResearchRunManifest | null = null;
+    try {
+        manifest = parseResearchRunManifest(JSON.parse(await readFile(manifestPath, "utf8")) as unknown);
+        if (manifest.result.status !== "passed") throw new Error("当前截图运行未通过，不能继续标注。" );
+        if (manifest.evidence.profile !== "api-config-tutorial") throw new Error("当前 manifest 不是 api-config-tutorial profile。" );
+        if (manifest.evidence.annotations || manifest.evidence.tutorialSteps) throw new Error("当前 manifest 已完成标注，拒绝重复覆盖。" );
+        const plan = parseResearchVisionPlan(JSON.parse(await readFile(options.annotationPlanPath!, "utf8")) as unknown);
+        if (!plan.success || plan.profile !== "api-config-tutorial") throw new Error(plan.failureReason ?? "视觉计划未通过 api-config-tutorial 校验。" );
+        const mediaDir = resolve(resolveSettingsMediaDir(options.mediaDir));
+        await mkdir(mediaDir, {recursive: true});
+        const mediaRoot = await realpath(mediaDir);
+        const mediaBySource = mapViewportMedia(manifest);
+        if (mediaBySource.size !== manifest.browser.viewports.length) throw new Error("当前 manifest 缺少完整的视口媒体映射。");
+        const mediaFiles: string[] = [];
+        const annotations: ResearchAnnotation[] = [];
+        let totalMediaBytes = 0;
+        const mediaTargetByStep = new Map<string, string>();
+        if (plan.tutorialSteps.length > MAX_MEDIA_COUNT) throw new Error("教程步骤媒体数量超过上限。");
+        const regionsById = new Map(plan.regions.map((region) => [region.id, region]));
+        for (const [index, step] of plan.tutorialSteps.entries()) {
+            const region = regionsById.get(step.regionId);
+            const sourceMedia = mediaBySource.get(step.source);
+            if (!region || !sourceMedia) throw new Error(`教程步骤无法绑定截图或区域：${step.id}`);
+            const stepSlug = safeStepSlug(step.id);
+            const target = resolve(mediaRoot, `${manifest.runId}-tutorial-step-${String(index + 1).padStart(2, "0")}-${stepSlug}.png`);
+            assertContained(mediaRoot, target, "教程步骤媒体根");
+            await renderAnnotatedPng(sourceMedia, target, region.marks);
+            const actual = await validateGeneratedPng(target, mediaRoot);
+            const size = (await stat(actual)).size;
+            if (mediaFiles.includes(actual)) throw new Error(`教程步骤媒体路径重复：${step.id}`);
+            if (mediaFiles.length >= MAX_MEDIA_COUNT) throw new Error("教程步骤媒体数量超过上限。");
+            if (totalMediaBytes + size > MAX_TOTAL_MEDIA_BYTES) throw new Error("教程步骤截图总大小超过 16 MiB。");
+            totalMediaBytes += size;
+            mediaFiles.push(actual);
+            mediaTargetByStep.set(step.id, actual);
+            annotations.push({stepId: step.id, mediaFile: actual, source: step.source, profile: plan.profile, marks: region.marks});
         }
+        const tutorialSteps: ResearchTutorialStep[] = plan.tutorialSteps.map((step) => {
+            const mediaFile = mediaTargetByStep.get(step.id);
+            if (!mediaFile) throw new Error(`教程步骤没有独立媒体产物：${step.id}`);
+            return {
+                id: step.id,
+                title: step.title,
+                instruction: step.instruction,
+                source: step.source,
+                mediaFile,
+            };
+        });
+        const updated = parseResearchRunManifest({
+            ...manifest,
+            evidence: {
+                ...manifest.evidence,
+                mediaFiles,
+                annotations,
+                tutorialSteps,
+            },
+        });
+        await writeResearchRunManifest(manifestPath, updated);
+        process.stdout.write(`result=passed\nmanifest=${manifestPath}\n`);
+        for (const mediaFile of mediaFiles) process.stdout.write(`MEDIA:${mediaFile}\n`);
+        return 0;
+    } catch (error) {
+        if (manifest) {
+            const invalidated = parseResearchRunManifest({
+                ...manifest,
+                evidence: {...manifest.evidence, mediaFiles: []},
+                result: {status: "unverified", reason: `标注失败：${safeError(error)}`},
+            });
+            await writeResearchRunManifest(manifestPath, invalidated).catch(() => undefined);
+        }
+        process.stdout.write(`result=unverified\nmanifest=${manifestPath}\n`);
+        return 2;
+    }
+}
+
+function mapViewportMedia(manifest: ResearchRunManifest): Map<string, string> {
+    const result = new Map<string, string>();
+    for (const [index, viewport] of manifest.browser.viewports.entries()) {
+        const suffix = `-${basename(viewport.screenshot)}`;
+        const matches = manifest.evidence.mediaFiles.filter((candidate) => candidate.endsWith(suffix));
+        const mediaFile = matches.length === 1 ? matches[0] : manifest.evidence.mediaFiles[index];
+        if (mediaFile) result.set(viewport.screenshot, mediaFile);
     }
     return result;
 }
+
+function safeStepSlug(stepId: string): string {
+    const slug = stepId.replace(/[^A-Za-z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 48);
+    return slug || "step";
+}
+
+
+async function renderAnnotatedPng(source: string, target: string, marks: readonly ResearchAnnotationMark[]): Promise<void> {
+    const metadata = await sharp(source, {failOn: "error"}).metadata();
+    const width = metadata.width;
+    const height = metadata.height;
+    if (!width || !height || width < 1 || height < 1) throw new Error(`截图尺寸无效：${source}`);
+    const overlay = Buffer.from(annotationSvg(width, height, marks), "utf8");
+    await sharp(source, {failOn: "error"})
+        .composite([{input: overlay, blend: "over"}])
+        .png()
+        .toFile(target);
+}
+
+function annotationSvg(width: number, height: number, marks: readonly ResearchAnnotationMark[]): string {
+    const body = marks.map((mark) => {
+        const x = clamp(mark.x, 0, 1) * width;
+        const y = clamp(mark.y, 0, 1) * height;
+        if (mark.kind === "rectangle") {
+            const markWidth = clamp(mark.width ?? 0, 0, 1) * width;
+            const markHeight = clamp(mark.height ?? 0, 0, 1) * height;
+            return `<rect x="${x}" y="${y}" width="${markWidth}" height="${markHeight}" rx="12" fill="none" stroke="#e53935" stroke-width="6"/>`;
+        }
+        if (mark.kind === "arrow") {
+            const toX = clamp(mark.toX ?? mark.x, 0, 1) * width;
+            const toY = clamp(mark.toY ?? mark.y, 0, 1) * height;
+            return `<line x1="${x}" y1="${y}" x2="${toX}" y2="${toY}" stroke="#1565c0" stroke-width="8" stroke-linecap="round" marker-end="url(#arrow)"/>`;
+        }
+        const text = escapeXml(mark.text ?? "");
+        const boxWidth = Math.min(width * 0.42, Math.max(180, (mark.text?.length ?? 0) * 24 + 40));
+        const boxHeight = 52;
+        const boxX = clamp(x, 8, Math.max(8, width - boxWidth - 8));
+        const boxY = clamp(y, 8, Math.max(8, height - boxHeight - 8));
+        return `<g><rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="10" fill="#111827" fill-opacity="0.92"/><text x="${boxX + 18}" y="${boxY + 33}" fill="#ffffff" font-size="24" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">${text}</text></g>`;
+    }).join("");
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#1565c0"/></marker></defs>${body}</svg>`;
+}
+
+async function validateGeneratedPng(target: string, mediaRoot: string): Promise<string> {
+    const actual = await realpath(target);
+    assertContained(mediaRoot, actual, "标注媒体根");
+    const bytes = await readFile(actual);
+    if (!bytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) throw new Error(`标注产物不是 PNG：${actual}`);
+    const info = await stat(actual);
+    if (info.size < PNG_MAGIC.length || info.size > MAX_IMAGE_BYTES) throw new Error(`标注产物大小无效：${actual}`);
+    return actual;
+}
+
+function escapeXml(value: string): string {
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+    return Math.min(maximum, Math.max(minimum, value));
+}
+
 
 async function capturePreview(
     browser: Browser,
@@ -268,6 +491,7 @@ async function capturePreview(
     evidenceDir: string,
     desktopScreenshot: string,
     mobileScreenshot: string,
+    profile: ScreenshotProfile,
 ): Promise<BrowserCapture> {
     const viewports: ResearchRunManifest["browser"]["viewports"] = [];
     const criticalFailures: string[] = [];
@@ -285,7 +509,7 @@ async function capturePreview(
             const attemptFailures: string[] = [];
             try {
                 const page = await context.newPage();
-                const pageResult = await capturePage(page, `${baseUrl}${ENTRY_PATH}`, join(evidenceDir, capture.screenshot), attemptFailures);
+                const pageResult = await capturePage(page, `${baseUrl}${ENTRY_PATH}`, join(evidenceDir, capture.screenshot), attemptFailures, profile);
                 if (attempt < 4 && isTransientOptimizeFailure(attemptFailures)) {
                     await delay(4_000);
                     continue;
@@ -324,11 +548,79 @@ async function capturePreview(
     };
 }
 
+/** 将真实设置表单从内部滚动容器展开，确保教程 PNG 同时呈现连接字段和模型条目。 */
+async function expandTutorialScreenshot(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        const surface = document.querySelector<HTMLElement>("[data-dialog-surface]");
+        const overlay = surface?.parentElement;
+        if (!surface || !overlay) throw new Error("设置教程截图缺少 Dialog surface。");
+
+        const viewportWidth = window.innerWidth;
+        const horizontalPadding = viewportWidth < 640 ? 16 : 24;
+        const surfaceWidth = Math.max(0, viewportWidth - horizontalPadding * 2);
+        overlay.style.position = "relative";
+        overlay.style.display = "flex";
+        overlay.style.alignItems = "flex-start";
+        overlay.style.justifyContent = "center";
+        overlay.style.width = `${viewportWidth}px`;
+        overlay.style.maxWidth = `${viewportWidth}px`;
+        overlay.style.padding = "32px 0";
+        overlay.style.boxSizing = "border-box";
+        overlay.style.overflowX = "hidden";
+        surface.style.width = `${surfaceWidth}px`;
+        surface.style.maxWidth = `${surfaceWidth}px`;
+        surface.style.minWidth = "0";
+        surface.style.height = "auto";
+        surface.style.maxHeight = "none";
+        surface.style.overflow = "visible";
+
+        const body = surface.children[1] as HTMLElement | undefined;
+        if (body) {
+            body.style.height = "auto";
+            body.style.maxHeight = "none";
+            body.style.flex = "none";
+            body.style.overflowY = "visible";
+        }
+
+        // 先打开真正的纵向滚动节点，再让其 flex/grid 父节点重新计算高度；不改写所有 flex-1，避免移动端横向布局被撑开。
+        for (const element of surface.querySelectorAll<HTMLElement>("*")) {
+            const computed = getComputedStyle(element);
+            if (computed.overflowY === "auto" || computed.overflowY === "scroll") {
+                element.style.overflowY = "visible";
+                element.style.maxHeight = "none";
+            }
+            element.style.minWidth = "0";
+            if (element.scrollWidth > element.clientWidth + 1) {
+                element.style.maxWidth = "100%";
+            }
+        }
+        for (const element of surface.querySelectorAll<HTMLElement>("*")) {
+            const computed = getComputedStyle(element);
+            if (element.scrollHeight > element.clientHeight + 1 && (computed.overflowY !== "visible" || computed.overflow === "hidden")) {
+                element.style.overflowY = "visible";
+                element.style.maxHeight = "none";
+                if (computed.display === "flex" || computed.display === "grid") element.style.height = "auto";
+            }
+        }
+
+        const expandedHeight = Math.max(surface.scrollHeight, surface.getBoundingClientRect().height);
+        overlay.style.minHeight = `${expandedHeight + 64}px`;
+        overlay.style.height = `${expandedHeight + 64}px`;
+        document.documentElement.style.width = `${viewportWidth}px`;
+        document.documentElement.style.maxWidth = `${viewportWidth}px`;
+        document.documentElement.style.overflowX = "hidden";
+        document.body.style.width = `${viewportWidth}px`;
+        document.body.style.maxWidth = `${viewportWidth}px`;
+        document.body.style.minHeight = `${expandedHeight + 64}px`;
+        document.body.style.overflowX = "hidden";
+    });
+}
 async function capturePage(
     page: Page,
     url: string,
     screenshotPath: string,
     criticalFailures: string[],
+    profile: ScreenshotProfile,
 ): Promise<{consoleErrors: number; pageErrors: number; horizontalOverflow: boolean}> {
     let currentFailures: string[] = [];
     let currentConsoleErrors = 0;
@@ -378,8 +670,19 @@ async function capturePage(
                     const surface = document.querySelector<HTMLElement>("[data-dialog-surface]");
                     return Boolean(surface && (surface.innerText.trim().length >= 200));
                 }, {timeout: 60_000});
+                if (profile === "api-config-tutorial") {
+                    await page.waitForFunction(() => {
+                        const text = document.body.innerText;
+                        return text.includes("DeepSeek")
+                            && text.includes("API Base")
+                            && text.includes("API Key")
+                            && text.includes("OpenAI Completions")
+                            && text.includes("deepseek-chat");
+                    }, {timeout: 60_000});
+                }
                 await page.waitForLoadState("load", {timeout: 30_000});
                 await page.waitForTimeout(1_500);
+                if (profile === "api-config-tutorial") await expandTutorialScreenshot(page);
                 await page.screenshot({path: screenshotPath, fullPage: true});
                 const dimensions = await page.evaluate(() => ({
                     scrollWidth: document.documentElement.scrollWidth,
