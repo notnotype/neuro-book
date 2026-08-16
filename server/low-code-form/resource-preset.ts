@@ -1,5 +1,6 @@
 import type {LowCodeFormResolveContext} from "nbook/server/low-code-form";
 import type {ProfileHomeFacade} from "nbook/server/agent/profiles/profile-home";
+import {stripFrontmatterBody} from "nbook/server/utils/frontmatter-document";
 import type {
     ResourcePresetContent,
     ResourcePresetCreateInput,
@@ -171,8 +172,8 @@ function readMarkdownTitle(content: string): string | null {
 
 function withMarkdownTitle(content: string, title: string): string {
     const cleanTitle = title.replaceAll("\"", "\\\"");
-    if (/^---\r?\n[\s\S]*?\r?\n---\r?\n/u.test(content)) {
-        const body = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/u, "");
+    const body = stripFrontmatterBody(content);
+    if (body !== content) {
         return `---\ntitle: "${cleanTitle}"\n---\n${body.startsWith("\n") ? body : `\n${body}`}`;
     }
     return `---\ntitle: "${cleanTitle}"\n---\n\n${content}`;

@@ -66,6 +66,14 @@ export function assertNoReadonlyFrontmatterKeys(
 }
 
 /**
+ * 剥离 YAML frontmatter，仅返回正文部分；无 frontmatter 时原样返回。
+ */
+export function stripFrontmatterBody(content: string): string {
+    const match = content.match(FRONTMATTER_PATTERN);
+    return match ? match[2] ?? "" : content;
+}
+
+/**
  * 判断值是否为普通对象。
  */
 function isRecord(value: unknown): value is Record<string, unknown> {
