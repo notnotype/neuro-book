@@ -252,10 +252,10 @@ function createChooseDialogInstance(options: ChooseDialogOptions, sourceApp: Vue
                     }, options.message),
                     footer: () => options.actions.map((action) => h("button", {
                         class: action.tone === "primary"
-                            ? "inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95"
+                            ? "inline-flex items-center justify-center h-8 whitespace-nowrap px-3 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95"
                             : action.tone === "danger"
-                                ? "inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)] transition-colors duration-200 hover:bg-[var(--status-danger)] hover:text-[var(--text-inverse)] active:scale-95"
-                                : "inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95",
+                                ? "inline-flex items-center justify-center h-8 whitespace-nowrap px-3 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)] transition-colors duration-200 hover:bg-[var(--status-danger)] hover:text-[var(--text-inverse)] active:scale-95"
+                                : "inline-flex items-center justify-center h-8 whitespace-nowrap px-3 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95",
                         onClick: () => choose(action.value),
                     }, action.label)),
                 });
