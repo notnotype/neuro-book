@@ -28,6 +28,21 @@ interface ChooseDialogOptions {
     }>;
 }
 
+interface CardAction {
+    label: string;
+    value: DialogActionValue;
+    /** 图标类名（如 "i-lucide-map-pinned"），可省略。 */
+    icon?: string;
+    /** 图标容器的彩色样式类（如 workspace-entry-meta 的 iconClass），可省略。 */
+    iconClass?: string;
+}
+
+interface ChooseCardsDialogOptions {
+    message: string;
+    title?: string;
+    actions: CardAction[];
+}
+
 type VueI18nContextApp = App<Element> & {
     __VUE_I18N_SYMBOL__?: InjectionKey<object>;
     _context: {
@@ -269,6 +284,94 @@ function createChooseDialogInstance(options: ChooseDialogOptions, sourceApp: Vue
 }
 
 /**
+ * 动态创建一个卡片式多选项对话框实例，返回选中的动作值。
+ *
+ * 与 createChooseDialogInstance 的区别：选项以带图标卡片网格展示在正文，
+ * 取消通过标题栏 × / Esc / 遮罩点击完成（不混同于选项按钮）。
+ */
+function createChooseCardsDialogInstance(options: ChooseCardsDialogOptions, sourceApp: VueI18nContextApp): Promise<DialogActionValue> {
+    return new Promise((resolve) => {
+        const container = document.createElement("div");
+        const themeHost = document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`);
+        (themeHost ?? document.body).appendChild(container);
+
+        let resolved = false;
+
+        /**
+         * 销毁对话框实例和 DOM。
+         */
+        const destroy = (): void => {
+            setTimeout(() => {
+                app.unmount();
+                container.remove();
+            }, 300);
+        };
+
+        const DialogWrapper = defineComponent({
+            setup() {
+                const visible = ref(true);
+
+                /**
+                 * 关闭并返回选中的动作。
+                 */
+                const choose = (value: DialogActionValue): void => {
+                    if (resolved) {
+                        return;
+                    }
+
+                    resolved = true;
+                    visible.value = false;
+                    resolve(value);
+                    destroy();
+                };
+
+                return () => h(Dialog, {
+                    modelValue: visible.value,
+                    "onUpdate:modelValue": (val: boolean) => {
+                        visible.value = val;
+                    },
+                    title: options.title ?? "",
+                    closable: true,
+                    closeOnOverlay: true,
+                    closeOnEsc: true,
+                    showFooter: false,
+                    width: "440px",
+                    teleportTarget: false,
+                    onCancel: () => choose("cancel"),
+                    onRequestClose: () => choose("cancel"),
+                }, {
+                    default: () => [
+                        options.message ? h("p", {
+                            class: "m-0 text-sm leading-relaxed text-[var(--text-secondary)]",
+                        }, options.message) : null,
+                        h("div", {
+                            class: "mt-3 grid grid-cols-2 gap-2",
+                        }, options.actions.map((action) => h("button", {
+                            type: "button",
+                            class: "flex items-center gap-2.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2.5 text-left text-[13px] font-medium text-[var(--text-main)] transition-colors duration-150 hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] active:scale-[0.98]",
+                            onClick: () => choose(action.value),
+                        }, [
+                            action.iconClass ? h("span", {
+                                class: `flex h-8 w-8 shrink-0 items-center justify-center rounded-md border ${action.iconClass}`,
+                            }, action.icon ? h("span", {
+                                class: `h-4 w-4 ${action.icon}`,
+                            }) : undefined) : null,
+                            h("span", {
+                                class: "min-w-0 truncate",
+                            }, action.label),
+                        ]))),
+                    ],
+                });
+            },
+        });
+
+        const app = createApp(DialogWrapper);
+        inheritI18nContext(app, sourceApp);
+        app.mount(container);
+    });
+}
+
+/**
  * 通用对话框 JS API composable。
  *
  * 提供 alert / confirm / prompt 三个异步函数，
@@ -317,5 +420,20 @@ export function useDialog() {
         }, sourceApp);
     };
 
-    return { alert, confirm, prompt, choose };
+    /**
+     * 卡片式多动作选择对话框：选项以图标卡片网格展示，取消走标题栏 × 关闭。
+     */
+    const chooseCards = (
+        message: string,
+        actions: ChooseCardsDialogOptions["actions"],
+        title?: string,
+    ): Promise<DialogActionValue> => {
+        return createChooseCardsDialogInstance({
+            message,
+            title: title ?? t("dialog.chooseTitle"),
+            actions,
+        }, sourceApp);
+    };
+
+    return {alert, confirm, prompt, choose, chooseCards};
 }

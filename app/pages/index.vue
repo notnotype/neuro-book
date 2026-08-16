@@ -28,6 +28,7 @@ import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEven
 import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
+import {getWorkspaceLorebookTypeMeta} from "nbook/app/components/novel-ide/workspace/workspace-entry-meta";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
 import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
@@ -217,7 +218,7 @@ const studio = useMarkdownStudioController({
 // store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
 novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
-const {alert, choose, prompt} = useDialog();
+const {alert, choose, chooseCards, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
 const inlineEditorAgent = useInlineEditorAgentController({
@@ -2233,14 +2234,22 @@ async function createWelcomeMarkdownFile(): Promise<void> {
  * 创建欢迎页 Lorebook 条目。
  */
 async function createWelcomeLorebookEntry(): Promise<void> {
-    const selectedType = await choose(t("ide.shell.createLorebookTypePrompt"), [
-        {label: t("ide.shell.lorebookLocation"), value: "location", tone: "primary"},
-        {label: t("ide.shell.lorebookCharacter"), value: "character"},
-        {label: t("ide.shell.lorebookItem"), value: "item"},
-        {label: t("ide.shell.lorebookRule"), value: "rule"},
-        {label: t("ide.shell.lorebookNote"), value: "note"},
-        {label: t("common.cancel"), value: "cancel"},
-    ], t("ide.shell.createLorebookTitle"));
+    const typeLabelKeys: Record<WelcomeLorebookEntryType, string> = {
+        location: "ide.shell.lorebookLocation",
+        character: "ide.shell.lorebookCharacter",
+        item: "ide.shell.lorebookItem",
+        rule: "ide.shell.lorebookRule",
+        note: "ide.shell.lorebookNote",
+    };
+    const selectedType = await chooseCards(t("ide.shell.createLorebookTypePrompt"), WELCOME_LOREBOOK_ENTRY_TYPES.map((type) => {
+        const meta = getWorkspaceLorebookTypeMeta(type);
+        return {
+            label: t(typeLabelKeys[type]),
+            value: type,
+            icon: meta.icon,
+            iconClass: meta.iconClass,
+        };
+    }), t("ide.shell.createLorebookTitle"));
     if (!isWelcomeLorebookEntryType(selectedType)) {
         return;
     }
