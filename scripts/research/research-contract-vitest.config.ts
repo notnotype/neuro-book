@@ -38,7 +38,7 @@ export default defineConfig({
     resolve: {alias: {nbook: repositoryRoot}},
     test: {
         environment: "node",
-        include: ["shared/research-run-contract.test.ts"],
+        include: ["shared/research-run-contract.test.ts", "scripts/deploy/settings-screenshot.contract.test.ts"],
         globals: true,
     },
 });

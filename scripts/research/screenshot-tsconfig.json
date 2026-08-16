@@ -9,5 +9,5 @@
         "baseUrl": "../..",
         "paths": {"nbook/*": ["./*"]}
     },
-    "include": ["../deploy/plot-workbench-screenshot.ts", "../deploy/preview-runtime.ts", "../../shared/application-ready.ts", "../../shared/product-runtime-shutdown.ts", "../../shared/product-runtime-contract.ts", "../../shared/research-run-contract.ts"]
+    "include": ["../deploy/plot-workbench-screenshot.ts", "../deploy/settings-screenshot.ts", "../deploy/preview-runtime.ts", "../../shared/application-ready.ts", "../../shared/product-runtime-shutdown.ts", "../../shared/product-runtime-contract.ts", "../../shared/research-run-contract.ts"]
 }

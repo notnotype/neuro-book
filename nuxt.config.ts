@@ -58,6 +58,7 @@ export default defineNuxtConfig({
                 "./app/app.vue",
                 "./app/pages/index.vue",
                 "./app/pages/plot-workbench.preview.vue",
+                "./app/pages/settings.preview.vue",
             ],
             include: [
                 "@dnd-kit/dom",

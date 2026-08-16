@@ -11,6 +11,7 @@
 - 已在 `feat/t149-repository-screenshot-runner` worktree 实现 Product-first/Source Dev fallback supervisor、隔离 State/Cache、动态 loopback 端口、lease、owner heartbeat、启动 nonce、memory-only shutdown token 和 graceful→forced 关闭收口。
 - 已实现 `nbook.repository-research-run/v1` 严格 manifest 与原子写入；环境阻塞时允许 `browser.executable: null`、`service.cleanup: not-started`，不得声称通过。
 - 已实现 `plot-workbench:screenshot`：同一 runtime 使用 `1440×1000` 与 `390×844` context，访问真实 `/plot-workbench.preview`，校验页面、正文文本和 Scene selector，验证 PNG 后复制到显式媒体根并输出 `MEDIA:`。
+- 已新增 `settings:screenshot` 与 `scripts/research/settings-preview.profile.json`：设置页必须通过 `--media-dir` 显式指向 Hermes 既有媒体根，禁止因隔离 `HERMES_HOME` 回退到任务临时目录；页面使用独立 `/settings.preview` 和 opaque Dialog，避免主页提示框叠加。
 - 已实现 Product stage `cleanup`，按 owner、operation ID、lease、pointer 与 `.agent` containment 校验后清理。
 - Hermes 插件已注册通用 `repository-research` Skill，并补齐 fake context 注册断言和 integration smoke 的 Skill 能力断言。
 
@@ -20,7 +21,8 @@
 2. 用现有 `@notnotype/owned-process`、`waitForApplicationReady` 和 `shutdownNativeProduct` 组合 supervisor；不复制进程树管理、端口杀进程或关闭协议。每个任务独立 lease、State/Cache、动态 loopback 端口和 token；Product stage 成功后只启动 Product，`auto` 只在 Product 不可用/启动失败时 fallback 一次。
 3. 用 `shared/research-run-contract.ts` 收紧 manifest 的 schema、枚举、路径 containment、loopback URL、PNG/media 限制和敏感字段边界；显式浏览器缺失在服务启动前写 `environment-blocked` manifest。
 4. 让截图 runner 对真实页面的 HTTP、`.plot-workbench-preview-page`、`剧本工作台`、`[data-workbench-scene-id]`、console/page/resource failure 和 PNG magic 做行为门禁；首次 Vite `504 Outdated Optimize Dep` 仅做有限新 context 重试，不换备用页面。
-5. 把 NeuroBook 命令放入 `scripts/research/plot-workbench-preview.profile.json`，把跨项目 SOP 放入 Hermes `skills/repository-research/SKILL.md`；Skill 不包含 QQ、OneBot 或 NeuroBook 专属命令，既有权限边界未改。
+5. 设置截图 adapter 对临时 `HERMES_HOME` fail-closed：没有显式绝对 `--media-dir` 就不启动截图任务；已知 Vite `net::ERR_ABORTED` 优化依赖只作为可恢复事件保留在 `browser-events.json`，非 transient 的脚本、样式、console/page 错误仍使结果失败。
+6. 把 NeuroBook 命令放入 `scripts/research/plot-workbench-preview.profile.json` 与 `scripts/research/settings-preview.profile.json`，把跨项目 SOP 放入 Hermes `skills/repository-research/SKILL.md`；Skill 不包含 QQ、OneBot 或 NeuroBook 专属命令，既有权限边界未改。
 
 ## 已验证证据
 
