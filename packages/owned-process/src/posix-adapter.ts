@@ -68,6 +68,10 @@ export function spawnPosixOwnedProcess(spec: OwnedProcessSpec, options: PosixAda
             });
             return;
         }
+        if (signal) {
+            settle({exitCode: code, signal, terminationReason: "cancel"});
+            return;
+        }
         rejectOnce(new OwnedProcessError(
             `POSIX监督进程未报告目标终态：code=${code ?? "null"} signal=${signal ?? "null"}`,
             {stage: "supervisor-close"},

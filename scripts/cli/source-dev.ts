@@ -2,7 +2,6 @@
 import {randomBytes} from "node:crypto";
 import {resolve} from "node:path";
 import {spawnOwnedProcess, type OwnedProcessCompletion} from "@notnotype/owned-process";
-import {shutdownNativeProduct} from "nbook/shared/product-runtime-shutdown";
 import {
     PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
     PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT,
@@ -47,7 +46,7 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
     });
     const completion = lease.completion.then(productExit);
     let signalCount = 0;
-    let shutdownPromise: Promise<"graceful" | "forced"> | null = null;
+    let shutdownPromise: Promise<"forced"> | null = null;
     let forcedShutdownPromise: Promise<"forced"> | null = null;
     let rejectShutdownFailure!: (error: unknown) => void;
     const shutdownFailure = new Promise<never>((_resolve, reject) => {
@@ -57,15 +56,7 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
     const requestShutdown = (): void => {
         signalCount += 1;
         if (signalCount === 1) {
-            shutdownPromise = shutdownNativeProduct({
-                port,
-                token,
-                host: sourceDevLoopbackHost(configuredHost),
-                completion,
-                forceTerminate: async () => {
-                    await lease.terminate("shutdown");
-                },
-            });
+            shutdownPromise = lease.terminate("shutdown").then(() => "forced" as const);
             void shutdownPromise.catch(rejectShutdownFailure);
             return;
         }
@@ -93,14 +84,6 @@ export async function runSourceDev(options: SourceDevOptions = {}): Promise<numb
         process.off("SIGINT", requestShutdown);
         process.off("SIGTERM", requestShutdown);
     }
-}
-
-/** 将Source Dev监听配置收窄为认证shutdown允许使用的loopback地址。 */
-function sourceDevLoopbackHost(host: string | undefined): "127.0.0.1" | "localhost" | "[::1]" {
-    const normalized = host?.toLocaleLowerCase("en-US").replace(/^\[|\]$/gu, "");
-    if (normalized === "localhost") return "localhost";
-    if (normalized === "::" || normalized === "::1") return "[::1]";
-    return "127.0.0.1";
 }
 
 /** Source Dev 继续沿用 Nuxt 的 NUXT_PORT/PORT/default 解析顺序。 */

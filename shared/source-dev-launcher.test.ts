@@ -8,14 +8,10 @@ import {
 
 const mocks = vi.hoisted(() => ({
     spawnOwnedProcess: vi.fn(),
-    shutdownNativeProduct: vi.fn(),
 }));
 
 vi.mock("@notnotype/owned-process", () => ({
     spawnOwnedProcess: mocks.spawnOwnedProcess,
-}));
-vi.mock("nbook/shared/product-runtime-shutdown", () => ({
-    shutdownNativeProduct: mocks.shutdownNativeProduct,
 }));
 
 import {runSourceDev} from "nbook/scripts/cli/source-dev";
@@ -69,11 +65,10 @@ describe("Source Dev launcher", () => {
         }));
     });
 
-    it("首次信号只请求共享graceful shutdown并等待Product终态", async () => {
+    it("首次信号直接调用lease.terminate，不尝试HTTP graceful", async () => {
         const terminal = deferred<OwnedProcessCompletion>();
         const ownedLease = lease(terminal.promise);
         mocks.spawnOwnedProcess.mockReturnValue(ownedLease);
-        mocks.shutdownNativeProduct.mockResolvedValue("graceful");
         const before = new Set(process.listeners("SIGINT"));
         const running = runSourceDev({env: {PORT: "43131"}});
 
@@ -81,33 +76,30 @@ describe("Source Dev launcher", () => {
         terminal.resolve({exitCode: 0, signal: null});
 
         await expect(running).resolves.toBe(0);
-        expect(mocks.shutdownNativeProduct).toHaveBeenCalledWith(expect.objectContaining({
-            port: 43131,
-            host: "127.0.0.1",
-            completion: expect.any(Promise),
-            forceTerminate: expect.any(Function),
-        }));
-        expect(ownedLease.terminate).not.toHaveBeenCalled();
+        expect(ownedLease.terminate).toHaveBeenCalledWith("shutdown");
     });
 
-    it("显式localhost监听时graceful shutdown使用同一loopback地址", async () => {
+    it("首次信号后租约已终止时，第二次信号保持幂等", async () => {
         const terminal = deferred<OwnedProcessCompletion>();
-        mocks.spawnOwnedProcess.mockReturnValue(lease(terminal.promise));
-        mocks.shutdownNativeProduct.mockResolvedValue("graceful");
+        const ownedLease = lease(terminal.promise);
+        mocks.spawnOwnedProcess.mockReturnValue(ownedLease);
         const before = new Set(process.listeners("SIGINT"));
-        const running = runSourceDev({env: {PORT: "43134", HOST: "localhost"}});
+        const running = runSourceDev({env: {PORT: "43132"}});
+        const signal = addedSignalListener("SIGINT", before);
 
-        addedSignalListener("SIGINT", before)();
+        signal();
+        signal();
+        signal();
         terminal.resolve({exitCode: 0, signal: null});
 
         await expect(running).resolves.toBe(0);
-        expect(mocks.shutdownNativeProduct).toHaveBeenCalledWith(expect.objectContaining({host: "localhost"}));
+        expect(ownedLease.terminate).toHaveBeenCalledTimes(1);
+        expect(ownedLease.terminate).toHaveBeenCalledWith("shutdown");
     });
 
     it("shutdown竞态中Product以75退出时保留专用退出码", async () => {
         const terminal = deferred<OwnedProcessCompletion>();
         mocks.spawnOwnedProcess.mockReturnValue(lease(terminal.promise));
-        mocks.shutdownNativeProduct.mockResolvedValue("forced");
         const before = new Set(process.listeners("SIGINT"));
         const running = runSourceDev({env: {PORT: "43135"}});
 
@@ -120,36 +112,12 @@ describe("Source Dev launcher", () => {
         await expect(running).resolves.toBe(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
     });
 
-    it("第二次信号幂等地立即强制收口，不等待仍挂起的graceful请求", async () => {
+    it("lease.terminate失败时直接向CLI传播错误", async () => {
         const terminal = deferred<OwnedProcessCompletion>();
-        const graceful = deferred<"graceful" | "forced">();
+        const failure = new Error("terminate failed");
         const ownedLease = lease(terminal.promise);
-        vi.mocked(ownedLease.terminate).mockResolvedValue({
-            exitCode: null,
-            signal: "SIGTERM",
-            terminationReason: "shutdown",
-        });
+        vi.mocked(ownedLease.terminate).mockRejectedValue(failure);
         mocks.spawnOwnedProcess.mockReturnValue(ownedLease);
-        mocks.shutdownNativeProduct.mockReturnValue(graceful.promise);
-        const before = new Set(process.listeners("SIGINT"));
-        const running = runSourceDev({env: {PORT: "43132"}});
-        const signal = addedSignalListener("SIGINT", before);
-
-        signal();
-        signal();
-        signal();
-        terminal.resolve({exitCode: null, signal: "SIGTERM", terminationReason: "shutdown"});
-
-        await expect(running).resolves.toBe(0);
-        expect(ownedLease.terminate).toHaveBeenCalledTimes(1);
-        expect(ownedLease.terminate).toHaveBeenCalledWith("shutdown");
-    });
-
-    it("graceful和force均失败时立即向CLI传播AggregateError", async () => {
-        const terminal = deferred<OwnedProcessCompletion>();
-        const failure = new AggregateError([new Error("graceful"), new Error("force")], "shutdown failed");
-        mocks.spawnOwnedProcess.mockReturnValue(lease(terminal.promise));
-        mocks.shutdownNativeProduct.mockRejectedValue(failure);
         const before = new Set(process.listeners("SIGTERM"));
         const running = runSourceDev({env: {PORT: "43133"}});
 

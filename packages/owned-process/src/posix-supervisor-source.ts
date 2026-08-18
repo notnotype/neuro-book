@@ -28,6 +28,12 @@ process.on("message", (message) => {
 process.on("disconnect", () => {
     if (!finished) terminate("host-disconnect");
 });
+process.on("SIGINT", () => {
+    if (payload && !finished) terminate("cancel");
+});
+process.on("SIGTERM", () => {
+    if (payload && !finished) terminate("cancel");
+});
 
 /** 目标以独立 process group 启动，监督器只转发 stdio 与终态。 */
 function start(message) {
