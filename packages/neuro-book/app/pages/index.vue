@@ -1310,6 +1310,9 @@ const openProjectFromPicker = async (projectRoot: string): Promise<void> => {
  * 因此其它窗口仍能继续持有同一个 Project。取消时保持 URL 原样，不留下多余的历史记录。
  */
 const openProjectPicker = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value) {
+        await releaseProjectSurface();
+    }
     await router.push("/");
 };
 
