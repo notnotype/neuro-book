@@ -361,7 +361,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
             </div>
 
             <div class="shrink-0 border-b border-[var(--border-color)]">
-                <div class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
+                <div v-if="!props.userAssetsMode" class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
                     <Tooltip :text="t('ide.header.bookshelfTitle')" placement="bottom">
                         <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('openHome')">
                             <span class="i-lucide-library h-4 w-4"></span>
@@ -382,7 +382,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                             <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
                         </button>
                     </Dropdown>
-                    <div v-else class="min-w-0 flex-1 truncate px-2 text-xs text-[var(--text-secondary)]">{{ props.workspaceTitle }}</div>
+
                 </div>
 
                 <div class="flex items-center justify-between px-3 py-2">
