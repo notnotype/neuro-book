@@ -40,7 +40,7 @@ const {isDragging} = useDraggable({
         </span>
         <span class="min-w-0 flex-1">
             <span class="block truncate text-xs font-semibold text-[var(--text-main)]">{{ props.label }}</span>
-            <span class="mt-1 block text-[11px] leading-4 text-[var(--text-muted)]">{{ props.description }}</span>
+            <span class="mt-1 block break-words text-[11px] leading-4 text-[var(--text-muted)]">{{ props.description }}</span>
         </span>
     </button>
 </template>

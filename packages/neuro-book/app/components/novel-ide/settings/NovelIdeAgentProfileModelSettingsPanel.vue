@@ -589,8 +589,10 @@ defineExpose({
 
 <template>
     <!-- Agent Profile 模型设置 -->
-    <div class="space-y-4 pt-1">
-        <div class="flex flex-wrap items-center justify-between gap-4">
+    <!-- xl 下面板绝对定位铺满 section 可视区（包含块 = L888 的 relative section），标题固定，双栏各自独立滚动；
+         若用 h-full 百分比链，滚动容子元素的百分比高度会退化为内容高度导致约束失效。小屏（<xl）保持自然流 + 外层滚动。 -->
+    <div class="space-y-4 pt-1 xl:absolute xl:inset-0 xl:flex xl:flex-col">
+        <div class="flex shrink-0 flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
                 <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? t("settings.panels.profileModels.projectTitle") : t("settings.panels.profileModels.globalTitle") }}</h3>
                 <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.profileModels.projectDescription", {target: props.targetLabel || t("settings.panels.profileModels.currentProject")}) : t("settings.panels.profileModels.globalDescription") }}</p>
@@ -622,8 +624,8 @@ defineExpose({
             <span class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.loading") }}</span>
         </div>
 
-        <!-- 二级导航 + 详情双栏 -->
-        <div v-else class="grid min-h-[500px] gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
+        <!-- 二级导航 + 详情双栏：xl 下两栏各自 overflow 滚动；aside 需 min-h-0 解除 grid item 自动最小尺寸，否则行高被内容撑开 -->
+        <div v-else class="grid gap-5 xl:min-h-0 xl:flex-1 xl:grid-cols-[240px_minmax(0,1fr)]">
             <AgentProfileNavList
                 :items="navItems"
                 :active-key="activeNavKey"
@@ -633,7 +635,7 @@ defineExpose({
                 @update:search="navSearch = $event"
             />
 
-            <div class="relative min-w-0">
+            <div class="relative min-w-0 xl:overflow-y-auto">
                 <Transition name="fade-slide" mode="out-in">
                     <!-- Transition 的直接子节点必须是元素，不能直接放子组件：子组件只要编译成 Fragment 根（模板根注释就会），out-in 的离场方拿不到 afterLeave，会永久卡在 isLeaving 只渲染空占位。包一层后子组件根是什么形状都无所谓。 -->
                     <!-- 单个 Profile 详情 -->
