@@ -46,7 +46,7 @@ ENV NEURO_BOOK_SOURCE_REVISION=${NEURO_BOOK_SOURCE_REVISION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN bun run --cwd packages/neuro-agent-harness build
-RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build
+RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run --cwd packages/neuro-book nuxt:build
 RUN test -f .output/runtime-image.json && test -f .output/runtime-image.ready
 
 FROM runtime-base AS runner

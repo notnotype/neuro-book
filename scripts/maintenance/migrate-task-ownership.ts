@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-import {createHash, randomBytes} from "node:crypto";
+import {randomBytes} from "node:crypto";
 import {existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync} from "node:fs";
-import {resolve} from "node:path";
+import {relative, resolve, sep} from "node:path";
 
 import {resolveAgentRunRoot} from "@notnotype/neuro-book-test-support/paths";
-import {APPLICATION_TASK_OWNER_ROOT, ROOT_TASK_OWNER_ROOT, type TaskOwnershipManifest, defaultRepoRoot, git, gitRevision} from "#scripts/ci/agent-governance-contract";
+import {APPLICATION_TASK_OWNER_ROOT, ROOT_TASK_OWNER_ROOT, canonicalSha256, defaultRepoRoot, git, gitRevision, readGitTextAttributes, type TaskOwnershipManifest} from "#scripts/ci/agent-governance-contract";
 
 type Mapping = {
     source: string;
@@ -21,6 +21,7 @@ type LegacyIndex = {
     fileCount: number;
     manifestSha256: string;
     mappings: Mapping[];
+    localOnlyFiles: string[];
 };
 
 type MovePlan = {taskId: string; from: string; to: string};
@@ -71,9 +72,6 @@ const ownershipPath = resolve(repoRoot, ".agents", "tasks", "ownership.json");
 const blockers: Finding[] = [];
 const warnings: Finding[] = [];
 
-function hashFile(path: string): string {
-    return `sha256:${createHash("sha256").update(readFileSync(path)).digest("hex")}`;
-}
 
 function relativeTaskPath(mapping: Mapping): string {
     const prefix = ".agents/tasks/";
@@ -124,10 +122,11 @@ function buildOwnership(index: LegacyIndex): TaskOwnershipManifest {
     };
 }
 
-function inspectTaskFiles(index: LegacyIndex, ownership: TaskOwnershipManifest): void {
+function inspectTaskFiles(index: LegacyIndex, ownership: TaskOwnershipManifest, textAttributes: ReadonlyMap<string, string>): void {
     const appSet = new Set<string>(APPLICATION_TASK_IDS);
     const ownershipByPath = new Map(ownership.tasks.flatMap((task) => task.files.map((file) => [file.legacyDestination, file] as const)));
     for (const mapping of index.mappings) {
+        if (index.localOnlyFiles.includes(mapping.source)) continue;
         const taskId = taskIdOf(mapping);
         const ownerRoot = appSet.has(taskId) ? APPLICATION_TASK_OWNER_ROOT : ROOT_TASK_OWNER_ROOT;
         const relativePath = relativeTaskPath(mapping);
@@ -141,7 +140,10 @@ function inspectTaskFiles(index: LegacyIndex, ownership: TaskOwnershipManifest):
             continue;
         }
         if (existsSync(desiredAbsolute) && existsSync(alternateAbsolute)) blockers.push({path: desired, reason: "Task 文件在双 root 重复存在"});
-        if (hashFile(actualPath) !== mapping.destinationSha256) blockers.push({path: actualPath, reason: "当前 bytes 不等于 legacy destination SHA-256"});
+        const actualRelativePath = relative(repoRoot, actualPath).replaceAll(sep, "/");
+        if (canonicalSha256(readFileSync(actualPath), textAttributes.get(actualRelativePath) ?? "unspecified") !== mapping.destinationSha256) {
+            blockers.push({path: actualPath, reason: "当前 canonical bytes 不等于 legacy destination SHA-256"});
+        }
         if (appSet.has(taskId) && !ownershipByPath.has(mapping.destination)) blockers.push({path: mapping.destination, reason: "应用 Task 未登记 ownership 文件"});
     }
 }
@@ -161,15 +163,17 @@ function applyMoves(moves: readonly MovePlan[]): void {
 
 function main(): void {
     mkdirSync(runRoot, {recursive: true});
-    const index = JSON.parse(readFileSync(indexPath, "utf8")) as LegacyIndex;
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as Partial<LegacyIndex>;
     if (index.schema !== "nbook.task-migration-index/v1") blockers.push({path: ".agents/tasks/legacy-index.json", reason: "schema 不匹配"});
     if (!Array.isArray(index.mappings)) blockers.push({path: ".agents/tasks/legacy-index.json", reason: "mappings 不是数组"});
+    if (!Array.isArray(index.localOnlyFiles)) blockers.push({path: ".agents/tasks/legacy-index.json", reason: "localOnlyFiles 不是数组"});
     if (blockers.length > 0) {
         writeReport(null, [], "blocked");
         process.exitCode = 1;
         return;
     }
-    const ownership = buildOwnership(index);
+    const validIndex = index as LegacyIndex;
+    const ownership = buildOwnership(validIndex);
     if (ownership.taskCount !== APPLICATION_TASK_IDS.length) blockers.push({path: ownershipPath, reason: `应用 Task 数量错误：${ownership.taskCount} != ${APPLICATION_TASK_IDS.length}`});
     if (ownership.fileCount !== 855) blockers.push({path: ownershipPath, reason: `应用 Task 文件数量错误：${ownership.fileCount} != 855`});
     addSetDifference(directTaskDirectories(APPLICATION_TASK_OWNER_ROOT), APPLICATION_TASK_IDS, APPLICATION_TASK_OWNER_ROOT);
@@ -187,7 +191,14 @@ function main(): void {
         const to = taskRoot(ROOT_TASK_OWNER_ROOT, taskId);
         if (existsSync(resolve(repoRoot, from)) && !existsSync(resolve(repoRoot, to))) moves.push({taskId, from, to});
     }
-    inspectTaskFiles(index, ownership);
+    const canonicalPaths = validIndex.mappings.flatMap((mapping) => {
+        if (validIndex.localOnlyFiles.includes(mapping.source)) return [];
+        const taskId = taskIdOf(mapping);
+        const ownerRoot = APPLICATION_TASK_IDS.includes(taskId as typeof APPLICATION_TASK_IDS[number]) ? APPLICATION_TASK_OWNER_ROOT : ROOT_TASK_OWNER_ROOT;
+        return [`${ownerRoot}/${relativeTaskPath(mapping)}`];
+    });
+    const textAttributes = readGitTextAttributes(repoRoot, canonicalPaths);
+    inspectTaskFiles(validIndex, ownership, textAttributes);
     collectExternalTaskLinks();
     const report = {
         schema: "nbook.task-ownership-migration-report/v1",

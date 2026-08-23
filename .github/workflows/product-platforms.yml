@@ -96,7 +96,7 @@ jobs:
         run: bun run --cwd packages/owned-process test
       - name: Build approved Product Runtime Image
         if: steps.runtime_policy.outputs.registered == 'true'
-        run: bun --cwd packages/neuro-book run nuxt:build
+        run: bun run --cwd packages/neuro-book nuxt:build
       - name: Build Source archive for native verification
         if: steps.runtime_policy.outputs.registered == 'true'
         run: bun run release:source

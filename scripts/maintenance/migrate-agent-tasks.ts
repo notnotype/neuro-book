@@ -2,8 +2,8 @@
 import {createHash, randomBytes} from "node:crypto";
 import {lstat, mkdir, readdir, readFile, rm, rmdir, stat, writeFile} from "node:fs/promises";
 import {dirname, relative, resolve, sep} from "node:path";
-import {defaultRepoRoot, git, gitRevision} from "#scripts/ci/agent-governance-contract";
-import { resolveAgentRunRoot } from "@notnotype/neuro-book-test-support/paths";
+import {canonicalSha256, defaultRepoRoot, git, gitRevision, readGitTextAttributes} from "#scripts/ci/agent-governance-contract";
+import {resolveAgentRunRoot} from "@notnotype/neuro-book-test-support/paths";
 
 type Mapping = {
     source: string;
@@ -71,11 +71,11 @@ function parseIncludedLocalPaths(values: string[]): Set<string> {
     return paths;
 }
 
-async function readSha256(bytesOrPath: Uint8Array | string): Promise<string> {
-    const digest = createHash("sha256");
-    digest.update(typeof bytesOrPath === "string" ? await readFile(bytesOrPath) : Buffer.from(bytesOrPath));
-    return `sha256:${digest.digest("hex")}`;
+async function rawSha256(bytesOrPath: Uint8Array | string): Promise<string> {
+    const bytes = typeof bytesOrPath === "string" ? await readFile(bytesOrPath) : bytesOrPath;
+    return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
+
 
 async function safeStat(path: string): Promise<Awaited<ReturnType<typeof stat>> | null> {
     try {
@@ -303,13 +303,13 @@ async function verifyRepositoryLinkStaging(files: readonly PreparedRepositoryLin
             blockers.push({path: repoPath(staged), reason: "仓库外部链接 staging 文件缺失"});
             continue;
         }
-        if (await readSha256(staged) !== await readSha256(file.outputBytes)) {
+        if (await rawSha256(staged) !== await rawSha256(file.outputBytes)) {
             blockers.push({path: repoPath(staged), reason: "仓库外部链接 staging SHA-256 不匹配"});
         }
     }
 }
 
-async function prepareFiles(files: SourceFile[], preservedSourcePaths: ReadonlySet<string>): Promise<PreparedFile[]> {
+async function prepareFiles(files: SourceFile[], preservedSourcePaths: ReadonlySet<string>, textAttributes: ReadonlyMap<string, string>): Promise<PreparedFile[]> {
     const prepared: PreparedFile[] = [];
     const destinations = new Map<string, string>();
     for (const file of files) {
@@ -341,7 +341,7 @@ async function prepareFiles(files: SourceFile[], preservedSourcePaths: ReadonlyS
         const existing = await safeStat(destination);
         if (existing && !existing.isFile()) {
             blockers.push({path: repoPath(destination), reason: "目标已存在且不是普通文件"});
-        } else if (existing && await readSha256(destination) !== await readSha256(outputBytes)) {
+        } else if (existing && await rawSha256(destination) !== await rawSha256(outputBytes)) {
             blockers.push({path: repoPath(destination), reason: "目标已存在但 bytes 不同"});
         }
         prepared.push({...file, destination, sourceBytes, outputBytes, linkRewrite, preserveSource: preservedSourcePaths.has(file.relative)});
@@ -395,7 +395,7 @@ async function compareWorktrees(): Promise<void> {
             const candidate = resolve(worktree.path, pathText);
             const ours = resolve(repoRoot, pathText);
             const same = await safeRegularFile(candidate) && await safeRegularFile(ours)
-                && await readSha256(candidate) === await readSha256(ours);
+                && await rawSha256(candidate) === await rawSha256(ours);
             if (!same) blockers.push({path: pathText, worktree: worktree.path, branch: worktree.branch, reason: "停工 worktree 工作区有独有 Task bytes，不能静默覆盖或合并"});
         }
         let mergeBase: string;
@@ -416,7 +416,7 @@ async function compareWorktrees(): Promise<void> {
             const candidate = resolve(worktree.path, pathText);
             const ours = resolve(repoRoot, pathText);
             const same = await safeRegularFile(candidate) && await safeRegularFile(ours)
-                && await readSha256(candidate) === await readSha256(ours);
+                && await rawSha256(candidate) === await rawSha256(ours);
             if (!same) warnings.push({path: pathText, message: `worktree committed branch 含与当前 master 不同的 Task bytes，需人工确认吸收：${worktree.path}`});
         }
     }
@@ -438,7 +438,7 @@ async function verifyStaging(prepared: PreparedFile[]): Promise<void> {
             blockers.push({path: repoPath(staged), reason: "staging 文件缺失"});
             continue;
         }
-        if (await readSha256(staged) !== await readSha256(file.outputBytes)) blockers.push({path: repoPath(staged), reason: "staging SHA-256 不匹配"});
+        if (await rawSha256(staged) !== await rawSha256(file.outputBytes)) blockers.push({path: repoPath(staged), reason: "staging SHA-256 不匹配"});
     }
 }
 
@@ -475,7 +475,7 @@ async function applyMigration(
     const preservedSourceFiles = prepared.filter((file) => file.preserveSource).map((file) => repoPath(file.absolute));
     const repositoryLinkPaths = repositoryLinkRewrites.map((file) => repoPath(file.absolute));
     const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision, mappings, repositoryLinkRewrites: repositoryLinkPaths, preservedSourceFiles};
-    const manifestSha256 = await readSha256(new TextEncoder().encode(JSON.stringify(manifest)));
+    const manifestSha256 = await rawSha256(new TextEncoder().encode(JSON.stringify(manifest)));
     await writeFile(resolve(destinationRoot, "legacy-index.json"), `${JSON.stringify({schema: "nbook.task-migration-index/v1", sourceRevision, fileCount: mappings.length, manifestSha256, migratedAt: new Date().toISOString(), mappings, repositoryLinkRewrites: repositoryLinkPaths, preservedSourceFiles, trackedFileCount, localOnlyFiles}, null, 2)}\n`, "utf8");
     await writeFile(resolve(destinationRoot, ".migration-complete"), `${JSON.stringify({schema: "nbook.task-migration/v1", sourceRevision, fileCount: mappings.length, manifestSha256, completedAt: new Date().toISOString(), repositoryLinkRewrites: repositoryLinkPaths, preservedSourceFiles, trackedFileCount, localOnlyFiles}, null, 2)}\n`, "utf8");
     for (const file of prepared) {
@@ -512,14 +512,16 @@ async function main(): Promise<void> {
         ? files.filter((file) => tracked.has(file.relative) || includedLocalSet.has(file.relative))
         : files;
     const preservedSourcePaths = new Set(includedLocalFiles.map((file) => file.relative));
-    const prepared = await prepareFiles(migrationFiles, preservedSourcePaths);
     await compareWorktrees();
+    const canonicalPaths = migrationFiles.flatMap((file) => [`docs/tasks/${file.relative}`, repoPath(destinationForRelative(file.relative))]);
+    const textAttributes = readGitTextAttributes(repoRoot, canonicalPaths);
+    const prepared = await prepareFiles(migrationFiles, preservedSourcePaths, textAttributes);
     const mappings: Mapping[] = prepared.map((file) => ({source: repoPath(file.absolute), destination: repoPath(file.destination), sourceSha256: "", destinationSha256: "", kind: "file", linkRewrite: file.linkRewrite}));
     for (let index = 0; index < prepared.length; index += 1) {
         const file = prepared[index];
         const mapping = mappings[index];
-        mapping.sourceSha256 = await readSha256(file.sourceBytes);
-        mapping.destinationSha256 = await readSha256(file.outputBytes);
+        mapping.sourceSha256 = canonicalSha256(file.sourceBytes, textAttributes.get(`docs/tasks/${file.relative}`) ?? "unspecified");
+        mapping.destinationSha256 = canonicalSha256(file.outputBytes, textAttributes.get(repoPath(file.destination)) ?? "unspecified");
     }
     const repositoryLinkRewrites = await prepareRepositoryLinkRewrites(mappings);
     const repositoryLinkPaths = repositoryLinkRewrites.map((file) => repoPath(file.absolute));
@@ -528,7 +530,7 @@ async function main(): Promise<void> {
     const trackedFileCount = prepared.filter((file) => tracked.has(file.relative)).length;
     const localOnlyFiles = includedLocalFiles.map((file) => `docs/tasks/${file.relative}`);
     const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision, mappings, repositoryLinkRewrites: repositoryLinkPaths, preservedSourceFiles};
-    const manifestSha256 = await readSha256(new TextEncoder().encode(JSON.stringify(manifest)));
+    const manifestSha256 = await rawSha256(new TextEncoder().encode(JSON.stringify(manifest)));
     const report = {schema: "nbook.task-migration-report/v1", mode: apply ? "apply" : "dry-run", repoRoot, sourceRevision, runId, stagingRoot, sourceRoot: "docs/tasks", destinationRoot: ".agents/tasks", fileCount: mappings.length, trackedFileCount, localOnlyFiles, manifestSha256, includedLocalFiles: includedLocalFiles.map((file) => `docs/tasks/${file.relative}`), preservedLocalFiles, repositoryLinkRewrites: repositoryLinkPaths, mappings, blockers, warnings};
     await mkdir(stagingRoot, {recursive: true});
     await writeFile(resolve(stagingRoot, "migration-report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");

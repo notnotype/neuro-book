@@ -70,7 +70,7 @@ jobs:
         run: bun scripts/ci/validate-nitropack-patch.ts
 
       - name: Prepare Nuxt types
-        run: bun --cwd packages/neuro-book run nuxt:prepare
+        run: bun run --cwd packages/neuro-book nuxt:prepare
 
       - name: Check documentation governance
         run: bun run docs:check

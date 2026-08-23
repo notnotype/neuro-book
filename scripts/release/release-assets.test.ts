@@ -423,7 +423,7 @@ describe("Product Release宿主合同", () => {
         expect(publicManagerVerifier).toContain('["cat-file", "-e", `${publicPackage.gitHead}^{commit}`]');
         expect(publicManagerVerifier).toContain('["fetch", "--no-tags", "origin", publicPackage.gitHead]');
         expect(publicManagerVerifier).not.toContain('"--depth=1"');
-        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun --cwd packages/neuro-book run generate");
+        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run --cwd packages/neuro-book generate");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
         const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
@@ -459,8 +459,8 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
-        expect(windowsRun.indexOf("bun --cwd packages/neuro-book run nuxt:prepare")).toBeLessThan(
+        expect(windowsRun).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
+        expect(windowsRun.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeLessThan(
             windowsRun.indexOf("bun run manager:test"),
         );
     });

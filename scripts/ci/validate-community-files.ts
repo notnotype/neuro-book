@@ -467,7 +467,7 @@ async function validateWorkflows(): Promise<void> {
     ensureCommandOrder(jobCommands(communityJob, "community-docs"), [
         "bun install --frozen-lockfile",
         nitroPatchTestCommand,
-        "bun --cwd packages/neuro-book run nuxt:prepare",
+        "bun run --cwd packages/neuro-book nuxt:prepare",
         "bun scripts/ci/validate-community-files.ts",
         documentationCheckCommand,
         "bun run docs:build",
@@ -489,7 +489,7 @@ async function validateWorkflows(): Promise<void> {
     ensureCommandOrder(jobCommands(deployBuild, "deploy-docs/build"), [
         "bun install --frozen-lockfile",
         nitroPatchTestCommand,
-        "bun --cwd packages/neuro-book run nuxt:prepare",
+        "bun run --cwd packages/neuro-book nuxt:prepare",
         documentationCheckCommand,
         "bun run docs:build",
     ], "Deploy Docs");
@@ -518,8 +518,8 @@ async function validateWorkflows(): Promise<void> {
     for (const command of ["bun run governance:check", "bun x tsc --noEmit -p scripts/tsconfig.json", "scripts/ci/workspace-workflows.test.ts", "scripts/build/dockerfile-contract.test.ts"]) {
         ensure(governanceCommands.some((actual) => actual.includes(command)), `Code Baseline governance 缺少命令：${command}`);
     }
-    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun --cwd packages/neuro-book run typecheck"), "缺少应用 typecheck 命令");
-    ensure(jobCommands(test, "code-baseline/test").includes("bun --cwd packages/neuro-book run test -- --reporter=dot"), "缺少应用全量测试命令");
+    ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run --cwd packages/neuro-book typecheck"), "缺少应用 typecheck 命令");
+    ensure(jobCommands(test, "code-baseline/test").includes("bun run --cwd packages/neuro-book test -- --reporter=dot"), "缺少应用全量测试命令");
 
     const workspace = await readYaml<WorkflowConfig>(".github/workflows/workspace-packages.yml");
     ensure(workspace.permissions.contents === "read", "Workspace Packages 必须保持 contents: read");

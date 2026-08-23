@@ -173,6 +173,78 @@ export function readRepoText(repoRoot: string, relativePath: string): string {
     return readFileSync(resolve(repoRoot, relativePath), "utf8");
 }
 
+/** 读取 Git attributes 解析出的 text 值，供整批迁移目标复用，避免每个文件启动 Git 进程。 */
+export function readGitTextAttributes(repoRoot: string, relativePaths: readonly string[]): Map<string, string> {
+    if (relativePaths.length === 0) return new Map();
+    const input = Buffer.from(`${relativePaths.join("\0")}\0`, "utf8");
+    const output = execFileSync("git", ["check-attr", "--stdin", "-z", "text"], {
+        cwd: repoRoot,
+        input,
+        encoding: null,
+        stdio: ["pipe", "pipe", "pipe"],
+    });
+    const fields = output.toString("utf8").split("\0");
+    const attributes = new Map<string, string>();
+    for (let index = 0; index + 2 < fields.length; index += 3) {
+        const path = fields[index];
+        if (path) attributes.set(path, fields[index + 2] ?? "unspecified");
+    }
+    return attributes;
+}
+
+/** 按 Git `text` 属性计算迁移 metadata SHA-256；仅 CRLF 归一化为 LF，lone CR 按 Git 语义保留或判 binary。 */
+export function canonicalSha256(bytes: Uint8Array, textAttribute: string): string {
+    if (textAttribute === "unset" || textAttribute === "unspecified") return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    if (textAttribute !== "set" && textAttribute !== "auto") throw new Error(`无法计算 canonical SHA-256：Git text 属性为 ${textAttribute}`);
+    if (textAttribute === "auto" && isGitAutoBinary(bytes)) return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+    const canonicalBytes = new Uint8Array(bytes.length);
+    let outputLength = 0;
+    for (let index = 0; index < bytes.length; index += 1) {
+        if (bytes[index] === 0x0d && bytes[index + 1] === 0x0a) {
+            canonicalBytes[outputLength] = 0x0a;
+            outputLength += 1;
+            index += 1;
+        } else {
+            canonicalBytes[outputLength] = bytes[index];
+            outputLength += 1;
+        }
+    }
+    return `sha256:${createHash("sha256").update(canonicalBytes.subarray(0, outputLength)).digest("hex")}`;
+}
+
+function isGitAutoBinary(bytes: Uint8Array): boolean {
+    let nul = 0;
+    let loneCr = 0;
+    let printable = 0;
+    let nonPrintable = 0;
+    for (let index = 0; index < bytes.length; index += 1) {
+        const byte = bytes[index];
+        if (byte === 0x0d) {
+            if (bytes[index + 1] === 0x0a) index += 1;
+            else loneCr += 1;
+            continue;
+        }
+        if (byte === 0x0a) continue;
+        if (byte === 0x7f) {
+            nonPrintable += 1;
+        } else if (byte < 0x20) {
+            if (byte === 0x08 || byte === 0x09 || byte === 0x1b || byte === 0x0c) printable += 1;
+            else {
+                if (byte === 0) nul += 1;
+                nonPrintable += 1;
+            }
+        } else {
+            printable += 1;
+        }
+    }
+    if (bytes.length > 0 && bytes[bytes.length - 1] === 0x1a) nonPrintable -= 1;
+    return loneCr > 0 || nul > 0 || (printable >> 7) < nonPrintable;
+}
+
+export function hashCanonicalFile(repoRoot: string, relativePath: string, textAttributes: ReadonlyMap<string, string>): string {
+    return canonicalSha256(readFileSync(resolve(repoRoot, relativePath)), textAttributes.get(relativePath) ?? "unspecified");
+}
+
 export function hasDirectory(repoRoot: string, relativePath: string): boolean {
     const path = resolve(repoRoot, relativePath);
     return existsSync(path) && lstatSync(path).isDirectory();
@@ -853,6 +925,19 @@ export function verifyTaskMigration(repoRoot: string): string[] {
     const mappingSources = Object.fromEntries(mappings.map((mapping) => [mapping.source, true])) as Record<string, true>;
     const mappingDestinations = new Map(mappings.map((mapping) => [mapping.destination, mapping]));
     const localOnlySources = Object.fromEntries(index.localOnlyFiles.map((source) => [source, true])) as Record<string, true>;
+    const canonicalPaths = new Set<string>();
+    for (const entry of ownership.tasks) {
+        for (const file of entry.files) canonicalPaths.add(`${entry.ownerRoot}/${file.path}`);
+    }
+    for (const mapping of mappings) {
+        if (localOnlySources[mapping.source]) continue;
+        const legacyRelative = mapping.destination.replace(/^\.agents\/tasks\//u, "");
+        const taskId = legacyRelative.split("/")[0] ?? "";
+        const ownerEntry = ownership.tasks.find((entry) => entry.taskId === taskId);
+        const ownerRoot = ownerEntry?.ownerRoot ?? ROOT_TASK_OWNER_ROOT;
+        canonicalPaths.add(`${ownerRoot}/${legacyRelative}`);
+    }
+    const textAttributes = readGitTextAttributes(repoRoot, [...canonicalPaths]);
     const stagedOrTracked = Object.fromEntries(git(repoRoot, ["ls-files", "--cached"]).split(/\r?\n/u).filter(Boolean).map((path) => [path, true])) as Record<string, true>;
     const stagedLegacyDeletes = Object.fromEntries(git(repoRoot, ["diff", "--cached", "--name-only", "--diff-filter=D", "--", "docs/tasks"]).split(/\r?\n/u).filter(Boolean).map((path) => [path, true]));
 
@@ -896,7 +981,7 @@ export function verifyTaskMigration(repoRoot: string): string[] {
                 failures.push(`ownership 文件缺失：${physicalRel}`);
                 continue;
             }
-            const actual = `sha256:${createHash("sha256").update(readFileSync(resolve(repoRoot, physicalRel))).digest("hex")}`;
+            const actual = hashCanonicalFile(repoRoot, physicalRel, textAttributes);
             if (actual !== file.sha256) failures.push(`ownership 文件 hash 不一致：${physicalRel}`);
             if (!stagedOrTracked[physicalRel]) failures.push(`ownership 文件尚未进入 Git index：${physicalRel}`);
             if (isGitIgnored(repoRoot, physicalRel)) failures.push(`ownership tracked Task 被 .gitignore：${physicalRel}`);
@@ -960,7 +1045,6 @@ export function verifyTaskMigration(repoRoot: string): string[] {
         const actualRelPath = `${ownerRoot}/${legacyRelative}`;
         const otherRoot = ownerRoot === APPLICATION_TASK_OWNER_ROOT ? ROOT_TASK_OWNER_ROOT : APPLICATION_TASK_OWNER_ROOT;
         const otherRelPath = `${otherRoot}/${legacyRelative}`;
-        const destinationPath = resolve(repoRoot, actualRelPath);
         const sourceTracked = Boolean(baselineTracked[mapping.source]);
         const sourceLocalOnly = Boolean(localOnlySources[mapping.source]);
         if (ownerEntry && !ownershipByDestination.has(mapping.destination)) failures.push(`ownership Task 缺少 mapping 文件：${mapping.destination}`);
@@ -970,10 +1054,10 @@ export function verifyTaskMigration(repoRoot: string): string[] {
             continue;
         }
         if (hasFile(repoRoot, otherRelPath)) failures.push(`Task 同时存在双 root：${actualRelPath} 与 ${otherRelPath}`);
-        const actual = `sha256:${createHash("sha256").update(readFileSync(destinationPath)).digest("hex")}`;
-        if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${actualRelPath}`);
+        const actual = hashCanonicalFile(repoRoot, actualRelPath, textAttributes);
         if (sourceTracked && sourceLocalOnly) failures.push(`tracked Task 被错误标记 localOnly：${mapping.source}`);
         if (sourceLocalOnly && sourceTracked) failures.push(`localOnly Task 与 baseline tracked 冲突：${mapping.source}`);
+        if (actual !== mapping.destinationSha256) failures.push(`迁移目标 hash 不一致：${actualRelPath}`);
         if (!sourceLocalOnly && !stagedOrTracked[actualRelPath]) failures.push(`canonical Task 尚未进入 Git index：${actualRelPath}`);
         if (!sourceLocalOnly && isGitIgnored(repoRoot, actualRelPath)) failures.push(`canonical tracked Task 被 .gitignore：${actualRelPath}`);
         if (sourceLocalOnly && !isGitIgnored(repoRoot, actualRelPath)) failures.push(`localOnly Task 未被 .gitignore：${actualRelPath}`);

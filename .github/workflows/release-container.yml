@@ -45,7 +45,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - name: Prepare generated sources
-        run: bun --cwd packages/neuro-book run generate
+        run: bun run --cwd packages/neuro-book generate
       - name: Verify release process type contracts
         run: |
           bun x tsc --noEmit -p scripts/tsconfig.json
@@ -211,8 +211,8 @@ jobs:
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Agent State Root paths
-        run: bun --cwd packages/neuro-book run test:agent-state-root
-      - run: bun --cwd packages/neuro-book run nuxt:build
+        run: bun run --cwd packages/neuro-book test:agent-state-root
+      - run: bun run --cwd packages/neuro-book nuxt:build
       - run: bun run release:product:linux
       - uses: actions/upload-artifact@v4
         with:
@@ -230,7 +230,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
-      - run: bun --cwd packages/neuro-book run nuxt:build
+      - run: bun run --cwd packages/neuro-book nuxt:build
       - run: bun run release:product:linux-aarch64
       - uses: actions/download-artifact@v4
         with:
@@ -276,7 +276,7 @@ jobs:
         run: |
           bun run test:install
           bun run manager:test
-      - run: bun --cwd packages/neuro-book run nuxt:build
+      - run: bun run --cwd packages/neuro-book nuxt:build
       - run: bun run release:product:darwin
       - uses: actions/download-artifact@v4
         with:
@@ -309,7 +309,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - run: bun scripts/release/release-output.ts prepare --github-env
-      - run: bun --cwd packages/neuro-book run nuxt:build
+      - run: bun run --cwd packages/neuro-book nuxt:build
       - run: bun run release:product:darwin-aarch64
       - uses: actions/download-artifact@v4
         with:
@@ -354,13 +354,13 @@ jobs:
       - run: bun scripts/release/release-output.ts prepare --github-env
       - name: Verify Windows Manager adapters
         run: |
-          bun --cwd packages/neuro-book run nuxt:prepare
+          bun run --cwd packages/neuro-book nuxt:prepare
           bun run manager:test
       - name: Verify Windows Owned Process lifecycle
         run: bun run --cwd packages/owned-process test && bun run test:windows-owned-process
       - name: Verify Agent State Root paths
-        run: bun --cwd packages/neuro-book run test:agent-state-root
-      - run: bun --cwd packages/neuro-book run nuxt:build
+        run: bun run --cwd packages/neuro-book test:agent-state-root
+      - run: bun run --cwd packages/neuro-book nuxt:build
       - uses: actions/download-artifact@v4
         with:
           name: source

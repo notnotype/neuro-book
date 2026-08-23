@@ -87,7 +87,7 @@ jobs:
       - name: Check patched Nitro modules
         run: bun scripts/ci/validate-nitropack-patch.ts
       - name: Prepare Nuxt types
-        run: bun --cwd packages/neuro-book run nuxt:prepare
+        run: bun run --cwd packages/neuro-book nuxt:prepare
       - name: Validate community files
         run: bun scripts/ci/validate-community-files.ts
       - name: Check documentation governance

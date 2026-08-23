@@ -6,3 +6,11 @@ server/generated/project-prisma/** text eol=lf
 bun.lock text eol=lf
 packages/neuro-book/.env.product text eol=lf
 *.mjs text eol=lf
+**/.agents/tasks/** text eol=lf
+**/.agents/tasks/**/*.png -text
+**/.agents/tasks/**/*.wsb -text
+**/.agents/tasks/**/*.ps1 -text
+docs/tasks/** text eol=lf
+docs/tasks/**/*.png -text
+docs/tasks/**/*.wsb -text
+docs/tasks/**/*.ps1 -text

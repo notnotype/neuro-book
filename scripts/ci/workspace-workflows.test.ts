@@ -104,9 +104,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         ]) {
             expect(triggerPaths).not.toContain(stale);
         }
-        expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run generate");
-        expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run typecheck");
-        expect(commands(workflow)).toContain("bun --cwd packages/neuro-book run test -- --reporter=dot");
+        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book generate");
+        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book typecheck");
+        expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book test -- --reporter=dot");
+        expect(commands(workflow)).not.toMatch(/bun --cwd packages\/neuro-book run/u);
         expect(workflow.name).toBe("Code Baseline");
         expect(Object.keys(workflow.jobs)).toContain("governance");
         expect(commands(workflow)).toContain("bun run governance:check");
@@ -117,7 +118,27 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(Object.values(workflow.jobs).map((job) => job.name ?? "").join(" ")).not.toContain("advisory");
     });
 
-    it("Community 与 Deploy Docs 的 push/PR 或 runtime paths 指向应用 owner", async () => {
+    it("所有 CI workflow 使用 Bun run --cwd 语法", async () => {
+        const workflows = await readWorkflows();
+        const invalid = [...workflows.entries()]
+            .filter(([, workflow]) => /bun --cwd [^\n]*\brun\b/u.test(commands(workflow)))
+            .map(([name]) => name);
+        expect(invalid).toEqual([]);
+    });
+
+    it("Electron 独立 lockfile 使用 POSIX workspace 路径", async () => {
+        const lockfile = await readFile(resolve(root, "desktop/electron/bun.lock"), "utf8");
+        expect(lockfile).not.toContain("file:..\\\\");
+        expect(lockfile).toContain("@notnotype/neuro-book-test-support@file:../../packages/neuro-book-test-support");
+    });
+
+    it("Governance checkout 保留历史 sourceRevision", async () => {
+        const workflow = await readWorkflow("code-baseline.yml");
+        const checkout = workflow.jobs.governance?.steps?.find(({name}) => name === "Checkout");
+        expect(checkout?.with?.["fetch-depth"]).toBe(0);
+    });
+
+    it("Community 仅作 PR 门禁且 Deploy Docs 承担 master push 的 runtime paths", async () => {
         const community = await readWorkflow("community-docs.yml");
         expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
@@ -127,7 +148,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "package.json",
             "bun.lock",
         ]));
-        expect(commands(community)).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
+        expect(commands(community)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         const deploy = await readWorkflow("deploy-docs.yml");
         expect(paths(deploy)).toEqual(expect.arrayContaining([
             "packages/neuro-book/**",
@@ -136,7 +157,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "package.json",
             "bun.lock",
         ]));
-        expect(commands(deploy)).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
+        expect(commands(deploy)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         expect(commands(community)).toContain("bun run docs:check");
         expect(commands(deploy)).toContain("bun run docs:check");
     });
@@ -198,7 +219,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "bun.lock",
             "package.json",
         ]));
-        expect(commands(platforms)).toContain("bun --cwd packages/neuro-book run nuxt:build");
+        expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
         expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
         const diagnostics = steps(platforms).find((step) => step.name === "Upload native Product diagnostics");
         expect(diagnostics).toMatchObject({
@@ -220,15 +241,15 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(desktop)).toContain("bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts");
         expect(commands(desktop)).not.toContain("bun run scripts/build/product-runtime-bundle.test.ts");
         const manager = await readWorkflow("release-manager.yml");
-        expect(commands(manager)).toContain("bun --cwd packages/neuro-book run runtime:typecheck");
-        expect(commands(manager)).toContain("bun --cwd packages/neuro-book run nuxt:prepare");
+        expect(commands(manager)).toContain("bun run --cwd packages/neuro-book runtime:typecheck");
+        expect(commands(manager)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         expect(commands(manager)).toContain("bun run manager:typecheck");
         expect(commands(manager)).toContain("bun run manager:test");
         expect(steps(manager)).toContainEqual(expect.objectContaining({uses: "actions/setup-node@v6", with: expect.objectContaining({"package-manager-cache": false})}));
         const release = await readWorkflow("release-container.yml");
-        expect(commands(release)).toContain("bun --cwd packages/neuro-book run generate");
-        expect(commands(release)).toContain("bun --cwd packages/neuro-book run nuxt:build");
-        const windowsCache = steps(release).find((step) => step.uses === "actions/cache@v4");
+        expect(commands(release)).toContain("bun run --cwd packages/neuro-book generate");
+        expect(commands(release)).toContain("bun run --cwd packages/neuro-book nuxt:build");
+        const windowsCache = release.jobs["product-windows"].steps?.find((step) => step.uses === "actions/cache@v4");
         const windowsCacheKey = String(windowsCache?.with?.key ?? "");
         expect(windowsCacheKey).toContain("packages/neuro-book/package.json");
         expect(windowsCacheKey).toContain("packages/neuro-book-contracts/package.json");

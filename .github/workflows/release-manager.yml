@@ -42,8 +42,8 @@ jobs:
 
       - name: Verify package
         run: |
-          bun --cwd packages/neuro-book run runtime:typecheck
-          bun --cwd packages/neuro-book run nuxt:prepare
+          bun run --cwd packages/neuro-book runtime:typecheck
+          bun run --cwd packages/neuro-book nuxt:prepare
           bun run manager:typecheck
           bun run manager:test
           bun run manager:pack

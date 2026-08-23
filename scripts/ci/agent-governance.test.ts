@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {primaryCheckoutRoot, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, hashCanonicalFile, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -48,6 +48,42 @@ describe("agent governance task migration gate", () => {
         const repoRoot = await createFixture({stageTargets: true, retainLegacy: false, commitCutover: true});
 
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
+    });
+    it("canonical Task 仅改变 Windows 换行时仍通过", async () => {
+        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
+        await writeFile(join(repoRoot, ".agents/tasks/alpha/README.md"), "alpha baseline\r\n", "utf8");
+
+        expect(verifyTaskMigration(repoRoot)).toEqual([]);
+    });
+
+    it("canonical Task 正文漂移时仍失败", async () => {
+        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
+        await writeFile(join(repoRoot, ".agents/tasks/alpha/README.md"), "alpha changed\r\n", "utf8");
+
+        expect(verifyTaskMigration(repoRoot)).toContain("迁移目标 hash 不一致：.agents/tasks/alpha/README.md");
+    });
+    it("canonical hash 按 Git text 属性处理实际迁移文件类型", async () => {
+        const paths = [
+            ".agents/tasks/141-merged-pr-browser-acceptance/evidences/evidence-settings-mobile.png",
+            ".agents/tasks/145-electron-desktop-productization/evidences/sandbox-acceptance/neuro-book-sandbox.wsb",
+            ".agents/tasks/145-electron-desktop-productization/evidences/sandbox-acceptance/prepare-host.ps1",
+        ] as const;
+        const attributes = readGitTextAttributes(repositoryRoot, paths);
+        const index = JSON.parse(await readFile(join(repositoryRoot, ".agents/tasks/legacy-index.json"), "utf8")) as {mappings: Array<{destination: string; destinationSha256: string}>};
+
+        expect(attributes.get(paths[0])).toBe("unset");
+        expect(attributes.get(paths[1])).toBe("unset");
+        expect(attributes.get(paths[2])).toBe("unset");
+        for (const path of paths) {
+            const mapping = index.mappings.find((candidate) => candidate.destination === path);
+            expect(mapping).toBeDefined();
+            expect(hashCanonicalFile(repositoryRoot, path, attributes)).toBe(mapping!.destinationSha256);
+        }
+        expect(canonicalSha256(Buffer.from("A\r\nB\rC"), "set")).toBe(canonicalSha256(Buffer.from("A\nB\rC"), "set"));
+        expect(canonicalSha256(Buffer.from("A\r\nB\rC"), "auto")).toBe(canonicalSha256(Buffer.from("A\r\nB\rC"), "auto"));
+        const binaryAuto = Buffer.from([0, 13, 10, 255]);
+        expect(canonicalSha256(binaryAuto, "auto")).toBe(`sha256:${createHash("sha256").update(binaryAuto).digest("hex")}`);
+        expect(canonicalSha256(Buffer.from([0, 13, 10, 255]), "unset")).toBe(`sha256:${createHash("sha256").update(Buffer.from([0, 13, 10, 255])).digest("hex")}`);
     });
     it("未登记 Task 不允许跨 root fallback", async () => {
         const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
@@ -721,9 +757,9 @@ async function createWorktreeFixture(): Promise<{primary: string; linked: string
 }
 
 async function createFixture(options: {stageTargets: boolean; retainLegacy: boolean; commitCutover?: boolean}, files: readonly {source: string; destination: string; content: string}[] = sourceFiles): Promise<string> {
-
     const root = await createTestTmpRoot("governance-migration", "governance-migration-test");
     fixtureRoots.push(root);
+    await writeText(root, ".gitattributes", "docs/tasks/** text eol=lf\ndocs/tasks/**/*.png -text\ndocs/tasks/**/*.wsb -text\ndocs/tasks/**/*.ps1 -text\n**/.agents/tasks/** text eol=lf\n**/.agents/tasks/**/*.png -text\n**/.agents/tasks/**/*.wsb -text\n**/.agents/tasks/**/*.ps1 -text\n");
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
     await runGit(root, ["config", "user.name", "Governance Test"]);

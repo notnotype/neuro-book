@@ -58,7 +58,7 @@ describe("Docker Product runtime contract", () => {
         expect(buildStage).toBeDefined();
         const sourceCopyIndex = buildStage!.indexOf("COPY . .");
         const harnessBuildIndex = buildStage!.indexOf("RUN bun run --cwd packages/neuro-agent-harness build");
-        const productBuildIndex = buildStage!.indexOf("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build");
+        const productBuildIndex = buildStage!.indexOf("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run --cwd packages/neuro-book nuxt:build");
         expect(sourceCopyIndex).toBeGreaterThan(-1);
         expect(harnessBuildIndex).toBeGreaterThan(sourceCopyIndex);
         expect(productBuildIndex).toBeGreaterThan(harnessBuildIndex);
@@ -66,7 +66,7 @@ describe("Docker Product runtime contract", () => {
         expect(runnerStage).toBeDefined();
         expect(runnerStage).toContain("ARG NEURO_BOOK_SOURCE_REVISION");
         expect(runnerStage).toContain("LABEL org.opencontainers.image.revision=${NEURO_BOOK_SOURCE_REVISION}");
-        expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun --cwd packages/neuro-book run nuxt:build");
+        expect(dockerfile).toContain("RUN NEURO_BOOK_OUTPUT_DIR=/app/.output bun run --cwd packages/neuro-book nuxt:build");
         const dockerignoreEntries = dockerignore.split(/\r?\n/u);
         expect(dockerignoreEntries).toContain("logs");
         expect(dockerignoreEntries).toContain("packages/**/data.db");
