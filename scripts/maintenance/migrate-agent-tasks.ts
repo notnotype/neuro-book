@@ -309,7 +309,7 @@ async function verifyRepositoryLinkStaging(files: readonly PreparedRepositoryLin
     }
 }
 
-async function prepareFiles(files: SourceFile[], preservedSourcePaths: ReadonlySet<string>, textAttributes: ReadonlyMap<string, string>): Promise<PreparedFile[]> {
+async function prepareFiles(files: SourceFile[], preservedSourcePaths: ReadonlySet<string>): Promise<PreparedFile[]> {
     const prepared: PreparedFile[] = [];
     const destinations = new Map<string, string>();
     for (const file of files) {
@@ -515,7 +515,7 @@ async function main(): Promise<void> {
     await compareWorktrees();
     const canonicalPaths = migrationFiles.flatMap((file) => [`docs/tasks/${file.relative}`, repoPath(destinationForRelative(file.relative))]);
     const textAttributes = readGitTextAttributes(repoRoot, canonicalPaths);
-    const prepared = await prepareFiles(migrationFiles, preservedSourcePaths, textAttributes);
+    const prepared = await prepareFiles(migrationFiles, preservedSourcePaths);
     const mappings: Mapping[] = prepared.map((file) => ({source: repoPath(file.absolute), destination: repoPath(file.destination), sourceSha256: "", destinationSha256: "", kind: "file", linkRewrite: file.linkRewrite}));
     for (let index = 0; index < prepared.length; index += 1) {
         const file = prepared[index];
