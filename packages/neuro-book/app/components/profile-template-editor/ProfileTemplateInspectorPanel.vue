@@ -253,7 +253,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     <!-- 右侧属性检查器：属性、变量、运行时变量 -->
     <section class="panel flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
         <div class="mb-3 flex shrink-0 items-center gap-2 border-b border-[var(--border-color)]">
-            <div class="flex min-w-0 flex-1 overflow-x-auto custom-scrollbar">
+            <div class="flex min-w-0 flex-1 overflow-x-auto custom-scrollbar no-scrollbar">
                 <button
                     v-for="tab in props.tabs"
                     :key="tab.value"
@@ -269,7 +269,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
             </button>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-auto pr-1 custom-scrollbar">
+        <div class="min-h-0 flex-1 overflow-auto pr-1 custom-scrollbar no-scrollbar">
             <div v-if="props.activeTab === 'source'" class="h-full min-h-[520px]">
                 <ProfileTemplateSourcePanel
                     :source-text="props.sourceText"
@@ -409,6 +409,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 </template>
 
 <style scoped>
+.no-scrollbar {
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+    -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
 .panel {
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -419,8 +431,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 .panel-icon-btn {
     display: inline-flex;
-    height: 28px;
-    width: 28px;
+    height: 32px;
+    width: 32px;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;

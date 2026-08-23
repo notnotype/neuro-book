@@ -56,8 +56,9 @@ function statusDotClass(status: ProfileLoadStatus): string {
 </script>
 
 <template>
-    <!-- Agent Profile 二级导航：默认设置 + 可搜索的 Profile 列表。sticky 需要 self-start 配合，否则 grid 会把 aside 拉满高度导致粘不住。 -->
-    <aside class="sticky top-0 flex flex-col self-start rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
+    <!-- Agent Profile 二级导航：默认设置 + 可搜索的 Profile 列表。作为 grid item 需 min-h-0 解除自动最小尺寸，
+         列表区 flex-1 min-h-0 在栏内独立滚动（Profile 过多时搜索框与默认设置入口保持可见）。 -->
+    <aside class="flex min-h-0 flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
         <!-- 搜索 -->
         <div class="px-1 pb-2 pt-1">
             <FormInput :model-value="props.search" type="search" :placeholder="t('settings.panels.profileModels.nav.searchPlaceholder')" @update:model-value="emit('update:search', $event)">
@@ -91,8 +92,8 @@ function statusDotClass(status: ProfileLoadStatus): string {
             <div class="mt-1 text-[11px] leading-4 text-[var(--text-secondary)] opacity-80">{{ t("settings.panels.profileModels.nav.profilesHint") }}</div>
         </div>
 
-        <!-- 列表由 Dialog body 统一滚动，不再复制 Dialog 的视口高度预算。 -->
-        <div class="flex min-h-[120px] flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
+        <!-- 列表在左栏内独立滚动，不随右侧表单或 Dialog body 同步滚动。 -->
+        <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
             <button
                 v-for="item in filteredItems"
                 :key="item.profileKey"

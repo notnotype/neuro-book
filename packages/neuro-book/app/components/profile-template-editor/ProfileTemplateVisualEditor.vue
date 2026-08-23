@@ -11,6 +11,7 @@ import ProfileTemplateComponentLibraryPanel from "nbook/app/components/profile-t
 import ProfileTemplateHeader from "nbook/app/components/profile-template-editor/ProfileTemplateHeader.vue";
 import ProfileTemplateInspectorPanel from "nbook/app/components/profile-template-editor/ProfileTemplateInspectorPanel.vue";
 import ProfileTemplatePreviewDialog from "nbook/app/components/profile-template-editor/ProfileTemplatePreviewDialog.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import {
     componentGroupTabs,
     componentLibrary,
@@ -74,6 +75,7 @@ import {
 } from "nbook/app/components/profile-template-editor/profile-template-tree-utils";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -2158,7 +2160,11 @@ watch(selectedThreadId, async () => {
 });
 
 onMounted(async () => {
-    mountThemeHost(themeHostRef.value);
+    // 已处于既有主题宿主内（如工作台 Dialog 内嵌场景）时不重复创建嵌套宿主；
+    // 否则 Tooltip 等 fixed 浮层会被 Teleport 进 transform 容器内的嵌套宿主，fixed 定位基准失效。
+    if (!themeHostRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`)) {
+        mountThemeHost(themeHostRef.value);
+    }
     keyboardListener = handleEditorKeydown;
     window.addEventListener("keydown", keyboardListener);
     await Promise.all([
@@ -2230,31 +2236,37 @@ onBeforeUnmount(() => {
             @drag-end="handleNodeDragEnd"
         >
             <main
-                class="grid min-h-0 flex-1 gap-3 p-3"
+                class="grid min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto p-3"
                 :class="[
-                    libraryPanelCollapsed ? 'grid-cols-[42px_minmax(560px,1fr)_minmax(360px,30vw)]' : 'grid-cols-[290px_minmax(560px,1fr)_minmax(360px,30vw)]',
-                    inspectorPanelCollapsed ? (libraryPanelCollapsed ? '!grid-cols-[42px_minmax(560px,1fr)_42px]' : '!grid-cols-[290px_minmax(560px,1fr)_42px]') : '',
+                    libraryPanelCollapsed ? 'grid-cols-[52px_minmax(560px,1fr)_minmax(360px,30vw)]' : 'grid-cols-[290px_minmax(560px,1fr)_minmax(360px,30vw)]',
+                    inspectorPanelCollapsed ? (libraryPanelCollapsed ? '!grid-cols-[52px_minmax(560px,1fr)_52px]' : '!grid-cols-[290px_minmax(560px,1fr)_52px]') : '',
                 ]"
             >
             <aside v-if="libraryPanelCollapsed" class="component-rail">
-                <button type="button" class="rail-icon-btn" title="展开组件库" @click="libraryPanelCollapsed = false">
-                    <span class="i-lucide-panel-left-open h-4 w-4"></span>
-                </button>
+                <Tooltip text="展开组件库" placement="right">
+                    <button type="button" class="rail-icon-btn" @click="libraryPanelCollapsed = false">
+                        <span class="i-lucide-panel-left-open h-4 w-4"></span>
+                    </button>
+                </Tooltip>
                 <div class="rail-divider"></div>
-                <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pr-0.5 custom-scrollbar">
+                <div class="component-rail-scroll custom-scrollbar">
                     <template v-for="group in compactComponentGroups" :key="group.group">
                         <div class="rail-group-divider" :title="group.label"></div>
-                        <button
+                        <Tooltip
                             v-for="item in group.items"
                             :key="item.type"
-                            type="button"
-                            class="rail-icon-btn"
-                            :class="`library-node-${item.type}`"
-                            :title="`${group.label} / ${item.label}：${item.description}`"
-                            @click="addNode(item.type)"
+                            :text="`${group.label} / ${item.label}：${item.description}`"
+                            placement="right"
                         >
-                            <span :class="item.iconClass" class="h-4 w-4"></span>
-                        </button>
+                            <button
+                                type="button"
+                                class="rail-icon-btn"
+                                :class="`library-node-${item.type}`"
+                                @click="addNode(item.type)"
+                            >
+                                <span :class="item.iconClass" class="h-4 w-4"></span>
+                            </button>
+                        </Tooltip>
                     </template>
                 </div>
             </aside>
@@ -2284,10 +2296,12 @@ onBeforeUnmount(() => {
             />
 
             <!-- 右侧源码、属性与变量面板 -->
-            <aside v-if="inspectorPanelCollapsed" class="panel-rail" title="展开右侧面板" @click="inspectorPanelCollapsed = false">
-                <span class="i-lucide-panel-right-open h-4 w-4"></span>
-                <span class="rail-label">面板</span>
-            </aside>
+            <Tooltip v-if="inspectorPanelCollapsed" text="展开右侧面板" placement="bottom">
+                <aside class="panel-rail" @click="inspectorPanelCollapsed = false">
+                    <span class="i-lucide-panel-right-open h-4 w-4"></span>
+                    <span class="rail-label">面板</span>
+                </aside>
+            </Tooltip>
             <aside v-else class="flex min-w-0 min-h-0 flex-col">
                 <ProfileTemplateInspectorPanel
                     v-model:active-tab="inspectorTab"
@@ -2399,16 +2413,17 @@ onBeforeUnmount(() => {
 <style scoped>
 .panel-rail {
     display: flex;
+    width: 100%;
     min-height: 0;
     cursor: pointer;
     flex-direction: column;
     align-items: center;
     justify-content: flex-start;
-    gap: 8px;
+    gap: 10px;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--bg-panel);
-    padding: 10px 6px;
+    padding: 14px 4px 12px;
     color: var(--text-muted);
     box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
     transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
@@ -2416,15 +2431,38 @@ onBeforeUnmount(() => {
 
 .component-rail {
     display: flex;
+    width: 100%;
     min-height: 0;
     flex-direction: column;
     align-items: center;
     gap: 6px;
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--bg-panel);
-    padding: 8px 5px;
+    padding: 8px 3px;
     box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
+}
+
+.component-rail-scroll {
+    display: flex;
+    min-height: 0;
+    width: 100%;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding-inline: 1px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: none;
+    scrollbar-color: transparent transparent;
+    -ms-overflow-style: none;
+}
+
+.component-rail-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
 }
 
 .rail-icon-btn {
@@ -2433,8 +2471,8 @@ onBeforeUnmount(() => {
     --component-border: color-mix(in srgb, var(--component-accent) 34%, var(--border-color));
     --component-icon-color: color-mix(in srgb, var(--component-accent) 80%, var(--text-main));
     display: inline-flex;
-    height: 30px;
-    width: 30px;
+    height: 28px;
+    width: 28px;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
