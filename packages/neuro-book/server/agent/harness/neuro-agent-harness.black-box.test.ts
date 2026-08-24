@@ -5,6 +5,7 @@ import {join, resolve} from "node:path";
 import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
@@ -231,6 +232,7 @@ describe("NeuroAgentHarness black-box contract", () => {
             ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(root),
             enableSessionSummarizer: false,
         });
     });

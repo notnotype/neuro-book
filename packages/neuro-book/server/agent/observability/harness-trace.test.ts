@@ -7,6 +7,7 @@ import {fauxAssistantMessage} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
@@ -48,6 +49,7 @@ describe("harness → pi trace 集成", () => {
             ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(root),
             enableSessionSummarizer: false,
         });
     });

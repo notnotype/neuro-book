@@ -11,6 +11,7 @@ import {randomUUID} from "node:crypto";
 import {rm} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {fauxAssistantMessage} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
@@ -56,6 +57,7 @@ describe("getSessionContextInspection", () => {
             ),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(root),
             enableSessionSummarizer: false,
         });
         harness.profiles.register(defineAgentProfile({

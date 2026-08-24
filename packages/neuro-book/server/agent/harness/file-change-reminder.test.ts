@@ -3,6 +3,7 @@ import {mkdir, rm} from "node:fs/promises";
 import {join} from "node:path";
 import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {fauxAssistantMessage} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture, writeFauxProviderConfig} from "nbook/server/agent/test-utils/faux-models";
 import {Type} from "typebox";
@@ -389,6 +390,7 @@ describe("file-change notice 端到端（FauxProvider 黑盒）", () => {
             repo: new JsonlSessionRepository(agentRoot),
             modelResolver: () => faux.getModel(),
             runtimeResolver: () => faux.runtime,
+            definitionArtifactPathContextProvider: createVariableDefinitionArtifactPathContextResolver(workspaceRoot),
             enableSessionSummarizer: false,
         });
     });
