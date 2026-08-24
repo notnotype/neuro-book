@@ -139,7 +139,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(checkout?.with?.["fetch-depth"]).toBeUndefined();
     });
 
-    it("Community 仅作 PR 门禁且 Deploy Docs 承担 master push 的 runtime paths", async () => {
+    it("Community 与 Deploy Docs 的 push/PR runtime paths 指向应用 owner", async () => {
         const community = await readWorkflow("community-docs.yml");
         expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
