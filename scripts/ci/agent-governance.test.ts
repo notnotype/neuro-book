@@ -36,7 +36,11 @@ describe("canonical Task hash", () => {
     });
     it("localOnly destination 的 CRLF 仍按 Git text canonical hash 校验", async () => {
         const repoRoot = await createLocalOnlyMigrationFixture();
+        const destination = ".agents/tasks/01-local/benchmark.json";
+        const attributes = readGitTextAttributes(repoRoot, ["docs/tasks/01-local/benchmark.json", destination]);
 
+        expect(attributes.get("docs/tasks/01-local/benchmark.json")).toBe("unspecified");
+        expect(attributes.get(destination)).toBe("set");
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
     });
 });
