@@ -4,6 +4,7 @@ import {join} from "node:path";
 import {
     resolveAgentTempRoot,
     resolveAgentTestRoot,
+    resolveSystemTempRoot,
 } from "./paths";
 import {TEST_HOST_PATHS_DIR} from "./test-path";
 import {TEST_RUN_ID_ENV} from "./process";
@@ -20,6 +21,9 @@ configureWorkerTempRoot();
 
 /** Vitest globalSetup：建立 run id，并回收超时的旧 run 根。 */
 export async function setup(): Promise<void> {
+    // Worker 会把 TMPDIR/TEMP/TMP 改写到 run 根；必须先固定宿主锚点，
+    // 否则 worker 内 resolveAgentTempRoot() 漂移到 run 根，testHostPath() 指向未创建的 test-paths。
+    process.env.NBOOK_HOST_SYSTEM_TEMP_ROOT ??= resolveSystemTempRoot();
     const runId = process.env[TEST_RUN_ID_ENV] ?? randomBytes(4).toString("hex");
     process.env[TEST_RUN_ID_ENV] = runId;
     const root = resolveAgentTestRoot(runId);

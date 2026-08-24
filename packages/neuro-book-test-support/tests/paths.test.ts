@@ -1,7 +1,8 @@
-import {mkdtemp, rm, symlink} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, symlink} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {
     AGENT_PATH_LENGTH_LIMIT,
+    assertContained,
     resolveAgentAcceptanceRoot,
     resolveAgentCacheRoot,
     resolveAgentFixtureRoot,
@@ -53,6 +54,30 @@ describe("Agent 路径解析", () => {
             }))).toThrow(/symlink\/reparse|受控根/u);
         } finally {
             await rm(parent, {recursive: true, force: true});
+        }
+    });
+
+    it("允许系统级 symlink/junction 祖先；锚点自身为链接仍拒绝，逃逸仍阻断", async () => {
+        const hostRoot = resolveSystemTempRoot(env());
+        const realParent = await mkdtemp(join(hostRoot, "neuro-book-canonical-"));
+        const realRoot = join(realParent, "real-root");
+        const linkRoot = join(realParent, "link-root");
+        await mkdir(realRoot);
+        await symlink(realRoot, linkRoot, process.platform === "win32" ? "junction" : "dir");
+        const leaf = join(linkRoot, "mid", "leaf");
+        try {
+            await mkdir(leaf, {recursive: true});
+            // macOS /var -> /private/var 场景：祖先链含系统级链接时必须放行。
+            expect(() => assertContained(leaf, join(leaf, "kept"), "probe")).not.toThrow();
+            expect(() => assertContained(join(linkRoot, "mid"), leaf, "probe")).not.toThrow();
+            // 锚点自身是 symlink/junction 仍然拒绝。
+            expect(() => assertContained(linkRoot, leaf, "probe")).toThrow(/symlink\/reparse/u);
+            // 逃逸到真实父目录下、链接路径之外的目标必须阻断。
+            const escapee = join(realParent, "escaped");
+            await mkdir(escapee);
+            expect(() => assertContained(leaf, escapee, "probe")).toThrow("受控根内");
+        } finally {
+            await rm(realParent, {recursive: true, force: true});
         }
     });
 

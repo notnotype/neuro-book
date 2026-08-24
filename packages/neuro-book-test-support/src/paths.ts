@@ -160,19 +160,16 @@ function canonicalPath(pathValue: string, label: string): string {
             existing = parent;
         }
     }
-    let ancestor = existing;
-    while (true) {
-        let stats;
-        try {
-            stats = lstatSync(ancestor);
-        } catch {
-            throw new Error(`${label} 无法证明路径安全：${absolute}`);
-        }
-        if (stats.isSymbolicLink()) throw new Error(`${label} 不能经过 symlink/reparse point：${absolute}`);
-        const parent = dirname(ancestor);
-        if (parent === ancestor) break;
-        ancestor = parent;
+    let stats;
+    try {
+        stats = lstatSync(existing);
+    } catch {
+        throw new Error(`${label} 无法证明路径安全：${absolute}`);
     }
+    // 仅拒绝「已存在锚点自身」是 symlink/junction：祖先链允许系统级链接
+    //（macOS 的 /var -> /private/var、Windows 用户目录 junction），逃逸防护
+    // 由下方 realpath(existing)+lexical suffix 与 assertContained 的双 realpath 比较承担。
+    if (stats.isSymbolicLink()) throw new Error(`${label} 不能经过 symlink/reparse point：${absolute}`);
     let canonicalExisting: string;
     try {
         canonicalExisting = realpathSync.native(existing);
