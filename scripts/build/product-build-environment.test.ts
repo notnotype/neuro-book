@@ -136,7 +136,7 @@ describe("Product build environment", () => {
         const packageJson = JSON.parse(packageText) as {scripts: {"nuxt:build:raw": string}};
 
         expect(packageJson.scripts["nuxt:build:raw"].match(/--dotenv \.env\.product/gu)).toHaveLength(1);
-        expect(packageJson.scripts["nuxt:build:raw"]).toContain("bun node_modules/nuxt/bin/nuxt.mjs");
+        expect(packageJson.scripts["nuxt:build:raw"]).toContain("bun ../../node_modules/nuxt/bin/nuxt.mjs");
         expect(productEnv).toBe("# Product builds intentionally load no local runtime configuration.\n");
         expect(attributes).toContain("server/generated/project-prisma/** text eol=lf\n");
         expect(attributes).toContain("bun.lock text eol=lf\n");
