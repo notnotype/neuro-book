@@ -27,6 +27,8 @@ if (command === "stage") {
     await runAcceptedCommand("start", process.argv.slice(3));
 } else if (command === "create-admin") {
     await runAcceptedCommand("create-admin", process.argv.slice(3));
+} else if (command === "cleanup") {
+    await cleanupProduct(process.argv[3] ?? process.env.NEURO_BOOK_PRODUCT_OPERATION_ID ?? "");
 } else {
     throw new Error(`未知 product runtime 命令：${command}`);
 }
@@ -200,6 +202,56 @@ function requestedOperationId() {
         throw new Error(`Product 验收 operation ID 无效：${JSON.stringify(operationId)}`);
     }
     return operationId;
+}
+
+/**
+ * 只清理本模块创建、operation 匹配且当前没有 lease 的验收 stage。
+ * 缺少 owner 等同于 already-cleaned；未知 owner、路径逃逸或活动 lease 均拒绝删除。
+ */
+async function cleanupProduct(operationId) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(operationId) || operationId === "." || operationId === "..") {
+        throw new Error(`Product 验收 cleanup operation ID 无效：${JSON.stringify(operationId)}`);
+    }
+    const stageRoot = resolveStageRoot(operationId);
+    if (!existsSync(stageRoot)) {
+        console.log("Product runtime cleanup: already-cleaned");
+        return;
+    }
+    let owner;
+    try {
+        owner = JSON.parse(await readFile(resolve(stageRoot, OWNER_FILE), "utf8"));
+    } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+            console.log("Product runtime cleanup: already-cleaned");
+            return;
+        }
+        throw new Error(`Product 验收 cleanup owner 无法读取：${String(error)}`);
+    }
+    if (!owner || typeof owner !== "object"
+        || owner.owner !== ACCEPTANCE_OWNER || owner.schema !== ACCEPTANCE_SCHEMA
+        || typeof owner.operationId !== "string") {
+        throw new Error("Product 验收 cleanup 拒绝未知 owner。");
+    }
+    if (owner.operationId !== operationId) throw new Error("Product 验收 cleanup operation ID 不匹配。");
+    assertContained(ACCEPTANCE_ROOT, stageRoot, "Product 验收 cleanup 目录");
+    if (await checkLock(resolve(stageRoot, LEASE_FILE), {realpath: false})) {
+        throw new Error("Product 验收 cleanup 拒绝删除仍被 lease 持有的 stage。");
+    }
+    await rm(stageRoot, {recursive: true, force: true});
+
+    try {
+        const pointer = JSON.parse(await readFile(ACCEPTANCE_POINTER, "utf8"));
+        if (pointer && typeof pointer === "object"
+            && pointer.owner === ACCEPTANCE_OWNER
+            && pointer.schema === ACCEPTANCE_SCHEMA
+            && pointer.operationId === operationId) {
+            const pointerPath = typeof pointer.path === "string" ? resolve(REPO_ROOT, pointer.path) : null;
+            if (pointerPath && pointerPath === stageRoot) await rm(ACCEPTANCE_POINTER, {force: true});
+        }
+    } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+    console.log("Product runtime cleanup: cleaned");
 }
 
 function resolveStageRoot(operationId) {
