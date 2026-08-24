@@ -29,8 +29,10 @@ type ProjectSessionGlobalState = {
     lifecycle: ProjectControlLifecycle | null;
     service: ProjectSessionService | null;
     workspaceRoot: AbsoluteFsPath | null;
+    compilerRoot: AbsoluteFsPath | null;
+    compilerContext: unknown;
     agentProbe: null;
-    maintenanceTimer: ReturnType<typeof setInterval> | null;
+    maintenanceTimer: NodeJS.Timeout | null;
     sweepInFlight: boolean;
 };
 
@@ -106,6 +108,7 @@ describe("project-session HMR boundaries", () => {
             compilerRoot: absoluteFsPath(process.cwd()),
             agentProbe: null,
             maintenanceTimer: null,
+            compilerContext: null,
             sweepInFlight: false,
         };
 
