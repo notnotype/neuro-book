@@ -108,6 +108,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book typecheck");
         expect(commands(workflow)).toContain("bun run --cwd packages/neuro-book test -- --reporter=dot");
         expect(commands(workflow)).not.toMatch(/bun --cwd packages\/neuro-book run/u);
+        expect(commands(workflow)).not.toContain("bun install --cwd desktop/electron");
         expect(workflow.name).toBe("Code Baseline");
         expect(Object.keys(workflow.jobs)).toContain("governance");
         expect(commands(workflow)).toContain("bun run governance:check");
@@ -132,10 +133,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(lockfile).toContain("@notnotype/neuro-book-test-support@file:../../packages/neuro-book-test-support");
     });
 
-    it("Governance checkout 保留历史 sourceRevision", async () => {
+    it("Governance checkout 不依赖一次性迁移的完整 Git 历史", async () => {
         const workflow = await readWorkflow("code-baseline.yml");
         const checkout = workflow.jobs.governance?.steps?.find(({name}) => name === "Checkout");
-        expect(checkout?.with?.["fetch-depth"]).toBe(0);
+        expect(checkout?.with?.["fetch-depth"]).toBeUndefined();
     });
 
     it("Community 仅作 PR 门禁且 Deploy Docs 承担 master push 的 runtime paths", async () => {
@@ -221,6 +222,9 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         ]));
         expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
         expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
+        expect(commands(platforms)).toContain("bun run test:install");
+        expect(commands(platforms)).toContain("bun run manager:test");
+        expect(commands(platforms)).toContain("bun run --cwd packages/owned-process test");
         const diagnostics = steps(platforms).find((step) => step.name === "Upload native Product diagnostics");
         expect(diagnostics).toMatchObject({
             uses: "actions/upload-artifact@v4",

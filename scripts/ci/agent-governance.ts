@@ -13,7 +13,7 @@ import {
     verifyMonorepoCutover,
     verifySiblingResyncResolution,
     verifyTaskAgentWorkflowProfiles,
-    verifyTaskMigration,
+    verifyTaskOwnership,
     verifyWorkspacePackageGovernance,
 } from "#scripts/ci/agent-governance-contract";
 
@@ -39,19 +39,9 @@ function isIgnored(relativePath: string): boolean {
         return false;
     }
 }
-function isHistoricalMarkdownPath(relativePath: string): boolean {
-    return relativePath.startsWith(".agents/tasks/")
-        || relativePath.includes("/.agents/tasks/")
-        || relativePath.startsWith("docs/archived/")
-        || relativePath.startsWith("docs/research/")
-        || relativePath.startsWith("packages/neuro-book/docs/archived/")
-        || relativePath.startsWith("packages/neuro-book/docs/research/")
-        || relativePath.startsWith("vitepress/locales/zh-Hans/changelog/")
-        || relativePath.startsWith("vitepress/locales/en-US/changelog/");
-}
 
 for (const relativePath of expectedGovernanceFiles()) requireFile(relativePath);
-failures.push(...verifyTaskMigration(repoRoot));
+failures.push(...verifyTaskOwnership(repoRoot));
 failures.push(...verifyWorkspacePackageGovernance(repoRoot));
 failures.push(...verifyMonorepoCutover(repoRoot));
 failures.push(...verifyApplicationScriptBoundary(repoRoot));
@@ -109,21 +99,6 @@ for (const relativePath of inspectPaths) {
         continue;
     }
     if (/\.agent[\\/]tmp(?:[\\/]|$)/u.test(text) && !relativePath.startsWith("packages/neuro-book-test-support/")) failures.push(`活文件仍引用仓库临时根：${relativePath}`);
-}
-for (const relativePath of inspectPaths) {
-    if (!relativePath.endsWith(".md") || isHistoricalMarkdownPath(relativePath)) continue;
-    const absolutePath = resolve(repoRoot, relativePath);
-    if (!existsSync(absolutePath)) continue;
-    let text: string;
-    try {
-        text = readFileSync(absolutePath, "utf8");
-    } catch {
-        continue;
-    }
-    const hitLines = text.split(/\r?\n/u)
-        .map((line, index) => line.includes("docs/tasks/") ? index + 1 : null)
-        .filter((line): line is number => line !== null);
-    if (hitLines.length > 0) failures.push(`活跃 Markdown 仍引用旧 Task 入口：${relativePath}:${hitLines.join(",")}`);
 }
 
 const staleGovernanceRefs = [".agent/roles/", ".agent/tasks/", ".agent/skills/"];

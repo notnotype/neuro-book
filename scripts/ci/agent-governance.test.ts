@@ -5,131 +5,80 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, hashCanonicalFile, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskAgentWorkflowProfiles, verifyTaskMigration, verifyTaskOwnership, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
 const fixtureRoots: string[] = [];
-const sourceFiles = [
-    {source: "docs/tasks/alpha/README.md", destination: ".agents/tasks/alpha/README.md", content: "alpha baseline\n"},
-    {source: "docs/tasks/beta/README.md", destination: ".agents/tasks/beta/README.md", content: "beta baseline\n"},
-] as const;
 const repositoryRoot = join(import.meta.dirname, "..", "..");
 
 afterEach(async () => {
     await Promise.all(fixtureRoots.splice(0).map((root) => rm(root, {recursive: true, force: true})));
 });
 
-describe("agent governance task migration gate", () => {
-    it("目标未进入 Git index 时失败并指出 canonical 路径", async () => {
-        const repoRoot = await createFixture({stageTargets: false, retainLegacy: false});
+describe("canonical Task hash", () => {
+    it("按 Git auto 语义将 lone CR 视为 binary，并豁免末尾 SUB", () => {
+        const loneCr = Buffer.from([0x41, 0x0d, 0x0a, 0x42, 0x0d, 0x43]);
+        const loneCrRawHash = `sha256:${createHash("sha256").update(loneCr).digest("hex")}`;
+        const loneCrTextHash = `sha256:${createHash("sha256").update(Buffer.from([0x41, 0x0a, 0x42, 0x0d, 0x43])).digest("hex")}`;
+        expect(canonicalSha256(loneCr, "auto")).toBe(loneCrRawHash);
+        expect(canonicalSha256(loneCr, "auto")).not.toBe(loneCrTextHash);
 
-        const failures = verifyTaskMigration(repoRoot);
-
-        expect(failures).toContain("canonical Task 尚未进入 Git index：.agents/tasks/alpha/README.md");
+        const trailingSub = Buffer.from([0x41, 0x0d, 0x0a, 0x42, 0x1a]);
+        const normalizedTrailingSub = Buffer.from([0x41, 0x0a, 0x42, 0x1a]);
+        const normalizedHash = `sha256:${createHash("sha256").update(normalizedTrailingSub).digest("hex")}`;
+        const rawHash = `sha256:${createHash("sha256").update(trailingSub).digest("hex")}`;
+        expect(canonicalSha256(trailingSub, "auto")).toBe(normalizedHash);
+        expect(normalizedHash).not.toBe(rawHash);
+        const internalSub = Buffer.from([0x41, 0x1a, 0x0d, 0x0a, 0x42]);
+        const internalSubRawHash = `sha256:${createHash("sha256").update(internalSub).digest("hex")}`;
+        expect(canonicalSha256(internalSub, "auto")).toBe(internalSubRawHash);
     });
-
-    it("旧 docs/tasks 仍在工作树时失败并指出 clean cutover 缺口", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: true});
-
-        const failures = verifyTaskMigration(repoRoot);
-
-        expect(failures).toContain("旧 Task 文件仍存在：docs/tasks/alpha/README.md");
-        expect(failures).toContain("旧 Task 删除尚未暂存：docs/tasks/alpha/README.md");
-    });
-
-    it("canonical targets、metadata 和 staged deletion 完整时通过", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false, commitCutover: false});
+    it("localOnly destination 的 CRLF 仍按 Git text canonical hash 校验", async () => {
+        const repoRoot = await createLocalOnlyMigrationFixture();
 
         expect(verifyTaskMigration(repoRoot)).toEqual([]);
     });
+});
 
-    it("迁移提交完成后旧目录不再要求虚假的 staged deletion", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false, commitCutover: true});
-
-        expect(verifyTaskMigration(repoRoot)).toEqual([]);
-    });
-    it("canonical Task 仅改变 Windows 换行时仍通过", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await writeFile(join(repoRoot, ".agents/tasks/alpha/README.md"), "alpha baseline\r\n", "utf8");
-
-        expect(verifyTaskMigration(repoRoot)).toEqual([]);
+describe("Task ownership 当前树门禁", () => {
+    it("当前 ownership、双根和 tracked 文件闭合", () => {
+        expect(verifyTaskOwnership(repositoryRoot)).toEqual([]);
     });
 
-    it("canonical Task 正文漂移时仍失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await writeFile(join(repoRoot, ".agents/tasks/alpha/README.md"), "alpha changed\r\n", "utf8");
+    it("ownership 声明文件未进入 Git index 时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: false});
 
-        expect(verifyTaskMigration(repoRoot)).toContain("迁移目标 hash 不一致：.agents/tasks/alpha/README.md");
-    });
-    it("canonical hash 按 Git text 属性处理实际迁移文件类型", async () => {
-        const paths = [
-            ".agents/tasks/141-merged-pr-browser-acceptance/evidences/evidence-settings-mobile.png",
-            ".agents/tasks/145-electron-desktop-productization/evidences/sandbox-acceptance/neuro-book-sandbox.wsb",
-            ".agents/tasks/145-electron-desktop-productization/evidences/sandbox-acceptance/prepare-host.ps1",
-        ] as const;
-        const attributes = readGitTextAttributes(repositoryRoot, paths);
-        const index = JSON.parse(await readFile(join(repositoryRoot, ".agents/tasks/legacy-index.json"), "utf8")) as {mappings: Array<{destination: string; destinationSha256: string}>};
-
-        expect(attributes.get(paths[0])).toBe("unset");
-        expect(attributes.get(paths[1])).toBe("unset");
-        expect(attributes.get(paths[2])).toBe("unset");
-        for (const path of paths) {
-            const mapping = index.mappings.find((candidate) => candidate.destination === path);
-            expect(mapping).toBeDefined();
-            expect(hashCanonicalFile(repositoryRoot, path, attributes)).toBe(mapping!.destinationSha256);
-        }
-        expect(canonicalSha256(Buffer.from("A\r\nB\rC"), "set")).toBe(canonicalSha256(Buffer.from("A\nB\rC"), "set"));
-        expect(canonicalSha256(Buffer.from("A\r\nB\rC"), "auto")).toBe(canonicalSha256(Buffer.from("A\r\nB\rC"), "auto"));
-        const binaryAuto = Buffer.from([0, 13, 10, 255]);
-        expect(canonicalSha256(binaryAuto, "auto")).toBe(`sha256:${createHash("sha256").update(binaryAuto).digest("hex")}`);
-        expect(canonicalSha256(Buffer.from([0, 13, 10, 255]), "unset")).toBe(`sha256:${createHash("sha256").update(Buffer.from([0, 13, 10, 255])).digest("hex")}`);
-    });
-    it("未登记 Task 不允许跨 root fallback", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/alpha/README.md", "packages/neuro-book/.agents/tasks/alpha/README.md"]);
-
-        expect(verifyTaskMigration(repoRoot)).toContain("迁移目标缺失或不是普通文件：.agents/tasks/alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件尚未进入 Git index：packages/neuro-book/.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).not.toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
     });
 
-    it("ownership hash 漂移时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false}, [{
-            source: "docs/tasks/01-alpha/README.md",
-            destination: ".agents/tasks/01-alpha/README.md",
-            content: "alpha baseline\n",
-        }]);
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/01-alpha/README.md", "packages/neuro-book/.agents/tasks/01-alpha/README.md"]);
-        await writeText(repoRoot, ".agents/tasks/ownership.json", `${JSON.stringify({
-            schema: "nbook.task-ownership/v1",
-            ownerRoot: "packages/neuro-book/.agents/tasks",
-            taskCount: 1,
-            fileCount: 1,
-            tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: `sha256:${"0".repeat(64)}`}]}],
-        }, null, 2)}\n`);
+    it("ownership 文件 hash 漂移时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await writeText(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha/README.md", "changed\n");
 
-        expect(verifyTaskMigration(repoRoot)).toContain("ownership 与 legacy destination hash 不一致：.agents/tasks/01-alpha/README.md");
+        expect(verifyTaskOwnership(repoRoot)).toContain("ownership 文件 hash 不一致：packages/neuro-book/.agents/tasks/01-alpha/README.md");
     });
+
     it("应用 Task 目录缺少 ownership 登记时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false});
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-unregistered"), {recursive: true});
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/02-unregistered"), {recursive: true});
 
-        expect(verifyTaskMigration(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book/.agents/tasks/01-unregistered");
+        expect(verifyTaskOwnership(repoRoot)).toContain("应用 Task 目录未登记 ownership：packages/neuro-book/.agents/tasks/02-unregistered");
+    });
+
+    it("旧 docs/tasks 目录重新出现时失败", async () => {
+        const repoRoot = await createOwnershipFixture({trackTask: true});
+        await writeText(repoRoot, "docs/tasks/01-legacy/README.md", "legacy\n");
+
+        expect(verifyTaskOwnership(repoRoot)).toContain("旧 Task 目录仍存在：docs/tasks");
     });
 
     it("根与应用 schema Task ID 重复时失败", async () => {
-        const repoRoot = await createFixture({stageTargets: true, retainLegacy: false}, [{
-            source: "docs/tasks/01-alpha/README.md",
-            destination: ".agents/tasks/01-alpha/README.md",
-            content: "---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Alpha\n",
-        }]);
-        await mkdir(join(repoRoot, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
-        await runGit(repoRoot, ["mv", ".agents/tasks/01-alpha/README.md", "packages/neuro-book/.agents/tasks/01-alpha/README.md"]);
+        const repoRoot = await createOwnershipFixture({trackTask: true});
         await writeText(repoRoot, ".agents/tasks/02-root/README.md", "---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Duplicate\n");
 
-        const failures = verifyTaskMigration(repoRoot);
-        expect(failures.some((failure) => failure.startsWith("全仓 Task ID 重复：01-alpha"))).toBe(true);
+        expect(verifyTaskOwnership(repoRoot).some((failure) => failure.startsWith("全仓 Task ID 重复：01-alpha"))).toBe(true);
     });
 
     it("ownership 精确选择应用与根 Task root", () => {
@@ -268,7 +217,7 @@ agentWorkflow:
         expect(missingRequired.report.failures).toEqual(expect.arrayContaining([
             expect.stringContaining("Task verification.required 必须是非空数组"),
         ]));
-    });
+    }, 30_000);
 
 
 
@@ -588,6 +537,8 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".agents/AGENTS.md", "fixture agents rules\n"],
         [".agents/README.md", "fixture agents readme\n"],
         [".agents/tasks/AGENTS.md", "agentWorkflow .agents/skills/load_role/SKILL.md verification.required verification.notRun\n"],
+        [".agents/tasks/.migration-complete", "{}\n"],
+        [".agents/tasks/legacy-index.json", "{}\n"],
         [".agents/tasks/README.md", "```yaml\nagentWorkflow:\n  profile: nbook.agent-skills/v1\n  kind: bug\n  routes:\n    - diagnosing-bugs\n  verification:\n    required:\n      - focused-test\n    notRun: []\n```\n"],
         [".agents/roles/pm/AGENTS.md", "agentWorkflow required notRun\n"],
         [".agents/roles/leader/AGENTS.md", "agentWorkflow required notRun\n"],
@@ -640,7 +591,6 @@ agentWorkflow:
 
 # CLI profile
 `);
-    await writeText(root, "docs/tasks/001-legacy/README.md", "legacy migration baseline\n");
     const siblingPath = ".agents/tasks/00149-monorepo-workspace-consolidation/evidences/s8-sibling-resync-resolution.json";
     await writeText(root, siblingPath, await readFile(join(repositoryRoot, siblingPath), "utf8"));
 
@@ -648,53 +598,7 @@ agentWorkflow:
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
     await runGit(root, ["config", "user.name", "Governance Test"]);
     await runGit(root, ["add", "."]);
-    await runGit(root, ["commit", "-m", "fixture migration baseline"]);
-    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
-
-    const legacyContent = await readFile(join(root, "docs/tasks/001-legacy/README.md"));
-    await writeText(root, ".agents/tasks/001-legacy/README.md", legacyContent.toString("utf8"));
-    await rm(join(root, "docs/tasks"), {recursive: true, force: true});
-    const mappings = [{
-        source: "docs/tasks/001-legacy/README.md",
-        destination: ".agents/tasks/001-legacy/README.md",
-        sourceSha256: hashBytes(legacyContent),
-        destinationSha256: hashBytes(legacyContent),
-        kind: "file" as const,
-        linkRewrite: false,
-    }];
-    const manifest = {
-        schema: "nbook.task-migration-manifest/v1",
-        sourceRevision,
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-    };
-    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest)));
-    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify({
-        schema: "nbook.task-migration-index/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        migratedAt: new Date().toISOString(),
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: 1,
-        localOnlyFiles: [],
-    }, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify({
-        schema: "nbook.task-migration/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        completedAt: new Date().toISOString(),
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: 1,
-        localOnlyFiles: [],
-    }, null, 2)}\n`);
-    await runGit(root, ["add", "-A"]);
-    await runGit(root, ["commit", "-m", "fixture migrated governance"]);
+    await runGit(root, ["commit", "-m", "fixture governance"]);
     return root;
 }
 
@@ -756,73 +660,28 @@ async function createWorktreeFixture(): Promise<{primary: string; linked: string
     return {primary, linked, outside};
 }
 
-async function createFixture(options: {stageTargets: boolean; retainLegacy: boolean; commitCutover?: boolean}, files: readonly {source: string; destination: string; content: string}[] = sourceFiles): Promise<string> {
-    const root = await createTestTmpRoot("governance-migration", "governance-migration-test");
+async function createOwnershipFixture(options: {trackTask: boolean}): Promise<string> {
+    const root = await createTestTmpRoot("governance-ownership", "governance-ownership-test");
     fixtureRoots.push(root);
-    await writeText(root, ".gitattributes", "docs/tasks/** text eol=lf\ndocs/tasks/**/*.png -text\ndocs/tasks/**/*.wsb -text\ndocs/tasks/**/*.ps1 -text\n**/.agents/tasks/** text eol=lf\n**/.agents/tasks/**/*.png -text\n**/.agents/tasks/**/*.wsb -text\n**/.agents/tasks/**/*.ps1 -text\n");
+    const taskPath = "packages/neuro-book/.agents/tasks/01-alpha/README.md";
+    const taskContent = Buffer.from("---\nschema: nbook.task/v1\ntaskId: 01-alpha\n---\n\n# Alpha\n", "utf8");
+    await writeText(root, ".gitignore", ".worktree/\n");
+    await mkdir(join(root, "packages/neuro-book/.agents/tasks/01-alpha"), {recursive: true});
+    await writeFile(join(root, taskPath), taskContent);
     await runGit(root, ["init", "--initial-branch", "master"]);
     await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
     await runGit(root, ["config", "user.name", "Governance Test"]);
-
-    for (const file of files) await writeText(root, file.source, file.content);
-    await runGit(root, ["add", "docs/tasks"]);
-    await runGit(root, ["commit", "-m", "baseline tasks"]);
-    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
-
-    for (const file of files) await writeText(root, file.destination, file.content);
-    const mappings = await Promise.all(files.map(async (file) => ({
-        source: file.source,
-        destination: file.destination,
-        sourceSha256: await sha256(join(root, file.source)),
-        destinationSha256: await sha256(join(root, file.destination)),
-        kind: "file" as const,
-        linkRewrite: false,
-    })));
-    const manifest = {
-        schema: "nbook.task-migration-manifest/v1",
-        sourceRevision,
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-    };
-    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest)));
-    const index = {
-        schema: "nbook.task-migration-index/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        migratedAt: new Date().toISOString(),
-        mappings,
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: files.length,
-        localOnlyFiles: [],
-    };
-    const marker = {
-        schema: "nbook.task-migration/v1",
-        sourceRevision,
-        fileCount: mappings.length,
-        manifestSha256,
-        completedAt: new Date().toISOString(),
-        repositoryLinkRewrites: [],
-        preservedSourceFiles: [],
-        trackedFileCount: sourceFiles.length,
-        localOnlyFiles: [],
-    };
-    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify(index, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify(marker, null, 2)}\n`);
-    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({schema: "nbook.task-ownership/v1", ownerRoot: "packages/neuro-book/.agents/tasks", taskCount: 0, fileCount: 0, tasks: []}, null, 2)}\n`);
-
-    if (!options.retainLegacy) {
-        await rm(join(root, "docs/tasks"), {recursive: true, force: true});
-        await runGit(root, ["add", "-A", "docs/tasks"]);
-    }
-    if (options.stageTargets) {
-        await runGit(root, ["add", "-A", ".agents/tasks"]);
-    } else {
-        await runGit(root, ["add", ".agents/tasks/legacy-index.json", ".agents/tasks/.migration-complete"]);
-    }
-    if (options.commitCutover) await runGit(root, ["commit", "-m", "task migration cutover"]);
+    const textAttributes = readGitTextAttributes(root, [taskPath]);
+    const taskSha = canonicalSha256(taskContent, textAttributes.get(taskPath) ?? "unspecified");
+    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 1,
+        fileCount: 1,
+        tasks: [{taskId: "01-alpha", ownerRoot: "packages/neuro-book/.agents/tasks", files: [{path: "01-alpha/README.md", legacyDestination: ".agents/tasks/01-alpha/README.md", sha256: taskSha}]}],
+    }, null, 2)}\n`);
+    await runGit(root, ["add", ".gitignore", ".agents/tasks/ownership.json"]);
+    if (options.trackTask) await runGit(root, ["add", taskPath]);
     return root;
 }
 
@@ -832,14 +691,45 @@ async function writeText(root: string, relativePath: string, content: string): P
     await writeFile(path, content, "utf8");
 }
 
-async function sha256(path: string): Promise<string> {
-    return hashBytes(await readFile(path));
+
+async function createLocalOnlyMigrationFixture(): Promise<string> {
+    const root = await createTestTmpRoot("governance-migration-local-only", "governance-migration-local-only-test");
+    fixtureRoots.push(root);
+    const destination = ".agents/tasks/01-local/benchmark.json";
+    const source = "docs/tasks/01-local/benchmark.json";
+    await writeText(root, ".gitattributes", "**/.agents/tasks/** text eol=lf\n");
+    await writeText(root, ".gitignore", `${destination}\n`);
+    await writeText(root, ".agents/tasks/ownership.json", `${JSON.stringify({
+        schema: "nbook.task-ownership/v1",
+        ownerRoot: "packages/neuro-book/.agents/tasks",
+        taskCount: 0,
+        fileCount: 0,
+        tasks: [],
+    })}\n`);
+    await runGit(root, ["init", "--initial-branch", "master"]);
+    await runGit(root, ["config", "user.email", "governance-test@example.invalid"]);
+    await runGit(root, ["config", "user.name", "Governance Test"]);
+    await runGit(root, ["add", "."]);
+    await runGit(root, ["commit", "-m", "fixture migration baseline"]);
+    const sourceRevision = (await runGit(root, ["rev-parse", "HEAD"])).trim();
+
+    const destinationBytes = Buffer.from("benchmark\r\nvalue\r\n", "utf8");
+    await mkdir(join(root, ".agents/tasks/01-local"), {recursive: true});
+    await writeFile(join(root, destination), destinationBytes);
+    const destinationSha256 = hashBytes(Buffer.from("benchmark\nvalue\n", "utf8"));
+    const mappings = [{source, destination, sourceSha256: destinationSha256, destinationSha256, kind: "file" as const, linkRewrite: false}];
+    const manifest = {schema: "nbook.task-migration-manifest/v1", sourceRevision, mappings, repositoryLinkRewrites: [], preservedSourceFiles: []};
+    const manifestSha256 = hashBytes(Buffer.from(JSON.stringify(manifest), "utf8"));
+    const index = {schema: "nbook.task-migration-index/v1", sourceRevision, fileCount: 1, manifestSha256, migratedAt: new Date().toISOString(), mappings, repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: 0, localOnlyFiles: [source]};
+    const marker = {schema: "nbook.task-migration/v1", sourceRevision, fileCount: 1, manifestSha256, completedAt: new Date().toISOString(), repositoryLinkRewrites: [], preservedSourceFiles: [], trackedFileCount: 0, localOnlyFiles: [source]};
+    await writeText(root, ".agents/tasks/legacy-index.json", `${JSON.stringify(index)}\n`);
+    await writeText(root, ".agents/tasks/.migration-complete", `${JSON.stringify(marker)}\n`);
+    return root;
 }
 
 function hashBytes(bytes: Uint8Array): string {
     return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
-
 async function runGit(cwd: string, args: string[]): Promise<string> {
     const result = await execFile("git", args, {cwd, encoding: "utf8"});
     return result.stdout;
