@@ -66,6 +66,14 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile --linker hoisted
+      - name: Install llmlint web island dependencies
+        if: matrix.name == 'llmlint'
+        working-directory: packages/llmlint/web
+        run: bun install --frozen-lockfile
+      - name: Prepare llmlint Nuxt types
+        if: matrix.name == 'llmlint'
+        working-directory: packages/llmlint/web
+        run: bunx nuxt prepare
       - name: Run package checks
         working-directory: ${{ matrix.directory }}
         run: ${{ matrix.commands }}

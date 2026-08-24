@@ -39,6 +39,10 @@ jobs:
           - platform: macos-arm64
             runner: macos-15
     runs-on: ${{ matrix.runner }}
+    env:
+      # bun 在 Windows 上偶发 EEXIST: failed copying files from cache；
+      # 每次 run 使用独立缓存目录，消除跨 run 缓存复制的竞争与脏状态。
+      BUN_INSTALL_CACHE_DIR: ${{ github.workspace }}/.bun-install-cache
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
