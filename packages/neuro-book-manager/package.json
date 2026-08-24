@@ -17,6 +17,7 @@
         "./schema": "./dist/schema.mjs",
         "./runtime-projection": {
             "types": "./src/runtime-projection.ts",
+            "bun": "./src/runtime-projection.ts",
             "import": "./dist/runtime-projection.mjs",
             "default": "./dist/runtime-projection.mjs"
         },

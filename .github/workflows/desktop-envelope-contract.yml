@@ -46,7 +46,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
-      - run: bun install --frozen-lockfile --linker hoisted
+      - name: Install dependencies
+        # bun 在 Windows hoisted 模式下偶发 EEXIST 缓存复制竞争，重试两次通常可过。
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if bun install --frozen-lockfile --linker hoisted; then exit 0; fi
+            echo "bun install failed (attempt ${attempt}/3)"; sleep 15
+          done
+          exit 1
       - name: Verify Desktop contracts
         run: bun run test:desktop-contract
       - name: Verify Manager type contracts
