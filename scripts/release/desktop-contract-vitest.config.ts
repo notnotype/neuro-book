@@ -57,6 +57,15 @@ export default defineConfig({
     resolve: {
         alias: {
             nbook: resolve(repositoryRoot, "packages", "neuro-book"),
+            // bun 的 exports 解析在 vitest externalize 路径上不识别 "bun" 条件，
+            // 合同测试需要源码形态，这里精确指向 TS 源文件。
+            "@notnotype/neuro-book-manager/runtime-projection": resolve(
+                repositoryRoot,
+                "packages",
+                "neuro-book-manager",
+                "src",
+                "runtime-projection.ts",
+            ),
         },
     },
     test: {
