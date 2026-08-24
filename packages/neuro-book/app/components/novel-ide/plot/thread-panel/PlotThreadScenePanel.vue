@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Data} from "@dnd-kit/abstract";
-import {defaultPreset} from "@dnd-kit/dom";
 import {move} from "@dnd-kit/helpers";
 import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
 import type {DragDropProviderEmits} from "@dnd-kit/vue";
@@ -292,7 +291,6 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
         <div class="min-h-0 flex-1 overflow-y-auto p-1.5 custom-scrollbar" @contextmenu.prevent="emit('openRootMenu', $event)">
             <DragDropProvider
                 v-if="renderedScenes.length"
-                :plugins="defaultPreset.plugins"
                 :sensors="dndSensors"
                 @drag-start="handleDragStart"
                 @drag-over="handleDragOver"

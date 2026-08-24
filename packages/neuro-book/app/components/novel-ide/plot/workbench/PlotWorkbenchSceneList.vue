@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import type {Data} from "@dnd-kit/abstract";
-import {defaultPreset} from "@dnd-kit/dom";
 import {move} from "@dnd-kit/helpers";
 import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
 import type {DragDropProviderEmits} from "@dnd-kit/vue";
@@ -385,7 +384,6 @@ watch(() => props.thread?.id, () => {
         <section class="mt-3">
             <DragDropProvider
                 v-if="renderedScenes.length"
-                :plugins="defaultPreset.plugins"
                 :sensors="dndSensors"
                 @drag-start="handleSceneDragStart"
                 @drag-over="handleSceneDragOver"
