@@ -133,10 +133,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(lockfile).toContain("@notnotype/neuro-book-test-support@file:../../packages/neuro-book-test-support");
     });
 
-    it("Governance checkout 不依赖一次性迁移的完整 Git 历史", async () => {
+    it("Governance checkout 保留完整历史以校验迁移 sourceRevision", async () => {
         const workflow = await readWorkflow("code-baseline.yml");
         const checkout = workflow.jobs.governance?.steps?.find(({name}) => name === "Checkout");
-        expect(checkout?.with?.["fetch-depth"]).toBeUndefined();
+        expect(checkout?.with?.["fetch-depth"]).toBe(0);
     });
 
     it("Community 与 Deploy Docs 的 push/PR runtime paths 指向应用 owner", async () => {
