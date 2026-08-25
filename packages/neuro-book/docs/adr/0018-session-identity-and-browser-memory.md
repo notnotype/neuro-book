@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-05
-- 关联任务：[Task 118](../tasks/118-project-catalog-snapshot-path-integration/README.md)
+- 关联任务：[Task 118](../../.agents/tasks/118-project-catalog-snapshot-path-integration/README.md)
 - 关联 Issue：[Issue #26](https://github.com/notnotype/neuro-book/issues/26)
 
 ## 背景
