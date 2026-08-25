@@ -20,6 +20,7 @@ import {once} from "node:events";
 import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 import {Unzip, UnzipInflate} from "fflate";
+import {runCapture} from "#scripts/utils/process.mjs";
 
 import {
     ensureStateFiles,
