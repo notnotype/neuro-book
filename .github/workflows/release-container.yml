@@ -45,7 +45,9 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - name: Prepare generated sources
-        run: bun run --cwd packages/neuro-book generate
+        run: |
+          bun run --cwd packages/neuro-book generate
+          bun run --cwd packages/neuro-book nuxt:prepare
       - name: Verify release process type contracts
         run: |
           bun x tsc --noEmit -p scripts/tsconfig.json
