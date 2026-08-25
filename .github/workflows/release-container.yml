@@ -30,10 +30,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_OPTIONS: --max-old-space-size=4096
 
-concurrency:
-  group: release-product-assets-${{ inputs.release_id }}
-  cancel-in-progress: false
-
 jobs:
   preflight:
     name: Release preflight
