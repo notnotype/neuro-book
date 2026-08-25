@@ -57,4 +57,6 @@ headless 合成指针与 dnd-kit 的三个交互细节，记录给后续自动�
 
 ## 终态
 
-三路径全绿 → README `status: completed`。Task 文档（README/context/walkthrough/evidences）尚未 commit；push/PR/Issue 更新未获授权，留给 PM 与开发者决策。
+三路径全绿 → README `status: completed`。
+- 快照时点（2026-08-25T05:30Z）：Task 文档尚未 commit；push/PR/Issue 更新未获授权。
+- 2026-08-25T05:45Z 更新：获开发者授权后，本文档连同 Task 合同与证据已提交 `6d336053` 并经分支 `docs/i131-plot-drag-verification` 推送，交付 PR #180；本段更正即该 PR 内的修订提交。合并与 Issue #131 收尾以仓库当前状态为准。
