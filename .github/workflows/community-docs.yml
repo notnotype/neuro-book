@@ -1,6 +1,34 @@
 name: Community and Docs Checks
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - "CONTRIBUTING.md"
+      - "CONTRIBUTING.en.md"
+      - "README.md"
+      - "README.en.md"
+      - "AGENTS.md"
+      - "PROJECT-STATUS.md"
+      - "WATCHDOG.md"
+      - "CONTEXT.md"
+      - "RELEASE.md"
+      - ".omp/**"
+      - "docs/**"
+      - "vitepress/**"
+      - "packages/neuro-book/assets/reference/**"
+      - "packages/llmlint/docs/promo/**"
+      - ".github/**"
+      - "scripts/ci/validate-community-files.ts"
+      - "scripts/ci/validate-nitropack-patch.ts"
+      - "scripts/ci/check-documentation*"
+      - "scripts/ci/stage-docs-locales*"
+      - "patches/**"
+      - "packages/neuro-book/**"
+      - "packages/neuro-book/nuxt.config.ts"
+      - "packages/neuro-book/tsconfig.json"
+      - "package.json"
+      - "bun.lock"
   pull_request:
     paths:
       - "CONTRIBUTING.md"
