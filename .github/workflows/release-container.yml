@@ -583,6 +583,8 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
+      - name: Build Manager bundle for restart verifier
+        run: bun run manager:build
       - uses: actions/download-artifact@v4
         with:
           name: release-candidate
