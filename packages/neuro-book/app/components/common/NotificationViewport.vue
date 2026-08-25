@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import {storeToRefs} from "pinia";
 import {useNotification, type NotificationItem, type NotificationPosition} from "nbook/app/composables/useNotification";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {themeTokens, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 
 const props = withDefaults(defineProps<{desktop?: boolean}>(), {
     desktop: false,
@@ -14,6 +17,23 @@ type NotificationGroup = {
 };
 
 const {notifications, remove} = useNotification();
+const novelIdeStore = useNovelIdeStore();
+const {themeVarsSnapshot} = storeToRefs(novelIdeStore);
+
+type ToneColorMap = Record<NotificationItem["tone"], string>;
+
+const FALLBACK_VARS: ThemeVars = themeTokens.sepia;
+
+const statusColors = computed<ToneColorMap>(() => {
+    const snap = themeVarsSnapshot.value;
+    const resolve = (key: keyof ThemeVars): string => snap?.[key] ?? FALLBACK_VARS[key];
+    return {
+        success: resolve("--status-success"),
+        warning: resolve("--status-warning"),
+        error: resolve("--status-danger"),
+        info: resolve("--status-info"),
+    };
+});
 
 const groupedNotifications = computed<NotificationGroup[]>(() => {
     const groupMap = new Map<string, NotificationGroup>();
@@ -76,32 +96,18 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
     return style;
 }
 
-function cardToneClass(item: NotificationItem): string {
-    if (item.tone === "success") {
-        return "border-emerald-500/25 bg-emerald-500/10 text-emerald-100";
-    }
-    if (item.tone === "warning") {
-        return "border-amber-500/25 bg-amber-500/12 text-amber-50";
-    }
-    if (item.tone === "error") {
-        return "border-rose-500/25 bg-rose-500/12 text-rose-50";
-    }
-
-    return "border-sky-500/25 bg-sky-500/12 text-sky-50";
+function cardToneStyle(item: NotificationItem): Record<string, string> {
+    const color = statusColors.value[item.tone];
+    return {
+        backgroundColor: `color-mix(in srgb, ${color} 82%, #000000)`,
+        borderColor: color,
+    };
 }
 
-function badgeToneClass(item: NotificationItem): string {
-    if (item.tone === "success") {
-        return "bg-emerald-500";
-    }
-    if (item.tone === "warning") {
-        return "bg-amber-500";
-    }
-    if (item.tone === "error") {
-        return "bg-rose-500";
-    }
-
-    return "bg-sky-500";
+function badgeToneStyle(item: NotificationItem): Record<string, string> {
+    return {
+        backgroundColor: statusColors.value[item.tone],
+    };
 }
 </script>
 
@@ -119,30 +125,35 @@ function badgeToneClass(item: NotificationItem): string {
                     <div
                         v-for="item in group.items"
                         :key="item.id"
-                        class="pointer-events-auto overflow-hidden rounded-2xl border shadow-[0_14px_40px_rgba(0,0,0,0.22)] backdrop-blur-sm"
-                        :class="cardToneClass(item)"
+                        class="pointer-events-auto overflow-hidden rounded-2xl border shadow-[0_14px_40px_rgba(0,0,0,0.22)]"
+                        :style="cardToneStyle(item)"
                     >
-                        <div class="flex items-start gap-3 px-4 py-3">
-                            <span class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" :class="badgeToneClass(item)"></span>
+                        <div class="flex items-center gap-3 px-4 py-3">
+                            <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="badgeToneStyle(item)"></span>
                             <div class="min-w-0 flex-1">
                                 <div v-if="item.title" class="text-sm font-semibold leading-5 text-white">
                                     {{ item.title }}
                                 </div>
                                 <div
                                     v-if="item.html"
-                                    class="mt-0.5 text-xs leading-5 text-white/90 [&_a]:underline [&_code]:rounded [&_code]:bg-black/20 [&_code]:px-1 [&_strong]:font-semibold"
+                                    :class="item.title ? 'mt-0.5' : ''"
+                                    class="text-xs leading-5 text-white/90 [&_a]:underline [&_code]:rounded [&_code]:bg-black/20 [&_code]:px-1 [&_strong]:font-semibold"
                                     v-html="item.html"
                                 ></div>
-                                <div v-else-if="item.message" class="mt-0.5 text-xs leading-5 text-white/90">
+                                <div
+                                    v-else-if="item.message"
+                                    :class="item.title ? 'mt-0.5' : ''"
+                                    class="text-xs leading-5 text-white/90"
+                                >
                                     {{ item.message }}
                                 </div>
                             </div>
                             <button
                                 type="button"
-                                class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/70 transition-colors hover:bg-white/10 hover:text-white"
                                 @click="remove(item.id)"
                             >
-                                <span class="i-lucide-x h-4 w-4"></span>
+                                <span class="i-lucide-x h-3.5 w-3.5"></span>
                             </button>
                         </div>
                     </div>
