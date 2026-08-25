@@ -12,6 +12,8 @@ export const releaseAssetsVitestConfig = {
         alias: {
             "#scripts": resolve(rootDir, "scripts"),
             nbook: resolve(rootDir, "packages/neuro-book"),
+            // vite-node 转换 zod 官方入口的 namespace 再导出会丢失 `z`，钉到等价 shim。
+            zod: resolve(rootDir, "scripts/release/zod-shim.mjs"),
         },
     },
     test: {

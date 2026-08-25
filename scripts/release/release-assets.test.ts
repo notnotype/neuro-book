@@ -423,7 +423,7 @@ describe("Product Release宿主合同", () => {
         expect(publicManagerVerifier).toContain('["cat-file", "-e", `${publicPackage.gitHead}^{commit}`]');
         expect(publicManagerVerifier).toContain('["fetch", "--no-tags", "origin", publicPackage.gitHead]');
         expect(publicManagerVerifier).not.toContain('"--depth=1"');
-        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run --cwd packages/neuro-book generate");
+        const generatedSourcesStep = workflow.jobs.preflight.steps.findIndex(({run}) => run === "bun run --cwd packages/neuro-book generate && bun run --cwd packages/neuro-book nuxt:prepare");
         const productGraphStep = workflow.jobs.preflight.steps.findIndex(({run}) => run?.includes("scripts/deploy/product-start.test.ts"));
         const agentStateRootStep = workflow.jobs.preflight.steps.find(({run}) => run?.includes("packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts"));
         expect(generatedSourcesStep).toBeGreaterThan(-1);
