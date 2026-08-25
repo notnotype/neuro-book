@@ -90,7 +90,15 @@ export async function readReleaseGeneration(projectRoot: string): Promise<Releas
         readFile(resolve(projectRoot, "bun.lock")),
     ]);
     if (statusOutput.length > 0) {
-        throw new Error("正式 Release Source 必须来自干净 Git checkout；当前 Source dirty=true。");
+        // -z 输出按 NUL 分隔；发布失败时必须直接给出脏路径，否则 Windows/CI 只剩不可定位的 dirty=true。
+        const entries = statusOutput.split("\0")
+            .filter((entry) => entry.length > 0)
+            .slice(0, 20)
+            .map((entry) => `- ${entry.slice(0, 300)}`);
+        throw new Error([
+            "正式 Release Source 必须来自干净 Git checkout；当前 Source dirty=true。",
+            ...entries,
+        ].join("\n"));
     }
     const revision = revisionOutput.trim();
     if (!/^[0-9a-f]{40,64}$/iu.test(revision)) {

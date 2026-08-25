@@ -2,7 +2,7 @@ packages/neuro-book/assets/workspace/.nbook/agent/bin/workspace text eol=lf
 packages/neuro-book/assets/workspace/.nbook/agent/bin/profile text eol=lf
 packages/neuro-book/assets/workspace/.nbook/agent/bin/*.cmd text eol=crlf
 packages/neuro-book/assets/workspace/.nbook/agent/scripts/*.ts text eol=lf
-server/generated/project-prisma/** text eol=lf
+packages/neuro-book/server/generated/project-prisma/** text eol=lf
 bun.lock text eol=lf
 packages/neuro-book/.env.product text eol=lf
 *.mjs text eol=lf
@@ -10,7 +10,3 @@ packages/neuro-book/.env.product text eol=lf
 **/.agents/tasks/**/*.png -text
 **/.agents/tasks/**/*.wsb -text
 **/.agents/tasks/**/*.ps1 -text
-docs/tasks/** text eol=lf
-docs/tasks/**/*.png -text
-docs/tasks/**/*.wsb -text
-docs/tasks/**/*.ps1 -text
