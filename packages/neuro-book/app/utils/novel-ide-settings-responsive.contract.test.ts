@@ -4,6 +4,7 @@ import {describe, expect, it} from "vitest";
 
 const settingsDialogPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSettingsDialog.vue", import.meta.url));
 const profileNavPath = fileURLToPath(new URL("../components/novel-ide/settings/AgentProfileNavList.vue", import.meta.url));
+const modelPanelPath = fileURLToPath(new URL("../components/novel-ide/settings/NovelIdeModelSettingsPanel.vue", import.meta.url));
 
 describe("Novel IDE Settings responsive contract", () => {
     it("窄屏使用横向导航和上下布局，桌面保留侧栏", async () => {
@@ -29,5 +30,14 @@ describe("Novel IDE Settings responsive contract", () => {
 
         expect(source).not.toContain("90vh");
         expect(source).toContain("overflow-y-auto");
+    });
+
+    it("模型设置双栏的 sticky 定位只作用于 xl 桌面断点", async () => {
+        const source = (await readFile(modelPanelPath, "utf8")).replace(/\r\n/g, "\n");
+
+        expect(source).toContain("xl:sticky xl:top-4");
+        expect(source).toContain("xl:items-start");
+        expect(source).not.toContain("sticky top-4");
+        expect(source).not.toContain("flex h-fit flex-col");
     });
 });
