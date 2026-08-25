@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import {mkdtemp, rm} from "node:fs/promises";
+import {mkdtemp, rm, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 
@@ -35,7 +35,12 @@ try {
     if (changedInputs) {
         throw new Error(`当前Manager构建输入晚于npm公开gitHead ${publicPackage.gitHead}：\n${changedInputs}`);
     }
-    const reportedVersion = (await runCapture("bun", [publicPackage.executable, "--version"], {cwd: ROOT})).trim();
+    // 隔离安装公开包及其生产依赖：验证不得依赖宿主任意 node_modules（bun auto-install
+    // 或家目录残留都会让结果不可信）。
+    await writeFile(join(temporaryRoot, "package.json"), "{\"private\":true}\n", "utf8");
+    await run("bun", ["add", join(temporaryRoot, "public-manager.tgz"), "--cwd", temporaryRoot], temporaryRoot);
+    const installedExecutable = join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs");
+    const reportedVersion = (await runCapture("bun", [installedExecutable, "--version"], {cwd: ROOT})).trim();
     if (reportedVersion !== packageJson.version) {
         throw new Error(`npm公开Manager --version错误：${reportedVersion}`);
     }
