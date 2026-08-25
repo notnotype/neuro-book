@@ -37,7 +37,6 @@ concurrency:
   group: community-docs-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-env:
 jobs:
   community-docs:
     name: Community files and docs

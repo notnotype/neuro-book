@@ -39,7 +39,6 @@ concurrency:
   group: pages
   cancel-in-progress: false
 
-env:
 jobs:
   build:
     runs-on: ubuntu-latest
