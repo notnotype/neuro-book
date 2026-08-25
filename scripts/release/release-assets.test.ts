@@ -612,6 +612,7 @@ describe("Product Release宿主合同", () => {
                 "verify-public-ghcr-amd64": WorkflowJob;
                 "verify-public-ghcr-arm64": WorkflowJob;
                 "verify-public-ghcr-podman": WorkflowJob;
+                "verify-public-ghcr-podman-delegate": WorkflowJob;
                 "verify-public-windows-data-reuse": WorkflowJob;
             };
         };
@@ -640,10 +641,15 @@ describe("Product Release宿主合同", () => {
             ({run}) => run?.includes("PODMAN_COMPOSE_PROVIDER=podman-compose podman compose version"),
         )).toBe(true);
         expect(workflow.jobs["verify-public-ghcr-podman"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("podman"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("verify-public-ghcr.sh") && run.includes("delegate"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("隔离失败：podman-compose 不允许存在于 PATH。"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("command -v podman-compose"))).toBe(true);
+        expect(workflow.jobs["verify-public-ghcr-podman-delegate"].steps.some(({run}) => run?.includes("PODMAN_COMPOSE_MASKED_ROOT"))).toBe(true);
         const publicGhcr = await readFile(resolve(ROOT, "scripts/release/verify-public-ghcr.sh"), "utf8");
         expect(publicGhcr).toContain('scripts/release/installation-state-root.ts "$root"');
         expect(publicGhcr).toContain('state_root="$(resolve_state_root)"');
         expect(publicGhcr).toContain('--filter "label=com.docker.compose.project.working_dir=$compose_working_dir"');
+        expect(publicGhcr).toContain('if [[ "$engine" == "podman" && "$podman_compose_provider" != "delegate" ]]');
         expect(publicGhcr).toContain('--filter "label=com.docker.compose.service=app"');
         expect(publicGhcr).toContain('compose ps --all --quiet app');
         expect(publicGhcr).not.toContain('--env-file "$root/.env"');
@@ -667,6 +673,7 @@ describe("Product Release宿主合同", () => {
             "verify-public-ghcr-amd64",
             "verify-public-ghcr-arm64",
             "verify-public-ghcr-podman",
+            "verify-public-ghcr-podman-delegate",
             "verify-public-windows-data-reuse",
         ]);
     });

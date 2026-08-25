@@ -1010,6 +1010,74 @@ jobs:
             "$manager_version" "$candidate_manifest" \
             "${RUNNER_TEMP}/public-ghcr-podman" 39489 podman
 
+  verify-public-ghcr-podman-delegate:
+    needs: [verify-public-payload]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PODMAN_COMPOSE_MASKED_ROOT: ${{ runner.temp }}/podman-compose-masked
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.revision }}
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-candidate
+          path: candidate-assets
+      - name: Install Podman and mask podman-compose outside PATH
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes podman
+          mkdir -p "$PODMAN_COMPOSE_MASKED_ROOT/deb"
+          cd "$PODMAN_COMPOSE_MASKED_ROOT/deb"
+          apt-get download podman-compose
+          dpkg -x ./*.deb "$PODMAN_COMPOSE_MASKED_ROOT/root"
+          masked_bin="$PODMAN_COMPOSE_MASKED_ROOT/root/usr/bin/podman-compose"
+          test -x "$masked_bin"
+          echo "podman-compose 已保留安装在 PATH 之外：$masked_bin"
+          if ! command -v docker-compose >/dev/null 2>&1; then
+              plugin=""
+              for candidate_path in /usr/libexec/docker/cli-plugins/docker-compose /usr/lib/docker/cli-plugins/docker-compose; do
+                  if [[ -x "$candidate_path" ]]; then plugin="$candidate_path"; break; fi
+              done
+              if [[ -z "$plugin" ]]; then
+                  sudo apt-get install --yes docker-compose-v2
+                  plugin="/usr/libexec/docker/cli-plugins/docker-compose"
+              fi
+              sudo ln -sf "$plugin" /usr/local/bin/docker-compose
+          fi
+          command -v docker-compose
+          if command -v podman-compose >/dev/null 2>&1; then
+              echo "隔离失败：podman-compose 不允许存在于 PATH。" >&2
+              exit 1
+          fi
+          systemctl --user enable --now podman.socket
+          podman info
+          podman compose version
+          # 持久化 sanitized PATH：逐行写入（每行一个目录条目，不能写整串 PATH=...），
+          # 并显式剔除 masked 根前缀，防止任何后续步骤意外纳入。
+          printf '%s\n' "$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "^$PODMAN_COMPOSE_MASKED_ROOT")" >> "$GITHUB_PATH"
+      - name: Verify public GHCR on Linux x64 rootless Podman via delegated provider
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$PODMAN_COMPOSE_MASKED_ROOT/root/usr/bin/podman-compose"
+          if command -v podman-compose >/dev/null 2>&1; then
+              echo "隔离失败：podman-compose 不允许存在于 PATH。" >&2
+              exit 1
+          fi
+          command -v docker-compose
+          manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
+          candidate_manifest="$PWD/candidate-assets/release-manifest.json"
+          bash scripts/release/verify-public-ghcr.sh \
+            "$manager_version" "$candidate_manifest" \
+            "${RUNNER_TEMP}/public-ghcr-podman-delegate" 39490 podman delegate
+
   verify-public-windows-data-reuse:
     needs: [verify-public-payload]
     runs-on: windows-latest
@@ -1136,7 +1204,7 @@ jobs:
           Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP "portable-0.8.6.zip") -Force -ErrorAction SilentlyContinue
 
   publish-index:
-    needs: [verify-public-ghcr-amd64, verify-public-ghcr-arm64, verify-public-ghcr-podman, verify-public-windows-data-reuse]
+    needs: [verify-public-ghcr-amd64, verify-public-ghcr-arm64, verify-public-ghcr-podman, verify-public-ghcr-podman-delegate, verify-public-windows-data-reuse]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -6,6 +6,7 @@ candidate_manifest="$2"
 root="$3"
 port="$4"
 engine="$5"
+podman_compose_provider="${6:-}"
 manifest="$root/.deploy/installation.json"
 compose_path="$root/.deploy/docker-compose.generated.yml"
 manager_home="${root}-manager"
@@ -16,7 +17,8 @@ channel="$(node -e 'const m=require(process.argv[1]); process.stdout.write(m.cha
 export NEURO_BOOK_CONTAINER_ENGINE="$engine"
 export NEURO_BOOK_MANAGER_CONFIG="${manager_home}/config.json"
 export NO_COLOR=1
-if [[ "$engine" == "podman" ]]; then
+case "$podman_compose_provider" in ""|"delegate") ;; *) { echo "非法compose provider参数：$podman_compose_provider" >&2; exit 1; } ;; esac
+if [[ "$engine" == "podman" && "$podman_compose_provider" != "delegate" ]]; then
     export PODMAN_COMPOSE_PROVIDER="podman-compose"
 fi
 
