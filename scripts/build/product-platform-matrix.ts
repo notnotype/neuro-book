@@ -58,5 +58,5 @@ if (import.meta.main) {
     if (eventName === "") {
         throw new Error("Usage: bun scripts/build/product-platform-matrix.ts <event-name> (or set EVENT_NAME)");
     }
-    process.stdout.write(JSON.stringify({include: selectProductPlatformMatrix(eventName)}));
+    process.stdout.write(`${JSON.stringify({include: selectProductPlatformMatrix(eventName)})}\n`);
 }
