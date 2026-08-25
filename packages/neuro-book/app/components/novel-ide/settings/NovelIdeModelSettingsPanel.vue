@@ -453,9 +453,9 @@ defineExpose({dirty, loading, saving, saveSettings, restoreSettings});
         </div>
 
         <!-- 模型设置双栏布局 -->
-        <div v-else-if="!isProjectScope" class="grid min-h-[500px] gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <div v-else-if="!isProjectScope" class="grid min-h-[500px] items-start gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
             <!-- 左侧 Provider 列表 -->
-            <aside class="flex flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
+            <aside class="sticky top-4 flex h-fit flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
                 <div class="px-3 pb-3 pt-2">
                     <div class="text-[11px] font-bold uppercase tracking-[0.2em] text-[var(--text-muted)]">Providers</div>
                     <div class="mt-1 text-xs text-[var(--text-secondary)] opacity-80">{{ t("settings.panels.models.providersHint") }}</div>
