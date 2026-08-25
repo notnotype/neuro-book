@@ -6,7 +6,7 @@
 - 主面板与 Inline Editor 的记忆写入继续是非阻断操作：权威 recovery 提交并启动 stream 后才写入；`localStorage` 写入失败只显示一次提示，不回滚已打开对话、不删除旧记忆。Session 丢失恢复只清理 ID 与 identity 同时匹配的记忆。
 - 关联关系读取新增窄的 `projectRelatedSessions()` 投影：目标 JSONL 自身缺失只计入 `unavailableLinkedAgents`，主 Session recovery 和轻量 relations 继续成功；损坏文件、权限错误以及指向其它 ID 的缺失仍原样抛出。前端轻量 relations 刷新也会把不可用数量写回 recovery shell。
 - 本轮新增/复核 focused 合计 **8 个文件 / 284 个测试通过**：`NeuroAgentHarness` 单独运行 `183/183`，其余 7 个状态/草稿/stream/identity/relation 文件分拆运行 `101/101`，包含真实关系目标删除后的 recovery 验收。8 文件并行调用会偶发触发 harness 内既有时间敏感断言；该用例在干净 PR 基线与当前 worktree 单独运行均通过，未用放宽超时掩盖。根 `bun run typecheck` 通过。该数字是本轮补充证据，之前 PR recovery 批次的 14/170 记录保留为历史结果，不合并冒充全量。
-- 详见 [ADR 0018](../../adr/0013-session-identity-and-browser-memory.md)。本轮仍不建立 State Root 实例身份协议、备份恢复、runtime lease 或自动创建 Session；同号 Session 的跨实例隔离另由后续 Issue 承载。
+- 详见 [ADR 0018](../../../docs/adr/0018-session-identity-and-browser-memory.md)。本轮仍不建立 State Root 实例身份协议、备份恢复、runtime lease 或自动创建 Session；同号 Session 的跨实例隔离另由后续 Issue 承载。
 
 > 2026-07-31 CLI 交付路径取代说明：本任务的 Project identity、mutation/Occupancy 与 fail-closed preflight 合同继续有效；CLI implementation/发行所有权由 Task 130 收口。当前同步面是 Product-owned Workspace CLI、`.nbook/agent/bin/workspace(.cmd)` wrapper 与 Product Runtime Contract 的 `workspace` 逻辑命令；下文 `assets/workspace/.nbook/agent/scripts/workspace.ts` 只保留为 hard-cut 时的历史证据，不恢复 asset script 或 `server/scripts` fallback。
 
