@@ -1,4 +1,4 @@
-import {readFile} from "node:fs/promises";
+import {readFile, readdir} from "node:fs/promises";
 import {resolve} from "node:path";
 
 import {describe, expect, it} from "vitest";
@@ -291,6 +291,18 @@ describe("迁移后九个 CI 工作流结构合同", () => {
                 expect(staleRootConfigs.has(triggerPath), `${name}: ${triggerPath}`).toBe(false);
             }
             expect(commands(workflow), name).not.toMatch(/(?:^|\n)\s*bun run (?:generate|nuxt:prepare|nuxt:build|runtime:typecheck|test:agent-state-root)(?:\s|$)/u);
+        }
+    });
+
+    it("code-baseline 与 product-platforms 的 PR paths 覆盖全部 packages 目录", async () => {
+        const dirents = await readdir(resolve(root, "packages"), {withFileTypes: true});
+        const packageDirs = dirents.filter((d) => d.isDirectory()).map((d) => d.name);
+        expect(packageDirs.length).toBeGreaterThanOrEqual(12);
+        for (const name of ["code-baseline.yml", "product-platforms.yml"]) {
+            const prPaths = (await readWorkflow(name)).on?.pull_request?.paths ?? [];
+            for (const dir of packageDirs) {
+                expect(prPaths, `${name}: packages/${dir}`).toContain(`packages/${dir}/**`);
+            }
         }
     });
 });
