@@ -67,7 +67,7 @@ async function verifyBackgroundTermination(
     agentBin: string,
 ): Promise<void> {
     const statePath = join(root, `background-${reason}.json`);
-    const fixture = resolve(import.meta.dir, "..", "..", "server", "agent", "tools", "fixtures", "owned-process-root.ts");
+    const fixture = resolve(import.meta.dir, "..", "..", "packages", "neuro-book", "server", "agent", "tools", "fixtures", "owned-process-root.ts");
     const command = [process.execPath, fixture, statePath]
         .map((path) => `'${windowsPathForBash(path).replaceAll("'", "'\\''")}'`)
         .join(" ");
@@ -117,7 +117,7 @@ async function verifyTermination(
     agentBin: string,
 ): Promise<void> {
     const statePath = join(root, `${reason}.json`);
-    const fixture = resolve(import.meta.dir, "..", "..", "server", "agent", "tools", "fixtures", "owned-process-root.ts");
+    const fixture = resolve(import.meta.dir, "..", "..", "packages", "neuro-book", "server", "agent", "tools", "fixtures", "owned-process-root.ts");
     const command = [process.execPath, fixture, statePath]
         .map((path) => `'${windowsPathForBash(path).replaceAll("'", "'\\''")}'`)
         .join(" ");
