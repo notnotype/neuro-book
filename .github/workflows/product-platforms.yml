@@ -57,6 +57,7 @@ jobs:
       matrix: ${{ steps.select.outputs.matrix }}
     steps:
       - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
       - id: select
         shell: bash
         env:
