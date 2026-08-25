@@ -25,6 +25,9 @@ try {
     if (packageJson.dependencies?.["@notnotype/owned-process"]) {
         throw new Error("Manager npm包不应携带私有Owned Process production dependency；实现必须内联进单文件bundle。" );
     }
+    if (packageJson.dependencies?.["@notnotype/neuro-book-contracts"]) {
+        throw new Error("Manager npm包不应携带私有Contracts production dependency；实现必须内联进单文件bundle。");
+    }
     const managerVersion = await runCapture([
         "bun",
         join(temporaryRoot, "node_modules", "@notnotype", "neuro-book-manager", "dist", "neuro-book.mjs"),
