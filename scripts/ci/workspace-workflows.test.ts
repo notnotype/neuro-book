@@ -5,6 +5,7 @@ import {describe, expect, it} from "vitest";
 import {parse} from "yaml";
 
 type WorkflowStep = {
+    id?: string;
     name?: string;
     run?: string;
     uses?: string;
@@ -221,6 +222,12 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "bun.lock",
             "package.json",
         ]));
+        expect(platforms.jobs.product?.strategy?.matrix).toBe("${{ fromJSON(needs.select-platforms.outputs.matrix) }}");
+        const selectRun = String(platforms.jobs["select-platforms"]?.steps?.find((step) => step.id === "select")?.run ?? "");
+        for (const platform of ["linux-x64-glibc", "linux-aarch64-glibc", "darwin-x64", "darwin-aarch64"]) {
+            expect(selectRun).toContain(platform);
+        }
+        expect(selectRun).toContain("pull_request");
         expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
         expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
         expect(commands(platforms)).toContain("bun run test:install");
