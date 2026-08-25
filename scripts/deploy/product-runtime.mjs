@@ -18,6 +18,7 @@ const ACCEPTANCE_OWNER = "nbook.product-runtime-acceptance";
 const ACCEPTANCE_SCHEMA = 1;
 const STALE_ACCEPTANCE_MS = 24 * 60 * 60 * 1000;
 const HEARTBEAT_MS = 10_000;
+const OPERATION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 const command = process.argv[2] ?? "stage";
 
@@ -198,7 +199,7 @@ async function readRuntimeImageIdentity(imageRoot) {
 function requestedOperationId() {
     const requested = process.env.NEURO_BOOK_PRODUCT_OPERATION_ID?.trim();
     const operationId = requested || `acceptance-${new Date().toISOString().replace(/[^0-9]/gu, "")}-${randomUUID()}`;
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(operationId) || operationId === "." || operationId === "..") {
+    if (!OPERATION_ID_PATTERN.test(operationId)) {
         throw new Error(`Product 验收 operation ID 无效：${JSON.stringify(operationId)}`);
     }
     return operationId;
@@ -209,7 +210,7 @@ function requestedOperationId() {
  * 缺少 owner 等同于 already-cleaned；未知 owner、路径逃逸或活动 lease 均拒绝删除。
  */
 async function cleanupProduct(operationId) {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(operationId) || operationId === "." || operationId === "..") {
+    if (!OPERATION_ID_PATTERN.test(operationId)) {
         throw new Error(`Product 验收 cleanup operation ID 无效：${JSON.stringify(operationId)}`);
     }
     const stageRoot = resolveStageRoot(operationId);
