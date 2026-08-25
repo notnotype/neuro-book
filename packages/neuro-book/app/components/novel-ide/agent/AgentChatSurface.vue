@@ -14,6 +14,7 @@ import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agen
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/AgentSystemPromptPanel.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
@@ -2762,34 +2763,50 @@ function saveLastSessionId(sessionId: number): void {
                     </div>
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
-                    <Dropdown v-if="canChooseCreateProfile" :items="createProfileDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" compact @select="void createSessionFromHeader($event)">
-                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession">
+                    <Tooltip v-if="canChooseCreateProfile" :text="t('agent.session.newChat')" placement="bottom">
+                        <Dropdown :items="createProfileDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" compact @select="void createSessionFromHeader($event)">
+                            <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="loadingSession">
+                                <span class="i-lucide-plus h-4 w-4"></span>
+                            </button>
+                        </Dropdown>
+                    </Tooltip>
+                    <Tooltip v-else :text="t('agent.session.newChat')" placement="bottom">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="loadingSession" @click="void createSessionFromHeader()">
                             <span class="i-lucide-plus h-4 w-4"></span>
                         </button>
-                    </Dropdown>
-                    <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession" @click="void createSessionFromHeader()">
-                        <span class="i-lucide-plus h-4 w-4"></span>
-                    </button>
-                    <button class="flex items-center gap-1 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': attachmentPanelOpen}" title="查看当前 Session 的全部附件" :disabled="!activeSessionId" @click="toggleAttachmentPanel">
-                        <span class="i-lucide-paperclip h-4 w-4"></span>
-                        <span v-if="sessionAttachmentUniqueTotal" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ sessionAttachmentUniqueTotal }}</span>
-                    </button>
-                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
-                        <span class="i-lucide-users h-4 w-4"></span>
-                        <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId || !activeInteraction.canMutateHistory" @click="sessionTreeDialogOpen = true">
-                        <span class="i-lucide-git-branch h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :title="t('agent.systemPrompt.open')" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
-                        <span class="i-lucide-terminal-square h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="openSessionDialog()">
-                        <span class="i-lucide-messages-square h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
-                        <span class="i-lucide-x h-4 w-4"></span>
-                    </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.chatSurface.attachments')" placement="bottom">
+                        <button class="flex items-center gap-1 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': attachmentPanelOpen}" :disabled="!activeSessionId" @click="toggleAttachmentPanel">
+                            <span class="i-lucide-paperclip h-4 w-4"></span>
+                            <span v-if="sessionAttachmentUniqueTotal" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ sessionAttachmentUniqueTotal }}</span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.chatSurface.linkedAgentsTitle')" placement="bottom">
+                        <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
+                            <span class="i-lucide-users h-4 w-4"></span>
+                            <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.chatSurface.sessionTreeTitle')" placement="bottom">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="!activeSessionId || !activeInteraction.canMutateHistory" @click="sessionTreeDialogOpen = true">
+                            <span class="i-lucide-git-branch h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.systemPrompt.open')" placement="bottom">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
+                            <span class="i-lucide-terminal-square h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.chatSurface.sessionListTitle')" placement="bottom">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="openSessionDialog()">
+                            <span class="i-lucide-messages-square h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
+                    <Tooltip :text="t('agent.chatSurface.closePanel')" placement="bottom">
+                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
+                            <span class="i-lucide-x h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
                 </div>
             </div>
 

@@ -2065,6 +2065,8 @@ const enUS = {
             linkedAgentsTitle: "Linked Agents",
             sessionTreeTitle: "Session Tree",
             sessionListTitle: "Session List",
+            closePanel: "Close panel",
+            attachments: "Show all session attachments",
         },
         traceViewer: {
             title: "Pi Request Traces",

@@ -2063,6 +2063,8 @@ const zhCN = {
             linkedAgentsTitle: "关联 Agent",
             sessionTreeTitle: "Session Tree",
             sessionListTitle: "Session 列表",
+            closePanel: "关闭面板",
+            attachments: "查看当前 Session 的全部附件",
         },
         traceViewer: {
             title: "Pi 请求记录",
