@@ -106,10 +106,8 @@ jobs:
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
 
-      - id: app-meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ steps.image-names.outputs.app }}
+          labels: |
+            org.opencontainers.image.revision=${{ inputs.revision }}
 
       - id: app-build
         name: Build and push app image by digest
@@ -586,6 +584,8 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - uses: actions/download-artifact@v4
         with:
@@ -892,8 +892,6 @@ jobs:
         with:
           ref: ${{ inputs.revision }}
       - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.14
       - run: bun scripts/release/install-dependencies.ts --linker hoisted
       - uses: actions/download-artifact@v4
         with:
