@@ -101,7 +101,11 @@ const GITLESS_SOURCE_PATH_EXCLUDES = new Set(["server/generated/prisma"]);
 
 function isGitlessSourceExcluded(segments: readonly string[], entryName: string): boolean {
     const relativePath = [...segments, entryName].join("/");
-    return GITLESS_SOURCE_PATH_EXCLUDES.has(relativePath)
+    // 通用生成态目录必须在任意深度排除：monorepo 收敛后应用生成物位于
+    // packages/<app>/node_modules/.cache/nuxt/.nuxt 等嵌套路径，仅根层短路
+    // 会让构建期写入的缓存进入 Source 身份并误报「Source 输入发生变化」。
+    return GITLESS_SOURCE_EXCLUDES.has(entryName)
+        || GITLESS_SOURCE_PATH_EXCLUDES.has(relativePath)
         || (segments[0] === "packages" && (entryName === "data.db" || entryName.startsWith("data.db-")))
         || (segments[0] === "packages" && relativePath.endsWith("/server/generated/prisma"));
 }

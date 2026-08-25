@@ -546,6 +546,11 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
         await rm(join(root, ".git"), {recursive: true, force: true});
         await mkdir(join(root, "server", "generated", "prisma"), {recursive: true});
         await writeFile(join(root, "server", "generated", "prisma", "client.ts"), "generated-v1\n", "utf8");
+        // monorepo 嵌套目录先于首个快照存在，构建期只写入内容。
+        const nestedGenerated = join(root, "packages", "neuro-book", "node_modules", ".cache", "nuxt", ".nuxt");
+        const nestedSource = join(root, "packages", "neuro-book", "src");
+        await mkdir(nestedGenerated, {recursive: true});
+        await mkdir(nestedSource, {recursive: true});
         const builder = new ProductRuntimeImageBuilder(root);
 
         await expect(simpleImage(builder, "gitless-without-identity")).rejects.toThrow(
@@ -563,6 +568,8 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
                 await writeRuntimeFixture(imageRoot);
                 await writeFile(join(root, "logs", "server-current.jsonl"), "generated during build\n", "utf8");
                 await writeFile(join(root, "server", "generated", "prisma", "client.ts"), "generated-v2\n", "utf8");
+                // monorepo 嵌套生成态目录（packages/<app>/node_modules/.cache/nuxt/.nuxt）不得进入 Source 身份。
+                await writeFile(join(nestedGenerated, "app.config.mjs"), "generated-v1\n", "utf8");
             },
         });
         expect(image.manifest).toMatchObject({revision, dirty: false});
@@ -576,6 +583,8 @@ describe("ProductRuntimeImageBuilder", {timeout: 30_000}, () => {
                 await mkdir(join(imageRoot, "server"), {recursive: true});
                 await writeFile(join(imageRoot, "server", "index.mjs"), "race", "utf8");
                 await writeFile(join(root, "src", "input.ts"), "export const input = 2;\n", "utf8");
+                // 嵌套真实源码变更仍必须触发失败。
+                await writeFile(join(nestedSource, "input.ts"), "export const nestedInput = 1;\n", "utf8");
             },
         })).rejects.toThrow("Source 输入发生变化");
     });
