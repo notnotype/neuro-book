@@ -138,13 +138,23 @@ async function verifyTermination(
         signal: controller.signal,
         onData() {},
     });
-    const state = await Promise.race([
-        waitForState(statePath),
-        execution.then(
-            () => Promise.reject(new Error(`${reason}在fixture就绪前意外完成。`)),
-            (error) => Promise.reject(error),
-        ),
-    ]);
+    let state: {pid: number; port: number};
+    try {
+        // 就绪期限给足 CI 冷启动（Bun + 模块链）；执行本身不带 timeout，
+        // 因此就绪失败时必须显式 abort 并等待 Bash 收口，避免留下持有
+        // 端口的进程树后删除其工作目录。
+        state = await Promise.race([
+            waitForState(statePath, 30_000),
+            execution.then(
+                () => Promise.reject(new Error(`${reason}在fixture就绪前意外完成。`)),
+                (error) => Promise.reject(error),
+            ),
+        ]);
+    } catch (error) {
+        controller.abort();
+        await execution.catch(() => undefined);
+        throw error;
+    }
     // 终止只在 fixture 就绪（状态文件已写出）之后武装：CI 冷启动再慢也不会
     // 让 runBash 的超时拒绝抢在就绪前赢得竞态。timeout 场景先持树观察窗口，
     // 再显式 abort，验证与 abort 完全相同的杀树/端口释放/错误分类语义。
@@ -192,8 +202,8 @@ function windowsPathForBash(path: string): string {
 }
 
 /** 等待fixture写出孙进程PID与监听端口。 */
-async function waitForState(path: string): Promise<{pid: number; port: number}> {
-    const deadline = Date.now() + 5_000;
+async function waitForState(path: string, deadlineMs = 30_000): Promise<{pid: number; port: number}> {
+    const deadline = Date.now() + deadlineMs;
     while (Date.now() < deadline) {
         try {
             return JSON.parse(await readFile(path, "utf8")) as {pid: number; port: number};
