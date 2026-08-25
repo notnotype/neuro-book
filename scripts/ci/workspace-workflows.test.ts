@@ -4,6 +4,8 @@ import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {parse} from "yaml";
 
+import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
+
 type WorkflowStep = {
     id?: string;
     name?: string;
@@ -223,10 +225,26 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         ]));
         expect(platforms.jobs.product?.strategy?.matrix).toBe("${{ fromJSON(needs.select-platforms.outputs.matrix) }}");
         const selectRun = String(platforms.jobs["select-platforms"]?.steps?.find((step) => step.id === "select")?.run ?? "");
-        for (const platform of ["linux-x64-glibc", "linux-aarch64-glibc", "darwin-x64", "darwin-aarch64"]) {
-            expect(selectRun).toContain(platform);
-        }
-        expect(selectRun).toContain("pull_request");
+        expect(selectRun).toContain("scripts/build/product-platform-matrix.ts");
+        expect(selectProductPlatformMatrix("pull_request")).toEqual([
+            {
+                platform: "linux-x64-glibc",
+                runner: "ubuntu-latest",
+                command: "release:product:linux",
+                archive: "neuro-book-product-linux-x64-glibc.tar.gz",
+                port: 39223,
+                browser: "playwright",
+            },
+        ]);
+        expect(selectProductPlatformMatrix("push").map((entry) => entry.platform)).toEqual([
+            "linux-x64-glibc",
+            "linux-aarch64-glibc",
+            "darwin-x64",
+            "darwin-aarch64",
+        ]);
+        expect(selectProductPlatformMatrix("workflow_dispatch")).toEqual(selectProductPlatformMatrix("push"));
+        expect(platforms.on?.push?.branches).toEqual(["master"]);
+        expect(platforms.on?.push?.paths).toEqual(platforms.on?.pull_request?.paths);
         expect(commands(platforms)).toContain("bun run --cwd packages/neuro-book nuxt:build");
         expect(commands(platforms)).toContain("./packages/neuro-book/package.json");
         expect(commands(platforms)).toContain("bun run test:install");

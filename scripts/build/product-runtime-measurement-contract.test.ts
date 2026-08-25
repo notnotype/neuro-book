@@ -3,6 +3,8 @@ import {resolve} from "node:path";
 
 import {PRODUCT_PLATFORMS} from "@notnotype/neuro-book-contracts/platform";
 
+import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
+
 describe("Product Runtime Image measurement contracts", () => {
     it("根编排器持有 measurement 与 policy preflight，应用包持有 Nuxt build", async () => {
         const [rootPackage, applicationPackage] = await Promise.all([
@@ -43,9 +45,8 @@ describe("Product Runtime Image measurement contracts", () => {
         expect(platformChecks).toContain("steps.runtime_policy.outputs.registered != 'true'");
         expect(platformChecks).toContain("steps.runtime_policy.outputs.registered == 'true'");
         expect(platformChecks).toContain("bun run product:measure --output");
-        for (const platform of PRODUCT_PLATFORMS.filter((candidate) => candidate !== "windows-x64")) {
-            expect(platformChecks).toContain(`platform: ${platform}`);
-        }
+        expect(selectProductPlatformMatrix("push").map((entry) => entry.platform).sort())
+            .toEqual(PRODUCT_PLATFORMS.filter((candidate) => candidate !== "windows-x64").sort());
         expect(platformChecks).toMatch(
             /name: Verify Manager platform contracts\r?\n\s+if: steps\.runtime_policy\.outputs\.registered == 'true'/u,
         );
