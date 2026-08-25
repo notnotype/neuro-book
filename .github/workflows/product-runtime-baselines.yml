@@ -7,7 +7,6 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NEURO_BOOK_SOURCE_REVISION: ${{ github.sha }}
   NODE_OPTIONS: --max-old-space-size=4096
 
