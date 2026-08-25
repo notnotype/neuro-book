@@ -1059,7 +1059,16 @@ jobs:
               echo "隔离失败：podman-compose 不允许存在于 PATH。" >&2
               exit 1
           fi
-          systemctl --user enable --now podman.socket
+          systemctl --user enable --now podman.socket || true
+          # runner 无持久 user systemd 会话时 socket 可能只建文件无监听者，
+          # docker-compose 委托 connect 会永久阻塞；显式拉起 service 并验证 socket。
+          nohup podman system service --time=0 "unix:///run/user/$(id -u)/podman/podman.sock" \
+              > "${RUNNER_TEMP}/podman-system-service.log" 2>&1 &
+          for attempt in $(seq 1 20); do
+              if podman system service --time=0 --help >/dev/null 2>&1 && test -S "/run/user/$(id -u)/podman/podman.sock"; then break; fi
+              sleep 1
+          done
+          test -S "/run/user/$(id -u)/podman/podman.sock" || { echo "podman.sock 未就绪" >&2; exit 1; }
           podman info
           podman compose version
           # 持久化 sanitized PATH：逐行写入（每行一个目录条目，不能写整串 PATH=...），
@@ -1079,7 +1088,8 @@ jobs:
           command -v docker-compose
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
-          bash scripts/release/verify-public-ghcr.sh \
+          # 40 分钟护栏：任何死锁都硬失败并保留现场日志，避免整 job 静默挂到 6 小时。
+          timeout 2400 bash scripts/release/verify-public-ghcr.sh \
             "$manager_version" "$candidate_manifest" \
             "${RUNNER_TEMP}/public-ghcr-podman-delegate" 39490 podman delegate
 
