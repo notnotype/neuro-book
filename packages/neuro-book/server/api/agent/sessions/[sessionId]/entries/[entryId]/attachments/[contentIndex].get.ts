@@ -1,6 +1,6 @@
 import {createError, getRequestHeader, getRouterParam, setResponseHeader, setResponseStatus} from "h3";
 import {canonicalImageMime, imageMimeType} from "nbook/server/agent/attachments/agent-attachment-codec";
-import {isAgentSessionNotFoundHttpError, mapAgentHttpError, requireAgentSessionId, useAgentHarness} from "nbook/server/agent/http";
+import {isAgentSessionLifecycleHttpError, mapAgentHttpError, requireAgentSessionId, useAgentHarness} from "nbook/server/agent/http";
 import {withProjectHttpError} from "nbook/server/api/projects/project-http-error";
 import {ImageVariantError, type ImageVariantSpec} from "nbook/server/media/image-variant-contract";
 import {imageVariantHttpError, imageVariantSpecFromEvent} from "nbook/server/media/image-variant-http";
@@ -26,8 +26,8 @@ export default defineEventHandler(async (event) => withProjectHttpError(async ()
         if (isProjectNotOpenError(error)) {
             throw error;
         }
-        const mapped = mapAgentHttpError(error);
-        if (isAgentSessionNotFoundHttpError(mapped)) {
+        const mapped = mapAgentHttpError(error, sessionId);
+        if (isAgentSessionLifecycleHttpError(mapped)) {
             throw mapped;
         }
         setResponseHeader(event, "Cache-Control", "no-store");

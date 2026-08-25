@@ -1,6 +1,8 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {createError} from "h3";
 import {ProjectLifecycleError} from "nbook/server/workspace-files/project-lifecycle";
+import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 
 const mocks = vi.hoisted(() => ({
     requireAgentSessionId: vi.fn(() => 12),
@@ -8,10 +10,21 @@ const mocks = vi.hoisted(() => ({
     validateBody: vi.fn(),
 }));
 
-vi.mock("nbook/server/agent/http", () => ({
-    requireAgentSessionId: mocks.requireAgentSessionId,
-    updateAgentSessionCurrentProject: mocks.updateAgentSessionCurrentProject,
-}));
+vi.mock("nbook/server/agent/http", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("nbook/server/agent/http")>();
+    return {
+        ...actual,
+        requireAgentSessionId: mocks.requireAgentSessionId,
+        updateAgentSessionCurrentProject: (
+            sessionId: number,
+            body: Parameters<typeof actual.updateAgentSessionCurrentProject>[1],
+        ) => actual.updateAgentSessionCurrentProject(
+            sessionId,
+            body,
+            {updateCurrentProject: mocks.updateAgentSessionCurrentProject} as NeuroAgentHarness,
+        ),
+    };
+});
 
 vi.mock("nbook/server/utils/novel-chapter", () => ({
     validateBody: mocks.validateBody,
@@ -35,8 +48,8 @@ describe("POST /api/agent/sessions/:sessionId/current-project", () => {
             sessionId: 12,
             currentProjectRoot: "novel-a",
         });
-        expect(mocks.updateAgentSessionCurrentProject).toHaveBeenCalledWith(12, {projectRoot: "novel-a"});
-    });
+        expect(mocks.updateAgentSessionCurrentProject).toHaveBeenCalledWith(12, "novel-a");
+    }, 10_000);
 
     it("通过统一 Project HTTP mapper 返回不存在 Project 的稳定 404", async () => {
         mocks.validateBody.mockResolvedValue({projectRoot: "missing-project"});
@@ -64,6 +77,20 @@ describe("POST /api/agent/sessions/:sessionId/current-project", () => {
         await expect(handler({} as never)).rejects.toMatchObject({
             statusCode: 409,
             data: {code: "current_project_rebind_forbidden", projectRoot: "novel-a"},
+        });
+    }, 10_000);
+
+    it.each([
+        [12, 404, "SESSION_NOT_FOUND"],
+        [13, 409, "SESSION_DEPENDENCY_NOT_FOUND"],
+    ] as const)("使用生产 Session mapper 区分主/关联缺失 %i", async (missingSessionId, statusCode, code) => {
+        mocks.validateBody.mockResolvedValue({projectRoot: "novel-a"});
+        mocks.updateAgentSessionCurrentProject.mockRejectedValue(new AgentSessionNotFoundError(missingSessionId));
+        const handler = (await import("nbook/server/api/agent/sessions/[sessionId]/current-project.post")).default;
+
+        await expect(handler({} as never)).rejects.toMatchObject({
+            statusCode,
+            data: {code},
         });
     });
 });

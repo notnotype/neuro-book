@@ -208,8 +208,24 @@ const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 type InlinePromptOwner = Readonly<{
     revision: number;
     operationKey: string;
+    surface: NonNullable<typeof agentSurfaceRef.value>;
 }>;
 let inlinePromptRequestRevision = 0;
+
+/** 捕获 Prompt Bar 调用时的 Surface 实例与独立 Inline Project generation。 */
+function captureInlinePromptOwner(): InlinePromptOwner | null {
+    const surface = agentSurfaceRef.value;
+    const operationKey = unref(surface?.inlineOperationScopeKey);
+    if (!surface || typeof operationKey !== "string") return null;
+    return {revision: ++inlinePromptRequestRevision, operationKey, surface};
+}
+
+/** 页面副作用只能由当前 Prompt 请求和当前 Project generation 发布。 */
+function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
+    return owner.revision === inlinePromptRequestRevision
+        && agentSurfaceRef.value === owner.surface
+        && unref(owner.surface.inlineOperationScopeKey) === owner.operationKey;
+}
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -230,18 +246,7 @@ const desktopBridge = computed(() => import.meta.client ? window.neuroBookDeskto
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
 
-/** 捕获 Prompt Bar 调用时的 Inline controller 与 Project ready generation。 */
-function captureInlinePromptOwner(): InlinePromptOwner | null {
-    const operationKey = inlineEditorAgent.operationScopeKey.value;
-    if (!operationKey) return null;
-    return {revision: ++inlinePromptRequestRevision, operationKey};
-}
 
-/** 页面副作用只能由当前 Prompt 请求和当前 Project generation 发布。 */
-function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
-    return owner.revision === inlinePromptRequestRevision
-        && inlineEditorAgent.operationScopeKey.value === owner.operationKey;
-}
 
 /** 执行当前焦点元素支持的原生编辑命令；没有选区时给出明确反馈。 */
 function executeDesktopEditCommand(command: "cut" | "copy" | "paste" | "selectAll"): void {
@@ -1116,6 +1121,7 @@ async function selectInlineEditorSession(sessionId: number): Promise<void> {
     try {
         const result = await inlineEditorAgent.selectSession(sessionId);
         if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
+
         inlinePromptStatusText.value = t("ide.inlineAi.boundSession");
     } catch (error) {
         if (!acceptsInlinePromptOwner(owner)) return;
@@ -1148,7 +1154,15 @@ async function openInlineEditorSessionChat(): Promise<void> {
     const owner = captureInlinePromptOwner();
     if (!owner) return;
     try {
-        const result = await inlineEditorAgent.openSession();
+        agentSessionPanelOpen.value = true;
+        await nextTick();
+        const result = await owner.surface.openInlineEditorSession();
+        if (result.status === "failed") {
+            if (owner.revision === inlinePromptRequestRevision && agentSurfaceRef.value === owner.surface) {
+                inlinePromptStatusText.value = result.message;
+            }
+            return;
+        }
         if (!acceptsInlinePromptOwner(owner) || result.status === "superseded") return;
         await showAgentSession(result.value.sessionId);
     } catch (error) {
@@ -1181,7 +1195,16 @@ watch(currentWorkspaceViewMode, (mode) => {
     viewMode.value = mode;
 }, {immediate: true});
 
-watch(() => inlineEditorAgent.operationScopeKey.value, (nextScope, previousScope) => {
+watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
+    if (available && surface?.refreshInlineEditorSessions) {
+        void surface.refreshInlineEditorSessions().catch((error: unknown) => {
+            if (agentSurfaceRef.value !== surface) return;
+            notification.error(resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed")), {title: "Inline AI"});
+        });
+    }
+}, {immediate: true});
+
+watch(() => unref(agentSurfaceRef.value?.inlineOperationScopeKey), (nextScope, previousScope) => {
     if (previousScope === undefined || nextScope === previousScope) return;
     inlinePromptRequestRevision += 1;
     inlinePromptRunning.value = false;

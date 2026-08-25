@@ -5,6 +5,7 @@ import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/a
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {ChatEntryKind} from "nbook/shared/dto/agent-public-event.dto";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
+import type {AgentSessionIdentity} from "nbook/shared/dto/agent-session.dto";
 
 export type SessionId = number;
 export type SessionEntryId = string;
@@ -12,6 +13,8 @@ export type SessionEntryId = string;
 export type SessionMetadata = {
     schemaVersion: 2;
     sessionId: SessionId;
+    /** 新 Session 持久化 UUID；旧文件读取时由原始 header 派生。 */
+    sessionIdentity?: AgentSessionIdentity;
     profileKey: string;
     initial: JsonValue;
     /** 缺失表示 Workspace Root Session；非空时必须是单段 Project root。 */

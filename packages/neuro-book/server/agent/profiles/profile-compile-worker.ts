@@ -36,6 +36,10 @@ import type {
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
 import {resolveRuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
+import {
+    AgentSessionNotFoundError,
+    isAgentSessionNotFoundError,
+} from "nbook/server/agent/session/session-not-found-error";
 
 type CompileTask = {
     id: number;
@@ -337,7 +341,7 @@ export class ProfileCompileWorkerService {
             } catch (error) {
                 slot.task = null;
                 this.running.delete(task.id);
-                if (isProjectNotOpenError(error)) {
+                if (isProjectNotOpenError(error) || isAgentSessionNotFoundError(error)) {
                     task.reject(error);
                 } else {
                     task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
@@ -695,6 +699,7 @@ function throwLifecycleError(result: ProfileCompileWorkerResult): void {
     if (result.lifecycleError.code === "PROJECT_NOT_OPEN") {
         throw new ProjectNotOpenError(result.lifecycleError.projectRoot);
     }
+    throw new AgentSessionNotFoundError(result.lifecycleError.sessionId);
 }
 
 function workerFailedResult(input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto, error: Error): AgentProfileCompileResultDto {

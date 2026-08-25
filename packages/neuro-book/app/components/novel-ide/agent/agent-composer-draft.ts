@@ -1,5 +1,6 @@
 import {parseAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import {
+    AgentComposerDraftIdentitySchema,
     AgentComposerDraftScopeKeySchema,
     type AgentComposerDraftIdentity,
     type AgentComposerDraftLoadResult,
@@ -38,6 +39,11 @@ export type AgentComposerDraftContext = AgentComposerDraftIdentity & {
     text: string;
 };
 
+/** 已从磁盘读取、但尚未成为当前 Composer context 的草稿快照。 */
+export type AgentComposerDraftPreparedContext = Readonly<AgentComposerDraftIdentity & {
+    text: string;
+}>;
+
 export type AgentComposerSubmission = Readonly<AgentComposerDraftContext>;
 
 export type AgentComposerDraftSwitchResult = AgentComposerDraftLoadResult & {
@@ -45,6 +51,20 @@ export type AgentComposerDraftSwitchResult = AgentComposerDraftLoadResult & {
     /** false 表示另一次 context 切换已使本次异步 load 失效。 */
     active: boolean;
 };
+
+/** 当前正文无法安全持久化；切换/清理必须停在原 context。 */
+export class AgentComposerDraftBlockedError extends Error {
+    constructor(readonly result: Extract<AgentComposerDraftSaveResult, "oversize" | "unsafe">) {
+        super(result === "oversize" ? "Composer 草稿超过允许大小" : "Composer 草稿包含不安全图片地址");
+        this.name = "AgentComposerDraftBlockedError";
+    }
+}
+
+function assertDraftPersisted(result: AgentComposerDraftSaveResult): void {
+    if (result === "oversize" || result === "unsafe") {
+        throw new AgentComposerDraftBlockedError(result);
+    }
+}
 
 /** 前端只通过这个 Adapter 访问磁盘 Store；localStorage 只作为一次性迁移源。 */
 export class AgentComposerDraftClientStore {
@@ -96,6 +116,7 @@ export class AgentComposerDraftClientStore {
 export class AgentComposerDraftSession {
     private context: AgentComposerDraftContext | null = null;
     private generation = 0;
+    private operationRevision = 0;
     private timer: ReturnType<typeof setTimeout> | null = null;
     private queue: Promise<void> = Promise.resolve();
 
@@ -105,22 +126,40 @@ export class AgentComposerDraftSession {
         private readonly onError?: (error: unknown) => void,
     ) {}
 
+    /** 只读取目标草稿，不改变当前 context；调用方可在异步加载完成后再决定是否激活。 */
+    async prepareContext(scopeKey: string, sessionId: number): Promise<AgentComposerDraftPreparedContext> {
+        const identity = AgentComposerDraftIdentitySchema.parse({scopeKey, sessionId});
+        const loaded = await this.enqueue(() => this.store.load(identity));
+        return {...identity, text: loaded.text};
+    }
+
+    /** 在调用方完成 owner 检查后同步激活已读取的草稿快照。 */
+    activateContext(prepared: AgentComposerDraftPreparedContext): number {
+        const identity = AgentComposerDraftIdentitySchema.parse({
+            scopeKey: prepared.scopeKey,
+            sessionId: prepared.sessionId,
+        });
+        this.operationRevision += 1;
+        this.cancelTimer();
+        const generation = ++this.generation;
+        this.context = {...identity, generation, revision: 0, text: prepared.text};
+        return generation;
+    }
+
     /** 保存旧 context 后加载新 Session；过时 load 不会成为当前 context。 */
     async switchContext(scopeKey: string, sessionId: number): Promise<AgentComposerDraftSwitchResult> {
         const parsedScopeKey = AgentComposerDraftScopeKeySchema.parse(scopeKey);
         const previous = this.context ? {...this.context} : null;
-        this.cancelTimer();
-        this.generation += 1;
-        const generation = this.generation;
-        this.context = null;
+        const operationRevision = ++this.operationRevision;
         if (previous) {
-            await this.persist(previous).catch((error) => this.onError?.(error));
+            assertDraftPersisted(await this.persist(previous));
         }
-        const loaded = await this.enqueue(() => this.store.load({scopeKey: parsedScopeKey, sessionId})).catch((error) => {
-            this.onError?.(error);
-            return {text: ""};
-        });
-        if (generation !== this.generation) return {...loaded, generation, active: false};
+        const loaded = await this.prepareContext(parsedScopeKey, sessionId);
+        if (operationRevision !== this.operationRevision) {
+            return {...loaded, generation: this.generation, active: false};
+        }
+        this.cancelTimer();
+        const generation = ++this.generation;
         this.context = {scopeKey: parsedScopeKey, sessionId, generation, revision: 0, text: loaded.text};
         return {...loaded, generation, active: true};
     }
@@ -128,12 +167,23 @@ export class AgentComposerDraftSession {
     /** 关闭当前 context；用于 Project Workspace 切换和组件销毁。 */
     async clearContext(): Promise<number> {
         const previous = this.context ? {...this.context} : null;
-        this.cancelTimer();
-        this.generation += 1;
-        this.context = null;
+        const operationRevision = ++this.operationRevision;
         if (previous) {
-            await this.persist(previous).catch((error) => this.onError?.(error));
+            assertDraftPersisted(await this.persist(previous));
         }
+        if (operationRevision !== this.operationRevision) return this.generation;
+        this.cancelTimer();
+        this.context = null;
+        this.generation += 1;
+        return this.generation;
+    }
+
+    /** 用户明确放弃当前无法保存的正文后，才允许无持久化地解除 context。 */
+    discardContext(): number {
+        this.operationRevision += 1;
+        this.cancelTimer();
+        this.context = null;
+        this.generation += 1;
         return this.generation;
     }
 
@@ -173,19 +223,21 @@ export class AgentComposerDraftSession {
                 || current.text !== submission.text) {
                 return {clearEditor: false};
             }
+            await this.enqueue(() => this.store.clear(submission));
+            if (current.generation !== submission.generation
+                || current.revision !== submission.revision
+                || current.text !== submission.text) {
+                return {clearEditor: false};
+            }
             this.cancelTimer();
             current.text = "";
             current.revision += 1;
-            await this.enqueue(() => this.store.clear(submission)).catch((error) => this.onError?.(error));
             return {clearEditor: true};
         }
 
-        const stored = await this.enqueue(() => this.store.load(submission)).catch((error) => {
-            this.onError?.(error);
-            return {text: ""};
-        });
+        const stored = await this.enqueue(() => this.store.load(submission));
         if (stored.text === submission.text) {
-            await this.enqueue(() => this.store.clear(submission)).catch((error) => this.onError?.(error));
+            await this.enqueue(() => this.store.clear(submission));
         }
         return {clearEditor: false};
     }

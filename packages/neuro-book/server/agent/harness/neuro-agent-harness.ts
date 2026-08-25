@@ -52,7 +52,7 @@ import {projectRelatedSessions} from "nbook/server/agent/session/relation-projec
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
-import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
+import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY, SESSION_TITLE_OWNER_STATE_KEY, readTitleOwner, type SessionTitleOwnerState} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionMetadata, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
@@ -2777,16 +2777,23 @@ export class NeuroAgentHarness {
     ): Promise<AgentSessionRelationsDto> {
         const index = await this.relationIndex();
         const sessionId = projection.snapshot.metadata.sessionId;
-        const linkedAgents = await projectRelatedSessions(
-            this.currentOwnedLinks(sessionId, index).map((linked) => linked.targetSessionId),
+        const linkedSessionIds = this.currentOwnedLinks(sessionId, index).map((linked) => linked.targetSessionId);
+        const ownerSessionIds = this.currentOwnerLinks(sessionId, index).map((linked) => linked.ownerSessionId);
+        // 无关联目标时保持旧的同步空路径，避免 recovery 在 abort 收口后额外让出事件循环。
+        const linkedAgents = linkedSessionIds.length === 0
+            ? {items: [] as AgentSessionSummaryDto[], unavailable: 0}
+            : await projectRelatedSessions(
+            linkedSessionIds,
             async (linkedSessionId) => {
                 const linkedSnapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(linkedSessionId));
                 const linkedProjection = await this.resolveSessionRuntimeProjection(linkedSessionId, linkedSnapshot, timing);
                 return linkedProjection.summary;
             },
         );
-        const linkedByAgents = await projectRelatedSessions(
-            this.currentOwnerLinks(sessionId, index).map((linked) => linked.ownerSessionId),
+        const linkedByAgents = ownerSessionIds.length === 0
+            ? {items: [] as AgentSessionSummaryDto[], unavailable: 0}
+            : await projectRelatedSessions(
+            ownerSessionIds,
             async (ownerSessionId) => {
                 const ownerSnapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(ownerSessionId));
                 const ownerProjection = await this.resolveSessionRuntimeProjection(ownerSessionId, ownerSnapshot, timing);

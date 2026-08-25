@@ -32,6 +32,49 @@ const PROFILE_SOURCE = `
 `;
 
 describe("profile compile worker Project lifecycle", () => {
+    it("worker runtime 将 Session lifecycle error 返回为内部字段", async () => {
+        await withLifecycleProfile(async (assets) => {
+            const source = await readFile(profilePath(assets, PROFILE_FILE_NAME), "utf8");
+
+            const result = await runProfileCompile({
+                fileName: PROFILE_FILE_NAME,
+                source,
+                dryRun: true,
+                preview: true,
+                sessionId: "999999",
+                userProfileRoot: assets.userProfileRoot,
+            });
+
+            expect(result.lifecycleError).toEqual({
+                code: "SESSION_NOT_FOUND",
+                sessionId: 999_999,
+            });
+            expect(result.issues).toEqual([]);
+        });
+    }, 120_000);
+
+    it("worker service 将 Session lifecycle error 重新抛为领域错误", async () => {
+        await withLifecycleProfile(async (assets) => {
+            const source = await readFile(profilePath(assets, PROFILE_FILE_NAME), "utf8");
+            const worker = new ProfileCompileWorkerService("test-session-lifecycle-error", 1, undefined, assets.userProfileRoot);
+            try {
+                await expect(worker.compile({
+                    fileName: PROFILE_FILE_NAME,
+                    source,
+                    dryRun: true,
+                    preview: true,
+                    sessionId: "999999",
+                })).rejects.toMatchObject({
+                    name: "AgentSessionNotFoundError",
+                    code: "SESSION_NOT_FOUND",
+                    sessionId: 999_999,
+                });
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 120_000);
+
     it("worker runtime 将 Project lifecycle error 返回为内部字段", async () => {
         await withLifecycleProfile(async (assets) => {
             const {projectRoot, projectWorkspaceRoot, sessionId} = await createUnopenedProjectSession(assets);

@@ -80,6 +80,42 @@ describe("Agent Composer 草稿", () => {
         await drafts.dispose();
     });
 
+    it("prepare 不改变当前 context，只有 activate 才提交目标草稿", async () => {
+        const api = new MemoryDraftApi();
+        const drafts = session(api);
+
+        await drafts.switchContext("project:a", 1);
+        drafts.update("当前正文");
+        await drafts.flush();
+        await api.saveComposerDraft({scopeKey: "project:b", sessionId: 2, text: "目标正文"});
+
+        const prepared = await drafts.prepareContext("project:b", 2);
+
+        expect(drafts.capture("当前正文")).not.toBeNull();
+        expect(prepared).toEqual({scopeKey: "project:b", sessionId: 2, text: "目标正文"});
+
+        drafts.activateContext(prepared);
+
+        expect(drafts.capture("当前正文")).toBeNull();
+        expect(drafts.capture("目标正文")).toMatchObject({scopeKey: "project:b", sessionId: 2});
+        await drafts.dispose();
+    });
+
+    it("进入 empty 前 clearContext 持久化正文并解除 active context", async () => {
+        const api = new MemoryDraftApi();
+        const drafts = session(api);
+        const initial = await drafts.switchContext("project:a", 3);
+        drafts.update("跨实例切换前仍在编辑的正文");
+
+        const generation = await drafts.clearContext();
+
+        expect(generation).toBeGreaterThan(initial.generation);
+        await expect(api.getComposerDraft({scopeKey: "project:a", sessionId: 3})).resolves.toEqual({
+            text: "跨实例切换前仍在编辑的正文",
+        });
+        expect(drafts.capture("跨实例切换前仍在编辑的正文")).toBeNull();
+    });
+
     it("acceptance 只清除提交 revision，不删除请求期间的新正文", async () => {
         const api = new MemoryDraftApi();
         const drafts = session(api);
@@ -110,6 +146,43 @@ describe("Agent Composer 草稿", () => {
         await expect(api.getComposerDraft({scopeKey: "project:a", sessionId: 2})).resolves.toEqual({text: "另一个 Session 草稿"});
         await drafts.dispose();
     });
+
+    it("目标草稿读取失败时不伪造空正文，也不改变当前 context", async () => {
+        const api = new MemoryDraftApi();
+        const drafts = session(api);
+        await drafts.switchContext("project:a", 1);
+        drafts.update("当前正文");
+        const error = new Error("draft-read-failed");
+        api.loadError = error;
+
+        await expect(drafts.prepareContext("project:b", 2)).rejects.toBe(error);
+        expect(drafts.capture("当前正文")).not.toBeNull();
+    });
+
+    it("草稿保存失败时 switch/clear 都保留当前 context 和正文", async () => {
+        const api = new MemoryDraftApi();
+        const drafts = session(api);
+        await drafts.switchContext("project:a", 1);
+        drafts.update("不能丢失的正文");
+        api.saveError = new Error("draft-save-failed");
+
+        await expect(drafts.switchContext("project:b", 2)).rejects.toThrow("draft-save-failed");
+        expect(drafts.capture("不能丢失的正文")).not.toBeNull();
+        await expect(drafts.clearContext()).rejects.toThrow("draft-save-failed");
+        expect(drafts.capture("不能丢失的正文")).not.toBeNull();
+    });
+
+    it("草稿清除失败时 acceptance 不清空内存正文", async () => {
+        const api = new MemoryDraftApi();
+        const drafts = session(api);
+        await drafts.switchContext("project:a", 1);
+        drafts.update("待确认正文");
+        const submission = drafts.capture("待确认正文")!;
+        api.clearError = new Error("draft-clear-failed");
+
+        await expect(drafts.accept(submission)).rejects.toThrow("draft-clear-failed");
+        expect(drafts.capture("待确认正文")).not.toBeNull();
+    });
 });
 
 function session(api: MemoryDraftApi): AgentComposerDraftSession {
@@ -118,6 +191,9 @@ function session(api: MemoryDraftApi): AgentComposerDraftSession {
 
 class MemoryDraftApi implements AgentComposerDraftApi {
     private readonly drafts = new Map<string, AgentComposerDraftMigrationRecord>();
+    loadError: Error | null = null;
+    saveError: Error | null = null;
+    clearError: Error | null = null;
 
     readonly migrateComposerDrafts = vi.fn(async ({drafts}: {drafts: AgentComposerDraftMigrationRecord[]}) => {
         drafts.forEach((draft) => this.drafts.set(keyOf(draft), draft));
@@ -125,10 +201,12 @@ class MemoryDraftApi implements AgentComposerDraftApi {
     });
 
     async getComposerDraft(identity: AgentComposerDraftIdentity): Promise<{text: string}> {
+        if (this.loadError) throw this.loadError;
         return {text: this.drafts.get(keyOf(identity))?.text ?? ""};
     }
 
     async saveComposerDraft(request: AgentComposerDraftSaveRequest): Promise<"saved" | "cleared" | "oversize" | "unsafe"> {
+        if (this.saveError) throw this.saveError;
         if (!request.text) {
             this.drafts.delete(keyOf(request));
             return "cleared";
@@ -138,6 +216,7 @@ class MemoryDraftApi implements AgentComposerDraftApi {
     }
 
     async clearComposerDraft(identity: AgentComposerDraftIdentity): Promise<{cleared: true}> {
+        if (this.clearError) throw this.clearError;
         this.drafts.delete(keyOf(identity));
         return {cleared: true};
     }

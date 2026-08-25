@@ -52,6 +52,7 @@ function createContext(activeSessionId: number | null, needsRecovery: boolean): 
 function summary(sessionId: number): AgentSessionSummaryDto {
     return {
         sessionId,
+        sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
         profileKey: "leader.default",
         status: "idle",
         updatedAt: 1,

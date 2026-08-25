@@ -342,7 +342,7 @@ function liveState(): AgentSessionLiveStateDto {
 }
 
 function summary(): AgentSessionRecoveryDto["summary"] {
-    return {sessionId: 1, profileKey: "leader.default", status: "idle", updatedAt: 1, archived: false};
+    return {sessionId: 1, sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000000", profileKey: "leader.default", status: "idle", updatedAt: 1, archived: false};
 }
 
 function control(seq: number, event: Extract<AgentSessionEventDto, {kind: "session"}>["event"]): AgentSessionEventDto {

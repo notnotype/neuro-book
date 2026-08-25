@@ -55,7 +55,8 @@ export class AgentComposerDraftStore {
     async save(identity: AgentComposerDraftIdentity, text: string, now = Date.now()): Promise<AgentComposerDraftSaveResult> {
         return await withFileLock(this.filePath, async () => {
             const current = await this.read();
-            const withoutCurrent = validDrafts(current.drafts, now).filter((item) => !sameIdentity(item, identity));
+            const valid = validDrafts(current.drafts, now);
+            const withoutCurrent = valid.filter((item) => !sameIdentity(item, identity));
             let result: AgentComposerDraftSaveResult = "saved";
             if (!text) {
                 result = "cleared";
@@ -66,7 +67,8 @@ export class AgentComposerDraftStore {
             } else {
                 withoutCurrent.push({...identity, text, updatedAt: now});
             }
-            await this.write(recentDrafts(withoutCurrent));
+            // 非法新正文不能删除旧的安全草稿；用户仍可返回编辑或明确放弃。
+            await this.write(recentDrafts(result === "oversize" || result === "unsafe" ? valid : withoutCurrent));
             return result;
         });
     }

@@ -1,8 +1,9 @@
-import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionRecoveryDto, AgentSessionIdentity} from "nbook/shared/dto/agent-session.dto";
 import type {AgentRecoveryApplyResult} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import type {Ref} from "vue";
 import {ref} from "vue";
 import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
+import {resolveApiErrorCode} from "nbook/app/utils/api-error";
 
 export type AgentSessionStreamRecoveryReason =
     | "initial_load"
@@ -37,18 +38,27 @@ type AgentSessionStreamApi = {
     ): Promise<void>;
 };
 
-type AgentSessionStreamOptions = {
+export type AgentSessionStreamOptions = {
     session: AgentSessionStreamStore;
     api: AgentSessionStreamApi;
     activeSessionId: Ref<number | null>;
+    /** 可选的 Session 逻辑身份；存在时 SSE recovery 也必须匹配。 */
+    activeSessionIdentity?: Ref<AgentSessionIdentity | null>;
     applyRecoverySideEffects?: (
         recovery: AgentSessionRecoveryDto,
         result: AgentRecoveryApplyResult,
         owner: AgentSessionStreamOwner,
     ) => void | Promise<void>;
     onEvent?: (event: AgentSessionEventDto, owner: AgentSessionStreamOwner) => void | Promise<void>;
+    onSessionNotFound?: (
+        error: unknown,
+        owner: AgentSessionStreamOwner,
+    ) => AgentSessionNotFoundHandling | void | Promise<AgentSessionNotFoundHandling | void>;
     onError?: (error: unknown, fallback: string) => void;
 };
+
+/** Session 缺失回调对 stream 错误出口的处理结果。 */
+export type AgentSessionNotFoundHandling = "handled" | "deferred" | "ignored";
 
 /** Session stream 回调的连接所有权；异步副作用提交前必须再次检查 isCurrent。 */
 export type AgentSessionStreamOwner = Readonly<{
@@ -68,6 +78,9 @@ type ConnectionReady = {
 };
 
 const DISCONNECTED_AFTER_ATTEMPTS = 3;
+
+/** 服务端迟迟不返回 SSE headers 时，不允许 Surface 永久停在 connecting/restoring。 */
+const CONNECT_HANDSHAKE_TIMEOUT_MS = 15_000;
 
 const isAbortError = (error: unknown): boolean => error instanceof DOMException && error.name === "AbortError";
 
@@ -107,6 +120,8 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         attemptedAutomaticRecoveryReasons.clear();
     };
 
+
+
     const restoreConnectionStatusAfterRecoveryFailure = (targetSessionId: number): void => {
         const activeController = controller.value;
         const streamAlive = activeController !== null
@@ -114,7 +129,6 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
             && sessionId.value === targetSessionId;
         options.session.applyConnectionStatus(streamAlive ? "connected" : "idle");
     };
-
     const clearReconnectTimer = (): void => {
         if (!reconnectTimer) {
             return;
@@ -163,6 +177,19 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }, retry.delayMs);
     };
 
+    /** 终结一次 Session 生命周期 recovery，避免 409 后永久停在 recovering。 */
+    const settleRecoveryFailure = (targetSessionId: number, isCurrent: () => boolean): void => {
+        if (!isCurrent()) {
+            return;
+        }
+        options.session.clearRecoveryRequest();
+        const liveConnection = Boolean(controller.value)
+            && sessionId.value === targetSessionId
+            && !controller.value?.signal.aborted
+            && !stopped;
+        options.session.applyConnectionStatus(liveConnection ? "connected" : "idle");
+    };
+
     const runRecovery = async (
         reason: AgentSessionStreamRecoveryReason,
         behavior: {force: boolean; reportError: boolean},
@@ -203,6 +230,11 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 if (recovery.summary.sessionId !== targetSessionId) {
                     throw new Error(`Agent session recovery 身份不匹配：期望 ${String(targetSessionId)}，收到 ${String(recovery.summary.sessionId)}`);
                 }
+                if (options.activeSessionIdentity?.value !== null
+                    && options.activeSessionIdentity?.value !== undefined
+                    && recovery.summary.sessionIdentity !== options.activeSessionIdentity.value) {
+                    throw new Error("Agent session recovery 身份与当前绑定不一致");
+                }
                 const applyResult = options.session.applyRecovery(recovery);
                 options.session.clearRecoveryRequest();
                 const owner = {sessionId: targetSessionId, isCurrent};
@@ -231,9 +263,26 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 if (!isCurrent()) {
                     return false;
                 }
+                const errorCode = resolveApiErrorCode(error);
+                if (errorCode === "SESSION_NOT_FOUND") {
+                    options.session.clearRecoveryRequest();
+                    if (options.onSessionNotFound) {
+                        const handling = await options.onSessionNotFound(error, {sessionId: targetSessionId, isCurrent});
+                        if (handling !== "ignored") {
+                            settleRecoveryFailure(targetSessionId, isCurrent);
+                            return true;
+                        }
+                        return false;
+                    }
+                    settleRecoveryFailure(targetSessionId, isCurrent);
+                }
+                if (errorCode === "SESSION_DEPENDENCY_NOT_FOUND") {
+                    settleRecoveryFailure(targetSessionId, isCurrent);
+                }
+                // 其余错误（invalid cursor 等）也收口：清 recovery 请求并按连接存续恢复状态，
+                // 不让单次 recovery 失败把会话永久钉在 recovering（master 行为）。
                 options.session.clearRecoveryRequest();
-                restoreConnectionStatusAfterRecoveryFailure(targetSessionId);
-                if (behavior.reportError) {
+                restoreConnectionStatusAfterRecoveryFailure(targetSessionId);                if (behavior.reportError) {
                     options.onError?.(error, translate("agent.chatSurface.syncSessionFailed", "同步 Agent session 失败"));
                     return false;
                 }
@@ -342,6 +391,18 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         nextController.signal.addEventListener("abort", () => {
             nextReady.reject(new DOMException("Agent session event stream aborted", "AbortError"));
         }, {once: true});
+        // 握手超时：服务端迟迟不返回 SSE headers 时，先收口 ready，再 abort 当前 controller，
+        // 并复用既有重连调度；timer 在所有出口（open/abort/错误/finally）统一清除。
+        const handshakeTimer = setTimeout(() => {
+            if (nextReady.settled || controller.value !== nextController) {
+                return;
+            }
+            nextReady.reject(new Error("Agent session event stream connect timeout"));
+            nextController.abort();
+            if (targetSessionId === options.activeSessionId.value && !stopped) {
+                scheduleReconnect(targetSessionId, "event stream connect timeout");
+            }
+        }, CONNECT_HANDSHAKE_TIMEOUT_MS);
         options.session.applyConnectionStatus(reconnectAttempt.value > 0 ? "reconnecting" : "connecting");
 
         void (async () => {
@@ -358,6 +419,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                             || nextController.signal.aborted) {
                             return;
                         }
+                        clearTimeout(handshakeTimer);
                         reconnectBackoff.opened();
                         options.session.applyConnectionStatus("connected");
                         nextReady.resolve();
@@ -380,6 +442,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                     scheduleReconnect(targetSessionId, error instanceof Error ? error.message : String(error));
                 }
             } finally {
+                clearTimeout(handshakeTimer);
                 if (controller.value === nextController) {
                     controller.value = null;
                     sessionId.value = null;
@@ -424,6 +487,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         ready = null;
         recoveryGeneration += 1;
         recoveryPromise = null;
+        options.session.clearRecoveryRequest();
         reconnectBackoff.reset();
         reconnectAttempt.value = 0;
         backoffSessionId = null;

@@ -23,13 +23,13 @@ describe("AgentComposerDraftStore", () => {
         expect(file.drafts).toHaveLength(1);
     });
 
-    it("拒绝 Blob/data 图片与超过 256 KiB 的正文，并清除同身份旧草稿", async () => {
+    it("拒绝 Blob/data 图片与超过 256 KiB 的正文，并保留同身份旧草稿", async () => {
         const store = new AgentComposerDraftStore(await fixture());
         const identity = {scopeKey: "project:a" as const, sessionId: 1};
         await store.save(identity, "旧正文", 1);
 
         await expect(store.save(identity, "![图](data:image/png;base64,AAAA)", 2)).resolves.toBe("unsafe");
-        await expect(store.load(identity, 3)).resolves.toEqual({text: ""});
+        await expect(store.load(identity, 3)).resolves.toEqual({text: "旧正文"});
         await expect(store.save(identity, "![图](blob:http://localhost/id)", 4)).resolves.toBe("unsafe");
         await expect(store.save(identity, "x".repeat(256 * 1024 + 1), 5)).resolves.toBe("oversize");
     });

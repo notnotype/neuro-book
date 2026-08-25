@@ -1,5 +1,5 @@
-import {createError, getQuery, getRouterParam} from "h3";
-import {useAgentHarness} from "nbook/server/agent/http";
+import {createError, getQuery} from "h3";
+import {requireAgentSessionId, useAgentHarness, withAgentSessionHttpError} from "nbook/server/agent/http";
 import {isValidTraceId} from "nbook/server/agent/observability/pi-trace-reader";
 import type {AgentContextInspectionDto} from "nbook/shared/dto/agent-context-inspection.dto";
 
@@ -10,13 +10,13 @@ import type {AgentContextInspectionDto} from "nbook/shared/dto/agent-context-ins
  * `traceId` 会直接参与文件路径拼接，必须过白名单防路径穿越。
  */
 export default defineEventHandler(async (event): Promise<AgentContextInspectionDto> => {
-    const sessionId = Number(getRouterParam(event, "sessionId"));
-    if (!Number.isInteger(sessionId) || sessionId <= 0) {
-        throw createError({statusCode: 400, message: "sessionId 必须是正整数"});
-    }
+    const sessionId = requireAgentSessionId(event);
     const rawTraceId = getQuery(event).traceId;
     if (rawTraceId !== undefined && (typeof rawTraceId !== "string" || !isValidTraceId(rawTraceId))) {
         throw createError({statusCode: 400, message: "traceId 必须是 trace 序号"});
     }
-    return useAgentHarness().getSessionContextInspection(sessionId, rawTraceId);
+    return withAgentSessionHttpError(
+        sessionId,
+        () => useAgentHarness().getSessionContextInspection(sessionId, rawTraceId),
+    );
 });

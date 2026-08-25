@@ -482,6 +482,9 @@ export function useAgentSession() {
             ...recoveryShell.value,
             linkedAgents: payload.linkedAgents,
             linkedByAgents: payload.linkedByAgents,
+            ...(payload.unavailableLinkedAgents !== undefined
+                ? {unavailableLinkedAgents: payload.unavailableLinkedAgents}
+                : {unavailableLinkedAgents: undefined}),
         };
     };
 

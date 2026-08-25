@@ -19,6 +19,11 @@ const mocks = vi.hoisted(() => ({
         code: "SESSION_NOT_FOUND",
         sessionId: 12,
     }),
+    sessionDependencyNotFoundError: Object.assign(new Error("Session dependency missing"), {
+        name: "AgentSessionNotFoundError",
+        code: "SESSION_NOT_FOUND",
+        sessionId: 13,
+    }),
 }));
 
 vi.mock("h3", async (importOriginal) => ({
@@ -34,22 +39,16 @@ vi.mock("h3", async (importOriginal) => ({
     },
 }));
 
-vi.mock("nbook/server/agent/http", () => ({
-    isAgentSessionNotFoundHttpError: (error: unknown) => typeof error === "object"
-        && error !== null
-        && "data" in error
-        && (error as {data?: {code?: string}}).data?.code === "SESSION_NOT_FOUND",
-    mapAgentHttpError: (error: unknown) => error === mocks.sessionNotFoundError
-        ? Object.assign(new Error("Session 不存在或已不可用"), {
-            statusCode: 404,
-            data: {code: "SESSION_NOT_FOUND"},
-        })
-        : error,
-    requireAgentSessionId: (event: TestEvent) => event.sessionId,
-    useAgentHarness: () => ({
-        resolveSessionAttachment: mocks.resolveSessionAttachment,
-    }),
-}));
+vi.mock("nbook/server/agent/http", async () => {
+    const actual = await vi.importActual<typeof import("nbook/server/agent/http")>("nbook/server/agent/http");
+    return {
+        ...actual,
+        requireAgentSessionId: (event: TestEvent) => event.sessionId,
+        useAgentHarness: () => ({
+            resolveSessionAttachment: mocks.resolveSessionAttachment,
+        }),
+    };
+});
 
 vi.mock("nbook/server/media/image-variant-runtime", () => ({
     useImageVariantModule: () => ({render: mocks.render}),
@@ -110,6 +109,15 @@ describe("GET /api/agent/sessions/:sessionId/entries/:entryId/attachments/:conte
         await expect(handler(createEvent())).rejects.toMatchObject({
             statusCode: 404,
             data: {code: "SESSION_NOT_FOUND"},
+        });
+    });
+
+    it("保留 Session Dependency Not Found，不改写为 Attachment Not Found", async () => {
+        mocks.resolveSessionAttachment.mockRejectedValue(mocks.sessionDependencyNotFoundError);
+
+        await expect(handler(createEvent())).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "SESSION_DEPENDENCY_NOT_FOUND"},
         });
     });
 

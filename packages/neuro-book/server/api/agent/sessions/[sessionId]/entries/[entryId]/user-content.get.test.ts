@@ -10,14 +10,17 @@ vi.mock("h3", async (importOriginal) => ({
     getRouterParam: (_event: H3Event, name: string) => name === "entryId" ? "entry-1" : undefined,
 }));
 
-vi.mock("nbook/server/agent/http", () => ({
-    getAgentSessionUserContent: mocks.getAgentSessionUserContent,
-    isAgentSessionNotFoundHttpError: (error: unknown) => typeof error === "object"
-        && error !== null
-        && "data" in error
-        && (error as {data?: {code?: string}}).data?.code === "SESSION_NOT_FOUND",
-    requireAgentSessionId: () => 12,
-}));
+vi.mock("nbook/server/agent/http", async () => {
+    const actual = await vi.importActual<typeof import("nbook/server/agent/http")>("nbook/server/agent/http");
+    return {
+        ...actual,
+        requireAgentSessionId: () => 12,
+        getAgentSessionUserContent: (sessionId: number, entryId: string) => actual.withAgentSessionHttpError(
+            sessionId,
+            () => mocks.getAgentSessionUserContent(sessionId, entryId),
+        ),
+    };
+});
 
 vi.mock("nbook/server/api/projects/project-http-error", () => ({
     withProjectHttpError: async <T>(operation: () => Promise<T>): Promise<T> => operation(),
@@ -46,14 +49,28 @@ beforeEach(() => {
 
 describe("GET /api/agent/sessions/:sessionId/entries/:entryId/user-content", () => {
     it("保留 Session Not Found，不改写为 User Message Not Found", async () => {
-        mocks.getAgentSessionUserContent.mockRejectedValue(Object.assign(new Error("Session 不存在或已不可用"), {
-            statusCode: 404,
-            data: {code: "SESSION_NOT_FOUND"},
+        mocks.getAgentSessionUserContent.mockRejectedValue(Object.assign(new Error("missing"), {
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: 12,
         }));
 
         await expect(handler({} as H3Event)).rejects.toMatchObject({
             statusCode: 404,
             data: {code: "SESSION_NOT_FOUND"},
+        });
+    });
+
+    it("保留 Session Dependency Not Found，不改写为 User Message Not Found", async () => {
+        mocks.getAgentSessionUserContent.mockRejectedValue(Object.assign(new Error("missing"), {
+            name: "AgentSessionNotFoundError",
+            code: "SESSION_NOT_FOUND",
+            sessionId: 13,
+        }));
+
+        await expect(handler({} as H3Event)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "SESSION_DEPENDENCY_NOT_FOUND"},
         });
     });
 

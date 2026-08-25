@@ -22,6 +22,8 @@ const props = defineProps<{
     messages: AgentMessage[];
     /** 当前 session ID；变化时认为是整段历史切换，需要立即定位到底部。 */
     sessionId?: number | null;
+    /** 有可用对话但尚未选择时，显示选择提示而不是伪装成空历史。 */
+    unselected?: boolean;
     /** 是否正在执行中。 */
     running: boolean;
     /** 模式区分。main 显示空状态引导，compact 显示简洁空状态。 */
@@ -391,7 +393,17 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
         <!-- 空状态 -->
         <div v-else class="flex h-full flex-col items-center justify-center space-y-6 px-4 text-center">
             <!-- main 模式空状态 -->
-            <template v-if="props.mode === 'main'">
+            <template v-if="props.mode === 'main' && props.unselected">
+                <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] shadow-sm">
+                    <span class="i-lucide-messages-square h-6 w-6 text-[var(--status-warning)]"></span>
+                </div>
+                <div class="space-y-2">
+                    <h3 class="text-base font-medium text-[var(--text-main)]">请选择一个对话</h3>
+                    <p class="text-sm leading-relaxed text-[var(--text-muted)]">当前实例还有可用对话，但没有可靠的上次选择。请从对话列表中选择。</p>
+                </div>
+            </template>
+            <!-- main 模式空状态 -->
+            <template v-else-if="props.mode === 'main'">
                 <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm">
                     <span class="i-lucide-bot h-6 w-6 text-[var(--text-muted)]"></span>
                 </div>

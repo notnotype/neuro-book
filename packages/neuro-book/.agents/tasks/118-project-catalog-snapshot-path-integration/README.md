@@ -1,5 +1,13 @@
 # Task 118：Project 生命周期、文件快照与 Agent 路径合同联合执行计划
 
+## 2026-08-05：Session identity 与关联关系投影补充
+
+- 新 Session 的 header 现在生成 UUID；没有显式身份的旧 header 在读取时由稳定元数据派生 `sha256:` identity，并要求请求数字 ID 同时匹配文件名和 header。Agent summary/recovery/SSE 都携带 identity，浏览器记忆升级为版本化 `{schema: 2, sessionId, sessionIdentity}`；裸数字、损坏记忆和缺 identity 都进入 `unselected`，不会按列表首项猜测。
+- 主面板与 Inline Editor 的记忆写入继续是非阻断操作：权威 recovery 提交并启动 stream 后才写入；`localStorage` 写入失败只显示一次提示，不回滚已打开对话、不删除旧记忆。Session 丢失恢复只清理 ID 与 identity 同时匹配的记忆。
+- 关联关系读取新增窄的 `projectRelatedSessions()` 投影：目标 JSONL 自身缺失只计入 `unavailableLinkedAgents`，主 Session recovery 和轻量 relations 继续成功；损坏文件、权限错误以及指向其它 ID 的缺失仍原样抛出。前端轻量 relations 刷新也会把不可用数量写回 recovery shell。
+- 本轮新增/复核 focused 合计 **8 个文件 / 284 个测试通过**：`NeuroAgentHarness` 单独运行 `183/183`，其余 7 个状态/草稿/stream/identity/relation 文件分拆运行 `101/101`，包含真实关系目标删除后的 recovery 验收。8 文件并行调用会偶发触发 harness 内既有时间敏感断言；该用例在干净 PR 基线与当前 worktree 单独运行均通过，未用放宽超时掩盖。根 `bun run typecheck` 通过。该数字是本轮补充证据，之前 PR recovery 批次的 14/170 记录保留为历史结果，不合并冒充全量。
+- 详见 [ADR 0018](../../adr/0013-session-identity-and-browser-memory.md)。本轮仍不建立 State Root 实例身份协议、备份恢复、runtime lease 或自动创建 Session；同号 Session 的跨实例隔离另由后续 Issue 承载。
+
 > 2026-07-31 CLI 交付路径取代说明：本任务的 Project identity、mutation/Occupancy 与 fail-closed preflight 合同继续有效；CLI implementation/发行所有权由 Task 130 收口。当前同步面是 Product-owned Workspace CLI、`.nbook/agent/bin/workspace(.cmd)` wrapper 与 Product Runtime Contract 的 `workspace` 逻辑命令；下文 `assets/workspace/.nbook/agent/scripts/workspace.ts` 只保留为 hard-cut 时的历史证据，不恢复 asset script 或 `server/scripts` fallback。
 
 > 当前状态：G1–G5 与整体审查结论均已冻结，Phase 0–8 的代码 hard cut 已完成，仍待发布级全量门禁与人工浏览器验收。Session schema v2、Application State catalog v3、runtime fail-closed gate、ProjectSessionController close-then-open、最终 Project HTTP 合同和旧 identity 清理在同一 release train 内落地；真实 State Root 只通过隔离副本演练，正式用户数据不在本任务中再次改写。Project root发布采用portable rename：NeuroBook与`workspace` CLI writer由mutation + Occupancy严格串行，并通过最终同步preflight把非协作外部writer窗口压到最窄；不引入三平台原生atomic no-replace Adapter，接受最终preflight后外部writer创建空同名目录仍可能在POSIX被替换的best-effort边界。
@@ -7,6 +15,22 @@
 > 本任务不是替代 Task 114 或 Task 115，而是它们的协调真相源：Task 114 继续记录文件快照 package 与 NeuroBook adapter 的实现，Task 115 继续记录路径/session hard cut；本 README 冻结二者共享的 Module、Interface、Seam、依赖顺序、发布门禁和跨任务验收。
 >
 > 术语收口：最终合同只称 Project / Project Workspace，不再使用 `managed Project`。下文“旧 managed session”仅指旧 `workspace/<slug>` session 的迁移来源类别。
+
+## 2026-08-05：PR #47 草稿失败与前台 recovery deferred 收口
+
+- `AgentComposerDraftSession` 不再把草稿读取失败降级为空正文。目标 context 只在旧草稿保存和目标草稿读取都成功后激活；`switchContext()`、`clearContext()` 和 acceptance 的持久化失败会保留当前 context、generation 和输入正文，Surface 在解除 Session 绑定前也会先完成草稿保存。
+- Session recovery controller 新增 `started / reused / deferred` 请求结果。SSE 404 在同一界面已有 foreground owner 时记录一次 deferred recovery；前台加载成功会丢弃它，前台失败且旧 Session 仍有完整 recovery 时由 owner 收口并只 replay 一次。主面板与 Inline Editor controller 继续隔离，scope/owner 改变或销毁时会清掉 deferred。
+- `onSessionNotFound` 现在明确返回 `handled / deferred / ignored`：404 的 ignored 不再进入普通错误出口，409 继续按关联资源错误处理。已补回调结果、前台成功/失败、single-flight 和 owner 失效测试。
+- 主面板和 Inline 的 remembered Session ID 在权威状态提交及 stream 启动后才安全写入；`Storage.setItem()` 异常不会回滚已经提交的 Session，只显示一次提示，旧记忆不被误删。
+- 本轮 focused 回归为 **14 files / 170 tests passed**；`bun run nuxt:prepare`、根 `bun run typecheck`、`bun run docs:build` 和 `git diff --check` 均通过。docs build 只有既有 VitePress chunk size warning；浏览器未自动运行，完整 Vitest 和 GitHub Full tests advisory 仍不是全绿证据，Linux `C:/...` fixture、Bun worker 和工具环境失败继续归 Issue #15。
+
+## 2026-08-05：Issue #26 / PR #47 跨 State Root 恢复竞态收口
+
+- 直接请求和 SSE recovery 现在共享同一 Session 生命周期合同：请求 Session 自身缺失返回 `404 / SESSION_NOT_FOUND`；只在读取关联 Session 时缺失返回 `409 / SESSION_DEPENDENCY_NOT_FOUND`。Profile Preview/Compile 的 `sessionId` 仍是字符串 DTO，但路由在进入 worker 或 Profile prepare 前拒绝 `abc`、`NaN`、零、负数和超出安全整数范围的值，统一返回 400；未提供 `sessionId` 的预览请求也不会绕过错误映射。
+- 主 Agent Surface 与 Markdown Studio Inline Editor 都只做一次列表刷新、最多一次 fallback 加载；新增窄的 `AgentSessionLoadController` 后，前台选择会立即使同一界面的旧 recovery 失效，主面板与 Inline Editor 的 owner 互不撤销，旧请求的 `finally`、通知和 fallback 不得清理新选择。右侧 Agent 面板隐藏只失效主面板 owner 并停止主 SSE，保留主 Session、Composer 草稿和后台 Agent；Inline owner、PromptBar、Inline SSE 和模型状态继续运行，重新打开面板时显式重新拉取 recovery。两者均先读取目标 recovery 和目标草稿，读取成功且 owner 仍有效后才停止旧流、切换 ID、清空 shell 和提交新状态。关联 Session 缺失返回 409 时清除 recovery latch、恢复当前连接状态并只走普通错误出口，同时保留稳定的当前对话、草稿、stream 和记忆；普通读取失败在仍有稳定 recovery 时也保持 ready。没有稳定当前对话时进入明确错误/未绑定状态，不 fallback、不删除记忆、不自动创建。主面板空列表会先保存当前 Composer 草稿再解除 context，不隐式创建 Session；Inline 空列表清理状态但不撤销当前请求 owner，保证 loading 的 `finally` 能正常收口。
+- Inline Prompt 打开主 Agent 面板时先确认 Inline 目标仍属于当前 Surface，再建立新的主面板 activation、surface operation 和 foreground load owner；只有目标 Session 已真实提交为当前对话才返回 `current`，被更新操作取代返回 `superseded`，真实加载失败返回 `failed`。主 Session 创建和目标加载失败时保留选择弹窗，只有真实提交成功才关闭；确认 Session 缺失后只删除 storage 中数字 ID 与 identity 仍同时匹配的 remembered value。宽泛 entry/attachment 路由测试通过 `vi.importActual()` 消费生产 HTTP mapper，避免复制映射逻辑继续掩盖回归。
+- Session SSE 的普通 recovery、强制 recovery 和新 event epoch 都在当前 owner 有效时只调用一次专用缺失回调；没有专用回调时保持原错误出口，409 关联缺失会清除 recovery latch、恢复 `connected`/`idle` 状态并只调用一次普通错误处理，不会误走 `SESSION_NOT_FOUND` 专用恢复，owner 已失效时静默丢弃。`stop()` 会失效在途 recovery 并清除旧 latch，重新打开面板只能通过显式 recovery GET 恢复。History/System Prompt 等局部读取继续显示局部错误，不自动替换用户正在查看的上下文；Session 备份目录仍不参与在线枚举。Context Inspector、Profile Preview/Compile、Workflow Preview、current-project 与 Session recovery route 测试现在消费生产 HTTP mapper，而不是复制映射逻辑。
+- 本轮没有引入实例身份协议、备份恢复、lease/heartbeat 变更或数据迁移。浏览器验收未自动执行；使用隔离 State Root 的 focused 测试是本轮 Session 行为证据。最新验证结果：14 files / 160 tests focused、根 `bun run typecheck` 与 `bun run docs:build` 均通过，`git diff --check` 通过；docs build 只有既有 VitePress chunk size warning，换行提示不构成 diff 错误。没有把完整 Vitest 或 GitHub Linux advisory 失败写成全绿；旧的 159/149/140/135 tests 记录保留为历史结果，不再作为本轮证据。
 
 ## 2026-07-28：Project 封面 mutation 与列表性能边界
 
@@ -1008,3 +1032,20 @@ Phase 4B + Phase 7 的实测规模是 **187 个生产文件 + 101 个测试文�
 - Agent HTTP 统一返回 `404` 与 `SESSION_NOT_FOUND`。recovery/history/systemPrompt、relations、mutation 与 Attachment preflight 复用同一映射；宽泛的用户消息和 Attachment 404 路由先保留 Session Not Found，再处理 entry/locator 自身缺失。
 - 主 Agent Surface 遇到该错误时清除精确失效的记忆 ID，在原 activation ownership 下刷新一次列表并最多加载一次 fallback：优先保留仍有效的原 Session，否则选择第一个有效 Session；空列表进入 empty，不自动创建。fallback 再失败不会递归重试，迟到恢复不能覆盖新选择。
 - 验证使用隔离临时 Workspace Root：Repository 28 项、Agent HTTP 22 项、前端错误解析与 Surface 状态 55 项、两个宽泛 entry/attachment 路由 13 项均通过，受共享错误码解析影响的 ProjectSession 另有 9 项通过，合计 9 files / 127 tests；根 `nuxt typecheck` 通过。未执行浏览器验证，未读取、恢复、复制或删除真实 Session 备份。
+
+### 2026-08-03：Issue #26 跨 State Root 恢复补漏
+
+- PR #34 已完成直接 recovery 请求的 `404 / SESSION_NOT_FOUND` 与主 Agent 面板的一次 fallback；后续审查确认 SSE recovery、Inline Editor、Profile/Workflow/Context Inspector 入口以及关联 Session 缺失仍未进入同一合同。本轮只补齐这些缺口，不扩展到 State Root 实例身份、备份恢复、消息分支、`/fork` 或 Runtime lease。
+- Session-bound HTTP 边界现在必须携带请求 Session ID。领域错误中的 ID 与请求 ID 相同返回 `404 / SESSION_NOT_FOUND`；不同返回 `409 / SESSION_DEPENDENCY_NOT_FOUND` 并保留当前选择。Context Inspector、Profile Preview/Compile、Workflow Preview tree/direct-chat 与 entry/attachment 宽泛 catch 均复用该判定，公开错误不包含磁盘路径或 Session 正文。
+- Profile in-process preview 与 compile worker 都保留 Session lifecycle error；worker 只传稳定 code 与 Session ID，主线程重建领域错误。普通编译 issue 与既有 Project lifecycle error 继续走原合同。
+- Session SSE 的 normal、forced 与新 epoch recovery 先识别缺失 Session：当前 owner 只调用一次专用回调，不再同时发布普通错误；过期 owner 静默。主 Agent 面板与 Inline Editor 均刷新一次、最多加载一个 fallback，fallback 关闭递归恢复且不进入自动创建入口。
+- 主面板在列表为空前先持久化当前输入，再解除草稿 context、推进 Composer generation 并清空可见正文；草稿仍可从原 Session context 读取。浏览器记忆只在仍等于失效 ID 时删除，迟到恢复不能清掉用户的新选择。
+- 实施审查额外发现 Inline fallback 会错误使刚完成的列表请求失效，导致 loading 的旧 `finally` 无权收口。本轮让 fallback 复用同一列表请求代次，并把列表 request ID 纳入通知发布权；这属于既有 owner/request-ID 模型内的接线修复，没有增加第二套恢复状态机。
+- 验证只使用 mock 或隔离临时根，不访问真实 `workspace/`、Session 备份或 lease。最终聚焦回归为 12 files / 104 tests，根 `nuxt typecheck` 与 `docs:build` 通过。首轮并行回归有一个 Profile route 用例在 Windows 冷模块转换时越过默认 5 秒，但该文件隔离重跑 2/2 通过；把这个本轮 route 用例的测试预算收窄提高到 10 秒后，原 12 文件命令完整复跑 104/104。按仓库规则未自动执行浏览器验证。
+
+### 2026-08-05：PR #47 恢复生命周期最后收口
+
+- 复核确认右侧面板隐藏会停止主 Session SSE；重开时仅读取 recovery 会留下旧快照而没有实时事件。现在强制 recovery 成功后显式调用现有 `sessionStream.ensure()`；若 409 仍有完整 recovery，则保留 ready 状态并用旧 cursor 恢复 SSE，不重复 recovery。
+- 强制 recovery 的 `SESSION_DEPENDENCY_NOT_FOUND` 不再把稳定当前对话投影为 `load-error`。fallback 二次 404、列表为空或刷新失败均明确收口：旧 Session 有完整 recovery 时保留 ID、shell、stream、Composer 和草稿，否则进入 error/empty；任一确认的主 Session 404 只在浏览器记忆中数字 ID 与 identity 仍同时匹配时才删除对应 remembered ID。
+- 加载完成后的滚动回调改为检查 activation owner，避免 load owner 已正常 finish 后丢失本次 UI 收尾。没有引入新的状态机、Session schema、实例身份或恢复协议。
+- 本轮 focused 回归为 **14 files / 161 tests passed**；根 `bun run typecheck` 与 `bun run docs:build` 均通过，后者只有既有 VitePress chunk size warning；`git diff --check` 通过。浏览器未自动运行，GitHub Full tests 的 Linux `C:/...` fixture 失败继续归 Issue #15。

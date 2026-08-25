@@ -123,10 +123,10 @@ function summary(sessionId: number): AgentSessionSummaryDto {
     return {
         sessionId,
         profileKey: "inline.editor",
+        sessionIdentity: "sha256:" + "0".repeat(64),
         status: "idle",
         updatedAt: 1,
-        archived: false,
-    };
+        archived: false,    };
 }
 
 function recovery(sessionId: number): AgentSessionRecoveryDto {

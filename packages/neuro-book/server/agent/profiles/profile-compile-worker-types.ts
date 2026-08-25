@@ -14,10 +14,9 @@ export type ProfileCompileStagedRelease = {
 /**
  * worker 内部生命周期错误。它不是公开 DTO 字段，主线程收到后会重新抛 typed error。
  */
-export type ProfileCompileLifecycleError = {
-    code: "PROJECT_NOT_OPEN";
-    projectRoot: string;
-};
+export type ProfileCompileLifecycleError =
+    | {code: "PROJECT_NOT_OPEN"; projectRoot: string}
+    | {code: "SESSION_NOT_FOUND"; sessionId: number};
 
 /**
  * worker 线程内部返回值。stagedRelease 是 server 内部字段，不进入 HTTP DTO schema。

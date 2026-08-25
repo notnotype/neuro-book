@@ -389,6 +389,7 @@ function userPreview(id: string, preview: string, bytes: number, omitted: boolea
 function summary(sessionId: number): AgentSessionRecoveryDto["summary"] {
     return {
         sessionId,
+        sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
         profileKey: "leader.default",
         status: "idle",
         updatedAt: 1,

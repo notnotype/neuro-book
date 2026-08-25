@@ -8,6 +8,9 @@ import {
     listAgentSessionAttachments,
     listAgentSessions,
     moveAgentSessionTree,
+    mapAgentHttpError,
+    requireAgentSessionId,
+    requireAgentSessionIdValue,
     runAgentSessionCommand,
     toInvokeInput,
     updateAgentSessionCurrentProject,
@@ -17,6 +20,7 @@ import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
+import {AgentSessionIdSchema} from "nbook/shared/dto/agent-session.dto";
 
 describe("agent session http helpers", () => {
     it("createAgentSession 调用 harness.createAgent", async () => {
@@ -41,6 +45,49 @@ describe("agent session http helpers", () => {
             currentProjectRoot: "novel",
             parentSessionId: 1,
         });
+    });
+
+    it.each([
+        [undefined, undefined],
+        ["1", 1],
+        ["0007", 7],
+    ] as const)("解析可选 Session ID %s", (raw, expected) => {
+        expect(requireAgentSessionIdValue(raw)).toBe(expected);
+    });
+
+    it.each(["abc", "NaN", "0", "-1", "1.5", "9007199254740992"])("拒绝无效的可选 Session ID %s", (raw) => {
+        expect(() => requireAgentSessionIdValue(raw)).toThrowError(expect.objectContaining({
+            statusCode: 400,
+            message: "sessionId 必须是正整数",
+        }));
+    });
+
+    it.each([
+        ["12", 12],
+        [String(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER],
+    ] as const)("canonical parser 接受安全正整数路由参数 %s", (raw, expected) => {
+        expect(requireAgentSessionId({context: {params: {sessionId: raw}}} as never)).toBe(expected);
+    });
+
+    it.each(["0", "-12", "12.5", "abc", String(2 ** 53), undefined])(
+        "canonical parser 拒绝非法或非安全整数路由参数 %s",
+        (raw) => {
+            expect(() => requireAgentSessionId({context: {params: {sessionId: raw}}} as never)).toThrowError(
+                expect.objectContaining({
+                    statusCode: 400,
+                    message: "sessionId 必须是正整数",
+                }),
+            );
+        },
+    );
+
+    it("AgentSessionIdSchema 只接受正的安全整数", () => {
+        expect(AgentSessionIdSchema.safeParse(Number.MAX_SAFE_INTEGER).success).toBe(true);
+        expect(AgentSessionIdSchema.safeParse(2 ** 53).success).toBe(false);
+        expect(AgentSessionIdSchema.safeParse(Number.MAX_SAFE_INTEGER + 1).success).toBe(false);
+        expect(AgentSessionIdSchema.safeParse(0).success).toBe(false);
+        expect(AgentSessionIdSchema.safeParse(-1).success).toBe(false);
+        expect(AgentSessionIdSchema.safeParse(1.5).success).toBe(false);
     });
 
     it("listAgentSessions 调用 harness.listSessionPage", async () => {
@@ -132,6 +179,17 @@ describe("agent session http helpers", () => {
         await expect(getAgentSessionQuery(12, query as never, {getSessionQuery} as never)).rejects.toMatchObject({
             statusCode: 404,
             data: {code: "SESSION_NOT_FOUND"},
+        });
+    });
+
+    it("按请求 Session 身份区分主资源 404 与关联资源 409", () => {
+        expect(mapAgentHttpError(new AgentSessionNotFoundError(12), 12)).toMatchObject({
+            statusCode: 404,
+            data: {code: "SESSION_NOT_FOUND"},
+        });
+        expect(mapAgentHttpError(new AgentSessionNotFoundError(13), 12)).toMatchObject({
+            statusCode: 409,
+            data: {code: "SESSION_DEPENDENCY_NOT_FOUND"},
         });
     });
 

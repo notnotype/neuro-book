@@ -27,6 +27,10 @@ import {
     isProjectNotOpenError,
     type ProjectNotOpenError,
 } from "nbook/server/workspace-files/project-session-service";
+import {
+    isAgentSessionNotFoundError,
+    type AgentSessionNotFoundError,
+} from "nbook/server/agent/session/session-not-found-error";
 
 type InternalProfileCompileRequest = AgentProfileCompileRequestDto & {
     profileRoot?: string;
@@ -98,6 +102,9 @@ export async function runProfileCompile(input: InternalProfileCompileRequest): P
         };
     } catch (error) {
         if (isProjectNotOpenError(error)) {
+            return lifecycleErrorResult(error, startedAt);
+        }
+        if (isAgentSessionNotFoundError(error)) {
             return lifecycleErrorResult(error, startedAt);
         }
         if (error instanceof ProfileArtifactSourceMissingError) {
@@ -342,17 +349,16 @@ function resolveProfileRoot(input: {profileRoot?: string}): string {
     return resolve(input.profileRoot);
 }
 
-function lifecycleErrorResult(error: ProjectNotOpenError, startedAt: number): ProfileCompileWorkerResult {
+function lifecycleErrorResult(error: ProjectNotOpenError | AgentSessionNotFoundError, startedAt: number): ProfileCompileWorkerResult {
     return {
         ok: false,
         stale: false,
         detail: null,
         preview: null,
         issues: [],
-        lifecycleError: {
-            code: "PROJECT_NOT_OPEN",
-            projectRoot: error.projectRoot,
-        },
+        lifecycleError: isAgentSessionNotFoundError(error)
+            ? {code: "SESSION_NOT_FOUND", sessionId: error.sessionId}
+            : {code: "PROJECT_NOT_OPEN", projectRoot: error.projectRoot},
         elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
     };
 }

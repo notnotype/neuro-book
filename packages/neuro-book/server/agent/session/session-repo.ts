@@ -23,6 +23,7 @@ import type {
     SessionEntryDraft,
 } from "nbook/server/agent/session/types";
 import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import {AgentSessionIdentitySchema} from "nbook/shared/dto/agent-session.dto";
 import {reduceRelationLedger} from "nbook/server/agent/session/relation-ledger";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import {PUBLIC_TREE_TEXT_BYTES} from "nbook/server/agent/events/public-event-policy";
@@ -31,6 +32,7 @@ import {chatEntryKind} from "nbook/server/agent/events/public-chat-entry-project
 import {parseDurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import {ProjectRootDtoSchema} from "nbook/shared/dto/project.dto";
 import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
+import {resolveSessionIdentity, createSessionIdentity} from "nbook/server/agent/session/session-identity";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -109,6 +111,7 @@ export class JsonlSessionRepository {
         const metadata: SessionMetadata = {
             schemaVersion: 2,
             sessionId,
+            sessionIdentity: createSessionIdentity(),
             profileKey: input.profileKey,
             initial: input.initial,
             currentProjectRoot: input.currentProjectRoot,
@@ -157,7 +160,7 @@ export class JsonlSessionRepository {
             this.assertStoredEntry(entry);
         }
         return {
-            metadata: this.effectiveMetadata(this.assertMetadata(header.metadata), entries),
+            metadata: this.effectiveMetadata(this.normalizeHeader(sessionId, header.metadata), entries),
             entries,
             leafId: this.resolveLeaf(entries),
         };
@@ -192,7 +195,7 @@ export class JsonlSessionRepository {
                 }
                 const record = JSON.parse(line) as SessionFileRecord;
                 if (record.kind === "header") {
-                    metadata = this.assertMetadata(record.metadata);
+                    metadata = this.normalizeHeader(sessionId, record.metadata);
                     continue;
                 }
                 const recordEntries = record.kind === "entry"
@@ -250,7 +253,7 @@ export class JsonlSessionRepository {
                 }
                 const record = JSON.parse(line) as SessionFileRecord;
                 if (record.kind === "header") {
-                    metadata = this.assertMetadata(record.metadata);
+                    metadata = this.normalizeHeader(sessionId, record.metadata);
                     continue;
                 }
                 const recordEntries = record.kind === "entry"
@@ -706,6 +709,7 @@ export class JsonlSessionRepository {
 
         return {
             sessionId: snapshot.metadata.sessionId,
+            sessionIdentity: resolveSessionIdentity(snapshot.metadata),
             profileKey: context.profileKey,
             currentProjectRoot: snapshot.metadata.currentProjectRoot,
             migrationReview: snapshot.metadata.migrationReview,
@@ -964,6 +968,7 @@ export class JsonlSessionRepository {
         const allowedKeys = new Set<keyof SessionMetadata>([
             "schemaVersion",
             "sessionId",
+            "sessionIdentity",
             "profileKey",
             "initial",
             "currentProjectRoot",
@@ -981,6 +986,10 @@ export class JsonlSessionRepository {
             throw new Error(`Agent Session schema v2 metadata包含已删除或未知字段：${unknownKeys.sort().join(", ")}`);
         }
         if (metadata.schemaVersion !== 2) throw new Error("Agent Session schema不是v2，请先运行应用状态迁移。");
+        if (metadata.sessionIdentity !== undefined) {
+            const parsedIdentity = AgentSessionIdentitySchema.safeParse(metadata.sessionIdentity);
+            if (!parsedIdentity.success) throw new Error("Agent Session identity 格式非法。");
+        }
         if (metadata.currentProjectRoot !== undefined) ProjectRootDtoSchema.parse(metadata.currentProjectRoot);
         if (metadata.migrationReview) {
             if (metadata.migrationReview.status !== "required"
@@ -990,6 +999,15 @@ export class JsonlSessionRepository {
             }
         }
         return {...metadata};
+    }
+
+    /** 验证文件名/请求 ID，并把旧 header 归一化为带 identity 的运行时 metadata。 */
+    private normalizeHeader(sessionId: SessionId, metadata: SessionMetadata): SessionMetadata {
+        const header = this.assertMetadata(metadata);
+        if (header.sessionId !== sessionId) {
+            throw new Error(`session ${sessionId} 文件 header 与请求 ID 不一致`);
+        }
+        return {...header, sessionIdentity: resolveSessionIdentity(header)};
     }
 
     /** 将append-only重绑事实投影到本次读取的有效metadata。 */

@@ -32,6 +32,61 @@ afterEach(async () => {
 });
 
 describe("Profile prepare preview物理Workspace Root", () => {
+    it("关联 Session 缺失保持领域错误，不降级为 prepare issue", async () => {
+        const fixture = await fixtureRoot();
+        const applicationRoot = absoluteFsPath(path.join(fixture, "application"));
+        const stateRoot = absoluteFsPath(path.join(fixture, "state"));
+        const runtimePaths = createRuntimePaths({applicationRoot, stateRoot});
+        await Promise.all([
+            mkdir(applicationRoot, {recursive: true}),
+            mkdir(runtimePaths.workspaceRoot, {recursive: true}),
+        ]);
+        process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: runtimePaths.workspaceRoot});
+
+        const repo = new JsonlSessionRepository(runtimePaths.workspaceRoot);
+        const harness = new NeuroAgentHarness({
+            runtimePaths,
+            repo,
+            profiles: new AgentProfileCatalog(
+                path.join(fixture, "missing-system-profiles"),
+                undefined,
+                undefined,
+                undefined,
+                (profileRoot: string, rootLabel: string) => resolveProfileArtifactPathContext(profileRoot, rootLabel, path.join(fixture, "application")),
+                {install: "workspace/.nbook/agent/profiles"},
+            ),
+            enableSessionSummarizer: false,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {key: "test.missing-dependency", name: "Missing Dependency"},
+            initialSchema: Type.Object({}),
+            tools: {},
+            async prepare({session}) {
+                await session.read(999_999);
+                return {systemPrompt: "unreachable"};
+            },
+        }), false);
+
+        try {
+            const current = await repo.createSession({
+                profileKey: "test.missing-dependency",
+                initial: {},
+            });
+            await expect(previewAgentProfilePrepare(harness, {
+                profileKey: "test.missing-dependency",
+                sessionId: String(current.metadata.sessionId),
+            })).rejects.toMatchObject({
+                name: "AgentSessionNotFoundError",
+                code: "SESSION_NOT_FOUND",
+                sessionId: 999_999,
+            });
+        } finally {
+            await harness.dispose();
+        }
+    });
+
     it("Project与未绑定Session共用真实Workspace Root，Project另携ready handle", async () => {
         const fixture = await fixtureRoot();
         const applicationRoot = absoluteFsPath(path.join(fixture, "application"));

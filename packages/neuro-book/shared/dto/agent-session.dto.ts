@@ -17,7 +17,13 @@ const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.record(z.string(), JsonValueSchema),
 ]));
 
-export const AgentSessionIdSchema = z.number().int().positive();
+export const AgentSessionIdSchema = z.number().int().positive().safe();
+/** Session 的不可变逻辑身份；UUID 用于新 Session，sha256 用于没有身份字段的现有 header。 */
+export const AgentSessionIdentitySchema = z.union([
+    z.string().uuid(),
+    z.string().regex(/^sha256:[0-9a-f]{64}$/u, "Agent Session identity 格式非法"),
+]);
+export type AgentSessionIdentity = z.infer<typeof AgentSessionIdentitySchema>;
 export const AgentClientMessageIdSchema = z.string().uuid();
 export const AgentAttachmentIdSchema = z.string()
     .regex(/^sha256:[0-9a-f]{64}$/u, "Attachment ID 格式非法")
@@ -334,6 +340,7 @@ export type AgentSessionContextUsageDto = {
 
 export type AgentSessionSummaryDto = {
     sessionId: number;
+    sessionIdentity: AgentSessionIdentity;
     profileKey: string;
     /**
      * 当前 session 引用的 profile 是否仍可用于后续运行。
