@@ -22,6 +22,9 @@ if (process.platform !== "win32" || process.arch !== "x64") {
 const bash = values.bash ? resolve(values.bash) : await defaultGitBash();
 // Bun 1.3.14 在 Windows 8.3 短路径上删除曾作为子进程 cwd 的目录会误报 EBUSY。
 const systemTempRoot = await realpath(tmpdir());
+// CI runner 冷启动 Bun + 模块链可能超过 3 秒才写出状态文件；窗口放宽到 8 秒，
+// 超时终止语义（杀树、释放端口）不变。
+const OWNED_PROCESS_TIMEOUT_SECONDS = 8;
 const delegatedRoot = process.env.NEURO_BOOK_WINDOWS_OWNED_SMOKE_ROOT;
 if (!delegatedRoot) {
     const root = await mkdtemp(join(systemTempRoot, "nbook-windows-owned-smoke-"));
@@ -132,7 +135,7 @@ async function verifyTermination(
             NEURO_BOOK_SYSTEM_AGENT_BIN: agentBin,
             NEURO_BOOK_RIPGREP_CONFIG: join(root, "ripgreprc"),
         },
-        ...(reason === "timeout" ? {timeout: 3} : {signal: controller.signal}),
+        ...(reason === "timeout" ? {timeout: OWNED_PROCESS_TIMEOUT_SECONDS} : {signal: controller.signal}),
         onData() {},
     });
     const state = await Promise.race([
@@ -151,7 +154,9 @@ async function verifyTermination(
     } catch (error) {
         message = error instanceof Error ? error.message : String(error);
     }
-    const expected = reason === "timeout" ? "Command timed out after 3 seconds" : "Command aborted";
+    const expected = reason === "timeout"
+        ? `Command timed out after ${OWNED_PROCESS_TIMEOUT_SECONDS} seconds`
+        : "Command aborted";
     if (!message.includes(expected)) throw new Error(`${reason}错误分类不正确：${message}`);
     await waitForPidExit(state.pid);
     await waitForPortRelease(state.port);
