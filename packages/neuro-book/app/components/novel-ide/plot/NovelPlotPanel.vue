@@ -1725,12 +1725,12 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
         </div>
 
         <!-- Plot 工作台入口 -->
-        <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
+        <div class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
             <div class="min-w-0">
                 <div class="truncate text-[12px] font-semibold text-[var(--text-main)]">剧情编排</div>
                 <div class="truncate text-[11px] text-[var(--text-muted)]">Thread / Scene / World Anchor</div>
             </div>
-            <div class="flex shrink-0 items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <!-- 规划层计数入口:点击打开工作台对应 tab;0 计数弱化显示但不隐藏(入口可发现性) -->
                 <button
                     type="button"
