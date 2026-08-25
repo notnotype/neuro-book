@@ -400,13 +400,13 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                                 <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
                             </button>
                         </Tooltip>
-                        <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
-                            <Tooltip :text="t('ide.toolPanel.uploadProjectTitle')" placement="bottom">
+                        <Tooltip :text="t('ide.toolPanel.uploadProjectTitle')" placement="bottom">
+                            <Dropdown root-class="relative inline-flex items-center" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
                                 <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="uploadingProject">
                                     <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
                                 </button>
-                            </Tooltip>
-                        </Dropdown>
+                            </Dropdown>
+                        </Tooltip>
                         <Tooltip :text="downloadButtonTitle" placement="bottom">
                             <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
                                 <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
