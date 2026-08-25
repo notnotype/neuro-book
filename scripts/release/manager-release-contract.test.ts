@@ -57,4 +57,8 @@ describe("Manager release clean-checkout contract", () => {
             moduleResolution: "Bundler",
         });
     });
+    it("bun.lock对workspace file依赖保持POSIX分隔符", async () => {
+        const lockfile = await readFile(resolve(ROOT, "bun.lock"), "utf8");
+        expect(lockfile).not.toMatch(/file:[^"]*\\/u);
+    });
 });
