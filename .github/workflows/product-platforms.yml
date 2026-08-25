@@ -1,6 +1,27 @@
 name: Product Platform Checks
 
 on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/product-platforms.yml"
+      - ".github/workflows/release-container.yml"
+      - "packages/neuro-book/Dockerfile*"
+      - "packages/neuro-book/**"
+      - "packages/neuro-book-contracts/**"
+      - "packages/neuro-book-test-support/**"
+      - "packages/neuro-book-manager/**"
+      - "packages/owned-process/**"
+      - "packages/file-snapshot-cache/**"
+      - "packages/nb-history/**"
+      - "packages/nb-workflow/**"
+      - "packages/nb-memory/**"
+      - "packages/nb-ui/**"
+      - "packages/neuro-agent-harness/**"
+      - "packages/llmlint/**"
+      - "scripts/**"
+      - "bun.lock"
+      - "package.json"
   pull_request:
     paths:
       - ".github/workflows/product-platforms.yml"
@@ -31,37 +52,40 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
+  select-platforms:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          entries='[
+            {"platform":"linux-x64-glibc","runner":"ubuntu-latest","command":"release:product:linux","archive":"neuro-book-product-linux-x64-glibc.tar.gz","port":39223,"browser":"playwright","pr_gate":true},
+            {"platform":"linux-aarch64-glibc","runner":"ubuntu-24.04-arm","command":"release:product:linux-aarch64","archive":"neuro-book-product-linux-aarch64-glibc.tar.gz","port":39224,"browser":"playwright"},
+            {"platform":"darwin-x64","runner":"macos-15-intel","command":"release:product:darwin","archive":"neuro-book-product-darwin-x64.tar.gz","port":39225,"browser":"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"},
+            {"platform":"darwin-aarch64","runner":"macos-15","command":"release:product:darwin-aarch64","archive":"neuro-book-product-darwin-aarch64.tar.gz","port":39226,"browser":"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"}
+          ]'
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            selected="$(jq -c '[.[] | select(.pr_gate == true) | del(.pr_gate)]' <<<"$entries")"
+          else
+            selected="$(jq -c '[.[] | del(.pr_gate)]' <<<"$entries")"
+          fi
+          {
+            echo "matrix<<MATRIX_JSON"
+            echo "{\"include\": ${selected}}"
+            echo "MATRIX_JSON"
+          } >> "$GITHUB_OUTPUT"
+
   product:
+    needs: select-platforms
     name: ${{ matrix.platform }} Product
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: linux-x64-glibc
-            runner: ubuntu-latest
-            command: release:product:linux
-            archive: neuro-book-product-linux-x64-glibc.tar.gz
-            port: 39223
-            browser: playwright
-          - platform: linux-aarch64-glibc
-            runner: ubuntu-24.04-arm
-            command: release:product:linux-aarch64
-            archive: neuro-book-product-linux-aarch64-glibc.tar.gz
-            port: 39224
-            browser: playwright
-          - platform: darwin-x64
-            runner: macos-15-intel
-            command: release:product:darwin
-            archive: neuro-book-product-darwin-x64.tar.gz
-            port: 39225
-            browser: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-          - platform: darwin-aarch64
-            runner: macos-15
-            command: release:product:darwin-aarch64
-            archive: neuro-book-product-darwin-aarch64.tar.gz
-            port: 39226
-            browser: /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+      matrix: ${{ fromJSON(needs.select-platforms.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
