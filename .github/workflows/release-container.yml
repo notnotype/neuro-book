@@ -106,9 +106,6 @@ jobs:
           owner="$(printf '%s' "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')"
           echo "app=ghcr.io/${owner}/neuro-book" >> "${GITHUB_OUTPUT}"
 
-          labels: |
-            org.opencontainers.image.revision=${{ inputs.revision }}
-
       - id: app-build
         name: Build and push app image by digest
         uses: docker/build-push-action@v6
@@ -118,7 +115,6 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             NEURO_BOOK_SOURCE_REVISION=${{ inputs.revision }}
-          labels: ${{ steps.app-meta.outputs.labels }}
           outputs: type=image,name=${{ steps.image-names.outputs.app }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=app-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.arch }}
