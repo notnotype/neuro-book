@@ -4,6 +4,7 @@ import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import ProfileTemplateSourcePanel from "nbook/app/components/profile-template-editor/ProfileTemplateSourcePanel.vue";
 import ProfileTemplateVariableGroups from "nbook/app/components/profile-template-editor/ProfileTemplateVariableGroups.vue";
 import type {
@@ -264,11 +265,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     {{ tab.label }}
                 </button>
             </div>
-            <button type="button" class="panel-icon-btn" title="收起右侧面板" @click="emit('collapse')">
-                <span class="i-lucide-panel-right-close h-4 w-4"></span>
-            </button>
+            <Tooltip text="收起右侧面板" placement="bottom">
+                <button type="button" class="panel-icon-btn" aria-label="收起右侧面板" @click="emit('collapse')">
+                    <span class="i-lucide-panel-right-close h-4 w-4"></span>
+                </button>
+            </Tooltip>
         </div>
-
         <div class="min-h-0 flex-1 overflow-auto pr-1 custom-scrollbar no-scrollbar">
             <div v-if="props.activeTab === 'source'" class="h-full min-h-[520px]">
                 <ProfileTemplateSourcePanel

@@ -27,7 +27,7 @@ const emit = defineEmits<{
 
 <template>
     <!-- 中间模板画布：承载根节点子树和根级 drop zone -->
-    <section class="panel flex min-h-0 flex-col">
+    <section class="panel flex min-h-0 min-w-0 flex-col">
         <div class="mb-3 flex shrink-0 items-center justify-between gap-3">
             <div class="min-w-0">
                 <div class="flex items-center gap-2">

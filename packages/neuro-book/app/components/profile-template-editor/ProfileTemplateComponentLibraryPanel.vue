@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
+import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import ProfileTemplateLibraryItem from "nbook/app/components/profile-template-editor/ProfileTemplateLibraryItem.vue";
 import type {
     ComponentLibraryGroup,
@@ -24,15 +25,17 @@ const emit = defineEmits<{
 
 <template>
     <!-- 左侧组件库：组件拖入画布或点击快速添加 -->
-    <aside class="panel flex min-h-0 flex-col">
+    <aside class="panel flex min-h-0 min-w-0 flex-col">
         <div class="mb-3 flex items-start justify-between gap-2">
             <div>
                 <div class="panel-title">组件库</div>
                 <div class="mt-1 text-[11px] text-[var(--text-muted)]">拖拽组件到画布中编辑</div>
             </div>
-            <button type="button" class="panel-icon-btn" title="收起组件库" @click="emit('collapse')">
-                <span class="i-lucide-panel-left-close h-4 w-4"></span>
-            </button>
+            <Tooltip text="收起组件库" placement="bottom">
+                <button type="button" class="panel-icon-btn" aria-label="收起组件库" @click="emit('collapse')">
+                    <span class="i-lucide-panel-left-close h-4 w-4"></span>
+                </button>
+            </Tooltip>
         </div>
         <div class="relative mb-3">
             <span class="i-lucide-search absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>

@@ -2190,160 +2190,159 @@ onBeforeUnmount(() => {
 
 <template>
     <div ref="themeHostRef" class="tsx-profile-editor-page flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300" :class="props.mode === 'system-template' ? 'h-screen' : ''">
-        <ProfileTemplateHeader
-            v-model:selected-template="selectedTemplate"
-            :title="props.mode === 'user-profile' ? 'TSX Profile 工作台' : 'TSX Profile 可视化编辑器'"
-            :subtitle="props.mode === 'user-profile' ? '用户资产' : ''"
-            :template-options="templateOptions"
-            :editor-status-text="editorStatusText"
-            :can-undo="canUndo"
-            :can-redo="canRedo"
-            :previewing="previewing"
-            :validating="validating"
-            :saving="saving"
-            :restoring="restoring"
-            :compiling="compileState === 'running'"
-            :compiling-all="compilingAll"
-            :parsing-source="parsingSource"
-            :source-text="sourceText"
-            :issue-count="issueCount"
-            :restore-enabled="canRestoreSelectedTemplate"
-            :create-enabled="props.mode === 'user-profile'"
-            :run-enabled="props.mode === 'user-profile'"
-            :compile-enabled="props.mode === 'user-profile'"
-            :compile-all-enabled="props.mode === 'user-profile'"
-            :run-disabled="!profileCompileReady"
-            :allow-save-with-issues="props.mode === 'user-profile'"
-            :validate-label="props.mode === 'user-profile' ? '编译' : '验证'"
-            :closable="props.closable"
-            @undo="undoEdit"
-            @redo="redoEdit"
-            @preview="void openPreviewDialog()"
-            @validate="void validateTemplate()"
-            @compile="void compileSelectedProfile()"
-            @compile-all="void compileAllProfiles()"
-            @restore="void restoreTemplate()"
-            @create="openCreateProfileDialog"
-            @run="void createSessionForProfile()"
-            @save="void saveTemplate()"
-            @close="emit('close')"
-        />
+        <div class="profile-editor-shell">
+            <ProfileTemplateHeader
+                v-model:selected-template="selectedTemplate"
+                :title="props.mode === 'user-profile' ? 'TSX Profile 工作台' : 'TSX Profile 可视化编辑器'"
+                :subtitle="props.mode === 'user-profile' ? '用户资产' : ''"
+                :template-options="templateOptions"
+                :editor-status-text="editorStatusText"
+                :can-undo="canUndo"
+                :can-redo="canRedo"
+                :previewing="previewing"
+                :validating="validating"
+                :saving="saving"
+                :restoring="restoring"
+                :compiling="compileState === 'running'"
+                :compiling-all="compilingAll"
+                :parsing-source="parsingSource"
+                :source-text="sourceText"
+                :issue-count="issueCount"
+                :restore-enabled="canRestoreSelectedTemplate"
+                :create-enabled="props.mode === 'user-profile'"
+                :run-enabled="props.mode === 'user-profile'"
+                :compile-enabled="props.mode === 'user-profile'"
+                :compile-all-enabled="props.mode === 'user-profile'"
+                :run-disabled="!profileCompileReady"
+                :allow-save-with-issues="props.mode === 'user-profile'"
+                :validate-label="props.mode === 'user-profile' ? '编译' : '验证'"
+                :closable="props.closable"
+                @undo="undoEdit"
+                @redo="redoEdit"
+                @preview="void openPreviewDialog()"
+                @validate="void validateTemplate()"
+                @compile="void compileSelectedProfile()"
+                @compile-all="void compileAllProfiles()"
+                @restore="void restoreTemplate()"
+                @create="openCreateProfileDialog"
+                @run="void createSessionForProfile()"
+                @save="void saveTemplate()"
+                @close="emit('close')"
+            />
 
-        <DragDropProvider
-            :sensors="dndSensors"
-            @drag-start="handleNodeDragStart"
-            @drag-over="handleNodeDragOver"
-            @drag-end="handleNodeDragEnd"
-        >
-            <main
-                class="grid min-h-0 min-w-0 flex-1 gap-3 overflow-x-auto p-3"
-                :class="[
-                    libraryPanelCollapsed ? 'grid-cols-[52px_minmax(560px,1fr)_minmax(360px,30vw)]' : 'grid-cols-[290px_minmax(560px,1fr)_minmax(360px,30vw)]',
-                    inspectorPanelCollapsed ? (libraryPanelCollapsed ? '!grid-cols-[52px_minmax(560px,1fr)_52px]' : '!grid-cols-[290px_minmax(560px,1fr)_52px]') : '',
-                ]"
+            <DragDropProvider
+                :sensors="dndSensors"
+                @drag-start="handleNodeDragStart"
+                @drag-over="handleNodeDragOver"
+                @drag-end="handleNodeDragEnd"
             >
-            <aside v-if="libraryPanelCollapsed" class="component-rail">
-                <Tooltip text="展开组件库" placement="right">
-                    <button type="button" class="rail-icon-btn" @click="libraryPanelCollapsed = false">
-                        <span class="i-lucide-panel-left-open h-4 w-4"></span>
+                <main
+                    class="profile-editor-main grid min-h-0 min-w-0 flex-1 gap-3 overflow-hidden p-3"
+                    :class="{ 'library-collapsed': libraryPanelCollapsed, 'inspector-collapsed': inspectorPanelCollapsed }"
+                >
+                <aside v-if="libraryPanelCollapsed" class="component-rail">
+                    <Tooltip text="展开组件库" placement="right">
+                        <button type="button" class="rail-icon-btn" aria-label="展开组件库" @click="libraryPanelCollapsed = false">
+                            <span class="i-lucide-panel-left-open h-4 w-4"></span>
+                        </button>
+                    </Tooltip>
+                    <div class="rail-divider"></div>
+                    <div class="component-rail-scroll custom-scrollbar">
+                        <template v-for="group in compactComponentGroups" :key="group.group">
+                            <div class="rail-group-divider" :title="group.label"></div>
+                            <Tooltip
+                                v-for="item in group.items"
+                                :key="item.type"
+                                :text="`${group.label} / ${item.label}：${item.description}`"
+                                placement="right"
+                            >
+                                <button
+                                    type="button"
+                                    class="rail-icon-btn"
+                                    :class="`library-node-${item.type}`"
+                                    @click="addNode(item.type)"
+                                >
+                                    <span :class="item.iconClass" class="h-4 w-4"></span>
+                                </button>
+                            </Tooltip>
+                        </template>
+                    </div>
+                </aside>
+                <ProfileTemplateComponentLibraryPanel
+                    v-else
+                    v-model:search="componentSearch"
+                    v-model:active-group="activeComponentGroup"
+                    :group-tabs="componentGroupTabs"
+                    :component-groups="filteredComponentGroups"
+                    @collapse="libraryPanelCollapsed = true"
+                    @add-node="addNode"
+                />
+
+                <ProfileTemplateCanvasPanel
+                    :loading="loading"
+                    :display-root="displayRoot"
+                    :selected-node-id="selectedNodeId"
+                    :node-count="nodeCount"
+                    :disabled-drop-node-ids="disabledDropNodeIds"
+                    :can-have-children="canHaveChildren"
+                    :is-root-drop-active="isRootDropActive"
+                    @select="selectedNodeId = $event"
+                    @prepare-drag="prepareNodeDrag"
+                    @duplicate="duplicateNode"
+                    @delete="deleteNode"
+                    @add-message="addNode('Message')"
+                />
+
+                <!-- 右侧源码、属性与变量面板 -->
+                <Tooltip v-if="inspectorPanelCollapsed" text="展开右侧面板" placement="bottom">
+                    <button type="button" class="panel-rail" aria-label="展开右侧面板" @click="inspectorPanelCollapsed = false">
+                        <span class="i-lucide-panel-right-open h-4 w-4"></span>
+                        <span class="rail-label">面板</span>
                     </button>
                 </Tooltip>
-                <div class="rail-divider"></div>
-                <div class="component-rail-scroll custom-scrollbar">
-                    <template v-for="group in compactComponentGroups" :key="group.group">
-                        <div class="rail-group-divider" :title="group.label"></div>
-                        <Tooltip
-                            v-for="item in group.items"
-                            :key="item.type"
-                            :text="`${group.label} / ${item.label}：${item.description}`"
-                            placement="right"
-                        >
-                            <button
-                                type="button"
-                                class="rail-icon-btn"
-                                :class="`library-node-${item.type}`"
-                                @click="addNode(item.type)"
-                            >
-                                <span :class="item.iconClass" class="h-4 w-4"></span>
-                            </button>
-                        </Tooltip>
-                    </template>
-                </div>
-            </aside>
-            <ProfileTemplateComponentLibraryPanel
-                v-else
-                v-model:search="componentSearch"
-                v-model:active-group="activeComponentGroup"
-                :group-tabs="componentGroupTabs"
-                :component-groups="filteredComponentGroups"
-                @collapse="libraryPanelCollapsed = true"
-                @add-node="addNode"
-            />
-
-            <ProfileTemplateCanvasPanel
-                :loading="loading"
-                :display-root="displayRoot"
-                :selected-node-id="selectedNodeId"
-                :node-count="nodeCount"
-                :disabled-drop-node-ids="disabledDropNodeIds"
-                :can-have-children="canHaveChildren"
-                :is-root-drop-active="isRootDropActive"
-                @select="selectedNodeId = $event"
-                @prepare-drag="prepareNodeDrag"
-                @duplicate="duplicateNode"
-                @delete="deleteNode"
-                @add-message="addNode('Message')"
-            />
-
-            <!-- 右侧源码、属性与变量面板 -->
-            <Tooltip v-if="inspectorPanelCollapsed" text="展开右侧面板" placement="bottom">
-                <aside class="panel-rail" @click="inspectorPanelCollapsed = false">
-                    <span class="i-lucide-panel-right-open h-4 w-4"></span>
-                    <span class="rail-label">面板</span>
+                <aside v-else class="flex min-w-0 min-h-0 flex-col">
+                    <ProfileTemplateInspectorPanel
+                        v-model:active-tab="inspectorTab"
+                        v-model:variable-search="variableSearch"
+                        :tabs="inspectorTabs"
+                        :selected-node="selectedNode"
+                        :selected-prop-entries="selectedPropEntries"
+                        :selected-text-length="selectedTextLength"
+                        :source-text="sourceText"
+                        :source-line-count="sourceLineCount"
+                        :parsing-source="parsingSource"
+                        :selected-template-file-name="selectedTemplateFileName"
+                        :issues="issues"
+                        :variable-groups="variableGroups"
+                        :filtered-variable-groups="filteredVariableGroups"
+                        :filtered-runtime-variable-groups="filteredRuntimeVariableGroups"
+                        :role-options="roleOptions"
+                        :tool-status-options="toolStatusOptions"
+                        :source-options="sourceOptions"
+                        :theme="theme"
+                        :monaco-preferences="sourceEditorPreferences"
+                        :is-expression-value="isExpressionValue"
+                        :prop-input-value="propInputValue"
+                        :prop-label="propLabel"
+                        :node-title="nodeTitle"
+                        :issue-detail="issueDetail"
+                        :format-variable-value="formatVariableValue"
+                        :is-variable-group-collapsed="isVariableGroupCollapsed"
+                        :profile-detail="profileDetail"
+                        @collapse="inspectorPanelCollapsed = true"
+                        @source-change="handleSourceTextChange"
+                        @source-save-request="void saveTemplate()"
+                        @update-prop="updateProp"
+                        @update-expression-prop="updateExpressionProp"
+                        @update-text="updateText"
+                        @commit-message-text="commitMessageText"
+                        @toggle-variable-group="toggleVariableGroup"
+                        @save-schema="saveProfileSchema"
+                    />
                 </aside>
-            </Tooltip>
-            <aside v-else class="flex min-w-0 min-h-0 flex-col">
-                <ProfileTemplateInspectorPanel
-                    v-model:active-tab="inspectorTab"
-                    v-model:variable-search="variableSearch"
-                    :tabs="inspectorTabs"
-                    :selected-node="selectedNode"
-                    :selected-prop-entries="selectedPropEntries"
-                    :selected-text-length="selectedTextLength"
-                    :source-text="sourceText"
-                    :source-line-count="sourceLineCount"
-                    :parsing-source="parsingSource"
-                    :selected-template-file-name="selectedTemplateFileName"
-                    :issues="issues"
-                    :variable-groups="variableGroups"
-                    :filtered-variable-groups="filteredVariableGroups"
-                    :filtered-runtime-variable-groups="filteredRuntimeVariableGroups"
-                    :role-options="roleOptions"
-                    :tool-status-options="toolStatusOptions"
-                    :source-options="sourceOptions"
-                    :theme="theme"
-                    :monaco-preferences="sourceEditorPreferences"
-                    :is-expression-value="isExpressionValue"
-                    :prop-input-value="propInputValue"
-                    :prop-label="propLabel"
-                    :node-title="nodeTitle"
-                    :issue-detail="issueDetail"
-                    :format-variable-value="formatVariableValue"
-                    :is-variable-group-collapsed="isVariableGroupCollapsed"
-                    :profile-detail="profileDetail"
-                    @collapse="inspectorPanelCollapsed = true"
-                    @source-change="handleSourceTextChange"
-                    @source-save-request="void saveTemplate()"
-                    @update-prop="updateProp"
-                    @update-expression-prop="updateExpressionProp"
-                    @update-text="updateText"
-                    @commit-message-text="commitMessageText"
-                    @toggle-variable-group="toggleVariableGroup"
-                    @save-schema="saveProfileSchema"
-                />
-            </aside>
-            </main>
-        </DragDropProvider>
+                </main>
+            </DragDropProvider>
+        </div>
 
         <ProfileTemplatePreviewDialog
             v-model="previewDialogOpen"
@@ -2638,5 +2637,123 @@ onBeforeUnmount(() => {
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 700;
+}
+
+/* 编辑器外壳：容器查询宿主。以编辑器实际宽度切换布局（Dialog 内上限 1120px，视口断点不可靠）。
+   不能放在主题宿主根节点上——layout containment 会改变 position:fixed 的定位基准，破坏 Tooltip 浮层。 */
+.profile-editor-shell {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+    container-type: inline-size;
+}
+
+/* 默认（窄容器）：单列三行堆叠，主容器自身不产生横向滚动 */
+.profile-editor-main {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.profile-editor-main:where(:not(.library-collapsed):not(.inspector-collapsed)) {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.profile-editor-main:where(.library-collapsed:not(.inspector-collapsed)) {
+    grid-template-rows: 52px minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.profile-editor-main:where(.inspector-collapsed:not(.library-collapsed)) {
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) 52px;
+}
+
+.profile-editor-main:where(.library-collapsed.inspector-collapsed) {
+    grid-template-rows: 52px minmax(0, 1fr) 52px;
+}
+
+/* 窄容器下折叠 rail 变横向条，图标横向滚动 */
+.component-rail {
+    flex-direction: row;
+    padding: 6px 10px;
+}
+
+.rail-divider {
+    height: 24px;
+    width: 1px;
+}
+
+.component-rail-scroll {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.rail-group-divider {
+    height: 18px;
+    width: 1px;
+    margin: 0 2px;
+}
+
+.panel-rail {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 10px;
+}
+
+.rail-label {
+    writing-mode: horizontal-tb;
+}
+
+/* 宽容器：恢复原三栏轨道与纵向 rail */
+@container (min-width: 1259px) {
+    .profile-editor-main {
+        grid-template-rows: minmax(0, 1fr);
+        grid-template-columns: 290px minmax(560px, 1fr) minmax(360px, 30vw);
+    }
+
+    .profile-editor-main.library-collapsed {
+        grid-template-columns: 52px minmax(560px, 1fr) minmax(360px, 30vw);
+    }
+
+    .profile-editor-main.inspector-collapsed {
+        grid-template-columns: 290px minmax(560px, 1fr) 52px;
+    }
+
+    .profile-editor-main.library-collapsed.inspector-collapsed {
+        grid-template-columns: 52px minmax(560px, 1fr) 52px;
+    }
+
+    .component-rail {
+        flex-direction: column;
+        padding: 8px 3px;
+    }
+
+    .rail-divider {
+        height: 1px;
+        width: 24px;
+    }
+
+    .component-rail-scroll {
+        flex-direction: column;
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .rail-group-divider {
+        height: 1px;
+        width: 18px;
+        margin: 4px 0 2px;
+    }
+
+    .panel-rail {
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        padding: 14px 4px 12px;
+    }
+
+    .rail-label {
+        writing-mode: vertical-rl;
+    }
 }
 </style>
