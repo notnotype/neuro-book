@@ -1016,8 +1016,6 @@ jobs:
     permissions:
       contents: read
       packages: read
-    env:
-      PODMAN_COMPOSE_MASKED_ROOT: ${{ runner.temp }}/podman-compose-masked
     steps:
       - uses: actions/checkout@v5
         with:
@@ -1029,6 +1027,8 @@ jobs:
           path: candidate-assets
       - name: Install Podman and mask podman-compose outside PATH
         shell: bash
+        env:
+          PODMAN_COMPOSE_MASKED_ROOT: ${{ runner.temp }}/podman-compose-masked
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -1064,6 +1064,8 @@ jobs:
           printf '%s\n' "$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "^$PODMAN_COMPOSE_MASKED_ROOT")" >> "$GITHUB_PATH"
       - name: Verify public GHCR on Linux x64 rootless Podman via delegated provider
         shell: bash
+        env:
+          PODMAN_COMPOSE_MASKED_ROOT: ${{ runner.temp }}/podman-compose-masked
         run: |
           set -euo pipefail
           test -x "$PODMAN_COMPOSE_MASKED_ROOT/root/usr/bin/podman-compose"
