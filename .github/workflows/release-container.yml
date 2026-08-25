@@ -435,9 +435,8 @@ jobs:
             --manager-version "${manager_version}" \
             --ghcr-ref "${APP_IMAGE_NAME}@${GHCR_DIGEST}" \
             --ghcr-digest "${GHCR_DIGEST}"
-          MANAGER_ROOT="${manager_root}" bun -e 'const schema = await import(`${process.env.MANAGER_ROOT}/package/dist/schema.mjs`); const manifest = await Bun.file(`${process.env.NEURO_BOOK_RELEASE_DIR}/release-manifest.json`).json(); schema.parseReleaseManifest(manifest);'
-      - name: Upload candidate release bundle
-        uses: actions/upload-artifact@v4
+          bun -e 'const schema = await import("./packages/neuro-book-contracts/src/release.ts"); const manifest = await Bun.file(`${process.env.NEURO_BOOK_RELEASE_DIR}/release-manifest.json`).json(); schema.parseReleaseManifest(manifest); console.log("release-manifest.json 通过 contracts 解析校验");'
+      - uses: actions/upload-artifact@v4
         with:
           name: release-candidate
           path: |
