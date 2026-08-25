@@ -370,6 +370,8 @@ jobs:
           name: source
           path: ${{ env.NEURO_BOOK_RELEASE_DIR }}
       - run: bun run release:product:windows
+      - name: Build Manager bundle for portable embedding
+        run: bun run manager:build
       - run: bun run package:windows-portable
       - uses: actions/upload-artifact@v4
         with:

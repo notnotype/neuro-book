@@ -459,9 +459,12 @@ describe("Product Release宿主合同", () => {
         expect(macosRun).toContain("bun run test:install");
         expect(macosRun).toContain("bun run manager:test");
         const windowsRun = workflow.jobs["product-windows"].steps.map(({run}) => run ?? "").join("\n");
-        expect(windowsRun).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         expect(windowsRun.indexOf("bun run --cwd packages/neuro-book nuxt:prepare")).toBeLessThan(
             windowsRun.indexOf("bun run manager:test"),
+        );
+        expect(windowsRun).toContain("bun run manager:build");
+        expect(windowsRun.indexOf("bun run manager:build")).toBeLessThan(
+            windowsRun.indexOf("bun run package:windows-portable"),
         );
     });
 
