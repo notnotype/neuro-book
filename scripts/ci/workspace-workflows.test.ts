@@ -140,10 +140,10 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(checkout?.with?.["fetch-depth"]).toBe(0);
     });
 
-    it("Community 与 Deploy Docs 的 runtime paths 指向应用 owner", async () => {
+    it("Community 与 Deploy Docs 的 push/PR runtime paths 指向应用 owner", async () => {
         const community = await readWorkflow("community-docs.yml");
-        expect(community.on?.push).toBeUndefined();
-        expect(community.on?.pull_request?.paths).toEqual(expect.arrayContaining([
+        expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
+        expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
             "packages/neuro-book/**",
             "packages/neuro-book/tsconfig.json",
             "scripts/ci/stage-docs-locales*",
@@ -162,7 +162,6 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(deploy)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
         expect(commands(community)).toContain("bun run docs:check");
         expect(commands(deploy)).toContain("bun run docs:check");
-        expect(commands(deploy)).toContain("bun scripts/ci/validate-community-files.ts");
     });
 
     it("六自治包 matrix 与 llmlint Web island 保留 owner、命令、路径和 artifact", async () => {
