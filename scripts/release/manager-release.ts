@@ -56,7 +56,7 @@ async function releaseManager(channel: "stable" | "canary", options: ReleaseOpti
     packageJson.version = version;
     await writeFile(PACKAGE_PATH, `${JSON.stringify(packageJson, null, 4)}\n`, "utf8");
     await run("bun", ["install", "--lockfile-only"], {cwd: ROOT});
-    await run("bun", ["run", "runtime:typecheck"], {cwd: ROOT});
+    await run("bun", ["run", "--cwd", "packages/neuro-book", "runtime:typecheck"], {cwd: ROOT});
     await run("bun", ["run", "manager:typecheck"], {cwd: ROOT});
     await run("bun", ["run", "manager:test"], {cwd: ROOT});
     await run("bun", ["run", "manager:pack"], {cwd: ROOT});
