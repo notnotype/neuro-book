@@ -6,6 +6,7 @@ import {parse} from "yaml";
 
 import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
 import {selectBaselineScopes} from "#scripts/ci/baseline-change-scope";
+import {WORKSPACE_PACKAGE_CHECKS, selectWorkspaceMatrix} from "#scripts/ci/workspace-package-matrix";
 
 type WorkflowStep = {
     id?: string;
@@ -196,7 +197,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(deploy)).toContain("bun run docs:check");
     });
 
-    it("六自治包 matrix 与 llmlint Web island 保留 owner、命令、路径和 artifact", async () => {
+    it("六自治包 matrix 由变更选择器驱动并保留 owner、命令、路径和 artifact", async () => {
         const workflow = await readWorkflow("workspace-packages.yml");
         expect(paths(workflow)).toEqual(expect.arrayContaining([
             "packages/llmlint/web/**",
@@ -204,20 +205,22 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "packages/llmlint/evals/report/**",
         ]));
         const packageJob = workflow.jobs.package;
+        expect(packageJob?.needs).toBe("select-packages");
         expect(packageJob?.strategy?.["fail-fast"]).toBe(false);
-        const rows = packageJob?.strategy?.matrix?.include ?? [];
-        const expected = ["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"];
-        expect(rows.map((row) => row.name)).toEqual(expected);
-        for (const row of rows) {
-            expect(row.directory).toBe(`packages/${row.name as string}`);
-            expect(String(row.commands ?? "").trim()).not.toBe("");
+        expect(packageJob?.strategy?.matrix).toBe("${{ fromJSON(needs.select-packages.outputs.matrix) }}");
+        const selectRun = String(workflow.jobs["select-packages"]?.steps?.find((step) => step.id === "select")?.run ?? "");
+        expect(selectRun).toContain("scripts/ci/workspace-package-matrix.ts");
+        for (const check of WORKSPACE_PACKAGE_CHECKS) {
+            expect(check.directory).toBe(`packages/${check.name}`);
+            expect(check.commands.trim()).not.toBe("");
         }
-        const harnessRow = rows.find((row) => row.name === "neuro-agent-harness");
-        expect(String(harnessRow?.commands ?? "")).toContain("bun run verify");
-        const uiRow = rows.find((row) => row.name === "nb-ui");
-        expect(String(uiRow?.commands ?? "")).toContain("bun run test");
+        const harnessRow = WORKSPACE_PACKAGE_CHECKS.find((row) => row.name === "neuro-agent-harness");
+        expect(harnessRow?.commands).toContain("bun run verify");
+        const uiRow = WORKSPACE_PACKAGE_CHECKS.find((row) => row.name === "nb-ui");
+        expect(uiRow?.commands).toContain("bun run test");
         const packageStep = packageJob?.steps?.find((step) => step.name === "Run package checks");
         expect(packageStep).toMatchObject({"working-directory": "${{ matrix.directory }}", run: "${{ matrix.commands }}"});
+        expect(workflow.jobs["llmlint-web"]?.if).toBe("needs.select-packages.outputs.run_web_island == 'true'");
         const webSteps = workflow.jobs["llmlint-web"].steps ?? [];
         expect(webSteps).toEqual(expect.arrayContaining([
             expect.objectContaining({"working-directory": "packages/llmlint/web", run: "bun install --frozen-lockfile"}),
@@ -230,6 +233,28 @@ describe("迁移后九个 CI 工作流结构合同", () => {
                 with: expect.objectContaining({path: "packages/llmlint/web/.output", "include-hidden-files": true, "if-no-files-found": "error"}),
             }),
         ]));
+    });
+
+    it("workspace 变更选择器按反向依赖闭包收缩矩阵", () => {
+        const single = selectWorkspaceMatrix(["packages/nb-history/src/a.ts"], "pull_request");
+        expect(single.include.map((row) => row.name)).toEqual(["nb-history"]);
+        expect(single.runWebIsland).toBe(false);
+
+        const closure = selectWorkspaceMatrix(["packages/neuro-agent-harness/src/b.ts"], "pull_request");
+        expect(closure.include.map((row) => row.name)).toEqual(["neuro-agent-harness", "llmlint"]);
+        expect(closure.runWebIsland).toBe(false);
+
+        const webIsland = selectWorkspaceMatrix(["packages/llmlint/web/app.vue"], "pull_request");
+        expect(webIsland.include.map((row) => row.name)).toEqual(["llmlint"]);
+        expect(webIsland.runWebIsland).toBe(true);
+
+        const shared = selectWorkspaceMatrix(["bun.lock"], "pull_request");
+        expect(shared.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(shared.runWebIsland).toBe(true);
+
+        const dispatched = selectWorkspaceMatrix([".agents/tasks/x/README.md"], "workflow_dispatch");
+        expect(dispatched.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(dispatched.runWebIsland).toBe(true);
     });
 
     it("Product baseline 与 platform workflow 覆盖 runner、应用 build 和 measurement artifact", async () => {

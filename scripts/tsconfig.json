@@ -26,6 +26,7 @@
         "ci/agent-governance-contract.ts",
         "ci/agent-governance.ts",
         "ci/baseline-change-scope.ts",
+        "ci/workspace-package-matrix.ts",
         "types/proper-lockfile.d.ts",
         "types/yazl.d.ts",
         "../packages/neuro-book/server/agent/tools/web-extraction-modules.d.ts",

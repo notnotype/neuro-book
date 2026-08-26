@@ -45,12 +45,13 @@ interface FormContract {
 }
 
 interface WorkflowStep {
-    name?: string;
+    id?: string;
     run?: string;
     uses?: string;
     "working-directory"?: string;
     with?: {
         "node-version"?: string | number;
+        "fetch-depth"?: number;
         name?: string;
         path?: string;
         "if-no-files-found"?: string;
@@ -60,11 +61,15 @@ interface WorkflowStep {
 interface WorkflowJob {
     name?: string;
     "timeout-minutes"?: number;
+    needs?: string | string[];
+    if?: string;
     strategy?: {
         "fail-fast"?: boolean;
-        matrix?: {
-            include?: Array<{name?: string; directory?: string; commands?: string}>;
-        };
+        matrix?:
+            | {
+                include?: Array<{name?: string; directory?: string; commands?: string}>;
+            }
+            | string;
     };
     steps?: WorkflowStep[];
 }
@@ -222,6 +227,8 @@ const docsRuntimePaths = [
     "package.json",
     "bun.lock",
 ];
+
+const communityOnlyPaths = [".agents/**"] as const;
 
 const nitroPatchTestCommand = "bun scripts/ci/validate-nitropack-patch.ts";
 const documentationCheckCommand = "bun run docs:check";
@@ -458,7 +465,7 @@ async function validateWorkflows(): Promise<void> {
     const communityPushPaths = communityPush?.paths ?? [];
     const communityPullRequestPaths = communityPullRequest?.paths ?? [];
     ensure(haveSamePaths(communityPushPaths, communityPullRequestPaths), "Community workflow 的 push 与 PR paths 必须完全一致");
-    for (const path of docsRuntimePaths) {
+    for (const path of [...docsRuntimePaths, ...communityOnlyPaths]) {
         ensure(communityPushPaths.includes(path), `Community workflow 缺少运行时 path: ${path}`);
     }
     const communityJob = community.jobs["community-docs"];
@@ -520,19 +527,25 @@ async function validateWorkflows(): Promise<void> {
     }
     ensure(jobCommands(typecheck, "code-baseline/typecheck").includes("bun run --cwd packages/neuro-book typecheck"), "缺少应用 typecheck 命令");
     ensure(jobCommands(test, "code-baseline/test").includes("bun run --cwd packages/neuro-book test -- --reporter=dot"), "缺少应用全量测试命令");
+    const changesJob = baseline.jobs.changes;
+    ensure(Boolean(changesJob?.steps?.length), "Code Baseline 缺少 changes 变更作用域 job");
+    ensure(changesJob?.steps?.some((step) => step.uses === "actions/checkout@v5" && step.with?.["fetch-depth"] === 0), "changes job 必须全量 checkout 以计算 merge-base");
+    ensure(changesJob?.steps?.some((step) => step.uses === "oven-sh/setup-bun@v2"), "changes job 必须安装 Bun");
+    ensure(typecheck?.needs === "changes" && typecheck?.if === "needs.changes.outputs.typecheck == 'true'", "Typecheck 必须按变更作用域条件执行");
+    ensure(test?.needs === "changes" && test?.if === "needs.changes.outputs.tests == 'true'", "Full tests 必须按变更作用域条件执行");
+    ensure(governance?.if === undefined, "Governance 必须无条件运行");
 
     const workspace = await readYaml<WorkflowConfig>(".github/workflows/workspace-packages.yml");
     ensure(workspace.permissions.contents === "read", "Workspace Packages 必须保持 contents: read");
     ensure(Object.keys(workspace.permissions).length === 1, "Workspace Packages 不得获得写权限");
     const packageJob = workspace.jobs.package;
     ensure(packageJob?.strategy?.["fail-fast"] === false, "Workspace package matrix 必须独立报告全部包结果");
-    const packageRows = packageJob?.strategy?.matrix?.include ?? [];
-    const expectedPackages = ["nb-history", "nb-workflow", "nb-memory", "nb-ui", "neuro-agent-harness", "llmlint"];
-    for (const name of expectedPackages) {
-        const row = packageRows.find((candidate) => candidate.name === name);
-        ensure(row?.directory === `packages/${name}`, `Workspace package matrix 缺少 owner cwd: ${name}`);
-        ensure(Boolean(row.commands?.trim()), `Workspace package matrix 缺少验证命令: ${name}`);
-    }
+    ensure(packageJob?.needs === "select-packages", "Workspace package matrix 必须由 select-packages 选择");
+    ensure(packageJob?.strategy?.matrix === "${{ fromJSON(needs.select-packages.outputs.matrix) }}", "Workspace package matrix 必须消费动态选择输出");
+    const selectJob = workspace.jobs["select-packages"];
+    ensure(selectJob?.steps?.some((step) => step.id === "select"), "Workspace 缺少包选择步骤");
+    ensure(selectJob?.steps?.some((step) => step.uses === "actions/checkout@v5" && step.with?.["fetch-depth"] === 0), "包选择必须全量 checkout 以计算 merge-base");
+    ensure(workspace.jobs["llmlint-web"]?.if === "needs.select-packages.outputs.run_web_island == 'true'", "llmlint Web island 必须按选择结果条件运行");
     const packageStep = packageJob?.steps?.find((step) => step.name === "Run package checks");
     ensure(packageStep?.["working-directory"] === "${{ matrix.directory }}", "Workspace package checks 必须在包 owner cwd 执行");
     ensure(packageStep?.run === "${{ matrix.commands }}", "Workspace package checks 必须执行 matrix commands");

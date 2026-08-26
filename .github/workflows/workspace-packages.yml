@@ -23,42 +23,35 @@ permissions:
   contents: read
 
 jobs:
+  select-packages:
+    name: Detect affected packages
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      run_web_island: ${{ steps.select.outputs.run_web_island }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+      - id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          {
+            base="$(git merge-base origin/master HEAD)"
+            git diff --name-only "${base}" HEAD | bun scripts/ci/workspace-package-matrix.ts
+          } >> "$GITHUB_OUTPUT"
+
   package:
     name: ${{ matrix.name }}
+    needs: select-packages
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: nb-history
-            directory: packages/nb-history
-            commands: |
-              bun run typecheck
-              bun run test
-          - name: nb-workflow
-            directory: packages/nb-workflow
-            commands: bun run test
-          - name: nb-memory
-            directory: packages/nb-memory
-            commands: |
-              bun run typecheck
-              bun run test
-          - name: nb-ui
-            directory: packages/nb-ui
-            commands: |
-              bun run test
-              bun run typecheck
-              bun run build:css
-              bun run build
-          - name: neuro-agent-harness
-            directory: packages/neuro-agent-harness
-            commands: |
-              bun run verify
-              bun run pack:smoke
-          - name: llmlint
-            directory: packages/llmlint
-            commands: bun run verify
+      matrix: ${{ fromJSON(needs.select-packages.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
@@ -79,6 +72,8 @@ jobs:
     name: llmlint web island
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: select-packages
+    if: needs.select-packages.outputs.run_web_island == 'true'
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
