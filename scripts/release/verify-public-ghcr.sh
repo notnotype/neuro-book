@@ -24,6 +24,7 @@ fi
 
 manager() {
     # 仓库自身也是同名 Bun workspace；必须在空目录运行，确保消费 npm 公开包而不是 Source workspace。
+    echo "[verify] manager> $*" >&2
     (cd "$manager_cwd" && bunx --bun "@notnotype/neuro-book-manager@${manager_version}" "$@")
 }
 
@@ -33,6 +34,7 @@ resolve_state_root() {
 
 compose() {
     [[ -n "$state_root" ]] || { echo "State Root尚未解析。" >&2; return 1; }
+    echo "[verify] compose> $*" >&2
     "$engine" compose --env-file "$state_root/.env" -f "$compose_path" "$@"
 }
 

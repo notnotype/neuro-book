@@ -1086,6 +1086,11 @@ jobs:
               exit 1
           fi
           command -v docker-compose
+          # 委托通信探针：docker-compose 必须能在 60 秒内连上 podman.sock 完成 version。
+          export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+          test -S "/run/user/$(id -u)/podman/podman.sock" || { echo "podman.sock 缺失" >&2; exit 1; }
+          timeout 60 docker-compose version || { echo "docker-compose 连 podman.sock 超时/失败" >&2; exit 1; }
+          timeout 60 podman compose version || { echo "podman compose 委托探针失败" >&2; exit 1; }
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
           # 40 分钟护栏：任何死锁都硬失败并保留现场日志，避免整 job 静默挂到 6 小时。
