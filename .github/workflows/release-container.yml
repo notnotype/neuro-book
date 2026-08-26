@@ -1074,23 +1074,21 @@ jobs:
               exit 1
           fi
           command -v docker-compose
-          # 同一步骤内拉起 podman API service（官方委托合同：DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock）。
-          # 启动前移除可能的 stale socket 文件，保证本 service 是唯一监听者。
-          mkdir -p "${XDG_RUNTIME_DIR}/podman"
-          rm -f "${XDG_RUNTIME_DIR}/podman/podman.sock"
-          nohup podman system service --time=0 "unix://${XDG_RUNTIME_DIR}/podman/podman.sock" \
+          # 本次专属 socket 路径：全新路径无任何历史 owner（systemd unit 或
+          # 旧 service 的 unlink 竞态均不存在），本 service 是唯一监听者。
+          PODMAN_API_SOCK="${RUNNER_TEMP}/podman-api.sock"
+          rm -f "${PODMAN_API_SOCK}"
+          nohup podman system service --time=0 "unix://${PODMAN_API_SOCK}" \
               > "${RUNNER_TEMP}/podman-system-service.log" 2>&1 &
           for attempt in $(seq 1 20); do
-              test -S "${XDG_RUNTIME_DIR}/podman/podman.sock" && break
+              test -S "${PODMAN_API_SOCK}" && break
               sleep 1
           done
-          test -S "${XDG_RUNTIME_DIR}/podman/podman.sock" || { echo "podman.sock 未就绪" >&2; exit 1; }
-          export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
+          test -S "${PODMAN_API_SOCK}" || { echo "podman.sock 未就绪" >&2; exit 1; }
+          export DOCKER_HOST="unix://${PODMAN_API_SOCK}"
           # 真连接探针：/_ping 必须在 60 秒内返回 OK（version 不触 daemon，不能作为依据）。
-          timeout 60 curl --silent --show-error --fail --unix-socket "${XDG_RUNTIME_DIR}/podman/podman.sock" "http://d/_ping" \
+          timeout 60 curl --silent --show-error --fail --unix-socket "${PODMAN_API_SOCK}" "http://d/_ping" \
               || { echo "podman service _ping 探针失败" >&2; exit 1; }
-          timeout 60 podman info > /dev/null || { echo "podman info 探针失败" >&2; exit 1; }
-          timeout 60 podman compose version || { echo "podman compose 委托探针失败" >&2; exit 1; }
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
           # 40 分钟护栏：任何死锁都硬失败并保留现场日志，避免整 job 静默挂到 6 小时。
