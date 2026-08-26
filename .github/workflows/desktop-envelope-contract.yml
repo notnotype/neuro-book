@@ -11,9 +11,13 @@ on:
       - "scripts/install/install-desktop.ps1"
       - "scripts/release/desktop-contract-vitest.config.ts"
       - "packages/neuro-book-contracts/src/desktop-*.ts"
+      - "packages/neuro-book-contracts/src/desktop.ts"
+      - "packages/neuro-book-contracts/src/installation.ts"
       - "packages/neuro-book-manager/src/desktop-uac-client*.ts"
       - "packages/neuro-book-manager/src/product-runtime-verifier*.ts"
       - "packages/neuro-book-manager/src/product-runtime-image-verifier.ts"
+      - "packages/owned-process/**"
+      - "packages/neuro-book-test-support/**"
       - "package.json"
       - "bun.lock"
   workflow_dispatch:
@@ -64,7 +68,12 @@ jobs:
           src/paths.test.ts
           src/schema.test.ts
           src/windows-uninstall-host.test.ts
+          src/app-commands.owned-process.test.ts
+          src/installation-mutation.test.ts
         working-directory: packages/neuro-book-manager
+      - name: Verify Windows Owned Process lifecycle
+        if: matrix.platform == 'windows-x64'
+        run: bun run --cwd packages/owned-process test
       - name: Verify Windows Product build and install paths
         if: matrix.platform == 'windows-x64'
         run: |

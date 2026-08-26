@@ -20,6 +20,7 @@ on:
       - "packages/neuro-agent-harness/**"
       - "packages/llmlint/**"
       - "scripts/**"
+      - "patches/**"
       - "bun.lock"
       - "package.json"
   pull_request:
@@ -40,6 +41,7 @@ on:
       - "packages/neuro-agent-harness/**"
       - "packages/llmlint/**"
       - "scripts/**"
+      - "patches/**"
       - "bun.lock"
       - "package.json"
   workflow_dispatch:

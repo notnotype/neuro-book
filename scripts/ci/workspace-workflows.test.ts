@@ -175,6 +175,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         const community = await readWorkflow("community-docs.yml");
         expect(community.on?.push?.paths).toEqual(community.on?.pull_request?.paths);
         expect(community.on?.push?.paths).toEqual(expect.arrayContaining([
+            ".agents/**",
             "packages/neuro-book/**",
             "packages/neuro-book/tsconfig.json",
             "scripts/ci/stage-docs-locales*",
@@ -249,6 +250,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "packages/neuro-book/**",
             "packages/neuro-book-contracts/**",
             "packages/neuro-book-manager/**",
+            "patches/**",
             "bun.lock",
             "package.json",
         ]));
@@ -295,9 +297,18 @@ describe("迁移后九个 CI 工作流结构合同", () => {
             "packages/neuro-book-contracts/src/desktop-*.ts",
             "packages/neuro-book-manager/src/desktop-uac-client*.ts",
             "packages/neuro-book-manager/**",
+            "packages/neuro-book-contracts/src/desktop.ts",
+            "packages/neuro-book-contracts/src/installation.ts",
+            "packages/owned-process/**",
+            "packages/neuro-book-test-support/**",
         ]));
         expect(commands(desktop)).toContain("bun x vitest run --config scripts/vitest.config.ts scripts/build/product-runtime-bundle.test.ts scripts/build/product-build-environment.test.ts");
         expect(commands(desktop)).not.toContain("bun run scripts/build/product-runtime-bundle.test.ts");
+        const focusedRun = String(desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Manager focused paths and installation schemas")?.run ?? "");
+        expect(focusedRun).toContain("src/app-commands.owned-process.test.ts");
+        expect(focusedRun).toContain("src/installation-mutation.test.ts");
+        const ownedProcessStep = desktop.jobs.contracts?.steps?.find((step) => step.name === "Verify Windows Owned Process lifecycle");
+        expect(ownedProcessStep).toMatchObject({if: "matrix.platform == 'windows-x64'", run: "bun run --cwd packages/owned-process test"});
         const manager = await readWorkflow("release-manager.yml");
         expect(commands(manager)).toContain("bun run --cwd packages/neuro-book runtime:typecheck");
         expect(commands(manager)).toContain("bun run --cwd packages/neuro-book nuxt:prepare");
