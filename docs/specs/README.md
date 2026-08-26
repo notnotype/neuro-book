@@ -91,6 +91,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 |---|---|---|
 | 基础术语 | [`../packages/neuro-book/docs/specs/foundation/terminology.md`](../../packages/neuro-book/docs/specs/foundation/terminology.md) | State Root、Cache Root、Workspace、Product、Agent 与安装等稳定领域语言 |
 | Agent Runtime 与 Profile | [Reference: Agent](../../packages/neuro-book/assets/reference/agent/README.md) | Session、Profile、Workflow、Skill、Job、Project Workspace 与 Agent 协作协议 |
+| Agent Session Abort | [`agent/session-abort.md`](agent/session-abort.md) | HTTP、waiting/cooperative/forced abort、write queue recovery、SSE 与 late-result fence 已由代码和行为测试支持 |
 | Agent 资产运行期安装与 Catalog 根 | [`agent/asset-install-runtime.md`](agent/asset-install-runtime.md) | State Root Install Root、Runtime Reference Root、Install → Project 覆盖和显式 artifact context 已由代码与合同测试支持 |
 | 内容与 Project Workspace | [Reference: Content](../../packages/neuro-book/assets/reference/content/README.md) | 内容节点、正文、素材、检索、引用与 Workspace 术语 |
 | World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
@@ -106,10 +107,9 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 ## 待实现规范
 
-以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
+当前没有已登记但尚未实现的行为规范；新批准能力应先登记为 `planned`，完成代码和证据后原地晋升为 `implemented`。
 
-| 功能域 | 目标规范 | 批准依据 |
-|---|---|---|
+
 ## 冻结过渡规范
 
 以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：

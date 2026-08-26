@@ -451,6 +451,34 @@ export class JsonlSessionRepository {
         return entry;
     }
 
+    /** 确保指定 durable entry 成为 active leaf；已有 active leaf 时不追加并返回 null。 */
+    async ensureAutoLeaf(sessionId: SessionId, targetEntryId: SessionEntryId): Promise<SessionEntry | null> {
+        const snapshot = await this.readSession(sessionId);
+        if (snapshot.leafId === targetEntryId) {
+            const activeLeaf = snapshot.entries.find((entry) => entry.type === "leaf" && entry.leafId === targetEntryId);
+            if (activeLeaf) {
+                return null;
+            }
+        }
+        const target = snapshot.entries.find((entry) => entry.id === targetEntryId);
+        if (!target) {
+            throw new Error(`Session ${sessionId} 缺少要补齐 active leaf 的 entry ${targetEntryId}`);
+        }
+        const leaf: SessionEntry = {
+            id: this.createEntryId(),
+            parentId: target.id,
+            timestamp: Date.now(),
+            type: "leaf",
+            leafId: target.id,
+            origin: "auto",
+        };
+        const sessionPath = this.sessionPath(sessionId);
+        this.assertStoredEntry(leaf);
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "entry", entry: leaf});
+        return leaf;
+    }
+
     /**
      * 追加投影型 entry，但不移动 active leaf。用于后台元数据，不改变用户当前分支。
      */

@@ -10,6 +10,7 @@ import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {AgentInvocationResult} from "nbook/server/agent/harness/types";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import type {ForcedAbortSessionWritePlan} from "nbook/server/agent/session/write-plan";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -39,6 +40,13 @@ type ObservedRun = {
     context: NeuroSessionContext;
 };
 
+
+type HarnessWriteExecutorAccess = {
+    writeExecutor: {
+        enqueueForcedAbort(plan: ForcedAbortSessionWritePlan, invocationId: string): {completion: Promise<unknown>};
+    };
+    forcedAbortWriteAuthorizations: Set<string>;
+};
 type EventTrace = Array<{
     kind: AgentSessionEventDto["kind"];
     type: string;
@@ -247,6 +255,7 @@ describe("NeuroAgentHarness black-box contract", () => {
 
     afterEach(async () => {
         await harness.drainBackgroundTasks();
+        await harness.piTraceRecorder.flush();
         await rm(root, {recursive: true, force: true});
     });
 
@@ -1220,9 +1229,54 @@ describe("NeuroAgentHarness black-box contract", () => {
                 "invocation_aborted",
                 "session_state_changed",
             ]));
+
+            expect(observer.events.filter((event) => event.event.type === "invocation_aborted")).toHaveLength(1);
+            expect(observer.events.filter((event) => event.event.type === "agent_end" && event.event.status === "aborted")).toHaveLength(1);
+
+            const abortEventTypes = observer.events.map((event) => event.event.type);
+            const abortedAt = abortEventTypes.lastIndexOf("invocation_aborted");
+            const stateAt = abortEventTypes.lastIndexOf("session_state_changed");
+            const terminalAt = observer.events.findIndex((event) => event.event.type === "agent_end" && event.event.status === "aborted");
+            const entryAfterAbort = observer.events.findIndex((event, index) => index > abortedAt && event.event.type === "session_entry");
+            expect(abortedAt).toBeGreaterThanOrEqual(0);
+            expect(stateAt).toBeGreaterThan(abortedAt);
+            expect(terminalAt).toBeGreaterThan(stateAt);
+            expect(entryAfterAbort).toBeGreaterThan(abortedAt);
+
         } finally {
             await observer.stop();
         }
+    });
+    it("Idle 且没有 active invocation 时 abort 保持幂等 idle", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+
+        await expect(harness.abortInvocation(created.sessionId, {reason: "nothing to abort"})).resolves.toEqual({
+            status: "idle",
+            sessionId: created.sessionId,
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries.some((entry) => entry.type === "invocation_lifecycle")).toBe(false);
+    });
+    it("Archived 且没有 active invocation 时 abort 返回 409", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+        });
+
+        await expect(harness.runCommand(created.sessionId, {
+            command: "archive",
+            reason: "archived before abort",
+        })).resolves.toMatchObject({kind: "live_state"});
+
+        await expect(harness.abortInvocation(created.sessionId, {reason: "should be rejected"})).rejects.toMatchObject({
+            statusCode: 409,
+            code: "session_abort_not_allowed",
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        expect(snapshot.entries.some((entry) => entry.type === "invocation_lifecycle")).toBe(false);
     });
 
     it("Running + abort 清理 steer，并按 aborted 暂停 followup queue", async () => {
@@ -1379,6 +1433,250 @@ describe("NeuroAgentHarness black-box contract", () => {
             providerGate.resolve();
             durableGate.resolve();
             appendEntrySpy.mockRestore();
+        }
+    }, 30_000);
+    it("Running 非合作 forced abort 且 clearQueue=false 时暂停 followup queue", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.forced-running-abort-preserve-followup",
+        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        faux.setResponses([async () => {
+            providerStarted.resolve();
+            await providerGate.promise;
+            return fauxAssistantMessage("late preserved queue result", {stopReason: "aborted", errorMessage: "ignored"});
+        }]);
+        const created = await harness.createAgent({profileKey, initial: {}});
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "hang"},
+        });
+        await providerStarted.promise;
+        const queued = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "preserve me"},
+        });
+        try {
+            await expect(raceTimeout(
+                harness.abortInvocation(created.sessionId, {reason: "force preserve", clearQueue: false}),
+                300,
+                "forced abort did not settle",
+            )).resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+            expect(queued.queuedItem).toEqual(expect.objectContaining({kind: "followup"}));
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: null,
+                followUpQueue: {
+                    status: "paused",
+                    pausedBy: {reason: "aborted"},
+                    items: [expect.objectContaining({
+                        kind: "followup",
+                        text: expect.objectContaining({preview: "preserve me", omitted: false}),
+                    })],
+                },
+            });
+        } finally {
+            providerGate.resolve();
+            await running.catch(() => undefined);
+        }
+        await harness.drainBackgroundTasks();
+        expect(lifecycleStatuses(await harness.repo.readSession(created.sessionId))).toEqual(["start", "aborted"]);
+    }, 30_000);
+
+    it("running abort 的 followup 持久化失败会回滚 admission 并允许重试", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.abort-followup-persistence-retry",
+        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        faux.setResponses([async () => {
+            providerStarted.resolve();
+            await providerGate.promise;
+            return fauxAssistantMessage("late queue persistence result", {stopReason: "aborted", errorMessage: "ignored"});
+        }]);
+        const created = await harness.createAgent({profileKey, initial: {}});
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "hang"},
+        });
+        await providerStarted.promise;
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "retry queue"},
+        });
+        const realAppendProjectionEntry = harness.repo.appendProjectionEntry.bind(harness.repo);
+        const appendProjectionSpy = vi.spyOn(harness.repo, "appendProjectionEntry").mockImplementationOnce(async (...args: Parameters<JsonlSessionRepository["appendProjectionEntry"]>) => {
+            const entry = args[1];
+            if (entry.type === "custom" && entry.key === AGENT_FOLLOW_UP_QUEUE_STATE_KEY) {
+                throw new Error("followup queue persistence unavailable");
+            }
+            return realAppendProjectionEntry(...args);
+        });
+
+        try {
+            await expect(harness.abortInvocation(created.sessionId, {reason: "retry queue", clearQueue: false}))
+                .rejects.toThrow("followup queue persistence unavailable");
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: {status: "running"},
+                followUpQueue: {
+                    status: "ready",
+                    items: [expect.objectContaining({
+                        kind: "followup",
+                        text: expect.objectContaining({preview: "retry queue", omitted: false}),
+                    })],
+                },
+            });
+            await expect(raceTimeout(
+                harness.abortInvocation(created.sessionId, {reason: "retry queue succeeds", clearQueue: false}),
+                300,
+                "retry abort did not settle",
+            )).resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: null,
+                followUpQueue: {
+                    status: "paused",
+                    pausedBy: {reason: "aborted"},
+                },
+            });
+        } finally {
+            appendProjectionSpy.mockRestore();
+            providerGate.resolve();
+            await running.catch(() => undefined);
+        }
+    }, 30_000);
+
+    it("Running forced enqueue 同步失败时保留 aborting ownership 并可重试", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.forced-enqueue-failure",
+        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        faux.setResponses([async () => {
+            providerStarted.resolve();
+            await providerGate.promise;
+            return fauxAssistantMessage("late result", {stopReason: "aborted", errorMessage: "ignored"});
+        }]);
+        const created = await harness.createAgent({profileKey, initial: {}});
+        const observer = await observeSession(harness, created.sessionId);
+        const running = harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hang"}});
+        await providerStarted.promise;
+        const oldInvocationId = (await harness.getSessionRecovery(created.sessionId)).activeInvocation!.invocationId;
+        const harnessInternals = harness as unknown as HarnessWriteExecutorAccess;
+        const writeExecutor = harnessInternals.writeExecutor;
+        const enqueue = vi.spyOn(writeExecutor, "enqueueForcedAbort")
+            .mockImplementationOnce(() => {
+                throw new Error("queue unavailable");
+            });
+
+        try {
+            await expect(raceTimeout(harness.abortInvocation(created.sessionId, {reason: "retry me"}), 300, "abort did not settle"))
+                .rejects.toMatchObject({statusCode: 503, code: "session_abort_durability_unavailable"});
+            expect(observer.events.filter((event) => event.event.type === "agent_end")).toHaveLength(0);
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: {invocationId: oldInvocationId},
+            });
+            await expect(raceTimeout(harness.abortInvocation(created.sessionId, {reason: "retry succeeds"}), 300, "abort retry did not settle"))
+                .resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+            expect((await harness.getSessionRecovery(created.sessionId)).activeInvocation).toBeNull();
+            providerGate.resolve();
+            await running;
+            await harness.drainBackgroundTasks();
+            expect(lifecycleStatuses(await harness.repo.readSession(created.sessionId))).toEqual(["start", "aborted"]);
+        } finally {
+            enqueue.mockRestore();
+            providerGate.resolve();
+            await running;
+            await observer.stop();
+        }
+    }, 30_000);
+
+    it("Running forced enqueue 缺少同步授权时 fail closed 并可重试", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.forced-authorization-missing",
+        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        faux.setResponses([async () => {
+            providerStarted.resolve();
+            await providerGate.promise;
+            return fauxAssistantMessage("late authorization result", {stopReason: "aborted", errorMessage: "ignored"});
+        }]);
+        const created = await harness.createAgent({profileKey, initial: {}});
+        const observer = await observeSession(harness, created.sessionId);
+        const running = harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hang"}});
+        await providerStarted.promise;
+        const oldInvocationId = (await harness.getSessionRecovery(created.sessionId)).activeInvocation!.invocationId;
+        const harnessInternals = harness as unknown as HarnessWriteExecutorAccess;
+        const authorizationAdd = vi.spyOn(harnessInternals.forcedAbortWriteAuthorizations, "add")
+            .mockImplementationOnce(() => harnessInternals.forcedAbortWriteAuthorizations);
+
+        try {
+            await expect(raceTimeout(harness.abortInvocation(created.sessionId, {reason: "authorization missing"}), 300, "abort did not settle"))
+                .rejects.toMatchObject({statusCode: 503, code: "session_abort_durability_unavailable"});
+            expect(observer.events.filter((event) => event.event.type === "agent_end")).toHaveLength(0);
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: {invocationId: oldInvocationId},
+            });
+            expect(lifecycleStatuses(await harness.repo.readSession(created.sessionId))).toEqual(["start"]);
+
+            authorizationAdd.mockRestore();
+            await expect(raceTimeout(harness.abortInvocation(created.sessionId, {reason: "authorization restored"}), 300, "abort retry did not settle"))
+                .resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+            expect((await harness.getSessionRecovery(created.sessionId)).activeInvocation).toBeNull();
+            providerGate.resolve();
+            await running;
+            await harness.drainBackgroundTasks();
+            expect(lifecycleStatuses(await harness.repo.readSession(created.sessionId))).toEqual(["start", "aborted"]);
+        } finally {
+            authorizationAdd.mockRestore();
+            providerGate.resolve();
+            await running;
+            await observer.stop();
+        }
+    }, 30_000);
+
+    it("并发重复 abort 只发布一次取消事件和终态", async () => {
+        const profileKey = registerPlainProfile(harness, {
+            key: "test.blackbox.concurrent-abort",
+        });
+        const providerStarted = Promise.withResolvers<void>();
+        const providerGate = Promise.withResolvers<void>();
+        faux.setResponses([async () => {
+            providerStarted.resolve();
+            await providerGate.promise;
+            return fauxAssistantMessage("late duplicate abort result");
+        }]);
+        const created = await harness.createAgent({profileKey, initial: {}});
+        const observer = await observeSession(harness, created.sessionId);
+        const running = harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "hang"}});
+        await providerStarted.promise;
+        const invocationId = (await harness.getSessionRecovery(created.sessionId)).activeInvocation!.invocationId;
+
+        try {
+            const results = await Promise.all([
+                raceTimeout(harness.abortInvocation(created.sessionId, {reason: "first"}), 300, "first abort did not settle"),
+                raceTimeout(harness.abortInvocation(created.sessionId, {reason: "duplicate"}), 300, "duplicate abort did not settle"),
+            ]);
+            expect(results.every((result) => result.status === "aborted" || result.status === "idle")).toBe(true);
+            providerGate.resolve();
+            await running;
+            await harness.drainBackgroundTasks();
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            expect(snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle"
+                && entry.invocationId === invocationId
+                && entry.status === "aborted")).toHaveLength(1);
+            expect(observer.events.filter((event) => event.invocationId === invocationId
+                && event.event.type === "invocation_aborted")).toHaveLength(1);
+            expect(observer.events.filter((event) => event.invocationId === invocationId
+                && event.event.type === "agent_end"
+                && event.event.status === "aborted")).toHaveLength(1);
+        } finally {
+            providerGate.resolve();
+            await running.catch(() => undefined);
+            await observer.stop();
         }
     }, 30_000);
 

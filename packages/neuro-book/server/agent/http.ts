@@ -4,6 +4,8 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {isAttachmentError} from "nbook/server/agent/attachments/types";
+import {isAgentAbortNotAllowedError} from "nbook/server/agent/session/abort-not-allowed-error";
+import {isAgentAbortDurabilityError} from "nbook/server/agent/session/abort-durability-error";
 import {isSessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
 import {isAgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 import {requireReadyAgentSessionStore} from "nbook/server/agent/session/agent-session-store-runtime";
@@ -362,6 +364,20 @@ function mapAgentAttachmentHttpError(error: unknown): Error {
 
 /** Session HTTP 路由共享的稳定错误出口。 */
 export function mapAgentHttpError(error: unknown, requestSessionId: number | undefined): Error {
+    if (isAgentAbortNotAllowedError(error)) {
+        return createError({
+            statusCode: error.statusCode,
+            message: error.message,
+            data: {code: error.code, retryable: false},
+        });
+    }
+    if (isAgentAbortDurabilityError(error)) {
+        return createError({
+            statusCode: error.statusCode,
+            message: error.message,
+            data: {code: error.code, retryable: error.retryable},
+        });
+    }
     if (isAgentSessionNotFoundError(error)) {
         const primaryMissing = error.sessionId === requestSessionId;
         return createError({

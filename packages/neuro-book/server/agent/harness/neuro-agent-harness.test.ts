@@ -8674,6 +8674,145 @@ describe("NeuroAgentHarness", () => {
         }));
     });
 
+    it("waiting abort 的 lifecycle 持久化失败会恢复 waiting 并允许重试", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.abort-waiting-retry",
+                name: "Abort Waiting Retry",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage([
+            fauxToolCall("request_user_input", {
+                questions: [{question: "Retry?"}],
+            }, {id: "abort-waiting-retry"}),
+        ], {stopReason: "toolUse"})]);
+        const created = await harness.createAgent({profileKey: "test.abort-waiting-retry", initial: {}});
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+        const realAppendEntry = harness.repo.appendEntry.bind(harness.repo);
+        const appendEntrySpy = vi.spyOn(harness.repo, "appendEntry").mockImplementationOnce(async (...args: Parameters<JsonlSessionRepository["appendEntry"]>) => {
+            const entry = args[1];
+            if (entry.type === "invocation_lifecycle" && entry.status === "aborted") {
+                throw new Error("waiting lifecycle unavailable");
+            }
+            return realAppendEntry(...args);
+        });
+        try {
+            await expect(harness.abortInvocation(created.sessionId, {reason: "retry waiting"})).rejects.toThrow("waiting lifecycle unavailable");
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: {invocationId: waiting.invocationId, status: "waiting"},
+            });
+        } finally {
+            appendEntrySpy.mockRestore();
+        }
+        await expect(harness.abortInvocation(created.sessionId, {reason: "retry waiting succeeds"}))
+            .resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+        expect((await harness.getSessionRecovery(created.sessionId)).activeInvocation).toBeNull();
+    });
+
+    it("waiting abort 的 partial lifecycle append 由写队列补齐 active leaf 且不重复 lifecycle", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.abort-waiting-partial",
+                name: "Abort Waiting Partial",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage([
+            fauxToolCall("request_user_input", {
+                questions: [{question: "Partial?"}],
+            }, {id: "abort-waiting-partial"}),
+        ], {stopReason: "toolUse"})]);
+        const created = await harness.createAgent({profileKey: "test.abort-waiting-partial", initial: {}});
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+        const eventStartSeq = harness.eventHub.lastSeq(created.sessionId);
+        const subscription = harness.subscribeSessionEvents(created.sessionId, {
+            eventEpoch: harness.eventHub.eventEpoch,
+            after: eventStartSeq,
+        });
+        const iterator = subscription[Symbol.asyncIterator]();
+
+        const repositoryInternals = harness.repo as unknown as {
+            appendLine(path: string, record: unknown): Promise<void>;
+        };
+        const realAppendLine = repositoryInternals.appendLine.bind(harness.repo);
+        let abortedLifecycleId: string | undefined;
+        let failAutoLeaf = true;
+        const appendLineSpy = vi.spyOn(repositoryInternals, "appendLine").mockImplementation(async (...args) => {
+            const record = args[1] as {
+                kind?: string;
+                entry?: {
+                    type?: string;
+                    status?: string;
+                    id?: string;
+                    leafId?: string | null;
+                };
+            };
+            if (record.kind === "entry" && record.entry?.type === "invocation_lifecycle" && record.entry.status === "aborted") {
+                abortedLifecycleId = record.entry.id;
+            }
+            if (failAutoLeaf
+                && abortedLifecycleId
+                && record.kind === "entry"
+                && record.entry?.type === "leaf"
+                && record.entry.leafId === abortedLifecycleId) {
+                failAutoLeaf = false;
+                throw new Error("waiting auto leaf unavailable");
+            }
+            return realAppendLine(...args);
+        });
+        try {
+            await expect(harness.abortInvocation(created.sessionId, {reason: "partial waiting"})).rejects.toThrow("waiting auto leaf unavailable");
+            await expect(harness.getSessionRecovery(created.sessionId)).resolves.toMatchObject({
+                activeInvocation: {invocationId: waiting.invocationId, status: "waiting"},
+            });
+        } finally {
+            appendLineSpy.mockRestore();
+        }
+
+        await expect(harness.abortInvocation(created.sessionId, {reason: "partial waiting retry"}))
+            .resolves.toEqual({status: "aborted", sessionId: created.sessionId});
+        const retryEventCount = harness.eventHub.lastSeq(created.sessionId) - eventStartSeq;
+        const retryEvents: AgentSessionEventDto[] = [];
+        for (let index = 0; index < retryEventCount; index += 1) {
+            retryEvents.push(await nextEventWithin(iterator, `partial retry event ${String(index)}`));
+        }
+        await iterator.return?.();
+        expect(retryEvents.map((event) => event.event.type)).toEqual([
+            "invocation_aborted",
+            "session_entry",
+            "session_state_changed",
+            "agent_end",
+        ]);
+        expect(retryEvents.filter((event) => event.event.type === "session_entry")).toHaveLength(1);
+        expect(retryEvents.filter((event) => event.event.type === "session_entry"
+            && event.event.entry.type === "tool_result"
+            && event.event.entry.toolCallId === "abort-waiting-partial")).toHaveLength(1);
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const abortedLifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle"
+            && entry.invocationId === waiting.invocationId
+            && entry.status === "aborted");
+        expect(abortedLifecycles).toHaveLength(1);
+        expect(snapshot.leafId).toBe(abortedLifecycles[0]?.id);
+        expect(snapshot.entries.filter((entry) => entry.type === "leaf" && entry.leafId === abortedLifecycles[0]?.id)).toHaveLength(1);
+    });
+
     it("取消保留已生成的半截正文，且 lifecycle 不写 provider 原文", async () => {
         // 真实 provider SDK 取消时抛的是英文 "Request was aborted"。以前它被当成错误详情持久化，
         // 同时半截正文整段丢失（实测 40 次取消 0 次保留）。这里锁住修好之后的两条契约（Task 139）。
@@ -9594,7 +9733,7 @@ describe("NeuroAgentHarness", () => {
         expect(afterTreeInvoke.activeLeafId).toBe(beforeTreeInvoke.leafId);
     }, 20_000);
 
-    it("不可运行 profile 的历史 session 标记为 unloadable", async () => {
+    it("不可运行 profile 的历史 session 标记为 unloadable，Idle abort 仍保持幂等", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.unloadable",
@@ -9639,6 +9778,10 @@ describe("NeuroAgentHarness", () => {
             status: "error",
             error: expect.stringContaining("已不存在或不可运行"),
         }));
+        const aborted = await restored.abortInvocation(created.sessionId, {reason: "idle unavailable profile"});
+        const afterAbort = await restored.repo.readSession(created.sessionId);
+        expect(aborted).toEqual({status: "idle", sessionId: created.sessionId});
+        expect(afterAbort.entries.some((entry) => entry.type === "invocation_lifecycle")).toBe(false);
     });
 
     it("profile load error 通过统一 session summary 投影限制公开体积", async () => {

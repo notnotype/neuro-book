@@ -50,13 +50,16 @@ import {buildAgentHistoryPage} from "nbook/server/agent/session/history-query";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {projectRelatedSessions} from "nbook/server/agent/session/relation-projection";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
-import type {AppendManySessionEntryDraft, ForcedAbortSessionWritePlan, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
+import type {AppendManySessionEntryDraft, ForcedAbortSessionWritePlan, SessionWriteEntryBatch, SessionWriteExecutionOptions, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
-import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
+import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
+
 
 import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY, SESSION_TITLE_OWNER_STATE_KEY, readTitleOwner, type SessionTitleOwnerState} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionMetadata, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
+import {AgentAbortNotAllowedError} from "nbook/server/agent/session/abort-not-allowed-error";
+import {AgentAbortDurabilityError} from "nbook/server/agent/session/abort-durability-error";
 import {canonicalSessionModel, projectSessionModelRef, sessionModelsEqual} from "nbook/server/agent/session/session-model";
 import type {DurableSessionModelRef} from "nbook/server/agent/session/session-model-redaction";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -554,6 +557,8 @@ export class NeuroAgentHarness {
     private readonly invocationAbortGates = new Map<string, InvocationAbortGate>();
     /** 强制取消终态的窄化写授权；terminal completion settle 后立即回收。 */
     private readonly forcedAbortWriteAuthorizations = new Set<string>();
+    /** forced enqueue 同步失败时保留 aborting ownership，下一次 abort 必须重试同一 plan。 */
+    private readonly forcedAbortRetryableInvocations = new Set<string>();
     private readonly invocationAcceptances = new Map<string, InvocationAcceptanceTracker>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
@@ -639,6 +644,7 @@ export class NeuroAgentHarness {
             },
             invocationWriteAllowed: (sessionId, invocationId) => this.ownsInvocation(sessionId, invocationId),
             forcedAbortWriteAllowed: (sessionId, invocationId) => this.forcedAbortWriteAuthorizations.has(`${String(sessionId)}:${invocationId}`),
+            onForcedAbortRecoverySettled: (sessionId, invocationId) => this.forcedAbortWriteAuthorizations.delete(`${String(sessionId)}:${invocationId}`),
         });
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
         this.runtimeResolver = options.runtimeResolver ?? resolvePiModelsFromConfig;
@@ -1193,6 +1199,7 @@ export class NeuroAgentHarness {
                 return this.rejectedInvokeResult(input, "当前 Session 状态不允许执行该操作。");
             }
         }
+        await this.writeExecutor.settlePendingSessionWrites(input.sessionId);
         const invokeTitle = this.normalizeInvokeTitle(input.title);
         const caller = this.normalizeInvokeCaller(input.caller);
         const messageIdentity = this.normalizeMessageIdentity(input.messageIdentity);
@@ -3449,6 +3456,7 @@ export class NeuroAgentHarness {
         }
         if (body.next?.type === "invoke") {
             const next = body.next;
+            await this.writeExecutor.settlePendingSessionWrites(sessionId);
             const admitted = await this.withSessionMutation(sessionId, async () => {
                 this.assertSessionIdle(sessionId);
                 const snapshot = await this.repo.readSession(sessionId);
@@ -3546,62 +3554,157 @@ export class NeuroAgentHarness {
         body: AgentAbortRequestDto = {},
         controller?: AbortController,
     ): Promise<AgentAbortResult> {
+        const clearQueue = body.clearQueue ?? true;
         const admission = await this.withSessionMutation(sessionId, async () => {
+            const projection = await this.resolveSessionRuntimeProjection(sessionId);
+            const sessionArchived = projection.context.archived || projection.summary.status === "archived";
+            if (sessionArchived) {
+                throw new AgentAbortNotAllowedError();
+            }
             const active = await this.claimAbortInvocation(sessionId);
             if (!active || (expectedInvocationId !== undefined && active.invocationId !== expectedInvocationId)) {
                 return {
                     kind: "idle" as const,
                 };
             }
-            const projection = await this.resolveSessionRuntimeProjection(sessionId);
+            const retryingForcedAbort = active.status === "aborting"
+                && this.forcedAbortRetryableInvocations.has(`${String(sessionId)}:${active.invocationId}`);
             if (projection.summary.interaction?.canAbort !== true) {
-                throw new Error("当前 Session 状态不允许停止运行。");
+                throw new AgentAbortNotAllowedError();
             }
-            if (active.status === "waiting") {
-                active.status = "aborting";
-                this.steerQueues.delete(sessionId);
-                if (body.clearQueue ?? true) {
+            if (active.status === "aborting" && !retryingForcedAbort) {
+                return {
+                    kind: "idle" as const,
+                };
+            }
+            if (retryingForcedAbort) {
+                if (clearQueue) {
                     await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
+                    this.steerQueues.delete(sessionId);
                 } else {
                     await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
                 }
-                await this.appendAbortResolution(sessionId, active.invocationId, body.reason);
-                // 只在调用方显式给了 reason 时才写正文；没有 reason 时 status: "aborted" 本身就是全部事实。
-                // 以前这里兜底写的是英文 "invocation aborted"，会当成错误详情显示给用户（Task 139）。
-                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason, body.reason ? {
-                    message: body.reason,
-                    phase: "unknown",
-                } : undefined);
-                this.eventHub.publish({
-                    sessionId,
-                    invocationId: active.invocationId,
-                    kind: "session",
-                    event: {
-                        type: "invocation_aborted",
-                        reason: projectPublicControlReason(body.reason),
-                    },
-                });
-                await this.finishInvocation(sessionId, active.invocationId);
-                // waiting 段的 runLoop 早已返回，不会再自己发终态；前端在 invocation_aborted 上进入 aborting，
-                // 必须由这里补一条 agent_end 让它回到 idle。
-                this.publishRuntimeEvent(sessionId, active.invocationId, {type: "agent_end", status: "aborted"});
+                this.steerableSessions.delete(sessionId);
                 return {
-                    kind: "completed" as const,
-                    result: {
-                        status: "aborted" as const,
-                        sessionId,
-                    },
+                    kind: "running" as const,
+                    active,
+                    retryingForcedAbort: true,
+                    clearQueue,
                 };
+            }
+            if (active.status === "waiting") {
+                const previousSteerQueue = this.steerQueues.get(sessionId);
+                let finalizationStarted = false;
+                try {
+                    const abortWriteOptions = {suppressEvents: true} satisfies SessionWriteExecutionOptions;
+                    if (clearQueue) {
+                        await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState(), abortWriteOptions);
+                    } else {
+                        await this.pauseFollowUps(sessionId, active.invocationId, "aborted", abortWriteOptions);
+                    }
+                    active.status = "aborting";
+                    this.steerQueues.delete(sessionId);
+                    const resolutionEntries = await this.appendAbortResolution(sessionId, active.invocationId, body.reason, abortWriteOptions);
+                    const snapshot = await this.repo.readSession(sessionId);
+                    const existingResolution = await this.findAbortResolutionEntry(snapshot);
+                    if (existingResolution && !resolutionEntries.some((entry) => entry.id === existingResolution.id)) {
+                        resolutionEntries.push(existingResolution);
+                    }
+                    const existingAborted = snapshot.entries.find((entry) => entry.type === "invocation_lifecycle"
+                        && entry.invocationId === active.invocationId
+                        && entry.status === "aborted");
+                    let lifecycleEntries: SessionEntry[] = [];
+                    let leafEntries: SessionEntry[] = [];
+                    if (existingAborted) {
+                        if (snapshot.leafId !== existingAborted.id) {
+                            leafEntries = await this.ensureAutoLeaf(sessionId, existingAborted.id, active.invocationId, abortWriteOptions);
+                        }
+                        lifecycleEntries = [existingAborted];
+                    } else {
+                        lifecycleEntries = await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason, body.reason ? {
+                            message: body.reason,
+                            phase: "unknown",
+                        } : undefined, abortWriteOptions);
+                    }
+                    finalizationStarted = true;
+                    this.finishInvocationState(sessionId, active.invocationId);
+                    try {
+                        this.eventHub.publish({
+                            sessionId,
+                            invocationId: active.invocationId,
+                            kind: "session",
+                            event: {
+                                type: "invocation_aborted",
+                                reason: projectPublicControlReason(body.reason),
+                            },
+                        });
+                    } catch (error) {
+                        void appLogger.warn("agent.abort.waiting.publishAbortEventFailed", {
+                            sessionId,
+                            invocationId: active.invocationId,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                    for (const entry of [...resolutionEntries, ...lifecycleEntries, ...leafEntries]) {
+                        try {
+                            this.publishSessionEntry(sessionId, active.invocationId, entry);
+                        } catch (error) {
+                            void appLogger.warn("agent.abort.waiting.publishEntryFailed", {
+                                sessionId,
+                                invocationId: active.invocationId,
+                                error: error instanceof Error ? error.message : String(error),
+                            });
+                        }
+                    }
+                    await this.publishSessionState(sessionId, active.invocationId).catch((error) => {
+                        void appLogger.warn("agent.abort.waiting.publishStateFailed", {
+                            sessionId,
+                            invocationId: active.invocationId,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    });
+                    try {
+                        this.publishRuntimeEvent(sessionId, active.invocationId, {type: "agent_end", status: "aborted"});
+                    } catch (error) {
+                        void appLogger.warn("agent.abort.waiting.publishTerminalEventFailed", {
+                            sessionId,
+                            invocationId: active.invocationId,
+                            error: error instanceof Error ? error.message : String(error),
+                        });
+                    }
+                    return {
+                        kind: "completed" as const,
+                        result: {
+                            status: "aborted" as const,
+                            sessionId,
+                        },
+                    };
+                } catch (error) {
+                    if (!finalizationStarted && this.ownsInvocation(sessionId, active.invocationId)) {
+                        active.status = "waiting";
+                        this.activeInvocations.set(sessionId, active);
+                        if (previousSteerQueue) {
+                            this.steerQueues.set(sessionId, previousSteerQueue);
+                        } else {
+                            this.steerQueues.delete(sessionId);
+                        }
+                    }
+                    throw error;
+                }
+            }
+            if (clearQueue) {
+                await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
+                this.steerQueues.delete(sessionId);
+            } else {
+                await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
             }
             active.status = "aborting";
             this.steerableSessions.delete(sessionId);
-            if (body.clearQueue ?? true) {
-                this.steerQueues.delete(sessionId);
-                await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
-            }
             return {
                 kind: "running" as const,
                 active,
+                retryingForcedAbort: false,
+                clearQueue,
             };
         });
         if (admission.kind === "idle") {
@@ -3614,15 +3717,17 @@ export class NeuroAgentHarness {
             return admission.result;
         }
         (controller ?? this.abortControllers.get(sessionId))?.abort(body.reason);
-        this.eventHub.publish({
-            sessionId,
-            invocationId: admission.active.invocationId,
-            kind: "session",
-            event: {
-                type: "invocation_aborted",
-                reason: projectPublicControlReason(body.reason),
-            },
-        });
+        if (!admission.retryingForcedAbort) {
+            this.eventHub.publish({
+                sessionId,
+                invocationId: admission.active.invocationId,
+                kind: "session",
+                event: {
+                    type: "invocation_aborted",
+                    reason: projectPublicControlReason(body.reason),
+                },
+            });
+        }
         const completion = this.invocationCompletions.get(admission.active.invocationId);
         if (completion && !completion.settled) {
             await Promise.race([
@@ -3656,15 +3761,20 @@ export class NeuroAgentHarness {
         return active;
     }
 
-    private async appendAbortResolution(sessionId: number, invocationId: string, reason?: string): Promise<void> {
+    private async appendAbortResolution(
+        sessionId: number,
+        invocationId: string,
+        reason?: string,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<SessionEntry[]> {
         const snapshot = await this.repo.readSession(sessionId);
         const context = this.repo.reduce(snapshot);
         const messages = storedMessagesForText(context.messages);
         const pending = findPendingApprovalCall(messages, await this.userResolutionToolKeysForSnapshot(snapshot));
         if (!pending) {
-            return;
+            return [];
         }
-        await this.executeWritePlan({
+        return this.executeWritePlanResult({
             target: {sessionId},
             cause: "resolution.abort",
             durability: "savePoint",
@@ -3681,7 +3791,51 @@ export class NeuroAgentHarness {
                     origin: "harness",
                 },
             }],
-        }, invocationId);
+        }, invocationId, undefined, options).then((result) => result.entries);
+    }
+
+    /** 找出此前已落盘但因后续 lifecycle 失败尚未公开的 abort resolution。 */
+    private async findAbortResolutionEntry(snapshot: SessionSnapshot): Promise<SessionEntry | null> {
+        const context = this.repo.reduce(snapshot);
+        const resolutionToolKeys = new Set(await this.userResolutionToolKeysForSnapshot(snapshot));
+        const resolutionToolCallIds = new Set(context.messages.flatMap((message) => {
+            if (message.role !== "assistant") {
+                return [];
+            }
+            return message.content
+                .filter((block): block is AgentToolCall => block.type === "toolCall")
+                .filter((toolCall) => resolutionToolKeys.has(toolCall.name))
+                .map((toolCall) => toolCall.id);
+        }));
+        if (resolutionToolCallIds.size === 0) {
+            return null;
+        }
+        for (let index = snapshot.entries.length - 1; index >= 0; index -= 1) {
+            const entry = snapshot.entries[index];
+            if (entry?.type !== "message"
+                || entry.message.role !== "toolResult"
+                || !entry.message.isError
+                || !resolutionToolCallIds.has(entry.message.toolCallId)
+                || !storedMessageText(entry.message).startsWith("Aborted")) {
+                continue;
+            }
+            return entry;
+        }
+        return null;
+    }
+
+    /** waiting abort 的 partial lifecycle repair 必须继续经过唯一 SessionWriteExecutor 队列。 */
+    private async ensureAutoLeaf(
+        sessionId: number,
+        targetEntryId: SessionEntryId,
+        invocationId: string,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<SessionEntry[]> {
+        return this.executeWritePlan({
+            target: {sessionId},
+            cause: "lifecycle.aborted.repair",
+            ops: [{kind: "ensureAutoLeaf", targetEntryId}],
+        }, invocationId, undefined, options);
     }
 
     /**
@@ -6387,7 +6541,12 @@ export class NeuroAgentHarness {
         }
     }
 
-    private async pauseFollowUps(sessionId: number, invocationId: string, reason: "error" | "aborted" | "interrupted"): Promise<void> {
+    private async pauseFollowUps(
+        sessionId: number,
+        invocationId: string,
+        reason: "error" | "aborted" | "interrupted",
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<void> {
         const queue = this.followUpQueueState(sessionId);
         if (queue.items.length === 0) {
             return;
@@ -6399,7 +6558,7 @@ export class NeuroAgentHarness {
                 reason,
             },
             items: queue.items,
-        });
+        }, options);
     }
 
     private async finishInvocation(sessionId: number, invocationId?: string): Promise<void> {
@@ -6424,7 +6583,11 @@ export class NeuroAgentHarness {
     }
 
     /** 非 async 合同：返回前已同步占据 per-session write queue 槽位。 */
-    private enqueueFollowUpQueueStatePersistence(sessionId: number, queue: FollowUpQueueTruthState): Promise<void> {
+    private enqueueFollowUpQueueStatePersistence(
+        sessionId: number,
+        queue: FollowUpQueueTruthState,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<void> {
         return this.executeWritePlan({
             target: {sessionId},
             cause: "followup.queue",
@@ -6437,7 +6600,7 @@ export class NeuroAgentHarness {
                     value: encodeFollowUpQueue(queue),
                 },
             }],
-        }).then(() => undefined);
+        }, undefined, undefined, options).then(() => undefined);
     }
 
     /**
@@ -6466,10 +6629,18 @@ export class NeuroAgentHarness {
                 cause: "lifecycle.aborted.force",
                 ops: [{kind: "append", entry}],
             };
-            return this.writeExecutor.enqueueForcedAbort(plan, invocationId)
-                .completion
-                .finally(() => this.forcedAbortWriteAuthorizations.delete(key))
-                .then(() => undefined);
+            const completion = this.writeExecutor.enqueueForcedAbort(plan, invocationId).completion;
+            return completion.then(
+                () => {
+                    this.forcedAbortWriteAuthorizations.delete(key);
+                },
+                (error) => {
+                    if (!this.writeExecutor.hasPendingForcedAbortRecovery(sessionId, invocationId)) {
+                        this.forcedAbortWriteAuthorizations.delete(key);
+                    }
+                    throw error;
+                },
+            ).then(() => undefined);
         } catch (error) {
             this.forcedAbortWriteAuthorizations.delete(key);
             throw error;
@@ -6494,13 +6665,15 @@ export class NeuroAgentHarness {
         try {
             terminal = this.enqueueForcedAbortLifecycle(sessionId, invocationId, reason);
         } catch (error) {
+            this.forcedAbortRetryableInvocations.add(`${String(sessionId)}:${invocationId}`);
             void appLogger.error("agent.invocation.forceAbort.enqueueFailed", {
                 sessionId,
                 invocationId,
                 error: error instanceof Error ? error.message : String(error),
             });
-            terminal = Promise.resolve();
+            throw new AgentAbortDurabilityError(error);
         }
+        this.forcedAbortRetryableInvocations.delete(`${String(sessionId)}:${invocationId}`);
         this.startBackgroundTask("agent.invocation.forceAbort.persist", terminal);
         // terminal write 已占据 write queue 后才释放 ownership。ownership 此刻释放，
         // 残留 runLoop 的 agent_end/message_update 会被 fence 丢弃，必须由取消侧补发终态事件
@@ -6624,6 +6797,7 @@ export class NeuroAgentHarness {
         this.steerableSessions.delete(sessionId);
         this.steerQueues.delete(sessionId);
         if (invocationId) {
+            this.forcedAbortRetryableInvocations.delete(`${String(sessionId)}:${invocationId}`);
             this.invocationAbortGates.delete(invocationId);
             this.invocationClientStates.delete(invocationId);
             this.invocationVariableStates.delete(invocationId);
@@ -6639,8 +6813,9 @@ export class NeuroAgentHarness {
         status: Extract<SessionEntryDraft, {type: "invocation_lifecycle"}>["status"],
         error?: string,
         errorInfo?: InvocationErrorInfo,
-    ): Promise<void> {
-        await this.executeWritePlan({
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<SessionEntry[]> {
+        return this.executeWritePlan({
             target: {sessionId},
             cause: `lifecycle.${status}`,
             ops: [{
@@ -6653,7 +6828,7 @@ export class NeuroAgentHarness {
                     errorInfo,
                 },
             }],
-        }, invocationId);
+        }, invocationId, undefined, options);
     }
 
     /** 单 Session mutation 临界区。 */
@@ -6695,13 +6870,26 @@ export class NeuroAgentHarness {
         }
     }
 
-    private async executeWritePlan(plan: SessionWritePlan, invocationId?: string, timing?: AgentOperationTiming): Promise<SessionEntry[]> {
-        const result = await this.executeWritePlanResult(plan, invocationId, timing);
+    private async executeWritePlan(
+        plan: SessionWritePlan,
+        invocationId?: string,
+        timing?: AgentOperationTiming,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<SessionEntry[]> {
+        const result = await this.executeWritePlanResult(plan, invocationId, timing, options);
         return result.entries;
     }
 
-    private async executeWritePlanResult(plan: SessionWritePlan, invocationId?: string, timing?: AgentOperationTiming): Promise<SessionWriteResult> {
-        return this.writeExecutor.execute([plan], invocationId, {timing: this.sessionWriteTiming(timing)});
+    private async executeWritePlanResult(
+        plan: SessionWritePlan,
+        invocationId?: string,
+        timing?: AgentOperationTiming,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<SessionWriteResult> {
+        return this.writeExecutor.execute([plan], invocationId, {
+            ...options,
+            timing: this.sessionWriteTiming(timing),
+        });
     }
 
     private async commandLiveStateResult(
@@ -6840,10 +7028,14 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async setFollowUpQueueState(sessionId: number, queue: FollowUpQueueTruthState): Promise<void> {
+    private async setFollowUpQueueState(
+        sessionId: number,
+        queue: FollowUpQueueTruthState,
+        options: SessionWriteExecutionOptions = {},
+    ): Promise<void> {
         const previous = this.replaceFollowUpQueueState(sessionId, queue);
         try {
-            await this.enqueueFollowUpQueueStatePersistence(sessionId, queue);
+            await this.enqueueFollowUpQueueStatePersistence(sessionId, queue, options);
         } catch (error) {
             this.replaceFollowUpQueueState(sessionId, previous ?? this.emptyFollowUpQueueState());
             throw error;

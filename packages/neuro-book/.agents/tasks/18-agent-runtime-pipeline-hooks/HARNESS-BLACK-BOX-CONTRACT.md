@@ -37,9 +37,9 @@ Harness(input, runtimeState, sessionState)
   -> next runtimeState
 ```
 
-## Invocation 输入
+## Invocation 与 Session Abort 输入
 
-第一版只覆盖 `AgentInvokeRequestDtoSchema` 的四种 invocation mode：
+第一版覆盖 `AgentInvokeRequestDtoSchema` 的四种 invocation mode：
 
 ```ts
 type AgentInvokeMode =
@@ -49,10 +49,20 @@ type AgentInvokeMode =
     | "followup";
 ```
 
+本合同同时覆盖 Session abort 操作：
+
+```ts
+type AgentAbortRequestDto = {
+    reason?: string;
+    clearQueue?: boolean;
+};
+```
+
+HTTP 入口为 `POST /api/agent/sessions/:sessionId/abort`。`sessionId` 必须是安全正整数；body 只接受上述字段，`clearQueue` 缺失时按 `true` 处理。非法 body/path 返回 400；主 Session 缺失返回 404 `SESSION_NOT_FOUND`。Abort admission 固定分三支：① `context.archived` 或 `summary.status === "archived"` 时，无论是否有 active invocation，直接返回 409 `session_abort_not_allowed`；② 非归档且没有匹配 active invocation（包括 Idle、Profile `missing`/`unloadable` 的 Session）时返回 200 `idle`，不写 lifecycle、resolution、queue 或 abort 事件；③ 有匹配 active invocation 时才检查 `interaction.canAbort`，允许则进入 Waiting/Running/Aborting 的 abort flow，拒绝则返回 409 `session_abort_not_allowed`。forced lifecycle 无法同步占据 SessionWriteExecutor queue 返回 503 `session_abort_durability_unavailable`、`retryable: true`。
+
 本轮黑盒合同暂不覆盖：
 
 - variables / client state
-- abort endpoint
 - slash commands
 - tree/fork/retry commands
 - manual compact
@@ -60,6 +70,12 @@ type AgentInvokeMode =
 - linked-agent management
 
 这些操作后续也应该用同样的黑盒方法单独定义。
+
+Abort 成功响应为 `{status: "idle" | "aborted", sessionId}`：仅非归档 Session 在没有匹配 active invocation（包括重复取消已收口 invocation）时返回 `idle` 且没有副作用；Waiting User 的合作取消和 Running 的 accepted/forced abort 返回 `aborted`。Running 的 200 只表示唯一 forced plan 已被同一 per-session write queue 接受，不表示 HTTP 返回前物理 append 已完成。
+
+同步 enqueue 失败时保持 `Aborting` ownership，不发布 `agent_end`、不 resolve 原 invocation gate，不写替代 lifecycle；调用方可以重试同一个 abort。enqueue 后 physical append/live-state/after-write 失败由同一 write queue 的 pending recovery 幂等重放，恢复失败阻止后续 `start` 越过旧 terminal，不直接 repository 写或重复追加 aborted lifecycle。
+
+Abort 不改变普通 invocation 输入的其它排除范围。
 
 ## 粗粒度运行状态
 
@@ -138,6 +154,21 @@ Frontend state 不是事实源。它由这些东西推导：
 
 下面的事件名是语义名。实现时可以映射到现有 SSE envelope。
 
+### Abort 状态、事件与持久化顺序
+
+| Runtime state | Abort operation | Harness result | Session writes | SSE result | Frontend state |
+| --- | --- | --- | --- | --- | --- |
+| `Idle`（非归档、无 active invocation；包括 Profile unavailable） | `POST /abort` | 返回 `idle`。 | 不写 lifecycle、resolution 或 queue。 | 不新增 abort 终态事件。 | 保持 idle。 |
+| `Archived`（无论是否有 active invocation） | `POST /abort` | 返回 409 `session_abort_not_allowed`。 | 不写 abort lifecycle 或 resolution。 | 不新增 abort 事件。 | 保持 archived，只能恢复。 |
+| 匹配 active 且 `interaction.canAbort === false` | `POST /abort` | 返回 409 `session_abort_not_allowed`。 | 不写 abort lifecycle 或 resolution。 | 只依赖 HTTP response。 | 保持现有 runtime state。 |
+| `WaitingUser`（匹配 active 且 `canAbort === true`） | `POST /abort` | 返回 `aborted`，释放 waiting invocation。 | 写一次取消 resolution 和 `aborted` lifecycle。 | `invocation_aborted`，随后 `session_entry`/`session_state_changed` 与 `agent_end(aborted)`。 | 关闭 waiting UI，`activeInvocation=null`。 |
+| `Running`（匹配 active 且 `canAbort === true`） | `POST /abort` 且合作收口 | 返回 `aborted`。 | 只允许一个匹配 invocation 的 `aborted` lifecycle；按 `clearQueue` 清理或暂停队列。 | 先 `invocation_aborted`，再 state/terminal event。 | 进入 aborting，最终回到 idle。 |
+| `Running`（匹配 active 且 `canAbort === true`） | `POST /abort` 且 forced | 在 300ms 上界内返回 `aborted`；200 表示 forced plan 已入 queue。 | forced plan 只经 SessionWriteExecutor；后续 `start` 排在旧 aborted append 后。 | 迟到 provider/tool/settleRun 事件被 ownership fence 丢弃；终态发布 `agent_end(aborted)`。 | 最终 snapshot/state 的 `activeInvocation=null`。 |
+| `Aborting`（匹配 active 且 `canAbort === true`） | 重复 `POST /abort` | 返回 idle 或同一 accepted 结果，不重复叠加 timer/terminal。 | 不追加第二个 aborted lifecycle。 | 不重复发送终态事件。 | 保持现有 aborting/cleanup 过渡。 |
+
+可观察顺序固定为：`start -> waiting/aborting -> invocation_aborted -> session_state_changed/agent_end(aborted)`。运行结果先于 abort 收口时，首个 durable terminal 事实优先；运行结果迟到时不得写入、发布或改变新 invocation。`clearQueue=true` 清空 steer/follow-up；`false` 保留 follow-up 并以 `pausedBy.reason="aborted"` 呈现。
+
+## 错误矩阵
 | Runtime state | User operation | Harness result | Session writes | SSE result | Frontend state |
 | --- | --- | --- | --- | --- | --- |
 | `Idle` | `prompt(message)` | 接受并启动新的 invocation。 | 写 user message；写 lifecycle `start`；后续写 assistant/toolResult turns；最后写 `end`、`error` 或 `waiting`。 | `invocation_started`；user message 的 `session_entry`；provider stream/tool events；committed turns 的 `session_entry`；最终 lifecycle/state event。 | 进入 running；展示 user message、streaming assistant、tool cards；最后回到 idle 或 waiting；如果失败，runtime 回到 idle，同时投影 `ErrorBubble`。 |
@@ -154,7 +185,7 @@ Frontend state 不是事实源。它由这些东西推导：
 | `WaitingUser` | `followup(message)` | 接受进入 follow-up queue。 | 入队时不写；当前 invocation 结束后消费时写 user message。 | `follow_up_queued` 加 `session_state_changed`。 | Waiting UI 保持；follow-up queue 展示 item。 |
 | `Aborting` | any invocation mode | 拒绝或返回 busy，直到 cleanup 完成。 | 通常本请求不写新内容；abort 自身可能写 lifecycle `aborted` 或 `interrupted`。 | abort cleanup 发 `invocation_aborted` / `session_state_changed`；本请求可选 busy rejection。 | 保持 aborting 直到 cleanup；不创建新的 run 或 queue item。 |
 
-## 错误矩阵
+### 错误矩阵
 
 错误也必须按黑盒合同定义。先区分两类：
 

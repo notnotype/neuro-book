@@ -278,7 +278,7 @@ export const AgentTreeRequestDtoSchema = z.union([
 export const AgentAbortRequestDtoSchema = z.object({
     reason: z.string().optional(),
     clearQueue: z.boolean().optional(),
-});
+}).strict();
 
 export const ClientVariablePatchAckDtoSchema = z.object({
     namespace: z.literal("client"),

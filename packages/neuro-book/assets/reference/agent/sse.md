@@ -241,11 +241,12 @@ provider reasoning/thinking
 
 ### 8. Abort
 
-1. 用户点击停止，前端调用 `POST /abort`。
-2. 后端 abort 当前 invocation。
+1. 用户点击停止，前端调用 `POST /api/agent/sessions/:sessionId/abort`，body 可为 `{reason?: string, clearQueue?: boolean}`，`clearQueue` 默认 `true`。
+2. 后端在 Session mutation 边界内完成 abort admission；Running invocation 的 AbortSignal 在锁外传播，合作路径最多等待 `INVOCATION_ABORT_GRACE_MS = 150`。
 3. 前端可能收到 `invocation_aborted`，进入 aborting/stopped 过渡态。
-4. 后续 `session_state_changed` 或 snapshot 确认 `activeInvocation = null`。
-5. abort 不是 Run Error，不应默认显示错误卡。
+4. forced-abort 只在同一个 `SessionWriteExecutor` per-session queue 中接受唯一 `aborted` lifecycle 后释放 ownership；后续 `session_state_changed` 或 snapshot 确认 `activeInvocation = null`，后续 invocation `start` 不早于旧 terminal append。
+5. Abort admission 固定分三支：`context.archived` 或 `summary.status === "archived"` 时无论是否有 active invocation 都返回 HTTP 409 `session_abort_not_allowed`；非归档且没有匹配 active invocation 时（包括 Idle、Profile `missing`/`unloadable`）返回 HTTP 200 `idle` 且无新 lifecycle、resolution、queue 或 abort 事件；有匹配 active invocation 时才检查 `interaction.canAbort`，`true` 进入 abort flow，`false` 返回 HTTP 409 `session_abort_not_allowed`。forced plan 无法同步入队返回 503 `session_abort_durability_unavailable`、`retryable: true`，调用方可重试。HTTP 200 `aborted` 只表示 write queue admission，不表示响应返回前 physical append 已完成。
+6. abort 不是 Run Error，不应默认显示错误卡；没有显式 reason 时不显示 Provider 英文 abort 文本。
 
 ### 9. Run Error
 

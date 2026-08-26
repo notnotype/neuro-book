@@ -541,7 +541,7 @@
         {
           "path": "18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md",
           "legacyDestination": ".agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md",
-          "sha256": "sha256:2e0f87da418450938512f9f6196b671065886482f3c9a1809763f4698c7a4201"
+          "sha256": "sha256:1764db93056b37aedb8819392f2d49300d4f9c31ac2619596fe7ae4054711002"
         },
         {
           "path": "18-agent-runtime-pipeline-hooks/README.md",

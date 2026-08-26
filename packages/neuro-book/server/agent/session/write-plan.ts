@@ -1,9 +1,10 @@
 import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import {projectAgentChatEntry} from "nbook/server/agent/events/public-chat-entry-projection";
 import type {AgentSessionLiveStateDto} from "nbook/shared/dto/agent-session.dto";
-import type {SessionEntry, SessionEntryDraft, SessionEntryId, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
+import type {SessionEntry, SessionEntryDraft, SessionEntryId, SessionId, SessionProjectionScope, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {appLogger} from "nbook/server/app-logs/logger";
+import {AgentAbortDurabilityError} from "nbook/server/agent/session/abort-durability-error";
 
 export type SessionWriteProjection = true | SessionProjectionScope;
 
@@ -30,6 +31,11 @@ export type SessionWriteOp =
     | {
         kind: "moveLeaf";
         leafId: SessionEntry["id"] | null;
+    }
+    | {
+        /** 幂等补齐指定 durable entry 的 active auto leaf；不执行任意分支移动。 */
+        kind: "ensureAutoLeaf";
+        targetEntryId: SessionEntryId;
     };
 
 export type AppendManySessionEntryDraft = Exclude<SessionEntryDraft, {type: "leaf"}> & {
@@ -50,7 +56,17 @@ export type SessionWriteTimingSink = {
 
 export type SessionWriteExecutionOptions = {
     timing?: SessionWriteTimingSink;
+    /** 仅由需要自定义公开事件顺序的领域 owner 使用；不改变 durable 写入或 recovery。 */
+    suppressEvents?: boolean;
 };
+type ForcedAbortRecovery = {
+    plan: ForcedAbortSessionWritePlan;
+    invocationId: string;
+    options: SessionWriteExecutionOptions;
+};
+
+class ForcedAbortPlanError extends Error {}
+class ForcedAbortWriteAuthorizationError extends Error {}
 
 export type SessionWriteEntryBatch = {
     sessionId: SessionId;
@@ -75,10 +91,12 @@ export type SessionWriteExecutorInput = {
      * 缺失或返回 false 时 fail closed。
      */
     forcedAbortWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
+    /** pending recovery 幂等完成后回收 Harness 侧的窄化授权。 */
+    onForcedAbortRecoverySettled?: (sessionId: SessionId, invocationId: string) => void;
 };
 
-/** 写执行器内部权限模型；forced-abort 只能经 enqueueForcedAbort 进入。 */
-type SessionWriteAuthority = {kind: "unowned"} | {kind: "invocation"; invocationId: string} | {kind: "forced-abort"; invocationId: string};
+/** 写执行器内部权限模型；forced-abort 及其 recovery repair 只能经对应入口进入。 */
+type SessionWriteAuthority = {kind: "unowned"} | {kind: "invocation"; invocationId: string} | {kind: "forced-abort"; invocationId: string} | {kind: "forced-abort-recovery"; invocationId: string};
 
 /**
  * 强制取消终态的唯一合法 plan 形状：单 session、固定 cause、单个非 projection
@@ -107,6 +125,8 @@ export class SessionWriteExecutor {
     private readonly onEntriesWritten?: (batch: SessionWriteEntryBatch) => void | Promise<void>;
     private readonly invocationWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
     private readonly forcedAbortWriteAllowed?: (sessionId: SessionId, invocationId: string) => boolean;
+    private readonly onForcedAbortRecoverySettled?: (sessionId: SessionId, invocationId: string) => void;
+    private readonly pendingForcedAbortRecoveries = new Map<string, ForcedAbortRecovery>();
     private readonly writeQueues = new Map<SessionId, Promise<void>>();
 
     constructor(input: SessionWriteExecutorInput) {
@@ -116,39 +136,170 @@ export class SessionWriteExecutor {
         this.onEntriesWritten = input.onEntriesWritten;
         this.invocationWriteAllowed = input.invocationWriteAllowed;
         this.forcedAbortWriteAllowed = input.forcedAbortWriteAllowed;
+        this.onForcedAbortRecoverySettled = input.onForcedAbortRecoverySettled;
     }
 
-    /**
-     * 执行一组 plan，并在写入后发布 session_entry 和 session_state_changed。
-     * 保持 async：参数错误以 rejected promise 暴露，与既有调用方合同一致。
-     */
+    /** 执行一组 plan，并在写入后发布 session entry 与 live state。 */
     async execute(plans: SessionWritePlan[], invocationId?: string, options: SessionWriteExecutionOptions = {}): Promise<SessionWriteResult> {
         for (const plan of plans) {
             this.assertValidPlan(plan);
+            this.assertNoDirectForcedAbortPlan(plan);
         }
         const sessionIds = [...new Set(plans.map((plan) => plan.target.sessionId))].sort((left, right) => left - right);
         const authority: SessionWriteAuthority = invocationId === undefined
             ? {kind: "unowned"}
             : {kind: "invocation", invocationId};
-        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, authority, options));
+        return this.withSessionWriteLocks(
+            sessionIds,
+            async () => {
+                await this.drainPendingForcedAbortsUnlocked(sessionIds);
+                return this.executeUnlocked(plans, authority, options);
+            },
+        );
     }
 
-    /**
-     * 强制取消终态入口。非 async 合同：返回前必须完成参数校验并同步占据目标
-     * write queue 槽位，保证旧 aborted 先于后续 invocation start 落盘；
-     * 授权（tombstone）在物理写入前复核并经 completion 异步拒绝。
-     */
-    enqueueForcedAbort(plan: ForcedAbortSessionWritePlan, invocationId: string, options: SessionWriteExecutionOptions = {}): {completion: Promise<SessionWriteResult>} {
+    /** 在 mutation 之外等待已占据的 write queue，并先排空该 Session 的 pending recovery。 */
+    async settlePendingSessionWrites(sessionId: SessionId): Promise<void> {
+        const queued = this.writeQueues.get(sessionId);
+        if (queued) {
+            await queued.catch(() => undefined);
+        }
+        await this.withSessionWriteLocks(
+            [sessionId],
+            () => this.drainPendingForcedAbortsUnlocked([sessionId]),
+        );
+    }
+
+    /** 非 async 入口：校验完成后立即占据目标 Session 的 write queue 槽位。 */
+    enqueueForcedAbort(
+        plan: ForcedAbortSessionWritePlan,
+        invocationId: string,
+        options: SessionWriteExecutionOptions = {},
+    ): {completion: Promise<SessionWriteResult>} {
         this.assertValidPlan(plan);
         this.assertForcedAbortPlan(plan, invocationId);
-        const completion = this.withSessionWriteLocks(
-            [plan.target.sessionId],
-            () => this.executeUnlocked([plan], {kind: "forced-abort", invocationId}, options),
-        );
+        const snapshot = structuredClone(plan);
+        this.assertValidPlan(snapshot);
+        this.assertForcedAbortPlan(snapshot, invocationId);
+        const sessionId = snapshot.target.sessionId;
+        this.assertForcedAbortWriteAllowed(sessionId, invocationId);
+        const key = this.forcedAbortRecoveryKey(sessionId, invocationId);
+        const completion = this.withSessionWriteLocks([sessionId], async () => {
+            const pending = this.pendingForcedAbortRecoveries.get(key);
+            if (pending) {
+                return this.recoverForcedAbort(pending);
+            }
+            await this.drainPendingForcedAbortsUnlocked([sessionId]);
+            try {
+                const snapshotState = await this.repo.readSession(sessionId);
+                const existing = snapshotState.entries.find((entry) => entry.type === "invocation_lifecycle"
+                    && entry.invocationId === invocationId
+                    && entry.status === "aborted");
+                if (existing) {
+                    const result = await this.recoverExistingForcedAbort(sessionId, {plan: snapshot, invocationId, options}, existing, snapshotState);
+                    this.onForcedAbortRecoverySettled?.(sessionId, invocationId);
+                    return result;
+                }
+                const result = await this.executeUnlocked(
+                    [snapshot],
+                    {kind: "forced-abort", invocationId},
+                    options,
+                );
+                this.onForcedAbortRecoverySettled?.(sessionId, invocationId);
+                return result;
+            } catch (error) {
+                if (this.isForcedAbortPermanentFailure(error)) {
+                    throw error;
+                }
+                this.pendingForcedAbortRecoveries.set(key, {plan: snapshot, invocationId, options});
+                throw error instanceof AgentAbortDurabilityError ? error : new AgentAbortDurabilityError(error);
+            }
+        });
         return {completion};
     }
 
-    private async executeUnlocked(plans: SessionWritePlan[], authority: SessionWriteAuthority, options: SessionWriteExecutionOptions): Promise<SessionWriteResult> {
+    hasPendingForcedAbortRecovery(sessionId: SessionId, invocationId: string): boolean {
+        return this.pendingForcedAbortRecoveries.has(this.forcedAbortRecoveryKey(sessionId, invocationId));
+    }
+
+    private forcedAbortRecoveryKey(sessionId: SessionId, invocationId: string): string {
+        return `${String(sessionId)}:${invocationId}`;
+    }
+
+    private async recoverForcedAbort(recovery: ForcedAbortRecovery): Promise<SessionWriteResult> {
+        const sessionId = recovery.plan.target.sessionId;
+        try {
+            const snapshot = await this.repo.readSession(sessionId);
+            const existing = snapshot.entries.find((entry) => entry.type === "invocation_lifecycle"
+                && entry.invocationId === recovery.invocationId
+                && entry.status === "aborted");
+            const result = existing
+                ? await this.recoverExistingForcedAbort(sessionId, recovery, existing, snapshot)
+                : await this.executeUnlocked(
+                    [recovery.plan],
+                    {kind: "forced-abort", invocationId: recovery.invocationId},
+                    recovery.options,
+                );
+            this.pendingForcedAbortRecoveries.delete(this.forcedAbortRecoveryKey(sessionId, recovery.invocationId));
+            this.onForcedAbortRecoverySettled?.(sessionId, recovery.invocationId);
+            return result;
+        } catch (error) {
+            if (this.isForcedAbortPermanentFailure(error)) {
+                throw error;
+            }
+            throw error instanceof AgentAbortDurabilityError ? error : new AgentAbortDurabilityError(error);
+        }
+    }
+
+    private async recoverExistingForcedAbort(
+        sessionId: SessionId,
+        recovery: ForcedAbortRecovery,
+        entry: SessionEntry,
+        snapshot: SessionSnapshot,
+    ): Promise<SessionWriteResult> {
+        let repairEntries: SessionEntry[] = [];
+        if (snapshot.leafId !== entry.id) {
+            const repairResult = await this.executeUnlocked(
+                [{
+                    target: {sessionId},
+                    cause: "lifecycle.aborted.repair",
+                    ops: [{kind: "ensureAutoLeaf", targetEntryId: entry.id}],
+                }],
+                {kind: "forced-abort-recovery", invocationId: recovery.invocationId},
+                {...recovery.options, suppressEvents: true},
+            );
+            repairEntries = repairResult.entries;
+        }
+        await this.notifyEntriesWritten(sessionId, recovery.plan.cause, recovery.invocationId, [entry], true);
+        const state = await this.measureLiveState(
+            recovery.options,
+            sessionId,
+            () => this.publishSessionState(sessionId, recovery.invocationId),
+        );
+        return {entries: [...repairEntries, entry], liveStates: new Map([[sessionId, state]])};
+    }
+
+
+    /** 调用方已持有全部目标 Session write lock 时使用；不得再次取得同一把锁。 */
+    private async drainPendingForcedAbortsUnlocked(sessionIds: SessionId[]): Promise<void> {
+        const sessionSet = new Set(sessionIds);
+        const pending = [...this.pendingForcedAbortRecoveries.values()]
+            .filter((recovery) => sessionSet.has(recovery.plan.target.sessionId));
+        for (const recovery of pending) {
+            await this.recoverForcedAbort(recovery);
+        }
+    }
+
+    private isForcedAbortPermanentFailure(error: unknown): boolean {
+        return error instanceof ForcedAbortPlanError || error instanceof ForcedAbortWriteAuthorizationError;
+    }
+
+    /** 在写锁内按顺序执行 plan；forced recovery 只从同一 write queue 重放。 */
+    private async executeUnlocked(
+        plans: SessionWritePlan[],
+        authority: SessionWriteAuthority,
+        options: SessionWriteExecutionOptions,
+    ): Promise<SessionWriteResult> {
         const invocationId = authority.kind === "unowned" ? undefined : authority.invocationId;
         const written: SessionEntry[] = [];
         const touchedSessionIds = new Set<SessionId>();
@@ -162,10 +313,14 @@ export class SessionWriteExecutor {
                     const entries = await this.repo.appendEntries(plan.target.sessionId, merge.entries);
                     for (const entry of entries) {
                         written.push(entry);
-                        this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                        if (!options.suppressEvents) {
+                            this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                        }
                     }
-                    await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries);
-                    touchedSessionIds.add(plan.target.sessionId);
+                    if (entries.length > 0) {
+                        await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries, authority.kind === "forced-abort" || authority.kind === "forced-abort-recovery");
+                        touchedSessionIds.add(plan.target.sessionId);
+                    }
                 });
                 index = merge.endIndex;
                 continue;
@@ -176,14 +331,21 @@ export class SessionWriteExecutor {
                     const entries = await this.executeOp(plan.target.sessionId, op);
                     for (const entry of entries) {
                         written.push(entry);
-                        this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                        if (!options.suppressEvents) {
+                            this.publishSessionEntry(plan.target.sessionId, invocationId, entry);
+                        }
                     }
-                    await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries);
-                    touchedSessionIds.add(plan.target.sessionId);
+                    if (entries.length > 0) {
+                        await this.notifyEntriesWritten(plan.target.sessionId, plan.cause, invocationId, entries, authority.kind === "forced-abort" || authority.kind === "forced-abort-recovery");
+                        touchedSessionIds.add(plan.target.sessionId);
+                    }
                 });
             }
         }
 
+        if (options.suppressEvents) {
+            return {entries: written, liveStates: new Map()};
+        }
         const liveStates = new Map<SessionId, AgentSessionLiveStateDto>();
         for (const sessionId of touchedSessionIds) {
             liveStates.set(sessionId, await this.measureLiveState(options, sessionId, () => this.publishSessionState(sessionId, invocationId)));
@@ -192,7 +354,22 @@ export class SessionWriteExecutor {
         return {entries: written, liveStates};
     }
 
-    /** 在物理写入锁内按 authority 复核写入权：普通写看 active ownership，强制取消看窄化 tombstone。 */
+    private assertNoDirectForcedAbortPlan(plan: SessionWritePlan): void {
+        if (plan.cause === "lifecycle.aborted.force") {
+            throw new ForcedAbortPlanError("强制取消计划只能通过 enqueueForcedAbort 入队");
+        }
+    }
+
+    /** 在物理写入和同步入队边界都复核 forced-abort 的窄化授权。 */
+    private assertForcedAbortWriteAllowed(sessionId: SessionId, invocationId: string): void {
+        if (!this.forcedAbortWriteAllowed?.(sessionId, invocationId)) {
+            throw new ForcedAbortWriteAuthorizationError(
+                `强制取消 ${invocationId} 没有 session ${sessionId} 的终态写入授权`,
+            );
+        }
+    }
+
+    /** 在物理写入锁内按 authority 复核写入权：普通写看 active ownership，强制路径看窄化 tombstone。 */
     private assertOpWriteAllowed(sessionId: SessionId, plan: SessionWritePlan, authority: SessionWriteAuthority): void {
         if (authority.kind === "unowned") {
             return;
@@ -203,14 +380,17 @@ export class SessionWriteExecutor {
             }
             return;
         }
-        this.assertForcedAbortPlan(plan, authority.invocationId);
-        if (!this.forcedAbortWriteAllowed?.(sessionId, authority.invocationId)) {
-            throw new Error(`强制取消 ${authority.invocationId} 没有 session ${sessionId} 的终态写入授权`);
+        if (authority.kind === "forced-abort") {
+            this.assertForcedAbortPlan(plan, authority.invocationId);
+        } else {
+            this.assertForcedAbortRecoveryPlan(plan);
         }
+        this.assertForcedAbortWriteAllowed(sessionId, authority.invocationId);
     }
-
     private assertForcedAbortPlan(plan: SessionWritePlan, invocationId: string): void {
-        const invalid = (): Error => new Error(`强制取消计划形状非法：期望唯一 ${invocationId} 的 aborted lifecycle`);
+        const invalid = (): Error => new ForcedAbortPlanError(
+            `强制取消计划形状非法：期望唯一 ${invocationId} 的 aborted lifecycle`,
+        );
         if (plan.cause !== "lifecycle.aborted.force"
             || plan.ops.length !== 1
             || plan.ops[0]!.kind !== "append"
@@ -222,6 +402,13 @@ export class SessionWriteExecutor {
         }
     }
 
+    private assertForcedAbortRecoveryPlan(plan: SessionWritePlan): void {
+        if (plan.cause !== "lifecycle.aborted.repair"
+            || plan.ops.length !== 1
+            || plan.ops[0]?.kind !== "ensureAutoLeaf") {
+            throw new ForcedAbortPlanError("强制取消 recovery 只允许单个 ensureAutoLeaf write op");
+        }
+    }
     private async withSessionWriteLocks<TResult>(sessionIds: SessionId[], task: () => Promise<TResult>): Promise<TResult> {
         const sessionId = sessionIds[0];
         if (sessionId === undefined) {
@@ -280,6 +467,10 @@ export class SessionWriteExecutor {
         if (op.kind === "appendMany") {
             return this.repo.appendEntries(sessionId, op.entries);
         }
+        if (op.kind === "ensureAutoLeaf") {
+            const leaf = await this.repo.ensureAutoLeaf(sessionId, op.targetEntryId);
+            return leaf ? [leaf] : [];
+        }
         if (op.kind === "moveLeaf") {
             return [await this.repo.moveLeaf(sessionId, op.leafId)];
         }
@@ -317,7 +508,13 @@ export class SessionWriteExecutor {
         });
     }
 
-    private async notifyEntriesWritten(sessionId: number, cause: string, invocationId: string | undefined, entries: SessionEntry[]): Promise<void> {
+    private async notifyEntriesWritten(
+        sessionId: number,
+        cause: string,
+        invocationId: string | undefined,
+        entries: SessionEntry[],
+        strict = false,
+    ): Promise<void> {
         if (!this.onEntriesWritten || entries.length === 0) {
             return;
         }
@@ -336,6 +533,9 @@ export class SessionWriteExecutor {
                 entryCount: entries.length,
                 error: error instanceof Error ? error.message : String(error),
             });
+            if (strict) {
+                throw new AgentAbortDurabilityError(error);
+            }
         }
     }
 

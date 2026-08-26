@@ -1,7 +1,7 @@
 {
   "schema": "nbook.task-migration-index/v1",
   "sourceRevision": "306e563ad7a4d4a58354fa8d582ad9aa9b886e8c",
-  "manifestSha256": "sha256:0f56b8a04f42cb39114d12dc7794266c4c6708245edba71a24a5af2782e85df2",
+  "manifestSha256": "sha256:f375131c107f8d2b900c53675b6c78e8c23c2de7e20886961e41ec6178d766b2",
   "migratedAt": "2026-08-15T15:05:32.708Z",
   "mappings": [
     {
@@ -1080,7 +1080,7 @@
       "source": "docs/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md",
       "destination": ".agents/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md",
       "sourceSha256": "sha256:2e0f87da418450938512f9f6196b671065886482f3c9a1809763f4698c7a4201",
-      "destinationSha256": "sha256:2e0f87da418450938512f9f6196b671065886482f3c9a1809763f4698c7a4201",
+      "destinationSha256": "sha256:1764db93056b37aedb8819392f2d49300d4f9c31ac2619596fe7ae4054711002",
       "kind": "file",
       "linkRewrite": false
     },

@@ -81,7 +81,7 @@ run_workflow({
 - `list_jobs({status?})` 默认只列当前 session 发起的 job；只有确需全局排查时才传 `all: true`。
 - `get_job({jobId})` 返回 job 快照；workflow job 还带 run 状态、完整 pending asks、参与 session、公开 token usage 与已完成的完整 result。它使用与 HTTP 详情相同的异步 Manager 入口，用于用户主动询问或一次性诊断，不用于循环轮询。状态图继续看 workflow 气泡或 run 状态接口。
 - Job 快照另有 `deliveryStatus`：`not_required | pending | accepted | failed`。它只描述结果回流是否被接收，不改变 `completed/failed/cancelled/interrupted` 执行状态；失败时看 `deliveryError`，Manager 不自动重试。
-- `cancel_job({jobId})` 只能取消当前 session 发起的 job。取消请求会传播到执行链：Workflow 当前 Agent activity 通过 Run signal 取消，Harness 对不合作的 provider/tool 在有界宽限后提交唯一 aborted 终态；waiting job 会立即解除等待并进入 `cancelled`。Job 只有在执行链完成收口后才确认最终 `cancelled`，调用方应读取后续快照确认。
+- `cancel_job({jobId})` 只能取消当前 session 发起的 job。取消请求会传播到执行链：Workflow 当前 Agent activity 通过 Run signal 取消，Harness 对不合作的 provider/tool 在有界宽限后提交唯一 aborted 终态；waiting job 会立即解除等待并进入 `cancelled`。Job 只有在执行链完成收口后才确认最终 `cancelled`，调用方应读取后续快照确认。Session HTTP abort 的 409/503 错误、forced write queue 和恢复合同由 [Agent Session Abort Spec](../../../../../../docs/specs/agent/session-abort.md) 定义。
 
 ## 返回契约
 

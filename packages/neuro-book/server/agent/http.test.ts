@@ -18,6 +18,8 @@ import {
 import {AgentHistoryQueryError} from "nbook/server/agent/session/history-query";
 import {AgentSessionNotFoundError} from "nbook/server/agent/session/session-not-found-error";
 import {SessionCurrentProjectError} from "nbook/server/agent/session/current-project-error";
+import {AgentAbortNotAllowedError} from "nbook/server/agent/session/abort-not-allowed-error";
+import {AgentAbortDurabilityError} from "nbook/server/agent/session/abort-durability-error";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AgentSessionIdSchema} from "nbook/shared/dto/agent-session.dto";
@@ -407,15 +409,32 @@ describe("agent session http helpers", () => {
         expect(result.invocation?.reportResult).not.toHaveProperty("data");
     });
 
-    it("abortAgentSession 调用 harness.abortInvocation", async () => {
-        const abortInvocation = vi.fn(async () => ({
-            status: "aborted",
+    it("abortAgentSession 保留 idle 结果并映射状态禁止错误", async () => {
+        const abortInvocation = vi.fn()
+            .mockResolvedValueOnce({status: "idle", sessionId: 12})
+            .mockRejectedValueOnce(new AgentAbortNotAllowedError());
+
+        await expect(abortAgentSession(12, {}, {abortInvocation} as never)).resolves.toEqual({
+            status: "idle",
             sessionId: 12,
-        }));
+        });
+        await expect(abortAgentSession(12, {reason: "stop"}, {abortInvocation} as never)).rejects.toMatchObject({
+            statusCode: 409,
+            data: {code: "session_abort_not_allowed", retryable: false},
+        });
+        expect(abortInvocation).toHaveBeenNthCalledWith(1, 12, {});
+        expect(abortInvocation).toHaveBeenNthCalledWith(2, 12, {reason: "stop"});
+    });
 
-        await abortAgentSession(12, {reason: "stop"}, {abortInvocation} as never);
+    it("abort durability admission failure maps to retryable 503 without leaking cause", () => {
+        const mapped = mapAgentHttpError(new AgentAbortDurabilityError(new Error("C:\\private\\session.jsonl")), 12);
 
-        expect(abortInvocation).toHaveBeenCalledWith(12, {reason: "stop"});
+        expect(mapped).toMatchObject({
+            statusCode: 503,
+            message: "Session abort 的持久化暂不可用，请重试。",
+            data: {code: "session_abort_durability_unavailable", retryable: true},
+        });
+        expect(JSON.stringify(mapped)).not.toContain("private");
     });
 
     it("toInvokeInput 保留 streaming onEvent callback", () => {

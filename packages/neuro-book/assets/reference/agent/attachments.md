@@ -113,6 +113,7 @@ archive 只写当前 Session 的 `session_archived`，restore 只写 `session_re
 - multipart 消费、snapshot 源文件读取、Provider blob 读取和模型执行必须在临界区外；
 - invocation 在锁内完成最新 policy/Profile/Project/附件/branch admission 与 claim，Provider 在锁外执行，最终 lifecycle 和 queue 清理再由统一 terminal seam 在锁内提交；
 - Tree preadmission 失败不得移动 active leaf，已经 claim 为 aborting 的 invocation 不得再提交 waiting/end。
+- forced-abort 只有在 `INVOCATION_ABORT_GRACE_MS = 150` 到期且仍需维持 `300ms` 上界时，才使用窄化同步 control-plane fence：admission/claim 仍在该边界内完成，forced lifecycle 不重新取得可能被长写入占用的 mutation lock，而是同步占据同一 `SessionWriteExecutor` per-session queue；同步入队失败保留 aborting ownership 并可重试，物理失败由该 write queue 的 pending recovery 处理。该例外不适用于普通 Session mutation，也不允许直接 repository 写或第二套锁。
 
 ## Composer 与历史消息
 
