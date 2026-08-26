@@ -1059,18 +1059,6 @@ jobs:
               echo "隔离失败：podman-compose 不允许存在于 PATH。" >&2
               exit 1
           fi
-          systemctl --user enable --now podman.socket || true
-          # runner 无持久 user systemd 会话时 socket 可能只建文件无监听者，
-          # docker-compose 委托 connect 会永久阻塞；显式拉起 service 并验证 socket。
-          nohup podman system service --time=0 "unix:///run/user/$(id -u)/podman/podman.sock" \
-              > "${RUNNER_TEMP}/podman-system-service.log" 2>&1 &
-          for attempt in $(seq 1 20); do
-              if podman system service --time=0 --help >/dev/null 2>&1 && test -S "/run/user/$(id -u)/podman/podman.sock"; then break; fi
-              sleep 1
-          done
-          test -S "/run/user/$(id -u)/podman/podman.sock" || { echo "podman.sock 未就绪" >&2; exit 1; }
-          podman info
-          podman compose version
           # 持久化 sanitized PATH：逐行写入（每行一个目录条目，不能写整串 PATH=...），
           # 并显式剔除 masked 根前缀，防止任何后续步骤意外纳入。
           printf '%s\n' "$(printf '%s' "$PATH" | tr ':' '\n' | grep -v "^$PODMAN_COMPOSE_MASKED_ROOT")" >> "$GITHUB_PATH"
@@ -1086,10 +1074,22 @@ jobs:
               exit 1
           fi
           command -v docker-compose
-          # 委托通信探针：docker-compose 必须能在 60 秒内连上 podman.sock 完成 version。
-          export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
-          test -S "/run/user/$(id -u)/podman/podman.sock" || { echo "podman.sock 缺失" >&2; exit 1; }
-          timeout 60 docker-compose version || { echo "docker-compose 连 podman.sock 超时/失败" >&2; exit 1; }
+          # 同一步骤内拉起 podman API service（官方委托合同：DOCKER_HOST=unix://$XDG_RUNTIME_DIR/podman/podman.sock）。
+          # 启动前移除可能的 stale socket 文件，保证本 service 是唯一监听者。
+          mkdir -p "${XDG_RUNTIME_DIR}/podman"
+          rm -f "${XDG_RUNTIME_DIR}/podman/podman.sock"
+          nohup podman system service --time=0 "unix://${XDG_RUNTIME_DIR}/podman/podman.sock" \
+              > "${RUNNER_TEMP}/podman-system-service.log" 2>&1 &
+          for attempt in $(seq 1 20); do
+              test -S "${XDG_RUNTIME_DIR}/podman/podman.sock" && break
+              sleep 1
+          done
+          test -S "${XDG_RUNTIME_DIR}/podman/podman.sock" || { echo "podman.sock 未就绪" >&2; exit 1; }
+          export DOCKER_HOST="unix://${XDG_RUNTIME_DIR}/podman/podman.sock"
+          # 真连接探针：/_ping 必须在 60 秒内返回 OK（version 不触 daemon，不能作为依据）。
+          timeout 60 curl --silent --show-error --fail --unix-socket "${XDG_RUNTIME_DIR}/podman/podman.sock" "http://d/_ping" \
+              || { echo "podman service _ping 探针失败" >&2; exit 1; }
+          timeout 60 podman info > /dev/null || { echo "podman info 探针失败" >&2; exit 1; }
           timeout 60 podman compose version || { echo "podman compose 委托探针失败" >&2; exit 1; }
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
