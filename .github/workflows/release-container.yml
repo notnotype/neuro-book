@@ -1089,6 +1089,11 @@ jobs:
           # 真连接探针：/_ping 必须在 60 秒内返回 OK（version 不触 daemon，不能作为依据）。
           timeout 60 curl --silent --show-error --fail --unix-socket "${PODMAN_API_SOCK}" "http://d/_ping" \
               || { echo "podman service _ping 探针失败" >&2; exit 1; }
+          # Compose API 探针：Manager 委托的是 docker-compose 客户端，必须用
+          # 同一客户端对同一 socket 打一次真 API（ps 连 daemon 列项目）。
+          printf 'services: {}\n' > "${RUNNER_TEMP}/podman-api-probe.yaml"
+          timeout 60 docker-compose -f "${RUNNER_TEMP}/podman-api-probe.yaml" ps --all \
+              || { echo "docker-compose 经 podman.sock 的 Compose API 探针失败" >&2; exit 1; }
           manager_version="$(node -p 'require("./packages/neuro-book-manager/package.json").version')"
           candidate_manifest="$PWD/candidate-assets/release-manifest.json"
           # 40 分钟护栏：任何死锁都硬失败并保留现场日志，避免整 job 静默挂到 6 小时。
