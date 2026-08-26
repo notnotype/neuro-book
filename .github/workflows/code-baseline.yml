@@ -57,6 +57,29 @@ env:
   NODE_OPTIONS: --max-old-space-size=4096
 
 jobs:
+  changes:
+    name: Detect change scope
+    runs-on: ubuntu-latest
+    outputs:
+      typecheck: ${{ steps.scope.outputs.typecheck }}
+      tests: ${{ steps.scope.outputs.tests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Select baseline scopes
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          {
+            base="$(git merge-base origin/master HEAD)"
+            git diff --name-only "${base}" HEAD | bun scripts/ci/baseline-change-scope.ts
+          } >> "$GITHUB_OUTPUT"
+
   governance:
     name: Governance and repository contracts
     runs-on: ubuntu-latest
@@ -85,6 +108,8 @@ jobs:
     name: Typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    needs: changes
+    if: needs.changes.outputs.typecheck == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -105,6 +130,8 @@ jobs:
     name: Full tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    needs: changes
+    if: needs.changes.outputs.tests == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v5

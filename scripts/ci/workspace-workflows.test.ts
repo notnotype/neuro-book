@@ -5,6 +5,7 @@ import {describe, expect, it} from "vitest";
 import {parse} from "yaml";
 
 import {selectProductPlatformMatrix} from "#scripts/build/product-platform-matrix";
+import {selectBaselineScopes} from "#scripts/ci/baseline-change-scope";
 
 type WorkflowStep = {
     id?: string;
@@ -25,6 +26,9 @@ type Workflow = {
     permissions?: Record<string, string>;
     jobs: Record<string, {
         steps?: WorkflowStep[];
+        needs?: string | string[];
+        if?: string;
+        outputs?: Record<string, string>;
         strategy?: {
             "fail-fast"?: boolean;
             matrix?: {include?: Array<Record<string, unknown>>};
@@ -120,8 +124,33 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(commands(workflow)).toContain("scripts/ci/workspace-workflows.test.ts");
         expect(commands(workflow)).toContain("scripts/build/dockerfile-contract.test.ts");
         expect(Object.values(workflow.jobs).map((job) => job.name ?? "").join(" ")).not.toContain("advisory");
+        const changes = workflow.jobs.changes;
+        expect(changes?.steps?.find((step) => step.name === "Checkout")?.with?.["fetch-depth"]).toBe(0);
+        expect(changes?.steps?.some((step) => step.uses === "oven-sh/setup-bun@v2")).toBe(true);
+        expect(String(changes?.steps?.find((step) => step.id === "scope")?.run ?? "")).toContain("scripts/ci/baseline-change-scope.ts");
+        expect(Object.keys(changes?.outputs ?? {}).sort()).toEqual(["tests", "typecheck"]);
+        expect(workflow.jobs.governance?.if).toBeUndefined();
+        expect(workflow.jobs.typecheck?.needs).toBe("changes");
+        expect(workflow.jobs.typecheck?.if).toBe("needs.changes.outputs.typecheck == 'true'");
+        expect(workflow.jobs.test?.needs).toBe("changes");
+        expect(workflow.jobs.test?.if).toBe("needs.changes.outputs.tests == 'true'");
     });
 
+    it("baseline 变更作用域选择器按输入路径区分门禁", () => {
+        const docsOnly = {typecheck: false, tests: false};
+        expect(selectBaselineScopes([".agents/tasks/00158-notification-contrast-fix/README.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["packages/neuro-book/docs/architecture.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["packages/neuro-book/.agents/handbook.md"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes([".github/workflows/code-baseline.yml"], "pull_request")).toEqual(docsOnly);
+        expect(selectBaselineScopes(["README.md", "docs/specs/theme/system.md"], "pull_request")).toEqual(docsOnly);
+        const runtime = {typecheck: true, tests: true};
+        expect(selectBaselineScopes(["packages/neuro-book/server/agent/harness/neuro-agent-harness.test.ts"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["patches/nitropack@2.13.4.patch"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["package.json", "bun.lock", "bunfig.toml"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes(["plugins/foo/index.ts"], "pull_request")).toEqual(runtime);
+        expect(selectBaselineScopes([".agents/tasks/x/README.md"], "workflow_dispatch")).toEqual(runtime);
+
+    });
     it("所有 CI workflow 使用 Bun run --cwd 语法", async () => {
         const workflows = await readWorkflows();
         const invalid = [...workflows.entries()]
