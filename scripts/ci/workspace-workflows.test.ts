@@ -242,7 +242,11 @@ describe("迁移后九个 CI 工作流结构合同", () => {
 
         const closure = selectWorkspaceMatrix(["packages/neuro-agent-harness/src/b.ts"], "pull_request");
         expect(closure.include.map((row) => row.name)).toEqual(["neuro-agent-harness", "llmlint"]);
-        expect(closure.runWebIsland).toBe(false);
+        expect(closure.runWebIsland).toBe(true);
+
+        const mixed = selectWorkspaceMatrix(["bun.lock", "packages/nb-history/src/a.ts"], "pull_request");
+        expect(mixed.include).toHaveLength(WORKSPACE_PACKAGE_CHECKS.length);
+        expect(mixed.runWebIsland).toBe(true);
 
         const webIsland = selectWorkspaceMatrix(["packages/llmlint/web/app.vue"], "pull_request");
         expect(webIsland.include.map((row) => row.name)).toEqual(["llmlint"]);

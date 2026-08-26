@@ -75,6 +75,7 @@ let cachedGraph: DependencyGraph | null = null;
 
 function isSharedInput(changedFile: string): boolean {
     if (SHARED_INPUT_FILES[changedFile] === true) {
+        return true;
     }
     return SHARED_INPUT_PREFIXES.some((prefix) => changedFile.startsWith(prefix));
 }
@@ -172,7 +173,7 @@ export function selectWorkspaceMatrix(
     const {consumersOf} = loadDependencyGraph();
     const closed = expandConsumerClosure(direct, consumersOf);
     const include = WORKSPACE_PACKAGE_CHECKS.filter((check) => closed.has(check.name));
-    const runWebIsland = changedFiles.some((file) => file.startsWith("packages/llmlint/"));
+    const runWebIsland = closed.has("llmlint") || changedFiles.some((file) => file.startsWith("packages/llmlint/"));
     return {include, runWebIsland};
 }
 
