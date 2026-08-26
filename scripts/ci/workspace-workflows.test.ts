@@ -202,6 +202,7 @@ describe("迁移后九个 CI 工作流结构合同", () => {
         expect(paths(workflow)).toEqual(expect.arrayContaining([
             "packages/llmlint/web/**",
             "packages/llmlint/skill/**",
+            "bunfig.toml",
             "packages/llmlint/evals/report/**",
         ]));
         const packageJob = workflow.jobs.package;

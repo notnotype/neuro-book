@@ -6,6 +6,7 @@ on:
       - ".github/workflows/workspace-packages.yml"
       - "package.json"
       - "bun.lock"
+      - "bunfig.toml"
       - "packages/nb-history/**"
       - "packages/nb-workflow/**"
       - "packages/nb-memory/**"

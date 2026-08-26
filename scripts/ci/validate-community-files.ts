@@ -541,6 +541,7 @@ async function validateWorkflows(): Promise<void> {
     const packageJob = workspace.jobs.package;
     ensure(packageJob?.strategy?.["fail-fast"] === false, "Workspace package matrix 必须独立报告全部包结果");
     ensure(packageJob?.needs === "select-packages", "Workspace package matrix 必须由 select-packages 选择");
+    ensure(workspace.on?.pull_request?.paths?.includes("bunfig.toml") === true, "Workspace Packages 必须监听 bunfig.toml 变更");
     ensure(packageJob?.strategy?.matrix === "${{ fromJSON(needs.select-packages.outputs.matrix) }}", "Workspace package matrix 必须消费动态选择输出");
     const selectJob = workspace.jobs["select-packages"];
     ensure(selectJob?.steps?.some((step) => step.id === "select"), "Workspace 缺少包选择步骤");
