@@ -8,6 +8,7 @@
  * <JsonViewer :value="someObject" />
  * <JsonViewer :value="someObject" mode="text" :max-height="200" />
  */
+import {IconButton as NbIconButton} from "@notnotype/nb-ui/components";
 import JsonEditorVue from "json-editor-vue";
 import {Mode} from "vanilla-jsoneditor";
 
@@ -191,27 +192,21 @@ function handleEditorUpdate(value: unknown): void {
             </div>
 
             <div class="json-viewer__actions">
-                <button type="button" class="json-viewer__icon-button" title="复制 JSON" @click="copyValue">
-                    <span class="i-lucide-copy h-3.5 w-3.5"></span>
-                </button>
-                <button
-                    type="button"
-                    class="json-viewer__icon-button"
+                <NbIconButton size="sm" title="复制 JSON" icon-class="i-lucide-copy" @click="copyValue" />
+                <NbIconButton
+                    size="sm"
                     title="展开全部"
+                    icon-class="i-lucide-unfold-vertical"
                     :disabled="!canToggleExpand"
                     @click="expandAll"
-                >
-                    <span class="i-lucide-unfold-vertical h-3.5 w-3.5"></span>
-                </button>
-                <button
-                    type="button"
-                    class="json-viewer__icon-button"
+                />
+                <NbIconButton
+                    size="sm"
                     title="折叠全部"
+                    icon-class="i-lucide-fold-vertical"
                     :disabled="!canToggleExpand"
                     @click="collapseAll"
-                >
-                    <span class="i-lucide-fold-vertical h-3.5 w-3.5"></span>
-                </button>
+                />
             </div>
         </div>
 
@@ -264,8 +259,7 @@ function handleEditorUpdate(value: unknown): void {
     gap: 0.2rem;
 }
 
-.json-viewer__mode-button,
-.json-viewer__icon-button {
+.json-viewer__mode-button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -276,29 +270,18 @@ function handleEditorUpdate(value: unknown): void {
         background-color 120ms ease,
         border-color 120ms ease,
         color 120ms ease;
-}
-
-.json-viewer__mode-button {
     width: 1.6rem;
     height: 1.6rem;
     border-radius: 0.45rem;
 }
 
-.json-viewer__icon-button {
-    width: 1.6rem;
-    height: 1.6rem;
-    border-radius: 0.45rem;
-}
-
-.json-viewer__mode-button:hover,
-.json-viewer__icon-button:hover {
+.json-viewer__mode-button:hover {
     border-color: color-mix(in srgb, var(--accent-main) 20%, var(--border-color));
     background: color-mix(in srgb, var(--bg-hover) 88%, transparent);
     color: var(--text-main);
 }
 
-.json-viewer__mode-button:focus-visible,
-.json-viewer__icon-button:focus-visible {
+.json-viewer__mode-button:focus-visible {
     outline: none;
     border-color: color-mix(in srgb, var(--accent-main) 35%, var(--border-color));
     background: color-mix(in srgb, var(--accent-bg) 55%, var(--bg-input));
@@ -309,11 +292,6 @@ function handleEditorUpdate(value: unknown): void {
     background: color-mix(in srgb, var(--accent-bg) 72%, var(--bg-input));
     color: var(--accent-text);
     font-weight: 600;
-}
-
-.json-viewer__icon-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
 }
 
 /* 承载 jsoneditor 根节点，内容区在内部滚动 */

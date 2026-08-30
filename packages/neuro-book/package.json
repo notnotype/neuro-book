@@ -90,6 +90,7 @@
     "@notnotype/file-snapshot-cache": "workspace:*",
     "@notnotype/neuro-book-contracts": "workspace:*",
     "@notnotype/nb-history": "workspace:*",
+    "@notnotype/nb-ui": "workspace:*",
     "@notnotype/nb-workflow": "workspace:*",
     "@notnotype/owned-process": "workspace:*",
     "@nuxt/kit": "^4.3.1",

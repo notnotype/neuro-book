@@ -162,6 +162,7 @@ export default defineNuxtConfig({
     },
     css: [
         "the-new-css-reset/css/reset.css",
+        "@notnotype/nb-ui/styles.css",
         "nbook/app/styles/theme-vars.css",
         "nbook/app/styles/reference-chips.css",
         "@vue-flow/core/dist/style.css",
@@ -169,6 +170,10 @@ export default defineNuxtConfig({
         "@vue-flow/controls/dist/style.css",
         "@vue-flow/minimap/dist/style.css",
     ],
+    build: {
+        // nb-ui 的 exports 指向未编译的 .ts 源码，必须由本应用的构建管线处理。
+        transpile: ["@notnotype/nb-ui"],
+    },
     modules: [
         "nuxt-auth-utils",
         "@pinia/nuxt",
