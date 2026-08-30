@@ -22,7 +22,7 @@ describe("Workbench Chrome", () => {
         })).toBe("compact");
     });
 
-    it("keeps the desktop activity bar focused on project tools and moves global navigation into the title bar", () => {
+    it("在桌面端和 Web 端都显示书架管理入口，全局导航移至标题栏", () => {
         const bookshelf = createWorkbenchActivityItems({
             desktopAvailable: true,
             surfaceActive: false,
@@ -30,6 +30,7 @@ describe("Workbench Chrome", () => {
         });
 
         expect(bookshelf.primary.map((item) => [item.id, item.disabled])).toEqual([
+            ["home", false],
             ["files", true],
             ["characters", true],
             ["plot", true],

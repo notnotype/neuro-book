@@ -1333,6 +1333,9 @@ const openProjectFromPicker = async (projectRoot: string): Promise<void> => {
  * 因此其它窗口仍能继续持有同一个 Project。取消时保持 URL 原样，不留下多余的历史记录。
  */
 const openProjectPicker = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value) {
+        await releaseProjectSurface();
+    }
     await router.push("/");
 };
 
@@ -1853,9 +1856,8 @@ const openPlotWorkbench = async (): Promise<void> => {
 /**
  * 打开全局用户 assets 工作区。
  */
-const openUserAssets = (): void => {
-    const resolved = router.resolve(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
-    window.open(resolved.href, "_blank", "noopener,noreferrer");
+const openUserAssets = async (): Promise<void> => {
+    await router.push(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
 };
 
 /**
@@ -2549,7 +2551,7 @@ onBeforeUnmount(() => {
 
         <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <!-- 未选择 Project：项目选择界面接管整页 -->
-        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
+        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="void openUserAssets()" />
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <div v-if="projectSurfaceActive" class="flex min-h-0 flex-1 overflow-hidden">
