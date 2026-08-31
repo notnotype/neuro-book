@@ -31,7 +31,15 @@ createdAt: 2026-08-30T00:00:00Z
 
 ## 命令形式修正
 
-仓库 `AGENTS.md` 的「常用命令」里 `bun --cwd packages/neuro-book run …` 这一空格形式在 bun 1.3.14 下不工作，会直接打印 `bun run` 用法并退出。该版本的 `--cwd` 必须写成等号形式 `bun --cwd=packages/neuro-book run …`，已实跑验证。受影响的命令有六条：`dev`、`dev:runtime`、`build`、`typecheck`、`migration:check`、`generate`。`AGENTS.md` 的订正未在本 Task 内执行。
+仓库 `AGENTS.md` 的「常用命令」里 `bun --cwd packages/neuro-book run …` 不工作，会直接打印 `bun run` 用法并以 0 退出——看起来像什么都没发生，因此很难被发现。
+
+实跑确定的规律是位置决定的，不是等号决定的：`--cwd` 写在 `run` **前面**时必须用等号形式，空格形式失效；写在 `run` **后面**时空格与等号都正常。受影响的六条命令是 `dev`、`dev:runtime`、`build`、`typecheck`、`migration:check`、`generate`。同文件第 139 行的 `bun run --cwd desktop/electron typecheck` 经探针验证本就正常，未改动。
+
+修法取 `bun run --cwd <dir> <script>`，因为这个位置下两种写法都成立，不会再踩同一个坑。开发者批准后已在主工作区的 `AGENTS.md` 上执行，并在命令块末尾补了一行失败表现说明。
+
+这个坑仓库踩过第二次：`.agents/tasks/00156-issue131-plot-drag-verification/walkthroughs/001-leader-2026-08-25_05-30-runtime-acceptance.md` 第 21 行已记录过同一现象，`scripts/ci/workspace-workflows.test.ts` 也有断言拦截 GitHub workflow 里的该写法，但 `AGENTS.md` 自身一直没订正。
+
+`packages/nb-workflow/README.md`、`vitepress/locales/zh-Hans/monorepo.md` 与 `vitepress/locales/en-US/monorepo.md` 仍带同一写法，超出本 Task 范围，未改动。
 
 ## 未验证
 
@@ -51,6 +59,8 @@ createdAt: 2026-08-30T00:00:00Z
 | `common/ProbeCommonFlat.vue` | `ProbeCommonFlat` |
 
 结论：`Foo/index.vue` 与 `Foo.vue` 得到完全相同的注册名，`index` 不进入组件名，免前缀目录同样成立。**组件目录化不会改变任何组件名，也不改变现有的同名碰撞情况。**探针已删除，仓库中不留该形态的组件。
+
+**开发者已拍板：不目录化。**技术上可行不构成采用理由，组件保持 `Foo.vue` 与同目录 `Foo.md` 并列的扁平形态。连带定下 fixture 位置——按 t04 README 记录的分支，不目录化即集中放在开发专用目录并按整目录排除，Lab 建立时按此执行，不再重议。
 
 ## 发现一：nb-ui 的 tsconfig 继承一个 gitignore 的生成物
 
@@ -90,4 +100,14 @@ nb-ui 引用 106 个自定义属性。逐一比对后，`--overlay-bg` 与 `--sh
 
 JsonViewer 的标签为 `state:local` 与 `env:clipboard`，不落在五种推荐配方内，属于档位 D 配方偏离。组件规范的详略分档表只写了纯零件、受控零件、领域视图、宿主与流式宿主，没有说配方偏离该写多少。
 
-本次按「写出 Lab 演示不出来的部分」处理，完整写了六节。规范需要补一条对配方偏离的默认要求。
+本次按「写出 Lab 演示不出来的部分」处理，完整写了六节。已在 `2ebe5e0c` 为配方偏离补上默认档位：按「验证」一节推导的可验证程度取档，并要求为造成偏离的那条隐藏通道写理由。按新规则回看，JsonViewer 归领域视图一档，本次属于超写。
+
+## 发现六：散文写法会整个漏掉一个事件
+
+`JsonViewer.md` 初版把 props 与 emits 翻译成中文散文，结果漏了 `validation-change` 事件——实现中每次内容变化都会用 `JSON.parse` 试一次并把成败发给父组件，文档里没有它，「不支持」一节还反着写了「不对外报告校验结果」。
+
+这不是一次疏忽，是散文写法的固有漏洞：类型声明少一项，读的人有明确的缺口可以对照实现发现；散文少一段，读的人无从知道少了什么。
+
+开发者据此改定组件文档的写法：props、emits、slots 直接写 TypeScript 类型声明，含义、默认值与是否受控写在类型的注释里；文档的判据加一条「读的人不看实现就知道这个组件是什么、能做什么、有什么别处没有的特点、用的时候要注意什么」；正文新增可选的「注意事项」一节。相应地，开头概述对所有档位都必写——Lab 摆得出组件有哪些状态，摆不出为什么会有这个组件。
+
+规范已按此更新，`JsonViewer.md` 已按新规范重写：补回 `validation-change`，订正「不支持」一节，新增三条注意事项（`maxHeight` 默认 300 不是不限制、`mode` 不是只读初始值、传字符串与传对象是两条路径）。
