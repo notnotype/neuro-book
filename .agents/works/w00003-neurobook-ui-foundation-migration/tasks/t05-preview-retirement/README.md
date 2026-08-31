@@ -43,7 +43,7 @@ t01 标为「真实行为」的 5 个场景不提取数据，它们依赖真实�
 
 ## 验证
 
-1. `bun --cwd packages/neuro-book run typecheck`。
+1. `bun run --cwd packages/neuro-book typecheck`。
 2. 与删除表面相关的聚焦测试。
 3. 全仓静态查找确认 14 个页面路径、导航链接与专属 mock 均无残留引用；普通业务词 `preview` 不作为判据。
 4. 启动开发入口确认主页面与设置、Profile、World Engine、Agent 四处正式入口仍可打开。

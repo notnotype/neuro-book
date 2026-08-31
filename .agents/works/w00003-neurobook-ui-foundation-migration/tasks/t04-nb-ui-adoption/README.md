@@ -38,7 +38,7 @@ role: tasker
 
 ## 验证
 
-1. `bun --cwd packages/neuro-book run typecheck`。
+1. `bun run --cwd packages/neuro-book typecheck`。
 2. 与改动表面相关的聚焦测试。
 3. 启动开发入口，逐项核对六个按钮的 title、disabled、点击结果与图标，与切换前一致；确认每个按钮都有可访问名称。
 4. 桌面（宽度不低于 1440px）与 `390×844` 真实页面验证 JsonViewer 布局与操作，记录实际视口值。
