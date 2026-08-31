@@ -39,7 +39,9 @@ t04 的浏览器人工走查在本 Task 开工时仍未完成。两者不互相�
 | **可收起的侧栏** | **nb-ui 没有，新写** |
 | **能调尺寸的画布** | **nb-ui 没有，新写** |
 
-**四、nb-ui 的 `FileTree` 与主应用的 `WorkspaceFileTree` 是重复实现。**两者行数接近（283 与 265），合同也接近：节点分 file/directory、带 children、拖拽落点为 before/after/inside。这意味着 `WorkspaceFileTree` 不是 Lab 的展品，而是**该被 nb-ui 替换掉的迁移对象**，属于本 Work 的本职工作。本 Task 不做这件事，只登记这个发现。
+**四、nb-ui 的 `FileTree` 与主应用的 `WorkspaceFileTree` 形态接近，但不构成替换关系。**两者行数接近（283 与 265），合同也接近：节点分 file/directory、带 children、拖拽落点为 before/after/inside。但 nb-ui 的这棵树**不是 reka 提供的**，283 行全部手写，roving tabindex、键盘导航与 HTML5 拖拽都是自己实现的，因此它并不比 `WorkspaceFileTree` 更有来头。
+
+`WorkspaceFileTree` 更领域化也更多功能：接受扁平的路径列表并自己建出层级（nb-ui 的要求传入已经嵌套好的数组）、有强制展开路径、有领域化的落点规则与尾部落点。**开发者已拍板两者共存**，先用 nb-ui 的 `FileTree` 搭 Lab 左栏，不动 `WorkspaceFileTree`。本 Task 只登记这个对比，替换与否留给后续判断。
 
 **五、组件规范已收窄「开发工具不受约束」这一句。**原文把开发工具整体排除在外，会导致 Lab 自己的零件没有组件文档，而 Lab 的索引正是扫组件文档得来的——没文档就进不了清单，Lab 展示不了自己。现改为：开发工具的页面和整体外壳不受约束，**开发工具里的零件受约束**；分界是给一份 props 就能在别处渲染出来的是零件，必须待在特定位置、依赖整页上下文才成立的是外壳。
 
@@ -140,4 +142,4 @@ t04 的浏览器人工走查在本 Task 开工时仍未完成。两者不互相�
 - 组件规范：[`docs/standards/code/components.md`](../../../../../docs/standards/code/components.md)。
 - 前序实现与第一份组件文档：[t04 接入 nb-ui](../t04-nb-ui-adoption/README.md)。
 
-本 Task 不让任何旧组件入驻 Lab、不替换 `WorkspaceFileTree`、不修改 `JsonViewer` 的行为、不建立预置状态快照与「挂不上」两条通路、不建立治理扫描报告工具（Lab 自用的索引扫描不等于按档位排序输出违规清单的报告工具）、不切换产品主题（Lab 里能切主题不等于产品换主题）、不删除任何 preview 页面、不改动 nb-ui 及其 playground、不补写 Lab 界面合同，也不执行 push、PR、远端写入、合并、发布或部署。
+本 Task 不让任何旧组件入驻 Lab、不替换 `WorkspaceFileTree`（已定为与 nb-ui `FileTree` 共存）、不修改 `JsonViewer` 的行为、不建立预置状态快照与「挂不上」两条通路、不建立治理扫描报告工具（Lab 自用的索引扫描不等于按档位排序输出违规清单的报告工具）、不切换产品主题（Lab 里能切主题不等于产品换主题）、不删除任何 preview 页面、不改动 nb-ui 及其 playground、不补写 Lab 界面合同，也不执行 push、PR、远端写入、合并、发布或部署。
