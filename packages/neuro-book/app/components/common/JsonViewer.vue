@@ -8,7 +8,8 @@
  * <JsonViewer :value="someObject" />
  * <JsonViewer :value="someObject" mode="text" :max-height="200" />
  */
-import {IconButton as NbIconButton} from "@notnotype/nb-ui/components";
+import {IconButton as NbIconButton, ToggleGroup as NbToggleGroup} from "@notnotype/nb-ui/components";
+import type {ToggleGroupOption} from "@notnotype/nb-ui/components";
 import JsonEditorVue from "json-editor-vue";
 import {Mode} from "vanilla-jsoneditor";
 
@@ -98,17 +99,24 @@ const canToggleExpand = computed(() => currentMode.value !== Mode.table);
 /**
  * 模式切换按钮定义。
  */
-const modeButtons: Array<{ key: JsonViewerMode; iconClass: string; title: string; }> = [
-    { key: Mode.text, iconClass: "i-lucide-file-json-2", title: "切换到文本模式" },
-    { key: Mode.tree, iconClass: "i-lucide-git-branch", title: "切换到树形模式" },
-    { key: Mode.table, iconClass: "i-lucide-table-properties", title: "切换到表格模式" },
+const modeButtons: ToggleGroupOption[] = [
+    { value: Mode.text, iconClass: "i-lucide-file-json-2", title: "切换到文本模式" },
+    { value: Mode.tree, iconClass: "i-lucide-git-branch", title: "切换到树形模式" },
+    { value: Mode.table, iconClass: "i-lucide-table-properties", title: "切换到表格模式" },
 ];
 
 /**
  * 切换查看模式。
+ * ToggleGroup 单选模式下再次点击当前项会发出空值取消选择，而查看器必须始终处于某个模式，
+ * 因此空值保持原模式不变。
  */
-function switchMode(mode: JsonViewerMode) {
-    currentMode.value = mode;
+function switchMode(value: string | string[] | undefined) {
+    const next = Array.isArray(value) ? value[0] : value;
+    if (!next) {
+        return;
+    }
+
+    currentMode.value = next as JsonViewerMode;
 }
 
 /**
@@ -177,19 +185,12 @@ function handleEditorUpdate(value: unknown): void {
     <div class="json-viewer" :class="{'json-viewer--readonly': props.readOnly}" :style="containerStyle">
         <!-- 自定义工具栏 -->
         <div v-if="props.mainMenuBar" class="json-viewer__toolbar">
-            <div class="json-viewer__modes">
-                <button
-                    v-for="item in modeButtons"
-                    :key="item.key"
-                    type="button"
-                    class="json-viewer__mode-button"
-                    :class="{ 'json-viewer__mode-button--active': currentMode === item.key }"
-                    :title="item.title"
-                    @click="switchMode(item.key)"
-                >
-                    <span :class="item.iconClass" class="h-3.5 w-3.5"></span>
-                </button>
-            </div>
+            <NbToggleGroup
+                size="sm"
+                :options="modeButtons"
+                :model-value="currentMode"
+                @update:model-value="switchMode"
+            />
 
             <div class="json-viewer__actions">
                 <NbIconButton size="sm" title="复制 JSON" icon-class="i-lucide-copy" @click="copyValue" />
@@ -251,47 +252,11 @@ function handleEditorUpdate(value: unknown): void {
     background: color-mix(in srgb, var(--bg-input) 96%, transparent);
 }
 
-.json-viewer__modes,
 .json-viewer__actions {
     display: flex;
     min-width: 0;
     align-items: center;
     gap: 0.2rem;
-}
-
-.json-viewer__mode-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
-    background: transparent;
-    color: var(--text-secondary);
-    transition:
-        background-color 120ms ease,
-        border-color 120ms ease,
-        color 120ms ease;
-    width: 1.6rem;
-    height: 1.6rem;
-    border-radius: 0.45rem;
-}
-
-.json-viewer__mode-button:hover {
-    border-color: color-mix(in srgb, var(--accent-main) 20%, var(--border-color));
-    background: color-mix(in srgb, var(--bg-hover) 88%, transparent);
-    color: var(--text-main);
-}
-
-.json-viewer__mode-button:focus-visible {
-    outline: none;
-    border-color: color-mix(in srgb, var(--accent-main) 35%, var(--border-color));
-    background: color-mix(in srgb, var(--accent-bg) 55%, var(--bg-input));
-}
-
-.json-viewer__mode-button--active {
-    border-color: color-mix(in srgb, var(--accent-main) 28%, var(--border-color));
-    background: color-mix(in srgb, var(--accent-bg) 72%, var(--bg-input));
-    color: var(--accent-text);
-    font-weight: 600;
 }
 
 /* 承载 jsoneditor 根节点，内容区在内部滚动 */
