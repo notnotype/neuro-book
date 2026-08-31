@@ -30,10 +30,23 @@ const dragging = ref(false);
 const shownWidth = computed(() => draftWidth.value ?? props.width);
 const shownHeight = computed(() => draftHeight.value ?? props.height);
 
-const boxStyle = computed(() => ({
-    width: shownWidth.value > 0 ? `${shownWidth.value}px` : "100%",
-    height: shownHeight.value > 0 ? `${shownHeight.value}px` : "100%",
-}));
+// 不限制的那一维要撑满舞台而不是缩成内容大小——一个塌成一行高的盒子
+// 看不出「不限尺寸」是什么状态，还会在舞台上留下大片空白。
+const boxStyle = computed(() => {
+    const style: Record<string, string> = {};
+    if (shownWidth.value > 0) {
+        style.width = `${shownWidth.value}px`;
+    } else {
+        style.alignSelf = "stretch";
+    }
+    if (shownHeight.value > 0) {
+        style.height = `${shownHeight.value}px`;
+    } else {
+        style.flex = "1 1 auto";
+        style.minHeight = "0";
+    }
+    return style;
+});
 
 const sizeLabel = computed(() => {
     const w = shownWidth.value > 0 ? `${Math.round(shownWidth.value)}` : "自动";
