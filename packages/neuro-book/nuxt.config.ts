@@ -44,9 +44,27 @@ const runtimeWorkspaceWatchIgnore = [
         : []),
 ];
 
+// 组件 Lab 只存在于源码开发环境。排除发生在路由生成阶段：路由被摘掉之后，
+// 只有它才引用的 app/component-lab/** 在构建图上不可达，产物里不会出现这些模块。
+// 用运行时守卫或环境变量隐藏一个已经打包进去的 Lab 不满足这条要求。
+const labEnabled = process.env.NODE_ENV !== "production";
+
 export default defineNuxtConfig({
     ssr: false,
     buildId: productBuildId,
+    hooks: {
+        "pages:extend"(pages) {
+            if (labEnabled) {
+                return;
+            }
+            for (let index = pages.length - 1; index >= 0; index -= 1) {
+                const file = pages[index]?.file ?? "";
+                if (file.endsWith("/pages/lab.vue") || file.includes("component-lab")) {
+                    pages.splice(index, 1);
+                }
+            }
+        },
+    },
     alias: {
         nbook: rootDir,
     },
