@@ -1,10 +1,16 @@
 ---
 schema: nbook.task/v2
-taskId: t05-preview-retirement
+taskId: t06-preview-retirement
 role: tasker
 ---
 
 # 保留 preview 场景数据并删除 preview 页面
+
+## 已顺延
+
+原为 t05，未开工即由开发者顺延。原因是范围过大，且 Lab 更需要先建起来。清退本身没有取消——14 个 preview 页面目前随产品一起发布（从构建配置读出，未跑构建验证），仍须清理。
+
+顺延后本 Task 多了一个前置好处：[t05 建 Lab](../t05-component-lab/README.md) 会先做出产物门禁，届时 preview 页面为什么会被发出去这件事已经查清，清退不必再重新调查一遍。
 
 ## 目标
 
