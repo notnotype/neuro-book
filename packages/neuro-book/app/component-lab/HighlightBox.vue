@@ -2,6 +2,14 @@
 import {computed} from "vue";
 import type {HighlightRect, HighlightTone} from "./highlight-box.types";
 
+/**
+ * 标签的文字色走 --text-inverse 而不是 --accent-text。
+ *
+ * 两者名字像，角色不同：--accent-text 是**强调底色**（--accent-bg，一层低透明度的强调色）
+ * 上的文字色，所以它本身就是强调色系的——nbook-light 里它是 #0060df。把它写在实心的
+ * --accent-main（#007aff）上，等于蓝字压蓝底，读不出来。实心强调面上的文字色是 --text-inverse。
+ */
+
 const LABEL_HEIGHT = 22;
 
 const props = withDefaults(defineProps<{
@@ -61,10 +69,10 @@ const labelStyle = computed(() => {
         ></div>
         <div
             v-if="props.label"
-            class="fixed z-50 max-w-[min(24rem,90vw)] truncate px-1.5 py-0.5 font-mono text-[11px] leading-[14px] tabular-nums"
+            class="fixed z-50 max-w-[min(24rem,90vw)] truncate rounded-[3px] px-1.5 py-0.5 font-mono text-[11px] leading-[14px] tabular-nums"
             :class="props.tone === 'probe'
                 ? 'bg-[var(--text-main)] text-[var(--bg-main)]'
-                : 'bg-[var(--accent-main)] text-[var(--accent-text)]'"
+                : 'bg-[var(--accent-main)] text-[var(--text-inverse)]'"
             :style="labelStyle"
         >{{ props.label }}</div>
     </div>

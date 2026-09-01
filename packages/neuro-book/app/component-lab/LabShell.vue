@@ -19,6 +19,8 @@ import {findLabFixture} from "./fixtures";
 import {LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
+import type {InspectedNode} from "./inspect";
+import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
 import {useElementRect} from "./use-element-rect";
 import {
     LAB_DEFAULT_COLORWAY,
@@ -30,7 +32,6 @@ import {
 } from "./lab-theme";
 
 const EVENT_LIMIT = 200;
-const PROBE_LABEL_CLASS_LIMIT = 2;
 
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
@@ -70,6 +71,7 @@ const sceneHasData = computed(() => scene.value?.data !== undefined);
 
 const tabItems = computed<TabsItem[]>(() => [
     {value: "scenes", label: "场景", count: fixture.value?.scenes.length ?? 0},
+    {value: "element", label: "元素"},
     {value: "doc", label: "文档"},
     {value: "events", label: "事件", count: events.value.length},
     {value: "data", label: "数据"},
@@ -133,14 +135,22 @@ onMounted(() => {
 // 主题写在 <html> 上（见 lab-theme.ts），离开 Lab 必须复原，否则产品界面跟着变
 onBeforeUnmount(clearLabTheme);
 
-// ——— 高亮：常亮描边 + 悬停探针 ———
+// ——— 检查：一个开关，devtools 那种取色针 ———
+//
+// 原来是「描边」「探针」两个开关：前者常亮框住 fixture 标出的零件，后者跟着鼠标走但只
+// 在框边显示一行字，看完即走、没法引用。合成一个之后语义变成单一的「当前选中的元素」：
+// 没选时是零件本体，选了就是你点的那个，信息落在检视面板里，可以复制。
 
 const stageRef = ref<HTMLElement | null>(null);
-const outlineOn = ref(true);
-const probeOn = ref(false);
-const probeRect = ref<HighlightRect | null>(null);
-const probeLabel = ref("");
+const inspectOn = ref(false);
+const picked = ref<InspectedNode | null>(null);
+const hoverRect = ref<HighlightRect | null>(null);
+const hoverLabel = ref("");
+const copied = ref(false);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+
 const {rect: subjectRect, track: trackSubject, measure: measureSubject} = useElementRect();
+const {rect: pickedRect, track: trackPicked, measure: measurePicked} = useElementRect();
 
 const subjectFound = ref(false);
 const subjectLabel = computed(() => {
@@ -150,7 +160,10 @@ const subjectLabel = computed(() => {
     }
     return `${selectedName.value}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
 });
-const shownSubjectRect = computed(() => (outlineOn.value ? subjectRect.value : null));
+
+// 选中的元素只有一个，框也只画一个：选过就框它，没选过就框零件本体。
+const selectionRect = computed(() => (picked.value === null ? subjectRect.value : pickedRect.value));
+const selectionLabel = computed(() => (picked.value === null ? subjectLabel.value : nodeLabel(picked.value)));
 
 /** fixture 用 data-lab-subject 标出「真正的零件」，其余都是它自己搭的台子。 */
 async function refreshSubject(): Promise<void> {
@@ -160,39 +173,97 @@ async function refreshSubject(): Promise<void> {
     trackSubject(element);
 }
 
-function describeElement(element: HTMLElement): string {
-    const classes = [...element.classList];
-    const shown = classes.slice(0, PROBE_LABEL_CLASS_LIMIT).map((name) => `.${name}`).join("");
-    const more = classes.length > PROBE_LABEL_CLASS_LIMIT ? "…" : "";
-    const id = element.id ? `#${element.id}` : "";
-    const box = element.getBoundingClientRect();
-    return `${element.tagName.toLowerCase()}${id}${shown}${more}  ${Math.round(box.width)} × ${Math.round(box.height)}`;
-}
-
-function handleProbeMove(event: MouseEvent): void {
-    if (!probeOn.value) {
+function handleInspectMove(event: MouseEvent): void {
+    if (!inspectOn.value) {
         return;
     }
-    // 覆盖层 pointer-events: none，因此 target 一定是预览里真实的元素
-    const element = event.target as HTMLElement | null;
-    if (element === null || !(element instanceof HTMLElement)) {
+    // 覆盖层 pointer-events: none，因此 target 一定是界面里真实的元素
+    const element = event.target;
+    if (!(element instanceof HTMLElement)) {
         return;
     }
     const box = element.getBoundingClientRect();
-    probeRect.value = {top: box.top, left: box.left, width: box.width, height: box.height};
-    probeLabel.value = describeElement(element);
+    hoverRect.value = {top: box.top, left: box.left, width: box.width, height: box.height};
+    hoverLabel.value = nodeLabel(describeNode(element));
 }
 
-function clearProbe(): void {
-    probeRect.value = null;
-    probeLabel.value = "";
+/**
+ * 取色针要在**捕获阶段**吃掉这一次点击，否则点在按钮上会顺手把按钮按了。
+ * mousedown 也得挡：不少控件在 mousedown 就响应，只挡 click 拦不住。
+ *
+ * 「检查」按钮本身豁免。取色范围是整个 Lab（要能指着顶栏说「这条」），按钮也在范围内，
+ * 不豁免的话取色期间点它等于选中了这个按钮，反而退不出来——Esc 能退，但没人会想到。
+ */
+function handleInspectCapture(event: MouseEvent): void {
+    if (!inspectOn.value) {
+        return;
+    }
+    const element = event.target;
+    if (!(element instanceof HTMLElement)) {
+        return;
+    }
+    if (element.closest("[data-lab-inspect-exempt]") !== null) {
+        return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type !== "click") {
+        return;
+    }
+    picked.value = describeNode(element);
+    trackPicked(element);
+    rightTab.value = "element";
+    // 与 devtools 一致：选中一个就退出取色，不然移开鼠标又变成别的元素
+    stopInspect();
 }
 
-watch(probeOn, (on) => {
-    if (!on) {
-        clearProbe();
+function stopInspect(): void {
+    inspectOn.value = false;
+    hoverRect.value = null;
+    hoverLabel.value = "";
+}
+
+function clearPicked(): void {
+    picked.value = null;
+    trackPicked(null);
+}
+
+function handleInspectKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && inspectOn.value) {
+        event.preventDefault();
+        stopInspect();
+    }
+}
+
+watch(inspectOn, (on) => {
+    if (on) {
+        window.addEventListener("keydown", handleInspectKeydown);
+    } else {
+        window.removeEventListener("keydown", handleInspectKeydown);
+        hoverRect.value = null;
+        hoverLabel.value = "";
     }
 });
+onBeforeUnmount(() => {
+    window.removeEventListener("keydown", handleInspectKeydown);
+    if (copiedTimer !== null) {
+        clearTimeout(copiedTimer);
+    }
+});
+
+async function copyPicked(): Promise<void> {
+    if (picked.value === null) {
+        return;
+    }
+    await navigator.clipboard.writeText(nodeReport(picked.value));
+    copied.value = true;
+    if (copiedTimer !== null) {
+        clearTimeout(copiedTimer);
+    }
+    copiedTimer = setTimeout(() => {
+        copied.value = false;
+    }, 1600);
+}
 
 // ——— 场景 ———
 
@@ -246,14 +317,23 @@ watch([fixtureComponent, selectedScene], () => {
 });
 // 改假数据不换节点，但零件可能被推走或改大小，ResizeObserver 看不见位移
 watch([sceneData, canvasWidth, canvasHeight], () => {
-    void nextTick(measureSubject);
+    void nextTick(() => {
+        measureSubject();
+        measurePicked();
+    });
 }, {deep: true});
 </script>
 
 <template>
     <!-- 主题轴管形状与节奏，配色轴管颜色。Lab 自己的界面必须真的消费主题 token，
          否则换主题只有 nb-ui 组件在动，看起来像切换没生效。 -->
-    <div class="lab-root flex h-full min-h-0 flex-col">
+    <div
+        class="lab-root flex h-full min-h-0 flex-col"
+        :class="inspectOn ? 'lab-root--inspecting' : ''"
+        @mousemove="handleInspectMove"
+        @click.capture="handleInspectCapture"
+        @mousedown.capture="handleInspectCapture"
+    >
         <!-- 顶栏每一项都写 shrink-0：这是一条全宽 flex 行，只要有一项不肯收缩，
              其余项就会被压到 min-content，而中文可以逐字换行，会直接压成竖排。 -->
         <header class="lab-bar flex shrink-0 items-center">
@@ -309,34 +389,26 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     <span class="lab-title truncate">{{ selected?.name ?? "未选择" }}</span>
                     <span v-if="scene" class="lab-note truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
-                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="lab-note shrink-0">
+                    <span v-if="!subjectFound && fixtureComponent && picked === null" class="lab-note shrink-0">
                         这个场景没有标出零件
                     </span>
                     <button
                         type="button"
-                        class="lab-btn shrink-0"
-                        :class="outlineOn ? 'lab-btn--on' : ''"
-                        :aria-pressed="outlineOn"
-                        @click="outlineOn = !outlineOn"
+                        class="lab-btn lab-btn--icon shrink-0"
+                        :class="inspectOn ? 'lab-btn--on' : ''"
+                        :aria-pressed="inspectOn"
+                        data-lab-inspect-exempt
+                        title="检查元素：点一下页面上任意位置，信息落到右边的「元素」（Esc 取消）"
+                        @click="inspectOn = !inspectOn"
                     >
-                        描边
-                    </button>
-                    <button
-                        type="button"
-                        class="lab-btn shrink-0"
-                        :class="probeOn ? 'lab-btn--on' : ''"
-                        :aria-pressed="probeOn"
-                        @click="probeOn = !probeOn"
-                    >
-                        探针
+                        <span class="i-lucide-mouse-pointer-square-dashed h-3.5 w-3.5" aria-hidden="true"></span>
+                        检查
                     </button>
                 </div>
 
                 <div
                     ref="stageRef"
                     class="min-h-0 flex-1"
-                    @mousemove="handleProbeMove"
-                    @mouseleave="clearProbe"
                 >
                     <div v-if="!selected" class="lab-empty">左边选一个组件</div>
                     <div v-else-if="!selected.mountable" class="lab-empty lab-empty--stack">
@@ -384,6 +456,61 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                 {{ item.label }}
                             </button>
                             <p v-if="!fixture" class="lab-note">这个组件没有场景。</p>
+                        </div>
+
+                        <div v-else-if="rightTab === 'element'" class="lab-pad">
+                            <template v-if="picked">
+                                <dl class="lab-meta lab-meta--flush">
+                                    <div v-if="picked.componentName" class="lab-meta-row">
+                                        <dt class="lab-meta-key">组件</dt>
+                                        <dd class="min-w-0 break-words">{{ picked.componentName }}</dd>
+                                    </div>
+                                    <div v-if="picked.componentFile" class="lab-meta-row">
+                                        <dt class="lab-meta-key">源文件</dt>
+                                        <dd class="min-w-0 break-all font-mono">{{ picked.componentFile }}</dd>
+                                    </div>
+                                    <div class="lab-meta-row">
+                                        <dt class="lab-meta-key">选择器</dt>
+                                        <dd class="min-w-0 break-all font-mono">{{ picked.selector }}</dd>
+                                    </div>
+                                    <div class="lab-meta-row">
+                                        <dt class="lab-meta-key">尺寸</dt>
+                                        <dd class="tabular-nums">{{ picked.width }} × {{ picked.height }}</dd>
+                                    </div>
+                                    <div v-if="picked.isSubject" class="lab-meta-row">
+                                        <dt class="lab-meta-key">标记</dt>
+                                        <dd>fixture 标出的零件本体</dd>
+                                    </div>
+                                </dl>
+
+                                <p class="lab-panel-label">类名 {{ picked.classes.length }}</p>
+                                <div class="lab-tags">
+                                    <span v-if="picked.classes.length === 0" class="lab-note">无</span>
+                                    <code
+                                        v-for="name in picked.classes.slice(0, INSPECT_CLASS_LIMIT)"
+                                        :key="name"
+                                        class="lab-chip"
+                                    >{{ name }}</code>
+                                    <span v-if="picked.classes.length > INSPECT_CLASS_LIMIT" class="lab-note">
+                                        还有 {{ picked.classes.length - INSPECT_CLASS_LIMIT }} 个（复制里是全的）
+                                    </span>
+                                </div>
+
+                                <div class="lab-row">
+                                    <button type="button" class="lab-btn lab-btn--icon" @click="copyPicked">
+                                        <span
+                                            class="h-3.5 w-3.5"
+                                            :class="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+                                            aria-hidden="true"
+                                        ></span>
+                                        {{ copied ? "已复制" : "复制" }}
+                                    </button>
+                                    <button type="button" class="lab-btn" @click="clearPicked">取消选中</button>
+                                </div>
+                            </template>
+                            <p v-else class="lab-note">
+                                点上面的「检查」，再点界面上任意位置——组件、源文件与选择器会落在这里，可以复制。
+                            </p>
                         </div>
 
                         <div v-else-if="rightTab === 'doc'" class="lab-pad">
@@ -442,8 +569,9 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </CollapsibleSidePanel>
         </div>
 
-        <HighlightBox :rect="shownSubjectRect" :label="subjectLabel" tone="subject" />
-        <HighlightBox :rect="probeRect" :label="probeLabel" tone="probe" />
+        <!-- 两个框、两种语义：实线是当前选中（没选时是零件本体），虚线只在取色时跟着鼠标走 -->
+        <HighlightBox :rect="selectionRect" :label="selectionLabel" tone="subject" />
+        <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
     </div>
 </template>
 
@@ -465,16 +593,44 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  */
 
 .lab-root {
+    /*
+     * 底纹压掉多少。**这是一个观感取值，需要调就改这一个数。**
+     *
+     * 主题的 --window-backdrop 是按「文档页」调的：那种页面上内容是一列不透明卡片，
+     * 底纹只从边上露出来，读起来是环境光。Lab 是满屏三栏仪器，两侧栏是 26%–30% 的玻璃，
+     * 底纹会**整片透过功能面板**——一条侧栏下半截泛蓝，那不是环境光，那是脏了。
+     * 所以这里盖一层 --bg-main 把振幅压下去，色相走向还在，玻璃仍有东西可糊。
+     * 代价说在明处：玻璃背后的明暗对比同步变弱，折射感会淡一些。
+     */
+    --lab-backdrop-veil: 72%;
+
     background-color: var(--bg-main);
-    /* 窗体底纹＝主题自带的「桌面壁纸」。玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
-       fixed 让底纹不随内部滚动跑，三栏共用同一张背景。非玻璃主题不声明它，取 none。 */
-    background-image: var(--window-backdrop, none);
+    /*
+     * 两层：面纱在上，窗体底纹在下。
+     * 窗体底纹＝主题自带的「桌面壁纸」，玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
+     * fixed 让底纹不随内部滚动跑，三栏共用同一张背景。非玻璃主题不声明它，取 none。
+     */
+    background-image:
+        linear-gradient(
+            color-mix(in srgb, var(--bg-main) var(--lab-backdrop-veil), transparent),
+            color-mix(in srgb, var(--bg-main) var(--lab-backdrop-veil), transparent)
+        ),
+        var(--window-backdrop, none);
     background-attachment: fixed;
     color: var(--text-main);
     font-family: var(--font-ui);
     font-size: var(--text-sm);
     letter-spacing: var(--tracking-ui);
     line-height: var(--leading-ui);
+}
+
+/* 取色期间整页换十字光标，并且不让文字被顺手选中——点击本身已在捕获阶段被吃掉。
+   必须写 :deep()：scoped 样式会给选择器补上本组件的 data-v 属性，`* ` 只命中本模板里的
+   元素，侧栏、画布、fixture 都是别的组件，不 deep 的话它们那片区域光标不变。 */
+.lab-root--inspecting,
+.lab-root--inspecting :deep(*) {
+    cursor: crosshair !important;
+    user-select: none;
 }
 
 .lab-bar {
@@ -519,6 +675,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 .lab-btn:hover {
     background: var(--bg-hover);
     color: var(--text-main);
+}
+
+.lab-btn--icon {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
 }
 
 .lab-btn:focus-visible {
@@ -606,6 +768,25 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 .lab-meta-row {
     display: flex;
     gap: var(--space-4);
+}
+
+/* 元素面板里这张表下面还接着类名与按钮，分隔线交给下一段自己的留白 */
+.lab-meta--flush {
+    margin-bottom: var(--space-4);
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.lab-panel-label {
+    margin-bottom: var(--space-3);
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+}
+
+.lab-row {
+    display: flex;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
 }
 
 .lab-meta-key {
