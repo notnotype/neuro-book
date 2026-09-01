@@ -144,7 +144,13 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
 <template>
     <!-- 尺寸画布：宽高受控，盒子大于舞台时靠滚动看，不缩放 -->
     <div class="nb-lab-stage h-full min-h-0 w-full overflow-auto">
-        <div class="nb-lab-stage-inner flex min-h-full min-w-max flex-col items-center justify-center">
+        <!--
+            盒子靠左上角摆，**不居中**。
+
+            居中的话拖拽会不跟手：盒子居中时加宽 W，左右各外扩 W/2，于是右边的手柄只走
+            光标位移的一半。要跟手就得让被拖的那条边之外的另一条边固定不动，也就是左上角。
+        -->
+        <div class="nb-lab-stage-inner flex min-h-full min-w-max flex-col items-start justify-start">
             <div
                 v-if="props.showSize"
                 class="nb-lab-stage-size shrink-0 tabular-nums"
