@@ -291,6 +291,12 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
     background: var(--bg-main);
 }
 
+/* 不给面，桌面直接透上来。盒子退成一个纯框，用来看组件自己画不画底、
+   以及它压在一个不受控的背景上会不会读不清。 */
+.nb-lab-stage-box--none {
+    background: transparent;
+}
+
 /* 主题自带的那张「桌面壁纸」。没声明它的主题落到面板色，不至于变成透明。 */
 .nb-lab-stage-box--theme {
     background-color: var(--bg-main);

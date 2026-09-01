@@ -23,7 +23,14 @@ import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
-import {LAB_DEFAULT_BACKDROP, LAB_DEFAULT_ZOOM, labBackdrops, labZooms} from "./stage-backdrops";
+import {
+    LAB_DEFAULT_BACKDROP,
+    LAB_DEFAULT_PAGE_BACKDROP,
+    LAB_DEFAULT_ZOOM,
+    labBackdrops,
+    labPageBackdrops,
+    labZooms,
+} from "./stage-backdrops";
 import {useElementRect} from "./use-element-rect";
 import {
     LAB_DEFAULT_COLORWAY,
@@ -49,6 +56,7 @@ const canvasWidth = ref(0);
 const canvasHeight = ref(0);
 const canvasZoom = ref(String(LAB_DEFAULT_ZOOM));
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
+const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
 const sceneData = ref<unknown>(undefined);
 const events = ref<LabEventEntry[]>([]);
@@ -117,6 +125,7 @@ const tabItems = computed<TabsItem[]>(() => [
 ]);
 
 const backdropOptions: FormSelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
+const pageBackdropOptions: FormSelectOption[] = labPageBackdrops.map((item) => ({value: item.id, label: item.label}));
 const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
     value: String(value),
     label: `${Math.round(value * 100)}%`,
@@ -353,7 +362,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
          否则换主题只有 nb-ui 组件在动，看起来像切换没生效。 -->
     <div
         class="lab-root flex h-full min-h-0 flex-col"
-        :class="inspectOn ? 'lab-root--inspecting' : ''"
+        :class="[inspectOn ? 'lab-root--inspecting' : '', `lab-root--bg-${pageBackdrop}`]"
         @mousemove="handleInspectMove"
         @click.capture="handleInspectCapture"
         @mousedown.capture="handleInspectCapture"
@@ -377,6 +386,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 size="sm"
                 class="w-[150px] shrink-0"
                 aria-label="配色"
+            />
+            <!-- 桌面与画布底是两层不同的东西，别合成一个控件：这个改的是整页最底下那一层，
+                 中栏工具条上的「画布底」改的是被测组件背后那一层。取值都在 stage-backdrops.ts。 -->
+            <NbFormSelect
+                v-model="pageBackdrop"
+                :options="pageBackdropOptions"
+                size="sm"
+                class="w-[150px] shrink-0"
+                aria-label="桌面"
             />
             <!-- ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
                  而一个只装一件东西的工具栏也不是工具栏。 -->
@@ -445,7 +463,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     <span v-else-if="scene" class="lab-note shrink-0 truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
                     <label class="lab-field shrink-0">
-                        <span class="lab-note">背景</span>
+                        <span class="lab-note">画布底</span>
                         <NbFormSelect
                             v-model="canvasBackdrop"
                             :options="backdropOptions"
@@ -676,31 +694,87 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
      * 一条侧栏下半截泛蓝，那不是环境光，那是脏了。所以这里盖一层 --bg-main 把振幅压下去，
      * 色相走向还在，玻璃仍有东西可糊。
      *
-     * 右栏改判内容层（实心）之后透光面积少了一半，因此这个数从 72% 松到 58%：
-     * 72% 那一档把底纹压得几乎看不见，整页读起来是「三块白 + 中间一块灰」，
-     * 灰的那块正是被压扁的底纹，夹在两块白之间就成了污渍而不是桌面。
-     * 代价仍在：数字越低，玻璃背后越花，左栏的字压在底纹上会更吃力。
+     * 想知道压多了还是压少了，把顶栏的「桌面」切到「主题底纹·原强度」看不盖面纱是什么样。
      */
     --lab-backdrop-veil: 58%;
 
+    /* fixed 让桌面不随任何一栏的内部滚动跑，三栏共用同一张背景 */
+    background-attachment: fixed;
     background-color: var(--bg-main);
-    /*
-     * 两层：面纱在上，窗体底纹在下。
-     * 窗体底纹＝主题自带的「桌面壁纸」，玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
-     * fixed 让底纹不随内部滚动跑，三栏共用同一张背景。非玻璃主题不声明它，取 none。
-     */
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking-ui);
+    line-height: var(--leading-ui);
+}
+
+/*
+ * ——— 桌面（页面最底下那一层）———
+ *
+ * 这一套的用处与画布底不同：画布底是给被测组件当背景，桌面是用来看**Lab 自己**哪些面是透的。
+ * 左栏是 26% 的玻璃、中栏根本没给面，压在纯色上完全看不出来；换成棋盘格或斜纹，
+ * 透到什么程度、模糊糊掉多少，一眼就有了。层的划分见 stage-backdrops.ts 开头。
+ */
+
+/* 窗体底纹＝主题自带的「桌面壁纸」，玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
+   非玻璃主题不声明它，取 none，于是这一档退化成纯 --bg-main。 */
+.lab-root--bg-theme {
     background-image:
         linear-gradient(
             color-mix(in srgb, var(--bg-main) var(--lab-backdrop-veil), transparent),
             color-mix(in srgb, var(--bg-main) var(--lab-backdrop-veil), transparent)
         ),
         var(--window-backdrop, none);
-    background-attachment: fixed;
-    color: var(--text-main);
-    font-family: var(--font-ui);
-    font-size: var(--text-sm);
-    letter-spacing: var(--tracking-ui);
-    line-height: var(--leading-ui);
+}
+
+.lab-root--bg-theme-raw {
+    background-image: var(--window-backdrop, none);
+}
+
+.lab-root--bg-page {
+    background-image: none;
+}
+
+/* 棋盘格验的是透明度：半透明的面压上去，能一眼看出透出来多少。
+   16px 的格子比画布底那套更大一档——它要透过 8px 模糊还认得出，太细会被糊成一片灰。 */
+.lab-root--bg-checker {
+    background-image:
+        linear-gradient(45deg, color-mix(in srgb, var(--text-main) 12%, transparent) 25%, transparent 25%),
+        linear-gradient(-45deg, color-mix(in srgb, var(--text-main) 12%, transparent) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--text-main) 12%, transparent) 75%),
+        linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--text-main) 12%, transparent) 75%);
+    background-size: 24px 24px;
+    background-position: 0 0, 0 12px, 12px -12px, -12px 0;
+}
+
+/* 斜纹验的是模糊半径：细线被糊成灰的那一档，就是这块面实际的模糊强度。
+   棋盘格答「透不透」，斜纹答「糊多厉害」，两个问题不同所以两档都留。 */
+.lab-root--bg-stripes {
+    background-image: repeating-linear-gradient(
+        45deg,
+        color-mix(in srgb, var(--text-main) 14%, transparent) 0 3px,
+        transparent 3px 9px
+    );
+}
+
+/* 极光是给玻璃用的：大面积、低频、高饱和，模糊之后仍有色相流动可看 */
+.lab-root--bg-mesh {
+    background-image:
+        radial-gradient(at 10% 20%, color-mix(in srgb, var(--accent-main) 32%, transparent) 0, transparent 50%),
+        radial-gradient(at 85% 15%, color-mix(in srgb, var(--status-info) 35%, transparent) 0, transparent 50%),
+        radial-gradient(at 50% 85%, color-mix(in srgb, var(--status-warning) 28%, transparent) 0, transparent 50%),
+        radial-gradient(at 90% 85%, color-mix(in srgb, var(--accent-main) 30%, transparent) 0, transparent 50%);
+}
+
+/* 纯黑纯白是对比度的两个极端，故意不走配色变量：它要跳出当前配色才有意义 */
+.lab-root--bg-light {
+    background-color: #ffffff;
+    background-image: none;
+}
+
+.lab-root--bg-dark {
+    background-color: #000000;
+    background-image: none;
 }
 
 /* 取色期间整页换十字光标，并且不让文字被顺手选中——点击本身已在捕获阶段被吃掉。
