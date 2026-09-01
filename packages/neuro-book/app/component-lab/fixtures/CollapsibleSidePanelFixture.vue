@@ -14,10 +14,12 @@ const knobs = computed(() => {
         title: typeof data.title === "string" ? data.title : "示例侧栏",
         collapsedWidth: typeof data.collapsedWidth === "number" ? data.collapsedWidth : 40,
         rows: typeof data.rows === "number" ? data.rows : 6,
+        layer: data.layer === "content" ? "content" as const : "nav" as const,
     };
 });
 
-const side = computed(() => (props.scene === "right" ? "right" : "left") as "left" | "right");
+// 内容层那一档也摆在右边：产品里用它的正是右栏，摆左边看不出它要对比的是什么。
+const side = computed(() => (props.scene === "right" || props.scene === "content" ? "right" : "left") as "left" | "right");
 
 // 切场景时回到该场景的初始状态，否则重复打开同一场景看到的不是同一件事。
 watch(() => props.scene, (scene) => {
@@ -37,6 +39,7 @@ function onCollapsedChange(value: boolean): void {
             :collapsed="collapsed"
             :title="knobs.title"
             :side="side"
+            :layer="knobs.layer"
             :collapsed-width="knobs.collapsedWidth"
             :class="collapsed ? '' : 'w-[220px] shrink-0'"
             @update:collapsed="onCollapsedChange"

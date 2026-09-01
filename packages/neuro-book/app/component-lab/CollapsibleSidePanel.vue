@@ -3,13 +3,21 @@ import {computed, nextTick, ref, watch} from "vue";
 
 export type CollapsibleSidePanelSide = "left" | "right";
 
+/**
+ * 这一栏在材料语言里属于哪一层。**这不是外观偏好，是主题给的角色。**
+ * nav = 器械（导航、工具），content = 纸（要读的正文与数据）。
+ */
+export type CollapsibleSidePanelLayer = "nav" | "content";
+
 const props = withDefaults(defineProps<{
     title: string;
     collapsed: boolean;
     side?: CollapsibleSidePanelSide;
+    layer?: CollapsibleSidePanelLayer;
     collapsedWidth?: number;
 }>(), {
     side: "left",
+    layer: "nav",
     collapsedWidth: 40,
 });
 
@@ -49,7 +57,7 @@ watch(() => props.collapsed, (isCollapsed) => {
     <!-- 可收起侧栏：收起状态受控，宽度由父容器决定 -->
     <div
         class="nb-lab-panel flex h-full min-h-0 flex-col overflow-hidden"
-        :class="isLeft ? 'nb-lab-panel--left' : 'nb-lab-panel--right'"
+        :class="[isLeft ? 'nb-lab-panel--left' : 'nb-lab-panel--right', `nb-lab-panel--${props.layer}`]"
         :style="props.collapsed ? {width: `${props.collapsedWidth}px`, flex: `0 0 ${props.collapsedWidth}px`} : undefined"
     >
         <template v-if="props.collapsed">
@@ -95,16 +103,34 @@ watch(() => props.collapsed, (isCollapsed) => {
 
 <style scoped>
 /* 尺寸与圆角走主题 token，颜色走配色变量——两条轴分开，换主题时这一栏才会跟着变形状 */
-.nb-lab-panel {
-    /*
-     * 侧栏是导航层，取主题的 --sidebar-surface 而不是配色的 --bg-sidebar：前者是**角色**，
-     * 玻璃主题把它定成半透明并配合模糊，非玻璃主题下它就等于 --bg-sidebar，两边都对。
-     * 直接写 --bg-sidebar 等于把「侧栏永远实心」写死，玻璃主题装了也看不出来。
-     */
+
+/*
+ * 导航层：玻璃。
+ *
+ * 取主题的 --sidebar-surface 而不是配色的 --bg-sidebar：前者是**角色**，玻璃主题把它定成
+ * 半透明并配合模糊，非玻璃主题下它就等于 --bg-sidebar，两边都对。直接写 --bg-sidebar 等于把
+ * 「侧栏永远实心」写死，玻璃主题装了也看不出来。
+ */
+.nb-lab-panel--nav {
     background: var(--sidebar-surface, var(--bg-sidebar));
     /* 与 LabShell 顶栏同一条取舍：chrome 层暂无库角色，先引用主题私有的 --glass-blur */
     backdrop-filter: var(--glass-blur, none);
     -webkit-backdrop-filter: var(--glass-blur, none);
+}
+
+/*
+ * 内容层：实心。
+ *
+ * 装文档正文和 JSON 这类**要读的东西**的那一栏取这里，与画布同一档材料。理由有两条，
+ * 而且都不是观感偏好：
+ *
+ * 一是玻璃底下透出来的窗体底纹会从正文字后面浮上来，那不是材料感，是脏。
+ * 二是 nbook 这类主题把冷暖对比定成了身份——「器械从 --bg-sidebar 派生（冷），
+ * 只有内容面板从 --panel-surface 派生（暖）」。两侧栏都判给导航层的话，整屏一处暖面都没有，
+ * 主题最核心的那组对比在这个页面上等于没开。
+ */
+.nb-lab-panel--content {
+    background: var(--panel-surface, var(--bg-panel));
 }
 
 .nb-lab-panel--left {

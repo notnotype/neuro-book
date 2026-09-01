@@ -37,6 +37,7 @@ export const labFixtures: LabFixture[] = [
             {id: "default", label: "展开", data: {title: "示例侧栏", collapsedWidth: 40, rows: 6}},
             {id: "collapsed", label: "收起", data: {title: "示例侧栏", collapsedWidth: 40, rows: 6}},
             {id: "right", label: "靠右", data: {title: "检视", collapsedWidth: 40, rows: 6}},
+            {id: "content", label: "内容层", data: {title: "检视", collapsedWidth: 40, rows: 6, layer: "content"}},
             {id: "long", label: "长内容", data: {title: "很长的一列条目", collapsedWidth: 40, rows: 40}},
         ],
         load: async () => (await import("./CollapsibleSidePanelFixture.vue")).default,

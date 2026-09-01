@@ -510,10 +510,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 </div>
             </main>
 
+            <!-- 右栏装的是文档正文与数据，是内容层不是导航层：见 CollapsibleSidePanel 里
+                 layer 那一段。它也是全屏唯一那块暖面，nbook 的冷暖对比靠它成立。 -->
             <CollapsibleSidePanel
                 v-model:collapsed="rightCollapsed"
                 title="检视"
                 side="right"
+                layer="content"
                 :class="rightCollapsed ? '' : 'w-[340px] shrink-0'"
             >
                 <div class="flex h-full min-h-0 flex-col">
@@ -647,13 +650,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  *
  * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
  *
- *   导航层（顶栏、两侧栏）= --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
- *   内容层（画布盒子）    = 实心 --panel-surface
- *   结构分割线            = var(--border-w) solid var(--divider)
+ *   导航层（顶栏、左栏）     = --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
+ *   内容层（画布盒子、右栏） = 实心 --panel-surface
+ *   结构分割线               = var(--border-w) solid var(--divider)
  *
  * 这三条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
  * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
  * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
+ *
+ * **右栏归内容层不归导航层**，与 nb-ui 的检查器一致。它装的是文档正文与数据，而且 nbook 把
+ * 冷暖对比定成了身份：器械冷、内容面板暖，全屏只有两处暖面。两侧栏都做成玻璃的话这个页面
+ * 一处暖面都没有，主题最核心的那组对比就没开。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
  */
 
 .lab-root {
@@ -661,12 +668,16 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
      * 底纹压掉多少。**这是一个观感取值，需要调就改这一个数。**
      *
      * 主题的 --window-backdrop 是按「文档页」调的：那种页面上内容是一列不透明卡片，
-     * 底纹只从边上露出来，读起来是环境光。Lab 是满屏三栏仪器，两侧栏是 26%–30% 的玻璃，
-     * 底纹会**整片透过功能面板**——一条侧栏下半截泛蓝，那不是环境光，那是脏了。
-     * 所以这里盖一层 --bg-main 把振幅压下去，色相走向还在，玻璃仍有东西可糊。
-     * 代价说在明处：玻璃背后的明暗对比同步变弱，折射感会淡一些。
+     * 底纹只从边上露出来，读起来是环境光。Lab 是满屏三栏仪器，底纹会**整片透过功能面板**——
+     * 一条侧栏下半截泛蓝，那不是环境光，那是脏了。所以这里盖一层 --bg-main 把振幅压下去，
+     * 色相走向还在，玻璃仍有东西可糊。
+     *
+     * 右栏改判内容层（实心）之后透光面积少了一半，因此这个数从 72% 松到 58%：
+     * 72% 那一档把底纹压得几乎看不见，整页读起来是「三块白 + 中间一块灰」，
+     * 灰的那块正是被压扁的底纹，夹在两块白之间就成了污渍而不是桌面。
+     * 代价仍在：数字越低，玻璃背后越花，左栏的字压在底纹上会更吃力。
      */
-    --lab-backdrop-veil: 72%;
+    --lab-backdrop-veil: 58%;
 
     background-color: var(--bg-main);
     /*
@@ -811,9 +822,10 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     text-align: center;
 }
 
+/* 只给留白，不画线：NbTabs 自己的标签栏就带一条 border-bottom，
+   这里再画一条会与它贴在一起变成 2px，右栏那条横线因此比全页别处都粗一倍。 */
 .lab-tabs {
     padding: var(--space-4) var(--panel-p) 0;
-    border-bottom: var(--border-w) solid var(--divider);
 }
 
 /* 搜索框与树之间只留一档：它们是同一件事的两半，隔太开会读成两个区块 */

@@ -25,6 +25,8 @@
 
 内容变多时先让位的永远是内容区，标题栏不动。
 
+**这一栏用什么材料由 `layer` 决定，不由 `side` 决定。**`nav` 是器械：取主题的侧栏面色，玻璃主题下它是半透明的并开模糊，背后的窗体底纹会透上来。`content` 是纸：实心面板色，与画布同一档材料。装导航、装工具用前者，装要读的正文与数据用后者——底纹从字后面浮上来不是材料感是脏。Lab 的左栏是 `nav`，右栏是 `content`。
+
 `390×844` 下本零件的结构不变，宽度依然由父容器给。窄屏下三栏能不能并排是使用它的那个布局要回答的问题，不是本零件的问题。
 
 ## 交互
@@ -43,6 +45,7 @@
 
 ```ts
 type CollapsibleSidePanelSide = "left" | "right";
+type CollapsibleSidePanelLayer = "nav" | "content";
 
 interface CollapsibleSidePanelProps {
     /**
@@ -59,9 +62,16 @@ interface CollapsibleSidePanelProps {
 
     /**
      * 这一栏在哪一侧。只影响收起按钮的箭头朝向和边框落在左边还是右边，
-     * 不影响其它任何行为。
+     * 不影响其它任何行为——**不影响用什么材料，那是 layer 的事**。
      */
     side?: CollapsibleSidePanelSide;   // 默认 "left"
+
+    /**
+     * 这一栏在材料语言里属于哪一层。
+     * nav = 器械（侧栏面色 + 玻璃），content = 纸（实心面板色）。
+     * 只影响这一栏的面，不影响布局、尺寸或任何交互。
+     */
+    layer?: CollapsibleSidePanelLayer; // 默认 "nav"
 
     /** 收起态的宽度，单位像素。 */
     collapsedWidth?: number;           // 默认 40
