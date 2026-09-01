@@ -168,20 +168,23 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 
 ### 控件高度与圆角
 
-中文比拉丁文占满 em 框，同样的 px 下汉字明显更挤，所以整体比 macOS 加一档：
+中文比拉丁文占满 em 框，同样的 px 下汉字更挤。这里原来据此整体比 macOS 加一档，
+后来实际比对下来 macOS 那档更好看，字号与控件高度收回同档；**行高与字距不跟着回退**——
+那两条不是密度偏好，是汉字没有升降部造成的硬约束：
 
 | | macOS | nbook |
 | --- | --- | --- |
-| 控件高（sm / md / lg） | 26 / 32 / 40px | 28 / 34 / 42px |
-| 界面正文 | 13px | 14px |
-| 行高 | 1.35 | 1.5 |
-| 字距 | −0.006em | 0 |
+| 控件高（sm / md / lg） | 26 / 32 / 40px | 26 / 32 / 40px |
+| 界面正文 | 13px | 13px |
+| 行高 | 1.35 | **1.5** |
+| 字距 | −0.006em | **0** |
 | 面板圆角 | 18px | 20px |
 | 菜单外圈圆角 | 12px | 12px |
 
 `FormInput`、`FormNumberInput`、`FormSelect` 的默认单行高度分别消费 `.nb-ui-control-h-md`，
-水平内边距消费 `.nb-ui-control-px`，因此实际命中 macOS 32px / nbook 34px 与各主题的
-`--control-px`。这几个静态类在 `src/styles.css` 登记，不依赖 Tailwind 对 arbitrary value 的扫描。
+水平内边距消费 `.nb-ui-control-px`，因此实际命中两套主题同为 32px 与同为 14px 的
+`--control-px`。这几个静态类在 `src/styles.css` 登记，
+不依赖 Tailwind 对 arbitrary value 的扫描。
 
 控件圆角两套都是 10px——那一档本来就够小，加不加高度都不影响手感。
 
