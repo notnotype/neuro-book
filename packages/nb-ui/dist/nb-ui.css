@@ -1452,6 +1452,9 @@
 .text-\[20px\] {
   font-size: 20px;
 }
+.text-\[length\:var\(--text-sm\)\] {
+  font-size: var(--text-sm);
+}
 .leading-none {
   --tw-leading: 1;
   line-height: 1;
@@ -2094,10 +2097,6 @@
 .after\:bottom-0::after {
   content: var(--tw-content);
   bottom: 0px;
-}
-.after\:bottom-\[calc\(var\(--border-w\)\*-1\)\]::after {
-  content: var(--tw-content);
-  bottom: calc(var(--border-w) * -1);
 }
 .after\:left-0::after {
   content: var(--tw-content);

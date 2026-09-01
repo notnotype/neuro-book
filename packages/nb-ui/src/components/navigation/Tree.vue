@@ -63,6 +63,11 @@ const surfaceClass = computed(() => props.surface === "card"
         @update:model-value="(val) => emit('update:modelValue', val)"
         @update:expanded="(val) => emit('update:expanded', val as string[])"
     >
+        <!--
+            行的字号与最小高度绑在主题刻度上（--text-sm / --control-h-sm），不用 Tailwind 的
+            text-xs。后者是 12px 的固定值，与主题的字号档无关：主题换密度时整棵树不跟着变，
+            摆在同一条侧栏里就比旁边的控件松一档。
+        -->
         <TreeItem
             v-for="item in flattenItems"
             :key="item._id"
@@ -70,7 +75,7 @@ const surfaceClass = computed(() => props.surface === "card"
             :style="{ paddingLeft: `${item.level * 16 + 8}px` }"
             :value="item.value"
             :level="item.level"
-            class="nb-ui-focus-ring group flex items-center justify-between gap-2 rounded-[calc(var(--radius-control)*0.75)] py-1.5 pr-2 text-xs text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] data-[selected]:text-[var(--accent-main)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+            class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] items-center justify-between gap-2 rounded-[calc(var(--radius-control)*0.75)] py-0.5 pr-2 text-[length:var(--text-sm)] text-[var(--text-main)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_8%,transparent)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_14%,transparent)] data-[selected]:text-[var(--accent-main)] cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
             @select="emit('select', item.value)"
         >
             <div class="flex items-center gap-2 truncate">

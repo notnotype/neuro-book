@@ -82,7 +82,17 @@ function tabClass(item: TabsItem): string {
 </script>
 
 <template>
-    <!-- 标签栏：底边线 + 选中项指示线（指示线绝对定位压在边线上，不用负 margin——负 margin 会制造 1px 滚动溢出） -->
+    <!--
+        标签栏：底边线 + 选中项指示线。
+
+        指示线必须**待在盒子里**（after:bottom-0），不能靠负偏移压在边线上。
+        原因是这条 overflow-x-auto：CSS 规定两轴只要有一轴不是 visible，另一轴的 visible
+        就计算成 auto，所以这里的 overflow-y 实际是 auto。指示线原来写 bottom:-1px，
+        有 1px 落在 padding box 外面，于是标签栏**多出一条竖向滚动条**——一条 26px 高的
+        标签栏配一根滚动条，看起来像坏了。负 margin 会踩同一个坑，换成绝对定位并没有绕开。
+
+        代价：指示线现在贴在边线上方而不是压住它，视觉上厚度少 1px。
+    -->
     <div ref="tablistRef" role="tablist" :aria-label="props.ariaLabel || undefined" class="flex items-end gap-[var(--space-2)] overflow-x-auto border-b-[length:var(--border-w)] border-[color:var(--divider)]" @keydown="handleKeydown">
         <button
             v-for="item in props.items"
@@ -93,7 +103,7 @@ function tabClass(item: TabsItem): string {
             :aria-selected="isSelected(item)"
             :tabindex="isSelected(item) ? 0 : -1"
             :disabled="item.disabled"
-            class="nb-ui-focus-ring relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-[calc(var(--border-w)*-1)] after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
+            class="nb-ui-focus-ring relative inline-flex shrink-0 items-center gap-[var(--space-2)] whitespace-nowrap [font-weight:var(--weight-medium)] transition-colors [transition-duration:var(--motion-fast)] after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:transition-colors after:[transition-duration:var(--motion-fast)] disabled:cursor-not-allowed disabled:opacity-45"
             :class="[props.size === 'sm' ? 'h-[var(--control-h-sm)] px-[calc(var(--control-px)*0.8)] text-[var(--text-xs)]' : 'h-[var(--control-h-md)] px-[var(--control-px)] text-[var(--text-sm)]', tabClass(item)]"
             @click="select(item)"
         >

@@ -517,6 +517,19 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("keeps the tabs indicator inside the scroll box", () => {
+        // tablist 是 overflow-x-auto，而 CSS 规定另一轴的 visible 会跟着计算成 auto。
+        // 指示线只要有 1px 落在 padding box 外，26px 高的标签栏就会多出一条竖向滚动条。
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "A"}]},
+        });
+        const indicatorClasses = wrapper.get("[role='tab']").classes()
+            .filter((name) => name.startsWith("after:bottom"));
+
+        expect(indicatorClasses).toEqual(["after:bottom-0"]);
+        wrapper.unmount();
+    });
+
     it("renders badge tones and variants", () => {
         const wrapper = mount(Badge, {
             props: {tone: "success", variant: "outline", dot: true},
