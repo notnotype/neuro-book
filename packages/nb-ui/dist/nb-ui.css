@@ -746,6 +746,9 @@
 .gap-\[var\(--space-2\)\] {
   gap: var(--space-2);
 }
+.gap-\[var\(--space-3\)\] {
+  gap: var(--space-3);
+}
 .gap-\[var\(--space-4\)\] {
   gap: var(--space-4);
 }
@@ -768,6 +771,11 @@
   --tw-space-y-reverse: 0;
   margin-block-start: calc(calc(var(--spacing) * 3) * var(--tw-space-y-reverse));
   margin-block-end: calc(calc(var(--spacing) * 3) * calc(1 - var(--tw-space-y-reverse)));
+}
+:where(.space-y-\[var\(--space-1\)\] > :not(:last-child)) {
+  --tw-space-y-reverse: 0;
+  margin-block-start: calc(var(--space-1) * var(--tw-space-y-reverse));
+  margin-block-end: calc(var(--space-1) * calc(1 - var(--tw-space-y-reverse)));
 }
 :where(.divide-y > :not(:last-child)) {
   --tw-divide-y-reverse: 0;
@@ -911,6 +919,10 @@
 .border-l {
   border-left-style: var(--tw-border-style);
   border-left-width: 1px;
+}
+.border-l-2 {
+  border-left-style: var(--tw-border-style);
+  border-left-width: 2px;
 }
 .border-\[color-mix\(in_srgb\,var\(--accent-main\)_30\%\,transparent\)\] {
   border-color: var(--accent-main);
@@ -1373,6 +1385,9 @@
 }
 .py-\[var\(--space-2\)\] {
   padding-block: var(--space-2);
+}
+.pe-\[var\(--space-3\)\] {
+  padding-inline-end: var(--space-3);
 }
 .pt-1 {
   padding-top: var(--spacing);
@@ -1914,9 +1929,6 @@
 }
 .i-lucide-file {
   --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cg fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2'%3E%3Cpath d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z'/%3E%3Cpath d='M14 2v5a1 1 0 0 0 1 1h5'/%3E%3C/g%3E%3C/svg%3E");
-}
-.i-lucide-file-text {
-  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cg fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2'%3E%3Cpath d='M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z'/%3E%3Cpath d='M14 2v5a1 1 0 0 0 1 1h5M10 9H8m8 4H8m8 4H8'/%3E%3C/g%3E%3C/svg%3E");
 }
 .i-lucide-folder {
   --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z'/%3E%3C/svg%3E");
@@ -2580,14 +2592,21 @@
 .data-\[outside-view\]\:opacity-35[data-outside-view] {
   opacity: 35%;
 }
-.data-\[selected\]\:bg-\[color-mix\(in_srgb\,var\(--accent-main\)_14\%\,transparent\)\][data-selected] {
+.data-\[selected\]\:border-l-\[var\(--accent-main\)\][data-selected] {
+  border-left-color: var(--accent-main);
+}
+.data-\[selected\]\:bg-\[color-mix\(in_srgb\,var\(--accent-main\)_12\%\,transparent\)\][data-selected] {
   background-color: var(--accent-main);
   @supports (color: color-mix(in lab, red, red)) {
-    background-color: color-mix(in srgb,var(--accent-main) 14%,transparent);
+    background-color: color-mix(in srgb,var(--accent-main) 12%,transparent);
   }
 }
 .data-\[selected\]\:bg-\[var\(--accent-main\)\][data-selected] {
   background-color: var(--accent-main);
+}
+.data-\[selected\]\:font-\[var\(--weight-medium\)\][data-selected] {
+  --tw-font-weight: var(--weight-medium);
+  font-weight: var(--weight-medium);
 }
 .data-\[selected\]\:font-medium[data-selected] {
   --tw-font-weight: var(--font-weight-medium);

@@ -1376,6 +1376,29 @@ describe("nb-ui dialog anatomy", () => {
         plain.unmount();
     });
 
+    it("leaves node semantics to the caller instead of drawing folder icons", () => {
+        // 泛型树不认文件系统：有子节点不等于文件夹，叶子不等于文件。
+        // 要文件语义的调用方用 FileTree。
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
+                    {id: "solo", title: "带图标的叶子", iconClass: "i-lucide-box"},
+                ],
+                expanded: ["v1"],
+            },
+        });
+        // 用选择器查而不是搜 wrapper.html()：模板注释会原样渲染进 DOM，
+        // 而这个组件的注释里恰好写着这两个图标名，搜字符串会被自己的注释绊倒。
+        expect(wrapper.find(".i-lucide-folder").exists()).toBe(false);
+        expect(wrapper.find(".i-lucide-file-text").exists()).toBe(false);
+        // 调用方自己给的图标照旧渲染
+        expect(wrapper.find(".i-lucide-box").exists()).toBe(true);
+        // 有子节点的行才有箭头
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(1);
+        wrapper.unmount();
+    });
+
     it("renders date range picker placeholder", () => {
         const wrapper = mount(DateRangePicker, {
             props: {
