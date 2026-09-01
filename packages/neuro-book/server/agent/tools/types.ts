@@ -8,6 +8,7 @@ import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import type {AgentAttachmentCodec} from "nbook/server/agent/attachments/agent-attachment-codec";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {RecoveryMaterialTracker} from "nbook/server/agent/harness/recovery-materials";
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
@@ -41,6 +42,8 @@ export type ToolExecutionContext = {
     invocationId?: string;
     vars?: ProfileVariableAccessor;
     sessionWrites?: ToolSessionWriteSink;
+    /** 当前 invocation 成功文件操作的有界恢复材料追踪器。 */
+    recoveryMaterials?: RecoveryMaterialTracker;
     /** Agent 图片 Codec；内建工具不能绕过完整解码直接写通用 Attachment Store。 */
     /** 生产 Harness 必填；旧测试/纯文本工具上下文可省略。图片工具缺失时必须 fail closed。 */
     attachmentCodec?: AgentAttachmentCodec;

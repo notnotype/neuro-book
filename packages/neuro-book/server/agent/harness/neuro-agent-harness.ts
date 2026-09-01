@@ -89,7 +89,7 @@ import {PUBLIC_TOOL_ARGS_TEXT_BYTES} from "nbook/server/agent/events/public-even
 import {projectPublicSessionSummarizerState, projectPublicSessionSummary} from "nbook/server/agent/events/public-session-projection";
 import {assertPublicClientVariablePatch, projectPublicControlReason} from "nbook/server/agent/events/public-control-event-projection";
 import {projectPublicFinalMessage} from "nbook/server/agent/events/public-invocation-result-projection";
-import {appendCompaction, compactIfNeeded, resolveCompactionOptions, resolveCompactionTriggerTokens} from "nbook/server/agent/harness/compaction";
+import {appendCompaction, assertCompactionMadeProgress, compactIfNeeded, resolveCompactionOptions, resolveCompactionTriggerTokens} from "nbook/server/agent/harness/compaction";
 import {resolveAgentVisibleModels} from "nbook/server/agent/harness/agent-visible-models";
 import type {
     PendingSessionWritePlan,
@@ -214,6 +214,8 @@ import {AgentAttachmentCodec, canonicalImageMime} from "nbook/server/agent/attac
 import {hasStoredAttachment, storedMessagesForText} from "nbook/server/agent/attachments/agent-attachment-codec";
 import {SessionAttachmentAuthority} from "nbook/server/agent/attachments/session-attachment-authority";
 import {estimateStoredContextTokens} from "nbook/server/agent/messages/stored-message-tokens";
+import {createRecoveryMaterialTracker, materializeRecoveryMaterials, recoveryMaterialKey, type RecoveryMaterializationResult, type RecoveryMaterialTracker} from "nbook/server/agent/harness/recovery-materials";
+import {assertProviderContextWithinWindow, estimateProviderContextTokens, pruneProviderMessagesForWindow} from "nbook/server/agent/harness/context-admission";
 import type {AttachmentId, AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {attachmentIdFromMarkdownTarget, parseAgentImageMarkdown, serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
@@ -564,6 +566,7 @@ export class NeuroAgentHarness {
     private readonly invocationAcceptances = new Map<string, InvocationAcceptanceTracker>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
+    private readonly invocationRecoveryMaterials = new Map<string, RecoveryMaterialTracker>();
     private readonly invocationRuntimeStates = new Map<string, RunRuntimeState>();
     /** waiting/resume 期间保留 invocation 级模型覆盖；terminal 时随 invocation 状态一并释放。 */
     private readonly invocationModelOverrides = new Map<string, string>();
@@ -1361,6 +1364,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceRoot: this.workspaceRoot,
                 currentProject,
+                recoveryMaterials: this.invocationRecoveryMaterials.get(invocationId),
                 systemPrompt: preparedRun.systemPrompt,
                 messages: preparedRun.messages,
                 promptPrefix: preparedRun.promptPrefix,
@@ -1713,6 +1717,10 @@ export class NeuroAgentHarness {
             clientOverlay: normalizeClientState(input.clientState),
             currentProject,
         });
+        const existingRecoveryMaterials = isResume
+            ? this.invocationRecoveryMaterials.get(invocationId)
+            : undefined;
+        this.invocationRecoveryMaterials.set(invocationId, existingRecoveryMaterials ?? createRecoveryMaterialTracker());
         this.invocationRuntimeStates.set(invocationId, runtimeState);
         this.invocationAcceptances.set(invocationId, acceptance);
         if (!this.invocationCompletions.has(invocationId)) {
@@ -4609,6 +4617,7 @@ export class NeuroAgentHarness {
         currentProject: ReadyProjectSessionRef | null;
         systemPrompt: string;
         messages: StoredAgentMessage[];
+        recoveryMaterials?: RunFrame["recoveryMaterials"];
         promptPrefix?: PromptPrefixAttribution;
         models: Models;
         model: Model<any>;
@@ -5110,23 +5119,48 @@ export class NeuroAgentHarness {
         if (nextTurnHooks.reportResultReminder !== undefined) {
             frame.reportResultReminderEnabled = nextTurnHooks.reportResultReminder;
         }
-        const compacted = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
-        if (compacted) {
+        const runtimeMessages = [...nextTurnHooks.runtimeMessages];
+        const beforeCompactionTokens = estimateStoredContextTokens([...frame.messages, ...runtimeMessages]).tokens;
+        const hadPreviousCompaction = this.repo.activePath(snapshot).some((entry) => entry.type === "compaction");
+        const recoveryMaterialization = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
+        if (recoveryMaterialization) {
             await withRunKernelPhase("ingest", () => this.reinjectHistorySetAfterCompaction(frame));
+            const materialized = recoveryMaterialization;
+            for (const candidate of materialized.accepted) {
+                frame.recoveryMaterialKeys.add(recoveryMaterialKey(candidate));
+            }
+            if (materialized.skipped.length > 0) {
+                void appLogger.info("agent.compaction.recoveryMaterialsSkipped", {
+                    sessionId: frame.sessionId,
+                    invocationId: frame.invocationId,
+                    skipped: materialized.skipped,
+                });
+            }
+            if (materialized.message) {
+                runtimeMessages.push(materialized.message);
+            }
             const compactedSnapshot = await this.repo.readSession(frame.sessionId);
             frame.messages = this.repo.reduce(compactedSnapshot).messages;
+            assertCompactionMadeProgress({
+                beforeTokens: beforeCompactionTokens,
+                afterTokens: estimateStoredContextTokens([...frame.messages, ...runtimeMessages]).tokens,
+                contextWindow: frame.model.contextWindow,
+                options: resolveCompactionOptions(frame.compaction!, frame.model),
+                hadPreviousCompaction,
+            });
         }
-        frame.nextTurnRuntimeMessages = nextTurnHooks.runtimeMessages;
+        frame.nextTurnRuntimeMessages = runtimeMessages;
     }
 
-    private async compactBeforeNextTurn(frame: RunFrame): Promise<boolean> {
+    private async compactBeforeNextTurn(frame: RunFrame): Promise<RecoveryMaterializationResult | null> {
         if (frame.automaticCompactionDoneForTurn) {
-            return false;
+            return null;
         }
         if (!frame.compaction?.enabled) {
             this.assertContextWithinWindow(frame);
-            return false;
+            return null;
         }
+        let recoveryMaterialization: RecoveryMaterializationResult | undefined;
         const compacted = await compactIfNeeded({
             repo: this.repo,
             snapshot: await this.repo.readSession(frame.sessionId),
@@ -5137,6 +5171,15 @@ export class NeuroAgentHarness {
             thinkingLevel: frame.thinkingLevel,
             timeoutMs: frame.timeoutMs,
             requestOptions: frame.requestOptions,
+            prepareRecoveryCandidates: async () => {
+                recoveryMaterialization = await materializeRecoveryMaterials({
+                    candidates: frame.recoveryMaterials?.snapshot() ?? [],
+                    workspaceRoot: frame.workspaceRoot,
+                    currentProject: frame.currentProject,
+                    injectedKeys: frame.recoveryMaterialKeys ?? new Set<string>(),
+                });
+                return recoveryMaterialization.accepted;
+            },
             compaction: frame.compaction,
             trace: this.piTraceBinding(frame, "compaction"),
             signal: frame.abortSignal,
@@ -5149,7 +5192,7 @@ export class NeuroAgentHarness {
             },
         });
         frame.automaticCompactionDoneForTurn = compacted;
-        return compacted;
+        return compacted ? recoveryMaterialization ?? {accepted: [], skipped: []} : null;
     }
 
     /**
@@ -5272,10 +5315,24 @@ export class NeuroAgentHarness {
     }): Promise<AssistantMessage> {
         const storedMessages = parseStoredMessages(input.snapshot.modelMessages);
         const authorizedMessages = await this.sessionAttachments.authorizeMessages(input.sessionId, storedMessages);
-        const providerMessages = await this.attachmentCodec.hydrateForProvider(authorizedMessages, input.snapshot.model);
+        const hydratedMessages = await this.attachmentCodec.hydrateForProvider(authorizedMessages, input.snapshot.model);
+        const pruned = pruneProviderMessagesForWindow({
+            systemPrompt: input.snapshot.systemPrompt,
+            messages: hydratedMessages,
+            tools: input.snapshot.tools,
+            contextWindow: input.snapshot.model.contextWindow,
+        });
+        const admittedMessages = pruned.messages;
+        assertProviderContextWithinWindow({
+            systemPrompt: input.snapshot.systemPrompt,
+            messages: admittedMessages as never,
+            tools: input.snapshot.tools,
+            contextWindow: input.snapshot.model.contextWindow,
+            modelId: input.snapshot.model.id,
+        });
         const context = {
             systemPrompt: input.snapshot.systemPrompt,
-            messages: providerMessages,
+            messages: admittedMessages,
             tools: input.snapshot.tools,
         };
         const traceContext = {
@@ -6138,6 +6195,7 @@ export class NeuroAgentHarness {
                     toolCallId: input.toolCall.id,
                     enqueueSavePoint: input.enqueueSavePointWrite,
                 }),
+                recoveryMaterials: input.invocationId ? this.invocationRecoveryMaterials.get(input.invocationId) : undefined,
             };
 
             // 从 messages 中提取 userInput（如果有 resolution）
@@ -6900,6 +6958,7 @@ export class NeuroAgentHarness {
             this.invocationVariableStates.delete(invocationId);
             this.invocationRuntimeStates.delete(invocationId);
             this.invocationModelOverrides.delete(invocationId);
+            this.invocationRecoveryMaterials.delete(invocationId);
             this.rejectPendingClientPatches(invocationId);
         }
     }
@@ -7804,6 +7863,7 @@ export class NeuroAgentHarness {
             clientOverlay: normalizeClientState(undefined),
             currentProject,
         });
+        this.invocationRecoveryMaterials.set(invocationId, createRecoveryMaterialTracker());
         this.invocationCompletions.set(invocationId, createInvocationCompletion());
         try {
             if (currentProject) {

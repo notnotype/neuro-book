@@ -155,6 +155,17 @@ export type LeafSessionEntry = {
     origin?: "auto" | "move";
 };
 
+export type CompactionRecoveryCandidate = {
+    path: string;
+    projectRoot: string;
+    projectGeneration: number;
+    sources: Array<"read" | "write" | "edit" | "apply_patch">;
+    version: {
+        size: number;
+        mtimeMs: number;
+        sha256: string;
+    };
+};
 export type CompactionSessionEntry = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
@@ -178,6 +189,13 @@ export type CompactionSessionEntry = {
         visibleEntryCountBefore?: number;
         recentEntryCount?: number;
         summarizedEntryCount?: number;
+        /** 摘要请求实际采用的策略与输入预算结果。 */
+        summaryStrategy?: "llm" | "deterministic-fallback";
+        summaryInputTokens?: number;
+        summaryInputBudgetTokens?: number;
+        summaryError?: string;
+        /** 本次 invocation 成功文件操作产生的、经版本校验的恢复材料引用。 */
+        recoveryCandidates?: CompactionRecoveryCandidate[];
     };
 };
 

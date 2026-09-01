@@ -84,6 +84,7 @@ function fakeFrame(): RunFrame {
         runtimeState: new Map(),
         publicEventProjection: createPublicRuntimeProjectionState(),
         messages: [],
+        recoveryMaterialKeys: new Set(),
         nextTurnRuntimeMessages: [],
         turnIndex: 1,
         reportResultReminderSent: false,
