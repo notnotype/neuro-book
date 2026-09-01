@@ -22,6 +22,14 @@ export type LabFixture = {
     load: () => Promise<Component>;
 };
 
+/**
+ * fixture 在被检视的那个零件上加 `data-lab-subject`，Lab 据此画常亮描边。
+ *
+ * 没有它 Lab 分不出哪块是零件、哪块是 fixture 自己搭的台子——多数 fixture 都带工具栏
+ * 和说明文字。零件是单根节点时直接写在标签上即可，Vue 会把它落到根 DOM 节点。
+ * 不标也能用，只是没有描边。
+ */
+
 export const labFixtures: LabFixture[] = [
     {
         component: "CollapsibleSidePanel",
@@ -59,6 +67,16 @@ export const labFixtures: LabFixture[] = [
             {id: "empty", label: "空列表", data: {emptyText: "还没有事件"}},
         ],
         load: async () => (await import("./EventLogPanelFixture.vue")).default,
+    },
+    {
+        component: "HighlightBox",
+        scenes: [
+            {id: "subject", label: "零件档（实线）", data: {label: "EventLogPanel  320 × 180", tone: "subject", width: 260, height: 120, show: true}},
+            {id: "probe", label: "探针档（虚线）", data: {label: "div.flex.items-center  296 × 28", tone: "probe", width: 296, height: 28, show: true}},
+            {id: "no-label", label: "只画框不带标签", data: {label: "", tone: "subject", width: 200, height: 200, show: true}},
+            {id: "none", label: "没有要框的东西", data: {label: "看不见我", tone: "subject", width: 260, height: 120, show: false}},
+        ],
+        load: async () => (await import("./HighlightBoxFixture.vue")).default,
     },
     {
         component: "JsonViewer",

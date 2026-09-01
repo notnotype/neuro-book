@@ -1,0 +1,84 @@
+import {collectThemeColorways, getInstalledThemes, installTheme} from "@notnotype/nb-ui/theme";
+import {NB_UI_COLORWAY_HOST_CLASS, applyColorway, nbColorwayMeta, nbColorways} from "@notnotype/nb-ui/colorway";
+import type {ColorwayMeta, NbColorwayVars} from "@notnotype/nb-ui/colorway";
+import auroraTheme from "@notnotype/nb-ui/themes/aurora";
+import editorialTheme from "@notnotype/nb-ui/themes/editorial";
+import macosTheme from "@notnotype/nb-ui/themes/macos";
+import nbookTheme from "@notnotype/nb-ui/themes/nbook";
+
+/**
+ * Lab 用的是 nb-ui 那套主题（配色 + 主题包），不是主应用自己那 8 套。
+ *
+ * Lab 是这套主题系统在本仓库里的第一个消费方——先在开发工具上跑通，产品再决定要不要迁。
+ *
+ * **不用 nb-ui 的 createThemeStore / createColorwayStore**：它们的 set 与 init 都写
+ * localStorage，而 Lab 规范明写不写浏览器持久化。这里只用它们下面那层无状态的装载与
+ * 应用函数，选择随刷新丢失，是有意的。
+ */
+
+// 装主题必须先于读配色表：配色表要合并各主题自带的配色，而模块副作用只在 import 时跑一次。
+// 装载顺序 = 主题切换器里的显示顺序（getInstalledThemes 按装载顺序返回）。
+for (const module of [nbookTheme, macosTheme, editorialTheme, auroraTheme]) {
+    installTheme(module);
+}
+
+const fromThemes = collectThemeColorways();
+
+export const labThemes = getInstalledThemes();
+export const labColorways: Record<string, NbColorwayVars> = {...nbColorways, ...fromThemes.colorways};
+export const labColorwayMeta: Record<string, ColorwayMeta> = {...nbColorwayMeta, ...fromThemes.colorwayMeta};
+
+export const LAB_DEFAULT_THEME = nbookTheme.manifest.id;
+export const LAB_DEFAULT_COLORWAY = nbookTheme.manifest.defaultColorway?.dark ?? "dark";
+
+/** 上一次写下去的配色变量名，清理时要逐个 removeProperty，否则会残留在 <html> 上。 */
+let appliedVarNames: string[] = [];
+
+/**
+ * 主题只能写在 `<html>` 上，不能作用域到 Lab 自己的根节点：主题包的变量声明在
+ * `:root[data-nb-theme="…"]` 选择器下，且 macos / nbook 的取值大量派生自配色变量
+ * （`color-mix(… var(--accent-main) …)`）。自定义属性在**声明处**完成替换，配色不写在
+ * `:root` 的话，这些派生值会拿主应用 `:root` 上那套米黄底色去算，玻璃与阴影全部失真。
+ *
+ * `/lab` 是整页路由，页面上没有产品界面，因此写文档根不会影响到用户看得见的东西；
+ * 离开页面时 clearLabTheme 复原。
+ */
+export function applyLabTheme(themeId: string, colorwayId: string): void {
+    if (typeof document === "undefined") {
+        return;
+    }
+    const vars = labColorways[colorwayId];
+    const appearance = labColorwayMeta[colorwayId]?.appearance ?? "dark";
+    const root = document.documentElement;
+
+    root.dataset.nbTheme = themeId;
+    root.dataset.nbAppearance = appearance;
+    root.style.colorScheme = appearance;
+    if (vars !== undefined) {
+        clearColorwayVars();
+        applyColorway(root, vars);
+        applyColorway(document.body, vars);
+        appliedVarNames = Object.keys(vars);
+    }
+}
+
+export function clearLabTheme(): void {
+    if (typeof document === "undefined") {
+        return;
+    }
+    const root = document.documentElement;
+    delete root.dataset.nbTheme;
+    delete root.dataset.nbAppearance;
+    root.style.removeProperty("color-scheme");
+    clearColorwayVars();
+    root.classList.remove(NB_UI_COLORWAY_HOST_CLASS);
+    document.body.classList.remove(NB_UI_COLORWAY_HOST_CLASS);
+}
+
+function clearColorwayVars(): void {
+    for (const name of appliedVarNames) {
+        document.documentElement.style.removeProperty(name);
+        document.body.style.removeProperty(name);
+    }
+    appliedVarNames = [];
+}

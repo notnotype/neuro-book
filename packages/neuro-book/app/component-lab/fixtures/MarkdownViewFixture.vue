@@ -12,6 +12,6 @@ const source = computed(() => {
 
 <template>
     <div class="h-full overflow-auto p-4">
-        <MarkdownView :source="source" />
+        <MarkdownView data-lab-subject :source="source" />
     </div>
 </template>

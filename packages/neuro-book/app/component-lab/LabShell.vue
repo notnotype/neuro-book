@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, onMounted, provide, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
 import {
     FormSelect as NbFormSelect,
     Tabs as NbTabs,
@@ -9,23 +9,30 @@ import {
 } from "@notnotype/nb-ui/components";
 import type {FormSelectOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
 import type {Component} from "vue";
-import {builtInThemeIds} from "nbook/shared/theme/theme-vars";
-import {themeMeta} from "nbook/app/utils/theme/theme-tokens";
-import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
-import {applyThemeVars} from "nbook/app/utils/theme/apply-theme";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import CollapsibleSidePanel from "./CollapsibleSidePanel.vue";
 import ViewportCanvas from "./ViewportCanvas.vue";
 import MarkdownView from "./MarkdownView.vue";
 import EventLogPanel from "./EventLogPanel.vue";
+import HighlightBox from "./HighlightBox.vue";
 import {labComponents, findLabComponent} from "./component-index";
 import {findLabFixture} from "./fixtures";
 import {LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
+import type {HighlightRect} from "./highlight-box.types";
+import {useElementRect} from "./use-element-rect";
+import {
+    LAB_DEFAULT_COLORWAY,
+    LAB_DEFAULT_THEME,
+    applyLabTheme,
+    clearLabTheme,
+    labColorwayMeta,
+    labThemes,
+} from "./lab-theme";
 
 const EVENT_LIMIT = 200;
+const PROBE_LABEL_CLASS_LIMIT = 2;
 
-const rootRef = ref<HTMLElement | null>(null);
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
 const selectedName = ref<string>(labComponents.find((entry) => entry.mountable)?.name ?? "");
@@ -62,6 +69,13 @@ const fixture = computed(() => (selectedName.value ? findLabFixture(selectedName
 const scene = computed(() => fixture.value?.scenes.find((item) => item.id === selectedScene.value) ?? null);
 const sceneHasData = computed(() => scene.value?.data !== undefined);
 
+const tabItems = computed<TabsItem[]>(() => [
+    {value: "scenes", label: "场景", count: fixture.value?.scenes.length ?? 0},
+    {value: "doc", label: "文档"},
+    {value: "events", label: "事件", count: events.value.length},
+    {value: "data", label: "数据"},
+]);
+
 const presetOptions: ToggleGroupOption[] = [
     {value: "free", label: "随窗口"},
     {value: "tablet", label: "平板"},
@@ -81,32 +95,106 @@ const activePreset = computed(() => {
     return "";
 });
 
-// Lab 的主题只写在 Lab 自己的根节点上，不经过 useThemeManager——那条路会把
-// 主题保存进 Global Config，等于让开发工具改用户的产品设置。
-const labThemeId = ref<string>("dark");
-const themeOptions: FormSelectOption[] = builtInThemeIds.map((id) => ({
-    value: id,
-    label: themeMeta[id].label,
-    description: themeMeta[id].appearance === "dark" ? "深色" : "浅色",
-}));
+// ——— 主题：nb-ui 的配色 + 主题包两条轴 ———
 
-watch([labThemeId, rootRef], ([id, host]) => {
-    if (host) {
-        applyThemeVars(host, resolveTheme(id).vars);
+const labThemeId = ref<string>(LAB_DEFAULT_THEME);
+const labColorwayId = ref<string>(LAB_DEFAULT_COLORWAY);
+
+const themeOptions: FormSelectOption[] = labThemes.map((theme) => ({
+    value: theme.manifest.id,
+    label: theme.manifest.name,
+    description: theme.manifest.tagline,
+}));
+const colorwayOptions = computed<FormSelectOption[]>(() =>
+    Object.entries(labColorwayMeta).map(([id, meta]) => ({
+        value: id,
+        label: meta.label,
+        description: meta.appearance === "dark" ? "深色" : "浅色",
+    })));
+
+const currentAppearance = computed(() => labColorwayMeta[labColorwayId.value]?.appearance ?? "dark");
+
+// 换主题时跟到这套主题自带的配色。manifest 把它叫默认值而不是约束：跟过去之后
+// 用户仍可以单独换配色，两条轴独立。
+watch(labThemeId, (id) => {
+    const preferred = labThemes.find((theme) => theme.manifest.id === id)?.manifest.defaultColorway;
+    const next = preferred?.[currentAppearance.value];
+    if (next !== undefined && next !== labColorwayId.value) {
+        labColorwayId.value = next;
     }
+});
+
+watch([labThemeId, labColorwayId], ([theme, colorway]) => {
+    applyLabTheme(theme, colorway);
 });
 onMounted(() => {
-    if (rootRef.value) {
-        applyThemeVars(rootRef.value, resolveTheme(labThemeId.value).vars);
+    applyLabTheme(labThemeId.value, labColorwayId.value);
+});
+// 主题写在 <html> 上（见 lab-theme.ts），离开 Lab 必须复原，否则产品界面跟着变
+onBeforeUnmount(clearLabTheme);
+
+// ——— 高亮：常亮描边 + 悬停探针 ———
+
+const stageRef = ref<HTMLElement | null>(null);
+const outlineOn = ref(true);
+const probeOn = ref(false);
+const probeRect = ref<HighlightRect | null>(null);
+const probeLabel = ref("");
+const {rect: subjectRect, track: trackSubject, measure: measureSubject} = useElementRect();
+
+const subjectFound = ref(false);
+const subjectLabel = computed(() => {
+    const rect = subjectRect.value;
+    if (rect === null) {
+        return "";
+    }
+    return `${selectedName.value}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
+});
+const shownSubjectRect = computed(() => (outlineOn.value ? subjectRect.value : null));
+
+/** fixture 用 data-lab-subject 标出「真正的零件」，其余都是它自己搭的台子。 */
+async function refreshSubject(): Promise<void> {
+    await nextTick();
+    const element = stageRef.value?.querySelector<HTMLElement>("[data-lab-subject]") ?? null;
+    subjectFound.value = element !== null;
+    trackSubject(element);
+}
+
+function describeElement(element: HTMLElement): string {
+    const classes = [...element.classList];
+    const shown = classes.slice(0, PROBE_LABEL_CLASS_LIMIT).map((name) => `.${name}`).join("");
+    const more = classes.length > PROBE_LABEL_CLASS_LIMIT ? "…" : "";
+    const id = element.id ? `#${element.id}` : "";
+    const box = element.getBoundingClientRect();
+    return `${element.tagName.toLowerCase()}${id}${shown}${more}  ${Math.round(box.width)} × ${Math.round(box.height)}`;
+}
+
+function handleProbeMove(event: MouseEvent): void {
+    if (!probeOn.value) {
+        return;
+    }
+    // 覆盖层 pointer-events: none，因此 target 一定是预览里真实的元素
+    const element = event.target as HTMLElement | null;
+    if (element === null || !(element instanceof HTMLElement)) {
+        return;
+    }
+    const box = element.getBoundingClientRect();
+    probeRect.value = {top: box.top, left: box.left, width: box.width, height: box.height};
+    probeLabel.value = describeElement(element);
+}
+
+function clearProbe(): void {
+    probeRect.value = null;
+    probeLabel.value = "";
+}
+
+watch(probeOn, (on) => {
+    if (!on) {
+        clearProbe();
     }
 });
 
-const tabItems = computed<TabsItem[]>(() => [
-    {value: "scenes", label: "场景", count: fixture.value?.scenes.length ?? 0},
-    {value: "doc", label: "文档"},
-    {value: "events", label: "事件", count: events.value.length},
-    {value: "data", label: "数据"},
-]);
+// ——— 场景 ———
 
 // reka 的单选组再次点击当前项会把值清空，画布必须始终有一个尺寸档，因此挡住空值。
 // nb-ui 声明的类型是 string | string[]，但运行时确实会给 undefined，两处都要挡。
@@ -151,10 +239,19 @@ watch(fixture, async (next) => {
 watch([selectedScene, fixture], () => {
     resetScene();
 }, {immediate: true});
+
+// 挂上新 fixture 或换场景后零件是另一个 DOM 节点，描边要重新找目标
+watch([fixtureComponent, selectedScene], () => {
+    void refreshSubject();
+});
+// 改假数据不换节点，但零件可能被推走或改大小，ResizeObserver 看不见位移
+watch([sceneData, canvasWidth, canvasHeight], () => {
+    void nextTick(measureSubject);
+}, {deep: true});
 </script>
 
 <template>
-    <div ref="rootRef" class="flex h-full min-h-0 flex-col bg-[var(--bg-page,var(--bg-main))] text-[var(--text-main)]">
+    <div class="flex h-full min-h-0 flex-col bg-[var(--bg-page,var(--bg-main))] text-[var(--text-main)]">
         <header class="flex shrink-0 items-center gap-3 border-b border-[var(--border-color)] px-3 py-2">
             <span class="text-sm font-medium text-[var(--text-main)]">组件 Lab</span>
             <span class="text-xs text-[var(--text-muted)]">{{ labComponents.length }} 个组件</span>
@@ -163,8 +260,15 @@ watch([selectedScene, fixture], () => {
                 v-model="labThemeId"
                 :options="themeOptions"
                 size="sm"
-                class="w-[190px]"
-                aria-label="Lab 主题"
+                class="w-[170px]"
+                aria-label="主题"
+            />
+            <NbFormSelect
+                v-model="labColorwayId"
+                :options="colorwayOptions"
+                size="sm"
+                class="w-[150px]"
+                aria-label="配色"
             />
             <NbToolbar aria-label="画布尺寸">
                 <NbToggleGroup
@@ -193,28 +297,62 @@ watch([selectedScene, fixture], () => {
                 />
             </CollapsibleSidePanel>
 
-            <main class="min-w-0 flex-1">
-                <div v-if="!selected" class="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
-                    左边选一个组件
+            <main class="flex min-w-0 flex-1 flex-col">
+                <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] px-3 py-1.5">
+                    <span class="truncate text-xs font-medium text-[var(--text-main)]">{{ selected?.name ?? "未选择" }}</span>
+                    <span v-if="scene" class="truncate text-xs text-[var(--text-muted)]">{{ scene.label }}</span>
+                    <div class="flex-1"></div>
+                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="text-xs text-[var(--text-muted)]">
+                        这个场景没有标出零件
+                    </span>
+                    <button
+                        type="button"
+                        class="rounded px-2 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-main)]"
+                        :class="outlineOn ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                        :aria-pressed="outlineOn"
+                        @click="outlineOn = !outlineOn"
+                    >
+                        描边
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded px-2 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-main)]"
+                        :class="probeOn ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                        :aria-pressed="probeOn"
+                        @click="probeOn = !probeOn"
+                    >
+                        探针
+                    </button>
                 </div>
-                <div v-else-if="!selected.mountable" class="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-                    <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
-                    <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 不能在 Lab 里验证</p>
-                    <p class="max-w-md text-xs text-[var(--text-muted)]">{{ selected.blockedReason }}</p>
+
+                <div
+                    ref="stageRef"
+                    class="min-h-0 flex-1"
+                    @mousemove="handleProbeMove"
+                    @mouseleave="clearProbe"
+                >
+                    <div v-if="!selected" class="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
+                        左边选一个组件
+                    </div>
+                    <div v-else-if="!selected.mountable" class="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+                        <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
+                        <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 不能在 Lab 里验证</p>
+                        <p class="max-w-md text-xs text-[var(--text-muted)]">{{ selected.blockedReason }}</p>
+                    </div>
+                    <div v-else-if="!fixture" class="flex h-full flex-col items-center justify-center gap-2 text-center">
+                        <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 还没有场景</p>
+                        <p class="text-xs text-[var(--text-muted)]">它可以挂载，但还没有人为它写 fixture。</p>
+                    </div>
+                    <ViewportCanvas v-else v-model:width="canvasWidth" v-model:height="canvasHeight">
+                        <component
+                            :is="fixtureComponent"
+                            v-if="fixtureComponent"
+                            :key="`${selectedName}:${selectedScene}`"
+                            :scene="selectedScene"
+                            :data="sceneData"
+                        />
+                    </ViewportCanvas>
                 </div>
-                <div v-else-if="!fixture" class="flex h-full flex-col items-center justify-center gap-2 text-center">
-                    <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 还没有场景</p>
-                    <p class="text-xs text-[var(--text-muted)]">它可以挂载，但还没有人为它写 fixture。</p>
-                </div>
-                <ViewportCanvas v-else v-model:width="canvasWidth" v-model:height="canvasHeight">
-                    <component
-                        :is="fixtureComponent"
-                        v-if="fixtureComponent"
-                        :key="`${selectedName}:${selectedScene}`"
-                        :scene="selectedScene"
-                        :data="sceneData"
-                    />
-                </ViewportCanvas>
             </main>
 
             <CollapsibleSidePanel
@@ -316,5 +454,8 @@ watch([selectedScene, fixture], () => {
                 </div>
             </CollapsibleSidePanel>
         </div>
+
+        <HighlightBox :rect="shownSubjectRect" :label="subjectLabel" tone="subject" />
+        <HighlightBox :rect="probeRect" :label="probeLabel" tone="probe" />
     </div>
 </template>

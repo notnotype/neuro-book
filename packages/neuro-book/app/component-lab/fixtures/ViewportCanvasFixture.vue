@@ -43,6 +43,7 @@ function onHeight(value: number): void {
 
 <template>
     <ViewportCanvas
+        data-lab-subject
         :width="width"
         :height="height"
         :min-size="knobs.minSize"

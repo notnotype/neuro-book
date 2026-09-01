@@ -30,6 +30,7 @@ function onValidationChange(next: boolean): void {
     <div class="flex h-full flex-col gap-2 p-3">
         <!-- 事件名是 update:value，写 v-model 会静默失效 -->
         <JsonViewer
+            data-lab-subject
             :value="value"
             :read-only="false"
             :max-height="0"

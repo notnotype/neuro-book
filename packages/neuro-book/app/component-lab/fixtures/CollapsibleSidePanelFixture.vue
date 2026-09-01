@@ -33,6 +33,7 @@ function onCollapsedChange(value: boolean): void {
 <template>
     <div class="flex h-full min-h-0">
         <CollapsibleSidePanel
+            data-lab-subject
             :collapsed="collapsed"
             :title="knobs.title"
             :side="side"

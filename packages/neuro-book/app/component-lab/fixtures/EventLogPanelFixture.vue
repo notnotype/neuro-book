@@ -65,7 +65,7 @@ function pushEntry(payload?: unknown): void {
             </button>
         </div>
         <div class="min-h-0 flex-1 overflow-y-auto">
-            <EventLogPanel :entries="entries" :empty-text="emptyText" />
+            <EventLogPanel data-lab-subject :entries="entries" :empty-text="emptyText" />
         </div>
     </div>
 </template>
