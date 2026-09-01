@@ -229,7 +229,7 @@ function handleEditorUpdate(value: unknown): void {
 </template>
 
 <style scoped>
-/* 适配项目的暗色主题 CSS 变量 */
+/* 外壳形状；颜色全部走配色角色，见下面 .jse-main 那一段 */
 .json-viewer {
     display: flex;
     min-height: 0;
@@ -237,7 +237,7 @@ function handleEditorUpdate(value: unknown): void {
     border-radius: 0.5rem;
     overflow: hidden;
     border: 1px solid var(--border-color);
-    background: var(--bg-main);
+    background: var(--bg-panel);
 }
 
 /* 自定义工具栏 */
@@ -248,8 +248,8 @@ function handleEditorUpdate(value: unknown): void {
     justify-content: space-between;
     gap: 0.35rem;
     padding: 0.25rem 0.35rem;
-    /* border-bottom: 1px solid var(--border-color); */
-    background: color-mix(in srgb, var(--bg-input) 96%, transparent);
+    /* 比正文低一档：工具条是 chrome，与下面的内容区要分得开 */
+    background: var(--bg-subtle);
 }
 
 .json-viewer__actions {
@@ -279,14 +279,25 @@ function handleEditorUpdate(value: unknown): void {
     border: none;
 }
 
-/* 覆盖 jsoneditor 的默认主题变量以适配项目暗色方案 */
-.json-viewer :deep(.jse-theme-dark),
+/*
+ * 把 jsoneditor 的主题变量接到配色角色上。
+ *
+ * 这一段原来是 vanilla-jsoneditor/themes/jse-theme-dark.css 的拷贝：`--jse-theme: dark` 写死，
+ * 外加二十来个暗色系字面色值。它写在应用只有暗色主题的年代，那时「永远暗色」是对的。
+ * 有了浅色配色之后，一半变量来自我们的浅色主题、一半是这份暗色拷贝，混出来是一块脏灰。
+ *
+ * `--jse-theme` 不是装饰：jsoneditor 用 JS 读它的计算值（`getPropertyValue("--jse-theme")
+ * .includes("dark")`）来决定文本模式里 CodeMirror 用哪套语法配色。所以它必须跟着配色走，
+ * 而不是常量——写成 var() 是可以的，自定义属性的 var() 在计算值阶段就已经代换完。
+ *
+ * 字号仍是字面值：改它会改变 markdown-studio 里 JSON 视图的密度，不在这次的范围内。
+ */
 .json-viewer :deep(.jse-main) {
-    --jse-theme: dark;
+    --jse-theme: var(--color-scheme, dark);
     --jse-theme-color: color-mix(in srgb, var(--bg-input) 76%, var(--accent-main) 24%);
     --jse-theme-color-highlight: color-mix(in srgb, var(--bg-hover) 70%, var(--accent-main) 30%);
-    --jse-font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    --jse-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --jse-font-family: var(--font-ui);
+    --jse-font-family-mono: var(--font-mono);
     --jse-font-size: 11px;
     --jse-font-size-mono: 11px;
     --jse-font-size-main-menu: 11px;
@@ -295,26 +306,31 @@ function handleEditorUpdate(value: unknown): void {
     --jse-indent-size: calc(1em + 4px);
     --jse-padding: 8px;
     --jse-color-picker-button-size: 1em;
-    --jse-background-color: var(--bg-main);
+    /* 查看器是嵌在面板里的一块内容，取面板面而不是页面底——页面底在浅色配色下是灰的，
+       摆在白面板中间就成了一块无缘无故的灰。 */
+    --jse-background-color: var(--bg-panel);
     --jse-text-color: var(--text-main);
-    --jse-text-color-inverse: var(--bg-main);
+    --jse-text-color-inverse: var(--text-inverse);
     --jse-text-readonly: var(--text-muted);
-    --jse-error-color: #ee5341;
-    --jse-warning-color: #fdc539;
-    --jse-info-color: #4f91ff;
+    --jse-error-color: var(--status-danger);
+    --jse-warning-color: var(--status-warning);
+    --jse-info-color: var(--status-info);
     --jse-main-border: 1px solid var(--border-color);
     --jse-menu-color: var(--text-secondary);
     --jse-menu-button-size: 26px;
     --jse-modal-background: var(--bg-panel);
-    --jse-overlay-background: rgba(0, 0, 0, 0.5);
+    /* --color-scheme 与 --overlay-bg 是 nb-ui 配色契约自有的两个，产品自己的主题系统还没有它们
+       （见 nb-ui colorway-contract.ts 开头的对齐说明）。所以这两处必须带兜底值，
+       兜底走的正是产品当前的样子：暗色 + 半透明黑遮罩。产品补齐这两个变量后兜底自然失效。 */
+    --jse-overlay-background: var(--overlay-bg, rgb(0 0 0 / 0.5));
     --jse-modal-code-background: var(--bg-input);
-    --jse-modal-editor-theme-color: #707070;
-    --jse-modal-editor-theme-color-highlight: #646464;
+    --jse-modal-editor-theme-color: var(--text-muted);
+    --jse-modal-editor-theme-color-highlight: var(--text-secondary);
     --jse-tooltip-color: var(--text-main);
-    --jse-tooltip-background: #4b4b4b;
-    --jse-tooltip-border: 1px solid #737373;
+    --jse-tooltip-background: var(--bg-panel);
+    --jse-tooltip-border: 1px solid var(--border-color);
     --jse-tooltip-action-button-color: inherit;
-    --jse-tooltip-action-button-background: #737373;
+    --jse-tooltip-action-button-background: var(--bg-hover);
     --jse-panel-background: var(--bg-input);
     --jse-panel-background-border: 1px solid var(--border-color);
     --jse-panel-color: var(--text-main);
@@ -322,61 +338,67 @@ function handleEditorUpdate(value: unknown): void {
     --jse-panel-border: 1px solid var(--border-color);
     --jse-panel-button-color-highlight: var(--text-main);
     --jse-panel-button-background-highlight: var(--bg-hover);
-    --jse-navigation-bar-background: color-mix(in srgb, var(--bg-input) 88%, white 12%);
-    --jse-navigation-bar-background-highlight: color-mix(in srgb, var(--bg-hover) 86%, white 14%);
+    --jse-navigation-bar-background: var(--bg-subtle);
+    --jse-navigation-bar-background-highlight: var(--bg-hover);
     --jse-navigation-bar-dropdown-color: var(--text-main);
-    --jse-context-menu-background: #4b4b4b;
-    --jse-context-menu-background-highlight: #595959;
-    --jse-context-menu-separator-color: #595959;
+    --jse-context-menu-background: var(--bg-panel);
+    --jse-context-menu-background-highlight: var(--bg-hover);
+    --jse-context-menu-separator-color: var(--border-color);
     --jse-context-menu-color: var(--text-main);
-    --jse-context-menu-pointer-background: #4b4b4b;
-    --jse-context-menu-pointer-background-highlight: #595959;
-    --jse-context-menu-pointer-color: #4b4b4b;
-    --jse-context-menu-pointer-color-highlight: #595959;
+    /* 这四个原本就与各自的底色取同一个值——指针块靠形状而不是颜色区分，别把它们拆开 */
+    --jse-context-menu-pointer-background: var(--bg-panel);
+    --jse-context-menu-pointer-background-highlight: var(--bg-hover);
+    --jse-context-menu-pointer-color: var(--bg-panel);
+    --jse-context-menu-pointer-color-highlight: var(--bg-hover);
     --jse-key-color: var(--accent-text);
     --jse-value-color: var(--text-main);
-    --jse-value-color-string: #a5d6a7;
-    --jse-value-color-url: #a5d6a7;
-    --jse-value-color-number: #90caf9;
-    --jse-value-color-boolean: #ce93d8;
-    --jse-value-color-null: #ef9a9a;
+    /* 值的类型色走状态色四档。它们不表示状态，借的是「四个彼此拉得开、且在明暗两套配色里
+       都保证过对比度」这一点——直接写四个字面色就等于再开一处颜色来源。 */
+    --jse-value-color-string: var(--status-success);
+    --jse-value-color-url: var(--status-success);
+    --jse-value-color-number: var(--status-info);
+    --jse-value-color-boolean: var(--status-warning);
+    --jse-value-color-null: var(--status-danger);
     --jse-delimiter-color: var(--text-muted);
     --jse-separator-color: var(--border-color);
     --jse-edit-outline: 2px solid var(--text-main);
     --jse-contents-background-color: transparent;
     --jse-selection-background-color: var(--accent-bg);
     --jse-selection-background-inactive-color: var(--bg-hover);
-    --jse-hover-background-color: rgba(255, 255, 255, 0.04);
-    --jse-active-line-background-color: rgba(255, 255, 255, 0.06);
-    --jse-search-match-background-color: #343434;
+    /* 悬停与当前行是「在底色上加一点前景色」，两种明暗下都成立；
+       原来写死的 rgba(255,255,255,…) 只在暗底上是提亮，浅底上等于什么都没有。 */
+    --jse-hover-background-color: color-mix(in srgb, var(--text-main) 5%, transparent);
+    --jse-active-line-background-color: color-mix(in srgb, var(--text-main) 7%, transparent);
+    --jse-search-match-background-color: var(--bg-subtle);
     --jse-collapsed-items-background-color: var(--bg-input);
-    --jse-collapsed-items-selected-background-color: #565656;
-    --jse-collapsed-items-link-color: #b2b2b2;
-    --jse-collapsed-items-link-color-highlight: #ec8477;
-    --jse-search-match-color: #724c27;
-    --jse-search-match-outline: 1px solid #966535;
-    --jse-search-match-active-color: #9f6c39;
-    --jse-search-match-active-outline: 1px solid #bb7f43;
-    --jse-tag-background: #444444;
-    --jse-tag-color: #bdbdbd;
+    --jse-collapsed-items-selected-background-color: var(--bg-hover);
+    --jse-collapsed-items-link-color: var(--text-muted);
+    --jse-collapsed-items-link-color-highlight: var(--accent-main);
+    /* 搜索命中是一块高亮底（上游默认就是黄色底），不是文字色，别按名字当成前景 */
+    --jse-search-match-color: var(--status-warning-bg);
+    --jse-search-match-outline: 1px solid var(--status-warning-border);
+    --jse-search-match-active-color: color-mix(in srgb, var(--status-warning) 45%, var(--status-warning-bg));
+    --jse-search-match-active-outline: 1px solid var(--status-warning);
+    --jse-tag-background: var(--bg-subtle);
+    --jse-tag-color: var(--text-muted);
     --jse-table-header-background: var(--bg-input);
     --jse-table-header-background-highlight: var(--bg-hover);
-    --jse-table-row-odd-background: rgba(255, 255, 255, 0.04);
+    --jse-table-row-odd-background: color-mix(in srgb, var(--text-main) 4%, transparent);
     --jse-input-background: var(--bg-input);
     --jse-input-border: 1px solid var(--border-color);
-    --jse-button-background: #808080;
-    --jse-button-background-highlight: #7a7a7a;
-    --jse-button-color: #e0e0e0;
+    --jse-button-background: var(--bg-hover);
+    --jse-button-background-highlight: var(--bg-subtle);
+    --jse-button-color: var(--text-main);
     --jse-button-secondary-background: color-mix(in srgb, var(--bg-input) 94%, var(--accent-main) 6%);
     --jse-button-secondary-background-highlight: color-mix(in srgb, var(--bg-hover) 88%, var(--accent-main) 12%);
-    --jse-button-secondary-background-disabled: rgba(128, 128, 128, 0.14);
+    --jse-button-secondary-background-disabled: color-mix(in srgb, var(--text-main) 8%, transparent);
     --jse-button-secondary-color: var(--text-main);
     --jse-button-secondary-color-highlight: var(--text-main);
     --jse-button-secondary-color-disabled: var(--text-muted);
-    --jse-a-color: #55abff;
-    --jse-a-color-highlight: #4387c9;
-    --jse-color-picker-background: #656565;
-    --jse-color-picker-border-box-shadow: #8c8c8c 0 0 0 1px;
+    --jse-a-color: var(--accent-main);
+    --jse-a-color-highlight: color-mix(in srgb, var(--accent-main) 75%, var(--text-main));
+    --jse-color-picker-background: var(--bg-input);
+    --jse-color-picker-border-box-shadow: var(--border-color) 0 0 0 1px;
     font-size: 11px;
 }
 
