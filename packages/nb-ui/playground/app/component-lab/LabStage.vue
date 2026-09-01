@@ -138,21 +138,15 @@ const themeOptions = computed(() => [
 const colorwayOptions = computed(() => colorway.colorwayIds.map((id) => ({label: colorway.colorwayMeta[id]?.label ?? id, value: id})));
 
 const backdropOptions = labWallpapers.map((w) => ({label: w.label, value: w.id}));
-const stageBackdrop = ref<string>("fuxuan");
-
-const selectedWallpaper = computed(() => labWallpapers.find((w) => w.id === stageBackdrop.value));
+const stageBackdrop = ref<string>("mesh");
 
 const viewport = computed(() => labViewports.find((candidate) => candidate.id === props.viewportId) ?? labViewports[0]!);
+// 画布底全部由 .lab-canvas--<id> 那组 CSS 给，这里只剩宽度。
+// 原来还有一支从壁纸 url 拼 background-image 的分支，图片撤掉后不再需要（见 wallpapers.ts）。
 const canvasStyle = computed(() => {
     const style: Record<string, string> = {};
     if (viewport.value.width !== null) {
         style.width = `${viewport.value.width}px`;
-    }
-    if (selectedWallpaper.value?.url) {
-        style.backgroundImage = `url("${selectedWallpaper.value.url}")`;
-        style.backgroundSize = "cover";
-        style.backgroundPosition = "center";
-        style.backgroundRepeat = "no-repeat";
     }
     return style;
 });

@@ -23,6 +23,7 @@ import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
+import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
 import {
     LAB_DEFAULT_BACKDROP,
     LAB_DEFAULT_PAGE_BACKDROP,
@@ -126,6 +127,65 @@ const tabItems = computed<TabsItem[]>(() => [
 
 const backdropOptions: FormSelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
 const pageBackdropOptions: FormSelectOption[] = labPageBackdrops.map((item) => ({value: item.id, label: item.label}));
+
+// ——— 自定义桌面壁纸 ———
+//
+// 图片不进仓库（理由见 lab-wallpaper-store.ts），由使用者当场选一张存在本机浏览器里。
+// 页面上拿到的是一个 object URL，它绑在本次会话的这个 document 上，换图或离开都要撤销，
+// 不撤销的话每换一张就漏一份图片大小的内存。
+
+const wallpaperInput = ref<HTMLInputElement | null>(null);
+const wallpaperUrl = ref("");
+
+function setWallpaper(blob: Blob | null): void {
+    if (wallpaperUrl.value !== "") {
+        URL.revokeObjectURL(wallpaperUrl.value);
+    }
+    wallpaperUrl.value = blob === null ? "" : URL.createObjectURL(blob);
+}
+
+const pageBackdropStyle = computed(() => {
+    if (pageBackdrop.value !== "custom" || wallpaperUrl.value === "") {
+        return {};
+    }
+    return {
+        backgroundImage: `url("${wallpaperUrl.value}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+    };
+});
+
+async function pickWallpaper(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    // 选同一个文件两次也要生效，所以每次都清空 input，否则第二次不发 change
+    input.value = "";
+    if (!file) {
+        return;
+    }
+    await saveLabWallpaper(file);
+    setWallpaper(file);
+}
+
+async function dropWallpaper(): Promise<void> {
+    await clearLabWallpaper();
+    setWallpaper(null);
+    pageBackdrop.value = LAB_DEFAULT_PAGE_BACKDROP;
+}
+
+// 选了「自定义图片」却一张都没有，等于选了个空档。这时直接把选择框打开，
+// 而不是让人先看见一片空白再自己去找按钮。
+watch(pageBackdrop, (id) => {
+    if (id === "custom" && wallpaperUrl.value === "") {
+        wallpaperInput.value?.click();
+    }
+});
+
+// IndexedDB 只在浏览器里有，读取必须等挂载之后
+onMounted(async () => {
+    setWallpaper(await loadLabWallpaper());
+});
+onBeforeUnmount(() => setWallpaper(null));
 const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
     value: String(value),
     label: `${Math.round(value * 100)}%`,
@@ -363,6 +423,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     <div
         class="lab-root flex h-full min-h-0 flex-col"
         :class="[inspectOn ? 'lab-root--inspecting' : '', `lab-root--bg-${pageBackdrop}`]"
+        :style="pageBackdropStyle"
         @mousemove="handleInspectMove"
         @click.capture="handleInspectCapture"
         @mousedown.capture="handleInspectCapture"
@@ -396,6 +457,23 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 class="w-[150px] shrink-0"
                 aria-label="桌面"
             />
+            <!-- 壁纸只在选了「自定义图片」时才有得换。文件选择框自己不显示，
+                 由旁边的按钮或上面那个 watch 触发。 -->
+            <input
+                ref="wallpaperInput"
+                type="file"
+                accept="image/*"
+                class="hidden"
+                @change="pickWallpaper"
+            />
+            <template v-if="pageBackdrop === 'custom'">
+                <button type="button" class="lab-btn shrink-0" @click="wallpaperInput?.click()">
+                    {{ wallpaperUrl ? "换图片" : "选图片" }}
+                </button>
+                <button v-if="wallpaperUrl" type="button" class="lab-btn shrink-0" @click="dropWallpaper">
+                    清除
+                </button>
+            </template>
             <!-- ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
                  而一个只装一件东西的工具栏也不是工具栏。 -->
             <NbToggleGroup
@@ -764,6 +842,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
         radial-gradient(at 85% 15%, color-mix(in srgb, var(--status-info) 35%, transparent) 0, transparent 50%),
         radial-gradient(at 50% 85%, color-mix(in srgb, var(--status-warning) 28%, transparent) 0, transparent 50%),
         radial-gradient(at 90% 85%, color-mix(in srgb, var(--accent-main) 30%, transparent) 0, transparent 50%);
+}
+
+/* 自定义图片由内联 style 给（object URL 是运行期才有的），这里只负责在还没选图时
+   退回一片干净的 --bg-main，而不是把上一档的图案留在下面。 */
+.lab-root--bg-custom {
+    background-image: none;
 }
 
 /* 纯黑纯白是对比度的两个极端，故意不走配色变量：它要跳出当前配色才有意义 */

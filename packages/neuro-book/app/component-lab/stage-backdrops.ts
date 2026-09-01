@@ -14,7 +14,8 @@
  * 第 3 层与第 4 层容易看混：默认画布底是「面板底」，而仓库里大多数组件自己也画面板色，
  * 于是盒子里两层同色，看起来像一层。要看清组件自己的边界，把画布底换成「页面底」或「棋盘格」。
  *
- * 两层都用 CSS 生成，不引入图片资源：这是产品包，往 public/ 里塞几兆的壁纸要单独算账。
+ * 两层都用 CSS 生成，不引入图片资源：这是产品包，往 public/ 里塞几兆的壁纸每个终端用户都要下。
+ * 唯一的例外是「自定义图片」，那一张由使用者当场选、只留在本机浏览器里，同样不进仓库。
  */
 export type LabBackdrop = { id: string; label: string; };
 
@@ -42,6 +43,9 @@ export const LAB_DEFAULT_BACKDROP = "panel";
  *
  * 「主题底纹」默认要盖一层面纱压振幅，理由见 LabShell 的 --lab-backdrop-veil；
  * 「原强度」那一档就是不盖，用来判断面纱到底该压多少。
+ *
+ * 「自定义图片」由使用者当场选一张，存在本机浏览器里，见 lab-wallpaper-store.ts。
+ * 照片能看出玻璃边缘的折射位移——那需要背后有硬边内容，CSS 图案给不了。
  */
 export const labPageBackdrops: LabBackdrop[] = [
     {id: "theme", label: "主题底纹"},
@@ -50,6 +54,7 @@ export const labPageBackdrops: LabBackdrop[] = [
     {id: "checker", label: "棋盘格"},
     {id: "stripes", label: "斜纹"},
     {id: "mesh", label: "极光"},
+    {id: "custom", label: "自定义图片"},
     {id: "light", label: "纯白"},
     {id: "dark", label: "纯黑"},
 ];
