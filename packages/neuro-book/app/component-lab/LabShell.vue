@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
 import {
+    FormInput as NbFormInput,
     FormSelect as NbFormSelect,
+    SegmentedControl as NbSegmentedControl,
     Tabs as NbTabs,
     ToggleGroup as NbToggleGroup,
     Tree as NbTree,
 } from "@notnotype/nb-ui/components";
-import type {FormSelectOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
+import type {FormSelectOption, SegmentedControlOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
 import type {Component} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import CollapsibleSidePanel from "./CollapsibleSidePanel.vue";
@@ -21,6 +23,7 @@ import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
+import {LAB_DEFAULT_BACKDROP, LAB_DEFAULT_ZOOM, labBackdrops, labZooms} from "./stage-backdrops";
 import {useElementRect} from "./use-element-rect";
 import {
     LAB_DEFAULT_COLORWAY,
@@ -33,21 +36,37 @@ import {
 
 const EVENT_LIMIT = 200;
 
+const ALL_GROUP_IDS = [...new Set(labComponents.map((entry) => `group:${entry.group}`))];
+
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
 const selectedName = ref<string>(labComponents.find((entry) => entry.mountable)?.name ?? "");
 const selectedScene = ref<string>("");
-const rightTab = ref("scenes");
+const rightTab = ref("doc");
+const treeQuery = ref("");
+const expandedGroups = ref<string[]>([...ALL_GROUP_IDS]);
 const canvasWidth = ref(0);
 const canvasHeight = ref(0);
+const canvasZoom = ref(String(LAB_DEFAULT_ZOOM));
+const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
 const sceneData = ref<unknown>(undefined);
 const events = ref<LabEventEntry[]>([]);
 let eventCounter = 0;
 
+const matchedComponents = computed(() => {
+    const query = treeQuery.value.trim().toLowerCase();
+    if (query === "") {
+        return labComponents;
+    }
+    // 只按组件名搜。搜文档正文会把「凡是提到 Tree 的组件」全捞出来，
+    // 而这一栏是导航，导航要的是「我知道它叫什么，带我过去」。
+    return labComponents.filter((entry) => entry.name.toLowerCase().includes(query));
+});
+
 const treeItems = computed(() => {
     const groups = new Map<string, typeof labComponents>();
-    for (const entry of labComponents) {
+    for (const entry of matchedComponents.value) {
         const bucket = groups.get(entry.group) ?? [];
         bucket.push(entry);
         groups.set(entry.group, bucket);
@@ -64,18 +83,45 @@ const treeItems = computed(() => {
     }));
 });
 
+// 搜索时把目录全摊开：搜出来的东西藏在一个收起的目录里，等于没搜到。
+watch(treeQuery, (query) => {
+    if (query.trim() !== "") {
+        expandedGroups.value = [...ALL_GROUP_IDS];
+    }
+});
+
 const selected = computed(() => (selectedName.value ? findLabComponent(selectedName.value) : null));
 const fixture = computed(() => (selectedName.value ? findLabFixture(selectedName.value) : null));
 const scene = computed(() => fixture.value?.scenes.find((item) => item.id === selectedScene.value) ?? null);
 const sceneHasData = computed(() => scene.value?.data !== undefined);
 
+/*
+ * 场景摆在中栏工具条上，用 SegmentedControl；右栏的分区导航用 Tabs。两者不是同一件事：
+ *
+ *   Tabs 换的是「看哪一份内容」——下面接着一整块面板，选中项用底部指示线钉在那块面板上，
+ *        条目数会变、可以带计数、放不下就横向滚。
+ *   SegmentedControl 换的是「同一份内容的哪个状态」——一个自带底座的紧凑控件，
+ *        选项固定等分、指示块滑动，放在工具条上和旁边的按钮同一档高度。
+ *
+ * 场景正是后者：画布还是那块画布，只是换一组假数据。原来它是右栏的一个 tab，
+ * 于是「换场景」这个动作离它作用的画布隔着半个屏幕。
+ */
+const sceneOptions = computed<SegmentedControlOption[]>(() =>
+    (fixture.value?.scenes ?? []).map((item) => ({value: item.id, label: item.label})));
+
 const tabItems = computed<TabsItem[]>(() => [
-    {value: "scenes", label: "场景", count: fixture.value?.scenes.length ?? 0},
-    {value: "element", label: "元素"},
     {value: "doc", label: "文档"},
+    {value: "element", label: "元素"},
     {value: "events", label: "事件", count: events.value.length},
     {value: "data", label: "数据"},
 ]);
+
+const backdropOptions: FormSelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
+const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
+    value: String(value),
+    label: `${Math.round(value * 100)}%`,
+}));
+const zoomValue = computed(() => Number(canvasZoom.value) || 1);
 
 const presetOptions: ToggleGroupOption[] = [
     {value: "free", label: "随窗口"},
@@ -351,22 +397,76 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 side="left"
                 :class="leftCollapsed ? '' : 'w-[240px] shrink-0'"
             >
+                <template #actions>
+                    <span class="lab-note shrink-0 tabular-nums">
+                        {{ matchedComponents.length }} / {{ labComponents.length }}
+                    </span>
+                </template>
+
+                <div class="lab-search">
+                    <NbFormInput
+                        v-model="treeQuery"
+                        size="sm"
+                        type="search"
+                        placeholder="搜组件名"
+                        icon-class="i-lucide-search"
+                        clearable
+                        aria-label="搜组件名"
+                    />
+                </div>
+
                 <!-- 侧栏本身就是那块面，树在里面是裸列表。用默认的 card 会得到
                      「一张卡片浮在侧栏里」：卡片自带的面色、描边与阴影和侧栏的重复一遍。 -->
                 <NbTree
+                    v-model:expanded="expandedGroups"
                     :items="treeItems"
                     :model-value="selectedName"
-                    :expanded="treeItems.map((group) => group.id)"
                     surface="plain"
                     @select="selectComponent($event.id)"
                 />
+                <p v-if="matchedComponents.length === 0" class="lab-search-empty lab-note">
+                    没有名字含「{{ treeQuery }}」的组件
+                </p>
             </CollapsibleSidePanel>
 
             <main class="flex min-w-0 flex-1 flex-col">
                 <div class="lab-bar lab-bar--tight flex shrink-0 items-center">
-                    <span class="lab-title truncate">{{ selected?.name ?? "未选择" }}</span>
-                    <span v-if="scene" class="lab-note truncate">{{ scene.label }}</span>
+                    <span class="lab-title shrink-0 truncate">{{ selected?.name ?? "未选择" }}</span>
+                    <NbSegmentedControl
+                        v-if="sceneOptions.length > 1"
+                        :model-value="selectedScene"
+                        :options="sceneOptions"
+                        size="xs"
+                        aria-label="场景"
+                        class="min-w-0"
+                        @update:model-value="selectedScene = String($event)"
+                    />
+                    <span v-else-if="scene" class="lab-note shrink-0 truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
+                    <label class="lab-field shrink-0">
+                        <span class="lab-note">背景</span>
+                        <NbFormSelect
+                            v-model="canvasBackdrop"
+                            :options="backdropOptions"
+                            size="sm"
+                            dropdown-direction="down"
+                            hide-checkmark
+                            class="w-[104px]"
+                            aria-label="画布底"
+                        />
+                    </label>
+                    <label class="lab-field shrink-0">
+                        <span class="lab-note">缩放</span>
+                        <NbFormSelect
+                            v-model="canvasZoom"
+                            :options="zoomOptions"
+                            size="sm"
+                            dropdown-direction="down"
+                            hide-checkmark
+                            class="w-[76px]"
+                            aria-label="画布缩放"
+                        />
+                    </label>
                     <button
                         type="button"
                         class="lab-btn lab-btn--icon shrink-0"
@@ -392,7 +492,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         <p class="lab-title">{{ selected.name }} 还没有场景</p>
                         <p class="lab-note">它可以挂载，但还没有人为它写 fixture。</p>
                     </div>
-                    <ViewportCanvas v-else v-model:width="canvasWidth" v-model:height="canvasHeight">
+                    <ViewportCanvas
+                        v-else
+                        v-model:width="canvasWidth"
+                        v-model:height="canvasHeight"
+                        :zoom="zoomValue"
+                        :backdrop="canvasBackdrop"
+                    >
                         <component
                             :is="fixtureComponent"
                             v-if="fixtureComponent"
@@ -416,21 +522,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </div>
 
                     <div class="min-h-0 flex-1 overflow-y-auto">
-                        <div v-if="rightTab === 'scenes'" class="lab-stack">
-                            <button
-                                v-for="item in fixture?.scenes ?? []"
-                                :key="item.id"
-                                type="button"
-                                class="lab-scene"
-                                :class="item.id === selectedScene ? 'lab-scene--on' : ''"
-                                @click="selectedScene = item.id"
-                            >
-                                {{ item.label }}
-                            </button>
-                            <p v-if="!fixture" class="lab-note">这个组件没有场景。</p>
-                        </div>
-
-                        <div v-else-if="rightTab === 'element'" class="lab-pad">
+                        <div v-if="rightTab === 'element'" class="lab-pad">
                             <template v-if="picked">
                                 <dl class="lab-meta lab-meta--flush">
                                     <div v-if="picked.componentName" class="lab-meta-row">
@@ -635,7 +727,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  */
 .lab-bar--tight {
     height: var(--control-h-lg);
+    /* 比顶栏挤一档：这一条上摆的是画布的四个旋钮，它们是一组，
+       用顶栏那档间距会把它们读成四件互不相干的东西 */
+    gap: var(--space-4);
     padding: 0 var(--panel-p);
+}
+
+/* 「标签 + 控件」的一对。标签是控件的名字而不是独立的一行字，所以贴着它。 */
+.lab-field {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
 }
 
 /* 面板内部的窄条（事件页的「清空」那行）。主题给这类 chrome 的角色是 --strip-surface，
@@ -714,11 +816,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     border-bottom: var(--border-w) solid var(--divider);
 }
 
-.lab-stack {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-1);
-    padding: var(--space-4) var(--panel-p);
+/* 搜索框与树之间只留一档：它们是同一件事的两半，隔太开会读成两个区块 */
+.lab-search {
+    padding: var(--space-4) var(--panel-p) var(--space-2);
+}
+
+.lab-search-empty {
+    padding: var(--space-2) var(--panel-p) var(--space-4);
 }
 
 .lab-pad {
@@ -730,33 +834,6 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     height: 100%;
     flex-direction: column;
     gap: var(--space-4);
-}
-
-/* 行高绑到控件刻度上：场景列表与左边的组件树是同一类「可点的一行」，
-   两边各自定高的话换主题时只有一边跟着变密。 */
-.lab-scene {
-    display: flex;
-    min-height: var(--control-h-sm);
-    align-items: center;
-    padding: var(--space-2) var(--space-4);
-    border-radius: var(--radius-control);
-    text-align: left;
-    transition: background-color var(--motion-fast) var(--ease-standard);
-}
-
-.lab-scene:hover {
-    background: var(--bg-hover);
-}
-
-.lab-scene:focus-visible {
-    outline: 2px solid var(--focus-outline);
-    outline-offset: 2px;
-}
-
-.lab-scene--on,
-.lab-scene--on:hover {
-    background: var(--accent-bg);
-    color: var(--accent-text);
 }
 
 .lab-meta {

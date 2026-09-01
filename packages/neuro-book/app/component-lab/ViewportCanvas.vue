@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
+import {LAB_DEFAULT_BACKDROP, LAB_DEFAULT_ZOOM} from "./stage-backdrops";
 
 type ResizeAxis = "width" | "height" | "both";
 
@@ -11,9 +12,13 @@ const props = withDefaults(defineProps<{
     height: number;
     minSize?: number;
     showSize?: boolean;
+    zoom?: number;
+    backdrop?: string;
 }>(), {
     minSize: 200,
     showSize: true,
+    zoom: LAB_DEFAULT_ZOOM,
+    backdrop: LAB_DEFAULT_BACKDROP,
 });
 
 const emit = defineEmits<{
@@ -21,6 +26,7 @@ const emit = defineEmits<{
     (e: "update:height", value: number): void;
 }>();
 
+const innerRef = ref<HTMLElement | null>(null);
 const boxRef = ref<HTMLElement | null>(null);
 // 拖动期间的草稿尺寸。松手才上报，因此拖动中的每一帧只存在于这里。
 const draftWidth = ref<number | null>(null);
@@ -33,17 +39,24 @@ const shownHeight = computed(() => draftHeight.value ?? props.height);
 // 不限制的那一维要撑满舞台而不是缩成内容大小——一个塌成一行高的盒子
 // 看不出「不限尺寸」是什么状态，还会在舞台上留下大片空白。
 const boxStyle = computed(() => {
-    const style: Record<string, string> = {};
+    const style: Record<string, string> = {
+        // 缩放用 CSS zoom 而不是 transform: scale。scale 只改绘制不改布局，被缩小的盒子
+        // 仍占原尺寸的位置，居中和滚动条全都对不上，还得再套一层壳去补回布局尺寸。
+        // zoom 参与布局，「不限尺寸」那一维也能照常撑开。
+        zoom: String(props.zoom),
+        // 手柄是盒子的子元素，会跟着一起缩。缩到 50% 时 8px 的抓取区只剩 4px，
+        // 所以按倍率的倒数把它补回来。
+        "--lab-inv-zoom": String(1 / props.zoom),
+    };
     if (shownWidth.value > 0) {
         style.width = `${shownWidth.value}px`;
     } else {
-        style.alignSelf = "stretch";
+        style.justifySelf = "stretch";
     }
     if (shownHeight.value > 0) {
         style.height = `${shownHeight.value}px`;
     } else {
-        style.flex = "1 1 auto";
-        style.minHeight = "0";
+        style.alignSelf = "stretch";
     }
     return style;
 });
@@ -51,8 +64,37 @@ const boxStyle = computed(() => {
 const sizeLabel = computed(() => {
     const w = shownWidth.value > 0 ? `${Math.round(shownWidth.value)}` : "自动";
     const h = shownHeight.value > 0 ? `${Math.round(shownHeight.value)}` : "自动";
-    return `${w} × ${h}`;
+    const zoom = props.zoom === 1 ? "" : `　·　${Math.round(props.zoom * 100)}%`;
+    return `${w} × ${h}${zoom}`;
 });
+
+/**
+ * 从光标的**绝对位置**反推尺寸，而不是「起始尺寸 + 位移」。
+ *
+ * 盒子在舞台里居中，居中的盒子加宽 W 会左右各外扩 W/2——按位移累加的话右手柄只走光标的
+ * 一半，就是之前那个不跟手。居中时被拖的那条边到中心的距离是宽度的一半，于是
+ * 宽 = 2 ×（光标 − 中心）；盒子长到比舞台还宽之后它不再居中、左边缘钉死，
+ * 换成 宽 = 光标 − 左边缘。两条式子在「刚好填满」那一点取值相同，切换处不会跳。
+ *
+ * 每一帧都重新量，所以中途改缩放、拖出滚动条都自动跟上。
+ */
+function sizeFromPointer(axis: "width" | "height", pointer: number): number {
+    const inner = innerRef.value;
+    if (inner === null) {
+        return props.minSize;
+    }
+    const rect = inner.getBoundingClientRect();
+    const style = getComputedStyle(inner);
+    const isWidth = axis === "width";
+    const padStart = Number.parseFloat(isWidth ? style.paddingLeft : style.paddingTop);
+    const padEnd = Number.parseFloat(isWidth ? style.paddingRight : style.paddingBottom);
+    const avail = (isWidth ? inner.clientWidth : inner.clientHeight) - padStart - padEnd;
+    const contentStart = (isWidth ? rect.left : rect.top) + padStart;
+
+    const centered = 2 * (pointer - (contentStart + avail / 2));
+    const onScreen = centered <= avail ? centered : pointer - contentStart;
+    return Math.max(props.minSize, onScreen / props.zoom);
+}
 
 /** 不限制的那一维没有数值可拖，取当前实测尺寸作为拖动起点。 */
 function currentSize(axis: "width" | "height"): number {
@@ -64,7 +106,9 @@ function currentSize(axis: "width" | "height"): number {
     if (!box) {
         return props.minSize;
     }
-    return axis === "width" ? box.offsetWidth : box.offsetHeight;
+    // getBoundingClientRect 给的是屏幕像素，zoom 已经乘进去了，除回来才是声明尺寸
+    const rect = box.getBoundingClientRect();
+    return (axis === "width" ? rect.width : rect.height) / props.zoom;
 }
 
 function startDrag(axis: ResizeAxis, event: PointerEvent): void {
@@ -72,17 +116,12 @@ function startDrag(axis: ResizeAxis, event: PointerEvent): void {
     handle.setPointerCapture(event.pointerId);
     dragging.value = true;
 
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const startWidth = currentSize("width");
-    const startHeight = currentSize("height");
-
     const move = (moveEvent: PointerEvent): void => {
         if (axis === "width" || axis === "both") {
-            draftWidth.value = Math.max(props.minSize, startWidth + (moveEvent.clientX - startX));
+            draftWidth.value = sizeFromPointer("width", moveEvent.clientX);
         }
         if (axis === "height" || axis === "both") {
-            draftHeight.value = Math.max(props.minSize, startHeight + (moveEvent.clientY - startY));
+            draftHeight.value = sizeFromPointer("height", moveEvent.clientY);
         }
     };
 
@@ -137,31 +176,28 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
         emit("update:height", Math.max(props.minSize, currentSize("height") + deltaY));
     }
 }
-
-const handleClass = "absolute z-10 bg-transparent transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--accent-main)] hover:bg-[color-mix(in_srgb,var(--accent-main)_35%,transparent)]";
 </script>
 
 <template>
-    <!-- 尺寸画布：宽高受控，盒子大于舞台时靠滚动看，不缩放 -->
+    <!-- 尺寸画布：宽高受控，盒子大于舞台时靠滚动看 -->
     <div class="nb-lab-stage h-full min-h-0 w-full overflow-auto">
         <!--
-            盒子靠左上角摆，**不居中**。
-
-            居中的话拖拽会不跟手：盒子居中时加宽 W，左右各外扩 W/2，于是右边的手柄只走
-            光标位移的一半。要跟手就得让被拖的那条边之外的另一条边固定不动，也就是左上角。
+            用 grid + place-items: center 居中，不用 flex 的 justify-content: center。
+            两者在「内容比容器大」时不一样：flex 居中会把溢出的那一半推到 scroll 起点之外，
+            向左滚也看不到；grid 的轨道在这种情况下退化成 max-content，起点仍在 padding 处。
         -->
-        <div class="nb-lab-stage-inner flex min-h-full min-w-max flex-col items-start justify-start">
+        <div ref="innerRef" class="nb-lab-stage-inner">
             <div
                 v-if="props.showSize"
-                class="nb-lab-stage-size shrink-0 tabular-nums"
+                class="nb-lab-stage-size tabular-nums"
             >
                 {{ sizeLabel }}
             </div>
 
             <div
                 ref="boxRef"
-                class="nb-lab-stage-box relative shrink-0"
-                :class="dragging ? 'select-none' : ''"
+                class="nb-lab-stage-box relative"
+                :class="[`nb-lab-stage-box--${props.backdrop}`, dragging ? 'select-none' : '']"
                 :style="boxStyle"
             >
                 <div class="nb-lab-stage-content h-full w-full overflow-auto">
@@ -169,8 +205,7 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
                 </div>
 
                 <div
-                    :class="handleClass"
-                    class="-right-1 top-0 bottom-3 w-2 cursor-ew-resize"
+                    class="nb-lab-stage-handle nb-lab-stage-handle--e"
                     role="separator"
                     aria-orientation="vertical"
                     aria-label="调整宽度"
@@ -182,8 +217,7 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
                 ></div>
 
                 <div
-                    :class="handleClass"
-                    class="-bottom-1 left-0 right-3 h-2 cursor-ns-resize"
+                    class="nb-lab-stage-handle nb-lab-stage-handle--s"
                     role="separator"
                     aria-orientation="horizontal"
                     aria-label="调整高度"
@@ -195,8 +229,7 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
                 ></div>
 
                 <div
-                    :class="handleClass"
-                    class="-right-1 -bottom-1 h-3 w-3 cursor-nwse-resize"
+                    class="nb-lab-stage-handle nb-lab-stage-handle--se"
                     role="separator"
                     aria-label="同时调整宽高"
                     tabindex="0"
@@ -219,6 +252,11 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
 }
 
 .nb-lab-stage-inner {
+    display: grid;
+    min-height: 100%;
+    min-width: max-content;
+    align-content: center;
+    justify-items: center;
     gap: var(--space-4);
     padding: var(--space-7);
 }
@@ -229,11 +267,11 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
     font-size: var(--text-xs);
 }
 
-/* 盒子是内容层：实心面板色，不透不糊，被测组件才有一个确定的底 */
+/* 盒子是内容层：默认实心面板色，被测组件才有一个确定的底。
+   底可以换（见 stage-backdrops.ts），换的是这一层的 background。 */
 .nb-lab-stage-box {
     border: var(--border-w) solid var(--divider);
     border-radius: var(--radius-panel);
-    background: var(--panel-surface, var(--bg-panel));
     box-shadow: var(--elevation-raised, none);
 }
 
@@ -241,5 +279,103 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
    盒子一旦 overflow: hidden 手柄就消失了。 */
 .nb-lab-stage-content {
     border-radius: inherit;
+}
+
+/* ——— 画布底 ——— */
+
+.nb-lab-stage-box--panel {
+    background: var(--panel-surface, var(--bg-panel));
+}
+
+.nb-lab-stage-box--page {
+    background: var(--bg-main);
+}
+
+/* 主题自带的那张「桌面壁纸」。没声明它的主题落到面板色，不至于变成透明。 */
+.nb-lab-stage-box--theme {
+    background-color: var(--bg-main);
+    background-image: var(--window-backdrop, none);
+    background-size: cover;
+    background-position: center;
+}
+
+/* 棋盘格验的是透明度：半透明的面压上去，能一眼看出透出来多少 */
+.nb-lab-stage-box--checker {
+    background-color: var(--bg-main);
+    background-image:
+        linear-gradient(45deg, color-mix(in srgb, var(--text-main) 10%, transparent) 25%, transparent 25%),
+        linear-gradient(-45deg, color-mix(in srgb, var(--text-main) 10%, transparent) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--text-main) 10%, transparent) 75%),
+        linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--text-main) 10%, transparent) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.nb-lab-stage-box--grid {
+    background-color: var(--panel-surface, var(--bg-panel));
+    background-image: radial-gradient(color-mix(in srgb, var(--text-main) 14%, transparent) 1.2px, transparent 1.2px);
+    background-size: 18px 18px;
+}
+
+/* 极光是给玻璃用的：大面积、低频、高饱和，模糊之后仍有色相流动可看 */
+.nb-lab-stage-box--mesh {
+    background-color: var(--panel-surface, var(--bg-panel));
+    background-image:
+        radial-gradient(at 10% 20%, color-mix(in srgb, var(--accent-main) 32%, transparent) 0, transparent 50%),
+        radial-gradient(at 85% 15%, color-mix(in srgb, var(--status-info) 35%, transparent) 0, transparent 50%),
+        radial-gradient(at 50% 85%, color-mix(in srgb, var(--status-warning) 28%, transparent) 0, transparent 50%),
+        radial-gradient(at 90% 85%, color-mix(in srgb, var(--accent-main) 30%, transparent) 0, transparent 50%);
+}
+
+/* 纯黑纯白是对比度的两个极端，故意不走配色变量：它要跳出当前配色才有意义 */
+.nb-lab-stage-box--light {
+    background: #ffffff;
+}
+
+.nb-lab-stage-box--dark {
+    background: #000000;
+}
+
+/* ——— 拖动手柄 ——— */
+
+.nb-lab-stage-handle {
+    position: absolute;
+    z-index: 10;
+    background: transparent;
+    transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.nb-lab-stage-handle:hover {
+    background: color-mix(in srgb, var(--accent-main) 35%, transparent);
+}
+
+.nb-lab-stage-handle:focus-visible {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 1px;
+}
+
+/* 抓取区按缩放倒数补回来：盒子被 zoom 缩小时手柄跟着缩，50% 下 8px 只剩 4px */
+.nb-lab-stage-handle--e {
+    top: 0;
+    right: calc(-4px * var(--lab-inv-zoom, 1));
+    bottom: calc(12px * var(--lab-inv-zoom, 1));
+    width: calc(8px * var(--lab-inv-zoom, 1));
+    cursor: ew-resize;
+}
+
+.nb-lab-stage-handle--s {
+    left: 0;
+    right: calc(12px * var(--lab-inv-zoom, 1));
+    bottom: calc(-4px * var(--lab-inv-zoom, 1));
+    height: calc(8px * var(--lab-inv-zoom, 1));
+    cursor: ns-resize;
+}
+
+.nb-lab-stage-handle--se {
+    right: calc(-4px * var(--lab-inv-zoom, 1));
+    bottom: calc(-4px * var(--lab-inv-zoom, 1));
+    width: calc(12px * var(--lab-inv-zoom, 1));
+    height: calc(12px * var(--lab-inv-zoom, 1));
+    cursor: nwse-resize;
 }
 </style>
