@@ -30,6 +30,10 @@
 @source "./components/**/*.vue";
 @source "./components/**/*.ts";
 @source "./composables/**/*.ts";
+/* 测试里的类名不是发布面。断言「调用方传的宽度会覆盖默认宽」要写一个真实的宽度类，
+   不排掉的话那条只有测试用的规则会跟着进产物。 */
+@source not "./components/**/*.test.ts";
+@source not "./composables/**/*.test.ts";
 
 /*
  * 图标登记面（实测结论，勿凭记忆改）：

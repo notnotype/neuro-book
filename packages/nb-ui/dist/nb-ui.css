@@ -3,7 +3,6 @@
 :root, :host {
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
-  --color-red-500: oklch(63.7% 0.237 25.331);
   --color-white: #fff;
   --spacing: 0.25rem;
   --container-sm: 24rem;
@@ -259,9 +258,6 @@
 }
 .inline-flex {
   display: inline-flex;
-}
-.table {
-  display: table;
 }
 .h-0\.5 {
   height: calc(var(--spacing) * 0.5);
@@ -1234,9 +1230,6 @@
 .bg-current {
   background-color: currentcolor;
 }
-.bg-red-500 {
-  background-color: var(--color-red-500);
-}
 .bg-transparent {
   background-color: transparent;
 }
@@ -1571,12 +1564,6 @@
 .uppercase {
   text-transform: uppercase;
 }
-.italic {
-  font-style: italic;
-}
-.underline {
-  text-decoration-line: underline;
-}
 .opacity-0 {
   opacity: 0%;
 }
@@ -1697,10 +1684,6 @@
 }
 .shadow-sm {
   --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
-  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-}
-.ring {
-  --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 .ring-1 {
@@ -1849,11 +1832,6 @@
 }
 .transition-\[width\,height\] {
   transition-property: width,height;
-  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
-  transition-duration: var(--tw-duration, var(--default-transition-duration));
-}
-.transition-all {
-  transition-property: all;
   transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
   transition-duration: var(--tw-duration, var(--default-transition-duration));
 }

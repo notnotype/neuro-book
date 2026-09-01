@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import {computed, useAttrs} from "vue";
 import {
     SelectContent,
     SelectItem,
@@ -13,6 +13,7 @@ import {
 } from "reka-ui";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import {useFloatingScrollbar} from "../../composables/useFloatingScrollbar";
+import {cn} from "../../utils/cn";
 import {useFormFieldContext} from "./form-field-context";
 
 /**
@@ -82,6 +83,27 @@ const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
     ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[12px]"
     : "nb-ui-control-h-md nb-ui-control-px text-[13px]");
+
+/*
+ * SelectRoot 之上是 reka 的 PopperRoot（只 renderSlot，不产生元素），其下并列着触发器与
+ * 浮层两个根节点。多根组件不会自动继承 class 与其他属性，Vue 会**静默丢弃**它们——
+ * 调用方传的宽度、aria-label 全部落空。所以这里关掉自动继承，显式转发到触发器。
+ *
+ * class 单独走 cn()：触发器自带 w-full，与调用方传的宽度是同特指度的两条规则，
+ * 拼接的话谁生效取决于样式表先后，而本包的预编译 CSS 与宿主的原子类不在同一张表。
+ */
+defineOptions({inheritAttrs: false});
+const attrs = useAttrs();
+const forwardedAttrs = computed(() => {
+    const {class: _class, ...rest} = attrs;
+    return rest;
+});
+const triggerClass = computed(() => cn(
+    "nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium shadow-sm transition-[border-color,box-shadow,background-color] [transition-duration:var(--motion-fast)]",
+    controlSizeClass.value,
+    isInvalid.value ? "nb-ui-control-invalid" : "",
+    attrs.class as string | undefined,
+));
 const optionSizeClass = computed(() => isSmall.value
     ? "min-h-[calc(var(--control-h-sm)-var(--space-1))] px-2.5 py-0.5 text-[12px]"
     : "min-h-[var(--control-h-sm)] px-2.5 py-1.5 text-[13px]");
@@ -124,11 +146,11 @@ const {
         @update:model-value="handleUpdate"
     >
         <SelectTrigger
+            v-bind="forwardedAttrs"
             :id="controlId"
             :aria-describedby="field?.ariaDescribedby.value"
             :aria-invalid="isInvalid || undefined"
-            class="nb-ui-control flex w-full items-center justify-between gap-1.5 rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)] outline-none disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer select-none font-medium shadow-sm transition-[border-color,box-shadow,background-color] [transition-duration:var(--motion-fast)]"
-            :class="[controlSizeClass, isInvalid ? 'nb-ui-control-invalid' : '']"
+            :class="triggerClass"
             @focus="emit('focus', $event)"
         >
             <span class="flex min-w-0 items-center gap-1.5 pr-1">

@@ -119,6 +119,29 @@ describe("phase 2 form control contracts", () => {
         wrapper.unmount();
     });
 
+    it("forwards class and attributes to the FormSelect trigger and drops the conflicting default width", () => {
+        // SelectRoot 是多根组件，Vue 不自动继承；不显式转发的话宽度与 aria-label 会被静默丢弃
+        const wrapper = mount(FormSelect, {
+            props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
+            attrs: {"class": "w-[170px]", "aria-label": "导出格式", "data-testid": "format"},
+        });
+        const trigger = wrapper.get("[role='combobox']");
+        expect(trigger.attributes("aria-label")).toBe("导出格式");
+        expect(trigger.attributes("data-testid")).toBe("format");
+        expect(trigger.classes()).toContain("w-[170px]");
+        // 两条都留下的话谁生效取决于样式表先后，必须在类名层就去掉默认宽
+        expect(trigger.classes()).not.toContain("w-full");
+        wrapper.unmount();
+    });
+
+    it("keeps the FormSelect default full width when no width class is passed", () => {
+        const wrapper = mount(FormSelect, {
+            props: {modelValue: "md", options: [{label: "Markdown", value: "md"}]},
+        });
+        expect(wrapper.get("[role='combobox']").classes()).toContain("w-full");
+        wrapper.unmount();
+    });
+
     it("gives FormCheckbox an optional label fallback and forwards focus", async () => {
         const wrapper = mount(FormCheckbox, {props: {modelValue: false}});
         const input = wrapper.get("input");
