@@ -255,25 +255,27 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     <!-- 主题轴管形状与节奏，配色轴管颜色。Lab 自己的界面必须真的消费主题 token，
          否则换主题只有 nb-ui 组件在动，看起来像切换没生效。 -->
     <div class="lab-root flex h-full min-h-0 flex-col">
+        <!-- 顶栏每一项都写 shrink-0：这是一条全宽 flex 行，只要有一项不肯收缩，
+             其余项就会被压到 min-content，而中文可以逐字换行，会直接压成竖排。 -->
         <header class="lab-bar flex shrink-0 items-center">
-            <span class="lab-title">组件 Lab</span>
-            <span class="lab-note">{{ labComponents.length }} 个组件</span>
+            <span class="lab-title shrink-0">组件 Lab</span>
+            <span class="lab-note shrink-0">{{ labComponents.length }} 个组件</span>
             <div class="flex-1"></div>
             <NbFormSelect
                 v-model="labThemeId"
                 :options="themeOptions"
                 size="sm"
-                class="w-[170px]"
+                class="w-[170px] shrink-0"
                 aria-label="主题"
             />
             <NbFormSelect
                 v-model="labColorwayId"
                 :options="colorwayOptions"
                 size="sm"
-                class="w-[150px]"
+                class="w-[150px] shrink-0"
                 aria-label="配色"
             />
-            <NbToolbar aria-label="画布尺寸">
+            <NbToolbar aria-label="画布尺寸" class="shrink-0">
                 <NbToggleGroup
                     size="sm"
                     :options="presetOptions"
@@ -305,12 +307,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     <span class="lab-title truncate">{{ selected?.name ?? "未选择" }}</span>
                     <span v-if="scene" class="lab-note truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
-                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="lab-note">
+                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="lab-note shrink-0">
                         这个场景没有标出零件
                     </span>
                     <button
                         type="button"
-                        class="lab-btn"
+                        class="lab-btn shrink-0"
                         :class="outlineOn ? 'lab-btn--on' : ''"
                         :aria-pressed="outlineOn"
                         @click="outlineOn = !outlineOn"
@@ -319,7 +321,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </button>
                     <button
                         type="button"
-                        class="lab-btn"
+                        class="lab-btn shrink-0"
                         :class="probeOn ? 'lab-btn--on' : ''"
                         :aria-pressed="probeOn"
                         @click="probeOn = !probeOn"
