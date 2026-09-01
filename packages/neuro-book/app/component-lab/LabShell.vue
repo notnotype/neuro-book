@@ -4,7 +4,6 @@ import {
     FormSelect as NbFormSelect,
     Tabs as NbTabs,
     ToggleGroup as NbToggleGroup,
-    Toolbar as NbToolbar,
     Tree as NbTree,
 } from "@notnotype/nb-ui/components";
 import type {FormSelectOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
@@ -275,14 +274,16 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 class="w-[150px] shrink-0"
                 aria-label="配色"
             />
-            <NbToolbar aria-label="画布尺寸" class="shrink-0">
-                <NbToggleGroup
-                    size="sm"
-                    :options="presetOptions"
-                    :model-value="activePreset"
-                    @update:model-value="applyPreset"
-                />
-            </NbToolbar>
+            <!-- ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
+                 而一个只装一件东西的工具栏也不是工具栏。 -->
+            <NbToggleGroup
+                size="sm"
+                :options="presetOptions"
+                :model-value="activePreset"
+                aria-label="画布尺寸"
+                class="shrink-0"
+                @update:model-value="applyPreset"
+            />
         </header>
 
         <div class="flex min-h-0 flex-1">
@@ -292,12 +293,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 side="left"
                 :class="leftCollapsed ? '' : 'w-[240px] shrink-0'"
             >
-                <!-- nb-ui Tree 的根节点自带边框、内边距与阴影，外面不能再套一层，
-                     否则成了「一张卡片浮在侧栏里」。 -->
+                <!-- 侧栏本身就是那块面，树在里面是裸列表。用默认的 card 会得到
+                     「一张卡片浮在侧栏里」：卡片自带的面色、描边与阴影和侧栏的重复一遍。 -->
                 <NbTree
                     :items="treeItems"
                     :model-value="selectedName"
                     :expanded="treeItems.map((group) => group.id)"
+                    surface="plain"
                     @select="selectComponent($event.id)"
                 />
             </CollapsibleSidePanel>
@@ -450,10 +452,24 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  * 这些类是 Lab 消费主题 token 的唯一出口。写成 CSS 而不是原子类，是因为主题 token 要落在
  * font-family、letter-spacing、border-width 这些属性上，原子类的任意值语法在这些位置分辨
  * 不出「这是尺寸还是颜色」，写错了会静默不生效——而静默不生效正是「换主题看不出变化」。
+ *
+ * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
+ *
+ *   导航层（顶栏、两侧栏）= --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
+ *   内容层（画布盒子）    = 实心 --panel-surface
+ *   结构分割线            = var(--border-w) solid var(--divider)
+ *
+ * 这三条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
+ * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
+ * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  */
 
 .lab-root {
-    background: var(--bg-page, var(--bg-main));
+    background-color: var(--bg-main);
+    /* 窗体底纹＝主题自带的「桌面壁纸」。玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
+       fixed 让底纹不随内部滚动跑，三栏共用同一张背景。非玻璃主题不声明它，取 none。 */
+    background-image: var(--window-backdrop, none);
+    background-attachment: fixed;
     color: var(--text-main);
     font-family: var(--font-ui);
     font-size: var(--text-sm);
@@ -464,8 +480,16 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 .lab-bar {
     gap: var(--space-5);
     padding: var(--space-4) var(--space-5);
-    border-bottom: var(--border-w) solid var(--border-color);
-    background: var(--surface-raise, none);
+    border-bottom: var(--border-w) solid var(--divider);
+    background: var(--toolbar-surface);
+    /*
+     * 这里直接引用了主题私有的 --glass-blur，而不是某个库角色——库里今天只有浮层那档
+     * （--overlay-blur），chrome 层没有对应的角色。nb-ui playground 的 /lab 也是这么写的。
+     * 没声明它的主题（aurora / editorial）落到 none，正好就是它们要的实心 chrome。
+     * 主题契约补上 chrome 档之后，这里应该换过去。
+     */
+    backdrop-filter: var(--glass-blur, none);
+    -webkit-backdrop-filter: var(--glass-blur, none);
 }
 
 .lab-bar--tight {
@@ -526,7 +550,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 
 .lab-tabs {
     padding: var(--space-4) var(--space-4) 0;
-    border-bottom: var(--border-w) solid var(--border-color);
+    border-bottom: var(--border-w) solid var(--divider);
 }
 
 .lab-stack {
@@ -575,7 +599,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     gap: var(--space-4);
     margin-bottom: var(--space-5);
     padding-bottom: var(--space-5);
-    border-bottom: var(--border-w) solid var(--border-color);
+    border-bottom: var(--border-w) solid var(--divider);
     font-size: var(--text-xs);
 }
 

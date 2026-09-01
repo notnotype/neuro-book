@@ -204,8 +204,12 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
 
 <style scoped>
 /* 舞台与盒子的形状走主题 token：换主题时圆角、留白、抬起感应该一起变 */
+
+/* 舞台本身不上色：它是盒子四周的留白，透出 LabShell 铺的窗体底纹。
+   给它一层实心 --bg-subtle 的话，整块中栏会变成一片大平色，
+   底纹与玻璃在这里就都看不见了——盒子外面本来就该是「桌面」。 */
 .nb-lab-stage {
-    background: var(--bg-subtle);
+    background: transparent;
 }
 
 .nb-lab-stage-inner {
@@ -219,10 +223,11 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
     font-size: var(--text-xs);
 }
 
+/* 盒子是内容层：实心面板色，不透不糊，被测组件才有一个确定的底 */
 .nb-lab-stage-box {
-    border: var(--border-w) solid var(--border-color);
+    border: var(--border-w) solid var(--divider);
     border-radius: var(--radius-panel);
-    background: var(--bg-panel);
+    background: var(--panel-surface, var(--bg-panel));
     box-shadow: var(--elevation-raised, none);
 }
 

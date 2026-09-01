@@ -96,15 +96,23 @@ watch(() => props.collapsed, (isCollapsed) => {
 <style scoped>
 /* 尺寸与圆角走主题 token，颜色走配色变量——两条轴分开，换主题时这一栏才会跟着变形状 */
 .nb-lab-panel {
-    background: var(--bg-sidebar);
+    /*
+     * 侧栏是导航层，取主题的 --sidebar-surface 而不是配色的 --bg-sidebar：前者是**角色**，
+     * 玻璃主题把它定成半透明并配合模糊，非玻璃主题下它就等于 --bg-sidebar，两边都对。
+     * 直接写 --bg-sidebar 等于把「侧栏永远实心」写死，玻璃主题装了也看不出来。
+     */
+    background: var(--sidebar-surface, var(--bg-sidebar));
+    /* 与 LabShell 顶栏同一条取舍：chrome 层暂无库角色，先引用主题私有的 --glass-blur */
+    backdrop-filter: var(--glass-blur, none);
+    -webkit-backdrop-filter: var(--glass-blur, none);
 }
 
 .nb-lab-panel--left {
-    border-right: var(--border-w) solid var(--border-color);
+    border-right: var(--border-w) solid var(--divider);
 }
 
 .nb-lab-panel--right {
-    border-left: var(--border-w) solid var(--border-color);
+    border-left: var(--border-w) solid var(--divider);
 }
 
 .nb-lab-panel-rail {
@@ -115,7 +123,7 @@ watch(() => props.collapsed, (isCollapsed) => {
     height: var(--control-h-lg);
     gap: var(--space-4);
     padding: 0 var(--space-5);
-    border-bottom: var(--border-w) solid var(--border-color);
+    border-bottom: var(--border-w) solid var(--divider);
 }
 
 .nb-lab-panel-title {
