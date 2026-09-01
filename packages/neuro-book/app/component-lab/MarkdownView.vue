@@ -37,8 +37,8 @@ const html = computed(() => {
 <style scoped>
 .nb-lab-markdown {
     color: var(--text-main);
-    font-size: 0.8125rem;
-    line-height: 1.7;
+    font-size: var(--text-sm);
+    line-height: var(--leading-reading);
     word-break: break-word;
 }
 
@@ -93,7 +93,7 @@ const html = computed(() => {
 
 .nb-lab-markdown :deep(code) {
     padding: 0.1em 0.35em;
-    border-radius: 4px;
+    border-radius: var(--radius-control);
     background: var(--bg-subtle);
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 0.92em;
@@ -103,7 +103,7 @@ const html = computed(() => {
     margin: 0.8em 0;
     padding: 0.75em 0.9em;
     border: 1px solid var(--border-color);
-    border-radius: 6px;
+    border-radius: var(--radius-control);
     background: var(--bg-subtle);
     /* 代码块自己横向滚，不把整块文档撑宽 */
     overflow-x: auto;

@@ -69,7 +69,7 @@ function summarize(payload: unknown): string {
                 <span class="shrink-0 font-mono text-[11px] text-[var(--text-muted)] tabular-nums">
                     {{ formatTime(entry.at) }}
                 </span>
-                <code class="shrink-0 rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[11px] text-[var(--text-main)]">
+                <code class="nb-lab-event-chip shrink-0">
                     {{ entry.name }}
                 </code>
                 <span
@@ -91,3 +91,15 @@ function summarize(payload: unknown): string {
         </div>
     </div>
 </template>
+
+<style scoped>
+/* 写成 CSS 而不是原子类：字号是 var(--text-2xs)，原子类的 text-[…] 分辨不出
+   传进去的是字号还是颜色，写成任意值会静默不生效。 */
+.nb-lab-event-chip {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--bg-subtle);
+    color: var(--text-main);
+    font-size: var(--text-2xs);
+}
+</style>

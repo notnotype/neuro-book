@@ -251,10 +251,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col bg-[var(--bg-page,var(--bg-main))] text-[var(--text-main)]">
-        <header class="flex shrink-0 items-center gap-3 border-b border-[var(--border-color)] px-3 py-2">
-            <span class="text-sm font-medium text-[var(--text-main)]">组件 Lab</span>
-            <span class="text-xs text-[var(--text-muted)]">{{ labComponents.length }} 个组件</span>
+    <!-- 主题轴管形状与节奏，配色轴管颜色。Lab 自己的界面必须真的消费主题 token，
+         否则换主题只有 nb-ui 组件在动，看起来像切换没生效。 -->
+    <div class="lab-root flex h-full min-h-0 flex-col">
+        <header class="lab-bar flex shrink-0 items-center">
+            <span class="lab-title">组件 Lab</span>
+            <span class="lab-note">{{ labComponents.length }} 个组件</span>
             <div class="flex-1"></div>
             <NbFormSelect
                 v-model="labThemeId"
@@ -298,17 +300,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </CollapsibleSidePanel>
 
             <main class="flex min-w-0 flex-1 flex-col">
-                <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] px-3 py-1.5">
-                    <span class="truncate text-xs font-medium text-[var(--text-main)]">{{ selected?.name ?? "未选择" }}</span>
-                    <span v-if="scene" class="truncate text-xs text-[var(--text-muted)]">{{ scene.label }}</span>
+                <div class="lab-bar lab-bar--tight flex shrink-0 items-center">
+                    <span class="lab-title truncate">{{ selected?.name ?? "未选择" }}</span>
+                    <span v-if="scene" class="lab-note truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
-                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="text-xs text-[var(--text-muted)]">
+                    <span v-if="outlineOn && !subjectFound && fixtureComponent" class="lab-note">
                         这个场景没有标出零件
                     </span>
                     <button
                         type="button"
-                        class="rounded px-2 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-main)]"
-                        :class="outlineOn ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                        class="lab-btn"
+                        :class="outlineOn ? 'lab-btn--on' : ''"
                         :aria-pressed="outlineOn"
                         @click="outlineOn = !outlineOn"
                     >
@@ -316,8 +318,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </button>
                     <button
                         type="button"
-                        class="rounded px-2 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-main)]"
-                        :class="probeOn ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                        class="lab-btn"
+                        :class="probeOn ? 'lab-btn--on' : ''"
                         :aria-pressed="probeOn"
                         @click="probeOn = !probeOn"
                     >
@@ -331,17 +333,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     @mousemove="handleProbeMove"
                     @mouseleave="clearProbe"
                 >
-                    <div v-if="!selected" class="flex h-full items-center justify-center text-sm text-[var(--text-muted)]">
-                        左边选一个组件
-                    </div>
-                    <div v-else-if="!selected.mountable" class="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+                    <div v-if="!selected" class="lab-empty">左边选一个组件</div>
+                    <div v-else-if="!selected.mountable" class="lab-empty lab-empty--stack">
                         <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
-                        <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 不能在 Lab 里验证</p>
-                        <p class="max-w-md text-xs text-[var(--text-muted)]">{{ selected.blockedReason }}</p>
+                        <p class="lab-title">{{ selected.name }} 不能在 Lab 里验证</p>
+                        <p class="lab-note max-w-md">{{ selected.blockedReason }}</p>
                     </div>
-                    <div v-else-if="!fixture" class="flex h-full flex-col items-center justify-center gap-2 text-center">
-                        <p class="text-sm text-[var(--text-main)]">{{ selected.name }} 还没有场景</p>
-                        <p class="text-xs text-[var(--text-muted)]">它可以挂载，但还没有人为它写 fixture。</p>
+                    <div v-else-if="!fixture" class="lab-empty lab-empty--stack">
+                        <p class="lab-title">{{ selected.name }} 还没有场景</p>
+                        <p class="lab-note">它可以挂载，但还没有人为它写 fixture。</p>
                     </div>
                     <ViewportCanvas v-else v-model:width="canvasWidth" v-model:height="canvasHeight">
                         <component
@@ -362,48 +362,44 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 :class="rightCollapsed ? '' : 'w-[320px] shrink-0'"
             >
                 <div class="flex h-full min-h-0 flex-col">
-                    <div class="shrink-0 border-b border-[var(--border-color)] px-2 pt-2">
+                    <div class="lab-tabs shrink-0">
                         <NbTabs v-model="rightTab" :items="tabItems" size="sm" aria-label="检视面板" />
                     </div>
 
                     <div class="min-h-0 flex-1 overflow-y-auto">
-                        <div v-if="rightTab === 'scenes'" class="flex flex-col gap-1 p-2">
+                        <div v-if="rightTab === 'scenes'" class="lab-stack">
                             <button
                                 v-for="item in fixture?.scenes ?? []"
                                 :key="item.id"
                                 type="button"
-                                class="rounded px-2 py-1.5 text-left text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent-main)]"
-                                :class="item.id === selectedScene ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'hover:bg-[var(--bg-hover)]'"
+                                class="lab-scene"
+                                :class="item.id === selectedScene ? 'lab-scene--on' : ''"
                                 @click="selectedScene = item.id"
                             >
                                 {{ item.label }}
                             </button>
-                            <p v-if="!fixture" class="px-2 py-1 text-xs text-[var(--text-muted)]">这个组件没有场景。</p>
+                            <p v-if="!fixture" class="lab-note">这个组件没有场景。</p>
                         </div>
 
-                        <div v-else-if="rightTab === 'doc'" class="p-3">
+                        <div v-else-if="rightTab === 'doc'" class="lab-pad">
                             <template v-if="selected">
                                 <!-- 能力标签与能不能挂都是文档 frontmatter 派生的，
                                      放在文档正文上方而不是单开一个 tab。 -->
-                                <dl class="mb-3 flex flex-col gap-2 border-b border-[var(--border-color)] pb-3 text-xs">
-                                    <div class="flex gap-2">
-                                        <dt class="w-16 shrink-0 text-[var(--text-muted)]">目录</dt>
-                                        <dd class="text-[var(--text-main)]">{{ selected.group }}</dd>
+                                <dl class="lab-meta">
+                                    <div class="lab-meta-row">
+                                        <dt class="lab-meta-key">目录</dt>
+                                        <dd>{{ selected.group }}</dd>
                                     </div>
-                                    <div class="flex gap-2">
-                                        <dt class="w-16 shrink-0 text-[var(--text-muted)]">能力标签</dt>
-                                        <dd class="flex flex-wrap gap-1">
-                                            <span v-if="selected.tags.length === 0" class="text-[var(--text-main)]">无</span>
-                                            <code
-                                                v-for="tag in selected.tags"
-                                                :key="tag"
-                                                class="rounded bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[var(--text-main)]"
-                                            >{{ tag }}</code>
+                                    <div class="lab-meta-row">
+                                        <dt class="lab-meta-key">能力标签</dt>
+                                        <dd class="lab-tags">
+                                            <span v-if="selected.tags.length === 0">无</span>
+                                            <code v-for="tag in selected.tags" :key="tag" class="lab-chip">{{ tag }}</code>
                                         </dd>
                                     </div>
-                                    <div class="flex gap-2">
-                                        <dt class="w-16 shrink-0 text-[var(--text-muted)]">确定性验证</dt>
-                                        <dd class="text-[var(--text-main)]">
+                                    <div class="lab-meta-row">
+                                        <dt class="lab-meta-key">确定性验证</dt>
+                                        <dd>
                                             {{ selected.mountable ? (selected.needsSnapshot ? "需预置状态快照" : "可以") : "只能在正式界面" }}
                                         </dd>
                                     </div>
@@ -413,30 +409,18 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         </div>
 
                         <div v-else-if="rightTab === 'events'" class="flex h-full flex-col">
-                            <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-1.5">
-                                <span class="text-xs text-[var(--text-muted)]">最多留最近 {{ EVENT_LIMIT }} 条</span>
-                                <button
-                                    type="button"
-                                    class="rounded px-2 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                                    @click="events = []"
-                                >
-                                    清空
-                                </button>
+                            <div class="lab-bar lab-bar--tight flex shrink-0 items-center justify-between">
+                                <span class="lab-note">最多留最近 {{ EVENT_LIMIT }} 条</span>
+                                <button type="button" class="lab-btn" @click="events = []">清空</button>
                             </div>
                             <EventLogPanel :entries="events" empty-text="操作一下组件，事件会记在这里" />
                         </div>
 
-                        <div v-else class="flex h-full flex-col gap-2 p-3">
+                        <div v-else class="lab-pad lab-data">
                             <template v-if="sceneHasData">
                                 <div class="flex shrink-0 items-center justify-between">
-                                    <span class="text-xs text-[var(--text-muted)]">改完立刻生效</span>
-                                    <button
-                                        type="button"
-                                        class="rounded px-2 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                                        @click="resetScene"
-                                    >
-                                        还原
-                                    </button>
+                                    <span class="lab-note">改完立刻生效</span>
+                                    <button type="button" class="lab-btn" @click="resetScene">还原</button>
                                 </div>
                                 <JsonViewer
                                     :value="sceneData"
@@ -446,9 +430,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                     @update:value="sceneData = $event"
                                 />
                             </template>
-                            <p v-else class="text-xs text-[var(--text-muted)]">
-                                这个场景没有登记可改的假数据。
-                            </p>
+                            <p v-else class="lab-note">这个场景没有登记可改的假数据。</p>
                         </div>
                     </div>
                 </div>
@@ -459,3 +441,162 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
         <HighlightBox :rect="probeRect" :label="probeLabel" tone="probe" />
     </div>
 </template>
+
+<style scoped>
+/*
+ * 这些类是 Lab 消费主题 token 的唯一出口。写成 CSS 而不是原子类，是因为主题 token 要落在
+ * font-family、letter-spacing、border-width 这些属性上，原子类的任意值语法在这些位置分辨
+ * 不出「这是尺寸还是颜色」，写错了会静默不生效——而静默不生效正是「换主题看不出变化」。
+ */
+
+.lab-root {
+    background: var(--bg-page, var(--bg-main));
+    color: var(--text-main);
+    font-family: var(--font-ui);
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking-ui);
+    line-height: var(--leading-ui);
+}
+
+.lab-bar {
+    gap: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: var(--border-w) solid var(--border-color);
+    background: var(--surface-raise, none);
+}
+
+.lab-bar--tight {
+    padding: var(--space-3) var(--space-5);
+}
+
+.lab-title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+}
+
+.lab-note {
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+}
+
+.lab-btn {
+    padding: var(--space-2) var(--control-px);
+    border-radius: var(--radius-control);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    transition:
+        background-color var(--motion-fast) var(--ease-standard),
+        color var(--motion-fast) var(--ease-standard);
+}
+
+.lab-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.lab-btn:focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.lab-btn--on,
+.lab-btn--on:hover {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+}
+
+.lab-empty {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    font-size: var(--text-sm);
+}
+
+.lab-empty--stack {
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: 0 var(--space-8);
+    text-align: center;
+}
+
+.lab-tabs {
+    padding: var(--space-4) var(--space-4) 0;
+    border-bottom: var(--border-w) solid var(--border-color);
+}
+
+.lab-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-4);
+}
+
+.lab-pad {
+    padding: var(--panel-p);
+}
+
+.lab-data {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.lab-scene {
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-control);
+    text-align: left;
+    transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.lab-scene:hover {
+    background: var(--bg-hover);
+}
+
+.lab-scene:focus-visible {
+    outline: 2px solid var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.lab-scene--on,
+.lab-scene--on:hover {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+}
+
+.lab-meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+    padding-bottom: var(--space-5);
+    border-bottom: var(--border-w) solid var(--border-color);
+    font-size: var(--text-xs);
+}
+
+.lab-meta-row {
+    display: flex;
+    gap: var(--space-4);
+}
+
+.lab-meta-key {
+    width: 4rem;
+    flex-shrink: 0;
+    color: var(--text-muted);
+}
+
+.lab-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.lab-chip {
+    padding: var(--space-1) var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--bg-subtle);
+    font-family: var(--font-mono);
+}
+</style>

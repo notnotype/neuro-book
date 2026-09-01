@@ -143,22 +143,22 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
 
 <template>
     <!-- 尺寸画布：宽高受控，盒子大于舞台时靠滚动看，不缩放 -->
-    <div class="h-full min-h-0 w-full overflow-auto bg-[var(--bg-subtle)]">
-        <div class="flex min-h-full min-w-max flex-col items-center justify-center gap-2 p-6">
+    <div class="nb-lab-stage h-full min-h-0 w-full overflow-auto">
+        <div class="nb-lab-stage-inner flex min-h-full min-w-max flex-col items-center justify-center">
             <div
                 v-if="props.showSize"
-                class="shrink-0 font-mono text-xs text-[var(--text-muted)] tabular-nums"
+                class="nb-lab-stage-size shrink-0 tabular-nums"
             >
                 {{ sizeLabel }}
             </div>
 
             <div
                 ref="boxRef"
-                class="relative shrink-0 border border-[var(--border-color)] bg-[var(--bg-panel)]"
+                class="nb-lab-stage-box relative shrink-0"
                 :class="dragging ? 'select-none' : ''"
                 :style="boxStyle"
             >
-                <div class="h-full w-full overflow-auto">
+                <div class="nb-lab-stage-content h-full w-full overflow-auto">
                     <slot></slot>
                 </div>
 
@@ -201,3 +201,34 @@ const handleClass = "absolute z-10 bg-transparent transition-colors focus-visibl
         </div>
     </div>
 </template>
+
+<style scoped>
+/* 舞台与盒子的形状走主题 token：换主题时圆角、留白、抬起感应该一起变 */
+.nb-lab-stage {
+    background: var(--bg-subtle);
+}
+
+.nb-lab-stage-inner {
+    gap: var(--space-4);
+    padding: var(--space-7);
+}
+
+.nb-lab-stage-size {
+    color: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+}
+
+.nb-lab-stage-box {
+    border: var(--border-w) solid var(--border-color);
+    border-radius: var(--radius-panel);
+    background: var(--bg-panel);
+    box-shadow: var(--elevation-raised, none);
+}
+
+/* 内容层跟着裁圆角，但不能裁在盒子上——三个拖动手柄定位在盒子外侧，
+   盒子一旦 overflow: hidden 手柄就消失了。 */
+.nb-lab-stage-content {
+    border-radius: inherit;
+}
+</style>
