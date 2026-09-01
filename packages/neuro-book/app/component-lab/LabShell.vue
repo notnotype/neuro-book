@@ -119,7 +119,8 @@ const currentAppearance = computed(() => labColorwayMeta[labColorwayId.value]?.a
 watch(labThemeId, (id) => {
     const preferred = labThemes.find((theme) => theme.manifest.id === id)?.manifest.defaultColorway;
     const next = preferred?.[currentAppearance.value];
-    if (next !== undefined && next !== labColorwayId.value) {
+    // 配色列表被裁到两套之后，主题自带的默认配色多半不在列表里，这时保持当前配色不动。
+    if (next !== undefined && next !== labColorwayId.value && next in labColorwayMeta) {
         labColorwayId.value = next;
     }
 });

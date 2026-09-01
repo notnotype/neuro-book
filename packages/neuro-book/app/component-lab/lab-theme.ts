@@ -24,12 +24,37 @@ for (const module of [nbookTheme, macosTheme, editorialTheme, auroraTheme]) {
 
 const fromThemes = collectThemeColorways();
 
+const allColorways: Record<string, NbColorwayVars> = {...nbColorways, ...fromThemes.colorways};
+const allColorwayMeta: Record<string, ColorwayMeta> = {...nbColorwayMeta, ...fromThemes.colorwayMeta};
+
+/**
+ * Lab 的配色只留 NeuroBook 主题自带的这两套（开发者拍板，2026-09-01）。
+ *
+ * 代价记在这里：aurora / editorial / macos 各自带的配色不再出现在切换器里，其中 macos
+ * 那两套是为它自己的玻璃调的——按 nb-ui `themes/macos/colorways.ts` 的说法，那套玻璃在别人的
+ * 配色下会发灰。所以 Lab 里看到的 macOS 主题不是它设计时的样子；真要按设计观感评判它，
+ * 得先把 `macos-light` / `macos-dark` 放回这个数组。
+ */
+const LAB_COLORWAY_IDS = ["nbook-light", "nbook-dark"];
+
 export const labThemes = getInstalledThemes();
-export const labColorways: Record<string, NbColorwayVars> = {...nbColorways, ...fromThemes.colorways};
-export const labColorwayMeta: Record<string, ColorwayMeta> = {...nbColorwayMeta, ...fromThemes.colorwayMeta};
+export const labColorways: Record<string, NbColorwayVars> = pick(allColorways);
+export const labColorwayMeta: Record<string, ColorwayMeta> = pick(allColorwayMeta);
 
 export const LAB_DEFAULT_THEME = nbookTheme.manifest.id;
-export const LAB_DEFAULT_COLORWAY = nbookTheme.manifest.defaultColorway?.dark ?? "dark";
+export const LAB_DEFAULT_COLORWAY = nbookTheme.manifest.defaultColorway?.dark ?? "nbook-dark";
+
+/** 按 LAB_COLORWAY_IDS 的顺序取子集，顺序即切换器里的显示顺序。 */
+function pick<T>(source: Record<string, T>): Record<string, T> {
+    const out: Record<string, T> = {};
+    for (const id of LAB_COLORWAY_IDS) {
+        const value = source[id];
+        if (value !== undefined) {
+            out[id] = value;
+        }
+    }
+    return out;
+}
 
 /** 上一次写下去的配色变量名，清理时要逐个 removeProperty，否则会残留在 <html> 上。 */
 let appliedVarNames: string[] = [];
