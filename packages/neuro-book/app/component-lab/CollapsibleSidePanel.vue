@@ -6,6 +6,9 @@ export type CollapsibleSidePanelSide = "left" | "right";
 /**
  * 这一栏在材料语言里属于哪一层。**这不是外观偏好，是主题给的角色。**
  * nav = 器械（导航、工具），content = 纸（要读的正文与数据）。
+ *
+ * 判据看**这一栏装什么**，不看它在左边还是右边——规范一度按部件列举、把侧栏整个划给器械，
+ * 于是「一个装文档的侧栏」两头都对得上，见 nb-ui/docs/design-language.md 第一节。
  */
 export type CollapsibleSidePanelLayer = "nav" | "content";
 
