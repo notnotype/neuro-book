@@ -26,6 +26,12 @@ watch(() => props.scene, (scene) => {
     collapsed.value = scene === "collapsed";
 }, {immediate: true});
 
+// 零件自己不画边框（形状归使用方），所以这里补一条贴边用法的分割线，
+// 否则内容层那一档与旁边的内容区同色，看不出栏在哪结束。
+const seamClass = computed(() => (side.value === "left"
+    ? "border-r-[length:var(--border-w)] border-[color:var(--divider)]"
+    : "border-l-[length:var(--border-w)] border-[color:var(--divider)]"));
+
 function onCollapsedChange(value: boolean): void {
     collapsed.value = value;
     emitLabEvent("update:collapsed", value);
@@ -41,7 +47,7 @@ function onCollapsedChange(value: boolean): void {
             :side="side"
             :layer="knobs.layer"
             :collapsed-width="knobs.collapsedWidth"
-            :class="collapsed ? '' : 'w-[220px] shrink-0'"
+            :class="[collapsed ? '' : 'w-[220px] shrink-0', seamClass]"
             @update:collapsed="onCollapsedChange"
         >
             <template #actions>

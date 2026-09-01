@@ -57,7 +57,7 @@ watch(() => props.collapsed, (isCollapsed) => {
     <!-- 可收起侧栏：收起状态受控，宽度由父容器决定 -->
     <div
         class="nb-lab-panel flex h-full min-h-0 flex-col overflow-hidden"
-        :class="[isLeft ? 'nb-lab-panel--left' : 'nb-lab-panel--right', `nb-lab-panel--${props.layer}`]"
+        :class="`nb-lab-panel--${props.layer}`"
         :style="props.collapsed ? {width: `${props.collapsedWidth}px`, flex: `0 0 ${props.collapsedWidth}px`} : undefined"
     >
         <template v-if="props.collapsed">
@@ -133,13 +133,13 @@ watch(() => props.collapsed, (isCollapsed) => {
     background: var(--panel-surface, var(--bg-panel));
 }
 
-.nb-lab-panel--left {
-    border-right: var(--border-w) solid var(--divider);
-}
-
-.nb-lab-panel--right {
-    border-left: var(--border-w) solid var(--divider);
-}
+/*
+ * 本零件只管**材料**（这一栏是什么面），不管**形状**（圆角、外框、抬起、跟邻居之间那条缝）。
+ *
+ * 形状是布局的事，与宽度同一类：贴边三栏要的是一条竖直分割线，浮起三栏要的是圆角加抬起，
+ * 同一个侧栏两种都可能对。所以这里不画任何边框，由使用方在外面给类。Lab 的取法见 LabShell
+ * 的 .lab-panel。
+ */
 
 .nb-lab-panel-rail {
     padding-top: var(--space-4);

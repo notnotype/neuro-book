@@ -390,11 +390,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             />
         </header>
 
-        <div class="flex min-h-0 flex-1">
+        <div class="lab-columns flex min-h-0 flex-1">
             <CollapsibleSidePanel
                 v-model:collapsed="leftCollapsed"
                 title="组件"
                 side="left"
+                class="lab-panel"
                 :class="leftCollapsed ? '' : 'w-[240px] shrink-0'"
             >
                 <template #actions>
@@ -429,7 +430,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 </p>
             </CollapsibleSidePanel>
 
-            <main class="flex min-w-0 flex-1 flex-col">
+            <main class="lab-main flex min-w-0 flex-1 flex-col">
                 <div class="lab-bar lab-bar--tight flex shrink-0 items-center">
                     <span class="lab-title shrink-0 truncate">{{ selected?.name ?? "未选择" }}</span>
                     <NbSegmentedControl
@@ -517,6 +518,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 title="检视"
                 side="right"
                 layer="content"
+                class="lab-panel"
                 :class="rightCollapsed ? '' : 'w-[340px] shrink-0'"
             >
                 <div class="flex h-full min-h-0 flex-col">
@@ -652,15 +654,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  *
  *   导航层（顶栏、左栏）     = --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
  *   内容层（画布盒子、右栏） = 实心 --panel-surface
- *   结构分割线               = var(--border-w) solid var(--divider)
  *
- * 这三条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
+ * 这两条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
  * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
  * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  *
  * **右栏归内容层不归导航层**，与 nb-ui 的检查器一致。它装的是文档正文与数据，而且 nbook 把
  * 冷暖对比定成了身份：器械冷、内容面板暖，全屏只有两处暖面。两侧栏都做成玻璃的话这个页面
  * 一处暖面都没有，主题最核心的那组对比就没开。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
+ *
+ * 分层手段是**面色 + 材料 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
+ * 不同：那边是贴边三栏加竖直分割线，这边是浮起三栏。是有意偏离，理由写在那一段里。
  */
 
 .lab-root {
@@ -742,6 +746,44 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
        用顶栏那档间距会把它们读成四件互不相干的东西 */
     gap: var(--space-4);
     padding: 0 var(--panel-p);
+}
+
+/*
+ * ——— 浮起式三栏 ———
+ *
+ * 三栏不贴边，栏与栏之间留一条缝，缝里就是窗体底纹本身。这样桌面是**贯穿全页**的一整块，
+ * 而不是「中栏那块灰」；两条竖直分割线随之取消，分层改由面色、材料与抬起承担。
+ *
+ * 三栏是同一种东西：一个圆角浮板，顶上一行 --control-h-lg 的头，头下一条线，下面是内容。
+ * 中栏的头是画布工具条，它的内容区**不给面**——底纹直接透上来，于是中栏是一扇开向桌面的窗，
+ * 画布盒子浮在窗里（盒子自己带面、边和抬起，见 ViewportCanvas）。给中栏上面色就成了
+ * 「面板里浮一块面板」。
+ *
+ * 顶栏不浮：它是窗体 chrome，全宽加一条底边线正是 chrome 与桌面的分界，浮起来反而少了这层
+ * 意思。缝取 --space-5（12px）：再窄读不出是缝，再宽就开始吃三栏本来就不宽的横向空间。
+ *
+ * 与 nb-ui 的 /lab 不同（那边贴边 + 竖直分割线）。这是有意偏离：那是纯仪器页，而这一页要同时
+ * 当作 nbook 主题自己的展台，玻璃与抬起得有地方可看。换回贴边只需删掉这两段。
+ */
+.lab-columns {
+    gap: var(--space-5);
+    padding: var(--space-5);
+}
+
+/* --panel-outline 只有玻璃主题声明，其余主题落到 --divider。
+   overflow 必须裁：三栏的头都贴着上缘，不裁的话方角会戳出圆角外面。
+   形状归布局不归零件，侧栏那一侧的理由见 CollapsibleSidePanel 样式里那段注释。
+
+   两侧栏那一条写成 :deep 的后代选择器而不是直接写 .lab-panel：.lab-panel 落在子组件的
+   根节点上，scoped 样式对子组件根节点确实生效，但那是 Vue 的作用域继承规则，一旦哪天
+   CollapsibleSidePanel 的根节点变成多根或被包一层就静默失效——而失效的样子是「两侧栏
+   连边框带圆角一起没了」，很难联想到是这里。 */
+.lab-main,
+.lab-columns :deep(.lab-panel) {
+    overflow: hidden;
+    border: var(--border-w) solid var(--panel-outline, var(--divider));
+    border-radius: var(--radius-panel);
+    box-shadow: var(--elevation-raised, none);
 }
 
 /* 「标签 + 控件」的一对。标签是控件的名字而不是独立的一行字，所以贴着它。 */
