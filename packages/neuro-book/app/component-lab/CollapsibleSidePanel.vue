@@ -119,17 +119,21 @@ watch(() => props.collapsed, (isCollapsed) => {
     padding-top: var(--space-4);
 }
 
+/* 高度与中栏的第二行同取 --control-h-lg，三列的第一条横线才在同一 y 上；
+   横向留白同取 --panel-p，与面板内容左对齐。 */
 .nb-lab-panel-head {
     height: var(--control-h-lg);
     gap: var(--space-4);
-    padding: 0 var(--space-5);
+    padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
 }
 
+/* 栏目标题走 2xs + 字距，与内容拉开层级：它是标签不是正文 */
 .nb-lab-panel-title {
     color: var(--text-muted);
-    font-size: var(--text-xs);
+    font-size: var(--text-2xs);
     font-weight: var(--weight-medium);
+    letter-spacing: 0.06em;
 }
 
 .nb-lab-panel-toggle {

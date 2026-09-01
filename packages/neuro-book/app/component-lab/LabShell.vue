@@ -138,10 +138,11 @@ onBeforeUnmount(clearLabTheme);
 // ——— 检查：一个开关，devtools 那种取色针 ———
 //
 // 原来是「描边」「探针」两个开关：前者常亮框住 fixture 标出的零件，后者跟着鼠标走但只
-// 在框边显示一行字，看完即走、没法引用。合成一个之后语义变成单一的「当前选中的元素」：
-// 没选时是零件本体，选了就是你点的那个，信息落在检视面板里，可以复制。
+// 在框边显示一行字，看完即走、没法引用。合成一个之后语义是单一的「你点中的那个元素」。
+//
+// **不自动选中任何东西。** 进页面先给一个框，等于替使用者做了一次他没提的决定，
+// 而那个框还压在预览上。要看零件本体，用取色针点它——data-lab-subject 会在面板里标出来。
 
-const stageRef = ref<HTMLElement | null>(null);
 const inspectOn = ref(false);
 const picked = ref<InspectedNode | null>(null);
 const hoverRect = ref<HighlightRect | null>(null);
@@ -149,29 +150,9 @@ const hoverLabel = ref("");
 const copied = ref(false);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
-const {rect: subjectRect, track: trackSubject, measure: measureSubject} = useElementRect();
 const {rect: pickedRect, track: trackPicked, measure: measurePicked} = useElementRect();
 
-const subjectFound = ref(false);
-const subjectLabel = computed(() => {
-    const rect = subjectRect.value;
-    if (rect === null) {
-        return "";
-    }
-    return `${selectedName.value}  ${Math.round(rect.width)} × ${Math.round(rect.height)}`;
-});
-
-// 选中的元素只有一个，框也只画一个：选过就框它，没选过就框零件本体。
-const selectionRect = computed(() => (picked.value === null ? subjectRect.value : pickedRect.value));
-const selectionLabel = computed(() => (picked.value === null ? subjectLabel.value : nodeLabel(picked.value)));
-
-/** fixture 用 data-lab-subject 标出「真正的零件」，其余都是它自己搭的台子。 */
-async function refreshSubject(): Promise<void> {
-    await nextTick();
-    const element = stageRef.value?.querySelector<HTMLElement>("[data-lab-subject]") ?? null;
-    subjectFound.value = element !== null;
-    trackSubject(element);
-}
+const selectionLabel = computed(() => (picked.value === null ? "" : nodeLabel(picked.value)));
 
 function handleInspectMove(event: MouseEvent): void {
     if (!inspectOn.value) {
@@ -311,16 +292,13 @@ watch([selectedScene, fixture], () => {
     resetScene();
 }, {immediate: true});
 
-// 挂上新 fixture 或换场景后零件是另一个 DOM 节点，描边要重新找目标
+// 挂上新 fixture 或换场景后是另一批 DOM 节点，之前选中的那个已经不在了
 watch([fixtureComponent, selectedScene], () => {
-    void refreshSubject();
+    clearPicked();
 });
-// 改假数据不换节点，但零件可能被推走或改大小，ResizeObserver 看不见位移
+// 改假数据不换节点，但选中的元素可能被推走或改大小，ResizeObserver 看不见位移
 watch([sceneData, canvasWidth, canvasHeight], () => {
-    void nextTick(() => {
-        measureSubject();
-        measurePicked();
-    });
+    void nextTick(measurePicked);
 }, {deep: true});
 </script>
 
@@ -389,9 +367,6 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     <span class="lab-title truncate">{{ selected?.name ?? "未选择" }}</span>
                     <span v-if="scene" class="lab-note truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
-                    <span v-if="!subjectFound && fixtureComponent && picked === null" class="lab-note shrink-0">
-                        这个场景没有标出零件
-                    </span>
                     <button
                         type="button"
                         class="lab-btn lab-btn--icon shrink-0"
@@ -406,10 +381,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </button>
                 </div>
 
-                <div
-                    ref="stageRef"
-                    class="min-h-0 flex-1"
-                >
+                <div class="min-h-0 flex-1">
                     <div v-if="!selected" class="lab-empty">左边选一个组件</div>
                     <div v-else-if="!selected.mountable" class="lab-empty lab-empty--stack">
                         <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
@@ -436,7 +408,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 v-model:collapsed="rightCollapsed"
                 title="检视"
                 side="right"
-                :class="rightCollapsed ? '' : 'w-[320px] shrink-0'"
+                :class="rightCollapsed ? '' : 'w-[340px] shrink-0'"
             >
                 <div class="flex h-full min-h-0 flex-col">
                     <div class="lab-tabs shrink-0">
@@ -541,7 +513,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         </div>
 
                         <div v-else-if="rightTab === 'events'" class="flex h-full flex-col">
-                            <div class="lab-bar lab-bar--tight flex shrink-0 items-center justify-between">
+                            <div class="lab-strip shrink-0">
                                 <span class="lab-note">最多留最近 {{ EVENT_LIMIT }} 条</span>
                                 <button type="button" class="lab-btn" @click="events = []">清空</button>
                             </div>
@@ -569,8 +541,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </CollapsibleSidePanel>
         </div>
 
-        <!-- 两个框、两种语义：实线是当前选中（没选时是零件本体），虚线只在取色时跟着鼠标走 -->
-        <HighlightBox :rect="selectionRect" :label="selectionLabel" tone="subject" />
+        <!-- 两个框、两种语义：实线是你点中的那个（没点过就没有框），虚线只在取色时跟着鼠标走 -->
+        <HighlightBox :rect="pickedRect" :label="selectionLabel" tone="subject" />
         <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
     </div>
 </template>
@@ -633,9 +605,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     user-select: none;
 }
 
+/*
+ * 横向留白只有一档：--panel-p。
+ *
+ * 之前顶栏 12px、侧栏头 12px、标签栏 8px、场景列表 8px、文档 16px，五处四个值。
+ * 单看每一处都不难看，摆在一起就是三列的内容各自从不同的位置起排，读起来像没对过。
+ */
 .lab-bar {
     gap: var(--space-5);
-    padding: var(--space-4) var(--space-5);
+    /* 顶栏比下面一层高一档，是全页唯一的「应用条」；下面三列的第一条横线才是同一层 */
+    height: calc(var(--control-h-lg) + var(--space-4));
+    padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
     background: var(--toolbar-surface);
     /*
@@ -648,8 +628,27 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     -webkit-backdrop-filter: var(--glass-blur, none);
 }
 
+/*
+ * 第二行的高度必须与两侧栏的标题栏**同一个值**，否则三列的第一条横线彼此差几像素。
+ * 之前这里是内容高度（26px 控件 + 2×6px 内边距 = 38px）而侧栏头写死 40px，差 2px——
+ * 单独看谁都不像错的，并排就是没对齐。两边现在都取 --control-h-lg。
+ */
 .lab-bar--tight {
-    padding: var(--space-3) var(--space-5);
+    height: var(--control-h-lg);
+    padding: 0 var(--panel-p);
+}
+
+/* 面板内部的窄条（事件页的「清空」那行）。主题给这类 chrome 的角色是 --strip-surface，
+   不是顶栏那档：它在面板**里面**，跟着顶栏走会得到一条玻璃带子横在实心面板中间。 */
+.lab-strip {
+    display: flex;
+    height: var(--control-h-lg);
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding: 0 var(--panel-p);
+    border-bottom: var(--border-w) solid var(--divider);
+    background: var(--strip-surface);
 }
 
 .lab-title {
@@ -711,7 +710,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 }
 
 .lab-tabs {
-    padding: var(--space-4) var(--space-4) 0;
+    padding: var(--space-4) var(--panel-p) 0;
     border-bottom: var(--border-w) solid var(--divider);
 }
 
@@ -719,7 +718,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    padding: var(--space-4);
+    padding: var(--space-4) var(--panel-p);
 }
 
 .lab-pad {
@@ -733,8 +732,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     gap: var(--space-4);
 }
 
+/* 行高绑到控件刻度上：场景列表与左边的组件树是同一类「可点的一行」，
+   两边各自定高的话换主题时只有一边跟着变密。 */
 .lab-scene {
-    padding: var(--space-3) var(--space-4);
+    display: flex;
+    min-height: var(--control-h-sm);
+    align-items: center;
+    padding: var(--space-2) var(--space-4);
     border-radius: var(--radius-control);
     text-align: left;
     transition: background-color var(--motion-fast) var(--ease-standard);
