@@ -1343,6 +1343,26 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
+    it("drops the tree card surface when the caller puts it inside a panel", () => {
+        const items = [{id: "v1", title: "第一卷"}];
+        // 默认仍是卡片：已有调用方靠这层面色与描边把树从空白里收住
+        const card = mount(Tree, {props: {items}});
+        const plain = mount(Tree, {props: {items, surface: "plain"}});
+
+        const cardRoot = card.get("ul, [role='tree']");
+        const plainRoot = plain.get("ul, [role='tree']");
+        expect(cardRoot.classes()).toContain("shadow-sm");
+        expect(cardRoot.classes()).toContain("bg-[var(--panel-surface)]");
+        expect(plainRoot.classes()).not.toContain("shadow-sm");
+        expect(plainRoot.classes().some((name) => name.startsWith("bg-"))).toBe(false);
+        expect(plainRoot.classes().some((name) => name.startsWith("border"))).toBe(false);
+        // 内边距两档都留：去掉的是「卡片」，不是行与容器边缘之间的呼吸
+        expect(plainRoot.classes()).toContain("p-2");
+
+        card.unmount();
+        plain.unmount();
+    });
+
     it("renders date range picker placeholder", () => {
         const wrapper = mount(DateRangePicker, {
             props: {

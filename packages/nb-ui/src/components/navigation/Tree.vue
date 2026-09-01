@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {computed} from "vue";
 import {
     TreeItem,
     TreeRoot,
@@ -12,18 +13,28 @@ export interface GenericTreeNode {
     children?: GenericTreeNode[];
 }
 
+/**
+ * 根节点的形状。
+ *
+ * 树本身是一份列表，「它是不是一张卡片」是摆放它的人才知道的事：摆进侧栏就该是裸列表，
+ * 摆进空白区才需要一张卡片把它收住。默认仍是 card，因为已有调用方都依赖这个外观。
+ */
+export type TreeSurface = "card" | "plain";
+
 const props = withDefaults(defineProps<{
     items?: GenericTreeNode[];
     modelValue?: string | string[];
     expanded?: string[];
     multiple?: boolean;
     disabled?: boolean;
+    surface?: TreeSurface;
 }>(), {
     items: () => [],
     modelValue: undefined,
     expanded: () => [],
     multiple: false,
     disabled: false,
+    surface: "card",
 });
 
 const emit = defineEmits<{
@@ -31,6 +42,10 @@ const emit = defineEmits<{
     (e: "update:expanded", value: string[]): void;
     (e: "select", node: GenericTreeNode): void;
 }>();
+
+const surfaceClass = computed(() => props.surface === "card"
+    ? "rounded-[var(--radius-panel)] border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--panel-surface)] p-2 shadow-sm"
+    : "p-2");
 </script>
 
 <template>
@@ -43,7 +58,8 @@ const emit = defineEmits<{
         :expanded="props.expanded"
         :multiple="props.multiple"
         :disabled="props.disabled"
-        class="w-full rounded-[var(--radius-panel)] border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--bg-panel)] p-2 shadow-sm select-none list-none space-y-0.5"
+        class="w-full select-none list-none space-y-0.5"
+        :class="surfaceClass"
         @update:model-value="(val) => emit('update:modelValue', val)"
         @update:expanded="(val) => emit('update:expanded', val as string[])"
     >
