@@ -48,6 +48,53 @@ Apple 给 Liquid Glass 定的硬规矩是：玻璃只属导航层和控件层，
 
 ## 二、材料与层级
 
+### 材质与层级是两条轴，不是一条
+
+判据是这块面**压在什么上面**——不是它是哪个部件，也不是它装什么。
+
+| | 材质轴 | 层级轴 |
+| --- | --- | --- |
+| 是什么 | 直接压在窗体底纹上的那一层 | 从材质层往上叠的面 |
+| 有哪些 | 顶栏、侧栏、面板、浮层 | 面板里的表单、卡片、操作条、表头 |
+| 几层 | **整页只有一层** | 可嵌套，上限三层 |
+| 开不开模糊 | **只有它开** | 不开 |
+| 面色 | 玻璃或实心，由主题定 | 纯不透明色阶，**往上更亮** |
+| 不透明度下限 | **只有它有** | 不适用 |
+
+**「不给面」不是第三种材质**，是「这块区域不该有容器」这个答案本身。展台、画布属于这一类：
+不承载长文、不叠任何面色，浮在它上面的盒子自带面、边与抬起。
+
+面板里再放一个面时，多数情况的正确答案是**不给面**（靠间距与分隔线成组），需要框住才层级 +1。
+**不要为它新开一档材质。**
+
+#### 为什么材质只能有一层
+
+不是观感取舍，是四个独立来源指向同一个方向：
+
+1. **微软明文禁止。** `"Don't apply backdrop material more than once in an application."`
+   而且给了替代方案——上层不是第二层材质，是一层低透明度纯色（`LayerFillColorDefaultBrush`）
+   叠在底下那层材质上。
+2. **苹果对 Liquid Glass 明文禁止。** `"avoid overcrowding or layering Liquid Glass elements
+   on top of each other."` 以及 `"Don't use Liquid Glass in the content layer."`
+3. **CSS 规范用性能理由劝阻。** `"Each nesting level will double the number of these required
+   re-paint cycles"`，规范原话是「指数级劣化」。
+4. **嵌套的语义在规范里根本没定死。** w3c/fxtf-drafts#500 至今未解，Gecko 与 Chromium/WebKit
+   渲染结果不同，有实测称 Chromium 干脆不让子元素生效。
+
+外加一个会真出 bug 的：`backdrop-filter` **为 `position: fixed` 后代创建包含块**——
+开了毛玻璃的面板里，fixed 定位的下拉菜单、Toast、对话框会被关在这个面板里。
+
+#### 为什么层级色阶不带模糊
+
+因为它压的是自己家的面，不是不可控的桌面，本来就不存在可读性风险。
+Material Design 3 与 IBM Carbon 的层级都是**纯不透明色阶，两家都没有模糊概念**。
+Carbon 的方向是浅色主题在两档灰之间交替、深色主题每层变亮；微软写得更直白：
+`"In both light and dark color modes, darker colors indicate background surfaces of less
+importance."`——**暗色下上层也是变亮，不是变暗。**
+
+取值、迁移清单与尚未落地的部分见 [表面模型提案](../../../docs/proposals/nb-ui-surface-model.md)。
+**当前库里两条轴尚未落地**，8 个表面变量仍按部件命名。
+
 ### 玻璃是三层叠出来的，缺一层就不成立
 
 ```css
@@ -71,7 +118,11 @@ Apple 给 Liquid Glass 定的硬规矩是：玻璃只属导航层和控件层，
    等于零效果。
 3. Apple 没有公开 blur 半径与折射率，所有取值都是视觉近似，不要当规范引用。
 
-### 层级只有三档，用阴影而不是边框表达
+### 阴影只有三档，用阴影而不是边框表达层级
+
+这三档是**阴影**的档，与上面那条层级轴的色阶**各管各的**，不要互相推导。
+Material Design 3 曾经把面色绑在 elevation 上（dp 越高、叠色越多），后来主动解绑——
+官方理由是 `"The new color roles are not tied to elevation"`，为的是换取布局弹性。
 
 | 档 | 用在哪 | token |
 | --- | --- | --- |
