@@ -3172,6 +3172,85 @@ describe("NeuroAgentHarness", () => {
         expect(streamSimple).not.toHaveBeenCalled();
     }, 30_000);
 
+    it("turn 路径 system/tools 固定开销过大时裁剪后仍超窗拒绝", async () => {
+        const streamSimple = vi.spyOn(faux.runtime, "streamSimple");
+        // 构造小窗口，启用 compaction 跳过 createTurnSnapshot 的 preflight
+        const tinyWindowHarness = createTestHarness({
+            repo: harness.repo,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                contextWindow: 256,
+                maxTokens: 16,
+            }),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        harness = tinyWindowHarness;
+        // 注册一个复杂工具（多参数，详细描述）占用约 80 tokens
+        harness.tools.register({
+            key: "complex_tool",
+            name: "Complex Tool with Many Parameters",
+            label: "Complex Tool",
+            description: "This is a very detailed tool description that occupies significant token budget. ".repeat(10),
+            parameters: Type.Object({
+                param1: Type.String({description: "First parameter with detailed explanation".repeat(3)}),
+                param2: Type.Number({description: "Second parameter with detailed explanation".repeat(3)}),
+                param3: Type.Boolean({description: "Third parameter with detailed explanation".repeat(3)}),
+                param4: Type.Array(Type.String(), {description: "Fourth parameter with detailed explanation".repeat(3)}),
+            }),
+            execute: async () => ({content: [{type: "text" as const, text: "x".repeat(3_000)}]}),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.prune-overflow",
+                name: "Prune Overflow",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["complex_tool"],
+            runtimeDefaults: {compaction: {enabled: true}},
+            prepare() {
+                // 填充 system prompt 到约 150 tokens
+                return {
+                    systemPrompt: "System instruction. This is a comprehensive instruction set for the agent. ".repeat(30),
+                };
+            },
+        }), false);
+        faux.setResponses([
+            // 第一轮：返回工具调用
+            fauxAssistantMessage([
+                fauxText("calling tool"),
+                fauxToolCall("complex_tool", {param1: "test", param2: 1, param3: true, param4: []}),
+            ]),
+            // 第二轮：工具结果已 3000 字符，会被裁剪至 128 字符
+            // 但 system prompt (~150 tokens) + tools (~80 tokens) + 消息 overhead 仍超 256 窗口
+            fauxAssistantMessage(fauxText("should not reach")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.prune-overflow",
+            initial: {},
+        });
+
+        // 第一轮：触发工具调用，成功
+        const firstResult = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "call complex_tool"},
+        });
+        expect(firstResult.status).toBe("success");
+
+        // 第二轮：工具结果已存在，pruneProviderMessagesForWindow 裁剪至 128 字符后仍超窗
+        const secondResult = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "continue"},
+        });
+
+        expect(secondResult.status).toBe("error");
+        expect(secondResult.errorInfo?.phase).toBe("model");
+        expect(secondResult.errorInfo?.message).toContain("Provider 请求上下文");
+        expect(streamSimple).toHaveBeenCalledTimes(1); // 只第一轮成功
+    }, 30_000);
+
     it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
         await mkdir(join(root, ".nbook"), {recursive: true});
         await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({

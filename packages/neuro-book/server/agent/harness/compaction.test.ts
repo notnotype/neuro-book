@@ -262,6 +262,38 @@ describe("compaction", () => {
         expect(messageText(reduced.messages[0] as never)).toContain("BOUNDED SUMMARY");
     });
 
+    it("摘要输入工具结果超 2000 字符时裁剪并写标记", async () => {
+        faux.setResponses([fauxAssistantMessage(fauxText("SUMMARY"))]);
+        const model = {...faux.getModel(), contextWindow: 8_000, maxTokens: 4_000};
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        const toolCall = createAssistantTextMessage({text: ""});
+        toolCall.content = [{type: "toolCall", id: "tc-1", name: "read", arguments: {path: "large.txt"}}];
+        await repo.appendMessage(session.metadata.sessionId, toolCall);
+        // 3000 字符工具结果，超过 COMPACTION_TOOL_RESULT_MAX_CHARS (2000)
+        await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
+            toolCallId: "tc-1",
+            toolName: "read",
+            text: "x".repeat(3_000),
+        }));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model,
+            compaction: {trigger: {kind: "tokens", value: 1}, keepRecent: {kind: "tokens", value: 1}, reserveTokens: 1_000},
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        });
+
+        const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
+        const summary = messageText(reduced.messages[0] as never);
+        expect(summary).toContain("SUMMARY");
+        // 验证裁剪标记存在（间接验证裁剪生效）
+        expect(summary).toContain("[... tool result truncated for compaction ...]");
+    });
+
     it("摘要最终上下文超窗时在 provider 调用前降级", async () => {
         let providerCalls = 0;
         faux.setResponses([() => {
