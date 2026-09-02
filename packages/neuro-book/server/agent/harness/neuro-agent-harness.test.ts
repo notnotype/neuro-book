@@ -3179,7 +3179,7 @@ describe("NeuroAgentHarness", () => {
             repo: harness.repo,
             modelResolver: () => ({
                 ...faux.getModel(),
-                contextWindow: 256,
+                contextWindow: 1_000,
                 maxTokens: 16,
             }),
             runtimeResolver: () => faux.runtime,
@@ -3198,7 +3198,7 @@ describe("NeuroAgentHarness", () => {
                 param3: Type.Boolean({description: "Third parameter with detailed explanation".repeat(3)}),
                 param4: Type.Array(Type.String(), {description: "Fourth parameter with detailed explanation".repeat(3)}),
             }),
-            execute: async () => ({content: [{type: "text" as const, text: "x".repeat(3_000)}]}),
+            execute: async () => ({content: [{type: "text" as const, text: "x".repeat(3_000)}], terminate: true}),
         });
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -3209,7 +3209,7 @@ describe("NeuroAgentHarness", () => {
             allowedToolKeys: ["complex_tool"],
             runtimeDefaults: {compaction: {enabled: true}},
             prepare() {
-                // 填充 system prompt 到约 150 tokens
+                // 该 system prompt 约 563 tokens；首轮仍需在 1000-token 窗口内通过
                 return {
                     systemPrompt: "System instruction. This is a comprehensive instruction set for the agent. ".repeat(30),
                 };
@@ -3220,9 +3220,9 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("calling tool"),
                 fauxToolCall("complex_tool", {param1: "test", param2: 1, param3: true, param4: []}),
-            ]),
+            ], {stopReason: "toolUse"}),
             // 第二轮：工具结果已 3000 字符，会被裁剪至 128 字符
-            // 但 system prompt (~150 tokens) + tools (~80 tokens) + 消息 overhead 仍超 256 窗口
+            // system prompt + tools 的固定开销使裁剪后仍超 1000 窗口
             fauxAssistantMessage(fauxText("should not reach")),
         ]);
         const created = await harness.createAgent({
@@ -3236,7 +3236,7 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "call complex_tool"},
         });
-        expect(firstResult.status).toBe("success");
+        expect(firstResult.status, firstResult.error ?? firstResult.errorInfo?.message).toBe("completed");
 
         // 第二轮：工具结果已存在，pruneProviderMessagesForWindow 裁剪至 128 字符后仍超窗
         const secondResult = await harness.invokeAgent({
