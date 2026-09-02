@@ -69,6 +69,36 @@ const tiers: SurfaceTier[] = [
     },
 ];
 
+/**
+ * 2×2 对照，用来分清**两个变量各自起多大作用**：面有多不透明，模糊配方增强背景多少。
+ *
+ * 上面那六档里，能读的（65% + 弱模糊）和读不了的（26% + 强模糊）是两个变量一起变的，
+ * 分不出是哪个在起作用。这四格底色全部固定成 --bg-panel，每格只变一个变量。
+ *
+ * 怎么读结果：
+ *   只有 B 读得清 → 主因是模糊配方，透明度可以放宽
+ *   只有 C 读得清 → 主因是不透明度，模糊配方无所谓
+ *   B C 都读得清 → 两个各自都够，任选其一
+ *   只有 D 读得清 → 两个都必须改，缺一不可
+ */
+type SurfaceProbe = {
+    id: string;
+    label: string;
+    opacity: string;
+    filter: string;
+    verdict: string;
+};
+
+const STRONG_FILTER = "blur(8px) saturate(190%) brightness(1.12)";
+const WEAK_FILTER = "blur(8px) saturate(130%) brightness(1.0)";
+
+const probes: SurfaceProbe[] = [
+    {id: "a", label: "A　26% + 强模糊", opacity: "26%", filter: STRONG_FILTER, verdict: "＝现在的侧栏，已知读不了"},
+    {id: "b", label: "B　26% + 弱模糊", opacity: "26%", filter: WEAK_FILTER, verdict: "只改了模糊配方"},
+    {id: "c", label: "C　65% + 强模糊", opacity: "65%", filter: STRONG_FILTER, verdict: "只改了不透明度"},
+    {id: "d", label: "D　65% + 弱模糊", opacity: "65%", filter: WEAK_FILTER, verdict: "＝下拉实测，已知能读"},
+];
+
 </script>
 
 <template>
@@ -113,7 +143,43 @@ const tiers: SurfaceTier[] = [
                 <li><strong>前四档全部读不了</strong>——工具栏 30%、侧栏 26%、浮层 14%、窄条 38%，都要盯着才能认出字。</li>
                 <li><strong>只有「下拉实测」那一档读得清</strong>，而它库里根本没登记，是 FormSelect 用内联 style 写死的。</li>
                 <li>三处差别都指向可读性：面 65%、底取暖而亮的 <code>--bg-panel</code>、饱和降到 130% 且亮度不加。</li>
-                <li><strong>饱和 190% 是在增强背景</strong>，等于让背景和文字抢注意力——这是前四档读不了的主因，不只是透明度。</li>
+            </ul>
+        </div>
+
+        <hr class="demo-rule" />
+
+        <p class="demo-intro">
+            <strong>2×2 对照：到底是「面太透」还是「模糊在增强背景」？</strong>
+            上面那六档里，能读的和读不了的是两个变量一起变的，分不出主因。
+            下面四格底色全固定成 <code>--bg-panel</code>，每格只变一个变量。
+        </p>
+
+        <div class="probe-grid">
+            <div
+                v-for="probe in probes"
+                :key="probe.id"
+                class="probe-card"
+                :style="{
+                    background: `color-mix(in srgb, var(--bg-panel) ${probe.opacity}, transparent)`,
+                    backdropFilter: probe.filter,
+                    WebkitBackdropFilter: probe.filter,
+                }"
+            >
+                <h4 class="probe-label">{{ probe.label }}</h4>
+                <p class="probe-sample">
+                    这一格能不能一眼读出来？不用盯着看就认得出字，就算能读。
+                </p>
+                <p class="probe-verdict">{{ probe.verdict }}</p>
+            </div>
+        </div>
+
+        <div class="demo-note">
+            <p><strong>怎么读这四格：</strong></p>
+            <ul>
+                <li>只有 <strong>B</strong> 读得清 → 主因是模糊配方，透明度可以放宽</li>
+                <li>只有 <strong>C</strong> 读得清 → 主因是不透明度，模糊配方无所谓</li>
+                <li><strong>B 和 C 都读得清</strong> → 两个各自都够，任选其一</li>
+                <li>只有 <strong>D</strong> 读得清 → 两个都必须改，缺一不可</li>
             </ul>
         </div>
     </div>
@@ -218,6 +284,48 @@ const tiers: SurfaceTier[] = [
     background: var(--bg-subtle);
     border-radius: var(--radius-control);
     font-size: var(--text-sm);
+}
+
+.demo-rule {
+    margin: var(--space-3) 0;
+    border: 0;
+    border-top: var(--border-w) solid var(--divider);
+}
+
+.probe-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--space-5);
+}
+
+/* 四格必须是同一个尺寸、同一段文字、同一个底色，只有两个变量不同——
+   任何别的差异都会让「哪一格更好读」变成不可比的判断。 */
+.probe-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-height: 160px;
+    padding: var(--space-5);
+    border: var(--border-w) solid var(--panel-outline, var(--divider));
+    border-radius: var(--radius-panel);
+}
+
+.probe-label {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--text-main);
+}
+
+.probe-sample {
+    flex: 1;
+    color: var(--text-main);
+    line-height: var(--leading-reading);
+}
+
+.probe-verdict {
+    font-size: var(--text-2xs);
+    color: var(--text-muted);
 }
 
 .demo-note strong {
