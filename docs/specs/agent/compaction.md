@@ -111,6 +111,7 @@ throw new Error(...)   // 消息含 beforeTokens、afterTokens 与 triggerTokens
 |---|---|
 | 摘要模型返回空文本 | 使用 `deterministicCompactionFallback`，`summaryStrategy` 记 `"deterministic-fallback"`，压缩成功 |
 | 摘要请求超出模型窗口 | `assertProviderContextWithinWindow` 在 `tracedCompleteSimple` 前抛 `ProviderContextOverflowError`，**provider 请求不发出**；该错误随后被 `generateCompactionSummary` 自身的 catch 捕获，转为 `strategy: "deterministic-fallback"` 并把消息写入 `details.summaryError`。是否外抛取决于 `allowFallback`（见下） |
+| turn 路径消息裁剪后仍超窗 | `pruneProviderMessagesForWindow` 迭代 8 次裁剪工具结果至 `MIN_TOOL_RESULT_CHARS`（128 字符，内部常量）仍超 `contextWindow - fixedTokens` 时返回裁剪结果；后续 `assertProviderContextWithinWindow` 抛 `ProviderContextOverflowError`，调用方收到 invocation 错误，`streamSimple` 未被调用。此场景只在 turn 路径（`streamAssistant`）触发；压缩路径的裁剪用不同常量（`COMPACTION_TOOL_RESULT_MAX_CHARS` 2000 字符），且压缩路径的门禁在 try 内不外抛 |
 | 压缩未启用但上下文超窗 | `assertContextWithinWindow` fail-closed 抛错 |
 | 恢复材料读取或版本校验失败 | 该候选计入 `skipped` 并记 info 日志，压缩继续 |
 | 曾压缩过且压缩后仍达触发线 | `assertCompactionMadeProgress` 抛错，本轮 fail-closed 终止 |
@@ -148,6 +149,7 @@ throw new Error(...)   // 消息含 beforeTokens、afterTokens 与 triggerTokens
 - **Given** 活动路径已存在 `compaction` entry 且压缩后仍达触发线，**When** 恢复材料物化返回非空，**Then** 抛出含 before/after/trigger token 数的停止错误。
 - **Given** 摘要最终上下文估算超过 `contextWindow` 且走自动压缩路径，**When** 压缩执行，**Then** provider 调用次数为 0，写入 `type: "compaction"` entry，`details.summaryStrategy === "deterministic-fallback"`，`details.summaryError` 含 `"Provider 请求上下文"`（见 `compaction.test.ts` "摘要最终上下文超窗时在 provider 调用前降级"）。
 - **Given** turn 路径的 provider 请求估算超过 `contextWindow`，**When** `streamAssistant` 发起调用前，**Then** `ProviderContextOverflowError` 冒泡为 invocation 错误，`streamSimple` 未被调用（见 `neuro-agent-harness.test.ts` "自动 compaction 开启时首次超窗请求也会在 provider 前失败"）。
+- **Given** turn 路径 system prompt + tools 定义占用接近 `contextWindow`，工具结果已裁至 `MIN_TOOL_RESULT_CHARS` 但总预算仍超窗，**When** `streamAssistant` 调用 `assertProviderContextWithinWindow`，**Then** 抛 `ProviderContextOverflowError`，`streamSimple` 未被调用，invocation 返回错误（新增测试覆盖，见步骤 3）。
 
 Smoke 入口：
 
