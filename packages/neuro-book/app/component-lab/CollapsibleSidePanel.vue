@@ -108,17 +108,22 @@ watch(() => props.collapsed, (isCollapsed) => {
 /* 尺寸与圆角走主题 token，颜色走配色变量——两条轴分开，换主题时这一栏才会跟着变形状 */
 
 /*
- * 导航层：玻璃。
+ * 导航层：**冷色实心**。
  *
- * 取主题的 --sidebar-surface 而不是配色的 --bg-sidebar：前者是**角色**，玻璃主题把它定成
- * 半透明并配合模糊，非玻璃主题下它就等于 --bg-sidebar，两边都对。直接写 --bg-sidebar 等于把
- * 「侧栏永远实心」写死，玻璃主题装了也看不出来。
+ * 取配色的 --bg-sidebar 而不是主题的 --sidebar-surface，是一次有代价的选择：后者是**角色**，
+ * 玻璃主题会把它定成半透明并配合模糊；写死 --bg-sidebar 等于这一栏在任何主题下都不透光，
+ * 主题装了也看不出来。
+ *
+ * 还是这么写，是因为三栏在 Lab 里是三块同样圆角、同样抬起的浮板，其中一块透光读起来是
+ * 「有一块画错了」，而不是「这一块的角色不同」。Finder 那种左透右实之所以不刺眼，是因为它
+ * 两块贴在一起共用一个窗框，材质差异读作「同一扇窗的不同部位」——浮板给不了这层意思。
+ *
+ * 角色仍然分得清，丢掉的只是模糊：chrome 取冷色 --bg-sidebar，内容取暖色 --panel-surface，
+ * nbook 的冷暖对比照旧成立。要换回玻璃，这里改回 --sidebar-surface 并加回 backdrop-filter，
+ * 同时改 LabShell 的 .lab-bar——**两处必须一起动**，否则栏头与顶栏一实一虚。
  */
 .nb-lab-panel--nav {
-    background: var(--sidebar-surface, var(--bg-sidebar));
-    /* 与 LabShell 顶栏同一条取舍：chrome 层暂无库角色，先引用主题私有的 --glass-blur */
-    backdrop-filter: var(--glass-blur, none);
-    -webkit-backdrop-filter: var(--glass-blur, none);
+    background: var(--bg-sidebar);
 }
 
 /*
