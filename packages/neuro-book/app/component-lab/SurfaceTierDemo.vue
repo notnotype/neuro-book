@@ -174,12 +174,12 @@ const probes: SurfaceProbe[] = [
         </div>
 
         <div class="demo-note">
-            <p><strong>怎么读这四格：</strong></p>
+            <p><strong>2×2 实测结果（2026-09-02）：C 和 D 能读，A 和 B 不能。</strong></p>
             <ul>
-                <li>只有 <strong>B</strong> 读得清 → 主因是模糊配方，透明度可以放宽</li>
-                <li>只有 <strong>C</strong> 读得清 → 主因是不透明度，模糊配方无所谓</li>
-                <li><strong>B 和 C 都读得清</strong> → 两个各自都够，任选其一</li>
-                <li>只有 <strong>D</strong> 读得清 → 两个都必须改，缺一不可</li>
+                <li>分界线整齐落在<strong>不透明度</strong>上：65% 的两格都能读，26% 的两格都不能。</li>
+                <li><strong>模糊配方不影响可读性。</strong>强模糊那一栏（A/C）里，65% 照样能读、26% 照样不能。</li>
+                <li>所以规范该定的是**不透明度下限**，而模糊配方留给主题自由发挥——
+                    玻璃的观感不必为可读性让路，这两件事实测下来是独立的。</li>
             </ul>
         </div>
     </div>
