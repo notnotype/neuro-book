@@ -8,7 +8,7 @@
 - [`../packages/neuro-book/docs/proposals/agent-skills-adaptation.md`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：Agent Skills 项目化适配，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
 - [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，current Work 是 Task 的强制容器，Task 指定唯一 canonical role；Issue 由 Work 可选引用，Proposal 独立且可被多个 Work 引用，Agent主导执行，开发者在明示节点参与，PM/Reviewer按需，状态为`accepted`。
-- [`nb-ui-surface-boxes.md`](./nb-ui-surface-boxes.md)：nb-ui 表面盒子规范，按「这块面装什么」分成内容盒/器械盒/浮层盒加「不给面」，每档打包成一个类，并给器械盒定可读性不透明度下限，状态为 `draft`。
+- [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `draft`。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
