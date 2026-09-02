@@ -115,10 +115,10 @@ watch(() => props.collapsed, (isCollapsed) => {
  * 「侧栏永远实心」写死，玻璃主题装了也看不出来。
  */
 .nb-lab-panel--nav {
-    background: var(--sidebar-surface, var(--bg-sidebar));
+    background: var(--lab-nav-surface, var(--sidebar-surface, var(--bg-sidebar)));
     /* 与 LabShell 顶栏同一条取舍：chrome 层暂无库角色，先引用主题私有的 --glass-blur */
-    backdrop-filter: var(--glass-blur, none);
-    -webkit-backdrop-filter: var(--glass-blur, none);
+    backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
+    -webkit-backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
 }
 
 /*

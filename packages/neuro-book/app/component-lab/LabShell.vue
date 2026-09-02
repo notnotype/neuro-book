@@ -770,8 +770,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  * 冷暖对比定成了身份：器械冷、内容面板暖，全屏只有两处暖面。两侧栏都做成玻璃的话这个页面
  * 一处暖面都没有，主题最核心的那组对比就没开。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
  *
- * **这一页当前正在试相反的做法**：内容层也做成玻璃，见下面 .lab-root 里的 --lab-content-surface。
- * 上面这两行写的是取消实验之后的状态。
+ * **这一页当前正在试把三处 chrome 改穿下拉菜单那个盒子**：两侧栏 + 中栏工具条，见下面
+ * .lab-root 里的 --lab-nav-surface。上面这两行写的是取消实验之后的状态。
  *
  * 分层手段是**面色 + 材料 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
  * 不同：那边是贴边三栏加竖直分割线，这边是浮起三栏。是有意偏离，理由写在那一段里。
@@ -791,22 +791,28 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     --lab-backdrop-veil: 58%;
 
     /*
-     * ——— 实验：内容面也做成玻璃 ———
+     * ——— 实验：三处 chrome 改穿「下拉菜单那个盒子」———
      *
-     * 删掉下面两行，右栏与画布盒子就回到实心，别处不受影响；两个消费点在
-     * CollapsibleSidePanel 的 .nb-lab-panel--content 与 ViewportCanvas 的 --panel 那一档。
+     * 参照物是 .nb-ui-popover-surface，库里**唯一打包好**的一档面（14 个组件在用），
+     * 它的透明度与模糊已经调准过。这里把它搬到三块大面上：两侧栏 + 中栏工具条。
      *
-     * 取 --sidebar-surface 而不是自己把 --panel-surface 调透：这两条是**主题给的角色**，
-     * 玻璃主题只把器械那一档定成半透明（nbook 亮色 26%、暗色 52%），内容那一档是故意留实心的。
-     * 自己 color-mix 出一个半透明的暖面，在不做玻璃的主题（aurora / editorial）下会得到一块
-     * 没有模糊的洗白面板——那不是玻璃，是坏掉；--sidebar-surface 在那些主题下等于 --bg-sidebar，
-     * 照样实心，「减少透明度」时也已经被主题接管。
+     * 搬的是**取值**不是那个类。类只有单类特异性，打不过组件自己的 scoped 样式，直接挂上去
+     * 不生效——这正是「盒子规范」要解决的第一个问题，一个打包好的面必须能压过布局类。
      *
-     * 代价写在明处：内容面跟着器械走之后，nbook 全屏一处暖面都没有，冷暖对比这个身份在这一页
-     * 等于关掉，而它是这套主题唯一的身份（见 nb-ui/docs/design-language.md 第一节）。
+     * 与上一版（侧栏 26% / 工具栏 30% + --glass-blur）的实际差别只有两样：面再透一半（14%），
+     * 投影换成浮层那条。后者是关键——它有三层内高光，玻璃读起来像**一块料**而不是一层色；
+     * --elevation-raised 只有一条顶部高光，铺在大面上就只剩「蒙了一层」。
+     *
+     * 画布盒子不在这次范围里，它改回实心纸（见 ViewportCanvas 的 --panel 那一档），
+     * 这样全页重新有了一处不透光的面当对照——四周全透时玻璃就不再表示任何东西。
+     *
+     * 回退：删掉下面四行，再把两处 box-shadow 的实验注释一起删掉。
      */
-    --lab-content-surface: var(--sidebar-surface, var(--bg-sidebar));
-    --lab-content-blur: var(--glass-blur, none);
+    --lab-nav-surface: var(--overlay-surface);
+    --lab-nav-blur: var(--overlay-blur);
+    --lab-content-surface: var(--overlay-surface);
+    --lab-content-blur: var(--overlay-blur);
+
 
     /* fixed 让桌面不随任何一栏的内部滚动跑，三栏共用同一张背景 */
     background-attachment: fixed;
@@ -936,6 +942,19 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
        用顶栏那档间距会把它们读成四件互不相干的东西 */
     gap: var(--space-4);
     padding: 0 var(--panel-p);
+
+    /* 实验：这一条改穿下拉菜单那个盒子（取值见 .lab-root）。
+       它原来跟顶栏同一档：贴满一整条、只有一条底线。换成盒子之后必须留边距，
+       否则它的圆角会顶进中栏的圆角里，两条弧线不同心，读起来像画坏了。
+       圆角取 --radius-menu 而不是 --radius-panel：它和下拉一样是小面，
+       整块面板那档 20px 画在 40px 高的条上会把它读成一颗胶囊。 */
+    margin: var(--space-4);
+    border: var(--border-w) solid var(--panel-outline, var(--divider));
+    border-radius: var(--radius-menu, var(--radius-panel));
+    background: var(--overlay-surface);
+    box-shadow: var(--elevation-popover, none);
+    backdrop-filter: var(--overlay-blur);
+    -webkit-backdrop-filter: var(--overlay-blur);
 }
 
 /*
@@ -975,6 +994,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     border: var(--border-w) solid var(--panel-outline, var(--divider));
     border-radius: var(--radius-panel);
     box-shadow: var(--elevation-raised, none);
+}
+
+/* 实验：两侧栏的抬起换成浮层那一档（取值见 .lab-root）。三层内高光是玻璃「有厚度」的来源，
+   --elevation-raised 只有一条顶部高光，铺在整栏那么大的面上读起来是一层色不是一块料。
+   .lab-main 不跟：它不给面，一块看不见的板不该投重影。 */
+.lab-columns :deep(.lab-panel) {
+    box-shadow: var(--elevation-popover, var(--elevation-raised, none));
 }
 
 /* 「标签 + 控件」的一对。标签是控件的名字而不是独立的一行字，所以贴着它。 */
