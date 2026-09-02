@@ -759,15 +759,14 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  *
  * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
  *
- *   器械盒（顶栏、左栏、中栏工具条） = --lab-chrome-surface + 玻璃 + 窗体底纹
- *   内容盒（画布盒子、右栏）         = --lab-paper-surface，同一种玻璃，更厚
+ *   薄（顶栏、中栏工具条）       = --lab-chrome-surface，80%
+ *   厚（两条侧栏、画布盒子）     = --lab-paper-surface，92%
  *
  * 这两条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
  * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
  * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  *
- * **右栏归内容盒不归器械盒**，与 nb-ui 的检查器一致：它装的是文档正文与数据，要一段段读下去，
- * 而器械盒那一档薄到底纹会从字后面浮上来。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
+ * **两条侧栏取同一档**，尽管左栏装导航、右栏装文档正文——理由在下面 .lab-root 那段注释里。
  *
  * 两档的面**都不取库里的角色**，取本文件 .lab-root 里的 --lab-chrome-surface 与
  * --lab-paper-surface。库里三档 chrome（30% / 26% / 14%）全部低于实测出来的可读性下限，
@@ -794,13 +793,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     /*
      * ——— 两档面 ———
      *
-     * 器械盒 80%，内容盒 92%，都是玻璃，差在厚度。分界线只在不透明度上：实测证明模糊配方
+     * 薄的 80%，厚的 92%，都是玻璃，差在厚度。分界线只在不透明度上：实测证明模糊配方
      * 换来换去都不影响能不能读，所以模糊沿用主题自己那套——它是主题的观感身份。证据与分档
      * 见 docs/proposals/nb-ui-surface-boxes.md。
      *
+     * **分档跟着「眼睛在这块面上停多久 × 这块面有多大」走。**横条是巴掌宽的一溜控件，扫一眼
+     * 就过；栏和画布是整块的面，要停几分钟读。面越大、停得越久，同样的透光量累积出来的干扰
+     * 越多。所以两条横条取薄的，三块大面取厚的。
+     *
      * 这两个数是走查调出来的，前两版都不对：65% 在小色块上读得了，铺满一整栏压在照片上仍然
-     * 要盯着看；而内容盒做成完全不透光时又像一块贴上去的白板，与整页的玻璃语言脱节。所以
-     * **内容盒也是玻璃，只是厚到几乎不透**——留那 8% 是为了让它和背景还有关系，不是为了透视。
+     * 要盯着看；而大面做成完全不透光时又像一块贴上去的白板，与整页的玻璃语言脱节。所以
+     * **厚的那一档也是玻璃**——留那 8% 是为了让它和背景还有关系，不是为了透视。
      *
      * 底一律取 --bg-panel 而不是 --bg-sidebar：暖而亮的底比冷底更托得住文字。
      *
@@ -814,9 +817,14 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     --lab-paper-surface: color-mix(in srgb, var(--bg-panel) 92%, transparent);
     --lab-paper-blur: var(--glass-blur, none);
 
-    /* 左栏是器械盒，右栏是内容盒——它装的是要一段段读下去的组件文档。 */
-    --lab-nav-surface: var(--lab-chrome-surface);
-    --lab-nav-blur: var(--lab-chrome-blur);
+    /*
+     * **两条侧栏取同一档，尽管左栏装导航、右栏装正文。**按「装什么」分本该把左栏归薄的那一档，
+     * 但两栏隔着整块画布，人眼做不到这种远距离比对：差 12 个点的两块面并排才看得出是两种材料，
+     * 分居两端只会被当成没做齐。区别要么一眼看出，要么不做——这里选不做，把「薄 vs 厚」留给
+     * 真正相邻的地方（横条压在栏上、浮层压在面板上）去表达。
+     */
+    --lab-nav-surface: var(--lab-paper-surface);
+    --lab-nav-blur: var(--lab-paper-blur);
     --lab-content-surface: var(--lab-paper-surface);
     --lab-content-blur: var(--lab-paper-blur);
 
