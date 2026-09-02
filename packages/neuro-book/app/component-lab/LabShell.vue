@@ -757,24 +757,23 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  * font-family、letter-spacing、border-width 这些属性上，原子类的任意值语法在这些位置分辨
  * 不出「这是尺寸还是颜色」，写错了会静默不生效——而静默不生效正是「换主题看不出变化」。
  *
- * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段），但**这一页
- * 把玻璃整档关掉了**：
+ * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
  *
- *   器械层（顶栏、三个栏头、左栏） = 冷色实心 --bg-sidebar
- *   内容层（画布盒子、右栏）       = 暖色实心 --panel-surface
- *   中栏身子                       = 不给面，桌面直接透上来
+ *   导航层（顶栏、左栏）     = --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
+ *   内容层（画布盒子、右栏） = 实心 --panel-surface
  *
- * 冷暖不是装饰偏好，是**主题给的角色**：nbook 把冷暖对比定成了身份，器械冷、内容面板暖，
- * 全屏只有两处暖面。**右栏归内容层不归器械层**，与 nb-ui 的检查器一致——它装的是文档正文与
- * 数据；两侧栏都判给器械的话这个页面一处暖面都没有，主题最核心的那组对比就没开。理由的正文
- * 在 CollapsibleSidePanel 的 layer 那一段。
+ * 这两条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
+ * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
+ * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  *
- * 玻璃原本是器械层的另一半：--toolbar-surface / --sidebar-surface 都是半透明的，只有在
- * 「背后有底纹 + 自己开模糊」时才成立。这一页不接了，因为三栏是三块同样形状的浮板，其中
- * 一块透光读起来是「画错了」而不是「角色不同」。取舍与换回去的办法在 CollapsibleSidePanel
- * 的 --nav 那段，那一段与本文件的 .lab-bar 必须同实同虚。
+ * **右栏归内容层不归导航层**，与 nb-ui 的检查器一致。它装的是文档正文与数据，而且 nbook 把
+ * 冷暖对比定成了身份：器械冷、内容面板暖，全屏只有两处暖面。两侧栏都做成玻璃的话这个页面
+ * 一处暖面都没有，主题最核心的那组对比就没开。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
  *
- * 分层手段是**面色 + 冷暖 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
+ * **这一页当前正在试相反的做法**：内容层也做成玻璃，见下面 .lab-root 里的 --lab-content-surface。
+ * 上面这两行写的是取消实验之后的状态。
+ *
+ * 分层手段是**面色 + 材料 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
  * 不同：那边是贴边三栏加竖直分割线，这边是浮起三栏。是有意偏离，理由写在那一段里。
  */
 
@@ -783,16 +782,31 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
      * 底纹压掉多少。**这是一个观感取值，需要调就改这一个数。**
      *
      * 主题的 --window-backdrop 是按「文档页」调的：那种页面上内容是一列不透明卡片，
-     * 底纹只从边上露出来，读起来是环境光。Lab 是满屏三栏仪器，底纹会从三栏之间的缝和中栏
-     * 整片透上来——一大片泛蓝，那不是环境光，那是脏了。所以这里盖一层 --bg-main 把振幅压下去，
-     * 色相走向还在。
-     *
-     * 玻璃关掉之前这个数还要多管一件事（底纹是玻璃唯一有东西可糊的来源，压太狠玻璃就成了
-     * 一层洗淡的色）。现在不必了，可以纯按观感调。
+     * 底纹只从边上露出来，读起来是环境光。Lab 是满屏三栏仪器，底纹会**整片透过功能面板**——
+     * 一条侧栏下半截泛蓝，那不是环境光，那是脏了。所以这里盖一层 --bg-main 把振幅压下去，
+     * 色相走向还在，玻璃仍有东西可糊。
      *
      * 想知道压多了还是压少了，把顶栏的「桌面」切到「主题底纹·原强度」看不盖面纱是什么样。
      */
     --lab-backdrop-veil: 58%;
+
+    /*
+     * ——— 实验：内容面也做成玻璃 ———
+     *
+     * 删掉下面两行，右栏与画布盒子就回到实心，别处不受影响；两个消费点在
+     * CollapsibleSidePanel 的 .nb-lab-panel--content 与 ViewportCanvas 的 --panel 那一档。
+     *
+     * 取 --sidebar-surface 而不是自己把 --panel-surface 调透：这两条是**主题给的角色**，
+     * 玻璃主题只把器械那一档定成半透明（nbook 亮色 26%、暗色 52%），内容那一档是故意留实心的。
+     * 自己 color-mix 出一个半透明的暖面，在不做玻璃的主题（aurora / editorial）下会得到一块
+     * 没有模糊的洗白面板——那不是玻璃，是坏掉；--sidebar-surface 在那些主题下等于 --bg-sidebar，
+     * 照样实心，「减少透明度」时也已经被主题接管。
+     *
+     * 代价写在明处：内容面跟着器械走之后，nbook 全屏一处暖面都没有，冷暖对比这个身份在这一页
+     * 等于关掉，而它是这套主题唯一的身份（见 nb-ui/docs/design-language.md 第一节）。
+     */
+    --lab-content-surface: var(--sidebar-surface, var(--bg-sidebar));
+    --lab-content-blur: var(--glass-blur, none);
 
     /* fixed 让桌面不随任何一栏的内部滚动跑，三栏共用同一张背景 */
     background-attachment: fixed;
@@ -807,15 +821,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 /*
  * ——— 桌面（页面最底下那一层）———
  *
- * 这一套的用处与画布底不同：画布底是给被测组件当背景，桌面是三栏之间那条缝和中栏空白处
- * 看到的东西。层的划分见 stage-backdrops.ts 开头。
- *
- * 它原本还兼一件诊断的活：左栏是 26% 的玻璃时，换成棋盘格或斜纹，透了多少、模糊糊掉多少
- * 一眼就有。玻璃关掉之后这一页只剩中栏是透的，而中栏是「不给面」——它压根不糊，只是没有面。
- * 所以下面几档的**取值理由**留着（改回玻璃时还是这些数），但棋盘格与斜纹眼下只剩看中栏用。
+ * 这一套的用处与画布底不同：画布底是给被测组件当背景，桌面是用来看**Lab 自己**哪些面是透的。
+ * 左栏是 26% 的玻璃、中栏根本没给面，压在纯色上完全看不出来；换成棋盘格或斜纹，
+ * 透到什么程度、模糊糊掉多少，一眼就有了。层的划分见 stage-backdrops.ts 开头。
  */
 
-/* 窗体底纹＝主题自带的「桌面壁纸」。非玻璃主题不声明它，取 none，这一档退化成纯 --bg-main。 */
+/* 窗体底纹＝主题自带的「桌面壁纸」，玻璃糊的是它；没有它，模糊作用在一片纯色上等于零效果。
+   非玻璃主题不声明它，取 none，于是这一档退化成纯 --bg-main。 */
 .lab-root--bg-theme {
     background-image:
         linear-gradient(
@@ -833,8 +845,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     background-image: none;
 }
 
-/* 棋盘格答的是「这块面透不透」。24px 的格子比画布底那套更大一档，取值定在玻璃还开着的时候：
-   它要透过 8px 模糊还认得出，太细会被糊成一片灰。 */
+/* 棋盘格验的是透明度：半透明的面压上去，能一眼看出透出来多少。
+   16px 的格子比画布底那套更大一档——它要透过 8px 模糊还认得出，太细会被糊成一片灰。 */
 .lab-root--bg-checker {
     background-image:
         linear-gradient(45deg, color-mix(in srgb, var(--text-main) 12%, transparent) 25%, transparent 25%),
@@ -845,9 +857,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     background-position: 0 0, 0 12px, 12px -12px, -12px 0;
 }
 
-/* 斜纹答的是「糊多厉害」：细线被糊成灰的那一档，就是压在它上面那块面实际的模糊强度。
-   棋盘格答「透不透」，两个问题不同所以两档都留。玻璃关掉之后这一档在本页暂时没有对象可验，
-   保留是因为它一行就能问出模糊强度，改回玻璃时立刻要用。 */
+/* 斜纹验的是模糊半径：细线被糊成灰的那一档，就是这块面实际的模糊强度。
+   棋盘格答「透不透」，斜纹答「糊多厉害」，两个问题不同所以两档都留。 */
 .lab-root--bg-stripes {
     background-image: repeating-linear-gradient(
         45deg,
@@ -856,8 +867,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     );
 }
 
-/* 极光原是给玻璃配的底：大面积、低频、高饱和，模糊之后仍有色相流动可看。
-   本页玻璃关掉后它退成一档纯观感的桌面，取值不变。 */
+/* 极光是给玻璃用的：大面积、低频、高饱和，模糊之后仍有色相流动可看 */
 .lab-root--bg-mesh {
     background-image:
         radial-gradient(at 10% 20%, color-mix(in srgb, var(--accent-main) 32%, transparent) 0, transparent 50%),
@@ -904,15 +914,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     height: calc(var(--control-h-lg) + var(--space-4));
     padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
+    background: var(--toolbar-surface);
     /*
-     * 冷色实心，与两侧栏同一档面（--bg-sidebar），理由在 CollapsibleSidePanel 的 --nav 那段。
-     * 这一条与那一条**必须同实同虚**：顶栏和栏头在同一页上紧挨着，一实一虚会立刻读出来。
-     *
-     * 这里曾经是 background: var(--toolbar-surface) 加 backdrop-filter: var(--glass-blur)，
-     * 直接引用主题私有变量——库里今天只有浮层那档（--overlay-blur），chrome 层没有角色可取。
-     * 换回玻璃的话这个缺口还在，届时应该先给主题契约补上 chrome 档。
+     * 这里直接引用了主题私有的 --glass-blur，而不是某个库角色——库里今天只有浮层那档
+     * （--overlay-blur），chrome 层没有对应的角色。nb-ui playground 的 /lab 也是这么写的。
+     * 没声明它的主题（aurora / editorial）落到 none，正好就是它们要的实心 chrome。
+     * 主题契约补上 chrome 档之后，这里应该换过去。
      */
-    background: var(--bg-sidebar);
+    backdrop-filter: var(--glass-blur, none);
+    -webkit-backdrop-filter: var(--glass-blur, none);
 }
 
 /*
@@ -943,13 +953,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  * 顶栏不浮：它是窗体 chrome，全宽加一条底边线正是 chrome 与桌面的分界，浮起来反而少了这层
  * 意思。缝取 --space-5（12px）：再窄读不出是缝，再宽就开始吃三栏本来就不宽的横向空间。
  *
- * 与 nb-ui 的 /lab 不同（那边贴边 + 竖直分割线）。这是有意偏离：浮板之间那条缝让桌面贯穿全页，
- * 换主题时圆角与抬起的差别有地方可看。换回贴边只需删掉这两段。
- *
- * 玻璃曾经也是留着浮板的理由之一，现在不是了——三块同样形状的浮板里有一块透光，读起来是
- * 「画错了」而不是「角色不同」，于是 chrome 那一档整体改成了冷色实心，见 CollapsibleSidePanel
- * 的 --nav 那段。要是哪天换回贴边，玻璃可以跟着一起回来：贴边的三栏共用一个窗框，
- * 那时候左透右实读作「同一扇窗的不同部位」，就不再是矛盾。
+ * 与 nb-ui 的 /lab 不同（那边贴边 + 竖直分割线）。这是有意偏离：那是纯仪器页，而这一页要同时
+ * 当作 nbook 主题自己的展台，玻璃与抬起得有地方可看。换回贴边只需删掉这两段。
  */
 .lab-columns {
     gap: var(--space-5);
@@ -980,8 +985,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 }
 
 /* 面板内部的窄条（事件页的「清空」那行）。主题给这类 chrome 的角色是 --strip-surface，
-   不是顶栏那档：它在面板**里面**，取顶栏那档会得到一条冷色带子横在暖色面板中间。
-   --strip-surface 本身是半透明的，压在实心面板上只是给那一条上一层色，不透出面板背后。 */
+   不是顶栏那档：它在面板**里面**，跟着顶栏走会得到一条玻璃带子横在实心面板中间。 */
 .lab-strip {
     display: flex;
     height: var(--control-h-lg);

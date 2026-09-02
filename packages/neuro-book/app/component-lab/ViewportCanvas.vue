@@ -299,8 +299,12 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 
 /* ——— 画布底 ——— */
 
+/* 默认实心面板色。--lab-content-surface / --lab-content-blur 由页面覆盖，
+   Lab 用它把画布盒子也做成玻璃，见 LabShell 的 .lab-root。 */
 .nb-lab-stage-box--panel {
-    background: var(--panel-surface, var(--bg-panel));
+    background: var(--lab-content-surface, var(--panel-surface, var(--bg-panel)));
+    backdrop-filter: var(--lab-content-blur, none);
+    -webkit-backdrop-filter: var(--lab-content-blur, none);
 }
 
 .nb-lab-stage-box--page {
