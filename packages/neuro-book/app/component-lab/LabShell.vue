@@ -474,16 +474,6 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     清除
                 </button>
             </template>
-            <!-- ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
-                 而一个只装一件东西的工具栏也不是工具栏。 -->
-            <NbToggleGroup
-                size="sm"
-                :options="presetOptions"
-                :model-value="activePreset"
-                aria-label="画布尺寸"
-                class="shrink-0"
-                @update:model-value="applyPreset"
-            />
         </header>
 
         <div class="lab-columns flex min-h-0 flex-1">
@@ -540,6 +530,22 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     />
                     <span v-else-if="scene" class="lab-note shrink-0 truncate">{{ scene.label }}</span>
                     <div class="flex-1"></div>
+                    <!--
+                        两条栏的分工：顶栏放改**整页**的（主题、配色、桌面），这一条放只改
+                        **画布里**的（宽度、画布底、缩放）。视口预设原来在顶栏，可它只改画布，
+                        于是看组件的四个旋钮分居两条栏，找一个要跳两个地方。
+
+                        ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
+                        而一个只装一件东西的工具栏也不是工具栏。
+                    -->
+                    <NbToggleGroup
+                        size="sm"
+                        :options="presetOptions"
+                        :model-value="activePreset"
+                        aria-label="画布宽度"
+                        class="shrink-0"
+                        @update:model-value="applyPreset"
+                    />
                     <label class="lab-field shrink-0">
                         <span class="lab-note">画布底</span>
                         <NbFormSelect
@@ -608,14 +614,19 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </main>
 
             <!-- 右栏装的是文档正文与数据，是内容层不是导航层：见 CollapsibleSidePanel 里
-                 layer 那一段。它也是全屏唯一那块暖面，nbook 的冷暖对比靠它成立。 -->
+                 layer 那一段。它也是全屏唯一那块暖面，nbook 的冷暖对比靠它成立。
+
+                 比左栏宽：它和左栏是同一个零件、同样的圆角和头，光靠材质不同区分不开，
+                 读起来会是「两个一样的盒子，其中一个忘了透光」。分工要由形状一起说——
+                 宽度加一档、正文换宋体阅读刻度（见 MarkdownView），才读得出一边是索引、
+                 一边是要坐下来读的东西。 -->
             <CollapsibleSidePanel
                 v-model:collapsed="rightCollapsed"
                 title="检视"
                 side="right"
                 layer="content"
                 class="lab-panel"
-                :class="rightCollapsed ? '' : 'w-[340px] shrink-0'"
+                :class="rightCollapsed ? '' : 'w-[380px] shrink-0'"
             >
                 <div class="flex h-full min-h-0 flex-col">
                     <div class="lab-tabs shrink-0">

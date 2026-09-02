@@ -35,9 +35,21 @@ const html = computed(() => {
 </template>
 
 <style scoped>
+/*
+ * 稿面排版，不是界面排版。这里渲染的是组件文档正文——要一段一段读的东西，
+ * 按材料语言归稿面（nb-ui/docs/ui-development-spec.md 第 2 节第 1 条）：
+ * 宋体、比界面大一档、阅读行高。
+ *
+ * 字号取 --text-lg 而不是某个「阅读字号」token：库里没有登记这一档，
+ * --font-reading 由编辑器的偏好承载、不进主题层，而单个消费点不够格新登记一个 token。
+ * --text-lg 在 nbook 下是 15px，正好是界面 13px 的上一档。
+ * --font-display 在不给宋体的主题（macos / aurora / 裸基线）下回落到界面字体，
+ * 那些主题本来就没有稿面这一档，回落即是它们要的样子。
+ */
 .nb-lab-markdown {
     color: var(--text-main);
-    font-size: var(--text-sm);
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
     line-height: var(--leading-reading);
     word-break: break-word;
 }

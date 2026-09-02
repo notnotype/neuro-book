@@ -36,8 +36,10 @@ const dragging = ref(false);
 const shownWidth = computed(() => draftWidth.value ?? props.width);
 const shownHeight = computed(() => draftHeight.value ?? props.height);
 
-// 不限制的那一维要撑满舞台而不是缩成内容大小——一个塌成一行高的盒子
-// 看不出「不限尺寸」是什么状态，还会在舞台上留下大片空白。
+// 两维的「不限尺寸」不是同一件事，因为舞台横向铺满、纵向顶对齐：
+//   宽 —— 撑满舞台。一个缩成内容宽的盒子看不出「不限宽度」是什么状态。
+//   高 —— 就是组件自己的高度。这里原来也写了 alignSelf: stretch，但纵向的轨道按内容定高，
+//         那一行从来没有生效过；顶对齐之后更不该生效——组件本来就该露出它的自然高度。
 const boxStyle = computed(() => {
     const style: Record<string, string> = {
         // 缩放用 CSS zoom 而不是 transform: scale。scale 只改绘制不改布局，被缩小的盒子
@@ -55,8 +57,6 @@ const boxStyle = computed(() => {
     }
     if (shownHeight.value > 0) {
         style.height = `${shownHeight.value}px`;
-    } else {
-        style.alignSelf = "stretch";
     }
     return style;
 });
@@ -71,25 +71,37 @@ const sizeLabel = computed(() => {
 /**
  * 从光标的**绝对位置**反推尺寸，而不是「起始尺寸 + 位移」。
  *
- * 盒子在舞台里居中，居中的盒子加宽 W 会左右各外扩 W/2——按位移累加的话右手柄只走光标的
- * 一半，就是之前那个不跟手。居中时被拖的那条边到中心的距离是宽度的一半，于是
- * 宽 = 2 ×（光标 − 中心）；盒子长到比舞台还宽之后它不再居中、左边缘钉死，
- * 换成 宽 = 光标 − 左边缘。两条式子在「刚好填满」那一点取值相同，切换处不会跳。
+ * 两个轴的式子不一样，因为盒子在舞台里**横向居中、纵向顶对齐**：
+ *
+ * - 宽：居中的盒子加宽 W 会左右各外扩 W/2，按位移累加的话右手柄只走光标的一半，就是之前
+ *   那个不跟手。居中时被拖的那条边到中心的距离是宽度的一半，于是 宽 = 2 ×（光标 − 中心）；
+ *   盒子长到比舞台还宽之后它不再居中、左边缘钉死，换成 宽 = 光标 − 左边缘。
+ *   两条式子在「刚好填满」那一点取值相同，切换处不会跳。
+ * - 高：上边缘顶死在舞台顶部、不随高度移动，所以直接是 高 = 光标 − 上边缘。
+ *   顶对齐之前这一轴也走上面那条居中式子，改成顶对齐就必须跟着换，否则下手柄走一半。
  *
  * 每一帧都重新量，所以中途改缩放、拖出滚动条都自动跟上。
  */
 function sizeFromPointer(axis: "width" | "height", pointer: number): number {
+    if (axis === "height") {
+        const box = boxRef.value;
+        if (box === null) {
+            return props.minSize;
+        }
+        // rect 是屏幕像素，zoom 已经乘进去了，除回来才是声明尺寸
+        return Math.max(props.minSize, (pointer - box.getBoundingClientRect().top) / props.zoom);
+    }
+
     const inner = innerRef.value;
     if (inner === null) {
         return props.minSize;
     }
     const rect = inner.getBoundingClientRect();
     const style = getComputedStyle(inner);
-    const isWidth = axis === "width";
-    const padStart = Number.parseFloat(isWidth ? style.paddingLeft : style.paddingTop);
-    const padEnd = Number.parseFloat(isWidth ? style.paddingRight : style.paddingBottom);
-    const avail = (isWidth ? inner.clientWidth : inner.clientHeight) - padStart - padEnd;
-    const contentStart = (isWidth ? rect.left : rect.top) + padStart;
+    const padStart = Number.parseFloat(style.paddingLeft);
+    const padEnd = Number.parseFloat(style.paddingRight);
+    const avail = inner.clientWidth - padStart - padEnd;
+    const contentStart = rect.left + padStart;
 
     const centered = 2 * (pointer - (contentStart + avail / 2));
     const onScreen = centered <= avail ? centered : pointer - contentStart;
@@ -255,7 +267,11 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
     display: grid;
     min-height: 100%;
     min-width: max-content;
-    align-content: center;
+    /* 顶对齐而不是居中：组件比舞台矮的时候，居中会在它上下各留一大片空，
+       盒子读起来像浮在中间不知道钉在哪。顶对齐之后空白全归到下面一块，
+       那块空白就是中栏这扇窗透出来的桌面本身，正好是它该有的样子。
+       下手柄的算法跟这一条绑死，见 sizeFromPointer。 */
+    align-content: start;
     justify-items: center;
     gap: var(--space-4);
     padding: var(--space-7);
