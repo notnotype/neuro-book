@@ -263,7 +263,11 @@ describe("compaction", () => {
     });
 
     it("摘要输入工具结果超 2000 字符时裁剪并写标记", async () => {
-        faux.setResponses([fauxAssistantMessage(fauxText("SUMMARY"))]);
+        let summaryPrompt: Context | null = null;
+        faux.setResponses([(context) => {
+            summaryPrompt = context;
+            return fauxAssistantMessage(fauxText("SUMMARY"));
+        }]);
         const model = {...faux.getModel(), contextWindow: 8_000, maxTokens: 4_000};
         const session = await repo.createSession({profileKey: "leader.default", initial: {}});
         const toolCall = createAssistantTextMessage({text: ""});
@@ -275,6 +279,8 @@ describe("compaction", () => {
             toolName: "read",
             text: "x".repeat(3_000),
         }));
+        // 保留一条更新消息作为 recent 区，使前面的 toolResult 进入摘要 provider 输入。
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent context"}));
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
         await appendCompaction({
@@ -288,10 +294,9 @@ describe("compaction", () => {
         });
 
         const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
-        const summary = messageText(reduced.messages[0] as never);
-        expect(summary).toContain("SUMMARY");
-        // 验证裁剪标记存在（间接验证裁剪生效）
-        expect(summary).toContain("[... tool result truncated for compaction ...]");
+        expect(messageText(reduced.messages[0] as never)).toContain("SUMMARY");
+        // marker 位于发送给摘要 provider 的输入，不会自动出现在 provider 的摘要输出中。
+        expect(summaryPromptText(summaryPrompt)).toContain("[... tool result truncated for compaction ...]");
     });
 
     it("摘要最终上下文超窗时在 provider 调用前降级", async () => {
