@@ -10,6 +10,8 @@ type SurfaceTier = {
     surface: string;
     blur: string;
     note: string;
+    /** 库里没登记这一档，它是某个组件自己内联写的 */
+    unregistered?: boolean;
 };
 
 const tiers: SurfaceTier[] = [
@@ -48,7 +50,25 @@ const tiers: SurfaceTier[] = [
         blur: "none",
         note: "正文、数据面板。nbook·昼 100% 实心",
     },
+    {
+        /*
+         * 这一档不在库里。它是 FormSelect 用内联 style 写死的，也是实测下来唯一
+         * 能在复杂背景上读清文字的配方——所以它是「盒子规范」要登记的那一档。
+         *
+         * 与上面四档玻璃的三处差别，每一处都指向可读性：
+         *   面 65% 而不是 14–38%    —— 透明度是可读性预算，不是风格旋钮
+         *   底取 --bg-panel 而不是 --bg-sidebar —— 暖而亮的底比冷底更托得住文字
+         *   饱和 130% / 亮度 1.0    —— 190% + 1.14 是在**增强背景**，等于让背景和文字抢注意力
+         */
+        id: "select-actual",
+        label: "下拉实测",
+        surface: "color-mix(in srgb, var(--bg-panel) 65%, transparent)",
+        blur: "blur(8px) saturate(130%) brightness(1.0)",
+        note: "FormSelect 内联写死的值。65% 面板底 + blur(8px) sat(130%) bright(1.0)",
+        unregistered: true,
+    },
 ];
+
 </script>
 
 <template>
@@ -71,7 +91,8 @@ const tiers: SurfaceTier[] = [
             >
                 <div class="tier-header">
                     <h3 class="tier-label">{{ tier.label }}</h3>
-                    <code class="tier-id">{{ tier.id }}</code>
+                    <code v-if="tier.unregistered" class="tier-flag">库里没登记</code>
+                    <code v-else class="tier-id">{{ tier.id }}</code>
                 </div>
 
                 <p class="tier-sample">
@@ -87,11 +108,12 @@ const tiers: SurfaceTier[] = [
         </div>
 
         <div class="demo-note">
-            <p><strong>实验说明：</strong></p>
+            <p><strong>实测结论（2026-09-02，复杂照片背景下）：</strong></p>
             <ul>
-                <li>切换顶栏的「桌面」到「自定义图片」或「极光」，选一张色彩复杂的图，再看哪一档读得清。</li>
-                <li>「浮层」那一档是 FormSelect 的下拉菜单**在变量里登记的值**（14%），但 FormSelect 实际用了内联覆盖（65% 面板底）。</li>
-                <li>「窄条」不开模糊，是故意的：它在面板**里面**，外面已经有一层面了，里面再糊一遍会读成两层玻璃叠在一起。</li>
+                <li><strong>前四档全部读不了</strong>——工具栏 30%、侧栏 26%、浮层 14%、窄条 38%，都要盯着才能认出字。</li>
+                <li><strong>只有「下拉实测」那一档读得清</strong>，而它库里根本没登记，是 FormSelect 用内联 style 写死的。</li>
+                <li>三处差别都指向可读性：面 65%、底取暖而亮的 <code>--bg-panel</code>、饱和降到 130% 且亮度不加。</li>
+                <li><strong>饱和 190% 是在增强背景</strong>，等于让背景和文字抢注意力——这是前四档读不了的主因，不只是透明度。</li>
             </ul>
         </div>
     </div>
@@ -152,6 +174,16 @@ const tiers: SurfaceTier[] = [
     font-family: var(--font-mono);
     font-size: var(--text-xs);
     color: var(--text-muted);
+}
+
+/* 最后一档不是库里的角色，标出来防止被当成第 6 个可选项直接消费 */
+.tier-flag {
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--status-warning) 22%, transparent);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-main);
 }
 
 .tier-sample {
