@@ -759,19 +759,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  *
  * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
  *
- *   薄（顶栏、中栏工具条）       = --lab-chrome-surface，80%
- *   厚（两条侧栏、画布盒子）     = --lab-paper-surface，92%
+ *   有面（顶栏、中栏工具条、两条侧栏、画布盒子） = --lab-surface，92% 的玻璃
+ *   不给面（中栏舞台）                           = 什么都不铺，直接看到桌面
  *
- * 这两条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
+ * 这不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
  * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
  * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  *
- * **两条侧栏取同一档**，尽管左栏装导航、右栏装文档正文——理由在下面 .lab-root 那段注释里。
+ * **整页只有一档面**：分薄厚两档试过，落到这个布局里读不出是有意的区别——理由在下面
+ * .lab-root 那段注释里。
  *
- * 两档的面**都不取库里的角色**，取本文件 .lab-root 里的 --lab-chrome-surface 与
- * --lab-paper-surface。库里三档 chrome（30% / 26% / 14%）全部低于实测出来的可读性下限，
- * 而内容那一档是完全不透光的、与整页的玻璃语言脱节。等 .nb-ui-chrome-surface 与
- * .nb-ui-paper-surface 落地后换回库里的类，见 docs/proposals/nb-ui-surface-boxes.md。
+ * 这一档的面**不取库里的角色**，取本文件 .lab-root 里的 --lab-surface。
+ * 库里三档 chrome（30% / 26% / 14%）全部低于实测出来的可读性下限，
+ * 而内容那一档是完全不透光的、与整页的玻璃语言脱节。等库里的表面类落地后
+ * 换回库里的类，见 docs/proposals/nb-ui-surface-boxes.md。
  *
  * 分层手段是**面色 + 材料 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
  * 不同：那边是贴边三栏加竖直分割线，这边是浮起三栏。是有意偏离，理由写在那一段里。
@@ -791,42 +792,37 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     --lab-backdrop-veil: 58%;
 
     /*
-     * ——— 两档面 ———
+     * ——— 面 ———
      *
-     * 薄的 80%，厚的 92%，都是玻璃，差在厚度。分界线只在不透明度上：实测证明模糊配方
-     * 换来换去都不影响能不能读，所以模糊沿用主题自己那套——它是主题的观感身份。证据与分档
-     * 见 docs/proposals/nb-ui-surface-boxes.md。
+     * **整页只有一档面**，铺在顶栏、中栏工具条、两条侧栏和画布盒子上。剩下的两种情况不是
+     * 第二档：舞台是「不给面」，浮层由库里的 .nb-ui-popover-surface 管。
      *
-     * **分档跟着「眼睛在这块面上停多久 × 这块面有多大」走。**横条是巴掌宽的一溜控件，扫一眼
-     * 就过；栏和画布是整块的面，要停几分钟读。面越大、停得越久，同样的透光量累积出来的干扰
-     * 越多。所以两条横条取薄的，三块大面取厚的。
+     * 走到一档是收敛出来的，不是一开始就这么定的。先按「这块面装什么」分了薄厚两档，落到
+     * 页面上之后发现**分档只在两块面挨着时才传达得出来**：隔着半个屏幕的两块面差十来个
+     * 百分点，看到的不是「两种材料」，是「没做齐」。这个页面上没有一组够近的对照，于是两档
+     * 合成一档。规则本身没废，废的是在这个布局里用它。见 docs/proposals/nb-ui-surface-boxes.md。
      *
-     * 这两个数是走查调出来的，前两版都不对：65% 在小色块上读得了，铺满一整栏压在照片上仍然
-     * 要盯着看；而大面做成完全不透光时又像一块贴上去的白板，与整页的玻璃语言脱节。所以
-     * **厚的那一档也是玻璃**——留那 8% 是为了让它和背景还有关系，不是为了透视。
+     * 92% 是走查调出来的，前面两版都不对：65% 在巴掌大的色块上读得清，铺满一整栏压在照片上
+     * 仍然要盯着看；而做成完全不透光时又像一块贴上去的白板，与整页的玻璃语言脱节。
+     * **留那 8% 不是为了透视，是为了让这块面和背后的桌面还有关系。**
      *
-     * 底一律取 --bg-panel 而不是 --bg-sidebar：暖而亮的底比冷底更托得住文字。
+     * 分界线只在不透明度上：实测证明模糊配方换来换去都不影响能不能读，所以模糊沿用主题
+     * 自己那套——它是主题的观感身份。
      *
-     * 整段是 Lab 本地的，等库里的 .nb-ui-chrome-surface / .nb-ui-paper-surface 落地后
-     * 删掉换成那两个类。现在不能直接用库里的角色：--toolbar-surface（30%）、
-     * --sidebar-surface（26%）、--overlay-surface（14%）全都远低于下限。
+     * 底取 --bg-panel 而不是 --bg-sidebar：暖而亮的底比冷底更托得住文字。
+     *
+     * 这两行是 Lab 本地的，等库里的表面类落地后删掉换成那个类。现在不能直接用库里的角色：
+     * --toolbar-surface（30%）、--sidebar-surface（26%）、--overlay-surface（14%）
+     * 全都远低于实测出来的下限。
      */
-    --lab-chrome-surface: color-mix(in srgb, var(--bg-panel) 80%, transparent);
-    --lab-chrome-blur: var(--glass-blur, none);
+    --lab-surface: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+    --lab-surface-blur: var(--glass-blur, none);
 
-    --lab-paper-surface: color-mix(in srgb, var(--bg-panel) 92%, transparent);
-    --lab-paper-blur: var(--glass-blur, none);
-
-    /*
-     * **两条侧栏取同一档，尽管左栏装导航、右栏装正文。**按「装什么」分本该把左栏归薄的那一档，
-     * 但两栏隔着整块画布，人眼做不到这种远距离比对：差 12 个点的两块面并排才看得出是两种材料，
-     * 分居两端只会被当成没做齐。区别要么一眼看出，要么不做——这里选不做，把「薄 vs 厚」留给
-     * 真正相邻的地方（横条压在栏上、浮层压在面板上）去表达。
-     */
-    --lab-nav-surface: var(--lab-paper-surface);
-    --lab-nav-blur: var(--lab-paper-blur);
-    --lab-content-surface: var(--lab-paper-surface);
-    --lab-content-blur: var(--lab-paper-blur);
+    /* CollapsibleSidePanel 的两档入口都指向同一个值——两条侧栏不分档，理由同上。 */
+    --lab-nav-surface: var(--lab-surface);
+    --lab-nav-blur: var(--lab-surface-blur);
+    --lab-content-surface: var(--lab-surface);
+    --lab-content-blur: var(--lab-surface-blur);
 
 
 
@@ -936,14 +932,14 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     height: calc(var(--control-h-lg) + var(--space-4));
     padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
-    background: var(--lab-chrome-surface);
+    background: var(--lab-surface);
     /*
      * 模糊沿用主题私有的 --glass-blur：库里今天只有浮层那档（--overlay-blur），chrome 层
      * 没有对应的角色。没声明它的主题（aurora / editorial）落到 none，正好就是它们要的实心
-     * chrome。库补上 chrome 档之后，这里连同 --lab-chrome-* 一起换成 .nb-ui-chrome-surface。
+     * chrome。库补上对应的表面类之后，这里连同 --lab-surface-* 一起换成那个类。
      */
-    backdrop-filter: var(--lab-chrome-blur);
-    -webkit-backdrop-filter: var(--lab-chrome-blur);
+    backdrop-filter: var(--lab-surface-blur);
+    -webkit-backdrop-filter: var(--lab-surface-blur);
 }
 
 /*

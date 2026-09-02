@@ -300,13 +300,13 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 
 /* ——— 画布底 ——— */
 
-/* 内容盒：厚玻璃，不是实心。留那几个百分点的透光是为了让这块面和背后的桌面还有关系——
+/* 盒子的面：厚玻璃，不是实心。留那几个百分点的透光是为了让这块面和背后的桌面还有关系——
    完全不透光的白板压在窗体底纹上像贴上去的，与整页的玻璃语言脱节。
-   页面可以用 --lab-paper-* 改写；不改写时落回主题的实心面板色。 */
+   页面可以用 --lab-surface / --lab-surface-blur 改写；不改写时落回主题的实心面板色。 */
 .nb-lab-stage-box--panel {
-    background: var(--lab-paper-surface, var(--panel-surface, var(--bg-panel)));
-    backdrop-filter: var(--lab-paper-blur, none);
-    -webkit-backdrop-filter: var(--lab-paper-blur, none);
+    background: var(--lab-surface, var(--panel-surface, var(--bg-panel)));
+    backdrop-filter: var(--lab-surface-blur, none);
+    -webkit-backdrop-filter: var(--lab-surface-blur, none);
 }
 
 .nb-lab-stage-box--page {
