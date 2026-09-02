@@ -283,8 +283,9 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
     font-size: var(--text-xs);
 }
 
-/* 盒子是内容层：默认实心面板色，被测组件才有一个确定的底。
-   底可以换（见 stage-backdrops.ts），换的是这一层的 background。 */
+/* 盒子是内容盒：默认厚玻璃的面板色，被测组件才有一个确定的底。
+   底可以换（见 stage-backdrops.ts），换的是这一层的 background。
+   要一块完全不受桌面影响的底来判读组件自己的颜色，把画布底切到「纯白」或「纯黑」。 */
 .nb-lab-stage-box {
     border: var(--border-w) solid var(--divider);
     border-radius: var(--radius-panel);
@@ -299,10 +300,13 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 
 /* ——— 画布底 ——— */
 
-/* 实心，而且是全页唯一一块不透光的面。三栏 chrome 都做成玻璃之后，
-   玻璃要有东西当对照才表示得了「这一层是薄的」，对照就是这一块。 */
+/* 内容盒：厚玻璃，不是实心。留那几个百分点的透光是为了让这块面和背后的桌面还有关系——
+   完全不透光的白板压在窗体底纹上像贴上去的，与整页的玻璃语言脱节。
+   页面可以用 --lab-paper-* 改写；不改写时落回主题的实心面板色。 */
 .nb-lab-stage-box--panel {
-    background: var(--panel-surface, var(--bg-panel));
+    background: var(--lab-paper-surface, var(--panel-surface, var(--bg-panel)));
+    backdrop-filter: var(--lab-paper-blur, none);
+    -webkit-backdrop-filter: var(--lab-paper-blur, none);
 }
 
 .nb-lab-stage-box--page {

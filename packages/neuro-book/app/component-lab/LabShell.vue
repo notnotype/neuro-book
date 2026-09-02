@@ -759,20 +759,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  *
  * 材料语言与 nb-ui playground 的 /lab 同源（见其 assets/css/lab.css 开头那段）：
  *
- *   导航层（顶栏、左栏）     = --toolbar-surface / --sidebar-surface + 玻璃 + 窗体底纹
- *   内容层（画布盒子、右栏） = 实心 --panel-surface
+ *   器械盒（顶栏、左栏、中栏工具条） = --lab-chrome-surface + 玻璃 + 窗体底纹
+ *   内容盒（画布盒子、右栏）         = --lab-paper-surface，同一种玻璃，更厚
  *
  * 这两条不是装饰偏好，是**主题给的角色**。nbook / macos 这类玻璃主题把 chrome 的面色定成
  * 半透明（例如 --toolbar-surface = 30% 的侧栏色），它们只有在「背后有底纹 + 自己开模糊」时
  * 才成立；不接这两样就只剩一层洗淡的色，玻璃主题看起来会和无主题差不多。
  *
- * **右栏归内容层不归导航层**，与 nb-ui 的检查器一致。它装的是文档正文与数据，而且 nbook 把
- * 冷暖对比定成了身份：器械冷、内容面板暖，全屏只有两处暖面。两侧栏都做成玻璃的话这个页面
- * 一处暖面都没有，主题最核心的那组对比就没开。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
+ * **右栏归内容盒不归器械盒**，与 nb-ui 的检查器一致：它装的是文档正文与数据，要一段段读下去，
+ * 而器械盒那一档薄到底纹会从字后面浮上来。理由的正文在 CollapsibleSidePanel 的 layer 那一段。
  *
- * chrome 那几处的面**不取库里的角色**，取本文件 .lab-root 里的 --lab-chrome-surface。
- * 库里三档 chrome（30% / 26% / 14%）全部低于实测出来的可读性下限，压在复杂背景上读不出字。
- * 等 .nb-ui-chrome-surface 落地后换回库里的类，见 docs/proposals/nb-ui-surface-boxes.md。
+ * 两档的面**都不取库里的角色**，取本文件 .lab-root 里的 --lab-chrome-surface 与
+ * --lab-paper-surface。库里三档 chrome（30% / 26% / 14%）全部低于实测出来的可读性下限，
+ * 而内容那一档是完全不透光的、与整页的玻璃语言脱节。等 .nb-ui-chrome-surface 与
+ * .nb-ui-paper-surface 落地后换回库里的类，见 docs/proposals/nb-ui-surface-boxes.md。
  *
  * 分层手段是**面色 + 材料 + 抬起**，不是分割线——见下面 .lab-columns。这一条与 nb-ui 的 /lab
  * 不同：那边是贴边三栏加竖直分割线，这边是浮起三栏。是有意偏离，理由写在那一段里。
@@ -792,26 +792,33 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     --lab-backdrop-veil: 58%;
 
     /*
-     * ——— 器械盒的面 ———
+     * ——— 两档面 ———
      *
-     * 65% 是可读性下限，实测出来的：背景换成一张色彩复杂的照片后，26% 的面无论模糊怎么调都
-     * 读不了，65% 的无论模糊怎么调都能读。分界线只在不透明度上，与模糊配方无关，所以模糊这里
-     * 沿用主题自己那套——它是主题的观感身份，不该为可读性让路。证据与分档见
-     * docs/proposals/nb-ui-surface-boxes.md。
+     * 器械盒 80%，内容盒 92%，都是玻璃，差在厚度。分界线只在不透明度上：实测证明模糊配方
+     * 换来换去都不影响能不能读，所以模糊沿用主题自己那套——它是主题的观感身份。证据与分档
+     * 见 docs/proposals/nb-ui-surface-boxes.md。
      *
-     * 底取 --bg-panel 而不是 --bg-sidebar：暖而亮的底比冷底更托得住文字。
+     * 这两个数是走查调出来的，前两版都不对：65% 在小色块上读得了，铺满一整栏压在照片上仍然
+     * 要盯着看；而内容盒做成完全不透光时又像一块贴上去的白板，与整页的玻璃语言脱节。所以
+     * **内容盒也是玻璃，只是厚到几乎不透**——留那 8% 是为了让它和背景还有关系，不是为了透视。
      *
-     * 这四行是 Lab 本地的，等库里的 .nb-ui-chrome-surface 落地后整段删掉换成那个类。
-     * 现在不能直接用库里的角色：--toolbar-surface（30%）、--sidebar-surface（26%）、
-     * --overlay-surface（14%）全都低于下限，那正是提案要改的东西。
+     * 底一律取 --bg-panel 而不是 --bg-sidebar：暖而亮的底比冷底更托得住文字。
+     *
+     * 整段是 Lab 本地的，等库里的 .nb-ui-chrome-surface / .nb-ui-paper-surface 落地后
+     * 删掉换成那两个类。现在不能直接用库里的角色：--toolbar-surface（30%）、
+     * --sidebar-surface（26%）、--overlay-surface（14%）全都远低于下限。
      */
-    --lab-chrome-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);
+    --lab-chrome-surface: color-mix(in srgb, var(--bg-panel) 80%, transparent);
     --lab-chrome-blur: var(--glass-blur, none);
 
-    /* 左栏是器械盒。右栏不给这两个变量，因此落回 CollapsibleSidePanel 的默认实心面板色——
-       它装的是要一段段读下去的组件文档，按规范归内容盒，也是全页仅有的那处暖面。 */
+    --lab-paper-surface: color-mix(in srgb, var(--bg-panel) 92%, transparent);
+    --lab-paper-blur: var(--glass-blur, none);
+
+    /* 左栏是器械盒，右栏是内容盒——它装的是要一段段读下去的组件文档。 */
     --lab-nav-surface: var(--lab-chrome-surface);
     --lab-nav-blur: var(--lab-chrome-blur);
+    --lab-content-surface: var(--lab-paper-surface);
+    --lab-content-blur: var(--lab-paper-blur);
 
 
 
