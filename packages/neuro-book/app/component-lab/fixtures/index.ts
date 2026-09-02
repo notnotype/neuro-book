@@ -108,6 +108,13 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./JsonViewerFixture.vue")).default,
     },
+    {
+        component: "SurfaceTierDemo",
+        scenes: [
+            {id: "default", label: "5 档对照"},
+        ],
+        load: async () => (await import("./SurfaceTierDemoFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {
