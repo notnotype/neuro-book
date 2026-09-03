@@ -244,6 +244,7 @@
    - 100% 通过 `token-consumption.test.ts` 静态扫描。
 4. **WCAG 2.1 AA 键盘导航与焦点管理**：
    - `Tabs`, `SegmentedControl`, `Dropdown`, `Menubar`, `Tree`, `Listbox`, `Combobox` 等复合组件全面支持 `ArrowUp/Down/Left/Right`, `Home/End`, `Enter/Space`, `Escape` 键盘导航并联动焦点环（`.nb-ui-focus-ring` / `--focus-ring`）。
+   - `Tree` 的选中行使用整行淡强调底、强调文字与中等字重，不使用常驻左边框或指示条；层级只由缩进与展开箭头表达，焦点继续由 `.nb-ui-focus-ring` 独立表达。
 5. **Component Lab 5 方案多态体系（5-Scheme Lab Matrix）**：
    - 全库 47 个组件 Fixture 均配备完整的 5 方案推演矩阵（macOS 经典、现代极简、悬浮微晶发光、精工工控刻度、实底高反差），并在页面顶部集成 `SegmentedControl` 即时切换与 `.scheme-banner` 设计解析胶囊；
    - 严格绑定真实长篇小说写作与 NeuroBook 领域数据，保证组件在真实界面场景下的层级与材质一致性。

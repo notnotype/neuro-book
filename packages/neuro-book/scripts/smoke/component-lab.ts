@@ -59,6 +59,12 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await page.locator(".nb-lab-panel--nav > div:nth-child(2)").click();
         assert(await page.locator(".lab-picked-marker .nb-lab-highlight-box").count() === 0, failures, "选中元素不应显示常驻边框");
         assert(await page.locator(".lab-picked-marker .nb-lab-highlight-label").isVisible(), failures, "选中元素应保留贴边标签");
+        const initialSelectedTreeItem = page.locator(".nb-lab-panel--nav [role='treeitem'][data-selected]").first();
+        assert(
+            await initialSelectedTreeItem.evaluate((element) => getComputedStyle(element).borderLeftWidth) === "0px",
+            failures,
+            "左侧组件树选中行不应显示左边框",
+        );
 
         const viewportCanvasItem = page.locator('[role="treeitem"]').filter({hasText: /^ViewportCanvas$/u});
         await viewportCanvasItem.click();

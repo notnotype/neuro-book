@@ -920,10 +920,6 @@
   border-left-style: var(--tw-border-style);
   border-left-width: 1px;
 }
-.border-l-2 {
-  border-left-style: var(--tw-border-style);
-  border-left-width: 2px;
-}
 .border-\[color-mix\(in_srgb\,var\(--accent-main\)_30\%\,transparent\)\] {
   border-color: var(--accent-main);
   @supports (color: color-mix(in lab, red, red)) {
@@ -2591,9 +2587,6 @@
 }
 .data-\[outside-view\]\:opacity-35[data-outside-view] {
   opacity: 35%;
-}
-.data-\[selected\]\:border-l-\[var\(--accent-main\)\][data-selected] {
-  border-left-color: var(--accent-main);
 }
 .data-\[selected\]\:bg-\[color-mix\(in_srgb\,var\(--accent-main\)_12\%\,transparent\)\][data-selected] {
   background-color: var(--accent-main);

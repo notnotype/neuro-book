@@ -71,7 +71,7 @@ function indentFor(level: number): string {
         （这段注释刻意不写出那两个图标的类名：模板注释会原样进 DOM，也会被 Tailwind 的
         类名扫描当成候选，两边都会把「已经删掉的东西」重新变出来。）
 
-        层级靠三样表达，都不占额外的行：缩进、箭头、以及选中项左侧那条强调色竖线。
+        层级只靠缩进和展开箭头表达；选中是行状态，不承担层级结构。
     -->
     <TreeRoot
         v-slot="{ flattenItems }"
@@ -92,8 +92,8 @@ function indentFor(level: number): string {
             text-xs。后者是 12px 的固定值，与主题的字号档无关：主题换密度时整棵树不跟着变，
             摆在同一条侧栏里就比旁边的控件松一档。
 
-            选中态用「左侧竖线 + 淡强调底」而不是只换底色：竖线在缩进之外，扫一眼就能看出
-            选中的是哪一层；只有底色的话，深层节点的高亮块会被缩进推得离左边很远，读起来像浮着。
+            选中态使用整行淡强调底、强调文字与中等字重。它不增加边框或指示条，避免深层节点
+            同时出现缩进和孤立竖线；`data-selected` 与焦点环仍分别承载选择和键盘焦点语义。
         -->
         <TreeItem
             v-for="item in flattenItems"
@@ -102,7 +102,7 @@ function indentFor(level: number): string {
             :style="{ paddingInlineStart: indentFor(item.level) }"
             :value="item.value"
             :level="item.level"
-            class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] cursor-pointer items-center gap-[var(--space-3)] rounded-[calc(var(--radius-control)*0.75)] border-l-2 border-transparent py-0.5 pe-[var(--space-3)] text-[length:var(--text-sm)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] hover:text-[var(--text-main)] data-[selected]:border-l-[var(--accent-main)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] data-[selected]:font-[var(--weight-medium)] data-[selected]:text-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-40"
+            class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] cursor-pointer items-center gap-[var(--space-3)] rounded-[calc(var(--radius-control)*0.75)] py-0.5 pe-[var(--space-3)] text-[length:var(--text-sm)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] hover:text-[var(--text-main)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] data-[selected]:font-[var(--weight-medium)] data-[selected]:text-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-40"
             @select="emit('select', item.value)"
         >
             <!-- 箭头只在有子节点时出现；没有子节点时留一个同宽的空位，两种行的文字才对齐 -->

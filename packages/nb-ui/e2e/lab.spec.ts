@@ -393,6 +393,31 @@ test("表单原生作用域与复选框键盘焦点保持隔离", async ({ page 
     }
 });
 
+test("Tree 选中行不用左边框表达状态", async ({ page }) => {
+    for (const width of [1440, 390]) {
+        await page.setViewportSize({width, height: 844});
+        await gotoLab(page, {component: "tree"});
+        const row = page.locator("#nb-lab-target [role='treeitem']").filter({hasText: "第02章"});
+        await row.click();
+        await expect(row).toHaveAttribute("aria-selected", "true");
+        await settle(page, 300);
+
+        const style = await row.evaluate((element) => {
+            const computed = getComputedStyle(element);
+            return {
+                borderLeftWidth: computed.borderLeftWidth,
+                backgroundColor: computed.backgroundColor,
+                fontWeight: computed.fontWeight,
+            };
+        });
+        expect(style.borderLeftWidth).toBe("0px");
+        expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+        expect(style.backgroundColor).not.toBe("transparent");
+        expect(style.fontWeight).toBe("500");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    }
+});
+
 test("事件日志 100 条封顶且可清空", async ({ page }) => {
     await gotoLab(page, { component: "button" });
     const target = page.locator("#nb-lab-target");
