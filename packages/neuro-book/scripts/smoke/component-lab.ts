@@ -55,6 +55,25 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             "右侧检查器应包含文档、元素、事件、数据四个面板",
         );
 
+        await page.locator("button", {hasText: "检查"}).click();
+        await page.locator(".nb-lab-panel--nav > div:nth-child(2)").click();
+        assert(await page.locator(".lab-picked-marker .nb-lab-highlight-box").count() === 0, failures, "选中元素不应显示常驻边框");
+        assert(await page.locator(".lab-picked-marker .nb-lab-highlight-label").isVisible(), failures, "选中元素应保留贴边标签");
+
+        const viewportCanvasItem = page.locator('[role="treeitem"]').filter({hasText: /^ViewportCanvas$/u});
+        await viewportCanvasItem.click();
+        await page.locator('[role="radio"]').filter({hasText: "不限尺寸"}).click();
+        await expectText(page, "这块内容用来看盒子尺寸变化", failures, "ViewportCanvas 不限尺寸场景应挂载");
+        const sidePanelItem = page.locator('[role="treeitem"]').filter({hasText: /^CollapsibleSidePanel$/u});
+        await sidePanelItem.click();
+        await expectText(page, "这块代表侧栏旁边的内容区", failures, "切换后应挂载 CollapsibleSidePanel 场景");
+        const switchedCanvasHeight = await page.locator(".lab-main .nb-lab-stage-box").first().evaluate((element) => element.getBoundingClientRect().height);
+        assert(switchedCanvasHeight > 80, failures, `从 ViewportCanvas 切换后画布不应塌缩：${switchedCanvasHeight}px`);
+
+        const jsonViewerItem = page.locator('[role="treeitem"]').filter({hasText: /^JsonViewer$/u});
+        await jsonViewerItem.click();
+        await expectText(page, "当前内容可以解析", failures, "JsonViewer 场景应恢复挂载");
+
         const arrayScene = page.locator('[role="radio"]').filter({hasText: "数组"});
         await arrayScene.click();
         await expectText(page, "read_file", failures, "切换数组场景应挂载确定性 fixture 数据");

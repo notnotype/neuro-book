@@ -27,7 +27,7 @@ export type LabFixture = {
  *
  * 没有它 Lab 分不出哪块是零件、哪块是 fixture 自己搭的台子——多数 fixture 都带工具栏
  * 和说明文字。零件是单根节点时直接写在标签上即可，Vue 会把它落到根 DOM 节点。
- * 不标也能用，只是没有描边。
+ * 不标也能检查，只是无法把复合 fixture 的主要零件作为优先定位目标。
  */
 
 export const labFixtures: LabFixture[] = [

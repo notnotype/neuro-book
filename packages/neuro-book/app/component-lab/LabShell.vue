@@ -271,11 +271,11 @@ onBeforeUnmount(clearLabTheme);
 
 // ——— 检查：一个开关，devtools 那种取色针 ———
 //
-// 原来是「描边」「探针」两个开关：前者常亮框住 fixture 标出的零件，后者跟着鼠标走但只
-// 在框边显示一行字，看完即走、没法引用。合成一个之后语义是单一的「你点中的那个元素」。
+// 原来是「描边」「探针」两个开关。现在只保留单一检查模式：悬停用虚线框定位，点击后
+// 固定元素信息标签，但不常驻覆盖整块元素。
 //
-// **不自动选中任何东西。** 进页面先给一个框，等于替使用者做了一次他没提的决定，
-// 而那个框还压在预览上。要看零件本体，用取色针点它——data-lab-subject 会在面板里标出来。
+// **不自动选中任何东西。**进入页面时不替使用者决定检查目标；需要时用探针点击元素，
+// `data-lab-subject` 会让面板中的主要零件成为优先定位目标。
 
 const inspectOn = ref(false);
 const picked = ref<InspectedNode | null>(null);
@@ -621,15 +621,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         :zoom="zoomValue"
                         :backdrop="canvasBackdrop"
                     >
-                        <Transition name="lab-scene" mode="out-in">
-                            <component
-                                :is="fixtureComponent"
-                                v-if="fixtureComponent"
-                                :key="`${selectedName}:${selectedScene}`"
-                                :scene="selectedScene"
-                                :data="sceneData"
-                            />
-                        </Transition>
+                        <component
+                            :is="fixtureComponent"
+                            v-if="fixtureComponent"
+                            :key="`${selectedName}:${selectedScene}`"
+                            :scene="selectedScene"
+                            :data="sceneData"
+                        />
                     </ViewportCanvas>
                 </div>
             </main>
@@ -766,8 +764,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </CollapsibleSidePanel>
         </div>
 
-        <!-- 两个框、两种语义：实线是你点中的那个（没点过就没有框），虚线只在取色时跟着鼠标走 -->
-        <HighlightBox :rect="pickedRect" :label="selectionLabel" tone="subject" />
+        <!-- 选中元素只留贴边标签，避免大块元素的常驻框退化成一条左竖线；虚线框仅在取色时跟随鼠标。 -->
+        <HighlightBox class="lab-picked-marker" :rect="pickedRect" :label="selectionLabel" tone="subject" :show-box="false" />
         <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
     </div>
 </template>
@@ -1166,24 +1164,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     color: var(--text-muted);
 }
 
-.lab-scene-enter-active,
-.lab-scene-leave-active {
-    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
-}
-
-.lab-scene-enter-from {
-    opacity: 0;
-    transform: translateY(var(--space-2));
-}
-
-.lab-scene-leave-to {
-    opacity: 0;
-    transform: translateY(calc(var(--space-2) * -1));
-}
-
 @media (prefers-reduced-motion: reduce) {
-    .lab-scene-enter-active,
-    .lab-scene-leave-active,
     .nb-lab-panel {
         transition: none;
     }
