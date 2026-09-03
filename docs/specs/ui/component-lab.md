@@ -49,11 +49,11 @@ Lab 是只存在于源码开发环境的组件检视入口。它提供组件导�
 
 Lab 入口只在源码开发环境下注册。构建、预览、安装包与运行时都不得通过环境变量或路由守卫隐藏一个实际已打包的 Lab；排除必须发生在构建图与路由生成阶段。
 
-组件索引扫描产品组件与 Lab 零件目录中的同名 Markdown 文档，并要求对应的 `.vue` 实现存在。文档 frontmatter 的能力标签推导组件能否挂载、是否需要状态快照和不能挂载的原因；导航不得另维护一份手写组件清单。
+组件索引扫描产品组件与 Lab 零件目录中的同名 Markdown 文档，并要求对应的 `.vue` 实现存在。缺少文档或缺少同名 `.vue` 的条目不会进入索引，当前 Lab 不显示缺失占位；导航不得另维护一份手写组件清单。
 
 fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model 或浏览器持久化状态。表达错误分支与时间相关分支时使用固定输入，不伪造业务逻辑的成功结果。
 
-组件能否在 Lab 中验证，由[`组件规范`](../../standards/code/components.md)的能力标签推导：含 `io:` 或 `state:shared-write` 的组件只能在正式界面验证；含 `persist:` 的组件因 fixture 不得依赖浏览器持久化而不能挂载；含 `state:shared-read` 且无阻断标签的组件显示需要预置状态快照。
+组件能否在 Lab 中验证，由[`组件规范`](../../standards/code/components.md)的能力标签推导：含 `io:` 或 `state:shared-write` 的组件只能在正式界面验证；含 `persist:` 的组件因 fixture 不得依赖浏览器持久化而不能挂载；含 `state:shared-read` 且无阻断标签的组件只会被标记为“需预置状态快照”。当前 Lab 尚未提供状态快照注入或隔离机制，因此这类组件即使存在 fixture 也不构成可采信的确定性验证，迁移批次必须先把读取上移到宿主或另行实现并验证快照边界。
 
 组件树使用公开 string-id 合同：调用方传入和接收组件节点 id，不持有 Reka 内部节点对象。分组节点只负责展开/收起，不切换组件；搜索按组件名过滤，搜索时展开匹配分组。
 
@@ -90,7 +90,7 @@ fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、
 ## 失败与恢复
 
 - fixture 尝试访问真实接口、持久化状态、Provider/Model 或产品凭据时失败即拒绝，该场景视为不合格，不替换为看似成功的结果。
-- 组件文档缺失、同名 `.vue` 不存在、能力标签阻断或没有登记 fixture 时，索引和中栏分别显示可查询的缺失/不可挂载状态，不伪造可交互场景。
+- 缺少 Markdown 或缺少同名 `.vue` 的组件不会进入索引，当前没有缺失占位；已进入索引但能力标签阻断或没有登记 fixture 时，中栏显示不可挂载或没有场景，不伪造可交互场景。
 - localStorage 或 IndexedDB 不可用、超额、损坏或包含旧版本数据时，Lab 使用当前默认偏好继续运行；一项无效字段不使其它有效字段失效。恢复自定义桌面但壁纸 Blob 不存在时回退默认桌面，不自动弹出文件选择器。
 - 构建图、路由、文本或清单中出现 Lab、fixture、开发绝对路径或识别标记时，产物门禁失败。不得用运行时不存在或路由守卫隐藏来判定通过。
 - 响应式容器下出现页面级横向滚动、操作被遮挡或焦点无法恢复时，该场景保持未验收，不降低视口要求。
@@ -101,7 +101,7 @@ fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、
 
 组件的行为合同、能力标签与耦合约束由[`组件规范`](../../standards/code/components.md)拥有，Lab 不建立第二套组件分类。各产品领域拥有正式界面及其接口、项目、会话、共享状态与持久化语义，Lab 不取得任何产品数据的所有权。
 
-Lab 消费的组件索引是派生产物，由扫描同名 Markdown 与 Vue 实现生成。组件名、分组、能力标签、挂载结论和阻断原因来自文档与标签推导；场景由 fixture 按组件名关联，仓库不保留第二份组件或场景索引。
+Lab 消费的组件索引是派生产物，由扫描同名 Markdown 与 Vue 实现生成；缺少任一侧的条目被跳过。组件名、分组、能力标签、挂载结论和阻断原因来自文档与标签推导；场景由 fixture 按组件名关联，仓库不保留第二份组件或场景索引。`needsSnapshot` 当前只是索引标记，不代表 Lab 已提供或验证状态快照。
 
 Lab 的主题/配色仅是开发工具自身的界面状态，写入 Lab 专属浏览器存储，不改变产品 `theme.system`、Global Config 或产品主题 authority。产品主题 clean cutover 属于 w00003 的后续 C 切片；t09 `LabShell.vue` 拆分已延期且不由本规范宣称完成。
 
@@ -110,19 +110,20 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 
 1. Given Source Dev 服务，When 打开 `/lab`，Then 显示按组的组件树、当前组件画布和 `文档`、`元素`、`事件`、`数据` 四个 tab。
 2. Given 组件索引中的可挂载项，When 选择组件并切换已登记场景，Then fixture 被挂载，场景直接替换，数据 tab 可还原可编辑数据，重复打开或还原后初始输入与可观察状态一致。
-3. Given 不可挂载项，When 在组件树中搜索并选择，Then 中栏显示原因，不挂载替代 fixture。
-4. Given 检查模式，When hover 或点击 Lab 元素，Then hover 有虚线探针，点击后元素 tab 显示可复制定位报告，选中元素不绘制常驻整块边框，Escape 可退出检查。
-5. Given 手机与平板容器，When 分别切换到 `390 × 844` 与 `768 × 1024`，Then 场景语义不变，核心操作可完成，无页面级横向滚动或控件相互遮挡。
-6. Given 运行中的 Lab 从宽屏调整到 `<=700px`，When 进入窄屏再恢复宽屏，Then 两侧栏自动收起且不会自动重新展开；reduced-motion 下新增转场时长为零。
-7. Given 已修改主题、配色、画布与侧栏偏好，When 刷新或重新进入 Lab，Then 合法偏好恢复；窄屏自动收起不覆盖桌面侧栏偏好；执行“恢复 Lab 默认配置”后 localStorage 偏好键消失且界面回到当前默认值。
-8. Given localStorage 中存在损坏 JSON、未知 schema、未知枚举或越界尺寸，When Lab 加载，Then 无效值被拒绝、有效字段仍恢复、fixture 初始输入不变且页面可继续使用。
-9. Given Product 构建，When 检查路由、模块图、文本与清单，Then 不存在 Lab 模块、fixture、开发绝对路径或识别标记，访问 Lab 路径为不存在。
+3. Given 缺少组件文档或同名 `.vue` 的条目，When 生成组件索引，Then 该条目不出现在导航；Given 已入索引但有阻断标签或没有 fixture 的组件，When 选择它，Then 中栏显示不能挂载或没有场景，不挂载替代 fixture。
+4. Given 含 `state:shared-read` 且没有其它阻断标签的组件，When Lab 将其标记为需状态快照，Then 在快照注入机制实现并验证前，不得把它在 Lab 中挂载成功写成确定性验证通过。
+5. Given 检查模式，When hover 或点击 Lab 元素，Then hover 有虚线探针，点击后元素 tab 显示可复制定位报告，选中元素不绘制常驻整块边框，Escape 可退出检查。
+6. Given 手机与平板容器，When 分别切换到 `390 × 844` 与 `768 × 1024`，Then 场景语义不变，核心操作可完成，无页面级横向滚动或控件相互遮挡。
+7. Given 运行中的 Lab 从宽屏调整到 `<=700px`，When 进入窄屏再恢复宽屏，Then 两侧栏自动收起且不会自动重新展开；reduced-motion 下新增转场时长为零。
+8. Given 已修改主题、配色、画布与侧栏偏好，When 刷新或重新进入 Lab，Then 合法偏好恢复；窄屏自动收起不覆盖桌面侧栏偏好；执行“恢复 Lab 默认配置”后 localStorage 偏好键消失且界面回到当前默认值。
+9. Given localStorage 中存在损坏 JSON、未知 schema、未知枚举或越界尺寸，When Lab 加载，Then 无效值被拒绝、有效字段仍恢复、fixture 初始输入不变且页面可继续使用。
+10. Given Product 构建，When 检查路由、模块图、文本与清单，Then 不存在 Lab 模块、fixture、开发绝对路径或识别标记，访问 Lab 路径为不存在。
 
 ## 实现合同
 
 - **owner**：`packages/neuro-book/app/component-lab/` 持有 Lab 页面状态、fixture 关联、检查器与界面偏好；`packages/nb-ui` 持有被消费的通用 Tree、Tabs、表单等公共组件合同；产品组件自身继续由各领域 owner 持有。
 - **公开入口**：`packages/neuro-book/app/pages/lab.vue` 仅在 Source Dev 构建图注册；`packages/neuro-book/scripts/smoke/component-lab.ts` 是自动浏览器 smoke 入口。
-- **索引边界**：`component-index.ts` 扫描同名 Markdown 与 Vue 模块，解析能力标签并推导 `mountable`、`blockedReason`、`needsSnapshot`；`fixtures/` 只登记场景与动态 fixture loader，不复制组件索引。
+- **索引边界**：`component-index.ts` 扫描同名 Markdown 与 Vue 模块，只收录两者同时存在的条目，解析能力标签并推导 `mountable`、`blockedReason`、`needsSnapshot`；`fixtures/` 只登记场景与动态 fixture loader，不复制组件索引。`needsSnapshot` 当前不连接任何快照 provider。
 - **状态与持久化边界**：LabShell 持有页面编排和当前状态；`useLabPreferences` 与 `lab-preferences-store` 只负责 Lab 界面偏好的校验、恢复、保存、重置和 fail-open；`lab-wallpaper-store` 只负责 Lab 壁纸 Blob。产品主题、Global Config 和业务数据不由 Lab 持有。
 - **关键不变量**：Product 构建通过 `pages:extend` 在路由生成阶段移除 `/lab`，使仅由 Lab 引用的模块不可达；Tree 对外维持 string-id，Reka 节点对象不泄漏；场景切换/还原不改变 fixture 初始合同；存储异常不阻断 Lab 打开。
 - **验证入口**：Lab 偏好 store/composable 与 HighlightBox 合同测试、NeuroBook Component Lab 测试、nb-ui Tree 回归测试，以及真实 NeuroBook `/lab` smoke。当前 t09 文件拆分、产品 `theme.system` clean cutover 和渐进组件迁移不属于本实现合同。

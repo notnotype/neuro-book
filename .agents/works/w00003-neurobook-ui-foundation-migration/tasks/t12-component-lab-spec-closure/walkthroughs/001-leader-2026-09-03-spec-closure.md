@@ -39,3 +39,12 @@ Component Lab 的当前行为合同已补全，`docs/specs/ui/component-lab.md` 
 - 渐进式产品组件迁移仍未完成。
 - nb-ui 全量 E2E 仍有既有失败，不由本次 Spec 补全重新分类或更新快照。
 - Issue #191 不因本 Task 完成而关闭；远端 Issue、PR、push、合并和发布均未执行。
+
+## 后续校正（t13）
+
+t13 对照 `component-index.ts` 与 `LabShell.vue` 后收窄了两处过度声明：
+
+- 缺少同名 Markdown 或 `.vue` 的组件会被索引构建直接跳过，当前 Lab 没有缺失占位；t12 将其写成“显示可查询的缺失状态”不符合实现。
+- `state:shared-read` 当前只产生 `needsSnapshot` 标记，没有快照 provider 或隔离机制；即使存在 fixture，也不能把挂载写成确定性验证通过。
+
+因此 t12 的“与实现一致”结论以后续 t13 修正后的 `component-lab.md` 为准。该校正不改写本 walkthrough 的历史检查结果。
