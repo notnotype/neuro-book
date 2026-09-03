@@ -77,3 +77,11 @@ Lab 规范说「不含 `persist:`、不含 `io:` 且不含 `state:shared-write` 
 主应用 `ssr: false`，所有路径都返回同一个 200 外壳。开发服务上 `curl /lab` 得到 200，`curl /definitely-not-a-route` 同样得到 200——这个检查区分不出任何东西。
 
 改用「取 Vite 转换后的模块」验证开发侧，用「搜产物全文与路由表」验证产品侧。后续批次不要用状态码判断 Lab 是否注册。
+
+## 后续说明（2026-09-03）
+
+本节不改写上文在 2026-08-31/2026-09-02 执行时的事实，只补充后续 Task 的结果：
+
+- t07 `component-lab-uiux-polish` 已覆盖运行中 `1440px → 390px` 的 resize 响应、侧栏状态转场、场景切换转场和 `prefers-reduced-motion`；提交 `cfde3773`，自动 smoke 与 typecheck 已通过。
+- t06 `preview-retirement` 已完成 14 个 preview 页面及其专属资源清退；提交 `37918d6b`，正式 Workflow service/API 和其它正式消费者按合同保留。
+- 当前 `LabShell.vue` 实测 1204 行，超过前端规范 800 行硬审查线；该债务已登记为 t09 `labshell-decomposition`，仅完成记录，尚未实施拆分。
