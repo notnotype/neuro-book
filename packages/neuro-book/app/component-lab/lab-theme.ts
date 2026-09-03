@@ -11,9 +11,9 @@ import nbookTheme from "@notnotype/nb-ui/themes/nbook";
  *
  * Lab 是这套主题系统在本仓库里的第一个消费方——先在开发工具上跑通，产品再决定要不要迁。
  *
- * **不用 nb-ui 的 createThemeStore / createColorwayStore**：它们的 set 与 init 都写
- * localStorage，而 Lab 规范明写不写浏览器持久化。这里只用它们下面那层无状态的装载与
- * 应用函数，选择随刷新丢失，是有意的。
+ * Lab 不直接使用 nb-ui 的 createThemeStore / createColorwayStore：Lab 的主题与其它界面偏好
+ * 需要写入同一份版本化文档，并由 Lab 自己控制恢复、校验与清除边界。这里只复用无状态的
+ * 主题装载与应用函数。
  */
 
 // 装主题必须先于读配色表：配色表要合并各主题自带的配色，而模块副作用只在 import 时跑一次。

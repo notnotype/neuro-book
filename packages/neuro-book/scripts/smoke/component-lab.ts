@@ -116,7 +116,11 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await page.locator(".lab-root").waitFor({state: "visible", timeout: 30_000});
         const reducedMotionDuration = await page.locator(".nb-lab-panel").first().evaluate((element) => getComputedStyle(element).transitionDuration);
         assert(reducedMotionDuration === "0s", failures, `reduced-motion 应关闭侧栏转场：${reducedMotionDuration}`);
-
+        assert(
+            await page.evaluate(() => document.documentElement.dataset.nbTheme) === "macos",
+            failures,
+            "刷新后应恢复已保存的 Lab 主题",
+        );
         await page.goto(new URL("/", input.url).href, {waitUntil: "domcontentloaded", timeout: 30_000});
         await page.waitForFunction(
             () => location.pathname === "/" && !document.documentElement.hasAttribute("data-nb-theme"),
@@ -130,6 +134,21 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         const mobile = page.locator("button").filter({hasText: /^手机$/u});
         await mobile.click();
         await expectText(page, "390 × 844", failures, "手机预设应切换到 390 × 844 画布");
+        await page.reload({waitUntil: "domcontentloaded"});
+        await page.locator(".lab-root").waitFor({state: "visible", timeout: 30_000});
+        await expectText(page, "390 × 844", failures, "刷新后应恢复已保存的手机画布尺寸");
+        assert(
+            await page.evaluate(() => document.documentElement.dataset.nbTheme) === "macos",
+            failures,
+            "再次进入 Lab 后应保留主题偏好",
+        );
+        await page.getByRole("button", {name: "恢复 Lab 默认配置"}).click();
+        await page.waitForFunction(() => document.documentElement.dataset.nbTheme === "nbook", undefined, {timeout: 10_000});
+        assert(
+            await page.evaluate(() => localStorage.getItem("nb-lab:preferences:v1")) === null,
+            failures,
+            "恢复默认配置后应清除 Lab 偏好键",
+        );
         const overflow = await page.evaluate(() => ({documentWidth: document.documentElement.scrollWidth, viewportWidth: innerWidth}));
         assert(overflow.documentWidth <= overflow.viewportWidth, failures, `390px 视口不应发生页面级横向溢出：${JSON.stringify(overflow)}`);
 

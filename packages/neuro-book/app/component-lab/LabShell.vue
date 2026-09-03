@@ -24,6 +24,7 @@ import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
 import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
+import {useLabPreferences} from "./use-lab-preferences";
 import {
     LAB_DEFAULT_BACKDROP,
     LAB_DEFAULT_PAGE_BACKDROP,
@@ -48,6 +49,8 @@ const ALL_GROUP_IDS = [...new Set(labComponents.map((entry) => `group:${entry.gr
 
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
+const preferredLeftCollapsed = ref(false);
+const preferredRightCollapsed = ref(false);
 const selectedName = ref<string>(labComponents.find((entry) => entry.mountable)?.name ?? "");
 const selectedScene = ref<string>("");
 const rightTab = ref("doc");
@@ -182,7 +185,7 @@ watch(pageBackdrop, (id) => {
     }
 });
 
-// IndexedDB 只在浏览器里有，读取必须等挂载之后
+// IndexedDB 与 localStorage 只在浏览器里有，读取必须等挂载之后。
 let mobileQuery: MediaQueryList | null = null;
 
 function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
@@ -193,9 +196,9 @@ function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
 }
 
 onMounted(async () => {
-    setWallpaper(await loadLabWallpaper());
-});
-onMounted(() => {
+    setWallpaper(await loadLabWallpaper().catch(() => null));
+    await restorePreferences();
+    applyLabTheme(labThemeId.value, labColorwayId.value);
     mobileQuery = window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`);
     collapseForMobile(mobileQuery);
     mobileQuery.addEventListener("change", collapseForMobile);
@@ -247,11 +250,58 @@ const colorwayOptions = computed<FormSelectOption[]>(() =>
         description: meta.appearance === "dark" ? "深色" : "浅色",
     })));
 
+const {
+    hydrating: preferencesHydrating,
+    reset: resetStoredPreferences,
+    restore: restorePreferences,
+    setLeftCollapsed,
+    setRightCollapsed,
+} = useLabPreferences({
+    storage: () => window.localStorage,
+    catalog: {
+        themeIds: labThemes.map((theme) => theme.manifest.id),
+        colorwayIds: Object.keys(labColorwayMeta),
+        canvasBackdropIds: labBackdrops.map((item) => item.id),
+        pageBackdropIds: labPageBackdrops.map((item) => item.id),
+        zooms: labZooms,
+    },
+    defaults: {
+        themeId: LAB_DEFAULT_THEME,
+        colorwayId: LAB_DEFAULT_COLORWAY,
+        pageBackdropId: LAB_DEFAULT_PAGE_BACKDROP,
+        canvasBackdropId: LAB_DEFAULT_BACKDROP,
+        canvasZoom: LAB_DEFAULT_ZOOM,
+    },
+    state: {
+        themeId: labThemeId,
+        colorwayId: labColorwayId,
+        pageBackdropId: pageBackdrop,
+        canvasBackdropId: canvasBackdrop,
+        canvasZoom,
+        canvasWidth,
+        canvasHeight,
+        leftCollapsed,
+        rightCollapsed,
+        preferredLeftCollapsed,
+        preferredRightCollapsed,
+    },
+    hasCustomWallpaper: () => wallpaperUrl.value !== "",
+});
+
+async function resetPreferences(): Promise<void> {
+    await resetStoredPreferences(() => {
+        collapseForMobile(mobileQuery ?? window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`));
+    });
+}
+
 const currentAppearance = computed(() => labColorwayMeta[labColorwayId.value]?.appearance ?? "dark");
 
 // 换主题时跟到这套主题自带的配色。manifest 把它叫默认值而不是约束：跟过去之后
 // 用户仍可以单独换配色，两条轴独立。
 watch(labThemeId, (id) => {
+    if (preferencesHydrating.value) {
+        return;
+    }
     const preferred = labThemes.find((theme) => theme.manifest.id === id)?.manifest.defaultColorway;
     const next = preferred?.[currentAppearance.value];
     // 配色列表被裁到两套之后，主题自带的默认配色多半不在列表里，这时保持当前配色不动。
@@ -263,12 +313,8 @@ watch(labThemeId, (id) => {
 watch([labThemeId, labColorwayId], ([theme, colorway]) => {
     applyLabTheme(theme, colorway);
 });
-onMounted(() => {
-    applyLabTheme(labThemeId.value, labColorwayId.value);
-});
 // 主题写在 <html> 上（见 lab-theme.ts），离开 Lab 必须复原，否则产品界面跟着变
 onBeforeUnmount(clearLabTheme);
-
 // ——— 检查：一个开关，devtools 那种取色针 ———
 //
 // 原来是「描边」「探针」两个开关。现在只保留单一检查模式：悬停用虚线框定位，点击后
@@ -493,15 +539,25 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     清除
                 </button>
             </template>
+            <button
+                type="button"
+                class="lab-btn lab-btn--icon shrink-0"
+                aria-label="恢复 Lab 默认配置"
+                title="恢复 Lab 默认配置"
+                @click="resetPreferences"
+            >
+                <span class="i-lucide-rotate-ccw h-3.5 w-3.5" aria-hidden="true"></span>
+            </button>
         </header>
 
         <div class="lab-columns flex min-h-0 flex-1">
             <CollapsibleSidePanel
-                v-model:collapsed="leftCollapsed"
+                :collapsed="leftCollapsed"
                 title="组件"
                 side="left"
                 class="lab-panel"
                 :class="leftCollapsed ? '' : 'w-[240px] shrink-0'"
+                @update:collapsed="setLeftCollapsed"
             >
                 <template #actions>
                     <span class="lab-note shrink-0 tabular-nums">
@@ -640,12 +696,13 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                  宽度加一档、正文换宋体阅读刻度（见 MarkdownView），才读得出一边是索引、
                  一边是要坐下来读的东西。 -->
             <CollapsibleSidePanel
-                v-model:collapsed="rightCollapsed"
+                :collapsed="rightCollapsed"
                 title="检视"
                 side="right"
                 layer="content"
                 class="lab-panel"
                 :class="rightCollapsed ? '' : 'w-[380px] shrink-0'"
+                @update:collapsed="setRightCollapsed"
             >
                 <div class="flex h-full min-h-0 flex-col">
                     <div class="lab-tabs shrink-0">
