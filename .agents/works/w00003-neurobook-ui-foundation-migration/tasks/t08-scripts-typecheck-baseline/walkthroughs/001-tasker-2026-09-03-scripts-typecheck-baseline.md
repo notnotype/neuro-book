@@ -25,8 +25,8 @@ createdAt: 2026-09-03T00:00:00Z
 - `bun run test server/workspace-files/system-asset-installation.test.ts`：1 file，34 tests passed。
 - `bun run typecheck`：通过。
 - `bun run test`：432 files passed，1 skipped；3315 tests passed，3 skipped。输出中的 SQLite experimental warning、故障注入 warning 与 workspace-history fail-open 日志均为既有测试/运行诊断，没有失败。
-- `bun run docs:check`：待提交前运行。
-- `git diff HEAD --check`：待提交前运行。
+- `bun run docs:check`：通过，5353 files，0 failures。
+- `git diff HEAD --check`：通过。
 
 ## 未运行项与残余风险
 
