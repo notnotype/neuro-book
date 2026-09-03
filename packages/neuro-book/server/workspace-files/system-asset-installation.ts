@@ -565,7 +565,11 @@ async function listFilesUnderPrefix(systemNbookRoot: string, assetPrefix: string
     return files;
 }
 
-type LegacySyncStateDocument = Record<string, unknown>;
+type LegacySyncStateRecord = Record<string, unknown>;
+type LegacySyncStateDocument = LegacySyncStateRecord & {
+    assets?: readonly LegacySyncStateRecord[];
+    profiles?: readonly LegacySyncStateRecord[];
+};
 
 function legacySyncStateNeedsReview(statePath: string, reason: string, cause?: unknown): Error {
     return new Error(`legacy migration 需要人工核查（needs-review）：旧投影 sync state ${reason}，无法证明墓碑文件未被手改：${statePath}`, {cause});
@@ -587,20 +591,23 @@ async function parseLegacySyncState(systemNbookRoot: string): Promise<LegacySync
         throw legacySyncStateNeedsReview(statePath, "不是有效 JSON", error);
     }
     if (typeof value !== "object" || value === null) throw legacySyncStateNeedsReview(statePath, "结构无效");
-    const hasAssets = "assets" in value;
-    const hasProfiles = "profiles" in value;
+    const record = value as LegacySyncStateRecord;
+    const hasAssets = "assets" in record;
+    const hasProfiles = "profiles" in record;
+    const assets = Array.isArray(record.assets) ? record.assets : undefined;
+    const profiles = Array.isArray(record.profiles) ? record.profiles : undefined;
     // 条目级形状同样严格：旧投影写入的条目恒带字符串键（assetPath/fileName），
     // 缺失即并发改坏或外部污染，无法安全分类时必须 fail closed 而非静默残留。
-    if ((hasAssets && !Array.isArray(value.assets)) || (hasProfiles && !Array.isArray(value.profiles)) || (!hasAssets && !hasProfiles)) {
+    if ((hasAssets && assets === undefined) || (hasProfiles && profiles === undefined) || (!hasAssets && !hasProfiles)) {
         throw legacySyncStateNeedsReview(statePath, "结构无效");
     }
-    if (hasAssets && !value.assets.every((item) => typeof item === "object" && item !== null && "assetPath" in item && typeof item.assetPath === "string")) {
+    if (assets !== undefined && !assets.every((item) => typeof item === "object" && item !== null && "assetPath" in item && typeof item.assetPath === "string")) {
         throw legacySyncStateNeedsReview(statePath, "assets 条目结构无效");
     }
-    if (hasProfiles && !value.profiles.every((item) => typeof item === "object" && item !== null && "fileName" in item && typeof item.fileName === "string")) {
+    if (profiles !== undefined && !profiles.every((item) => typeof item === "object" && item !== null && "fileName" in item && typeof item.fileName === "string")) {
         throw legacySyncStateNeedsReview(statePath, "profiles 条目结构无效");
     }
-    return value;
+    return record as LegacySyncStateDocument;
 }
 
 /**
