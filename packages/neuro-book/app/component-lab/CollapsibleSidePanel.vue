@@ -138,6 +138,10 @@ watch(() => props.collapsed, (isCollapsed) => {
     letter-spacing: 0.06em;
 }
 
+.nb-lab-panel {
+    transition: width var(--motion-base) var(--ease-standard), flex-basis var(--motion-base) var(--ease-standard);
+}
+
 .nb-lab-panel-toggle {
     display: inline-flex;
     height: var(--control-h-sm);

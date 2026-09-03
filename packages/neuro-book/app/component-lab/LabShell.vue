@@ -183,14 +183,26 @@ watch(pageBackdrop, (id) => {
 });
 
 // IndexedDB 只在浏览器里有，读取必须等挂载之后
+let mobileQuery: MediaQueryList | null = null;
+
+function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
+    if (event.matches) {
+        leftCollapsed.value = true;
+        rightCollapsed.value = true;
+    }
+}
+
 onMounted(async () => {
     setWallpaper(await loadLabWallpaper());
 });
 onMounted(() => {
-    if (window.innerWidth <= LAB_MOBILE_BREAKPOINT) {
-        leftCollapsed.value = true;
-        rightCollapsed.value = true;
-    }
+    mobileQuery = window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`);
+    collapseForMobile(mobileQuery);
+    mobileQuery.addEventListener("change", collapseForMobile);
+});
+onBeforeUnmount(() => {
+    mobileQuery?.removeEventListener("change", collapseForMobile);
+    mobileQuery = null;
 });
 onBeforeUnmount(() => setWallpaper(null));
 const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
@@ -609,13 +621,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         :zoom="zoomValue"
                         :backdrop="canvasBackdrop"
                     >
-                        <component
-                            :is="fixtureComponent"
-                            v-if="fixtureComponent"
-                            :key="`${selectedName}:${selectedScene}`"
-                            :scene="selectedScene"
-                            :data="sceneData"
-                        />
+                        <Transition name="lab-scene" mode="out-in">
+                            <component
+                                :is="fixtureComponent"
+                                v-if="fixtureComponent"
+                                :key="`${selectedName}:${selectedScene}`"
+                                :scene="selectedScene"
+                                :data="sceneData"
+                            />
+                        </Transition>
                     </ViewportCanvas>
                 </div>
             </main>
@@ -1150,6 +1164,29 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     width: 4rem;
     flex-shrink: 0;
     color: var(--text-muted);
+}
+
+.lab-scene-enter-active,
+.lab-scene-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.lab-scene-enter-from {
+    opacity: 0;
+    transform: translateY(var(--space-2));
+}
+
+.lab-scene-leave-to {
+    opacity: 0;
+    transform: translateY(calc(var(--space-2) * -1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lab-scene-enter-active,
+    .lab-scene-leave-active,
+    .nb-lab-panel {
+        transition: none;
+    }
 }
 
 .lab-tags {

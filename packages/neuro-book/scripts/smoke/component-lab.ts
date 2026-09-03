@@ -68,6 +68,30 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await macosOption.click();
         await page.waitForFunction(() => document.documentElement.dataset.nbTheme === "macos", undefined, {timeout: 10_000});
 
+        await page.setViewportSize({width: 390, height: 844});
+        await page.waitForFunction(
+            () => document.querySelectorAll(".nb-lab-panel-head").length === 0,
+            undefined,
+            {timeout: 10_000},
+        );
+        assert(
+            await page.locator(".nb-lab-panel-head").count() === 0,
+            failures,
+            "运行中进入 390px 窗口应自动收起左右侧栏",
+        );
+        await page.setViewportSize({width: 1440, height: 900});
+        assert(
+            await page.locator(".nb-lab-panel-head").count() === 0,
+            failures,
+            "恢复宽屏不应自动展开已收起的左右侧栏",
+        );
+
+        await page.emulateMedia({reducedMotion: "reduce"});
+        await page.reload({waitUntil: "domcontentloaded"});
+        await page.locator(".lab-root").waitFor({state: "visible", timeout: 30_000});
+        const reducedMotionDuration = await page.locator(".nb-lab-panel").first().evaluate((element) => getComputedStyle(element).transitionDuration);
+        assert(reducedMotionDuration === "0s", failures, `reduced-motion 应关闭侧栏转场：${reducedMotionDuration}`);
+
         await page.goto(new URL("/", input.url).href, {waitUntil: "domcontentloaded", timeout: 30_000});
         await page.waitForFunction(
             () => location.pathname === "/" && !document.documentElement.hasAttribute("data-nb-theme"),
