@@ -50,6 +50,7 @@
     "smoke:sqlite-vec": "bun scripts/smoke/sqlite-vec.ts",
     "smoke:subject-rag": "bun scripts/smoke/subject-rag.ts",
     "smoke:writing-workflow": "bun scripts/smoke/writing-workflow.ts",
+    "smoke:component-lab": "node --import tsx scripts/smoke/component-lab.ts",
     "seed:world-engine-demo": "bun scripts/seed/world-engine-demo.ts",
     "seed:heroes-story": "bun scripts/seed/heroes-story.ts",
     "seed:chapter-01-slices": "bun scripts/seed/chapter-01-slices.ts",

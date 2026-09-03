@@ -56,6 +56,7 @@ const expandedGroups = ref<string[]>([...ALL_GROUP_IDS]);
 const canvasWidth = ref(0);
 const canvasHeight = ref(0);
 const canvasZoom = ref(String(LAB_DEFAULT_ZOOM));
+const LAB_MOBILE_BREAKPOINT = 700;
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
@@ -184,6 +185,12 @@ watch(pageBackdrop, (id) => {
 // IndexedDB 只在浏览器里有，读取必须等挂载之后
 onMounted(async () => {
     setWallpaper(await loadLabWallpaper());
+});
+onMounted(() => {
+    if (window.innerWidth <= LAB_MOBILE_BREAKPOINT) {
+        leftCollapsed.value = true;
+        rightCollapsed.value = true;
+    }
 });
 onBeforeUnmount(() => setWallpaper(null));
 const zoomOptions: FormSelectOption[] = labZooms.map((value) => ({
@@ -934,13 +941,9 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
     background: var(--lab-surface);
-    /*
-     * 模糊沿用主题私有的 --glass-blur：库里今天只有浮层那档（--overlay-blur），chrome 层
-     * 没有对应的角色。没声明它的主题（aurora / editorial）落到 none，正好就是它们要的实心
-     * chrome。库补上对应的表面类之后，这里连同 --lab-surface-* 一起换成那个类。
-     */
-    backdrop-filter: var(--lab-surface-blur);
-    -webkit-backdrop-filter: var(--lab-surface-blur);
+    overflow-x: auto;
+    /* 窄屏下控件不被裁掉，顶栏自身水平滚动；不能把页面宽度撑出视口。 */
+    scrollbar-width: thin;
 }
 
 /*
@@ -954,6 +957,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
        用顶栏那档间距会把它们读成四件互不相干的东西 */
     gap: var(--space-4);
     padding: 0 var(--panel-p);
+    overflow-x: auto;
+    scrollbar-width: thin;
 }
 
 /*
@@ -977,6 +982,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 .lab-columns {
     gap: var(--space-5);
     padding: var(--space-5);
+    overflow-x: auto;
+    /* 三栏在窄屏仍保持可访问，不把横向溢出传给页面根节点。 */
 }
 
 /* --panel-outline 只有玻璃主题声明，其余主题落到 --divider。
@@ -993,6 +1000,12 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     border: var(--border-w) solid var(--panel-outline, var(--divider));
     border-radius: var(--radius-panel);
     box-shadow: var(--elevation-raised, none);
+}
+
+@media (max-width: 700px) {
+    .lab-main {
+        min-width: 0;
+    }
 }
 
 /* 「标签 + 控件」的一对。标签是控件的名字而不是独立的一行字，所以贴着它。 */

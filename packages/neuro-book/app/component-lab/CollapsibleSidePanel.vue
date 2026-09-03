@@ -4,14 +4,10 @@ import {computed, nextTick, ref, watch} from "vue";
 export type CollapsibleSidePanelSide = "left" | "right";
 
 /**
- * 这一栏在材料语言里属于哪一层。**这不是外观偏好，是主题给的角色。**
- * nav = 器械（导航、工具），content = 纸（要读的正文与数据）。
- *
- * 判据看**这一栏装什么**，不看它在左边还是右边——规范一度按部件列举、把侧栏整个划给器械，
- * 于是「一个装文档的侧栏」两头都对得上，见 nb-ui/docs/design-language.md 第一节。
+ * 这一栏的主题内容角色入口，不是全局 Surface 轴。正式结构判据是承载关系：直接压在窗体底纹上的属于材质轴，从材质层往上叠的属于层级轴。
+ * nav 表示器械内容，content 表示稿面内容；两者可以落在同一材质层或不同层级位置。
  */
 export type CollapsibleSidePanelLayer = "nav" | "content";
-
 const props = withDefaults(defineProps<{
     title: string;
     collapsed: boolean;
@@ -105,47 +101,22 @@ watch(() => props.collapsed, (isCollapsed) => {
 </template>
 
 <style scoped>
-/* 尺寸与圆角走主题 token，颜色走配色变量——两条轴分开，换主题时这一栏才会跟着变形状 */
+/* 尺寸与圆角走主题 token，颜色走配色变量。layer 是内容角色入口，Surface 结构位置由承载关系决定。 */
 
-/*
- * 导航层：玻璃。
- *
- * 取主题的 --sidebar-surface 而不是配色的 --bg-sidebar：前者是**角色**，玻璃主题把它定成
- * 半透明并配合模糊，非玻璃主题下它就等于 --bg-sidebar，两边都对。直接写 --bg-sidebar 等于把
- * 「侧栏永远实心」写死，玻璃主题装了也看不出来。
- */
+/* nav / content 是 Lab 当前的主题角色入口；两者都可由页面指向同一材质层。 */
 .nb-lab-panel--nav {
     background: var(--lab-nav-surface, var(--sidebar-surface, var(--bg-sidebar)));
-    /* 与 LabShell 顶栏同一条取舍：chrome 层暂无库角色，先引用主题私有的 --glass-blur */
     backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
     -webkit-backdrop-filter: var(--lab-nav-blur, var(--glass-blur, none));
 }
 
-/*
- * 内容层：默认实心，使用方可以覆盖。
- *
- * 实心的理由有两条，都不是观感偏好：一是玻璃底下透出来的窗体底纹会从正文字后面浮上来，
- * 那不是材料感，是脏；二是 nbook 这类主题把冷暖对比定成了身份——器械从 --bg-sidebar 派生（冷），
- * 只有内容面板从 --panel-surface 派生（暖），两侧栏都判给导航层的话整屏一处暖面都没有，
- * 主题最核心的那组对比在这个页面上等于没开。
- *
- * --lab-content-surface / --lab-content-blur 是留给页面的口子：不声明就是上面那档实心，
- * 声明了就跟着走。Lab 正用它试「所有面都做成玻璃」，见 LabShell 的 .lab-root。
- */
 .nb-lab-panel--content {
     background: var(--lab-content-surface, var(--panel-surface, var(--bg-panel)));
     backdrop-filter: var(--lab-content-blur, none);
     -webkit-backdrop-filter: var(--lab-content-blur, none);
 }
 
-/*
- * 本零件只管**材料**（这一栏是什么面），不管**形状**（圆角、外框、抬起、跟邻居之间那条缝）。
- *
- * 形状是布局的事，与宽度同一类：贴边三栏要的是一条竖直分割线，浮起三栏要的是圆角加抬起，
- * 同一个侧栏两种都可能对。所以这里不画任何边框，由使用方在外面给类。Lab 的取法见 LabShell
- * 的 .lab-panel。
- */
-
+/* 形状归使用方；本零件只负责内容角色对应的面。 */
 .nb-lab-panel-rail {
     padding-top: var(--space-4);
 }
