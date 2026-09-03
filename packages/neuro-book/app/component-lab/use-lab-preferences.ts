@@ -55,7 +55,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
 
     async function restore(): Promise<void> {
         hydrating.value = true;
-        const saved = loadLabPreferences(options.storage(), options.catalog);
+        const storage = getStorage();
+        const saved = storage === null ? {} : loadLabPreferences(storage, options.catalog);
         const state = options.state;
         const defaults = options.defaults;
         state.themeId.value = saved.themeId ?? defaults.themeId;
@@ -79,7 +80,10 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
     async function reset(applyResponsiveLayout: () => void): Promise<void> {
         ready = false;
         hydrating.value = true;
-        clearLabPreferences(options.storage());
+        const storage = getStorage();
+        if (storage !== null) {
+            clearLabPreferences(storage);
+        }
         const state = options.state;
         const defaults = options.defaults;
         state.themeId.value = defaults.themeId;
@@ -120,10 +124,19 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         options.state.preferredLeftCollapsed,
         options.state.preferredRightCollapsed,
     ], () => {
-        if (ready) {
-            saveLabPreferences(options.storage(), current());
+        const storage = getStorage();
+        if (ready && storage !== null) {
+            saveLabPreferences(storage, current());
         }
     });
+
+    function getStorage(): Storage | null {
+        try {
+            return options.storage();
+        } catch {
+            return null;
+        }
+    }
 
     return {hydrating, reset, restore, setLeftCollapsed, setRightCollapsed};
 }

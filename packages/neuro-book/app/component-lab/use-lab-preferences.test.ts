@@ -72,6 +72,27 @@ describe("useLabPreferences", () => {
             rightCollapsed: false,
         });
     });
+
+    it("uses defaults and keeps reset safe when the storage accessor throws", async () => {
+        const state = createState();
+        const preferences = useLabPreferences({
+            storage: () => {
+                throw new Error("SecurityError");
+            },
+            catalog,
+            defaults,
+            state,
+            hasCustomWallpaper: () => false,
+        });
+
+        await expect(preferences.restore()).resolves.toBeUndefined();
+        expect(state.themeId.value).toBe("nbook");
+        expect(state.canvasBackdropId.value).toBe("panel");
+        await expect(preferences.reset(() => undefined)).resolves.toBeUndefined();
+        state.themeId.value = "macos";
+        await nextTick();
+        expect(state.themeId.value).toBe("macos");
+    });
 });
 
 function createState() {
