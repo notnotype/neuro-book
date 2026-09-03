@@ -39,10 +39,44 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-    (e: "update:modelValue", value: any): void;
+    (e: "update:modelValue", value: string | string[] | undefined): void;
     (e: "update:expanded", value: string[]): void;
     (e: "select", node: GenericTreeNode): void;
 }>();
+
+const nodeById = computed(() => {
+    const nodes = new Map<string, GenericTreeNode>();
+    const visit = (items: GenericTreeNode[]): void => {
+        for (const item of items) {
+            nodes.set(item.id, item);
+            if (item.children) visit(item.children);
+        }
+    };
+    visit(props.items);
+    return nodes;
+});
+
+const selectedNodes = computed<GenericTreeNode | GenericTreeNode[] | undefined>(() => {
+    if (props.multiple) {
+        const ids = Array.isArray(props.modelValue)
+            ? props.modelValue
+            : props.modelValue === undefined ? [] : [props.modelValue];
+        return ids.flatMap((id) => {
+            const node = nodeById.value.get(id);
+            return node === undefined ? [] : [node];
+        });
+    }
+    const id = Array.isArray(props.modelValue) ? props.modelValue[0] : props.modelValue;
+    return id === undefined ? undefined : nodeById.value.get(id);
+});
+
+function emitModelValue(value: GenericTreeNode | GenericTreeNode[] | undefined): void {
+    if (Array.isArray(value)) {
+        emit("update:modelValue", value.map((node) => node.id));
+        return;
+    }
+    emit("update:modelValue", value?.id);
+}
 
 const surfaceClass = computed(() => props.surface === "card"
     ? "rounded-[var(--radius-panel)] border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] bg-[var(--panel-surface)] p-2 shadow-sm"
@@ -78,13 +112,13 @@ function indentFor(level: number): string {
         :items="props.items"
         :get-key="(item) => item.id"
         :get-children="(item) => item.children"
-        :model-value="(props.modelValue as any)"
+        :model-value="(selectedNodes as any)"
         :expanded="props.expanded"
         :multiple="props.multiple"
         :disabled="props.disabled"
         class="w-full select-none list-none space-y-[var(--space-1)]"
         :class="surfaceClass"
-        @update:model-value="(val) => emit('update:modelValue', val)"
+        @update:model-value="emitModelValue"
         @update:expanded="(val) => emit('update:expanded', val as string[])"
     >
         <!--

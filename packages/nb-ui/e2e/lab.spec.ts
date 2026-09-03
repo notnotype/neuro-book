@@ -397,7 +397,7 @@ test("Tree 选中行不用左边框表达状态", async ({ page }) => {
     for (const width of [1440, 390]) {
         await page.setViewportSize({width, height: 844});
         await gotoLab(page, {component: "tree"});
-        const row = page.locator("#nb-lab-target [role='treeitem']").filter({hasText: "第02章"});
+        const row = page.locator("#nb-lab-target [role='treeitem']").filter({hasText: "第01章"});
         await row.click();
         await expect(row).toHaveAttribute("aria-selected", "true");
         await settle(page, 300);

@@ -3,7 +3,7 @@ schema: nbook.walkthrough/v1
 taskId: t11-component-lab-preferences
 sequence: 1
 role: tasker
-status: blocked
+status: completed
 createdAt: 2026-09-03T00:00:00Z
 ---
 
@@ -27,8 +27,14 @@ createdAt: 2026-09-03T00:00:00Z
 - `bun run typecheck`：通过。
 - `bun run scripts:typecheck`：通过。
 
-## 待验证与阻塞
+## 真实浏览器验证
 
-- 本轮真实 smoke 命令：`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`。
-- 实际结果：退出码 `1`，在 `packages/neuro-book/scripts/smoke/component-lab.ts:64` 等待 `.nb-lab-panel--nav [role='treeitem'][data-selected]` 超时 `30000ms`，因此未执行到偏好 reload/reset 断言。
-在取得真实页面证据前，本 walkthrough 保持 `status: blocked`，不把功能记为浏览器验收通过。
+- 命令：`bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`。
+- 结果：`Component Lab smoke passed: http://127.0.0.1:3000/`。
+- 真实流程修改为 macOS 主题与手机 `390 × 844` 画布，刷新后两项均恢复；离开 Lab 后根主题属性被清理，再次进入仍恢复偏好；点击“恢复 Lab 默认配置”后主题回到 `nbook` 且 `localStorage.getItem("nb-lab:preferences:v1") === null`。
+- 首次超时根因不是偏好存储，而是公共 `Tree` 把 string id 直接传给需要节点对象的 Reka `TreeRoot`，初始行缺少 `data-selected`。修正公共 string-id 适配后，同一 smoke 完整通过，没有放宽选择器。
+
+## 残余风险
+
+- 未取得开发者单独授权，未进行人工视觉验收、截图对比或逐项键盘走查。
+- nb-ui 全量 E2E 仍有 17 项既有失败；Tree 专项 E2E 与真实 NeuroBook smoke 均通过。

@@ -964,6 +964,14 @@ Bun 下 CDP 握手超时。探针脚本一律 `node xxx.mjs`。
 一旦「DOM 说它在、图上没有」，先怀疑这条，再怀疑样式——
 这个组合最容易被误判成「浮层没渲染」，然后一路去改根本没问题的 CSS。
 
+
+**46. 泛型原语使用节点对象，不代表公共组件也该泄漏节点对象**
+现象：调用方按 `Tree.modelValue: string` 传入已选 id，行可以点击但初始没有 `data-selected`，
+导致选中底色、文字与 `aria-selected` 全部缺失。
+根因：Reka `TreeRoot` 的受控值是节点对象，内部用 `getKey(modelValue)` 计算选中键；直接把 string
+传进去会得到 `undefined`。公共 `Tree` 已承诺用 id 作为值，不能把原语内部模型反推给所有调用方。
+判据：组件内部递归建立 id→节点映射，传给原语的是节点对象，发给调用方的是 id；单测必须同时断言
+传入 id 后真实行出现 `data-selected` / `aria-selected=true`，点击另一行后 `update:modelValue` 仍是 string id。
 ---
 
 ## 九、给 UI agent 的检查表

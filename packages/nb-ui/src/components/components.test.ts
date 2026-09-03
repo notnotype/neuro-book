@@ -1356,18 +1356,46 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("uses the row surface instead of a left border for tree selection", () => {
+    it("uses the row surface instead of a left border for tree selection", async () => {
         const wrapper = mount(Tree, {
             props: {
-                items: [{id: "chapter-1", title: "第01章"}],
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
                 modelValue: "chapter-1",
             },
         });
 
-        const row = wrapper.get("[role='treeitem']");
-        expect(row.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
-        expect(row.classes()).toContain("data-[selected]:font-[var(--weight-medium)]");
-        expect(row.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("data-selected")).toBe("");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[0]?.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
+        expect(rows[0]?.classes()).toContain("data-[selected]:font-[var(--weight-medium)]");
+        expect(rows[0]?.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
+
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["chapter-2"]);
+        wrapper.unmount();
+    });
+
+    it("keeps multiple tree selection values as node ids", async () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
+                multiple: true,
+                modelValue: ["chapter-1"],
+            },
+        });
+
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[1]?.attributes("aria-selected")).toBe("false");
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual([["chapter-1", "chapter-2"]]);
         wrapper.unmount();
     });
 
