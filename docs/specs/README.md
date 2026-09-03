@@ -104,15 +104,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 人工评测 | [`../testing/manual-eval/README.md`](../testing/manual-eval/README.md) | 用户视角旅程、判定口径和报告结构 |
 | 数据迁移 | [`../packages/neuro-book/docs/migrations/README.md`](../../packages/neuro-book/docs/migrations/README.md) | 有状态升级、备份和回滚入口 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
+| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片 |
 
 ## 待实现规范
 
 以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
 
-| 功能域 | 计划规范 | 说明 |
-|---|---|---|
-| Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、响应式检视和 Product 排除合同；当前尚未实现 |
-
+目前没有已登记且明确处于待实现状态的规范。
 ## 冻结过渡规范
 
 以下正文描述已有实现，但仍被产品 Profile、资产投影、测试或打包流程直接消费。它们在迁入 `docs/specs/` 前保持冻结，不是新规范落点：

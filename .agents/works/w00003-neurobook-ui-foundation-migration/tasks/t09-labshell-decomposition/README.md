@@ -31,6 +31,13 @@ role: tasker
 2. Lab 的桌面/窄屏、场景切换、侧栏收起、检查器和 reduced-motion 行为保持不变。
 3. 受影响验证通过，walkthrough 记录实际变更、证据、未运行项和残余风险。
 
+## 延期记录
+
+- 2026-09-03，开发者决定将本 Task 延期，不作为当前 Component Lab 规范补全或后续 C 主题迁移的前置阻塞。
+- 延期时 `packages/neuro-book/app/component-lab/LabShell.vue` 约 1242 行，仍违反本 Task 要求的 `<800` 行硬验收；本 Task 没有 walkthrough，因此不宣称已完成。
+- 延期不改变目标：后续执行时仍须按职责拆分，保留页面编排与状态所有权，补齐受影响组件文档，并运行 typecheck、真实 Component Lab smoke、相关测试、docs check 与 diff check。
+- 在 t09 完成前，后续 Task 不得把当前 LabShell 文件长度写成已满足前端规范；本记录不授权删除行为、改变 Lab 合同或跳过验证。
+
 ## 固定依据
 
 - [`docs/standards/code/frontend.md`](../../../../../../docs/standards/code/frontend.md)
