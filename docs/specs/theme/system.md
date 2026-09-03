@@ -127,9 +127,9 @@ Amber 的历史用法要按角色拆分：警示徽标走 `warning`，选中/主
 
 ## World Engine 别名层
 
-World Engine 的 `--we-*` 仍是别名层，当前只允许修改其指向，不删除别名。唯一映射源是 `app/styles/theme-vars.css` 中的 `.world-engine-workbench-theme`；真实 Dialog 与 `world-engine.workbench-preview.vue` 都必须挂这个 class。
+World Engine 的 `--we-*` 仍是别名层，当前只允许修改其指向，不删除别名。唯一映射源是 `app/styles/theme-vars.css` 中的 `.world-engine-workbench-theme`；真实 `WorldEngineWorkbenchDialog.vue` 必须挂这个 class。
 
-禁止在 preview 页面重新写浅绿 `--we-*` 硬编码，也禁止用 `--bg-main: var(--we-bg-canvas)` 这类反向覆盖把局部别名写回全局主题变量。
+禁止在独立调试面或正式工作台重新写浅绿 `--we-*` 硬编码，也禁止用 `--bg-main: var(--we-bg-canvas)` 这类反向覆盖把局部别名写回全局主题变量。
 
 ## 例外
 

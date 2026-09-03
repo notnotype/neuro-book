@@ -5,9 +5,7 @@ import {clearThemeVars, applyThemeVars} from "nbook/app/utils/theme/apply-theme"
 import {ideThemeIds, themeTokens, themeVarKeys, type IdeTheme, type ThemeVarKey, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 
 const fallbackCssPath = fileURLToPath(new URL("../../styles/theme-vars.css", import.meta.url));
-const plotTreeGraphPath = fileURLToPath(new URL("../../components/novel-ide/plot/tree/plot-tree.graph.ts", import.meta.url));
-const plotTreeCanvasPath = fileURLToPath(new URL("../../components/novel-ide/plot/tree/PlotTreeCanvas.vue", import.meta.url));
-const modelSettingsPreviewPath = fileURLToPath(new URL("../../pages/model-settings.preview.vue", import.meta.url));
+const settingsDialogPath = fileURLToPath(new URL("../../components/novel-ide/NovelIdeSettingsDialog.vue", import.meta.url));
 const profileTemplateNodePath = fileURLToPath(new URL("../../components/profile-template-editor/ProfileTemplateNodeView.vue", import.meta.url));
 
 const semanticStatusKeys = [
@@ -94,18 +92,11 @@ describe("theme v2.1 token table", () => {
     });
 
     it("keeps ordinary UI chrome on theme variables instead of fixed palette colors", async () => {
-        const plotTreeGraph = await readFile(plotTreeGraphPath, "utf8");
-        const plotTreeCanvas = await readFile(plotTreeCanvasPath, "utf8");
-        const modelSettingsPreview = await readFile(modelSettingsPreviewPath, "utf8");
+        const settingsDialog = await readFile(settingsDialogPath, "utf8");
         const profileTemplateNode = await readFile(profileTemplateNodePath, "utf8");
 
-        expect(plotTreeGraph).toContain("var(--accent-main)");
-        expect(plotTreeGraph).toContain("var(--text-muted)");
-        expect(plotTreeGraph).not.toContain("#f59e0b");
-        expect(plotTreeGraph).not.toContain("#64748b");
-        expect(plotTreeCanvas).toContain("pattern-color=\"var(--border-color)\"");
-        expect(modelSettingsPreview).toContain("var(--shadow-color)");
-        expect(modelSettingsPreview).not.toContain("shadow-[0_24px_80px_rgba(0,0,0,0.10)]");
+        expect(settingsDialog).toContain("var(--shadow-color)");
+        expect(settingsDialog).not.toContain("shadow-[0_24px_80px_rgba(0,0,0,0.10)]");
         expect(profileTemplateNode).toContain("color: var(--status-danger);");
     });
 });

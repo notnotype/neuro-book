@@ -8,8 +8,6 @@ const indexPagePath = fileURLToPath(new URL("../pages/index.vue", import.meta.ur
 const packagePath = fileURLToPath(new URL("../../package.json", import.meta.url));
 const observerPath = fileURLToPath(new URL("./useAgentJob.ts", import.meta.url));
 const workflowBubblePath = fileURLToPath(new URL("../components/novel-ide/agent/AgentWorkflowBubble.vue", import.meta.url));
-const workflowPanelPath = fileURLToPath(new URL("../components/workflow-preview/WorkflowRunPanel.vue", import.meta.url));
-const workflowPreviewPath = fileURLToPath(new URL("../pages/workflow.preview.vue", import.meta.url));
 
 describe("Jobs feed 页面接线合同", () => {
     it("Desktop Activity Bar 暂不挂载 Jobs，任务中心组件仍保留独立 feed 接口", async () => {
@@ -46,38 +44,16 @@ describe("Jobs feed 页面接线合同", () => {
         );
     });
 
-    it("单 Job 观察器不暴露全局刷新，Workflow 动作只重启 Run 轮询", async () => {
-        const [observer, workflowBubble, workflowPanel] = await Promise.all([
+    it("单 Job 观察器不暴露全局刷新，正式 Workflow 动作只重启 Run 轮询", async () => {
+        const [observer, workflowBubble] = await Promise.all([
             readFile(observerPath, "utf8"),
             readFile(workflowBubblePath, "utf8"),
-            readFile(workflowPanelPath, "utf8"),
         ]);
 
         expect(observer).toContain("feed: AgentJobsFeedView");
         expect(observer).not.toContain("refresh(): void");
         expect(observer).not.toContain("refresh: feed.refresh");
         expect(workflowBubble).not.toContain("refreshJob");
-        expect(workflowPanel).not.toContain("refreshJob");
     });
 
-    it("Workflow preview 只在正式列表首次加载读取 Jobs，demo 空目标不取得 feed", async () => {
-        const [workflowPreview, workflowPanel] = await Promise.all([
-            readFile(workflowPreviewPath, "utf8"),
-            readFile(workflowPanelPath, "utf8"),
-        ]);
-        const listReads = workflowPreview.match(/\$fetch<AgentJobListResponseDto>\("\/api\/agent\/jobs"\)/gu) ?? [];
-
-        expect(listReads).toHaveLength(1);
-        expect(workflowPanel).toContain("const jobIdRef = computed(() => props.jobId || null);");
-        expect(workflowPanel).not.toContain("/api/agent/jobs");
-        expect(workflowPreview).toContain('<WorkflowRunPanel :run-id="activeRun.runId" :scenario-key="activeRun.scenarioKey" />');
-    });
-
-    it("Workflow preview 首批 Catalog 失败会释放已打开 Project", async () => {
-        const workflowPreview = await readFile(workflowPreviewPath, "utf8");
-
-        expect(workflowPreview).toContain("const loaded = await loadFormalCatalog(projectRoot, ready.revision);");
-        expect(workflowPreview).toContain("if (revision !== formalProjectRevision || selectedProjectRoot.value !== projectRoot || loaded) return;");
-        expect(workflowPreview).toContain("await formalProjectSession.release();");
-    });
 });

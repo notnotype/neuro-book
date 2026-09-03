@@ -10,7 +10,7 @@ import {
     cloneMockWorkbenchSlices,
     mockWorkbenchSchema,
     mockWorkbenchSubjects,
-} from "nbook/app/utils/world-engine-workbench-preview-mock";
+} from "nbook/app/utils/world-engine-workbench.test-fixtures";
 import {
     applyWorkbenchPreviewMutationListPatch,
     applyWorkbenchPreviewMutationPatch,
@@ -26,9 +26,8 @@ import {
 } from "nbook/app/utils/world-engine-workbench-preview-filter";
 import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 
-const pagePath = fileURLToPath(new URL("../pages/world-engine.workbench-preview.vue", import.meta.url));
 const workbenchDialogPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue", import.meta.url));
-const mockPath = fileURLToPath(new URL("./world-engine-workbench-preview-mock.ts", import.meta.url));
+const fixturePath = fileURLToPath(new URL("./world-engine-workbench.test-fixtures.ts", import.meta.url));
 const stateUtilPath = fileURLToPath(new URL("./world-engine-workbench-preview-state.ts", import.meta.url));
 const valueUtilPath = fileURLToPath(new URL("./world-engine-workbench-preview-value.ts", import.meta.url));
 const filterUtilPath = fileURLToPath(new URL("./world-engine-workbench-preview-filter.ts", import.meta.url));
@@ -65,11 +64,10 @@ function findSnapshotSubject(snapshots: WorldWorkbenchPreviewSnapshot[], sliceId
     return subject as SubjectStateDto;
 }
 
-describe("World Engine Workbench preview redesign", () => {
-    it("保留 mock 数据源和三栏 preview 入口", async () => {
-        const page = await readSource(pagePath);
+describe("World Engine Workbench contract", () => {
+    it("保留正式工作台三栏组件与主题契约", async () => {
         const workbenchDialog = await readSource(workbenchDialogPath);
-        const mock = await readSource(mockPath);
+        const fixture = await readSource(fixturePath);
         const stateUtil = await readSource(stateUtilPath);
         const valueUtil = await readSource(valueUtilPath);
         const filterUtil = await readSource(filterUtilPath);
@@ -91,184 +89,107 @@ describe("World Engine Workbench preview redesign", () => {
         const zhLocale = await readSource(zhLocalePath);
         const enLocale = await readSource(enLocalePath);
 
-        expect(page).toContain("World Engine Workbench Preview");
-        expect(page).toContain("WorldEngineWorkbenchPreviewSidebar");
-        expect(page).toContain("WorldEngineWorkbenchPreviewSliceList");
-        expect(page).toContain("WorldEngineWorkbenchPreviewMutationEditor");
-        expect(page).toContain("WorldEngineWorkbenchPreviewInspector");
-        expect(page).toContain("world-engine-workbench-preview world-engine-workbench-theme");
-        expect(page).not.toContain("--we-bg-canvas: #f6f8f7");
-        expect(page).not.toContain("--we-bg-panel: #ffffff");
-        expect(page).not.toContain("--we-accent: #078768");
-        expect(page).not.toContain("--bg-main: var(--we-bg-canvas)");
-        expect(page).not.toContain("--accent-main: var(--we-accent)");
-        expect(page).toContain("mock 数据源");
-        expect(page).toContain("mockWorkbenchSubjectSystemSummaries");
-        expect(page).toContain(":subject-system-summaries=\"mockWorkbenchSubjectSystemSummaries\"");
-        expect(page).toContain("function openMockWorkspacePath(path: string): void");
-        expect(page).toContain("mock 预览不会打开真实文件");
-        expect(page).toContain("function commitMockSubjectEventProposal(proposal: WorldWorkbenchSubjectFileProposal): void");
-        expect(page).toContain("mock 预览不会写入 events.jsonl");
-        expect(page).toContain("@commit-subject-event-proposal=\"commitMockSubjectEventProposal\"");
-        expect(page).toContain("@open-workspace-path=\"openMockWorkspacePath\"");
-        expect(page.match(/@open-workspace-path="openMockWorkspacePath"/g)?.length).toBeGreaterThanOrEqual(2);
-        expect(page).toContain("inspectorVisible");
-        expect(page).toContain("v-show=\"inspectorVisible\"");
-        expect(page).toContain("applySlicePatch");
-        expect(page).toContain("applyMutationValuePatch");
-        expect(page).toContain("applyWorkbenchPreviewMutationPatch");
-        expect(page).toContain("reduceWorkbenchPreviewSnapshots");
-        expect(page).toContain("resetMockData");
-        expect(page).toContain("resetVersion");
-        expect(page).toContain("subjectFilterMode");
-        expect(page).toContain("isSubjectFilterMode");
-        expect(page).toContain("sliceSearch");
-        expect(page).toContain("sliceKindFilter");
-        expect(page).toContain("sliceHealthFilter");
-        expect(page).toContain("isSliceHealthFilter");
-        expect(page).toContain("filter === \"draft\"");
-        expect(page).toContain("focusedSubjectId");
-        expect(page).toContain("focusSubject");
-        expect(page).toContain("function focusSubjectContext(subjectId: string): void");
-        expect(page).toContain("function clearSubjectContext(): void");
-        expect(page).toContain(":focused-subject-id=\"focusedSubjectId\"");
-        expect(page).toContain("@focus-subject-context=\"focusSubjectContext\"");
-        expect(page).toContain("@clear-subject-context=\"clearSubjectContext\"");
+        expect(workbenchDialog).toContain("WorldEngineWorkbenchPreviewSidebar");
+        expect(workbenchDialog).toContain("WorldEngineWorkbenchPreviewSliceList");
+        expect(workbenchDialog).toContain("WorldEngineWorkbenchPreviewMutationEditor");
+        expect(workbenchDialog).toContain("WorldEngineWorkbenchPreviewInspector");
+        expect(workbenchDialog).toContain("world-engine-workbench-dialog world-engine-workbench-theme");
+        expect(workbenchDialog).not.toContain("--we-bg-canvas: #f6f8f7");
+        expect(workbenchDialog).not.toContain("--we-bg-panel: #ffffff");
+        expect(workbenchDialog).not.toContain("--we-accent: #078768");
+        expect(workbenchDialog).not.toContain("--bg-main: var(--we-bg-canvas)");
+        expect(workbenchDialog).not.toContain("--accent-main: var(--we-accent)");
         expect(sidebar).toContain("const activeSubjectContextId = computed(() => props.focusedSubjectId && subjectSystemSummaryMap.value.has(props.focusedSubjectId) ? props.focusedSubjectId : \"\");");
         expect(sidebar).toContain("v-if=\"activeSubjectContextId\"");
         expect(sidebar).toContain(":aria-pressed=\"activeSubjectContextId === subject.id\"");
         expect(sidebar).toContain("{{ activeSubjectContextId === subject.id ? \"语境中\" : \"语境\" }}");
-        expect(page).toContain("focusReviewIssue");
-        expect(page).toContain("highlightedMutationFocus");
-        expect(page).toContain("clearMutationFocus");
-        expect(page).toContain("removeSubjectFilter");
-        expect(page).toContain("previousSnapshotSubjects");
-        expect(page).toContain("localDraftStorageKey");
-        expect(page).toContain("restoreLocalDraft");
-        expect(page).toContain("persistLocalDraft");
-        expect(page).toContain("isLocalDraft");
-        expect(page).toContain("localDraftSuppressed");
-        expect(page).toContain("subjectStats");
-        expect(page).toContain("WorldWorkbenchPreviewSubjectStat");
-        expect(page).toContain("reviewQueueItems");
-        expect(page).toContain("currentReviewQueueIndex");
-        expect(page).toContain("WorldWorkbenchPreviewReviewQueueItem");
-        expect(page).toContain("issueTriageStates");
-        expect(page).toContain("reviewQueueMode");
-        expect(page).toContain("isReviewQueueMode");
-        expect(page).toContain("updateIssueTriage");
-        expect(page).toContain("reviewTriageSummary");
-        expect(page).toContain("sliceReviewSummaries");
-        expect(page).toContain("WorldWorkbenchPreviewSliceReviewSummary");
-        expect(page).toContain("worldViewFilterParts");
-        expect(page).toContain("const modeLabel = subjectFilterMode.value === \"all\" ? \"全部 subject\" : \"任一 subject\";");
-        expect(page).toContain([
-            "function clearSubjectFilter(): void {",
-            "    selectedSubjectIds.value = [];",
-            "    subjectFilterMode.value = \"any\";",
-            "}",
-        ].join("\n"));
-        expect(page).toContain("subjectFilterMode.value = selectedSubjectIds.value.length && isSubjectFilterMode(draft.subjectFilterMode) ? draft.subjectFilterMode : \"any\";");
-        expect(page).toContain([
-            "function removeSubjectFilter(subjectId: string): void {",
-            "    selectedSubjectIds.value = selectedSubjectIds.value.filter((id) => id !== subjectId);",
-            "    if (!selectedSubjectIds.value.length) {",
-            "        subjectFilterMode.value = \"any\";",
-            "    }",
-            "}",
-        ].join("\n"));
-        expect(page).toContain("当前视角");
-        expect(page).toContain("sliceHealthFilterLabel");
-        expect(page).toContain("shortFilterText");
-        expect(page).toContain("draft.version === 4");
-        expect(page).toContain("neuro-book:world-engine-workbench-preview:draft:v4");
-        expect(page).toContain("defaultSidebarWidth");
-        expect(page).toContain("defaultInspectorWidth");
-        expect(page).toContain("const defaultSidebarWidth = 320;");
-        expect(page).toContain("const defaultInspectorWidth = 420;");
-        expect(page).toContain("defaultMutationEditorHeight");
-        expect(page).toContain("sidebarWidth = ref(defaultSidebarWidth)");
-        expect(page).toContain("inspectorWidth = ref(defaultInspectorWidth)");
-        expect(page).toContain("mutationEditorHeight = ref(defaultMutationEditorHeight)");
-        expect(page).toContain("validPanelSize");
-        expect(page).toContain("draft.sidebarWidth, 220, 420, defaultSidebarWidth");
-        expect(page).toContain("draft.inspectorWidth, 300, 560, defaultInspectorWidth");
-        expect(page).toContain("draft.mutationEditorHeight, 160, 520, defaultMutationEditorHeight");
-        expect(page).toContain("sidebarWidth: sidebarWidth.value");
-        expect(page).toContain("inspectorWidth: inspectorWidth.value");
-        expect(page).toContain("mutationEditorHeight: mutationEditorHeight.value");
-        expect(page).toContain("typeof draft.sidebarWidth === \"number\"");
-        expect(page).toContain("typeof draft.inspectorWidth === \"number\"");
-        expect(page).toContain("typeof draft.mutationEditorHeight === \"number\"");
-        expect(page).toContain(":width=\"sidebarWidth\"");
-        expect(page).toContain(":width=\"inspectorWidth\"");
-        expect(page).toContain(":height=\"mutationEditorHeight\"");
-        expect(page).toContain("@update:width=\"sidebarWidth = $event\"");
-        expect(page).toContain("@update:width=\"inspectorWidth = $event\"");
-        expect(page).toContain("@update:height=\"mutationEditorHeight = $event\"");
-        expect(page).toContain("world-inspector-restore-rail");
-        expect(page).toContain("toggleInspectorPanel");
-        expect(page).toContain("@click=\"toggleInspectorPanel\"");
-        expect(page).toContain("浏览器临时 mock");
-        expect(page).toContain("已恢复浏览器草稿");
-        expect(page).toContain("localStorage.removeItem(localDraftStorageKey)");
-        expect(page).toContain("mutationEditorCollapsed = ref(true)");
-        expect(page).toContain("metadataDraftSummaries");
-        expect(page).toContain("WorldWorkbenchPreviewMetadataDraftSummary");
-        expect(page).toContain("update-metadata-drafts");
-        expect(page).toContain("metadataDraftSliceCount");
-        expect(page).toContain("valueDraftSliceCount");
-        expect(page).toContain("draftSliceIds");
-        expect(page).toContain("totalDraftSliceCount");
-        expect(page).toContain("draftSummaryTitle");
-        expect(page).toContain("inspectorButtonTitle");
-        expect(page).toContain("world-workbench-inspector-toggle");
-        expect(page).toContain("world-workbench-draft-summary");
-        expect(page).toContain("showAllDraftSlices");
-        expect(page).toContain("worldEngine.workbenchPreview.drafts");
-        expect(page).toContain("meta {{ metadataDraftSliceCount }}");
-        expect(page).toContain("value {{ valueDraftSliceCount }}");
-        expect(page).toContain("metadata 草稿");
-        expect(page).toContain("valueDraftSummaries");
-        expect(page).toContain("WorldWorkbenchPreviewValueDraftSummary");
-        expect(page).toContain("update-value-drafts");
-        expect(page).toContain("openDraftSurfacesForSlice");
-        expect(page).toContain("openInspectorPanel");
-        expect(page).toContain("expandMutationEditorPanel");
-        expect(page).toContain(":open-inspector-panel=\"openInspectorPanel\"");
-        expect(page).toContain("const subjectFileProposalFocusVersion = ref(0);");
-        expect(page).toContain("function openInspectorPanel(target?: \"subject-file-proposals\"): void");
-        expect(page).toContain("function toggleInspectorPanel(): void");
-        expect(page).toContain("openInspectorPanel(selectedSliceSubjectFileProposalCount.value ? \"subject-file-proposals\" : undefined);");
-        expect(page).toContain("selectedSliceSubjectFileProposalCount");
-        expect(page).toContain("inspectorButtonAttentionClass");
-        expect(page).toContain("data-testid=\"world-workbench-inspector-proposal-count\"");
-        expect(page).toContain("data-testid=\"world-inspector-restore-proposal-count\"");
-        expect(page).toContain("subjectFileProposalFocusVersion.value += 1;");
-        expect(page).toContain(":subject-file-proposal-focus-version=\"subjectFileProposalFocusVersion\"");
-        expect(page).toContain("metadataDraftSummaries.value.some((draft) => draft.sliceId === firstDraftSliceId)");
-        expect(page).toContain("valueDraftSummaries.value.some((draft) => draft.sliceId === firstDraftSliceId)");
-        expect(page).toContain(":open-draft-inspector=\"openInspectorPanel\"");
-        expect(page).toContain(":expand-draft-editor=\"expandMutationEditorPanel\"");
-        expect(page).toContain("sliceHealthFilter.value !== \"draft\"");
-        expect(page).toContain("inspectorVisible.value = true");
-        expect(page).toContain("mutationEditorCollapsed.value = false");
+        expect(workbenchDialog).toContain("focusReviewIssue");
+        expect(workbenchDialog).toContain("highlightedMutationFocus");
+        expect(workbenchDialog).toContain("clearMutationFocus");
+        expect(workbenchDialog).toContain("removeSubjectFilter");
+        expect(workbenchDialog).toContain("previousSnapshotSubjects");
+        expect(workbenchDialog).toContain("subjectStats");
+        expect(workbenchDialog).toContain("WorldWorkbenchPreviewSubjectStat");
+        expect(workbenchDialog).toContain("reviewQueueItems");
+        expect(workbenchDialog).toContain("currentReviewQueueIndex");
+        expect(workbenchDialog).toContain("WorldWorkbenchPreviewReviewQueueItem");
+        expect(workbenchDialog).toContain("issueTriageStates");
+        expect(workbenchDialog).toContain("reviewQueueMode");
+        expect(workbenchDialog).toContain("updateIssueTriage");
+        expect(workbenchDialog).toContain("reviewTriageSummary");
+        expect(workbenchDialog).toContain("sliceReviewSummaries");
+        expect(workbenchDialog).toContain("WorldWorkbenchPreviewSliceReviewSummary");
+        expect(workbenchDialog).toContain("worldViewFilterParts");
+        expect(workbenchDialog).toContain("function removeSubjectFilter(subjectId: string): void");
+        expect(workbenchDialog).toContain("void updateSelectedSubjectIdsForTimeline(selectedSubjectIds.value.filter((id) => id !== subjectId));");
+        expect(workbenchDialog).toContain("defaultSidebarWidth");
+        expect(workbenchDialog).toContain("defaultInspectorWidth");
+        expect(workbenchDialog).toContain("const defaultSidebarWidth = 320;");
+        expect(workbenchDialog).toContain("const defaultInspectorWidth = 420;");
+        expect(workbenchDialog).toContain("defaultMutationEditorHeight");
+        expect(workbenchDialog).toContain("sidebarWidth = ref(defaultSidebarWidth)");
+        expect(workbenchDialog).toContain("inspectorWidth = ref(defaultInspectorWidth)");
+        expect(workbenchDialog).toContain("mutationEditorHeight = ref(defaultMutationEditorHeight)");
+        expect(workbenchDialog).toContain(":width=\"sidebarWidth\"");
+        expect(workbenchDialog).toContain(":width=\"inspectorWidth\"");
+        expect(workbenchDialog).toContain(":height=\"mutationEditorHeight\"");
+        expect(workbenchDialog).toContain("@update:width=\"sidebarWidth = $event\"");
+        expect(workbenchDialog).toContain("@update:width=\"inspectorWidth = $event\"");
+        expect(workbenchDialog).toContain("@update:height=\"mutationEditorHeight = $event\"");
+        expect(workbenchDialog).toContain("world-inspector-restore-rail");
+        expect(workbenchDialog).toContain("toggleInspectorPanel");
+        expect(workbenchDialog).toContain("@click=\"toggleInspectorPanel\"");
+        expect(workbenchDialog).toContain("mutationEditorCollapsed = ref(true)");
+        expect(workbenchDialog).toContain("metadataDraftSummaries");
+        expect(workbenchDialog).toContain("WorldWorkbenchPreviewMetadataDraftSummary");
+        expect(workbenchDialog).toContain("update-metadata-drafts");
+        expect(workbenchDialog).toContain("metadataDraftSliceCount");
+        expect(workbenchDialog).toContain("valueDraftSliceCount");
+        expect(workbenchDialog).toContain("draftSliceIds");
+        expect(workbenchDialog).toContain("totalDraftSliceCount");
+        expect(workbenchDialog).toContain("draftSummaryTitle");
+        expect(workbenchDialog).toContain("inspectorButtonTitle");
+        expect(workbenchDialog).toContain("world-workbench-inspector-toggle");
+        expect(workbenchDialog).toContain("world-workbench-draft-summary");
+        expect(workbenchDialog).toContain("showAllDraftSlices");
+        expect(workbenchDialog).toContain("worldEngine.workbenchPreview.drafts");
+        expect(workbenchDialog).toContain("valueDraftSummaries");
+        expect(workbenchDialog).toContain("WorldWorkbenchPreviewValueDraftSummary");
+        expect(workbenchDialog).toContain("update-value-drafts");
+        expect(workbenchDialog).toContain("openDraftSurfacesForSlice");
+        expect(workbenchDialog).toContain("openInspectorPanel");
+        expect(workbenchDialog).toContain("expandMutationEditorPanel");
+        expect(workbenchDialog).toContain(":open-inspector-panel=\"openInspectorPanel\"");
+        expect(workbenchDialog).toContain("const subjectFileProposalFocusVersion = ref(0);");
+        expect(workbenchDialog).toContain("function openInspectorPanel(target?: \"subject-file-proposals\"): void");
+        expect(workbenchDialog).toContain("function toggleInspectorPanel(): void");
+        expect(workbenchDialog).toContain("openInspectorPanel(selectedSliceSubjectFileProposalCount.value ? \"subject-file-proposals\" : undefined);");
+        expect(workbenchDialog).toContain("selectedSliceSubjectFileProposalCount");
+        expect(workbenchDialog).toContain("inspectorButtonAttentionClass");
+        expect(workbenchDialog).toContain("data-testid=\"world-workbench-inspector-proposal-count\"");
+        expect(workbenchDialog).toContain("data-testid=\"world-inspector-restore-proposal-count\"");
+        expect(workbenchDialog).toContain("subjectFileProposalFocusVersion.value += 1;");
+        expect(workbenchDialog).toContain(":subject-file-proposal-focus-version=\"subjectFileProposalFocusVersion\"");
+        expect(workbenchDialog).toContain(":open-draft-inspector=\"openInspectorPanel\"");
+        expect(workbenchDialog).toContain(":expand-draft-editor=\"expandMutationEditorPanel\"");
+        expect(workbenchDialog).toContain("inspectorVisible.value = true");
+        expect(workbenchDialog).toContain("mutationEditorCollapsed.value = false");
 
-        expect(mock).toContain("mockWorkbenchSchema");
-        expect(mock).toContain("mockWorkbenchSubjects");
-        expect(mock).toContain("mockWorkbenchSubjectSystemSummaries");
-        expect(mock).toContain("mockWorkbenchSlices");
-        expect(mock).toContain("mockWorkbenchSnapshots");
-        expect(mock).toContain("world");
-        expect(mock).toContain("location");
-        expect(mock).toContain("character");
-        expect(mock).toContain("item");
-        expect(mock).toContain("backstory");
-        expect(mock).toContain("remove/append 编辑路径");
-        expect(mock).toContain("masked");
-        expect(mock).toContain("旧剑旧伤补充可能遮蔽艾莉娜此前对东塔线索的理解");
-        expect(mock).not.toContain(removedToken("cor", "rection"));
-        expect(mock).toContain("findMockSnapshot");
+        expect(fixture).toContain("mockWorkbenchSchema");
+        expect(fixture).toContain("mockWorkbenchSubjects");
+        expect(fixture).toContain("mockWorkbenchSubjectSystemSummaries");
+        expect(fixture).toContain("mockWorkbenchSlices");
+        expect(fixture).toContain("mockWorkbenchSnapshots");
+        expect(fixture).toContain("world");
+        expect(fixture).toContain("location");
+        expect(fixture).toContain("character");
+        expect(fixture).toContain("item");
+        expect(fixture).toContain("backstory");
+        expect(fixture).toContain("remove/append 编辑路径");
+        expect(fixture).toContain("masked");
+        expect(fixture).toContain("旧剑旧伤补充可能遮蔽艾莉娜此前对东塔线索的理解");
+        expect(fixture).not.toContain(removedToken("cor", "rection"));
+        expect(fixture).toContain("findMockSnapshot");
         expect(stateUtil).toContain("applyWorkbenchPreviewMutationPatch");
         expect(stateUtil).toContain("reduceWorkbenchPreviewSnapshots");
         expect(stateUtil).toContain("schema default");

@@ -99,7 +99,6 @@ const emit = defineEmits<{
     (e: "savingChange", value: boolean): void;
 }>();
 
-const router = useRouter();
 const {t} = useI18n();
 const {confirm: confirmDialog} = useDialog();
 
@@ -229,7 +228,6 @@ const selectedSlice = computed(() => slices.value.find((slice) => slice.id === s
 const selectedSliceIndex = computed(() => selectedSlice.value ? slices.value.findIndex((slice) => slice.id === selectedSlice.value?.id) : -1);
 const subjectNameMap = computed(() => new Map(subjects.value.map((subject) => [subject.id, subject.name || subject.id])));
 const worldSubjectIdSet = computed(() => new Set(worldSubjects.value.map((subject) => subject.id)));
-const previewHref = computed(() => router.resolve(`/world-engine.preview?${new URLSearchParams({projectRoot: props.projectRoot}).toString()}`).href);
 const issueTriageMap = computed(() => {
     const map = new Map<string, WorldWorkbenchPreviewIssueStatus>();
     for (const item of issueTriageStates.value) {
@@ -1752,14 +1750,6 @@ function sliceSubjectFilterQuery(): {subjectIds?: string; subjectMode?: WorldWor
     };
 }
 
-function openPreview(): void {
-    if (blockWorkbenchActionBusy("World Engine 工作台正在同步，请稍候再打开 Preview。")) {
-        return;
-    }
-    if (import.meta.client) {
-        window.open(previewHref.value, "_blank", "noopener,noreferrer");
-    }
-}
 
 function sliceHealthFilterLabel(filter: WorldWorkbenchPreviewSliceHealthFilter): string {
     if (filter === "open") {
@@ -1899,10 +1889,6 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         <span :class="inspectorVisible ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="h-3.5 w-3.5"></span>
                         {{ t("worldEngine.workbenchPreview.inspector") }}
                         <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
-                    </button>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openPreview">
-                        <span class="i-lucide-external-link h-3.5 w-3.5"></span>
-                        Preview
                     </button>
                     <button type="button" data-testid="world-workbench-close" aria-label="关闭 World Engine Workbench" title="关闭 World Engine Workbench" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="void requestWorkbenchClose()">
                         <span class="i-lucide-x h-4 w-4"></span>
