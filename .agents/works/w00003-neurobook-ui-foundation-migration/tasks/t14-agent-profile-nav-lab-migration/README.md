@@ -47,7 +47,7 @@ role: tasker
 
 ### 公共组件取舍
 
-- 搜索框复用 `@notnotype/nb-ui/components` 的 `FormInput`，使用 `type="search"`、`size="sm"` 和图标能力。搜索框提供与原生 input 关联的 label，不把 placeholder 当作唯一可访问名称。
+- 搜索框复用 `@notnotype/nb-ui/components` 的 `FormInput`，使用 `type="search"`、`size="sm"` 和图标能力；**不启用 `clearable`**。搜索框提供与原生 input 关联的可见 label，不把 placeholder 当作唯一可访问名称，因此清空通过编辑该 input 完成，不增加额外 Tab 停靠点，也不引入“清空后焦点归还 input”的新实现合同。
 - 状态元数据优先复用 nb-ui `Badge`。`Listbox` 只有固定选项结构和单 badge，无法无损表达 load status、默认、dirty、覆盖计数四类并行领域状态；不为单个领域组件扩展公共多插槽 API。
 - 空态保持领域组件内的紧凑文本块。nb-ui `EmptyState` 面向内容区域，放入 240px 导航会引入不必要的标题、图标和留白。
 - 列表继续使用原生纵向滚动容器和全局细滚动条样式，不引入 `ScrollArea`。固定搜索与默认入口、列表独立滚动由真实 Lab smoke 验证，不再让源码 class 字符串充当行为证据。
@@ -58,9 +58,9 @@ role: tasker
 - 不增加 `isLab`、路由判断、旧主题 fallback 或宿主条件分支。组件只消费 nb-ui 已登记的文字、表面、分隔、强调、状态、圆角、间距、焦点和动效语义 token。
 - 不在本 Task 修改 `docs/specs/theme/system.md`、8 套旧产品主题、Global Config、首帧主题或浮层宿主；这些仍属于后续 C。
 
-## 目标组件合同
+### 搜索与选择补充约束
 
-### 数据与事件
+- 组件不启用 nb-ui `FormInput` 的 `clearable`；因此 Tab 序列不包含额外清空按钮。用户通过原生搜索 input 删除文字清空筛选，焦点始终留在该 input。
 
 ```ts
 type AgentProfileNavItem = {
@@ -91,7 +91,7 @@ interface AgentProfileNavListEmits {
 ```
 
 - 搜索为大小写不敏感的 `includes`，同时匹配 `name` 与 `profileKey`；不增加模糊搜索、拼音、排序或高亮。
-- 搜索只过滤 Profile 列表，不隐藏默认设置入口，不修改 `activeKey`。当前 Profile 被过滤掉时，详情状态保持不变；清空搜索后当前标记恢复。
+- 搜索只过滤 Profile 列表，不隐藏默认设置入口，不修改 `activeKey`。当前 Profile 被过滤掉时，详情状态保持不变；清空搜索后当前标记恢复。由于搜索框不启用 `clearable`，清空动作是用户在原生搜索 input 中删除文字，焦点始终保留在该 input。
 - 非 `loaded` Profile 仍可选择。load status 是说明信息，不在导航层擅自改变详情页是否可用。
 - `items` 为空时显示“没有可配置的 Profile”；`items` 非空但过滤结果为空时显示“没有匹配的 Profile”。
 - 未知 `activeKey` 不触发自动 emit，也不伪造当前项；调用方继续负责纠正。
@@ -111,10 +111,10 @@ interface AgentProfileNavListEmits {
 
 | 场景 | 合同 |
 | --- | --- |
-| Tab | 顺序进入搜索框、默认设置按钮、每个可见 Profile 按钮；空态不是 Tab 停靠点。 |
+| Tab | 顺序进入搜索 input、默认设置按钮、每个可见 Profile 按钮；空态不是 Tab 停靠点。搜索不启用 nb-ui `FormInput` 的 `clearable`，因此不存在额外清空按钮停靠点。 |
 | Enter / Space | 原生按钮触发一次 `update:activeKey`，分别携带空串或 `profileKey`。 |
 | 方向键 / Home / End | 不自定义。该组件是页面导航，不冒充 `listbox`；搜索框承担快速定位。 |
-| 搜索过滤 | 焦点保留在搜索 input；过滤不主动把焦点或选中状态移到首项。 |
+| 搜索过滤 | 焦点保留在搜索 input；过滤不主动把焦点或选中状态移到首项。清空由 input 编辑完成。 |
 | 当前项 | 恰好一个可见按钮可带 `aria-current="page"`；当前项被过滤或 key 未知时可见列表没有伪造 current。 |
 | 状态 | 状态文案位于按钮可访问内容中；装饰图标 `aria-hidden`，不让颜色或 `title` 成为唯一信息源。 |
 | 挂载/卸载 | 不自动抢焦点；组件没有浮层，也没有焦点归还责任。 |
@@ -151,7 +151,7 @@ fixture 的 JSON 数据只使用可序列化字段，不读取真实 Profile、�
 
 ### 阶段 2：原地 replacement
 
-1. 先补可失败的聚焦行为测试，再原地重写组件；迁移到 nb-ui `FormInput` / `Badge` 与语义 token。
+1. 先补可失败的聚焦行为测试，再原地重写组件；迁移到 nb-ui `FormInput` / `Badge` 与语义 token。`FormInput` 不启用 `clearable`，测试不为未采用的清空按钮建立合同。
 2. 更新父组件唯一的 type-only import；不改变 `navItems` 构造、`v-model` 接线、设置保存或详情面板。
 3. 删除 SFC 内旧类型导出、旧 `FormInput` 依赖、色点-only 状态、左侧 current 指示条、旧主题变量、字面动效时长和 `transition-all`。
 4. 更新旧响应式源码字符串测试：移除 Profile 导航的 class 匹配，用组件行为测试与真实 Lab scroll/overflow smoke 接管该合同。
@@ -195,13 +195,16 @@ fixture 的 JSON 数据只使用可序列化字段，不读取真实 Profile、�
 3. `bun --cwd packages/nb-ui run typecheck`
 4. `bun --cwd packages/neuro-book run typecheck`
 5. 启动当前 revision 的 Source Dev 服务，再运行 `bun --cwd packages/neuro-book run smoke:component-lab -- --url <实际地址> --browser-executable <实际 Chromium>`；服务和截图只使用系统临时根。
-6. `bun run docs:check`
-7. `bun run governance:check`
-8. `git diff --check`
+6. 运行 Product 排除门禁：按 t05/t06 已验证的方法执行 `NODE_ENV=production bun x nuxt build --dotenv .env.product --preset node-server`，检查 `.nuxt/product-raw` 的 Lab/fixture/开发绝对路径/识别标记全文与路由表均无命中，并用同一产物确认正式路由可命中。该门禁必须绿色；不得用主应用未接线失败替代。
+7. `bun run docs:check`
+8. `bun run governance:check`
+9. `git diff --check`
 
-聚焦测试至少覆盖：大小写不敏感的 name/key 搜索、原始 search emit、默认/Profile 选择 payload、重复选择、七种状态文案、current/dirty/default/override 语义、空列表、无匹配和当前项被过滤。真实 smoke 至少覆盖：Tab/Enter/Space、焦点可见、内部滚动、桌面与 `390 × 844` 溢出、场景重置、事件日志和双主题。
+上述第 1 至 6 项中，`packages/nb-ui` 自身 test/typecheck、NeuroBook Component Lab focused test/smoke 与 Product 排除门禁必须全绿。用于 Product 排除的生产构建和产物扫描属于该硬门禁，不能把它的失败归因于主页未接入。只有独立且能够定位为 NeuroBook 主应用未接入消费者的集成检查，才可以记录为迁移期间的允许红色；每项必须记录命令、cwd、路径、错误原文、引入批次和恢复条件。若 nb-ui、Lab 或 Product 排除失败，当前批次不得宣称 Lab-ready。
 
-Product build、主页真实流程和桌面应用 smoke 不作为本 Task 的通过门禁，但最终必须实际运行或明确记录未运行原因；失败按红分支 ledger 留证。红色 revision 不得 push、提 PR、合并、发布、部署或声明整个 Work 完成。
+聚焦测试至少覆盖：大小写不敏感的 name/key 搜索、原始 search emit、默认/Profile 选择 payload、重复选择、七种状态文案、current/dirty/default/override 语义、空列表、无匹配和当前项被过滤。真实 smoke 至少覆盖：Tab/Enter/Space、焦点可见、无额外 clearable Tab 停靠点、内部滚动、桌面与 `390 × 844` 溢出、场景重置、事件日志和双主题。
+
+Product 排除门禁必须绿；主页真实流程、独立的主应用 typecheck 或由未接入消费者直接导致且不属于 Product 排除门禁的主应用集成失败，才可进入红色 ledger。每项记录命令、cwd、路径、错误原文、引入批次和恢复条件；红色 revision 不得 push、提 PR、合并、发布、部署或声明整个 Work 完成。
 
 ## Lab-ready 验收
 

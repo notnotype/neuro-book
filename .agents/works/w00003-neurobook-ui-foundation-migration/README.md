@@ -22,10 +22,10 @@ issueId: i191
 
 ## 红分支边界
 
-- 开发者接受 `refactor/w00003-nb-ui-adoption` 在 Lab-first 迁移期间出现主页功能不可用、构建失败和 typecheck 失败；该接受不外推到 `master`、其它 Work 或最终交付。
+- 允许出现的红色只限 NeuroBook 主应用仍未接入新组件的消费者路径：主页真实流程、主应用 Product build/typecheck 或由该未接线直接导致的主应用集成检查失败。每项必须记录命令、cwd、路径、错误原文、引入批次和恢复条件。
+- `packages/nb-ui` 自身的 build、typecheck、测试与 E2E；NeuroBook Component Lab 的聚焦测试、Lab smoke；以及 Product 排除门禁必须保持绿色。它们失败时不得归因于“主页未接入”，当前批次不得宣称 Lab-ready，必须定位并修复或停止交付。
 - 红色中间 revision 不得 push、提 PR、合并、发布、部署或声明 Work 完成。不得损坏数据库、Project Workspace、Session、用户文件或其它产品数据。
-- 每个组件仍须独立达到 Lab-ready；全局失败必须记录引入批次、命令、路径、错误原文和恢复条件，不能只写“迁移中预期失败”。
-- t09 `LabShell.vue` 拆分继续延期；命中其 Leader walkthrough 的恢复触发条件时必须先恢复 t09。
+- 每个组件仍须独立达到 Lab-ready；主应用集成失败不能放宽组件、nb-ui、Lab 或 Product 排除门禁。t09 `LabShell.vue` 拆分继续延期；命中其 Leader walkthrough 的恢复触发条件时必须先恢复 t09。
 
 ## 下一阶段触发条件
 

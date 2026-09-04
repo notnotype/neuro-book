@@ -15,10 +15,11 @@ role: leader
 ## 已批准决定
 
 - 迁移分支采用 Lab-first replacement；新组件只依赖 nb-ui 语义 token，不在组件内部判断宿主是 Lab 还是主页。
-- 主页旧实现不再作为每批新组件的可用性门禁。开发者接受 w00003 分支在迁移期间主页功能、构建和 typecheck 暂时失败；`master` 必须保持原有可用状态。
-- 红色中间 revision 不得 push、提 PR、合并、发布或声明 Work 完成；不得损坏数据库、Project Workspace、Session、用户文件或其它产品数据。
-- 每个组件仍须单独满足文档、fixture、行为、键盘/焦点/ARIA、桌面与 `390 × 844` Lab 验证；由主页未接入产生的失败必须精确记录命令、路径和错误，不能概括为“预期失败”。
-- C 暂缓，不取消。全部目标组件达到 Lab-ready 后，C 负责让产品主页成为 nb-ui 主题的合法宿主；随后按消费者批次接回主页并删除旧实现。
+- 主页旧实现不再作为每批新组件的可用性门禁。允许的红色只限 NeuroBook 主应用仍未接入新组件的消费者路径；该接受不外推到 `master` 或最终交付。
+- `packages/nb-ui` 自身 build/typecheck、Lab focused tests/smoke 与 Product 排除门禁是每批必须保持绿色的硬门禁；其失败不得以主页未接入解释，也不得据此宣称组件 Lab-ready。
+- 红色中间 revision 不得 push、提 PR、合并、发布或声明 Work 完成；每项主应用集成失败必须记录命令、cwd、路径、错误原文、引入批次和恢复条件；不得损坏数据库、Project Workspace、Session、用户文件或其它产品数据。
+- 每个组件仍须单独满足文档、fixture、行为、键盘/焦点/ARIA、桌面与 `390 × 844` Lab 验证；单组件门禁不因主应用集成红色而放宽。
+- C 暂缓，不取消。全部目标组件达到 Lab-ready 后，C 负责让产品主页成为 nb-ui 语义主题的合法宿主；随后按消费者批次接回主页并删除旧实现。
 - t09 继续延期，不由本 Task 实现；延期状态和触发条件记录到 t09 的 Leader walkthrough。
 
 ## 允许改动

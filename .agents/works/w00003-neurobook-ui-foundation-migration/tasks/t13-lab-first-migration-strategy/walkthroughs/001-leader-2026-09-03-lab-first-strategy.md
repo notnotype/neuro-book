@@ -49,3 +49,6 @@ t09 的延期已从 Task README 移到独立 Leader walkthrough。当前 `LabShe
 ## 未执行
 
 本 Task 未修改任何应用或 nb-ui 源码，未启动 C，未迁移组件，未执行真实浏览器、测试、构建或 typecheck，未执行远端动作。
+## 后续校正：红色边界收紧
+
+开发者随后明确：Lab-first 期间可接受的红色只限 NeuroBook 主应用仍未接入新组件的消费者路径。`packages/nb-ui` 自身 build/typecheck、Lab focused tests/smoke 和 Product 排除门禁必须保持绿色；这些门禁失败时不得归因于主页未接入，也不得宣称组件达到 Lab-ready。每项允许的主应用集成失败仍须记录命令、cwd、路径、错误原文、引入批次和恢复条件。本段是后续约束，不改写本 walkthrough 当时实际执行结果。
