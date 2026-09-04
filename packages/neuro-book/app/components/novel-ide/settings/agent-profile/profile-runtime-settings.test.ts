@@ -4,7 +4,7 @@ import {
     createProfileRuntimeSettingsDraft,
     parseProfileRuntimeSettingsDraft,
     resolveProfileRuntimeInheritance,
-} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
+} from "./profile-runtime-settings";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 
 const harness: ProfileRuntimeSettingsDto = {

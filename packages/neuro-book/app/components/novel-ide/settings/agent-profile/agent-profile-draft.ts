@@ -12,7 +12,7 @@ import {
     type ProfileRuntimeSettingsDraft,
     type ProfileRuntimeSettingsErrors,
     type ProfileRuntimeSettingsSources,
-} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
+} from "./profile-runtime-settings";
 
 type AgentProfileSettingsDto = ConfigAgentProfileSettingsDto["agentProfiles"][number];
 

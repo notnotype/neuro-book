@@ -2,7 +2,7 @@
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
-import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsField, ProfileRuntimeSettingsSources} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
+import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsField, ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 
 const props = defineProps<{

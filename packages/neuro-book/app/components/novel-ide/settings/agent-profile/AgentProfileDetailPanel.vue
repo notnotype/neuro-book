@@ -2,10 +2,10 @@
 import type {AgentProfileModelConfigDto, EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
-import type {AgentProfileDraft, AgentProfileModelDraft} from "nbook/app/components/novel-ide/settings/agent-profile-draft";
-import type {ProfileRuntimeSettingsDraft} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
-import AgentProfileModelFields from "nbook/app/components/novel-ide/settings/AgentProfileModelFields.vue";
-import ProfileRuntimeSettingsFields from "nbook/app/components/novel-ide/settings/ProfileRuntimeSettingsFields.vue";
+import type {AgentProfileDraft, AgentProfileModelDraft} from "./agent-profile-draft";
+import type {ProfileRuntimeSettingsDraft} from "./profile-runtime-settings";
+import AgentProfileModelFields from "./AgentProfileModelFields.vue";
+import ProfileRuntimeSettingsFields from "./ProfileRuntimeSettingsFields.vue";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
 
 const props = defineProps<{

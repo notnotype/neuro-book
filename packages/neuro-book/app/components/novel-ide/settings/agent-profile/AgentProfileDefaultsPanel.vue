@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentProfileModelDraft} from "nbook/app/components/novel-ide/settings/agent-profile-draft";
-import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsSources} from "nbook/app/components/novel-ide/settings/profile-runtime-settings";
-import AgentProfileModelFields from "nbook/app/components/novel-ide/settings/AgentProfileModelFields.vue";
-import ProfileRuntimeSettingsFields from "nbook/app/components/novel-ide/settings/ProfileRuntimeSettingsFields.vue";
+import type {AgentProfileModelDraft} from "./agent-profile-draft";
+import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
+import AgentProfileModelFields from "./AgentProfileModelFields.vue";
+import ProfileRuntimeSettingsFields from "./ProfileRuntimeSettingsFields.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 
 const props = defineProps<{

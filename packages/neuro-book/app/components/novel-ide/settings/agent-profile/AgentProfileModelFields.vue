@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type {AgentProfileModelConfigDto, EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import NovelIdeModelSelect from "../NovelIdeModelSelect.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {
     parseStreamSelectValue,
     streamSelectValue,
     type AgentProfileModelDraft,
-} from "nbook/app/components/novel-ide/settings/agent-profile-draft";
+} from "./agent-profile-draft";
 
 /**
  * 继承语义模式，决定"留空"字段的占位文案和是否提供"继承"选项：
