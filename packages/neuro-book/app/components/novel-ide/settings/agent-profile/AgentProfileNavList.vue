@@ -131,7 +131,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     <span class="mt-[var(--space-1)] min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-[var(--space-2)]">
                             <span class="min-w-0 flex-1 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="props.activeKey === item.profileKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ item.name }}</span>
-                            <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status)]" aria-hidden="true"></span>
+                            <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
                         </span>
                         <span class="mt-[var(--space-1)] block truncate font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ item.profileKey }}</span>
                         <span class="mt-[var(--space-2)] flex h-5 min-w-0 flex-wrap items-center gap-[var(--space-2)] overflow-hidden">

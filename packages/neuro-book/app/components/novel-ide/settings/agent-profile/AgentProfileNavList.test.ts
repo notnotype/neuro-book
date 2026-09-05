@@ -270,4 +270,18 @@ describe("AgentProfileNavList", () => {
         expect(nav.host.querySelector("[title='编译中']")).toBeNull();
         expect(nav.host.querySelector("[title='有未保存的修改']")).toBeNull();
     });
+
+    it("仅 compiling 状态的图标使用旋转动画", () => {
+        const nav = mountNav({
+            items: [item({profileKey: "compiling", status: "compiling"}), item({profileKey: "loaded", status: "loaded"})],
+            activeKey: "",
+            search: "",
+            defaultsDirty: false,
+        });
+        const compilingIcon = nav.host.querySelector("[class*='i-lucide-loader-circle']");
+        const loadedIcon = nav.host.querySelector("[class*='i-lucide-circle-check']");
+
+        expect(compilingIcon?.classList.contains("animate-spin")).toBe(true);
+        expect(loadedIcon?.classList.contains("animate-spin")).toBe(false);
+    });
 });

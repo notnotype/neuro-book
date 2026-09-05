@@ -116,6 +116,19 @@ function readFixtureData(value: unknown, scene: string): FixtureState {
 
 const items = computed(() => createItems(props.scene));
 
+function labData(): FixtureState & {items: AgentProfileNavItem[]} {
+    return {
+        items: items.value,
+        activeKey: activeKey.value,
+        search: search.value,
+        defaultsDirty: defaultsDirty.value,
+    };
+}
+
+function syncCurrentLabData(): void {
+    syncLabData(labData());
+}
+
 function resetFromScene(): void {
     const state = readFixtureData(props.data, props.scene);
     activeKey.value = state.activeKey;
@@ -123,17 +136,18 @@ function resetFromScene(): void {
     defaultsDirty.value = state.defaultsDirty;
 }
 
+watch([items, activeKey, search, defaultsDirty], syncCurrentLabData, {deep: true, immediate: true});
 watch([() => props.scene, () => props.data], resetFromScene, {deep: true, immediate: true});
 
 function updateActiveKey(value: string): void {
     activeKey.value = value;
-    syncLabData({activeKey: activeKey.value, search: search.value, defaultsDirty: defaultsDirty.value});
+    syncCurrentLabData();
     emitLabEvent("update:activeKey", value);
 }
 
 function updateSearch(value: string): void {
     search.value = value;
-    syncLabData({activeKey: activeKey.value, search: search.value, defaultsDirty: defaultsDirty.value});
+    syncCurrentLabData();
     emitLabEvent("update:search", value);
 }
 </script>
