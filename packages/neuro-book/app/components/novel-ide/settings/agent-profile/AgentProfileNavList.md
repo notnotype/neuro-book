@@ -8,11 +8,11 @@ Agent Profile 设置页的二级导航。它只负责呈现默认设置入口、
 
 ## 布局
 
-根节点是单一的 `nav`，顶部身份区用可见的 `Agent Profiles` 标题、领域图标和数量标记建立导航层级；搜索框、默认设置入口、Profile 分组说明和列表依次位于其下。导航标题通过实例级 `id` 与 `nav` 的 `aria-labelledby` 关联；搜索使用可见 label，不把 placeholder 或隐藏 `aria-label` 当作唯一名称。
+根节点是单一的 `nav`，顶部身份区用可见的 `Agent Profiles` 标题和领域图标建立导航层级；搜索框、默认设置入口、Profile 分组标题和列表依次位于其下。导航标题通过实例级 `id` 与 `nav` 的 `aria-labelledby` 关联；搜索使用可见 label，不把 placeholder 或隐藏 `aria-label` 当作唯一名称。
 
-搜索和默认设置入口位于列表上方，默认入口作为独立的基线区块与 Profile 列表分隔；Profile 列表使用独立的纵向滚动容器。Profile 增多时先让位的是列表内容，顶部身份区、搜索和默认入口保持可见。名称是主信息，`profileKey` 是次信息，状态和其它元数据统一位于名称与 key 下方的徽章轨道；长名称允许换行，长 key 允许在单词内部换行，多个徽章继续换行，不撑破按钮和页面宽度。
+搜索和默认设置入口位于列表上方，默认入口作为独立的基线区块与 Profile 列表分隔；Profile 列表使用独立的纵向滚动容器。Profile 增多时先让位的是列表内容，顶部身份区、搜索和默认入口保持可见。Profile 行使用统一固定高度，名称与 `profileKey` 截断，状态图标放在名称右侧，状态和其它元数据位于下方固定高度徽章轨道；长文本与多个徽章不会撑破按钮和页面宽度。
 
-`390 × 844` 下仍使用固定搜索加纵向列表，不切换为横向导航条、横向轮播或抽屉。核心入口、状态文字、焦点环和 Profile 选择保持可见；内容超出时只由列表自身滚动，名称、key 和徽章在行内自然换行而不重叠。
+`390 × 844` 下仍使用固定搜索加纵向列表，不切换为横向导航条、横向轮播或抽屉。核心入口、状态文字、焦点环和 Profile 选择保持可见；内容超出时只由列表自身滚动，名称、key 和徽章在行内不重叠。
 
 ## 交互
 
@@ -46,11 +46,9 @@ interface AgentProfileNavListEmits {
 四个 prop 都是必填的受控值，组件不修改它们，也不会为未知 `activeKey` 自动发出纠正事件。`activeKey === ""` 表示默认设置页，否则表示当前 Profile key。`items` 由父组件按稳定的 `profileKey` 排序并提供；`overrideCount` 是模型、运行策略和 Profile 设置的显式覆盖字段总数，`dirty` 表示当前草稿不同于已保存快照，`isDefault` 表示当前生效的默认 Profile。
 
 组件没有 slots，也不 expose 方法或属性。未声明的 attribute、`class`、`style` 和 `data-*` 按 Vue 默认行为透传到单一根 `nav`。不启用 nb-ui `FormInput.clearable`，因此不存在额外的清空按钮或额外 Tab 停靠点。
-
-- **默认设置页**：`activeKey === ""` 时默认入口显示当前状态；`defaultsDirty` 为真时显示“有未保存的修改”语义徽章。
-- **Profile 当前项**：只有 `activeKey` 与某个可见 `profileKey` 相等时，该 Profile 按钮带 `aria-current="page"`。当前项使用整行 accent 软底、accent 边框和贴边竖向标记表达选择，不依赖 check 图标；过滤掉当前项或传入未知 key 时，不伪造可见 current。
-- **加载状态**：七种 `loadStatus` 都有持续可见的本地化文字和显式 `aria-hidden="true"` 装饰图标。`loaded` 使用 `success`；`compiling` 使用 `accent`；`not_compiled`、`compile_stale` 使用 `warning`；`compile_failed`、`compiled_load_failed`、`source_error` 使用 `danger`。颜色不是唯一信息源。
-- **Profile 元数据**：`isDefault` 显示“当前默认”；`dirty` 显示“有未保存的修改”；`overrideCount > 0` 显示本地化覆盖计数，零覆盖不显示计数徽章。默认、dirty 和覆盖数不只依赖颜色或 `title`，且与状态徽章位于同一条名称下方徽章轨道。
+- **Profile 当前项**：只有 `activeKey` 与某个可见 `profileKey` 相等时，该 Profile 按钮带 `aria-current="page"`。当前项使用整行 accent 软底表达选择，不依赖 check 图标、左侧标记或按钮边框；过滤掉当前项或传入未知 key 时，不伪造可见 current。
+- **加载状态**：七种 `loadStatus` 都有持续可见的本地化文字和右侧装饰图标。`loaded` 使用 `success`；`compiling` 使用 `accent`；`not_compiled`、`compile_stale` 使用 `warning`；`compile_failed`、`compiled_load_failed`、`source_error` 使用 `danger`。颜色不是唯一信息源。
+- **Profile 元数据**：`isDefault` 显示“当前默认”；`dirty` 显示“有未保存的修改”；`overrideCount > 0` 显示本地化覆盖计数，零覆盖不显示计数徽章。默认、dirty 和覆盖数不只依赖颜色或 `title`，且与状态徽章位于同一条名称下方徽章轨道。Profile 区说明通过 info 按钮的 Tooltip 提供，不常驻占用列表标题高度。
 
 ## 不支持
 
