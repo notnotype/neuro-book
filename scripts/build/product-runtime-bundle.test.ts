@@ -8,7 +8,8 @@ import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
 import {currentProductPlatform} from "#scripts/utils/product-platform";
-import {assertBundledRuntimeSourcePaths} from "#scripts/build/product-runtime-bundle";
+import {normalizePackageManagerMetadata, assertBundledRuntimeSourcePaths} from "#scripts/build/product-runtime-bundle";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {
     PRODUCT_COMMAND_CHUNK_BASENAME,
     productOpaqueImportDefinitions,
@@ -61,6 +62,19 @@ describe("Product Runtime bundle", () => {
             expect(source, `${relativePath} 不得把 TypeScript compiler 放入 Nitro module graph`)
                 .not.toMatch(forbiddenImport);
         }
+    });
+
+    it("把 public 资源中的相对 pnpm module id 收敛到 Product 内部路径", () => {
+        const source = [
+            'const modules = {"../../node_modules/.pnpm/vscode-jsonrpc@8.2.0/node_modules/vscode-jsonrpc/lib/common/api.js": true};',
+            'const nested = "../node_modules/.bun/zod@4.3.6/node_modules/zod/index.js";',
+        ].join("\n");
+
+        const normalized = normalizePackageManagerMetadata(source);
+
+        expect(normalized).toContain('"node_modules/vscode-jsonrpc/lib/common/api.js"');
+        expect(normalized).toContain('"node_modules/zod/index.js"');
+        expect(normalized).not.toMatch(/node_modules\/\.(?:bun|pnpm)\//u);
     });
 
     it("把 native 物理 URL 收敛到镜像内 package island，并清除 package manager metadata", async () => {

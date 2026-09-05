@@ -18,7 +18,7 @@ import EventLogPanel from "./EventLogPanel.vue";
 import HighlightBox from "./HighlightBox.vue";
 import {labComponents, findLabComponent} from "./component-index";
 import {findLabFixture} from "./fixtures";
-import {LAB_EVENT_SINK} from "./lab-event-sink";
+import {LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
@@ -64,6 +64,7 @@ const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
 const sceneData = ref<unknown>(undefined);
+const fixtureData = ref<unknown>(undefined);
 const events = ref<LabEventEntry[]>([]);
 let eventCounter = 0;
 
@@ -455,9 +456,14 @@ function recordEvent(name: string, payload?: unknown): void {
 }
 
 provide(LAB_EVENT_SINK, recordEvent);
+provide(LAB_DATA_SINK, (value: unknown) => {
+    fixtureData.value = structuredClone(value);
+});
 
 function resetScene(): void {
-    sceneData.value = structuredClone(scene.value?.data);
+    const initialData = structuredClone(scene.value?.data);
+    sceneData.value = initialData;
+    fixtureData.value = initialData;
     events.value = [];
 }
 
@@ -682,7 +688,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                             v-if="fixtureComponent"
                             :key="`${selectedName}:${selectedScene}`"
                             :scene="selectedScene"
-                            :data="sceneData"
+                            :data="fixtureData"
                         />
                     </ViewportCanvas>
                 </div>
@@ -807,11 +813,11 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                     <button type="button" class="lab-btn" @click="resetScene">还原</button>
                                 </div>
                                 <JsonViewer
-                                    :value="sceneData"
+                                    :value="fixtureData"
                                     :read-only="false"
                                     :max-height="0"
                                     class="min-h-0 flex-1"
-                                    @update:value="sceneData = $event"
+                                    @update:value="(value) => { sceneData = value; fixtureData = value; }"
                                 />
                             </template>
                             <p v-else class="lab-note">这个场景没有登记可改的假数据。</p>

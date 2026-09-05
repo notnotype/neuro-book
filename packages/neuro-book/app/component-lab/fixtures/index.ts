@@ -115,6 +115,17 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./SurfaceTierDemoFixture.vue")).default,
     },
+    {
+        component: "AgentProfileNavList",
+        scenes: [
+            {id: "statuses", label: "状态全集", data: {activeKey: "p2", search: "", defaultsDirty: false}},
+            {id: "defaults", label: "默认设置", data: {activeKey: "", search: "", defaultsDirty: true}},
+            {id: "long-list", label: "长列表与长文本", data: {activeKey: "profile-0", search: "", defaultsDirty: false}},
+            {id: "empty", label: "空列表", data: {activeKey: "", search: "", defaultsDirty: false}},
+            {id: "no-match", label: "搜索无匹配", data: {activeKey: "p1", search: "不存在的搜索词xyz", defaultsDirty: false}},
+        ],
+        load: async () => (await import("./AgentProfileNavListFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {

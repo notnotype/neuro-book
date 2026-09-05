@@ -5,6 +5,7 @@ import {dirname, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page} from "playwright-core";
+import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
 
 type ComponentLabSmokeOptions = {
     url: string;
@@ -12,14 +13,7 @@ type ComponentLabSmokeOptions = {
     screenshot?: string;
 };
 
-type BrowserFailure = {
-    kind: "console" | "page" | "assertion";
-    message: string;
-};
-
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-    await runComponentLabSmoke(parseOptions(process.argv.slice(2)));
-}
+type BrowserFailure = import("./agent-profile-nav").SmokeFailure;
 
 /**
  * 验证主应用 Component Lab 的真实开发路径：路由、四个检查面板、场景数据、主题恢复和窄屏溢出。
@@ -86,6 +80,7 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
 
         await page.locator('[role="tab"]').filter({hasText: "数据"}).click();
         await expectText(page, "还原", failures, "数据面板应提供场景重置入口");
+        await runAgentProfileNavSmoke(page, failures);
 
         await page.locator('[aria-label="主题"]').click();
         const macosOption = page.locator('[role="option"]').filter({hasText: "macOS"});
@@ -182,10 +177,6 @@ async function expectText(page: Page, text: string, failures: BrowserFailure[], 
     }
 }
 
-function assert(condition: boolean, failures: BrowserFailure[], message: string): void {
-    if (!condition) failures.push({kind: "assertion", message});
-}
-
 function parseOptions(args: string[]): ComponentLabSmokeOptions {
     const values: Record<string, string> = {};
     for (let index = 0; index < args.length; index += 2) {
@@ -205,4 +196,12 @@ function parseOptions(args: string[]): ComponentLabSmokeOptions {
 function formatFailures(failures: BrowserFailure[], screenshot: string): string {
     const details = failures.map((failure) => `- [${failure.kind}] ${failure.message}`).join("\n");
     return `Component Lab smoke failed:\n${details}\nScreenshot: ${screenshot}`;
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    try {
+        await runComponentLabSmoke(parseOptions(process.argv.slice(2)));
+    } catch (error) {
+        console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+        process.exitCode = 1;
+    }
 }
