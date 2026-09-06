@@ -30,23 +30,23 @@ const statuses = [
 ] as const;
 
 const statusItems: AgentProfileNavItem[] = [
-    {profileKey: "p1", name: "Writer", status: statuses[0], overrideCount: 0, dirty: false, isDefault: false},
-    {profileKey: "p2", name: "编译中的 Editor", status: statuses[1], overrideCount: 4, dirty: false, isDefault: false},
-    {profileKey: "p3", name: "Reviewer", status: statuses[2], overrideCount: 2, dirty: true, isDefault: false},
-    {profileKey: "p4", name: "Researcher", status: statuses[3], overrideCount: 0, dirty: false, isDefault: true},
-    {profileKey: "p5", name: "Planner", status: statuses[4], overrideCount: 1, dirty: false, isDefault: false},
-    {profileKey: "p6", name: "Archivist", status: statuses[5], overrideCount: 3, dirty: false, isDefault: false},
-    {profileKey: "p7", name: "Source Guardian", status: statuses[6], overrideCount: 0, dirty: false, isDefault: false},
+    {profileKey: "story-writer", name: "故事写手", status: statuses[0], overrideCount: 0, dirty: false, isDefault: false, iconClass: "i-lucide-feather"},
+    {profileKey: "line-editor", name: "行文编辑", status: statuses[1], overrideCount: 4, dirty: false, isDefault: false, iconClass: "i-lucide-pen-line"},
+    {profileKey: "fact-reviewer", name: "事实审校", status: statuses[2], overrideCount: 2, dirty: true, isDefault: false, iconClass: "i-lucide-search-check"},
+    {profileKey: "deep-researcher", name: "资料研究员", status: statuses[3], overrideCount: 0, dirty: false, isDefault: true, iconClass: "i-lucide-book-open"},
+    {profileKey: "plot-planner", name: "大纲规划", status: statuses[4], overrideCount: 1, dirty: false, isDefault: false, iconClass: "i-lucide-list-tree"},
+    {profileKey: "series-archivist", name: "设定档案", status: statuses[5], overrideCount: 3, dirty: false, isDefault: false, iconClass: "i-lucide-archive"},
+    {profileKey: "canon-guardian", name: "世界观守卫", status: statuses[6], overrideCount: 0, dirty: false, isDefault: false, iconClass: "i-lucide-shield"},
 ];
 
 const defaultItems: AgentProfileNavItem[] = [
-    {profileKey: "p1", name: "Writer", status: "loaded", overrideCount: 0, dirty: false, isDefault: true},
-    {profileKey: "p2", name: "Editor", status: "loaded", overrideCount: 2, dirty: false, isDefault: false},
+    {profileKey: "story-writer", name: "故事写手", status: "loaded", overrideCount: 0, dirty: false, isDefault: true, iconClass: "i-lucide-feather"},
+    {profileKey: "line-editor", name: "行文编辑", status: "loaded", overrideCount: 2, dirty: false, isDefault: false, iconClass: "i-lucide-pen-line"},
 ];
 
 const noMatchItems: AgentProfileNavItem[] = [
-    {profileKey: "p1", name: "Writer", status: "loaded", overrideCount: 0, dirty: false, isDefault: false},
-    {profileKey: "p2", name: "Editor", status: "compiling", overrideCount: 1, dirty: false, isDefault: true},
+    {profileKey: "story-writer", name: "故事写手", status: "loaded", overrideCount: 0, dirty: false, isDefault: false, iconClass: "i-lucide-feather"},
+    {profileKey: "line-editor", name: "行文编辑", status: "compiling", overrideCount: 1, dirty: false, isDefault: true, iconClass: "i-lucide-pen-line"},
 ];
 
 function createItems(scene: string): AgentProfileNavItem[] {
@@ -56,17 +56,22 @@ function createItems(scene: string): AgentProfileNavItem[] {
         case "long-list":
             return Array.from({length: 30}, (_, index) => ({
                 profileKey: index === 1
-                    ? "profile-1-with-an-intentionally-long-key-for-narrow-layout-checks"
-                    : `profile-${index}`,
+                    ? "profile-with-an-intentionally-long-key-for-narrow-layout-checks"
+                    : index % 3 === 0
+                        ? "story-writer"
+                        : index % 3 === 1
+                            ? "line-editor"
+                            : "fact-reviewer",
                 name: index === 0
                     ? "一个用于验证窄屏截断与完整可访问名称的超长 Agent Profile 名称"
                     : index === 2
                         ? "A very long English profile name for responsive layout checks"
-                        : `Profile ${index} · ${index % 2 === 0 ? "创作" : "校对"}助手`,
+                        : `${["故事写手", "行文编辑", "事实审校"][index % 3]} · ${Math.floor(index / 3) + 1} 号`,
                 status: statuses[index % statuses.length]!,
                 overrideCount: index % 4 === 0 ? index + 1 : 0,
                 dirty: index % 7 === 0,
                 isDefault: index === 4,
+                iconClass: ["i-lucide-feather", "i-lucide-pen-line", "i-lucide-search-check"][index % 3],
             }));
         case "empty":
             return [];
@@ -81,13 +86,13 @@ function createItems(scene: string): AgentProfileNavItem[] {
 function sceneDefaults(scene: string): FixtureState {
     switch (scene) {
         case "statuses":
-            return {activeKey: "p2", search: "", defaultsDirty: false};
+            return {activeKey: "line-editor", search: "", defaultsDirty: false};
         case "defaults":
             return {activeKey: "", search: "", defaultsDirty: true};
         case "long-list":
             return {activeKey: "profile-0", search: "", defaultsDirty: false};
         case "no-match":
-            return {activeKey: "p1", search: "不存在的搜索词xyz", defaultsDirty: false};
+            return {activeKey: "story-writer", search: "不存在的搜索词xyz", defaultsDirty: false};
         case "empty":
         default:
             return {activeKey: "", search: "", defaultsDirty: false};
@@ -100,10 +105,7 @@ function readFixtureData(value: unknown, scene: string): FixtureState {
         return fallback;
     }
     const data = value as Record<string, unknown>;
-    const keys = Object.keys(data);
-    if (keys.length !== fixtureStateKeys.length || keys.some((key) => !fixtureStateKeys.includes(key as typeof fixtureStateKeys[number]))) {
-        return fallback;
-    }
+    // Lab 数据面板现在包含 items；回读只认三个受控状态字段，类型不对才回退场景默认值。
     if (typeof data.activeKey !== "string" || typeof data.search !== "string" || typeof data.defaultsDirty !== "boolean") {
         return fallback;
     }

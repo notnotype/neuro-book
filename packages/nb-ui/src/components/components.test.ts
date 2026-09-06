@@ -23,6 +23,7 @@ import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
 import NotificationViewport from "./feedback/NotificationViewport.vue";
 import Popover from "./feedback/Popover.vue";
+import Tooltip from "./feedback/Tooltip.vue";
 import {clampMenuPosition, computeSubmenuPosition} from "./feedback/context-menu-position";
 import Calendar from "./form/Calendar.vue";
 import Combobox from "./form/Combobox.vue";
@@ -940,6 +941,48 @@ describe("nb-ui dialog anatomy", () => {
         });
         expect(hoverCardWrapper.text()).toContain("悬浮词条");
         hoverCardWrapper.unmount();
+    });
+
+    it("renders tooltip trigger and shows content on hover after delay", async () => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mount(Tooltip, {
+                props: {text: "悬停提示内容", delay: 100},
+                slots: {default: "<button type='button'>提示触发器</button>"},
+                attachTo: document.body,
+            });
+
+            expect(wrapper.text()).toContain("提示触发器");
+            expect(document.body.textContent).not.toContain("悬停提示内容");
+            await wrapper.get("button").trigger("pointermove");
+            expect(document.body.textContent).not.toContain("悬停提示内容");
+
+            await vi.advanceTimersByTimeAsync(150);
+            await nextTick();
+            expect(document.body.textContent).toContain("悬停提示内容");
+
+            // reka 默认行为：点击触发器立即关闭提示
+            await wrapper.get("button").trigger("click");
+            await nextTick();
+            expect(document.body.textContent).not.toContain("悬停提示内容");
+            wrapper.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("shows tooltip immediately on keyboard focus without hover", async () => {
+        const wrapper = mount(Tooltip, {
+            props: {text: "聚焦提示内容"},
+            slots: {default: "<button type='button'>聚焦触发器</button>"},
+            attachTo: document.body,
+        });
+
+        await wrapper.get("button").trigger("focus");
+        await nextTick();
+        await nextTick();
+        expect(document.body.textContent).toContain("聚焦提示内容");
+        wrapper.unmount();
     });
 
     it("renders switch and handles state", async () => {

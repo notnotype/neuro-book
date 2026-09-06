@@ -12,4 +12,6 @@ export interface AgentProfileNavItem {
     dirty: boolean;
     /** 是否是当前生效的默认 Profile。 */
     isDefault: boolean;
+    /** 名称前的自定义图标类（如 i-lucide-*）；缺省不渲染图标。 */
+    iconClass?: string;
 }

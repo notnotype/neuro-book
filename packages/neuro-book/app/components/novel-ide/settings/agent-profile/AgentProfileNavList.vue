@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import {computed, useId} from "vue";
-import {Badge, FormField, FormInput} from "@notnotype/nb-ui/components";
+import {Badge, FormInput, Tooltip} from "@notnotype/nb-ui/components";
 import type {BadgeTone} from "@notnotype/nb-ui/components";
-import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import type {AgentProfileNavItem, ProfileLoadStatus} from "./AgentProfileNavList.types";
 
 const props = defineProps<{
@@ -19,7 +18,7 @@ const emit = defineEmits<{
 
 const {t} = useI18n();
 const headingId = `agent-profile-nav-${useId()}`;
-const isDefaultsActive = computed(() => props.activeKey === "");
+const searchId = `agent-profile-search-${useId()}`;
 
 const filteredItems = computed(() => {
     const keyword = props.search.trim().toLowerCase();
@@ -72,16 +71,18 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
             <span class="i-lucide-command ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
         </header>
 
-        <FormField :label="t('settings.panels.profileModels.nav.searchPlaceholder')" class="shrink-0">
+        <label class="flex shrink-0 items-center gap-[var(--space-2)]" :for="searchId">
+            <span class="shrink-0 text-[var(--text-xs)] [font-weight:var(--weight-medium)] text-[var(--text-muted)]">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
             <FormInput
+                :id="searchId"
                 :model-value="props.search"
                 type="search"
                 size="sm"
                 icon-class="i-lucide-search"
+                class="min-w-0 flex-1"
                 @update:model-value="emit('update:search', $event)"
             />
-        </FormField>
-
+        </label>
         <div class="shrink-0 border-b border-[var(--divider)] pb-[var(--space-4)]">
             <button
                 type="button"
@@ -130,6 +131,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                 >
                     <span class="mt-[var(--space-1)] min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-[var(--space-2)]">
+                            <span v-if="item.iconClass" class="h-4 w-4 shrink-0" :class="item.iconClass" aria-hidden="true"></span>
                             <span class="min-w-0 flex-1 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="props.activeKey === item.profileKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ item.name }}</span>
                             <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
                         </span>
