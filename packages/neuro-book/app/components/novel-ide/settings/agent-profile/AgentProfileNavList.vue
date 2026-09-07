@@ -69,10 +69,9 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
         <header class="flex shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
             <span class="i-lucide-bot h-4 w-4 shrink-0 text-[var(--accent-main)]" aria-hidden="true"></span>
             <h2 :id="headingId" class="min-w-0 truncate text-[var(--text-sm)] [font-weight:var(--weight-strong)]">Agent Profiles</h2>
-            <span class="i-lucide-command ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
         </header>
 
-        <div class="flex shrink-0 items-center gap-[var(--space-1)]">
+        <div class="flex shrink-0 items-center">
             <label class="block min-w-0 flex-1" :for="searchId">
                 <span class="sr-only">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
                 <FormInput
@@ -86,11 +85,6 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     @update:model-value="emit('update:search', $event)"
                 />
             </label>
-            <Tooltip :text="t('settings.panels.profileModels.nav.profilesHint')" placement="right">
-                <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" aria-label="Profile 说明">
-                    <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
-                </button>
-            </Tooltip>
         </div>
         <div class="shrink-0 border-b border-[var(--divider)] pb-[var(--space-4)]">
             <button
@@ -100,7 +94,6 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                 :aria-current="isDefaultsActive ? 'page' : undefined"
                 @click="emit('update:activeKey', '')"
             >
-                <span class="absolute inset-y-[var(--space-3)] left-0 w-0.5 rounded-full bg-[var(--accent-main)] transition-opacity [transition-duration:var(--motion-fast)]" :class="isDefaultsActive ? 'opacity-100' : 'opacity-0'" aria-hidden="true"></span>
                 <span
                     class="i-lucide-sliders-horizontal mt-[var(--space-1)] h-4 w-4 shrink-0"
                     :class="isDefaultsActive ? 'text-[var(--accent-main)]' : 'text-[var(--text-secondary)]'"
@@ -109,12 +102,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                 <span class="min-w-0 flex-1">
                     <span class="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
                         <span class="min-w-0 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
-                        <Tooltip :text="t('settings.panels.profileModels.nav.defaultsDescription')" placement="right">
-                            <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" :aria-label="t('settings.panels.profileModels.nav.defaultsDescription')">
-                                <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
-                            </button>
-                        </Tooltip>
-                        <span class="i-lucide-chevron-right ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] group-hover:translate-x-0.5 group-hover:text-[var(--text-main)]" aria-hidden="true"></span>
+                        <span class="i-lucide-chevron-right ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] group-hover:text-[var(--text-main)]" aria-hidden="true"></span>
                     </span>
                     <span v-if="props.defaultsDirty" class="mt-[var(--space-1)] flex h-5 items-center gap-[var(--space-1)] pl-[var(--space-5)]">
                         <span class="i-lucide-triangle-alert h-3 w-3 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
@@ -134,13 +122,15 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     :title="`${item.name} · ${item.profileKey}`"
                     @click="emit('update:activeKey', item.profileKey)"
                 >
-                    <span class="absolute inset-y-[var(--space-3)] left-0 w-0.5 rounded-full bg-[var(--accent-main)] transition-opacity [transition-duration:var(--motion-fast)]" :class="props.activeKey === item.profileKey ? 'opacity-100' : 'opacity-0'" aria-hidden="true"></span>
                     <span class="min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-[var(--space-2)]">
                             <span v-if="item.iconClass" class="h-4 w-4 shrink-0" :class="item.iconClass" aria-hidden="true"></span>
                             <span class="truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="props.activeKey === item.profileKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ item.name }}</span>
                             <span class="min-w-0 flex-1 truncate font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ item.profileKey }}</span>
-                            <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
+                            <Tooltip v-if="item.status === 'loaded'" :text="getStatusBadge(item.status).label" placement="right">
+                                <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status)]" aria-hidden="true"></span>
+                            </Tooltip>
+                            <span v-else class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
                         </span>
                         <span class="mt-[var(--space-2)] flex h-5 min-w-0 flex-wrap items-center gap-[var(--space-1)] overflow-hidden">
                             <Badge :tone="getStatusBadge(item.status).tone" variant="soft" size="sm">{{ getStatusBadge(item.status).label }}</Badge>

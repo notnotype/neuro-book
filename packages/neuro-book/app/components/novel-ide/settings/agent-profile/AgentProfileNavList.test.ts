@@ -9,11 +9,9 @@ const mounted: App[] = [];
 
 const translations: Record<string, string> = {
     "settings.panels.profileModels.nav.defaults": "默认设置",
-    "settings.panels.profileModels.nav.defaultsDescription": "所有 Profile 的继承基线",
     "settings.panels.profileModels.nav.searchPlaceholder": "搜索 Profile",
     "settings.panels.profileModels.nav.noMatch": "没有匹配的 Profile",
     "settings.panels.profileModels.nav.empty": "没有可配置的 Profile",
-    "settings.panels.profileModels.nav.profilesHint": "点击 Profile 覆盖它的参数",
     "settings.panels.profileModels.overrideCount": "已覆盖 {count} 项",
     "settings.panels.profileModels.unsavedChanges": "有未保存的修改",
     "settings.panels.profileModels.currentDefault": "当前默认",
@@ -274,6 +272,25 @@ describe("AgentProfileNavList", () => {
         expect(nav.host.querySelector("[title='有未保存的修改']")).toBeNull();
     });
 
+    it("移除低价值装饰并为已加载图标保留 Tooltip 入口", () => {
+        const nav = mountNav({
+            items: [item({status: "loaded"})],
+            activeKey: "writer",
+            search: "",
+            defaultsDirty: false,
+        });
+
+        expect(nav.host.querySelector("[aria-label='Profile 说明']")).toBeNull();
+        expect(nav.host.querySelector("[class*='i-lucide-command']")).toBeNull();
+        expect(nav.host.querySelector(".agent-profile-nav__button > .absolute")).toBeNull();
+
+        const chevron = nav.host.querySelector("[class*='i-lucide-chevron-right']");
+        expect(chevron?.classList.contains("transition-transform")).toBe(false);
+        expect(chevron?.classList.contains("transition-colors")).toBe(true);
+
+        const loadedIcon = nav.host.querySelector("[class*='i-lucide-circle-check']");
+        expect(loadedIcon?.parentElement?.querySelector("[data-state]")).not.toBeNull();
+    });
     it("仅 compiling 状态的图标使用旋转动画", () => {
         const nav = mountNav({
             items: [item({profileKey: "compiling", status: "compiling"}), item({profileKey: "loaded", status: "loaded"})],

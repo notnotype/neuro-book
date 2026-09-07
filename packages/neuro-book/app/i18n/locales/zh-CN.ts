@@ -694,7 +694,6 @@ const zhCN = {
                     searchPlaceholder: "搜索 Profile",
                     noMatch: "没有匹配的 Profile",
                     empty: "没有可配置的 Profile",
-                    profilesHint: "点击 Profile 覆盖它的参数",
                 },
                 status: {
                     loaded: "已加载",

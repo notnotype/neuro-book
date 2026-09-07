@@ -2863,20 +2863,23 @@ input.nb-ui-native-input[type="number"] {
   --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
 }
 .nb-ui-tooltip-surface {
-  --nb-tooltip-arrow-size: 8px;
+  --nb-tooltip-arrow-size: 6px;
   border-radius: var(--radius-control);
   background-color: var(--bg-panel);
   background-image: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   color: var(--text-main);
-  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-2xs);
+  line-height: var(--leading-tight);
+  padding: var(--space-2) var(--space-3);
 }
 .nb-ui-tooltip-surface::before {
   position: absolute;
   width: var(--nb-tooltip-arrow-size);
   height: var(--nb-tooltip-arrow-size);
-  background: var(--bg-panel);
+  background-color: var(--bg-panel);
+  box-shadow: var(--elevation-popover);
   content: "";
   pointer-events: none;
   transform: rotate(45deg);

@@ -696,7 +696,6 @@ const enUS = {
                     searchPlaceholder: "Search Profile",
                     noMatch: "No matching Profile",
                     empty: "No configurable Profile",
-                    profilesHint: "Select a Profile to override it",
                 },
                 status: {
                     loaded: "Loaded",
