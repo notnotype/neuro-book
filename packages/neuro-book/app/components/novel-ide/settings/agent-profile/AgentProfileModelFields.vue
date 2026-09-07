@@ -1,9 +1,8 @@
 <script setup lang="ts">
+import {computed} from "vue";
+import {FormField, FormInput, FormSelect, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto, EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import NovelIdeModelSelect from "../NovelIdeModelSelect.vue";
-import FormInput from "nbook/app/components/common/form/FormInput.vue";
-import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {
     parseStreamSelectValue,
     streamSelectValue,
@@ -18,14 +17,18 @@ import {
  */
 type ModelInheritMode = "globalDefaults" | "projectDefaults" | "profile";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: AgentProfileModelDraft;
     /** 继承基线，用于生成"默认（xxx）"这类提示文案 */
     inherited: AgentProfileModelConfigDto;
     enabledModels: EnabledModelOptionDto[];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
     inheritMode: ModelInheritMode;
-}>();
+    /** 禁用编辑（保存中/加载中/维护动作中） */
+    disabled?: boolean;
+}>(), {
+    disabled: false,
+});
 
 const emit = defineEmits<{
     (event: "update:modelValue", value: AgentProfileModelDraft): void;
@@ -35,7 +38,7 @@ const {t} = useI18n();
 
 const hasInheritOption = computed(() => props.inheritMode !== "globalDefaults");
 
-const reasoningEffortBaseOptions = computed<SelectOption[]>(() => [
+const reasoningEffortBaseOptions = computed<FormSelectOption[]>(() => [
     {value: "off", label: t("settings.panels.profileModels.off")},
     {value: "minimal", label: t("settings.panels.profileModels.minimal")},
     {value: "low", label: t("settings.panels.profileModels.low")},
@@ -44,26 +47,6 @@ const reasoningEffortBaseOptions = computed<SelectOption[]>(() => [
     {value: "xhigh", label: t("settings.panels.profileModels.xhigh")},
     {value: "max", label: t("settings.panels.profileModels.max")},
 ]);
-
-function update(patch: Partial<AgentProfileModelDraft>): void {
-    emit("update:modelValue", {...props.modelValue, ...patch});
-}
-
-function thinkingLevelLabel(level: ThinkingLevelDto): string {
-    switch (level) {
-        case "off": return t("settings.panels.profileModels.off");
-        case "minimal": return t("settings.panels.profileModels.minimal");
-        case "low": return t("settings.panels.profileModels.low");
-        case "medium": return t("settings.panels.profileModels.medium");
-        case "high": return t("settings.panels.profileModels.high");
-        case "xhigh": return t("settings.panels.profileModels.xhigh");
-        case "max": return t("settings.panels.profileModels.max");
-    }
-}
-
-function streamLabel(value: boolean): string {
-    return value ? t("settings.panels.profileModels.enabled") : t("settings.panels.profileModels.disabled");
-}
 
 /** 继承选项的文案：Project 默认参数说"继承 Global"，Profile 覆盖说"默认"。 */
 function inheritOptionLabel(value: string): string {
@@ -97,7 +80,7 @@ const modelDefaultLabel = computed(() => {
         : t("settings.panels.profileModels.defaultGlobalModel");
 });
 
-const reasoningEffortOptions = computed<SelectOption[]>(() => {
+const reasoningEffortOptions = computed<FormSelectOption[]>(() => {
     if (!hasInheritOption.value) {
         return reasoningEffortBaseOptions.value;
     }
@@ -107,29 +90,38 @@ const reasoningEffortOptions = computed<SelectOption[]>(() => {
     ];
 });
 
-const streamOptions = computed<SelectOption[]>(() => [
+const streamOptions = computed<FormSelectOption[]>(() => [
     ...(hasInheritOption.value ? [{value: "inherit", label: inheritOptionLabel(streamLabel(props.inherited.stream ?? true))}] : []),
     {value: "true", label: t("settings.panels.profileModels.enabled")},
     {value: "false", label: t("settings.panels.profileModels.disabled")},
 ]);
 
-/** 为历史无效 modelKey 合成只在当前字段显示的不可运行选项。 */
-const modelOptions = computed<EnabledModelOptionDto[]>(() => {
-    const normalized = props.modelValue.modelKey?.trim() ?? "";
-    if (!normalized || props.enabledModels.some((model) => model.key === normalized)) {
-        return props.enabledModels;
+function streamLabel(value: boolean): string {
+    return value ? t("settings.panels.profileModels.enabled") : t("settings.panels.profileModels.disabled");
+}
+
+function thinkingLevelLabel(level: ThinkingLevelDto): string {
+    switch (level) {
+        case "off": return t("settings.panels.profileModels.off");
+        case "minimal": return t("settings.panels.profileModels.minimal");
+        case "low": return t("settings.panels.profileModels.low");
+        case "medium": return t("settings.panels.profileModels.medium");
+        case "high": return t("settings.panels.profileModels.high");
+        case "xhigh": return t("settings.panels.profileModels.xhigh");
+        case "max": return t("settings.panels.profileModels.max");
     }
-    const separatorIndex = normalized.indexOf("/");
-    const providerId = separatorIndex > 0 ? normalized.slice(0, separatorIndex) : "invalid";
-    const modelId = separatorIndex > 0 ? normalized.slice(separatorIndex + 1) : normalized;
-    return [{
-        key: normalized,
-        label: t("settings.panels.profileModels.unrunnableModel", {key: normalized}),
-        providerId,
-        modelId: modelId || "invalid",
-        input: ["text"],
-        contextWindowTokens: null,
-    }, ...props.enabledModels];
+}
+
+const modelOptions = computed<FormSelectOption[]>(() => props.enabledModels.map((model) => ({
+    value: model.key,
+    label: model.label,
+    description: model.providerId ? `${model.providerId} · ${model.modelId}` : model.modelId,
+})));
+
+/** 当前模型引用是否为已启用模型之外的历史值；保留原 key 显示，不悄悄替换。 */
+const modelOutOfList = computed(() => {
+    const normalized = props.modelValue.modelKey?.trim() ?? "";
+    return Boolean(normalized) && !props.enabledModels.some((model) => model.key === normalized);
 });
 
 /** 当前模型引用对应的字段级问题；非空时在字段下方提示。 */
@@ -137,51 +129,69 @@ const modelIssue = computed(() => {
     const normalized = props.modelValue.modelKey?.trim() ?? "";
     return normalized ? props.validationIssues.find((issue) => issue.modelKey === normalized) ?? null : null;
 });
+
+function update(patch: Partial<AgentProfileModelDraft>): void {
+    emit("update:modelValue", {...props.modelValue, ...patch});
+}
 </script>
 
 <template>
-    <!-- Agent Profile 模型参数字段：默认参数区与单 Profile 覆盖区共用。 -->
+    <!-- Agent Profile 模型参数字段：默认参数区与单 Profile 覆盖区共用；常用字段常驻，高级字段由父级折叠。 -->
     <div class="grid gap-3 md:grid-cols-2">
         <!-- 默认模型 -->
-        <div class="space-y-1.5 md:col-span-2">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.defaultModel") }}</label>
-            <NovelIdeModelSelect
-                :model-value="props.modelValue.modelKey"
-                :models="modelOptions"
-                allow-default
-                :default-label="modelDefaultLabel"
+        <FormField class="md:col-span-2" :label="t('settings.panels.profileModels.defaultModel')" :description="modelDefaultLabel">
+            <FormSelect
+                :model-value="props.modelValue.modelKey ?? ''"
+                :options="modelOptions"
                 :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
-                @update:model-value="update({modelKey: $event})"
+                :disabled="props.disabled"
+                @update:model-value="update({modelKey: $event || null})"
             />
-            <p v-if="modelIssue" class="text-[11px] text-[var(--status-warning)]">{{ modelIssue.message }}</p>
-        </div>
-
-        <!-- 温度 -->
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.temperature") }}</label>
-            <FormInput :model-value="props.modelValue.temperature" type="number" step="0.1" min="0" :placeholder="emptyPlaceholder" @update:model-value="update({temperature: $event})" />
-        </div>
-
-        <!-- TopK -->
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-            <FormInput :model-value="props.modelValue.topK" type="number" step="1" min="1" :placeholder="emptyPlaceholder" @update:model-value="update({topK: $event})" />
-        </div>
+        </FormField>
+        <p v-if="modelOutOfList" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ t("settings.panels.profileModels.unrunnableModel", {key: props.modelValue.modelKey ?? ""}) }}</p>
+        <p v-else-if="modelIssue" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ modelIssue.message }}</p>
+        <p v-if="props.enabledModels.length === 0" class="text-[11px] text-[var(--text-muted)] md:col-span-2">{{ t("settings.panels.profileModels.settingsView.invalidModel") }}</p>
 
         <!-- 推理强度 -->
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.reasoningEffort") }}</label>
+        <FormField :label="t('settings.panels.profileModels.reasoningEffort')">
             <FormSelect
                 :model-value="props.modelValue.reasoningEffort ?? 'inherit'"
                 :options="reasoningEffortOptions"
+                :disabled="props.disabled"
                 @update:model-value="update({reasoningEffort: $event === 'inherit' ? null : $event as ThinkingLevelDto})"
             />
-        </div>
+        </FormField>
 
-        <!-- 流式 -->
-        <div class="space-y-1.5">
-            <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
-            <FormSelect :model-value="streamSelectValue(props.modelValue.stream)" :options="streamOptions" @update:model-value="update({stream: parseStreamSelectValue($event)})" />
-        </div>
+        <!-- 高级模型参数：温度 / TopK / 流式输出。父级通过 Collapsible 折叠整块。 -->
+        <FormField :label="t('settings.panels.profileModels.temperature')">
+            <FormInput
+                :model-value="props.modelValue.temperature"
+                type="number"
+                step="0.1"
+                min="0"
+                :placeholder="emptyPlaceholder"
+                :disabled="props.disabled"
+                @update:model-value="update({temperature: $event})"
+            />
+        </FormField>
+        <FormField label="TopK">
+            <FormInput
+                :model-value="props.modelValue.topK"
+                type="number"
+                step="1"
+                min="1"
+                :placeholder="emptyPlaceholder"
+                :disabled="props.disabled"
+                @update:model-value="update({topK: $event})"
+            />
+        </FormField>
+        <FormField :label="t('settings.panels.profileModels.stream')">
+            <FormSelect
+                :model-value="streamSelectValue(props.modelValue.stream)"
+                :options="streamOptions"
+                :disabled="props.disabled"
+                @update:model-value="update({stream: parseStreamSelectValue($event)})"
+            />
+        </FormField>
     </div>
 </template>

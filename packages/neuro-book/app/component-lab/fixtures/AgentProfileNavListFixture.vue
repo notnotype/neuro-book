@@ -15,9 +15,11 @@ const props = defineProps<{scene: string; data?: unknown}>();
 
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
-const activeKey = ref("");
-const search = ref("");
-const defaultsDirty = ref(false);
+// 组件 setup 早于 LabShell 的 :data 回流；初始 ref 必须直接取场景登记初值，
+// 否则 immediate syncLabData 会把空 ref 覆盖回数据面板并经 :data 回流清掉行内选中。
+const activeKey = ref(sceneDefaults(props.scene).activeKey);
+const search = ref(sceneDefaults(props.scene).search);
+const defaultsDirty = ref(sceneDefaults(props.scene).defaultsDirty);
 
 const statuses = [
     "loaded",
@@ -132,10 +134,17 @@ function syncCurrentLabData(): void {
 }
 
 function resetFromScene(): void {
+    // 数据面板回流（syncLabData → LabShell fixtureData → :data）会原样带回我们刚写出去的
+    // 状态；只有回流值与当前状态等值时跳过重置，场景切换/手动还原才真正恢复登记初值。
     const state = readFixtureData(props.data, props.scene);
-    activeKey.value = state.activeKey;
-    search.value = state.search;
-    defaultsDirty.value = state.defaultsDirty;
+    const incoming = {activeKey: state.activeKey, search: state.search, defaultsDirty: state.defaultsDirty};
+    const current = {activeKey: activeKey.value, search: search.value, defaultsDirty: defaultsDirty.value};
+    if (JSON.stringify(incoming) === JSON.stringify(current)) {
+        return;
+    }
+    activeKey.value = incoming.activeKey;
+    search.value = incoming.search;
+    defaultsDirty.value = incoming.defaultsDirty;
 }
 
 watch([items, activeKey, search, defaultsDirty], syncCurrentLabData, {deep: true, immediate: true});

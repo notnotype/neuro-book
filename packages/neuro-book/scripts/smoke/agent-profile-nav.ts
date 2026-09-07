@@ -66,7 +66,7 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
         async function checkStatusSet(description: string): Promise<void> {
             await selectScene("状态全集");
             await waitForRows(7);
-            await page.waitForFunction(() => document.querySelector('[data-lab-subject] [aria-current="page"]')?.textContent?.includes("p2") === true, undefined, {timeout: 10_000});
+            await page.waitForFunction(() => document.querySelector('[data-lab-subject] [aria-current="page"]')?.textContent?.includes("line-editor") === true, undefined, {timeout: 10_000});
             assert(await subject.getByText("编译中", {exact: true}).count() === 1, failures, `${description} 应显示编译中状态文字`);
             const statusClasses = await profileRows.evaluateAll((rows) => rows.map((row) => row.querySelector(".nb-badge")?.className ?? ""));
             assert(statusClasses.filter((classes) => classes.includes("nb-badge--success")).length === 1, failures, `${description} success Badge 数量错误`);
@@ -74,7 +74,7 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
             assert(statusClasses.filter((classes) => classes.includes("nb-badge--warning")).length === 2, failures, `${description} warning Badge 数量错误`);
             assert(statusClasses.filter((classes) => classes.includes("nb-badge--danger")).length === 3, failures, `${description} danger Badge 数量错误`);
             assert(await subject.locator('[aria-current="page"]').count() === 1, failures, `${description} 应有一个 aria-current`);
-            assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("p2"), failures, `${description} current 应为 p2`);
+            assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("line-editor"), failures, `${description} current 应为 line-editor`);
             const iconsAccessible = await subject.locator('[class*="i-lucide-"]').evaluateAll((icons) => icons.every((icon) => icon.getAttribute("aria-hidden") === "true"));
             assert(iconsAccessible, failures, `${description} 装饰图标必须 aria-hidden=true`);
             assert(await subject.locator('[aria-label="清空输入"]').count() === 0, failures, `${description} 不应有 clearable 清空按钮`);
@@ -83,20 +83,20 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
         await checkStatusSet("NeuroBook 主题");
 
 
-        await search.fill("  P2  ");
+        await search.fill("  Line  ");
         await waitForRows(1);
-        assert((await profileRows.first().textContent() ?? "").includes("p2"), failures, "name/key 搜索应命中 p2");
+        assert((await profileRows.first().textContent() ?? "").includes("line-editor"), failures, "name/key 搜索应命中 line-editor");
         assert(await defaultButton().count() === 1, failures, "搜索时默认入口必须保持可见");
         await page.locator('[role="tab"]').filter({hasText: "事件"}).click();
         await page.getByText("update:search", {exact: true}).waitFor({state: "visible", timeout: 10_000});
         const eventPayload = await page.locator(".nb-lab-event-chip").evaluateAll((chips) => chips.map((chip) => chip.parentElement?.textContent ?? ""));
-        assert(eventPayload.some((text) => text.includes("  P2  ")), failures, "搜索事件必须保留原始前后空格");
+        assert(eventPayload.some((text) => text.includes("  Line  ")), failures, "搜索事件必须保留原始前后空格");
 
         await search.fill("");
         await waitForRows(7);
         await search.focus();
         assert(await search.evaluate((element) => document.activeElement === element), failures, "清空后搜索焦点必须保持");
-        await profileRows.filter({hasText: "编译中的 Editor"}).click();
+        await profileRows.filter({hasText: "编译中"}).first().click();
         await page.getByText("update:activeKey", {exact: true}).waitFor({state: "visible", timeout: 10_000});
 
         await page.locator('[role="tab"]').filter({hasText: "数据"}).click();
@@ -110,7 +110,7 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
         assert(await defaultButton().getAttribute("aria-current") === "page", failures, "默认场景入口应有 aria-current");
         assert((await defaultButton().textContent() ?? "").includes("有未保存的修改"), failures, "默认场景应显示 dirty 文案");
         await profileRows.first().click();
-        assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("p1"), failures, "Profile 点击后 current 应转移");
+        assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("story-writer"), failures, "Profile 点击后 current 应转移");
 
         await selectScene("长列表与长文本");
         await waitForRows(30);
@@ -170,7 +170,7 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
         await page.keyboard.press("Tab");
         assert(await profileRows.first().evaluate((element) => document.activeElement === element), failures, "Tab 应从默认按钮进入第一个 Profile");
         await page.keyboard.press("Enter");
-        assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("p1"), failures, "Enter 应选择 Profile");
+        assert((await subject.locator('[aria-current="page"]').first().textContent() ?? "").includes("story-writer"), failures, "Enter 应选择 Profile");
         await currentDefault.focus();
         await page.keyboard.press("Space");
         assert(await currentDefault.getAttribute("aria-current") === "page", failures, "Space 应选择默认入口");
