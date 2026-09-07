@@ -164,6 +164,25 @@
   - 顶部内嵌 `ListboxFilter` 即时搜索栏，支持跨标题、描述、徽标与分组多字段模糊匹配；
   - 底部提供 `showActionBar` 状态操作栏（`已选 N / M 项`、全选、反选、清空）。
 
+#### 17. `Tooltip` 与 Surface 浮层层级模型规范
+- **两级 Surface 浮层分工模型**：
+  1. **大浮层与导航面板（`.nb-ui-popover-surface`）**：针对 `Popover`、`Dropdown`、`FormSelect`、`Dialog` 等复杂容器，提供主题自适应半透背景（`var(--overlay-surface)`）、磨砂模糊（`var(--overlay-blur)`）、双层立体环境投影（`var(--elevation-popover)`）以及由外圈推导的同心几何内圈；
+  2. **微型说明性浮层（`.nb-ui-tooltip-surface`）**：针对纯说明性紧凑气泡，明确**不采用**大浮层的半透明玻璃配方（杜绝小气泡压在浅色或复杂背景上时产生文字发灰、半透明隐形或对比度不足的缺陷），统一采用**实心面板底（`var(--bg-panel)`）** 与 **正文主字色（`var(--text-main)`）**。
+- **全主题明暗自适应与高对比度对称性**：
+  - **浅色 / 昼模式**：自动呈现温润象牙白实心底（`#fffcf5`）+ 优雅深黑褐文字（`#1f1c17`），达到 WCAG AAA 级的可读性；
+  - **深色 / 夜模式**：自动呈现暖灰暗色面板底（`#2d2925`）+ 暖白主文字（`#efe9df`），彻底杜绝黑底黑字；
+  - **边框与阴影**：统一使用细实线边框 `var(--border-w) solid var(--panel-outline)` 与 `var(--elevation-popover)`，与所在主题的控件与面板保持完全同源的材质呼吸感；
+  - **色彩红线**：严禁硬编码纯黑/纯白背景，严禁将 Tooltip 文字绑定至反转色 `--text-inverse`（其在暗色主题下定义为暗色，会引发黑底黑字灾难）。
+- **平滑无尖角胶囊设计（No-Arrow Principle）**：
+  - 彻底摒弃伪元素旋转方块或 SVG 三角箭头，彻底解决三角尖锐边缘与主体边框、多重环境阴影之间的对齐失真、重叠瑕疵与几何断裂；
+  - 空间位置关系由精确的 6px 间隙（`:side-offset="6"`）与 Reka Popper 碰撞自适应翻转来清晰表达；
+  - 外观采用控件圆角（`var(--radius-control)`）超椭圆胶囊，字体为标准 12px（`var(--text-xs)`），行高紧凑自然（`var(--leading-tight)`），内边距为适度的 `5px 9px`（`padding: 5px 9px;`）。
+- **行为、可访问性与边界合同**：
+  - **非阻塞交互**：Tooltip 统一配置 `pointer-events: none` 与 `user-select: none`，鼠标移动穿透，左键点击不打断已触发的操作（`disable-closing-trigger="true"`）；
+  - **杜绝浏览器原生提示**：使用 Tooltip 的触发元素必须清理掉原生的 HTML `title` 属性，严禁产生「原生黄色系统框 + nb-ui 卡片」的双重冒出事故；
+  - **A11y 准则**：Tooltip 是增强性视觉说明，绝对不可作为唯一可访问名称（Accessible Name），所有图标类触发器必须保留自身完备的 `aria-label`；
+  - **状态全面覆盖**：同组状态图标（如 `AgentProfileNavList` 中的 7 种状态）必须提供对称覆盖的 Tooltip 入口，不留理解盲区。
+
 ## 5. 表单与无障碍
 
 1. 字段组件接入 `FormField` context：生成或接受 `id`，连接 `aria-describedby`，合并 `required`，错误时输出 `aria-invalid`。
