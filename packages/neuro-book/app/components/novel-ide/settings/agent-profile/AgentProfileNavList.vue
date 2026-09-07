@@ -79,6 +79,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                 type="search"
                 size="sm"
                 icon-class="i-lucide-search"
+                :placeholder="t('settings.panels.profileModels.nav.searchPlaceholder')"
                 class="w-full"
                 @update:model-value="emit('update:search', $event)"
             />
@@ -86,24 +87,26 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
         <div class="shrink-0 border-b border-[var(--divider)] pb-[var(--space-4)]">
             <button
                 type="button"
-                class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
+                class="agent-profile-nav__button group relative flex w-full cursor-pointer min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
                 :class="isDefaultsActive ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
                 :aria-current="isDefaultsActive ? 'page' : undefined"
                 @click="emit('update:activeKey', '')"
             >
+                <span class="absolute inset-y-[var(--space-3)] left-0 w-0.5 rounded-full bg-[var(--accent-main)] transition-opacity [transition-duration:var(--motion-fast)]" :class="isDefaultsActive ? 'opacity-100' : 'opacity-0'" aria-hidden="true"></span>
                 <span
                     class="i-lucide-sliders-horizontal mt-[var(--space-1)] h-4 w-4 shrink-0"
-                    :class="isDefaultsActive ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'"
+                    :class="isDefaultsActive ? 'text-[var(--accent-main)]' : 'text-[var(--text-secondary)]'"
                     aria-hidden="true"
                 ></span>
                 <span class="min-w-0 flex-1">
-                    <span class="flex min-w-0 items-center gap-[var(--space-1)]">
+                    <span class="flex min-w-0 flex-1 items-center gap-[var(--space-1)]">
                         <span class="min-w-0 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
                         <Tooltip :text="t('settings.panels.profileModels.nav.defaultsDescription')" placement="right">
-                            <button type="button" class="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" :aria-label="t('settings.panels.profileModels.nav.defaultsDescription')">
+                            <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" :aria-label="t('settings.panels.profileModels.nav.defaultsDescription')">
                                 <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
                             </button>
                         </Tooltip>
+                        <span class="i-lucide-chevron-right ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] group-hover:translate-x-0.5 group-hover:text-[var(--text-main)]" aria-hidden="true"></span>
                     </span>
                     <span v-if="props.defaultsDirty" class="mt-[var(--space-1)] flex h-5 items-center gap-[var(--space-1)] pl-[var(--space-5)]">
                         <span class="i-lucide-triangle-alert h-3 w-3 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
@@ -115,9 +118,8 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
 
         <div class="flex shrink-0 items-center justify-between gap-[var(--space-3)] border-b border-[var(--divider)] px-[var(--space-2)] pb-[var(--space-2)]">
             <div class="flex min-w-0 items-center gap-[var(--space-2)]">
-                <h3 class="text-[var(--text-xs)] [font-weight:var(--weight-strong)] uppercase tracking-[0.12em] text-[var(--text-muted)]">Profile</h3>
                 <Tooltip :text="t('settings.panels.profileModels.nav.profilesHint')" placement="right">
-                    <button type="button" class="flex h-4 w-4 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" aria-label="Profile 说明">
+                    <button type="button" class="flex h-6 w-6 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" aria-label="Profile 说明">
                         <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
                     </button>
                 </Tooltip>
@@ -129,12 +131,13 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
             <li v-for="item in filteredItems" :key="item.profileKey" class="min-w-0">
                 <button
                     type="button"
-                    class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
+                    class="agent-profile-nav__button group relative flex w-full cursor-pointer min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
                     :class="props.activeKey === item.profileKey ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
                     :aria-current="props.activeKey === item.profileKey ? 'page' : undefined"
                     :title="`${item.name} · ${item.profileKey}`"
                     @click="emit('update:activeKey', item.profileKey)"
                 >
+                    <span class="absolute inset-y-[var(--space-3)] left-0 w-0.5 rounded-full bg-[var(--accent-main)] transition-opacity [transition-duration:var(--motion-fast)]" :class="props.activeKey === item.profileKey ? 'opacity-100' : 'opacity-0'" aria-hidden="true"></span>
                     <span class="min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-[var(--space-2)]">
                             <span v-if="item.iconClass" class="h-4 w-4 shrink-0" :class="item.iconClass" aria-hidden="true"></span>
