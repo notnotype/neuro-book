@@ -498,8 +498,8 @@
 .w-max {
   width: max-content;
 }
-.max-w-64 {
-  max-width: calc(var(--spacing) * 64);
+.max-w-72 {
+  max-width: calc(var(--spacing) * 72);
 }
 .max-w-\[90vw\] {
   max-width: 90vw;
@@ -2863,54 +2863,20 @@ input.nb-ui-native-input[type="number"] {
   --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
 }
 .nb-ui-tooltip-surface {
-  --nb-tooltip-arrow-size: 6px;
+  border: var(--border-w) solid var(--panel-outline);
   border-radius: var(--radius-control);
   background-color: var(--bg-panel);
   background-image: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   color: var(--text-main);
-  font-size: var(--text-2xs);
+  font-size: var(--text-xs);
   line-height: var(--leading-tight);
-  padding: var(--space-2) var(--space-3);
-}
-.nb-ui-tooltip-surface::before {
-  position: absolute;
-  width: var(--nb-tooltip-arrow-size);
-  height: var(--nb-tooltip-arrow-size);
-  background-color: var(--bg-panel);
+  padding: 5px 9px;
   box-shadow: var(--elevation-popover);
-  content: "";
   pointer-events: none;
-  transform: rotate(45deg);
-}
-.nb-ui-tooltip-surface[data-side="right"]::before {
-  top: 50%;
-  left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  border-left: var(--border-w) solid var(--panel-outline);
-  border-bottom: var(--border-w) solid var(--panel-outline);
-}
-.nb-ui-tooltip-surface[data-side="left"]::before {
-  top: 50%;
-  right: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  border-right: var(--border-w) solid var(--panel-outline);
-  border-top: var(--border-w) solid var(--panel-outline);
-}
-.nb-ui-tooltip-surface[data-side="bottom"]::before {
-  top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  left: 50%;
-  margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  border-right: var(--border-w) solid var(--panel-outline);
-  border-bottom: var(--border-w) solid var(--panel-outline);
-}
-.nb-ui-tooltip-surface[data-side="top"]::before {
-  bottom: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  left: 50%;
-  margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-  border-left: var(--border-w) solid var(--panel-outline);
-  border-top: var(--border-w) solid var(--panel-outline);
+  user-select: none;
+  -webkit-user-select: none;
 }
 .nb-ui-menu-surface {
   --nb-popover-radius: var(--radius-menu, var(--radius-panel));

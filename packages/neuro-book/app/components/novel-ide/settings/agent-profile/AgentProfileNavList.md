@@ -47,7 +47,7 @@ interface AgentProfileNavListEmits {
 
 组件没有 slots，也不 expose 方法或属性。未声明的 attribute、`class`、`style` 和 `data-*` 按 Vue 默认行为透传到单一根 `nav`。不启用 nb-ui `FormInput.clearable`，因此不存在额外的清空按钮或额外 Tab 停靠点。
 - **Profile 当前项**：只有 `activeKey` 与某个可见 `profileKey` 相等时，该 Profile 按钮带 `aria-current="page"`。当前项使用整行 accent 软底表达选择，不依赖 check 图标、左侧标记或按钮边框；过滤掉当前项或传入未知 key 时，不伪造可见 current。
-- **加载状态**：七种 `loadStatus` 都有持续可见的本地化文字和右侧装饰图标。`loaded` 使用 `success` 并在图标上提供 Tooltip；`compiling` 使用 `accent`；`not_compiled`、`compile_stale` 使用 `warning`；`compile_failed`、`compiled_load_failed`、`source_error` 使用 `danger`。颜色不是唯一信息源。
+- **加载状态**：七种 `loadStatus` 都有持续可见的本地化文字和右侧装饰图标。所有状态图标均通过 Tooltip 提供本地化状态文字说明；`loaded` 使用 `success`；`compiling` 使用 `accent` 且保留旋转动画；`not_compiled`、`compile_stale` 使用 `warning`；`compile_failed`、`compiled_load_failed`、`source_error` 使用 `danger`。颜色不是唯一信息源。
 - **Profile 元数据**：`isDefault` 显示“当前默认”；`dirty` 显示“有未保存的修改”；`overrideCount > 0` 显示本地化覆盖计数，零覆盖不显示计数徽章。默认、dirty 和覆盖数不只依赖颜色或 `title`，且与状态徽章位于同一条名称下方徽章轨道。
 
 ## 不支持

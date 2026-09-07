@@ -689,6 +689,7 @@ const zhCN = {
                 unsavedChanges: "有未保存的修改",
                 currentDefault: "当前默认",
                 nav: {
+                    titleHint: "管理 Agent Profile 及模型覆盖参数",
                     defaults: "默认设置",
                     defaultsDescription: "所有 Profile 的继承基线",
                     searchPlaceholder: "搜索 Profile",

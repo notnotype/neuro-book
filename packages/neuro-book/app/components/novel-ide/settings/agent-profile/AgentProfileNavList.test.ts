@@ -272,9 +272,9 @@ describe("AgentProfileNavList", () => {
         expect(nav.host.querySelector("[title='有未保存的修改']")).toBeNull();
     });
 
-    it("移除低价值装饰并为已加载图标保留 Tooltip 入口", () => {
+    it("移除低价值装饰并为所有状态图标保留 Tooltip 入口", () => {
         const nav = mountNav({
-            items: [item({status: "loaded"})],
+            items: [item({status: "loaded"}), item({profileKey: "editor", status: "compiling"})],
             activeKey: "writer",
             search: "",
             defaultsDirty: false,
@@ -290,6 +290,9 @@ describe("AgentProfileNavList", () => {
 
         const loadedIcon = nav.host.querySelector("[class*='i-lucide-circle-check']");
         expect(loadedIcon?.parentElement?.querySelector("[data-state]")).not.toBeNull();
+
+        const compilingIcon = nav.host.querySelector("[class*='i-lucide-loader-circle']");
+        expect(compilingIcon?.parentElement?.querySelector("[data-state]")).not.toBeNull();
     });
     it("仅 compiling 状态的图标使用旋转动画", () => {
         const nav = mountNav({

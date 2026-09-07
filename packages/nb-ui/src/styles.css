@@ -158,64 +158,27 @@ input.nb-ui-native-input[type="number"] {
 }
 
 /*
- * Tooltip modifier：Tooltip 仍属于 popover 层级，但不是普通 Popover 的大面板。
- * 统一基座继续提供浮层边界与层级阴影；Tooltip 自己切到紧凑纸面、控件圆角和
- * 贴边箭头。箭头用旋转方块而不是 Reka SVG：保留 surface 材质与阴影，并与主体连成一体。
+ * Tooltip surface：轻量说明性浮层。
+ * - 采用与主题完全同源的实心面板底（--bg-panel）与正文色（--text-main），在亮色与暗色模式下均完美适配
+ * - 实线描边（--border-w solid var(--panel-outline)）与浮层阴影（--elevation-popover）
+ * - 控件圆角（--radius-control）、12px 字号（--text-xs）与适度的微边距
+ * - 无三角箭头，干净清晰，避免投影与描边瑕疵
  */
 .nb-ui-tooltip-surface {
-    --nb-tooltip-arrow-size: 6px;
+    border: var(--border-w) solid var(--panel-outline);
     border-radius: var(--radius-control);
     background-color: var(--bg-panel);
     background-image: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
     color: var(--text-main);
-    font-size: var(--text-2xs);
+    font-size: var(--text-xs);
     line-height: var(--leading-tight);
-    padding: var(--space-2) var(--space-3);
-}
-
-.nb-ui-tooltip-surface::before {
-    position: absolute;
-    width: var(--nb-tooltip-arrow-size);
-    height: var(--nb-tooltip-arrow-size);
-    background-color: var(--bg-panel);
+    padding: 5px 9px;
     box-shadow: var(--elevation-popover);
-    content: "";
     pointer-events: none;
-    transform: rotate(45deg);
-}
-
-.nb-ui-tooltip-surface[data-side="right"]::before {
-    top: 50%;
-    left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    border-left: var(--border-w) solid var(--panel-outline);
-    border-bottom: var(--border-w) solid var(--panel-outline);
-}
-
-.nb-ui-tooltip-surface[data-side="left"]::before {
-    top: 50%;
-    right: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    border-right: var(--border-w) solid var(--panel-outline);
-    border-top: var(--border-w) solid var(--panel-outline);
-}
-
-.nb-ui-tooltip-surface[data-side="bottom"]::before {
-    top: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    left: 50%;
-    margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    border-right: var(--border-w) solid var(--panel-outline);
-    border-bottom: var(--border-w) solid var(--panel-outline);
-}
-
-.nb-ui-tooltip-surface[data-side="top"]::before {
-    bottom: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    left: 50%;
-    margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
-    border-left: var(--border-w) solid var(--panel-outline);
-    border-top: var(--border-w) solid var(--panel-outline);
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */

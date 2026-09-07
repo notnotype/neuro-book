@@ -962,7 +962,6 @@ describe("nb-ui dialog anatomy", () => {
             expect(document.body.textContent).toContain("悬停提示内容");
             const content = document.querySelector(".nb-ui-tooltip-surface");
             expect(content).toBeDefined();
-            expect(content?.classList.contains("nb-ui-popover-surface")).toBe(true);
             expect(content?.querySelector("svg")).toBeNull();
             expect(content?.getAttribute("data-side")).toBeTruthy();
 

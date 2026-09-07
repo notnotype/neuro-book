@@ -34,14 +34,13 @@ const props = withDefaults(defineProps<{
                 <slot />
             </TooltipTrigger>
             <TooltipPortal>
-                <!-- Tooltip 仍属于 popover 层级，但使用 compact modifier 表达小提示的形状与材质。
-                     Reka 只负责 portal、定位、碰撞翻转和交互；箭头由 surface 伪元素绘制，
-                     避免 SVG Arrow 旋转后产生独立布局框和错误边缘。 -->
+                <!-- Tooltip 是轻量说明性浮层：无箭头、对比色胶囊卡片、12px 文字、紧凑适度内边距。
+                     通过清晰的 6px 间距声明指向关系，彻底避免三角箭头在复杂投影与描边下的变形与瑕疵。 -->
                 <TooltipContent
                     :side="props.placement"
                     :side-offset="6"
                     :style="{zIndex: NB_Z_INDEX.tooltip}"
-                    class="nb-ui-popover-surface nb-ui-tooltip-surface pointer-events-none w-max max-w-64 outline-none"
+                    class="nb-ui-tooltip-surface pointer-events-none w-max max-w-72 outline-none"
                 >
                     <span class="block">
                         <slot name="content">{{ props.text }}</slot>
