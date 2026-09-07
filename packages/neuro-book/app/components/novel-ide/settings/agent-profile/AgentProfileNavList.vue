@@ -86,7 +86,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
         <div class="shrink-0 border-b border-[var(--divider)] pb-[var(--space-4)]">
             <button
                 type="button"
-                class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-2)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
+                class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
                 :class="isDefaultsActive ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
                 :aria-current="isDefaultsActive ? 'page' : undefined"
                 @click="emit('update:activeKey', '')"
@@ -97,9 +97,15 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     aria-hidden="true"
                 ></span>
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
-                    <span class="mt-[var(--space-1)] flex h-5 min-w-0 items-center truncate text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.nav.defaultsDescription") }}</span>
-                    <span v-if="props.defaultsDirty" class="mt-[var(--space-2)] flex h-5 items-center gap-[var(--space-1)]">
+                    <span class="flex min-w-0 items-center gap-[var(--space-1)]">
+                        <span class="min-w-0 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
+                        <Tooltip :text="t('settings.panels.profileModels.nav.defaultsDescription')" placement="right">
+                            <button type="button" class="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" :aria-label="t('settings.panels.profileModels.nav.defaultsDescription')">
+                                <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
+                            </button>
+                        </Tooltip>
+                    </span>
+                    <span v-if="props.defaultsDirty" class="mt-[var(--space-1)] flex h-5 items-center gap-[var(--space-1)] pl-[var(--space-5)]">
                         <span class="i-lucide-triangle-alert h-3 w-3 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
                         <Badge tone="warning" variant="soft" size="sm">{{ t("settings.panels.profileModels.unsavedChanges") }}</Badge>
                     </span>
@@ -123,7 +129,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
             <li v-for="item in filteredItems" :key="item.profileKey" class="min-w-0">
                 <button
                     type="button"
-                    class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-2)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
+                    class="agent-profile-nav__button flex w-full min-w-0 items-start gap-[var(--space-2)] overflow-hidden rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-3)] text-left transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]"
                     :class="props.activeKey === item.profileKey ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
                     :aria-current="props.activeKey === item.profileKey ? 'page' : undefined"
                     :title="`${item.name} · ${item.profileKey}`"
@@ -136,7 +142,7 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                             <span class="min-w-0 flex-1 truncate font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ item.profileKey }}</span>
                             <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
                         </span>
-                        <span class="mt-[var(--space-1)] flex h-5 min-w-0 flex-wrap items-center gap-[var(--space-1)] overflow-hidden">
+                        <span class="mt-[var(--space-2)] flex h-5 min-w-0 flex-wrap items-center gap-[var(--space-1)] overflow-hidden">
                             <Badge :tone="getStatusBadge(item.status).tone" variant="soft" size="sm">{{ getStatusBadge(item.status).label }}</Badge>
                             <Badge v-if="item.isDefault" tone="accent" variant="soft" size="sm">{{ t("settings.panels.profileModels.currentDefault") }}</Badge>
                             <Badge v-if="item.dirty" tone="warning" variant="soft" size="sm">{{ t("settings.panels.profileModels.unsavedChanges") }}</Badge>
