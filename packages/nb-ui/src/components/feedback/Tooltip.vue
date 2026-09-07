@@ -35,19 +35,17 @@ const props = withDefaults(defineProps<{
                 <slot />
             </TooltipTrigger>
             <TooltipPortal>
-                <!-- Tooltip 是最小浮层：小字贴边，读性靠面不靠 blur。
-                     显式给不透明纸面（--bg-panel）与实线描边，不吃 .nb-ui-popover-surface
-                     的 14% 玻璃配方——那套是给大浮层的，小气泡压在浅色页面上会隐形。
-                     箭头用原生三角 fill 同色、不描边，位于气泡边缘内缩盖住边框线，
-                     与气泡连成一体；禁用 trigger 点击关闭（disableClosingTrigger），
-                     说明性提示不应被点击打断。 -->
+                <!-- Tooltip 是最小浮层：不做箭头。箭头是「指向关系」的强声明，也最难做干净——
+                     reka 的三角需要描边才不穿帮，一描边就变成独立三角贴片。
+                     这里改用 macos 快速提示（NSHelpAnchor）的做法：无箭头、深色墨面、白字、
+                     大圆角、紧凑内边距、轻阴影。指向关系由 6px 间距与位置表达，
+                     深色面在任何配色/背景上都有明确轮廓，不再依赖边框与透明度。 -->
                 <TooltipContent
                     :side="props.placement"
-                    :side-offset="7"
-                    :style="{zIndex: NB_Z_INDEX.tooltip, borderRadius: 'var(--radius-control)', backgroundColor: 'var(--bg-panel)', border: '1px solid var(--panel-outline)', boxShadow: 'var(--elevation-popover)'}"
-                    class="pointer-events-none w-max max-w-64 px-2.5 py-1.5 text-xs leading-relaxed text-[var(--text-main)]"
+                    :side-offset="6"
+                    :style="{zIndex: NB_Z_INDEX.tooltip, borderRadius: 'var(--radius-menu)', backgroundColor: 'color-mix(in srgb, var(--shadow-color) 88%, transparent)', boxShadow: '0 4px 12px color-mix(in srgb, var(--shadow-color) 24%, transparent)'}"
+                    class="pointer-events-none w-max max-w-64 px-2.5 py-1 text-xs leading-relaxed text-[var(--text-inverse)]"
                 >
-                    <TooltipArrow :width="14" :height="7" class="relative -top-px fill-[var(--bg-panel)]" />
                     <span class="block">
                         <slot name="content">{{ props.text }}</slot>
                     </span>
