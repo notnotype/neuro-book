@@ -129,8 +129,8 @@ and generating that class is still your build's job.
 Shared style registries (register instead of copying values):
 
 - `NB_Z_INDEX` (`@notnotype/nb-ui/theme`) — overlay z-indexes; bind via `:style`.
-- `.nb-ui-control` / `.nb-ui-control-invalid` / `.nb-ui-control-h-{sm|md|lg}` / `.nb-ui-control-px` (`styles.css`) — form control border, focus glow, theme-controlled density, and horizontal padding.
 - `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (Dropdown, Combobox, ContextMenu, Tooltip, Dialog).
+- `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
 - `.nb-ui-menu-surface` — menu/dropdown radius modifier; consumes `--radius-menu` and keeps nested items concentric.
 - `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog/DialogWindow surfaces; nbook small popovers leave it off.
 - `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items (Dropdown, ContextMenu).

@@ -131,8 +131,7 @@ input.nb-ui-native-input[type="number"] {
  * 两条都别写回 background 简写：简写会把没写出来的那条重置掉。
  *
  * 这一层排在 utilities 之后且同为单类选择器，所以它会压过组件模板上的 rounded-* 之类原子类。
- * 组件要另给圆角只能走 inline style（Tooltip 就是这么做的），别再往模板里加原子类——
- * 那会写出一个永远不生效的类，看代码的人以为改了其实没改。
+ * Tooltip 的紧凑纸面与箭头统一走 `.nb-ui-tooltip-surface` modifier，不要在组件模板复制 surface 属性。
  */
 .nb-ui-popover-surface {
     border: var(--border-w) solid var(--panel-outline);
@@ -156,6 +155,64 @@ input.nb-ui-native-input[type="number"] {
      */
     --nb-popover-pad: var(--space-3);
     --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
+}
+
+/*
+ * Tooltip modifier：Tooltip 仍属于 popover 层级，但不是普通 Popover 的大面板。
+ * 统一基座继续提供浮层边界与层级阴影；Tooltip 自己切到紧凑纸面、控件圆角和
+ * 贴边箭头。箭头用旋转方块而不是 Reka SVG：保留 surface 边界，并与主体连成一体。
+ */
+.nb-ui-tooltip-surface {
+    --nb-tooltip-arrow-size: 8px;
+    border-radius: var(--radius-control);
+    background-color: var(--bg-panel);
+    background-image: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: var(--text-main);
+    padding: var(--space-2) var(--space-4);
+}
+
+.nb-ui-tooltip-surface::before {
+    position: absolute;
+    width: var(--nb-tooltip-arrow-size);
+    height: var(--nb-tooltip-arrow-size);
+    background-color: var(--bg-panel);
+    content: "";
+    pointer-events: none;
+    transform: rotate(45deg);
+}
+
+.nb-ui-tooltip-surface[data-side="right"]::before {
+    top: 50%;
+    left: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    border-left: var(--border-w) solid var(--panel-outline);
+    border-bottom: var(--border-w) solid var(--panel-outline);
+}
+
+.nb-ui-tooltip-surface[data-side="left"]::before {
+    top: 50%;
+    right: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    margin-top: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    border-right: var(--border-w) solid var(--panel-outline);
+    border-top: var(--border-w) solid var(--panel-outline);
+}
+
+.nb-ui-tooltip-surface[data-side="bottom"]::before {
+    top: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    left: 50%;
+    margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    border-right: var(--border-w) solid var(--panel-outline);
+    border-bottom: var(--border-w) solid var(--panel-outline);
+}
+
+.nb-ui-tooltip-surface[data-side="top"]::before {
+    bottom: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    left: 50%;
+    margin-left: calc(var(--nb-tooltip-arrow-size) * -0.5);
+    border-left: var(--border-w) solid var(--panel-outline);
+    border-top: var(--border-w) solid var(--panel-outline);
 }
 
 /* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */

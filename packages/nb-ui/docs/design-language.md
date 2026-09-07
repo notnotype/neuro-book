@@ -193,9 +193,9 @@ Save Dialog `0 36px 100px`（后者是上一轮从同一份文件的 Dialogs 页
 `--overlay-sheen: none`，小浮层继续 8px 纯 blur、无面渐变。
 
 菜单、ContextMenu、Combobox、FormSelect、默认 TimePicker 与 macOS 滚轮 TimePicker 都必须挂
-`.nb-ui-menu-surface`；Tooltip、Dialog 的基础外观不挂该 modifier。组件不要复制这组属性，也不要
-往模板里加 `rounded-*`：基座排在 utilities 之后，原子类不会改变实际外圈；Tooltip 的小圆角仍走
-自己的 inline 特例。
+`.nb-ui-menu-surface`；Tooltip、Dialog 的基础外观不挂该 modifier。Tooltip 额外挂
+`.nb-ui-tooltip-surface`，由该 modifier 负责紧凑纸面、控件圆角、内边距和贴边箭头。
+组件不要复制 surface 属性，也不要往模板里加 `rounded-*`：基座排在 utilities 之后，原子类不会改变实际外圈。
 
 对话框在这个登记处上再叠一条 `.nb-ui-dialog-surface`，只覆盖**两项**：
 
