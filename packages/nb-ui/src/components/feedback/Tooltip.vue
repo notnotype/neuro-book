@@ -35,17 +35,17 @@ const props = withDefaults(defineProps<{
                 <slot />
             </TooltipTrigger>
             <TooltipPortal>
-                <!-- Tooltip 是最小浮层：不做箭头。箭头是「指向关系」的强声明，也最难做干净——
-                     reka 的三角需要描边才不穿帮，一描边就变成独立三角贴片。
-                     这里改用 macos 快速提示（NSHelpAnchor）的做法：无箭头、深色墨面、白字、
-                     大圆角、紧凑内边距、轻阴影。指向关系由 6px 间距与位置表达，
-                     深色面在任何配色/背景上都有明确轮廓，不再依赖边框与透明度。 -->
+                <!-- Tooltip 气泡：主体大圆角 + 顶部/边缘圆润凸起（rounded tab），同色无描边。
+                     reka Arrow 的 rounded 变体路径是「两侧曲线、顶部圆钝」的拱形凸起，
+                     与主体同 fill、后置于 content 的边框之后渲染，视觉上是一体成型。
+                     深色墨面保证任何配色/背景上都有明确轮廓。 -->
                 <TooltipContent
                     :side="props.placement"
-                    :side-offset="6"
+                    :side-offset="5"
                     :style="{zIndex: NB_Z_INDEX.tooltip, borderRadius: 'var(--radius-menu)', backgroundColor: 'color-mix(in srgb, var(--shadow-color) 88%, transparent)', boxShadow: '0 4px 12px color-mix(in srgb, var(--shadow-color) 24%, transparent)'}"
                     class="pointer-events-none w-max max-w-64 px-2.5 py-1 text-xs leading-relaxed text-[var(--text-inverse)]"
                 >
+                    <TooltipArrow :width="16" :height="7" :rounded="true" class="fill-[color-mix(in_srgb,var(--shadow-color)_88%,transparent)]" />
                     <span class="block">
                         <slot name="content">{{ props.text }}</slot>
                     </span>
