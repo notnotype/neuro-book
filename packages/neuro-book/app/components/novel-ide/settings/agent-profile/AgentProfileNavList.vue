@@ -19,6 +19,7 @@ const emit = defineEmits<{
 const {t} = useI18n();
 const headingId = `agent-profile-nav-${useId()}`;
 const searchId = `agent-profile-search-${useId()}`;
+const isDefaultsActive = computed(() => props.activeKey === "");
 
 const filteredItems = computed(() => {
     const keyword = props.search.trim().toLowerCase();
@@ -71,19 +72,26 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
             <span class="i-lucide-command ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
         </header>
 
-        <label class="block shrink-0" :for="searchId">
-            <span class="sr-only">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
-            <FormInput
-                :id="searchId"
-                :model-value="props.search"
-                type="search"
-                size="sm"
-                icon-class="i-lucide-search"
-                :placeholder="t('settings.panels.profileModels.nav.searchPlaceholder')"
-                class="w-full"
-                @update:model-value="emit('update:search', $event)"
-            />
-        </label>
+        <div class="flex shrink-0 items-center gap-[var(--space-1)]">
+            <label class="block min-w-0 flex-1" :for="searchId">
+                <span class="sr-only">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
+                <FormInput
+                    :id="searchId"
+                    :model-value="props.search"
+                    type="search"
+                    size="sm"
+                    icon-class="i-lucide-search"
+                    :placeholder="t('settings.panels.profileModels.nav.searchPlaceholder')"
+                    class="w-full"
+                    @update:model-value="emit('update:search', $event)"
+                />
+            </label>
+            <Tooltip :text="t('settings.panels.profileModels.nav.profilesHint')" placement="right">
+                <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" aria-label="Profile 说明">
+                    <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
+                </button>
+            </Tooltip>
+        </div>
         <div class="shrink-0 border-b border-[var(--divider)] pb-[var(--space-4)]">
             <button
                 type="button"
@@ -114,17 +122,6 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     </span>
                 </span>
             </button>
-        </div>
-
-        <div class="flex shrink-0 items-center justify-between gap-[var(--space-3)] border-b border-[var(--divider)] px-[var(--space-2)] pb-[var(--space-2)]">
-            <div class="flex min-w-0 items-center gap-[var(--space-2)]">
-                <Tooltip :text="t('settings.panels.profileModels.nav.profilesHint')" placement="right">
-                    <button type="button" class="flex h-6 w-6 items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-main)] focus-visible:outline-none focus-visible:shadow-[var(--focus-ring)]" aria-label="Profile 说明">
-                        <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
-                    </button>
-                </Tooltip>
-            </div>
-            <span class="shrink-0 font-mono text-[var(--text-2xs)] tabular-nums text-[var(--text-muted)]" aria-hidden="true">{{ filteredItems.length }}/{{ props.items.length }}</span>
         </div>
 
         <ul class="custom-scrollbar flex min-h-0 flex-1 flex-col gap-[var(--space-2)] overflow-y-auto pr-[var(--space-1)]" aria-label="Profile 列表">

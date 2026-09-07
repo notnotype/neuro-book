@@ -239,7 +239,8 @@ describe("AgentProfileNavList", () => {
     it("空列表与无匹配态保留默认入口并允许通过编辑 input 恢复列表", async () => {
         const empty = mountNav({items: [], activeKey: "", search: "", defaultsDirty: false});
         expect(empty.host.textContent).toContain("没有可配置的 Profile");
-        expect(empty.host.querySelector("button")?.textContent).toContain("默认设置");
+        const defaultButton = [...empty.host.querySelectorAll("button")].find((button) => button.textContent?.includes("默认设置"));
+        expect(defaultButton?.getAttribute("aria-current")).toBe("page");
 
         const noMatch = mountNav({
             items: [item({profileKey: "editor", name: "Editor"})],
