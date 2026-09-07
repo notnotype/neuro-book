@@ -961,10 +961,10 @@ describe("nb-ui dialog anatomy", () => {
             await nextTick();
             expect(document.body.textContent).toContain("悬停提示内容");
 
-            // reka 默认行为：点击触发器立即关闭提示
+            // disableClosingTrigger：说明性提示不被左键点击打断
             await wrapper.get("button").trigger("click");
             await nextTick();
-            expect(document.body.textContent).not.toContain("悬停提示内容");
+            expect(document.body.textContent).toContain("悬停提示内容");
             wrapper.unmount();
         } finally {
             vi.useRealTimers();

@@ -30,22 +30,24 @@ const props = withDefaults(defineProps<{
 
 <template>
     <TooltipProvider :delay-duration="props.delay">
-        <TooltipRoot :delay-duration="props.delay" :disabled="props.disabled">
+        <TooltipRoot :delay-duration="props.delay" :disabled="props.disabled" :disable-closing-trigger="true">
             <TooltipTrigger as-child>
                 <slot />
             </TooltipTrigger>
             <TooltipPortal>
                 <!-- Tooltip 是最小浮层：小字贴边，读性靠面不靠 blur。
                      显式给不透明纸面（--bg-panel）与实线描边，不吃 .nb-ui-popover-surface
-                     的 14% 玻璃配方——那套是给大浮层的，小气泡压在浅色页面上会隐形，
-                     只剩一个 85% 的箭头浮在外面。箭头同步取 --bg-panel，与气泡同源。 -->
+                     的 14% 玻璃配方——那套是给大浮层的，小气泡压在浅色页面上会隐形。
+                     箭头用原生三角 fill 同色、不描边，位于气泡边缘内缩盖住边框线，
+                     与气泡连成一体；禁用 trigger 点击关闭（disableClosingTrigger），
+                     说明性提示不应被点击打断。 -->
                 <TooltipContent
                     :side="props.placement"
-                    :side-offset="6"
+                    :side-offset="7"
                     :style="{zIndex: NB_Z_INDEX.tooltip, borderRadius: 'var(--radius-control)', backgroundColor: 'var(--bg-panel)', border: '1px solid var(--panel-outline)', boxShadow: 'var(--elevation-popover)'}"
                     class="pointer-events-none w-max max-w-64 px-2.5 py-1.5 text-xs leading-relaxed text-[var(--text-main)]"
                 >
-                    <TooltipArrow class="fill-[var(--bg-panel)] stroke-[var(--panel-outline)] stroke-[1px]" />
+                    <TooltipArrow :width="14" :height="7" class="relative -top-px fill-[var(--bg-panel)]" />
                     <span class="block">
                         <slot name="content">{{ props.text }}</slot>
                     </span>
