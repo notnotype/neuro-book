@@ -185,6 +185,8 @@ describe("AgentProfileNavList", () => {
         expect(heading?.textContent).toContain("Agent Profiles");
         expect(root?.getAttribute("aria-labelledby")).toBe(heading?.id);
         expect(label?.textContent).toContain("搜索 Profile");
+        expect(label?.querySelector(".sr-only")).not.toBeNull();
+        expect(getComputedStyle(label as Element).display).not.toBe("none");
         expect(label?.getAttribute("for")).toBe(input.id);
     });
 

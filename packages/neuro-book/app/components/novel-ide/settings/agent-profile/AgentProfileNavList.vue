@@ -71,15 +71,15 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
             <span class="i-lucide-command ml-auto h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
         </header>
 
-        <label class="flex shrink-0 items-center gap-[var(--space-2)]" :for="searchId">
-            <span class="shrink-0 text-[var(--text-xs)] [font-weight:var(--weight-medium)] text-[var(--text-muted)]">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
+        <label class="block shrink-0" :for="searchId">
+            <span class="sr-only">{{ t("settings.panels.profileModels.nav.searchPlaceholder") }}</span>
             <FormInput
                 :id="searchId"
                 :model-value="props.search"
                 type="search"
                 size="sm"
                 icon-class="i-lucide-search"
-                class="min-w-0 flex-1"
+                class="w-full"
                 @update:model-value="emit('update:search', $event)"
             />
         </label>
@@ -97,8 +97,8 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     aria-hidden="true"
                 ></span>
                 <span class="min-w-0 flex-1">
-                    <span class="block truncate text-[var(--text-sm)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
-                    <span class="mt-[var(--space-1)] block truncate text-[var(--text-xs)] text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.nav.defaultsDescription") }}</span>
+                    <span class="block truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="isDefaultsActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ t("settings.panels.profileModels.nav.defaults") }}</span>
+                    <span class="mt-[var(--space-1)] block truncate text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.nav.defaultsDescription") }}</span>
                     <span v-if="props.defaultsDirty" class="mt-[var(--space-2)] flex h-5 items-center gap-[var(--space-1)]">
                         <span class="i-lucide-triangle-alert h-3 w-3 shrink-0 text-[var(--status-warning)]" aria-hidden="true"></span>
                         <Badge tone="warning" variant="soft" size="sm">{{ t("settings.panels.profileModels.unsavedChanges") }}</Badge>
@@ -132,10 +132,10 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
                     <span class="mt-[var(--space-1)] min-w-0 flex-1">
                         <span class="flex min-w-0 items-center gap-[var(--space-2)]">
                             <span v-if="item.iconClass" class="h-4 w-4 shrink-0" :class="item.iconClass" aria-hidden="true"></span>
-                            <span class="min-w-0 flex-1 truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="props.activeKey === item.profileKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ item.name }}</span>
+                            <span class="truncate text-[var(--text-sm)] leading-[var(--leading-ui)] [font-weight:var(--weight-medium)]" :class="props.activeKey === item.profileKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ item.name }}</span>
+                            <span class="min-w-0 flex-1 truncate font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ item.profileKey }}</span>
                             <span class="h-4 w-4 shrink-0" :class="[statusIcons[item.status], statusIconToneClass(item.status), item.status === 'compiling' ? 'animate-spin' : undefined]" aria-hidden="true"></span>
                         </span>
-                        <span class="mt-[var(--space-1)] block truncate font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ item.profileKey }}</span>
                         <span class="mt-[var(--space-2)] flex h-5 min-w-0 flex-wrap items-center gap-[var(--space-2)] overflow-hidden">
                             <Badge :tone="getStatusBadge(item.status).tone" variant="soft" size="sm">{{ getStatusBadge(item.status).label }}</Badge>
                             <Badge v-if="item.isDefault" tone="accent" variant="soft" size="sm">{{ t("settings.panels.profileModels.currentDefault") }}</Badge>
