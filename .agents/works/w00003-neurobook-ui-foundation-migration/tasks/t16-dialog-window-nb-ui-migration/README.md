@@ -42,8 +42,6 @@ role: tasker
 
 - `packages/nb-ui/playground/app/pages/components.vue`。
 
-不得保留主应用 `app/components/common/DialogWindow.vue` 作为兼容别名或第二入口；全部消费者切换完成后删除旧入口及仅供其使用的导入。
-
 ## 公共接口合同
 
 保留现有消费者所需接口，并将尺寸调整能力设计为可选、受控行为：
@@ -55,7 +53,7 @@ type DialogWindowProps = {
     modelValue: boolean;
     title?: string;
     width?: number;
-    height?: string;
+    height?: string | number;
     maxHeight?: string;
     minWidth?: number;
     minHeight?: number;
@@ -64,7 +62,7 @@ type DialogWindowProps = {
     closeOnEsc?: boolean;
     busy?: boolean;
     bodyClass?: string;
-    teleportTarget?: string;
+    teleportTarget?: string | boolean;
 };
 
 type DialogWindowEmits = {
@@ -83,7 +81,7 @@ type DialogWindowEmits = {
 - 默认标题与自定义 `header` 均必须最终渲染一个 `DialogTitle`，使 Reka `DialogContent` 的 `aria-labelledby` 始终指向可见或视觉隐藏的可访问名称；
 - `DialogRoot` 必须显式 `:modal="false"`；不得渲染 `DialogOverlay`；不得启用 `trapFocus`、`disableOutsidePointerEvents`、body scroll lock 或自定义全局 Escape 监听来重复 Reka 行为；
 - DialogWindow 的 Escape 关闭只在 `closeOnEsc` 开启且不忙碌时生效，关闭原因仍为 `"esc"`；非模态外部交互不关闭窗口；
-- `teleportTarget` 继续支持主题宿主目标，默认值与主应用现有主题宿主保持一致；缺失目标时应使用现有 Teleport 语义，不新增隐式存储或网络行为；
+- `teleportTarget` 默认是公共组件的 `body`；NeuroBook 等产品必须显式传入自己的主题宿主目标（当前为 `.novel-ide-theme`），缺失目标时沿用 Vue Teleport 的目标语义，不由公共组件创建隐式宿主；
 - body 与 footer slot 继续保持现有用途，DialogWindow 不提供业务数据、网络、store 或持久化能力。
 
 ## 实现范围
