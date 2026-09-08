@@ -1824,6 +1824,9 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
     <Dialog
         :model-value="props.modelValue"
         size="full"
+        width="calc(100vw - 8px)"
+        height="calc(100vh - 8px)"
+        max-height="calc(100vh - 8px)"
         overlay-type="opaque"
         :show-footer="false"
         :close-on-overlay="false"
