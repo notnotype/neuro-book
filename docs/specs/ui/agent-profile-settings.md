@@ -72,7 +72,7 @@ owners:
 6. Given 容器 1440×900、768×1024 与 390×844，Then 核心操作可完成，无页面级横向滚动；键盘可完成选择、折叠、保存与确认；明暗主题下文本与浮层可读。
 7. Given 全程监测网络，Then 除 Lab 自身资源外无业务 API、Provider 或文件请求。
 
-Smoke 入口：`bun run --cwd packages/neuro-book smoke:component-lab -- --url <source-dev-url> --browser-executable <chromium>`；场景细节由 `app/component-lab/fixtures/AgentProfileSettingsViewFixture.vue` 登记。
+Smoke 入口：`bun run --cwd packages/neuro-book smoke:component-lab -- --url <source-dev-url> --browser-executable <chromium>`；场景由 Component Lab 的受控场景登记提供，不约束其目录或文件布局。
 
 ## 实现合同
 
