@@ -69,8 +69,8 @@ git diff --check        → 通过
 
 ## 未运行 / 残余风险
 
-- E2E 全套最终状态：`bun run --cwd packages/nb-ui test:e2e -- e2e/lab.spec.ts` → **19 passed（含 DialogWindow 用例）**。原三个 lab 失败用例（form-select rich/default、button 事件日志）为既有契约漂移，随后已修复并单独提交 `fd5edfb9`：给两个 fixture 补回被测控件 `#nb-lab-target`；FixtureShell 控件行加 `data-control` 稳定定位；direction 控件接线到被测 `SelectContent` 的 `side`；被测 Reka Select 显式 `body-lock=false` + `disable-outside-pointer-events=false` 对齐“页面不锁”契约；Escape/焦点断言收窄为列表关闭（裸 Reka fixture 无产品级焦点管理，归还契约属 nb-ui FormSelect）。
-- visual/shots 全部基线用例仍失败：用 HEAD 版本 `dist/nb-ui.css`（不含本会话任何改动）重跑 nbook-dark 用例仍失败，且失败组件模板与本会话 CSS 差异无交集 → 属既有环境/Chromium 版本与 win32 快照基线漂移，不在 t16 范围，报告给开发者后另行处理。
+- **lab.spec.ts 聚焦最终状态**：`bun run --cwd packages/nb-ui test:e2e -- e2e/lab.spec.ts` → **19 passed（最终文件版本，含 DialogWindow 用例与全部原失败用例）**。原三个 lab 失败用例（form-select rich/default、button 事件日志）为既有契约漂移，随后已修复并单独提交 `fd5edfb9`：给两个 fixture 补回被测控件 `#nb-lab-target`；FixtureShell 控件行加 `data-control` 稳定定位；direction 控件接线到被测 `SelectContent` 的 `side`；被测 Reka Select 显式 `body-lock=false` + `disable-outside-pointer-events=false` 对齐“页面不锁”契约；Escape/焦点断言收窄为列表关闭（裸 Reka fixture 无产品级焦点管理，归还契约属 nb-ui FormSelect）。
+- **完整 E2E 全套（lab + shots + visual）在 `fd5edfb9` 后未重跑**；最后一次全套实际结果（修复前）：17 passed / 17 failed——失败全部来自 shots/visual 基线用例（lab 的三个失败已修复）。visual/shots 失败用 HEAD 版本 `dist/nb-ui.css`（不含本会话任何改动）复现 nbook-dark 单用例仍失败，且失败组件模板与本会话 CSS 差异无交集 → 属既有环境/Chromium 版本与 win32 快照基线漂移，不在 t16 范围，报告给开发者后另行处理。
 - 主应用 IDE 页面级浏览器自动验收：dev 实例（3001）被用户实时交互占用，多次独立 Chromium 探测中 IDE 顶栏渲染不稳定；组件行为已由 nb-ui playground 真实浏览器 E2E 覆盖，产品宿主主题继承由显式 `teleport-target=".novel-ide-theme"` 保证，页面级观感由用户在当前打开的实例直接确认。
 - Product gate 仍不属于本 Task；不宣称 Work/Product gate 完成。
 - `packages/neuro-book/eval-tmp.ts` 保持用户未跟踪状态，未读取、修改或删除。
