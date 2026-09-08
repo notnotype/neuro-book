@@ -59,11 +59,14 @@ function closeMobileNav(): void {
 }
 
 function selectNavKey(key: string): void {
+    const wasMobileOpen = mobileNavOpen.value;
     activeNavKey.value = key;
     mobileNavOpen.value = false;
-    void nextTick(() => {
-        detailTitleRef.value?.focus();
-    });
+    if (wasMobileOpen) {
+        void nextTick(() => {
+            detailTitleRef.value?.focus();
+        });
+    }
 }
 
 const busy = computed(() => props.loading || props.saving);

@@ -76,14 +76,10 @@ Smoke 入口：`bun run --cwd packages/neuro-book smoke:component-lab -- --url <
 
 ## 实现合同
 
-- 实现位置：`packages/neuro-book/app/components/novel-ide/settings/agent-profile/`
-  - 主受控视图：`AgentProfileSettingsView.vue` + `AgentProfileSettingsView.types.ts`
-  - 详情编排与独立区段：`AgentProfileDetailPanel.vue`，拆分为 `AgentProfileIdentitySection.vue`、`AgentProfileModelSection.vue`、`AgentProfileCustomSettingsSection.vue`、`AgentProfileRuntimeSection.vue`、`AgentProfileDiagnosticsSection.vue`
-  - 默认设置编排与区段：`AgentProfileDefaultsPanel.vue`，拆分为 `AgentProfileDefaultProfileSection.vue`、`AgentProfileDefaultModelSection.vue`、`AgentProfileDefaultRuntimeSection.vue`
-  - 基础字段复用：`AgentProfileModelFields.vue`、`ProfileRuntimeSettingsFields.vue`、`LowCodeForm.vue`
-- 宿主契约：面向后续嵌入 `DialogWindow` 设计，顶部无冗余标题栏，底部固定动作栏承载会话级保存与放弃；组件对外完全受控，不持有持久化与 IO。
-- 响应式：根元素 `container-type: inline-size`，以 `@container (max-width: 699px)` 驱动单列/双栏切换，并在打开导航、关闭导航与选择项之间通过 `nextTick` 管理焦点流转。
-- 合同测试命令：`bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/agent-profile/profile-runtime-settings.test.ts app/component-lab`。
+- 模块归属与形态：NeuroBook 领域设置层受控组件，面向对话框或浮动窗口宿主设计；顶部不设全宽标题栏以避免与宿主标题栏产生双重标题冲突，底部设有统一固定动作栏管理会话级状态。
+- 数据流契约：完全受控的单向数据流。输入页面草稿与基线快照，字段编辑发出局部更新事件，保存与放弃作用于整个会话草稿；组件内部不持有持久化、全局存储与网络请求。
+- 容器响应式契约：以组件自身容器宽度 700px 为阈值实现单列与双栏切换，不依赖外部浏览器视口；单列模式下提供导航与详情双向切换控件，且在打开导航、关闭导航与选择项之间确保键盘焦点精准流转与归还。
+- 独立验证边界：视图对外不产生持久化或网络副作用，所有状态、继承与校验行为可在无真实配置写入的受控环境与聚焦测试中完整验证。
 ## 证据
 
 - 批准依据：用户于 2026-09-08 批准的 Lab-first 完整设置页计划（`local://profile-settings-lab-plan.md`，本会话批准记录）；Work `w00003-neurobook-ui-foundation-migration` Lab-first replacement 路线。

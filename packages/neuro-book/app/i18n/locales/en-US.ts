@@ -691,8 +691,8 @@ const enUS = {
                 unsavedChanges: "Unsaved changes",
                 currentDefault: "Default",
                 nav: {
+                    title: "Agent Profiles",
                     titleHint: "Manage Agent Profiles and model override parameters",
-                    defaults: "Defaults",
                     defaultsDescription: "Inheritance baseline for every Profile",
                     searchPlaceholder: "Search Profile",
                     noMatch: "No matching Profile",
