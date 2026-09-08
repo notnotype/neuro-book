@@ -90,6 +90,15 @@ const reasoningEffortOptions = computed<FormSelectOption[]>(() => {
     ];
 });
 
+/**
+ * 下拉显示值：有继承选项时草稿 null 显示 "inherit"；
+ * globalDefaults 模式没有继承选项，草稿空值按基线落定显示，否则触发器会渲染成空白。
+ */
+const reasoningDisplayValue = computed(() => props.modelValue.reasoningEffort
+    ?? (hasInheritOption.value ? "inherit" : props.inherited.reasoningEffort ?? "off"));
+const streamDisplayValue = computed(() => props.modelValue.stream !== null || hasInheritOption.value
+    ? streamSelectValue(props.modelValue.stream)
+    : streamSelectValue(props.inherited.stream ?? true));
 const streamOptions = computed<FormSelectOption[]>(() => [
     ...(hasInheritOption.value ? [{value: "inherit", label: inheritOptionLabel(streamLabel(props.inherited.stream ?? true))}] : []),
     {value: "true", label: t("settings.panels.profileModels.enabled")},
@@ -154,7 +163,7 @@ function update(patch: Partial<AgentProfileModelDraft>): void {
 
         <FormField v-if="props.visibleFields.includes('reasoning')" :label="t('settings.panels.profileModels.reasoningEffort')">
             <FormSelect
-                :model-value="props.modelValue.reasoningEffort ?? 'inherit'"
+                :model-value="reasoningDisplayValue"
                 :options="reasoningEffortOptions"
                 :disabled="props.disabled"
                 @update:model-value="update({reasoningEffort: $event === 'inherit' ? null : $event as ThinkingLevelDto})"
@@ -169,7 +178,7 @@ function update(patch: Partial<AgentProfileModelDraft>): void {
                 <FormInput :model-value="props.modelValue.topK" type="number" step="1" min="1" :placeholder="emptyPlaceholder" :disabled="props.disabled" @update:model-value="update({topK: $event})" />
             </FormField>
             <FormField :label="t('settings.panels.profileModels.stream')">
-                <FormSelect :model-value="streamSelectValue(props.modelValue.stream)" :options="streamOptions" :disabled="props.disabled" @update:model-value="update({stream: parseStreamSelectValue($event)})" />
+                <FormSelect :model-value="streamDisplayValue" :options="streamOptions" :disabled="props.disabled" @update:model-value="update({stream: parseStreamSelectValue($event)})" />
             </FormField>
         </template>
     </div>
