@@ -22,8 +22,8 @@ const isProjectScope = computed(() => props.scope === "project");
 </script>
 
 <template>
-    <section v-if="props.runtimeEffective && props.runtimeSources" class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
-        <div class="mb-4 border-b border-[var(--border-color)] pb-4">
+    <section v-if="props.runtimeEffective && props.runtimeSources" class="border-t border-[var(--divider)] pt-4 space-y-3">
+        <div class="border-b border-[var(--divider)] pb-3">
             <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.runtime.defaultsTitle") }}</h4>
             <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? t("settings.panels.profileModels.runtime.projectDefaultsDescription") : t("settings.panels.profileModels.runtime.globalDefaultsDescription") }}</p>
         </div>

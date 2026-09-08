@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import {Button, type FormSelectOption} from "@notnotype/nb-ui/components";
+import {Badge, Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import AgentProfileNavList from "./AgentProfileNavList.vue";
 import type {AgentProfileNavItem} from "./AgentProfileNavList.types";
@@ -215,11 +215,11 @@ const modelValidation = computed(() => {
     }
     return issues;
 });
-
 const validationBlocking = computed(() => modelValidation.value.length > 0);
 
-const canSave = computed(() => !busy.value && !validationBlocking.value && (defaultsDirty.value || navItems.value.some((item) => item.dirty)));
+const hasDirty = computed(() => defaultsDirty.value || navItems.value.some((item) => item.dirty));
 
+const canSave = computed(() => !busy.value && !validationBlocking.value && hasDirty.value);
 function save(): void {
     if (!canSave.value) return;
     emit("save", props.modelValue);
@@ -254,24 +254,47 @@ function confirmResetHome(): void {
 
 <template>
     <div class="flex h-full min-h-0 min-w-0 flex-col" data-lab-subject>
-        <!-- 标题区：作用域与目标 -->
-        <header class="flex shrink-0 flex-wrap items-center justify-between gap-2 px-[var(--space-4)] pb-[var(--space-3)] pt-[var(--space-4)]">
-            <div class="min-w-0">
-                <h3 class="text-[var(--text-base)] [font-weight:var(--weight-strong)] text-[var(--text-main)]">{{ t("settings.panels.profileModels.settingsView.title") }}</h3>
-                <p class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ scopeLabel }}</p>
+        <!-- 页面顶栏：标题、作用域徽标、脏状态指示、窄屏导航切换与操作按钮 -->
+        <header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--divider)] px-[var(--space-4)] py-[var(--space-3)]">
+            <div class="flex min-w-0 items-center gap-[var(--space-2)]">
+                <Button
+                    size="sm"
+                    variant="secondary"
+                    class="lg:hidden"
+                    @click="mobileNavOpen = !mobileNavOpen"
+                >
+                    <span :class="mobileNavOpen ? 'i-lucide-arrow-left' : 'i-lucide-list'" class="mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
+                    {{ mobileNavOpen ? t("settings.panels.profileModels.settingsView.backToDetail") : t("settings.panels.profileModels.settingsView.selectProfile") }}
+                </Button>
+
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent-bg)] text-[var(--accent-main)]">
+                    <span class="i-lucide-sliders-horizontal h-4 w-4" aria-hidden="true"></span>
+                </div>
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                    <h3 class="text-sm [font-weight:var(--weight-strong)] text-[var(--text-main)]">{{ t("settings.panels.profileModels.settingsView.title") }}</h3>
+                    <Badge tone="neutral" size="sm" variant="soft">{{ scopeLabel }}</Badge>
+                    <Badge v-if="hasDirty" tone="warning" size="sm" variant="soft">
+                        <span class="i-lucide-circle-alert mr-0.5 h-3 w-3 shrink-0" aria-hidden="true"></span>
+                        {{ t("settings.panels.profileModels.unsavedChanges") }}
+                    </Badge>
+                </div>
             </div>
+
             <div class="flex items-center gap-2">
-                <Button size="sm" variant="ghost" :disabled="busy" @click="requestDiscard">{{ t("settings.panels.profileModels.settingsView.discard") }}</Button>
+                <Button size="sm" variant="ghost" :disabled="busy || !hasDirty" @click="requestDiscard">{{ t("settings.panels.profileModels.settingsView.discard") }}</Button>
                 <Button size="sm" :disabled="!canSave" @click="save">{{ t("settings.panels.profileModels.settingsView.saveChanges") }}</Button>
             </div>
         </header>
 
-        <p v-if="props.saveError" class="mx-[var(--space-4)] mb-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)]">{{ t("settings.panels.profileModels.settingsView.saveErrorPrefix") + props.saveError }}</p>
-        <p v-if="!props.saveError && props.saving" class="mx-[var(--space-4)] mb-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">{{ t("settings.panels.profileModels.settingsView.saveHintPreview") }}</p>
+        <p v-if="props.saveError" class="mx-[var(--space-4)] mt-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)]">{{ t("settings.panels.profileModels.settingsView.saveErrorPrefix") + props.saveError }}</p>
+        <p v-if="!props.saveError && props.saving" class="mx-[var(--space-4)] mt-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">{{ t("settings.panels.profileModels.settingsView.saveHintPreview") }}</p>
 
-        <div class="flex min-h-0 flex-1 gap-[var(--space-4)] px-[var(--space-4)] pb-[var(--space-4)]">
-            <!-- 桌面：双栏导航 -->
-            <aside class="hidden w-[260px] shrink-0 lg:block">
+        <div class="flex min-h-0 flex-1 gap-[var(--space-4)] p-[var(--space-4)]">
+            <!-- 桌面或移动端展开时展示导航 -->
+            <aside
+                class="shrink-0"
+                :class="mobileNavOpen ? 'block w-full lg:w-[260px]' : 'hidden w-[260px] lg:block'"
+            >
                 <AgentProfileNavList
                     class="h-full"
                     :items="navItems"
@@ -283,8 +306,11 @@ function confirmResetHome(): void {
                 />
             </aside>
 
-            <!-- 详情 -->
-            <section class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)]">
+            <!-- 详情（移动端打开导航时隐藏） -->
+            <section
+                class="min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)]"
+                :class="mobileNavOpen ? 'hidden lg:flex' : 'flex'"
+            >
                 <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-4)]">
                     <div v-if="props.loading" class="space-y-3" aria-busy="true">
                         <div class="h-6 w-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
