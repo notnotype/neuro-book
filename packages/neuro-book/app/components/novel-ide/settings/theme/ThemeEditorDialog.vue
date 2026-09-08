@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {colord} from "colord";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
-import DialogWindow from "nbook/app/components/common/DialogWindow.vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import ThemeAdvancedVarsSection from "nbook/app/components/novel-ide/settings/theme/ThemeAdvancedVarsSection.vue";
 import ThemeCorePaletteSection from "nbook/app/components/novel-ide/settings/theme/ThemeCorePaletteSection.vue";
@@ -282,6 +282,7 @@ watch(previewVars, (vars) => {
         :title="dialogTitle"
         :width="560"
         height="min(760px, calc(100vh - 88px))"
+        teleport-target=".novel-ide-theme"
         :busy="saving"
         body-class="flex min-h-0 flex-1 flex-col overflow-hidden"
         @request-close="cancelEditing"

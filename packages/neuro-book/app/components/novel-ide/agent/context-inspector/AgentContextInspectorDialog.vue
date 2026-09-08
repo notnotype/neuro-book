@@ -10,7 +10,7 @@
  * 隐私边界：面板刻意不提供导出 / 复制全部 / 分享——traces 保留完整 prompt 正文且
  * 被排除在可分享日志包之外，加导出等于开一个绕过该边界的口子。
  */
-import DialogWindow from "nbook/app/components/common/DialogWindow.vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import AgentContextCacheTimeline from "nbook/app/components/novel-ide/agent/context-inspector/AgentContextCacheTimeline.vue";
@@ -92,6 +92,7 @@ function onSelectRequest(value: string): void {
         :model-value="props.modelValue"
         :title="t('agent.contextInspector.title')"
         :width="900"
+        teleport-target=".novel-ide-theme"
         max-height="calc(100vh - 96px)"
         body-class="overflow-y-auto px-4 py-3"
         @update:model-value="emit('update:modelValue', $event)"

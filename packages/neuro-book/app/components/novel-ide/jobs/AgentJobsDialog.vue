@@ -4,7 +4,7 @@
  * 非模态 DialogWindow 壳 + 工具条（过滤 chips / 清除已结束 / 刷新）+ 分组列表（进行中置顶）。
  * 数据来自 useAgentJobsFeed 共享 SSE 单例（与 Header 徽标和气泡同源）。
  */
-import DialogWindow from "nbook/app/components/common/DialogWindow.vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import AgentJobRow from "nbook/app/components/novel-ide/jobs/AgentJobRow.vue";
 import {useAgentJobsFeed} from "nbook/app/composables/useAgentJobsFeed";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -89,7 +89,7 @@ onScopeDispose(() => {
 
 <template>
     <!-- 后台任务中心浮窗（非模态，可拖动） -->
-    <DialogWindow :model-value="props.modelValue" :title="t('ide.agentJobs.title')" :width="680" height="min(640px, calc(100vh - 88px))" body-class="overflow-hidden !p-0" @update:model-value="emit('update:modelValue', $event)">
+    <DialogWindow :model-value="props.modelValue" :title="t('ide.agentJobs.title')" :width="680" height="min(640px, calc(100vh - 88px))" teleport-target=".novel-ide-theme" body-class="overflow-hidden !p-0" @update:model-value="emit('update:modelValue', $event)">
         <!-- 工具条：过滤 chips + 清除已结束 + 刷新 -->
         <div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-color)] px-3 py-2">
             <button

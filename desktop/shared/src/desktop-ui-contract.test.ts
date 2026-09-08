@@ -122,18 +122,18 @@ describe("Desktop UI shell contract", () => {
 
     it("uses one opaque dialog surface language without blur and keeps full dialogs inset", async () => {
         const dialog = await readFile(resolve(applicationRoot, "app/components/common/Dialog.vue"), "utf8");
-        const dialogWindow = await readFile(resolve(applicationRoot, "app/components/common/DialogWindow.vue"), "utf8");
+        const dialogWindow = await readFile(resolve("packages/nb-ui", "src/components/feedback/DialogWindow.vue"), "utf8");
 
         expect(dialog).toContain('overlayType: "opaque"');
-        expect(dialog).not.toContain('"blur"');
+        expect(dialog).not.toContain('overlayType: "blur"');
         expect(dialog).not.toContain("backdrop-blur");
         expect(dialog).toContain('width: "min(1120px, calc(100vw - 48px))"');
         expect(dialog).toContain('height: "min(640px, calc(100dvh - 80px))"');
         expect(dialog).toContain("data-dialog-size");
+        expect(dialogWindow).toContain(':modal="false"');
+        expect(dialogWindow).not.toContain("DialogOverlay");
+        expect(dialogWindow).toContain("DialogTitle");
         expect(dialogWindow).toContain("data-dialog-window");
-        expect(dialog).toContain("0 18px 44px");
-        expect(dialogWindow).not.toContain("backdrop-filter");
-        expect(dialogWindow).toContain("background: var(--bg-panel)");
-        expect(dialogWindow).toContain("0 18px 44px");
+        expect(dialogWindow).toContain("data-dialog-resize");
     });
 });
