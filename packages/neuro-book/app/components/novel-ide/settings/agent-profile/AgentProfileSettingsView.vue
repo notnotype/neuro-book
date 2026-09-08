@@ -253,47 +253,13 @@ function confirmResetHome(): void {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 min-w-0 flex-col" data-lab-subject>
-        <!-- 页面顶栏：标题、作用域徽标、脏状态指示、窄屏导航切换与操作按钮 -->
-        <header class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--divider)] px-[var(--space-4)] py-[var(--space-3)]">
-            <div class="flex min-w-0 items-center gap-[var(--space-2)]">
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    class="lg:hidden"
-                    @click="mobileNavOpen = !mobileNavOpen"
-                >
-                    <span :class="mobileNavOpen ? 'i-lucide-arrow-left' : 'i-lucide-list'" class="mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
-                    {{ mobileNavOpen ? t("settings.panels.profileModels.settingsView.backToDetail") : t("settings.panels.profileModels.settingsView.selectProfile") }}
-                </Button>
-
-                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent-bg)] text-[var(--accent-main)]">
-                    <span class="i-lucide-sliders-horizontal h-4 w-4" aria-hidden="true"></span>
-                </div>
-                <div class="flex min-w-0 flex-wrap items-center gap-2">
-                    <h3 class="text-sm [font-weight:var(--weight-strong)] text-[var(--text-main)]">{{ t("settings.panels.profileModels.settingsView.title") }}</h3>
-                    <Badge tone="neutral" size="sm" variant="soft">{{ scopeLabel }}</Badge>
-                    <Badge v-if="hasDirty" tone="warning" size="sm" variant="soft">
-                        <span class="i-lucide-circle-alert mr-0.5 h-3 w-3 shrink-0" aria-hidden="true"></span>
-                        {{ t("settings.panels.profileModels.unsavedChanges") }}
-                    </Badge>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <Button size="sm" variant="ghost" :disabled="busy || !hasDirty" @click="requestDiscard">{{ t("settings.panels.profileModels.settingsView.discard") }}</Button>
-                <Button size="sm" :disabled="!canSave" @click="save">{{ t("settings.panels.profileModels.settingsView.saveChanges") }}</Button>
-            </div>
-        </header>
-
-        <p v-if="props.saveError" class="mx-[var(--space-4)] mt-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)]">{{ t("settings.panels.profileModels.settingsView.saveErrorPrefix") + props.saveError }}</p>
-        <p v-if="!props.saveError && props.saving" class="mx-[var(--space-4)] mt-2 shrink-0 rounded-[var(--radius-control)] border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-xs text-[var(--status-info)]">{{ t("settings.panels.profileModels.settingsView.saveHintPreview") }}</p>
-
-        <div class="flex min-h-0 flex-1 gap-[var(--space-4)] p-[var(--space-4)]">
+    <div class="settings-view-root flex h-full min-h-0 min-w-0 flex-col" data-lab-subject>
+        <!-- 主体双栏区域：从顶部自然铺展，无冗余全局 Header 干扰 DialogWindow 标题栏 -->
+        <div class="flex min-h-0 flex-1 gap-[var(--space-3)] p-[var(--space-3)]">
             <!-- 桌面或移动端展开时展示导航 -->
             <aside
-                class="shrink-0"
-                :class="mobileNavOpen ? 'block w-full lg:w-[260px]' : 'hidden w-[260px] lg:block'"
+                class="settings-nav-aside shrink-0"
+                :class="{'is-mobile-open': mobileNavOpen}"
             >
                 <AgentProfileNavList
                     class="h-full"
@@ -306,11 +272,22 @@ function confirmResetHome(): void {
                 />
             </aside>
 
-            <!-- 详情（移动端打开导航时隐藏） -->
+            <!-- 详情工作区（移动端打开导航时隐藏） -->
             <section
-                class="min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)]"
-                :class="mobileNavOpen ? 'hidden lg:flex' : 'flex'"
+                class="settings-detail-section min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)]"
+                :class="{'is-mobile-open': mobileNavOpen}"
             >
+                <!-- 窄屏移动端导航切换条（桌面容器宽度下隐藏） -->
+                <div class="settings-mobile-bar shrink-0 items-center justify-between border-b border-[var(--divider)] px-4 py-2">
+                    <span class="text-xs font-semibold text-[var(--text-main)] truncate">
+                        {{ activeProfile ? activeProfile.name : t("settings.panels.profileModels.settingsView.defaultsPage") }}
+                    </span>
+                    <Button size="sm" variant="secondary" @click="mobileNavOpen = true">
+                        <span class="i-lucide-list mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
+                        {{ t("settings.panels.profileModels.settingsView.selectProfile") }}
+                    </Button>
+                </div>
+
                 <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-4)]">
                     <div v-if="props.loading" class="space-y-3" aria-busy="true">
                         <div class="h-6 w-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
@@ -365,5 +342,69 @@ function confirmResetHome(): void {
                 </div>
             </section>
         </div>
+        <!-- 底部固定动作栏：作用域指示、未保存状态、错误提示、操作按钮 -->
+        <footer class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-[var(--divider)] px-[var(--space-4)] py-[var(--space-2)] bg-[var(--panel-surface)]">
+            <div class="flex min-w-0 flex-wrap items-center gap-2">
+                <Badge tone="neutral" size="sm" variant="soft">{{ scopeLabel }}</Badge>
+                <Badge v-if="hasDirty" tone="warning" size="sm" variant="soft">
+                    <span class="i-lucide-circle-alert mr-0.5 h-3 w-3 shrink-0" aria-hidden="true"></span>
+                    {{ t("settings.panels.profileModels.unsavedChanges") }}
+                </Badge>
+                <span v-if="props.saveError" class="truncate text-xs text-[var(--status-danger)]">
+                    {{ t("settings.panels.profileModels.settingsView.saveErrorPrefix") + props.saveError }}
+                </span>
+                <span v-else-if="props.saving" class="flex items-center gap-1 text-xs text-[var(--status-info)]">
+                    <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
+                    {{ t("settings.panels.profileModels.settingsView.saveHintPreview") }}
+                </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <Button size="sm" variant="ghost" :disabled="busy || !hasDirty" @click="requestDiscard">
+                    {{ t("settings.panels.profileModels.settingsView.discard") }}
+                </Button>
+                <Button size="sm" :disabled="!canSave" @click="save">
+                    {{ t("settings.panels.profileModels.settingsView.saveChanges") }}
+                </Button>
+            </div>
+        </footer>
     </div>
 </template>
+
+<style scoped>
+.settings-view-root {
+    container-type: inline-size;
+}
+
+@container (max-width: 699px) {
+    .settings-nav-aside {
+        display: none;
+    }
+    .settings-nav-aside.is-mobile-open {
+        display: block;
+        width: 100%;
+    }
+    .settings-detail-section {
+        display: flex;
+    }
+    .settings-detail-section.is-mobile-open {
+        display: none;
+    }
+    .settings-mobile-bar {
+        display: flex;
+    }
+}
+
+@container (min-width: 700px) {
+    .settings-nav-aside {
+        display: block !important;
+        width: 260px !important;
+    }
+    .settings-detail-section {
+        display: flex !important;
+    }
+    .settings-mobile-bar {
+        display: none !important;
+    }
+}
+</style>
