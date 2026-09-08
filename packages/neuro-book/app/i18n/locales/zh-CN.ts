@@ -691,6 +691,7 @@ const zhCN = {
                 nav: {
                     title: "Agent Profiles",
                     titleHint: "管理 Agent Profile 及模型覆盖参数",
+                    defaults: "默认设置",
                     defaultsDescription: "所有 Profile 的继承基线",
                     searchPlaceholder: "搜索 Profile",
                     noMatch: "没有匹配的 Profile",
