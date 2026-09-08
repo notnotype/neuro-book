@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {computed, nextTick, ref, watch, type ComponentPublicInstance} from "vue";
-import {Badge, Button, type FormSelectOption} from "@notnotype/nb-ui/components";
+import {AlertDialog, Badge, Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
+import {cloneLowCodeObject} from "nbook/app/components/common/low-code-form/low-code-form-utils";
 import AgentProfileNavList from "./AgentProfileNavList.vue";
 import type {AgentProfileNavItem} from "./AgentProfileNavList.types";
 import AgentProfileDetailPanel from "./AgentProfileDetailPanel.vue";
@@ -16,7 +17,10 @@ import {
 import {
     countProfileRuntimeOverrides,
     createProfileRuntimeSettingsDraft,
+    parseProfileRuntimeSettingsDraft,
     resolveProfileRuntimeInheritance,
+    type ProfileRuntimeSettingsErrors,
+    type ProfileRuntimeSettingsLayer,
 } from "./profile-runtime-settings";
 import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft, AgentProfileSettingsViewEmits, AgentProfileSettingsViewProps} from "./AgentProfileSettingsView.types";
 
@@ -33,11 +37,15 @@ const {t} = useI18n();
 
 // 本地状态：选中项（空串=默认设置页）、搜索、单列视图开关。
 const activeNavKey = ref("");
+const activeNavInitialized = ref(false);
 const navSearch = ref("");
 const mobileNavOpen = ref(false);
 const chooseProfileBtnRef = ref<ComponentPublicInstance | HTMLButtonElement | null>(null);
 const mobileNavBackBtnRef = ref<ComponentPublicInstance | HTMLButtonElement | null>(null);
 const detailTitleRef = ref<HTMLElement | null>(null);
+const discardDialogOpen = ref(false);
+const resetHomeDialogOpen = ref(false);
+const pendingResetHomeKey = ref("");
 
 function getBtnElement(btn: ComponentPublicInstance | HTMLButtonElement | null): HTMLElement | null {
     if (!btn) return null;
@@ -61,6 +69,7 @@ function closeMobileNav(): void {
 function selectNavKey(key: string): void {
     const wasMobileOpen = mobileNavOpen.value;
     activeNavKey.value = key;
+    activeNavInitialized.value = true;
     mobileNavOpen.value = false;
     if (wasMobileOpen) {
         void nextTick(() => {
@@ -74,13 +83,22 @@ const busy = computed(() => props.loading || props.saving);
 const sortedProfiles = computed(() => [...props.modelValue.profiles].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
 const activeProfile = computed(() => sortedProfiles.value.find((profile) => profile.profileKey === activeNavKey.value) ?? null);
-
-// 选中 Profile 被移除时回到默认设置页。
-watch(() => props.modelValue.profiles, (profiles) => {
+// 首次有 Profile 时直接进入第一个 Profile；用户显式选择默认页后保留空 key。
+watch(sortedProfiles, (profiles) => {
+    if (profiles.length === 0) {
+        activeNavKey.value = "";
+        activeNavInitialized.value = false;
+        return;
+    }
+    if (!activeNavInitialized.value) {
+        activeNavInitialized.value = true;
+        activeNavKey.value = profiles[0]!.profileKey;
+        return;
+    }
     if (activeNavKey.value && !profiles.some((profile) => profile.profileKey === activeNavKey.value)) {
         activeNavKey.value = "";
     }
-});
+}, {immediate: true});
 const navItems = computed<AgentProfileNavItem[]>(() => sortedProfiles.value.map((profile) => ({
     profileKey: profile.profileKey,
     name: profile.name,
@@ -135,19 +153,42 @@ function resolveProfileInheritedModel(profile: AgentProfileDraftOf): AgentProfil
 
 type AgentProfileDraftOf = AgentProfileSettingsPageDraft["profiles"][number];
 
+const runtimeDefaultsParse = computed(() => parseProfileRuntimeSettingsDraft(props.modelValue.runtimeDefaults));
+const runtimeDefaultsErrors = computed<ProfileRuntimeSettingsErrors>(() => runtimeDefaultsParse.value.errors);
+const profileRuntimeParses = computed<Record<string, ReturnType<typeof parseProfileRuntimeSettingsDraft>>>(() => Object.fromEntries(props.modelValue.profiles.map((profile) => [
+    profile.profileKey,
+    parseProfileRuntimeSettingsDraft(profile.runtime),
+])));
+const profileRuntimeErrors = computed<Record<string, ProfileRuntimeSettingsErrors>>(() => Object.fromEntries(Object.entries(profileRuntimeParses.value).map(([profileKey, result]) => [profileKey, result.errors])));
+
 const runtimeDefaultsBaseline = computed(() => resolveProfileRuntimeInheritance(
     props.context.settings.harnessRuntimeDefaults,
     props.context.scope === "project"
-        ? [{source: "globalDefault", patch: props.context.settings.globalRuntimeDefaultsPatch}]
-        : [],
+        ? [
+            {source: "globalDefault" as const, patch: props.context.settings.globalRuntimeDefaultsPatch},
+            {source: "projectDefault" as const, patch: runtimeDefaultsParse.value.patch},
+        ]
+        : [{source: "globalDefault" as const, patch: runtimeDefaultsParse.value.patch}],
 ));
 
 function resolveProfileRuntimeBaseline(profile: AgentProfileDraftOf) {
-    const layers = [
-        {source: "profileDefault" as const, patch: profile.runtimeEffective ? undefined : undefined},
+    const metadata = props.context.settings.agentProfiles.find((item) => item.profileKey === profile.profileKey);
+    const layers: ProfileRuntimeSettingsLayer[] = [
+        {source: "profileDefault", patch: metadata?.runtime.profileDefaults},
+        {
+            source: "globalDefault",
+            patch: props.context.scope === "global"
+                ? runtimeDefaultsParse.value.patch
+                : metadata?.runtime.globalDefaultsPatch ?? props.context.settings.globalRuntimeDefaultsPatch,
+        },
     ];
-    void layers;
-    return runtimeDefaultsBaseline.value;
+    if (props.context.scope === "project") {
+        layers.push(
+            {source: "globalProfile", patch: metadata?.runtime.globalProfilePatch},
+            {source: "projectDefault", patch: runtimeDefaultsParse.value.patch},
+        );
+    }
+    return resolveProfileRuntimeInheritance(props.context.settings.harnessRuntimeDefaults, layers);
 }
 
 // ---------- 未保存比较 ----------
@@ -242,7 +283,9 @@ const modelValidation = computed(() => {
     }
     return issues;
 });
-const validationBlocking = computed(() => modelValidation.value.length > 0);
+const validationBlocking = computed(() => modelValidation.value.length > 0
+    || Object.keys(runtimeDefaultsErrors.value).length > 0
+    || Object.values(profileRuntimeErrors.value).some((errors) => Object.keys(errors).length > 0));
 
 const hasDirty = computed(() => defaultsDirty.value || navItems.value.some((item) => item.dirty));
 
@@ -252,7 +295,15 @@ function save(): void {
     emit("save", props.modelValue);
 }
 
-const discardDialogOpen = ref(false);
+function resetDefaults(): void {
+    if (busy.value) return;
+    updatePage({
+        modelDefaults: props.context.scope === "project"
+            ? cloneModelDraft(undefined)
+            : {...cloneModelDraft(undefined), reasoningEffort: "off", stream: true},
+        runtimeDefaults: createProfileRuntimeSettingsDraft(undefined),
+    });
+}
 
 function requestDiscard(): void {
     if (!busy.value) discardDialogOpen.value = true;
@@ -260,7 +311,6 @@ function requestDiscard(): void {
 
 function confirmDiscard(): void {
     discardDialogOpen.value = false;
-    // baseline 经 props 传入后是 Vue reactive 代理，structuredClone 无法克隆代理，用 JSON 深拷贝。
     emit("update:modelValue", JSON.parse(JSON.stringify(props.baseline)));
 }
 
@@ -270,12 +320,31 @@ function resetActiveDefaults(): void {
     updateProfile(profile.profileKey, {
         model: cloneModelDraft(undefined),
         runtime: createProfileRuntimeSettingsDraft(undefined),
+        settings: profile.settings ? {
+            ...profile.settings,
+            values: props.context.scope === "project" ? {} : cloneLowCodeObject(profile.settings.form.defaults),
+            overridePaths: [],
+            resourceMutations: [],
+        } : null,
     });
 }
 
-function confirmResetHome(): void {
+function requestResetHome(profileKey: string): void {
     const profile = activeProfile.value;
-    if (profile) emit("reset-home", profile.profileKey);
+    if (!profile || profile.profileKey !== profileKey || props.context.scope !== "project" || !profile.canResetHome || busy.value || props.resettingHomeKey !== "") return;
+    pendingResetHomeKey.value = profileKey;
+    resetHomeDialogOpen.value = true;
+}
+
+function cancelResetHome(): void {
+    resetHomeDialogOpen.value = false;
+    pendingResetHomeKey.value = "";
+}
+
+function confirmResetHome(): void {
+    const profileKey = pendingResetHomeKey.value;
+    cancelResetHome();
+    if (profileKey) emit("reset-home", profileKey);
 }
 </script>
 
@@ -352,6 +421,7 @@ function confirmResetHome(): void {
                             :validation-issues="props.context.settings.validationIssues"
                             :scope="props.context.scope"
                             :runtime-baseline="resolveProfileRuntimeBaseline(activeProfile)"
+                            :runtime-errors="profileRuntimeErrors[activeProfile.profileKey] ?? {}"
                             :descriptions="props.context.descriptions"
                             :disabled="busy"
                             :is-default-profile="activeProfile.profileKey === effectiveDefaultProfileKey"
@@ -363,7 +433,7 @@ function confirmResetHome(): void {
                             @update:settings-override-paths="updateProfile(activeProfile.profileKey, {settings: {...activeProfile.settings!, overridePaths: $event}})"
                             @update:settings-resource-mutations="updateProfile(activeProfile.profileKey, {settings: {...activeProfile.settings!, resourceMutations: $event}})"
                             @reset="resetActiveDefaults"
-                            @reset-home="confirmResetHome"
+                            @reset-home="requestResetHome(activeProfile.profileKey)"
                         />
                     </template>
                     <AgentProfileDefaultsPanel
@@ -379,11 +449,12 @@ function confirmResetHome(): void {
                         :runtime-defaults="props.modelValue.runtimeDefaults"
                         :runtime-effective="runtimeDefaultsBaseline.settings"
                         :runtime-sources="runtimeDefaultsBaseline.sources"
-                        :runtime-errors="{}"
+                        :runtime-errors="runtimeDefaultsErrors"
                         :disabled="busy"
                         @update:default-profile-key="updateDefaultProfileKey"
                         @update:model-defaults="updateModelDefaults"
                         @update:runtime-defaults="updateRuntimeDefaults"
+                        @reset="resetDefaults"
                     />
                 </div>
             </section>
@@ -414,6 +485,33 @@ function confirmResetHome(): void {
                 </Button>
             </div>
         </footer>
+        <AlertDialog
+            v-model:open="discardDialogOpen"
+            :title="t('settings.panels.profileModels.settingsView.discardConfirmTitle')"
+            :description="t('settings.panels.profileModels.settingsView.discardConfirmBody')"
+            :confirm-text="t('common.confirm')"
+            :cancel-text="t('common.cancel')"
+            tone="warning"
+            @confirm="confirmDiscard"
+        >
+            <template #trigger>
+                <button type="button" class="hidden" tabindex="-1" aria-hidden="true"></button>
+            </template>
+        </AlertDialog>
+        <AlertDialog
+            v-model:open="resetHomeDialogOpen"
+            :title="t('settings.panels.profileModels.resetHomeTitle')"
+            :description="t('settings.panels.profileModels.resetHomeConfirm', {profile: pendingResetHomeKey})"
+            :confirm-text="t('common.confirm')"
+            :cancel-text="t('common.cancel')"
+            tone="danger"
+            @confirm="confirmResetHome"
+            @cancel="cancelResetHome"
+        >
+            <template #trigger>
+                <button type="button" class="hidden" tabindex="-1" aria-hidden="true"></button>
+            </template>
+        </AlertDialog>
     </div>
 </template>
 

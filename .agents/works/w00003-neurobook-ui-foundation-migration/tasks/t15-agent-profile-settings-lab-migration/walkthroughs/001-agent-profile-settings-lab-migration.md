@@ -20,35 +20,34 @@
 - `AgentProfileNavListFixture.vue`：初始 ref 直接取场景登记初值 + 数据回流等值跳过重置。修复 Lab 数据面板回流把 `statuses` 场景行内选中清空的时序缺陷（该缺陷导致既有 `smoke:component-lab` 在迁移期间无法通过：fixture 键名已改为 story-writer/line-editor 等，但 smoke 仍断言 p1/p2）。
 - `scripts/smoke/agent-profile-nav.ts`：同步断言到当前 fixture 键名（line-editor/story-writer/`  Line  ` 前后空格），恢复该 smoke 的可运行性。
 
-## 验证（全部实测，cwd = linked worktree）
+## 验证（最终 revision，cwd = linked worktree）
 
-| 命令 | 结果 |
+| 命令/观察 | 结果 |
 | --- | --- |
-| `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json` | 0 error |
-| `bun run --cwd packages/neuro-book test -- app/component-lab app/components/novel-ide/settings/agent-profile/` | 5 files / 23 tests passed |
-| `node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:3001 --browser-executable …/chromium-1234/…/chrome.exe` | passed |
-| 专项浏览器验证（一次性 Playwright 脚本，已清理） | 见下 |
-| `git diff --check` | 通过（仅 CRLF 警告） |
-| `bun run docs:check` / `bun run governance:check` | 0 failures |
+| `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json` | 通过，退出码 0 |
+| `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/agent-profile/profile-runtime-settings.test.ts app/component-lab` | 5 个文件 / 23 个测试通过 |
+| `bun run --cwd packages/neuro-book smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe` | 通过；共享 `neuro-book-dev-3001` 保持运行，未重启 |
+| `bun run docs:check` | 5409 个文件检查，0 failures |
+| `bun run governance:check` | 0 failures，0 warnings |
+| `git diff --check` | 通过；仅 Git 的 LF→CRLF 工作树提示 |
 
-### 专项浏览器验证观察点（真实 `/lab`，Node+Playwright headless 1440×900）
-1. 组件树选 `AgentProfileSettingsView` 挂载；标题「Profile 设置」；3 个 Profile。
-2. 选 story-writer 改推理强度：事件面板记录 `update:model`、`update:modelValue`；保存后出现「已保存到本次预览」。
-3. statuses 场景 7 行；compile_failed 行头部常驻显示可读 issue。
-4. project 场景 story-writer 显示「重置 Home」入口（canResetHome）。
-5. 390×844：`scrollWidth 390 <= viewport 390`，无页面级横向溢出。
-6. 键盘：Enter 选中 Profile（aria-current 迁移）；Space 切换 Collapsible 展开。
-7. 明暗主题切换后正文/浮层颜色均来自主题 token（macOS 主题切换验证 `data-nb-theme`）。
-8. 全程 console/pageerror 为 0；网络监测仅 127.0.0.1:3001 本地资源，无业务 API/Provider/文件请求。
+### 专项浏览器验证（已知本地 `/lab`，headless，1440×900）
+
+1. 组件树选择 `AgentProfileSettingsView` 后，global 场景挂载 3 个按 key 排序的 Profile；默认页常驻模型与推理强度，高级模型参数和运行策略初始折叠。
+2. 高级模型参数与运行策略入口均为可点击 disclosure 按钮；展开后分别显示 `TopK` 与自动摘要字段，`aria-expanded` 同步，nb-ui `Collapsible` 的展开动画状态可观察。
+3. 编辑温度后页面出现「有未保存的修改」，保存按钮启用；saving 场景显示保存提示且保存/放弃按钮禁用；save-error 场景保留 dirty 草稿并允许再次保存。
+4. 放弃修改确认支持取消与确定：取消保持草稿，确定关闭弹窗并恢复基线；Project 场景的 Home 重置确认支持取消，未产生删除或网络副作用。
+5. 受控页面运行策略错误由页面校验汇总，运行策略区在错误时自动展开；运行策略和模型字段均由事件回传，视图不直接访问 API/store/持久化。
+6. Component Lab smoke 全程未观察到业务 API、Provider 或文件请求；页面级资源仅包含本地 Lab 资源与已存在 favicon 请求。
 
 ## 偏差与残余风险
-1. **窄屏单列按视口断点（lg:）实现**，未按组件容器宽度（Lab 画布）切换；组件文档「已知偏差」已声明。Lab 手机画布（390×844 视口）行为正确。
-2. **放弃修改确认未用 AlertDialog 包装**，当前直接恢复基线；文档「已知偏差」已声明。
-3. 基线/草稿深拷贝使用 JSON 往返（`structuredClone` 无法克隆 Vue reactive 代理）；页面草稿均为 JSON 可序列化 DTO，语义无损。
-4. Product gate 维持 incomplete：本次未生成 Product image/sourceDigest/HTTP/log/Bearer shutdown/static scan evidence，不宣称 Lab-ready 标签或 gate 闭合；交付口径为「Lab 界面与自动交互已验证」。
-5. 用户未跟踪文件 `packages/neuro-book/eval-tmp.ts` 保留未动。
-6. 端口 3001 复用已登记服务 `neuro-book-dev-3001`（PID 61308），全程未重启。
+
+1. Product gate 维持 `incomplete`：本 Task 未生成 Product image/sourceDigest/HTTP/log/Bearer shutdown/static scan 证据，不宣称 Work/Product gate 闭合；交付口径为「Lab 界面与自动交互已验证」。
+2. 正式设置页仍未接线；旧宿主和主应用页面不属于本 Task 的交付范围。
+3. 浏览器观察使用独立 headless Chromium 与本地共享 Source Dev 服务，不替代开发者对视觉取舍的人工验收。
+4. 用户未跟踪文件 `packages/neuro-book/eval-tmp.ts` 保留未动。
 
 ## 后续
-- 开发者在 `/lab` 人工查看新版设计（常用优先布局、折叠分组、明暗主题），给出视觉取舍；确认后 Leader 可创建正式页面接线 Task。
-- planned Spec 在实现证据齐全后由 Leader 评审晋升 implemented。
+
+- 开发者在 `/lab` 人工查看新版设计（常用优先布局、折叠分组、明暗主题），确认后 Leader 再创建正式页面接线 Task。
+- `docs/specs/ui/agent-profile-settings.md` 仍保持 `planned`；是否晋升为 `implemented` 由 Leader 按 Work 合同统一评审。

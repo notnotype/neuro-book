@@ -8,8 +8,7 @@ Profile 运行策略覆盖区。它负责折叠容器、覆盖数量和运行策
 
 ## 布局与交互
 
-运行策略默认折叠；有覆盖时标题显示覆盖数量但不强制展开。展开后保留摘要、压缩和文件变更三组字段。没有运行基线时显示不可用说明。
-
+运行策略默认折叠；已有覆盖时初始展开，标题显示覆盖数量。运行时出现字段错误会自动展开并显示错误图标。入口是键盘可达的 disclosure 按钮，展开与收起沿用 nb-ui `Collapsible` 的高度/透明度动画；展开后保留摘要、压缩和文件变更三组字段。没有运行基线时显示不可用说明。
 ## 数据
 
 ```ts
@@ -19,13 +18,15 @@ interface AgentProfileRuntimeSectionProps {
         settings: ConfigAgentProfileSettingsDto["agentProfiles"][number]["runtime"]["effective"];
         sources: Record<string, string>;
     } | null;
+    runtimeErrors?: ProfileRuntimeSettingsErrors;
+    disabled?: boolean;
 }
 interface AgentProfileRuntimeSectionEmits {
     (event: "update:runtime", value: ProfileRuntimeSettingsDraft): void;
 }
 ```
 
-`disabled` 默认 `false`。无 slots、expose；attrs 不透传。
+`disabled` 与 `runtimeErrors` 默认分别为 `false` 和空对象。无 slots、expose；attrs 不透传。
 
 ## 状态
 

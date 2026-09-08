@@ -1,5 +1,5 @@
 ---
-标签: [state:inject, state:local]
+标签: [env:portal, state:inject, state:local]
 ---
 
 # AgentProfileSettingsView
@@ -85,7 +85,11 @@ interface AgentProfileSettingsViewEmits {
 
 ## 不支持
 
-- 不创建、删除、改名 Profile；不发起真实保存、编译或模型调用；不读取路由、store 或浏览器存储；无 slots、无 expose。
+- 不创建、删除、改名 Profile；不发起真实保存、编译或模型调用；不读取路由、store 或浏览器存储；无 slots、无 expose；attrs 透传到单根元素。
+
+## 上游边界
+
+确认弹窗由 nb-ui `AlertDialog` 提供模态、焦点和 Portal 语义；本视图只负责受控开合、确认动作和取消后的本地状态清理，不承诺上游组件未声明的动画与焦点细节。
 
 ## 注意事项
 
@@ -93,10 +97,8 @@ interface AgentProfileSettingsViewEmits {
 - 未保存标记比较页面草稿与 baseline 的可编辑字段，忽略编译状态等只读派生信息；非法输入仍视为有修改。
 - 旧宿主 `NovelIdeAgentProfileModelSettingsPanel.vue` 的 `runtime-override-count` / `settings-override-count` props 已由 `runtime-baseline` 与草稿内计数取代，计数逻辑收敛到本目录组件内部。
 
-## 已知偏差
-
-- 「放弃修改」确认当前直接恢复基线，未使用 AlertDialog 包装确认对话框。
 ## 隐藏通道理由
 
+- `env:portal`：放弃修改与 Project Home 重置的 `AlertDialog` 必须脱离设置页滚动容器渲染到 nb-ui 的浮层宿主，避免被工作区 overflow 裁剪并让模态焦点语义完整。
 - `state:inject`：仅注入应用 i18n 的 `useI18n()` 翻译能力；文案随宿主语言切换，不适合由父组件逐条传入。
-- `state:local`：持有选中导航 key、搜索词、折叠开合等视图临时状态，组件销毁即丢失。
+- `state:local`：持有选中导航 key、搜索词、折叠开合和确认 Dialog 状态，组件销毁即丢失。

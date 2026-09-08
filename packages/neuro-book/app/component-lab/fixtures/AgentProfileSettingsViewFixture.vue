@@ -222,7 +222,12 @@ const saving = ref(false);
 const loadError = ref("");
 
 function sceneState(scene: SceneKey) {
-    return {draft: pageDraftFor(scene), baseline: pageDraftFor(scene)};
+    const draft = pageDraftFor(scene);
+    const baseline = pageDraftFor(scene);
+    if ((scene === "saving" || scene === "save-error") && draft.profiles[0]) {
+        draft.profiles[0].model.temperature = "0.2";
+    }
+    return {draft, baseline};
 }
 
 function isSceneKey(value: string): value is SceneKey {
@@ -295,7 +300,7 @@ function onResetHome(profileKey: string): void {
         <p v-if="message" class="shrink-0 rounded-[var(--radius-control)] border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1.5 text-[11px] text-[var(--status-success)]">{{ message }}</p>
         <div class="min-h-0 flex-1">
             <AgentProfileSettingsView
-                data-lab-subject
+                :key="props.scene"
                 class="h-full"
                 :model-value="modelValue"
                 :baseline="baseline"

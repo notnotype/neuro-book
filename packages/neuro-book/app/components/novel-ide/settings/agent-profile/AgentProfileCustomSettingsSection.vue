@@ -29,12 +29,13 @@ const settingsOverrideCount = computed(() => props.profile.settings ? props.prof
 
 <template>
     <section v-if="hasPresetsSection">
-        <Collapsible :default-open="settingsExpanded" :disabled="props.disabled">
+        <Collapsible v-model:open="settingsExpanded" :disabled="props.disabled">
             <template #trigger>
-                <button type="button" class="flex w-full items-center gap-2 rounded-[var(--radius-control)] py-1 text-left" :aria-expanded="settingsExpanded">
-                    <span class="i-lucide-sliders-horizontal h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                <button type="button" class="group flex min-h-9 w-full items-center gap-2 rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-input)] px-2.5 py-2 text-left transition-colors hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-60" :aria-expanded="settingsExpanded">
+                    <span class="i-lucide-sliders-horizontal h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]" aria-hidden="true"></span>
                     <span class="min-w-0 flex-1 text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.settingsView.profilePresets") }}</span>
                     <Badge v-if="settingsOverrideCount > 0" tone="neutral">{{ t("settings.panels.profileModels.overrideCount", {count: settingsOverrideCount}) }}</Badge>
+                    <span class="i-lucide-chevron-down h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform duration-200" :class="settingsExpanded ? 'rotate-180 text-[var(--accent-main)]' : ''" aria-hidden="true"></span>
                 </button>
             </template>
             <div class="mt-2">

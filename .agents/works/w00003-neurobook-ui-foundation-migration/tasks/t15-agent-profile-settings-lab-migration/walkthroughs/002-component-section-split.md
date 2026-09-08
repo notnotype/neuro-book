@@ -30,27 +30,20 @@
 - `AgentProfileSettingsView.md` 更新为独立右侧区段描述。
 - 新增 `AgentProfileSectionsFixture.vue`，分别挂载真实组件名对应的 Lab fixture，场景为身份、模型、专属设置、运行策略、诊断维护、默认 Profile、默认模型、默认运行策略。 fixture 只使用固定内存数据。
 
-## 验证
+## 验证（最终 revision）
 
 已运行：
 
-- `cd packages/neuro-book && bun x vue-tsc --noEmit -p tsconfig.json`：通过。
-- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/agent-profile/profile-runtime-settings.test.ts app/component-lab`：5 files / 23 tests passed。
-- `bun run --cwd packages/neuro-book test -- app/component-lab`：3 files / 9 tests passed。
-- 真实 `http://127.0.0.1:3001/lab`：通过组件树搜索进入 `AgentProfileModelSection`，确认模型与推理强度常驻，高级模型参数初始折叠，点击后显示温度、TopK、流式字段；390px 视口 `document.scrollWidth === innerWidth === 390`。
-- `bun run docs:check`：5403 files，0 failures。
+- `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json`：通过。
+- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/agent-profile/profile-runtime-settings.test.ts app/component-lab`：5 个文件 / 23 个测试通过。
+- `bun run --cwd packages/neuro-book smoke:component-lab -- --url http://127.0.0.1:3001 --browser-executable C:/Users/notnotype/AppData/Local/ms-playwright/chromium-1234/chrome-win64/chrome.exe`：通过。
+- `bun run docs:check`：5409 个文件，0 failures。
 - `bun run governance:check`：0 failures，0 warnings。
-- `git diff --check`：通过；仅 Git 的 LF→CRLF 工作树提示。
+- `git diff --check`：通过，仅 CRLF 工作树提示。
+- 独立 headless 浏览器观察：AgentProfileSettingsView 的高级模型/运行策略入口可点击并展开，saving/save-error、放弃修改和 Home 确认状态符合合同；未观察到业务 API、Provider 或文件请求。
 
 ## 未闭合项与边界
 
-完整 `smoke:component-lab` 当前仍失败于已有 smoke 的手机尺寸文案断言：
-
-```text
-手机预设应切换到 390 × 844 画布（未找到：390 × 844）
-刷新后应恢复已保存的手机画布尺寸（未找到：390 × 844）
-```
-
-失败发生在通用 Lab smoke 的手机预设流程，不是独立 Profile 区段交互错误；`ViewportCanvas` 的尺寸标签只在 `showSize` 为真时渲染，而完整 smoke 选中的组件/fixture 路径不保证该标签可见。此次未修改通用 Lab smoke 或 ViewportCanvas，避免把与 Profile 拆分无关的验收契约扩大到本切片。
-
-用户未跟踪文件 `packages/neuro-book/eval-tmp.ts` 保留未动。当前提交：`cbe9b5e0`。
+1. Product gate 仍为 `incomplete`；本切片只交付 Lab 界面与自动交互证据。
+2. 正式设置页尚未接线；开发者视觉取舍与人工验收仍由后续协作完成。
+3. 用户未跟踪文件 `packages/neuro-book/eval-tmp.ts` 保留未动。

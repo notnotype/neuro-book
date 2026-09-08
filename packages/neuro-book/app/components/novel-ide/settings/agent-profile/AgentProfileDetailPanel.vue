@@ -4,7 +4,7 @@ import type {AgentProfileModelConfigDto, EnabledModelOptionDto} from "nbook/shar
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 import type {AgentProfileDraft, AgentProfileModelDraft} from "./agent-profile-draft";
-import type {ProfileRuntimeSettingsDraft} from "./profile-runtime-settings";
+import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors} from "./profile-runtime-settings";
 import AgentProfileModelSection from "./AgentProfileModelSection.vue";
 import AgentProfileCustomSettingsSection from "./AgentProfileCustomSettingsSection.vue";
 import AgentProfileRuntimeSection from "./AgentProfileRuntimeSection.vue";
@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
     scope: "global" | "project";
     runtimeBaseline: {settings: ConfigAgentProfileSettingsDto["agentProfiles"][number]["runtime"]["effective"]; sources: Record<string, string>} | null;
+    runtimeErrors?: ProfileRuntimeSettingsErrors;
     descriptions: Record<string, string>;
     disabled?: boolean;
     isDefaultProfile: boolean;
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
     resettingHome: boolean;
 }>(), {
     disabled: false,
+    runtimeErrors: () => ({}),
 });
 
 const emit = defineEmits<{
@@ -74,6 +76,7 @@ const buildHint = computed(() => {
         <AgentProfileRuntimeSection
             :profile="props.profile"
             :runtime-baseline="props.runtimeBaseline"
+            :runtime-errors="props.runtimeErrors"
             :disabled="props.disabled"
             @update:runtime="emit('update:runtime', $event)"
         />
