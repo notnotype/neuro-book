@@ -132,8 +132,13 @@
 - **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏可折叠面板分配（`SplitterGroup` / `SplitterPanel` / `SplitterResizeHandle`）。
 - **拖拽触感**：1px 精细分隔线 + 悬浮与拖拽时点亮品牌色胶囊指示器，扩大命中热区（10px），拖拽过程绝不产生盒模型卡顿。
 
-#### 13. `Drawer` & `AlertDialog`（抽屉与破坏性警示弹窗规范）
+#### 13. `Drawer`、`DialogWindow` & `AlertDialog`（浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。
+- **DialogWindow**：明确使用非模态 Dialog 语义（`DialogRoot :modal="false"`），不渲染 Overlay、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。
+  - 标题、`header` slot 和无标题回退都必须生成 `DialogTitle`；关闭按钮必须有可访问名称。Escape、关闭按钮与 `request-close` 由受控宿主决定最终关闭时机。
+  - 默认 Portal 目标为 `body`。公共组件不得绑定产品私有主题宿主；产品消费者必须显式传入主题宿主目标，避免 Portal 脱离主题变量作用域。
+  - 标题栏拖动由项目层实现；`resizable` 默认关闭，开启后提供右侧、底部和右下角手柄。鼠标 pointerup 提交 `update:width` / `update:height`，方向键按 10px 调整、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
+  - 窄屏窗口宽度必须收敛到视口内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
 - **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调。
 
 #### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）

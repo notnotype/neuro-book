@@ -17,7 +17,7 @@ export type LabComponentId =
     | "badge" | "avatar" | "progress" | "kbd" | "spinner" | "rating"
     | "pagination" | "breadcrumb" | "navigation-menu" | "tree"
     | "splitter" | "accordion" | "scroll-area"
-    | "drawer" | "popover" | "alert-dialog";
+    | "dialog-window" | "drawer" | "popover" | "alert-dialog";
 export type LabViewportId = "responsive" | "phone" | "tablet";
 export type LabControlType = "boolean" | "text" | "select";
 
@@ -630,6 +630,23 @@ export const labComponents: LabComponentDefinition[] = [
         controls: [],
         targetSelector: "#nb-lab-target",
         events: [],
+    },
+    {
+        id: "dialog-window",
+        label: "DialogWindow",
+        labelZh: "非模态浮动窗口",
+        group: "浮层",
+        description: "无遮罩、页面仍可交互的非模态浮动窗口；标题栏可拖动，支持可选窗口缩放与内部滚动。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "resizable", label: "可调整大小"},
+        ],
+        controls: [
+            {id: "resizable", label: "允许调整大小", type: "boolean"},
+            {id: "closable", label: "显示关闭按钮", type: "boolean", defaultValue: true},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue", "request-close", "update:width", "update:height"],
     },
     {
         id: "drawer",

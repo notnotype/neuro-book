@@ -257,6 +257,32 @@ test("选择器：Enter 展开、富选项、禁用项、焦点归还、body 不
     expect(focusBack).toBe(true);
 });
 
+test("DialogWindow：稳定触发目标、非模态交互与 resize 行为", async ({ page }) => {
+    await gotoLab(page, {component: "dialog-window", scene: "resizable"});
+    const trigger = page.locator("#nb-lab-target");
+    await expect(trigger).toBeVisible();
+    await expect(page.locator("[data-dialog-window]")).toHaveCount(0);
+
+    await trigger.click();
+    const dialog = page.locator("[role=dialog]");
+    await expect(dialog).toBeVisible();
+    await expect(page.locator("[data-dialog-overlay]")).toHaveCount(0);
+    await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
+    await expect(dialog.locator("[data-dialog-resize='right']")).toBeVisible();
+    await expect(dialog.locator("[data-dialog-resize='bottom']")).toBeVisible();
+    await expect(dialog.locator("[data-dialog-resize='corner']")).toBeVisible();
+
+    // 窗口外的触发按钮仍可点击，非模态窗口不能被 outside interaction 关闭。
+    await trigger.click();
+    await expect(dialog).toBeVisible();
+
+    const widthHandle = dialog.locator("[data-dialog-resize='right']");
+    await widthHandle.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByText(/当前尺寸：570 × 520 px/u)).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 test("选择器向上展开时 data-side=top", async ({ page }) => {
     await gotoLab(page, { component: "form-select" });
     await page.locator(".lab-props__row", { hasText: "展开方向" }).locator("[role=combobox]").click();

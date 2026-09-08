@@ -11,6 +11,8 @@ import type {BadgeTone} from "../../../src/components/display/Badge.vue";
 const notification = useNotification();
 const dialogOpen = ref(false);
 const windowOpen = ref(false);
+const windowWidth = ref(420);
+const windowHeight = ref(320);
 const mode = ref("source");
 const enabled = ref(true);
 const name = ref("nb-ui");
@@ -207,8 +209,24 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
             </FormField>
         </Dialog>
 
-        <DialogWindow v-model="windowOpen" title="非模态浮动窗口" :width="420">
-            <p>标题栏可拖动，页面其余部分保持可交互；窗口至少保留一角在视口内。</p>
+        <DialogWindow
+            v-model="windowOpen"
+            title="非模态浮动窗口"
+            :width="windowWidth"
+            :height="`${windowHeight}px`"
+            :resizable="true"
+            body-class="overflow-y-auto px-4 py-3"
+            @update:width="windowWidth = $event"
+            @update:height="windowHeight = $event"
+        >
+            <div class="space-y-3">
+                <p>标题栏可拖动，页面其余部分保持可交互；窗口至少保留一角在视口内。</p>
+                <p>右侧、底部和右下角手柄支持鼠标拖动；聚焦手柄后可用方向键调整尺寸。</p>
+                <div class="h-72 rounded-[var(--radius-control)] border border-dashed border-[var(--divider)] p-3 text-xs text-[var(--text-muted)]">长内容滚动区域</div>
+            </div>
+            <template #footer>
+                <Button size="sm" variant="secondary" @click="windowOpen = false">关闭浮动窗口</Button>
+            </template>
         </DialogWindow>
 
         <ContextMenu :visible="contextMenuVisible" :x="contextMenuX" :y="contextMenuY" :items="contextItems" @close="contextMenuVisible = false" />

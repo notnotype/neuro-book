@@ -57,7 +57,7 @@ The module auto-registers Vue components and composables.
 Components can also be imported explicitly:
 
 ```ts
-import {Button, Dialog, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DialogWindow, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
 import {useNotification} from "@notnotype/nb-ui/composables";
 ```
 
@@ -98,7 +98,8 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Tabs` / `Pagination`：选项卡栏与分页控制器。
 
 ### 弹层与反馈 (Feedback & Overlays)
-- `Dialog` / `DialogWindow`：模态对话框与非模态可拖拽浮动窗口。
+- `Dialog`：模态对话框（遮罩、焦点管理、背景滚动锁）。
+- `DialogWindow`：无遮罩、页面仍可交互的非模态浮动窗口；标题栏可拖动，`resizable` 开启后提供右/下/右下角 resize 手柄与键盘调整。公共默认 Portal 目标为 `body`；主题宿主必须由消费者显式传入 `teleport-target`。
 - `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
 - `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。

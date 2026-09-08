@@ -622,6 +622,9 @@
 .cursor-default {
   cursor: default;
 }
+.cursor-ew-resize {
+  cursor: ew-resize;
+}
 .cursor-grab {
   cursor: grab;
 }
@@ -631,11 +634,17 @@
 .cursor-not-allowed {
   cursor: not-allowed;
 }
+.cursor-ns-resize {
+  cursor: ns-resize;
+}
 .cursor-pointer {
   cursor: pointer;
 }
 .cursor-row-resize {
   cursor: row-resize;
+}
+.cursor-se-resize {
+  cursor: se-resize;
 }
 .touch-none {
   touch-action: none;
@@ -1386,9 +1395,6 @@
 }
 .pl-1 {
   padding-left: var(--spacing);
-}
-.pl-4 {
-  padding-left: calc(var(--spacing) * 4);
 }
 .pl-8 {
   padding-left: calc(var(--spacing) * 8);
@@ -2647,6 +2653,15 @@
     --tw-shadow: 0 1px 3px var(--tw-shadow-color, color-mix(in srgb,var(--accent-main) 35%,transparent));
   }
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
+.data-\[state\=closed\]\:pointer-events-none[data-state="closed"] {
+  pointer-events: none;
+}
+.data-\[state\=closed\]\:scale-\[0\.96\][data-state="closed"] {
+  scale: 0.96;
+}
+.data-\[state\=closed\]\:opacity-0[data-state="closed"] {
+  opacity: 0%;
 }
 .data-\[state\=drag\]\:bg-\[var\(--accent-main\)\][data-state="drag"] {
   background-color: var(--accent-main);

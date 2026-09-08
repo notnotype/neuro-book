@@ -17,8 +17,9 @@ import ColorPickerFixture from "./fixtures/ColorPickerFixture.vue";
 import DateFieldFixture from "./fixtures/DateFieldFixture.vue";
 import DatePickerFixture from "./fixtures/DatePickerFixture.vue";
 import DateRangePickerFixture from "./fixtures/DateRangePickerFixture.vue";
-import DrawerFixture from "./fixtures/DrawerFixture.vue";
+import DialogWindowFixture from "./fixtures/DialogWindowFixture.vue";
 import DropdownFixture from "./fixtures/DropdownFixture.vue";
+import DrawerFixture from "./fixtures/DrawerFixture.vue";
 import EditableFixture from "./fixtures/EditableFixture.vue";
 import FormCheckboxFixture from "./fixtures/FormCheckboxFixture.vue";
 import FormInputFixture from "./fixtures/FormInputFixture.vue";
@@ -121,9 +122,10 @@ const fixtures: Record<LabComponentId, any> = {
     "splitter": SplitterFixture,
     "accordion": AccordionFixture,
     "scroll-area": ScrollAreaFixture,
-    "drawer": DrawerFixture,
+    "dialog-window": DialogWindowFixture,
     "popover": PopoverFixture,
     "alert-dialog": AlertDialogFixture,
+    "drawer": DrawerFixture,
 };
 
 const activeFixture = computed(() => fixtures[props.definition.id]);

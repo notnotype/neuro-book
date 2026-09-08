@@ -18,6 +18,7 @@ import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import Dialog from "./feedback/Dialog.vue";
+import DialogWindow from "./feedback/DialogWindow.vue";
 import Drawer from "./feedback/Drawer.vue";
 import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
@@ -737,6 +738,124 @@ describe("nb-ui notification clearAll", () => {
         vi.useRealTimers();
     });
 });
+
+describe("nb-ui dialog window", () => {
+    function mountWindow(props: Record<string, unknown> = {}, header?: string) {
+        return mount(DialogWindow, {
+            props: {
+                modelValue: true,
+                title: "浮动窗口",
+                teleportTarget: false,
+                ...props,
+            },
+            slots: {
+                ...(header === undefined ? {} : {header}),
+                default: "<button>窗口内容</button>",
+            },
+            attachTo: document.body,
+        });
+    }
+
+    it("renders as a non-modal dialog without an overlay and labels the default title", async () => {
+        const wrapper = mountWindow();
+        try {
+            await nextTick();
+
+            const dialog = wrapper.get("[role='dialog']");
+            const titleId = dialog.attributes("aria-labelledby");
+            expect(titleId).toBeTruthy();
+            expect(wrapper.find("[data-dialog-overlay]").exists()).toBe(false);
+            expect(dialog.text()).toContain("窗口内容");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("keeps a custom header accessible through DialogTitle", async () => {
+        const wrapper = mountWindow({}, "<span>自定义标题</span>");
+        try {
+            await nextTick();
+
+            const dialog = wrapper.get("[role='dialog']");
+            const titleId = dialog.attributes("aria-labelledby");
+            expect(document.getElementById(titleId ?? "")?.textContent).toContain("自定义标题");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not close from outside interaction in non-modal mode", async () => {
+        const wrapper = mountWindow();
+        try {
+            await nextTick();
+
+            document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("exposes optional resize handles and updates width from keyboard", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, minWidth: 320});
+        try {
+            await nextTick();
+
+            const handle = wrapper.get("[data-dialog-resize='right']");
+            await handle.trigger("keydown", {key: "ArrowRight"});
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([570]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+    it("updates height from the bottom handle keyboard and respects the minimum", async () => {
+        const wrapper = mountWindow({resizable: true, height: "240px", minHeight: 240});
+        try {
+            await nextTick();
+
+            const handle = wrapper.get("[data-dialog-resize='bottom']");
+            await handle.trigger("keydown", {key: "ArrowUp"});
+            expect(wrapper.emitted("update:height")).toBeUndefined();
+            await handle.trigger("keydown", {key: "ArrowDown"});
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([250]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("updates width and height from pointer resize and commits on pointerup", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, height: "400px"});
+        try {
+            await nextTick();
+
+            const handle = wrapper.get("[data-dialog-resize='corner']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 100, clientY: 100, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
+
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([600]);
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([430]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not resize or close while busy", async () => {
+        const wrapper = mountWindow({busy: true, resizable: true});
+        try {
+            await nextTick();
+
+            await wrapper.get("[data-dialog-resize='right']").trigger("keydown", {key: "ArrowRight"});
+            await wrapper.get("[aria-label='关闭']").trigger("click");
+            expect(wrapper.emitted("update:width")).toBeUndefined();
+            expect(wrapper.emitted("request-close")).toBeUndefined();
+            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+});
+
 
 /*
  * 对话框的头尾分隔线。上一版是两条常驻的通栏细线，把面板切成三段——那是后台管理面板的读法，
