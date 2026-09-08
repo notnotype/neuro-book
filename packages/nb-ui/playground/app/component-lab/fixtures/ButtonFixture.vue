@@ -119,6 +119,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     <span class="text-xs font-semibold text-[var(--text-muted)]">标准尺寸 (Medium - 32px):</span>
                     <div class="flex flex-wrap items-center gap-2.5">
                         <button
+                            id="nb-lab-target"
                             type="button"
                             class="btn-base btn-primary"
                             @click="handleClick('主要操作')"

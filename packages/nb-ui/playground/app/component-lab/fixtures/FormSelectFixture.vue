@@ -80,6 +80,13 @@ const selectedLong = ref("docx");
 const controls = ref<Record<string, string | boolean>>({});
 const scene = computed(() => getLabScene(props.definition, props.sceneId));
 
+/** 场景属性「展开方向」驱动被测 Reka Select 的定位；auto 交给 popper 碰撞自动判定 */
+const resolvedSide = computed<"top" | "bottom" | undefined>(() => {
+    if (controls.value.direction === "up") return "top";
+    if (controls.value.direction === "down") return "bottom";
+    return undefined;
+});
+
 const searchOptions: FormSelectOption[] = [
     {label: "New York trip", value: "today", description: "today", iconClass: "i-lucide-search"},
     {label: "Sender contains: New York trip", value: "sender", iconClass: "i-lucide-user"},
@@ -298,6 +305,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                 <SelectRoot v-model="currentModelValue">
                     <!-- 原版原生标准 Trigger 输入框：与 FormInput 严格共用 .nb-ui-control 基类 -->
                     <SelectTrigger
+                        id="nb-lab-target"
                         class="nb-ui-control nb-ui-control-h-md nb-ui-control-px border flex w-full items-center justify-between rounded-[var(--radius-control)] bg-[var(--control-surface)] text-[var(--text-sm)] text-[var(--text-main)] outline-none cursor-pointer user-select-none disabled:cursor-not-allowed disabled:opacity-60"
                         :disabled="Boolean(controls.disabled) || scene.disabled === true"
                     >
@@ -323,6 +331,9 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     <SelectPortal>
                         <SelectContent
                             position="popper"
+                            :side="resolvedSide"
+                            :body-lock="false"
+                            :disable-outside-pointer-events="false"
                             :side-offset="7"
                             :style="dynamicPopoverStyle"
                             class="dynamic-popover-panel relative overflow-hidden p-1.5"

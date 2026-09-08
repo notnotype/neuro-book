@@ -36,7 +36,7 @@ function setControl(id: string, value: string | boolean): void {
 
             <div v-if="definition.controls.length > 0" class="flex flex-wrap items-center gap-3">
                 <span class="text-[11px] font-medium uppercase tracking-wider text-[var(--text-muted)]">场景属性:</span>
-                <div v-for="control in definition.controls" :key="control.id" class="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
+                <div v-for="control in definition.controls" :key="control.id" :data-control="control.id" class="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]">
                     <template v-if="control.type === 'boolean'">
                         <FormCheckbox
                             :model-value="Boolean(controlValue(control.id))"
