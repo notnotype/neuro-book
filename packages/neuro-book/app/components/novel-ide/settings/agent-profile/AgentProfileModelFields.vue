@@ -19,14 +19,14 @@ type ModelInheritMode = "globalDefaults" | "projectDefaults" | "profile";
 
 const props = withDefaults(defineProps<{
     modelValue: AgentProfileModelDraft;
-    /** 继承基线，用于生成"默认（xxx）"这类提示文案 */
     inherited: AgentProfileModelConfigDto;
     enabledModels: EnabledModelOptionDto[];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
     inheritMode: ModelInheritMode;
-    /** 禁用编辑（保存中/加载中/维护动作中） */
+    visibleFields?: ("model" | "reasoning" | "advanced")[];
     disabled?: boolean;
 }>(), {
+    visibleFields: () => ["model", "reasoning", "advanced"] as ("model" | "reasoning" | "advanced")[],
     disabled: false,
 });
 
@@ -136,24 +136,23 @@ function update(patch: Partial<AgentProfileModelDraft>): void {
 </script>
 
 <template>
-    <!-- Agent Profile 模型参数字段：默认参数区与单 Profile 覆盖区共用；常用字段常驻，高级字段由父级折叠。 -->
     <div class="grid gap-3 md:grid-cols-2">
-        <!-- 默认模型 -->
-        <FormField class="md:col-span-2" :label="t('settings.panels.profileModels.defaultModel')" :description="modelDefaultLabel">
-            <FormSelect
-                :model-value="props.modelValue.modelKey ?? ''"
-                :options="modelOptions"
-                :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
-                :disabled="props.disabled"
-                @update:model-value="update({modelKey: $event || null})"
-            />
-        </FormField>
-        <p v-if="modelOutOfList" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ t("settings.panels.profileModels.unrunnableModel", {key: props.modelValue.modelKey ?? ""}) }}</p>
-        <p v-else-if="modelIssue" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ modelIssue.message }}</p>
-        <p v-if="props.enabledModels.length === 0" class="text-[11px] text-[var(--text-muted)] md:col-span-2">{{ t("settings.panels.profileModels.settingsView.invalidModel") }}</p>
+        <template v-if="props.visibleFields.includes('model')">
+            <FormField class="md:col-span-2" :label="t('settings.panels.profileModels.defaultModel')" :description="modelDefaultLabel">
+                <FormSelect
+                    :model-value="props.modelValue.modelKey ?? ''"
+                    :options="modelOptions"
+                    :placeholder="t('settings.panels.profileModels.selectDefaultModel')"
+                    :disabled="props.disabled"
+                    @update:model-value="update({modelKey: $event || null})"
+                />
+            </FormField>
+            <p v-if="modelOutOfList" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ t("settings.panels.profileModels.unrunnableModel", {key: props.modelValue.modelKey ?? ""}) }}</p>
+            <p v-else-if="modelIssue" class="text-[11px] text-[var(--status-warning)] md:col-span-2">{{ modelIssue.message }}</p>
+            <p v-if="props.enabledModels.length === 0" class="text-[11px] text-[var(--text-muted)] md:col-span-2">{{ t("settings.panels.profileModels.settingsView.invalidModel") }}</p>
+        </template>
 
-        <!-- 推理强度 -->
-        <FormField :label="t('settings.panels.profileModels.reasoningEffort')">
+        <FormField v-if="props.visibleFields.includes('reasoning')" :label="t('settings.panels.profileModels.reasoningEffort')">
             <FormSelect
                 :model-value="props.modelValue.reasoningEffort ?? 'inherit'"
                 :options="reasoningEffortOptions"
@@ -162,36 +161,16 @@ function update(patch: Partial<AgentProfileModelDraft>): void {
             />
         </FormField>
 
-        <!-- 高级模型参数：温度 / TopK / 流式输出。父级通过 Collapsible 折叠整块。 -->
-        <FormField :label="t('settings.panels.profileModels.temperature')">
-            <FormInput
-                :model-value="props.modelValue.temperature"
-                type="number"
-                step="0.1"
-                min="0"
-                :placeholder="emptyPlaceholder"
-                :disabled="props.disabled"
-                @update:model-value="update({temperature: $event})"
-            />
-        </FormField>
-        <FormField label="TopK">
-            <FormInput
-                :model-value="props.modelValue.topK"
-                type="number"
-                step="1"
-                min="1"
-                :placeholder="emptyPlaceholder"
-                :disabled="props.disabled"
-                @update:model-value="update({topK: $event})"
-            />
-        </FormField>
-        <FormField :label="t('settings.panels.profileModels.stream')">
-            <FormSelect
-                :model-value="streamSelectValue(props.modelValue.stream)"
-                :options="streamOptions"
-                :disabled="props.disabled"
-                @update:model-value="update({stream: parseStreamSelectValue($event)})"
-            />
-        </FormField>
+        <template v-if="props.visibleFields.includes('advanced')">
+            <FormField :label="t('settings.panels.profileModels.temperature')">
+                <FormInput :model-value="props.modelValue.temperature" type="number" step="0.1" min="0" :placeholder="emptyPlaceholder" :disabled="props.disabled" @update:model-value="update({temperature: $event})" />
+            </FormField>
+            <FormField label="TopK">
+                <FormInput :model-value="props.modelValue.topK" type="number" step="1" min="1" :placeholder="emptyPlaceholder" :disabled="props.disabled" @update:model-value="update({topK: $event})" />
+            </FormField>
+            <FormField :label="t('settings.panels.profileModels.stream')">
+                <FormSelect :model-value="streamSelectValue(props.modelValue.stream)" :options="streamOptions" :disabled="props.disabled" @update:model-value="update({stream: parseStreamSelectValue($event)})" />
+            </FormField>
+        </template>
     </div>
 </template>

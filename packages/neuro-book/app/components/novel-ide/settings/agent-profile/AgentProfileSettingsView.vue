@@ -4,8 +4,8 @@ import {Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import AgentProfileNavList from "./AgentProfileNavList.vue";
 import type {AgentProfileNavItem} from "./AgentProfileNavList.types";
-import AgentProfileDefaultsPanel from "./AgentProfileDefaultsPanel.vue";
 import AgentProfileDetailPanel from "./AgentProfileDetailPanel.vue";
+import AgentProfileDefaultsPanel from "./AgentProfileDefaultsPanel.vue";
 import {
     buildCompleteModelConfig,
     cloneModelDraft,

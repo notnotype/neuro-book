@@ -116,6 +116,46 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./SurfaceTierDemoFixture.vue")).default,
     },
     {
+        component: "AgentProfileIdentitySection",
+        scenes: [{id: "default", label: "身份与状态", data: {section: "identity"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileModelSection",
+        scenes: [{id: "default", label: "模型设置", data: {section: "model"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileCustomSettingsSection",
+        scenes: [{id: "default", label: "专属设置", data: {section: "custom-settings"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileRuntimeSection",
+        scenes: [{id: "default", label: "运行策略", data: {section: "runtime"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileDiagnosticsSection",
+        scenes: [{id: "default", label: "诊断维护", data: {section: "diagnostics"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileDefaultProfileSection",
+        scenes: [{id: "default", label: "默认 Profile", data: {section: "default-profile"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileDefaultModelSection",
+        scenes: [{id: "default", label: "默认模型", data: {section: "default-model"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
+        component: "AgentProfileDefaultRuntimeSection",
+        scenes: [{id: "default", label: "默认运行策略", data: {section: "default-runtime"}}],
+        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
+    },
+    {
         component: "AgentProfileNavList",
         scenes: [
             {id: "statuses", label: "状态全集", data: {activeKey: "line-editor", search: "", defaultsDirty: false}},

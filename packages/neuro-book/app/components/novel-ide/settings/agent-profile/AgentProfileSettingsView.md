@@ -4,7 +4,7 @@
 
 # AgentProfileSettingsView
 
-完整 Agent Profile 设置页的受控视图：左侧 Profile 导航（含默认设置入口），右侧详情，常用设置优先，高级参数折叠。它组合本目录的 `AgentProfileNavList`、`AgentProfileDefaultsPanel`、`AgentProfileDetailPanel`、`AgentProfileModelFields`、`ProfileRuntimeSettingsFields` 与共享 `LowCodeForm`，自身不发起请求、不写持久化，一切修改通过 `update:modelValue` 交给宿主。
+完整 Agent Profile 设置页的受控视图：左侧 Profile 导航（含默认设置入口），右侧由身份摘要、模型设置、专属设置、运行策略和诊断维护等独立区段组成，常用设置优先，高级参数折叠。它组合本目录的领域区段与共享 `LowCodeForm`，自身不发起请求、不写持久化，一切修改通过 `update:modelValue` 交给宿主。
 
 行为合同见 [`docs/specs/ui/agent-profile-settings.md`](../../../../../docs/specs/ui/agent-profile-settings.md)。Component Lab 中由 `AgentProfileSettingsViewFixture` 提供确定性场景（global / project / statuses / custom-settings / empty / loading / saving / load-error / save-error），保存仅更新 fixture 内存基线并提示「已保存到本次预览」，不写真实配置。
 
