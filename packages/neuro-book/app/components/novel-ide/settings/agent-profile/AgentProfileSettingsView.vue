@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
+import {computed, nextTick, ref, watch, type ComponentPublicInstance} from "vue";
 import {Badge, Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import AgentProfileNavList from "./AgentProfileNavList.vue";
@@ -35,6 +35,36 @@ const {t} = useI18n();
 const activeNavKey = ref("");
 const navSearch = ref("");
 const mobileNavOpen = ref(false);
+const chooseProfileBtnRef = ref<ComponentPublicInstance | HTMLButtonElement | null>(null);
+const mobileNavBackBtnRef = ref<ComponentPublicInstance | HTMLButtonElement | null>(null);
+const detailTitleRef = ref<HTMLElement | null>(null);
+
+function getBtnElement(btn: ComponentPublicInstance | HTMLButtonElement | null): HTMLElement | null {
+    if (!btn) return null;
+    return "$el" in btn ? (btn.$el as HTMLElement) : (btn as HTMLElement);
+}
+
+function openMobileNav(): void {
+    mobileNavOpen.value = true;
+    void nextTick(() => {
+        getBtnElement(mobileNavBackBtnRef.value)?.focus();
+    });
+}
+
+function closeMobileNav(): void {
+    mobileNavOpen.value = false;
+    void nextTick(() => {
+        getBtnElement(chooseProfileBtnRef.value)?.focus();
+    });
+}
+
+function selectNavKey(key: string): void {
+    activeNavKey.value = key;
+    mobileNavOpen.value = false;
+    void nextTick(() => {
+        detailTitleRef.value?.focus();
+    });
+}
 
 const busy = computed(() => props.loading || props.saving);
 
@@ -48,12 +78,6 @@ watch(() => props.modelValue.profiles, (profiles) => {
         activeNavKey.value = "";
     }
 });
-
-function selectNavKey(key: string): void {
-    activeNavKey.value = key;
-    mobileNavOpen.value = false;
-}
-
 const navItems = computed<AgentProfileNavItem[]>(() => sortedProfiles.value.map((profile) => ({
     profileKey: profile.profileKey,
     name: profile.name,
@@ -261,6 +285,21 @@ function confirmResetHome(): void {
                 class="settings-nav-aside shrink-0"
                 :class="{'is-mobile-open': mobileNavOpen}"
             >
+                <!-- 移动端导航返回条（单列打开导航时可见） -->
+                <div class="settings-mobile-bar shrink-0 items-center justify-between border-b border-[var(--divider)] px-4 py-2 mb-2">
+                    <span class="text-xs font-semibold text-[var(--text-main)]">
+                        {{ t("settings.panels.profileModels.nav.title") || "Agent Profiles" }}
+                    </span>
+                    <Button
+                        ref="mobileNavBackBtnRef"
+                        size="sm"
+                        variant="secondary"
+                        @click="closeMobileNav"
+                    >
+                        <span class="i-lucide-arrow-left mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
+                        {{ t("settings.panels.profileModels.settingsView.backToDetail") }}
+                    </Button>
+                </div>
                 <AgentProfileNavList
                     class="h-full"
                     :items="navItems"
@@ -279,15 +318,19 @@ function confirmResetHome(): void {
             >
                 <!-- 窄屏移动端导航切换条（桌面容器宽度下隐藏） -->
                 <div class="settings-mobile-bar shrink-0 items-center justify-between border-b border-[var(--divider)] px-4 py-2">
-                    <span class="text-xs font-semibold text-[var(--text-main)] truncate">
+                    <span ref="detailTitleRef" tabindex="-1" class="text-xs font-semibold text-[var(--text-main)] truncate outline-none">
                         {{ activeProfile ? activeProfile.name : t("settings.panels.profileModels.settingsView.defaultsPage") }}
                     </span>
-                    <Button size="sm" variant="secondary" @click="mobileNavOpen = true">
+                    <Button
+                        ref="chooseProfileBtnRef"
+                        size="sm"
+                        variant="secondary"
+                        @click="openMobileNav"
+                    >
                         <span class="i-lucide-list mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
                         {{ t("settings.panels.profileModels.settingsView.selectProfile") }}
                     </Button>
                 </div>
-
                 <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-4)]">
                     <div v-if="props.loading" class="space-y-3" aria-busy="true">
                         <div class="h-6 w-40 animate-pulse rounded bg-[var(--bg-input)]"></div>

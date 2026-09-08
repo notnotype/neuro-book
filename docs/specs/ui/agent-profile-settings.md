@@ -31,21 +31,21 @@ owners:
 
 ## 输出与可观察行为
 
-- 双栏工作区：左侧 Profile 导航（含默认设置入口、搜索、状态徽标、未保存与覆盖计数），右侧详情；容器宽度低于 700px 时单列切换，导航与详情二选一，焦点按交互路径归还。
-- 默认设置页：默认 Profile 选择与实际生效值、默认模型与推理强度常驻；高级模型参数与通用运行策略折叠。
+- 双栏工作区：主体双栏从顶部自然铺展，去除内置全宽 Header，避免后续作为 `DialogWindow` 或弹窗内容时产生双重标题栏冲突；左侧为 Profile 导航（含默认设置入口、搜索、状态徽标、未保存与覆盖计数），右侧为详情工作区。
+- 底部固定动作栏：位于组件底部，左侧展示作用域徽标（`scopeLabel`）、未保存状态徽标（`有未保存的修改`）与保存中/保存错误状态提示；右侧提供「放弃修改」（无未保存内容时禁用）与「保存修改」（有修改且校验通过时可用）按钮。
+- 容器宽度响应式：依托 CSS Container Query（`container-type: inline-size`）按组件自身容器宽度小于 700px 自动切换为单列（导航与详情二选一），不依赖浏览器全局窗口视口；详情顶部提供“选择 Profile”按钮，移动导航展开时顶部提供“返回详情”按钮，焦点在打开、返回与选择后精确归还。
+- 默认设置页：默认 Profile 选择与实际生效值、默认模型与推理强度常驻；高级模型参数与通用运行策略折叠；消除多余的浮动卡片嵌套，各区段以语义分隔线自然划分。
 - Profile 详情固定顺序：身份与状态 → 使用模型（常驻）→ 专属设置（有表单且 loaded 时默认展开，否则显示原因）→ 高级模型参数（折叠）→ 运行策略（折叠）→ 诊断与维护。失败原因同时在头部可见。
 - 编辑任何字段即时发出 `update:modelValue`（复制被改分支，不修改 props）；导航的未保存标记与覆盖计数随之更新；切换 Profile 或搜索过滤不丢失草稿。
-- 「保存修改」校验通过后发出 `save` 携带整份页面草稿；「放弃修改」经确认恢复基线；「恢复默认」只清空当前详情的覆盖；重置 Home 经确认后发出 `reset-home` 携带 profileKey。`reload` 在加载错误态发出。
+- 「保存修改」校验通过后发出 `save` 携带整份页面草稿；「放弃修改」在有未保存修改时激活，确认后发出 `update:modelValue` 恢复基线；「恢复默认」只清空当前详情的覆盖；重置 Home 经确认后发出 `reset-home` 携带 profileKey。`reload` 在加载错误态发出。
 - 保存中、加载中显示对应反馈并禁用编辑；加载错误显示错误与重载入口；保存错误保留全部草稿并提供再提交入口。
-
 ## 状态与转换
 
 本能力不引入持久状态。视图本地状态：当前选中项（Profile key 或默认页）、搜索词、折叠区开合、确认对话框。初始选中第一个按 key 排序的 Profile，空列表时选中默认设置页。选中的 Profile 从草稿移除时回到默认设置页；搜索过滤不改变选中。加载/保存忙状态统一禁用修改类动作。
 
 ## 副作用与数据
 
-无持久化、无网络、无文件访问。视图发出的全部副作用通过事件由宿主执行；Lab fixture 仅将基线更新为当前草稿的内存副本并明确标注「已保存到本次预览」，不写真实配置。
-
+无持久化、无网络、无文件访问。视图发出的全部副作用通过事件由宿主执行；Lab fixture 仅将基线更新为当前草稿的内存副本，通过数据面板、事件面板及保存提示提供「已保存到本次预览」明确反馈，不写真实配置。
 ## 失败与恢复
 
 - 运行策略字段校验失败（非法数值、超出范围的百分比等）在字段下方显示错误、展开对应分区并阻止保存；不提交非法数据。
@@ -76,8 +76,14 @@ Smoke 入口：`bun run --cwd packages/neuro-book smoke:component-lab -- --url <
 
 ## 实现合同
 
-尚未实现。
-
+- 实现位置：`packages/neuro-book/app/components/novel-ide/settings/agent-profile/`
+  - 主受控视图：`AgentProfileSettingsView.vue` + `AgentProfileSettingsView.types.ts`
+  - 详情编排与独立区段：`AgentProfileDetailPanel.vue`，拆分为 `AgentProfileIdentitySection.vue`、`AgentProfileModelSection.vue`、`AgentProfileCustomSettingsSection.vue`、`AgentProfileRuntimeSection.vue`、`AgentProfileDiagnosticsSection.vue`
+  - 默认设置编排与区段：`AgentProfileDefaultsPanel.vue`，拆分为 `AgentProfileDefaultProfileSection.vue`、`AgentProfileDefaultModelSection.vue`、`AgentProfileDefaultRuntimeSection.vue`
+  - 基础字段复用：`AgentProfileModelFields.vue`、`ProfileRuntimeSettingsFields.vue`、`LowCodeForm.vue`
+- 宿主契约：面向后续嵌入 `DialogWindow` 设计，顶部无冗余标题栏，底部固定动作栏承载会话级保存与放弃；组件对外完全受控，不持有持久化与 IO。
+- 响应式：根元素 `container-type: inline-size`，以 `@container (max-width: 699px)` 驱动单列/双栏切换，并在打开导航、关闭导航与选择项之间通过 `nextTick` 管理焦点流转。
+- 合同测试命令：`bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/agent-profile/profile-runtime-settings.test.ts app/component-lab`。
 ## 证据
 
 - 批准依据：用户于 2026-09-08 批准的 Lab-first 完整设置页计划（`local://profile-settings-lab-plan.md`，本会话批准记录）；Work `w00003-neurobook-ui-foundation-migration` Lab-first replacement 路线。

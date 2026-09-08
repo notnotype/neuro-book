@@ -291,7 +291,7 @@ function onResetHome(profileKey: string): void {
 </script>
 
 <template>
-    <div class="flex h-[660px] max-h-full min-h-0 w-full flex-col gap-2">
+    <div class="flex h-full min-h-[560px] max-h-full min-h-0 w-full flex-col gap-2">
         <p v-if="message" class="shrink-0 rounded-[var(--radius-control)] border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1.5 text-[11px] text-[var(--status-success)]">{{ message }}</p>
         <div class="min-h-0 flex-1">
             <AgentProfileSettingsView
