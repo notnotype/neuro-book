@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档并禁用未迁移的两档：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 4 && layout.activeSections === 1,
+            layout.sectionCount === 5 && layout.activeSections === 1,
             failures,
-            `区段导航应列出四个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出五个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -108,6 +108,26 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             sectionSwitch.active.length === 1 && sectionSwitch.active[0] === "可观测" && sectionSwitch.switches === 1 && sectionSwitch.hasTraceTitle,
             failures,
             `切到可观测区段应挂载该区段的真实视图：${JSON.stringify(sectionSwitch)}`,
+        );
+
+        stage = "切到 Web 工具区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Web 工具"}).first().click();
+        await page.waitForTimeout(200);
+        const webSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const providerRows = body ? [...body.querySelectorAll("article")] : [];
+            return {
+                providers: providerRows.length,
+                switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
+                moveButtons: body ? body.querySelectorAll('button[title*="上移"], button[title*="下移"]').length : 0,
+                hasFallbackHint: (body?.textContent ?? "").includes("Fallback:"),
+            };
+        });
+        assert(
+            webSection.providers === 2 && webSection.switches === 4 && webSection.moveButtons === 4 && webSection.hasFallbackHint,
+            failures,
+            `切到 Web 工具区段应挂载该区段的真实表单：${JSON.stringify(webSection)}`,
         );
 
         stage = "切到向量嵌入区段";

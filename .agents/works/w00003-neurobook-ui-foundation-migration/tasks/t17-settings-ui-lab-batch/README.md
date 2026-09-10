@@ -92,3 +92,16 @@ role: tasker
 - smoke 断言区段数 4，切到该段后挂载真实表单（开关 1、输入 ≥5、多行 1、含 Base URL）且栅格为一或两栏。
 
 实测：`sectionCount 4`、切段断言全绿；Lab 组件树 19 → 20 个组件。
+
+## 切片 5：Web 工具区段（已完成）
+
+产出：
+
+- `settings/web/web-settings-draft.ts`：草稿模型与序列化规则的唯一出口（优先级规范化、上下移边界、provider 密钥三态、数字回落默认值、`buildWebPayload()`），并配 `web-settings-draft.test.ts` 覆盖这四类边界（4 用例）。
+- `settings/web/WebSettingsView.vue` + 同名文档：搜索服务（默认服务下拉 + `Fallback:` 顺序提示、两个 provider 行含上移下移与开关、密钥 + 清除、超时，Brave 另有国家与搜索语言）、本地抓取（开关 + 五个限额）、Tavily 兜底（开关 + 超时）。短字段并排按视图自身容器宽度决定。
+- `component-lab/fixtures/WebSettingsViewFixture.vue`（default / configured / brave-first / local-fetch-off / saving / save-error / disabled）；外壳第五个区段「Web 工具」。
+- smoke 断言区段数 5，切到该段后挂载真实表单（2 个 provider 行、4 个开关、4 个上移/下移按钮、含 Fallback 提示）。
+
+实测：`sectionCount 5`、切段断言全绿；Lab 组件树 20 → 21 个组件。
+
+过程中被 smoke 的 console 守卫抓到一处真实缺陷：provider 行曾用 `settings.panels.web.disabled` 这个不存在的 i18n key。旧面板本来没有启用状态文字（开关本身表达状态），因此删掉那枚重复徽标而不是新增文案。

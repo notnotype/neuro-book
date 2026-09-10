@@ -189,6 +189,19 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./NovelIdeSettingsViewFixture.vue")).default,
     },
     {
+        component: "WebSettingsView",
+        scenes: [
+            {id: "default", label: "默认", data: {editable: "fixture-owned"}},
+            {id: "configured", label: "两家已配置", data: {editable: "fixture-owned"}},
+            {id: "brave-first", label: "Brave 优先", data: {editable: "fixture-owned"}},
+            {id: "local-fetch-off", label: "本地抓取关闭", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+            {id: "disabled", label: "整段停用", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./WebSettingsViewFixture.vue")).default,
+    },
+    {
         component: "EmbeddingSettingsView",
         scenes: [
             {id: "global-disabled", label: "全局未启用", data: {editable: "fixture-owned"}},

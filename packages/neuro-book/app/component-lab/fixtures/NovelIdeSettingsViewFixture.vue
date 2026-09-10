@@ -10,6 +10,8 @@ import NovelIdeSettingsView from "../../components/novel-ide/settings/NovelIdeSe
 import CostSettingsView from "../../components/novel-ide/settings/cost/CostSettingsView.vue";
 import EmbeddingSettingsView from "../../components/novel-ide/settings/embedding/EmbeddingSettingsView.vue";
 import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/embedding/embedding-settings-draft";
+import WebSettingsView from "../../components/novel-ide/settings/web/WebSettingsView.vue";
+import {createWebSettingsDraft} from "../../components/novel-ide/settings/web/web-settings-draft";
 import ObservabilitySettingsView from "../../components/novel-ide/settings/observability/ObservabilitySettingsView.vue";
 import type {
     SettingsScopeId,
@@ -48,6 +50,13 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Profile 的模型、运行策略与专属设置",
         iconClass: "i-lucide-bot-message-square",
         scopes: ["global", "project"],
+    },
+    {
+        value: "web-tools",
+        label: "Web 工具",
+        description: "搜索服务、本地抓取与兜底",
+        iconClass: "i-lucide-globe",
+        scopes: ["global"],
     },
     {
         value: "embedding",
@@ -163,6 +172,7 @@ const traceEnabled = ref(true);
 const traceMaxRecords = ref(100);
 const costCurrency = ref<"USD" | "CNY">("USD");
 const embeddingDraft = ref(createEmbeddingSettingsDraft());
+const webDraft = ref(createWebSettingsDraft());
 const exchangeRate = ref<number | null>(7.2413);
 const dialogOpen = ref(false);
 const dialogWidth = ref(1100);
@@ -187,6 +197,7 @@ watch([scope, activeSection, loading, loadError], () => {
         traceMaxRecords: traceMaxRecords.value,
         costCurrency: costCurrency.value,
         embeddingGlobal: {...embeddingDraft.value.global},
+        webOrder: [...webDraft.value.order],
         loading: loading.value,
         loadError: loadError.value,
     });
@@ -246,6 +257,11 @@ function openDialog(): void {
                     v-else-if="activeSection === 'embedding'"
                     v-model="embeddingDraft"
                     scope="global"
+                />
+
+                <WebSettingsView
+                    v-else-if="activeSection === 'web-tools'"
+                    v-model="webDraft"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -311,6 +327,11 @@ function openDialog(): void {
                         v-else-if="activeSection === 'embedding'"
                         v-model="embeddingDraft"
                         scope="global"
+                    />
+
+                    <WebSettingsView
+                        v-else-if="activeSection === 'web-tools'"
+                        v-model="webDraft"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>
