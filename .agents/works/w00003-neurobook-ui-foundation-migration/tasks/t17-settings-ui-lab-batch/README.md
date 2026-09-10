@@ -21,7 +21,7 @@ role: tasker
 - 现状宿主 `packages/neuro-book/app/components/novel-ide/NovelIdeSettingsDialog.vue`（1333 行）：旧模态 `Dialog` + 卡片语言 + 顶部保存/恢复栏 + `activeSection` 内联分支。
 - 面板规模：`NovelIdeModelSettingsPanel` 726、`NovelIdeAgentProfileModelSettingsPanel` 705、`NovelIdeWebSettingsPanel` 561、`NovelIdeEmbeddingSettingsPanel` 392、`NovelIdeCostSettingsPanel` 220、`NovelIdeObservabilitySettingsPanel` 161、`theme/*` 222。
 - 作用域与区段：`boot`（security）、`global`（models / embedding / cost / web-tools / agent-profile-models / observability）、`project`（agent-profile-models）、`browser`（frontend / editor / desktop）；区段列表按作用域过滤。
-- 已迁资产：`settings/agent-profile/AgentProfileSettingsView.vue`（t15 金标 + 十个 Lab 场景）。
+- 已迁资产：`settings/views/AgentProfileSettingsView.vue`（t15 金标 + 十个 Lab 场景）。
 
 ## 切片
 
@@ -66,7 +66,7 @@ role: tasker
 
 产出：
 
-- `settings/observability/ObservabilitySettingsView.vue` + 同名文档：Pi 请求记录的受控视图（总开关 + 每会话保留条数 + 隐私说明）。就地保存，合法输入立刻写回并夹到 `0..10000`；空串与非数字不写回，避免清空输入框时把 0 落进配置。旧面板 `NovelIdeObservabilitySettingsPanel` 继续负责快照读写与 `saveGlobal`，产品接线时再消费本视图。
+- `settings/views/ObservabilitySettingsView.vue` + 同名文档：Pi 请求记录的受控视图（总开关 + 每会话保留条数 + 隐私说明）。就地保存，合法输入立刻写回并夹到 `0..10000`；空串与非数字不写回，避免清空输入框时把 0 落进配置。旧面板 `NovelIdeObservabilitySettingsPanel` 继续负责快照读写与 `saveGlobal`，产品接线时再消费本视图。
 - `component-lab/fixtures/ObservabilitySettingsViewFixture.vue`（default / disabled / boundary / saving / save-error）与注册表条目；`NovelIdeSettingsViewFixture` 增加第二个区段「可观测」，两个场景的内容槽按 `activeSection` 分派真实视图。
 - smoke 扩展：区段数 2、切到可观测区段后挂载真实视图（开关数 1 + 标题命中）、再切回 Agent Profile 区段。
 
@@ -76,7 +76,7 @@ role: tasker
 
 产出：
 
-- `settings/cost/CostSettingsView.vue` + 同名文档：展示币种（USD / CNY，各带说明，因此用 `RadioGroup` 而不是下拉）、当前 `1 USD = x CNY（缓存）` 与取回时间、手动刷新按钮。汇率只影响展示、不写配置；刷新由 `refreshRate` 交给宿主，视图不解析响应。旧面板 `NovelIdeCostSettingsPanel` 继续负责快照、`saveGlobal` 与汇率请求。
+- `settings/views/CostSettingsView.vue` + 同名文档：展示币种（USD / CNY，各带说明，因此用 `RadioGroup` 而不是下拉）、当前 `1 USD = x CNY（缓存）` 与取回时间、手动刷新按钮。汇率只影响展示、不写配置；刷新由 `refreshRate` 交给宿主，视图不解析响应。旧面板 `NovelIdeCostSettingsPanel` 继续负责快照、`saveGlobal` 与汇率请求。
 - `component-lab/fixtures/CostSettingsViewFixture.vue`（default / cny / stale / missing-rate / refreshing / save-error）与注册表条目；fixture 的刷新只换一个确定值并记录事件。
 - 外壳第三个区段「费用显示」；smoke 断言区段数 3，切到该段后挂载真实视图（2 个 radio + 刷新按钮 + 汇率行）。
 
@@ -86,8 +86,8 @@ role: tasker
 
 产出：
 
-- `settings/embedding/embedding-settings-draft.ts`：草稿模型与序列化规则的唯一出口（`createEmbeddingSettingsDraft()`、`buildGlobalEmbeddingPayload()`、`buildProjectEmbeddingPayload()`、`buildSecretPayload()`）。空串统一表示「未配置/继承上层」，密钥留空表示保留原值、显式清除才写空串，启用但模型为空时按三处默认值补齐。
-- `settings/embedding/EmbeddingSettingsView.vue` + 同名文档：global 渲染整段服务配置（开关 / Provider / 模型 / 维度 / Timeout / Base URL / API Key + 清除 / 请求扩展参数 JSON），project 只渲染模型与维度覆盖。短字段并排由视图自身容器宽度（`@container min-width: 620px`）决定，不看窗口宽度。
+- `settings/views/embedding/embedding-settings-draft.ts`：草稿模型与序列化规则的唯一出口（`createEmbeddingSettingsDraft()`、`buildGlobalEmbeddingPayload()`、`buildProjectEmbeddingPayload()`、`buildSecretPayload()`）。空串统一表示「未配置/继承上层」，密钥留空表示保留原值、显式清除才写空串，启用但模型为空时按三处默认值补齐。
+- `settings/views/EmbeddingSettingsView.vue` + 同名文档：global 渲染整段服务配置（开关 / Provider / 模型 / 维度 / Timeout / Base URL / API Key + 清除 / 请求扩展参数 JSON），project 只渲染模型与维度覆盖。短字段并排由视图自身容器宽度（`@container min-width: 620px`）决定，不看窗口宽度。
 - `component-lab/fixtures/EmbeddingSettingsViewFixture.vue`（global-disabled / global-enabled / global-api-key / project-inherit / project-override / saving / save-error）与注册表条目；外壳第四个区段「向量嵌入」，只登记在 global 下（旧宿主的 scope→区段矩阵里 embedding 只属于 global，project 场景由该视图自己的 fixture 覆盖）。
 - smoke 断言区段数 4，切到该段后挂载真实表单（开关 1、输入 ≥5、多行 1、含 Base URL）且栅格为一或两栏。
 
@@ -97,8 +97,8 @@ role: tasker
 
 产出：
 
-- `settings/web/web-settings-draft.ts`：草稿模型与序列化规则的唯一出口（优先级规范化、上下移边界、provider 密钥三态、数字回落默认值、`buildWebPayload()`），并配 `web-settings-draft.test.ts` 覆盖这四类边界（4 用例）。
-- `settings/web/WebSettingsView.vue` + 同名文档：搜索服务（默认服务下拉 + `Fallback:` 顺序提示、两个 provider 行含上移下移与开关、密钥 + 清除、超时，Brave 另有国家与搜索语言）、本地抓取（开关 + 五个限额）、Tavily 兜底（开关 + 超时）。短字段并排按视图自身容器宽度决定。
+- `settings/views/web/web-settings-draft.ts`：草稿模型与序列化规则的唯一出口（优先级规范化、上下移边界、provider 密钥三态、数字回落默认值、`buildWebPayload()`），并配 `web-settings-draft.test.ts` 覆盖这四类边界（4 用例）。
+- `settings/views/WebSettingsView.vue` + 同名文档：搜索服务（默认服务下拉 + `Fallback:` 顺序提示、两个 provider 行含上移下移与开关、密钥 + 清除、超时，Brave 另有国家与搜索语言）、本地抓取（开关 + 五个限额）、Tavily 兜底（开关 + 超时）。短字段并排按视图自身容器宽度决定。
 - `component-lab/fixtures/WebSettingsViewFixture.vue`（default / configured / brave-first / local-fetch-off / saving / save-error / disabled）；外壳第五个区段「Web 工具」。
 - smoke 断言区段数 5，切到该段后挂载真实表单（2 个 provider 行、4 个开关、4 个上移/下移按钮、含 Fallback 提示）。
 
@@ -106,14 +106,32 @@ role: tasker
 
 过程中被 smoke 的 console 守卫抓到一处真实缺陷：provider 行曾用 `settings.panels.web.disabled` 这个不存在的 i18n key。旧面板本来没有启用状态文字（开关本身表达状态），因此删掉那枚重复徽标而不是新增文案。
 
+## 切片 6：密码保护 / 编辑器 / 桌面应用三小节（已完成）
+
+产出：
+
+- `settings/views/editor/editor-prefs.ts` + 测试：数值区间与步长（`MARKDOWN_NUMBER_LIMITS` / `MONACO_NUMBER_LIMITS`）、字体候选、`clampEditorNumber` / `clampMonacoNumber` 与 `editorFontLabel`。区间同时是控件 `min` / `max` / `step` 与夹紧逻辑的唯一来源。5 个用例覆盖越界夹紧、区间内小数透传、空串与非数字返回 `null`、候选表完整性。
+- `settings/views/EditorSettingsView.vue` + 同名文档：Markdown 正文档（字体 / 字号 / 行高 / 正文宽度 / 段首缩进）与 Monaco 段（字体 / 字号 / 行高 / Tab Size / 四个开关），两块各带「重置」，重置只发 `reset` 事件由宿主决定重置成什么。
+- `settings/views/DesktopSettingsView.vue` + 同名文档：说明块（连接方式 + 版本）、缩放滑杆（0.75–2，百分比贴在标题右侧）、托盘开关、关闭行为下拉。视图里没有 `window.neuroBookDesktop`——探测与拉取时机是宿主策略；`status` 为 `null` 时只少一行版本说明。
+- `settings/views/SecuritySettingsView.vue` + 同名文档：只读三件套（说明、`auth.enabled` 三态徽标、`config.yaml` 示例 + 警告），无 emit、无保存入口。
+- 三个 fixture（EditorSettingsView 4 场景 / DesktopSettingsView 3 场景 / SecuritySettingsView 3 场景）与注册表条目；外壳 fixture 解禁 `启动` 与 `本机` 两档作用域并各挂三个新区段体，四个作用域现在都能进入。
+- smoke 扩展：`scopeDisabled` 2 → 0；新增「启动作用域（1 区段 + `auth.enabled` + 示例 YAML + 三态文案）」「本机作用域（2 区段）」「编辑器区段（7 个数字字段 + 两处字体联想 + 5 个开关 + 段首缩进禁用态）」「桌面应用区段（0.75–2 滑杆 + 100% + 1 开关 + 1 下拉）」四段。
+
+实测（Lab smoke 输出）：`scopeDisabled 0`、`sectionCount 5`、`nestedViews 1`、`overflow 0`；启动段 1 区段（当前项「密码保」）、本机段 2 区段、编辑器段 7 个数字输入 / 2 处字体输入 / 5 个开关 / 1 个禁用数字输入、桌面段滑杆 `0.75–2` 与 `100%`。
+
+两处与计划文本的有意偏差：
+
+- 字体的候选联想用 nb-ui `Autocomplete`（真输入框 + 联想浮层），不是 `FormInput` + `datalist`：`FormInput` 不透传 `list`，`datalist` 挂不上。smoke 相应改为断言两处 `input[placeholder="输入 CSS font-family"]`，而不是 `datalist` 计数。
+- 段首缩进关闭时，缩进量输入框保持可见但 `disabled`（计划里曾写「默认态禁用数为 0」，实际是 1）：这与旧宿主一致，也让「关闭后缩进量是否还在」可预期。
+
 ## 剩余工作（尚未开始）
 
-外壳与四个独立面板已迁完（可观测、费用显示、向量嵌入、Web 工具），剩下两块量级明显不同，各自需要单独切片：
+外壳与六个独立区段已迁完（可观测、费用显示、向量嵌入、Web 工具、编辑器、桌面应用、密码保护），剩下模型子系统，需要单独切片：
 
-1. **模型子系统**（`NovelIdeModelSettingsPanel`，726 行）：它不是单个面板，而是 6 个子组件（`AgentVisibleModelsEditor`、`NovelIdeModelSelect`、`NovelIdeModelEditDialog`、`ModelDiscoveryDialog`、`ModelLibraryDialog`、`SavedModelsList`）加 4 个 composable（`useModelSettingsDraftSession`、`useModelCheckSession`、`useModelDiscoverySession`、`useProviderTemplateSession`）与 3 个纯逻辑模块（`model-settings-draft`、`model-draft-factory`、`model-cost-draft`）。按子组件逐个迁，先做纯逻辑模块的 Lab 化与测试，再迁列表与编辑对话框。
-2. **浏览器作用域区段**（`frontend` / `editor` / `desktop` / `security`）：它们没有独立组件，内联在 1333 行的 `NovelIdeSettingsDialog.vue` 里，需要先抽成视图再进外壳；`security` 属 `boot` 作用域，是只读说明，可直接照外壳的线条语言重画。
+1. **模型区段渲染层**：`NovelIdeModelSettingsPanel`（726 行）不是单个面板，而是 6 个子组件（`AgentVisibleModelsEditor`、`NovelIdeModelSelect`、`NovelIdeModelEditDialog`、`ModelDiscoveryDialog`、`ModelLibraryDialog`、`SavedModelsList`）加 4 个 composable（`useModelSettingsDraftSession`、`useModelCheckSession`、`useModelDiscoverySession`、`useProviderTemplateSession`）与 4 个纯逻辑模块（`model-settings-draft`、`model-draft-factory`、`model-cost-draft`、`model-settings-view`）。先把渲染层（Provider 导轨 + 详情 + 模型清单）抽成受控视图，四个会话与全部 I/O 仍留在宿主。
+2. **模型区段对话框层**：编辑设置、Model Library、模型发现、校验问题、删除 Provider 确认五个对话框挂到该视图上（含外壳 fixture 的开关与 handler）。
 
-两块都沿用前五片的配方；产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
+产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
 
 ## 返工风险清单（接线前必须处理）
 

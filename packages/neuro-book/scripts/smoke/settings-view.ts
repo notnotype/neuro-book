@@ -54,9 +54,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `设置外壳应是一栏导航轨 + 内容区，轨宽 276px 且带栏间竖线：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.scopeCount === 4 && layout.scopeDisabled === 2,
+            layout.scopeCount === 4 && layout.scopeDisabled === 0,
             failures,
-            `作用域选择器应给出四档并禁用未迁移的两档：${JSON.stringify(layout)}`,
+            `作用域选择器应给出四档且都可进入：${JSON.stringify(layout)}`,
         );
         assert(
             layout.sectionCount === 5 && layout.activeSections === 1,
@@ -174,6 +174,112 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         stage = "切回 Agent Profile 区段";
         await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile 模型"}).first().click();
         await page.waitForTimeout(200);
+
+        stage = "切到启动作用域";
+        await page.locator('[aria-label="配置作用域"] [role="radio"]').filter({hasText: "启动"}).first().click();
+        await page.waitForTimeout(200);
+        const bootScope = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const rows = [...(root?.querySelectorAll<HTMLElement>(".settings-nav-aside nav ul li button") ?? [])];
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const example = body?.querySelector("pre") ?? null;
+            const text = body?.textContent ?? "";
+            return {
+                sections: rows.length,
+                active: rows.filter((row) => row.getAttribute("aria-current") === "page").map((row) => row.textContent?.trim().slice(0, 3) ?? ""),
+                hasAuthKey: text.includes("auth.enabled"),
+                examples: body ? body.querySelectorAll("pre").length : 0,
+                exampleText: example?.textContent ?? "",
+                hasStatusLabel: /当前已开启|当前已关闭|状态读取中/u.test(text),
+            };
+        });
+        assert(
+            bootScope.sections === 1 && bootScope.active.length === 1 && bootScope.active[0] === "密码保",
+            failures,
+            `启动作用域应只有密码保护区段且为当前项：${JSON.stringify(bootScope)}`,
+        );
+        assert(
+            bootScope.hasAuthKey && bootScope.examples === 1 && bootScope.exampleText.includes("auth:") && bootScope.hasStatusLabel,
+            failures,
+            `密码保护区段应渲染 auth.enabled 状态与示例 YAML：${JSON.stringify(bootScope)}`,
+        );
+
+        stage = "切到本机作用域";
+        await page.locator('[aria-label="配置作用域"] [role="radio"]').filter({hasText: "本机"}).first().click();
+        await page.waitForTimeout(200);
+        const browserScope = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const rows = [...(root?.querySelectorAll<HTMLElement>(".settings-nav-aside nav ul li button") ?? [])];
+            return {sections: rows.length, labels: rows.map((row) => row.textContent?.trim().slice(0, 3) ?? "")};
+        });
+        assert(
+            browserScope.sections === 2 && browserScope.labels.join(",") === "编辑器,桌面应",
+            failures,
+            `本机作用域应列出编辑器与桌面应用两个区段：${JSON.stringify(browserScope)}`,
+        );
+
+        stage = "切到编辑器区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "编辑器"}).first().click();
+        await page.waitForTimeout(200);
+        const editorSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            return {
+                numberInputs: body ? body.querySelectorAll('input[type="number"]').length : 0,
+                fontInputs: body ? body.querySelectorAll('input[placeholder="输入 CSS font-family"]').length : 0,
+                fontSizeBounds: body ? body.querySelectorAll('input[min="12"][max="28"]').length : 0,
+                lineHeightBounds: body ? body.querySelectorAll('input[min="1.2"][max="2.6"]').length : 0,
+                contentWidthBounds: body ? body.querySelectorAll('input[min="520"][max="1280"]').length : 0,
+                disabledNumberInputs: body ? body.querySelectorAll('input[type="number"][disabled]').length : 0,
+                switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
+                textareas: body ? body.querySelectorAll("textarea").length : 0,
+            };
+        });
+        assert(
+            editorSection.numberInputs === 7
+                && editorSection.fontSizeBounds === 1
+                && editorSection.lineHeightBounds === 1
+                && editorSection.contentWidthBounds === 1,
+            failures,
+            `编辑器区段应渲染七个带区间的数字字段：${JSON.stringify(editorSection)}`,
+        );
+        assert(
+            editorSection.fontInputs === 2 && editorSection.switches === 5 && editorSection.textareas === 0,
+            failures,
+            `编辑器区段应有两处字体联想输入与五个开关：${JSON.stringify(editorSection)}`,
+        );
+        assert(
+            editorSection.disabledNumberInputs === 1,
+            failures,
+            `段首缩进关闭时其缩进量输入框应保持可见但禁用：${JSON.stringify(editorSection)}`,
+        );
+
+        stage = "切到桌面应用区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "桌面应用"}).first().click();
+        await page.waitForTimeout(200);
+        const desktopSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const range = body?.querySelector<HTMLInputElement>('input[type="range"]') ?? null;
+            return {
+                ranges: body ? body.querySelectorAll('input[type="range"]').length : 0,
+                rangeMin: range?.getAttribute("min") ?? "",
+                rangeMax: range?.getAttribute("max") ?? "",
+                hasZoomLabel: (body?.textContent ?? "").includes("100%"),
+                switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
+                comboboxes: body ? body.querySelectorAll('[role="combobox"]').length : 0,
+            };
+        });
+        assert(
+            desktopSection.ranges === 1 && desktopSection.rangeMin === "0.75" && desktopSection.rangeMax === "2",
+            failures,
+            `桌面应用区段应有一个 0.75–2 的缩放滑杆：${JSON.stringify(desktopSection)}`,
+        );
+        assert(
+            desktopSection.hasZoomLabel && desktopSection.switches === 1 && desktopSection.comboboxes === 1,
+            failures,
+            `桌面应用区段应显示当前缩放百分比、一个托盘开关与一个关闭行为下拉：${JSON.stringify(desktopSection)}`,
+        );
 
         stage = "切到项目作用域";
         await page.locator('[aria-label="配置作用域"] [role="radio"]').filter({hasText: "项目"}).first().click();

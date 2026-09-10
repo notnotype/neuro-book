@@ -237,6 +237,34 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./ObservabilitySettingsViewFixture.vue")).default,
     },
+    {
+        component: "EditorSettingsView",
+        scenes: [
+            {id: "default", label: "默认", data: {editable: "fixture-owned"}},
+            {id: "custom", label: "自定义偏好", data: {editable: "fixture-owned"}},
+            {id: "indent-off", label: "段首缩进关闭", data: {editable: "fixture-owned"}},
+            {id: "boundary", label: "边界值", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./EditorSettingsViewFixture.vue")).default,
+    },
+    {
+        component: "DesktopSettingsView",
+        scenes: [
+            {id: "default", label: "本地服务", data: {editable: "fixture-owned"}},
+            {id: "remote-zoom-max", label: "远端与最大缩放", data: {editable: "fixture-owned"}},
+            {id: "error", label: "更新失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./DesktopSettingsViewFixture.vue")).default,
+    },
+    {
+        component: "SecuritySettingsView",
+        scenes: [
+            {id: "enabled", label: "已开启", data: {editable: "fixture-owned"}},
+            {id: "disabled", label: "已关闭", data: {editable: "fixture-owned"}},
+            {id: "unknown", label: "状态读取中", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./SecuritySettingsViewFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {

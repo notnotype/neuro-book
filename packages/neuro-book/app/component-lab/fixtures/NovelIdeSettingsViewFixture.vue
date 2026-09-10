@@ -13,6 +13,22 @@ import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/
 import WebSettingsView from "../../components/novel-ide/settings/views/WebSettingsView.vue";
 import {createWebSettingsDraft} from "../../components/novel-ide/settings/views/web/web-settings-draft";
 import ObservabilitySettingsView from "../../components/novel-ide/settings/views/ObservabilitySettingsView.vue";
+import EditorSettingsView from "../../components/novel-ide/settings/views/EditorSettingsView.vue";
+import DesktopSettingsView from "../../components/novel-ide/settings/views/DesktopSettingsView.vue";
+import SecuritySettingsView from "../../components/novel-ide/settings/views/SecuritySettingsView.vue";
+import {
+    DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
+    DEFAULT_MONACO_EDITOR_PREFERENCES,
+    type MarkdownEditorPreferences,
+    type MonacoEditorPreferences,
+} from "nbook/shared/editor-workbench";
+import {
+    DEFAULT_DESKTOP_SETTINGS,
+    DESKTOP_BRIDGE_SCHEMA,
+    type DesktopSettings,
+    type DesktopSettingsPatch,
+    type DesktopStatus,
+} from "@notnotype/neuro-book-contracts/desktop";
 import type {
     SettingsScopeId,
     SettingsScopeOption,
@@ -33,14 +49,14 @@ const sceneKey = computed<SceneKey>(() => {
 });
 
 /**
- * 外壳的作用域与区段都由宿主给：本批次只有 agent-profile-models 有可渲染的区段体，
- * 另外两档作用域先在 Lab 里标为不可进入，而不是摆一个点不动的空列表。
+ * 外壳的作用域与区段都由宿主给：全局 / 项目 / 本机 / 启动四档都能进入，
+ * 每档挂的区段体见下方内容槽。
  */
 const scopeOptions: SettingsScopeOption[] = [
-    {value: "boot", label: "启动", description: "启动期安全配置，只读说明", disabledReason: "本批次未迁移该作用域的区段"},
+    {value: "boot", label: "启动", description: "启动期安全配置，只读说明"},
     {value: "global", label: "全局", description: "写入全局配置文件"},
     {value: "project", label: "项目", description: "写入当前项目配置"},
-    {value: "browser", label: "本机", description: "写入本机浏览器状态", disabledReason: "本批次未迁移该作用域的区段"},
+    {value: "browser", label: "本机", description: "写入本机浏览器状态"},
 ];
 
 const sectionOptions: SettingsSectionOption[] = [
@@ -78,6 +94,27 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Pi 请求 trace 记录开关与保留策略",
         iconClass: "i-lucide-activity",
         scopes: ["global"],
+    },
+    {
+        value: "security",
+        label: "密码保护",
+        description: "查看启动期鉴权配置和安全影响",
+        iconClass: "i-lucide-shield-check",
+        scopes: ["boot"],
+    },
+    {
+        value: "editor",
+        label: "编辑器",
+        description: "Markdown 富文本显示偏好",
+        iconClass: "i-lucide-type",
+        scopes: ["browser"],
+    },
+    {
+        value: "desktop",
+        label: "桌面应用",
+        description: "窗口、缩放和系统托盘行为",
+        iconClass: "i-lucide-panels-top-left",
+        scopes: ["browser"],
     },
 ];
 
@@ -174,6 +211,22 @@ const costCurrency = ref<"USD" | "CNY">("USD");
 const embeddingDraft = ref(createEmbeddingSettingsDraft());
 const webDraft = ref(createWebSettingsDraft());
 const exchangeRate = ref<number | null>(7.2413);
+const securityAuthEnabled = ref<boolean | null>(true);
+const editorMarkdown = ref<MarkdownEditorPreferences>({...DEFAULT_MARKDOWN_EDITOR_PREFERENCES});
+const editorMonaco = ref<MonacoEditorPreferences>({...DEFAULT_MONACO_EDITOR_PREFERENCES});
+const desktopSettings = ref<DesktopSettings>({...DEFAULT_DESKTOP_SETTINGS});
+const desktopSaveError = ref("");
+const desktopStatus: DesktopStatus = {
+    schema: DESKTOP_BRIDGE_SCHEMA,
+    envelope: "electron",
+    connection: "local",
+    version: "0.1.42",
+    origin: "http://127.0.0.1:3000",
+    insecureRemote: false,
+    platform: "windows",
+    menuPresentation: "renderer",
+    windowControls: "overlay",
+};
 const dialogOpen = ref(false);
 /**
  * 初始尺寸完全交给 size="lg"，不在这里重复写一份数字：只有用户拖动过之后才用受控值接管，
@@ -190,6 +243,11 @@ watch(sceneKey, (scene) => {
     scope.value = scene === "project" ? "project" : "global";
     activeSection.value = "agent-profile-models";
     settingsDraft.value = buildDraft();
+    securityAuthEnabled.value = true;
+    editorMarkdown.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
+    editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
+    desktopSettings.value = {...DEFAULT_DESKTOP_SETTINGS};
+    desktopSaveError.value = "";
     dialogOpen.value = scene === "dialog-window";
 }, {immediate: true});
 
@@ -202,6 +260,10 @@ watch([scope, activeSection, loading, loadError], () => {
         costCurrency: costCurrency.value,
         embeddingGlobal: {...embeddingDraft.value.global},
         webOrder: [...webDraft.value.order],
+        securityAuthEnabled: securityAuthEnabled.value,
+        editorMarkdown: {...editorMarkdown.value},
+        editorMonaco: {...editorMonaco.value},
+        desktopZoom: desktopSettings.value.zoomFactor,
         loading: loading.value,
         loadError: loadError.value,
     });
@@ -213,6 +275,22 @@ function emitScopeChange(value: SettingsScopeId): void {
 
 function emitSectionChange(value: string): void {
     emitLabEvent("update:modelValue", {section: value});
+}
+
+/** 桌面设置的写回在 Lab 里不存在：就地合并 patch 并记录事件。 */
+function updateDesktopSettings(patch: DesktopSettingsPatch): void {
+    desktopSettings.value = {...desktopSettings.value, ...patch};
+    emitLabEvent("update:settings", {...patch});
+}
+
+/** 重置由宿主决定重置成什么；外壳 fixture 里就恢复两份文档化默认值。 */
+function resetEditorPreferences(target: "markdown" | "monaco"): void {
+    if (target === "markdown") {
+        editorMarkdown.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
+    } else {
+        editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
+    }
+    emitLabEvent("reset", {target});
 }
 
 function openDialog(): void {
@@ -266,6 +344,26 @@ function openDialog(): void {
                 <WebSettingsView
                     v-else-if="activeSection === 'web-tools'"
                     v-model="webDraft"
+                />
+
+                <SecuritySettingsView
+                    v-else-if="activeSection === 'security'"
+                    :auth-enabled="securityAuthEnabled"
+                />
+
+                <EditorSettingsView
+                    v-else-if="activeSection === 'editor'"
+                    v-model:markdown="editorMarkdown"
+                    v-model:monaco="editorMonaco"
+                    @reset="resetEditorPreferences"
+                />
+
+                <DesktopSettingsView
+                    v-else-if="activeSection === 'desktop'"
+                    :settings="desktopSettings"
+                    :status="desktopStatus"
+                    :save-error="desktopSaveError"
+                    @update:settings="updateDesktopSettings"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -336,6 +434,26 @@ function openDialog(): void {
                     <WebSettingsView
                         v-else-if="activeSection === 'web-tools'"
                         v-model="webDraft"
+                    />
+
+                    <SecuritySettingsView
+                        v-else-if="activeSection === 'security'"
+                        :auth-enabled="securityAuthEnabled"
+                    />
+
+                    <EditorSettingsView
+                        v-else-if="activeSection === 'editor'"
+                        v-model:markdown="editorMarkdown"
+                        v-model:monaco="editorMonaco"
+                        @reset="resetEditorPreferences"
+                    />
+
+                    <DesktopSettingsView
+                        v-else-if="activeSection === 'desktop'"
+                        :settings="desktopSettings"
+                        :status="desktopStatus"
+                        :save-error="desktopSaveError"
+                        @update:settings="updateDesktopSettings"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>
