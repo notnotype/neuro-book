@@ -381,6 +381,45 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             failures,
             `切回全局后应隐藏项目目标行：${JSON.stringify(back)}`,
         );
+
+        // 产品里模型编辑窗口是从设置窗口里开出来的：两层都是 DialogWindow，层级与 Esc 必须在真实浏览器里成立。
+        stage = "模型对话框嵌在设置窗口里";
+        await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "DialogWindow 内嵌"}).first().click();
+        await page.waitForTimeout(400);
+        await page.locator('[aria-label="配置作用域"]').first().waitFor({state: "visible", timeout: 10_000});
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "模型设置"}).first().click();
+        await page.waitForTimeout(300);
+        const visibleSurfaceLayers = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-dialog-surface]")]
+            .filter((surface) => surface.getBoundingClientRect().width > 0)
+            .map((surface) => getComputedStyle(surface).zIndex));
+        const outerLayers = await visibleSurfaceLayers();
+        assert(
+            outerLayers.length === 1 && outerLayers[0] === "8990",
+            failures,
+            `设置窗口本体应是 8990：${JSON.stringify(outerLayers)}`,
+        );
+
+        await page.locator('[data-dialog-surface] button[title="编辑设置"]').first().click();
+        await page.waitForTimeout(400);
+        const stackedLayers = await visibleSurfaceLayers();
+        assert(
+            stackedLayers.length === 2 && stackedLayers[0] === "8990" && stackedLayers[1] === "8992",
+            failures,
+            `从窗口里开出来的窗口应压在外层之上：${JSON.stringify(stackedLayers)}`,
+        );
+
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        const afterNestedEscape = await visibleSurfaceLayers();
+        assert(
+            afterNestedEscape.length === 1 && afterNestedEscape[0] === "8990",
+            failures,
+            `Escape 只应关掉最上面那个窗口：${JSON.stringify(afterNestedEscape)}`,
+        );
+
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(250);
+
         console.log(`Settings view layout: ${JSON.stringify(layout)}`);
     } catch (error) {
         failures.push({kind: "assertion", message: `NovelIdeSettingsView smoke 在「${stage}」失败：${error instanceof Error ? error.message : String(error)}`});

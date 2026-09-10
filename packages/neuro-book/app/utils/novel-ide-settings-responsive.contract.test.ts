@@ -3,7 +3,7 @@ import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
 const settingsDialogPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSettingsDialog.vue", import.meta.url));
-const profileNavPath = fileURLToPath(new URL("../components/novel-ide/settings/views/agent-profile/AgentProfileNavList.vue", import.meta.url));
+const profileNavPath = fileURLToPath(new URL("../components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.vue", import.meta.url));
 const modelPanelPath = fileURLToPath(new URL("../components/novel-ide/settings/NovelIdeModelSettingsPanel.vue", import.meta.url));
 
 describe("Novel IDE Settings responsive contract", () => {

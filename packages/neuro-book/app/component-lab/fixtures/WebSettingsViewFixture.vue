@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import WebSettingsView from "../../components/novel-ide/settings/views/WebSettingsView.vue";
-import {createWebSettingsDraft, type WebSettingsDraft} from "../../components/novel-ide/settings/views/web/web-settings-draft";
+import WebSettingsView from "../../components/novel-ide/settings/sections/WebSettingsView.vue";
+import {createWebSettingsDraft, type WebSettingsDraft} from "../../components/novel-ide/settings/sections/web/web-settings-draft";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();

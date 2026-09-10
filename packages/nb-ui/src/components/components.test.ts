@@ -963,6 +963,43 @@ describe("nb-ui dialog window", () => {
         }
     });
 
+    it("stacks a window opened from a window above it, popovers included", async () => {
+        const wrapper = mount(DialogWindow, {
+            props: {modelValue: true, title: "设置", teleportTarget: false},
+            slots: {
+                default: () => h(DialogWindow, {
+                    modelValue: true,
+                    title: "编辑模型",
+                    teleportTarget: false,
+                    width: 600,
+                }, {
+                    default: () => h(FormSelect, {
+                        modelValue: "one",
+                        options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                    }),
+                }),
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+
+            const surfaces = wrapper.findAll("[data-dialog-surface]").map((node) => node.attributes("style") ?? "");
+            expect(surfaces).toHaveLength(2);
+            expect(surfaces[0]).toContain("z-index: 8990");
+            expect(surfaces[1]).toContain("z-index: 8992");
+
+            // 内层窗口自己的下拉必须压过内层窗口本体，否则下拉会被同层的下拉遮住
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await nextTick();
+            await nextTick();
+
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8993");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
 });
 
 /*

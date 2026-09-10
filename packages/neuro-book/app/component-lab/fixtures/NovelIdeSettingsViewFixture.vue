@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
-import AgentProfileSettingsView from "../../components/novel-ide/settings/views/AgentProfileSettingsView.vue";
-import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/views/AgentProfileSettingsView.types";
-import type {AgentProfileDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
-import {cloneModelDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
-import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/views/agent-profile/profile-runtime-settings";
-import NovelIdeSettingsView from "../../components/novel-ide/settings/views/NovelIdeSettingsView.vue";
-import CostSettingsView from "../../components/novel-ide/settings/views/CostSettingsView.vue";
-import EmbeddingSettingsView from "../../components/novel-ide/settings/views/EmbeddingSettingsView.vue";
-import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/views/embedding/embedding-settings-draft";
-import WebSettingsView from "../../components/novel-ide/settings/views/WebSettingsView.vue";
-import {createWebSettingsDraft} from "../../components/novel-ide/settings/views/web/web-settings-draft";
-import ObservabilitySettingsView from "../../components/novel-ide/settings/views/ObservabilitySettingsView.vue";
-import EditorSettingsView from "../../components/novel-ide/settings/views/EditorSettingsView.vue";
-import DesktopSettingsView from "../../components/novel-ide/settings/views/DesktopSettingsView.vue";
-import SecuritySettingsView from "../../components/novel-ide/settings/views/SecuritySettingsView.vue";
-import ModelSettingsView from "../../components/novel-ide/settings/views/model/ModelSettingsView.vue";
-import type {ModelSettingsDraft} from "../../components/novel-ide/settings/views/model/model-settings-draft";
+import AgentProfileSettingsView from "../../components/novel-ide/settings/sections/AgentProfileSettingsView.vue";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/sections/AgentProfileSettingsView.types";
+import type {AgentProfileDraft} from "../../components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
+import {cloneModelDraft} from "../../components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
+import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
+import NovelIdeSettingsView from "../../components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
+import CostSettingsView from "../../components/novel-ide/settings/sections/CostSettingsView.vue";
+import EmbeddingSettingsView from "../../components/novel-ide/settings/sections/EmbeddingSettingsView.vue";
+import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/sections/embedding/embedding-settings-draft";
+import WebSettingsView from "../../components/novel-ide/settings/sections/WebSettingsView.vue";
+import {createWebSettingsDraft} from "../../components/novel-ide/settings/sections/web/web-settings-draft";
+import ObservabilitySettingsView from "../../components/novel-ide/settings/sections/ObservabilitySettingsView.vue";
+import EditorSettingsView from "../../components/novel-ide/settings/sections/EditorSettingsView.vue";
+import DesktopSettingsView from "../../components/novel-ide/settings/sections/DesktopSettingsView.vue";
+import SecuritySettingsView from "../../components/novel-ide/settings/sections/SecuritySettingsView.vue";
+import ModelSettingsView from "../../components/novel-ide/settings/sections/model/ModelSettingsView.vue";
+import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/model/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
     DISCOVERY_DIAGNOSTICS,
@@ -46,7 +46,7 @@ import type {
     SettingsScopeId,
     SettingsScopeOption,
     SettingsSectionOption,
-} from "../../components/novel-ide/settings/views/NovelIdeSettingsView.types";
+} from "../../components/novel-ide/settings/sections/NovelIdeSettingsView.types";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();
@@ -346,8 +346,7 @@ function openDialog(): void {
 </script>
 
 <template>
-    <!-- app 公共 Dialog 的默认 teleport 目标是产品外壳的 .novel-ide-theme；Lab 里由 fixture 提供同一个宿主。 -->
-    <div class="novel-ide-theme flex h-full min-h-0 flex-col">
+    <div class="flex h-full min-h-0 flex-col">
         <div v-if="!isDialogScene" class="min-h-0 flex-1">
             <NovelIdeSettingsView
                 :scope="scope"

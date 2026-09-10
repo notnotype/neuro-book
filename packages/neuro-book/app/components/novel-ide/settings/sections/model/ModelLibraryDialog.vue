@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
-import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
+import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -22,7 +22,7 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.modelLibrary')" width="800px" height="85%" overlay-type="opaque" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
+    <DialogWindow :model-value="props.modelValue" :title="t('settings.panels.models.modelLibrary')" :width="800" height="85%" body-class="!overflow-hidden" @update:model-value="emit('update:modelValue', $event)">
         <!-- Model Library 与当前 Provider 可用性明确分离。 -->
         <div class="flex h-full flex-col gap-4 px-1 py-2">
             <div class="relative shrink-0"><span class="i-lucide-search absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-muted)]"></span><input :value="props.searchQuery" type="text" :placeholder="t('settings.panels.models.searchModels')" class="h-9 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] pl-9 pr-3 text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]" @input="emit('update:searchQuery', ($event.target as HTMLInputElement).value)" /></div>
@@ -39,5 +39,5 @@ const {t} = useI18n();
                 </div>
             </div>
         </div>
-    </Dialog>
+    </DialogWindow>
 </template>

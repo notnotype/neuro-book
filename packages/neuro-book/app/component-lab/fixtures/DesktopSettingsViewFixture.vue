@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import DesktopSettingsView from "../../components/novel-ide/settings/views/DesktopSettingsView.vue";
+import DesktopSettingsView from "../../components/novel-ide/settings/sections/DesktopSettingsView.vue";
 import {
     DEFAULT_DESKTOP_SETTINGS,
     DESKTOP_BRIDGE_SCHEMA,

@@ -272,16 +272,40 @@ export const labFixtures: LabFixture[] = [
             {id: "project", label: "项目覆盖", data: {editable: "fixture-owned"}},
             {id: "no-provider", label: "无 Provider", data: {editable: "fixture-owned"}},
             {id: "disabled-models", label: "停用与问题", data: {editable: "fixture-owned"}},
-            {id: "validation-issues", label: "问题列表", data: {editable: "fixture-owned"}},
-            {id: "delete-provider", label: "删除确认", data: {editable: "fixture-owned"}},
-            {id: "edit-dialog", label: "编辑模型", data: {editable: "fixture-owned"}},
-            {id: "discovery-dialog", label: "模型发现", data: {editable: "fixture-owned"}},
-            {id: "library-dialog", label: "Model Library", data: {editable: "fixture-owned"}},
+            {id: "dialog-window", label: "DialogWindow 内嵌", data: {editable: "fixture-owned"}},
             {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
             {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
             {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./ModelSettingsViewFixture.vue")).default,
+    },
+    {
+        component: "NovelIdeModelEditDialog",
+        scenes: [
+            {id: "default", label: "编辑模型", data: {editable: "fixture-owned"}},
+            {id: "missing-fields", label: "缺字段", data: {editable: "fixture-owned"}},
+            {id: "confirm-mode", label: "候选择确认", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./NovelIdeModelEditDialogFixture.vue")).default,
+    },
+    {
+        component: "ModelDiscoveryDialog",
+        scenes: [
+            {id: "default", label: "发现结果", data: {editable: "fixture-owned"}},
+            {id: "partial", label: "部分成功", data: {editable: "fixture-owned"}},
+            {id: "empty", label: "无结果", data: {editable: "fixture-owned"}},
+            {id: "discovering", label: "发现中", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ModelDiscoveryDialogFixture.vue")).default,
+    },
+    {
+        component: "ModelLibraryDialog",
+        scenes: [
+            {id: "default", label: "标准资料", data: {editable: "fixture-owned"}},
+            {id: "empty", label: "无结果", data: {editable: "fixture-owned"}},
+            {id: "searching", label: "搜索中", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ModelLibraryDialogFixture.vue")).default,
     },
 ];
 

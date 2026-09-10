@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import EditorSettingsView from "../../components/novel-ide/settings/views/EditorSettingsView.vue";
+import EditorSettingsView from "../../components/novel-ide/settings/sections/EditorSettingsView.vue";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,

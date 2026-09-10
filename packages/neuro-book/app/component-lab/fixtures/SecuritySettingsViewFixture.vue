@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import SecuritySettingsView from "../../components/novel-ide/settings/views/SecuritySettingsView.vue";
+import SecuritySettingsView from "../../components/novel-ide/settings/sections/SecuritySettingsView.vue";
 import {useLabDataSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();

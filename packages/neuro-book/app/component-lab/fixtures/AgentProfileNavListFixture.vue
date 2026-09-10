@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import AgentProfileNavList from "../../components/novel-ide/settings/views/agent-profile/AgentProfileNavList.vue";
-import type {AgentProfileNavItem} from "../../components/novel-ide/settings/views/agent-profile/AgentProfileNavList.types";
+import AgentProfileNavList from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.vue";
+import type {AgentProfileNavItem} from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.types";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 type FixtureState = {

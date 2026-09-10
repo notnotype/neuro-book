@@ -1,8 +1,8 @@
 import {ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useProviderTemplateSession} from "nbook/app/components/novel-ide/settings/useProviderTemplateSession";
-import {createModelCostDraft} from "nbook/app/components/novel-ide/settings/views/model/model-cost-draft";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
+import {createModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-cost-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
 import type {ConfiguredModelDto} from "nbook/shared/dto/app-settings.dto";
 
 vi.mock("nbook/app/composables/useNotification", () => ({

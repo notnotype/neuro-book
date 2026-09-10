@@ -2,13 +2,14 @@
 import {computed, ref, watch} from "vue";
 import {Mode} from "vanilla-jsoneditor";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Button, DialogWindow} from "@notnotype/nb-ui/components";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
-import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/views/model/model-cost-draft";
-import {parseModelCompat, parseStringMap} from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
+import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-cost-draft";
+import {parseDraftInteger, parseModelCompat, parseModelInput, parseModelReasoning, parseStringMap} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
 import type {ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
+import {deriveModelGroup} from "nbook/shared/models/model-group";
 
 type ModelDraft = {
     localKey: string;
@@ -45,13 +46,6 @@ const props = defineProps<{
     confirmMode?: boolean;
     missingFields: string[];
     modelApiOptions: SelectOption[];
-    modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}>;
-    deriveGroup: (modelId: string) => string;
-    modelContextWindowDefaultLabel: (model: ModelDraft) => string;
-    modelMaxTokensDefaultLabel: (model: ModelDraft) => string;
-    modelInputDisplayLabel: (model: ModelDraft) => string;
-    modelInputEnabled: (model: ModelDraft, inputKind: ModelInputKind) => boolean;
-    modelReasoningDisplayLabel: (model: ModelDraft) => string;
 }>();
 
 const emit = defineEmits<{
@@ -68,6 +62,44 @@ const emit = defineEmits<{
 const {t} = useI18n();
 const activeTab = ref<ModelEditTab>("identity");
 const activeJsonFieldKey = ref<JsonFieldKey>("compat");
+
+/**
+ * 下面这些都是编辑这个模型时用到的纯派生文案与判定：只依赖模型草稿、共享解析函数与 i18n。
+ * 放在窗口内部而不是让调用方传函数进来——调用方每多传一个函数，就多一处只有它知道的规则。
+ */
+const modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}> = [
+    {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
+    {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
+];
+
+function formatTokenLimit(value: number | null | undefined): string {
+    return typeof value === "number" && Number.isFinite(value)
+        ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value)
+        : t("settings.panels.models.unknown");
+}
+
+function modelContextWindowDefaultLabel(model: ModelDraft): string {
+    const value = parseDraftInteger(model.contextWindowTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
+}
+
+function modelMaxTokensDefaultLabel(model: ModelDraft): string {
+    const value = parseDraftInteger(model.maxTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
+}
+
+function modelInputDisplayLabel(model: ModelDraft): string {
+    return (parseModelInput(model.input) ?? []).map((item) => modelInputOptions.find((option) => option.value === item)?.label ?? item).join(" / ");
+}
+
+function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolean {
+    return (parseModelInput(model.input) ?? []).includes(inputKind);
+}
+
+function modelReasoningDisplayLabel(model: ModelDraft): string {
+    const reasoning = parseModelReasoning(model.reasoning);
+    return reasoning === null ? t("settings.panels.models.unknown") : reasoning ? t("settings.panels.models.supported") : t("settings.panels.models.unsupported");
+}
 
 const tabs = computed<Array<{key: ModelEditTab; label: string; iconClass: string}>>(() => [
     {key: "identity", label: t("settings.panels.modelEdit.tabs.identity"), iconClass: "i-lucide-id-card"},
@@ -177,18 +209,14 @@ function updateOpen(value: boolean): void {
 </script>
 
 <template>
-    <!-- 模型编辑 Dialog：摘要、页签和内容区各自承担单一职责。 -->
-    <Dialog
+    <!-- 模型编辑窗口：非模态浮动窗口，边改边看后面的模型清单；摘要、页签和内容区各自承担单一职责。 -->
+    <DialogWindow
         :model-value="props.modelValue"
         :title="t('settings.panels.modelEdit.title')"
-        width="min(980px, calc(100vw - 24px))"
+        :width="980"
         height="min(760px, calc(100vh - 24px))"
         max-height="calc(100vh - 24px)"
-        overlay-type="opaque"
-        :show-footer="props.confirmMode ?? false"
-        :show-cancel="props.confirmMode ?? false"
-        body-class="!min-h-0 !gap-0 !overflow-hidden !p-0"
-        @confirm="emit('confirm')"
+        body-class="!overflow-hidden !p-0"
         @update:model-value="updateOpen"
     >
         <div v-if="props.editingModel" class="flex min-h-0 flex-1 flex-col bg-[var(--bg-panel)]">
@@ -239,7 +267,7 @@ function updateOpen(value: boolean): void {
                             </div>
                             <div class="space-y-1.5">
                                 <label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.group") }}</label>
-                                <FormInput v-model="props.editingModel.group" :placeholder="t('settings.panels.modelEdit.defaultDerived', {group: props.deriveGroup(props.editingModel.id)})" />
+                                <FormInput v-model="props.editingModel.group" :placeholder="t('settings.panels.modelEdit.defaultDerived', {group: deriveModelGroup(props.editingModel.id)})" />
                             </div>
                         </div>
                     </div>
@@ -275,13 +303,13 @@ function updateOpen(value: boolean): void {
                         <div class="space-y-5">
                             <div class="border-b border-[var(--border-color)] pb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.limits") }}</div>
                             <div class="space-y-2">
-                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.contextWindow") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.emptyLabel", {value: props.modelContextWindowDefaultLabel(props.editingModel)}) }}</span></div>
-                                <FormInput v-model="props.editingModel.contextWindowTokens" type="number" :placeholder="props.modelContextWindowDefaultLabel(props.editingModel)" />
+                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.contextWindow") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.emptyLabel", {value: modelContextWindowDefaultLabel(props.editingModel)}) }}</span></div>
+                                <FormInput v-model="props.editingModel.contextWindowTokens" type="number" :placeholder="modelContextWindowDefaultLabel(props.editingModel)" />
                                 <p class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.contextWindowDescription") }}</p>
                             </div>
                             <div class="space-y-2">
-                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">Max Tokens</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.emptyLabel", {value: props.modelMaxTokensDefaultLabel(props.editingModel)}) }}</span></div>
-                                <FormInput v-model="props.editingModel.maxTokens" type="number" :placeholder="props.modelMaxTokensDefaultLabel(props.editingModel)" />
+                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">Max Tokens</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.emptyLabel", {value: modelMaxTokensDefaultLabel(props.editingModel)}) }}</span></div>
+                                <FormInput v-model="props.editingModel.maxTokens" type="number" :placeholder="modelMaxTokensDefaultLabel(props.editingModel)" />
                                 <p class="text-[11px] leading-5 text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.maxTokensDescription") }}</p>
                             </div>
                         </div>
@@ -289,13 +317,13 @@ function updateOpen(value: boolean): void {
                         <div class="space-y-5 border-t border-[var(--border-color)] pt-6 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
                             <div class="border-b border-[var(--border-color)] pb-2 text-xs font-semibold uppercase tracking-wider text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.capabilities") }}</div>
                             <div class="space-y-2">
-                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inputCapability") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.currentLabel", {value: props.modelInputDisplayLabel(props.editingModel)}) }}</span></div>
+                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.inputCapability") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.currentLabel", {value: modelInputDisplayLabel(props.editingModel)}) }}</span></div>
                                 <div class="grid grid-cols-2 gap-1 rounded-lg border border-[var(--border-color)] p-1">
-                                    <button v-for="option in props.modelInputOptions" :key="option.value" type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors" :class="props.modelInputEnabled(props.editingModel, option.value) ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" :title="t('settings.panels.modelEdit.inputTitle', {label: option.label})" @click="emit('toggle-model-input', props.editingModel, option.value)"><span class="h-3.5 w-3.5" :class="option.iconClass"></span>{{ option.label }}</button>
+                                    <button v-for="option in modelInputOptions" :key="option.value" type="button" class="inline-flex h-9 items-center justify-center gap-1.5 rounded-md text-xs font-medium transition-colors" :class="modelInputEnabled(props.editingModel, option.value) ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" :title="t('settings.panels.modelEdit.inputTitle', {label: option.label})" @click="emit('toggle-model-input', props.editingModel, option.value)"><span class="h-3.5 w-3.5" :class="option.iconClass"></span>{{ option.label }}</button>
                                 </div>
                             </div>
                             <div class="space-y-2">
-                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.reasoningCapability") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.currentLabel", {value: props.modelReasoningDisplayLabel(props.editingModel)}) }}</span></div>
+                                <div class="flex items-center justify-between gap-3"><label class="text-xs font-semibold text-[var(--text-secondary)]">{{ t("settings.panels.modelEdit.reasoningCapability") }}</label><span class="text-[10px] text-[var(--text-muted)]">{{ t("settings.panels.modelEdit.currentLabel", {value: modelReasoningDisplayLabel(props.editingModel)}) }}</span></div>
                                 <FormSelect v-model="props.editingModel.reasoning" :options="reasoningOptions" />
                                 <p class="text-[11px] leading-5 text-[var(--text-muted)]"><span class="i-lucide-info mr-1 inline-block h-3.5 w-3.5 align-text-bottom"></span>{{ t("settings.panels.modelEdit.reasoningDescription") }}</p>
                             </div>
@@ -355,5 +383,9 @@ function updateOpen(value: boolean): void {
                 </section>
             </div>
         </div>
-    </Dialog>
+        <template v-if="props.confirmMode ?? false" #footer>
+            <Button size="sm" variant="secondary" @click="updateOpen(false)">{{ t("common.cancel") }}</Button>
+            <Button size="sm" @click="emit('confirm')">{{ t("common.confirm") }}</Button>
+        </template>
+    </DialogWindow>
 </template>

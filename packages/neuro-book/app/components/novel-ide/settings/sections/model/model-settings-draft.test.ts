@@ -12,7 +12,7 @@ import {
     removeIncompleteDisabledModels,
     modelContractInput,
     type ContractSettingsDraft,
-} from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
+} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
 import type {ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 describe("model settings draft contract", () => {

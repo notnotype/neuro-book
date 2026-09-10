@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
+import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -30,7 +30,7 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" width="800px" height="85%" overlay-type="opaque" :show-footer="false" @update:model-value="emit('update:modelValue', $event)">
+    <DialogWindow :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" :width="800" height="85%" body-class="!overflow-hidden" @update:model-value="emit('update:modelValue', $event)">
         <!-- Automatic Model Discovery 本次会话结果。 -->
         <div class="flex h-full flex-col gap-4 px-1 py-2">
             <div class="flex shrink-0 items-center gap-3">
@@ -79,5 +79,5 @@ const {t} = useI18n();
                 </div>
             </div>
         </div>
-    </Dialog>
+    </DialogWindow>
 </template>

@@ -1,7 +1,7 @@
 # AgentProfileNavList UX 引导性审查（hallmark audit）
 
 - 日期：2026-09-07
-- 审查对象：`packages/neuro-book/app/components/novel-ide/settings/views/agent-profile/AgentProfileNavList.vue`
+- 审查对象：`packages/neuro-book/app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.vue`
 - 审查方式：hallmark audit 反模式清单 + 真实浏览器测量（`http://127.0.0.1:3001/lab`，1440×900）
 - 当前 HEAD：`071a9b2a`
 - 结论：**Summary — 2 critical · 3 major · 4 minor**；引导性不足主要来自「可点击但看起来不可点击」（#1、#3）与「选中态唯一信号是颜色」（#2）。

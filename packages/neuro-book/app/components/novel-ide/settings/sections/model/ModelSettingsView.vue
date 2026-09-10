@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
-import {Button, FormSelect} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DialogWindow, FormSelect} from "@notnotype/nb-ui/components";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
-import Dialog from "nbook/app/components/common/Dialog.vue";
-import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
-import {deriveModelGroup} from "nbook/shared/models/model-group";
 import AgentVisibleModelsEditor from "./AgentVisibleModelsEditor.vue";
 import NovelIdeModelSelect from "./NovelIdeModelSelect.vue";
 import ModelDiscoveryDialog from "./ModelDiscoveryDialog.vue";
@@ -35,41 +32,6 @@ const templateOptions = computed<FormSelectOption[]>(() => props.providerTemplat
     label: item.name,
     description: item.description,
 })));
-
-const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; iconClass: string}>>(() => [
-    {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
-    {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
-]);
-
-/** 下面五个是编辑对话框要用的纯派生文案：只依赖草稿字段与 i18n，不碰会话。 */
-function formatTokenLimit(value: number | null | undefined): string {
-    return typeof value === "number" && Number.isFinite(value)
-        ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value)
-        : t("settings.panels.models.unknown");
-}
-
-function modelContextWindowDefaultLabel(model: ModelSettingsModelDraft): string {
-    const value = parseDraftInteger(model.contextWindowTokens);
-    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
-}
-
-function modelMaxTokensDefaultLabel(model: ModelSettingsModelDraft): string {
-    const value = parseDraftInteger(model.maxTokens);
-    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
-}
-
-function modelInputDisplayLabel(model: ModelSettingsModelDraft): string {
-    return (parseModelInput(model.input) ?? []).map((item) => modelInputOptions.value.find((option) => option.value === item)?.label ?? item).join(" / ");
-}
-
-function modelInputEnabled(model: ModelSettingsModelDraft, inputKind: ModelInputKind): boolean {
-    return (parseModelInput(model.input) ?? []).includes(inputKind);
-}
-
-function modelReasoningDisplayLabel(model: ModelSettingsModelDraft): string {
-    const reasoning = parseModelReasoning(model.reasoning);
-    return reasoning === null ? t("settings.panels.models.unknown") : reasoning ? t("settings.panels.models.supported") : t("settings.panels.models.unsupported");
-}
 
 function patchDraft(patch: Partial<ModelSettingsDraft>): void {
     emit("update:draft", {...props.draft, ...patch});
@@ -224,13 +186,12 @@ function toggleGroup(group: string): void {
         </div>
 
         <!-- 草稿问题的完整列表；开关与会话状态由宿主持有。 -->
-        <Dialog
+        <DialogWindow
             :model-value="props.validationDialogOpen"
             :title="t('settings.panels.models.validationIssuesTitle')"
-            width="680px"
+            :width="680"
             height="70%"
-            overlay-type="opaque"
-            :show-footer="false"
+            body-class="!overflow-hidden !p-0"
             @update:model-value="emit('update:validationDialogOpen', $event)"
         >
             <div class="h-full space-y-2 overflow-y-auto pr-1 custom-scrollbar">
@@ -243,14 +204,14 @@ function toggleGroup(group: string): void {
                     <p class="mt-1 break-all font-mono text-[11px] text-[var(--text-muted)]">{{ issue.path.join(".") }}</p>
                 </div>
             </div>
-        </Dialog>
+        </DialogWindow>
 
+        <!-- 删除 Provider 是不可逆确认：这里留在有遮罩的模态 Dialog，不做成浮动窗口。 -->
         <Dialog
             :model-value="props.deleteProviderDialogOpen"
             :title="t('settings.panels.models.deleteProviderTitle')"
-            width="420px"
-            overlay-type="opaque"
-            show-cancel
+            :show-cancel="true"
+            :confirm-label="t('settings.panels.models.delete')"
             @update:model-value="emit('update:deleteProviderDialogOpen', $event)"
             @confirm="emit('confirm-delete-provider')"
         >
@@ -301,13 +262,6 @@ function toggleGroup(group: string): void {
             :confirm-mode="props.editingTransientCandidate"
             :missing-fields="props.editingModelMissingFields"
             :model-api-options="props.modelApiOptions"
-            :model-input-options="modelInputOptions"
-            :derive-group="deriveModelGroup"
-            :model-context-window-default-label="modelContextWindowDefaultLabel"
-            :model-max-tokens-default-label="modelMaxTokensDefaultLabel"
-            :model-input-display-label="modelInputDisplayLabel"
-            :model-input-enabled="modelInputEnabled"
-            :model-reasoning-display-label="modelReasoningDisplayLabel"
             @update:model-value="emit('update:modelEditDialogOpen', $event)"
             @model-id-change="emit('model-id-change')"
             @toggle-model-input="(model, inputKind) => emit('toggle-model-input', model, inputKind)"

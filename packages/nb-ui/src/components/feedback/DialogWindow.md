@@ -26,6 +26,7 @@
 - `closable` 为 `true` 时显示关闭按钮；按钮带有“关闭”可访问名称。`closeOnEsc` 为 `true` 时按 Escape 请求关闭。`busy` 时关闭按钮、Escape 和 resize 均不生效。
 - `resizable` 为 `true` 时提供六个可聚焦 resize 手柄：右、下两条边加四个角。拖左/上方向的手柄（`top-left`、`top-right`、`bottom-left`）时窗口的 `left` / `top` 跟着被拖动的那条边界走，触到 `minWidth` / `minHeight` 后位置不再漂移。鼠标拖动在 pointerup 时提交尺寸；方向键按 10px 调整，Shift + 方向键按 1px 调整，方向键语义是「移动那条边界」（例如在 `top-left` 上按 ArrowLeft 是变大），尺寸不会低于最小值。
 - DialogWindow body 内的 nb-ui `FormSelect` 下拉会继承窗口专用浮层层级，显示在窗口表面之上；窗口外的 FormSelect 仍使用普通 popover 层级。
+- 窗口可以叠窗口：从窗口里再开一个 `DialogWindow` 时，内层窗口按嵌套深度排在外层之上，内层窗口自己的下拉也跟着它——外层窗口 8990 / 外层下拉 8991 / 内层窗口 8992 / 内层下拉 8993，依此类推。整档压在模态 `Dialog`（9000）之下，总共容纳 5 层；再深的嵌套不该靠 z-index 解决，而是要重新想清楚那是不是两个窗口。Esc 由 Reka 的图层栈决定，只作用于最上面那个窗口。
 - Reka 负责 Dialog 的角色、标题关联、Portal 和生命周期；窗口定位、拖动、resize、视口约束与窗口内浮层层级由本组件及其公共浮层上下文负责。组件不提供模态焦点陷阱。
 
 ## 数据

@@ -15,7 +15,7 @@ t15 是固定路线第 3 步的「开发者与 Agent 协作试迁移」：把一
 
 参考实现与验收面：
 
-- 视图与区段：`packages/neuro-book/app/components/novel-ide/settings/views/agent-profile/`
+- 视图与区段：`packages/neuro-book/app/components/novel-ide/settings/sections/agent-profile/`
 - 共享表单字段：`packages/neuro-book/app/components/common/low-code-form/`
 - Lab 场景与数据面板：`packages/neuro-book/app/component-lab/fixtures/AgentProfileSettingsViewFixture.vue`（10 个场景 + DialogWindow 组合）
 - 浏览器验收：`packages/neuro-book/scripts/smoke/agent-profile-settings-dialog.ts`

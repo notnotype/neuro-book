@@ -1,11 +1,20 @@
 <script setup lang="ts">
-import {computed, getCurrentInstance, nextTick, onBeforeUnmount, provide, ref, watch} from "vue";
+import {computed, getCurrentInstance, inject, nextTick, onBeforeUnmount, provide, ref, watch} from "vue";
 import {useDraggable, useWindowSize} from "@vueuse/core";
 import {DialogContent, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
-import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import IconButton from "../controls/IconButton.vue";
 
-provide(NB_POPOVER_Z_INDEX, NB_Z_INDEX.dialogWindow + 1);
+/**
+ * 浮动窗口可以有层级：从窗口里开出来的窗口要压住第一个窗口，窗口自己的下拉也要压住自己。
+ * 深度由注入的父深度推出来，第一层仍是 NB_Z_INDEX.dialogWindow；每一层占 NB_DIALOG_WINDOW_Z_STEP 两格，
+ * 于是「外层窗口 < 外层下拉 < 内层窗口 < 内层下拉」在数值上必然成立，整档不越过模态 Dialog。
+ */
+const windowDepth = inject(NB_DIALOG_WINDOW_DEPTH, 0) + 1;
+const windowZIndex = NB_Z_INDEX.dialogWindow + (windowDepth - 1) * NB_DIALOG_WINDOW_Z_STEP;
+
+provide(NB_DIALOG_WINDOW_DEPTH, windowDepth);
+provide(NB_POPOVER_Z_INDEX, windowZIndex + 1);
 
 /**
  * 通用浮动窗口组件（非模态）。
@@ -150,7 +159,7 @@ const windowStyle = computed(() => ({
     width: `${effectiveWidth.value}px`,
     height: displayHeight.value,
     maxHeight: props.maxHeight,
-    zIndex: NB_Z_INDEX.dialogWindow,
+    zIndex: windowZIndex,
 }));
 
 /** 判断父组件是否监听了 request-close，用于决定默认关闭行为。 */

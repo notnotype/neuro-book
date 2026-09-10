@@ -40,7 +40,7 @@ createdAt: 2026-09-08T14:20:00+08:00
 验证：
 
 ```text
-bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/views/agent-profile/AgentProfileNavList.test.ts
+bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.test.ts
 → Test Files 1 passed; Tests 10 passed
 
 git diff --check
