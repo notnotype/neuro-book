@@ -30,7 +30,6 @@ const props = withDefaults(defineProps<AgentProfileSettingsViewProps>(), {
     saving: false,
     loadError: "",
     saveError: "",
-    resettingHomeKey: "",
 });
 const emit = defineEmits<AgentProfileSettingsViewEmits>();
 

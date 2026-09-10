@@ -9,19 +9,21 @@ import Collapsible from "./Collapsible.vue";
  * 需要裸触发器时用 `Collapsible`。
  */
 const props = withDefaults(defineProps<{
-    /** 受控展开态；不传则用 defaultOpen */
+    /**
+     * 受控展开态。区段只支持受控：chevron 必须与内容同源，
+     * 留一条没人走的非受控路径只会让箭头指向反了。
+     */
     open?: boolean;
-    defaultOpen?: boolean;
     disabled?: boolean;
     /** 标题前的图标类（i-lucide-*）；缺省不渲染图标 */
     iconClass?: string;
     /** 标题文字 */
     label: string;
 }>(), {
-    open: undefined,
-    defaultOpen: false,
+    open: false,
     disabled: false,
     iconClass: "",
+    label: "",
 });
 
 const emit = defineEmits<{
@@ -32,7 +34,6 @@ const emit = defineEmits<{
 <template>
     <Collapsible
         :open="props.open"
-        :default-open="props.defaultOpen"
         :disabled="props.disabled"
         @update:open="emit('update:open', $event)"
     >
@@ -52,7 +53,7 @@ const emit = defineEmits<{
                 <slot name="meta"></slot>
                 <span
                     class="i-lucide-chevron-down h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
-                    :class="props.open === true ? 'rotate-180 text-[var(--accent-main)]' : ''"
+                    :class="props.open ? 'rotate-180 text-[var(--accent-main)]' : ''"
                     aria-hidden="true"
                 ></span>
             </button>

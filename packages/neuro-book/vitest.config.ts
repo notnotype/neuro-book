@@ -40,6 +40,7 @@ export default defineConfig({
             "app/composables/**/*.test.ts",
             "app/component-lab/**/*.test.ts",
             "app/components/novel-ide/**/*.test.ts",
+            "app/components/common/**/*.test.ts",
             "app/components/markdown-studio/**/*.test.ts",
             "app/components/profile-template-editor/**/*.test.ts",
             "app/utils/theme/**/*.test.ts",

@@ -9,7 +9,6 @@ type FixtureState = {
     search: string;
     defaultsDirty: boolean;
 };
-const fixtureStateKeys = ["activeKey", "search", "defaultsDirty"] as const;
 
 const props = defineProps<{scene: string; data?: unknown}>();
 
