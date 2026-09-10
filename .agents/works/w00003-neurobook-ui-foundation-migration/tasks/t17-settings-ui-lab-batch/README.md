@@ -105,3 +105,12 @@ role: tasker
 实测：`sectionCount 5`、切段断言全绿；Lab 组件树 20 → 21 个组件。
 
 过程中被 smoke 的 console 守卫抓到一处真实缺陷：provider 行曾用 `settings.panels.web.disabled` 这个不存在的 i18n key。旧面板本来没有启用状态文字（开关本身表达状态），因此删掉那枚重复徽标而不是新增文案。
+
+## 剩余工作（尚未开始）
+
+外壳与四个独立面板已迁完（可观测、费用显示、向量嵌入、Web 工具），剩下两块量级明显不同，各自需要单独切片：
+
+1. **模型子系统**（`NovelIdeModelSettingsPanel`，726 行）：它不是单个面板，而是 6 个子组件（`AgentVisibleModelsEditor`、`NovelIdeModelSelect`、`NovelIdeModelEditDialog`、`ModelDiscoveryDialog`、`ModelLibraryDialog`、`SavedModelsList`）加 4 个 composable（`useModelSettingsDraftSession`、`useModelCheckSession`、`useModelDiscoverySession`、`useProviderTemplateSession`）与 3 个纯逻辑模块（`model-settings-draft`、`model-draft-factory`、`model-cost-draft`）。按子组件逐个迁，先做纯逻辑模块的 Lab 化与测试，再迁列表与编辑对话框。
+2. **浏览器作用域区段**（`frontend` / `editor` / `desktop` / `security`）：它们没有独立组件，内联在 1333 行的 `NovelIdeSettingsDialog.vue` 里，需要先抽成视图再进外壳；`security` 属 `boot` 作用域，是只读说明，可直接照外壳的线条语言重画。
+
+两块都沿用前五片的配方；产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
