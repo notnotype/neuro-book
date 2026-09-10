@@ -114,3 +114,12 @@ role: tasker
 2. **浏览器作用域区段**（`frontend` / `editor` / `desktop` / `security`）：它们没有独立组件，内联在 1333 行的 `NovelIdeSettingsDialog.vue` 里，需要先抽成视图再进外壳；`security` 属 `boot` 作用域，是只读说明，可直接照外壳的线条语言重画。
 
 两块都沿用前五片的配方；产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
+
+## 返工风险清单（接线前必须处理）
+
+这几项属于「现在不管、以后返工很贵」的类型，按严重度排：
+
+1. **双份序列化逻辑**：`NovelIdeEmbeddingSettingsPanel` / `NovelIdeWebSettingsPanel` / `NovelIdeCostSettingsPanel` / `NovelIdeObservabilitySettingsPanel` 各自还留着一套 payload 构造与密钥语义，`views/*` 下的 draft 模块是另一套。产品接线时必须让旧面板改调新模块（或直接删除旧面板），不能让两套长期并存——配置写回规则一旦漂移，两边都会写错同一个配置段。
+2. **`SettingsSavePanelExpose` 协议会整体消失**：旧宿主靠 `defineExpose({dirty, loading, saving, saveSettings, restoreSettings})` 驱动顶部保存 / 恢复栏，新视图是就地保存。接线时这套 expose 合同、保存栏、`settingsPanelKey` 重置逻辑要一次性删干净，不能留一半。
+3. **作用域→区段矩阵目前是 fixture 自造的**：产品真值在 `NovelIdeSettingsDialog` 的 `globalConfigSections` / `projectConfigSections` / `browserSections` / `bootConfigSections` 里。外壳吃的是 props，接线时必须从产品矩阵喂进去（或先把矩阵抽成共享模块），否则 Lab 里的区段集合会和产品不一致，而这种不一致看起来完全正常。
+4. **尺寸只有一个来源**：`DialogWindow` 的 `size` 字面量是缺省，显式 `width` / `height` 覆盖对应维度。场景里不要同时写死预设与同样的数字（设置外壳 fixture 已改成拖动后才接管受控值），否则预设一改就会静默停在旧尺寸。
