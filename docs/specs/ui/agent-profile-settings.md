@@ -57,7 +57,7 @@ owners:
 
 ## 边界与兼容
 
-- 视图属于 NeuroBook 领域层（`novel-ide/settings/views/agent-profile/`），只消费 nb-ui 公共组件与语义 token；不引入 `isLab`、路由判断或旧主题变量。
+- 视图属于 NeuroBook 领域层（`novel-ide/settings/sections/agent-profile/`），只消费 nb-ui 公共组件与语义 token；不引入 `isLab`、路由判断或旧主题变量。
 - 运行策略与模型草稿的序列化、继承解析沿用 `agent-profile-draft.ts` 与 `profile-runtime-settings.ts` 的现有纯函数，不建立第二套算法；本 Task 新增的 View baseline helper 只定义 Lab 受控视图语义，旧宿主仍独立组装 runtime 层，未由本 Task 自动迁移。
 - Profile 自定义设置沿用 LowCodeForm 的 global 完整值 / project overridePaths + resourceMutations 合同。
 - 组件文档（同名 `.md`）持有精确 props/emits/slots 合同与能力标签；本规范不复制类型声明。
