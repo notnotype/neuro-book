@@ -46,7 +46,6 @@ function closeMobileNav(): void {
 const scopeOptions = computed<SegmentedControlOption[]>(() => props.scopes.map((scope) => ({
     value: scope.value,
     label: scope.label,
-    iconClass: scope.iconClass,
     title: scope.disabledReason || scope.description,
     disabled: Boolean(scope.disabledReason),
 })));

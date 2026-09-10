@@ -14,7 +14,7 @@ Component Lab 中由 `NovelIdeSettingsViewFixture` 提供确定性场景（globa
 type NovelIdeSettingsViewProps = {
     /** 受控作用域 */
     scope: "boot" | "global" | "project" | "browser";
-    scopes: SettingsScopeOption[];
+    scopes: SettingsScopeOption[];  // label / description / disabledReason，两字短标签
     sections: SettingsSectionOption[];
     /** 受控区段 id；切换作用域后若该区段不可用，视图改选新作用域的第一个区段 */
     modelValue: string;
@@ -33,7 +33,7 @@ type NovelIdeSettingsViewEmits = {
 };
 ```
 
-可见区段 = 宿主给的 `sections` 与当前 `scope` 的交集；视图不自行过滤产品规则，也不需要知道某个区段属于哪一档。
+可见区段 = 宿主给的 `sections` 与当前 `scope` 的交集；视图不自行过滤产品规则，也不需要知道某个区段属于哪一档。作用域一档只有约 61px，标签请用两字（更长的标签会被截断），写到哪里放 `description` 作悬停提示。
 
 ## 布局规则
 

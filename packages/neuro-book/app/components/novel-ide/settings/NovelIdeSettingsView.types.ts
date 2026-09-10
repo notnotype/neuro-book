@@ -6,10 +6,10 @@ export type SettingsScopeId = "boot" | "global" | "project" | "browser";
 
 export type SettingsScopeOption = {
     value: SettingsScopeId;
+    /** 轨内只有约 61px 一档，所以用两字短标签，写到哪里交给 description。 */
     label: string;
     /** 悬停提示：说明这一档写到哪里。 */
     description: string;
-    iconClass: string;
     /** 非空表示当前不可进入（例如未打开项目），文本为原因。 */
     disabledReason?: string;
 };

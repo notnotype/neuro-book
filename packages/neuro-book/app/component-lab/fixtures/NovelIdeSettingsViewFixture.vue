@@ -31,10 +31,10 @@ const sceneKey = computed<SceneKey>(() => {
  * 另外两档作用域先在 Lab 里标为不可进入，而不是摆一个点不动的空列表。
  */
 const scopeOptions: SettingsScopeOption[] = [
-    {value: "boot", label: "启动", description: "启动期安全配置，只读说明", iconClass: "i-lucide-server-cog", disabledReason: "本批次未迁移该作用域的区段"},
-    {value: "global", label: "全局", description: "写入全局配置文件", iconClass: "i-lucide-globe-2"},
-    {value: "project", label: "项目", description: "写入当前项目配置", iconClass: "i-lucide-folder-cog"},
-    {value: "browser", label: "浏览器", description: "写入本机浏览器状态", iconClass: "i-lucide-monitor", disabledReason: "本批次未迁移该作用域的区段"},
+    {value: "boot", label: "启动", description: "启动期安全配置，只读说明", disabledReason: "本批次未迁移该作用域的区段"},
+    {value: "global", label: "全局", description: "写入全局配置文件"},
+    {value: "project", label: "项目", description: "写入当前项目配置"},
+    {value: "browser", label: "本机", description: "写入本机浏览器状态", disabledReason: "本批次未迁移该作用域的区段"},
 ];
 
 const sectionOptions: SettingsSectionOption[] = [
@@ -196,6 +196,7 @@ function openDialog(): void {
 
         <div v-else class="flex h-full min-h-0 flex-col items-start gap-3">
             <button
+                v-if="!dialogOpen"
                 type="button"
                 class="inline-flex h-8 items-center rounded-[var(--radius-control)] border border-[var(--divider)] px-3 text-xs text-[var(--text-main)] hover:bg-[var(--bg-hover)]"
                 @click="openDialog"
@@ -222,6 +223,7 @@ function openDialog(): void {
                     :sections="sectionOptions"
                     :model-value="activeSection"
                     :target-label="targetLabel"
+                    version-label="v0.0.0 · Lab"
                     :loading="loading"
                     :load-error="loadError"
                     @update:scope="scope = $event; emitScopeChange($event)"
