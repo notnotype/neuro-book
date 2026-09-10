@@ -14,13 +14,45 @@ provide(NB_POPOVER_Z_INDEX, NB_Z_INDEX.dialogWindow + 1);
  * 属于这个组件自身的窗口行为。这里明确保持 modal=false，不渲染遮罩，也不阻断窗口外交互。
  */
 
-type DialogWindowResizeAxis = "width" | "height" | "both";
+/** 缩放方向：正号表示拖动时右/下边界跟随指针，负号表示左/上边界跟随指针。 */
+type DialogWindowResizeDirection = {
+    width: 0 | 1 | -1;
+    height: 0 | 1 | -1;
+};
+
+type DialogWindowResizeHandle = {
+    id: string;
+    label: string;
+    orientation?: "vertical" | "horizontal";
+    direction: DialogWindowResizeDirection;
+    class: string;
+};
+
+/**
+ * 六个手柄：右、下两条边加四个角。角落要能任意拖，所以四个角都在；
+ * 负方向（左/上）在拖动时同时改写窗口的 x / y。
+ */
+const RESIZE_HANDLES: DialogWindowResizeHandle[] = [
+    {id: "right", label: "调整窗口宽度", orientation: "vertical", direction: {width: 1, height: 0}, class: "inset-y-0 right-0 w-2 cursor-ew-resize"},
+    {id: "bottom", label: "调整窗口高度", orientation: "horizontal", direction: {width: 0, height: 1}, class: "inset-x-0 bottom-0 h-2 cursor-ns-resize"},
+    {id: "bottom-right", label: "调整窗口大小", direction: {width: 1, height: 1}, class: "bottom-0 right-0 h-3 w-3 cursor-nwse-resize"},
+    {id: "bottom-left", label: "调整窗口大小", direction: {width: -1, height: 1}, class: "bottom-0 left-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-right", label: "调整窗口大小", direction: {width: 1, height: -1}, class: "top-0 right-0 h-3 w-3 cursor-nesw-resize"},
+    {id: "top-left", label: "调整窗口大小", direction: {width: -1, height: -1}, class: "top-0 left-0 h-3 w-3 cursor-nwse-resize"},
+];
+
+/** 尺寸字面量：宽高都给，调用方想只改一维就显式传 width / height。 */
+const DIALOG_WINDOW_SIZE_PRESETS = {
+    sm: {width: 420, height: 420},
+    md: {width: 720, height: 640},
+    lg: {width: 1100, height: 820},
+} as const;
 
 const props = withDefaults(defineProps<{
     /** 控制窗口显隐 */
     modelValue: boolean;
-    /** 标题水平位置：默认左对齐；窗口标题习惯居中的宿主可传 center */
-    titleAlign?: "left" | "center";
+    /** 尺寸字面量；显式传入的 width / height 覆盖对应维度 */
+    size?: keyof typeof DIALOG_WINDOW_SIZE_PRESETS;
     /** 标题栏文字；没有标题或 header slot 时使用视觉隐藏的通用标题 */
     title?: string;
     /** 窗口宽度（px），拖动边界按此值收敛 */
@@ -46,10 +78,10 @@ const props = withDefaults(defineProps<{
     /** Teleport 目标；传入 false 仅用于内联测试或特殊宿主 */
     teleportTarget?: string | boolean;
 }>(), {
-    titleAlign: "left",
+    size: "md",
     title: "",
-    width: 560,
-    height: "auto",
+    width: undefined,
+    height: undefined,
     maxHeight: "calc(100dvh - 80px)",
     resizable: false,
     minWidth: 320,
@@ -84,9 +116,18 @@ const {x, y} = useDraggable(windowRef, {
 });
 
 const portalTarget = computed(() => typeof props.teleportTarget === "string" ? props.teleportTarget : "body");
-const isTitleCentered = computed(() => props.titleAlign === "center");
-const displayWidth = computed(() => draftWidth.value ?? props.width);
-const displayHeight = computed(() => draftHeight.value === null ? props.height : `${draftHeight.value}px`);
+/** 尺寸字面量只做缺省：显式传入的 width / height 覆盖对应维度。 */
+const sizePreset = computed(() => DIALOG_WINDOW_SIZE_PRESETS[props.size]);
+const resolvedWidth = computed(() => props.width ?? sizePreset.value.width);
+const resolvedHeight = computed(() => props.height ?? sizePreset.value.height);
+const displayWidth = computed(() => draftWidth.value ?? resolvedWidth.value);
+const displayHeight = computed(() => {
+    if (draftHeight.value !== null) {
+        return `${draftHeight.value}px`;
+    }
+    // 数字必须补单位：直接绑数字 Vue 会写成 `height: 640`，浏览器当无效值丢掉。
+    return typeof resolvedHeight.value === "number" ? `${resolvedHeight.value}px` : resolvedHeight.value;
+});
 const effectiveWidth = computed(() => {
     const availableWidth = viewportWidth.value > 0 ? Math.max(0, viewportWidth.value - 24) : displayWidth.value;
     return Math.min(displayWidth.value, availableWidth);
@@ -146,14 +187,15 @@ function handleEscapeKeyDown(event: KeyboardEvent): void {
 }
 
 function currentWidth(): number {
-    return Math.max(props.minWidth, Math.round(props.width));
+    return Math.max(props.minWidth, Math.round(resolvedWidth.value));
 }
 
 function currentHeight(): number {
-    if (typeof props.height === "number" && Number.isFinite(props.height)) {
-        return Math.max(props.minHeight, Math.round(props.height));
+    const height = resolvedHeight.value;
+    if (typeof height === "number" && Number.isFinite(height)) {
+        return Math.max(props.minHeight, Math.round(height));
     }
-    const pxHeight = typeof props.height === "string" ? /^([0-9]+(?:\.[0-9]+)?)px$/.exec(props.height.trim()) : null;
+    const pxHeight = typeof height === "string" ? /^([0-9]+(?:\.[0-9]+)?)px$/.exec(height.trim()) : null;
     if (pxHeight) {
         return Math.max(props.minHeight, Math.round(Number(pxHeight[1])));
     }
@@ -165,7 +207,7 @@ function clampResize(value: number, minimum: number): number {
     return Math.max(minimum, Math.round(value));
 }
 
-function startResize(axis: DialogWindowResizeAxis, event: PointerEvent): void {
+function startResize(direction: DialogWindowResizeDirection, event: PointerEvent): void {
     if (!props.resizable || props.busy) {
         return;
     }
@@ -175,15 +217,29 @@ function startResize(axis: DialogWindowResizeAxis, event: PointerEvent): void {
     const startY = event.clientY;
     const startWidth = currentWidth();
     const startHeight = currentHeight();
+    const startLeft = clampedX.value;
+    const startTop = clampedY.value;
     event.preventDefault();
     handle.setPointerCapture?.(event.pointerId);
 
     const move = (moveEvent: PointerEvent): void => {
-        if (axis === "width" || axis === "both") {
-            draftWidth.value = clampResize(startWidth + moveEvent.clientX - startX, props.minWidth);
+        // 负方向手柄（左/上）拖动时，窗口的 x / y 跟着边界走：先算新尺寸，再由尺寸反推位置，
+        // 这样触到最小尺寸时位置不会继续漂移。
+        if (direction.width !== 0) {
+            const delta = (moveEvent.clientX - startX) * direction.width;
+            const nextWidth = clampResize(startWidth + delta, props.minWidth);
+            draftWidth.value = nextWidth;
+            if (direction.width < 0) {
+                x.value = startLeft + (startWidth - nextWidth);
+            }
         }
-        if (axis === "height" || axis === "both") {
-            draftHeight.value = clampResize(startHeight + moveEvent.clientY - startY, props.minHeight);
+        if (direction.height !== 0) {
+            const delta = (moveEvent.clientY - startY) * direction.height;
+            const nextHeight = clampResize(startHeight + delta, props.minHeight);
+            draftHeight.value = nextHeight;
+            if (direction.height < 0) {
+                y.value = startTop + (startHeight - nextHeight);
+            }
         }
     };
     const finish = (commit: boolean): void => {
@@ -210,33 +266,32 @@ function startResize(axis: DialogWindowResizeAxis, event: PointerEvent): void {
     resizeCleanup = () => finish(false);
 }
 
-function handleResizeKeydown(axis: DialogWindowResizeAxis, event: KeyboardEvent): void {
+function handleResizeKeydown(direction: DialogWindowResizeDirection, event: KeyboardEvent): void {
     if (!props.resizable || props.busy) {
         return;
     }
     const step = event.shiftKey ? 1 : 10;
     const horizontal = event.key === "ArrowRight" ? step : event.key === "ArrowLeft" ? -step : 0;
     const vertical = event.key === "ArrowDown" ? step : event.key === "ArrowUp" ? -step : 0;
-    if ((axis === "height" && horizontal !== 0) || (axis === "width" && vertical !== 0) || (horizontal === 0 && vertical === 0)) {
+    const wantsWidth = direction.width !== 0 && horizontal !== 0;
+    const wantsHeight = direction.height !== 0 && vertical !== 0;
+    if (!wantsWidth && !wantsHeight) {
         return;
     }
     event.preventDefault();
-    if (axis === "width" || axis === "both") {
-        if (horizontal !== 0) {
-            const current = currentWidth();
-            const nextWidth = clampResize(current + horizontal, props.minWidth);
-            if (nextWidth !== current) {
-                emit("update:width", nextWidth);
-            }
+    // 负方向手柄上，方向键沿用「光标移动方向」：向左键让左边界继续向左，也就是变大。
+    if (direction.width !== 0 && horizontal !== 0) {
+        const current = currentWidth();
+        const nextWidth = clampResize(current + horizontal * direction.width, props.minWidth);
+        if (nextWidth !== current) {
+            emit("update:width", nextWidth);
         }
     }
-    if (axis === "height" || axis === "both") {
-        if (vertical !== 0) {
-            const current = currentHeight();
-            const nextHeight = clampResize(current + vertical, props.minHeight);
-            if (nextHeight !== current) {
-                emit("update:height", nextHeight);
-            }
+    if (direction.height !== 0 && vertical !== 0) {
+        const current = currentHeight();
+        const nextHeight = clampResize(current + vertical * direction.height, props.minHeight);
+        if (nextHeight !== current) {
+            emit("update:height", nextHeight);
         }
     }
 }
@@ -246,9 +301,14 @@ watch(() => props.modelValue, (visible) => {
         return;
     }
     void nextTick(() => {
-        const initialLeft = Math.max(12, Math.min(viewportWidth.value - effectiveWidth.value - 12, viewportWidth.value - 72));
+        // 打开时居中：宽高都已知时正中央，高度按内容自适应时量一次实际高度，量不到就用 64px 顶距。
+        const initialLeft = Math.max(12, Math.round((viewportWidth.value - effectiveWidth.value) / 2));
+        const measuredHeight = windowRef.value?.getBoundingClientRect().height ?? 0;
+        const initialTop = measuredHeight > 0
+            ? Math.max(24, Math.round((viewportHeight.value - measuredHeight) / 2))
+            : 64;
         x.value = initialLeft;
-        y.value = 64;
+        y.value = initialTop;
         positioned.value = true;
     });
 }, {immediate: true});
@@ -281,10 +341,7 @@ onBeforeUnmount(() => {
                     class="nb-dialog-window nb-ui-surface-rim fixed flex flex-col overflow-hidden rounded-xl border border-[var(--panel-outline)] text-[var(--text-main)] outline-none data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:scale-[0.96]"
                 >
                     <div class="flex min-h-9 shrink-0 items-center border-b border-[var(--divider)] px-4 py-1">
-                        <!-- 居中时左右各放一个与关闭按钮等宽的占位，标题因此落在窗口正中；
-                             左对齐时不占位，标题从标题栏内边距开始。 -->
-                        <div v-if="props.closable && isTitleCentered" class="w-[26px] shrink-0" aria-hidden="true"></div>
-                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none" :class="isTitleCentered ? 'text-center' : ''">
+                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none">
                             <DialogTitle v-if="$slots.header" as="div" class="truncate text-sm font-semibold leading-snug text-[var(--text-main)]">
                                 <slot name="header" />
                             </DialogTitle>
@@ -315,39 +372,19 @@ onBeforeUnmount(() => {
 
                     <template v-if="props.resizable">
                         <div
-                            data-dialog-resize="right"
+                            v-for="handle in RESIZE_HANDLES"
+                            :key="handle.id"
+                            :data-dialog-resize="handle.id"
                             role="separator"
-                            aria-orientation="vertical"
-                            aria-label="调整窗口宽度"
-                            :aria-valuemin="props.minWidth"
-                            :aria-valuenow="displayWidth"
+                            :aria-orientation="handle.orientation"
+                            :aria-label="handle.label"
+                            :aria-valuemin="handle.direction.width === 0 ? props.minHeight : props.minWidth"
+                            :aria-valuenow="handle.direction.width === 0 ? currentHeight() : displayWidth"
                             :tabindex="props.busy ? -1 : 0"
-                            class="absolute inset-y-0 right-0 z-10 w-2 cursor-ew-resize outline-none"
-                            @pointerdown="startResize('width', $event)"
-                            @keydown="handleResizeKeydown('width', $event)"
-                        ></div>
-                        <div
-                            data-dialog-resize="bottom"
-                            role="separator"
-                            aria-orientation="horizontal"
-                            aria-label="调整窗口高度"
-                            :aria-valuemin="props.minHeight"
-                            :aria-valuenow="currentHeight()"
-                            :tabindex="props.busy ? -1 : 0"
-                            class="absolute inset-x-0 bottom-0 z-10 h-2 cursor-ns-resize outline-none"
-                            @pointerdown="startResize('height', $event)"
-                            @keydown="handleResizeKeydown('height', $event)"
-                        ></div>
-                        <div
-                            data-dialog-resize="corner"
-                            role="separator"
-                            aria-label="调整窗口大小"
-                            :aria-valuemin="props.minWidth"
-                            :aria-valuenow="displayWidth"
-                            :tabindex="props.busy ? -1 : 0"
-                            class="absolute bottom-0 right-0 z-20 h-3 w-3 cursor-se-resize outline-none"
-                            @pointerdown="startResize('both', $event)"
-                            @keydown="handleResizeKeydown('both', $event)"
+                            class="absolute z-10 outline-none"
+                            :class="handle.class"
+                            @pointerdown="startResize(handle.direction, $event)"
+                            @keydown="handleResizeKeydown(handle.direction, $event)"
                         ></div>
                     </template>
                 </div>

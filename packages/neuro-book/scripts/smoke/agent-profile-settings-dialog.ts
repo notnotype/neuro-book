@@ -97,9 +97,7 @@ export async function assertAgentProfileSettingsDialogSmoke(page: Page, failures
                 footers: windowElement ? windowElement.querySelectorAll("footer").length : 0,
                 bottomGap: windowRect && scrollerRect ? Math.round(windowRect.bottom - scrollerRect.bottom) : null,
                 titleText: title?.textContent?.trim() ?? "",
-                titleCenterOffset: windowRect && titleRect
-                    ? Math.round((titleRect.left + titleRect.width / 2) - (windowRect.left + windowRect.width / 2))
-                    : null,
+                titleLeftOffset: windowRect && titleRect ? Math.round(titleRect.left - windowRect.left) : null,
                 pane: scroller ? Math.round(scroller.getBoundingClientRect().width) : 0,
                 column: scroller?.firstElementChild ? Math.round(scroller.firstElementChild.getBoundingClientRect().width) : 0,
             };
@@ -110,9 +108,9 @@ export async function assertAgentProfileSettingsDialogSmoke(page: Page, failures
             `就地保存不应有底部动作栏，内容列直接落到窗口底边：${JSON.stringify(columnLayout)}`,
         );
         assert(
-            columnLayout.titleCenterOffset !== null && Math.abs(columnLayout.titleCenterOffset) <= 2,
+            columnLayout.titleLeftOffset !== null && columnLayout.titleLeftOffset >= 8 && columnLayout.titleLeftOffset <= 24,
             failures,
-            `DialogWindow 标题应居中：${JSON.stringify(columnLayout)}`,
+            `DialogWindow 标题应左对齐到标题栏内边距：${JSON.stringify(columnLayout)}`,
         );
         assert(
             columnLayout.titleText.includes("Agent Profile 设置") && columnLayout.titleText.includes("全局设定"),
@@ -139,7 +137,12 @@ export async function assertAgentProfileSettingsDialogSmoke(page: Page, failures
             failures,
             `折叠区段展开始终要走高度动画：${JSON.stringify(disclosureAnimation)}`,
         );
-        assert(await dialog.locator('[data-dialog-resize]').count() === 3, failures, "Agent Profile DialogWindow 应提供三个 resize 手柄");
+        assert(
+            (await dialog.locator('[data-dialog-resize]').evaluateAll((handles) => handles.map((handle) => handle.getAttribute("data-dialog-resize")))).join(",")
+                === "right,bottom,bottom-right,bottom-left,top-right,top-left",
+            failures,
+            "Agent Profile DialogWindow 应提供两条边加四个角的 resize 手柄",
+        );
         assert(await dialog.locator('button[title="关闭"]').count() === 1, failures, "Agent Profile DialogWindow 应提供关闭按钮");
         const selectTrigger = dialog.locator('[role="combobox"]').first();
         await selectTrigger.press("Enter");

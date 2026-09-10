@@ -772,23 +772,17 @@ describe("nb-ui dialog window", () => {
         }
     });
 
-    it("keeps the title left aligned by default and centers it on request", async () => {
-        const leftAligned = mountWindow();
+    it("keeps the title left aligned with no centering placeholder", async () => {
+        const wrapper = mountWindow({}, "<span>Agent Profile 设置</span>");
         try {
             await nextTick();
-            const titleWrapper = leftAligned.get("[role='dialog']").element.querySelector(".cursor-move");
+            const titleWrapper = wrapper.get("[role='dialog']").element.querySelector(".cursor-move");
             expect(titleWrapper?.className).not.toContain("text-center");
+            // 左对齐不再为居中放占位块：标题栏第一个子元素就是可拖动区
+            const titleBar = titleWrapper?.parentElement;
+            expect(titleBar?.firstElementChild).toBe(titleWrapper);
         } finally {
-            leftAligned.unmount();
-        }
-
-        const centered = mountWindow({titleAlign: "center"});
-        try {
-            await nextTick();
-            const titleWrapper = centered.get("[role='dialog']").element.querySelector(".cursor-move");
-            expect(titleWrapper?.className).toContain("text-center");
-        } finally {
-            centered.unmount();
+            wrapper.unmount();
         }
     });
 
@@ -805,6 +799,22 @@ describe("nb-ui dialog window", () => {
         }
     });
 
+    it("applies the size presets and lets explicit width / height win", async () => {
+        const pick = async (props: Record<string, unknown>) => {
+            const wrapper = mountWindow(props);
+            await nextTick();
+            const style = (wrapper.get("[data-dialog-window]").element as HTMLElement).style;
+            const size = {width: style.width, height: style.height};
+            wrapper.unmount();
+            return size;
+        };
+
+        // 默认 md；显式 width / height 覆盖对应维度
+        expect(await pick({})).toEqual({width: "720px", height: "640px"});
+        expect(await pick({size: "sm"})).toEqual({width: "420px", height: "420px"});
+        expect(await pick({size: "lg", width: 480, height: "auto"})).toEqual({width: "480px", height: "auto"});
+    });
+
     it("does not close from outside interaction in non-modal mode", async () => {
         const wrapper = mountWindow();
         try {
@@ -817,11 +827,19 @@ describe("nb-ui dialog window", () => {
         }
     });
 
-    it("exposes optional resize handles and updates width from keyboard", async () => {
+    it("exposes edge and corner resize handles and updates width from keyboard", async () => {
         const wrapper = mountWindow({resizable: true, width: 560, minWidth: 320});
         try {
             await nextTick();
 
+            expect(wrapper.findAll("[data-dialog-resize]").map((handle) => handle.attributes("data-dialog-resize"))).toEqual([
+                "right",
+                "bottom",
+                "bottom-right",
+                "bottom-left",
+                "top-right",
+                "top-left",
+            ]);
             const handle = wrapper.get("[data-dialog-resize='right']");
             await handle.trigger("keydown", {key: "ArrowRight"});
             expect(wrapper.emitted("update:width")?.at(-1)).toEqual([570]);
@@ -849,13 +867,60 @@ describe("nb-ui dialog window", () => {
         try {
             await nextTick();
 
-            const handle = wrapper.get("[data-dialog-resize='corner']").element;
+            const handle = wrapper.get("[data-dialog-resize='bottom-right']").element;
             handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 100, clientY: 100, pointerId: 1}));
             handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
             handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
 
             expect(wrapper.emitted("update:width")?.at(-1)).toEqual([600]);
             expect(wrapper.emitted("update:height")?.at(-1)).toEqual([430]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("grows upwards and leftwards when dragging the top-left corner", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, height: "400px", minWidth: 320, minHeight: 240});
+        try {
+            await nextTick();
+            const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+            const startLeft = Number.parseFloat(windowElement.style.left);
+            const startTop = Number.parseFloat(windowElement.style.top);
+
+            const handle = wrapper.get("[data-dialog-resize='top-left']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 300, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 260, clientY: 270, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 260, clientY: 270, pointerId: 1}));
+
+            // 左上角拖动：尺寸变大，同时窗口的 left / top 跟着边界走
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([600]);
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([430]);
+            await nextTick();
+            expect(Number.parseFloat(windowElement.style.left)).toBeLessThan(startLeft);
+            expect(Number.parseFloat(windowElement.style.top)).toBeLessThan(startTop);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("clamps a top-left drag at the minimum size without drifting the position", async () => {
+        const wrapper = mountWindow({resizable: true, width: 360, height: "300px", minWidth: 320, minHeight: 240});
+        try {
+            await nextTick();
+            const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+            const startLeft = Number.parseFloat(windowElement.style.left);
+            const startTop = Number.parseFloat(windowElement.style.top);
+
+            const handle = wrapper.get("[data-dialog-resize='top-left']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 300, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 900, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 900, clientY: 300, pointerId: 1}));
+
+            // 远超出最小尺寸的拖动停在 minWidth，不会继续变小，位置也只走这一段
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([320]);
+            await nextTick();
+            expect(Number.parseFloat(windowElement.style.left)).toBe(startLeft + 40);
+            expect(Number.parseFloat(windowElement.style.top)).toBe(startTop);
         } finally {
             wrapper.unmount();
         }

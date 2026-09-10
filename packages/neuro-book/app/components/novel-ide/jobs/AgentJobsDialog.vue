@@ -89,7 +89,7 @@ onScopeDispose(() => {
 
 <template>
     <!-- 后台任务中心浮窗（非模态，可拖动） -->
-    <DialogWindow :model-value="props.modelValue" title-align="left" :title="t('ide.agentJobs.title')" :width="680" height="min(640px, calc(100vh - 88px))" teleport-target=".novel-ide-theme" body-class="overflow-hidden !p-0" @update:model-value="emit('update:modelValue', $event)">
+    <DialogWindow :model-value="props.modelValue" :title="t('ide.agentJobs.title')" :width="680" height="min(640px, calc(100vh - 88px))" teleport-target=".novel-ide-theme" body-class="overflow-hidden !p-0" @update:model-value="emit('update:modelValue', $event)">
         <!-- 工具条：过滤 chips + 清除已结束 + 刷新 -->
         <div class="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[var(--border-color)] px-3 py-2">
             <button

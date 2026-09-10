@@ -90,7 +90,6 @@ function onSelectRequest(value: string): void {
 <template>
     <DialogWindow
         :model-value="props.modelValue"
-        title-align="left"
         :title="t('agent.contextInspector.title')"
         :width="900"
         teleport-target=".novel-ide-theme"
