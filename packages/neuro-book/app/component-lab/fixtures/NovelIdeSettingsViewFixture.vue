@@ -113,10 +113,10 @@ const sectionOptions: SettingsSectionOption[] = [
         scopes: ["global"],
     },
     {
-        value: "roles",
-        label: "角色",
-        description: "按用途把模型分配给各角色",
-        iconClass: "i-lucide-shapes",
+        value: "providers",
+        label: "Provider",
+        description: "管理 Provider 与模型清单",
+        iconClass: "i-lucide-cpu",
         scopes: ["global"],
     },
     {
@@ -134,10 +134,10 @@ const sectionOptions: SettingsSectionOption[] = [
         scopes: ["global", "project"],
     },
     {
-        value: "providers",
-        label: "Provider",
-        description: "管理 Provider 与模型清单",
-        iconClass: "i-lucide-cpu",
+        value: "roles",
+        label: "角色",
+        description: "按用途把模型分配给各角色",
+        iconClass: "i-lucide-shapes",
         scopes: ["global"],
     },
     {
