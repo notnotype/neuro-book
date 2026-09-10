@@ -1,6 +1,6 @@
 import type {Page} from "playwright-core";
 import type {SmokeFailure} from "./agent-profile-nav";
-import {assert} from "./agent-profile-nav";
+import {assert, closeLeftoverDialogWindow} from "./agent-profile-nav";
 
 /**
  * 验证 AgentProfileSettingsView 在 Component Lab 中的 DialogWindow 组合场景。
@@ -203,13 +203,8 @@ export async function assertAgentProfileSettingsNarrowSmoke(page: Page, failures
     );
     let stage = "准备";
     try {
-        // DialogWindow 场景留下的浮层会拦住 Lab 自身的点击，先关掉它再切场景。
         stage = "关闭遗留窗口";
-        const openDialog = page.locator('[data-dialog-window][data-state="open"]');
-        if (await openDialog.count() > 0) {
-            await openDialog.locator('button[title="关闭"]').first().click();
-            await page.waitForFunction(() => document.querySelector('[data-dialog-window][data-state="open"]') === null, undefined, {timeout: 10_000});
-        }
+        await closeLeftoverDialogWindow(page);
         stage = "选择组件与场景";
         await page.locator('[role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u}).click();
         await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "全局设定"}).first().click();

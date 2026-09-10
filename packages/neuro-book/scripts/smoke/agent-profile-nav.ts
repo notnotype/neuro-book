@@ -10,6 +10,16 @@ export function assert(condition: boolean, failures: SmokeFailure[], message: st
 }
 
 /**
+ * DialogWindow 场景留下的浮层会拦住 Lab 自身的点击：切换到别的 fixture 前先关掉它。
+ */
+export async function closeLeftoverDialogWindow(page: Page): Promise<void> {
+    const openDialog = page.locator('[data-dialog-window][data-state="open"]');
+    if (await openDialog.count() === 0) return;
+    await openDialog.locator('button[title="关闭"]').first().click();
+    await page.waitForFunction(() => document.querySelector('[data-dialog-window][data-state="open"]') === null, undefined, {timeout: 10_000});
+}
+
+/**
  * 验证 AgentProfileNavList 的真实 Component Lab surface。
  * 该函数只操作已登记的 Lab fixture，不访问产品 API、store 或浏览器存储。
  */

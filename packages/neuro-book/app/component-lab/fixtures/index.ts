@@ -177,6 +177,17 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./AgentProfileSettingsViewFixture.vue")).default,
     },
+    {
+        component: "NovelIdeSettingsView",
+        scenes: [
+            {id: "global", label: "全局设定", data: {editable: "fixture-owned"}},
+            {id: "project", label: "项目设定", data: {editable: "fixture-owned"}},
+            {id: "dialog-window", label: "DialogWindow 内嵌", data: {editable: "fixture-owned"}},
+            {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
+            {id: "load-error", label: "加载失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./NovelIdeSettingsViewFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {
