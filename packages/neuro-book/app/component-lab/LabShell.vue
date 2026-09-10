@@ -17,6 +17,7 @@ import MarkdownView from "./MarkdownView.vue";
 import EventLogPanel from "./EventLogPanel.vue";
 import HighlightBox from "./HighlightBox.vue";
 import {labComponents, findLabComponent} from "./component-index";
+import type {LabComponentKind} from "./component-index";
 import {findLabFixture} from "./fixtures";
 import {LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
@@ -96,6 +97,20 @@ const matchedComponents = computed(() => {
 type LabTreeNode = {id: string; title: string; iconClass?: string; children?: LabTreeNode[]};
 
 /**
+ * 图形按组件分类给，不按「能不能挂载」给：分类回答「这是什么」，锁只回答「这里能不能跑」——
+ * 后者仍然覆盖前者，因为它是一条约束，不是类型。
+ */
+const KIND_ICONS: Record<LabComponentKind, string> = {
+    view: "i-lucide-layout-panel-top",
+    dialog: "i-lucide-app-window",
+    section: "i-lucide-list-tree",
+    field: "i-lucide-sliders-horizontal",
+    list: "i-lucide-list",
+    panel: "i-lucide-panel-left",
+    part: "i-lucide-box",
+};
+
+/**
  * 按目录路径建多级树：每一级目录是一个分组节点，叶子是组件本身。
  * 搜索直接在入口列表上过滤，因此没有命中的分支根本不会出现——不需要事后剪枝。
  */
@@ -110,7 +125,8 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
             const id = `group:${path}`;
             let node = nodesByPath.get(id);
             if (!node) {
-                node = {id, title: segment, children: []};
+                // 目录行也给图标：不给的话，组名会从叶子的图标列起排，两级标题对不齐
+                node = {id, title: segment, iconClass: "i-lucide-folder", children: []};
                 nodesByPath.set(id, node);
                 level.push(node);
             }
@@ -120,7 +136,7 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
             id: entry.name,
             title: entry.name,
             // 挂不上的组件仍然在清单里，用锁图标标出来，点进去能看到原因
-            iconClass: entry.mountable ? "i-lucide-box" : "i-lucide-lock",
+            iconClass: entry.mountable ? KIND_ICONS[entry.kind] : "i-lucide-lock",
         });
     }
     const sortLevel = (nodes: LabTreeNode[]): void => {

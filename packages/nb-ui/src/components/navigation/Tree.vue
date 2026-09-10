@@ -139,11 +139,13 @@ function indentFor(level: number): string {
             class="nb-ui-focus-ring group flex min-h-[var(--control-h-sm)] cursor-pointer items-center gap-[var(--space-3)] rounded-[calc(var(--radius-control)*0.75)] py-0.5 pe-[var(--space-3)] text-[length:var(--text-sm)] text-[var(--text-secondary)] transition-colors [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[color-mix(in_srgb,var(--text-main)_6%,transparent)] hover:text-[var(--text-main)] data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] data-[selected]:font-[var(--weight-medium)] data-[selected]:text-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-40"
             @select="emit('select', item.value)"
         >
-            <!-- 箭头只在有子节点时出现；没有子节点时留一个同宽的空位，两种行的文字才对齐 -->
+            <!-- 箭头只在有子节点时出现；没有子节点时留一个同宽的空位，两种行的文字才对齐。
+                 展开/收起换图标（chevron-right / chevron-down）而不是把同一个图标转 90°：
+                 旋转的雪佛龙在 12px 上会被人眼读成偏了一点，而换图标没有这个问题。 -->
             <span
                 v-if="item.hasChildren"
-                class="i-lucide-chevron-right h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)]"
-                :class="isExpanded ? 'rotate-90' : ''"
+                class="h-3 w-3 shrink-0 text-[var(--text-muted)]"
+                :class="isExpanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'"
                 aria-hidden="true"
             />
             <span v-else class="h-3 w-3 shrink-0" aria-hidden="true" />

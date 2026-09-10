@@ -141,6 +141,7 @@
   - 标题栏拖动由项目层实现；`resizable` 默认关闭，开启后提供右侧、底部和右下角手柄。鼠标 pointerup 提交 `update:width` / `update:height`，方向键按 10px 调整、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
   - DialogWindow body 内的 nb-ui `FormSelect` 下拉使用高于窗口表面的专用 popover 层级；窗口外仍使用普通 popover 层级，避免下拉被非模态窗口遮挡。
   - 窄屏窗口宽度必须收敛到视口内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
+  - **内边距只有一层**：body 的 `px-4 py-3` 是窗口给的那一层；内容自带页面节律（导航轨 / 内容列各有自己的 `--space-*` 边距）时，宿主必须传 `body-class="!p-0"` 把这层交出去。两层叠起来会到 24–32px，读起来像内容被挤在窗口中间。
 - **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
 #### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）
@@ -196,6 +197,7 @@
 2. 表单受控/非受控契约：所有表单控件（`FormInput`, `FormSelect`, `FormCheckbox`, `FormNumberInput`, `FormTextarea`, `Combobox`）的 `modelValue` 声明为可选并使用 `withDefaults` 赋予安全默认值，杜绝静态展示或非受控场景下的控制台告警。
 3. nb-ui 持有的原生 input（公共组件内部 input 与 playground 自建控件）使用 `.nb-ui-native-input` 标记。`src/styles.css` 对 search decoration 和 number spinner 的抑制必须以该标记为作用域；未标记的宿主原生 input 保留浏览器默认伪元素。`PinInput type="number"` 保持 Reka 的 `type="text"`、`inputmode="numeric"`、`pattern="[0-9]*"` 数字键盘合同。
 4. 可见标签优先。图标按钮必须有非空 `aria-label`；tooltip 不能替代可访问名称。
+   反过来也成立：**说明「这一页 / 这一节是什么、会写到哪里」的元信息不该单独占一行**——它走 tooltip 或标题旁的 info 图标，只有影响判断的正文才占行。区段标题下挂一句 20 字以上的灰色说明是最常见的违反形态。
 5. 复合选择控件必须暴露正确角色和状态，并支持预期方向键、Home/End、Enter、Escape。关闭浮层后焦点回到触发器。
 6. 只读不等于禁用：只读字段可聚焦、可复制，不提交值变化；禁用控件不响应指针或键盘，也不进入正常 Tab 顺序。
 7. `prefers-reduced-motion` 与 `prefers-reduced-transparency` 的公共降级规则优先于主题。动效只解释出现、消失、位置或状态变化，不承担必要信息。

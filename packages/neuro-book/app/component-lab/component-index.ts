@@ -24,7 +24,37 @@ export type LabComponentEntry = {
     blockedReason: string;
     /** 需要预置状态快照才能验证 */
     needsSnapshot: boolean;
+    /**
+     * 组件的粗分类，决定导航里画什么图形。按名字派生而不是人工登记：
+     * 分类只用来区分「这是什么」，不参与挂载判定，规则变了不会影响任何验收结论。
+     */
+    kind: LabComponentKind;
 };
+
+export type LabComponentKind = "view" | "dialog" | "section" | "field" | "list" | "panel" | "part";
+
+/** 从组件名推分类；先匹配更具体后缀，避免 `SettingsView` 被 `View` 之外的模式抢走。 */
+function deriveKind(name: string): LabComponentKind {
+    if (/(Dialog|Window)$/u.test(name)) {
+        return "dialog";
+    }
+    if (/(SettingsView|View)$/u.test(name)) {
+        return "view";
+    }
+    if (/Section$/u.test(name)) {
+        return "section";
+    }
+    if (/(Fields?|Input|Select|Checkbox|Radio|Editor)$/u.test(name)) {
+        return "field";
+    }
+    if (/(List|Table|Tree)$/u.test(name)) {
+        return "list";
+    }
+    if (/(Panel|Rail|Aside|Bar|Tabs?)$/u.test(name)) {
+        return "panel";
+    }
+    return "part";
+}
 
 const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/u;
 const TAGS_PATTERN = /^[ \t]*标签[ \t]*:[ \t]*\[(.*)\][ \t]*$/mu;
@@ -109,6 +139,7 @@ function buildEntries(): LabComponentEntry[] {
                 groupPath: groupPath.length > 0 ? groupPath : [fallbackGroup],
                 tags,
                 doc: stripFrontmatter(raw),
+                kind: deriveKind(name),
                 ...deriveMountability(tags),
             });
         }

@@ -180,7 +180,7 @@ const viewBindings = computed(() => ({
         >
             重新打开窗口
         </button>
-        <DialogWindow v-model="windowOpen" size="lg" title="模型设置" resizable :min-width="720" :min-height="420">
+        <DialogWindow v-model="windowOpen" size="lg" title="模型设置" resizable :min-width="720" :min-height="420" body-class="!p-0">
             <ModelSettingsView v-bind="viewBindings" />
         </DialogWindow>
     </div>

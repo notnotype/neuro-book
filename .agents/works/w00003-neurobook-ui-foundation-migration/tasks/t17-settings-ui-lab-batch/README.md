@@ -247,6 +247,17 @@ smoke 的视口从 1440×900 改成 1600×1000：左栏加宽后画布只剩 872
 
 门禁：`vue-tsc`、`scripts:typecheck` 通过；component-lab 5 文件 / 11 项测试通过（新增宽度落盘与越界丢弃断言）；Lab smoke 全绿。
 
+## 切片 13：验收反馈的第一批修复（已完成）
+
+开发者 2026-09-10 的验收反馈里，属于本批次范围的已修：
+
+- **Lab 组件树**：展开/收起的箭头改成换图标（`chevron-right` / `chevron-down`）而不是把同一个图标转 90°——12px 上旋转的雪佛龙会被读成歪了一点；分组行补上目录图标，此前只有叶子有图标，导致组名从图标列起排、两级标题对不齐。叶子图标改为**按组件分类**给（`component-index.ts` 新增 `kind`：view / dialog / section / field / list / panel / part，按名字后缀派生），不可挂载仍然是锁（约束优先于类型）。
+- **UI 规范与检查清单**（开发者要求沉淀）：`design-language.md` §九 新增两条判据——「内边距只有一层：窗口 body 的 `px-4 py-3` 与内容页面边距不叠加，两层会到 24–32px」与「说明『这一页 / 这一节是什么、写到哪』的元信息不单独占行，走 tooltip」；`ui-development-spec.md` §13（DialogWindow）与 §5（表单与无障碍）各加对应条目。
+- **窗口内边距**：Lab 的 `dialog-window` 场景给外壳传 `body-class="!p-0"`——外壳自带的 `--space-6` 页面节律已经是一层，窗口 body 的 16/12 叠上去就是「内容被挤在中间」。产品接线时同处理（已写进规范与清单）。
+- **「已启用模型」的违和面色**：`SavedModelsList` 里那一层是遗留的卡片面（`bg-[var(--bg-panel)]` + 描边 + `shadow-sm`），落在窗口里正是规范里写的「浮层 body 里的分栏不画第二层面」。按该条去掉所有嵌套面色，分隔改回 `--divider` 横线；行内按钮的几何留到 t18 的 Provider 页重做时一起收。
+
+同时观察到一条既有 flaky：`components.test.ts` 的 “grows upwards and leftwards when dragging the top-left corner” 在 jsdom 里偶发（同一天内一次失败一次通过），与本次改动无关，未动它。
+
 ## 剩余工作（尚未开始）
 
 本 Task 的切片已全部完成：外壳 + 七个区段（Agent Profile 模型、可观测、费用显示、向量嵌入、Web 工具、编辑器、桌面应用、密码保护、模型设置）都已是 Lab 可预览、可调试的受控视图。

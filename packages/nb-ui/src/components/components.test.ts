@@ -1787,7 +1787,7 @@ describe("nb-ui dialog anatomy", () => {
         plain.unmount();
     });
 
-    it("leaves node semantics to the caller instead of drawing folder icons", () => {
+    it("leaves node semantics to the caller instead of drawing folder icons", async () => {
         // 泛型树不认文件系统：有子节点不等于文件夹，叶子不等于文件。
         // 要文件语义的调用方用 FileTree。
         const wrapper = mount(Tree, {
@@ -1805,8 +1805,13 @@ describe("nb-ui dialog anatomy", () => {
         expect(wrapper.find(".i-lucide-file-text").exists()).toBe(false);
         // 调用方自己给的图标照旧渲染
         expect(wrapper.find(".i-lucide-box").exists()).toBe(true);
-        // 有子节点的行才有箭头
+        // 有子节点的行才有箭头；展开与收起是两个图标，不是把同一个转 90°
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(0);
+
+        await wrapper.setProps({expanded: []});
         expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(0);
         wrapper.unmount();
     });
 
