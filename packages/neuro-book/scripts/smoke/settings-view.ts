@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档并禁用未迁移的两档：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 2 && layout.activeSections === 1,
+            layout.sectionCount === 3 && layout.activeSections === 1,
             failures,
-            `区段导航应列出已迁移的区段并只标出一个当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出三个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -108,6 +108,24 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             sectionSwitch.active.length === 1 && sectionSwitch.active[0] === "可观测" && sectionSwitch.switches === 1 && sectionSwitch.hasTraceTitle,
             failures,
             `切到可观测区段应挂载该区段的真实视图：${JSON.stringify(sectionSwitch)}`,
+        );
+
+        stage = "切到费用显示区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "费用显示"}).first().click();
+        await page.waitForTimeout(200);
+        const costSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            return {
+                radios: body ? body.querySelectorAll('[role="radio"]').length : 0,
+                hasRefresh: body?.textContent?.includes("刷新") ?? false,
+                hasRate: /1 USD = [\d.]+ CNY/u.test(body?.textContent ?? ""),
+            };
+        });
+        assert(
+            costSection.radios === 2 && costSection.hasRefresh && costSection.hasRate,
+            failures,
+            `切到费用显示区段应挂载该区段的真实视图：${JSON.stringify(costSection)}`,
         );
 
         stage = "切回 Agent Profile 区段";

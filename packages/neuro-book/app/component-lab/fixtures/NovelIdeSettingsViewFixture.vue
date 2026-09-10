@@ -7,6 +7,7 @@ import type {AgentProfileDraft} from "../../components/novel-ide/settings/agent-
 import {cloneModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
 import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/agent-profile/profile-runtime-settings";
 import NovelIdeSettingsView from "../../components/novel-ide/settings/NovelIdeSettingsView.vue";
+import CostSettingsView from "../../components/novel-ide/settings/cost/CostSettingsView.vue";
 import ObservabilitySettingsView from "../../components/novel-ide/settings/observability/ObservabilitySettingsView.vue";
 import type {
     SettingsScopeId,
@@ -45,6 +46,13 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Profile 的模型、运行策略与专属设置",
         iconClass: "i-lucide-bot-message-square",
         scopes: ["global", "project"],
+    },
+    {
+        value: "cost",
+        label: "费用显示",
+        description: "展示币种与 USD/CNY 汇率",
+        iconClass: "i-lucide-circle-dollar-sign",
+        scopes: ["global"],
     },
     {
         value: "observability",
@@ -144,6 +152,8 @@ const targetLabel = computed(() => scope.value === "project" ? "C:/novels/长夜
 const settingsDraft = ref<AgentProfileSettingsPageDraft>(buildDraft());
 const traceEnabled = ref(true);
 const traceMaxRecords = ref(100);
+const costCurrency = ref<"USD" | "CNY">("USD");
+const exchangeRate = ref<number | null>(7.2413);
 const dialogOpen = ref(false);
 const dialogWidth = ref(1100);
 const dialogHeight = ref<string | number>("calc(100dvh - 120px)");
@@ -165,6 +175,7 @@ watch([scope, activeSection, loading, loadError], () => {
         activeSection: activeSection.value,
         traceEnabled: traceEnabled.value,
         traceMaxRecords: traceMaxRecords.value,
+        costCurrency: costCurrency.value,
         loading: loading.value,
         loadError: loadError.value,
     });
@@ -210,6 +221,14 @@ function openDialog(): void {
                     :max-records="traceMaxRecords"
                     @update:enabled="traceEnabled = $event"
                     @update:max-records="traceMaxRecords = $event"
+                />
+
+                <CostSettingsView
+                    v-else-if="activeSection === 'cost'"
+                    :currency="costCurrency"
+                    :exchange-rate="exchangeRate"
+                    @update:currency="costCurrency = $event"
+                    @refresh-rate="exchangeRate = 7.2455"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -261,6 +280,14 @@ function openDialog(): void {
                         :max-records="traceMaxRecords"
                         @update:enabled="traceEnabled = $event"
                         @update:max-records="traceMaxRecords = $event"
+                    />
+
+                    <CostSettingsView
+                        v-else-if="activeSection === 'cost'"
+                        :currency="costCurrency"
+                        :exchange-rate="exchangeRate"
+                        @update:currency="costCurrency = $event"
+                        @refresh-rate="exchangeRate = 7.2455"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>

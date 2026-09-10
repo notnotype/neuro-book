@@ -189,6 +189,18 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./NovelIdeSettingsViewFixture.vue")).default,
     },
     {
+        component: "CostSettingsView",
+        scenes: [
+            {id: "default", label: "美元", data: {editable: "fixture-owned"}},
+            {id: "cny", label: "人民币", data: {editable: "fixture-owned"}},
+            {id: "stale", label: "缓存汇率", data: {editable: "fixture-owned"}},
+            {id: "missing-rate", label: "无汇率", data: {editable: "fixture-owned"}},
+            {id: "refreshing", label: "刷新中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./CostSettingsViewFixture.vue")).default,
+    },
+    {
         component: "ObservabilitySettingsView",
         scenes: [
             {id: "default", label: "默认", data: {editable: "fixture-owned"}},
