@@ -8,7 +8,7 @@ import {assert, closeLeftoverDialogWindow} from "./agent-profile-nav";
  */
 export async function assertAgentProfileSettingsDialogSmoke(page: Page, failures: SmokeFailure[]): Promise<void> {
     try {
-        const treeItem = page.locator('[role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u});
+        const treeItem = page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u});
         await treeItem.click();
         const subject = page.locator("[data-lab-subject]").first();
         await subject.waitFor({state: "visible", timeout: 10_000});
@@ -209,7 +209,7 @@ export async function assertAgentProfileSettingsNarrowSmoke(page: Page, failures
         stage = "关闭遗留窗口";
         await closeLeftoverDialogWindow(page);
         stage = "选择组件与场景";
-        await page.locator('[role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u}).click();
+        await page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u}).click();
         await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "全局设定"}).first().click();
         await page.locator(".settings-view-root").first().waitFor({state: "visible", timeout: 10_000});
 

@@ -192,6 +192,43 @@ role: tasker
 
 一个坑：同一份模块在两种位置下的相对路径方向相反（区段根是 `./model-settings-draft`，子桶里是 `../model-settings-draft`），批量替换很容易只改对一半；这次以 `vue-tsc` 的报错清单逐条收尾，比肉眼可靠。
 
+## 切片 11：Lab 树改成多级目录（已完成）
+
+开发者 2026-09-10 追问：Lab 树的分组为什么没有多级目录。原因是数据模型而非 UI——`component-index.ts` 每个组件只产出一个 `group: string`（某一层目录名），`LabShell` 再把它渲染成同级组；而 nb-ui 的 `Tree` 本身支持 `children`。
+
+产出：
+
+- **索引**：`LabComponentEntry` 新增 `groupPath: string[]`——相对**组件根**的完整目录路径（按 glob 根段数裁掉 `../components` 与 `.`，它们是 glob 的前缀不是分类）。`group` 保留为「最近的、不叫 `components` 的那层」，右栏显示人类读的那一档。排序改为按完整路径。
+- **LabShell**：按 `groupPath` 建多级树（目录在前、组件在后，各按名字排）；搜索直接在入口列表上过滤，没有命中的分支根本不会出现，不需要事后剪枝；折叠状态的 id 是路径前缀（`group:novel-ide/settings/sections/model/components`）。
+
+实测树（节选）：
+
+```
+common
+  JsonViewer
+component-lab
+  CollapsibleSidePanel / EventLogPanel / HighlightBox / MarkdownView / SurfaceTierDemo / ViewportCanvas
+novel-ide
+  settings
+    sections
+      agent-profile
+        components
+          AgentProfileCustomSettingsSection / … / AgentProfileNavList
+          AgentProfileSettingsView
+      model
+        components
+          ModelDiscoveryDialog / ModelLibraryDialog / NovelIdeModelEditDialog
+          ModelSettingsView
+      cost / desktop / editor / embedding / observability / security / web …
+```
+
+两个连带发现（都已修）：
+
+- 排序改成按完整路径后，Lab 的**默认预览组件**从 Agent Profile 系变成了 `CollapsibleSidePanel`（`component-lab` 目录排最前），而这个组件自己就渲染一个导航面板——于是 `smoke` 里「点导航面板第二格进入检查模式」的选择器在 strict 模式下命中两个元素。修法不是改回排序，而是把 smoke 的组件树选择器全部限定到左栏（`.lab-columns > .nb-lab-panel--nav`，4 个文件 9 处）：画布里预览的东西本来就可能是同类零件，靠「全局只有一个」是不成立的假设。
+- `groupPath` 最初把 glob 根（`components`、`.`）也当成分类 → 树根多出一层噪音，按 glob 根段数裁掉。
+
+门禁：`vue-tsc`、`scripts:typecheck` 通过；测试 48 文件 / 364 项通过；Lab smoke 全绿（含嵌套窗口层级断言）。
+
 ## 剩余工作（尚未开始）
 
 本 Task 的切片已全部完成：外壳 + 七个区段（Agent Profile 模型、可观测、费用显示、向量嵌入、Web 工具、编辑器、桌面应用、密码保护、模型设置）都已是 Lab 可预览、可调试的受控视图。

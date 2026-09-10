@@ -8,6 +8,12 @@ export type LabComponentEntry = {
     name: string;
     /** 所在目录，导航按此分组 */
     group: string;
+    /**
+     * 完整的目录分组路径（相对组件根，不含文件名）：导航按它建多级目录，
+     * 例如 `["novel-ide", "settings", "sections", "model", "components"]`。
+     * `group` 是它的「最近的、不叫 components 的那层」，用于右栏显示人类读的那一档。
+     */
+    groupPath: string[];
     /** frontmatter 的能力标签。空数组表示已确认无隐藏通道，与「尚未处理」不同 */
     tags: string[];
     /** 文档正文，已去掉 frontmatter */
@@ -75,7 +81,11 @@ function deriveMountability(tags: string[]): Pick<LabComponentEntry, "mountable"
 
 function buildEntries(): LabComponentEntry[] {
     const entries: LabComponentEntry[] = [];
-    const collect = (docs: Record<string, string>, modules: Record<string, unknown>, fallbackGroup: string): void => {
+    /**
+     * rootSegments 是 glob 根在路径里的段数：`../components/**` 是 2 段（".." 与 "components"），
+     * `./*.md` 是 1 段（"."）。它们不是分类，导航从它们下面一层开始。
+     */
+    const collect = (docs: Record<string, string>, modules: Record<string, unknown>, fallbackGroup: string, rootSegments: number): void => {
         for (const [path, raw] of Object.entries(docs)) {
             const name = path.slice(path.lastIndexOf("/") + 1, -".md".length);
             // 没有同名 .vue 的 .md 不是组件文档，跳过（例如目录里的 README）
@@ -83,26 +93,30 @@ function buildEntries(): LabComponentEntry[] {
                 continue;
             }
             const segments = path.split("/");
-            // 分组用「最近的、不叫 components 的那层目录」：components/ 放的是某个区段私有的子组件，
-            // 它们和那个区段归成一组，而不是汇成一堆叫 components 的条目。
-            let groupIndex = segments.length - 2;
-            if (segments[groupIndex] === "components" && groupIndex > 0) {
+            // 目录路径 = 去掉文件名与 glob 根之后的每一段。
+            // "../components/novel-ide/settings/sections/model/components/X.md" → novel-ide / settings / sections / model / components
+            const groupPath = segments.slice(rootSegments, -1).filter((segment) => segment !== "" && segment !== ".");
+            // 右栏显示的那一档跳过 components 桶：它是某个组件的私有子目录，不是分类。
+            let groupIndex = groupPath.length - 1;
+            if (groupPath[groupIndex] === "components" && groupIndex > 0) {
                 groupIndex -= 1;
             }
-            const group = groupIndex >= 0 ? segments[groupIndex]! : fallbackGroup;
+            const group = groupIndex >= 0 ? groupPath[groupIndex]! : fallbackGroup;
             const tags = parseTags(raw);
             entries.push({
                 name,
                 group: group === "." ? fallbackGroup : group,
+                groupPath: groupPath.length > 0 ? groupPath : [fallbackGroup],
                 tags,
                 doc: stripFrontmatter(raw),
                 ...deriveMountability(tags),
             });
         }
     };
-    collect(productDocs, productModules, "components");
-    collect(labDocs, labModules, "component-lab");
-    return entries.sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
+    collect(productDocs, productModules, "components", 2);
+    collect(labDocs, labModules, "component-lab", 1);
+    // Lab 自己的组件在 ./ 下，groupPath 只剩根目录名；排序按完整路径读起来才是目录顺序
+    return entries.sort((a, b) => a.groupPath.join("/").localeCompare(b.groupPath.join("/")) || a.name.localeCompare(b.name));
 }
 
 export const labComponents: LabComponentEntry[] = buildEntries();

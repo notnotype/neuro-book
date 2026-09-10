@@ -26,7 +26,7 @@ export async function closeLeftoverDialogWindow(page: Page): Promise<void> {
 export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure[]): Promise<void> {
     try {
         await page.setViewportSize({width: 1440, height: 900});
-        const treeItem = page.locator('[role="treeitem"]').filter({hasText: /^AgentProfileNavList$/u});
+        const treeItem = page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^AgentProfileNavList$/u});
         await treeItem.click();
         const subject = page.locator("[data-lab-subject]").first();
         await subject.waitFor({state: "visible", timeout: 10_000});

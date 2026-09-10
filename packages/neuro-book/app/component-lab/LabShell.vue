@@ -45,7 +45,9 @@ import {
 
 const EVENT_LIMIT = 200;
 
-const ALL_GROUP_IDS = [...new Set(labComponents.map((entry) => `group:${entry.group}`))];
+// 每一级目录都是可折叠的分组：novel-ide / novel-ide/settings / … / model/components
+const ALL_GROUP_IDS = [...new Set(labComponents.flatMap((entry) =>
+    entry.groupPath.map((_, index) => `group:${entry.groupPath.slice(0, index + 1).join("/")}`)))];
 
 const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
@@ -78,24 +80,50 @@ const matchedComponents = computed(() => {
     return labComponents.filter((entry) => entry.name.toLowerCase().includes(query));
 });
 
-const treeItems = computed(() => {
-    const groups = new Map<string, typeof labComponents>();
-    for (const entry of matchedComponents.value) {
-        const bucket = groups.get(entry.group) ?? [];
-        bucket.push(entry);
-        groups.set(entry.group, bucket);
-    }
-    return [...groups.entries()].map(([group, entries]) => ({
-        id: `group:${group}`,
-        title: group,
-        children: entries.map((entry) => ({
+type LabTreeNode = {id: string; title: string; iconClass?: string; children?: LabTreeNode[]};
+
+/**
+ * 按目录路径建多级树：每一级目录是一个分组节点，叶子是组件本身。
+ * 搜索直接在入口列表上过滤，因此没有命中的分支根本不会出现——不需要事后剪枝。
+ */
+function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
+    const roots: LabTreeNode[] = [];
+    const nodesByPath = new Map<string, LabTreeNode>();
+    for (const entry of entries) {
+        let level = roots;
+        let path = "";
+        for (const segment of entry.groupPath) {
+            path = path === "" ? segment : `${path}/${segment}`;
+            const id = `group:${path}`;
+            let node = nodesByPath.get(id);
+            if (!node) {
+                node = {id, title: segment, children: []};
+                nodesByPath.set(id, node);
+                level.push(node);
+            }
+            level = node.children!;
+        }
+        level.push({
             id: entry.name,
             title: entry.name,
             // 挂不上的组件仍然在清单里，用锁图标标出来，点进去能看到原因
             iconClass: entry.mountable ? "i-lucide-box" : "i-lucide-lock",
-        })),
-    }));
-});
+        });
+    }
+    const sortLevel = (nodes: LabTreeNode[]): void => {
+        // 目录在前、组件在后，各自按名字排；同层混排会让「第几级」读不出来
+        nodes.sort((a, b) => Number(Boolean(b.children)) - Number(Boolean(a.children)) || a.title.localeCompare(b.title));
+        for (const node of nodes) {
+            if (node.children) {
+                sortLevel(node.children);
+            }
+        }
+    };
+    sortLevel(roots);
+    return roots;
+}
+
+const treeItems = computed(() => buildComponentTree(matchedComponents.value));
 
 // 搜索时把目录全摊开：搜出来的东西藏在一个收起的目录里，等于没搜到。
 watch(treeQuery, (query) => {

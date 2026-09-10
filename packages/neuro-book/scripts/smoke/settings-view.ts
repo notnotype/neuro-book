@@ -12,7 +12,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         stage = "关闭遗留窗口";
         await closeLeftoverDialogWindow(page);
         stage = "选择组件与场景";
-        await page.locator('[role="treeitem"]').filter({hasText: /^NovelIdeSettingsView$/u}).click();
+        await page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^NovelIdeSettingsView$/u}).click();
         await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "全局设定"}).first().click();
         // 用外壳独有的作用域选择器定位：文档里可能还留着别的 fixture（甚至 teleport 出去的窗口内容）。
         await page.locator('[aria-label="配置作用域"]').first().waitFor({state: "visible", timeout: 10_000});
