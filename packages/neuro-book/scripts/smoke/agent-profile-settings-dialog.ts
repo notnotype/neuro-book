@@ -179,3 +179,108 @@ export async function assertAgentProfileSettingsDialogSmoke(page: Page, failures
         failures.push({kind: "assertion", message: `AgentProfileSettingsView DialogWindow smoke 执行失败：${error instanceof Error ? error.message : String(error)}`});
     }
 }
+
+/**
+ * 验证窄容器下设置视图退化为单列：导航与详情互斥，靠切换条往返。
+ * 容器宽度用 Lab 的「手机」画布预设取得，不动窗口——缩窗口会让 Lab 收起左右侧栏，
+ * 后面就再也点不到组件树了。代价是画布窄过 700px 后，Lab 顶栏与侧栏的点击会被画布交互
+ * 留下的浮层拦下，所以这一段必须排在其它 Lab 交互之前，结束时画布停在 390 × 844。
+ * 显示态由容器查询独占（元素上不挂 display 工具类），所以这里比对的是真实计算样式。
+ */
+export async function assertAgentProfileSettingsNarrowSmoke(page: Page, failures: SmokeFailure[]): Promise<void> {
+    const preset = (label: string) => page.locator('[aria-label="画布宽度"] [role="radio"], [aria-label="画布宽度"] button').filter({hasText: label}).first();
+    const waitForRootWidth = (min: number, max: number) => page.waitForFunction(
+        (bounds) => {
+            const root = document.querySelector<HTMLElement>(".settings-view-root");
+            if (root === null) {
+                return false;
+            }
+            const width = root.getBoundingClientRect().width;
+            return width >= bounds.min && width <= bounds.max;
+        },
+        {min, max},
+        {timeout: 10_000},
+    );
+    let stage = "准备";
+    try {
+        // DialogWindow 场景留下的浮层会拦住 Lab 自身的点击，先关掉它再切场景。
+        stage = "关闭遗留窗口";
+        const openDialog = page.locator('[data-dialog-window][data-state="open"]');
+        if (await openDialog.count() > 0) {
+            await openDialog.locator('button[title="关闭"]').first().click();
+            await page.waitForFunction(() => document.querySelector('[data-dialog-window][data-state="open"]') === null, undefined, {timeout: 10_000});
+        }
+        stage = "选择组件与场景";
+        await page.locator('[role="treeitem"]').filter({hasText: /^AgentProfileSettingsView$/u}).click();
+        await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "全局设定"}).first().click();
+        await page.locator(".settings-view-root").first().waitFor({state: "visible", timeout: 10_000});
+
+        const readLayout = () => page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>(".settings-view-root");
+            const rail = root?.querySelector<HTMLElement>(".settings-nav-aside") ?? null;
+            const detail = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const bar = detail?.querySelector<HTMLElement>(".settings-mobile-bar") ?? null;
+            const railLine = rail ? getComputedStyle(rail, "::after") : null;
+            return {
+                rootWidth: root ? Math.round(root.getBoundingClientRect().width) : 0,
+                railDisplay: rail ? getComputedStyle(rail).display : "",
+                railWidth: rail ? Math.round(rail.getBoundingClientRect().width) : 0,
+                railLineDisplay: railLine?.display ?? "",
+                detailDisplay: detail ? getComputedStyle(detail).display : "",
+                barDisplay: bar ? getComputedStyle(bar).display : "",
+            };
+        });
+
+        stage = "宽容器检查";
+        await waitForRootWidth(700, 100000);
+        const wide = await readLayout();
+        assert(
+            wide.railDisplay === "flex"
+                && wide.railWidth === 276
+                && wide.railLineDisplay !== "none"
+                && wide.detailDisplay === "flex"
+                && wide.barDisplay === "none",
+            failures,
+            `宽容器应显示双栏、栏间竖线与导航轨宽度：${JSON.stringify(wide)}`,
+        );
+
+        stage = "切到手机画布";
+        await preset("手机").click();
+        await waitForRootWidth(1, 699);
+        const collapsed = await readLayout();
+        assert(
+            collapsed.railDisplay === "none"
+                && collapsed.detailDisplay === "flex"
+                && collapsed.barDisplay === "flex",
+            failures,
+            `窄容器应只显示详情并给出切换条：${JSON.stringify(collapsed)}`,
+        );
+
+        stage = "打开单列导航";
+        await page.locator(".settings-detail-section .settings-mobile-bar button").first().click();
+        await page.waitForTimeout(120);
+        const opened = await readLayout();
+        assert(
+            opened.railDisplay === "flex"
+                && opened.railWidth >= collapsed.rootWidth - 1
+                && opened.railLineDisplay === "none"
+                && opened.detailDisplay === "none",
+            failures,
+            `单列打开导航时导航应占满整行且不画分栏竖线：${JSON.stringify(opened)}`,
+        );
+
+        stage = "返回详情列";
+        await page.locator(".settings-nav-aside .settings-mobile-bar button").first().click();
+        await page.waitForTimeout(120);
+        const back = await readLayout();
+        assert(
+            back.railDisplay === "none" && back.detailDisplay === "flex" && back.barDisplay === "flex",
+            failures,
+            `从导航返回后应回到详情列：${JSON.stringify(back)}`,
+        );
+
+        console.log(`Agent Profile container layout: ${JSON.stringify({wide, collapsed, opened, back})}`);
+    } catch (error) {
+        failures.push({kind: "assertion", message: `AgentProfileSettingsView 窄容器 smoke 在「${stage}」失败：${error instanceof Error ? error.message : String(error)}`});
+    }
+}

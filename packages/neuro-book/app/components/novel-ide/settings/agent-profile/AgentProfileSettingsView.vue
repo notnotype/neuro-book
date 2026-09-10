@@ -249,7 +249,7 @@ function resetDefaults(): void {
         <div class="flex min-h-0 flex-1">
             <!-- 桌面或移动端展开时展示导航；导航轨自带右分割线，不画卡片面 -->
             <aside
-                class="settings-nav-aside flex shrink-0 flex-col gap-[var(--space-4)] p-[var(--space-6)]"
+                class="settings-nav-aside shrink-0 flex-col gap-[var(--space-4)] p-[var(--space-6)]"
                 :class="{'is-mobile-open': mobileNavOpen}"
             >
                 <!-- 移动端导航返回条（单列打开导航时可见） -->
@@ -383,6 +383,9 @@ function resetDefaults(): void {
    不与标题栏、窗口下沿的横线相接。竖线划分区域，横线在它右侧收住。 */
 .settings-nav-aside {
     position: relative;
+    display: flex;
+    /* 导航轨自带 16px 内边距，宽度在此之上补足，保持内容宽度与历史版本一致。 */
+    width: 276px;
 }
 
 .settings-nav-aside::after {
@@ -395,6 +398,17 @@ function resetDefaults(): void {
     background: var(--divider);
 }
 
+.settings-detail-section {
+    display: flex;
+}
+
+/* 只有窄容器才出现切换条；宽容器两栏常驻。 */
+.settings-mobile-bar {
+    display: none;
+}
+
+/* 窄容器退化为单列：导航与详情互斥，靠切换条往返。
+   显示态只由这里声明，元素上不再挂 display 工具类，也就不需要 !important。 */
 @container (max-width: 699px) {
     .settings-nav-aside {
         display: none;
@@ -404,31 +418,14 @@ function resetDefaults(): void {
         display: none;
     }
     .settings-nav-aside.is-mobile-open {
-        display: block;
-        width: 100%;
-    }
-    .settings-detail-section {
         display: flex;
+        width: 100%;
     }
     .settings-detail-section.is-mobile-open {
         display: none;
     }
     .settings-mobile-bar {
         display: flex;
-    }
-}
-
-@container (min-width: 700px) {
-    /* 导航轨自带 16px 内边距，宽度在此之上补足，保持内容宽度与历史版本一致。 */
-    .settings-nav-aside {
-        display: block !important;
-        width: 276px !important;
-    }
-    .settings-detail-section {
-        display: flex !important;
-    }
-    .settings-mobile-bar {
-        display: none !important;
     }
 }
 </style>

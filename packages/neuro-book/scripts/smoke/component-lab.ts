@@ -6,7 +6,7 @@ import {pathToFileURL} from "node:url";
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page} from "playwright-core";
 import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
-import {assertAgentProfileSettingsDialogSmoke} from "./agent-profile-settings-dialog";
+import {assertAgentProfileSettingsDialogSmoke, assertAgentProfileSettingsNarrowSmoke} from "./agent-profile-settings-dialog";
 
 type ComponentLabSmokeSuite = "all" | "core" | "agent-profile";
 
@@ -67,6 +67,8 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         );
         if (suite === "agent-profile") {
             await assertAgentProfileSettingsDialogSmoke(page, failures);
+            // 窄容器检查把画布留在 390 × 844，之后 Lab 顶栏与侧栏的点击会被拦下，所以它排在导航 smoke 之前。
+            await assertAgentProfileSettingsNarrowSmoke(page, failures);
             await runAgentProfileNavSmoke(page, failures);
             if (failures.length > 0) {
                 const screenshot = input.screenshot ?? resolveAgentScratchPath("browser", "component-lab-agent-profile", randomBytes(4).toString("hex"), "failure.png");
@@ -100,6 +102,8 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await expectText(page, "还原", failures, "数据面板应提供场景重置入口");
         if (suite === "all") {
             await assertAgentProfileSettingsDialogSmoke(page, failures);
+            // 窄容器检查把画布留在 390 × 844，之后 Lab 顶栏与侧栏的点击会被拦下，所以它排在导航 smoke 之前。
+            await assertAgentProfileSettingsNarrowSmoke(page, failures);
             await runAgentProfileNavSmoke(page, failures);
         }
 
