@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import EmbeddingSettingsView from "../../components/novel-ide/settings/sections/EmbeddingSettingsView.vue";
+import EmbeddingSettingsView from "../../components/novel-ide/settings/sections/embedding/EmbeddingSettingsView.vue";
 import {
     createEmbeddingSettingsDraft,
     type EmbeddingSettingsDraft,

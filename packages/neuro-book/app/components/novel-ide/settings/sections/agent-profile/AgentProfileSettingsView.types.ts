@@ -1,7 +1,7 @@
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentProfileDraft, AgentProfileModelDraft, ConfigSettingsScope} from "./agent-profile/agent-profile-draft";
-import type {ProfileRuntimeSettingsDraft} from "./agent-profile/profile-runtime-settings";
+import type {AgentProfileDraft, AgentProfileModelDraft, ConfigSettingsScope} from "./agent-profile-draft";
+import type {ProfileRuntimeSettingsDraft} from "./profile-runtime-settings";
 
 /**
  * 完整设置页的页面草稿：一次编辑会话中全部可编辑配置。

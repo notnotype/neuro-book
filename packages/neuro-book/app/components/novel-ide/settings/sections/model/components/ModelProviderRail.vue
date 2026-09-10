@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {Badge} from "@notnotype/nb-ui/components";
-import type {ModelSettingsProviderDraft} from "./model-settings-draft";
+import type {ModelSettingsProviderDraft} from "../model-settings-draft";
 
 const props = defineProps<{
     providers: ModelSettingsProviderDraft[];

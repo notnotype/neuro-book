@@ -7,13 +7,13 @@ import type {AgentProfileDraft, AgentProfileModelDraft} from "../../components/n
 import {cloneModelDraft} from "../../components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
 import type {ProfileRuntimeSettingsSources} from "../../components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
 import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
-import AgentProfileIdentitySection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileIdentitySection.vue";
-import AgentProfileModelSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileModelSection.vue";
-import AgentProfileCustomSettingsSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileCustomSettingsSection.vue";
-import AgentProfileRuntimeSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileRuntimeSection.vue";
-import AgentProfileDefaultProfileSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileDefaultProfileSection.vue";
-import AgentProfileDefaultModelSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileDefaultModelSection.vue";
-import AgentProfileDefaultRuntimeSection from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileDefaultRuntimeSection.vue";
+import AgentProfileIdentitySection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileIdentitySection.vue";
+import AgentProfileModelSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileModelSection.vue";
+import AgentProfileCustomSettingsSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileCustomSettingsSection.vue";
+import AgentProfileRuntimeSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileRuntimeSection.vue";
+import AgentProfileDefaultProfileSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileDefaultProfileSection.vue";
+import AgentProfileDefaultModelSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileDefaultModelSection.vue";
+import AgentProfileDefaultRuntimeSection from "../../components/novel-ide/settings/sections/agent-profile/components/AgentProfileDefaultRuntimeSection.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 type SectionKey = "identity" | "model" | "custom-settings" | "runtime" | "default-profile" | "default-model" | "default-runtime";

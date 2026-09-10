@@ -4,12 +4,12 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import AgentVisibleModelsEditor from "nbook/app/components/novel-ide/settings/sections/model/AgentVisibleModelsEditor.vue";
-import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/sections/model/NovelIdeModelSelect.vue";
-import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/sections/model/NovelIdeModelEditDialog.vue";
-import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/sections/model/ModelDiscoveryDialog.vue";
-import ModelLibraryDialog from "nbook/app/components/novel-ide/settings/sections/model/ModelLibraryDialog.vue";
-import SavedModelsList from "nbook/app/components/novel-ide/settings/sections/model/SavedModelsList.vue";
+import AgentVisibleModelsEditor from "nbook/app/components/novel-ide/settings/sections/model/components/AgentVisibleModelsEditor.vue";
+import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/sections/model/components/NovelIdeModelSelect.vue";
+import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/sections/model/components/NovelIdeModelEditDialog.vue";
+import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/sections/model/components/ModelDiscoveryDialog.vue";
+import ModelLibraryDialog from "nbook/app/components/novel-ide/settings/sections/model/components/ModelLibraryDialog.vue";
+import SavedModelsList from "nbook/app/components/novel-ide/settings/sections/model/components/SavedModelsList.vue";
 import {clearModelCostDraft, createModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-cost-draft";
 import {candidateFromLibrary, requiredModelFields} from "nbook/app/components/novel-ide/settings/sections/model/model-draft-factory";
 import {parseDraftInteger, parseModelInput, parseModelReasoning, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";

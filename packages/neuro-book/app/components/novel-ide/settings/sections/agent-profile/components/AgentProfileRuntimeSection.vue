@@ -2,8 +2,8 @@
 import {computed, ref, watch} from "vue";
 import {Badge, CollapsibleSection} from "@notnotype/nb-ui/components";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentProfileDraft} from "./agent-profile-draft";
-import {countProfileRuntimeOverrides, type ProfileRuntimeSettingsDraft, type ProfileRuntimeSettingsErrors, type ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
+import type {AgentProfileDraft} from "../agent-profile-draft";
+import {countProfileRuntimeOverrides, type ProfileRuntimeSettingsDraft, type ProfileRuntimeSettingsErrors, type ProfileRuntimeSettingsSources} from "../profile-runtime-settings";
 import ProfileRuntimeSettingsFields from "./ProfileRuntimeSettingsFields.vue";
 
 type RuntimeBaseline = {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import WebSettingsView from "../../components/novel-ide/settings/sections/WebSettingsView.vue";
+import WebSettingsView from "../../components/novel-ide/settings/sections/web/WebSettingsView.vue";
 import {createWebSettingsDraft, type WebSettingsDraft} from "../../components/novel-ide/settings/sections/web/web-settings-draft";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 

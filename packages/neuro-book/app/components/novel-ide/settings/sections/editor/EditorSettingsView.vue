@@ -13,7 +13,7 @@ import {
     editorFontLabel,
     type MarkdownNumberKey,
     type MonacoNumberKey,
-} from "./editor/editor-prefs";
+} from "./editor-prefs";
 
 const props = withDefaults(defineProps<{
     /** Markdown 富文本显示偏好 */

@@ -21,7 +21,7 @@ role: tasker
 - 现状宿主 `packages/neuro-book/app/components/novel-ide/NovelIdeSettingsDialog.vue`（1333 行）：旧模态 `Dialog` + 卡片语言 + 顶部保存/恢复栏 + `activeSection` 内联分支。
 - 面板规模：`NovelIdeModelSettingsPanel` 726、`NovelIdeAgentProfileModelSettingsPanel` 705、`NovelIdeWebSettingsPanel` 561、`NovelIdeEmbeddingSettingsPanel` 392、`NovelIdeCostSettingsPanel` 220、`NovelIdeObservabilitySettingsPanel` 161、`theme/*` 222。
 - 作用域与区段：`boot`（security）、`global`（models / embedding / cost / web-tools / agent-profile-models / observability）、`project`（agent-profile-models）、`browser`（frontend / editor / desktop）；区段列表按作用域过滤。
-- 已迁资产：`settings/sections/AgentProfileSettingsView.vue`（t15 金标 + 十个 Lab 场景）。
+- 已迁资产：`settings/sections/agent-profile/AgentProfileSettingsView.vue`（t15 金标 + 十个 Lab 场景）。
 
 ## 切片
 
@@ -66,7 +66,7 @@ role: tasker
 
 产出：
 
-- `settings/sections/ObservabilitySettingsView.vue` + 同名文档：Pi 请求记录的受控视图（总开关 + 每会话保留条数 + 隐私说明）。就地保存，合法输入立刻写回并夹到 `0..10000`；空串与非数字不写回，避免清空输入框时把 0 落进配置。旧面板 `NovelIdeObservabilitySettingsPanel` 继续负责快照读写与 `saveGlobal`，产品接线时再消费本视图。
+- `settings/sections/observability/ObservabilitySettingsView.vue` + 同名文档：Pi 请求记录的受控视图（总开关 + 每会话保留条数 + 隐私说明）。就地保存，合法输入立刻写回并夹到 `0..10000`；空串与非数字不写回，避免清空输入框时把 0 落进配置。旧面板 `NovelIdeObservabilitySettingsPanel` 继续负责快照读写与 `saveGlobal`，产品接线时再消费本视图。
 - `component-lab/fixtures/ObservabilitySettingsViewFixture.vue`（default / disabled / boundary / saving / save-error）与注册表条目；`NovelIdeSettingsViewFixture` 增加第二个区段「可观测」，两个场景的内容槽按 `activeSection` 分派真实视图。
 - smoke 扩展：区段数 2、切到可观测区段后挂载真实视图（开关数 1 + 标题命中）、再切回 Agent Profile 区段。
 
@@ -76,7 +76,7 @@ role: tasker
 
 产出：
 
-- `settings/sections/CostSettingsView.vue` + 同名文档：展示币种（USD / CNY，各带说明，因此用 `RadioGroup` 而不是下拉）、当前 `1 USD = x CNY（缓存）` 与取回时间、手动刷新按钮。汇率只影响展示、不写配置；刷新由 `refreshRate` 交给宿主，视图不解析响应。旧面板 `NovelIdeCostSettingsPanel` 继续负责快照、`saveGlobal` 与汇率请求。
+- `settings/sections/cost/CostSettingsView.vue` + 同名文档：展示币种（USD / CNY，各带说明，因此用 `RadioGroup` 而不是下拉）、当前 `1 USD = x CNY（缓存）` 与取回时间、手动刷新按钮。汇率只影响展示、不写配置；刷新由 `refreshRate` 交给宿主，视图不解析响应。旧面板 `NovelIdeCostSettingsPanel` 继续负责快照、`saveGlobal` 与汇率请求。
 - `component-lab/fixtures/CostSettingsViewFixture.vue`（default / cny / stale / missing-rate / refreshing / save-error）与注册表条目；fixture 的刷新只换一个确定值并记录事件。
 - 外壳第三个区段「费用显示」；smoke 断言区段数 3，切到该段后挂载真实视图（2 个 radio + 刷新按钮 + 汇率行）。
 
@@ -87,7 +87,7 @@ role: tasker
 产出：
 
 - `settings/sections/embedding/embedding-settings-draft.ts`：草稿模型与序列化规则的唯一出口（`createEmbeddingSettingsDraft()`、`buildGlobalEmbeddingPayload()`、`buildProjectEmbeddingPayload()`、`buildSecretPayload()`）。空串统一表示「未配置/继承上层」，密钥留空表示保留原值、显式清除才写空串，启用但模型为空时按三处默认值补齐。
-- `settings/sections/EmbeddingSettingsView.vue` + 同名文档：global 渲染整段服务配置（开关 / Provider / 模型 / 维度 / Timeout / Base URL / API Key + 清除 / 请求扩展参数 JSON），project 只渲染模型与维度覆盖。短字段并排由视图自身容器宽度（`@container min-width: 620px`）决定，不看窗口宽度。
+- `settings/sections/embedding/EmbeddingSettingsView.vue` + 同名文档：global 渲染整段服务配置（开关 / Provider / 模型 / 维度 / Timeout / Base URL / API Key + 清除 / 请求扩展参数 JSON），project 只渲染模型与维度覆盖。短字段并排由视图自身容器宽度（`@container min-width: 620px`）决定，不看窗口宽度。
 - `component-lab/fixtures/EmbeddingSettingsViewFixture.vue`（global-disabled / global-enabled / global-api-key / project-inherit / project-override / saving / save-error）与注册表条目；外壳第四个区段「向量嵌入」，只登记在 global 下（旧宿主的 scope→区段矩阵里 embedding 只属于 global，project 场景由该视图自己的 fixture 覆盖）。
 - smoke 断言区段数 4，切到该段后挂载真实表单（开关 1、输入 ≥5、多行 1、含 Base URL）且栅格为一或两栏。
 
@@ -98,7 +98,7 @@ role: tasker
 产出：
 
 - `settings/sections/web/web-settings-draft.ts`：草稿模型与序列化规则的唯一出口（优先级规范化、上下移边界、provider 密钥三态、数字回落默认值、`buildWebPayload()`），并配 `web-settings-draft.test.ts` 覆盖这四类边界（4 用例）。
-- `settings/sections/WebSettingsView.vue` + 同名文档：搜索服务（默认服务下拉 + `Fallback:` 顺序提示、两个 provider 行含上移下移与开关、密钥 + 清除、超时，Brave 另有国家与搜索语言）、本地抓取（开关 + 五个限额）、Tavily 兜底（开关 + 超时）。短字段并排按视图自身容器宽度决定。
+- `settings/sections/web/WebSettingsView.vue` + 同名文档：搜索服务（默认服务下拉 + `Fallback:` 顺序提示、两个 provider 行含上移下移与开关、密钥 + 清除、超时，Brave 另有国家与搜索语言）、本地抓取（开关 + 五个限额）、Tavily 兜底（开关 + 超时）。短字段并排按视图自身容器宽度决定。
 - `component-lab/fixtures/WebSettingsViewFixture.vue`（default / configured / brave-first / local-fetch-off / saving / save-error / disabled）；外壳第五个区段「Web 工具」。
 - smoke 断言区段数 5，切到该段后挂载真实表单（2 个 provider 行、4 个开关、4 个上移/下移按钮、含 Fallback 提示）。
 
@@ -111,9 +111,9 @@ role: tasker
 产出：
 
 - `settings/sections/editor/editor-prefs.ts` + 测试：数值区间与步长（`MARKDOWN_NUMBER_LIMITS` / `MONACO_NUMBER_LIMITS`）、字体候选、`clampEditorNumber` / `clampMonacoNumber` 与 `editorFontLabel`。区间同时是控件 `min` / `max` / `step` 与夹紧逻辑的唯一来源。5 个用例覆盖越界夹紧、区间内小数透传、空串与非数字返回 `null`、候选表完整性。
-- `settings/sections/EditorSettingsView.vue` + 同名文档：Markdown 正文档（字体 / 字号 / 行高 / 正文宽度 / 段首缩进）与 Monaco 段（字体 / 字号 / 行高 / Tab Size / 四个开关），两块各带「重置」，重置只发 `reset` 事件由宿主决定重置成什么。
-- `settings/sections/DesktopSettingsView.vue` + 同名文档：说明块（连接方式 + 版本）、缩放滑杆（0.75–2，百分比贴在标题右侧）、托盘开关、关闭行为下拉。视图里没有 `window.neuroBookDesktop`——探测与拉取时机是宿主策略；`status` 为 `null` 时只少一行版本说明。
-- `settings/sections/SecuritySettingsView.vue` + 同名文档：只读三件套（说明、`auth.enabled` 三态徽标、`config.yaml` 示例 + 警告），无 emit、无保存入口。
+- `settings/sections/editor/EditorSettingsView.vue` + 同名文档：Markdown 正文档（字体 / 字号 / 行高 / 正文宽度 / 段首缩进）与 Monaco 段（字体 / 字号 / 行高 / Tab Size / 四个开关），两块各带「重置」，重置只发 `reset` 事件由宿主决定重置成什么。
+- `settings/sections/desktop/DesktopSettingsView.vue` + 同名文档：说明块（连接方式 + 版本）、缩放滑杆（0.75–2，百分比贴在标题右侧）、托盘开关、关闭行为下拉。视图里没有 `window.neuroBookDesktop`——探测与拉取时机是宿主策略；`status` 为 `null` 时只少一行版本说明。
+- `settings/sections/security/SecuritySettingsView.vue` + 同名文档：只读三件套（说明、`auth.enabled` 三态徽标、`config.yaml` 示例 + 警告），无 emit、无保存入口。
 - 三个 fixture（EditorSettingsView 4 场景 / DesktopSettingsView 3 场景 / SecuritySettingsView 3 场景）与注册表条目；外壳 fixture 解禁 `启动` 与 `本机` 两档作用域并各挂三个新区段体，四个作用域现在都能进入。
 - smoke 扩展：`scopeDisabled` 2 → 0；新增「启动作用域（1 区段 + `auth.enabled` + 示例 YAML + 三态文案）」「本机作用域（2 区段）」「编辑器区段（7 个数字字段 + 两处字体联想 + 5 个开关 + 段首缩进禁用态）」「桌面应用区段（0.75–2 滑杆 + 100% + 1 开关 + 1 下拉）」四段。
 
@@ -164,7 +164,7 @@ role: tasker
 
 产出：
 
-- **改名**：`settings/views/` → `settings/sections/`，与代码里已有的 section 词汇（`SettingsSectionOption`、`sectionCount`、`.settings-detail-section`）对齐，层级仍是两层；43 处引用（代码、fixture、spec、工作记录）一次性重写。命名规则写进本 README：区段目录内部超编时在该区段内加第三层，不整体加深。
+- **改名**：`settings/views/` → `settings/sections/`，与代码里已有的 section 词汇（`SettingsSectionOption`、`sectionCount`、`.settings-detail-section`）对齐，层级仍是两层；43 处引用（代码、fixture、spec、工作记录）一次性重写。命名规则写进本 README：区段目录内部超编时在该区段内加第三层，不整体加深。**切片 10 已把这个第三层落地为 `components/` 子桶。**
 - **DialogWindow 层级**（nb-ui）：`z-index` 与浮层注入值改为按嵌套深度计算——外层窗口 8990 / 外层下拉 8991 / 内层窗口 8992 / 内层下拉 8993，整档压在模态 `Dialog`（9000）之下，最多 5 层；新增 `NB_DIALOG_WINDOW_DEPTH` 注入键与 `NB_DIALOG_WINDOW_Z_STEP`。nb-ui 新增一条嵌套测试（`components.test.ts`），测试数 265 → 266。
 - **对话框迁到 nb-ui**：编辑设置、模型发现、Model Library、校验问题全列表改用 `DialogWindow`（非模态浮动窗口，正是「边改边看」的场景）；删除 Provider 是不可逆确认，留在**带遮罩的模态** `nb-ui Dialog` ——依据是 `DialogWindow` 自己的组件文档写着「不支持替代 Dialog 承担确认流程」。旧 app `Dialog` 在设置视图里清零，两个 fixture 因此不再需要 `fixture` 里那个 `.novel-ide-theme` teleport 宿主。
 - **对话框成为独立组件**：三个对话框各有 `.md` + fixture（`NovelIdeModelEditDialog` 3 场景 / `ModelDiscoveryDialog` 4 场景 / `ModelLibraryDialog` 3 场景）并登记进 Lab；`ModelSettingsView` 的对话框场景撤掉，改为新增 `dialog-window` 场景——把视图摆进 `DialogWindow`，也就是产品承载它的方式。Lab 组件树 25 → 28 个组件。
@@ -177,6 +177,20 @@ role: tasker
 
 - Lab 会把上次选中的组件与场景记在 localStorage 里，截图脚本第二次运行会被上一次留下的浮窗挡住组件树；每个视图用独立浏览器上下文、并在场景已被自动选中时跳过点击，才稳定。人肉验证同理：画布上已有窗口时先按 Escape 关掉。
 - 本轮我自己踩过一次取证错误：直接读 `packages/nb-ui/...` 读到的是**主工作区**（master）的旧版本文件，差点据此判断「DialogWindow 没有缩放手柄」。读本分支代码必须走 `.worktree/w00003-.../` 前缀或用带 `cwd` 的命令。
+
+## 切片 10：区段目录按角色分类（已完成）
+
+开发者 2026-09-10 反馈：两级目录不够用，`ModelSettingsView` 的子组件应该放到一起——「这些子组件几乎没有被复用的可能，拆分组件就是为了好组织」。反馈同时暴露了一个真实的不一致：Lab 树的分类取决于「这个区段有没有自己的目录」，所以九个区段视图全挤在 `sections` 一组，而模型的却在 `model` 一组。
+
+产出：
+
+- **目录形状**：`settings/sections/<区段>/` 放**区段入口**（`.vue` + 同名 `.md` + `.types.ts`）与**纯模块**（草稿 / 序列化 / 夹紧 + 各自测试）；`settings/sections/<区段>/components/` 放**只被该区段使用的子组件**，包括三个模型对话框（各带同名 `.md`）。九个区段视图全部搬进自己的区段目录；外壳 `NovelIdeSettingsView` 留在 `sections/` 根——它是容器，不属于任何区段。
+- **索引分组**：`component-index.ts` 的分组规则从「父目录名」改成「最近的、不叫 `components` 的那层目录」。`components/` 是私有子桶，它们与所属区段归成一组，而不是汇成一堆叫 `components` 的条目。
+- **改动面**：约 60 个文件移动，引用分三类重写——`nbook/app/...` 绝对形式、fixture 里的相对形式、以及同一模块在「区段根」与「components 子桶」两种位置下不同的相对深度（`./x` 对 `../x`）。
+
+实测（Lab 树分组）：`agent-profile: 9`、`model: 4`（含三个对话框）、`cost` / `desktop` / `editor` / `embedding` / `observability` / `security` / `web` 各 1、`sections: 1`（外壳）；`common` / `component-lab` 不受影响。测试 57 文件 / 399 项通过，nb-ui 15 文件 / 266 项通过，smoke 全绿，`vue-tsc` / `scripts:typecheck` / `docs:check`（5461 文件）/ `governance:check` 全通过。
+
+一个坑：同一份模块在两种位置下的相对路径方向相反（区段根是 `./model-settings-draft`，子桶里是 `../model-settings-draft`），批量替换很容易只改对一半；这次以 `vue-tsc` 的报错清单逐条收尾，比肉眼可靠。
 
 ## 剩余工作（尚未开始）
 

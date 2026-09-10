@@ -3,7 +3,7 @@ import {computed, ref} from "vue";
 import {Badge, CollapsibleSection} from "@notnotype/nb-ui/components";
 import type {LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
-import type {AgentProfileDraft} from "./agent-profile-draft";
+import type {AgentProfileDraft} from "../agent-profile-draft";
 
 const props = withDefaults(defineProps<{
     profile: AgentProfileDraft;

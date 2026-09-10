@@ -2,8 +2,8 @@
 import {computed} from "vue";
 import {Button, FormInput, FormSelect, FormTextarea} from "@notnotype/nb-ui/components";
 import SavedModelsList from "./SavedModelsList.vue";
-import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "./model-settings-draft";
-import type {ModelApiOption, SavedModelGroupView} from "./model-settings-view";
+import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "../model-settings-draft";
+import type {ModelApiOption, SavedModelGroupView} from "../model-settings-view";
 
 const props = withDefaults(defineProps<{
     /** 当前选中 Provider；null 渲染未选中空态 */

@@ -6,7 +6,7 @@ import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto
 import AgentProfileModelFields from "./AgentProfileModelFields.vue";
 import AgentProfileModelSection from "./AgentProfileModelSection.vue";
 import AgentProfileDefaultModelSection from "./AgentProfileDefaultModelSection.vue";
-import type {AgentProfileModelDraft, AgentProfileModelFieldErrors} from "./agent-profile-draft";
+import type {AgentProfileModelDraft, AgentProfileModelFieldErrors} from "../agent-profile-draft";
 
 const mounted: App[] = [];
 

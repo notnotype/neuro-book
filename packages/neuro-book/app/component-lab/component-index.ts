@@ -83,7 +83,13 @@ function buildEntries(): LabComponentEntry[] {
                 continue;
             }
             const segments = path.split("/");
-            const group = segments.length >= 2 ? segments[segments.length - 2]! : fallbackGroup;
+            // 分组用「最近的、不叫 components 的那层目录」：components/ 放的是某个区段私有的子组件，
+            // 它们和那个区段归成一组，而不是汇成一堆叫 components 的条目。
+            let groupIndex = segments.length - 2;
+            if (segments[groupIndex] === "components" && groupIndex > 0) {
+                groupIndex -= 1;
+            }
+            const group = groupIndex >= 0 ? segments[groupIndex]! : fallbackGroup;
             const tags = parseTags(raw);
             entries.push({
                 name,

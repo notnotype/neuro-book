@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import {Badge} from "@notnotype/nb-ui/components";
-import type {AgentProfileDraft} from "./agent-profile-draft";
+import type {AgentProfileDraft} from "../agent-profile-draft";
 
 const props = defineProps<{
     profile: AgentProfileDraft;

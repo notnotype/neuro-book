@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, reactive, ref, watch} from "vue";
-import NovelIdeModelEditDialog from "../../components/novel-ide/settings/sections/model/NovelIdeModelEditDialog.vue";
+import NovelIdeModelEditDialog from "../../components/novel-ide/settings/sections/model/components/NovelIdeModelEditDialog.vue";
 import {MODEL_API_OPTIONS, buildModelSettingsDraft} from "./model-settings-fixture-data";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 

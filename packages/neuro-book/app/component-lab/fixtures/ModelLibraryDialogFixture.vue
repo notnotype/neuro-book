@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import ModelLibraryDialog from "../../components/novel-ide/settings/sections/model/ModelLibraryDialog.vue";
+import ModelLibraryDialog from "../../components/novel-ide/settings/sections/model/components/ModelLibraryDialog.vue";
 import {MODEL_LIBRARY_GROUPS} from "./model-settings-fixture-data";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 

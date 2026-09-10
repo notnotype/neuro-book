@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentProfileModelDraft, AgentProfileModelFieldErrors} from "./agent-profile-draft";
+import type {AgentProfileModelDraft, AgentProfileModelFieldErrors} from "../agent-profile-draft";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
-import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
+import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsSources} from "../profile-runtime-settings";
 import AgentProfileDefaultProfileSection from "./AgentProfileDefaultProfileSection.vue";
 import AgentProfileDefaultModelSection from "./AgentProfileDefaultModelSection.vue";
 import AgentProfileDefaultRuntimeSection from "./AgentProfileDefaultRuntimeSection.vue";

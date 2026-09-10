@@ -3,7 +3,7 @@ import {computed, ref, watch} from "vue";
 import {Badge, CollapsibleSection} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto, EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import {countModelOverrides, type AgentProfileModelDraft, type AgentProfileModelFieldErrors} from "./agent-profile-draft";
+import {countModelOverrides, type AgentProfileModelDraft, type AgentProfileModelFieldErrors} from "../agent-profile-draft";
 import AgentProfileModelFields from "./AgentProfileModelFields.vue";
 
 const props = withDefaults(defineProps<{

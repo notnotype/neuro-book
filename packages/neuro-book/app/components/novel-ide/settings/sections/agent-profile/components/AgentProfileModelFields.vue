@@ -8,7 +8,7 @@ import {
     streamSelectValue,
     type AgentProfileModelDraft,
     type AgentProfileModelFieldErrors,
-} from "./agent-profile-draft";
+} from "../agent-profile-draft";
 /**
  * 继承语义模式，决定"留空"字段的占位文案和是否提供"继承"选项：
  * - globalDefaults：Global 默认参数，必须落到具体值，没有继承选项；

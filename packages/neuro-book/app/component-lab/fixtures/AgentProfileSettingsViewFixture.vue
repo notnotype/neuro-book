@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
-import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/sections/AgentProfileSettingsView.types";
-import AgentProfileSettingsView from "../../components/novel-ide/settings/sections/AgentProfileSettingsView.vue";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.types";
+import AgentProfileSettingsView from "../../components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue";
 import type {AgentProfileDraft, AgentProfileModelDraft} from "../../components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {cloneModelDraft} from "../../components/novel-ide/settings/sections/agent-profile/agent-profile-draft";

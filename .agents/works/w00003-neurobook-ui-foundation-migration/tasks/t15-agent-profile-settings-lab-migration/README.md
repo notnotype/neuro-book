@@ -12,7 +12,7 @@ role: tasker
 
 ## 范围与边界
 
-- 交付物：`app/components/novel-ide/settings/sections/AgentProfileSettingsView.vue` + `.types.ts` + 同名 `.md`；原地重设计 `AgentProfileModelFields.vue`、`ProfileRuntimeSettingsFields.vue`、`AgentProfileDetailPanel.vue`、`AgentProfileDefaultsPanel.vue`；新增 `app/component-lab/fixtures/AgentProfileSettingsViewFixture.vue` 并在 `fixtures/index.ts` 登记 10 个场景（增加 `dialog-window` 内嵌预览）。
+- 交付物：`app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue` + `.types.ts` + 同名 `.md`；原地重设计 `AgentProfileModelFields.vue`、`ProfileRuntimeSettingsFields.vue`、`AgentProfileDetailPanel.vue`、`AgentProfileDefaultsPanel.vue`；新增 `app/component-lab/fixtures/AgentProfileSettingsViewFixture.vue` 并在 `fixtures/index.ts` 登记 10 个场景（增加 `dialog-window` 内嵌预览）。
 - 计划正文：`local://profile-settings-lab-plan.md`（本 Task 的行为合同来源）。批准它的用户授权即为开发者决策记录。
 - 不修改 `component-index.ts`、LabShell、shared DTO、后端 schema、LowCodeForm 渲染器本体；不新增 Profile 资产 CRUD、编译器、模型调用或真实持久化。`dialog-window` 只在既有 fixture 中组合已公开的 nb-ui `DialogWindow`，不修改 DialogWindow 或正式设置宿主。
 - Product gate 已知 incomplete：本次不生成 Product image evidence，不宣称 Work/Product gate 闭合。
@@ -26,7 +26,7 @@ role: tasker
 
 ## 验证
 
-1. 聚焦测试：`bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.test.ts app/components/novel-ide/settings/sections/agent-profile/profile-runtime-settings.test.ts app/components/novel-ide/settings/sections/agent-profile/AgentProfileModelFields.test.ts app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.test.ts app/component-lab`
+1. 聚焦测试：`bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileNavList.test.ts app/components/novel-ide/settings/sections/agent-profile/profile-runtime-settings.test.ts app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileModelFields.test.ts app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.test.ts app/component-lab`
 2. Lab smoke 按职责分层：`bun run --cwd packages/neuro-book smoke:component-lab:core -- --url http://127.0.0.1:3001 --browser-executable <chromium>` 验证 Lab 壳与通用场景；`bun run --cwd packages/neuro-book smoke:component-lab:agent-profile -- --url http://127.0.0.1:3001 --browser-executable <chromium>` 只验证 Agent Profile 导航与 DialogWindow。`smoke:component-lab` 保留为完整组合入口。
 3. 真实 `/lab` 交互验证设置页 10 组场景（含 DialogWindow 内嵌预览）与原有 9 组观察点：编辑/保存/放弃/继承/错误态/场景隔离/键盘/明暗主题/无真实副作用。当前仅完成 DialogWindow 场景自动观察，逐项人工验收仍未完成。
 4. `bun run --cwd packages/neuro-book scripts:typecheck`。

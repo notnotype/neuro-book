@@ -2,8 +2,8 @@
 import {createApp, defineComponent, h, nextTick, ref} from "vue";
 import type {App} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../AgentProfileSettingsView.types";
-import AgentProfileSettingsView from "../AgentProfileSettingsView.vue";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "./AgentProfileSettingsView.types";
+import AgentProfileSettingsView from "./AgentProfileSettingsView.vue";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 import {createProfileRuntimeSettingsDraft} from "./profile-runtime-settings";

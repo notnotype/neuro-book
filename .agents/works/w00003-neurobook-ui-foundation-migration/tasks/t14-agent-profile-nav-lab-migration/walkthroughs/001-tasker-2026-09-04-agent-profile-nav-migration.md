@@ -105,7 +105,7 @@ fixture 只使用固定内存数据和 `useLabEventSink()`；不读取真实配�
 
 - `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile app/component-lab app/utils/novel-ide-settings-responsive.contract.test.ts`
   - 已记录 `6 files passed`、`25 tests passed`。
-- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.test.ts`
+- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileNavList.test.ts`
   - 补齐七种状态文案逐项断言后，实际为 `1 file passed`、`8 tests passed`。
 - `bun test scripts/build/product-runtime-bundle.test.ts -t "public 资源中的相对 pnpm module id"`
   - 实际为 `1 pass`，验证相对 `.pnpm` / `.bun` module id 收敛到 Product 内部路径。

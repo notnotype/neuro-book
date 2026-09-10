@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import {FormField, FormInput, FormSelect, FormTextarea, type FormSelectOption} from "@notnotype/nb-ui/components";
-import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsField, ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
+import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsField, ProfileRuntimeSettingsSources} from "../profile-runtime-settings";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
 
 const props = withDefaults(defineProps<{

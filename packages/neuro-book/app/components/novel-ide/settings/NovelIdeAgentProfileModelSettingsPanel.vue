@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type {Ref} from "vue";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
-import AgentProfileNavList from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.vue";
-import AgentProfileDefaultsPanel from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileDefaultsPanel.vue";
-import AgentProfileDetailPanel from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileDetailPanel.vue";
-import type {AgentProfileNavItem} from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileNavList.types";
+import AgentProfileNavList from "nbook/app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileNavList.vue";
+import AgentProfileDefaultsPanel from "nbook/app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileDefaultsPanel.vue";
+import AgentProfileDetailPanel from "nbook/app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileDetailPanel.vue";
+import type {AgentProfileNavItem} from "nbook/app/components/novel-ide/settings/sections/agent-profile/components/AgentProfileNavList.types";
 import {
     buildProfileRuntimeSettingsPatch,
     countProfileRuntimeOverrides,
