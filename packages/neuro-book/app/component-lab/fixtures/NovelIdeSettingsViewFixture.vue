@@ -175,9 +175,12 @@ const embeddingDraft = ref(createEmbeddingSettingsDraft());
 const webDraft = ref(createWebSettingsDraft());
 const exchangeRate = ref<number | null>(7.2413);
 const dialogOpen = ref(false);
-/** 初始尺寸交给 size="lg"（1100 × 820），拖动后再由这两个受控值接管。 */
-const dialogWidth = ref(1100);
-const dialogHeight = ref<string | number>(820);
+/**
+ * 初始尺寸完全交给 size="lg"，不在这里重复写一份数字：只有用户拖动过之后才用受控值接管，
+ * 否则预设一改，场景就会悄悄停在旧数值上。
+ */
+const dialogWidth = ref<number | null>(null);
+const dialogHeight = ref<number | null>(null);
 
 const loading = computed(() => sceneKey.value === "loading");
 const loadError = computed(() => sceneKey.value === "load-error" ? "读取设置失败：示例后端返回 500。" : "");
@@ -279,8 +282,8 @@ function openDialog(): void {
             <DialogWindow
                 v-model="dialogOpen"
                 size="lg"
-                :width="dialogWidth"
-                :height="dialogHeight"
+                :width="dialogWidth ?? undefined"
+                :height="dialogHeight ?? undefined"
                 resizable
                 :min-width="720"
                 :min-height="420"
