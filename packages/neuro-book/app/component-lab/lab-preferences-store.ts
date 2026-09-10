@@ -8,6 +8,17 @@ export type LabPreferenceCatalog = {
     zooms: readonly number[];
 };
 
+/**
+ * 侧栏宽度的边界：拖拽与恢复共用同一组值，避免两处各夹一次。
+ * 上限只守「另一栏与画布还站得住」以外的部分，真正的上限还要看窗口宽度（在 LabShell 里算）。
+ */
+export const LAB_PANEL_WIDTH_LIMITS = {
+    left: {min: 220, max: 560},
+    right: {min: 280, max: 720},
+} as const;
+
+export type LabPanelSide = keyof typeof LAB_PANEL_WIDTH_LIMITS;
+
 export type LabPreferences = {
     schema?: 1;
     themeId?: string;
@@ -19,6 +30,10 @@ export type LabPreferences = {
     canvasHeight?: number;
     leftCollapsed?: boolean;
     rightCollapsed?: boolean;
+    /** 左侧栏（组件树）宽度，px */
+    leftPanelWidth?: number;
+    /** 右侧栏（检视）宽度，px */
+    rightPanelWidth?: number;
 };
 
 const MAX_CANVAS_SIZE = 16_384;
@@ -45,6 +60,8 @@ export function loadLabPreferences(storage: Storage, catalog: LabPreferenceCatal
         copyCanvasSize(parsed, "canvasHeight", preferences);
         copyBoolean(parsed, "leftCollapsed", preferences);
         copyBoolean(parsed, "rightCollapsed", preferences);
+        copyPanelWidth(parsed, "leftPanelWidth", LAB_PANEL_WIDTH_LIMITS.left, preferences);
+        copyPanelWidth(parsed, "rightPanelWidth", LAB_PANEL_WIDTH_LIMITS.right, preferences);
         return preferences;
     } catch {
         return {};
@@ -103,6 +120,19 @@ function copyBoolean(
 ): void {
     const value = source[key];
     if (typeof value === "boolean") {
+        target[key] = value;
+    }
+}
+
+/** 越界与小数一律丢弃而不是夹紧：夹紧会让「拖动前的旧值」静默变成另一个宽度。 */
+function copyPanelWidth(
+    source: Record<string, unknown>,
+    key: "leftPanelWidth" | "rightPanelWidth",
+    limits: {readonly min: number; readonly max: number},
+    target: LabPreferences,
+): void {
+    const value = source[key];
+    if (typeof value === "number" && Number.isInteger(value) && value >= limits.min && value <= limits.max) {
         target[key] = value;
     }
 }

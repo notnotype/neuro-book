@@ -38,7 +38,7 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             headless: true,
             timeout: 60_000,
         });
-        const page = await browser.newPage({viewport: {width: 1440, height: 900}});
+        const page = await browser.newPage({viewport: {width: 1600, height: 1000}});
         observePage(page, failures);
 
         await page.goto(new URL("/lab", input.url).href, {waitUntil: "domcontentloaded", timeout: 30_000});

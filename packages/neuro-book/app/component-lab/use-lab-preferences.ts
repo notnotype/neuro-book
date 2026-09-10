@@ -15,6 +15,8 @@ type LabPreferenceState = {
     rightCollapsed: Ref<boolean>;
     preferredLeftCollapsed: Ref<boolean>;
     preferredRightCollapsed: Ref<boolean>;
+    leftPanelWidth: Ref<number>;
+    rightPanelWidth: Ref<number>;
 };
 
 type LabPreferenceDefaults = {
@@ -23,6 +25,8 @@ type LabPreferenceDefaults = {
     pageBackdropId: string;
     canvasBackdropId: string;
     canvasZoom: number;
+    leftPanelWidth: number;
+    rightPanelWidth: number;
 };
 
 type UseLabPreferencesOptions = {
@@ -50,6 +54,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
             canvasHeight: state.canvasHeight.value,
             leftCollapsed: state.preferredLeftCollapsed.value,
             rightCollapsed: state.preferredRightCollapsed.value,
+            leftPanelWidth: state.leftPanelWidth.value,
+            rightPanelWidth: state.rightPanelWidth.value,
         };
     }
 
@@ -72,6 +78,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.preferredRightCollapsed.value = saved.rightCollapsed ?? false;
         state.leftCollapsed.value = state.preferredLeftCollapsed.value;
         state.rightCollapsed.value = state.preferredRightCollapsed.value;
+        state.leftPanelWidth.value = saved.leftPanelWidth ?? defaults.leftPanelWidth;
+        state.rightPanelWidth.value = saved.rightPanelWidth ?? defaults.rightPanelWidth;
         await nextTick();
         hydrating.value = false;
         ready = true;
@@ -97,6 +105,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.preferredRightCollapsed.value = false;
         state.leftCollapsed.value = false;
         state.rightCollapsed.value = false;
+        state.leftPanelWidth.value = defaults.leftPanelWidth;
+        state.rightPanelWidth.value = defaults.rightPanelWidth;
         applyResponsiveLayout();
         await nextTick();
         hydrating.value = false;
@@ -123,6 +133,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         options.state.canvasHeight,
         options.state.preferredLeftCollapsed,
         options.state.preferredRightCollapsed,
+        options.state.leftPanelWidth,
+        options.state.rightPanelWidth,
     ], () => {
         const storage = getStorage();
         if (ready && storage !== null) {

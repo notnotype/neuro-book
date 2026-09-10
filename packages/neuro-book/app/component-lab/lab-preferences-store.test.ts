@@ -26,6 +26,8 @@ const preferences: LabPreferences = {
     canvasHeight: 844,
     leftCollapsed: true,
     rightCollapsed: false,
+    leftPanelWidth: 320,
+    rightPanelWidth: 420,
 };
 
 describe("Lab preferences store", () => {
@@ -49,6 +51,9 @@ describe("Lab preferences store", () => {
             canvasHeight: 1200.5,
             leftCollapsed: true,
             rightCollapsed: "false",
+            // 越界、非整数与其它类型的宽度都要丢掉：它们是上次拖动留下的，不能静默变成另一个值
+            leftPanelWidth: 9_999,
+            rightPanelWidth: 300.5,
             fixtureData: {secret: "must not enter the preference model"},
         }));
 

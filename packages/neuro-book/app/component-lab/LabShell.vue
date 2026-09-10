@@ -25,6 +25,8 @@ import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
 import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
 import {useLabPreferences} from "./use-lab-preferences";
+import {LAB_PANEL_WIDTH_LIMITS} from "./lab-preferences-store";
+import type {LabPanelSide} from "./lab-preferences-store";
 import {
     LAB_DEFAULT_BACKDROP,
     LAB_DEFAULT_PAGE_BACKDROP,
@@ -53,6 +55,17 @@ const leftCollapsed = ref(false);
 const rightCollapsed = ref(false);
 const preferredLeftCollapsed = ref(false);
 const preferredRightCollapsed = ref(false);
+/**
+ * 侧栏默认宽度：左栏要放得下多级目录路径（最深五级），右栏要读得下文档正文。
+ * 拖动后的值随偏好一起存，恢复默认配置时回到这里。
+ */
+const LAB_PANEL_DEFAULT_WIDTH = {left: 300, right: 380} as const;
+/** 拖到再窄也得给画布留出可用宽度，否则两侧栏会把中间的组件挤没。 */
+const LAB_CANVAS_MIN_WIDTH = 560;
+/** 与 CollapsibleSidePanel 的 collapsedWidth 缺省一致：收起后它只占一条导轨。 */
+const LAB_PANEL_RAIL_WIDTH = 40;
+const leftWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.left);
+const rightWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.right);
 const selectedName = ref<string>(labComponents.find((entry) => entry.mountable)?.name ?? "");
 const selectedScene = ref<string>("");
 const rightTab = ref("doc");
@@ -300,6 +313,8 @@ const {
         pageBackdropId: LAB_DEFAULT_PAGE_BACKDROP,
         canvasBackdropId: LAB_DEFAULT_BACKDROP,
         canvasZoom: LAB_DEFAULT_ZOOM,
+        leftPanelWidth: LAB_PANEL_DEFAULT_WIDTH.left,
+        rightPanelWidth: LAB_PANEL_DEFAULT_WIDTH.right,
     },
     state: {
         themeId: labThemeId,
@@ -313,6 +328,8 @@ const {
         rightCollapsed,
         preferredLeftCollapsed,
         preferredRightCollapsed,
+        leftPanelWidth: leftWidth,
+        rightPanelWidth: rightWidth,
     },
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
 });
@@ -322,6 +339,73 @@ async function resetPreferences(): Promise<void> {
         collapseForMobile(mobileQuery ?? window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`));
     });
 }
+
+/** 夹到「这一栏自己的上下限」与「画布还站得住」两者的交集里。 */
+function clampPanelWidth(side: LabPanelSide, value: number): number {
+    const limits = LAB_PANEL_WIDTH_LIMITS[side];
+    const otherWidth = side === "left"
+        ? (rightCollapsed.value ? LAB_PANEL_RAIL_WIDTH : rightWidth.value)
+        : (leftCollapsed.value ? LAB_PANEL_RAIL_WIDTH : leftWidth.value);
+    const viewport = typeof window === "undefined" ? 1440 : window.innerWidth;
+    const max = Math.min(limits.max, Math.max(limits.min, viewport - otherWidth - LAB_CANVAS_MIN_WIDTH));
+    return Math.round(Math.min(Math.max(value, limits.min), max));
+}
+
+function setPanelWidth(side: LabPanelSide, value: number): void {
+    if (side === "left") {
+        leftWidth.value = clampPanelWidth("left", value);
+    } else {
+        rightWidth.value = clampPanelWidth("right", value);
+    }
+}
+
+let panelDragCleanup: (() => void) | null = null;
+
+/**
+ * 拖这条边改这一栏的宽度。指针事件挂在 window 上而不是手柄自己：
+ * 快速拖动时指针会跑出手柄，靠 pointercapture 之外还要能收到 move 才跟得住。
+ */
+function startPanelDrag(side: LabPanelSide, event: PointerEvent): void {
+    if (event.button !== 0) {
+        return;
+    }
+    event.preventDefault();
+    panelDragCleanup?.();
+    const startX = event.clientX;
+    const startWidth = side === "left" ? leftWidth.value : rightWidth.value;
+    // 左栏的边向右拖是变宽，右栏的边向右拖是变窄
+    const direction = side === "left" ? 1 : -1;
+    const handle = event.currentTarget as HTMLElement;
+    handle.dataset.dragging = "true";
+
+    const onMove = (moveEvent: PointerEvent): void => {
+        setPanelWidth(side, startWidth + (moveEvent.clientX - startX) * direction);
+    };
+    const onUp = (): void => {
+        delete handle.dataset.dragging;
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        panelDragCleanup = null;
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    panelDragCleanup = onUp;
+}
+
+/** 方向键把这条边往按键方向推（Shift 步进 1px），与 DialogWindow 的缩放手柄同一套语义。 */
+function handlePanelKey(side: LabPanelSide, event: KeyboardEvent): void {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+        return;
+    }
+    event.preventDefault();
+    const step = (event.shiftKey ? 1 : 10) * (event.key === "ArrowRight" ? 1 : -1);
+    const current = side === "left" ? leftWidth.value : rightWidth.value;
+    setPanelWidth(side, current + step * (side === "left" ? 1 : -1));
+}
+
+onBeforeUnmount(() => {
+    panelDragCleanup?.();
+});
 
 const currentAppearance = computed(() => labColorwayMeta[labColorwayId.value]?.appearance ?? "dark");
 
@@ -589,8 +673,8 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 :collapsed="leftCollapsed"
                 title="组件"
                 side="left"
-                class="lab-panel"
-                :class="leftCollapsed ? '' : 'w-[240px] shrink-0'"
+                class="lab-panel shrink-0"
+                :style="leftCollapsed ? undefined : {width: `${leftWidth}px`, flex: `0 0 ${leftWidth}px`}"
                 @update:collapsed="setLeftCollapsed"
             >
                 <template #actions>
@@ -624,6 +708,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     没有名字含「{{ treeQuery }}」的组件
                 </p>
             </CollapsibleSidePanel>
+
+            <!-- 拖这条边改左栏宽度；方向键把边往按键方向推（Shift 1px）。 -->
+            <div
+                class="lab-split-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整组件栏宽度"
+                :aria-valuenow="leftWidth"
+                :aria-valuemin="LAB_PANEL_WIDTH_LIMITS.left.min"
+                :aria-valuemax="LAB_PANEL_WIDTH_LIMITS.left.max"
+                :tabindex="leftCollapsed ? -1 : 0"
+                @pointerdown="startPanelDrag('left', $event)"
+                @keydown="handlePanelKey('left', $event)"
+            ></div>
 
             <main class="lab-main flex min-w-0 flex-1 flex-col">
                 <div class="lab-bar lab-bar--tight flex shrink-0 items-center">
@@ -729,13 +827,27 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                  读起来会是「两个一样的盒子，其中一个忘了透光」。分工要由形状一起说——
                  宽度加一档、正文换宋体阅读刻度（见 MarkdownView），才读得出一边是索引、
                  一边是要坐下来读的东西。 -->
+            <!-- 画布与右栏之间同样有一条边：两栏都能拖，只有一侧能拖会让人以为另一侧坏了。 -->
+            <div
+                class="lab-split-handle"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整检视栏宽度"
+                :aria-valuenow="rightWidth"
+                :aria-valuemin="LAB_PANEL_WIDTH_LIMITS.right.min"
+                :aria-valuemax="LAB_PANEL_WIDTH_LIMITS.right.max"
+                :tabindex="rightCollapsed ? -1 : 0"
+                @pointerdown="startPanelDrag('right', $event)"
+                @keydown="handlePanelKey('right', $event)"
+            ></div>
+
             <CollapsibleSidePanel
                 :collapsed="rightCollapsed"
                 title="检视"
                 side="right"
                 layer="content"
-                class="lab-panel"
-                :class="rightCollapsed ? '' : 'w-[380px] shrink-0'"
+                class="lab-panel shrink-0"
+                :style="rightCollapsed ? undefined : {width: `${rightWidth}px`, flex: `0 0 ${rightWidth}px`}"
                 @update:collapsed="setRightCollapsed"
             >
                 <div class="flex h-full min-h-0 flex-col">
@@ -1109,6 +1221,54 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     .lab-main {
         min-width: 0;
     }
+}
+
+/*
+ * 侧栏之间的拖拽条。
+ *
+ * 三栏之间的缝是 --space-5（见 .lab-columns：这一页刻意不用分割线，靠面色与抬起分层）。
+ * 所以这条手柄**不占宽度**：0 宽 + 负外边距把自己那一份缝吃掉，视觉上缝还是 12px，
+ * 命中区由伪元素撑到 12px 宽、正好落在缝里。拖动与悬停时才画一条 2px 的强调线——
+ * 那是「这里可以拖」的提示，不是又加了一条分割线。
+ */
+.lab-split-handle {
+    position: relative;
+    flex: 0 0 0;
+    width: 0;
+    /* 两侧各吃掉半份缝：三栏之间仍是原来的 12px，手柄落在缝的正中间 */
+    margin: 0 calc(var(--space-5) / -2);
+    cursor: col-resize;
+    touch-action: none;
+}
+
+.lab-split-handle::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -8px;
+    right: -8px;
+}
+
+.lab-split-handle::before {
+    content: "";
+    position: absolute;
+    top: var(--space-5);
+    bottom: var(--space-5);
+    left: -1px;
+    width: 2px;
+    border-radius: 1px;
+    background: transparent;
+}
+
+.lab-split-handle:hover::before,
+.lab-split-handle:focus-visible::before,
+.lab-split-handle[data-dragging]::before {
+    background: var(--accent-main);
+}
+
+.lab-split-handle:focus-visible {
+    outline: none;
 }
 
 /* 「标签 + 控件」的一对。标签是控件的名字而不是独立的一行字，所以贴着它。 */

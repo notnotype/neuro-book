@@ -17,6 +17,8 @@ const defaults = {
     pageBackdropId: "theme",
     canvasBackdropId: "panel",
     canvasZoom: 1,
+    leftPanelWidth: 300,
+    rightPanelWidth: 380,
 };
 
 describe("useLabPreferences", () => {
@@ -71,6 +73,13 @@ describe("useLabPreferences", () => {
             leftCollapsed: true,
             rightCollapsed: false,
         });
+
+        // 拖动侧栏改的是同一份偏好：宽度也要跟着落盘，否则刷新后又弹回默认值
+        state.leftPanelWidth.value = 420;
+        await nextTick();
+        expect(JSON.parse(storage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({
+            leftPanelWidth: 420,
+        });
     });
 
     it("uses defaults and keeps reset safe when the storage accessor throws", async () => {
@@ -108,6 +117,8 @@ function createState() {
         rightCollapsed: ref(false),
         preferredLeftCollapsed: ref(false),
         preferredRightCollapsed: ref(false),
+        leftPanelWidth: ref(300),
+        rightPanelWidth: ref(380),
     };
 }
 
