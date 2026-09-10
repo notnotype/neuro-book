@@ -16,7 +16,7 @@ import type {
  * 每个动作都作为同名 emit 交回宿主。四个会话（draft / check / discovery / template）与全部
  * I/O 仍留在 `NovelIdeModelSettingsPanel`，视图自己不读 store、不发请求。
  */
-export type ModelSettingsViewProps = {
+export type ProviderSettingsViewProps = {
     /** 当前草稿；字段改动一律通过 update:draft 交回 */
     draft: ModelSettingsDraft;
     /** project 作用域只渲染默认模型与继承说明，global 才有 Provider 双栏 */
@@ -31,7 +31,6 @@ export type ModelSettingsViewProps = {
     /** 完整问题列表（换行分隔），做问题横幅的 title */
     validationIssueDetails: string;
     repairingModels: boolean;
-    defaultModelOptions: EnabledModelOptionDto[];
     savedModelGroups: SavedModelGroupView[];
     disabledModels: ModelSettingsModelDraft[];
     /** 当前选中的 Provider（按 localKey） */
@@ -41,8 +40,6 @@ export type ModelSettingsViewProps = {
     checkingAllModels: boolean;
     /** 正在发现模型的 Provider id；空串表示没有进行中的发现 */
     discoveringProviderId: string;
-    providerTemplates: Array<{id: string; name: string; description?: string}>;
-    selectedTemplate: string;
     modelApiOptions: ModelApiOption[];
     /** 最大重试次数留空时的默认值，只用于占位 */
     maxRetriesPlaceholder: number;
@@ -69,10 +66,8 @@ export type ModelSettingsViewProps = {
     enabledModelIds: Set<string>;
 };
 
-export type ModelSettingsViewEmits = {
+export type ProviderSettingsViewEmits = {
     (event: "update:draft", value: ModelSettingsDraft): void;
-    (event: "update:selectedTemplate", value: string): void;
-    (event: "add-provider"): void;
     (event: "select-provider", key: string): void;
     (event: "toggle-provider-enabled"): void;
     (event: "rename-provider-id", nextId: string): void;

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import {computed} from "vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
-import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/sections/model/components/NovelIdeModelSelect.vue";
-import type {AgentVisibleModelDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
+import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/sections/providers/components/NovelIdeModelSelect.vue";
+import type {AgentVisibleModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 
 const props = defineProps<{

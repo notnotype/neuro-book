@@ -172,7 +172,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         );
 
         stage = "切到模型区段";
-        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "模型设置"}).first().click();
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Provider"}).first().click();
         await page.waitForTimeout(200);
         const modelSection = await page.evaluate(() => {
             const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
@@ -189,7 +189,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         assert(
             modelSection.providerRows === 1 && modelSection.savedModelRows === 2 && modelSection.hasRailHeading,
             failures,
-            `模型区段应渲染一个 Provider 导轨项与两个已保存模型行：${JSON.stringify(modelSection)}`,
+            `Provider 区段应渲染一个导轨项与两个已保存模型行：${JSON.stringify(modelSection)}`,
         );
         assert(
             modelSection.passwordInputs === 1 && modelSection.numberInputs === 2 && modelSection.textareas === 1,
@@ -387,7 +387,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "DialogWindow 内嵌"}).first().click();
         await page.waitForTimeout(400);
         await page.locator('[aria-label="配置作用域"]').first().waitFor({state: "visible", timeout: 10_000});
-        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "模型设置"}).first().click();
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Provider"}).first().click();
         await page.waitForTimeout(300);
         const visibleSurfaceLayers = () => page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-dialog-surface]")]
             .filter((surface) => surface.getBoundingClientRect().width > 0)

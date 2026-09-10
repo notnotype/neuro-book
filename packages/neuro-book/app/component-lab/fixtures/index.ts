@@ -266,7 +266,7 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./SecuritySettingsViewFixture.vue")).default,
     },
     {
-        component: "ModelSettingsView",
+        component: "ProviderSettingsView",
         scenes: [
             {id: "default", label: "全局默认", data: {editable: "fixture-owned"}},
             {id: "project", label: "项目覆盖", data: {editable: "fixture-owned"}},
@@ -277,7 +277,7 @@ export const labFixtures: LabFixture[] = [
             {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
             {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
         ],
-        load: async () => (await import("./ModelSettingsViewFixture.vue")).default,
+        load: async () => (await import("./ProviderSettingsViewFixture.vue")).default,
     },
     {
         component: "NovelIdeModelEditDialog",

@@ -124,7 +124,7 @@ function buildEntries(): LabComponentEntry[] {
             }
             const segments = path.split("/");
             // 目录路径 = 去掉文件名与 glob 根之后的每一段。
-            // "../components/novel-ide/settings/sections/model/components/X.md" → novel-ide / settings / sections / model / components
+            // "../components/novel-ide/settings/sections/providers/components/X.md" → novel-ide / settings / sections / model / components
             const groupPath = segments.slice(rootSegments, -1).filter((segment) => segment !== "" && segment !== ".");
             // 右栏显示的那一档跳过 components 桶：它是某个组件的私有子目录，不是分类。
             let groupIndex = groupPath.length - 1;

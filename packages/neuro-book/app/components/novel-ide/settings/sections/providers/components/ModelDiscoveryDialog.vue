@@ -2,7 +2,7 @@
 import {DialogWindow} from "@notnotype/nb-ui/components";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
+import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
 
 const props = defineProps<{
     modelValue: boolean;

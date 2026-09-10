@@ -128,9 +128,9 @@ role: tasker
 
 产出：
 
-- 模型子组件与纯模块搬进 `settings/sections/model/`：`NovelIdeModelSelect.vue`、`SavedModelsList.vue`、`AgentVisibleModelsEditor.vue`、`model-settings-view.ts`、`model-settings-draft.ts`、`model-draft-factory.ts`、`model-cost-draft.ts` 与三个测试。四个会话文件留在 `settings/`（它们做 I/O，本片不动）。导入点全量重写：除旧面板外还有 `AgentSessionModelControls.vue`（会话级模型下拉）与四个会话及其测试，共 20 个文件。
-- `views/model/ModelSettingsView.types.ts` + `ModelSettingsView.vue` + `ModelProviderRail.vue` + `ModelProviderDetail.vue` + 同名文档：区段标题与说明、草稿问题横幅、默认模型与「新增 Provider」、Agent 可见模型，以及 global 下的 Provider 双栏（导轨 + 连接表单 + `SavedModelsList`）。视图吃 props、emit 动作，字段改动统一走 `update:draft`；唯一自持状态是分组折叠。
-- `component-lab/fixtures/ModelSettingsViewFixture.vue`（default / project / no-provider / disabled-models / saving / save-error / loading）与 `fixtures/model-settings-fixture-data.ts`（假数据构造与设置外壳 fixture 共用）；外壳第六个区段「模型设置」，smoke 断言区段数 6 与模型段结构。
+- 模型子组件与纯模块搬进 `settings/sections/providers/`：`NovelIdeModelSelect.vue`、`SavedModelsList.vue`、`AgentVisibleModelsEditor.vue`、`model-settings-view.ts`、`model-settings-draft.ts`、`model-draft-factory.ts`、`model-cost-draft.ts` 与三个测试。四个会话文件留在 `settings/`（它们做 I/O，本片不动）。导入点全量重写：除旧面板外还有 `AgentSessionModelControls.vue`（会话级模型下拉）与四个会话及其测试，共 20 个文件。
+- `views/model/ProviderSettingsView.types.ts` + `ProviderSettingsView.vue` + `ModelProviderRail.vue` + `ModelProviderDetail.vue` + 同名文档：区段标题与说明、草稿问题横幅、默认模型与「新增 Provider」、Agent 可见模型，以及 global 下的 Provider 双栏（导轨 + 连接表单 + `SavedModelsList`）。视图吃 props、emit 动作，字段改动统一走 `update:draft`；唯一自持状态是分组折叠。
+- `component-lab/fixtures/ProviderSettingsViewFixture.vue`（default / project / no-provider / disabled-models / saving / save-error / loading）与 `fixtures/model-settings-fixture-data.ts`（假数据构造与设置外壳 fixture 共用）；外壳第六个区段「模型设置」，smoke 断言区段数 6 与模型段结构。
 - `SavedModelsList.vue` 的模型行加 `data-saved-model-row`（唯一新增钩子，不改渲染）。
 
 实测（Lab smoke 输出）：`sectionCount 6`、`activeSections 1`、`nestedViews 1`、`overflow 0`；模型段 1 个 Provider 导轨项 / 2 个已保存模型行 / 1 个密钥输入 / 2 个数字字段 / 1 个多行输入。组件级实测（1920 宽画布）：模型视图容器宽度 1156px、双栏 `260px 896px`、导轨项 1、已保存模型行 2；外壳组合（444px 内容列）下退化单列仍渲染 1 个导轨项。
@@ -148,7 +148,7 @@ role: tasker
 产出：
 
 - 三个对话框搬进 `views/model/`：`NovelIdeModelEditDialog.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue`（只有旧面板导入它们，改动面最小）。
-- `ModelSettingsView` 挂上五个对话框：编辑设置、模型发现、Model Library、校验问题全列表、删除 Provider 确认。开关全部是 props（`validationDialogOpen` / `deleteProviderDialogOpen` / `modelEditDialogOpen` / `discoveryDialogOpen` / `modelLibraryDialogOpen`），开关与关闭各有同名 emit；编辑对话框要用的五个派生文案（上下文窗口 / 最大输出 / 输入能力 / 推理能力 / 分组）由本层用共享纯模块算好，不额外占用 props。
+- `ProviderSettingsView` 挂上五个对话框：编辑设置、模型发现、Model Library、校验问题全列表、删除 Provider 确认。开关全部是 props（`validationDialogOpen` / `deleteProviderDialogOpen` / `modelEditDialogOpen` / `discoveryDialogOpen` / `modelLibraryDialogOpen`），开关与关闭各有同名 emit；编辑对话框要用的五个派生文案（上下文窗口 / 最大输出 / 输入能力 / 推理能力 / 分组）由本层用共享纯模块算好，不额外占用 props。
 - fixture 场景从 7 个增到 12 个（问题列表 / 删除确认 / 编辑模型 / 模型发现 / Model Library）；外壳 fixture 增加一个对话框开关与对应 handler（否则外壳里点不开），并复用同一份发现结果、Model Library 与手工草稿样例。
 - smoke 新增「模型区段对话框」一段：点「编辑设置」应打开带四个页签的编辑对话框，Escape 关闭后不得残留可见 surface；点「从 Model Library 添加」应打开模型管理库对话框。
 
@@ -167,7 +167,7 @@ role: tasker
 - **改名**：`settings/views/` → `settings/sections/`，与代码里已有的 section 词汇（`SettingsSectionOption`、`sectionCount`、`.settings-detail-section`）对齐，层级仍是两层；43 处引用（代码、fixture、spec、工作记录）一次性重写。命名规则写进本 README：区段目录内部超编时在该区段内加第三层，不整体加深。**切片 10 已把这个第三层落地为 `components/` 子桶。**
 - **DialogWindow 层级**（nb-ui）：`z-index` 与浮层注入值改为按嵌套深度计算——外层窗口 8990 / 外层下拉 8991 / 内层窗口 8992 / 内层下拉 8993，整档压在模态 `Dialog`（9000）之下，最多 5 层；新增 `NB_DIALOG_WINDOW_DEPTH` 注入键与 `NB_DIALOG_WINDOW_Z_STEP`。nb-ui 新增一条嵌套测试（`components.test.ts`），测试数 265 → 266。
 - **对话框迁到 nb-ui**：编辑设置、模型发现、Model Library、校验问题全列表改用 `DialogWindow`（非模态浮动窗口，正是「边改边看」的场景）；删除 Provider 是不可逆确认，留在**带遮罩的模态** `nb-ui Dialog` ——依据是 `DialogWindow` 自己的组件文档写着「不支持替代 Dialog 承担确认流程」。旧 app `Dialog` 在设置视图里清零，两个 fixture 因此不再需要 `fixture` 里那个 `.novel-ide-theme` teleport 宿主。
-- **对话框成为独立组件**：三个对话框各有 `.md` + fixture（`NovelIdeModelEditDialog` 3 场景 / `ModelDiscoveryDialog` 4 场景 / `ModelLibraryDialog` 3 场景）并登记进 Lab；`ModelSettingsView` 的对话框场景撤掉，改为新增 `dialog-window` 场景——把视图摆进 `DialogWindow`，也就是产品承载它的方式。Lab 组件树 25 → 28 个组件。
+- **对话框成为独立组件**：三个对话框各有 `.md` + fixture（`NovelIdeModelEditDialog` 3 场景 / `ModelDiscoveryDialog` 4 场景 / `ModelLibraryDialog` 3 场景）并登记进 Lab；`ProviderSettingsView` 的对话框场景撤掉，改为新增 `dialog-window` 场景——把视图摆进 `DialogWindow`，也就是产品承载它的方式。Lab 组件树 25 → 28 个组件。
 - **派生助手内收**：编辑对话框需要的七个函数型 props（分组默认值、上下文窗口 / Max Tokens 占位、输入能力与推理能力展示名、输入能力选项表）改为对话框内部计算，调用方只传数据。
 - smoke 新增「模型对话框嵌在设置窗口里」一段：外壳窗口 8990、内层窗口 8992、Escape 只关内层。
 
@@ -180,7 +180,7 @@ role: tasker
 
 ## 切片 10：区段目录按角色分类（已完成）
 
-开发者 2026-09-10 反馈：两级目录不够用，`ModelSettingsView` 的子组件应该放到一起——「这些子组件几乎没有被复用的可能，拆分组件就是为了好组织」。反馈同时暴露了一个真实的不一致：Lab 树的分类取决于「这个区段有没有自己的目录」，所以九个区段视图全挤在 `sections` 一组，而模型的却在 `model` 一组。
+开发者 2026-09-10 反馈：两级目录不够用，`ProviderSettingsView` 的子组件应该放到一起——「这些子组件几乎没有被复用的可能，拆分组件就是为了好组织」。反馈同时暴露了一个真实的不一致：Lab 树的分类取决于「这个区段有没有自己的目录」，所以九个区段视图全挤在 `sections` 一组，而模型的却在 `model` 一组。
 
 产出：
 
@@ -199,7 +199,7 @@ role: tasker
 产出：
 
 - **索引**：`LabComponentEntry` 新增 `groupPath: string[]`——相对**组件根**的完整目录路径（按 glob 根段数裁掉 `../components` 与 `.`，它们是 glob 的前缀不是分类）。`group` 保留为「最近的、不叫 `components` 的那层」，右栏显示人类读的那一档。排序改为按完整路径。
-- **LabShell**：按 `groupPath` 建多级树（目录在前、组件在后，各按名字排）；搜索直接在入口列表上过滤，没有命中的分支根本不会出现，不需要事后剪枝；折叠状态的 id 是路径前缀（`group:novel-ide/settings/sections/model/components`）。
+- **LabShell**：按 `groupPath` 建多级树（目录在前、组件在后，各按名字排）；搜索直接在入口列表上过滤，没有命中的分支根本不会出现，不需要事后剪枝；折叠状态的 id 是路径前缀（`group:novel-ide/settings/sections/providers/components`）。
 
 实测树（节选）：
 
@@ -218,7 +218,7 @@ novel-ide
       model
         components
           ModelDiscoveryDialog / ModelLibraryDialog / NovelIdeModelEditDialog
-          ModelSettingsView
+          ProviderSettingsView
       cost / desktop / editor / embedding / observability / security / web …
 ```
 

@@ -3,7 +3,7 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import {createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-cost-draft";
+import {createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-cost-draft";
 import {
     buildAgentVisibleModels,
     buildModelsSection,
@@ -26,7 +26,7 @@ import {
     type ModelSettingsDraft,
     type ModelSettingsModelDraft,
     type ModelSettingsProviderDraft,
-} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
+} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
 import type {CheckProviderReferencesResponseDto, ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import {selectModelApi, type ModelReferenceInput} from "@notnotype/neuro-book-contracts/provider-config";

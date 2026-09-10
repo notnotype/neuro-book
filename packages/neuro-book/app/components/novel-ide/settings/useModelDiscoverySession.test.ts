@@ -1,7 +1,7 @@
 import {computed, nextTick, reactive, ref} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useModelDiscoverySession} from "nbook/app/components/novel-ide/settings/useModelDiscoverySession";
-import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
+import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
 import type {DiscoveredProviderModelDto, ModelLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
 const notificationSpies = vi.hoisted(() => ({

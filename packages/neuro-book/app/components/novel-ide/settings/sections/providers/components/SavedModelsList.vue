@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
-import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
+import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
 
 const props = defineProps<{
     provider: ModelSettingsProviderDraft;

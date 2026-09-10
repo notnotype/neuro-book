@@ -1,16 +1,16 @@
-import {createEmptyModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-cost-draft";
+import {createEmptyModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-cost-draft";
 import type {
     ModelSettingsDraft,
     ModelSettingsModelDraft,
     ModelSettingsProviderDraft,
-} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
+} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
 import type {
     DiscoveryModelGroup,
     ManualModelDraft,
     ModelApiOption,
     ModelLibraryGroup,
     SavedModelGroupView,
-} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
+} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 
 /** 发现结果与 Model Library 的样例：三种状态各一条，用来核对列表分组渲染。 */

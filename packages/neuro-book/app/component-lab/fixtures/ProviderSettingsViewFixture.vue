@@ -2,8 +2,8 @@
 import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {ProviderConfigIssue} from "@notnotype/neuro-book-contracts/provider-config";
-import ModelSettingsView from "../../components/novel-ide/settings/sections/model/ModelSettingsView.vue";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "../../components/novel-ide/settings/sections/model/model-settings-draft";
+import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
     MODEL_API_OPTIONS,
@@ -47,7 +47,6 @@ function sceneDraft(scene: SceneKey): ModelSettingsDraft {
 
 const draft = ref<ModelSettingsDraft>(sceneDraft("default"));
 const activeProviderKey = ref("provider-openai");
-const selectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 /** dialog-window 场景里窗口可关可重开：关掉后留一个重新打开的入口，否则这个场景只能靠刷新页面回来。 */
 const windowOpen = ref(true);
 
@@ -64,7 +63,6 @@ const savedModelGroups = computed(() => buildSavedModelGroups(draft.value));
 watch(sceneKey, (scene) => {
     draft.value = sceneDraft(scene);
     activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
-    selectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     windowOpen.value = true;
 }, {immediate: true});
 
@@ -101,7 +99,7 @@ function toggleModelInput(model: ModelSettingsModelDraft, inputKind: string): vo
 }
 
 /**
- * 视图绑定只有一份：下面的场景把一个 `<ModelSettingsView>` 直接摆在画布上，
+ * 视图绑定只有一份：下面的场景把一个 `<ProviderSettingsView>` 直接摆在画布上，
  * dialog-window 场景摆进 nb-ui `DialogWindow`（产品里它就是这样被承载的）。
  * 两处共用同一份 props / handlers，避免同一份绑定写两遍后走样。
  */
@@ -115,15 +113,12 @@ const viewBindings = computed(() => ({
     validationIssues: validationIssues.value,
     validationIssueDetails: validationIssueDetails.value,
     repairingModels: false,
-    defaultModelOptions: MODEL_DEFAULT_MODEL_OPTIONS,
     savedModelGroups: savedModelGroups.value,
     disabledModels: disabledModels.value,
     activeProviderKey: activeProviderKey.value,
     activeProviderCheckingModelCount: 0,
     checkingAllModels: false,
     discoveringProviderId: "",
-    providerTemplates: MODEL_PROVIDER_TEMPLATES,
-    selectedTemplate: selectedTemplate.value,
     modelApiOptions: MODEL_API_OPTIONS,
     maxRetriesPlaceholder: DEFAULT_PI_MAX_RETRIES,
     validationDialogOpen: false,
@@ -145,11 +140,9 @@ const viewBindings = computed(() => ({
     modelLibraryExpandedGroups: {},
     enabledModelIds: new Set<string>(),
     "onUpdate:draft": updateDraft,
-    "onUpdate:selectedTemplate": (value: string) => { selectedTemplate.value = value; },
     "onSelect-provider": selectProvider,
     "onUpdate:discoveryManualField": updateManualField,
     "onToggle-model-input": toggleModelInput,
-    "onAdd-provider": () => emitLabEvent("add-provider", {template: selectedTemplate.value}),
     "onToggle-provider-enabled": () => emitLabEvent("toggle-provider-enabled", {key: activeProviderKey.value}),
     "onRename-provider-id": (nextId: string) => emitLabEvent("rename-provider-id", {nextId}),
     "onClone-provider-connection": () => emitLabEvent("clone-provider-connection", {key: activeProviderKey.value}),
@@ -181,11 +174,11 @@ const viewBindings = computed(() => ({
             重新打开窗口
         </button>
         <DialogWindow v-model="windowOpen" size="lg" title="模型设置" resizable :min-width="720" :min-height="420" body-class="!p-0">
-            <ModelSettingsView v-bind="viewBindings" />
+            <ProviderSettingsView v-bind="viewBindings" />
         </DialogWindow>
     </div>
 
     <div v-else class="h-full min-h-0 w-full overflow-y-auto p-[var(--space-6)]">
-        <ModelSettingsView v-bind="viewBindings" />
+        <ProviderSettingsView v-bind="viewBindings" />
     </div>
 </template>

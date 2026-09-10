@@ -16,16 +16,14 @@ import ObservabilitySettingsView from "../../components/novel-ide/settings/secti
 import EditorSettingsView from "../../components/novel-ide/settings/sections/editor/EditorSettingsView.vue";
 import DesktopSettingsView from "../../components/novel-ide/settings/sections/desktop/DesktopSettingsView.vue";
 import SecuritySettingsView from "../../components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
-import ModelSettingsView from "../../components/novel-ide/settings/sections/model/ModelSettingsView.vue";
-import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/model/model-settings-draft";
+import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
+import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
     DISCOVERY_DIAGNOSTICS,
     DISCOVERY_MODEL_GROUPS,
     MANUAL_MODEL_DRAFT,
     MODEL_API_OPTIONS,
-    MODEL_DEFAULT_MODEL_OPTIONS,
-    MODEL_PROVIDER_TEMPLATES,
     buildModelSettingsDraft,
     buildSavedModelGroups,
 } from "./model-settings-fixture-data";
@@ -109,9 +107,9 @@ const sectionOptions: SettingsSectionOption[] = [
         scopes: ["global"],
     },
     {
-        value: "models",
-        label: "模型设置",
-        description: "管理 Provider、Model 与默认模型",
+        value: "providers",
+        label: "Provider",
+        description: "管理 Provider 与模型清单",
         iconClass: "i-lucide-cpu",
         scopes: ["global"],
     },
@@ -250,7 +248,6 @@ const desktopStatus: DesktopStatus = {
 const dialogOpen = ref(false);
 const modelDraft = ref<ModelSettingsDraft>(buildModelSettingsDraft());
 const modelActiveProviderKey = ref("provider-openai");
-const modelSelectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 /** 模型区段的五个对话框在外壳场景里共用一个开关；会话在宿主侧由同样的状态驱动。 */
 const modelDialogOpen = ref<"none" | "validation" | "delete" | "edit" | "discovery" | "library">("none");
 const modelEditingDraft = computed(() => modelDialogOpen.value === "edit" ? modelDraft.value.providers[0]?.models[0] ?? null : null);
@@ -281,7 +278,6 @@ watch(sceneKey, (scene) => {
     desktopSaveError.value = "";
     modelDraft.value = buildModelSettingsDraft();
     modelActiveProviderKey.value = "provider-openai";
-    modelSelectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     modelDialogOpen.value = "none";
     modelManualDraft.value = {...MANUAL_MODEL_DRAFT};
     modelDiscoverySearchQuery.value = "";
@@ -413,8 +409,8 @@ function openDialog(): void {
                     @update:settings="updateDesktopSettings"
                 />
 
-                <ModelSettingsView
-                    v-else-if="activeSection === 'models'"
+                <ProviderSettingsView
+                    v-else-if="activeSection === 'providers'"
                     :draft="modelDraft"
                     :is-project-scope="scope === 'project'"
                     :target-label="targetLabel"
@@ -422,15 +418,12 @@ function openDialog(): void {
                     :validation-issues="[]"
                     validation-issue-details=""
                     :repairing-models="false"
-                    :default-model-options="MODEL_DEFAULT_MODEL_OPTIONS"
                     :saved-model-groups="buildSavedModelGroups(modelDraft)"
                     :disabled-models="[]"
                     :active-provider-key="modelActiveProviderKey"
                     :active-provider-checking-model-count="0"
                     :checking-all-models="false"
                     discovering-provider-id=""
-                    :provider-templates="MODEL_PROVIDER_TEMPLATES"
-                    :selected-template="modelSelectedTemplate"
                     :model-api-options="MODEL_API_OPTIONS"
                     :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
                     :validation-dialog-open="modelDialogOpen === 'validation'"
@@ -452,7 +445,6 @@ function openDialog(): void {
                     :model-library-expanded-groups="modelDialogExpandedGroups"
                     :enabled-model-ids="modelEnabledModelIds"
                     @update:draft="updateModelDraft"
-                    @update:selected-template="modelSelectedTemplate = $event"
                     @select-provider="modelActiveProviderKey = $event"
                     @edit-model="modelDialogOpen = 'edit'"
                     @open-discovery="modelDialogOpen = 'discovery'"
@@ -563,8 +555,8 @@ function openDialog(): void {
                         @update:settings="updateDesktopSettings"
                     />
 
-                    <ModelSettingsView
-                        v-else-if="activeSection === 'models'"
+                    <ProviderSettingsView
+                        v-else-if="activeSection === 'providers'"
                         :draft="modelDraft"
                         :is-project-scope="scope === 'project'"
                         :target-label="targetLabel"
@@ -572,16 +564,13 @@ function openDialog(): void {
                         :validation-issues="[]"
                         validation-issue-details=""
                         :repairing-models="false"
-                        :default-model-options="MODEL_DEFAULT_MODEL_OPTIONS"
-                        :saved-model-groups="buildSavedModelGroups(modelDraft)"
+                            :saved-model-groups="buildSavedModelGroups(modelDraft)"
                         :disabled-models="[]"
                         :active-provider-key="modelActiveProviderKey"
                         :active-provider-checking-model-count="0"
                         :checking-all-models="false"
                         discovering-provider-id=""
-                        :provider-templates="MODEL_PROVIDER_TEMPLATES"
-                        :selected-template="modelSelectedTemplate"
-                        :model-api-options="MODEL_API_OPTIONS"
+                                :model-api-options="MODEL_API_OPTIONS"
                         :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
                         :validation-dialog-open="modelDialogOpen === 'validation'"
                         :delete-provider-dialog-open="modelDialogOpen === 'delete'"
@@ -602,8 +591,7 @@ function openDialog(): void {
                         :model-library-expanded-groups="modelDialogExpandedGroups"
                         :enabled-model-ids="modelEnabledModelIds"
                         @update:draft="updateModelDraft"
-                        @update:selected-template="modelSelectedTemplate = $event"
-                        @select-provider="modelActiveProviderKey = $event"
+                            @select-provider="modelActiveProviderKey = $event"
                         @edit-model="modelDialogOpen = 'edit'"
                         @open-discovery="modelDialogOpen = 'discovery'"
                         @open-library="modelDialogOpen = 'library'"

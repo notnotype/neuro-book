@@ -1,9 +1,9 @@
 import {computed, ref, watch, type ComputedRef, type Ref} from "vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import {candidateFromLibrary, completeModelCandidate} from "nbook/app/components/novel-ide/settings/sections/model/model-draft-factory";
-import {parseDraftInteger, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
-import type {DiscoveryListModel, ManualModelDraft, ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-view";
+import {candidateFromLibrary, completeModelCandidate} from "nbook/app/components/novel-ide/settings/sections/providers/model-draft-factory";
+import {parseDraftInteger, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {DiscoveryListModel, ManualModelDraft, ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
 import type {ConfiguredModelDto, DiscoveryDiagnosticsDto, DiscoverProviderModelsResponseDto, DiscoveredProviderModelDto, ModelLibraryDto, ModelLibraryEntryDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 

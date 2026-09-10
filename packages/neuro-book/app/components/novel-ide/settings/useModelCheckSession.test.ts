@@ -1,7 +1,7 @@
 import {computed} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useModelCheckSession} from "nbook/app/components/novel-ide/settings/useModelCheckSession";
-import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/model/model-settings-draft";
+import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
 
 vi.mock("nbook/app/composables/useNotification", () => ({
     useNotification: () => ({success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn()}),
