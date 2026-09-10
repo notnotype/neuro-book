@@ -4,12 +4,21 @@ import {Badge, FormInput, Tooltip} from "@notnotype/nb-ui/components";
 import type {BadgeTone} from "@notnotype/nb-ui/components";
 import type {AgentProfileNavItem, ProfileLoadStatus} from "./AgentProfileNavList.types";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     items: AgentProfileNavItem[];
     activeKey: string;
     search: string;
-    defaultsDirty: boolean;
-}>();
+    /** 默认设置页是否有未保存改动；就地保存的宿主不传。 */
+    defaultsDirty?: boolean;
+    /** 内嵌于已有标题窗口时隐藏视觉标题，但保留无障碍标题。 */
+    showHeading?: boolean;
+    /** panel 自带卡片面与内边距；plain 只保留列表结构，面与内边距由宿主提供。 */
+    surface?: "panel" | "plain";
+}>(), {
+    defaultsDirty: false,
+    showHeading: true,
+    surface: "panel",
+});
 
 const emit = defineEmits<{
     (event: "update:activeKey", value: string): void;
@@ -64,14 +73,16 @@ function statusIconToneClass(status: ProfileLoadStatus): string {
 <template>
     <nav
         :aria-labelledby="headingId"
-        class="flex h-full min-h-0 min-w-0 flex-col gap-[var(--space-4)] overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)] p-[var(--space-3)] text-[var(--text-main)]"
+        class="flex h-full min-h-0 min-w-0 flex-col gap-[var(--space-4)] text-[var(--text-main)]"
+        :class="props.surface === 'plain' ? '' : 'overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)] p-[var(--space-3)]'"
     >
-        <Tooltip :text="t('settings.panels.profileModels.nav.titleHint')" placement="bottom">
+        <Tooltip v-if="props.showHeading" :text="t('settings.panels.profileModels.nav.titleHint')" placement="bottom">
             <header class="flex shrink-0 cursor-default items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
                 <span class="i-lucide-bot h-4 w-4 shrink-0 text-[var(--accent-main)]" aria-hidden="true"></span>
                 <h2 :id="headingId" class="min-w-0 truncate text-[var(--text-sm)] [font-weight:var(--weight-strong)]">Agent Profiles</h2>
             </header>
         </Tooltip>
+        <h2 v-else :id="headingId" class="sr-only">Agent Profiles</h2>
 
         <div class="flex shrink-0 items-center">
             <label class="block min-w-0 flex-1" :for="searchId">

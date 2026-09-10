@@ -89,6 +89,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
 - `Accordion`：手风琴折叠面板（支持单选/多选展开，平滑高度动效与旋转角标）。
 - `Collapsible`：受控折叠展开容器。
+- `CollapsibleSection`：折叠区段（标准标题行 + 可折叠内容），设置页区段用。
 - `AspectRatio`：固定宽高比容器（默认 16:9）。
 - `Separator`：水平 / 垂直语义分隔线。
 - `NavigationMenu`：多栏视口形变导航菜单（支持鼠标移动共享视口平滑位移与宽高渐变过渡）。

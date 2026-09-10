@@ -123,6 +123,7 @@
 #### 10. `Accordion` & `Collapsible`（折叠面板规范）
 - **手风琴（Accordion）**：平滑高度折叠动效（`--motion-base` + `--ease-standard`），右侧 Chevron 箭头 180° 平滑翻转，支持单选/多选展开模式。
 - **折叠器（Collapsible）**：无侵入受控容器，原生支持 `data-[state=open]` 高度自适应动效。
+- **折叠区段（CollapsibleSection）**：`Collapsible` 之上的标准标题行——「图标 + 标题 + meta 插槽 + chevron」，供设置页区段使用。标题行是「一节」而不是「单元」：静止态不画描边与填色，悬停只给半量底色，图标与 chevron 在悬停 / 展开时转 accent。整行（含底色与图标）左右各留 8px 内缩，不贴列边缘；需要裸触发器时继续用 `Collapsible`。
 
 #### 11. `Popover` & `HoverCard`（气泡与悬浮卡片规范）
 - **材质基座**：消费统一的 `.nb-ui-popover-surface` 磨砂玻璃基底（75% 半透底色 + 12px~14px 模糊 + 130% 饱和度 + 1px 环境边框 + 立体柔影），禁用时 `close-auto-focus` 防止二次聚焦闪烁。
@@ -134,12 +135,13 @@
 
 #### 13. `Drawer`、`DialogWindow` & `AlertDialog`（浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。
-- **DialogWindow**：明确使用非模态 Dialog 语义（`DialogRoot :modal="false"`），不渲染 Overlay、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。
-  - 标题、`header` slot 和无标题回退都必须生成 `DialogTitle`；关闭按钮必须有可访问名称。Escape、关闭按钮与 `request-close` 由受控宿主决定最终关闭时机。
+  - **DialogWindow**：明确使用非模态 Dialog 语义（`DialogRoot :modal="false"`），不渲染 Overlay、不困住焦点、不锁定窗口外指针或背景滚动；窗口外页面必须继续可交互。
+  - 标题、`header` slot 和无标题回退都必须生成 `DialogTitle`；关闭按钮必须有可访问名称。标题默认左对齐，`titleAlign="center"` 时用左右等宽占位做真居中；关闭按钮用 `sm` 尺寸贴右上、不贴窗口圆角。Escape、关闭按钮与 `request-close` 由受控宿主决定最终关闭时机。
   - 默认 Portal 目标为 `body`。公共组件不得绑定产品私有主题宿主；产品消费者必须显式传入主题宿主目标，避免 Portal 脱离主题变量作用域。
   - 标题栏拖动由项目层实现；`resizable` 默认关闭，开启后提供右侧、底部和右下角手柄。鼠标 pointerup 提交 `update:width` / `update:height`，方向键按 10px 调整、Shift 按 1px 调整，且不突破 `minWidth` / `minHeight`。
+  - DialogWindow body 内的 nb-ui `FormSelect` 下拉使用高于窗口表面的专用 popover 层级；窗口外仍使用普通 popover 层级，避免下拉被非模态窗口遮挡。
   - 窄屏窗口宽度必须收敛到视口内，不产生页面级横向溢出；body 拥有长内容滚动权，footer 不随 body 滚动。
-- **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调。
+- **AlertDialog**：居中破坏性二次确认模态窗，强制提供有明确意图的按钮出口（取消/确认），支持 `danger` / `warning` / `accent` 语调；受控模式可不提供 `trigger` slot，组件不得为无触发器实例渲染空的 `AlertDialogTrigger`。
 
 #### 14. `Progress` & `Avatar` & `Kbd`（数据反馈与微排版组件规范）
 - **Progress**：全胶囊圆角，消费 `--motion-base` 平滑 `translateX` 进度位移，支持 4 种语义状态色。

@@ -136,11 +136,6 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
     },
     {
-        component: "AgentProfileDiagnosticsSection",
-        scenes: [{id: "default", label: "诊断维护", data: {section: "diagnostics"}}],
-        load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
-    },
-    {
         component: "AgentProfileDefaultProfileSection",
         scenes: [{id: "default", label: "默认 Profile", data: {section: "default-profile"}}],
         load: async () => (await import("./AgentProfileSectionsFixture.vue")).default,
@@ -171,6 +166,7 @@ export const labFixtures: LabFixture[] = [
         scenes: [
             {id: "global", label: "全局设定", data: {editable: "fixture-owned"}},
             {id: "project", label: "项目设定", data: {editable: "fixture-owned"}},
+            {id: "dialog-window", label: "DialogWindow 内嵌", data: {editable: "fixture-owned"}},
             {id: "statuses", label: "状态全集", data: {editable: "fixture-owned"}},
             {id: "custom-settings", label: "专属设置", data: {editable: "fixture-owned"}},
             {id: "empty", label: "空列表", data: {editable: "fixture-owned"}},

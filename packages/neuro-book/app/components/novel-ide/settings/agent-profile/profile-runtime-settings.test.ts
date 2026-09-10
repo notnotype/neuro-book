@@ -3,6 +3,8 @@ import {
     countProfileRuntimeOverrides,
     createProfileRuntimeSettingsDraft,
     parseProfileRuntimeSettingsDraft,
+    resolveAgentProfileRuntimeBaseline,
+    resolveAgentRuntimeDefaultsBaseline,
     resolveProfileRuntimeInheritance,
 } from "./profile-runtime-settings";
 import type {ProfileRuntimeSettingsDto} from "nbook/shared/dto/config.dto";
@@ -80,5 +82,70 @@ describe("profile runtime settings editor", () => {
         // 越界值不会进 patch，也不计入覆盖数
         draft.fileChangeDiffMaxChars = "99999";
         expect(countProfileRuntimeOverrides(draft)).toBe(2);
+    });
+});
+
+describe("Agent Profile runtime baseline layers", () => {
+    it("defaults baseline uses harness globally and saved global patch in project scope", () => {
+        const globalResult = resolveAgentRuntimeDefaultsBaseline(harness, "global", {summarizer: {profileKey: "saved-global"}});
+        const projectResult = resolveAgentRuntimeDefaultsBaseline(harness, "project", {summarizer: {profileKey: "saved-global"}});
+
+        expect(globalResult.settings.summarizer.profileKey).toBe("summarizer");
+        expect(globalResult.sources.summarizerProfileKey).toBe("harness");
+        expect(projectResult.settings.summarizer.profileKey).toBe("saved-global");
+        expect(projectResult.sources.summarizerProfileKey).toBe("globalDefault");
+    });
+
+    it("global scope uses profileDefaults when no current defaults draft overrides it", () => {
+        const result = resolveAgentProfileRuntimeBaseline(harness, "global", {
+            profileDefaults: {summarizer: {profileKey: "profile-default"}},
+            globalDefaultsPatch: {summarizer: {profileKey: "saved-global"}},
+            globalProfilePatch: {summarizer: {enabled: true}},
+            defaultsDraftPatch: {},
+        });
+
+        expect(result.settings.summarizer.profileKey).toBe("profile-default");
+        expect(result.sources.summarizerProfileKey).toBe("profileDefault");
+        expect(result.settings.summarizer.enabled).toBe(false);
+        expect(result.sources.summarizerEnabled).toBe("harness");
+    });
+
+    it("global scope uses the current defaults draft as globalDefault, without the current Profile draft", () => {
+        const result = resolveAgentProfileRuntimeBaseline(harness, "global", {
+            profileDefaults: {summarizer: {profileKey: "profile-default"}},
+            globalDefaultsPatch: {summarizer: {profileKey: "saved-global"}},
+            globalProfilePatch: {summarizer: {enabled: true}},
+            defaultsDraftPatch: {summarizer: {profileKey: "draft-global"}},
+        });
+
+        expect(result.settings.summarizer.profileKey).toBe("draft-global");
+        expect(result.sources.summarizerProfileKey).toBe("globalDefault");
+        expect(result.settings.summarizer.enabled).toBe(false);
+        expect(result.sources.summarizerEnabled).toBe("harness");
+    });
+    it("project scope falls back to the saved global baseline after clearing project defaults", () => {
+        const result = resolveAgentProfileRuntimeBaseline(harness, "project", {
+            profileDefaults: {summarizer: {profileKey: "profile-default"}},
+            globalDefaultsPatch: {summarizer: {profileKey: "saved-global"}},
+            globalProfilePatch: {summarizer: {enabled: false}},
+            defaultsDraftPatch: {},
+        });
+
+        expect(result.settings.summarizer.profileKey).toBe("saved-global");
+        expect(result.sources.summarizerProfileKey).toBe("globalDefault");
+    });
+
+    it("project scope resolves harness, saved global, global Profile, then current project defaults", () => {
+        const result = resolveAgentProfileRuntimeBaseline(harness, "project", {
+            profileDefaults: {summarizer: {profileKey: "profile-default"}},
+            globalDefaultsPatch: {summarizer: {profileKey: "saved-global", enabled: true}},
+            globalProfilePatch: {summarizer: {enabled: false}},
+            defaultsDraftPatch: {summarizer: {profileKey: "draft-project"}},
+        });
+
+        expect(result.settings.summarizer.profileKey).toBe("draft-project");
+        expect(result.sources.summarizerProfileKey).toBe("projectDefault");
+        expect(result.settings.summarizer.enabled).toBe(false);
+        expect(result.sources.summarizerEnabled).toBe("globalProfile");
     });
 });

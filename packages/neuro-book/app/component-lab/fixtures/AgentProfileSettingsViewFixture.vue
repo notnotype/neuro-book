@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.types";
 import AgentProfileSettingsView from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.vue";
 import type {AgentProfileDraft, AgentProfileModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
@@ -7,9 +8,9 @@ import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {cloneModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
 import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/agent-profile/profile-runtime-settings";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
-
 const props = defineProps<{scene: string; data?: unknown}>();
 
+const {t} = useI18n();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
@@ -23,9 +24,13 @@ const statuses = [
     "source_error",
 ] as const;
 
-type SceneKey = "global" | "project" | "statuses" | "custom-settings" | "empty" | "loading" | "saving" | "load-error" | "save-error";
+type SceneKey = "global" | "project" | "dialog-window" | "statuses" | "custom-settings" | "empty" | "loading" | "saving" | "load-error" | "save-error";
 
-const SAVED_HINT = "已保存到本次预览；未写入真实配置。";
+const SAVED_HINT = "改动已就地保存到本次预览；未写入真实配置。";
+const SAVE_ERROR_HINT = "示例保存失败：后端返回 500。改动仍保留在预览中。";
+const dialogOpen = ref(false);
+const dialogWidth = ref(1100);
+const dialogHeight = ref<string | number>("calc(100dvh - 120px)");
 
 function emptyRuntimeDraft() {
     return createProfileRuntimeSettingsDraft(undefined);
@@ -99,7 +104,6 @@ function buildContext(scene: SceneKey): AgentProfileSettingsContext {
     const scope = scene === "project" || scene === "custom-settings" ? "project" as const : "global" as const;
     return {
         scope,
-        targetLabel: scope === "project" ? "示例项目" : "",
         inheritedDefaultProfileKey: "story-writer",
         globalModelDefaults: {modelKey: null, temperature: null, topK: null, reasoningEffort: "off" as const, stream: true},
         globalProfileModels: scope === "project" ? {"fact-reviewer": {temperature: 0.2}} : {},
@@ -147,6 +151,7 @@ function lowCodeForm(): LowCodeFormDto {
 function profilesFor(scene: SceneKey): AgentProfileDraft[] {
     switch (scene) {
         case "global":
+        case "dialog-window":
         case "saving":
         case "save-error": {
             const list = [
@@ -216,38 +221,52 @@ function pageDraftFor(scene: SceneKey): AgentProfileSettingsPageDraft {
 }
 
 const modelValue = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
-const baseline = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
+// saved：fixture 模拟的宿主持久化状态。视图是就地保存的，没有单独的保存动作。
+const saved = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
 const message = ref("");
 const saving = ref(false);
 const loadError = ref("");
+const saveError = ref("");
 
 function sceneState(scene: SceneKey) {
     const draft = pageDraftFor(scene);
-    const baseline = pageDraftFor(scene);
+    const savedSnapshot = pageDraftFor(scene);
     if ((scene === "saving" || scene === "save-error") && draft.profiles[0]) {
         draft.profiles[0].model.temperature = "0.2";
     }
-    return {draft, baseline};
+    return {draft, saved: savedSnapshot};
 }
 
 function isSceneKey(value: string): value is SceneKey {
-    return ["global", "project", "statuses", "custom-settings", "empty", "loading", "saving", "load-error", "save-error"].includes(value);
+    return ["global", "project", "dialog-window", "statuses", "custom-settings", "empty", "loading", "saving", "load-error", "save-error"].includes(value);
 }
 
+const sceneKey = computed<SceneKey>(() => isSceneKey(props.scene) ? props.scene : "global");
+const isDialogScene = computed(() => sceneKey.value === "dialog-window");
+const isLoadingScene = computed(() => sceneKey.value === "loading");
+const isSavingScene = computed(() => sceneKey.value === "saving");
+const isSaveErrorScene = computed(() => sceneKey.value === "save-error");
+
 function applyScene(): void {
-    const scene: SceneKey = isSceneKey(props.scene) ? props.scene : "global";
-    const state = sceneState(scene);
+    const state = sceneState(sceneKey.value);
     modelValue.value = state.draft;
-    baseline.value = state.baseline;
-    saving.value = scene === "saving";
-    loadError.value = scene === "load-error" ? "读取 Agent Profile 设定失败：配置文件不可读。" : "";
+    saved.value = state.saved;
+    saving.value = isSavingScene.value;
+    saveError.value = isSaveErrorScene.value ? SAVE_ERROR_HINT : "";
+    dialogOpen.value = isDialogScene.value;
+    loadError.value = sceneKey.value === "load-error" ? "读取 Agent Profile 设定失败：配置文件不可读。" : "";
     message.value = "";
 }
 
-const context = computed(() => buildContext(isSceneKey(props.scene) ? props.scene as SceneKey : "global"));
+const context = computed(() => buildContext(sceneKey.value));
+
+// 作用域是宿主 chrome 的职责：Lab 里把它拼进窗口标题，产品里由设置对话框自己表达。
+const scopeLabel = computed(() => context.value.scope === "project"
+    ? t("settings.panels.profileModels.settingsView.scopeProject", {target: "示例项目"})
+    : t("settings.panels.profileModels.settingsView.scopeGlobal"));
 
 function labData() {
-    return {draft: modelValue.value, baseline: baseline.value, message: message.value};
+    return {draft: modelValue.value, saved: saved.value, message: message.value};
 }
 
 // 只有 scene 变化才重建场景；数据面板回流（fixtureData → :data）不得触发重置，
@@ -266,22 +285,25 @@ watch(() => props.data, () => {
         // 非法 JSON：保持当前草稿，不静默捏造数据
     }
 });
-watch(modelValue, () => syncLabData(JSON.parse(JSON.stringify(labData()))), {deep: true});
+watch([modelValue, saved, message], () => syncLabData(JSON.parse(JSON.stringify(labData()))), {deep: true, immediate: true});
 
+/**
+ * 就地保存：视图每次修改都直接交给宿主，这里模拟宿主立即持久化。
+ * save-error 场景模拟失败：草稿保留、错误显示，saved 不推进。
+ */
 function onUpdate(value: AgentProfileSettingsPageDraft): void {
     modelValue.value = value;
     emitLabEvent("update:modelValue", value);
-}
-
-function onSave(value: AgentProfileSettingsPageDraft): void {
-    emitLabEvent("save", value);
-    if (isSceneKey(props.scene) && props.scene === "save-error") {
+    if (isSaveErrorScene.value) {
+        saveError.value = SAVE_ERROR_HINT;
         message.value = "";
-        emitLabEvent("save-error", "示例保存失败：后端返回 500。");
+        emitLabEvent("save-error", SAVE_ERROR_HINT);
         return;
     }
-    baseline.value = JSON.parse(JSON.stringify(value));
+    saveError.value = "";
+    saved.value = JSON.parse(JSON.stringify(value));
     message.value = SAVED_HINT;
+    emitLabEvent("saved", value);
 }
 
 function onReload(): void {
@@ -289,30 +311,74 @@ function onReload(): void {
     message.value = "已记录重新加载请求；预览不访问真实配置。";
 }
 
-function onResetHome(profileKey: string): void {
-    emitLabEvent("reset-home", profileKey);
-    message.value = "已记录重置请求；预览未删除数据。";
+function onDialogClose(reason: "close-button" | "esc"): void {
+    dialogOpen.value = false;
+    emitLabEvent("dialog-window:request-close", reason);
+}
+
+function reopenDialog(): void {
+    dialogOpen.value = true;
+    emitLabEvent("dialog-window:open");
 }
 </script>
 
 <template>
     <div class="flex h-full max-h-full min-h-0 w-full flex-col gap-2">
         <p v-if="message" class="shrink-0 rounded-[var(--radius-control)] border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-3 py-1.5 text-[11px] text-[var(--status-success)]">{{ message }}</p>
-        <div class="min-h-0 flex-1">
+        <div v-if="isDialogScene && !dialogOpen" class="flex min-h-0 flex-1 items-center justify-center">
+            <button type="button" class="rounded-[var(--radius-control)] bg-[var(--accent-bg)] px-3 py-2 text-sm text-[var(--accent-text)]" @click="reopenDialog">
+                打开 Agent Profile 设置窗口
+            </button>
+        </div>
+        <div v-else-if="isDialogScene" class="min-h-0 flex-1">
+            <DialogWindow
+                :model-value="dialogOpen"
+                title-align="center"
+                :width="dialogWidth"
+                :height="dialogHeight"
+                :min-width="720"
+                :min-height="520"
+                :resizable="true"
+                :body-class="'min-h-0 flex-1 overflow-hidden p-0'"
+                @update:model-value="dialogOpen = $event"
+                @request-close="onDialogClose"
+                @update:width="dialogWidth = $event"
+                @update:height="dialogHeight = $event"
+            >
+                <template #header>
+                    <span>Agent Profile 设置</span>
+                    <span class="ml-2 text-[var(--text-muted)]">·</span>
+                    <span class="ml-1.5 text-[var(--text-muted)]">{{ scopeLabel }}</span>
+                </template>
+                <AgentProfileSettingsView
+                    :key="sceneKey"
+                    class="h-full"
+                    data-lab-subject
+                    :model-value="modelValue"
+                    :context="context"
+                    :show-nav-heading="false"
+                    :loading="isLoadingScene"
+                    :saving="isSavingScene"
+                    :load-error="loadError"
+                    :save-error="saveError"
+                    @update:model-value="onUpdate"
+                    @reload="onReload"
+                />
+            </DialogWindow>
+        </div>
+        <div v-else class="min-h-0 flex-1">
             <AgentProfileSettingsView
-                :key="props.scene"
+                :key="sceneKey"
                 class="h-full"
+                data-lab-subject
                 :model-value="modelValue"
-                :baseline="baseline"
                 :context="context"
-                :loading="props.scene === 'loading'"
-                :saving="saving"
+                :loading="isLoadingScene"
+                :saving="isSavingScene"
                 :load-error="loadError"
-                :save-error="props.scene === 'save-error' ? '示例保存失败：后端返回 500。' : ''"
+                :save-error="saveError"
                 @update:model-value="onUpdate"
-                @save="onSave"
                 @reload="onReload"
-                @reset-home="onResetHome"
             />
         </div>
     </div>

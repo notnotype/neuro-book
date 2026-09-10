@@ -3,26 +3,25 @@ import {computed} from "vue";
 import type {AgentProfileModelConfigDto, EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
 import type {LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
-import type {AgentProfileDraft, AgentProfileModelDraft} from "./agent-profile-draft";
+import type {AgentProfileDraft, AgentProfileModelDraft, AgentProfileModelFieldErrors} from "./agent-profile-draft";
 import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors} from "./profile-runtime-settings";
-import AgentProfileModelSection from "./AgentProfileModelSection.vue";
 import AgentProfileCustomSettingsSection from "./AgentProfileCustomSettingsSection.vue";
+import AgentProfileIdentitySection from "./AgentProfileIdentitySection.vue";
+import AgentProfileModelSection from "./AgentProfileModelSection.vue";
 import AgentProfileRuntimeSection from "./AgentProfileRuntimeSection.vue";
-import AgentProfileDiagnosticsSection from "./AgentProfileDiagnosticsSection.vue";
 
 const props = withDefaults(defineProps<{
     profile: AgentProfileDraft;
     inheritedModel: AgentProfileModelConfigDto;
     enabledModels: EnabledModelOptionDto[];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
+    modelErrors?: AgentProfileModelFieldErrors;
     scope: "global" | "project";
     runtimeBaseline: {settings: ConfigAgentProfileSettingsDto["agentProfiles"][number]["runtime"]["effective"]; sources: Record<string, string>} | null;
     runtimeErrors?: ProfileRuntimeSettingsErrors;
     descriptions: Record<string, string>;
     disabled?: boolean;
     isDefaultProfile: boolean;
-    resetHomeDisabled: boolean;
-    resettingHome: boolean;
 }>(), {
     disabled: false,
     runtimeErrors: () => ({}),
@@ -34,8 +33,6 @@ const emit = defineEmits<{
     (event: "update:settingsValues", value: LowCodeJsonObject): void;
     (event: "update:settingsOverridePaths", value: string[]): void;
     (event: "update:settingsResourceMutations", value: LowCodeResourceMutationDto[]): void;
-    (event: "reset"): void;
-    (event: "reset-home"): void;
 }>();
 
 const {t} = useI18n();
@@ -62,6 +59,7 @@ const buildHint = computed(() => {
             :inherited="props.inheritedModel"
             :enabled-models="props.enabledModels"
             :validation-issues="props.validationIssues"
+            :model-errors="props.modelErrors"
             :disabled="props.disabled"
             @update:model="emit('update:model', $event)"
         />
@@ -79,15 +77,6 @@ const buildHint = computed(() => {
             :runtime-errors="props.runtimeErrors"
             :disabled="props.disabled"
             @update:runtime="emit('update:runtime', $event)"
-        />
-        <AgentProfileDiagnosticsSection
-            :profile="props.profile"
-            :scope="props.scope"
-            :disabled="props.disabled"
-            :reset-home-disabled="props.resetHomeDisabled"
-            :resetting-home="props.resettingHome"
-            @reset="emit('reset')"
-            @reset-home="emit('reset-home')"
         />
     </section>
 </template>

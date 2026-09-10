@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, useAttrs} from "vue";
+import {computed, inject, useAttrs} from "vue";
 import {
     SelectContent,
     SelectItem,
@@ -11,7 +11,7 @@ import {
     SelectValue,
     SelectViewport,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import {useFloatingScrollbar} from "../../composables/useFloatingScrollbar";
 import {cn} from "../../utils/cn";
 import {useFormFieldContext} from "./form-field-context";
@@ -74,11 +74,10 @@ const emit = defineEmits<{
 }>();
 
 const field = useFormFieldContext();
-
 const controlId = computed(() => props.id || field?.inputId.value || undefined);
 const isRequired = computed(() => props.required || field?.required.value === true);
 const isInvalid = computed(() => field?.invalid.value === true);
-
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
 const isSmall = computed(() => props.size === "sm");
 const controlSizeClass = computed(() => isSmall.value
     ? "nb-ui-control-h-sm px-[calc(var(--control-px)*0.75)] text-[12px]"
@@ -175,10 +174,9 @@ const {
                 :body-lock="false"
                 :disable-outside-pointer-events="false"
                 :style="{
-                    zIndex: NB_Z_INDEX.popover,
                     width: 'var(--reka-select-trigger-width)',
                     minWidth: 'var(--reka-select-trigger-width)',
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 65%, transparent)',
+                    zIndex: popoverZIndex,
                     backdropFilter: 'blur(8px) saturate(130%) brightness(1.0)',
                     WebkitBackdropFilter: 'blur(8px) saturate(130%) brightness(1.0)',
                     boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)',

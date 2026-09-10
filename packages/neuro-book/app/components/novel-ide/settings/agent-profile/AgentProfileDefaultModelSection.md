@@ -8,17 +8,17 @@
 
 ## 布局与交互
 
-标题、作用域说明和恢复默认按钮位于同一段；模型字段由 `AgentProfileModelFields` 渲染，常用模型与推理强度可直接编辑，高级参数遵循字段区约定。项目作用域显示全局基线继承。
+标题、作用域说明和恢复默认按钮位于同一段；模型字段由 `AgentProfileModelFields` 渲染，常用模型与推理强度可直接编辑，高级参数遵循字段区约定。项目作用域显示全局基线继承；温度或 TopK 出现校验错误时自动展开高级区，保证错误字段可见。
 
 ## 数据
 
-```ts
 interface AgentProfileDefaultModelSectionProps {
     scope: "global" | "project";
     modelDefaults: AgentProfileModelDraft;
     globalModelDefaults: AgentProfileModelConfigDto;
     enabledModels: EnabledModelOptionDto[];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
+    modelErrors?: AgentProfileModelFieldErrors;
     disabled: boolean;
 }
 interface AgentProfileDefaultModelSectionEmits {

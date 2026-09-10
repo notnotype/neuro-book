@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import {computed, getCurrentInstance, nextTick, onBeforeUnmount, ref, watch} from "vue";
+import {computed, getCurrentInstance, nextTick, onBeforeUnmount, provide, ref, watch} from "vue";
 import {useDraggable, useWindowSize} from "@vueuse/core";
 import {DialogContent, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import IconButton from "../controls/IconButton.vue";
+
+provide(NB_POPOVER_Z_INDEX, NB_Z_INDEX.dialogWindow + 1);
 
 /**
  * 通用浮动窗口组件（非模态）。
@@ -17,6 +19,8 @@ type DialogWindowResizeAxis = "width" | "height" | "both";
 const props = withDefaults(defineProps<{
     /** 控制窗口显隐 */
     modelValue: boolean;
+    /** 标题水平位置：默认左对齐；窗口标题习惯居中的宿主可传 center */
+    titleAlign?: "left" | "center";
     /** 标题栏文字；没有标题或 header slot 时使用视觉隐藏的通用标题 */
     title?: string;
     /** 窗口宽度（px），拖动边界按此值收敛 */
@@ -42,6 +46,7 @@ const props = withDefaults(defineProps<{
     /** Teleport 目标；传入 false 仅用于内联测试或特殊宿主 */
     teleportTarget?: string | boolean;
 }>(), {
+    titleAlign: "left",
     title: "",
     width: 560,
     height: "auto",
@@ -79,6 +84,7 @@ const {x, y} = useDraggable(windowRef, {
 });
 
 const portalTarget = computed(() => typeof props.teleportTarget === "string" ? props.teleportTarget : "body");
+const isTitleCentered = computed(() => props.titleAlign === "center");
 const displayWidth = computed(() => draftWidth.value ?? props.width);
 const displayHeight = computed(() => draftHeight.value === null ? props.height : `${draftHeight.value}px`);
 const effectiveWidth = computed(() => {
@@ -274,9 +280,11 @@ onBeforeUnmount(() => {
                     :style="windowStyle"
                     class="nb-dialog-window nb-ui-surface-rim fixed flex flex-col overflow-hidden rounded-xl border border-[var(--panel-outline)] text-[var(--text-main)] outline-none data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:scale-[0.96]"
                 >
-                    <div class="flex shrink-0 items-center gap-2 border-b border-[var(--divider)] pr-2">
-                        <span class="i-lucide-grip-vertical ml-4 h-4 w-4 shrink-0 cursor-move touch-none text-[var(--text-muted)]" aria-hidden="true"></span>
-                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none">
+                    <div class="flex min-h-9 shrink-0 items-center border-b border-[var(--divider)] px-4 py-1">
+                        <!-- 居中时左右各放一个与关闭按钮等宽的占位，标题因此落在窗口正中；
+                             左对齐时不占位，标题从标题栏内边距开始。 -->
+                        <div v-if="props.closable && isTitleCentered" class="w-[26px] shrink-0" aria-hidden="true"></div>
+                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none" :class="isTitleCentered ? 'text-center' : ''">
                             <DialogTitle v-if="$slots.header" as="div" class="truncate text-sm font-semibold leading-snug text-[var(--text-main)]">
                                 <slot name="header" />
                             </DialogTitle>
@@ -285,9 +293,16 @@ onBeforeUnmount(() => {
                             </DialogTitle>
                             <DialogTitle v-else class="sr-only">Dialog window</DialogTitle>
                         </div>
-                        <IconButton v-if="props.closable" title="关闭" :disabled="props.busy" @click="requestClose('close-button')">
-                            <span class="i-lucide-x h-4 w-4"></span>
-                        </IconButton>
+                        <div v-if="props.closable" class="flex w-[26px] shrink-0 justify-end">
+                            <IconButton
+                                title="关闭"
+                                size="sm"
+                                :disabled="props.busy"
+                                @click="requestClose('close-button')"
+                            >
+                                <span class="i-lucide-x h-4 w-4"></span>
+                            </IconButton>
+                        </div>
                     </div>
 
                     <div class="flex min-h-0 flex-1 flex-col text-sm leading-relaxed text-[var(--text-secondary)]" :class="props.bodyClass">

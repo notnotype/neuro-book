@@ -375,6 +375,9 @@
 .min-h-7 {
   min-height: calc(var(--spacing) * 7);
 }
+.min-h-8 {
+  min-height: calc(var(--spacing) * 8);
+}
 .min-h-9 {
   min-height: calc(var(--spacing) * 9);
 }
@@ -606,6 +609,9 @@
 }
 .rotate-90 {
   rotate: 90deg;
+}
+.rotate-180 {
+  rotate: 180deg;
 }
 .transform {
   transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);
@@ -1333,6 +1339,9 @@
 .px-\[var\(--space-1\)\] {
   padding-inline: var(--space-1);
 }
+.px-\[var\(--space-3\)\] {
+  padding-inline: var(--space-3);
+}
 .py-0\.5 {
   padding-block: calc(var(--spacing) * 0.5);
 }
@@ -1488,6 +1497,9 @@
 }
 .\[font-weight\:var\(--weight-semibold\,600\)\] {
   font-weight: var(--weight-semibold,600);
+}
+.\[font-weight\:var\(--weight-strong\)\] {
+  font-weight: var(--weight-strong);
 }
 .tracking-wider {
   --tw-tracking: var(--tracking-wider);
@@ -1913,9 +1925,6 @@
 .i-lucide-folder-open {
   --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cpath fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m6 14l1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2'/%3E%3C/svg%3E");
 }
-.i-lucide-grip-vertical {
-  --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cg fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2'%3E%3Ccircle cx='9' cy='12' r='1'/%3E%3Ccircle cx='9' cy='5' r='1'/%3E%3Ccircle cx='9' cy='19' r='1'/%3E%3Ccircle cx='15' cy='12' r='1'/%3E%3Ccircle cx='15' cy='5' r='1'/%3E%3Ccircle cx='15' cy='19' r='1'/%3E%3C/g%3E%3C/svg%3E");
-}
 .i-lucide-inbox {
   --svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24'%3E%3Cg fill='none' stroke='black' stroke-linecap='round' stroke-linejoin='round' stroke-width='2'%3E%3Cpath d='M22 12h-6l-2 3h-4l-2-3H2'/%3E%3Cpath d='M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11'/%3E%3C/g%3E%3C/svg%3E");
 }
@@ -1954,6 +1963,9 @@
     .group-hover\:border-\[color-mix\(in_srgb\,var\(--text-main\)_35\%\,transparent\)\]:is(:where(.group):hover *) {
       border-color: color-mix(in srgb,var(--text-main) 35%,transparent);
     }
+  }
+  .group-hover\:text-\[var\(--accent-main\)\]:is(:where(.group):hover *) {
+    color: var(--accent-main);
   }
   .group-hover\:opacity-100:is(:where(.group):hover *) {
     opacity: 100%;
@@ -2198,6 +2210,14 @@
       background-color: color-mix(in srgb,var(--accent-main) 86%,var(--text-main));
     }
   }
+  .hover\:bg-\[color-mix\(in_srgb\,var\(--bg-hover\)_60\%\,transparent\)\]:hover {
+    background-color: var(--bg-hover);
+  }
+  @supports (color: color-mix(in lab, red, red)) {
+    .hover\:bg-\[color-mix\(in_srgb\,var\(--bg-hover\)_60\%\,transparent\)\]:hover {
+      background-color: color-mix(in srgb,var(--bg-hover) 60%,transparent);
+    }
+  }
   .hover\:bg-\[color-mix\(in_srgb\,var\(--status-danger\)_12\%\,transparent\)\]:hover {
     background-color: var(--status-danger);
   }
@@ -2384,6 +2404,10 @@
 .focus-visible\:bg-\[var\(--accent-main\)\]:focus-visible {
   background-color: var(--accent-main);
 }
+.focus-visible\:shadow-\[var\(--focus-ring\)\]:focus-visible {
+  --tw-shadow: var(--focus-ring);
+  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+}
 .focus-visible\:outline-none:focus-visible {
   --tw-outline-style: none;
   outline-style: none;
@@ -2404,6 +2428,12 @@
   background-color: var(--accent-main);
   @supports (color: color-mix(in lab, red, red)) {
     background-color: color-mix(in srgb,var(--accent-main) 24%,transparent);
+  }
+}
+.active\:bg-\[color-mix\(in_srgb\,var\(--bg-hover\)_85\%\,transparent\)\]:active {
+  background-color: var(--bg-hover);
+  @supports (color: color-mix(in lab, red, red)) {
+    background-color: color-mix(in srgb,var(--bg-hover) 85%,transparent);
   }
 }
 .active\:bg-\[color-mix\(in_srgb\,var\(--status-danger\)_24\%\,transparent\)\]:active {
@@ -2990,6 +3020,16 @@ input.nb-ui-native-input[type="number"] {
   animation: nb-accordion-down var(--motion-base) var(--ease-standard);
 }
 .animate-accordion-up, .animate-collapsible-up {
+  animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+}
+.nb-collapsible-content, .nb-accordion-content {
+  padding: 6px;
+  margin: -6px;
+}
+.nb-collapsible-content[data-state="open"], .nb-accordion-content[data-state="open"] {
+  animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+}
+.nb-collapsible-content[data-state="closed"], .nb-accordion-content[data-state="closed"] {
   animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
 @keyframes nb-shimmer {

@@ -10,6 +10,7 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
+import {useSlots} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
 
@@ -38,6 +39,12 @@ const emit = defineEmits<{
     (e: "confirm"): void;
     (e: "cancel"): void;
 }>();
+
+const slots = useSlots();
+
+function preventTriggerlessCloseFocus(event: Event): void {
+    if (!slots.trigger) event.preventDefault();
+}
 </script>
 
 <template>
@@ -46,17 +53,16 @@ const emit = defineEmits<{
         :default-open="props.defaultOpen"
         @update:open="(val) => emit('update:open', val)"
     >
-        <AlertDialogTrigger as-child>
+        <AlertDialogTrigger v-if="$slots.trigger" as-child>
             <slot name="trigger" />
         </AlertDialogTrigger>
-
         <AlertDialogPortal>
             <AlertDialogOverlay
                 :style="{zIndex: NB_Z_INDEX.dialog - 1}"
                 class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
             />
-
             <AlertDialogContent
+                @close-auto-focus="preventTriggerlessCloseFocus"
                 :style="{
                     zIndex: NB_Z_INDEX.dialog,
                     backgroundColor: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',

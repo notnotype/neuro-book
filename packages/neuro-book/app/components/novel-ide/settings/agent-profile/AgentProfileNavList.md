@@ -8,7 +8,9 @@ Agent Profile 设置页的二级导航。它只负责呈现默认设置入口、
 
 ## 布局
 
-根节点是单一的 `nav`，顶部身份区用可见的 `Agent Profiles` 标题和领域图标建立导航层级；搜索框、默认设置入口和 Profile 列表依次位于其下。导航标题通过实例级 `id` 与 `nav` 的 `aria-labelledby` 关联；搜索框不渲染可见文字标签，label 文本通过 `sr-only` 与 input 保持 `for`/`id` 关联，placeholder 由 `FormInput` 呈现。
+根节点是单一的 `nav`，默认顶部身份区用可见的 `Agent Profiles` 标题和领域图标建立导航层级；嵌入已有窗口标题时可通过 `showHeading=false` 隐藏视觉标题，但保留屏幕阅读器可读的 `h2.sr-only` 与 `aria-labelledby` 关联。搜索框、默认设置入口和 Profile 列表依次位于其下。搜索框不渲染可见文字标签，label 文本通过 `sr-only` 与 input 保持 `for`/`id` 关联，placeholder 由 `FormInput` 呈现。
+
+`surface` 控制根 `nav` 自己画不画面：`panel`（默认）自带卡片面（描边、圆角、面板底色）与 6px 内边距，用于独立页面或仍持卡片形态的旧宿主；`plain` 只保留列表结构，不画面、不加内边距，面、内边距和分割线由宿主提供（`AgentProfileSettingsView` 的导航轨即用此档，面与右分割线由视图给）。两种取值的列表结构、滚动行为、焦点顺序和语义完全相同。
 
 搜索和默认设置入口位于列表上方，默认入口作为独立的基线区块与 Profile 列表分隔。Profile 列表使用独立的纵向滚动容器。Profile 增多时先让位的是列表内容，顶部身份区、搜索和默认入口保持可见。Profile 行第一行是可选图标、名称、`profileKey`（名称右侧等宽小字）与状态图标，第二行是固定高度徽章轨道；所有行由相同的内容结构决定高度，名称与 `profileKey` 截断，长文本与多个徽章不会撑破按钮和页面宽度。
 
@@ -33,6 +35,8 @@ interface AgentProfileNavListProps {
     search: string;
     /** 默认设置页是否有未保存改动。 */
     defaultsDirty: boolean;
+    /** panel（默认）自带卡片面与 6px 内边距；plain 只保留列表结构，面与内边距由宿主提供。 */
+    surface?: "panel" | "plain";
 }
 
 interface AgentProfileNavListEmits {
@@ -43,7 +47,7 @@ interface AgentProfileNavListEmits {
 }
 ```
 
-四个 prop 都是必填的受控值，组件不修改它们，也不会为未知 `activeKey` 自动发出纠正事件。`activeKey === ""` 表示默认设置页，否则表示当前 Profile key。`items` 由父组件按稳定的 `profileKey` 排序并提供；`overrideCount` 是模型、运行策略和 Profile 设置的显式覆盖字段总数，`dirty` 表示当前草稿不同于已保存快照，`isDefault` 表示当前生效的默认 Profile。
+`items`、`activeKey`、`search` 是必填的受控值，`defaultsDirty`（默认设置页未保存标记）、`showHeading`、`surface` 可选；组件不修改它们，也不会为未知 `activeKey` 自动发出纠正事件。`activeKey === ""` 表示默认设置页，否则表示当前 Profile key。`items` 由父组件按稳定的 `profileKey` 排序并提供；`overrideCount` 是模型、运行策略和 Profile 设置的显式覆盖字段总数，`dirty` 与 `defaultsDirty` 是可选的未保存标记（就地保存的宿主不传，组件按无标记渲染），`isDefault` 表示当前生效的默认 Profile。
 
 组件没有 slots，也不 expose 方法或属性。未声明的 attribute、`class`、`style` 和 `data-*` 按 Vue 默认行为透传到单一根 `nav`。不启用 nb-ui `FormInput.clearable`，因此不存在额外的清空按钮或额外 Tab 停靠点。
 - **Profile 当前项**：只有 `activeKey` 与某个可见 `profileKey` 相等时，该 Profile 按钮带 `aria-current="page"`。当前项使用整行 accent 软底表达选择，不依赖 check 图标、左侧标记或按钮边框；过滤掉当前项或传入未知 key 时，不伪造可见 current。

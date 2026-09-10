@@ -8,7 +8,12 @@
 
 ## 布局
 
-窗口由标题栏、可滚动 body 和可选 footer 组成。标题栏包含拖动区域、可选关闭按钮和一个 `DialogTitle`；body 占据剩余高度，内容超出时由 `bodyClass` 决定滚动归属；footer 固定在底部，不随 body 滚动。`maxHeight` 限制窗口高度，启用 `resizable` 后窗口至少保持 `minWidth` × `minHeight`。
+窗口由标题栏、可滚动 body 和可选 footer 组成。标题栏包含拖动区域、可选关闭按钮和一个 `DialogTitle`。标题默认**左对齐**；宿主传 `titleAlign="center"` 时，栏内在关闭按钮一侧补一个等宽占位，标题落在这条标题栏的正中。栏高 `min-h-9`，关闭按钮用 `sm` 尺寸（26×26），上下留空隙并避开窗口圆角。body 占据剩余高度，内容超出时由 `bodyClass` 决定滚动归属；footer 固定在底部，不随 body 滚动。`maxHeight` 限制窗口高度，启用 `resizable` 后窗口至少保持 `minWidth` × `minHeight`。
+
+`header` slot 用来把页面身份和上下文拼进同一个标题（例如 `设置 · 全局设定`）：整段仍是窗口的可访问名，
+建议只让身份部分用 `--text-main`，分隔符与上下文降为 `--text-muted`。只传 `title` 时不涉及这一层。
+
+窗口只提供一层 chrome：body 默认自带内边距，宿主可传 `bodyClass` 接管滚动与内边距，自己决定内部分栏（如导航轨 + 详情用一条分割线分隔），不要再在窗口内套一层带描边的卡片，否则会出现双层边框。窗口表面圆角小于面板卡片圆角，内容应使用控件级圆角。
 
 在 `390×844` 窄屏中，窗口宽度自动收敛到视口内侧并保留 12px 两侧间距；窗口不会制造页面级横向滚动，长内容继续在 body 内滚动。桌面视口默认从右上区域打开，拖动后保留本次组件实例中的位置。
 
@@ -17,9 +22,9 @@
 - 打开窗口后，Reka Dialog 语义为非模态：不渲染 Overlay、不困住焦点、不锁定背景指针事件；窗口外元素仍可点击和聚焦。
 - 标题栏的标题区域可拖动。窗口至少保留一段可抓取区域在视口内，拖动不会改变页面滚动位置。
 - `closable` 为 `true` 时显示关闭按钮；按钮带有“关闭”可访问名称。`closeOnEsc` 为 `true` 时按 Escape 请求关闭。`busy` 时关闭按钮、Escape 和 resize 均不生效。
-- 没有 `request-close` 监听器时，关闭动作发出 `update:modelValue(false)`；存在监听器时只发出 `request-close`，由宿主决定是否关闭。这保留了确认、撤销或异步保存等宿主流程的控制权。
 - `resizable` 为 `true` 时提供右侧、底部和右下角三个可聚焦 resize 手柄。鼠标拖动在 pointerup 时提交尺寸；方向键按 10px 调整，Shift + 方向键按 1px 调整，尺寸不会低于最小值。
-- Reka 负责 Dialog 的角色、标题关联、Portal 和生命周期；窗口定位、拖动、resize 与视口约束由本组件负责。组件不提供模态焦点陷阱。
+- DialogWindow body 内的 nb-ui `FormSelect` 下拉会继承窗口专用浮层层级，显示在窗口表面之上；窗口外的 FormSelect 仍使用普通 popover 层级。
+- Reka 负责 Dialog 的角色、标题关联、Portal 和生命周期；窗口定位、拖动、resize、视口约束与窗口内浮层层级由本组件及其公共浮层上下文负责。组件不提供模态焦点陷阱。
 
 ## 数据
 
@@ -29,6 +34,8 @@ type DialogWindowResizeAxis = "width" | "height" | "both";
 type DialogWindowProps = {
     /** 是否显示；必填、受控，默认由宿主持有 */
     modelValue: boolean;
+    /** 标题水平位置；默认 left，传 center 时标题落在标题栏正中 */
+    titleAlign?: "left" | "center";
     /** 标题文字；默认空字符串；无 header 时为空则使用视觉隐藏标题 */
     title?: string;
     /** 宽度（px）；默认 560；窄屏显示宽度会收敛到视口 */

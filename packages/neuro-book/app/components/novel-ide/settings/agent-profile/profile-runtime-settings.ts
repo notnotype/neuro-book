@@ -27,6 +27,44 @@ export type ProfileRuntimeSettingsSource = "harness" | "profileDefault" | "globa
 export type ProfileRuntimeSettingsSources = Record<ProfileRuntimeSettingsField, ProfileRuntimeSettingsSource>;
 export type ProfileRuntimeSettingsLayer = {source: ProfileRuntimeSettingsSource; patch: ProfileRuntimeSettingsPatchDto | undefined};
 
+export type AgentProfileRuntimeBaselineScope = "global" | "project";
+export type AgentProfileRuntimeBaselineInput = {
+    profileDefaults?: ProfileRuntimeSettingsPatchDto;
+    globalDefaultsPatch?: ProfileRuntimeSettingsPatchDto;
+    globalProfilePatch?: ProfileRuntimeSettingsPatchDto;
+    /** 当前作用域的默认设置草稿；不包含当前 Profile 草稿。 */
+    defaultsDraftPatch?: ProfileRuntimeSettingsPatchDto;
+};
+/** 解析默认设置页的运行时基线；Global 只使用 harness，Project 叠加已保存的 Global patch。 */
+export function resolveAgentRuntimeDefaultsBaseline(
+    harness: ProfileRuntimeSettingsDto,
+    scope: AgentProfileRuntimeBaselineScope,
+    globalDefaultsPatch: ProfileRuntimeSettingsPatchDto | undefined,
+): {settings: ProfileRuntimeSettingsDto; sources: ProfileRuntimeSettingsSources} {
+    return resolveProfileRuntimeInheritance(harness, scope === "project"
+        ? [{source: "globalDefault" as const, patch: globalDefaultsPatch}]
+        : []);
+}
+
+/** 按层解析 Agent Profile 编辑基线；当前 Profile 草稿由调用方单独作为编辑值传入。 */
+export function resolveAgentProfileRuntimeBaseline(
+    harness: ProfileRuntimeSettingsDto,
+    scope: AgentProfileRuntimeBaselineScope,
+    input: AgentProfileRuntimeBaselineInput,
+): {settings: ProfileRuntimeSettingsDto; sources: ProfileRuntimeSettingsSources} {
+    const layers: ProfileRuntimeSettingsLayer[] = [
+        {source: "profileDefault", patch: input.profileDefaults},
+        {source: "globalDefault", patch: scope === "project" ? input.globalDefaultsPatch : input.defaultsDraftPatch},
+    ];
+    if (scope === "project") {
+        layers.push(
+            {source: "globalProfile", patch: input.globalProfilePatch},
+            {source: "projectDefault", patch: input.defaultsDraftPatch},
+        );
+    }
+    return resolveProfileRuntimeInheritance(harness, layers);
+}
+
 /** 按层解析继承基线，同时记录每个编辑字段的真实来源。 */
 export function resolveProfileRuntimeInheritance(
     harness: ProfileRuntimeSettingsDto,

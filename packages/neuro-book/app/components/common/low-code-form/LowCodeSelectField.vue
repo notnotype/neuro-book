@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
+import {FormSelect, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {LowCodeFieldDto, LowCodeJsonValue} from "nbook/shared/dto/low-code-form.dto";
 import {optionByKey, optionKey} from "nbook/app/components/common/low-code-form/low-code-form-utils";
 
@@ -19,7 +19,7 @@ const selectedKey = computed(() => {
     const option = props.field.options.find((item) => item.value === props.modelValue);
     return option ? optionKey(option.value) : "";
 });
-const selectOptions = computed<SelectOption[]>(() => props.field.options.map((option) => ({
+const selectOptions = computed<FormSelectOption[]>(() => props.field.options.map((option) => ({
     value: optionKey(option.value),
     label: option.label,
     description: option.description,

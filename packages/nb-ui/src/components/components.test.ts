@@ -1,6 +1,6 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it, vi} from "vitest";
-import {nextTick} from "vue";
+import {defineComponent, h, nextTick, ref} from "vue";
 import Button from "./controls/Button.vue";
 import IconButton from "./controls/IconButton.vue";
 import Pagination from "./controls/Pagination.vue";
@@ -765,9 +765,30 @@ describe("nb-ui dialog window", () => {
             const titleId = dialog.attributes("aria-labelledby");
             expect(titleId).toBeTruthy();
             expect(wrapper.find("[data-dialog-overlay]").exists()).toBe(false);
+            expect(wrapper.find(".i-lucide-grip-vertical").exists()).toBe(false);
             expect(dialog.text()).toContain("窗口内容");
         } finally {
             wrapper.unmount();
+        }
+    });
+
+    it("keeps the title left aligned by default and centers it on request", async () => {
+        const leftAligned = mountWindow();
+        try {
+            await nextTick();
+            const titleWrapper = leftAligned.get("[role='dialog']").element.querySelector(".cursor-move");
+            expect(titleWrapper?.className).not.toContain("text-center");
+        } finally {
+            leftAligned.unmount();
+        }
+
+        const centered = mountWindow({titleAlign: "center"});
+        try {
+            await nextTick();
+            const titleWrapper = centered.get("[role='dialog']").element.querySelector(".cursor-move");
+            expect(titleWrapper?.className).toContain("text-center");
+        } finally {
+            centered.unmount();
         }
     });
 
@@ -854,8 +875,30 @@ describe("nb-ui dialog window", () => {
             wrapper.unmount();
         }
     });
-});
+    it("raises FormSelect popovers above the DialogWindow surface", async () => {
+        const wrapper = mount(DialogWindow, {
+            props: {modelValue: true, title: "设置", teleportTarget: false},
+            slots: {
+                default: () => h(FormSelect, {
+                    modelValue: "one",
+                    options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                }),
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await nextTick();
+            await nextTick();
 
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8991");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+});
 
 /*
  * 对话框的头尾分隔线。上一版是两条常驻的通栏细线，把面板切成三段——那是后台管理面板的读法，
@@ -1306,8 +1349,9 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders alert dialog trigger cleanly", () => {
+    it("renders and opens an alert dialog trigger slot", async () => {
         const wrapper = mount(AlertDialog, {
+            attachTo: document.body,
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
@@ -1318,9 +1362,65 @@ describe("nb-ui dialog anatomy", () => {
             },
         });
 
-        expect(wrapper.text()).toContain("删除章节");
-        wrapper.unmount();
+        try {
+            const trigger = document.body.querySelector<HTMLButtonElement>("[aria-haspopup='dialog']");
+            expect(trigger).not.toBeNull();
+            trigger?.click();
+            await nextTick();
+            await nextTick();
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).not.toBeNull();
+
+            const cancel = [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+                .find((button) => button.textContent?.trim() === "取消");
+            expect(cancel).not.toBeUndefined();
+            cancel?.click();
+            await nextTick();
+            expect(wrapper.emitted("cancel")).toHaveLength(1);
+            expect(wrapper.emitted("update:open")).toContainEqual([false]);
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).toBeNull();
+        } finally {
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
     });
+
+    it("supports a controlled alert dialog without a trigger slot", async () => {
+        const open = ref(true);
+        const Harness = defineComponent({
+            setup() {
+                return () => h(AlertDialog, {
+                    open: open.value,
+                    title: "受控确认",
+                    description: "请确认",
+                    confirmText: "确认",
+                    "onUpdate:open": (value: boolean) => { open.value = value; },
+                });
+            },
+        });
+        const wrapper = mount(Harness, {attachTo: document.body});
+
+        try {
+            await nextTick();
+            await nextTick();
+
+            const dialog = document.body.querySelector('[role="alertdialog"]');
+            expect(dialog).not.toBeNull();
+            expect(dialog?.querySelectorAll("button")).toHaveLength(2);
+            expect(document.body.querySelector('[aria-haspopup="dialog"]')).toBeNull();
+            const confirm = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+                .find((button) => button.textContent?.trim() === "确认");
+            expect(confirm).not.toBeUndefined();
+            confirm?.click();
+            await nextTick();
+            await nextTick();
+            expect(open.value).toBe(false);
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).toBeNull();
+        } finally {
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
+    });
+
 
     it("renders pin input with specified number of cells", () => {
         const wrapper = mount(PinInput, {

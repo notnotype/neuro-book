@@ -33,7 +33,7 @@ const emit = defineEmits<{
         </CollapsibleTrigger>
 
         <CollapsibleContent
-            class="overflow-hidden transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=closed]:animate-collapsible-up data-[state=open]:animate-collapsible-down"
+            class="overflow-hidden transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-collapsible-content"
         >
             <slot />
         </CollapsibleContent>

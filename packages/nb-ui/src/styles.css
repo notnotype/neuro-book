@@ -432,6 +432,29 @@ input.nb-ui-native-input[type="number"] {
     animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
 
+/*
+ * 折叠内容的编排由状态属性驱动，不用 `data-[state=open]:animate-*` 变体：
+ * `animate-*` 的主题键不在 presetUno 里，变体类不会生成，组件会静默失去动画。
+ *
+ * padding + 等量负 margin：内容盒与子元素位置不变，裁切盒向外放 6px——
+ * 折叠容器里的输入控件聚焦时的光环（box-shadow）压在内容盒之上，不这样会被动画裁切剪掉。
+ */
+.nb-collapsible-content,
+.nb-accordion-content {
+    padding: 6px;
+    margin: -6px;
+}
+
+.nb-collapsible-content[data-state="open"],
+.nb-accordion-content[data-state="open"] {
+    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+}
+
+.nb-collapsible-content[data-state="closed"],
+.nb-accordion-content[data-state="closed"] {
+    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+}
+
 /* 骨架屏与占位高光流动 Shimmer 动画 */
 @keyframes nb-shimmer {
     0% {

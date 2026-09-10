@@ -30,10 +30,14 @@ const statusTone = computed(() => {
                 {{ t("settings.panels.profileModels.currentDefault") }}
             </Badge>
         </div>
-        <p v-if="description" class="mt-1 text-xs text-[var(--text-secondary)]">{{ description }}</p>
-        <div class="mt-1 font-mono text-[11px] text-[var(--text-muted)]">{{ props.profile.profileKey }}</div>
-        <div v-if="props.profile.sourcePath" class="mt-1 truncate font-mono text-[10px] text-[var(--text-muted)]">
-            {{ t("settings.panels.profileModels.sourcePath") }}: {{ props.profile.sourcePath }}
+        <p v-if="description" class="mt-1.5 text-xs leading-relaxed text-[var(--text-secondary)]">{{ description }}</p>
+        <!-- key 与来源合成一行元数据：两行各占一行会把标题区拉成四段小字。 -->
+        <div class="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-[var(--text-muted)]">
+            <span class="truncate">{{ props.profile.profileKey }}</span>
+            <template v-if="props.profile.sourcePath">
+                <span aria-hidden="true">·</span>
+                <span class="min-w-0 flex-1 truncate" :title="props.profile.sourcePath">{{ props.profile.sourcePath }}</span>
+            </template>
         </div>
         <div v-if="props.buildHint" class="mt-3 flex items-center gap-2 rounded-[var(--radius-control)] border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-3 py-2 text-[11px] text-[var(--status-info)]">
             <span class="i-lucide-loader-2 h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true"></span>

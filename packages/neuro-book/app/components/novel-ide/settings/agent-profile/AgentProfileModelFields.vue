@@ -7,8 +7,8 @@ import {
     parseStreamSelectValue,
     streamSelectValue,
     type AgentProfileModelDraft,
+    type AgentProfileModelFieldErrors,
 } from "./agent-profile-draft";
-
 /**
  * 继承语义模式，决定"留空"字段的占位文案和是否提供"继承"选项：
  * - globalDefaults：Global 默认参数，必须落到具体值，没有继承选项；
@@ -24,9 +24,11 @@ const props = withDefaults(defineProps<{
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
     inheritMode: ModelInheritMode;
     visibleFields?: ("model" | "reasoning" | "advanced")[];
+    errors?: AgentProfileModelFieldErrors;
     disabled?: boolean;
 }>(), {
     visibleFields: () => ["model", "reasoning", "advanced"] as ("model" | "reasoning" | "advanced")[],
+    errors: () => ({}),
     disabled: false,
 });
 
@@ -171,10 +173,10 @@ function update(patch: Partial<AgentProfileModelDraft>): void {
         </FormField>
 
         <template v-if="props.visibleFields.includes('advanced')">
-            <FormField :label="t('settings.panels.profileModels.temperature')">
+            <FormField :label="t('settings.panels.profileModels.temperature')" :error="props.errors?.temperature">
                 <FormInput :model-value="props.modelValue.temperature" type="number" step="0.1" min="0" :placeholder="emptyPlaceholder" :disabled="props.disabled" @update:model-value="update({temperature: $event})" />
             </FormField>
-            <FormField label="TopK">
+            <FormField label="TopK" :error="props.errors?.topK">
                 <FormInput :model-value="props.modelValue.topK" type="number" step="1" min="1" :placeholder="emptyPlaceholder" :disabled="props.disabled" @update:model-value="update({topK: $event})" />
             </FormField>
             <FormField :label="t('settings.panels.profileModels.stream')">

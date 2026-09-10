@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import {CheckboxGroup} from "@notnotype/nb-ui/components";
+import type {CheckboxOption} from "@notnotype/nb-ui/components";
 import type {LowCodeFieldDto, LowCodeJsonValue} from "nbook/shared/dto/low-code-form.dto";
+import {optionByKey, optionKey} from "nbook/app/components/common/low-code-form/low-code-form-utils";
 
 const props = withDefaults(defineProps<{
     field: LowCodeFieldDto;
@@ -14,40 +17,35 @@ const emit = defineEmits<{
 }>();
 
 const selectedValues = computed(() => Array.isArray(props.modelValue) ? props.modelValue : []);
+const selectedKeys = computed(() => props.field.options
+    .filter((option) => selectedValues.value.includes(option.value))
+    .map((option) => optionKey(option.value)));
+const options = computed<CheckboxOption[]>(() => props.field.options.map((option) => ({
+    value: optionKey(option.value),
+    label: option.label,
+    description: option.description,
+    disabled: props.disabled || option.disabled,
+})));
 
-/**
- * 切换多选项；checkbox 语义只保存 string/number option value。
- */
-function toggleValue(value: LowCodeJsonValue): void {
-    if (typeof value !== "string" && typeof value !== "number") {
-        return;
+/** checkbox 语义只保存 string/number option value。 */
+function updateSelected(keys: string[]): void {
+    const values: LowCodeJsonValue[] = [];
+    for (const key of keys) {
+        const option = optionByKey(props.field.options, key);
+        if (option && !option.disabled) {
+            values.push(option.value);
+        }
     }
-    const exists = selectedValues.value.some((item) => item === value);
-    emit("update:modelValue", exists
-        ? selectedValues.value.filter((item) => item !== value)
-        : [...selectedValues.value, value]);
+    emit("update:modelValue", values);
 }
 </script>
 
 <template>
-    <div class="grid gap-2 sm:grid-cols-2">
-        <label
-            v-for="option in props.field.options"
-            :key="`${typeof option.value}:${String(option.value)}`"
-            class="flex min-h-8 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-secondary)]"
-            :class="props.disabled || option.disabled ? 'opacity-60' : 'cursor-pointer hover:bg-[var(--bg-hover)]'"
-        >
-            <input
-                type="checkbox"
-                class="h-3.5 w-3.5 accent-[var(--accent-main)]"
-                :checked="selectedValues.some((item) => item === option.value)"
-                :disabled="props.disabled || option.disabled"
-                @change="toggleValue(option.value)"
-            >
-            <span class="min-w-0">
-                <span class="block truncate">{{ option.label }}</span>
-                <span v-if="option.description" class="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">{{ option.description }}</span>
-            </span>
-        </label>
-    </div>
+    <CheckboxGroup
+        :model-value="selectedKeys"
+        :options="options"
+        orientation="horizontal"
+        :disabled="props.disabled"
+        @update:model-value="updateSelected"
+    />
 </template>

@@ -33,6 +33,7 @@ export {default as Tooltip} from "./feedback/Tooltip.vue";
 export {default as Accordion} from "./layout/Accordion.vue";
 export {default as AspectRatio} from "./layout/AspectRatio.vue";
 export {default as Collapsible} from "./layout/Collapsible.vue";
+export {default as CollapsibleSection} from "./layout/CollapsibleSection.vue";
 export {default as Panel} from "./layout/Panel.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";

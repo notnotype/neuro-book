@@ -8,22 +8,21 @@ Profile 详情中的模型设置区。它把模型与推理强度作为常用字
 
 ## 布局与交互
 
-模型和推理强度在“使用模型”区域常驻；高级模型参数按需展开。高级折叠默认关闭，已有模型覆盖时只显示覆盖数，不自动展开。所有字段由 `AgentProfileModelFields` 负责标签、继承和字段级提示。
+模型和推理强度在“使用模型”区域常驻；高级模型参数按需展开。高级折叠默认关闭，已有模型覆盖时只显示覆盖数，不自动展开；温度或 TopK 出现校验错误时自动展开，确保错误字段可见。所有字段由 `AgentProfileModelFields` 负责标签、继承和字段级提示；温度与 TopK 的页面校验错误由父级映射到对应字段。
 
 ## 数据
 
-```ts
 interface AgentProfileModelSectionProps {
     model: AgentProfileModelDraft;
     inherited: AgentProfileModelConfigDto;
     enabledModels: EnabledModelOptionDto[];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
+    modelErrors?: AgentProfileModelFieldErrors;
     disabled?: boolean;
 }
 interface AgentProfileModelSectionEmits {
     (event: "update:model", value: AgentProfileModelDraft): void;
 }
-```
 
 `disabled` 默认 `false`。无 slots、expose；attrs 不透传。组件不直接改 `model`，更新通过事件回传。
 

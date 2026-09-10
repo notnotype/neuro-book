@@ -212,6 +212,7 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
         <DialogWindow
             v-model="windowOpen"
             title="非模态浮动窗口"
+            title-align="left"
             :width="windowWidth"
             :height="`${windowHeight}px`"
             :resizable="true"

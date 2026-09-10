@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigAgentProfileSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentProfileModelDraft} from "./agent-profile-draft";
+import type {AgentProfileModelDraft, AgentProfileModelFieldErrors} from "./agent-profile-draft";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
 import type {ProfileRuntimeSettingsDraft, ProfileRuntimeSettingsErrors, ProfileRuntimeSettingsSources} from "./profile-runtime-settings";
+import AgentProfileDefaultProfileSection from "./AgentProfileDefaultProfileSection.vue";
 import AgentProfileDefaultModelSection from "./AgentProfileDefaultModelSection.vue";
 import AgentProfileDefaultRuntimeSection from "./AgentProfileDefaultRuntimeSection.vue";
 
@@ -16,6 +17,7 @@ const props = withDefaults(defineProps<{
     globalModelDefaults: AgentProfileModelConfigDto;
     enabledModels: ConfigAgentProfileSettingsDto["enabledModels"];
     validationIssues: ConfigAgentProfileSettingsDto["validationIssues"];
+    modelErrors?: AgentProfileModelFieldErrors;
     runtimeDefaults: ProfileRuntimeSettingsDraft;
     runtimeEffective: ConfigAgentProfileSettingsDto["profileRuntimeDefaults"] | null;
     runtimeSources: ProfileRuntimeSettingsSources | null;
@@ -49,6 +51,7 @@ const emit = defineEmits<{
             :global-model-defaults="props.globalModelDefaults"
             :enabled-models="props.enabledModels"
             :validation-issues="props.validationIssues"
+            :model-errors="props.modelErrors"
             :disabled="props.disabled"
             @update:model-defaults="emit('update:modelDefaults', $event)"
             @reset="emit('reset')"

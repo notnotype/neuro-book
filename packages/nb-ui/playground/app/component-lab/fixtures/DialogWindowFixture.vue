@@ -84,6 +84,7 @@ function onHeight(value: number): void {
             <DialogWindow
                 v-model="open"
                 title="组件库非模态窗口"
+                title-align="left"
                 :width="width"
                 :height="`${height}px`"
                 max-height="calc(100vh - 80px)"

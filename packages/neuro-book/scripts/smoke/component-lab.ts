@@ -6,11 +6,15 @@ import {pathToFileURL} from "node:url";
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page} from "playwright-core";
 import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
+import {assertAgentProfileSettingsDialogSmoke} from "./agent-profile-settings-dialog";
+
+type ComponentLabSmokeSuite = "all" | "core" | "agent-profile";
 
 type ComponentLabSmokeOptions = {
     url: string;
     browserExecutable: string;
     screenshot?: string;
+    suite?: ComponentLabSmokeSuite;
 };
 
 type BrowserFailure = import("./agent-profile-nav").SmokeFailure;
@@ -20,6 +24,7 @@ type BrowserFailure = import("./agent-profile-nav").SmokeFailure;
  * 必须由 Node 启动 Playwright；Windows 下 Bun 连接 Chromium pipe 不稳定。
  */
 export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Promise<void> {
+    const suite = input.suite ?? "all";
     if (process.platform === "win32" && typeof Bun !== "undefined") {
         throw new Error("Component Lab smoke 必须由 Node 运行；Windows Bun 无法可靠连接 Chromium 调试 pipe。");
     }
@@ -49,6 +54,7 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             "右侧检查器应包含文档、元素、事件、数据四个面板",
         );
 
+
         await page.locator("button", {hasText: "检查"}).click();
         await page.locator(".nb-lab-panel--nav > div:nth-child(2)").click();
         assert(await page.locator(".lab-picked-marker .nb-lab-highlight-box").count() === 0, failures, "选中元素不应显示常驻边框");
@@ -59,6 +65,18 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             failures,
             "左侧组件树选中行不应显示左边框",
         );
+        if (suite === "agent-profile") {
+            await assertAgentProfileSettingsDialogSmoke(page, failures);
+            await runAgentProfileNavSmoke(page, failures);
+            if (failures.length > 0) {
+                const screenshot = input.screenshot ?? resolveAgentScratchPath("browser", "component-lab-agent-profile", randomBytes(4).toString("hex"), "failure.png");
+                await mkdir(dirname(screenshot), {recursive: true});
+                await page.screenshot({path: screenshot, fullPage: true});
+                throw new Error(formatFailures(failures, screenshot));
+            }
+            console.log(`Component Lab Agent Profile smoke passed: ${input.url}`);
+            return;
+        }
 
         const viewportCanvasItem = page.locator('[role="treeitem"]').filter({hasText: /^ViewportCanvas$/u});
         await viewportCanvasItem.click();
@@ -80,7 +98,10 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
 
         await page.locator('[role="tab"]').filter({hasText: "数据"}).click();
         await expectText(page, "还原", failures, "数据面板应提供场景重置入口");
-        await runAgentProfileNavSmoke(page, failures);
+        if (suite === "all") {
+            await assertAgentProfileSettingsDialogSmoke(page, failures);
+            await runAgentProfileNavSmoke(page, failures);
+        }
 
         await page.locator('[aria-label="主题"]').click();
         const macosOption = page.locator('[role="option"]').filter({hasText: "macOS"});
@@ -188,9 +209,13 @@ function parseOptions(args: string[]): ComponentLabSmokeOptions {
     const url = values["--url"];
     const browserExecutable = values["--browser-executable"];
     if (!url || !browserExecutable) {
-        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--screenshot <path>]");
+        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile] [--screenshot <path>]");
     }
-    return {url: new URL(url).href, browserExecutable, screenshot: values["--screenshot"]};
+    const suite = values["--suite"];
+    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile") {
+        throw new Error(`无效 smoke 套件：${suite}`);
+    }
+    return {url: new URL(url).href, browserExecutable, screenshot: values["--screenshot"], suite: (suite ?? "all") as ComponentLabSmokeSuite};
 }
 
 function formatFailures(failures: BrowserFailure[], screenshot: string): string {

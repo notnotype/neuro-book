@@ -11,13 +11,12 @@ import AgentProfileIdentitySection from "../../components/novel-ide/settings/age
 import AgentProfileModelSection from "../../components/novel-ide/settings/agent-profile/AgentProfileModelSection.vue";
 import AgentProfileCustomSettingsSection from "../../components/novel-ide/settings/agent-profile/AgentProfileCustomSettingsSection.vue";
 import AgentProfileRuntimeSection from "../../components/novel-ide/settings/agent-profile/AgentProfileRuntimeSection.vue";
-import AgentProfileDiagnosticsSection from "../../components/novel-ide/settings/agent-profile/AgentProfileDiagnosticsSection.vue";
 import AgentProfileDefaultProfileSection from "../../components/novel-ide/settings/agent-profile/AgentProfileDefaultProfileSection.vue";
 import AgentProfileDefaultModelSection from "../../components/novel-ide/settings/agent-profile/AgentProfileDefaultModelSection.vue";
 import AgentProfileDefaultRuntimeSection from "../../components/novel-ide/settings/agent-profile/AgentProfileDefaultRuntimeSection.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
-type SectionKey = "identity" | "model" | "custom-settings" | "runtime" | "diagnostics" | "default-profile" | "default-model" | "default-runtime";
+type SectionKey = "identity" | "model" | "custom-settings" | "runtime" | "default-profile" | "default-model" | "default-runtime";
 
 const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
@@ -133,7 +132,6 @@ const updateSettings = (patch: Partial<NonNullable<AgentProfileDraft["settings"]
         <AgentProfileModelSection v-else-if="selectedSection === 'model'" :model="profile.model" :inherited="modelBaseline" :enabled-models="enabledModels" :validation-issues="[]" @update:model="updateModel" />
         <AgentProfileCustomSettingsSection v-else-if="selectedSection === 'custom-settings'" :profile="profile" scope="project" @update:settings-values="updateSettings({values: $event})" @update:settings-override-paths="updateSettings({overridePaths: $event})" @update:settings-resource-mutations="updateSettings({resourceMutations: $event})" />
         <AgentProfileRuntimeSection v-else-if="selectedSection === 'runtime'" :profile="profile" :runtime-baseline="{settings: runtimeBaseline, sources: runtimeSources}" @update:runtime="updateRuntime" />
-        <AgentProfileDiagnosticsSection v-else-if="selectedSection === 'diagnostics'" :profile="profile" scope="project" :reset-home-disabled="false" :resetting-home="false" @reset="reset" @reset-home="emitLabEvent('reset-home', profile.profileKey)" />
         <AgentProfileDefaultProfileSection v-else-if="selectedSection === 'default-profile'" scope="project" :default-profile-key="defaultProfileKey" :default-profile-options="defaultProfileOptions" effective-default-profile-key="story-writer" :disabled="false" @update:default-profile-key="defaultProfileKey = $event" />
         <AgentProfileDefaultModelSection v-else-if="selectedSection === 'default-model'" scope="project" :model-defaults="modelDefaults" :global-model-defaults="modelBaseline" :enabled-models="enabledModels" :validation-issues="[]" :disabled="false" @update:model-defaults="modelDefaults = $event" @reset="modelDefaults = cloneModelDraft(modelBaseline)" />
         <AgentProfileDefaultRuntimeSection v-else scope="project" :runtime-defaults="runtimeDefaults" :runtime-effective="runtimeBaseline" :runtime-sources="runtimeSources" :runtime-errors="{}" :disabled="false" @update:runtime-defaults="runtimeDefaults = $event" />

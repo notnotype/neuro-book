@@ -85,6 +85,9 @@ export type AgentProfileModelDraft = {
     stream: boolean | null;
 };
 
+/** 页面模型校验可定位到高级数值字段的错误。 */
+export type AgentProfileModelFieldErrors = Partial<Record<"temperature" | "topK", string>>;
+
 /**
  * 将数字配置转成表单文本；非有限值统一落到空串（表示继承）。
  */

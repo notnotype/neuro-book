@@ -5,10 +5,10 @@
 # AgentProfileRuntimeSection
 
 Profile 运行策略覆盖区。它负责折叠容器、覆盖数量和运行策略基线传递；自动摘要、上下文压缩、文件变更提示的字段由 `ProfileRuntimeSettingsFields` 展示。
-
 ## 布局与交互
 
 运行策略默认折叠；已有覆盖时初始展开，标题显示覆盖数量。运行时出现字段错误会自动展开并显示错误图标。入口是键盘可达的 disclosure 按钮，展开与收起沿用 nb-ui `Collapsible` 的高度/透明度动画；展开后保留摘要、压缩和文件变更三组字段。没有运行基线时显示不可用说明。
+
 ## 数据
 
 ```ts

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
-import {Badge, Collapsible} from "@notnotype/nb-ui/components";
+import {Badge, CollapsibleSection} from "@notnotype/nb-ui/components";
 import type {LowCodeJsonObject, LowCodeResourceMutationDto} from "nbook/shared/dto/low-code-form.dto";
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
 import type {AgentProfileDraft} from "./agent-profile-draft";
@@ -28,15 +28,15 @@ const settingsOverrideCount = computed(() => props.profile.settings ? props.prof
 </script>
 
 <template>
-    <section v-if="hasPresetsSection">
-        <Collapsible v-model:open="settingsExpanded" :disabled="props.disabled">
-            <template #trigger>
-                <button type="button" class="group flex min-h-9 w-full items-center gap-2 rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-input)] px-2.5 py-2 text-left transition-colors hover:border-[var(--accent-main)] hover:bg-[var(--bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-main)] disabled:cursor-not-allowed disabled:opacity-60" :aria-expanded="settingsExpanded">
-                    <span class="i-lucide-sliders-horizontal h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] transition-colors group-hover:text-[var(--accent-main)]" aria-hidden="true"></span>
-                    <span class="min-w-0 flex-1 text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.settingsView.profilePresets") }}</span>
-                    <Badge v-if="settingsOverrideCount > 0" tone="neutral">{{ t("settings.panels.profileModels.overrideCount", {count: settingsOverrideCount}) }}</Badge>
-                    <span class="i-lucide-chevron-down h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform duration-200" :class="settingsExpanded ? 'rotate-180 text-[var(--accent-main)]' : ''" aria-hidden="true"></span>
-                </button>
+    <section v-if="hasPresetsSection" class="border-t border-[var(--divider)] pt-3">
+        <CollapsibleSection
+            v-model:open="settingsExpanded"
+            icon-class="i-lucide-sliders-horizontal"
+            :label="t('settings.panels.profileModels.settingsView.profilePresets')"
+            :disabled="props.disabled"
+        >
+            <template #meta>
+                <Badge v-if="settingsOverrideCount > 0" tone="neutral">{{ t("settings.panels.profileModels.overrideCount", {count: settingsOverrideCount}) }}</Badge>
             </template>
             <div class="mt-2">
                 <p v-if="canEditSettings && props.profile.settings" class="mb-3 text-[11px] text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.profilePresetsDescription") }}</p>
@@ -58,6 +58,6 @@ const settingsOverrideCount = computed(() => props.profile.settings ? props.prof
                 <p v-else-if="props.profile.loadStatus !== 'loaded'" class="text-xs text-[var(--text-muted)]">{{ t("settings.panels.profileModels.settingsView.presetsUnavailable") }}</p>
                 <p v-else class="text-xs text-[var(--text-muted)]">{{ t("settings.panels.profileModels.settingsView.noPresets") }}</p>
             </div>
-        </Collapsible>
+        </CollapsibleSection>
     </section>
 </template>
