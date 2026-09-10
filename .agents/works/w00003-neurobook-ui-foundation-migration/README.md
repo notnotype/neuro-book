@@ -14,7 +14,7 @@ issueId: i191
 
 1. 新组件在 `packages/nb-ui` 或其领域 owner 中实现，只消费 nb-ui 语义 token；组件不得通过 `isLab`、路由或旧主题变量区分宿主。
 2. 每个组件先在 NeuroBook Component Lab 完成同名文档、确定性 fixture、状态与关键交互、键盘/焦点/ARIA、桌面和 `390 × 844` 验证，达到 `Lab-ready`。
-3. 第一个真实界面由开发者与 Agent 协作迁移，逐步记录边界识别、宿主依赖上移、主题适配、fixture、验证、失败与踩坑；该记录成为后续批次的输入，不预先假定所有组件步骤相同。
+3. 第一个真实界面由开发者与 Agent 协作迁移，逐步记录边界识别、宿主依赖上移、主题适配、fixture、验证、失败与踩坑；该记录成为后续批次的输入，不预先假定所有组件步骤相同。参考实现：Agent Profile 设置页（t15），配方与坑表见 [t13 walkthrough 002](tasks/t13-lab-first-migration-strategy/walkthroughs/002-trial-migration-gold-standard.md)。
 4. 协作试迁移闭合后，Leader 按实际依赖拆分可独立验收的 Agent 自主迁移批次。Agent 自行查明代码、规范和测试可回答的事实；无法消除的产品取舍与风险逐项记录并请求开发者决定。
 5. 目标组件达到 Lab-ready 后，再创建 C 产品 `theme.system` clean cutover Task。C 让主页面成为 nb-ui 主题的合法宿主，但不以 Lab 主题状态代替产品配置、首帧和失败合同。
 6. C 闭合后按消费者批次把主页接到新组件，恢复真实功能、构建、typecheck、测试和产品 surface 验收；全部消费者切换后删除旧组件与旧主题 authority。

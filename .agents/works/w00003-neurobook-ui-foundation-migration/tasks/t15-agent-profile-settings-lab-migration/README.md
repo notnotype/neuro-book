@@ -58,3 +58,5 @@ role: tasker
 - LowCodeForm 其余字段控件全部换成 nb-ui（`FormInput` / `FormTextarea` / `Switch` / `SegmentedControl` / `RadioGroup` / `CheckboxGroup`），资源预设字段连同两个对话框、管理器按钮一并换掉；下拉组合框保留实现但改用 nb-ui 控件基座与浮层基座（nb-ui 无同语义组件）。该目录已无旧 `app/components/common/form/*` 引用。
 - 身份区（详情页标题块）从四行小字收敛到三行：`profileKey` 与来源路径合并为一行等宽元数据并去掉 `源文件:` 标签；「使用模型」「专属设置」补 `border-t pt-3`，每个区段边界都有分隔线。
 - 未修改 `LabShell.vue`、`DialogWindow` 的 Portal 目标、侧栏拖宽范围或用户文件 `packages/neuro-book/eval-tmp.ts`。
+- 复审收口（提交后独立审查）：`LowCodeCheckboxField` 曾按选项键重建取值，会静默丢掉「选项已下线」与「当前 disabled」两种历史值——改为只增删控件渲染出来的选项，其余原样带过，并补三个回归用例（无修复时失败）；`CollapsibleSection` 删除 `defaultOpen` 非受控路径（chevron 与内容不同源，箭头会指反）；`withDefaults` 中残留的 `resettingHomeKey` 与导航 fixture 的死常量 `fixtureStateKeys` 删除。
+- 迁移配方、坑表与复用要求沉淀在 [t13 walkthrough 002](../t13-lab-first-migration-strategy/walkthroughs/002-trial-migration-gold-standard.md)；本页是实施记录，后续批次以那份为准。
