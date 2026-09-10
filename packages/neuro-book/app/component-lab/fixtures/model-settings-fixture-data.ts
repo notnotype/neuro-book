@@ -4,8 +4,63 @@ import type {
     ModelSettingsModelDraft,
     ModelSettingsProviderDraft,
 } from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
-import type {ModelApiOption, SavedModelGroupView} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
+import type {
+    DiscoveryModelGroup,
+    ManualModelDraft,
+    ModelApiOption,
+    ModelLibraryGroup,
+    SavedModelGroupView,
+} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+
+/** 发现结果与 Model Library 的样例：三种状态各一条，用来核对列表分组渲染。 */
+export const DISCOVERY_MODEL_GROUPS: DiscoveryModelGroup[] = [
+    {
+        group: "gpt",
+        models: [
+            {name: "GPT-5.1", id: "gpt-5.1", group: "gpt", state: "enabled"},
+            {name: "o4-mini", id: "o4-mini", group: "gpt", state: "remote-complete"},
+            {name: "内部模型", id: "internal-llm", group: "gpt", state: "disabled"},
+        ],
+    },
+];
+
+export const MODEL_LIBRARY_GROUPS: ModelLibraryGroup[] = [
+    {
+        group: "gpt",
+        models: [
+            {
+                id: "gpt-5.1",
+                name: "GPT-5.1",
+                source: "openai",
+                reasoning: true,
+                thinkingLevelMap: null,
+                input: ["text"],
+                contextWindowTokens: 400000,
+                maxTokens: 128000,
+            },
+        ],
+    },
+];
+
+export const MANUAL_MODEL_DRAFT: ManualModelDraft = {
+    name: "",
+    id: "",
+    api: "",
+    group: "",
+    contextWindowTokens: "",
+    maxTokens: "",
+};
+
+export const DISCOVERY_DIAGNOSTICS = {
+    fetchedCount: 42,
+    returnedCount: 38,
+    skippedCount: 3,
+    duplicateCount: 1,
+    pageCount: 2,
+    truncated: false,
+    partial: true,
+};
 
 /**
  * 模型区段 Lab 场景的确定性数据：只构造草稿与视图数据，不碰会话、store 或网络。

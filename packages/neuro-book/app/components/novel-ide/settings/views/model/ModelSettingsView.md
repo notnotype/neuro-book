@@ -36,6 +36,25 @@ type Props = {
     selectedTemplate: string;
     modelApiOptions: ModelApiOption[];
     maxRetriesPlaceholder: number;
+    // 五个对话框的开关与内容都由宿主的会话持有
+    validationDialogOpen: boolean;
+    deleteProviderDialogOpen: boolean;
+    modelEditDialogOpen: boolean;
+    discoveryDialogOpen: boolean;
+    modelLibraryDialogOpen: boolean;
+    editingModel: ModelSettingsModelDraft | null;
+    editingLibraryModel: ModelLibraryEntryDto | null;
+    editingModelMissingFields: string[];
+    editingTransientCandidate: boolean;
+    discoveryGroups: DiscoveryModelGroup[];
+    discoverySearchQuery: string;
+    discoveryExpandedGroups: Record<string, boolean>;
+    discoveryDiagnostics: DiscoveryDiagnosticsView | null;
+    discoveryManualDraft: ManualModelDraft;
+    modelLibraryGroups: ModelLibraryGroup[];
+    modelLibrarySearchQuery: string;
+    modelLibraryExpandedGroups: Record<string, boolean>;
+    enabledModelIds: Set<string>;
 };
 
 type Emits = {
@@ -64,6 +83,8 @@ type Emits = {
 ```
 
 `NovelIdeModelSelect`（默认模型下拉）、`AgentVisibleModelsEditor`（可见模型清单）、`SavedModelsList`（已保存模型清单）与三个对话框都是被搬进 `model/` 的既有子组件，本层只负责组合与传参：`SavedModelsList` 的五个模型行动作与两个底部入口逐一转成同名 emit，只有分组折叠留在视图内。
+
+五个对话框（编辑设置、模型发现、Model Library、校验问题全列表、删除 Provider 确认）都挂在这一层，开关由宿主的会话状态通过 `*DialogOpen` props 控制，打开与关闭各自 emit 交回。编辑对话框要用的五个派生文案（上下文窗口 / 最大输出 / 输入能力 / 推理能力 / 分组）由本层用共享纯模块算好传入，不额外占用 props。移动进来的三个对话框内部仍用 app 公共 `Dialog`，它的默认 teleport 目标是产品外壳的 `.novel-ide-theme`，因此 Lab fixture 里放了同一个宿主类名——这不是视觉包装，是这套 Dialog 的挂载前提。
 
 ## 布局规则
 

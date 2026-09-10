@@ -20,6 +20,9 @@ import ModelSettingsView from "../../components/novel-ide/settings/views/model/M
 import type {ModelSettingsDraft} from "../../components/novel-ide/settings/views/model/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
+    DISCOVERY_DIAGNOSTICS,
+    DISCOVERY_MODEL_GROUPS,
+    MANUAL_MODEL_DRAFT,
     MODEL_API_OPTIONS,
     MODEL_DEFAULT_MODEL_OPTIONS,
     MODEL_PROVIDER_TEMPLATES,
@@ -248,6 +251,14 @@ const dialogOpen = ref(false);
 const modelDraft = ref<ModelSettingsDraft>(buildModelSettingsDraft());
 const modelActiveProviderKey = ref("provider-openai");
 const modelSelectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
+/** 模型区段的五个对话框在外壳场景里共用一个开关；会话在宿主侧由同样的状态驱动。 */
+const modelDialogOpen = ref<"none" | "validation" | "delete" | "edit" | "discovery" | "library">("none");
+const modelEditingDraft = computed(() => modelDialogOpen.value === "edit" ? modelDraft.value.providers[0]?.models[0] ?? null : null);
+const modelManualDraft = ref({...MANUAL_MODEL_DRAFT});
+const modelDiscoverySearchQuery = ref("");
+const modelLibrarySearchQuery = ref("");
+const modelDialogExpandedGroups = ref<Record<string, boolean>>({});
+const modelEnabledModelIds = new Set<string>();
 /**
  * 初始尺寸完全交给 size="lg"，不在这里重复写一份数字：只有用户拖动过之后才用受控值接管，
  * 否则预设一改，场景就会悄悄停在旧数值上。
@@ -271,6 +282,11 @@ watch(sceneKey, (scene) => {
     modelDraft.value = buildModelSettingsDraft();
     modelActiveProviderKey.value = "provider-openai";
     modelSelectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
+    modelDialogOpen.value = "none";
+    modelManualDraft.value = {...MANUAL_MODEL_DRAFT};
+    modelDiscoverySearchQuery.value = "";
+    modelLibrarySearchQuery.value = "";
+    modelDialogExpandedGroups.value = {};
     dialogOpen.value = scene === "dialog-window";
 }, {immediate: true});
 
@@ -330,7 +346,8 @@ function openDialog(): void {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 flex-col">
+    <!-- app 公共 Dialog 的默认 teleport 目标是产品外壳的 .novel-ide-theme；Lab 里由 fixture 提供同一个宿主。 -->
+    <div class="novel-ide-theme flex h-full min-h-0 flex-col">
         <div v-if="!isDialogScene" class="min-h-0 flex-1">
             <NovelIdeSettingsView
                 :scope="scope"
@@ -417,9 +434,44 @@ function openDialog(): void {
                     :selected-template="modelSelectedTemplate"
                     :model-api-options="MODEL_API_OPTIONS"
                     :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                    :validation-dialog-open="modelDialogOpen === 'validation'"
+                    :delete-provider-dialog-open="modelDialogOpen === 'delete'"
+                    :model-edit-dialog-open="modelDialogOpen === 'edit'"
+                    :discovery-dialog-open="modelDialogOpen === 'discovery'"
+                    :model-library-dialog-open="modelDialogOpen === 'library'"
+                    :editing-model="modelEditingDraft"
+                    :editing-library-model="null"
+                    :editing-model-missing-fields="[]"
+                    :editing-transient-candidate="false"
+                    :discovery-groups="DISCOVERY_MODEL_GROUPS"
+                    :discovery-search-query="modelDiscoverySearchQuery"
+                    :discovery-expanded-groups="modelDialogExpandedGroups"
+                    :discovery-diagnostics="DISCOVERY_DIAGNOSTICS"
+                    :discovery-manual-draft="modelManualDraft"
+                    :model-library-groups="[]"
+                    :model-library-search-query="modelLibrarySearchQuery"
+                    :model-library-expanded-groups="modelDialogExpandedGroups"
+                    :enabled-model-ids="modelEnabledModelIds"
                     @update:draft="updateModelDraft"
                     @update:selected-template="modelSelectedTemplate = $event"
                     @select-provider="modelActiveProviderKey = $event"
+                    @edit-model="modelDialogOpen = 'edit'"
+                    @open-discovery="modelDialogOpen = 'discovery'"
+                    @open-library="modelDialogOpen = 'library'"
+                    @request-delete-provider="modelDialogOpen = 'delete'"
+                    @open-validation-issues="modelDialogOpen = 'validation'"
+                    @update:validation-dialog-open="modelDialogOpen = $event ? 'validation' : 'none'"
+                    @update:delete-provider-dialog-open="modelDialogOpen = $event ? 'delete' : 'none'"
+                    @update:model-edit-dialog-open="modelDialogOpen = $event ? 'edit' : 'none'"
+                    @update:discovery-dialog-open="modelDialogOpen = $event ? 'discovery' : 'none'"
+                    @update:model-library-dialog-open="modelDialogOpen = $event ? 'library' : 'none'"
+                    @confirm-delete-provider="modelDialogOpen = 'none'"
+                    @confirm-model-edit="modelDialogOpen = 'none'"
+                    @update:discovery-search-query="modelDiscoverySearchQuery = $event"
+                    @update:model-library-search-query="modelLibrarySearchQuery = $event"
+                    @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
+                    @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                    @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -532,9 +584,44 @@ function openDialog(): void {
                         :selected-template="modelSelectedTemplate"
                         :model-api-options="MODEL_API_OPTIONS"
                         :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                        :validation-dialog-open="modelDialogOpen === 'validation'"
+                        :delete-provider-dialog-open="modelDialogOpen === 'delete'"
+                        :model-edit-dialog-open="modelDialogOpen === 'edit'"
+                        :discovery-dialog-open="modelDialogOpen === 'discovery'"
+                        :model-library-dialog-open="modelDialogOpen === 'library'"
+                        :editing-model="modelEditingDraft"
+                        :editing-library-model="null"
+                        :editing-model-missing-fields="[]"
+                        :editing-transient-candidate="false"
+                        :discovery-groups="DISCOVERY_MODEL_GROUPS"
+                        :discovery-search-query="modelDiscoverySearchQuery"
+                        :discovery-expanded-groups="modelDialogExpandedGroups"
+                        :discovery-diagnostics="DISCOVERY_DIAGNOSTICS"
+                        :discovery-manual-draft="modelManualDraft"
+                        :model-library-groups="[]"
+                        :model-library-search-query="modelLibrarySearchQuery"
+                        :model-library-expanded-groups="modelDialogExpandedGroups"
+                        :enabled-model-ids="modelEnabledModelIds"
                         @update:draft="updateModelDraft"
                         @update:selected-template="modelSelectedTemplate = $event"
                         @select-provider="modelActiveProviderKey = $event"
+                        @edit-model="modelDialogOpen = 'edit'"
+                        @open-discovery="modelDialogOpen = 'discovery'"
+                        @open-library="modelDialogOpen = 'library'"
+                        @request-delete-provider="modelDialogOpen = 'delete'"
+                        @open-validation-issues="modelDialogOpen = 'validation'"
+                        @update:validation-dialog-open="modelDialogOpen = $event ? 'validation' : 'none'"
+                        @update:delete-provider-dialog-open="modelDialogOpen = $event ? 'delete' : 'none'"
+                        @update:model-edit-dialog-open="modelDialogOpen = $event ? 'edit' : 'none'"
+                        @update:discovery-dialog-open="modelDialogOpen = $event ? 'discovery' : 'none'"
+                        @update:model-library-dialog-open="modelDialogOpen = $event ? 'library' : 'none'"
+                        @confirm-delete-provider="modelDialogOpen = 'none'"
+                        @confirm-model-edit="modelDialogOpen = 'none'"
+                        @update:discovery-search-query="modelDiscoverySearchQuery = $event"
+                        @update:model-library-search-query="modelLibrarySearchQuery = $event"
+                        @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
+                        @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                        @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>

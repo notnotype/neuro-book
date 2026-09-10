@@ -2,11 +2,18 @@
 import {computed, ref} from "vue";
 import {Button, FormSelect} from "@notnotype/nb-ui/components";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
+import Dialog from "nbook/app/components/common/Dialog.vue";
+import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
+import {deriveModelGroup} from "nbook/shared/models/model-group";
 import AgentVisibleModelsEditor from "./AgentVisibleModelsEditor.vue";
 import NovelIdeModelSelect from "./NovelIdeModelSelect.vue";
+import ModelDiscoveryDialog from "./ModelDiscoveryDialog.vue";
+import ModelLibraryDialog from "./ModelLibraryDialog.vue";
 import ModelProviderDetail from "./ModelProviderDetail.vue";
 import ModelProviderRail from "./ModelProviderRail.vue";
-import type {ModelSettingsDraft, ModelSettingsProviderDraft} from "./model-settings-draft";
+import NovelIdeModelEditDialog from "./NovelIdeModelEditDialog.vue";
+import {parseDraftInteger, parseModelInput, parseModelReasoning} from "./model-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft, ModelSettingsProviderDraft} from "./model-settings-draft";
 import type {ModelSettingsViewEmits, ModelSettingsViewProps} from "./ModelSettingsView.types";
 
 const props = withDefaults(defineProps<ModelSettingsViewProps>(), {
@@ -22,11 +29,47 @@ const {t} = useI18n();
 const expandedGroups = ref<Record<string, boolean>>({});
 
 const activeProvider = computed<ModelSettingsProviderDraft | null>(() => props.draft.providers.find((provider) => provider.localKey === props.activeProviderKey) ?? null);
+const discoveringActiveProvider = computed(() => props.discoveringProviderId !== "" && props.discoveringProviderId === activeProvider.value?.id);
 const templateOptions = computed<FormSelectOption[]>(() => props.providerTemplates.map((item) => ({
     value: item.id,
     label: item.name,
     description: item.description,
 })));
+
+const modelInputOptions = computed<Array<{value: ModelInputKind; label: string; iconClass: string}>>(() => [
+    {value: "text", label: t("settings.panels.models.textInput"), iconClass: "i-lucide-type"},
+    {value: "image", label: t("settings.panels.models.imageInput"), iconClass: "i-lucide-image"},
+]);
+
+/** 下面五个是编辑对话框要用的纯派生文案：只依赖草稿字段与 i18n，不碰会话。 */
+function formatTokenLimit(value: number | null | undefined): string {
+    return typeof value === "number" && Number.isFinite(value)
+        ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 0}).format(value)
+        : t("settings.panels.models.unknown");
+}
+
+function modelContextWindowDefaultLabel(model: ModelSettingsModelDraft): string {
+    const value = parseDraftInteger(model.contextWindowTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
+}
+
+function modelMaxTokensDefaultLabel(model: ModelSettingsModelDraft): string {
+    const value = parseDraftInteger(model.maxTokens);
+    return value ? `${formatTokenLimit(value)} tokens` : t("settings.panels.modelEdit.requiredForCustomModel");
+}
+
+function modelInputDisplayLabel(model: ModelSettingsModelDraft): string {
+    return (parseModelInput(model.input) ?? []).map((item) => modelInputOptions.value.find((option) => option.value === item)?.label ?? item).join(" / ");
+}
+
+function modelInputEnabled(model: ModelSettingsModelDraft, inputKind: ModelInputKind): boolean {
+    return (parseModelInput(model.input) ?? []).includes(inputKind);
+}
+
+function modelReasoningDisplayLabel(model: ModelSettingsModelDraft): string {
+    const reasoning = parseModelReasoning(model.reasoning);
+    return reasoning === null ? t("settings.panels.models.unknown") : reasoning ? t("settings.panels.models.supported") : t("settings.panels.models.unsupported");
+}
 
 function patchDraft(patch: Partial<ModelSettingsDraft>): void {
     emit("update:draft", {...props.draft, ...patch});
@@ -156,7 +199,7 @@ function toggleGroup(group: string): void {
                 :disabled-models="props.disabledModels"
                 :active-provider-checking-model-count="props.activeProviderCheckingModelCount"
                 :checking-all-models="props.checkingAllModels"
-                :discovering="props.discoveringProviderId !== '' && props.discoveringProviderId === activeProvider?.id"
+                :discovering="discoveringActiveProvider"
                 :expanded-groups="expandedGroups"
                 :max-retries-placeholder="props.maxRetriesPlaceholder"
                 :saving="props.saving"
@@ -179,6 +222,101 @@ function toggleGroup(group: string): void {
                 @toggle-group="toggleGroup"
             />
         </div>
+
+        <!-- 草稿问题的完整列表；开关与会话状态由宿主持有。 -->
+        <Dialog
+            :model-value="props.validationDialogOpen"
+            :title="t('settings.panels.models.validationIssuesTitle')"
+            width="680px"
+            height="70%"
+            overlay-type="opaque"
+            :show-footer="false"
+            @update:model-value="emit('update:validationDialogOpen', $event)"
+        >
+            <div class="h-full space-y-2 overflow-y-auto pr-1 custom-scrollbar">
+                <div v-for="(issue, index) in props.validationIssues" :key="`${issue.code}-${issue.path.join('.')}-${String(index)}`" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2.5">
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <span class="rounded bg-[var(--status-warning-bg)] px-1.5 py-0.5 font-medium text-[var(--status-warning)]">{{ issue.code }}</span>
+                        <span v-if="issue.modelKey" class="font-mono text-[var(--text-main)]">{{ issue.modelKey }}</span>
+                    </div>
+                    <p class="mt-1.5 text-sm text-[var(--text-main)]">{{ issue.message }}</p>
+                    <p class="mt-1 break-all font-mono text-[11px] text-[var(--text-muted)]">{{ issue.path.join(".") }}</p>
+                </div>
+            </div>
+        </Dialog>
+
+        <Dialog
+            :model-value="props.deleteProviderDialogOpen"
+            :title="t('settings.panels.models.deleteProviderTitle')"
+            width="420px"
+            overlay-type="opaque"
+            show-cancel
+            @update:model-value="emit('update:deleteProviderDialogOpen', $event)"
+            @confirm="emit('confirm-delete-provider')"
+        >
+            <div v-if="activeProvider" class="space-y-3">
+                <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.deleteProviderMessage", {name: activeProvider.name}) }}</p>
+                <p class="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ t("settings.panels.models.deleteProviderWarning") }}</p>
+            </div>
+        </Dialog>
+
+        <ModelDiscoveryDialog
+            v-if="activeProvider"
+            :model-value="props.discoveryDialogOpen"
+            :provider-name="activeProvider.name"
+            :groups="props.discoveryGroups"
+            :search-query="props.discoverySearchQuery"
+            :discovering="discoveringActiveProvider"
+            :expanded-groups="props.discoveryExpandedGroups"
+            :diagnostics="props.discoveryDiagnostics"
+            :manual-draft="props.discoveryManualDraft"
+            :model-api-options="props.modelApiOptions"
+            @update:model-value="emit('update:discoveryDialogOpen', $event)"
+            @update:search-query="emit('update:discoverySearchQuery', $event)"
+            @update-manual-field="(field, value) => emit('update:discoveryManualField', field, value)"
+            @discover="emit('discover')"
+            @toggle-group="emit('toggle-discovery-group', $event)"
+            @toggle-model="emit('toggle-discovered-model', $event)"
+            @add-manual="emit('add-manual-model')"
+        />
+
+        <ModelLibraryDialog
+            v-if="activeProvider"
+            :model-value="props.modelLibraryDialogOpen"
+            :groups="props.modelLibraryGroups"
+            :search-query="props.modelLibrarySearchQuery"
+            :expanded-groups="props.modelLibraryExpandedGroups"
+            :enabled-model-ids="props.enabledModelIds"
+            @update:model-value="emit('update:modelLibraryDialogOpen', $event)"
+            @update:search-query="emit('update:modelLibrarySearchQuery', $event)"
+            @toggle-group="emit('toggle-model-library-group', $event)"
+            @toggle-model="emit('toggle-library-model', $event)"
+        />
+
+        <NovelIdeModelEditDialog
+            :model-value="props.modelEditDialogOpen"
+            :editing-model="props.editingModel"
+            :active-provider="activeProvider"
+            :library-model="props.editingLibraryModel"
+            :confirm-mode="props.editingTransientCandidate"
+            :missing-fields="props.editingModelMissingFields"
+            :model-api-options="props.modelApiOptions"
+            :model-input-options="modelInputOptions"
+            :derive-group="deriveModelGroup"
+            :model-context-window-default-label="modelContextWindowDefaultLabel"
+            :model-max-tokens-default-label="modelMaxTokensDefaultLabel"
+            :model-input-display-label="modelInputDisplayLabel"
+            :model-input-enabled="modelInputEnabled"
+            :model-reasoning-display-label="modelReasoningDisplayLabel"
+            @update:model-value="emit('update:modelEditDialogOpen', $event)"
+            @model-id-change="emit('model-id-change')"
+            @toggle-model-input="(model, inputKind) => emit('toggle-model-input', model, inputKind)"
+            @reset-model-input="emit('reset-model-input', $event)"
+            @reset-model-cost="emit('reset-model-cost', $event)"
+            @enable-model-cost="emit('enable-model-cost', $event)"
+            @reapply-library="emit('reapply-library', $event)"
+            @confirm="emit('confirm-model-edit')"
+        />
     </div>
 </template>
 

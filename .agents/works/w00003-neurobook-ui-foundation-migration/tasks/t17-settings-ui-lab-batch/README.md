@@ -143,11 +143,29 @@ role: tasker
 
 过程中的一个坑：新增 fixture 后 Lab 有时不会重挂画布（HMR 只换了组件树条目），第一次截图拿到的是上一个组件的画面——验证新 fixture 要整页刷新，不能只看画布标题。
 
+## 切片 8：模型区段对话框层（已完成）
+
+产出：
+
+- 三个对话框搬进 `views/model/`：`NovelIdeModelEditDialog.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue`（只有旧面板导入它们，改动面最小）。
+- `ModelSettingsView` 挂上五个对话框：编辑设置、模型发现、Model Library、校验问题全列表、删除 Provider 确认。开关全部是 props（`validationDialogOpen` / `deleteProviderDialogOpen` / `modelEditDialogOpen` / `discoveryDialogOpen` / `modelLibraryDialogOpen`），开关与关闭各有同名 emit；编辑对话框要用的五个派生文案（上下文窗口 / 最大输出 / 输入能力 / 推理能力 / 分组）由本层用共享纯模块算好，不额外占用 props。
+- fixture 场景从 7 个增到 12 个（问题列表 / 删除确认 / 编辑模型 / 模型发现 / Model Library）；外壳 fixture 增加一个对话框开关与对应 handler（否则外壳里点不开），并复用同一份发现结果、Model Library 与手工草稿样例。
+- smoke 新增「模型区段对话框」一段：点「编辑设置」应打开带四个页签的编辑对话框，Escape 关闭后不得残留可见 surface；点「从 Model Library 添加」应打开模型管理库对话框。
+
+实测：`sectionCount 6` 不变，切段与对话框断言全绿，`overflow 0`；编辑对话框 980×760、页签「基本信息 / 能力与限制 / 请求参数 / 价格」齐全，同一时刻只有一个可见 `[data-dialog-surface]`，Escape 可关闭；模型管理库对话框标题与说明正常。
+
+过程中被 smoke 的 console 守卫抓到的真实缺陷：app 公共 `Dialog` 默认 teleport 到产品外壳的 `.novel-ide-theme`（`IDE_THEME_HOST_CLASS`），Lab fixture 里没有这个宿主，于是挂载即报 `Failed to locate Teleport target` 加一次 unmount TypeError。修法是两个 fixture 的根节点带上同一个宿主类名——这不是视觉包装，是这套 Dialog 的挂载前提，也顺带让 Lab 的内容落在与产品一致的 DOM 上下文里。
+
+另一个坑：模板里的 `$event` 只带第一个参数，多参 emit（`toggle-model-input`、`update:discovery-manual-field`）必须写成箭头函数或具名方法，否则第二个参数静默丢失。
+
 ## 剩余工作（尚未开始）
 
-模型区段的渲染层已迁完，剩对话框层一个切片：
+本 Task 的切片已全部完成：外壳 + 七个区段（Agent Profile 模型、可观测、费用显示、向量嵌入、Web 工具、编辑器、桌面应用、密码保护、模型设置）都已是 Lab 可预览、可调试的受控视图。
 
-1. **模型区段对话框层**：`NovelIdeModelEditDialog.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue` 搬进 `views/model/`，连同校验问题全列表与删除 Provider 确认两个内联 `Dialog`，一起挂到 `ModelSettingsView` 上（props / emits 命名规则同渲染层；fixture 与外壳 fixture 都要补 `*Open` 开关与 handler，否则在外壳里点不开）。
+仍然不在本 Task 内、需要独立任务的两块：
+
+1. **产品宿主接线**（路线第 5–7 步）：把 `NovelIdeSettingsDialog` 的七个旧面板换成 `views/` 下的受控视图，并按「返工风险清单」先清掉双份序列化、`SettingsSavePanelExpose` 协议、fixture 自造的作用域矩阵与尺寸来源。
+2. **`frontend`（主题）区段**：含主题卡片与主题编辑器，属主题 authority，需主题侧独立任务。
 
 产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
 

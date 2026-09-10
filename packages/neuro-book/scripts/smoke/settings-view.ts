@@ -197,6 +197,39 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `模型区段应渲染 API Key、两个数字字段与请求扩展参数：${JSON.stringify(modelSection)}`,
         );
 
+        stage = "模型区段对话框";
+        await page.locator('.settings-detail-section button[title="编辑设置"]').first().click();
+        await page.waitForTimeout(300);
+        const editDialog = await page.evaluate(() => {
+            const surfaces = [...document.querySelectorAll<HTMLElement>("[data-dialog-surface]")].filter((surface) => surface.getBoundingClientRect().width > 0);
+            return {surfaces: surfaces.length, hasTabs: surfaces.some((surface) => (surface.textContent ?? "").includes("基本信息"))};
+        });
+        assert(
+            editDialog.surfaces >= 1 && editDialog.hasTabs,
+            failures,
+            `点「编辑设置」应打开带页签的模型编辑对话框：${JSON.stringify(editDialog)}`,
+        );
+
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(300);
+        const editDialogClosed = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>("[data-dialog-surface]")]
+            .filter((surface) => surface.getBoundingClientRect().width > 0).length);
+        assert(editDialogClosed === 0, failures, `Escape 应关闭模型编辑对话框：${String(editDialogClosed)}`);
+
+        await page.locator(".settings-detail-section").getByText("从 Model Library 添加").first().click();
+        await page.waitForTimeout(300);
+        const libraryDialog = await page.evaluate(() => {
+            const surfaces = [...document.querySelectorAll<HTMLElement>("[data-dialog-surface]")].filter((surface) => surface.getBoundingClientRect().width > 0);
+            return {surfaces: surfaces.length, hasTitle: surfaces.some((surface) => (surface.textContent ?? "").includes("模型管理库"))};
+        });
+        assert(
+            libraryDialog.surfaces >= 1 && libraryDialog.hasTitle,
+            failures,
+            `点「从 Model Library 添加」应打开模型管理库对话框：${JSON.stringify(libraryDialog)}`,
+        );
+        await page.keyboard.press("Escape");
+        await page.waitForTimeout(250);
+
         stage = "切回 Agent Profile 区段";
         await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile 模型"}).first().click();
         await page.waitForTimeout(200);

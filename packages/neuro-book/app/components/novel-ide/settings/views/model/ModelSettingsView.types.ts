@@ -1,7 +1,15 @@
 import type {ProviderConfigIssue} from "@notnotype/neuro-book-contracts/provider-config";
-import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {EnabledModelOptionDto, ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelSettingsDraft, ModelSettingsModelDraft} from "./model-settings-draft";
-import type {ModelApiOption, SavedModelGroupView} from "./model-settings-view";
+import type {
+    DiscoveryDiagnosticsView,
+    DiscoveryListModel,
+    DiscoveryModelGroup,
+    ManualModelDraft,
+    ModelApiOption,
+    ModelLibraryGroup,
+    SavedModelGroupView,
+} from "./model-settings-view";
 
 /**
  * 模型区段渲染层的受控契约：每个渲染用到的会话字段都作为 props 传入（名字与会话字段一致），
@@ -38,6 +46,27 @@ export type ModelSettingsViewProps = {
     modelApiOptions: ModelApiOption[];
     /** 最大重试次数留空时的默认值，只用于占位 */
     maxRetriesPlaceholder: number;
+    /** 五个对话框的开关都由宿主（会话）持有 */
+    validationDialogOpen: boolean;
+    deleteProviderDialogOpen: boolean;
+    modelEditDialogOpen: boolean;
+    discoveryDialogOpen: boolean;
+    modelLibraryDialogOpen: boolean;
+    /** 正在编辑的模型与它的 Model Library 资料（未命中时为空） */
+    editingModel: ModelSettingsModelDraft | null;
+    editingLibraryModel: ModelLibraryEntryDto | null;
+    editingModelMissingFields: string[];
+    /** true 表示正在编辑尚未进入配置的临时候选（发现结果里手工补全的那条） */
+    editingTransientCandidate: boolean;
+    discoveryGroups: DiscoveryModelGroup[];
+    discoverySearchQuery: string;
+    discoveryExpandedGroups: Record<string, boolean>;
+    discoveryDiagnostics: DiscoveryDiagnosticsView | null;
+    discoveryManualDraft: ManualModelDraft;
+    modelLibraryGroups: ModelLibraryGroup[];
+    modelLibrarySearchQuery: string;
+    modelLibraryExpandedGroups: Record<string, boolean>;
+    enabledModelIds: Set<string>;
 };
 
 export type ModelSettingsViewEmits = {
@@ -62,4 +91,26 @@ export type ModelSettingsViewEmits = {
     (event: "open-library"): void;
     (event: "repair"): void;
     (event: "open-validation-issues"): void;
+    (event: "update:validationDialogOpen", value: boolean): void;
+    (event: "update:deleteProviderDialogOpen", value: boolean): void;
+    (event: "update:modelEditDialogOpen", value: boolean): void;
+    (event: "update:discoveryDialogOpen", value: boolean): void;
+    (event: "update:modelLibraryDialogOpen", value: boolean): void;
+    (event: "confirm-delete-provider"): void;
+    (event: "confirm-model-edit"): void;
+    (event: "model-id-change"): void;
+    (event: "toggle-model-input", model: ModelSettingsModelDraft, inputKind: ModelInputKind): void;
+    (event: "reset-model-input", model: ModelSettingsModelDraft): void;
+    (event: "reset-model-cost", model: ModelSettingsModelDraft): void;
+    (event: "enable-model-cost", model: ModelSettingsModelDraft): void;
+    (event: "reapply-library", model: ModelSettingsModelDraft): void;
+    (event: "update:discoverySearchQuery", value: string): void;
+    (event: "update:modelLibrarySearchQuery", value: string): void;
+    (event: "update:discoveryManualField", field: keyof ManualModelDraft, value: string): void;
+    (event: "toggle-discovery-group", group: string): void;
+    (event: "toggle-model-library-group", group: string): void;
+    (event: "toggle-discovered-model", model: DiscoveryListModel): void;
+    (event: "toggle-library-model", model: ModelLibraryEntryDto): void;
+    (event: "discover"): void;
+    (event: "add-manual-model"): void;
 };
