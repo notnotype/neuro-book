@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import {computed, nextTick, ref, watch} from "vue";
+import {computed, nextTick, ref, watch, inject} from "vue";
 import {onClickOutside} from "@vueuse/core";
 import {useAnchoredPopup} from "../../composables/useAnchoredPopup";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import {useFormFieldContext} from "./form-field-context";
 import {
     TIME_PICKER_DEFAULT_STEP,
@@ -12,6 +12,10 @@ import {
     timeOptions,
 } from "./time-picker-contract";
 import type {TimePickerEmits, TimePickerProps} from "./time-picker-contract";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 /**
  * 时间选择器的库默认实现：输入框 + 下拉时间列表。
@@ -232,7 +236,7 @@ function select(value: string): void {
                     v-if="open"
                     ref="popup"
                     class="nb-ui-popover-surface nb-ui-menu-surface overflow-hidden"
-                    :style="{...popupStyle, zIndex: String(NB_Z_INDEX.popover), padding: 'var(--space-3)'}"
+                    :style="{...popupStyle, zIndex: String(popoverZIndex), padding: 'var(--space-3)'}"
                 >
                     <ul
                         ref="list"

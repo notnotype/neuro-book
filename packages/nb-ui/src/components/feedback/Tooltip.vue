@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {inject} from "vue";
 import {
     TooltipContent,
     TooltipPortal,
@@ -6,7 +7,11 @@ import {
     TooltipRoot,
     TooltipTrigger,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 // 悬停提示：hover 延迟显示、focus 即时显示、click 不打断已显示的提示、Esc 关闭。
 // 定位与碰撞翻转交给 reka Popper，不再自己算视口边界。
@@ -39,7 +44,7 @@ const props = withDefaults(defineProps<{
                 <TooltipContent
                     :side="props.placement"
                     :side-offset="6"
-                    :style="{zIndex: NB_Z_INDEX.tooltip}"
+                    :style="{zIndex: popoverZIndex}"
                     class="nb-ui-tooltip-surface pointer-events-none w-max max-w-72 outline-none"
                 >
                     <span class="block">

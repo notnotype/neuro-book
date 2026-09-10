@@ -193,7 +193,13 @@ role: tasker
 
 这几项属于「现在不管、以后返工很贵」的类型，按严重度排：
 
-1. **双份序列化逻辑**：`NovelIdeEmbeddingSettingsPanel` / `NovelIdeWebSettingsPanel` / `NovelIdeCostSettingsPanel` / `NovelIdeObservabilitySettingsPanel` 各自还留着一套 payload 构造与密钥语义，`views/*` 下的 draft 模块是另一套。产品接线时必须让旧面板改调新模块（或直接删除旧面板），不能让两套长期并存——配置写回规则一旦漂移，两边都会写错同一个配置段。
+1. **双份序列化逻辑**：`NovelIdeEmbeddingSettingsPanel` / `NovelIdeWebSettingsPanel` / `NovelIdeCostSettingsPanel` / `NovelIdeObservabilitySettingsPanel` 各自还留着一套 payload 构造与密钥语义，`sections/*` 下的 draft 模块是另一套。产品接线时必须让旧面板改调新模块（或直接删除旧面板），不能让两套长期并存——配置写回规则一旦漂移，两边都会写错同一个配置段。
 2. **`SettingsSavePanelExpose` 协议会整体消失**：旧宿主靠 `defineExpose({dirty, loading, saving, saveSettings, restoreSettings})` 驱动顶部保存 / 恢复栏，新视图是就地保存。接线时这套 expose 合同、保存栏、`settingsPanelKey` 重置逻辑要一次性删干净，不能留一半。
 3. **作用域→区段矩阵目前是 fixture 自造的**：产品真值在 `NovelIdeSettingsDialog` 的 `globalConfigSections` / `projectConfigSections` / `browserSections` / `bootConfigSections` 里。外壳吃的是 props，接线时必须从产品矩阵喂进去（或先把矩阵抽成共享模块），否则 Lab 里的区段集合会和产品不一致，而这种不一致看起来完全正常。
 4. **尺寸只有一个来源**：`DialogWindow` 的 `size` 字面量是缺省，显式 `width` / `height` 覆盖对应维度。场景里不要同时写死预设与同样的数字（设置外壳 fixture 已改成拖动后才接管受控值），否则预设一改就会静默停在旧尺寸。
+
+2026-09-10 独立审查（`ModelSectionReview`）新增三条，按严重度排：
+
+5. **产品宿主与新对话框的层级冲突（阻断，接线前必须先决定）**：设置宿主 `NovelIdeSettingsDialog` 仍是旧 app `Dialog`（`fixed inset-0 z-[9000]` + 不透明遮罩，teleport 进 `.novel-ide-theme`），而模型区段的编辑 / 发现 / 模型库 / 校验列表已改成 `DialogWindow`（8990，默认 teleport 到 `body`）。两者在同一根层叠上下文里按数值比较，于是**产品路径下这些窗口连同遮罩一起被设置面板盖住**，看不见也点不到；改造前它们同为 app `Dialog`（同 9000、DOM 更晚 → 压在外层之上），所以这是就地换组件引入的行为回归。Lab 看不到，是因为外壳 fixture 自己也换成了 `DialogWindow`（8990 vs 8992）。二选一：接线时把宿主一并换成 `DialogWindow`，或给这三个对话框透传 `teleport-target` 到宿主窗口子树内部（不要用默认的 `body` 8990）。
+6. **同级浮动窗口按模板顺序叠放**：`DialogWindow` 的层级目前只按嵌套深度算，没有父子关系的两个窗口拿同一个 z，靠 DOM 顺序决定谁在上面。把这几个窗口节点重排（或在同一层再加一个），就会出现「点了没反应」。
+7. **非模态窗口的目标会跟着走**：发现 / 模型库窗口的内容取自当前活动的 Provider，而 Provider 导轨就在同一个视图里、不再被遮罩挡住。窗口开着时切换 Provider 再点写回，模型会落进另一个 Provider；`confirmMode` 的编辑窗口也会被身后的「编辑设置」悄悄换掉目标。接线时按「打开窗口时冻结目标 Provider」实现。

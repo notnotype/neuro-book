@@ -79,8 +79,33 @@ type Emits = {
     (event: "open-library"): void;
     (event: "repair"): void;
     (event: "open-validation-issues"): void;
+    // 以下为对话框层：窗口开关、确认与内容回写
+    (event: "update:validationDialogOpen", value: boolean): void;
+    (event: "update:deleteProviderDialogOpen", value: boolean): void;
+    (event: "update:modelEditDialogOpen", value: boolean): void;
+    (event: "update:discoveryDialogOpen", value: boolean): void;
+    (event: "update:modelLibraryDialogOpen", value: boolean): void;
+    (event: "confirm-delete-provider"): void;
+    (event: "confirm-model-edit"): void;
+    (event: "model-id-change"): void;
+    (event: "toggle-model-input", model: ModelSettingsModelDraft, inputKind: ModelInputKind): void;
+    (event: "reset-model-input", model: ModelSettingsModelDraft): void;
+    (event: "reset-model-cost", model: ModelSettingsModelDraft): void;
+    (event: "enable-model-cost", model: ModelSettingsModelDraft): void;
+    (event: "reapply-library", model: ModelSettingsModelDraft): void;
+    (event: "update:discoverySearchQuery", value: string): void;
+    (event: "update:modelLibrarySearchQuery", value: string): void;
+    (event: "update:discoveryManualField", field: keyof ManualModelDraft, value: string): void;
+    (event: "toggle-discovery-group", group: string): void;
+    (event: "toggle-model-library-group", group: string): void;
+    (event: "toggle-discovered-model", model: DiscoveryListModel): void;
+    (event: "toggle-library-model", model: ModelLibraryEntryDto): void;
+    (event: "discover"): void;
+    (event: "add-manual-model"): void;
 };
 ```
+
+上面这份清单与 `ModelSettingsView.types.ts` 的 `ModelSettingsViewEmits` 一一对应（接线时以后者为真值，改协议先改类型）。
 
 `NovelIdeModelSelect`（默认模型下拉）、`AgentVisibleModelsEditor`（可见模型清单）、`SavedModelsList`（已保存模型清单）与三个对话框都是被搬进 `model/` 的既有子组件，本层只负责组合与传参：`SavedModelsList` 的五个模型行动作与两个底部入口逐一转成同名 emit，只有分组折叠留在视图内。
 

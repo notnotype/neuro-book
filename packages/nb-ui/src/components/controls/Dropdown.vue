@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import {computed, inject} from "vue";
 import {
     DropdownMenuContent,
     DropdownMenuItem,
@@ -8,9 +8,13 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import {useFloatingScrollbar} from "../../composables/useFloatingScrollbar";
 import type {DropdownItem} from "./dropdown.types";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 /**
  * 下拉菜单（Dropdown · 65% 磨砂、8px 模糊与即时感知 macOS 悬浮滚动条）。
@@ -65,7 +69,7 @@ const {
 } = useFloatingScrollbar();
 
 const popoverPanelStyle = computed(() => ({
-    zIndex: NB_Z_INDEX.popover,
+    zIndex: popoverZIndex,
     backgroundColor: "color-mix(in srgb, var(--bg-panel) 65%, transparent)",
     backdropFilter: "blur(8px) saturate(130%) brightness(1.0)",
     WebkitBackdropFilter: "blur(8px) saturate(130%) brightness(1.0)",

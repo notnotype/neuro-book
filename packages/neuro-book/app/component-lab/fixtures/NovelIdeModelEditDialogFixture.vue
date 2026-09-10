@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
+import {computed, reactive, ref, watch} from "vue";
 import NovelIdeModelEditDialog from "../../components/novel-ide/settings/sections/model/NovelIdeModelEditDialog.vue";
 import {MODEL_API_OPTIONS, buildModelSettingsDraft} from "./model-settings-fixture-data";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
@@ -16,7 +16,7 @@ const sceneKey = computed<SceneKey>(() => {
     return known.find((key) => key === props.scene) ?? "default";
 });
 
-const draft = buildModelSettingsDraft();
+const draft = reactive(buildModelSettingsDraft());
 const open = ref(true);
 
 /** 缺字段场景把一个只有 id 的模型摆进来，用来核对「空值占位」与必填提示。 */

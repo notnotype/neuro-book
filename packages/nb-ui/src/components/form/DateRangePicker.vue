@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, ref, inject} from "vue";
 import {
     PopoverContent,
     PopoverPortal,
@@ -7,9 +7,13 @@ import {
     PopoverTrigger,
     type DateRange,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
 import RangeCalendar from "./RangeCalendar.vue";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 const props = withDefaults(defineProps<{
     modelValue?: DateRange;
@@ -84,7 +88,7 @@ function handleClear(): void {
             <PopoverContent
                 :side-offset="6"
                 :style="{
-                    zIndex: NB_Z_INDEX.popover,
+                    zIndex: popoverZIndex,
                     backgroundColor: 'color-mix(in srgb, var(--bg-panel) 90%, transparent)',
                     backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
                     WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
