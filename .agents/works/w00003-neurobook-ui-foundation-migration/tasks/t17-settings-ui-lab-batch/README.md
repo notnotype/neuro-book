@@ -124,12 +124,30 @@ role: tasker
 - 字体的候选联想用 nb-ui `Autocomplete`（真输入框 + 联想浮层），不是 `FormInput` + `datalist`：`FormInput` 不透传 `list`，`datalist` 挂不上。smoke 相应改为断言两处 `input[placeholder="输入 CSS font-family"]`，而不是 `datalist` 计数。
 - 段首缩进关闭时，缩进量输入框保持可见但 `disabled`（计划里曾写「默认态禁用数为 0」，实际是 1）：这与旧宿主一致，也让「关闭后缩进量是否还在」可预期。
 
+## 切片 7：模型区段渲染层（已完成）
+
+产出：
+
+- 模型子组件与纯模块搬进 `settings/views/model/`：`NovelIdeModelSelect.vue`、`SavedModelsList.vue`、`AgentVisibleModelsEditor.vue`、`model-settings-view.ts`、`model-settings-draft.ts`、`model-draft-factory.ts`、`model-cost-draft.ts` 与三个测试。四个会话文件留在 `settings/`（它们做 I/O，本片不动）。导入点全量重写：除旧面板外还有 `AgentSessionModelControls.vue`（会话级模型下拉）与四个会话及其测试，共 20 个文件。
+- `views/model/ModelSettingsView.types.ts` + `ModelSettingsView.vue` + `ModelProviderRail.vue` + `ModelProviderDetail.vue` + 同名文档：区段标题与说明、草稿问题横幅、默认模型与「新增 Provider」、Agent 可见模型，以及 global 下的 Provider 双栏（导轨 + 连接表单 + `SavedModelsList`）。视图吃 props、emit 动作，字段改动统一走 `update:draft`；唯一自持状态是分组折叠。
+- `component-lab/fixtures/ModelSettingsViewFixture.vue`（default / project / no-provider / disabled-models / saving / save-error / loading）与 `fixtures/model-settings-fixture-data.ts`（假数据构造与设置外壳 fixture 共用）；外壳第六个区段「模型设置」，smoke 断言区段数 6 与模型段结构。
+- `SavedModelsList.vue` 的模型行加 `data-saved-model-row`（唯一新增钩子，不改渲染）。
+
+实测（Lab smoke 输出）：`sectionCount 6`、`activeSections 1`、`nestedViews 1`、`overflow 0`；模型段 1 个 Provider 导轨项 / 2 个已保存模型行 / 1 个密钥输入 / 2 个数字字段 / 1 个多行输入。组件级实测（1920 宽画布）：模型视图容器宽度 1156px、双栏 `260px 896px`、导轨项 1、已保存模型行 2；外壳组合（444px 内容列）下退化单列仍渲染 1 个导轨项。
+
+三处与计划文本的有意偏差：
+
+- 计划里模型段 smoke 要断言「1 个开关（Provider 启用开关）」，但旧宿主的 Provider 启停本来就是按钮而不是开关，本片保留按钮：改为断言结构性钩子（密钥输入、两个数字字段、一个多行输入），不为了断言去改控件形态。
+- 双栏阈值从计划的 900px 改成 700px：产品里模型区段的内容列最宽约 780px（1100px 窗口 − 276px 导轨 − 内边距），900px 永远不成立；700px 与外壳的单列阈值同档。
+- `modelInputOptions`（模型输入能力下拉项）只在编辑对话框里用到，按切片边界挪到切片 8 再加，本片不先摆一个没人用的 prop。
+
+过程中的一个坑：新增 fixture 后 Lab 有时不会重挂画布（HMR 只换了组件树条目），第一次截图拿到的是上一个组件的画面——验证新 fixture 要整页刷新，不能只看画布标题。
+
 ## 剩余工作（尚未开始）
 
-外壳与六个独立区段已迁完（可观测、费用显示、向量嵌入、Web 工具、编辑器、桌面应用、密码保护），剩下模型子系统，需要单独切片：
+模型区段的渲染层已迁完，剩对话框层一个切片：
 
-1. **模型区段渲染层**：`NovelIdeModelSettingsPanel`（726 行）不是单个面板，而是 6 个子组件（`AgentVisibleModelsEditor`、`NovelIdeModelSelect`、`NovelIdeModelEditDialog`、`ModelDiscoveryDialog`、`ModelLibraryDialog`、`SavedModelsList`）加 4 个 composable（`useModelSettingsDraftSession`、`useModelCheckSession`、`useModelDiscoverySession`、`useProviderTemplateSession`）与 4 个纯逻辑模块（`model-settings-draft`、`model-draft-factory`、`model-cost-draft`、`model-settings-view`）。先把渲染层（Provider 导轨 + 详情 + 模型清单）抽成受控视图，四个会话与全部 I/O 仍留在宿主。
-2. **模型区段对话框层**：编辑设置、Model Library、模型发现、校验问题、删除 Provider 确认五个对话框挂到该视图上（含外壳 fixture 的开关与 handler）。
+1. **模型区段对话框层**：`NovelIdeModelEditDialog.vue`、`ModelDiscoveryDialog.vue`、`ModelLibraryDialog.vue` 搬进 `views/model/`，连同校验问题全列表与删除 Provider 确认两个内联 `Dialog`，一起挂到 `ModelSettingsView` 上（props / emits 命名规则同渲染层；fixture 与外壳 fixture 都要补 `*Open` 开关与 handler，否则在外壳里点不开）。
 
 产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
 

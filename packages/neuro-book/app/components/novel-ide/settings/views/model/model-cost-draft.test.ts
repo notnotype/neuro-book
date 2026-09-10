@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import {clearModelCostDraft, createEmptyModelCostDraft, createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/views/model/model-cost-draft";
 
 describe("model cost draft", () => {
     it("从已有 USD cost 初始化结构化字段", () => {

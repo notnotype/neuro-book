@@ -6,8 +6,8 @@ import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
-import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
-import {parseModelCompat, parseStringMap} from "nbook/app/components/novel-ide/settings/model-settings-draft";
+import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/views/model/model-cost-draft";
+import {parseModelCompat, parseStringMap} from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
 import type {ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 type ModelDraft = {

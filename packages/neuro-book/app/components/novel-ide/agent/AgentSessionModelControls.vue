@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {onClickOutside} from "@vueuse/core";
-import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/views/model/NovelIdeModelSelect.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import type {EnabledModelOptionDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 

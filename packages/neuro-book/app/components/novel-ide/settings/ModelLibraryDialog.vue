@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import type {ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
-import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/model-settings-view";
+import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
 
 const props = defineProps<{
     modelValue: boolean;

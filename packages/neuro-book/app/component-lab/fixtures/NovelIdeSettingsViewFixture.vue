@@ -16,6 +16,16 @@ import ObservabilitySettingsView from "../../components/novel-ide/settings/views
 import EditorSettingsView from "../../components/novel-ide/settings/views/EditorSettingsView.vue";
 import DesktopSettingsView from "../../components/novel-ide/settings/views/DesktopSettingsView.vue";
 import SecuritySettingsView from "../../components/novel-ide/settings/views/SecuritySettingsView.vue";
+import ModelSettingsView from "../../components/novel-ide/settings/views/model/ModelSettingsView.vue";
+import type {ModelSettingsDraft} from "../../components/novel-ide/settings/views/model/model-settings-draft";
+import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
+import {
+    MODEL_API_OPTIONS,
+    MODEL_DEFAULT_MODEL_OPTIONS,
+    MODEL_PROVIDER_TEMPLATES,
+    buildModelSettingsDraft,
+    buildSavedModelGroups,
+} from "./model-settings-fixture-data";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -93,6 +103,13 @@ const sectionOptions: SettingsSectionOption[] = [
         label: "可观测",
         description: "Pi 请求 trace 记录开关与保留策略",
         iconClass: "i-lucide-activity",
+        scopes: ["global"],
+    },
+    {
+        value: "models",
+        label: "模型设置",
+        description: "管理 Provider、Model 与默认模型",
+        iconClass: "i-lucide-cpu",
         scopes: ["global"],
     },
     {
@@ -228,6 +245,9 @@ const desktopStatus: DesktopStatus = {
     windowControls: "overlay",
 };
 const dialogOpen = ref(false);
+const modelDraft = ref<ModelSettingsDraft>(buildModelSettingsDraft());
+const modelActiveProviderKey = ref("provider-openai");
+const modelSelectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 /**
  * 初始尺寸完全交给 size="lg"，不在这里重复写一份数字：只有用户拖动过之后才用受控值接管，
  * 否则预设一改，场景就会悄悄停在旧数值上。
@@ -248,6 +268,9 @@ watch(sceneKey, (scene) => {
     editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
     desktopSettings.value = {...DEFAULT_DESKTOP_SETTINGS};
     desktopSaveError.value = "";
+    modelDraft.value = buildModelSettingsDraft();
+    modelActiveProviderKey.value = "provider-openai";
+    modelSelectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     dialogOpen.value = scene === "dialog-window";
 }, {immediate: true});
 
@@ -264,6 +287,8 @@ watch([scope, activeSection, loading, loadError], () => {
         editorMarkdown: {...editorMarkdown.value},
         editorMonaco: {...editorMonaco.value},
         desktopZoom: desktopSettings.value.zoomFactor,
+        modelDefaultKey: modelDraft.value.defaultModelKey,
+        modelProviderCount: modelDraft.value.providers.length,
         loading: loading.value,
         loadError: loadError.value,
     });
@@ -291,6 +316,12 @@ function resetEditorPreferences(target: "markdown" | "monaco"): void {
         editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
     }
     emitLabEvent("reset", {target});
+}
+
+/** 模型草稿在 Lab 里由 fixture 自己持有：会话与写回都在宿主，这里只接受新草稿。 */
+function updateModelDraft(value: ModelSettingsDraft): void {
+    modelDraft.value = value;
+    emitLabEvent("update:draft", {providers: value.providers.length, defaultModelKey: value.defaultModelKey});
 }
 
 function openDialog(): void {
@@ -364,6 +395,31 @@ function openDialog(): void {
                     :status="desktopStatus"
                     :save-error="desktopSaveError"
                     @update:settings="updateDesktopSettings"
+                />
+
+                <ModelSettingsView
+                    v-else-if="activeSection === 'models'"
+                    :draft="modelDraft"
+                    :is-project-scope="scope === 'project'"
+                    :target-label="targetLabel"
+                    :loading="false"
+                    :validation-issues="[]"
+                    validation-issue-details=""
+                    :repairing-models="false"
+                    :default-model-options="MODEL_DEFAULT_MODEL_OPTIONS"
+                    :saved-model-groups="buildSavedModelGroups(modelDraft)"
+                    :disabled-models="[]"
+                    :active-provider-key="modelActiveProviderKey"
+                    :active-provider-checking-model-count="0"
+                    :checking-all-models="false"
+                    discovering-provider-id=""
+                    :provider-templates="MODEL_PROVIDER_TEMPLATES"
+                    :selected-template="modelSelectedTemplate"
+                    :model-api-options="MODEL_API_OPTIONS"
+                    :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                    @update:draft="updateModelDraft"
+                    @update:selected-template="modelSelectedTemplate = $event"
+                    @select-provider="modelActiveProviderKey = $event"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -454,6 +510,31 @@ function openDialog(): void {
                         :status="desktopStatus"
                         :save-error="desktopSaveError"
                         @update:settings="updateDesktopSettings"
+                    />
+
+                    <ModelSettingsView
+                        v-else-if="activeSection === 'models'"
+                        :draft="modelDraft"
+                        :is-project-scope="scope === 'project'"
+                        :target-label="targetLabel"
+                        :loading="false"
+                        :validation-issues="[]"
+                        validation-issue-details=""
+                        :repairing-models="false"
+                        :default-model-options="MODEL_DEFAULT_MODEL_OPTIONS"
+                        :saved-model-groups="buildSavedModelGroups(modelDraft)"
+                        :disabled-models="[]"
+                        :active-provider-key="modelActiveProviderKey"
+                        :active-provider-checking-model-count="0"
+                        :checking-all-models="false"
+                        discovering-provider-id=""
+                        :provider-templates="MODEL_PROVIDER_TEMPLATES"
+                        :selected-template="modelSelectedTemplate"
+                        :model-api-options="MODEL_API_OPTIONS"
+                        :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                        @update:draft="updateModelDraft"
+                        @update:selected-template="modelSelectedTemplate = $event"
+                        @select-provider="modelActiveProviderKey = $event"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>

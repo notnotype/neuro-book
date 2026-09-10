@@ -5,7 +5,7 @@ import type {
 } from "nbook/shared/dto/app-settings.dto";
 import type {GlobalConfigUpdateDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 import {parsePiMaxRetries, PiSimpleRequestOptionsSchema, type PiSimpleRequestOptionsDto} from "nbook/shared/dto/pi-request-options.dto";
-import {parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import {parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/views/model/model-cost-draft";
 import {
     inspectModelCapability,
     inspectModelSettings,

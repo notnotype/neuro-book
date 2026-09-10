@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
-import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/model-settings-view";
+import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/views/model/model-settings-draft";
+import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/views/model/model-settings-view";
 
 const props = defineProps<{
     provider: ModelSettingsProviderDraft;
@@ -68,7 +68,7 @@ const {t} = useI18n();
                     </button>
 
                     <div v-show="props.expandedGroups[group.group] !== false" class="divide-y divide-[var(--border-color)] border-t border-[var(--border-color)] bg-[var(--bg-input)]/10">
-                        <div v-for="view in group.models" :key="view.model.localKey" class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
+                        <div v-for="view in group.models" :key="view.model.localKey" data-saved-model-row class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
                             <div class="flex min-w-0 items-center gap-3">
                                 <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)]"><span class="i-lucide-sparkles h-3.5 w-3.5"></span></div>
                                 <div class="flex min-w-0 flex-col">

@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {completeModelCandidate} from "nbook/app/components/novel-ide/settings/model-draft-factory";
+import {completeModelCandidate} from "nbook/app/components/novel-ide/settings/views/model/model-draft-factory";
 import type {DiscoveredProviderModelDto, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 
 describe("Model Candidate Completion", () => {
