@@ -189,6 +189,19 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./NovelIdeSettingsViewFixture.vue")).default,
     },
     {
+        component: "EmbeddingSettingsView",
+        scenes: [
+            {id: "global-disabled", label: "全局未启用", data: {editable: "fixture-owned"}},
+            {id: "global-enabled", label: "全局已配置", data: {editable: "fixture-owned"}},
+            {id: "global-api-key", label: "已配置密钥", data: {editable: "fixture-owned"}},
+            {id: "project-inherit", label: "项目继承", data: {editable: "fixture-owned"}},
+            {id: "project-override", label: "项目覆盖", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./EmbeddingSettingsViewFixture.vue")).default,
+    },
+    {
         component: "CostSettingsView",
         scenes: [
             {id: "default", label: "美元", data: {editable: "fixture-owned"}},

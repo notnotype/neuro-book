@@ -81,3 +81,14 @@ role: tasker
 - 外壳第三个区段「费用显示」；smoke 断言区段数 3，切到该段后挂载真实视图（2 个 radio + 刷新按钮 + 汇率行）。
 
 实测：`sectionCount 3`、切段断言全绿；Lab 组件树 18 → 19 个组件。`exchangeRateFetchedAt` 解析不出日期时按空串处理，不渲染残行。
+
+## 切片 4：向量嵌入区段（已完成）
+
+产出：
+
+- `settings/embedding/embedding-settings-draft.ts`：草稿模型与序列化规则的唯一出口（`createEmbeddingSettingsDraft()`、`buildGlobalEmbeddingPayload()`、`buildProjectEmbeddingPayload()`、`buildSecretPayload()`）。空串统一表示「未配置/继承上层」，密钥留空表示保留原值、显式清除才写空串，启用但模型为空时按三处默认值补齐。
+- `settings/embedding/EmbeddingSettingsView.vue` + 同名文档：global 渲染整段服务配置（开关 / Provider / 模型 / 维度 / Timeout / Base URL / API Key + 清除 / 请求扩展参数 JSON），project 只渲染模型与维度覆盖。短字段并排由视图自身容器宽度（`@container min-width: 620px`）决定，不看窗口宽度。
+- `component-lab/fixtures/EmbeddingSettingsViewFixture.vue`（global-disabled / global-enabled / global-api-key / project-inherit / project-override / saving / save-error）与注册表条目；外壳第四个区段「向量嵌入」，只登记在 global 下（旧宿主的 scope→区段矩阵里 embedding 只属于 global，project 场景由该视图自己的 fixture 覆盖）。
+- smoke 断言区段数 4，切到该段后挂载真实表单（开关 1、输入 ≥5、多行 1、含 Base URL）且栅格为一或两栏。
+
+实测：`sectionCount 4`、切段断言全绿；Lab 组件树 19 → 20 个组件。

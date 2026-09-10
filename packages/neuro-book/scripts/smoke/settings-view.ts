@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档并禁用未迁移的两档：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 3 && layout.activeSections === 1,
+            layout.sectionCount === 4 && layout.activeSections === 1,
             failures,
-            `区段导航应列出三个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出四个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -109,6 +109,29 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             failures,
             `切到可观测区段应挂载该区段的真实视图：${JSON.stringify(sectionSwitch)}`,
         );
+
+        stage = "切到向量嵌入区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "向量嵌入"}).first().click();
+        await page.waitForTimeout(200);
+        const embeddingSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const grid = body?.querySelector<HTMLElement>(".embedding-grid") ?? null;
+            const gridStyle = grid ? getComputedStyle(grid) : null;
+            return {
+                switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
+                inputs: body ? body.querySelectorAll("input").length : 0,
+                textareas: body ? body.querySelectorAll("textarea").length : 0,
+                columns: gridStyle ? gridStyle.gridTemplateColumns.split(" ").length : 0,
+                hasBaseUrl: body?.textContent?.includes("Base URL") ?? false,
+            };
+        });
+        assert(
+            embeddingSection.switches === 1 && embeddingSection.inputs >= 5 && embeddingSection.textareas === 1 && embeddingSection.hasBaseUrl,
+            failures,
+            `切到向量嵌入区段应挂载该区段的真实表单：${JSON.stringify(embeddingSection)}`,
+        );
+        assert(embeddingSection.columns === 1 || embeddingSection.columns === 2, failures, `嵌入表单栅格应为一或两栏：${JSON.stringify(embeddingSection)}`);
 
         stage = "切到费用显示区段";
         await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "费用显示"}).first().click();
