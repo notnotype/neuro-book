@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
-import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.types";
-import AgentProfileSettingsView from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.vue";
-import type {AgentProfileDraft, AgentProfileModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/views/AgentProfileSettingsView.types";
+import AgentProfileSettingsView from "../../components/novel-ide/settings/views/AgentProfileSettingsView.vue";
+import type {AgentProfileDraft, AgentProfileModelDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
-import {cloneModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
-import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/agent-profile/profile-runtime-settings";
+import {cloneModelDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
+import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/views/agent-profile/profile-runtime-settings";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 const props = defineProps<{scene: string; data?: unknown}>();
 
@@ -333,7 +333,6 @@ function reopenDialog(): void {
         <div v-else-if="isDialogScene" class="min-h-0 flex-1">
             <DialogWindow
                 :model-value="dialogOpen"
-                title-align="center"
                 :width="dialogWidth"
                 :height="dialogHeight"
                 :min-width="720"

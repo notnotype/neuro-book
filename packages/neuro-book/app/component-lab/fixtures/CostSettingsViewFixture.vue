@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import CostSettingsView from "../../components/novel-ide/settings/cost/CostSettingsView.vue";
-import type {CostDisplayCurrency} from "../../components/novel-ide/settings/cost/CostSettingsView.vue";
+import CostSettingsView from "../../components/novel-ide/settings/views/CostSettingsView.vue";
+import type {CostDisplayCurrency} from "../../components/novel-ide/settings/views/CostSettingsView.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();

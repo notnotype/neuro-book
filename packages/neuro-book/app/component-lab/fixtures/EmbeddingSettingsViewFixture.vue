@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import EmbeddingSettingsView from "../../components/novel-ide/settings/embedding/EmbeddingSettingsView.vue";
+import EmbeddingSettingsView from "../../components/novel-ide/settings/views/EmbeddingSettingsView.vue";
 import {
     createEmbeddingSettingsDraft,
     type EmbeddingSettingsDraft,
-} from "../../components/novel-ide/settings/embedding/embedding-settings-draft";
+} from "../../components/novel-ide/settings/views/embedding/embedding-settings-draft";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();

@@ -2,10 +2,10 @@
 import {computed, nextTick, ref, watch, type ComponentPublicInstance} from "vue";
 import {Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
-import AgentProfileNavList from "./AgentProfileNavList.vue";
-import type {AgentProfileNavItem} from "./AgentProfileNavList.types";
-import AgentProfileDetailPanel from "./AgentProfileDetailPanel.vue";
-import AgentProfileDefaultsPanel from "./AgentProfileDefaultsPanel.vue";
+import AgentProfileNavList from "./agent-profile/AgentProfileNavList.vue";
+import type {AgentProfileNavItem} from "./agent-profile/AgentProfileNavList.types";
+import AgentProfileDetailPanel from "./agent-profile/AgentProfileDetailPanel.vue";
+import AgentProfileDefaultsPanel from "./agent-profile/AgentProfileDefaultsPanel.vue";
 import {
     buildCompleteModelConfig,
     cloneModelDraft,
@@ -13,7 +13,7 @@ import {
     mergeModelConfig,
     type AgentProfileModelDraft,
     type AgentProfileModelFieldErrors,
-} from "./agent-profile-draft";
+} from "./agent-profile/agent-profile-draft";
 import {
     countProfileRuntimeOverrides,
     createProfileRuntimeSettingsDraft,
@@ -21,7 +21,7 @@ import {
     resolveAgentProfileRuntimeBaseline,
     resolveAgentRuntimeDefaultsBaseline,
     type ProfileRuntimeSettingsErrors,
-} from "./profile-runtime-settings";
+} from "./agent-profile/profile-runtime-settings";
 import type {AgentProfileSettingsPageDraft, AgentProfileSettingsViewEmits, AgentProfileSettingsViewProps} from "./AgentProfileSettingsView.types";
 
 const props = withDefaults(defineProps<AgentProfileSettingsViewProps>(), {

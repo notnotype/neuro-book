@@ -9,7 +9,7 @@ import {
     createGlobalEmbeddingDraft,
     createProjectEmbeddingDraft,
     type EmbeddingSettingsDraft,
-} from "./embedding-settings-draft";
+} from "./embedding/embedding-settings-draft";
 
 const props = withDefaults(defineProps<{
     /** 受控草稿；global 与 project 两段都放在这里，视图按 scope 渲染其中一段 */

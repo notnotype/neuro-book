@@ -1,23 +1,23 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
-import AgentProfileSettingsView from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.vue";
-import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/agent-profile/AgentProfileSettingsView.types";
-import type {AgentProfileDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
-import {cloneModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
-import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/agent-profile/profile-runtime-settings";
-import NovelIdeSettingsView from "../../components/novel-ide/settings/NovelIdeSettingsView.vue";
-import CostSettingsView from "../../components/novel-ide/settings/cost/CostSettingsView.vue";
-import EmbeddingSettingsView from "../../components/novel-ide/settings/embedding/EmbeddingSettingsView.vue";
-import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/embedding/embedding-settings-draft";
-import WebSettingsView from "../../components/novel-ide/settings/web/WebSettingsView.vue";
-import {createWebSettingsDraft} from "../../components/novel-ide/settings/web/web-settings-draft";
-import ObservabilitySettingsView from "../../components/novel-ide/settings/observability/ObservabilitySettingsView.vue";
+import AgentProfileSettingsView from "../../components/novel-ide/settings/views/AgentProfileSettingsView.vue";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "../../components/novel-ide/settings/views/AgentProfileSettingsView.types";
+import type {AgentProfileDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
+import {cloneModelDraft} from "../../components/novel-ide/settings/views/agent-profile/agent-profile-draft";
+import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/views/agent-profile/profile-runtime-settings";
+import NovelIdeSettingsView from "../../components/novel-ide/settings/views/NovelIdeSettingsView.vue";
+import CostSettingsView from "../../components/novel-ide/settings/views/CostSettingsView.vue";
+import EmbeddingSettingsView from "../../components/novel-ide/settings/views/EmbeddingSettingsView.vue";
+import {createEmbeddingSettingsDraft} from "../../components/novel-ide/settings/views/embedding/embedding-settings-draft";
+import WebSettingsView from "../../components/novel-ide/settings/views/WebSettingsView.vue";
+import {createWebSettingsDraft} from "../../components/novel-ide/settings/views/web/web-settings-draft";
+import ObservabilitySettingsView from "../../components/novel-ide/settings/views/ObservabilitySettingsView.vue";
 import type {
     SettingsScopeId,
     SettingsScopeOption,
     SettingsSectionOption,
-} from "../../components/novel-ide/settings/NovelIdeSettingsView.types";
+} from "../../components/novel-ide/settings/views/NovelIdeSettingsView.types";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();
@@ -175,8 +175,9 @@ const embeddingDraft = ref(createEmbeddingSettingsDraft());
 const webDraft = ref(createWebSettingsDraft());
 const exchangeRate = ref<number | null>(7.2413);
 const dialogOpen = ref(false);
+/** 初始尺寸交给 size="lg"（1100 × 820），拖动后再由这两个受控值接管。 */
 const dialogWidth = ref(1100);
-const dialogHeight = ref<string | number>("calc(100dvh - 120px)");
+const dialogHeight = ref<string | number>(820);
 
 const loading = computed(() => sceneKey.value === "loading");
 const loadError = computed(() => sceneKey.value === "load-error" ? "读取设置失败：示例后端返回 500。" : "");
@@ -277,7 +278,7 @@ function openDialog(): void {
             </button>
             <DialogWindow
                 v-model="dialogOpen"
-                title-align="center"
+                size="lg"
                 :width="dialogWidth"
                 :height="dialogHeight"
                 resizable

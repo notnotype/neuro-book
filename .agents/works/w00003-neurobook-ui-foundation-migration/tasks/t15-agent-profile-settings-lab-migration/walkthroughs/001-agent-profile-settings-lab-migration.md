@@ -2,7 +2,7 @@
 
 ## 交付内容
 
-新增受控视图 `AgentProfileSettingsView`（`app/components/novel-ide/settings/agent-profile/`），在 Component Lab 中提供完整可操作的 Profile 设置页：默认设置页 + Profile 导航与详情，常用设置优先（使用模型/推理强度/专属设置常驻，高级模型参数与运行策略折叠，诊断与维护独立段）。
+新增受控视图 `AgentProfileSettingsView`（`app/components/novel-ide/settings/views/agent-profile/`），在 Component Lab 中提供完整可操作的 Profile 设置页：默认设置页 + Profile 导航与详情，常用设置优先（使用模型/推理强度/专属设置常驻，高级模型参数与运行策略折叠，诊断与维护独立段）。
 
 ### 新增
 - `AgentProfileSettingsView.vue` / `.types.ts` / `.md`：受控页面视图，无 IO/store/路由/持久化，全部修改经 `update:modelValue` 上报；保存/放弃/恢复默认/重置 Home 为事件请求。

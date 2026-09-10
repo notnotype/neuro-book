@@ -10,7 +10,7 @@ import {
     type SearchProviderKey,
     type WebBraveDraft,
     type WebSettingsDraft,
-} from "./web-settings-draft";
+} from "./web/web-settings-draft";
 
 const props = withDefaults(defineProps<{
     /** 受控草稿；视图只改草稿并通过 update:modelValue 交回宿主 */

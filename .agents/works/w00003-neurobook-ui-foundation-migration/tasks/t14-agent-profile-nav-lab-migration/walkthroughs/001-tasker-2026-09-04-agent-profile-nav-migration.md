@@ -23,7 +23,7 @@ createdAt: 2026-09-04T00:00:00Z
 
 ## 目标与范围
 
-- 迁移 Profile 专属文件到 `app/components/novel-ide/settings/agent-profile/`，删除旧入口，不添加 alias、re-export 或兼容分支。
+- 迁移 Profile 专属文件到 `app/components/novel-ide/settings/views/agent-profile/`，删除旧入口，不添加 alias、re-export 或兼容分支。
 - 原地重写 `AgentProfileNavList.vue`，继续由父编排器拥有 Profile 数据和保存/编译状态。
 - 通过 nb-ui `Badge`、`FormField`、`FormInput` 表达状态、搜索和导航语义。
 - 添加同名文档、领域类型、五个确定性 fixture 场景、行为测试和真实 Lab smoke。
@@ -33,7 +33,7 @@ createdAt: 2026-09-04T00:00:00Z
 
 ### 目录与调用方
 
-以下 8 个 Profile 专属文件已迁移到 `packages/neuro-book/app/components/novel-ide/settings/agent-profile/`：
+以下 8 个 Profile 专属文件已迁移到 `packages/neuro-book/app/components/novel-ide/settings/views/agent-profile/`：
 
 - `AgentProfileNavList.vue`
 - `AgentProfileDefaultsPanel.vue`
@@ -105,7 +105,7 @@ fixture 只使用固定内存数据和 `useLabEventSink()`；不读取真实配�
 
 - `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile app/component-lab app/utils/novel-ide-settings-responsive.contract.test.ts`
   - 已记录 `6 files passed`、`25 tests passed`。
-- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/agent-profile/AgentProfileNavList.test.ts`
+- `bun run --cwd packages/neuro-book test -- app/components/novel-ide/settings/views/agent-profile/AgentProfileNavList.test.ts`
   - 补齐七种状态文案逐项断言后，实际为 `1 file passed`、`8 tests passed`。
 - `bun test scripts/build/product-runtime-bundle.test.ts -t "public 资源中的相对 pnpm module id"`
   - 实际为 `1 pass`，验证相对 `.pnpm` / `.bun` module id 收敛到 Product 内部路径。

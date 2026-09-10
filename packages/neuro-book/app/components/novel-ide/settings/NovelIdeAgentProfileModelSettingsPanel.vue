@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type {Ref} from "vue";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
-import AgentProfileNavList from "nbook/app/components/novel-ide/settings/agent-profile/AgentProfileNavList.vue";
-import AgentProfileDefaultsPanel from "nbook/app/components/novel-ide/settings/agent-profile/AgentProfileDefaultsPanel.vue";
-import AgentProfileDetailPanel from "nbook/app/components/novel-ide/settings/agent-profile/AgentProfileDetailPanel.vue";
-import type {AgentProfileNavItem} from "nbook/app/components/novel-ide/settings/agent-profile/AgentProfileNavList.types";
+import AgentProfileNavList from "nbook/app/components/novel-ide/settings/views/agent-profile/AgentProfileNavList.vue";
+import AgentProfileDefaultsPanel from "nbook/app/components/novel-ide/settings/views/agent-profile/AgentProfileDefaultsPanel.vue";
+import AgentProfileDetailPanel from "nbook/app/components/novel-ide/settings/views/agent-profile/AgentProfileDetailPanel.vue";
+import type {AgentProfileNavItem} from "nbook/app/components/novel-ide/settings/views/agent-profile/AgentProfileNavList.types";
 import {
     buildProfileRuntimeSettingsPatch,
     countProfileRuntimeOverrides,
@@ -14,7 +14,7 @@ import {
     type ProfileRuntimeSettingsDraft,
     type ProfileRuntimeSettingsErrors,
     type ProfileRuntimeSettingsSources,
-} from "nbook/app/components/novel-ide/settings/agent-profile/profile-runtime-settings";
+} from "nbook/app/components/novel-ide/settings/views/agent-profile/profile-runtime-settings";
 import {
     buildCompleteModelConfig,
     buildGlobalProfileConfigMap,
@@ -31,7 +31,7 @@ import {
     type AgentProfileModelDraft,
     type AgentProfileSettingsDraft,
     type ConfigSettingsScope,
-} from "nbook/app/components/novel-ide/settings/agent-profile/agent-profile-draft";
+} from "nbook/app/components/novel-ide/settings/views/agent-profile/agent-profile-draft";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {cloneLowCodeObject} from "nbook/app/components/common/low-code-form/low-code-form-utils";
 import {useDialog} from "nbook/app/composables/useDialog";
