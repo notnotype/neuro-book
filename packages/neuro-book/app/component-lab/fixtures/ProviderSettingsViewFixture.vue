@@ -49,6 +49,7 @@ const draft = ref<ModelSettingsDraft>(sceneDraft("default"));
 const activeProviderKey = ref("provider-openai");
 /** dialog-window 场景里窗口可关可重开：关掉后留一个重新打开的入口，否则这个场景只能靠刷新页面回来。 */
 const windowOpen = ref(true);
+const selectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 
 const isProjectScope = computed(() => sceneKey.value === "project");
 const loading = computed(() => sceneKey.value === "loading");
@@ -63,6 +64,7 @@ const savedModelGroups = computed(() => buildSavedModelGroups(draft.value));
 watch(sceneKey, (scene) => {
     draft.value = sceneDraft(scene);
     activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
+    selectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     windowOpen.value = true;
 }, {immediate: true});
 
@@ -120,6 +122,8 @@ const viewBindings = computed(() => ({
     checkingAllModels: false,
     discoveringProviderId: "",
     modelApiOptions: MODEL_API_OPTIONS,
+    providerTemplates: MODEL_PROVIDER_TEMPLATES,
+    selectedTemplate: selectedTemplate.value,
     maxRetriesPlaceholder: DEFAULT_PI_MAX_RETRIES,
     validationDialogOpen: false,
     deleteProviderDialogOpen: false,
@@ -141,6 +145,8 @@ const viewBindings = computed(() => ({
     enabledModelIds: new Set<string>(),
     "onUpdate:draft": updateDraft,
     "onSelect-provider": selectProvider,
+    "onUpdate:selectedTemplate": (value: string) => { selectedTemplate.value = value; },
+    "onAdd-provider": () => emitLabEvent("add-provider", {template: selectedTemplate.value}),
     "onUpdate:discoveryManualField": updateManualField,
     "onToggle-model-input": toggleModelInput,
     "onToggle-provider-enabled": () => emitLabEvent("toggle-provider-enabled", {key: activeProviderKey.value}),

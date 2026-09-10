@@ -280,6 +280,17 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./ProviderSettingsViewFixture.vue")).default,
     },
     {
+        component: "RolesSettingsView",
+        scenes: [
+            {id: "unconfigured", label: "全部未配置", data: {editable: "fixture-owned"}},
+            {id: "partially-configured", label: "部分配置", data: {editable: "fixture-owned"}},
+            {id: "fully-configured", label: "全部绑定", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./RolesSettingsViewFixture.vue")).default,
+    },
+    {
         component: "DefaultModelSettingsView",
         scenes: [
             {id: "global", label: "全局默认", data: {editable: "fixture-owned"}},

@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档且都可进入：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 8 && layout.activeSections === 1,
+            layout.sectionCount === 9 && layout.activeSections === 1,
             failures,
-            `区段导航应列出八个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出九个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -266,6 +266,25 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             visibleModelsSection.mounted && visibleModelsSection.noteInputs === 1 && visibleModelsSection.addButtons >= 2,
             failures,
             `可见模型区段应挂载视图并渲染一行清单：${JSON.stringify(visibleModelsSection)}`,
+        );
+
+        stage = "切到角色区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "角色"}).first().click();
+        await page.waitForTimeout(200);
+        const rolesSection = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            const view = body?.querySelector<HTMLElement>(".roles-view-root") ?? null;
+            return {
+                mounted: Boolean(view),
+                rows: view ? view.querySelectorAll("[data-role-row]").length : 0,
+                text: (view?.textContent ?? "").slice(0, 40),
+            };
+        });
+        assert(
+            rolesSection.mounted && rolesSection.rows === 9,
+            failures,
+            `角色区段应挂载视图并列出九个角色：${JSON.stringify(rolesSection)}`,
         );
 
         stage = "切回 Agent Profile 区段";

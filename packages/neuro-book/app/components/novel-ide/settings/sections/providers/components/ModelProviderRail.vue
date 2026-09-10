@@ -1,16 +1,32 @@
 <script setup lang="ts">
-import {Badge} from "@notnotype/nb-ui/components";
+import {computed} from "vue";
+import {Badge, Button, FormSelect} from "@notnotype/nb-ui/components";
+import type {FormSelectOption} from "@notnotype/nb-ui/components";
 import type {ModelSettingsProviderDraft} from "../model-settings-draft";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     providers: ModelSettingsProviderDraft[];
     /** 当前选中 Provider 的 localKey */
     activeKey: string;
-}>();
+    /** 新建 Provider 用的模板；入口在这一栏的底部，不占内容区顶部一整行 */
+    templates: Array<{id: string; name: string; description?: string}>;
+    selectedTemplate: string;
+    disabled?: boolean;
+}>(), {
+    disabled: false,
+});
 
 const emit = defineEmits<{
     (event: "select", key: string): void;
+    (event: "update:selectedTemplate", value: string): void;
+    (event: "add"): void;
 }>();
+
+const templateOptions = computed<FormSelectOption[]>(() => props.templates.map((item) => ({
+    value: item.id,
+    label: item.name,
+    description: item.description,
+})));
 
 const {t} = useI18n();
 
@@ -58,5 +74,24 @@ function enabledModelCount(provider: ModelSettingsProviderDraft): number {
                 </button>
             </li>
         </ul>
+
+        <!-- 新增 Provider 的入口：它属于这一栏（列表的尾部动作），不属于内容区顶部 -->
+        <div class="mt-[var(--space-3)] border-t border-[var(--divider)] pt-[var(--space-3)]">
+            <div class="flex items-center gap-[var(--space-2)]">
+                <FormSelect
+                    size="sm"
+                    class="min-w-0 flex-1"
+                    :model-value="props.selectedTemplate"
+                    :options="templateOptions"
+                    :disabled="props.disabled"
+                    :aria-label="t('settings.panels.models.addProvider')"
+                    @update:model-value="emit('update:selectedTemplate', $event)"
+                />
+                <Button size="sm" variant="secondary" class="shrink-0" :disabled="props.disabled" @click="emit('add')">
+                    <span class="i-lucide-plus mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
+                    {{ t("settings.panels.models.add") }}
+                </Button>
+            </div>
+        </div>
     </div>
 </template>

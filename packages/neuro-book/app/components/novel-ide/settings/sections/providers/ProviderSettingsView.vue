@@ -89,7 +89,12 @@ function toggleGroup(group: string): void {
             <ModelProviderRail
                 :providers="props.draft.providers"
                 :active-key="props.activeProviderKey"
+                :templates="props.providerTemplates"
+                :selected-template="props.selectedTemplate"
+                :disabled="props.saving"
                 @select="emit('select-provider', $event)"
+                @update:selected-template="emit('update:selectedTemplate', $event)"
+                @add="emit('add-provider')"
             />
             <ModelProviderDetail
                 :provider="activeProvider"

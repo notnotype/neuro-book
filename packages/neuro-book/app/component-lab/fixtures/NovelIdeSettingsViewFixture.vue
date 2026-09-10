@@ -19,6 +19,8 @@ import SecuritySettingsView from "../../components/novel-ide/settings/sections/s
 import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
 import DefaultModelSettingsView from "../../components/novel-ide/settings/sections/default-model/DefaultModelSettingsView.vue";
 import AgentVisibleModelsView from "../../components/novel-ide/settings/sections/agent-visible-models/AgentVisibleModelsView.vue";
+import RolesSettingsView from "../../components/novel-ide/settings/sections/roles/RolesSettingsView.vue";
+import {createRolesSettingsDraft} from "../../components/novel-ide/settings/sections/roles/roles-settings-draft";
 import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
@@ -26,6 +28,7 @@ import {
     DISCOVERY_MODEL_GROUPS,
     MANUAL_MODEL_DRAFT,
     MODEL_API_OPTIONS,
+    MODEL_PROVIDER_TEMPLATES,
     MODEL_DEFAULT_MODEL_OPTIONS,
     buildModelSettingsDraft,
     buildSavedModelGroups,
@@ -107,6 +110,13 @@ const sectionOptions: SettingsSectionOption[] = [
         label: "可观测",
         description: "Pi 请求 trace 记录开关与保留策略",
         iconClass: "i-lucide-activity",
+        scopes: ["global"],
+    },
+    {
+        value: "roles",
+        label: "角色",
+        description: "按用途把模型分配给各角色",
+        iconClass: "i-lucide-shapes",
         scopes: ["global"],
     },
     {
@@ -269,6 +279,8 @@ const modelActiveProviderKey = ref("provider-openai");
 const modelDialogOpen = ref<"none" | "validation" | "delete" | "edit" | "discovery" | "library">("none");
 const modelEditingDraft = computed(() => modelDialogOpen.value === "edit" ? modelDraft.value.providers[0]?.models[0] ?? null : null);
 const modelManualDraft = ref({...MANUAL_MODEL_DRAFT});
+const rolesDraft = ref(createRolesSettingsDraft());
+const modelSelectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 const modelDiscoverySearchQuery = ref("");
 const modelLibrarySearchQuery = ref("");
 const modelDialogExpandedGroups = ref<Record<string, boolean>>({});
@@ -295,6 +307,8 @@ watch(sceneKey, (scene) => {
     desktopSaveError.value = "";
     modelDraft.value = buildModelSettingsDraft();
     modelActiveProviderKey.value = "provider-openai";
+    rolesDraft.value = createRolesSettingsDraft();
+    modelSelectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     modelDialogOpen.value = "none";
     modelManualDraft.value = {...MANUAL_MODEL_DRAFT};
     modelDiscoverySearchQuery.value = "";
@@ -318,6 +332,7 @@ watch([scope, activeSection, loading, loadError], () => {
         desktopZoom: desktopSettings.value.zoomFactor,
         modelDefaultKey: modelDraft.value.defaultModelKey,
         agentVisibleModelCount: modelDraft.value.agentVisibleModels.length,
+        boundRoles: Object.values(rolesDraft.value.roles).filter(Boolean).length,
         modelProviderCount: modelDraft.value.providers.length,
         loading: loading.value,
         loadError: loadError.value,
@@ -352,6 +367,12 @@ function resetEditorPreferences(target: "markdown" | "monaco"): void {
 function updateModelDraft(value: ModelSettingsDraft): void {
     modelDraft.value = value;
     emitLabEvent("update:draft", {providers: value.providers.length, defaultModelKey: value.defaultModelKey});
+}
+
+/** 角色绑定在 Lab 里也由 fixture 持有：落写规则与回落链在 roles-settings-draft。 */
+function updateRolesDraft(value: typeof rolesDraft.value): void {
+    rolesDraft.value = value;
+    emitLabEvent("update:roles", {boundRoles: Object.values(value.roles).filter(Boolean).length});
 }
 
 /** 默认模型与可见模型在 Lab 里同样由 fixture 持有：会话与写回都在宿主。 */
@@ -455,6 +476,9 @@ function openDialog(): void {
                     discovering-provider-id=""
                     :model-api-options="MODEL_API_OPTIONS"
                     :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                    :provider-templates="MODEL_PROVIDER_TEMPLATES"
+                    :selected-template="modelSelectedTemplate"
+                    @update:selected-template="modelSelectedTemplate = $event"
                     :validation-dialog-open="modelDialogOpen === 'validation'"
                     :delete-provider-dialog-open="modelDialogOpen === 'delete'"
                     :model-edit-dialog-open="modelDialogOpen === 'edit'"
@@ -492,6 +516,13 @@ function openDialog(): void {
                     @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
                     @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                     @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                />
+
+                <RolesSettingsView
+                    v-else-if="activeSection === 'roles'"
+                    :model-value="rolesDraft"
+                    :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                    @update:model-value="updateRolesDraft"
                 />
 
                 <DefaultModelSettingsView
@@ -619,6 +650,9 @@ function openDialog(): void {
                         discovering-provider-id=""
                                 :model-api-options="MODEL_API_OPTIONS"
                         :max-retries-placeholder="DEFAULT_PI_MAX_RETRIES"
+                        :provider-templates="MODEL_PROVIDER_TEMPLATES"
+                        :selected-template="modelSelectedTemplate"
+                        @update:selected-template="modelSelectedTemplate = $event"
                         :validation-dialog-open="modelDialogOpen === 'validation'"
                         :delete-provider-dialog-open="modelDialogOpen === 'delete'"
                         :model-edit-dialog-open="modelDialogOpen === 'edit'"
@@ -656,6 +690,13 @@ function openDialog(): void {
                         @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
                         @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                         @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                    />
+
+                    <RolesSettingsView
+                        v-else-if="activeSection === 'roles'"
+                        :model-value="rolesDraft"
+                        :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                        @update:model-value="updateRolesDraft"
                     />
 
                     <DefaultModelSettingsView

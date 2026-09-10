@@ -60,6 +60,19 @@ role: tasker
 2. **候选链写在哪一层配置**：全局配置还是 boot config；「本地 1B/4B / 本地 27B」意味着 role 要能绑定 Provider 之外的本地推理端点，这一层今天不存在。
 3. **role 与 profile 的接线关系**：`@writer` → `writer.default` 是配置项还是约定。
 
+## 执行进度
+
+四步全部落地（2026-09-10）：
+
+1. **Provider 页**：`sections/model` → `sections/providers`、`ModelSettingsView` → `ProviderSettingsView`；默认模型与可见模型两块整段移出；「新增 Provider」入口挪进 Providers 导轨底部（模板选择 + 添加，`ModelProviderRail` 底部一行），内容区不再占一整行。
+2. **默认模型区段**：`sections/default-model/DefaultModelSettingsView.vue` + `.md` + fixture（6 场景）——global 选默认模型，project 为覆盖。
+3. **可见模型区段**：`sections/agent-visible-models/AgentVisibleModelsView.vue` + `.md` + fixture（7 场景）——global 编辑有序清单，project 只说明「写在全局」。`AgentVisibleModelsEditor` 去掉自带卡片面与标题，由区段视图接管标题层级。
+4. **角色区段**：`sections/roles/RolesSettingsView.vue` + `.md` + `roles-settings-draft.ts`（+ 5 项单测）+ fixture（5 场景）——梯度轴 4 个、专精轴 5 个角色各一行，显示用途、建议候选链、当前生效角色与绑定选择；`resolveEffectiveRole()` 沿回落链取，`vision` 不回落到任何角色。
+
+外壳现在 9 个区段（agent-profile-models / web-tools / embedding / cost / observability / providers / default-model / agent-visible-models / roles），smoke 断言同步到 9。测试 49 文件 / 369 项通过。
+
+内容列封顶：默认模型、可见模型、角色三个阅读型区段各自 `max-w-3xl`；Provider 页是两栏型，保持整幅宽度（外壳不封顶的约定见 t17）。
+
 ## 已知的可复用资产（t17 产出）
 
 - `settings/sections/` 下的受控视图与 Lab 场景（外壳 + 七个区段 + 三个模型窗口），角色设置页可以直接照这个配方新增一个区段。

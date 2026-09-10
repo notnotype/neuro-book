@@ -41,6 +41,8 @@ export type ProviderSettingsViewProps = {
     /** 正在发现模型的 Provider id；空串表示没有进行中的发现 */
     discoveringProviderId: string;
     modelApiOptions: ModelApiOption[];
+    providerTemplates: Array<{id: string; name: string; description?: string}>;
+    selectedTemplate: string;
     /** 最大重试次数留空时的默认值，只用于占位 */
     maxRetriesPlaceholder: number;
     /** 五个对话框的开关都由宿主（会话）持有 */
@@ -74,6 +76,8 @@ export type ProviderSettingsViewEmits = {
     (event: "clone-provider-connection"): void;
     (event: "request-delete-provider"): void;
     (event: "clear-provider-api-key"): void;
+    (event: "update:selectedTemplate", value: string): void;
+    (event: "add-provider"): void;
     (event: "discover-models"): void;
     (event: "check-model", model: ModelSettingsModelDraft): void;
     (event: "cancel-model-check", model: ModelSettingsModelDraft): void;
