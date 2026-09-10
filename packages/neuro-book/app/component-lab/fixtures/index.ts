@@ -280,6 +280,31 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./ProviderSettingsViewFixture.vue")).default,
     },
     {
+        component: "DefaultModelSettingsView",
+        scenes: [
+            {id: "global", label: "全局默认", data: {editable: "fixture-owned"}},
+            {id: "project-follow", label: "项目跟随", data: {editable: "fixture-owned"}},
+            {id: "project-override", label: "项目覆盖", data: {editable: "fixture-owned"}},
+            {id: "no-models", label: "无可用模型", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./DefaultModelSettingsViewFixture.vue")).default,
+    },
+    {
+        component: "AgentVisibleModelsView",
+        scenes: [
+            {id: "default", label: "默认", data: {editable: "fixture-owned"}},
+            {id: "with-invalid", label: "含失效模型", data: {editable: "fixture-owned"}},
+            {id: "over-limit", label: "超过五条", data: {editable: "fixture-owned"}},
+            {id: "empty", label: "空清单", data: {editable: "fixture-owned"}},
+            {id: "project", label: "项目作用域", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./AgentVisibleModelsViewFixture.vue")).default,
+    },
+    {
         component: "NovelIdeModelEditDialog",
         scenes: [
             {id: "default", label: "编辑模型", data: {editable: "fixture-owned"}},

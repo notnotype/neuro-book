@@ -17,6 +17,8 @@ import EditorSettingsView from "../../components/novel-ide/settings/sections/edi
 import DesktopSettingsView from "../../components/novel-ide/settings/sections/desktop/DesktopSettingsView.vue";
 import SecuritySettingsView from "../../components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
 import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
+import DefaultModelSettingsView from "../../components/novel-ide/settings/sections/default-model/DefaultModelSettingsView.vue";
+import AgentVisibleModelsView from "../../components/novel-ide/settings/sections/agent-visible-models/AgentVisibleModelsView.vue";
 import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
@@ -24,6 +26,7 @@ import {
     DISCOVERY_MODEL_GROUPS,
     MANUAL_MODEL_DRAFT,
     MODEL_API_OPTIONS,
+    MODEL_DEFAULT_MODEL_OPTIONS,
     buildModelSettingsDraft,
     buildSavedModelGroups,
 } from "./model-settings-fixture-data";
@@ -105,6 +108,20 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Pi 请求 trace 记录开关与保留策略",
         iconClass: "i-lucide-activity",
         scopes: ["global"],
+    },
+    {
+        value: "default-model",
+        label: "默认模型",
+        description: "Agent、续写与 AI 批注默认使用的模型",
+        iconClass: "i-lucide-cpu",
+        scopes: ["global", "project"],
+    },
+    {
+        value: "agent-visible-models",
+        label: "可见模型",
+        description: "Leader 为子 Agent 指定模型时的有序清单",
+        iconClass: "i-lucide-list-checks",
+        scopes: ["global", "project"],
     },
     {
         value: "providers",
@@ -300,6 +317,7 @@ watch([scope, activeSection, loading, loadError], () => {
         editorMonaco: {...editorMonaco.value},
         desktopZoom: desktopSettings.value.zoomFactor,
         modelDefaultKey: modelDraft.value.defaultModelKey,
+        agentVisibleModelCount: modelDraft.value.agentVisibleModels.length,
         modelProviderCount: modelDraft.value.providers.length,
         loading: loading.value,
         loadError: loadError.value,
@@ -334,6 +352,17 @@ function resetEditorPreferences(target: "markdown" | "monaco"): void {
 function updateModelDraft(value: ModelSettingsDraft): void {
     modelDraft.value = value;
     emitLabEvent("update:draft", {providers: value.providers.length, defaultModelKey: value.defaultModelKey});
+}
+
+/** 默认模型与可见模型在 Lab 里同样由 fixture 持有：会话与写回都在宿主。 */
+function updateModelKey(value: string | null): void {
+    modelDraft.value = {...modelDraft.value, defaultModelKey: value};
+    emitLabEvent("update:modelKey", {modelKey: value});
+}
+
+function updateAgentVisibleModels(value: typeof modelDraft.value.agentVisibleModels): void {
+    modelDraft.value = {...modelDraft.value, agentVisibleModels: value};
+    emitLabEvent("update:agentVisibleModels", {entries: value.length});
 }
 
 function openDialog(): void {
@@ -463,6 +492,24 @@ function openDialog(): void {
                     @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
                     @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                     @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                />
+
+                <DefaultModelSettingsView
+                    v-else-if="activeSection === 'default-model'"
+                    :model-key="modelDraft.defaultModelKey"
+                    :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                    :is-project-scope="scope === 'project'"
+                    :target-label="targetLabel"
+                    @update:model-key="updateModelKey"
+                />
+
+                <AgentVisibleModelsView
+                    v-else-if="activeSection === 'agent-visible-models'"
+                    :model-value="modelDraft.agentVisibleModels"
+                    :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                    :default-model-key="modelDraft.defaultModelKey"
+                    :is-project-scope="scope === 'project'"
+                    @update:model-value="updateAgentVisibleModels"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -609,6 +656,24 @@ function openDialog(): void {
                         @update:discovery-manual-field="(field, value) => modelManualDraft = {...modelManualDraft, [field]: value}"
                         @toggle-discovery-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
                         @toggle-model-library-group="modelDialogExpandedGroups = {...modelDialogExpandedGroups, [$event]: modelDialogExpandedGroups[$event] === false}"
+                    />
+
+                    <DefaultModelSettingsView
+                        v-else-if="activeSection === 'default-model'"
+                        :model-key="modelDraft.defaultModelKey"
+                        :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                        :is-project-scope="scope === 'project'"
+                        :target-label="targetLabel"
+                        @update:model-key="updateModelKey"
+                    />
+
+                    <AgentVisibleModelsView
+                        v-else-if="activeSection === 'agent-visible-models'"
+                        :model-value="modelDraft.agentVisibleModels"
+                        :models="MODEL_DEFAULT_MODEL_OPTIONS"
+                        :default-model-key="modelDraft.defaultModelKey"
+                        :is-project-scope="scope === 'project'"
+                        @update:model-value="updateAgentVisibleModels"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>

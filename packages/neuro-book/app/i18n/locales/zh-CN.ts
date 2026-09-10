@@ -225,6 +225,18 @@ const zhCN = {
                 label: "桌面应用",
                 description: "窗口、缩放和系统托盘行为。",
             },
+            defaultModel: {
+                label: "默认模型",
+                description: "Agent、续写与 AI 批注默认使用的模型。",
+            },
+            agentVisibleModels: {
+                label: "可见模型",
+                description: "Leader 为子 Agent 指定模型时的有序候选清单。",
+            },
+            roles: {
+                label: "角色",
+                description: "按用途把模型分配给各角色，未配置时按回落链取。",
+            },
         },
         desktop: {
             title: "桌面应用",
@@ -849,6 +861,7 @@ const zhCN = {
                 agentVisibleModelsMoveUp: "上移",
                 agentVisibleModelsMoveDown: "下移",
                 agentVisibleModelsRemove: "移除",
+                agentVisibleModelsGlobalOnly: "这份清单写在全局配置里；项目作用域不单独覆盖，切到「全局」再改。",
                 addProvider: "新增 Provider",
                 addProviderDescription: "从 Pi 内置 Provider 目录添加连接；重复添加会自动改成本地新 ID。",
                 add: "添加",

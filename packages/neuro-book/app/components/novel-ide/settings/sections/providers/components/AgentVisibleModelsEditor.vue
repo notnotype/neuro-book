@@ -65,17 +65,8 @@ function moveEntry(index: number, direction: -1 | 1): void {
 
 <template>
     <!-- Agent 可见模型清单：Global-only，顺序直接进入 leader prompt。 -->
-    <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-            <div class="min-w-0">
-                <div class="flex items-center gap-2">
-                    <div class="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent-bg)] text-[var(--accent-text)]">
-                        <span class="i-lucide-list-checks h-3.5 w-3.5"></span>
-                    </div>
-                    <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.agentVisibleModelsTitle") }}</h4>
-                </div>
-                <p class="mt-2 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.panels.models.agentVisibleModelsDescription") }}</p>
-            </div>
+    <div class="flex min-w-0 flex-col">
+        <div class="flex shrink-0 justify-end">
             <button type="button" class="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:pointer-events-none disabled:opacity-50" :disabled="!canAdd" @click="addEntry">
                 <span class="i-lucide-plus h-3.5 w-3.5"></span>
                 {{ t("settings.panels.models.agentVisibleModelsAdd") }}
@@ -87,15 +78,15 @@ function moveEntry(index: number, direction: -1 | 1): void {
             <span>{{ t("settings.panels.models.agentVisibleModelsOverLimit", {count: modelValue.length}) }}</span>
         </div>
 
-        <div v-if="modelValue.length === 0" class="mt-4 rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-input)] px-4 py-4 text-xs leading-5 text-[var(--text-secondary)]">
+        <p v-if="modelValue.length === 0" class="mt-[var(--space-3)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
             {{ defaultModelLabel
                 ? t("settings.panels.models.agentVisibleModelsEmptyDefault", {model: defaultModelLabel})
                 : t("settings.panels.models.agentVisibleModelsEmptyUnavailable") }}
-        </div>
+        </p>
 
         <div v-else class="mt-4 space-y-3">
             <!-- 每行 = 模型 key + 给 Agent 看的用途说明 + 排序操作。 -->
-            <div v-for="(entry, index) in modelValue" :key="`${entry.modelKey}:${String(index)}`" class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] p-3">
+            <div v-for="(entry, index) in modelValue" :key="`${entry.modelKey}:${String(index)}`" class="border-b border-[var(--divider)] pb-3 last:border-b-0 last:pb-0">
                 <div class="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto]">
                     <NovelIdeModelSelect :model-value="entry.modelKey" :models="availableModels(index)" :placeholder="t('settings.panels.models.agentVisibleModelsSelect')" @update:model-value="updateEntry(index, {modelKey: $event ?? ''})" />
                     <FormInput :model-value="entry.note" :placeholder="t('settings.panels.models.agentVisibleModelsNotePlaceholder')" @update:model-value="updateEntry(index, {note: $event})" />
@@ -108,5 +99,5 @@ function moveEntry(index: number, direction: -1 | 1): void {
                 <p v-if="entry.modelKey && !modelAvailable(entry.modelKey)" class="mt-2 text-[11px] text-[var(--status-warning)]">{{ t("settings.panels.models.agentVisibleModelsInvalid", {model: entry.modelKey}) }}</p>
             </div>
         </div>
-    </section>
+    </div>
 </template>
