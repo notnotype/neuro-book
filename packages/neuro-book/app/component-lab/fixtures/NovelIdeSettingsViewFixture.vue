@@ -7,6 +7,7 @@ import type {AgentProfileDraft} from "../../components/novel-ide/settings/agent-
 import {cloneModelDraft} from "../../components/novel-ide/settings/agent-profile/agent-profile-draft";
 import {createProfileRuntimeSettingsDraft} from "../../components/novel-ide/settings/agent-profile/profile-runtime-settings";
 import NovelIdeSettingsView from "../../components/novel-ide/settings/NovelIdeSettingsView.vue";
+import ObservabilitySettingsView from "../../components/novel-ide/settings/observability/ObservabilitySettingsView.vue";
 import type {
     SettingsScopeId,
     SettingsScopeOption,
@@ -44,6 +45,13 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Profile 的模型、运行策略与专属设置",
         iconClass: "i-lucide-bot-message-square",
         scopes: ["global", "project"],
+    },
+    {
+        value: "observability",
+        label: "可观测",
+        description: "Pi 请求 trace 记录开关与保留策略",
+        iconClass: "i-lucide-activity",
+        scopes: ["global"],
     },
 ];
 
@@ -134,6 +142,8 @@ const activeSection = ref("agent-profile-models");
 /** 配置目标只在项目作用域下有值：跟着作用域走，而不是跟着场景。 */
 const targetLabel = computed(() => scope.value === "project" ? "C:/novels/长夜行" : "");
 const settingsDraft = ref<AgentProfileSettingsPageDraft>(buildDraft());
+const traceEnabled = ref(true);
+const traceMaxRecords = ref(100);
 const dialogOpen = ref(false);
 const dialogWidth = ref(1100);
 const dialogHeight = ref<string | number>("calc(100dvh - 120px)");
@@ -153,6 +163,8 @@ watch([scope, activeSection, loading, loadError], () => {
     syncLabData({
         scope: scope.value,
         activeSection: activeSection.value,
+        traceEnabled: traceEnabled.value,
+        traceMaxRecords: traceMaxRecords.value,
         loading: loading.value,
         loadError: loadError.value,
     });
@@ -187,9 +199,17 @@ function openDialog(): void {
                 @update:model-value="activeSection = $event; emitSectionChange($event)"
             >
                 <AgentProfileSettingsView
+                    v-if="activeSection === 'agent-profile-models'"
                     v-model="settingsDraft"
                     :context="buildContext(scope)"
                     :show-nav-heading="false"
+                />
+                <ObservabilitySettingsView
+                    v-else-if="activeSection === 'observability'"
+                    :enabled="traceEnabled"
+                    :max-records="traceMaxRecords"
+                    @update:enabled="traceEnabled = $event"
+                    @update:max-records="traceMaxRecords = $event"
                 />
             </NovelIdeSettingsView>
         </div>
@@ -230,9 +250,17 @@ function openDialog(): void {
                     @update:model-value="activeSection = $event; emitSectionChange($event)"
                 >
                     <AgentProfileSettingsView
+                        v-if="activeSection === 'agent-profile-models'"
                         v-model="settingsDraft"
                         :context="buildContext(scope)"
                         :show-nav-heading="false"
+                    />
+                    <ObservabilitySettingsView
+                        v-else-if="activeSection === 'observability'"
+                        :enabled="traceEnabled"
+                        :max-records="traceMaxRecords"
+                        @update:enabled="traceEnabled = $event"
+                        @update:max-records="traceMaxRecords = $event"
                     />
                 </NovelIdeSettingsView>
             </DialogWindow>

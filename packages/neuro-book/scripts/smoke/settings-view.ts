@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档并禁用未迁移的两档：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 1 && layout.activeSections === 1,
+            layout.sectionCount === 2 && layout.activeSections === 1,
             failures,
-            `区段导航应只列出可渲染的区段并标出当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出已迁移的区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -90,6 +90,29 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             failures,
             `嵌套区段体应按自身容器宽度决定单栏或双栏：${JSON.stringify(slot)}`,
         );
+
+        stage = "切到可观测区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "可观测"}).first().click();
+        await page.waitForTimeout(200);
+        const sectionSwitch = await page.evaluate(() => {
+            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
+            const rows = [...(root?.querySelectorAll<HTMLElement>(".settings-nav-aside nav ul li button") ?? [])];
+            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
+            return {
+                active: rows.filter((row) => row.getAttribute("aria-current") === "page").map((row) => row.textContent?.trim().slice(0, 3) ?? ""),
+                switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
+                hasTraceTitle: body?.textContent?.includes("请求") ?? false,
+            };
+        });
+        assert(
+            sectionSwitch.active.length === 1 && sectionSwitch.active[0] === "可观测" && sectionSwitch.switches === 1 && sectionSwitch.hasTraceTitle,
+            failures,
+            `切到可观测区段应挂载该区段的真实视图：${JSON.stringify(sectionSwitch)}`,
+        );
+
+        stage = "切回 Agent Profile 区段";
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile 模型"}).first().click();
+        await page.waitForTimeout(200);
 
         stage = "切到项目作用域";
         await page.locator('[aria-label="配置作用域"] [role="radio"]').filter({hasText: "项目"}).first().click();

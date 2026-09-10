@@ -188,6 +188,17 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./NovelIdeSettingsViewFixture.vue")).default,
     },
+    {
+        component: "ObservabilitySettingsView",
+        scenes: [
+            {id: "default", label: "默认", data: {editable: "fixture-owned"}},
+            {id: "disabled", label: "停用", data: {editable: "fixture-owned"}},
+            {id: "boundary", label: "边界值 0", data: {editable: "fixture-owned"}},
+            {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
+            {id: "save-error", label: "保存失败", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ObservabilitySettingsViewFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {
