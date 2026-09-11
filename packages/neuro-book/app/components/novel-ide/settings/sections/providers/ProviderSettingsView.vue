@@ -6,8 +6,8 @@ import ModelLibraryDialog from "./components/ModelLibraryDialog.vue";
 import ModelProviderDetail from "./components/ModelProviderDetail.vue";
 import ModelProviderRail from "./components/ModelProviderRail.vue";
 import NovelIdeModelEditDialog from "./components/NovelIdeModelEditDialog.vue";
-import {parseDraftInteger, parseModelInput, parseModelReasoning} from "./model-settings-draft";
-import type {ModelSettingsDraft, ModelSettingsModelDraft, ModelSettingsProviderDraft} from "./model-settings-draft";
+import {parseDraftInteger, parseModelInput, parseModelReasoning} from "./provider-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft, ModelSettingsProviderDraft} from "./provider-settings-draft";
 import type {ProviderSettingsViewEmits, ProviderSettingsViewProps} from "./ProviderSettingsView.types";
 
 const props = withDefaults(defineProps<ProviderSettingsViewProps>(), {

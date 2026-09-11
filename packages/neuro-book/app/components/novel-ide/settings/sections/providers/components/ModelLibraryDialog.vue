@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
-import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
+import type {ModelLibraryGroup} from "nbook/app/components/novel-ide/settings/sections/providers/provider-view-types";
 
 const props = defineProps<{
     modelValue: boolean;

@@ -2,7 +2,7 @@
 import {computed} from "vue";
 import {Badge, Button, FormSelect} from "@notnotype/nb-ui/components";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
-import type {ModelSettingsProviderDraft} from "../model-settings-draft";
+import type {ModelSettingsProviderDraft} from "../provider-settings-draft";
 
 const props = withDefaults(defineProps<{
     providers: ModelSettingsProviderDraft[];

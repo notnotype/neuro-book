@@ -3,7 +3,7 @@ import {computed, ref, watch} from "vue";
 import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {ProviderConfigIssue} from "@notnotype/neuro-book-contracts/provider-config";
 import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "../../components/novel-ide/settings/sections/providers/provider-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
     MODEL_API_OPTIONS,

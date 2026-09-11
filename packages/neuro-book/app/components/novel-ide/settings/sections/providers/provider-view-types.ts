@@ -1,4 +1,4 @@
-import type {ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {ConfiguredModelDto, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 import type {DiscoveryDiagnosticsDto} from "nbook/shared/dto/app-settings.dto";
 import type {ProviderConfigIssue} from "@notnotype/neuro-book-contracts/provider-config";

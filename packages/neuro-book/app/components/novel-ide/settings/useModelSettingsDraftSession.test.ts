@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {useModelSettingsDraftSession} from "nbook/app/components/novel-ide/settings/useModelSettingsDraftSession";
-import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {ConfiguredModelDto} from "nbook/shared/dto/app-settings.dto";
 
 vi.mock("nbook/app/composables/useNotification", () => ({

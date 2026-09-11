@@ -6,7 +6,7 @@
 
 单个模型的编辑窗口：身份（名称 / ID / 分组）、能力与限制（上下文窗口 / Max Tokens / 输入能力 / 推理）、请求参数（三块 JSON）、价格（结构化字段与分档）。窗口是非模态浮动窗口（nb-ui `DialogWindow`），打开时后面的模型清单仍可见可点；`confirmMode` 为真时（临时候选补全流程）才给取消 / 确认页脚，其余情况改动即改草稿、由宿主决定何时保存。
 
-派生文案（分组默认值、上下文窗口与 Max Tokens 的空值占位、输入能力与推理能力的展示名）在窗口内部算，不通过 props 传函数进来；调用方只提供数据。三块 JSON 的解析、校验与写回由 `model/model-settings-draft.ts` 的共享函数负责（`parseModelCompat` / `parseStringMap`），窗口只负责显示状态。
+派生文案（分组默认值、上下文窗口与 Max Tokens 的空值占位、输入能力与推理能力的展示名）在窗口内部算，不通过 props 传函数进来；调用方只提供数据。三块 JSON 的解析、校验与写回由 `provider-settings-draft.ts` 的共享函数负责（`parseModelCompat` / `parseStringMap`），窗口只负责显示状态。
 
 Component Lab 中由 `NovelIdeModelEditDialogFixture` 提供确定性场景（default / missing-fields / confirm-mode）。
 

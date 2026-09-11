@@ -19,7 +19,7 @@ import SecuritySettingsView from "../../components/novel-ide/settings/sections/s
 import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
 import RolesSettingsView from "../../components/novel-ide/settings/sections/roles/RolesSettingsView.vue";
 import {createRolesSettingsDraft} from "../../components/novel-ide/settings/sections/roles/roles-settings-draft";
-import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/provider-settings-draft";
 import {DEFAULT_PI_MAX_RETRIES} from "nbook/shared/dto/pi-request-options.dto";
 import {
     DISCOVERY_DIAGNOSTICS,

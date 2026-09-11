@@ -2,7 +2,7 @@ import {computed, ref, type Ref} from "vue";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {ConfiguredModelDto, ModelLibraryDto, ModelLibraryEntryDto, ProviderTemplateDto, ProviderTemplateLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
 type ProviderTemplateSessionOptions = {

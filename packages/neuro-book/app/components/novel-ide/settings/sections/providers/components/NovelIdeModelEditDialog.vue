@@ -6,8 +6,8 @@ import {Button, DialogWindow} from "@notnotype/nb-ui/components";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
-import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-cost-draft";
-import {parseDraftInteger, parseModelCompat, parseModelInput, parseModelReasoning, parseStringMap} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import {hasModelCostOverride, parseModelCostDraft, type ModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-model-cost-draft";
+import {parseDraftInteger, parseModelCompat, parseModelInput, parseModelReasoning, parseStringMap} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
 import {deriveModelGroup} from "nbook/shared/models/model-group";
 

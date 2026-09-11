@@ -10,10 +10,10 @@ import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/sec
 import ModelDiscoveryDialog from "nbook/app/components/novel-ide/settings/sections/providers/components/ModelDiscoveryDialog.vue";
 import ModelLibraryDialog from "nbook/app/components/novel-ide/settings/sections/providers/components/ModelLibraryDialog.vue";
 import SavedModelsList from "nbook/app/components/novel-ide/settings/sections/providers/components/SavedModelsList.vue";
-import {clearModelCostDraft, createModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-cost-draft";
-import {candidateFromLibrary, requiredModelFields} from "nbook/app/components/novel-ide/settings/sections/providers/model-draft-factory";
-import {parseDraftInteger, parseModelInput, parseModelReasoning, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
-import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-view";
+import {clearModelCostDraft, createModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-model-cost-draft";
+import {candidateFromLibrary, requiredModelFields} from "nbook/app/components/novel-ide/settings/sections/providers/provider-model-draft-factory";
+import {parseDraftInteger, parseModelInput, parseModelReasoning, type ModelSettingsModelDraft, type ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
+import type {SavedModelGroupView} from "nbook/app/components/novel-ide/settings/sections/providers/provider-view-types";
 import {useModelCheckSession} from "nbook/app/components/novel-ide/settings/useModelCheckSession";
 import {useModelDiscoverySession} from "nbook/app/components/novel-ide/settings/useModelDiscoverySession";
 import {useModelSettingsDraftSession, type ModelSettingsPanelProps, type ModelSettingsScope} from "nbook/app/components/novel-ide/settings/useModelSettingsDraftSession";

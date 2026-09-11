@@ -2,7 +2,7 @@
 import {computed, ref, watch} from "vue";
 import ModelDiscoveryDialog from "../../components/novel-ide/settings/sections/providers/components/ModelDiscoveryDialog.vue";
 import {DISCOVERY_DIAGNOSTICS, DISCOVERY_MODEL_GROUPS, MANUAL_MODEL_DRAFT, MODEL_API_OPTIONS} from "./model-settings-fixture-data";
-import type {ManualModelDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-view";
+import type {ManualModelDraft} from "../../components/novel-ide/settings/sections/providers/provider-view-types";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();

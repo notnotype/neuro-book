@@ -1,7 +1,7 @@
 import {computed, ref, type ComputedRef} from "vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/model-settings-draft";
+import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {CheckModelResponseDto, ConfiguredModelDto, ModelProviderDraftDto, ProviderCredentialSource} from "nbook/shared/dto/app-settings.dto";
 
 type ModelCheckResult = CheckModelResponseDto & {

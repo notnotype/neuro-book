@@ -1,6 +1,6 @@
 import type {ProviderConfigIssue} from "@notnotype/neuro-book-contracts/provider-config";
 import type {EnabledModelOptionDto, ModelInputKind, ModelLibraryEntryDto} from "nbook/shared/dto/app-settings.dto";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "./model-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "./provider-settings-draft";
 import type {
     DiscoveryDiagnosticsView,
     DiscoveryListModel,
@@ -9,7 +9,7 @@ import type {
     ModelApiOption,
     ModelLibraryGroup,
     SavedModelGroupView,
-} from "./model-settings-view";
+} from "./provider-view-types";
 
 /**
  * 模型区段渲染层的受控契约：每个渲染用到的会话字段都作为 props 传入（名字与会话字段一致），

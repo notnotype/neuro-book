@@ -6,7 +6,7 @@
 
 Provider 的自动模型发现窗口：搜索与刷新、部分成功诊断、按分组的结果列表（可逐条加入 / 移出 Provider Config），底部还有一条手工补全行（名称 / ID / 接口格式 / 上下文窗口 / Max Tokens）。窗口是非模态浮动窗口（nb-ui `DialogWindow`），打开时设置页仍可见；所有动作都 emit 回宿主，窗口自己不请求、不改草稿。
 
-结果列表与分组由 `model/model-settings-view.ts` 的 `DiscoveryModelGroup` / `DiscoveryListModel` 描述，宿主算好传入：`state` 区分已启用、已停用、远端完整与远端不完整四种显示。手工补全行的字段草稿（`ManualModelDraft`）同样由宿主持有，窗口只把每次输入转成 `update-manual-field`。
+结果列表与分组由 `provider-view-types.ts` 的 `DiscoveryModelGroup` / `DiscoveryListModel` 描述，宿主算好传入：`state` 区分已启用、已停用、远端完整与远端不完整四种显示。手工补全行的字段草稿（`ManualModelDraft`）同样由宿主持有，窗口只把每次输入转成 `update-manual-field`。
 
 Component Lab 中由 `ModelDiscoveryDialogFixture` 提供确定性场景（default / partial / empty / discovering）。
 
