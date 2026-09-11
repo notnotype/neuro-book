@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, nextTick} from "vue";
+import {ref, computed, nextTick} from "vue";
 import {Button, FormInput, FormTextarea, Spinner} from "@notnotype/nb-ui/components";
 import ProjectCreateCoverPreview from "./ProjectCreateCoverPreview.vue";
 
@@ -31,14 +31,14 @@ const summary = ref(props.initialSummary || "");
 const genre = ref(props.initialGenre || "general");
 const titleInputRef = ref<{focus: () => void; select?: () => void} | null>(null);
 
-const genreOptions = [
-    {id: "general", label: "通用创作"},
-    {id: "xuanhuan", label: "玄幻修真"},
-    {id: "scifi", label: "科幻未来"},
-    {id: "urban", label: "都市职场"},
-    {id: "mystery", label: "悬疑惊悚"},
-    {id: "world", label: "世界设定"},
-];
+const genreOptions = computed(() => [
+    {id: "general", label: t("ide.picker.genres.general")},
+    {id: "xuanhuan", label: t("ide.picker.genres.xuanhuan")},
+    {id: "scifi", label: t("ide.picker.genres.scifi")},
+    {id: "urban", label: t("ide.picker.genres.urban")},
+    {id: "mystery", label: t("ide.picker.genres.mystery")},
+    {id: "world", label: t("ide.picker.genres.world")},
+]);
 
 function focusTitle(): void {
     titleInputRef.value?.focus();
@@ -72,7 +72,7 @@ defineExpose({
 </script>
 
 <template>
-    <div data-project-create-form class="space-y-4">
+    <div data-project-create-form class="project-create-form-root space-y-4">
         <!-- 创建中状态：内聚于表单组件内部，满足 ui-development-spec §4.1 规范（占满区域、居中、零布局抖动） -->
         <div
             v-if="isCreating"
@@ -117,8 +117,8 @@ defineExpose({
             </div>
 
             <form id="create-project-form" class="space-y-4" @submit.prevent="handleSubmit">
-                <!-- 双栏联动布局：左侧封面即时拟真预览，右侧输入项；移动端自动折叠为居中纵向 -->
-                <div class="flex flex-col gap-5 sm:flex-row sm:items-start">
+                <!-- 双栏联动布局：基于 @container 自适应，容器 <480px 垂直堆叠，>=480px 左右双栏 -->
+                <div class="create-form-layout">
                     <!-- 左侧 / 移动端顶部：拟真书封预览 -->
                     <div class="flex shrink-0 justify-center sm:pt-1">
                         <ProjectCreateCoverPreview :title="title" :genre="genre" />
@@ -144,7 +144,7 @@ defineExpose({
                         <!-- 题材选择胶囊 -->
                         <div class="space-y-1.5">
                             <span class="block text-xs font-medium text-[var(--text-secondary)]">
-                                {{ t("ide.picker.genreSelect") || "作品题材" }}
+                                {{ t("ide.picker.genreSelect") }}
                             </span>
                             <div class="flex flex-wrap gap-1.5">
                                 <button
@@ -182,3 +182,22 @@ defineExpose({
         </template>
     </div>
 </template>
+
+<style scoped>
+.project-create-form-root {
+    container-type: inline-size;
+}
+
+.create-form-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+@container (min-width: 480px) {
+    .create-form-layout {
+        flex-direction: row;
+        align-items: flex-start;
+    }
+}
+</style>

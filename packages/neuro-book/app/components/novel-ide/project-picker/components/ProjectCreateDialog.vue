@@ -24,6 +24,54 @@ const emit = defineEmits<{
 
 const {t} = useI18n();
 
+const CREATE_PROJECT_WINDOW_SIZE_KEY = "nbook.projectCreateDialog.size";
+type WindowSize = {width: number; height: number};
+const DEFAULT_WINDOW_SIZE: WindowSize = {width: 580, height: 440};
+const MIN_WINDOW_SIZE: WindowSize = {width: 320, height: 360};
+
+function readStoredWindowSize(): WindowSize {
+    if (!import.meta.client) {
+        return {...DEFAULT_WINDOW_SIZE};
+    }
+    try {
+        const raw = window.localStorage.getItem(CREATE_PROJECT_WINDOW_SIZE_KEY);
+        if (!raw) return {...DEFAULT_WINDOW_SIZE};
+        const parsed = JSON.parse(raw) as Partial<WindowSize>;
+        const width = Math.round(Number(parsed.width));
+        const height = Math.round(Number(parsed.height));
+        if (!Number.isFinite(width) || !Number.isFinite(height)) {
+            return {...DEFAULT_WINDOW_SIZE};
+        }
+        return {
+            width: Math.max(width, MIN_WINDOW_SIZE.width),
+            height: Math.max(height, MIN_WINDOW_SIZE.height),
+        };
+    } catch {
+        return {...DEFAULT_WINDOW_SIZE};
+    }
+}
+
+function persistWindowSize(size: WindowSize): void {
+    if (!import.meta.client) return;
+    try {
+        window.localStorage.setItem(CREATE_PROJECT_WINDOW_SIZE_KEY, JSON.stringify(size));
+    } catch {
+        // 静默放弃偏好存储
+    }
+}
+
+const windowSize = ref<WindowSize>(readStoredWindowSize());
+
+function updateWindowWidth(width: number): void {
+    windowSize.value = {...windowSize.value, width};
+    persistWindowSize(windowSize.value);
+}
+
+function updateWindowHeight(height: number): void {
+    windowSize.value = {...windowSize.value, height};
+    persistWindowSize(windowSize.value);
+}
+
 const formRef = ref<InstanceType<typeof ProjectCreateForm> | null>(null);
 let submitDebounce = false;
 
@@ -60,13 +108,16 @@ function handleFooterSubmit(): void {
     <DialogWindow
         :model-value="props.isOpen"
         :title="t('ide.bookshelf.createBook')"
-        :width="580"
-        :min-width="320"
-        :min-height="240"
+        :width="windowSize.width"
+        :height="windowSize.height"
+        :min-width="MIN_WINDOW_SIZE.width"
+        :min-height="MIN_WINDOW_SIZE.height"
         resizable
         :busy="props.isCreating"
         :teleport-target="props.teleportTarget"
         body-class="p-4 sm:p-5"
+        @update:width="updateWindowWidth"
+        @update:height="updateWindowHeight"
         @update:model-value="!$event && handleCancel()"
     >
         <ProjectCreateForm

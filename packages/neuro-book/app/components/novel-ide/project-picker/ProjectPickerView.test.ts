@@ -31,6 +31,14 @@ beforeEach(() => {
                 "ide.picker.recentProjects": "最近编辑",
                 "ide.picker.recoveryTitle": "需要确认归属的会话",
                 "ide.picker.recoverySummary": "版本迁移产生未关联的会话",
+                "ide.picker.genreSelect": "作品题材",
+                "ide.picker.previewBadge": "封面即时预览",
+                "ide.picker.genres.general": "通用创作",
+                "ide.picker.genres.xuanhuan": "玄幻修真",
+                "ide.picker.genres.scifi": "科幻未来",
+                "ide.picker.genres.urban": "都市职场",
+                "ide.picker.genres.mystery": "悬疑惊悚",
+                "ide.picker.genres.world": "世界设定",
             }[key] ?? key;
         },
         locale: ref("zh-CN"),
@@ -211,5 +219,35 @@ describe("ProjectPickerView", () => {
             title: "新作品",
             summary: "",
         });
+
+        // 验证表单中无未翻译裸 key 泄露
+        expect(form?.textContent).not.toContain("ide.picker.genreSelect");
+        expect(form?.textContent).not.toContain("ide.picker.previewBadge");
+        expect(form?.textContent).toContain("作品题材");
+        expect(form?.textContent).toContain("封面即时预览");
+        expect(form?.textContent).toContain("通用创作");
+    });
+
+    it("renders bookshelf grid with container query classes for responsive mobile layout", async () => {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+
+        const app = createApp(defineComponent({
+            setup() {
+                return () => h(ProjectPickerView, {
+                    projects: SAMPLE_PROJECTS,
+                });
+            },
+        }));
+        mounted.push(app);
+        app.mount(host);
+        await nextTick();
+
+        const grid = host.querySelector(".picker-bookshelf-grid");
+        expect(grid).not.toBeNull();
+        expect(grid?.children.length).toBe(2);
+
+        const headerSection = host.querySelector(".picker-header-section");
+        expect(headerSection).not.toBeNull();
     });
 });

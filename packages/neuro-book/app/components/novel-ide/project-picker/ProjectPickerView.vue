@@ -219,7 +219,7 @@ function handleRetryCoverRecovery(): void {
                     <h2 class="text-sm font-semibold text-[var(--text-main)]">{{ t("ide.picker.recentProjects") }}</h2>
                     <span class="text-xs text-[var(--text-muted)] font-mono">{{ t("ide.picker.projectCount", {count: projects.length}) }}</span>
                 </div>
-                <div class="grid grid-cols-2 gap-x-3.5 gap-y-6 sm:grid-cols-3 sm:gap-x-5 sm:gap-y-9 md:grid-cols-4 lg:grid-cols-5">
+                <div class="picker-bookshelf-grid">
                     <ProjectCard
                         v-for="project in projects"
                         :key="project.projectRoot"
@@ -264,3 +264,38 @@ function handleRetryCoverRecovery(): void {
         />
     </div>
 </template>
+
+<style scoped>
+.project-picker-view {
+    container-type: inline-size;
+}
+
+.picker-bookshelf-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 0.875rem;
+    row-gap: 1.5rem;
+}
+
+@container (min-width: 580px) {
+    .picker-bookshelf-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        column-gap: 1.25rem;
+        row-gap: 2rem;
+    }
+}
+
+@container (min-width: 820px) {
+    .picker-bookshelf-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@container (min-width: 1060px) {
+    .picker-bookshelf-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        column-gap: 1.5rem;
+        row-gap: 2.25rem;
+    }
+}
+</style>

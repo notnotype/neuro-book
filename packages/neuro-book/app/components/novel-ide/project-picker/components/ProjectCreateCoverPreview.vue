@@ -27,41 +27,46 @@ const DEFAULT_THEME: GenreTheme = {
 };
 
 // 预设题材的封面环境色板（冷暖/情绪区分）
-const genreThemes: Record<string, GenreTheme> = {
-    general: DEFAULT_THEME,
+const genreThemes = computed<Record<string, GenreTheme>>(() => ({
+    general: {
+        from: "from-[color-mix(in_srgb,var(--bg-panel)_85%,var(--accent-main)_15%)]",
+        to: "to-[var(--bg-panel)]",
+        accent: "var(--accent-main)",
+        label: t("ide.picker.genres.general"),
+    },
     xuanhuan: {
         from: "from-[color-mix(in_srgb,var(--bg-panel)_80%,#8b5cf6_20%)]",
         to: "to-[var(--bg-panel)]",
         accent: "#8b5cf6",
-        label: "玄幻修真",
+        label: t("ide.picker.genres.xuanhuan"),
     },
     scifi: {
         from: "from-[color-mix(in_srgb,var(--bg-panel)_80%,#06b6d4_20%)]",
         to: "to-[var(--bg-panel)]",
         accent: "#06b6d4",
-        label: "科幻未来",
+        label: t("ide.picker.genres.scifi"),
     },
     urban: {
         from: "from-[color-mix(in_srgb,var(--bg-panel)_80%,#3b82f6_20%)]",
         to: "to-[var(--bg-panel)]",
         accent: "#3b82f6",
-        label: "都市职场",
+        label: t("ide.picker.genres.urban"),
     },
     mystery: {
         from: "from-[color-mix(in_srgb,var(--bg-panel)_80%,#e11d48_20%)]",
         to: "to-[var(--bg-panel)]",
         accent: "#e11d48",
-        label: "悬疑惊悚",
+        label: t("ide.picker.genres.mystery"),
     },
     world: {
         from: "from-[color-mix(in_srgb,var(--bg-panel)_80%,#10b981_20%)]",
         to: "to-[var(--bg-panel)]",
         accent: "#10b981",
-        label: "世界设定",
+        label: t("ide.picker.genres.world"),
     },
-};
+}));
 
-const currentTheme = computed<GenreTheme>(() => (props.genre ? genreThemes[props.genre] : undefined) ?? DEFAULT_THEME);
+const currentTheme = computed<GenreTheme>(() => (props.genre ? genreThemes.value[props.genre] : undefined) ?? DEFAULT_THEME);
 </script>
 
 <template>
@@ -101,8 +106,8 @@ const currentTheme = computed<GenreTheme>(() => (props.genre ? genreThemes[props
         </div>
 
         <!-- 拟真阴影垫底 -->
-        <span class="mt-1.5 text-[10px] font-medium text-[var(--text-muted)] tracking-wider uppercase">
-            {{ t("ide.picker.previewBadge") || "封面即时预览" }}
+        <span class="mt-1.5 text-[10px] font-medium text-[var(--text-muted)] tracking-wider">
+            {{ t("ide.picker.previewBadge") }}
         </span>
     </div>
 </template>

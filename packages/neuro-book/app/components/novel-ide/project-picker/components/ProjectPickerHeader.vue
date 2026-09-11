@@ -20,21 +20,21 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <section class="flex flex-col gap-4 border-b border-[var(--border-color)] pb-5 sm:flex-row sm:items-end sm:justify-between sm:gap-5 sm:pb-7">
-        <div class="min-w-0">
-            <h1 class="font-serif text-xl font-bold tracking-tight text-[var(--text-main)] sm:text-2xl">
+    <section class="picker-header-section">
+        <div class="min-w-0 flex-1">
+            <h1 class="picker-header-title">
                 {{ t("ide.picker.title") }}
             </h1>
-            <p class="mt-1.5 text-xs leading-5 text-[var(--text-secondary)] sm:mt-2 sm:text-sm sm:leading-6">
+            <p class="picker-header-subtitle">
                 {{ t("ide.picker.subtitle") }}
             </p>
         </div>
-        <div class="grid w-full shrink-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-row sm:gap-2.5">
+        <div class="picker-header-actions">
             <Button
                 type="button"
                 variant="secondary"
                 icon-class="i-lucide-folder-cog"
-                class="justify-center sm:justify-start"
+                class="justify-center"
                 @click="emit('open-user-assets')"
             >
                 {{ t("ide.picker.openUserAssets") }}
@@ -43,7 +43,7 @@ const {t} = useI18n();
                 type="button"
                 variant="primary"
                 icon-class="i-lucide-book-plus"
-                class="justify-center sm:justify-start"
+                class="justify-center"
                 :disabled="isLoading || hasLoadError || isCreating"
                 @click="emit('create-book')"
             >
@@ -52,3 +52,65 @@ const {t} = useI18n();
         </div>
     </section>
 </template>
+
+<style scoped>
+.picker-header-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1.25rem;
+}
+
+.picker-header-title {
+    font-family: var(--font-serif, serif);
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    color: var(--text-main);
+}
+
+.picker-header-subtitle {
+    margin-top: 0.375rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    color: var(--text-secondary);
+}
+
+.picker-header-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+    width: 100%;
+    flex-shrink: 0;
+}
+
+@container (min-width: 580px) {
+    .picker-header-section {
+        flex-direction: row;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 1.25rem;
+        padding-bottom: 1.75rem;
+    }
+
+    .picker-header-title {
+        font-size: 1.5rem;
+        line-height: 2rem;
+    }
+
+    .picker-header-subtitle {
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        line-height: 1.5rem;
+    }
+
+    .picker-header-actions {
+        display: flex;
+        width: auto;
+        flex-direction: row;
+        gap: 0.625rem;
+    }
+}
+</style>
