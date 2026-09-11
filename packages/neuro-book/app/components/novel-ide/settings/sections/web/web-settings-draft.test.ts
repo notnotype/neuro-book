@@ -60,6 +60,11 @@ describe("web-settings-draft", () => {
         expect(payload.fetch!.tavilyFallback!.timeoutMs).toBeNull();
     });
 
+    it("写回体的服务键与 catalog 一一对应（往表里加服务却忘了改写回段，这条先红）", () => {
+        const payload = buildWebPayload(createWebSettingsDraft());
+        expect(Object.keys(payload.search!.providers!).sort()).toEqual([...SEARCH_PROVIDER_CATALOG.map((item) => item.key)].sort());
+    });
+
     it("写回体的 provider 段与 catalog 对齐，Brave 的独有字段来自 extras", () => {
         const draft = createWebSettingsDraft();
         draft.providers.brave.enabled = true;

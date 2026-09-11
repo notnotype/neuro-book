@@ -6,7 +6,7 @@
 
 NeuroBook 设置界面的外壳视图：一栏作用域与区段导航 + 内容区，区段体由宿主通过默认插槽提供。它只消费宿主解析好的作用域、区段与状态，不读 store、不发请求、不写持久化；作用域与区段都是受控的，切换只通过 `update:scope` / `update:modelValue` 交回宿主。
 
-Component Lab 中由 `NovelIdeSettingsViewFixture` 提供确定性场景（global / project / dialog-window / loading / load-error）：`global` 与 `project` 在内容槽里挂真实的 `AgentProfileSettingsView`，`dialog-window` 通过 nb-ui `DialogWindow` 展示同一组合。四档作用域都能进入：`global` 挂五个区段（Agent Profile 模型 / 可观测 / 费用显示 / 向量嵌入 / Web 工具），`project` 挂 Agent Profile 模型，`boot` 挂密码保护，`browser` 挂编辑器与桌面应用；区段体由 fixture 自己提供确定性数据，不读 store。
+Component Lab 中由 `NovelIdeSettingsViewFixture` 提供确定性场景（global / project / dialog-window / loading / load-error）：`global` 与 `project` 在内容槽里挂真实的 `AgentProfileSettingsView`，`dialog-window` 通过 nb-ui `DialogWindow` 展示同一组合。四档作用域都能进入：`global` 挂七个区段（Provider / 模型角色 / Agent Profile / Web 工具 / 向量嵌入 / 费用显示 / 可观测），`project` 挂 Agent Profile，`boot` 挂密码保护，`browser` 挂编辑器与桌面应用；区段体由 fixture 自己提供确定性数据，不读 store。区段切换走「短位移 + 淡入」（§七 内容切换），两段各取 `--motion-fast`。
 
 ## 契约
 
@@ -20,7 +20,8 @@ type NovelIdeSettingsViewProps = {
     modelValue: string;
     /** 项目作用域下的配置目标标签；空则不显示 */
     targetLabel?: string;
-    versionLabel?: string;
+    versionLabel?: string;      // 左下角版本，等宽数字
+    environmentLabel?: string;  // 左下角环境标注（Lab / 本地 / 生产）
     githubUrl?: string;
     loading?: boolean;
     loadError?: string;

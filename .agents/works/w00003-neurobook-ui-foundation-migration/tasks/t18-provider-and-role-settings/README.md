@@ -90,6 +90,11 @@ role: tasker
 3. **Provider 模块改名**：`sections/providers/` 四个模块与测试去掉遗留的 `model-` 前缀（`provider-settings-draft.ts` / `provider-view-types.ts` / `provider-model-draft-factory.ts` / `provider-model-cost-draft.ts`），导出类型名保持不变（跨宿主与四个会话引用，属独立动作）。改名提交 `3f983b1d`。
 4. **契约同步**：提案按重设计修订三处（候选链下线、回落语义删除、角色目录由写死改为可配置 → 段形状改 `items: Array`，与 `buildRolesSection()` 逐字对齐）。
 
+2026-09-11 第三批验收后，角色页再改两处（细则与其余收口见 t17 切片 16）：
+
+- **内置角色只读**：产品提供的九个角色（梯度轴四档 + 专精轴五个）的名字与描述不可编辑，只能**启用 / 停用**（每行一枚 `Switch`，停用后不参与配置校验与模型目录）；只有用户自建的角色能改名字、改描述、删除。草稿类型随之改 `builtIn` / `enabled` 两个字段，`removeRole()` 只删自建角色，`roleConfigIssues()` 跳过停用角色。契约提案同步记录启用位。
+- **内容列封顶补回**：本轮重写时漏掉了 `max-w-3xl`（审查 `ReviewRedesigns` 指出），已补回视图根节点。
+
 外壳区段数 9 → **7**（Provider / 模型角色 / Agent Profile / Web 工具 / 向量嵌入 / 费用显示 / 可观测），另有 `启动`（密码保护）与 `本机`（编辑器 / 桌面应用）两个作用域专属小节。smoke 断言、fixture、i18n 全部同步；测试 371 项（受影响的 49 文件）通过。
 
 ## 已知的可复用资产（t17 产出）

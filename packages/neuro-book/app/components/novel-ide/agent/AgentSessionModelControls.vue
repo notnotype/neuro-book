@@ -51,9 +51,10 @@ const thinkingLevelOptions = computed<Array<{value: ThinkingLevelDto | null; lab
 
 const actionDisabled = computed(() => props.readonly || props.running || props.loadingSession || props.sessionModelSaving);
 
+// 传 ignore：模型下拉的选项在 body 下的浮层里，点选项不该算「点到了面板外面」
 onClickOutside(controlsRef, () => {
     emit("update:sessionModelPopoverOpen", false);
-});
+}, {ignore: [".nb-ui-popover-surface"]});
 
 /**
  * 更新当前 session 模型参数草稿。

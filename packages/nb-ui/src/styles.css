@@ -532,3 +532,15 @@ input.nb-ui-native-input[type="number"] {
     opacity: 0;
     transform: translateY(-6px) scale(0.985);
 }
+
+/*
+ * 装饰性关键帧动画同样服从降级偏好：`tokens.css` 只把三个时长 token 归零，
+ * 覆盖不到 `animation`。骨架脉冲与微光是纯粹的氛围，降级时直接停掉。
+ * 转圈类的加载指示不在此列——它承担状态表达，旁边还有一句能独立读懂的说明。
+ */
+@media (prefers-reduced-motion: reduce) {
+    .nb-shimmer::after,
+    .animate-pulse {
+        animation: none !important;
+    }
+}

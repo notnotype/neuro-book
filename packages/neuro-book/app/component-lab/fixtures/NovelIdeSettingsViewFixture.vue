@@ -57,6 +57,13 @@ const {t} = useI18n();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
+/** 项目作用域的候选项目：Lab 里给两份确定性数据。 */
+const LAB_PROJECTS = [
+    {id: "project-neuro-book", name: "NeuroBook"},
+    {id: "project-demo-novel", name: "长夜将至（示例）"},
+];
+const activeProjectId = ref(LAB_PROJECTS[0]!.id);
+
 type SceneKey = "global" | "project" | "dialog-window" | "loading" | "load-error";
 
 const sceneKey = computed<SceneKey>(() => {
@@ -378,7 +385,11 @@ function openDialog(): void {
                 :sections="sectionOptions"
                 :model-value="activeSection"
                 :target-label="targetLabel"
-                version-label="v0.0.0 · Lab"
+                version-label="v0.0.0"
+                environment-label="Lab"
+                :projects="LAB_PROJECTS"
+                :active-project-id="activeProjectId"
+                @update:active-project-id="activeProjectId = $event"
                 :loading="loading"
                 :load-error="loadError"
                 @update:scope="scope = $event; emitScopeChange($event)"
@@ -524,6 +535,7 @@ function openDialog(): void {
                 resizable
                 :min-width="720"
                 :min-height="420"
+                body-class="min-h-0 flex-1 overflow-hidden p-0"
                 @update:width="dialogWidth = $event"
                 @update:height="dialogHeight = $event"
             >
@@ -536,7 +548,11 @@ function openDialog(): void {
                     :sections="sectionOptions"
                     :model-value="activeSection"
                     :target-label="targetLabel"
-                    version-label="v0.0.0 · Lab"
+                    version-label="v0.0.0"
+                environment-label="Lab"
+                :projects="LAB_PROJECTS"
+                :active-project-id="activeProjectId"
+                @update:active-project-id="activeProjectId = $event"
                     :loading="loading"
                     :load-error="loadError"
                     @update:scope="scope = $event; emitScopeChange($event)"

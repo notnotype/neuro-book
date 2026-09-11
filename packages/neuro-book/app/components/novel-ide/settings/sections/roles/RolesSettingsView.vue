@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {Badge, FormInput, FormSelect, IconButton, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, FormInput, FormSelect, IconButton, Switch, Tooltip} from "@notnotype/nb-ui/components";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import {
     addSpecialistRole,
+    isEditableRole,
     removeRole as removeRoleFromDraft,
     roleConfigIssues,
     type ModelRoleAxis,
@@ -71,13 +72,21 @@ function removeRole(id: string): void {
     emit("update:modelValue", removeRoleFromDraft(props.modelValue, id));
 }
 
-function suggestedTip(role: ModelRoleDraft): string {
-    return t("settings.panels.roles.suggestedModel", {model: role.suggestedModel ?? ""});
+/** 内置角色只能启用/停用，提示里顺带说明建议模型。 */
+function roleTip(role: ModelRoleDraft): string {
+    const parts: string[] = [];
+    if (role.suggestedModel) {
+        parts.push(t("settings.panels.roles.suggestedModel", {model: role.suggestedModel}));
+    }
+    if (!isEditableRole(role)) {
+        parts.push(t("settings.panels.roles.builtInRoleHint"));
+    }
+    return parts.join(" · ");
 }
 </script>
 
 <template>
-    <div class="roles-view-root flex min-w-0 flex-col" data-lab-subject>
+    <div class="roles-view-root mx-auto flex w-full min-w-0 max-w-3xl flex-col" data-lab-subject>
         <header class="flex min-w-0 shrink-0 items-center gap-[var(--space-2)]">
             <h2 class="text-[var(--text-base)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.roles.title") }}</h2>
             <Tooltip :text="t('settings.panels.roles.description')">
@@ -110,50 +119,30 @@ function suggestedTip(role: ModelRoleDraft): string {
                     v-for="role in axis.roles"
                     :key="role.id"
                     data-role-row
-                    class="role-grid grid items-start gap-[var(--space-3)] border-b border-[var(--divider)] py-[var(--space-3)] last:border-b-0"
+                    class="role-grid grid items-center gap-[var(--space-3)] border-b border-[var(--divider)] py-[var(--space-3)] last:border-b-0"
                 >
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-[var(--space-2)]">
-                            <span class="h-4 w-4 shrink-0 text-[var(--text-muted)]" :class="role.iconClass" aria-hidden="true"></span>
-                            <FormInput
-                                v-if="role.removable"
-                                class="role-name-input"
-                                :model-value="role.name"
-                                :placeholder="t('settings.panels.roles.roleName')"
-                                :aria-label="t('settings.panels.roles.roleName')"
-                                :disabled="props.disabled"
-                                @update:model-value="patchRole(axis.axis, role.id, {name: $event})"
-                            />
-                            <span v-else class="truncate text-[var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)]">{{ role.name }}</span>
-                            <Badge v-if="hasIssue(role.id, 'missing-model')" variant="soft" tone="danger" size="sm">
-                                {{ t("settings.panels.roles.notConfigured") }}
-                            </Badge>
-                            <Tooltip v-if="role.suggestedModel" :text="suggestedTip(role)">
-                                <button type="button" class="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]" :aria-label="suggestedTip(role)">
-                                    <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
-                                </button>
-                            </Tooltip>
-                        </div>
-
-                        <FormInput
-                            v-if="role.removable"
-                            class="role-description-input mt-[var(--space-2)]"
-                            :model-value="role.description"
-                            :placeholder="t('settings.panels.roles.roleDescription')"
-                            :aria-label="t('settings.panels.roles.roleDescription')"
-                            :disabled="props.disabled"
-                            @update:model-value="patchRole(axis.axis, role.id, {description: $event})"
-                        />
-                        <p v-else class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
-                            {{ role.description }}
-                            <span class="ml-[var(--space-2)] font-mono text-[var(--text-2xs)] text-[var(--text-muted)]">{{ role.id }}</span>
-                        </p>
-                        <p v-if="hasIssue(role.id, 'missing-description')" class="mt-[var(--space-1)] text-[var(--text-2xs)] text-[var(--status-danger)]">
-                            {{ t("settings.panels.roles.roleDescriptionRequired") }}
-                        </p>
+                    <!-- 角色身份：图标 + 名字 + 状态 + 提示。内置角色的名字与描述是产品给的，只读。 -->
+                    <div class="flex min-w-0 items-center gap-[var(--space-2)]">
+                        <span class="h-4 w-4 shrink-0 text-[var(--text-muted)]" :class="role.iconClass" aria-hidden="true"></span>
+                        <span class="truncate text-[var(--text-sm)] [font-weight:var(--weight-medium)] text-[var(--text-main)]">{{ role.name }}</span>
+                        <span class="shrink-0 font-mono text-[var(--text-2xs)] text-[var(--text-muted)]">{{ role.id }}</span>
+                        <Badge v-if="role.enabled && !role.modelKey" variant="soft" tone="danger" size="sm">
+                            {{ t("settings.panels.roles.notConfigured") }}
+                        </Badge>
+                        <Tooltip v-if="role.suggestedModel || !isEditableRole(role)" :text="roleTip(role)">
+                            <button type="button" class="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]" :aria-label="roleTip(role)">
+                                <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
+                            </button>
+                        </Tooltip>
                     </div>
 
-                    <!-- 模型下拉与删除同一个操作区：窄容器里它们一起换行，不会各自独占一行 -->
+                    <Switch
+                        :model-value="role.enabled"
+                        :disabled="props.disabled"
+                        :aria-label="t('settings.panels.roles.enableRole', {role: role.name})"
+                        @update:model-value="patchRole(axis.axis, role.id, {enabled: $event})"
+                    />
+
                     <div class="role-actions flex items-center gap-[var(--space-2)]">
                         <FormSelect
                             class="min-w-0 flex-1"
@@ -166,7 +155,7 @@ function suggestedTip(role: ModelRoleDraft): string {
                             @update:model-value="patchRole(axis.axis, role.id, {modelKey: $event || null})"
                         />
                         <IconButton
-                            v-if="role.removable"
+                            v-if="isEditableRole(role)"
                             class="shrink-0"
                             :title="t('settings.panels.roles.removeRole')"
                             icon-class="i-lucide-trash-2"
@@ -175,7 +164,22 @@ function suggestedTip(role: ModelRoleDraft): string {
                             :disabled="props.disabled"
                             @click="removeRole(role.id)"
                         />
-                        <span v-else class="w-7 shrink-0"></span>
+                    </div>
+
+                    <!-- 第二行：描述。内置角色是只读文本，自建角色可就地编辑。 -->
+                    <div class="role-description col-span-2 min-w-0">
+                        <FormInput
+                            v-if="isEditableRole(role)"
+                            :model-value="role.description"
+                            :placeholder="t('settings.panels.roles.roleDescription')"
+                            :aria-label="t('settings.panels.roles.roleDescription')"
+                            :disabled="props.disabled"
+                            @update:model-value="patchRole(axis.axis, role.id, {description: $event})"
+                        />
+                        <p v-else class="truncate text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ role.description }}</p>
+                        <p v-if="role.enabled && hasIssue(role.id, 'missing-description')" class="mt-[var(--space-1)] text-[var(--text-2xs)] text-[var(--status-danger)]">
+                            {{ t("settings.panels.roles.roleDescriptionRequired") }}
+                        </p>
                     </div>
                 </article>
             </div>
@@ -200,15 +204,13 @@ function suggestedTip(role: ModelRoleDraft): string {
     container-type: inline-size;
 }
 
-/* 窄容器一行一件事，宽一些再把模型下拉和删除并到右侧，且各角色对齐。 */
+/*
+ * 窄容器一行一件事（身份 / 开关 / 模型），宽一些再把它们并成一行并对齐：
+ * 身份占满剩余宽度，开关与模型下拉各自固定，描述独占第二行。
+ */
 @container (min-width: 620px) {
     .role-grid {
-        grid-template-columns: minmax(0, 1fr) 260px;
+        grid-template-columns: minmax(0, 1fr) auto 260px;
     }
-}
-
-/* 名字输入始终收窄：它是行内标题，不该长得像一整块输入框 */
-.role-name-input {
-    width: min(200px, 100%);
 }
 </style>

@@ -59,6 +59,16 @@
 
 所有可交互组件至少覆盖：默认、hover、focus-visible、active/selected、disabled。字段再覆盖 readonly、required、invalid、empty/placeholder；异步组件覆盖 loading、empty、error；浮层覆盖 open、close、outside interaction、Escape 与视口碰撞。
 
+**页面级**加载态与失败态占满它们要交代的那块区域，并居中：
+
+- 加载不画骨架——占位形状会暗示一个还不知道的结构；一枚转动的指示 + 一句能独立成立的说明即可。
+- 失败是一屏内容（状态图标 + 原因 + 重试动作），不是一条会挤动布局的行内色块。
+- 两者都要可播报：加载容器带 `aria-busy="true"` 与 `role="status"`（`aria-live="polite"`），
+  文字必须独立成立（不能只有指示动画）；失败是一次性事件，带 `role="alert"`，重试入口保留可访问名称。
+- 判据：不依赖颜色与动画也能读出「正在加载 / 加载失败」，且出现与消失都不推动周围内容。
+
+字段级（控件内）的加载/失败仍按本节上文的零布局位移约束处理。
+
 ### 4.2 核心控件视觉、交互与动效规范清单
 
 #### 1. `Button`（按钮 · 现代极简平滑 BH1-C 规范）

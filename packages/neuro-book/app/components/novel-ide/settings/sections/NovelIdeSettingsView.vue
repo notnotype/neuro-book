@@ -2,6 +2,7 @@
 import {computed, nextTick, ref, useId, type ComponentPublicInstance} from "vue";
 import {Button, SegmentedControl, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlOption} from "@notnotype/nb-ui/components";
+import ProjectSwitcher from "./components/ProjectSwitcher.vue";
 import type {
     NovelIdeSettingsViewEmits,
     NovelIdeSettingsViewProps,
@@ -12,6 +13,10 @@ import type {
 const props = withDefaults(defineProps<NovelIdeSettingsViewProps>(), {
     targetLabel: "",
     versionLabel: "",
+    /** 环境标注（Lab / 本地 / 生产）；只影响左下角那枚小标 */
+    environmentLabel: "",
+    projects: () => [],
+    activeProjectId: null,
     githubUrl: "",
     loading: false,
     loadError: "",
@@ -110,7 +115,14 @@ function selectSection(value: string): void {
                     @update:model-value="selectScope"
                 />
 
-                <div v-if="props.targetLabel" class="flex min-w-0 shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
+                <!-- 「项目」作用域可以直接切项目；其余作用域仍是只读的目标标签 -->
+                <ProjectSwitcher
+                    v-if="props.scope === 'project' && props.projects.length > 0"
+                    :projects="props.projects"
+                    :model-value="props.activeProjectId"
+                    @update:model-value="emit('update:activeProjectId', $event)"
+                />
+                <div v-else-if="props.targetLabel" class="flex min-w-0 shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
                     <span class="i-lucide-folder-cog h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
                     <span class="min-w-0 flex-1 truncate text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]" :title="props.targetLabel">{{ props.targetLabel }}</span>
                 </div>
@@ -140,8 +152,13 @@ function selectSection(value: string): void {
                     </ul>
                 </nav>
 
-                <div v-if="props.versionLabel" class="shrink-0 text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">
-                    {{ props.versionLabel }}
+                <!-- 左下角元信息：版本走等宽数字，环境是一枚软标注，与导航之间用发丝线分开 -->
+                <div
+                    v-if="props.versionLabel || props.environmentLabel"
+                    class="flex shrink-0 items-center gap-[var(--space-2)] border-t border-[var(--divider)] pt-[var(--space-3)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]"
+                >
+                    <span v-if="props.versionLabel" class="font-mono [font-variant-numeric:tabular-nums]">{{ props.versionLabel }}</span>
+                    <span v-if="props.environmentLabel" class="rounded-[var(--radius-pill)] bg-[var(--bg-input)] px-1.5 py-0.5 [font-weight:var(--weight-medium)]">{{ props.environmentLabel }}</span>
                 </div>
             </aside>
 
@@ -162,26 +179,32 @@ function selectSection(value: string): void {
                         </Button>
                     </div>
 
-                    <!-- 加载失败：一行普通内容（图标 + 原因 + 重试），不画会改布局的色块 -->
-                    <div v-if="props.loadError" class="flex shrink-0 flex-wrap items-center gap-[var(--space-2)] px-[var(--space-6)] pt-[var(--space-4)]">
-                        <span class="i-lucide-triangle-alert h-4 w-4 shrink-0 text-[var(--status-danger)]" aria-hidden="true"></span>
-                        <span class="min-w-0 flex-1 text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ props.loadError }}</span>
-                        <Button size="sm" variant="secondary" class="shrink-0" @click="emit('reload')">重新加载</Button>
+                    <!-- 加载失败：占满内容区的一屏（图标 + 原因 + 重试），不做会挤动布局的行内色块 -->
+                    <div
+                        v-if="props.loadError"
+                        role="alert"
+                        class="flex h-full min-h-0 flex-col items-center justify-center gap-[var(--space-3)] p-[var(--space-6)] text-center"
+                    >
+                        <span class="i-lucide-triangle-alert h-6 w-6 shrink-0 text-[var(--status-danger)]" aria-hidden="true"></span>
+                        <span class="max-w-[var(--measure-read)] text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ props.loadError }}</span>
+                        <Button size="sm" variant="secondary" @click="emit('reload')">重新加载</Button>
                     </div>
 
                     <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
-                        <div v-if="props.loading" class="max-w-3xl" aria-busy="true">
-                            <p class="text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">正在读取设置…</p>
-                            <div class="mt-[var(--space-4)] flex flex-col gap-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">
-                                <div v-for="index in 3" :key="index" class="flex flex-col gap-[var(--space-2)]">
-                                    <span class="h-3 w-24 animate-pulse rounded-[calc(var(--radius-control)*0.5)] bg-[var(--bg-input)]"></span>
-                                    <span class="h-8 w-full animate-pulse rounded-[var(--radius-control)] bg-[var(--bg-input)]"></span>
-                                </div>
-                            </div>
+                        <!-- 加载态占满内容区：不做骨架，避免用占位形状暗示还不知道的结构 -->
+                        <div
+                            v-if="props.loading"
+                            role="status"
+                            aria-busy="true"
+                            class="flex h-full min-h-0 flex-col items-center justify-center gap-[var(--space-2)] text-center"
+                        >
+                            <span class="i-lucide-loader-2 h-5 w-5 animate-spin text-[var(--text-muted)]" aria-hidden="true"></span>
+                            <span class="text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">正在读取设置…</span>
                         </div>
                         <!-- 区段切换：短位移 + 淡入，时长与缓动走动效 token -->
                         <Transition v-else name="settings-section" mode="out-in">
-                            <div :key="activeSection?.value ?? ''" class="flex min-h-0 flex-1 flex-col">
+                            <!-- 高度必须给足：父节点是滚动容器（块级），flex-1 在这里不生效，缺 h-full 会让内容槽的百分比高度退化成 auto -->
+                            <div :key="activeSection?.value ?? ''" class="flex h-full min-h-0 flex-col">
                                 <slot :section="activeSection"></slot>
                             </div>
                         </Transition>
@@ -197,9 +220,16 @@ function selectSection(value: string): void {
     container-type: inline-size;
 }
 
-/* 区段切换：短位移 + 淡入。时长与缓动消费动效 token，不写字面量（§七）。 */
+/*
+ * 区段切换：短位移 + 淡入。
+ *
+ * `mode="out-in"` 时两段不叠加（退场 + 入场），所以两段都取 `--motion-fast`：
+ * nbook / macos 档下 90 + 90 = 180ms，正好等于浮层入场档 `--motion-enter`，
+ * 也就是「眼睛追踪一层新内容出现」的上限（§七 内容切换）。
+ * 左侧导航轨的选中态同样消费 `--motion-fast`——两处时长因此天然一致。
+ */
 .settings-section-enter-active {
-    transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
+    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
 }
 
 .settings-section-leave-active {

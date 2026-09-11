@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {Badge, FormInput, FormSelect, IconButton, Switch, Tooltip} from "@notnotype/nb-ui/components";
+import {Badge, Button, FormInput, FormSelect, IconButton, Switch, Tooltip} from "@notnotype/nb-ui/components";
 import type {FormSelectOption} from "@notnotype/nb-ui/components";
 import {
     SEARCH_PROVIDER_CATALOG,
@@ -87,11 +87,11 @@ function providerApiKeyPlaceholder(provider: WebProviderDraft): string {
 
 /** 本地抓取的五个限额：字段名 + 文案键 + 默认值，渲染与占位共用一张表。 */
 const LOCAL_LIMIT_FIELDS = [
-    {key: "timeoutMs", labelKey: "settings.panels.web.timeoutMs", fallback: WEB_DEFAULTS.localFetchTimeoutMs},
-    {key: "maxRedirects", labelKey: "settings.panels.web.maxRedirects", fallback: WEB_DEFAULTS.maxRedirects},
-    {key: "maxBytes", labelKey: "settings.panels.web.maxBytes", fallback: WEB_DEFAULTS.maxBytes},
-    {key: "maxCharacters", labelKey: "settings.panels.web.maxCharacters", fallback: WEB_DEFAULTS.maxCharacters},
-    {key: "minCharactersForLocal", labelKey: "settings.panels.web.fallbackThreshold", fallback: WEB_DEFAULTS.minCharactersForLocal},
+    {key: "timeoutMs", labelKey: "settings.panels.web.timeoutMs", fallback: WEB_DEFAULTS.localFetchTimeoutMs, min: 1000, step: 1000},
+    {key: "maxRedirects", labelKey: "settings.panels.web.maxRedirects", fallback: WEB_DEFAULTS.maxRedirects, min: 0, step: 1},
+    {key: "maxBytes", labelKey: "settings.panels.web.maxBytes", fallback: WEB_DEFAULTS.maxBytes, min: 1024, step: 1024},
+    {key: "maxCharacters", labelKey: "settings.panels.web.maxCharacters", fallback: WEB_DEFAULTS.maxCharacters, min: 1000, step: 1000},
+    {key: "minCharactersForLocal", labelKey: "settings.panels.web.fallbackThreshold", fallback: WEB_DEFAULTS.minCharactersForLocal, min: 0, step: 100},
 ] as const;
 </script>
 
@@ -176,15 +176,16 @@ const LOCAL_LIMIT_FIELDS = [
                                     :disabled="props.disabled"
                                     @update:model-value="patchProvider(entry.definition.key, {apiKey: $event, apiKeyCleared: false})"
                                 />
-                                <button
+                                <Button
                                     v-if="entry.provider.apiKeyConfigured"
-                                    type="button"
-                                    class="shrink-0 text-[var(--text-2xs)] text-[var(--status-danger)] transition-colors hover:opacity-80"
+                                    class="shrink-0"
+                                    size="sm"
+                                    variant="danger"
                                     :disabled="props.disabled"
                                     @click="clearProviderApiKey(entry.definition.key)"
                                 >
                                     {{ t("settings.panels.web.clear") }}
-                                </button>
+                                </Button>
                             </span>
                         </label>
 
@@ -259,7 +260,8 @@ const LOCAL_LIMIT_FIELDS = [
                                 class="mt-[var(--space-2)]"
                                 type="number"
                                 inputmode="numeric"
-                                min="0"
+                                :min="String(field.min)"
+                                :step="String(field.step)"
                                 :model-value="props.modelValue.localFetch[field.key]"
                                 :placeholder="String(field.fallback)"
                                 :disabled="props.disabled || !props.modelValue.localFetch.enabled"

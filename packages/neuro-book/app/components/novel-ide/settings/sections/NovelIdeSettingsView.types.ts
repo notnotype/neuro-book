@@ -35,6 +35,12 @@ export type NovelIdeSettingsViewProps = {
     targetLabel?: string;
     /** 左下角版本行；空则不显示。 */
     versionLabel?: string;
+    /** 环境标注（Lab / 本地 / 生产）；只影响左下角那枚小标 */
+    environmentLabel?: string;
+    /** 「项目」作用域可切换的项目；为空时这一行退回只读的 targetLabel */
+    projects?: Array<{id: string; name: string}>;
+    /** 当前项目 id */
+    activeProjectId?: string | null;
     githubUrl?: string;
     /** false */
     loading?: boolean;
@@ -46,4 +52,5 @@ export type NovelIdeSettingsViewEmits = {
     (event: "update:scope", value: SettingsScopeId): void;
     (event: "update:modelValue", value: string): void;
     (event: "reload"): void;
+    (event: "update:activeProjectId", value: string): void;
 };

@@ -216,7 +216,7 @@ const enUS = {
                 description: "Configure Agent web search and fetching.",
             },
             agentProfileModels: {
-                label: "Agent Profile Models",
+                label: "Agent Profile",
                 description: "Configure default Profile, model parameters, and Profile settings.",
             },
             observability: {
@@ -508,6 +508,10 @@ const enUS = {
                 clear: "Clear",
                 requestOptionsJson: "Request Options JSON",
             },
+        projectSwitcher: {
+            label: "Switch project",
+            placeholder: "Select a project",
+        },
             web: {
                 tavilyDescription: "Prefer Tavily search by default.",
                 braveDescription: "Prefer Brave Search by default.",
@@ -796,6 +800,8 @@ const enUS = {
                 saveFailed: "Failed to save role settings",
                 addRole: "Add role",
                 removeRole: "Remove role",
+                enableRole: "Enable {role}",
+                builtInRoleHint: "Built-in role: you can enable or disable it and pick its model; the name and description come from the product.",
                 roleName: "Role name",
                 roleDescription: "Role description",
                 roleDescriptionRequired: "Add a one-line description",
@@ -881,8 +887,6 @@ const enUS = {
                 enabled: "Enabled",
                 disabled: "Disabled",
                 noEnabledModels: "No models enabled yet",
-                agentVisibleModelsTitle: "Agent-visible Models",
-                agentVisibleModelsDescription: "The Leader may only choose from this ordered list when assigning a model to a sub-agent or Workflow. Usage notes are included in its prompt. Keep the list to about five models.",
                 agentVisibleModelsAdd: "Add model",
                 agentVisibleModelsSelect: "Select a configured model",
                 agentVisibleModelsNotePlaceholder: "Usage note, for example: high-performance coding",

@@ -131,13 +131,18 @@ export async function runAgentProfileNavSmoke(page: Page, failures: SmokeFailure
             const row = list.querySelector("li > button");
             return {
                 overflowing: list.scrollHeight > list.clientHeight,
+                listClientH: list.clientHeight,
+                listScrollH: list.scrollHeight,
+                listRectH: Math.round(list.getBoundingClientRect().height),
+                rows: list.querySelectorAll("li").length,
+                stageH: Math.round((root?.getBoundingClientRect().height) ?? 0),
                 searchTop: searchBox?.getBoundingClientRect().top ?? 0,
                 defaultTop: defaults?.getBoundingClientRect().top ?? 0,
                 rootRight: root?.getBoundingClientRect().right ?? 0,
                 rowRight: row?.getBoundingClientRect().right ?? 0,
             };
         });
-        assert(metrics.overflowing, failures, "长列表必须由列表自身滚动");
+        assert(metrics.overflowing, failures, `长列表必须由列表自身滚动：${JSON.stringify(metrics)}`);
         assert(metrics.rowRight <= metrics.rootRight + 1, failures, "长文本不应撑出导航根节点");
         await subject.locator("ul").evaluate((list) => {
             list.scrollTop = list.scrollHeight;

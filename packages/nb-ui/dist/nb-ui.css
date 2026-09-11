@@ -637,20 +637,23 @@
 .cursor-move {
   cursor: move;
 }
+.cursor-nesw-resize {
+  cursor: nesw-resize;
+}
 .cursor-not-allowed {
   cursor: not-allowed;
 }
 .cursor-ns-resize {
   cursor: ns-resize;
 }
+.cursor-nwse-resize {
+  cursor: nwse-resize;
+}
 .cursor-pointer {
   cursor: pointer;
 }
 .cursor-row-resize {
   cursor: row-resize;
-}
-.cursor-se-resize {
-  cursor: se-resize;
 }
 .touch-none {
   touch-action: none;
@@ -1287,6 +1290,9 @@
 }
 .p-\[2px\] {
   padding: 2px;
+}
+.p-px {
+  padding: 1px;
 }
 .px-0\.5 {
   padding-inline: calc(var(--spacing) * 0.5);

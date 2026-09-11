@@ -279,7 +279,27 @@ smoke 的视口从 1440×900 改成 1600×1000：左栏加宽后画布只剩 872
 - **嵌套窗口的面色**：`DialogWindow` 在 `windowDepth > 1` 时不再做玻璃，改用层级色 `--panel-surface`——材质只有一层，玻璃叠玻璃在 Web 上采不到可采样内容（`backdrop-filter` 不在链上叠加），二级窗口本来只会读成一块发灰的板。规范补丁见下。
 - **Web 工具区段重设计**：搜索服务从「写死的 Tavily / Brave 两个分支」改成 `SEARCH_PROVIDER_CATALOG` 驱动的列表（服务、图标、说明、独有字段都在表里），页面按「搜索服务 / 通用设置」两块重排，为「以后十几个服务」准备好扩展点；顺带修掉草稿里把空串写成 `0` 的既有 bug（`Number("") === 0`，现在空串按「未配置」回落文档默认值）。
 
-规范与清单：`design-language.md` §二/§九 与 `ui-development-spec.md` §13 补入嵌套窗口面色与骨架/失败行两条判据（文字见提交记录）。
+规范与清单（本轮沉淀四条）：
+
+- `design-language.md` §二「玻璃是三层叠出来的」由三条边界扩为**四条**，新增「玻璃叠玻璃不成立，二级及更深浮层直接用层级色」（判据：嵌套窗口 `backdrop-filter: none`）；§九「弹出层」检查表加同款一条。
+- `design-language.md` §七新增「**内容切换走 `--motion-base`，不是浮层档**」：区段体/标签页换页用 opacity + 短横向位移，不入场档、不加 scale，并在 §九「动效」检查表加一条判据。
+- `ui-development-spec.md` §4.1「状态下限」补入加载态与失败态的形态约束：骨架与真实内容同节奏、失败是一行普通内容（图标 + 原因 + 重试），不用带底色边框的独立色块。
+
+## 切片 16：验收第三批 + 三条独立审查的收口（已完成）
+
+开发者 2026-09-11 的第三批反馈（7 条）与本轮三份独立审查（`ReviewShellRestructure` / `ReviewRedesigns` / `ReviewShellUx`）的收口。角色页与 Provider 模块改名归 t18。
+
+**组件缺陷（本轮最重要的发现）**：`Switch` 开启态滑块溢出轨道，根因**不在 Switch**——页面同时装着应用自己的 UnoCSS 与 nb-ui 编译的 Tailwind v4，两者都会生成 `.translate-x-4` / `.rotate-180` 这类同名类但语义不同（v4 写 `translate:` / `rotate:` 独立属性，UnoCSS 写 `transform`），同名类叠加时两个属性各生效一次，**位移与角度翻倍**。这解释了 Switch 滑块溢出，也解释了另一批「看着没转」的 chevron。处置：`packages/neuro-book/uno.config.ts` 加 blocklist，名单**从 nb-ui 的发货产物现读**（不手抄，nb-ui 改用法后自动跟上），只封 nb-ui 真正发货的名字——一刀切封整个 `scale-*` 家族会连应用自己在用的 `hover:-translate-y-0.5` 一起封掉。另修 `Switch` 自身的内边距算术：1px 透明边框要计入（`p-0.5` 让内容区只剩 14px，装不下 16px 滑块）。
+
+**外壳**：区段切换的两段各取 `--motion-fast`，与左栏导航选中态同档（`out-in` 两段合计 90+90 = 180ms = `--motion-enter` 上限）；加载态与失败态改为**占满内容区**的一屏（加载：指示 + 说明；失败：图标 + 原因 + 重试），都带可播报语义（`role="status"` / `role="alert"`），不再画骨架与行内色块；左下角版本标识拆成「等宽版本号 + 环境软标注」并以发丝线与导航分开；新增 `sections/components/ProjectSwitcher.vue`，「项目」作用域的左栏这一行从只读标签变成可切换的项目选择。
+
+**重设计**：Web 工具的「清除」回到 nb-ui `Button`（danger）；写回体与 `SEARCH_PROVIDER_CATALOG` 加结构断言（加服务时漏改写回段先红）。
+
+**修掉的产品回归（审查发现，Lab 看不见）**：`NovelIdeModelSelect` 换 nb-ui `FormSelect` 后浮层走 body portal，缺省 z=60，被产品设置对话框的遮罩（z-9000）压住——旧面板今天就在用它。已在 `components/common/Dialog.vue` 提供 `NB_POPOVER_Z_INDEX = NB_Z_INDEX.dialog + 1`，并给会话模型浮层补 `onClickOutside` 的 ignore。同类回归：区段内容槽的 keyed 包装层缺 `h-full` 会让区段体的百分比高度失效（Agent Profile 丢失内部滚动），已补。
+
+**规范补丁（本轮共 6 条）**：`design-language.md` §二 边界 4（嵌套浮层不做玻璃 + 不挂镜面层）、§七「内容切换」按 `out-in` / 交叠两套配方与两栏时长一致、§九 两条判据、`ui-development-spec.md` §4.1（页面级加载/失败态占满区域 + 可播报）、`packages/nb-ui/src/styles.css`（装饰性关键帧动画服从降级偏好）。
+
+**已知抖动**：`scripts/smoke/agent-profile-nav.ts` 的「长列表必须由列表自身滚动」在本轮出现过一次失败、随后连续两次通过；断言已补上量值（`JSON.stringify(metrics)`）便于下次定位。
 
 ## 切片 14：验收推动的区段拆分（已完成，归 t18）
 

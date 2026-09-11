@@ -394,15 +394,17 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             const labels = [...(root?.querySelectorAll(".settings-detail-section h1, .settings-detail-section h2") ?? [])].map((heading) => heading.textContent?.trim() ?? "");
             return {
                 checked,
-                targetVisible: root?.textContent?.includes("C:/novels/长夜行") ?? false,
+                // 「项目」作用域的左栏这一行现在是项目切换器（可切换），不再是只读标签
+                switcherVisible: Boolean(root?.querySelector('.settings-nav-aside [role="combobox"]')),
+                switcherOptions: root?.querySelectorAll('.settings-nav-aside [role="combobox"]').length ?? 0,
                 railText: targetRow?.textContent?.trim() ?? "",
                 labels,
             };
         });
         assert(
-            project.checked.length === 1 && project.checked[0] === "项目" && project.targetVisible,
+            project.checked.length === 1 && project.checked[0] === "项目" && project.switcherVisible,
             failures,
-            `切到项目作用域后应选中该档并显示配置目标：${JSON.stringify(project)}`,
+            `切到项目作用域后应选中该档并显示项目切换器：${JSON.stringify(project)}`,
         );
 
         stage = "切回全局作用域";

@@ -170,7 +170,7 @@ export function stringifyNumber(value: unknown, fallback: number): string {
     return typeof value === "number" && Number.isFinite(value) ? String(value) : String(fallback);
 }
 
-/** 空串与非数字按「未配置」处理。 */
+/** 回显用：能用的数字原样转字符串，其余（含未配置）显示回落值。 */
 export function stringifyNullableNumber(value: unknown, fallback: number): string {
     return typeof value === "number" && Number.isFinite(value) ? String(value) : String(fallback);
 }
