@@ -357,9 +357,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             return {sections: rows.length, labels: rows.map((row) => row.textContent?.trim().slice(0, 3) ?? "")};
         });
         assert(
-            browserScope.sections === 2 && browserScope.labels.join(",") === "编辑器,桌面应",
+            browserScope.sections === 3 && browserScope.labels.join(",") === "前端设,编辑器,桌面应",
             failures,
-            `本机作用域应列出编辑器与桌面应用两个区段：${JSON.stringify(browserScope)}`,
+            `本机作用域应列出前端设定、编辑器与桌面应用三个区段：${JSON.stringify(browserScope)}`,
         );
 
         stage = "切到编辑器区段";

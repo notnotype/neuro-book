@@ -103,6 +103,7 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "Profile 的模型、运行策略与专属设置",
         iconClass: "i-lucide-bot-message-square",
         scopes: ["global", "project"],
+        layout: "fill",
     },
     {
         value: "web-tools",
@@ -138,6 +139,13 @@ const sectionOptions: SettingsSectionOption[] = [
         description: "查看启动期鉴权配置和安全影响",
         iconClass: "i-lucide-shield-check",
         scopes: ["boot"],
+    },
+    {
+        value: "frontend",
+        label: "前端设定",
+        description: "界面语言、主题、推理强度与视图模式",
+        iconClass: "i-lucide-monitor-cog",
+        scopes: ["browser"],
     },
     {
         value: "editor",

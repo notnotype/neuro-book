@@ -5,7 +5,7 @@
  * 空串统一表示「未配置/继承上层」——文本写成 null，数字按未配置处理，
  * 密钥留空表示保留原值，只有显式清除才写入空串。
  */
-import type {EmbeddingProjectConfigDto, EmbeddingServiceConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, EmbeddingProjectConfigDto, EmbeddingServiceConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 
 export const DEFAULT_GLOBAL_EMBEDDING_MODEL = "text-embedding-3-small";
 export const DEFAULT_GLOBAL_EMBEDDING_DIMENSIONS = 1536;
@@ -133,5 +133,38 @@ export function buildProjectEmbeddingPayload(draft: EmbeddingProjectDraft): Embe
     return {
         model: normalizeNullableText(draft.model),
         dimensions: parseNullablePositiveInteger(draft.dimensions),
+    };
+}
+
+/**
+ * 配置快照 → 草稿（宿主接线的唯一起点）。
+ *
+ * 密钥只回显 `configured` / `maskedValue`：真实值不回显，输入框留空表示保留旧值。
+ * `requestOptions` 是唯一以文本编辑的对象字段，缩进 2 空格回显；空对象回显空串，
+ * 与「空串表示未配置」的规则保持一致。
+ */
+export function createEmbeddingSettingsDraftFromConfig(snapshot: ConfigEditorSnapshotDto): EmbeddingSettingsDraft {
+    const global = snapshot.embeddingSettings.global;
+    const project = snapshot.embeddingSettings.project;
+    return {
+        global: {
+            enabled: global.enabled,
+            provider: global.provider,
+            model: global.model ?? "",
+            dimensions: stringifyNullableNumber(global.dimensions),
+            apiKey: "",
+            apiKeyConfigured: global.apiKey.configured,
+            apiKeyMaskedValue: global.apiKey.maskedValue,
+            apiKeyCleared: false,
+            baseURL: global.baseURL,
+            timeoutMs: stringifyNullableNumber(global.timeoutMs),
+            requestOptions: Object.keys(global.requestOptions).length > 0
+                ? JSON.stringify(global.requestOptions, null, 2)
+                : "",
+        },
+        project: {
+            model: project?.model ?? "",
+            dimensions: stringifyNullableNumber(project?.dimensions),
+        },
     };
 }

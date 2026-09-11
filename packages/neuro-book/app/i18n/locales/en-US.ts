@@ -168,19 +168,23 @@ const enUS = {
         scope: {
             boot: {
                 label: "Boot Config",
+                shortLabel: "Boot",
                 description: "Root config.yaml; changes require a restart",
             },
             global: {
                 label: "Global Config",
+                shortLabel: "Global",
                 description: "Workspace Root .nbook/config.json",
             },
             project: {
                 label: "Project Config",
+                shortLabel: "Project",
                 description: "Current Project Workspace .nbook/config.json",
                 unavailable: "Open a Project before editing Project settings.",
             },
             browser: {
                 label: "Browser State",
+                shortLabel: "Local",
                 description: "Local UI state. Config files are untouched.",
             },
             configFile: "Config File",
@@ -199,9 +203,9 @@ const enUS = {
                 label: "Editor",
                 description: "Markdown rich-text display preferences.",
             },
-            models: {
-                label: "Models",
-                description: "Manage providers, models, and default models.",
+            providers: {
+                label: "Providers",
+                description: "Manage providers and the model library.",
             },
             embedding: {
                 label: "Embedding",
@@ -449,7 +453,12 @@ const enUS = {
         feedback: {
             saving: "Current settings are being saved. Please wait.",
             loading: "Current settings are being loaded. Please wait.",
+            loadFailed: "Failed to load settings.",
+            saveFailed: "Failed to save settings.",
             dirty: "Current settings have unsaved changes. Save them first.",
+        },
+        state: {
+            loading: "Loading settings…",
         },
         panels: {
             cost: {
@@ -460,7 +469,6 @@ const enUS = {
                 fetchedAt: "Updated at {time}",
                 loadFailed: "Failed to load cost display settings",
                 saveSuccess: "Cost display currency saved.",
-                saveFailed: "Failed to save cost display settings",
                 refreshSuccess: "Updated USD/CNY rate: {rate}{stale}",
                 refreshFailed: "Failed to refresh USD/CNY rate",
                 title: "Cost Display",
@@ -481,7 +489,6 @@ const enUS = {
                 privacyNote: "Traces contain full prompts and novel text. They stay local under .nbook/agent/traces/ and are never included in shareable diagnostic bundles.",
                 loadFailed: "Failed to load request trace settings",
                 saveSuccess: "Request trace settings saved.",
-                saveFailed: "Failed to save request trace settings",
             },
             embedding: {
                 projectTitle: "Project Embedding Override",
@@ -492,7 +499,6 @@ const enUS = {
                 loadFailed: "Failed to load Embedding settings",
                 projectSaveSuccess: "Project Embedding override saved.",
                 globalSaveSuccess: "Embedding service settings were written to Global Config.",
-                saveFailed: "Failed to save Embedding settings",
                 loading: "Loading Embedding settings...",
                 projectOverride: "Project Override",
                 model: "Model",
@@ -519,7 +525,6 @@ const enUS = {
                 braveProviderDescription: "Independent search index provider for web_search.",
                 loadFailed: "Failed to load Web tool settings",
                 saveSuccess: "Web tool settings were written to Global Config. New Agent requests will use the new config.",
-                saveFailed: "Failed to save Web tool settings",
                 title: "Agent Web Tools",
                 description: "Configure the web_search / web_fetch providers used by researcher. Writes to Workspace Root Global Config.",
                 loading: "Loading Web tool settings...",
@@ -787,9 +792,6 @@ const enUS = {
                     effectiveDefaultProfile: "Effective default Profile",
                     scopeGlobal: "Global settings",
                     scopeProject: "Project settings · {target}",
-                    savingHint: "Saving…",
-                    saveErrorPrefix: "Save failed: ",
-                    reload: "Reload",
                     invalidModel: "No models available. Enable models in global configuration first.",
                     temperatureInvalid: "Temperature must be empty or a non-negative number.",
                     topkInvalid: "TopK must be empty or a positive integer.",

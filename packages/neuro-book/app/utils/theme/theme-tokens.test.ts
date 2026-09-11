@@ -6,6 +6,7 @@ import {ideThemeIds, themeTokens, themeVarKeys, type IdeTheme, type ThemeVarKey,
 
 const fallbackCssPath = fileURLToPath(new URL("../../styles/theme-vars.css", import.meta.url));
 const settingsDialogPath = fileURLToPath(new URL("../../components/novel-ide/NovelIdeSettingsDialog.vue", import.meta.url));
+const settingsViewPath = fileURLToPath(new URL("../../components/novel-ide/settings/sections/NovelIdeSettingsView.vue", import.meta.url));
 const profileTemplateNodePath = fileURLToPath(new URL("../../components/profile-template-editor/ProfileTemplateNodeView.vue", import.meta.url));
 
 const semanticStatusKeys = [
@@ -92,10 +93,12 @@ describe("theme v2.1 token table", () => {
     });
 
     it("keeps ordinary UI chrome on theme variables instead of fixed palette colors", async () => {
+        const settingsShell = await readFile(settingsViewPath, "utf8");
         const settingsDialog = await readFile(settingsDialogPath, "utf8");
         const profileTemplateNode = await readFile(profileTemplateNodePath, "utf8");
 
-        expect(settingsDialog).toContain("var(--shadow-color)");
+        // 设置界面的常规 chrome 已经搬进外壳视图，主题变量由它消费。
+        expect(settingsShell).toContain("var(--divider)");
         expect(settingsDialog).not.toContain("shadow-[0_24px_80px_rgba(0,0,0,0.10)]");
         expect(profileTemplateNode).toContain("color: var(--status-danger);");
     });

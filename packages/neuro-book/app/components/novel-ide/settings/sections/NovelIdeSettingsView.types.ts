@@ -21,6 +21,11 @@ export type SettingsSectionOption = {
     iconClass: string;
     /** 该区段出现在哪些作用域下；实际可见区段是它与当前作用域的交集。 */
     scopes: SettingsScopeId[];
+    /**
+     * 内容布局。默认 `scroll`：外壳给内边距并拥有滚动，适合阅读型区段。
+     * `fill`：区段自己占满内容区并管理内部滚动（两栏型、长列表型），外壳不加内边距也不再套一层滚动。
+     */
+    layout?: "scroll" | "fill";
 };
 
 /** 宿主准备好的只读上下文；视图不自行获取数据，也不访问 store 或 API。 */
@@ -42,8 +47,10 @@ export type NovelIdeSettingsViewProps = {
     /** 当前项目 id */
     activeProjectId?: string | null;
     githubUrl?: string;
-    /** false */
+    /** 整屏加载占位：只在确实没有内容可显示时用（宿主负责延时判据） */
     loading?: boolean;
+    /** 有内容可显示时的后台重取：内容原地保留，只给一条细进度条 */
+    busy?: boolean;
     /** 空串 */
     loadError?: string;
 };

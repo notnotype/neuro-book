@@ -9,10 +9,10 @@ const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "default" | "cny" | "stale" | "missing-rate" | "refreshing" | "save-error";
+type SceneKey = "default" | "cny" | "stale" | "missing-rate" | "refreshing";
 
 const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["default", "cny", "stale", "missing-rate", "refreshing", "save-error"];
+    const known: SceneKey[] = ["default", "cny", "stale", "missing-rate", "refreshing"];
     return known.find((key) => key === props.scene) ?? "default";
 });
 
@@ -20,7 +20,6 @@ const currency = ref<CostDisplayCurrency>("USD");
 const exchangeRate = ref<number | null>(7.2413);
 const exchangeRateStale = ref(false);
 const fetchedAt = ref("2026-09-10T02:15:00.000Z");
-const saveError = ref("");
 
 const refreshing = computed(() => sceneKey.value === "refreshing");
 
@@ -29,17 +28,15 @@ watch(sceneKey, (scene) => {
     exchangeRate.value = scene === "missing-rate" ? null : scene === "stale" ? 7.1802 : 7.2413;
     exchangeRateStale.value = scene === "stale";
     fetchedAt.value = scene === "missing-rate" ? "" : scene === "stale" ? "2026-09-08T07:40:00.000Z" : "2026-09-10T02:15:00.000Z";
-    saveError.value = scene === "save-error" ? "示例后端返回 500" : "";
 }, {immediate: true});
 
-watch([currency, exchangeRate, exchangeRateStale, fetchedAt, refreshing, saveError], () => {
+watch([currency, exchangeRate, exchangeRateStale, fetchedAt, refreshing], () => {
     syncLabData({
         currency: currency.value,
         exchangeRate: exchangeRate.value,
         exchangeRateStale: exchangeRateStale.value,
         exchangeRateFetchedAt: fetchedAt.value,
-        refreshing: refreshing.value,
-        saveError: saveError.value,
+        refreshing: refreshing.value
     });
 }, {immediate: true});
 
@@ -66,7 +63,6 @@ function refreshRate(): void {
                 :exchange-rate-stale="exchangeRateStale"
                 :exchange-rate-fetched-at="fetchedAt"
                 :refreshing="refreshing"
-                :save-error="saveError"
                 @update:currency="updateCurrency"
                 @refresh-rate="refreshRate"
             />

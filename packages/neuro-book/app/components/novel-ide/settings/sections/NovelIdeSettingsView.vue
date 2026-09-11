@@ -3,6 +3,7 @@ import {computed, nextTick, ref, useId, type ComponentPublicInstance} from "vue"
 import {Button, SegmentedControl, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlOption} from "@notnotype/nb-ui/components";
 import ProjectSwitcher from "./components/ProjectSwitcher.vue";
+import SettingsLoadState from "./components/SettingsLoadState.vue";
 import type {
     NovelIdeSettingsViewEmits,
     NovelIdeSettingsViewProps,
@@ -19,6 +20,7 @@ const props = withDefaults(defineProps<NovelIdeSettingsViewProps>(), {
     activeProjectId: null,
     githubUrl: "",
     loading: false,
+    busy: false,
     loadError: "",
 });
 const emit = defineEmits<NovelIdeSettingsViewEmits>();
@@ -55,6 +57,15 @@ const scopeOptions = computed<SegmentedControlOption[]>(() => props.scopes.map((
     disabled: Boolean(scope.disabledReason),
 })));
 
+/** 每个作用域记住上次停留的区段；切回来时回到原处，而不是每次都跳第一个。 */
+const lastSectionByScope = ref<Record<string, string>>({});
+
+watch(() => props.modelValue, (value) => {
+    if (value) {
+        lastSectionByScope.value = {...lastSectionByScope.value, [props.scope]: value};
+    }
+}, {immediate: true});
+
 /** 当前作用域下真正存在的区段；作用域与区段都受控，视图只做交集。 */
 const visibleSections = computed<SettingsSectionOption[]>(() =>
     props.sections.filter((section) => section.scopes.includes(props.scope)));
@@ -62,14 +73,22 @@ const visibleSections = computed<SettingsSectionOption[]>(() =>
 const activeSection = computed<SettingsSectionOption | null>(() =>
     visibleSections.value.find((section) => section.value === props.modelValue) ?? null);
 
+function sectionsForScope(scope: SettingsScopeId): SettingsSectionOption[] {
+    return props.sections.filter((section) => section.scopes.includes(scope));
+}
+
 function selectScope(scope: SettingsScopeId | string | number | boolean | null): void {
     const next = String(scope) as SettingsScopeId;
     if (next === props.scope) return;
     emit("update:scope", next);
-    // 作用域换了以后旧区段可能不存在：直接改选新作用域的第一个区段，宿主不必自己兜底。
-    const nextSections = props.sections.filter((section) => section.scopes.includes(next));
-    if (!nextSections.some((section) => section.value === props.modelValue)) {
-        emit("update:modelValue", nextSections[0]?.value ?? "");
+    // 换作用域时回到这一档上次停留的区段；没记过或记的那个在这档不存在，就取第一个。
+    const nextSections = sectionsForScope(next);
+    const remembered = lastSectionByScope.value[next];
+    const target = remembered && nextSections.some((section) => section.value === remembered)
+        ? remembered
+        : nextSections[0]?.value ?? "";
+    if (target !== props.modelValue) {
+        emit("update:modelValue", target);
     }
 }
 
@@ -179,31 +198,35 @@ function selectSection(value: string): void {
                         </Button>
                     </div>
 
-                    <!-- 加载失败：占满内容区的一屏（图标 + 原因 + 重试），不做会挤动布局的行内色块 -->
+                    <!-- 有内容时的后台重取：不换内容、不占位，只在内容列顶端走一条细进度条 -->
                     <div
-                        v-if="props.loadError"
-                        role="alert"
-                        class="flex h-full min-h-0 flex-col items-center justify-center gap-[var(--space-3)] p-[var(--space-6)] text-center"
+                        v-if="props.busy && !props.loading && !props.loadError"
+                        class="settings-busy-bar shrink-0"
+                        aria-hidden="true"
                     >
-                        <span class="i-lucide-triangle-alert h-6 w-6 shrink-0 text-[var(--status-danger)]" aria-hidden="true"></span>
-                        <span class="max-w-[var(--measure-read)] text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ props.loadError }}</span>
-                        <Button size="sm" variant="secondary" @click="emit('reload')">重新加载</Button>
+                        <span class="settings-busy-bar__run"></span>
                     </div>
 
-                    <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
-                        <!-- 加载态占满内容区：不做骨架，避免用占位形状暗示还不知道的结构 -->
-                        <div
-                            v-if="props.loading"
-                            role="status"
-                            aria-busy="true"
-                            class="flex h-full min-h-0 flex-col items-center justify-center gap-[var(--space-2)] text-center"
-                        >
-                            <span class="i-lucide-loader-2 h-5 w-5 animate-spin text-[var(--text-muted)]" aria-hidden="true"></span>
-                            <span class="text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">正在读取设置…</span>
-                        </div>
+                    <SettingsLoadState
+                        v-if="props.loading"
+                        variant="loading"
+                    />
+                    <SettingsLoadState
+                        v-else-if="props.loadError"
+                        variant="error"
+                        :message="props.loadError"
+                        @retry="emit('reload')"
+                    />
+
+                    <!-- 布局由区段自己声明：scroll 型由外壳给内边距并拥有滚动，fill 型区段自己占满并管理内部滚动 -->
+                    <div
+                        v-if="!props.loading && !props.loadError"
+                        class="min-h-0 flex-1"
+                        :class="activeSection?.layout === 'fill' ? 'overflow-hidden' : 'overflow-y-auto p-[var(--space-6)]'"
+                    >
                         <!-- 区段切换：短位移 + 淡入，时长与缓动走动效 token -->
-                        <Transition v-else name="settings-section" mode="out-in">
-                            <!-- 高度必须给足：父节点是滚动容器（块级），flex-1 在这里不生效，缺 h-full 会让内容槽的百分比高度退化成 auto -->
+                        <Transition name="settings-section" mode="out-in">
+                            <!-- 高度必须给足：父节点是块级，flex-1 在 fill 型下不生效，缺 h-full 会让内容槽的百分比高度退化成 auto -->
                             <div :key="activeSection?.value ?? ''" class="flex h-full min-h-0 flex-col">
                                 <slot :section="activeSection"></slot>
                             </div>
@@ -271,6 +294,41 @@ function selectSection(value: string): void {
 /* 只有窄容器才出现切换条；宽容器两栏常驻。 */
 .settings-mobile-bar {
     display: none;
+}
+
+/* 后台重取的细进度条：1px 轨道上走一段强调色，不占内容高度、不推动布局。 */
+.settings-busy-bar {
+    position: relative;
+    height: var(--border-w);
+    overflow: hidden;
+    background: var(--divider);
+}
+
+.settings-busy-bar__run {
+    position: absolute;
+    inset-block: 0;
+    width: 33%;
+    background: var(--accent-main);
+    animation: settings-busy-run 1.1s var(--ease-standard) infinite;
+}
+
+@keyframes settings-busy-run {
+    from {
+        transform: translateX(-100%);
+    }
+    to {
+        transform: translateX(400%);
+    }
+}
+
+/* 装饰性关键帧服从减少动效偏好：进度条退化为静态色块，仍然表明「在读」。 */
+@media (prefers-reduced-motion: reduce) {
+    .settings-busy-bar__run {
+        animation: none;
+        transform: none;
+        width: 100%;
+        opacity: 0.6;
+    }
 }
 
 /* 窄容器退化为单列：导航与详情互斥，靠切换条往返。显示态只在这里声明，元素上不挂 display 工具类。 */

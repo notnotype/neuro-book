@@ -24,10 +24,9 @@ const statuses = [
     "source_error",
 ] as const;
 
-type SceneKey = "global" | "project" | "dialog-window" | "statuses" | "custom-settings" | "empty" | "loading" | "saving" | "load-error" | "save-error";
+type SceneKey = "global" | "project" | "dialog-window" | "statuses" | "custom-settings" | "empty" | "loading" | "load-error";
 
 const SAVED_HINT = "改动已就地保存到本次预览；未写入真实配置。";
-const SAVE_ERROR_HINT = "示例保存失败：后端返回 500。改动仍保留在预览中。";
 const dialogOpen = ref(false);
 const dialogWidth = ref(1100);
 const dialogHeight = ref<string | number>("calc(100dvh - 120px)");
@@ -151,9 +150,7 @@ function lowCodeForm(): LowCodeFormDto {
 function profilesFor(scene: SceneKey): AgentProfileDraft[] {
     switch (scene) {
         case "global":
-        case "dialog-window":
-        case "saving":
-        case "save-error": {
+        case "dialog-window": {
             const list = [
                 baseProfile("story-writer", "故事写手", "loaded"),
                 baseProfile("line-editor", "行文编辑", "loaded"),
@@ -224,35 +221,26 @@ const modelValue = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
 // saved：fixture 模拟的宿主持久化状态。视图是就地保存的，没有单独的保存动作。
 const saved = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
 const message = ref("");
-const saving = ref(false);
 const loadError = ref("");
-const saveError = ref("");
 
 function sceneState(scene: SceneKey) {
     const draft = pageDraftFor(scene);
     const savedSnapshot = pageDraftFor(scene);
-    if ((scene === "saving" || scene === "save-error") && draft.profiles[0]) {
-        draft.profiles[0].model.temperature = "0.2";
-    }
     return {draft, saved: savedSnapshot};
 }
 
 function isSceneKey(value: string): value is SceneKey {
-    return ["global", "project", "dialog-window", "statuses", "custom-settings", "empty", "loading", "saving", "load-error", "save-error"].includes(value);
+    return ["global", "project", "dialog-window", "statuses", "custom-settings", "empty", "loading", "load-error"].includes(value);
 }
 
 const sceneKey = computed<SceneKey>(() => isSceneKey(props.scene) ? props.scene : "global");
 const isDialogScene = computed(() => sceneKey.value === "dialog-window");
 const isLoadingScene = computed(() => sceneKey.value === "loading");
-const isSavingScene = computed(() => sceneKey.value === "saving");
-const isSaveErrorScene = computed(() => sceneKey.value === "save-error");
 
 function applyScene(): void {
     const state = sceneState(sceneKey.value);
     modelValue.value = state.draft;
     saved.value = state.saved;
-    saving.value = isSavingScene.value;
-    saveError.value = isSaveErrorScene.value ? SAVE_ERROR_HINT : "";
     dialogOpen.value = isDialogScene.value;
     loadError.value = sceneKey.value === "load-error" ? "读取 Agent Profile 设定失败：配置文件不可读。" : "";
     message.value = "";
@@ -289,18 +277,10 @@ watch([modelValue, saved, message], () => syncLabData(JSON.parse(JSON.stringify(
 
 /**
  * 就地保存：视图每次修改都直接交给宿主，这里模拟宿主立即持久化。
- * save-error 场景模拟失败：草稿保留、错误显示，saved 不推进。
  */
 function onUpdate(value: AgentProfileSettingsPageDraft): void {
     modelValue.value = value;
     emitLabEvent("update:modelValue", value);
-    if (isSaveErrorScene.value) {
-        saveError.value = SAVE_ERROR_HINT;
-        message.value = "";
-        emitLabEvent("save-error", SAVE_ERROR_HINT);
-        return;
-    }
-    saveError.value = "";
     saved.value = JSON.parse(JSON.stringify(value));
     message.value = SAVED_HINT;
     emitLabEvent("saved", value);
@@ -357,9 +337,7 @@ function reopenDialog(): void {
                     :context="context"
                     :show-nav-heading="false"
                     :loading="isLoadingScene"
-                    :saving="isSavingScene"
                     :load-error="loadError"
-                    :save-error="saveError"
                     @update:model-value="onUpdate"
                     @reload="onReload"
                 />
@@ -373,9 +351,7 @@ function reopenDialog(): void {
                 :model-value="modelValue"
                 :context="context"
                 :loading="isLoadingScene"
-                :saving="isSavingScene"
                 :load-error="loadError"
-                :save-error="saveError"
                 @update:model-value="onUpdate"
                 @reload="onReload"
             />

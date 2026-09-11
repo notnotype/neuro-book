@@ -17,15 +17,11 @@ const props = withDefaults(defineProps<{
     /** 正在请求汇率 */
     refreshing?: boolean;
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 }>(), {
     exchangeRateStale: false,
     exchangeRateFetchedAt: "",
     refreshing: false,
     disabled: false,
-    saving: false,
-    saveError: "",
 });
 
 const emit = defineEmits<{
@@ -68,13 +64,7 @@ const exchangeRateFetchedLabel = computed(() => {
             <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.cost.description") }}</p>
         </header>
 
-        <p v-if="props.saveError" class="mt-[var(--space-3)] truncate text-[var(--text-xs)] text-[var(--status-danger)]">
-            {{ t("settings.panels.cost.saveFailed") + "：" + props.saveError }}
-        </p>
-        <p v-else-if="props.saving" class="mt-[var(--space-3)] flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--status-info)]">
-            <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-            {{ t("common.saving") }}
-        </p>
+
 
         <div class="mt-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">
             <h3 :id="groupId" class="text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.cost.currencyLabel") }}</h3>

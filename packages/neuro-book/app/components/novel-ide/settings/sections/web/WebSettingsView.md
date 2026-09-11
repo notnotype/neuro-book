@@ -19,7 +19,7 @@
 
 语义上有两处**故意**与旧面板不同，接线时按新的来：① 数字输入清空按「未配置」处理（旧面板 `Number("") === 0` 会把空串写成 0）；② 可空超时（provider 与 Tavily 兜底）缺省显示空串而不是默认数字，这样 `null → 草稿 → null` 不会被悄悄改成 15000 / 20000。服务独有字段的长度约束（`country` 恰好 2 字符、`searchLang` 2–5）来自后端 schema，目录里带 `minLength` / `maxLength`，视图据此拦输入。
 
-Component Lab 中由 `WebSettingsViewFixture` 提供确定性场景（default / configured / brave-first / local-fetch-off / saving / save-error / disabled）。
+Component Lab 中由 `WebSettingsViewFixture` 提供确定性场景（default / configured / brave-first / local-fetch-off / disabled）。
 
 ## 契约
 
@@ -27,8 +27,6 @@ Component Lab 中由 `WebSettingsViewFixture` 提供确定性场景（default / 
 type Props = {
     modelValue: WebSettingsDraft;   // {order, providers: Record<key, {enabled, apiKey*, timeoutMs, extras}>, localFetch, tavilyFallback}
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 };
 
 type Emits = {

@@ -3,41 +3,53 @@ import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 
 const settingsDialogPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeSettingsDialog.vue", import.meta.url));
+const settingsViewPath = fileURLToPath(new URL("../components/novel-ide/settings/sections/NovelIdeSettingsView.vue", import.meta.url));
 const profileNavPath = fileURLToPath(new URL("../components/novel-ide/settings/sections/agent-profile/components/AgentProfileNavList.vue", import.meta.url));
-const modelPanelPath = fileURLToPath(new URL("../components/novel-ide/settings/NovelIdeModelSettingsPanel.vue", import.meta.url));
+const providerRailPath = fileURLToPath(new URL("../components/novel-ide/settings/sections/providers/components/ModelProviderRail.vue", import.meta.url));
+
+async function read(path: string): Promise<string> {
+    return (await readFile(path, "utf8")).replace(/\r\n/g, "\n");
+}
 
 describe("Novel IDE Settings responsive contract", () => {
-    it("窄屏使用横向导航和上下布局，桌面保留侧栏", async () => {
-        const source = (await readFile(settingsDialogPath, "utf8")).replace(/\r\n/g, "\n");
+    it("窄容器退化为单列：外壳靠容器查询在导航与详情之间切换", async () => {
+        const shell = await read(settingsViewPath);
 
-        expect(source).toContain("flex-col gap-4 md:flex-row md:gap-6");
-        expect(source).toContain("w-full min-w-0 flex-col pb-2 md:w-[220px] md:shrink-0");
-        expect(source).toContain("gap-1.5 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0");
-        expect(source).toContain("hidden truncate text-[10px] text-[var(--text-muted)] md:block");
-        expect(source).toContain("mt-auto hidden pt-4 md:block");
+        expect(shell).toContain("container-type: inline-size");
+        expect(shell).toContain("@container (max-width: 699px)");
+        expect(shell).toContain("settings-nav-aside");
+        expect(shell).toContain("settings-detail-section");
+        expect(shell).toContain("settings-mobile-bar");
     });
 
-    it("配置中心使用统一 full 预设，不重新把 Dialog 拉到 90vh", async () => {
-        const source = (await readFile(settingsDialogPath, "utf8")).replace(/\r\n/g, "\n");
+    it("宿主是 DialogWindow，尺寸只有一个来源：显式宽高，拖完记得住", async () => {
+        const dialog = await read(settingsDialogPath);
 
-        expect(source).toContain('size="full"');
-        expect(source).not.toContain('height="90vh"');
-        expect(source).not.toContain('width="min(1440px, calc(100vw - 48px))"');
+        expect(dialog).toContain("<DialogWindow");
+        expect(dialog).toContain(':width="settingsWindowSize.width"');
+        expect(dialog).toContain(':height="settingsWindowSize.height"');
+        expect(dialog).toContain("resizable");
+        // 拖拽后的尺寸落到本机偏好，而不是每次回到写死的预设。
+        expect(dialog).toContain('nbook.settingsDialog.size');
+        expect(dialog).toContain('@update:width="updateSettingsWindowWidth"');
+        expect(dialog).toContain('@update:height="updateSettingsWindowHeight"');
+        expect(dialog).not.toContain('size="full"');
+        expect(dialog).not.toContain('height="90vh"');
+        expect(dialog).not.toContain('width="min(1440px, calc(100vw - 48px))"');
     });
 
     it("Profile 导航不复制 Dialog 的旧视口高度预算", async () => {
-        const source = (await readFile(profileNavPath, "utf8")).replace(/\r\n/g, "\n");
+        const source = await read(profileNavPath);
 
         expect(source).not.toContain("90vh");
         expect(source).toContain("overflow-y-auto");
     });
 
-    it("模型设置双栏的 sticky 定位只作用于 xl 桌面断点", async () => {
-        const source = (await readFile(modelPanelPath, "utf8")).replace(/\r\n/g, "\n");
+    it("Provider 栏位不回到旧面板的 sticky 双栏写法", async () => {
+        const rail = await read(providerRailPath);
 
-        expect(source).toContain("xl:sticky xl:top-4");
-        expect(source).toContain("xl:items-start");
-        expect(source).not.toContain("sticky top-4");
-        expect(source).not.toContain("flex h-fit flex-col");
+        expect(rail).not.toContain("sticky top-4");
+        expect(rail).not.toContain("xl:sticky xl:top-4");
+        expect(rail).not.toContain("flex h-fit flex-col");
     });
 });

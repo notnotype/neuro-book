@@ -21,10 +21,10 @@ const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "default" | "project" | "no-provider" | "disabled-models" | "dialog-window" | "saving" | "save-error" | "loading";
+type SceneKey = "default" | "project" | "no-provider" | "disabled-models" | "dialog-window" | "saving" | "loading";
 
 const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["default", "project", "no-provider", "disabled-models", "dialog-window", "saving", "save-error", "loading"];
+    const known: SceneKey[] = ["default", "project", "no-provider", "disabled-models", "dialog-window", "saving", "loading"];
     return known.find((key) => key === props.scene) ?? "default";
 });
 
@@ -54,7 +54,6 @@ const selectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 const isProjectScope = computed(() => sceneKey.value === "project");
 const loading = computed(() => sceneKey.value === "loading");
 const saving = computed(() => sceneKey.value === "saving");
-const saveError = computed(() => sceneKey.value === "save-error" ? "示例后端返回 500" : "");
 const hasIssues = computed(() => sceneKey.value === "disabled-models");
 const validationIssues = computed(() => hasIssues.value ? draftIssues : []);
 const validationIssueDetails = computed(() => draftIssues.map((issue) => `${issue.code} ${issue.path.join(".")}`).join("\n"));
@@ -111,7 +110,6 @@ const viewBindings = computed(() => ({
     targetLabel: "C:/novels/长夜行",
     loading: loading.value,
     saving: saving.value,
-    saveError: saveError.value,
     validationIssues: validationIssues.value,
     validationIssueDetails: validationIssueDetails.value,
     repairingModels: false,

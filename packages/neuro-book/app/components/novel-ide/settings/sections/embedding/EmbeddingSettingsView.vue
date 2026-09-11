@@ -18,14 +18,10 @@ const props = withDefaults(defineProps<{
     /** 项目作用域下的配置目标标签 */
     targetLabel?: string;
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 }>(), {
     scope: "global",
     targetLabel: "",
     disabled: false,
-    saving: false,
-    saveError: "",
 });
 
 const emit = defineEmits<{
@@ -74,13 +70,6 @@ const apiKeyPlaceholder = computed(() => {
             </p>
         </header>
 
-        <p v-if="props.saveError" class="mt-[var(--space-3)] truncate text-[var(--text-xs)] text-[var(--status-danger)]">
-            {{ t("settings.panels.embedding.saveFailed") + "：" + props.saveError }}
-        </p>
-        <p v-else-if="props.saving" class="mt-[var(--space-3)] flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--status-info)]">
-            <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-            {{ t("common.saving") }}
-        </p>
 
         <!-- 项目作用域：只覆盖模型与维度，服务参数继承全局 -->
         <template v-if="isProjectScope">

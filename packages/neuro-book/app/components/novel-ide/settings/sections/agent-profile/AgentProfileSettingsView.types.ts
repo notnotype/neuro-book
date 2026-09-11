@@ -38,12 +38,8 @@ export type AgentProfileSettingsViewProps = {
     showNavHeading?: boolean;
     /** false */
     loading?: boolean;
-    /** false */
-    saving?: boolean;
     /** 空串 */
     loadError?: string;
-    /** 空串；就地保存失败时由宿主回填，草稿仍保留在 modelValue 中 */
-    saveError?: string;
 };
 
 /**

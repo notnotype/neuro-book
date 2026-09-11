@@ -25,8 +25,6 @@ export type ProviderSettingsViewProps = {
     targetLabel: string;
     loading: boolean;
     saving?: boolean;
-    /** 保存失败原文；草稿仍保留在 props 里 */
-    saveError?: string;
     validationIssues: ProviderConfigIssue[];
     /** 完整问题列表（换行分隔），做问题横幅的 title */
     validationIssueDetails: string;

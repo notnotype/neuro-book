@@ -12,7 +12,6 @@ import type {ProviderSettingsViewEmits, ProviderSettingsViewProps} from "./Provi
 
 const props = withDefaults(defineProps<ProviderSettingsViewProps>(), {
     saving: false,
-    saveError: "",
 });
 
 const emit = defineEmits<ProviderSettingsViewEmits>();
@@ -53,14 +52,6 @@ function toggleGroup(group: string): void {
                 </button>
             </Tooltip>
         </header>
-
-        <p v-if="props.saveError" class="mt-[var(--space-3)] truncate text-[var(--text-xs)] text-[var(--status-danger)]">
-            {{ t("settings.panels.models.saveFailed") + "：" + props.saveError }}
-        </p>
-        <p v-else-if="props.saving" class="mt-[var(--space-3)] flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--status-info)]">
-            <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-            {{ t("common.saving") }}
-        </p>
 
         <!-- 草稿问题：紧凑一行，完整列表交给宿主的对话框；修复只改草稿，不自动保存。 -->
         <div

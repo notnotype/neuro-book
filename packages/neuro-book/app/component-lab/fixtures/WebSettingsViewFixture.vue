@@ -9,22 +9,20 @@ const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "default" | "configured" | "brave-first" | "local-fetch-off" | "saving" | "save-error" | "disabled";
+type SceneKey = "default" | "configured" | "brave-first" | "local-fetch-off" | "disabled";
 
 const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["default", "configured", "brave-first", "local-fetch-off", "saving", "save-error", "disabled"];
+    const known: SceneKey[] = ["default", "configured", "brave-first", "local-fetch-off", "disabled"];
     return known.find((key) => key === props.scene) ?? "default";
 });
 
 const draft = ref<WebSettingsDraft>(createWebSettingsDraft());
-const saveError = ref("");
 
-const saving = computed(() => sceneKey.value === "saving" || sceneKey.value === "save-error");
 const disabled = computed(() => sceneKey.value === "disabled");
 
 watch(sceneKey, (scene) => {
     const base = createWebSettingsDraft();
-    if (scene === "configured" || scene === "saving" || scene === "save-error") {
+    if (scene === "configured") {
         base.providers.tavily = {...base.providers.tavily, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "tvly-…9c21"};
         base.providers.brave = {...base.providers.brave, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "BSA…4d7f"};
     }
@@ -36,19 +34,16 @@ watch(sceneKey, (scene) => {
         base.tavilyFallback = {enabled: true, timeoutMs: "20000"};
     }
     draft.value = base;
-    saveError.value = scene === "save-error" ? "示例后端返回 500" : "";
 }, {immediate: true});
 
-watch([draft, saving, disabled, saveError], () => {
+watch([draft, disabled], () => {
     syncLabData({
         order: [...draft.value.order],
         tavilyEnabled: draft.value.providers.tavily.enabled,
         braveEnabled: draft.value.providers.brave.enabled,
         localFetchEnabled: draft.value.localFetch.enabled,
         tavilyFallbackEnabled: draft.value.tavilyFallback.enabled,
-        saving: saving.value,
         disabled: disabled.value,
-        saveError: saveError.value,
     });
 }, {immediate: true, deep: true});
 
@@ -65,8 +60,6 @@ function updateDraft(value: WebSettingsDraft): void {
             <WebSettingsView
                 :model-value="draft"
                 :disabled="disabled"
-                :saving="saving"
-                :save-error="saveError"
                 @update:model-value="updateDraft"
             />
         </div>

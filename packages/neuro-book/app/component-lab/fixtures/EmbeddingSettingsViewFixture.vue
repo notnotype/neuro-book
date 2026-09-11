@@ -12,22 +12,20 @@ const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "global-disabled" | "global-enabled" | "global-api-key" | "project-inherit" | "project-override" | "saving" | "save-error";
+type SceneKey = "global-disabled" | "global-enabled" | "global-api-key" | "project-inherit" | "project-override";
 
 const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["global-disabled", "global-enabled", "global-api-key", "project-inherit", "project-override", "saving", "save-error"];
+    const known: SceneKey[] = ["global-disabled", "global-enabled", "global-api-key", "project-inherit", "project-override"];
     return known.find((key) => key === props.scene) ?? "global-disabled";
 });
 
 const draft = ref<EmbeddingSettingsDraft>(createEmbeddingSettingsDraft());
-const saveError = ref("");
 
 const scope = computed(() => sceneKey.value.startsWith("project") ? "project" as const : "global" as const);
-const saving = computed(() => sceneKey.value === "saving" || sceneKey.value === "save-error");
 
 watch(sceneKey, (scene) => {
     const base = createEmbeddingSettingsDraft();
-    if (scene === "global-enabled" || scene === "saving" || scene === "save-error") {
+    if (scene === "global-enabled") {
         base.global = {
             ...base.global,
             enabled: true,
@@ -50,16 +48,13 @@ watch(sceneKey, (scene) => {
         base.project = {model: "text-embedding-3-large", dimensions: "3072"};
     }
     draft.value = base;
-    saveError.value = scene === "save-error" ? "示例后端返回 500" : "";
 }, {immediate: true});
 
-watch([draft, saving, saveError], () => {
+watch([draft], () => {
     syncLabData({
         scope: scope.value,
         global: {...draft.value.global},
         project: {...draft.value.project},
-        saving: saving.value,
-        saveError: saveError.value,
     });
 }, {immediate: true, deep: true});
 
@@ -77,8 +72,6 @@ function updateDraft(value: EmbeddingSettingsDraft): void {
                 :model-value="draft"
                 :scope="scope"
                 :target-label="scope === 'project' ? 'C:/novels/长夜行' : ''"
-                :saving="saving"
-                :save-error="saveError"
                 @update:model-value="updateDraft"
             />
         </div>

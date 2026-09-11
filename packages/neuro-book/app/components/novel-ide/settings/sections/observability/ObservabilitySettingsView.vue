@@ -9,13 +9,9 @@ const props = withDefaults(defineProps<{
     maxRecords: number;
     disabled?: boolean;
     /** 就地保存进行中 */
-    saving?: boolean;
     /** 保存失败原文；草稿仍保留在 props 里 */
-    saveError?: string;
 }>(), {
     disabled: false,
-    saving: false,
-    saveError: "",
 });
 
 const emit = defineEmits<{
@@ -50,14 +46,7 @@ function updateMaxRecords(value: string): void {
             <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.observability.description") }}</p>
         </header>
 
-        <!-- 就地保存的状态只在保存中或失败时出现，常态不占位 -->
-        <p v-if="props.saveError" class="mt-[var(--space-3)] truncate text-[var(--text-xs)] text-[var(--status-danger)]">
-            {{ t("settings.panels.observability.saveFailed") + "：" + props.saveError }}
-        </p>
-        <p v-else-if="props.saving" class="mt-[var(--space-3)] flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--status-info)]">
-            <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-            {{ t("common.saving") }}
-        </p>
+
 
         <!-- 开关：整行可点，标题与说明都在标签里 -->
         <div class="mt-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">

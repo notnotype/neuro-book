@@ -3,6 +3,7 @@ import {computed, nextTick, ref, watch, type ComponentPublicInstance} from "vue"
 import {Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import AgentProfileNavList from "./components/AgentProfileNavList.vue";
+import SettingsLoadState from "../components/SettingsLoadState.vue";
 import type {AgentProfileNavItem} from "./components/AgentProfileNavList.types";
 import AgentProfileDetailPanel from "./components/AgentProfileDetailPanel.vue";
 import AgentProfileDefaultsPanel from "./components/AgentProfileDefaultsPanel.vue";
@@ -27,9 +28,7 @@ import type {AgentProfileSettingsPageDraft, AgentProfileSettingsViewEmits, Agent
 const props = withDefaults(defineProps<AgentProfileSettingsViewProps>(), {
     showNavHeading: true,
     loading: false,
-    saving: false,
     loadError: "",
-    saveError: "",
 });
 const emit = defineEmits<AgentProfileSettingsViewEmits>();
 
@@ -75,7 +74,8 @@ function selectNavKey(key: string): void {
     }
 }
 
-const busy = computed(() => props.loading || props.saving);
+// 就地保存失败走系统通知，视图不再有保存状态；只有读取期间禁用交互。
+const busy = computed(() => props.loading);
 
 const sortedProfiles = computed(() => [...props.modelValue.profiles].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
@@ -300,31 +300,20 @@ function resetDefaults(): void {
                             {{ t("settings.panels.profileModels.settingsView.selectProfile") }}
                         </Button>
                     </div>
-                    <!-- 就地保存的状态只在保存中或失败时出现，常态不占位 -->
-                    <div v-if="props.saveError || props.saving" class="shrink-0 px-[var(--space-6)] pt-[var(--space-3)]">
-                        <div class="max-w-3xl">
-                            <span v-if="props.saveError" class="truncate text-xs text-[var(--status-danger)]">
-                                {{ t("settings.panels.profileModels.settingsView.saveErrorPrefix") + props.saveError }}
-                            </span>
-                            <span v-else class="flex items-center gap-1 text-xs text-[var(--status-info)]">
-                                <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-                                {{ t("settings.panels.profileModels.settingsView.savingHint") }}
-                            </span>
-                        </div>
-                    </div>
-                <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
+                    <SettingsLoadState
+                        v-if="props.loading"
+                        variant="loading"
+                    />
+                    <SettingsLoadState
+                        v-else-if="props.loadError"
+                        variant="error"
+                        :message="props.loadError"
+                        @retry="emit('reload')"
+                    />
+                    <div v-else class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
                     <!-- 宽窗口下内容列封顶：控件与分隔线都不随窗口宽度无上限拉伸 -->
                     <div class="max-w-3xl">
-                        <div v-if="props.loading" class="space-y-3" aria-busy="true">
-                            <div class="h-6 w-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
-                            <div class="h-24 animate-pulse rounded bg-[var(--bg-input)]"></div>
-                            <div class="h-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
-                        </div>
-                        <div v-else-if="props.loadError" class="rounded-[var(--radius-control)] border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 text-sm text-[var(--status-danger)]">
-                            <p>{{ props.loadError }}</p>
-                            <Button class="mt-2" size="sm" variant="ghost" @click="emit('reload')">{{ t("settings.panels.profileModels.settingsView.reload") }}</Button>
-                        </div>
-                        <template v-else-if="activeProfile">
+                        <template v-if="activeProfile">
                             <AgentProfileDetailPanel
                                 :key="activeProfile.profileKey"
                                 :profile="activeProfile"

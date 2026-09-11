@@ -166,19 +166,23 @@ const zhCN = {
         scope: {
             boot: {
                 label: "启动配置",
+                shortLabel: "启动",
                 description: "根目录 config.yaml，修改后需要重启",
             },
             global: {
                 label: "全局配置",
+                shortLabel: "全局",
                 description: "Workspace Root .nbook/config.json",
             },
             project: {
                 label: "项目配置",
+                shortLabel: "项目",
                 description: "当前 Project Workspace .nbook/config.json",
                 unavailable: "请先打开一个 Project，再编辑项目配置。",
             },
             browser: {
                 label: "浏览器状态",
+                shortLabel: "本机",
                 description: "本地 UI 状态，不写入 config 文件",
             },
             configFile: "配置文件",
@@ -197,9 +201,9 @@ const zhCN = {
                 label: "编辑器",
                 description: "Markdown 富文本显示偏好。",
             },
-            models: {
-                label: "模型设置",
-                description: "管理 Provider、Model 与默认模型。",
+            providers: {
+                label: "Provider",
+                description: "管理 Provider 与模型清单。",
             },
             embedding: {
                 label: "Embedding",
@@ -447,7 +451,12 @@ const zhCN = {
         feedback: {
             saving: "当前配置正在保存，请稍候。",
             loading: "当前配置正在读取，请稍候。",
+            loadFailed: "读取设置失败。",
+            saveFailed: "保存设置失败。",
             dirty: "当前配置有未保存修改，请先保存设定。",
+        },
+        state: {
+            loading: "正在读取设置…",
         },
         panels: {
             cost: {
@@ -458,7 +467,6 @@ const zhCN = {
                 fetchedAt: "更新于 {time}",
                 loadFailed: "读取费用显示设置失败",
                 saveSuccess: "费用显示币种已保存。",
-                saveFailed: "保存费用显示设置失败",
                 refreshSuccess: "已更新 USD/CNY 汇率：{rate}{stale}",
                 refreshFailed: "刷新 USD/CNY 汇率失败",
                 title: "费用显示",
@@ -479,7 +487,6 @@ const zhCN = {
                 privacyNote: "记录包含完整 prompt 与小说正文，只保存在本地 .nbook/agent/traces/，不会进入可分享的诊断日志包。",
                 loadFailed: "读取请求记录设置失败",
                 saveSuccess: "请求记录设置已保存。",
-                saveFailed: "保存请求记录设置失败",
             },
             embedding: {
                 projectTitle: "Project Embedding 覆盖",
@@ -490,7 +497,6 @@ const zhCN = {
                 loadFailed: "读取 Embedding 配置失败",
                 projectSaveSuccess: "Project Embedding 覆盖已保存。",
                 globalSaveSuccess: "Embedding 服务配置已写入全局配置。",
-                saveFailed: "保存 Embedding 配置失败",
                 loading: "正在读取 Embedding 配置...",
                 projectOverride: "Project 覆盖",
                 model: "模型名",
@@ -517,7 +523,6 @@ const zhCN = {
                 braveProviderDescription: "web_search 使用的独立搜索索引。",
                 loadFailed: "读取 Web 工具配置失败",
                 saveSuccess: "Web 工具配置已写入全局配置，后续新发起的 Agent 请求会使用新配置。",
-                saveFailed: "保存 Web 工具配置失败",
                 title: "Agent Web 工具",
                 description: "配置 researcher 使用的 web_search / web_fetch 服务。写入 Workspace Root 全局配置。",
                 loading: "正在读取 Web 工具配置...",
@@ -785,9 +790,6 @@ const zhCN = {
                     effectiveDefaultProfile: "实际生效默认 Profile",
                     scopeGlobal: "全局设定",
                     scopeProject: "项目设定 · {target}",
-                    savingHint: "保存中…",
-                    saveErrorPrefix: "保存失败：",
-                    reload: "重新加载",
                     invalidModel: "没有可用模型，请先在全局配置中启用。",
                     temperatureInvalid: "温度须为空或非负数字。",
                     topkInvalid: "TopK 须为空或正整数。",

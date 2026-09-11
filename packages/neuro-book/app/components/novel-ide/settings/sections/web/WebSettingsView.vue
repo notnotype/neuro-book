@@ -18,12 +18,8 @@ const props = withDefaults(defineProps<{
     /** 受控草稿；视图只改草稿并通过 update:modelValue 交回宿主 */
     modelValue: WebSettingsDraft;
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 }>(), {
     disabled: false,
-    saving: false,
-    saveError: "",
 });
 
 const emit = defineEmits<{
@@ -106,13 +102,6 @@ const LOCAL_LIMIT_FIELDS = [
             </Tooltip>
         </header>
 
-        <p v-if="props.saveError" class="mt-[var(--space-3)] truncate text-[var(--text-xs)] text-[var(--status-danger)]">
-            {{ t("settings.panels.web.saveFailed") + "：" + props.saveError }}
-        </p>
-        <p v-else-if="props.saving" class="mt-[var(--space-3)] flex items-center gap-[var(--space-1)] text-[var(--text-xs)] text-[var(--status-info)]">
-            <span class="i-lucide-loader-2 h-3 w-3 animate-spin" aria-hidden="true"></span>
-            {{ t("common.saving") }}
-        </p>
 
         <!-- 搜索服务：每个服务一块，块内只有这个服务的东西 -->
         <section class="mt-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">

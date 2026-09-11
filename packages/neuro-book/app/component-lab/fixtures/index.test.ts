@@ -14,9 +14,16 @@ describe("AgentProfileSettingsView Lab 场景", () => {
             "custom-settings",
             "empty",
             "loading",
-            "saving",
             "load-error",
-            "save-error",
         ]);
+    });
+});
+
+describe("FrontendSettingsView Lab 场景", () => {
+    it("登记主题网格的三种场景", () => {
+        const fixture = findLabFixture("FrontendSettingsView");
+
+        expect(fixture).not.toBeNull();
+        expect(fixture?.scenes.map((scene) => scene.id)).toEqual(["default", "no-custom", "disabled"]);
     });
 });

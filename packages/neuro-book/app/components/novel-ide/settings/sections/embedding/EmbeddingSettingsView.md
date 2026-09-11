@@ -8,7 +8,7 @@
 
 草稿模型与序列化规则在 `embedding-settings-draft.ts`，视图与宿主共用：`buildGlobalEmbeddingPayload()` / `buildProjectEmbeddingPayload()` 是唯一的写回体出口。
 
-Component Lab 中由 `EmbeddingSettingsViewFixture` 提供确定性场景（global-disabled / global-enabled / global-api-key / project-inherit / project-override / saving / save-error）。
+Component Lab 中由 `EmbeddingSettingsViewFixture` 提供确定性场景（global-disabled / global-enabled / global-api-key / project-inherit / project-override）。
 
 ## 契约
 
@@ -18,8 +18,6 @@ type Props = {
     scope?: "global" | "project";         // 决定渲染哪一段
     targetLabel?: string;
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 };
 
 type Emits = {

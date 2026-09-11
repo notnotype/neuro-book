@@ -6,7 +6,7 @@
 
 「费用显示」区段的受控视图：选择展示币种（USD / CNY）、显示当前 USD→CNY 汇率与取回时间、手动刷新汇率。它只消费宿主给的币种与汇率状态，币种变更通过 `update:currency` 交回宿主，刷新按钮通过 `refreshRate` 请宿主去取——视图自身不读 store、不调 API、不写持久化。旧面板 `NovelIdeCostSettingsPanel` 继续负责快照读写、`saveGlobal` 与汇率请求，产品接线时再消费本视图。
 
-Component Lab 中由 `CostSettingsViewFixture` 提供确定性场景（default / cny / stale / missing-rate / refreshing / save-error）；fixture 的「刷新汇率」只换一个确定值并记录事件，不访问网络。
+Component Lab 中由 `CostSettingsViewFixture` 提供确定性场景（default / cny / stale / missing-rate / refreshing）；fixture 的「刷新汇率」只换一个确定值并记录事件，不访问网络。
 
 ## 契约
 
@@ -18,8 +18,6 @@ type Props = {
     exchangeRateFetchedAt?: string;   // ISO 字符串；空串不显示
     refreshing?: boolean;
     disabled?: boolean;
-    saving?: boolean;
-    saveError?: string;
 };
 
 type Emits = {

@@ -747,7 +747,7 @@ function assertProjectModelReferences(global: StoredGlobalConfig, project: Store
             code: "missing_default_model",
             path: ["models", "default"],
             modelKey: null,
-            message: "存在可运行模型时，Project 必须能解析到默认模型。",
+            message: "Project 还没有可用的默认模型：请在设置的「Provider」里指定一个默认模型，或停用这些 Provider。",
         });
     }
     if (issues.length === 0) {
