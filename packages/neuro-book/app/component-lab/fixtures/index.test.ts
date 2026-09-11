@@ -13,8 +13,6 @@ describe("AgentProfileSettingsView Lab 场景", () => {
             "statuses",
             "custom-settings",
             "empty",
-            "loading",
-            "load-error",
         ]);
     });
 });
@@ -27,3 +25,37 @@ describe("FrontendSettingsView Lab 场景", () => {
         expect(fixture?.scenes.map((scene) => scene.id)).toEqual(["default", "no-custom", "disabled"]);
     });
 });
+
+describe("ProjectPicker 及子组件 Lab 场景", () => {
+    it("完整登记 ProjectPickerView 及全部 7 个子组件", async () => {
+        const expectedComponents = [
+            "ProjectPickerView",
+            "ProjectPickerHeader",
+            "ProjectPickerEmptyState",
+            "ProjectCard",
+            "ProjectCreateCoverPreview",
+            "ProjectCreateForm",
+            "ProjectCreateDialog",
+            "ProjectCoverDialog",
+        ];
+
+        for (const name of expectedComponents) {
+            const fixture = findLabFixture(name);
+            expect(fixture, `Fixture for ${name} should be registered`).not.toBeNull();
+            expect(fixture?.scenes.length).toBeGreaterThan(0);
+            expect(typeof fixture?.load).toBe("function");
+        }
+    });
+
+    it("ProjectCreateForm 包含拟真与恢复场景", () => {
+        const fixture = findLabFixture("ProjectCreateForm");
+        expect(fixture?.scenes.map((s) => s.id)).toEqual([
+            "default",
+            "filled",
+            "creating",
+            "recovery-error",
+            "phone",
+        ]);
+    });
+});
+

@@ -170,8 +170,6 @@ export const labFixtures: LabFixture[] = [
             {id: "statuses", label: "状态全集", data: {editable: "fixture-owned"}},
             {id: "custom-settings", label: "专属设置", data: {editable: "fixture-owned"}},
             {id: "empty", label: "空列表", data: {editable: "fixture-owned"}},
-            {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
-            {id: "load-error", label: "加载失败", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./AgentProfileSettingsViewFixture.vue")).default,
     },
@@ -274,7 +272,6 @@ export const labFixtures: LabFixture[] = [
             {id: "disabled-models", label: "停用与问题", data: {editable: "fixture-owned"}},
             {id: "dialog-window", label: "DialogWindow 内嵌", data: {editable: "fixture-owned"}},
             {id: "saving", label: "保存中", data: {editable: "fixture-owned"}},
-            {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./ProviderSettingsViewFixture.vue")).default,
     },
@@ -329,6 +326,72 @@ export const labFixtures: LabFixture[] = [
             {id: "phone", label: "手机 390×844", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./ProjectPickerViewFixture.vue")).default,
+    },
+    {
+        component: "ProjectPickerHeader",
+        scenes: [
+            {id: "default", label: "桌面默认", data: {editable: "fixture-owned"}},
+            {id: "loading", label: "加载与创建禁用", data: {editable: "fixture-owned"}},
+            {id: "phone", label: "手机 390×844", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectPickerHeaderFixture.vue")).default,
+    },
+    {
+        component: "ProjectPickerEmptyState",
+        scenes: [
+            {id: "default", label: "零项目空态", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectPickerEmptyStateFixture.vue")).default,
+    },
+    {
+        component: "ProjectCard",
+        scenes: [
+            {id: "fallback", label: "排版封面降级", data: {editable: "fixture-owned"}},
+            {id: "with-cover", label: "图片封面", data: {editable: "fixture-owned"}},
+            {id: "delete-busy", label: "删除忙碌中", data: {editable: "fixture-owned"}},
+            {id: "delete-recovery", label: "删除错误待恢复", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectCardFixture.vue")).default,
+    },
+    {
+        component: "ProjectCreateCoverPreview",
+        scenes: [
+            {id: "default", label: "默认通用", data: {editable: "fixture-owned"}},
+            {id: "long-title", label: "长书名截断", data: {editable: "fixture-owned"}},
+            {id: "xuanhuan", label: "玄幻修真题材", data: {editable: "fixture-owned"}},
+            {id: "scifi", label: "科幻未来题材", data: {editable: "fixture-owned"}},
+            {id: "mystery", label: "悬疑惊悚题材", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectCreateCoverPreviewFixture.vue")).default,
+    },
+    {
+        component: "ProjectCreateForm",
+        scenes: [
+            {id: "default", label: "默认表单", data: {editable: "fixture-owned"}},
+            {id: "filled", label: "已填写内容", data: {editable: "fixture-owned"}},
+            {id: "creating", label: "创建中加载态", data: {editable: "fixture-owned"}},
+            {id: "recovery-error", label: "恢复报错与重试", data: {editable: "fixture-owned"}},
+            {id: "phone", label: "手机 390×844 折叠", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectCreateFormFixture.vue")).default,
+    },
+    {
+        component: "ProjectCreateDialog",
+        scenes: [
+            {id: "open", label: "打开弹窗", data: {editable: "fixture-owned"}},
+            {id: "creating", label: "创建中", data: {editable: "fixture-owned"}},
+            {id: "with-recovery", label: "恢复报错", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectCreateDialogFixture.vue")).default,
+    },
+    {
+        component: "ProjectCoverDialog",
+        scenes: [
+            {id: "default", label: "无封面状态", data: {editable: "fixture-owned"}},
+            {id: "with-cover", label: "已有封面状态", data: {editable: "fixture-owned"}},
+            {id: "busy", label: "处理中", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./ProjectCoverDialogFixture.vue")).default,
     },
 ];
 

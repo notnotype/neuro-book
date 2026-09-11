@@ -42,7 +42,7 @@ function handleCancel(): void {
 function handleSubmit(payload: {title: string; summary: string}): void {
     if (submitDebounce || props.isCreating || props.recoveryError) return;
     submitDebounce = true;
-    emit("submit", payload);
+    emit("submit", {title: payload.title, summary: payload.summary});
     Promise.resolve().then(() => {
         submitDebounce = false;
     });
@@ -60,7 +60,7 @@ function handleFooterSubmit(): void {
     <DialogWindow
         :model-value="props.isOpen"
         :title="t('ide.bookshelf.createBook')"
-        :width="540"
+        :width="580"
         :min-width="320"
         :min-height="240"
         resizable
