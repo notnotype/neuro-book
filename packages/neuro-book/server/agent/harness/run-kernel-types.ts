@@ -19,6 +19,7 @@ import type {Models} from "@earendil-works/pi-ai";
 import type {PublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import type {RecoveryMaterialTracker} from "nbook/server/agent/harness/recovery-materials";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -186,7 +187,10 @@ export type RunFrame = {
      * 只覆盖 prepareRun 当时的长度；本 invocation 内后续追加的消息落入 conversation。
      */
     promptPrefix?: PromptPrefixAttribution;
-    /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
+    /** 当前 invocation 成功文件操作产生的恢复材料候选。 */
+    recoveryMaterials?: RecoveryMaterialTracker;
+    /** 已经注入过的恢复材料版本 key，跨 waiting/resume 保持去重。 */
+    recoveryMaterialKeys: Set<string>;
     nextTurnRuntimeMessages: StoredAgentMessage[];
     reportResult?: AgentInvocationResult["reportResult"];
     /** 连续 report_result 工具错误次数；成功 report_result 后清零。 */

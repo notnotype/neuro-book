@@ -4,6 +4,7 @@ import type {RunFrame, RuntimeTurn, TurnSnapshot} from "nbook/server/agent/harne
 import {applyFailedTurn, applySuccessfulTurn, consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
 import {createPublicRuntimeProjectionState} from "nbook/server/agent/events/public-event-projection";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRecoveryMaterialTracker} from "nbook/server/agent/harness/recovery-materials";
 
 describe("run frame state", () => {
     it("创建 RunFrame 时会固定默认运行态，并浅拷贝初始 messages", () => {
@@ -60,6 +61,34 @@ describe("run frame state", () => {
         expect(frame.messages).not.toBe(messages);
         expect(frame.runtimeState).toBe(runtimeState);
         expect(frame.onEvent).toBe(onEvent);
+    });
+
+    it("创建 RunFrame 时复用 invocation tracker 的恢复材料去重集合", () => {
+        const tracker = createRecoveryMaterialTracker();
+        tracker.injectedKeys.add("already-injected");
+        const frame = createRunFrame({
+            invocationId: "invoke-recovery",
+            sessionId: 1,
+            workspaceRoot: absoluteFsPath(process.cwd()),
+            currentProject: null,
+            systemPrompt: "system",
+            messages: [],
+            models: {} as RunFrame["models"],
+            model: {} as RunFrame["model"],
+            sessionContextEnabled: true,
+            toolKeys: [],
+            profileKey: "test",
+            profile: {} as RunFrame["profile"],
+            agentMode: "normal",
+            thinkingLevel: "off",
+            runtimeState: new Map(),
+            reportResultReminderEnabled: false,
+            caller: {kind: "user"},
+            recoveryMaterials: tracker,
+        });
+
+        expect(frame.recoveryMaterialKeys).toBe(tracker.injectedKeys);
+        expect(frame.recoveryMaterialKeys?.has("already-injected")).toBe(true);
     });
 
     it("消费 prepareNextTurn runtime messages 后会清空临时槽，避免后续 turn 重复堆积", () => {
@@ -167,6 +196,7 @@ function fakeFrame(): RunFrame {
         runtimeState: new Map(),
         publicEventProjection: createPublicRuntimeProjectionState(),
         messages: [],
+        recoveryMaterialKeys: new Set(),
         nextTurnRuntimeMessages: [],
         turnIndex: 0,
         reportResultReminderSent: false,

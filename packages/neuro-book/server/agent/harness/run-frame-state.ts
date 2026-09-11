@@ -33,6 +33,7 @@ export type CreateRunFrameInput = {
     caller: RunFrame["caller"];
     abortSignal?: RunFrame["abortSignal"];
     onEvent?: RunFrame["onEvent"];
+    recoveryMaterials?: RunFrame["recoveryMaterials"];
     transcriptParentLeafId?: RunFrame["transcriptParentLeafId"];
 };
 
@@ -47,6 +48,8 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         currentProject: input.currentProject,
         systemPrompt: input.systemPrompt,
         messages: input.messages.slice(),
+        recoveryMaterials: input.recoveryMaterials,
+        recoveryMaterialKeys: input.recoveryMaterials?.injectedKeys ?? new Set(),
         promptPrefix: input.promptPrefix,
         models: input.models,
         model: input.model,

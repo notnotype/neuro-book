@@ -4,8 +4,9 @@ import type {Models} from "@earendil-works/pi-ai";
 import {estimateStoredContextTokens, estimateStoredMessageTokens} from "nbook/server/agent/messages/stored-message-tokens";
 import {
     type StoredMessageLike,
+    storedMessageText,
 } from "nbook/server/agent/messages/stored-message-presentation";
-import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AssistantMessage, JsonValue, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {
     COMPACTION_PROMPT,
     COMPACTION_SUMMARY_PREFIX,
@@ -15,11 +16,12 @@ import {
 import type {ProfileCompactionRuntimePatch} from "nbook/shared/agent/profile-runtime-settings";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
-import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import type {RecoveryMaterialCandidateMetadata} from "nbook/server/agent/harness/recovery-materials";
+import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
+import {assertProviderContextWithinWindow, estimateProviderTextTokens} from "nbook/server/agent/harness/context-admission";
 import type {StoredAgentMessage, StoredToolResultMessage} from "nbook/server/agent/messages/stored-types";
-
 export {COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX};
 
 export type CompactionOptions = {
@@ -42,7 +44,6 @@ export const DEFAULT_NEURO_COMPACTION_OPTIONS: Omit<CompactionOptions, "enabled"
     promptSource: "default",
     summaryPrefixSource: "default",
 };
-
 type CompactionPlan = {
     firstKeptEntry: ModelVisibleSessionEntry | null;
     messagesToSummarize: StoredMessageLike[];
@@ -57,7 +58,21 @@ type CompactionPlan = {
     };
 };
 
+type CompactionSummaryResult = {
+    text: string;
+    strategy: "llm" | "deterministic-fallback";
+    inputTokens: number;
+    inputBudgetTokens: number;
+    summaryError?: string;
+};
+
 type ModelVisibleSessionEntry = MessageSessionEntry | CustomMessageSessionEntry;
+
+const COMPACTION_INPUT_BUDGET_RATIO = 0.45;
+const COMPACTION_INPUT_MIN_TOKENS = 1;
+const COMPACTION_INPUT_MAX_TOKENS = 32_000;
+const COMPACTION_TOOL_RESULT_MAX_CHARS = 2_000;
+const COMPACTION_TEXT_TRUNCATION_MARKER = "\n\n[... tool result truncated for compaction ...]";
 
 /**
  * 自动压缩：超过上下文预算时追加 compaction entry。
@@ -76,6 +91,7 @@ export async function compactIfNeeded(input: {
     trace?: PiTraceBinding;
     /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
     signal?: AbortSignal;
+    prepareRecoveryCandidates?: () => Promise<RecoveryMaterialCandidateMetadata[]>;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
     if (!input.compaction) {
@@ -90,6 +106,7 @@ export async function compactIfNeeded(input: {
     if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }
+    const recoveryCandidates = await input.prepareRecoveryCandidates?.();
     await appendCompaction({
         repo: input.repo,
         snapshot: input.snapshot,
@@ -104,13 +121,15 @@ export async function compactIfNeeded(input: {
         options,
         trace: input.trace,
         signal: input.signal,
+        recoveryCandidates,
+        allowFallback: true,
         writeCompactionEntry: input.writeCompactionEntry,
     });
     return true;
 }
 
 /**
- * 追加 compaction entry。摘要由 LLM 生成，失败时不写入 session。
+ * 追加 compaction entry。自动摘要失败时写入确定性 checkpoint，手动命令保持失败可见。
  */
 export async function appendCompaction(input: {
     repo: JsonlSessionRepository;
@@ -127,8 +146,9 @@ export async function appendCompaction(input: {
     compaction?: ProfileCompactionRuntimePatch;
     options?: CompactionOptions;
     trace?: PiTraceBinding;
-    /** 为空表示调用方没有可取消生命周期；非空时透传给摘要 Provider。 */
     signal?: AbortSignal;
+    allowFallback?: boolean;
+    recoveryCandidates?: RecoveryMaterialCandidateMetadata[];
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
     if (!input.options && !input.compaction) {
@@ -139,24 +159,45 @@ export async function appendCompaction(input: {
     const visibleEntries = path.filter(isModelVisibleEntry);
     assertNoPendingToolCall(visibleEntries.map(entryMessage));
     const plan = selectCompactionPlan(path, options);
-    const generatedSummary = await generateCompactionSummary({
-        messages: plan.messagesToSummarize,
-        models: input.models,
-        model: input.model,
-        apiKey: input.apiKey,
-        timeoutMs: input.timeoutMs,
-        requestOptions: input.requestOptions,
-        instructions: input.instructions,
-        previousSummary: plan.previousSummary,
-        thinkingLevel: input.thinkingLevel,
-        reserveTokens: options.reserveTokens,
-        prompt: options.prompt,
-        trace: input.trace,
-        signal: input.signal,
-    });
-    const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
+    let generatedSummary: CompactionSummaryResult;
+    try {
+        generatedSummary = await generateCompactionSummary({
+            messages: plan.messagesToSummarize,
+            models: input.models,
+            model: input.model,
+            apiKey: input.apiKey,
+            timeoutMs: input.timeoutMs,
+            requestOptions: input.requestOptions,
+            instructions: input.instructions,
+            previousSummary: plan.previousSummary,
+            thinkingLevel: input.thinkingLevel,
+            reserveTokens: options.reserveTokens,
+            prompt: options.prompt,
+            trace: input.trace,
+            signal: input.signal,
+        });
+    } catch (error) {
+        if (!input.allowFallback) {
+            throw error;
+        }
+        const outputBudgetTokens = resolveSummaryOutputBudget(input.model, options.reserveTokens);
+        generatedSummary = {
+            text: deterministicCompactionFallback({
+                previousSummary: plan.previousSummary,
+                conversation: plan.messagesToSummarize.map((message) => `${message.role}: ${storedMessageText(message)}`).join("\n\n") || "No prior history.",
+                outputBudgetTokens,
+            }),
+            strategy: "deterministic-fallback",
+            inputTokens: 0,
+            inputBudgetTokens: resolveSummaryInputBudget(input.model, options.prompt, outputBudgetTokens),
+            summaryError: sanitizeProviderErrorMessage(error instanceof Error ? error.message : String(error)),
+        };
+    }
+    if (generatedSummary.strategy === "deterministic-fallback" && !input.allowFallback) {
+        throw new Error(generatedSummary.summaryError ?? "压缩摘要生成失败，未写入 compaction entry");
+    }
+    const summary = `${options.summaryPrefix}\n\n${generatedSummary.text || deterministicCompactionFallback({conversation: "No prior history.", outputBudgetTokens: resolveSummaryOutputBudget(input.model, options.reserveTokens)})}`;
     const tokensBefore = input.tokensBefore ?? estimateStoredContextTokens(input.messages).tokens;
-
     const entry = {
         type: "compaction",
         summary,
@@ -177,13 +218,16 @@ export async function appendCompaction(input: {
             visibleEntryCountBefore: plan.metrics.visibleEntryCountBefore,
             recentEntryCount: plan.metrics.recentEntryCount,
             summarizedEntryCount: plan.metrics.summarizedEntryCount,
+            summaryStrategy: generatedSummary.strategy,
+            summaryInputTokens: generatedSummary.inputTokens,
+            summaryInputBudgetTokens: generatedSummary.inputBudgetTokens,
+            ...(generatedSummary.summaryError ? {summaryError: generatedSummary.summaryError} : {}),
+            ...(input.recoveryCandidates?.length ? {recoveryCandidates: input.recoveryCandidates} : {}),
         },
     } satisfies Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">;
-
     input.signal?.throwIfAborted();
     await input.writeCompactionEntry(entry);
 }
-
 /**
  * 将 profile compaction plan 解析成当前模型下的执行策略。
  */
@@ -245,7 +289,30 @@ export function resolveCompactionTriggerTokens(options: CompactionOptions, conte
 }
 
 /**
- * 构造真实 LLM 摘要。这里不做 fallback，避免失败时写入误导性摘要。
+ * 已有 checkpoint 的会话若压缩并恢复上下文后仍达到触发线，继续重试只会反复消耗摘要请求。
+ */
+export function assertCompactionMadeProgress(input: {
+    beforeTokens: number;
+    afterTokens: number;
+    contextWindow: number;
+    options: CompactionOptions;
+    hadPreviousCompaction: boolean;
+}): void {
+    if (!input.hadPreviousCompaction
+        || !shouldCompactWithOptions(input.afterTokens, input.contextWindow, input.options)) {
+        return;
+    }
+    const triggerTokens = resolveCompactionTriggerTokens(input.options, input.contextWindow);
+    throw new Error(
+        `自动压缩无进展：压缩前 ${input.beforeTokens} tokens，恢复上下文后 ${input.afterTokens} tokens，`
+        + `仍达到 ${triggerTokens ?? "unknown"} token 触发线。已停止重复压缩。`,
+    );
+}
+/**
+ * 构造有界 LLM 摘要请求；摘要输入和摘要输出使用独立预算。
+ *
+ * 工具结果先按消息裁剪，仍超预算时保留会话头尾并在中间插入省略标记。
+ * 这只修改 provider 临时输入，不改写 session 中的完整历史。
  */
 async function generateCompactionSummary(input: {
     messages: StoredMessageLike[];
@@ -260,22 +327,22 @@ async function generateCompactionSummary(input: {
     reserveTokens: number;
     prompt: string;
     trace?: PiTraceBinding;
-    /** 为空表示此次摘要不可由上层取消；非空时直接传给 Pi Provider。 */
     signal?: AbortSignal;
-}): Promise<string> {
-    const conversation = input.messages.length
-        ? input.messages.map((message) => `${message.role}: ${messageText(message)}`).join("\n\n")
-        : "No prior history.";
-    const prompt = [
-        "Summarize the following conversation history for a future LLM resume point.",
-        input.instructions ? `Additional instructions:\n${input.instructions}` : "",
-        input.previousSummary ? `<previous-summary>\n${input.previousSummary}\n</previous-summary>` : "",
-        `<conversation>\n${conversation}\n</conversation>`,
-    ].filter(Boolean).join("\n\n");
+}): Promise<CompactionSummaryResult> {
+    input.signal?.throwIfAborted();
+    const outputBudgetTokens = resolveSummaryOutputBudget(input.model, input.reserveTokens);
+    const inputBudgetTokens = resolveSummaryInputBudget(input.model, input.prompt, outputBudgetTokens);
+    const bounded = buildBoundedSummaryPrompt({
+        messages: input.messages,
+        instructions: input.instructions,
+        previousSummary: input.previousSummary,
+        systemPrompt: input.prompt,
+        inputBudgetTokens,
+    });
     const requestOptions = parsePiSimpleRequestOptions(input.requestOptions);
     const completeContext = {
         systemPrompt: input.prompt,
-        messages: [createUserMessage({text: prompt})],
+        messages: [createUserMessage({text: bounded.prompt})],
     };
     const completeOptions = {
         ...requestOptions,
@@ -286,29 +353,146 @@ async function generateCompactionSummary(input: {
         }),
         headers: mergePiRequestHeaders(input.model.headers, requestOptions.headers),
         timeoutMs: input.timeoutMs ?? undefined,
-        maxTokens: Math.min(Math.floor(input.reserveTokens * 0.8), input.model.maxTokens),
+        maxTokens: Math.min(outputBudgetTokens, input.model.maxTokens),
         reasoning: input.thinkingLevel && input.thinkingLevel !== "off" ? input.thinkingLevel as never : undefined,
         signal: input.signal,
     };
-    // 统一入口：trace 缺省时 tracedCompleteSimple 等同裸 completeSimple（不落记录、零开销）。
-    input.signal?.throwIfAborted();
-    const response = await tracedCompleteSimple(input.models, input.model, completeContext, completeOptions, input.trace);
-    input.signal?.throwIfAborted();
 
-    if (response.stopReason === "error" || response.stopReason === "aborted") {
-        throw new Error(sanitizeProviderErrorMessage(response.errorMessage || "compaction summary 生成失败"));
+    try {
+        assertProviderContextWithinWindow({
+            ...completeContext,
+            contextWindow: input.model.contextWindow,
+            modelId: input.model.id,
+        });
+        const response = await tracedCompleteSimple(input.models, input.model, completeContext, completeOptions, input.trace);
+        input.signal?.throwIfAborted();
+        if (response.stopReason === "error" || response.stopReason === "aborted") {
+            throw new Error(sanitizeProviderErrorMessage(response.errorMessage || "compaction summary 生成失败"));
+        }
+        const text = response.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text.trim())
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+        return {
+            text: truncateTextToTokens(text, outputBudgetTokens),
+            strategy: "llm",
+            inputTokens: bounded.inputTokens,
+            inputBudgetTokens,
+        };
+    } catch (error) {
+        input.signal?.throwIfAborted();
+        const summaryError = sanitizeProviderErrorMessage(error instanceof Error ? error.message : String(error));
+        return {
+            text: deterministicCompactionFallback({
+                previousSummary: input.previousSummary,
+                conversation: bounded.conversation,
+                outputBudgetTokens,
+            }),
+            strategy: "deterministic-fallback",
+            inputTokens: bounded.inputTokens,
+            inputBudgetTokens,
+            summaryError,
+        };
     }
+}
 
-    const text = response.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text.trim())
-        .filter(Boolean)
-        .join("\n")
-        .trim();
-    if (!text) {
-        throw new Error("compaction summary 为空");
+function resolveSummaryOutputBudget(model: Model<any>, reserveTokens: number): number {
+    const providerLimit = model.maxTokens > 0 ? model.maxTokens : Number.POSITIVE_INFINITY;
+    return Math.max(1, Math.min(
+        providerLimit,
+        Math.floor(Math.max(1, reserveTokens) * 0.8),
+        Math.floor(Math.max(1, model.contextWindow) * 0.2),
+    ));
+}
+
+function resolveSummaryInputBudget(model: Model<any>, systemPrompt: string, outputBudgetTokens: number): number {
+    const fixedTokens = estimateProviderTextTokens(systemPrompt) + 32;
+    const available = Math.max(1, model.contextWindow - fixedTokens - outputBudgetTokens);
+    return Math.max(1, Math.min(
+        COMPACTION_INPUT_MAX_TOKENS,
+        Math.floor(model.contextWindow * COMPACTION_INPUT_BUDGET_RATIO),
+        available,
+    ));
+}
+
+function buildBoundedSummaryPrompt(input: {
+    messages: StoredMessageLike[];
+    instructions?: string;
+    previousSummary?: string;
+    systemPrompt: string;
+    inputBudgetTokens: number;
+}): {prompt: string; conversation: string; inputTokens: number} {
+    const rows = input.messages.map((message) => {
+        const text = message.role === "toolResult"
+            ? truncateTextToChars(storedMessageText(message), COMPACTION_TOOL_RESULT_MAX_CHARS)
+            : storedMessageText(message);
+        return `${message.role}: ${text}`;
+    });
+    let conversation = rows.length > 0 ? rows.join("\n\n") : "No prior history.";
+    let prompt = composeSummaryPrompt(conversation, input.instructions, input.previousSummary);
+    let inputTokens = estimateSummaryRequestTokens(input.systemPrompt, prompt);
+    for (let attempt = 0; inputTokens > input.inputBudgetTokens && attempt < 12; attempt += 1) {
+        const targetChars = Math.max(1, Math.floor(conversation.length * 0.65));
+        const nextConversation = truncateTextToChars(conversation, targetChars);
+        if (nextConversation === conversation) {
+            break;
+        }
+        conversation = nextConversation;
+        prompt = composeSummaryPrompt(conversation, input.instructions, input.previousSummary);
+        inputTokens = estimateSummaryRequestTokens(input.systemPrompt, prompt);
     }
-    return text;
+    if (inputTokens > input.inputBudgetTokens) {
+        const availablePromptChars = Math.max(1, input.inputBudgetTokens * 4);
+        prompt = truncateTextToChars(prompt, availablePromptChars);
+        inputTokens = estimateSummaryRequestTokens(input.systemPrompt, prompt);
+        while (inputTokens > input.inputBudgetTokens && prompt.length > 1) {
+            prompt = truncateTextToChars(prompt, Math.max(1, Math.floor(prompt.length * 0.8)));
+            inputTokens = estimateSummaryRequestTokens(input.systemPrompt, prompt);
+        }
+    }
+    return {prompt, conversation, inputTokens};
+}
+
+function composeSummaryPrompt(conversation: string, instructions?: string, previousSummary?: string): string {
+    return [
+        "Summarize the following conversation history for a future LLM resume point.",
+        instructions ? `Additional instructions:\n${instructions}` : "",
+        previousSummary ? `<previous-summary>\n${previousSummary}\n</previous-summary>` : "",
+        `<conversation>\n${conversation}\n</conversation>`,
+    ].filter(Boolean).join("\n\n");
+}
+
+function estimateSummaryRequestTokens(systemPrompt: string, prompt: string): number {
+    return estimateProviderTextTokens(systemPrompt) + estimateStoredContextTokens([createUserMessage({text: prompt})]).tokens;
+}
+
+function deterministicCompactionFallback(input: {previousSummary?: string; conversation: string; outputBudgetTokens: number}): string {
+    const text = [
+        "Deterministic context checkpoint: the summary provider failed; preserve this bounded history and continue from the retained messages.",
+        input.previousSummary ? `Previous checkpoint:\n${input.previousSummary}` : "",
+        `Bounded history:\n${input.conversation}`,
+    ].filter(Boolean).join("\n\n");
+    return truncateTextToTokens(text, input.outputBudgetTokens);
+}
+
+function truncateTextToTokens(text: string, tokens: number): string {
+    return truncateTextToChars(text, Math.max(1, tokens * 4));
+}
+
+function truncateTextToChars(text: string, maxChars: number): string {
+    if (text.length <= maxChars) {
+        return text;
+    }
+    if (maxChars <= 32) {
+        return text.slice(0, maxChars);
+    }
+    const marker = COMPACTION_TEXT_TRUNCATION_MARKER;
+    const available = Math.max(0, maxChars - marker.length);
+    const front = Math.ceil(available / 2);
+    const back = Math.floor(available / 2);
+    return `${text.slice(0, front)}${marker}${back > 0 ? text.slice(-back) : ""}`;
 }
 
 /**
