@@ -1,57 +1,87 @@
 import {describe, expect, it} from "vitest";
 import {
-    MODEL_ROLE_CATALOG,
+    addSpecialistRole,
+    allRoles,
+    buildModelRoleCatalog,
     buildRolesSection,
     createRolesSettingsDraft,
-    resolveEffectiveRole,
-    resolveRoleModelKey,
+    nextCustomRoleId,
+    removeRole,
+    roleConfigIssues,
 } from "./roles-settings-draft";
 
-describe("模型角色草稿", () => {
-    it("初始草稿每个角色都未配置", () => {
-        const draft = createRolesSettingsDraft();
-        expect(Object.keys(draft.roles)).toHaveLength(MODEL_ROLE_CATALOG.length);
-        expect(Object.values(draft.roles).every((value) => value === null)).toBe(true);
+/** 测试用的 translator：键原样返回，这样断言可以直接比对键名。 */
+const identityTranslate = (key: string): string => key;
+
+describe("roles-settings-draft", () => {
+    it("初始草稿：梯度轴固定四档不可删，专精轴五个可删，名字与描述来自 translator", () => {
+        const draft = createRolesSettingsDraft(identityTranslate);
+
+        expect(draft.gradient.map((role) => role.id)).toEqual(["tiny", "fast", "main", "deep"]);
+        expect(draft.specialist.map((role) => role.id)).toEqual(["summarize", "writer", "narrative", "plan", "vision"]);
+        expect(draft.gradient.every((role) => !role.removable)).toBe(true);
+        expect(draft.specialist.every((role) => role.removable)).toBe(true);
+        expect(draft.gradient[0]!.name).toBe("settings.panels.roles.roleTiny");
+        expect(draft.gradient[0]!.description).toBe("settings.panels.roles.purposeTiny");
+        expect(draft.gradient[0]!.modelKey).toBeNull();
     });
 
-    it("未配置时沿回落链取，narrative 走 writer 再走 main", () => {
-        const draft = createRolesSettingsDraft();
-        expect(resolveEffectiveRole(draft, "narrative")).toBeNull();
+    it("新增专精角色：id 稳定且不冲突，角色可删；梯度轴的角色删不掉", () => {
+        let draft = createRolesSettingsDraft(identityTranslate);
+        draft = addSpecialistRole(draft, identityTranslate);
 
-        draft.roles.main = "openai/gpt-5.1";
-        expect(resolveEffectiveRole(draft, "narrative")).toBe("main");
-        expect(resolveRoleModelKey(draft, "narrative")).toBe("openai/gpt-5.1");
+        expect(draft.specialist).toHaveLength(6);
+        const added = draft.specialist[5]!;
+        expect(added.id).toBe("custom-1");
+        expect(added.removable).toBe(true);
+        expect(added.modelKey).toBeNull();
+        expect(nextCustomRoleId(draft)).toBe("custom-2");
 
-        draft.roles.writer = "openai/o4-mini";
-        expect(resolveEffectiveRole(draft, "narrative")).toBe("writer");
-        expect(resolveRoleModelKey(draft, "narrative")).toBe("openai/o4-mini");
+        draft = addSpecialistRole(draft, identityTranslate);
+        expect(draft.specialist.map((role) => role.id)).toEqual(["summarize", "writer", "narrative", "plan", "vision", "custom-1", "custom-2"]);
+
+        expect(removeRole(draft, "custom-1").specialist.map((role) => role.id)).not.toContain("custom-1");
+        // 删掉 mid 序列里的角色后，新 id 仍然避开已用的键
+        expect(nextCustomRoleId(removeRole(draft, "custom-1"))).toBe("custom-1");
+        expect(removeRole(draft, "main").gradient).toHaveLength(4);
+        expect(removeRole(draft, "unknown").specialist).toHaveLength(7);
     });
 
-    it("不能回落的角色不借用别人", () => {
-        const draft = createRolesSettingsDraft();
-        draft.roles.main = "openai/gpt-5.1";
-        // vision 的 fallback 是 null：主模型支持不支持视觉是另一回事，这里不替它猜
-        expect(resolveEffectiveRole(draft, "vision")).toBeNull();
-        expect(resolveRoleModelKey(draft, "vision")).toBeNull();
+    it("配置错误：没绑模型或没写描述都要报出来（没有回落可以顶替）", () => {
+        const draft = createRolesSettingsDraft(identityTranslate);
+        draft.gradient[0]!.modelKey = "gpt-5.1-mini";
+
+        const issues = roleConfigIssues(draft);
+        // 九个角色里，唯一配好的是 tiny：其余八个都缺模型
+        expect(issues.filter((issue) => issue.reason === "missing-model").map((issue) => issue.id)).toHaveLength(8);
+        expect(issues.some((issue) => issue.reason === "missing-model" && issue.id === "tiny")).toBe(false);
+
+        draft.specialist[0]!.description = "   ";
+        draft.specialist[0]!.modelKey = "gpt-5.1-mini";
+        expect(roleConfigIssues(draft)).toContainEqual({id: "summarize", reason: "missing-description"});
     });
 
-    it("自己绑了就不看回落", () => {
-        const draft = createRolesSettingsDraft();
-        draft.roles.main = "openai/gpt-5.1";
-        draft.roles.narrative = "openai/o4-mini";
-        expect(resolveEffectiveRole(draft, "narrative")).toBe("narrative");
-        expect(resolveRoleModelKey(draft, "narrative")).toBe("openai/o4-mini");
+    it("模型看到的目录只含有绑定且有描述的条目", () => {
+        const draft = createRolesSettingsDraft(identityTranslate);
+        draft.gradient[2]!.modelKey = "claude-sonnet-4.5";
+        draft.gradient[0]!.modelKey = "gpt-5.1-mini";
+        draft.gradient[0]!.description = "";
+
+        expect(buildModelRoleCatalog(draft)).toEqual([{
+            id: "main",
+            name: "settings.panels.roles.roleMain",
+            description: "settings.panels.roles.purposeMain",
+            modelKey: "claude-sonnet-4.5",
+        }]);
     });
 
-    it("写回体只保留有绑定的角色，并按目录顺序", () => {
-        const draft = createRolesSettingsDraft();
-        draft.roles.deep = "openai/o4-mini";
-        draft.roles.tiny = "openai/gpt-5.1";
-        expect(buildRolesSection(draft)).toEqual({
-            roles: [
-                {role: "tiny", modelKey: "openai/gpt-5.1"},
-                {role: "deep", modelKey: "openai/o4-mini"},
-            ],
-        });
+    it("写回体带轴与全部角色（含未绑定），因为宿主需要它来报配置错误", () => {
+        const draft = createRolesSettingsDraft(identityTranslate);
+        draft.specialist[4]!.modelKey = "gpt-5.1";
+
+        const payload = buildRolesSection(draft);
+        expect(payload.roles).toHaveLength(9);
+        expect(payload.roles[0]).toMatchObject({id: "tiny", axis: "gradient", modelKey: null});
+        expect(payload.roles[8]).toMatchObject({id: "vision", axis: "specialist", modelKey: "gpt-5.1"});
     });
 });

@@ -1,15 +1,55 @@
 /**
  * Web 工具区段的草稿模型与序列化规则。
  *
- * 视图与宿主共用这一层：视图只改草稿，宿主用 `buildWebPayload()` 得到写回体。
- * 规则沿用旧面板：空串表示未配置 / 继承默认值，provider 密钥留空表示保留原值
- * （只有显式清除才写到空串），数字字段非法时回落到各自的默认值。
+ * 服务是**数据**不是分支：搜索服务由 `SEARCH_PROVIDER_CATALOG` 决定，渲染、排序、
+ * 服务独有字段都按它走；加一个服务＝往表里加一项（再补后端契约里的对应字段）。
+ * `buildWebPayload()` 是唯一的写回出口，与 `WebConfigDto` 逐字对应。
  */
 import type {SecretConfigValueDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 
 export type SearchProviderKey = "tavily" | "brave";
 
-export const SEARCH_PROVIDER_KEYS: SearchProviderKey[] = ["tavily", "brave"];
+/** 服务独有的字段：labelKey 走 i18n，defaultValue 是该字段的初始草稿值。 */
+export type SearchProviderField = {
+    key: string;
+    labelKey: string;
+    placeholder: string;
+    defaultValue: string;
+};
+
+export type SearchProviderDefinition = {
+    key: SearchProviderKey;
+    label: string;
+    descriptionKey: string;
+    iconClass: string;
+    extraFields: SearchProviderField[];
+};
+
+export const SEARCH_PROVIDER_CATALOG: SearchProviderDefinition[] = [
+    {
+        key: "tavily",
+        label: "Tavily",
+        descriptionKey: "settings.panels.web.tavilyProviderDescription",
+        iconClass: "i-lucide-sparkles",
+        extraFields: [],
+    },
+    {
+        key: "brave",
+        label: "Brave Search",
+        descriptionKey: "settings.panels.web.braveProviderDescription",
+        iconClass: "i-lucide-search",
+        extraFields: [
+            {key: "country", labelKey: "settings.panels.web.country", placeholder: "US", defaultValue: "US"},
+            {key: "searchLang", labelKey: "settings.panels.web.searchLang", placeholder: "en", defaultValue: "en"},
+        ],
+    },
+];
+
+export const SEARCH_PROVIDER_KEYS: SearchProviderKey[] = SEARCH_PROVIDER_CATALOG.map((item) => item.key);
+
+export function findSearchProvider(key: string): SearchProviderDefinition | null {
+    return SEARCH_PROVIDER_CATALOG.find((item) => item.key === key) ?? null;
+}
 
 export type WebProviderDraft = {
     enabled: boolean;
@@ -20,11 +60,8 @@ export type WebProviderDraft = {
     /** 用户显式清除了密钥 */
     apiKeyCleared: boolean;
     timeoutMs: string;
-};
-
-export type WebBraveDraft = WebProviderDraft & {
-    country: string;
-    searchLang: string;
+    /** 服务独有字段的草稿；键由 catalog 的 extraFields 定义 */
+    extras: Record<string, string>;
 };
 
 export type WebLocalFetchDraft = {
@@ -42,10 +79,10 @@ export type WebTavilyFallbackDraft = {
 };
 
 export type WebSettingsDraft = {
-    /** 搜索 provider 优先级；两项各出现一次 */
+    /** 搜索 provider 优先级；每个服务各出现一次 */
     order: SearchProviderKey[];
-    tavily: WebProviderDraft;
-    brave: WebBraveDraft;
+    /** 每个服务一份草稿，键与 catalog 对齐 */
+    providers: Record<SearchProviderKey, WebProviderDraft>;
     localFetch: WebLocalFetchDraft;
     tavilyFallback: WebTavilyFallbackDraft;
 };
@@ -60,7 +97,11 @@ export const WEB_DEFAULTS = {
     tavilyFallbackTimeoutMs: 20000,
 } as const;
 
-function createProviderDraft(): WebProviderDraft {
+export function createProviderDraft(definition: SearchProviderDefinition): WebProviderDraft {
+    const extras: Record<string, string> = {};
+    for (const field of definition.extraFields) {
+        extras[field.key] = field.defaultValue;
+    }
     return {
         enabled: false,
         apiKey: "",
@@ -68,14 +109,18 @@ function createProviderDraft(): WebProviderDraft {
         apiKeyMaskedValue: null,
         apiKeyCleared: false,
         timeoutMs: String(WEB_DEFAULTS.providerTimeoutMs),
+        extras,
     };
 }
 
 export function createWebSettingsDraft(): WebSettingsDraft {
+    const providers = {} as Record<SearchProviderKey, WebProviderDraft>;
+    for (const definition of SEARCH_PROVIDER_CATALOG) {
+        providers[definition.key] = createProviderDraft(definition);
+    }
     return {
         order: [...SEARCH_PROVIDER_KEYS],
-        tavily: createProviderDraft(),
-        brave: {...createProviderDraft(), country: "US", searchLang: "en"},
+        providers,
         localFetch: {
             enabled: true,
             timeoutMs: String(WEB_DEFAULTS.localFetchTimeoutMs),
@@ -88,10 +133,11 @@ export function createWebSettingsDraft(): WebSettingsDraft {
     };
 }
 
-/** 规范化优先级：滤掉未知项、去重，并保证两个 provider 都出现一次。 */
+/** 规范化优先级：滤掉未知项、去重，并保证每个服务都出现一次。 */
 export function normalizeProviderOrder(order: unknown): SearchProviderKey[] {
     const values = Array.isArray(order) ? order : [];
-    const normalized = values.filter((item): item is SearchProviderKey => item === "tavily" || item === "brave");
+    const normalized = values.filter((item): item is SearchProviderKey =>
+        typeof item === "string" && SEARCH_PROVIDER_KEYS.includes(item as SearchProviderKey));
     for (const key of SEARCH_PROVIDER_KEYS) {
         if (!normalized.includes(key)) {
             normalized.push(key);
@@ -140,7 +186,12 @@ export function parsePositiveInteger(value: string, fallback: number): number {
 }
 
 export function parseNonNegativeInteger(value: string, fallback: number): number {
-    const parsed = Number(value.trim());
+    const normalized = value.trim();
+    // 空串是「未配置」，不是 0——Number("") 是 0，不拦这一条就会把清空的输入框写成 0。
+    if (normalized === "") {
+        return fallback;
+    }
+    const parsed = Number(normalized);
     return Number.isFinite(parsed) && parsed >= 0 ? Math.trunc(parsed) : fallback;
 }
 
@@ -166,23 +217,30 @@ export function buildProviderSecretPayload(provider: WebProviderDraft): SecretCo
     return payload;
 }
 
-/** Web 配置写回段。 */
+/**
+ * Web 配置写回段。
+ *
+ * 每个服务的字段仍然显式列出：后端契约是按服务定义的（Brave 有国家与搜索语言），
+ * 这里不做通用映射——加服务时该动的就是「catalog + 这一段 + 后端契约」三处。
+ */
 export function buildWebPayload(draft: WebSettingsDraft): WebConfigDto {
+    const tavily = draft.providers.tavily;
+    const brave = draft.providers.brave;
     return {
         search: {
             order: normalizeProviderOrder(draft.order),
             providers: {
                 tavily: {
-                    enabled: draft.tavily.enabled,
-                    apiKey: buildProviderSecretPayload(draft.tavily),
-                    timeoutMs: parseNullablePositiveInteger(draft.tavily.timeoutMs),
+                    enabled: tavily.enabled,
+                    apiKey: buildProviderSecretPayload(tavily),
+                    timeoutMs: parseNullablePositiveInteger(tavily.timeoutMs),
                 },
                 brave: {
-                    enabled: draft.brave.enabled,
-                    apiKey: buildProviderSecretPayload(draft.brave),
-                    country: normalizeText(draft.brave.country, "US").toUpperCase(),
-                    searchLang: normalizeText(draft.brave.searchLang, "en").toLowerCase(),
-                    timeoutMs: parseNullablePositiveInteger(draft.brave.timeoutMs),
+                    enabled: brave.enabled,
+                    apiKey: buildProviderSecretPayload(brave),
+                    country: normalizeText(brave.extras.country, "US").toUpperCase(),
+                    searchLang: normalizeText(brave.extras.searchLang, "en").toLowerCase(),
+                    timeoutMs: parseNullablePositiveInteger(brave.timeoutMs),
                 },
             },
         },

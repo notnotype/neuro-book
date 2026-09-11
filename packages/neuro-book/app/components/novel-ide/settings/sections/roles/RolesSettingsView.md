@@ -4,11 +4,15 @@
 
 # RolesSettingsView
 
-「角色」区段的受控视图：把模型按**用途**分配给角色，分两条轴——梯度轴（`tiny` / `fast` / `main` / `deep`，任何任务都可回落到这里）与专精轴（`summarize` / `writer` / `narrative` / `plan` / `vision`，按需配置并声明式回落到某个梯度）。每行显示：角色 id、用途、**建议候选链**、当前实际生效的角色，以及一个模型选择（「跟随 X」那一项就是清除本行绑定）。
+「模型角色」区段的受控视图：把模型按**用途**分配给角色，分两条轴——梯度轴（`tiny` / `fast` / `main` / `deep`，固定四档、不可删）与专精轴（默认 `summarize` / `writer` / `narrative` / `plan` / `vision`，**可以自己加**）。每行显示：图标、角色名、状态徽标、建议模型 tooltip，以及一个模型下拉；专精轴多一个删除按钮。
+
+**角色定义只有两件事**：绑哪个模型、角色描述写什么。描述会进模型看到的目录（`buildModelRoleCatalog()`），所以它是给模型看的文本，不是给人看的备注。
+
+**没有候选链，也没有回落**：每行都是自己的绑定，没配模型的行会显示「未配置」并由 `roleConfigIssues()` 报成配置错误——宿主该报错，而不是拿别的角色的模型顶上。视觉这类角色尤其不能回落：主模型多半不支持原生视觉。
 
 **role 与 profile 不是一层**：role 是模型角色（本页），profile 是代理类型（Agent Profile 区段）；`@writer` 这样的 profile 会装载到 `writer.default` 这类 profile 配置上。本页只管前者。
 
-**UI 先行**：后端契约（role 的 schema、候选链写在哪一层配置、本地模型怎么与 Provider 之外的端点绑定）尚未存在，这一版只在前端表达绑定关系。契约落地时 `roles/roles-settings-draft.ts` 是唯一的改写入点：`RolesSettingsDraft` 的形状与 `buildRolesSection()` 的写回体是给宿主映射用的。
+**UI 先行**：后端契约（role 的 schema、目录怎么送到模型）尚未存在，这一版只在前端表达绑定关系。契约落地时 `roles/roles-settings-draft.ts` 是唯一的改写入点：`RolesSettingsDraft` 的形状与 `buildRolesSection()` 的写回体是给宿主映射用的。提案见 `docs/proposals/model-roles-contract.md`。
 
 Component Lab 中由 `RolesSettingsViewFixture` 提供确定性场景（unconfigured / partially-configured / fully-configured / saving / save-error）。
 
@@ -16,8 +20,9 @@ Component Lab 中由 `RolesSettingsViewFixture` 提供确定性场景（unconfig
 
 ```ts
 type Props = {
-    modelValue: RolesSettingsDraft;      // {roles: Record<ModelRoleId, string | null>}
+    modelValue: RolesSettingsDraft;      // {gradient: ModelRoleDraft[]; specialist: ModelRoleDraft[]}
     models: EnabledModelOptionDto[];     // 可绑定的已启用模型
+    disabled?: boolean;
     saving?: boolean;
     saveError?: string;
 };
@@ -27,8 +32,8 @@ type Emits = {
 };
 ```
 
-回落规则在 `roles-settings-draft.ts`：`resolveEffectiveRole()` 沿 `fallback` 往上找第一个有绑定的角色，`vision` 的 `fallback` 是 `null`——主模型多半不支持原生视觉，这类角色**不借用别人**，必须自己配。`buildRolesSection()` 只写出有绑定的角色，按目录顺序。
+`roles-settings-draft.ts` 负责全部规则：`createRolesSettingsDraft(translate)` 物化种子（名字与描述走 i18n，之后用户改的就是文本本身）、`addSpecialistRole()` / `removeRole()` 增删专精角色（新角色用 `custom-N` 这种稳定 id，名字可以被改、id 不会）、`roleConfigIssues()` 报配置错误、`buildModelRoleCatalog()` 产出模型看到的那份目录（只含绑好且有描述的）、`buildRolesSection()` 产出写回体（含未绑定的，宿主需要它来报错）。
 
 ## 布局规则
 
-阅读型区段：内容列封顶 `max-w-3xl`。两条轴各占一段，段内每行用 1px `--divider` 分隔，宽容器下「说明 + 选择」并排、窄容器下自动堆叠。说明性文字用 `--text-xs` 起，建议候选链用 `--text-2xs` 且靠在用途下面——它是建议，不是当前值。标题旁只放元信息 tooltip。视图自身不滚动。
+阅读型区段：内容列封顶 `max-w-3xl`。两条轴各占一段，段内每行用 1px `--divider` 分隔；宽容器（`@container min-width: 620px`）下「角色 + 说明」与「模型下拉 + 删除」并排且各角色对齐，窄容器下自动堆叠，模型下拉与删除始终同一行。自定义角色的名字与描述是行内输入框（名字输入收窄到 200px，它是行内标题）；种子角色的名字与描述是文本。建议模型只出现在 tooltip 里——它是建议，不是当前值。标题旁只放元信息 tooltip。视图自身不滚动。

@@ -25,8 +25,8 @@ const disabled = computed(() => sceneKey.value === "disabled");
 watch(sceneKey, (scene) => {
     const base = createWebSettingsDraft();
     if (scene === "configured" || scene === "saving" || scene === "save-error") {
-        base.tavily = {...base.tavily, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "tvly-…9c21"};
-        base.brave = {...base.brave, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "BSA…4d7f"};
+        base.providers.tavily = {...base.providers.tavily, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "tvly-…9c21"};
+        base.providers.brave = {...base.providers.brave, enabled: true, apiKeyConfigured: true, apiKeyMaskedValue: "BSA…4d7f"};
     }
     if (scene === "brave-first") {
         base.order = ["brave", "tavily"];
@@ -42,8 +42,8 @@ watch(sceneKey, (scene) => {
 watch([draft, saving, disabled, saveError], () => {
     syncLabData({
         order: [...draft.value.order],
-        tavilyEnabled: draft.value.tavily.enabled,
-        braveEnabled: draft.value.brave.enabled,
+        tavilyEnabled: draft.value.providers.tavily.enabled,
+        braveEnabled: draft.value.providers.brave.enabled,
         localFetchEnabled: draft.value.localFetch.enabled,
         tavilyFallbackEnabled: draft.value.tavilyFallback.enabled,
         saving: saving.value,
@@ -55,7 +55,7 @@ watch([draft, saving, disabled, saveError], () => {
 /** 就地保存：fixture 立刻接受草稿并记录事件，不写任何持久层。 */
 function updateDraft(value: WebSettingsDraft): void {
     draft.value = value;
-    emitLabEvent("update:modelValue", {order: value.order, tavilyEnabled: value.tavily.enabled, braveEnabled: value.brave.enabled});
+    emitLabEvent("update:modelValue", {order: value.order, tavilyEnabled: value.providers.tavily.enabled, braveEnabled: value.providers.brave.enabled});
 }
 </script>
 

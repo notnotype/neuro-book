@@ -53,6 +53,7 @@ import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();
 
+const {t} = useI18n();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
@@ -263,7 +264,7 @@ const modelActiveProviderKey = ref("provider-openai");
 const modelDialogOpen = ref<"none" | "validation" | "delete" | "edit" | "discovery" | "library">("none");
 const modelEditingDraft = computed(() => modelDialogOpen.value === "edit" ? modelDraft.value.providers[0]?.models[0] ?? null : null);
 const modelManualDraft = ref({...MANUAL_MODEL_DRAFT});
-const rolesDraft = ref(createRolesSettingsDraft());
+const rolesDraft = ref(createRolesSettingsDraft(t));
 const modelSelectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 const modelDiscoverySearchQuery = ref("");
 const modelLibrarySearchQuery = ref("");
@@ -291,7 +292,7 @@ watch(sceneKey, (scene) => {
     desktopSaveError.value = "";
     modelDraft.value = buildModelSettingsDraft();
     modelActiveProviderKey.value = "provider-openai";
-    rolesDraft.value = createRolesSettingsDraft();
+    rolesDraft.value = createRolesSettingsDraft(t);
     modelSelectedTemplate.value = MODEL_PROVIDER_TEMPLATES[0]!.id;
     modelDialogOpen.value = "none";
     modelManualDraft.value = {...MANUAL_MODEL_DRAFT};
@@ -315,7 +316,7 @@ watch([scope, activeSection, loading, loadError], () => {
         editorMonaco: {...editorMonaco.value},
         desktopZoom: desktopSettings.value.zoomFactor,
         modelDefaultKey: modelDraft.value.defaultModelKey,
-        boundRoles: Object.values(rolesDraft.value.roles).filter(Boolean).length,
+        boundRoles: boundRoleCount(rolesDraft.value),
         modelProviderCount: modelDraft.value.providers.length,
         loading: loading.value,
         loadError: loadError.value,
@@ -352,10 +353,15 @@ function updateModelDraft(value: ModelSettingsDraft): void {
     emitLabEvent("update:draft", {providers: value.providers.length, defaultModelKey: value.defaultModelKey});
 }
 
-/** 角色绑定在 Lab 里也由 fixture 持有：落写规则与回落链在 roles-settings-draft。 */
+/** 已绑定的角色数：梯度轴与专精轴一起算。 */
+function boundRoleCount(draft: {gradient: Array<{modelKey: string | null}>; specialist: Array<{modelKey: string | null}>}): number {
+    return [...draft.gradient, ...draft.specialist].filter((role) => role.modelKey).length;
+}
+
+/** 角色绑定在 Lab 里也由 fixture 持有：落写规则在 roles-settings-draft。 */
 function updateRolesDraft(value: typeof rolesDraft.value): void {
     rolesDraft.value = value;
-    emitLabEvent("update:roles", {boundRoles: Object.values(value.roles).filter(Boolean).length});
+    emitLabEvent("update:roles", {boundRoles: boundRoleCount(value)});
 }
 
 function openDialog(): void {

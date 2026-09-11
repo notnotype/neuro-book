@@ -121,11 +121,13 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
                 providers: providerRows.length,
                 switches: body ? body.querySelectorAll('[role="switch"]').length : 0,
                 moveButtons: body ? body.querySelectorAll('button[title*="上移"], button[title*="下移"]').length : 0,
-                hasFallbackHint: (body?.textContent ?? "").includes("Fallback:"),
+                serviceBlocks: body ? body.querySelectorAll("[data-search-provider]").length : 0,
+                hasGeneralSettings: (body?.textContent ?? "").includes("通用设置"),
             };
         });
         assert(
-            webSection.providers === 2 && webSection.switches === 4 && webSection.moveButtons === 4 && webSection.hasFallbackHint,
+            webSection.providers === 2 && webSection.serviceBlocks === 2 && webSection.switches === 4
+            && webSection.moveButtons === 4 && webSection.hasGeneralSettings,
             failures,
             `切到 Web 工具区段应挂载该区段的真实表单：${JSON.stringify(webSection)}`,
         );
@@ -247,6 +249,27 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             rolesSection.mounted && rolesSection.rows === 9,
             failures,
             `角色区段应挂载视图并列出九个角色：${JSON.stringify(rolesSection)}`,
+        );
+
+        stage = "在角色区段添加并删除自定义角色";
+        const customRole = await page.evaluate(async () => {
+            const view = document.querySelector<HTMLElement>(".roles-view-root");
+            const add = view?.querySelector<HTMLElement>("[data-add-role]") ?? null;
+            add?.click();
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            const afterAdd = view?.querySelectorAll("[data-role-row]").length ?? 0;
+            const added = view?.querySelectorAll<HTMLElement>("[data-role-row]")[afterAdd - 1] ?? null;
+            const removeBtn = added
+                ? [...added.querySelectorAll<HTMLElement>("button")].find((btn) => btn.querySelector(".i-lucide-trash-2")) ?? null
+                : null;
+            removeBtn?.click();
+            await new Promise((resolve) => setTimeout(resolve, 120));
+            return {afterAdd, afterRemove: view?.querySelectorAll("[data-role-row]").length ?? 0};
+        });
+        assert(
+            customRole.afterAdd === 10 && customRole.afterRemove === 9,
+            failures,
+            `专精轴应可增删自定义角色：${JSON.stringify(customRole)}`,
         );
 
         stage = "切回 Agent Profile 区段";
