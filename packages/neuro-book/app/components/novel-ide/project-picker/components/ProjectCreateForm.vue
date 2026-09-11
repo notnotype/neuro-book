@@ -85,9 +85,10 @@ function handleSubmit(): void {
         </div>
 
         <div class="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_auto] lg:items-end">
-            <label class="block text-xs text-[var(--text-secondary)]">
+            <label for="create-book-title" class="block text-xs text-[var(--text-secondary)]">
                 <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.bookTitle") }}</span>
                 <FormInput
+                    id="create-book-title"
                     ref="titleInputRef"
                     v-model="title"
                     :maxlength="120"
@@ -95,9 +96,10 @@ function handleSubmit(): void {
                     autofocus
                 />
             </label>
-            <label class="block text-xs text-[var(--text-secondary)]">
+            <label for="create-book-summary" class="block text-xs text-[var(--text-secondary)]">
                 <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.summary") }}</span>
                 <FormTextarea
+                    id="create-book-summary"
                     v-model="summary"
                     :rows="2"
                     :maxlength="2000"

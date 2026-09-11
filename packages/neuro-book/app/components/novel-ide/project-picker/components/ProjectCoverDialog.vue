@@ -156,6 +156,7 @@ function handleClear(): void {
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/avif"
                 class="hidden"
+                :aria-label="t('ide.picker.chooseCover')"
                 @change="handleFileChange"
             >
 

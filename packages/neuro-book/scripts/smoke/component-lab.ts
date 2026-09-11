@@ -8,8 +8,9 @@ import {chromium, type Browser, type ConsoleMessage, type Page} from "playwright
 import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
 import {assertAgentProfileSettingsDialogSmoke, assertAgentProfileSettingsNarrowSmoke} from "./agent-profile-settings-dialog";
 import {assertSettingsViewSmoke} from "./settings-view";
+import {assertProjectPickerViewSmoke} from "./project-picker-view";
 
-type ComponentLabSmokeSuite = "all" | "core" | "agent-profile";
+type ComponentLabSmokeSuite = "all" | "core" | "agent-profile" | "project-picker";
 
 type ComponentLabSmokeOptions = {
     url: string;
@@ -82,6 +83,18 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             return;
         }
 
+        if (suite === "project-picker") {
+            await assertProjectPickerViewSmoke(page, failures);
+            if (failures.length > 0) {
+                const screenshot = input.screenshot ?? resolveAgentScratchPath("browser", "component-lab-project-picker", randomBytes(4).toString("hex"), "failure.png");
+                await mkdir(dirname(screenshot), {recursive: true});
+                await page.screenshot({path: screenshot, fullPage: true});
+                throw new Error(formatFailures(failures, screenshot));
+            }
+            console.log(`Component Lab Project Picker smoke passed: ${input.url}`);
+            return;
+        }
+
         const viewportCanvasItem = page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^ViewportCanvas$/u});
         await viewportCanvasItem.click();
         await page.locator('[role="radio"]').filter({hasText: "不限尺寸"}).click();
@@ -105,6 +118,7 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         if (suite === "all") {
             await assertAgentProfileSettingsDialogSmoke(page, failures);
             await assertSettingsViewSmoke(page, failures);
+            await assertProjectPickerViewSmoke(page, failures);
             // 窄容器检查把画布留在 390 × 844，之后 Lab 顶栏与侧栏的点击会被拦下，所以它排在导航 smoke 之前。
             await assertAgentProfileSettingsNarrowSmoke(page, failures);
             await runAgentProfileNavSmoke(page, failures);
@@ -216,10 +230,10 @@ function parseOptions(args: string[]): ComponentLabSmokeOptions {
     const url = values["--url"];
     const browserExecutable = values["--browser-executable"];
     if (!url || !browserExecutable) {
-        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile] [--screenshot <path>]");
+        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile|project-picker] [--screenshot <path>]");
     }
     const suite = values["--suite"];
-    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile") {
+    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile" && suite !== "project-picker") {
         throw new Error(`无效 smoke 套件：${suite}`);
     }
     return {url: new URL(url).href, browserExecutable, screenshot: values["--screenshot"], suite: (suite ?? "all") as ComponentLabSmokeSuite};

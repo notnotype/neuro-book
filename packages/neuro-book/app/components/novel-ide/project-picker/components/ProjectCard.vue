@@ -56,7 +56,7 @@ const formattedUpdatedTime = computed(() => {
         >
             <!-- 书封：真实图片失败或未配置时回退到排版封面 -->
             <span
-                class="project-cover relative block aspect-[2/3] overflow-hidden rounded-[var(--radius-panel,6px)] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm transition-[transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] group-hover:-translate-y-1 group-hover:shadow-md group-focus-within:-translate-y-1"
+                class="project-cover relative block aspect-[2/3] overflow-hidden rounded-[var(--radius-panel,6px)] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm transition-[transform,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] group-hover:-translate-y-1 group-hover:shadow-md group-focus-within:-translate-y-1 group-focus-visible:ring-2 group-focus-visible:ring-[var(--accent-main)] group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-[var(--bg-main)]"
             >
                 <img
                     v-if="coverSrc"

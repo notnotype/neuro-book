@@ -101,6 +101,7 @@ function handleRecover(session: AgentSessionSummaryDto, workspaceRoot: boolean):
                                 v-model="targets[session.sessionId]"
                                 class="nb-ui-control h-8 min-w-0 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--control-surface,var(--bg-input))] px-2.5 text-xs text-[var(--text-main)] sm:w-[240px]"
                                 :disabled="actionId === session.sessionId"
+                                :aria-label="t('ide.picker.recoveryProject') + ' (' + (session.title || ('Session ' + session.sessionId)) + ')'"
                             >
                                 <option value="">{{ t("ide.picker.recoveryProject") }}</option>
                                 <option
