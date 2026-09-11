@@ -56,9 +56,15 @@ role: tasker
 
 ## 待定问题（正式接入时处理，不阻塞 UI 先行）
 
-1. **role 的后端契约**：`shared/dto` 与 Provider Config 里今天没有 role 这一层，i18n 也没有文案。
-2. **候选链写在哪一层配置**：全局配置还是 boot config；「本地 1B/4B / 本地 27B」意味着 role 要能绑定 Provider 之外的本地推理端点，这一层今天不存在。
-3. **role 与 profile 的接线关系**：`@writer` → `writer.default` 是配置项还是约定。
+2026-09-10 已完成事实核查并写入提案 [`docs/proposals/model-roles-contract.md`](../../../../../docs/proposals/model-roles-contract.md)（状态 `draft`）。三条缺口的最新状态：
+
+1. **role 的后端契约**：已给出方案——全局配置新增 `roles.bindings`（角色目录与回落链写死在代码里），解析链在 `override` 之后、profile 之前插入 role 分支。改动清单见提案「落地清单」8 步，其中最容易踩空的是 `normalizer` 的显式 allowlist 与 `redactGlobalConfig`（漏了会静默丢段，`history` 就是先例）。
+2. **候选链写在哪一层**：定为全局配置的可选 `chains`，**本期只存不消费**——Pi 层只有 `maxRetries` 重试，没有模型级回退，自动回退属独立提案。
+3. **本地模型**：**缺口已由现有机制覆盖**，不属后端契约。证据：`inspectRunnableModel` 只查 baseURL 不查 apiKey；空 key 走内部占位 `OPENAI_NO_AUTH_KEY`；discovery 接受 http；测试已用 `http://127.0.0.1:11434/v1` 作合法 baseURL。剩余的是产品层的「本地」分类与一键模板。
+
+另修正一处措辞：`@writer` 在代码里不存在（`@` 只是编辑器引用菜单前缀），正式标识是 profileKey；「role 与 profile 的接线」应表述为「role 名与 profileKey 的对应关系」——两者并列，不合并。
+
+开工前需开发者就提案里的四条「未决取舍」拍板（未配置角色怎么取模型 / 候选链是否本期实现回退 / 是否允许 Project 覆盖 / 本地模型是否要分类模板）。
 
 ## 执行进度
 
