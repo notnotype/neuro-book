@@ -5,8 +5,10 @@ import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
-import ProjectCreateForm from "./components/ProjectCreateForm.vue";
+import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
+import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
+import ProjectPickerEmptyState from "./components/ProjectPickerEmptyState.vue";
 import type {
     ProjectPickerCreatePayload,
     ProjectPickerRecoverSessionPayload,
@@ -150,41 +152,19 @@ function handleRetryCoverRecovery(): void {
 </script>
 
 <template>
-    <div class="project-picker-view flex min-h-0 flex-1 flex-col overflow-y-auto bg-[var(--bg-main)] text-[var(--text-main)]" data-project-picker-view>
-        <main class="mx-auto flex w-full max-w-[1200px] flex-col gap-8 px-5 py-8 sm:px-6 sm:py-10 lg:px-8">
+    <div class="project-picker-view flex min-h-0 flex-1 flex-col overflow-y-auto text-[var(--text-main)]" data-project-picker-view>
+        <main class="mx-auto flex w-full max-w-[1200px] flex-col gap-6 px-4 py-6 sm:gap-8 sm:px-6 sm:py-10 lg:px-8">
             <!-- 页面标题与主操作 -->
-            <section class="flex flex-col gap-5 border-b border-[var(--border-color)] pb-7 sm:flex-row sm:items-end sm:justify-between">
-                <div class="min-w-0">
-                    <h1 class="font-serif text-2xl font-bold text-[var(--text-main)] tracking-tight">
-                        {{ t("ide.picker.title") }}
-                    </h1>
-                    <p class="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
-                        {{ t("ide.picker.subtitle") }}
-                    </p>
-                </div>
-                <div class="flex w-full shrink-0 flex-col gap-2.5 sm:w-auto sm:flex-row">
-                    <Button
-                        type="button"
-                        variant="secondary"
-                        icon-class="i-lucide-folder-cog"
-                        @click="emit('open-user-assets')"
-                    >
-                        {{ t("ide.picker.openUserAssets") }}
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="primary"
-                        icon-class="i-lucide-book-plus"
-                        :disabled="isLoading || Boolean(loadError) || isCreating"
-                        @click="emit('open-create-form')"
-                    >
-                        {{ t("ide.bookshelf.createBook") }}
-                    </Button>
-                </div>
-            </section>
+            <ProjectPickerHeader
+                :is-loading="isLoading"
+                :has-load-error="Boolean(loadError)"
+                :is-creating="isCreating"
+                @open-user-assets="emit('open-user-assets')"
+                @create-book="emit('open-create-form')"
+            />
 
             <!-- 新建书籍 Dialog -->
-            <ProjectCreateForm
+            <ProjectCreateDialog
                 :is-open="isCreateFormOpen"
                 :is-creating="isCreating"
                 :recovery-notice="createRecoveryNotice"
@@ -228,33 +208,18 @@ function handleRetryCoverRecovery(): void {
             </section>
 
             <!-- 零项目空态 -->
-            <section
+            <ProjectPickerEmptyState
                 v-else-if="projects.length === 0"
-                class="flex min-h-[320px] flex-col items-center justify-center rounded-[var(--radius-panel,8px)] border border-dashed border-[var(--border-color)] bg-[color-mix(in_srgb,var(--bg-panel)_40%,transparent)] px-6 py-14 text-center"
-            >
-                <div class="flex h-12 w-12 items-center justify-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-main)] shadow-sm">
-                    <span class="i-lucide-book-open-text h-6 w-6"></span>
-                </div>
-                <h2 class="mt-4 text-base font-semibold text-[var(--text-main)]">{{ t("ide.picker.emptyTitle") }}</h2>
-                <p class="mt-2 max-w-[420px] text-sm leading-6 text-[var(--text-secondary)]">{{ t("ide.picker.empty") }}</p>
-                <Button
-                    type="button"
-                    variant="primary"
-                    icon-class="i-lucide-book-plus"
-                    class="mt-6"
-                    @click="emit('open-create-form')"
-                >
-                    {{ t("ide.bookshelf.createBook") }}
-                </Button>
-            </section>
+                @create-book="emit('open-create-form')"
+            />
 
             <!-- 最近项目网格 -->
             <section v-else>
-                <div class="mb-5 flex items-center justify-between gap-4">
+                <div class="mb-4 sm:mb-5 flex items-center justify-between gap-4">
                     <h2 class="text-sm font-semibold text-[var(--text-main)]">{{ t("ide.picker.recentProjects") }}</h2>
                     <span class="text-xs text-[var(--text-muted)] font-mono">{{ t("ide.picker.projectCount", {count: projects.length}) }}</span>
                 </div>
-                <div class="grid grid-cols-2 gap-x-5 gap-y-9 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                <div class="grid grid-cols-2 gap-x-3.5 gap-y-6 sm:grid-cols-3 sm:gap-x-5 sm:gap-y-9 md:grid-cols-4 lg:grid-cols-5">
                     <ProjectCard
                         v-for="project in projects"
                         :key="project.projectRoot"

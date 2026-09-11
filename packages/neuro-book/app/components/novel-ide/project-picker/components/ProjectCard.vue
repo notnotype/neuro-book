@@ -81,40 +81,40 @@ const formattedUpdatedTime = computed(() => {
                 >
                 <span
                     v-else
-                    class="project-cover-fallback absolute inset-0 flex flex-col items-center justify-between overflow-hidden bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[color-mix(in_srgb,var(--bg-panel)_85%,var(--accent-main)_15%)] to-[var(--bg-panel)] px-4 py-6 text-center select-none"
+                    class="project-cover-fallback absolute inset-0 flex flex-col items-center justify-between overflow-hidden bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[color-mix(in_srgb,var(--bg-panel)_85%,var(--accent-main)_15%)] to-[var(--bg-panel)] px-2.5 py-4 sm:px-4 sm:py-6 text-center select-none"
                 >
-                    <span class="flex w-full items-center gap-2 text-[10px] font-medium text-[var(--text-muted)]">
+                    <span class="flex w-full items-center gap-1.5 sm:gap-2 text-[10px] font-medium text-[var(--text-muted)]">
                         <span class="h-px flex-1 bg-[var(--border-color)]"></span>
-                        <span class="i-lucide-feather h-3.5 w-3.5 text-[var(--accent-text)]"></span>
+                        <span class="i-lucide-feather h-3 w-3 sm:h-3.5 sm:w-3.5 text-[var(--accent-text)]"></span>
                         <span class="h-px flex-1 bg-[var(--border-color)]"></span>
                     </span>
-                    <span class="line-clamp-4 break-words font-serif text-base font-bold leading-6 text-[var(--text-main)] sm:text-lg sm:leading-7">
+                    <span class="line-clamp-4 break-words font-serif text-xs font-bold leading-4.5 text-[var(--text-main)] sm:text-base sm:leading-6 sm:text-lg sm:leading-7">
                         {{ project.title }}
                     </span>
-                    <span class="h-1 w-9 rounded-full bg-[var(--accent-main)] opacity-75"></span>
+                    <span class="h-0.5 w-6 sm:h-1 sm:w-9 rounded-full bg-[var(--accent-main)] opacity-75"></span>
                 </span>
-                <span class="project-cover-spine absolute inset-y-0 left-0 w-2 border-r border-[var(--border-color)]"></span>
-                <span class="project-cover-page absolute inset-y-2 right-0 w-1 border-l border-[var(--border-color)]"></span>
+                <span class="project-cover-spine absolute inset-y-0 left-0 w-1.5 sm:w-2 border-r border-[var(--border-color)]"></span>
+                <span class="project-cover-page absolute inset-y-2 right-0 w-0.5 sm:w-1 border-l border-[var(--border-color)]"></span>
             </span>
-            <span class="project-shelf-board block h-2" aria-hidden="true"></span>
+            <span class="project-shelf-board block h-1.5 sm:h-2" aria-hidden="true"></span>
 
             <!-- 书名与元数据 -->
-            <span class="mt-3 block min-w-0">
-                <span class="line-clamp-2 break-words font-serif text-base font-bold leading-5 text-[var(--text-main)]">
+            <span class="mt-2 sm:mt-3 block min-w-0">
+                <span class="line-clamp-2 break-words font-serif text-sm font-bold leading-5 text-[var(--text-main)] sm:text-base">
                     {{ project.title }}
                 </span>
                 <span
                     v-if="project.summary"
-                    class="mt-1.5 line-clamp-2 break-words text-xs leading-5 text-[var(--text-secondary)]"
+                    class="mt-1 sm:mt-1.5 line-clamp-2 break-words text-[11px] leading-4 text-[var(--text-secondary)] sm:text-xs sm:leading-5"
                 >
                     {{ project.summary }}
                 </span>
                 <span
                     v-if="formattedUpdatedTime"
-                    class="mt-2 flex min-w-0 items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
+                    class="mt-1.5 sm:mt-2 flex min-w-0 items-center gap-1 sm:gap-1.5 text-[10px] sm:text-[11px] text-[var(--text-muted)]"
                     :title="t('ide.picker.manifestUpdatedAtTitle', {time: formattedUpdatedTime})"
                 >
-                    <span class="i-lucide-clock-3 h-3.5 w-3.5 shrink-0"></span>
+                    <span class="i-lucide-clock-3 h-3 w-3 sm:h-3.5 sm:w-3.5 shrink-0"></span>
                     <span class="truncate">{{ t("ide.picker.manifestUpdatedAt", {time: formattedUpdatedTime}) }}</span>
                 </span>
             </span>
@@ -122,7 +122,7 @@ const formattedUpdatedTime = computed(() => {
 
         <!-- 封面与删除操作栏（悬浮显现） -->
         <div
-            class="project-card-actions absolute right-2 top-2 z-10 flex gap-1.5 rounded-[var(--radius-control)] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] backdrop-blur-sm p-1 shadow-sm border border-[var(--border-color)] transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            class="project-card-actions absolute right-1.5 top-1.5 sm:right-2 sm:top-2 z-10 flex gap-1 sm:gap-1.5 rounded-[var(--radius-control)] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] backdrop-blur-sm p-0.5 sm:p-1 shadow-sm border border-[var(--border-color)] transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
         >
             <IconButton
                 size="sm"
