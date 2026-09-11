@@ -272,6 +272,49 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `专精轴应可增删自定义角色：${JSON.stringify(customRole)}`,
         );
 
+        stage = "Switch 几何与位移工具类";
+        const switchGeometry = await page.evaluate(() => {
+            // ① 开关滑块必须完全落在轨道内：轨道有 1px 透明边框（焦点环靠它上色），
+            //    内边距与滑块位移都要把它算进去，否则滑块会从右上角溢出去。
+            const box = document.querySelector<HTMLElement>(".roles-view-root [role='switch']");
+            let thumb = null;
+            if (box) {
+                const track = box.getBoundingClientRect();
+                const knob = box.firstElementChild?.getBoundingClientRect();
+                if (knob) {
+                    thumb = {
+                        inside: knob.left >= track.left - 0.5 && knob.right <= track.right + 0.5
+                            && knob.top >= track.top - 0.5 && knob.bottom <= track.bottom + 0.5,
+                        offsetX: Math.round(knob.left - track.left),
+                        trackWidth: Math.round(track.width),
+                    };
+                }
+            }
+
+            // ② 位移工具类不能翻倍：应用用 UnoCSS、nb-ui 用 Tailwind v4，两者都生成 .translate-x-4
+            //    但语义不同（一个写 transform、一个写 translate 属性）。同名类叠加会各生效一次，
+            //    位移与角度翻倍——uno.config.ts 的 blocklist 就是为此存在，这条断言守住它。
+            const probe = document.createElement("div");
+            probe.className = "translate-x-4";
+            probe.style.cssText = "position:fixed;top:0;left:0;width:10px;height:10px";
+            document.body.appendChild(probe);
+            const probeLeft = probe.getBoundingClientRect().left;
+            const probeStyle = getComputedStyle(probe);
+            probe.remove();
+
+            return {
+                thumb,
+                probeLeft: Math.round(probeLeft),
+                probeTranslate: probeStyle.translate,
+                probeTransform: probeStyle.transform,
+            };
+        });
+        assert(
+            switchGeometry.thumb?.inside === true && switchGeometry.probeLeft === 16,
+            failures,
+            `开关滑块应在轨道内、位移工具类不应翻倍（translate-x-4 = 16px）：${JSON.stringify(switchGeometry)}`,
+        );
+
         stage = "切回 Agent Profile 区段";
         await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile"}).first().click();
         await page.waitForTimeout(200);
