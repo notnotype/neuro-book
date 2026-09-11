@@ -9,12 +9,18 @@ import type {SecretConfigValueDto, WebConfigDto} from "nbook/shared/dto/config.d
 
 export type SearchProviderKey = "tavily" | "brave";
 
-/** 服务独有的字段：labelKey 走 i18n，defaultValue 是该字段的初始草稿值。 */
+/**
+ * 服务独有的字段：labelKey 走 i18n，defaultValue 是该字段的初始草稿值。
+ * `minLength` / `maxLength` 来自后端 schema（`WebConfigDto` 的 brave 段），视图据此拦输入——
+ * 不拦的话，超长的国家代码会在保存时被服务端拒掉，用户只看到一句泛泛的失败。
+ */
 export type SearchProviderField = {
     key: string;
     labelKey: string;
     placeholder: string;
     defaultValue: string;
+    minLength: number;
+    maxLength: number;
 };
 
 export type SearchProviderDefinition = {
@@ -39,8 +45,8 @@ export const SEARCH_PROVIDER_CATALOG: SearchProviderDefinition[] = [
         descriptionKey: "settings.panels.web.braveProviderDescription",
         iconClass: "i-lucide-search",
         extraFields: [
-            {key: "country", labelKey: "settings.panels.web.country", placeholder: "US", defaultValue: "US"},
-            {key: "searchLang", labelKey: "settings.panels.web.searchLang", placeholder: "en", defaultValue: "en"},
+            {key: "country", labelKey: "settings.panels.web.country", placeholder: "US", defaultValue: "US", minLength: 2, maxLength: 2},
+            {key: "searchLang", labelKey: "settings.panels.web.searchLang", placeholder: "en", defaultValue: "en", minLength: 2, maxLength: 5},
         ],
     },
 ];
@@ -201,6 +207,53 @@ export function parseNullablePositiveInteger(value: string): number | null {
         return null;
     }
     return parsePositiveInteger(normalized, 0) || null;
+}
+
+/**
+ * 从后端配置装草稿——写回方向的逆运算，宿主接线时的唯一起点。
+ *
+ * 与写回体保持同一套语义：数字缺省显示回落值（`fetch.local` 的那几个字段在 schema 里非空，
+ * 缺省就等于默认值），而**可空**的超时字段缺省显示空串——空串是「未配置」，写回时是 `null`，
+ * 这样 `null → 草稿 → null` 不会被悄悄改成默认数字。
+ */
+export function createWebSettingsDraftFromConfig(web: WebConfigDto | undefined | null): WebSettingsDraft {
+    const draft = createWebSettingsDraft();
+    const search = web?.search;
+    const fetchConfig = web?.fetch;
+
+    draft.order = normalizeProviderOrder(search?.order);
+    for (const definition of SEARCH_PROVIDER_CATALOG) {
+        const source = search?.providers?.[definition.key] as
+            | {enabled?: boolean; apiKey?: SecretConfigValueDto; timeoutMs?: number | null}
+            | undefined;
+        const target = draft.providers[definition.key];
+        target.enabled = source?.enabled ?? false;
+        target.apiKey = "";
+        target.apiKeyConfigured = source?.apiKey?.configured ?? false;
+        target.apiKeyMaskedValue = source?.apiKey?.maskedValue ?? null;
+        target.apiKeyCleared = false;
+        target.timeoutMs = source?.timeoutMs == null ? "" : String(source.timeoutMs);
+        for (const field of definition.extraFields) {
+            const raw = (source as Record<string, unknown> | undefined)?.[field.key];
+            const text = typeof raw === "string" ? raw.trim() : "";
+            target.extras[field.key] = text === "" ? field.defaultValue : text;
+        }
+    }
+
+    draft.localFetch = {
+        enabled: fetchConfig?.local?.enabled ?? true,
+        timeoutMs: stringifyNumber(fetchConfig?.local?.timeoutMs, WEB_DEFAULTS.localFetchTimeoutMs),
+        maxRedirects: stringifyNumber(fetchConfig?.local?.maxRedirects, WEB_DEFAULTS.maxRedirects),
+        maxBytes: stringifyNumber(fetchConfig?.local?.maxBytes, WEB_DEFAULTS.maxBytes),
+        maxCharacters: stringifyNumber(fetchConfig?.local?.maxCharacters, WEB_DEFAULTS.maxCharacters),
+        minCharactersForLocal: stringifyNumber(fetchConfig?.local?.minCharactersForLocal, WEB_DEFAULTS.minCharactersForLocal),
+    };
+    draft.tavilyFallback = {
+        enabled: fetchConfig?.tavilyFallback?.enabled ?? false,
+        timeoutMs: fetchConfig?.tavilyFallback?.timeoutMs == null ? "" : String(fetchConfig.tavilyFallback.timeoutMs),
+    };
+
+    return draft;
 }
 
 /** provider 的 secret 写回负载：留空保留旧值，显式清除写空串。 */

@@ -209,6 +209,8 @@ const LOCAL_LIMIT_FIELDS = [
                             <FormInput
                                 class="mt-[var(--space-2)]"
                                 :model-value="entry.provider.extras[field.key]"
+                                :minlength="field.minLength"
+                                :maxlength="field.maxLength"
                                 :placeholder="field.placeholder"
                                 :disabled="props.disabled"
                                 @update:model-value="patchExtra(entry.definition.key, field.key, $event)"

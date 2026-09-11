@@ -311,16 +311,29 @@ t17 交付的 `ModelSettingsView` 在验收里被判为「一页塞三件事」�
 
 仍然不在本 Task 内、需要独立任务的两块：
 
-1. **产品宿主接线**（路线第 5–7 步）：把 `NovelIdeSettingsDialog` 的旧面板换成 `settings/sections/` 下的受控视图，并按「返工风险清单」先清掉双份序列化、`SettingsSavePanelExpose` 协议、fixture 自造的作用域矩阵与尺寸来源；接线时一并处理「外壳验收里尚未处理的」三条（窗口尺寸跟内容走、内容列封顶、说明块层级）。
+1. **产品宿主接线**（路线第 5–7 步）：把 `NovelIdeSettingsDialog` 的旧面板换成 `settings/sections/` 下的受控视图（`WebSettingsView` 的接入前检查见本节末），并按「返工风险清单」先清掉双份序列化、`SettingsSavePanelExpose` 协议、fixture 自造的作用域矩阵与尺寸来源；接线时一并处理「外壳验收里尚未处理的」三条（窗口尺寸跟内容走、内容列封顶、说明块层级）。
 2. **`frontend`（主题）区段**：含主题卡片与主题编辑器，属主题 authority，需主题侧独立任务。
 
 产品宿主接线仍属路线第 5–7 步，不在本 Task 内。
+
+## WebSettingsView 接入前检查（2026-09-11）
+
+**解耦：干净。** 视图只依赖 vue / nb-ui / 同目录草稿模块 + `useI18n`；对 store、API、路由、`window`、`document`、持久化零引用（扫描 `sections/web/` 无命中，唯一命中是文档里的说明句）。草稿模块只 import `nbook/shared/dto/config.dto` 的类型。
+
+**数据契约：对齐，两个缺口已补。**
+
+- 草稿↔`WebConfigDto` 逐字段核对：`search.order` / 两个 provider 的 `enabled`·`apiKey`·`timeoutMs`·`country`·`searchLang` / `fetch.local` 六项 / `fetch.tavilyFallback` 两项——**DTO 里的字段全部被视图覆盖，没有会静默丢的段**。
+- 补 ①：草稿模块缺 **config → draft** 的加载方向（旧面板私有 `applySettings()` 里才有）。已加 `createWebSettingsDraftFromConfig()` + 往返不变量测试；可空超时按空串回装，避免 `null` 被悄悄写成默认数字。
+- 补 ②：`country`（恰好 2 字符）与 `searchLang`（2–5）是 DTO 约束，视图原本不拦。约束写进 `SEARCH_PROVIDER_CATALOG` 并绑到输入上。
+- 已知的契约边界：`search.providers` 在 DTO 里是**固定两项**的 zod 对象（多余键会被 strip），`search.order` 是固定枚举。「加服务只改一张表」指**前端**侧——后端契约要同步改，漏改时 `web-settings-draft.test.ts` 里那条「写回体服务键与 catalog 一一对应」的断言会先红。
+- 作用域：`web-tools` 只出现在产品的 `globalConfigSections`，Project 级 DTO 没有 `web` 段，视图按「只做全局」用是对的。
+- 接线注意：产品的区段标签来自 `settings.section.*` i18n，Lab fixture 是自造的字面量；宿主必须把产品矩阵（含新增的 `roles`）喂给外壳，否则 Lab 与产品会各显示一套。
 
 ## 返工风险清单（接线前必须处理）
 
 这几项属于「现在不管、以后返工很贵」的类型，按严重度排：
 
-1. **双份序列化逻辑**：`NovelIdeEmbeddingSettingsPanel` / `NovelIdeWebSettingsPanel` / `NovelIdeCostSettingsPanel` / `NovelIdeObservabilitySettingsPanel` 各自还留着一套 payload 构造与密钥语义，`sections/*` 下的 draft 模块是另一套。产品接线时必须让旧面板改调新模块（或直接删除旧面板），不能让两套长期并存——配置写回规则一旦漂移，两边都会写错同一个配置段。
+1. **双份序列化逻辑**：`NovelIdeEmbeddingSettingsPanel` / `NovelIdeWebSettingsPanel` / `NovelIdeCostSettingsPanel` / `NovelIdeObservabilitySettingsPanel` 各自还留着一套 payload 构造与密钥语义，`sections/*` 下的 draft 模块是另一套（**Web 已经两个方向都在模块里**：`createWebSettingsDraftFromConfig()` 与 `buildWebPayload()`；接线时删掉旧面板的 `applySettings()` 与它私有的 payload 构造，不要再抄一份）。产品接线时必须让旧面板改调新模块（或直接删除旧面板），不能让两套长期并存——配置写回规则一旦漂移，两边都会写错同一个配置段。
 2. **`SettingsSavePanelExpose` 协议会整体消失**：旧宿主靠 `defineExpose({dirty, loading, saving, saveSettings, restoreSettings})` 驱动顶部保存 / 恢复栏，新视图是就地保存。接线时这套 expose 合同、保存栏、`settingsPanelKey` 重置逻辑要一次性删干净，不能留一半。
 3. **作用域→区段矩阵目前是 fixture 自造的**：产品真值在 `NovelIdeSettingsDialog` 的 `globalConfigSections` / `projectConfigSections` / `browserSections` / `bootConfigSections` 里。外壳吃的是 props，接线时必须从产品矩阵喂进去（或先把矩阵抽成共享模块），否则 Lab 里的区段集合会和产品不一致，而这种不一致看起来完全正常。
 4. **尺寸只有一个来源**：`DialogWindow` 的 `size` 字面量是缺省，显式 `width` / `height` 覆盖对应维度。场景里不要同时写死预设与同样的数字（设置外壳 fixture 已改成拖动后才接管受控值），否则预设一改就会静默停在旧尺寸。

@@ -10,7 +10,14 @@
 
 视图只改草稿并通过 `update:modelValue` 交回宿主，不读 store、不调 API、不写持久化；旧面板 `NovelIdeWebSettingsPanel` 继续负责快照读写与 `saveGlobal`，产品接线时再消费本视图。
 
-草稿模型与序列化规则在 `web-settings-draft.ts`，视图与宿主共用：`buildWebPayload()` 是唯一的写回体出口，优先级规范化（滤未知项、去重、补齐每个服务）、上下移边界、密钥三态与数字回落默认值都在那里，并有单元测试覆盖。
+草稿模型与序列化规则在 `web-settings-draft.ts`，视图与宿主共用，**两个方向都在那里**：
+
+- `createWebSettingsDraftFromConfig(web)`：config → 草稿。宿主接线时的唯一起点（旧面板的 `applySettings()` 是它的前身，接线时删掉旧面板那份，不要再抄一遍）。
+- `buildWebPayload(draft)`：草稿 → 写回体，唯一的出口，与 `WebConfigDto` 逐字段对应。
+
+优先级规范化（滤未知项、去重、补齐每个服务）、上下移边界、密钥三态与数字回落默认值都在同一个模块里，并有单元测试覆盖——其中一条是 **config → 草稿 → 写回体的往返不变量**。
+
+语义上有两处**故意**与旧面板不同，接线时按新的来：① 数字输入清空按「未配置」处理（旧面板 `Number("") === 0` 会把空串写成 0）；② 可空超时（provider 与 Tavily 兜底）缺省显示空串而不是默认数字，这样 `null → 草稿 → null` 不会被悄悄改成 15000 / 20000。服务独有字段的长度约束（`country` 恰好 2 字符、`searchLang` 2–5）来自后端 schema，目录里带 `minLength` / `maxLength`，视图据此拦输入。
 
 Component Lab 中由 `WebSettingsViewFixture` 提供确定性场景（default / configured / brave-first / local-fetch-off / saving / save-error / disabled）。
 

@@ -4,6 +4,7 @@ import {
     buildProviderSecretPayload,
     buildWebPayload,
     createWebSettingsDraft,
+    createWebSettingsDraftFromConfig,
     moveProvider,
     normalizeProviderOrder,
 } from "./web-settings-draft";
@@ -75,5 +76,54 @@ describe("web-settings-draft", () => {
         expect(payload.search!.order).toEqual(["tavily", "brave"]);
         expect(payload.search!.providers!.brave).toMatchObject({enabled: true, country: "CN", searchLang: "zh"});
         expect(payload.search!.providers!.tavily).toMatchObject({enabled: false});
+    });
+});
+
+describe("web-settings-draft · 从配置装草稿", () => {
+    it("往返不变量：config → 草稿 → 写回体，逐字段回到原值（只按文档化的规则归一）", () => {
+        const config: Parameters<typeof createWebSettingsDraftFromConfig>[0] = {
+            search: {
+                order: ["brave", "tavily"],
+                providers: {
+                    tavily: {enabled: true, apiKey: {configured: true, maskedValue: "tvly-…9c21"}, timeoutMs: 25000},
+                    brave: {enabled: false, apiKey: {configured: false, maskedValue: null}, country: "cn", searchLang: "ZH", timeoutMs: null},
+                },
+            },
+            fetch: {
+                local: {enabled: false, timeoutMs: 8000, maxRedirects: 2, maxBytes: 4096, maxCharacters: 900, minCharactersForLocal: 120},
+                tavilyFallback: {enabled: true, timeoutMs: null},
+            },
+        };
+
+        const payload = buildWebPayload(createWebSettingsDraftFromConfig(config));
+
+        // order 保留（归一只做去重与补齐）；国家代码统一大写、搜索语言统一小写
+        expect(payload.search!.order).toEqual(["brave", "tavily"]);
+        expect(payload.search!.providers!.brave).toMatchObject({enabled: false, country: "CN", searchLang: "zh", timeoutMs: null});
+        // 密钥三态：已配置但没输入新值 → 只回报 configured/maskedValue，不带 value（服务端保留旧值）
+        expect(payload.search!.providers!.tavily).toMatchObject({enabled: true, timeoutMs: 25000});
+        expect(payload.search!.providers!.tavily!.apiKey).toEqual({configured: true, maskedValue: "tvly-…9c21"});
+        expect(payload.search!.providers!.tavily!.apiKey!.value).toBeUndefined();
+        expect(payload.fetch!.local).toEqual({enabled: false, timeoutMs: 8000, maxRedirects: 2, maxBytes: 4096, maxCharacters: 900, minCharactersForLocal: 120});
+        // 可空字段的空值不被悄悄改成默认数字
+        expect(payload.fetch!.tavilyFallback!.timeoutMs).toBeNull();
+    });
+
+    it("空配置与缺段：一切落回默认，且可空超时保持「未配置」", () => {
+        const draft = createWebSettingsDraftFromConfig(undefined);
+        expect(draft.order).toEqual(["tavily", "brave"]);
+        expect(draft.providers.tavily.timeoutMs).toBe("");
+        expect(draft.tavilyFallback.timeoutMs).toBe("");
+        expect(draft.localFetch.timeoutMs).toBe("15000");
+
+        const payload = buildWebPayload(draft);
+        expect(payload.search!.providers!.tavily!.timeoutMs).toBeNull();
+        expect(payload.fetch!.local!.maxBytes).toBe(2_000_000);
+        expect(payload.fetch!.local!.enabled).toBe(true);
+    });
+
+    it("brave 的独有字段缺失时回到目录默认值", () => {
+        const draft = createWebSettingsDraftFromConfig({search: {providers: {brave: {enabled: true, country: "  ", searchLang: ""}}}});
+        expect(draft.providers.brave.extras).toEqual({country: "US", searchLang: "en"});
     });
 });
