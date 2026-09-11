@@ -59,6 +59,15 @@ const SAMPLE_PROJECTS: ProjectMetadataDto[] = [
     },
 ];
 
+const sampleProjectTags: Record<string, readonly string[]> = {
+    "workspace/projects/cyber-city": ["赛博朋克", "科幻未来"],
+    "workspace/projects/stellar-odyssey": ["硬科幻", "深空探索"],
+    "workspace/projects/magic-chronicles": ["西幻", "炼金魔法"],
+    "workspace/projects/ancient-blade": ["玄幻修真", "热血"],
+    "workspace/projects/urban-mystery": ["悬疑惊悚", "都市怪谈"],
+};
+
+const projectTagsMap = ref<Record<string, readonly string[]>>({...sampleProjectTags});
 const projects = ref<ProjectMetadataDto[]>([...SAMPLE_PROJECTS]);
 const isCreateFormOpen = ref(false);
 const isCreating = ref(false);
@@ -68,6 +77,7 @@ const deleteBusyRoots = ref<Set<string>>(new Set());
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
+    projectTagsMap.value = {...sampleProjectTags};
     isCreateFormOpen.value = false;
     isCreating.value = false;
     isLoading.value = false;
@@ -104,8 +114,24 @@ function handleCancelCreateForm(): void {
 
 function handleCreate(payload: ProjectPickerCreatePayload): void {
     emit("event", "create", payload);
+    const newRoot = `workspace/projects/${payload.title.toLowerCase().replace(/\s+/g, "-")}`;
+    const genreMap: Record<string, string> = {
+        scifi: "科幻未来",
+        xuanhuan: "玄幻修真",
+        urban: "都市职场",
+        mystery: "悬疑惊悚",
+        world: "世界设定",
+        general: "通用创作",
+    };
+    const genreTag = payload.genre ? genreMap[payload.genre] : undefined;
+    if (genreTag) {
+        projectTagsMap.value = {
+            ...projectTagsMap.value,
+            [newRoot]: [genreTag],
+        };
+    }
     projects.value.unshift({
-        projectRoot: `workspace/projects/${payload.title.toLowerCase().replace(/\s+/g, "-")}`,
+        projectRoot: newRoot,
         kind: "novel",
         title: payload.title,
         summary: payload.summary,
@@ -139,6 +165,7 @@ function handleRetryLoad(): void {
     >
         <ProjectPickerView
             :projects="projects"
+            :project-tags="projectTagsMap"
             :is-loading="isLoading"
             :load-error="loadError"
             :is-creating="isCreating"

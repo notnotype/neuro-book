@@ -26,11 +26,13 @@ const baseProject: ProjectMetadataDto = {
 };
 
 const project = ref<ProjectMetadataDto>({...baseProject});
+const tags = ref<string[]>(["硬科幻", "深空探索"]);
 const deleteBusy = ref(false);
 const deleteRecovery = ref<ProjectPickerRecoveryEntry | undefined>(undefined);
 
 watch(currentScene, (scene) => {
     project.value = {...baseProject};
+    tags.value = ["硬科幻", "深空探索"];
     deleteBusy.value = false;
     deleteRecovery.value = undefined;
 
@@ -78,6 +80,7 @@ function fakeResolveCoverUrl(): string {
         <div class="w-full max-w-[240px]">
             <ProjectCard
                 :project="project"
+                :tags="tags"
                 :delete-busy="deleteBusy"
                 :delete-recovery="deleteRecovery"
                 :resolve-cover-url="currentScene === 'with-cover' ? fakeResolveCoverUrl : undefined"

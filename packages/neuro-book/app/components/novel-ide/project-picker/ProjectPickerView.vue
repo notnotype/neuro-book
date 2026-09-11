@@ -104,6 +104,20 @@ function formatDate(dateString?: string | null): string {
     return Number.isNaN(date.getTime()) ? "" : dateFormatter.value.format(date);
 }
 
+function getTagsForProject(project: ProjectMetadataDto): readonly string[] | undefined {
+    if (props.projectTags) {
+        if (typeof props.projectTags === "function") {
+            return props.projectTags(project);
+        }
+        const mapped = props.projectTags[project.projectRoot];
+        if (mapped) return mapped;
+    }
+    if ("tags" in project && Array.isArray((project as {tags?: readonly string[]}).tags)) {
+        return (project as {tags?: readonly string[]}).tags;
+    }
+    return undefined;
+}
+
 function deleteRecoveryFor(projectRoot: string) {
     return props.pickerRecoveries?.deletes.get(projectRoot);
 }
@@ -224,6 +238,7 @@ function handleRetryCoverRecovery(): void {
                         v-for="project in projects"
                         :key="project.projectRoot"
                         :project="project"
+                        :tags="getTagsForProject(project)"
                         :delete-busy="deleteBusyRoots.has(project.projectRoot)"
                         :delete-recovery="deleteRecoveryFor(project.projectRoot)"
                         :cover-refresh-version="coverRefreshVersions?.[project.projectRoot]"

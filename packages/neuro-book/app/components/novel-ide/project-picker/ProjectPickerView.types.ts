@@ -6,6 +6,7 @@ import type {ProjectCoverRecoveryState} from "nbook/app/utils/project-cover-reco
 export interface ProjectPickerCreatePayload {
     title: string;
     summary: string;
+    genre?: string;
 }
 
 export interface ProjectPickerRecoverSessionPayload {
@@ -20,6 +21,7 @@ export interface ProjectPickerCoverMutationPayload {
 
 export interface ProjectPickerViewProps {
     projects: readonly ProjectMetadataDto[];
+    projectTags?: Record<string, readonly string[]> | ((project: ProjectMetadataDto) => readonly string[] | undefined);
     isLoading?: boolean;
     loadError?: string;
     isCreating?: boolean;

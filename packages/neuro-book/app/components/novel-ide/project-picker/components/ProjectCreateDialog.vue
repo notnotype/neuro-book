@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "cancel"): void;
-    (e: "submit", payload: {title: string; summary: string}): void;
+    (e: "submit", payload: {title: string; summary: string; genre?: string}): void;
     (e: "retry-recovery"): void;
 }>();
 
@@ -87,10 +87,10 @@ function handleCancel(): void {
     emit("cancel");
 }
 
-function handleSubmit(payload: {title: string; summary: string}): void {
+function handleSubmit(payload: {title: string; summary: string; genre?: string}): void {
     if (submitDebounce || props.isCreating || props.recoveryError) return;
     submitDebounce = true;
-    emit("submit", {title: payload.title, summary: payload.summary});
+    emit("submit", {title: payload.title, summary: payload.summary, genre: payload.genre});
     Promise.resolve().then(() => {
         submitDebounce = false;
     });
@@ -100,7 +100,8 @@ function handleFooterSubmit(): void {
     if (submitDebounce || props.isCreating || props.recoveryError) return;
     const titleVal = formRef.value?.title?.trim() || t("ide.bookshelf.defaultTitle");
     const summaryVal = formRef.value?.summary?.trim() || "";
-    handleSubmit({title: titleVal, summary: summaryVal});
+    const genreVal = formRef.value?.genre || "general";
+    handleSubmit({title: titleVal, summary: summaryVal, genre: genreVal});
 }
 </script>
 

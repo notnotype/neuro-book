@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
-import {IconButton, Button} from "@notnotype/nb-ui/components";
+import {IconButton, Button, Badge} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {ProjectPickerRecoveryEntry} from "nbook/app/utils/project-picker-recovery";
 
 const props = defineProps<{
     project: ProjectMetadataDto;
+    tags?: readonly string[];
     deleteBusy?: boolean;
     deleteRecovery?: ProjectPickerRecoveryEntry;
     coverRefreshVersion?: number;
@@ -58,16 +59,20 @@ const formattedUpdatedTime = computed(() => {
 </script>
 
 <template>
-    <article class="group relative min-w-0" data-project-card :data-project-root="project.projectRoot">
+    <article
+        class="project-card-root group relative min-w-0"
+        data-project-card
+        :data-project-root="project.projectRoot"
+    >
         <button
             type="button"
-            class="block w-full text-left outline-none cursor-pointer focus-visible:outline-none select-none"
+            class="project-card-button block w-full text-left outline-none cursor-pointer focus-visible:outline-none select-none"
             :aria-label="t('ide.picker.openProject', {title: project.title})"
             @click="emit('open', project.projectRoot)"
         >
             <!-- 书封：真实图片失败或未配置时回退到排版封面 -->
             <span
-                class="project-cover relative block aspect-[2/3] overflow-hidden rounded-[var(--radius-panel,6px)] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm transition-[transform,box-shadow] [transition-duration:var(--motion-base,240ms)] [transition-timing-function:var(--ease-standard)] group-hover:-translate-y-1.5 group-hover:shadow-lg group-hover:shadow-[color-mix(in_srgb,var(--text-main)_10%,transparent)] group-active:translate-y-0 group-active:scale-[0.985] group-active:shadow-xs group-focus-visible:ring-2 group-focus-visible:ring-[var(--accent-main)] group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-[var(--bg-main)]"
+                class="project-cover relative block aspect-[2/3] overflow-hidden rounded-[var(--radius-panel,6px)] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm"
             >
                 <img
                     v-if="coverSrc && !isImageFailed"
@@ -103,6 +108,21 @@ const formattedUpdatedTime = computed(() => {
                 <span class="line-clamp-2 break-words font-serif text-sm font-bold leading-5 text-[var(--text-main)] sm:text-base">
                     {{ project.title }}
                 </span>
+
+                <!-- 题材/标签徽章（消费 nb-ui Badge） -->
+                <span v-if="tags && tags.length > 0" class="mt-1.5 flex flex-wrap gap-1">
+                    <Badge
+                        v-for="tag in tags"
+                        :key="tag"
+                        size="sm"
+                        variant="soft"
+                        tone="neutral"
+                        class="text-[10px]"
+                    >
+                        {{ tag }}
+                    </Badge>
+                </span>
+
                 <span
                     v-if="project.summary"
                     class="mt-1 sm:mt-1.5 line-clamp-2 break-words text-[11px] leading-4 text-[var(--text-secondary)] sm:text-xs sm:leading-5"
@@ -120,9 +140,9 @@ const formattedUpdatedTime = computed(() => {
             </span>
         </button>
 
-        <!-- 封面与删除操作栏（悬浮显现） -->
+        <!-- 封面与删除操作栏（悬浮显现，移动端常驻；基于 :hover 与 :focus-visible） -->
         <div
-            class="project-card-actions absolute right-1.5 top-1.5 sm:right-2 sm:top-2 z-10 flex gap-1 sm:gap-1.5 rounded-[var(--radius-control)] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] backdrop-blur-sm p-0.5 sm:p-1 shadow-sm border border-[var(--border-color)] transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100"
+            class="project-card-actions absolute right-1.5 top-1.5 sm:right-2 sm:top-2 z-10 flex gap-1 sm:gap-1.5 rounded-[var(--radius-control)] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] backdrop-blur-sm p-0.5 sm:p-1 shadow-sm border border-[var(--border-color)]"
         >
             <IconButton
                 size="sm"
@@ -162,3 +182,51 @@ const formattedUpdatedTime = computed(() => {
         </div>
     </article>
 </template>
+
+<style scoped>
+.project-card-root {
+    isolation: isolate;
+}
+
+.project-cover {
+    transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                box-shadow 260ms cubic-bezier(0.2, 0.8, 0.2, 1),
+                border-color 160ms ease;
+    will-change: transform;
+}
+
+@media (hover: hover) {
+    .project-card-root:hover .project-cover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 18px -4px color-mix(in srgb, var(--shadow-color, black) 12%, transparent);
+        border-color: color-mix(in srgb, var(--accent-main) 30%, var(--border-color));
+    }
+}
+
+.project-card-button:focus-visible .project-cover {
+    outline: 2px solid var(--accent-main);
+    outline-offset: 2px;
+}
+
+.project-card-root:active .project-cover {
+    transform: translateY(0) scale(0.985);
+    box-shadow: 0 2px 6px -1px color-mix(in srgb, var(--shadow-color, black) 8%, transparent);
+    transition-duration: 80ms;
+}
+
+/* 操作栏展示逻辑：移动端常驻展示；桌面端悬停展示，或获得键盘焦点(:focus-visible)时展示 */
+@media (min-width: 640px) {
+    .project-card-actions {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 160ms ease;
+    }
+
+    .project-card-root:hover .project-card-actions,
+    .project-card-actions:focus-within,
+    .project-card-root:has(:focus-visible) .project-card-actions {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+</style>

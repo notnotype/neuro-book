@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref, computed, nextTick} from "vue";
-import {Button, FormInput, FormTextarea, Spinner} from "@notnotype/nb-ui/components";
+import {Badge, Button, FormInput, FormTextarea, Spinner} from "@notnotype/nb-ui/components";
 import ProjectCreateCoverPreview from "./ProjectCreateCoverPreview.vue";
 
 const props = withDefaults(defineProps<{
@@ -141,25 +141,32 @@ defineExpose({
                             />
                         </label>
 
-                        <!-- 题材选择胶囊 -->
+                        <!-- 题材选择胶囊（消费 nb-ui Badge） -->
                         <div class="space-y-1.5">
                             <span class="block text-xs font-medium text-[var(--text-secondary)]">
                                 {{ t("ide.picker.genreSelect") }}
                             </span>
-                            <div class="flex flex-wrap gap-1.5">
-                                <button
+                            <div class="flex flex-wrap gap-1.5" role="radiogroup" :aria-label="t('ide.picker.genreSelect')">
+                                <Badge
                                     v-for="opt in genreOptions"
                                     :key="opt.id"
-                                    type="button"
-                                    class="rounded-[var(--radius-control)] border px-2 py-0.5 text-xs transition-colors cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-main)]"
-                                    :class="genre === opt.id
-                                        ? 'border-[var(--accent-main)] bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] font-medium text-[var(--text-main)]'
-                                        : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)] hover:border-[var(--border-hover)] hover:text-[var(--text-main)]'"
-                                    :disabled="isCreating || Boolean(recoveryError)"
+                                    :tone="genre === opt.id ? 'accent' : 'neutral'"
+                                    :variant="genre === opt.id ? 'solid' : 'outline'"
+                                    size="sm"
+                                    role="radio"
+                                    :aria-checked="genre === opt.id"
+                                    :tabindex="isCreating || Boolean(recoveryError) ? -1 : (genre === opt.id ? 0 : -1)"
+                                    class="cursor-pointer transition-all duration-150 active:scale-95 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-main)]"
+                                    :class="{
+                                        'opacity-40 pointer-events-none': isCreating || Boolean(recoveryError),
+                                        'hover:border-[var(--accent-main)] hover:text-[var(--text-main)]': genre !== opt.id,
+                                    }"
                                     @click="genre = opt.id"
+                                    @keydown.enter="genre = opt.id"
+                                    @keydown.space.prevent="genre = opt.id"
                                 >
                                     {{ opt.label }}
-                                </button>
+                                </Badge>
                             </div>
                         </div>
 

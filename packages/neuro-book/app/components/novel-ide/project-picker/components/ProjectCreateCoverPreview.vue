@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import {Badge} from "@notnotype/nb-ui/components";
 
 const props = withDefaults(defineProps<{
     title: string;
@@ -89,11 +90,16 @@ const currentTheme = computed<GenreTheme>(() => (props.genre ? genreThemes.value
                     <p class="line-clamp-3 break-words font-serif text-xs font-bold leading-4.5 text-[var(--text-main)] sm:text-sm sm:leading-5">
                         {{ displayTitle }}
                     </p>
-                    <span
-                        class="mt-1.5 inline-block rounded-[3px] border border-[var(--border-color)] px-1 py-0.5 text-[9px] text-[var(--text-muted)] font-mono"
-                    >
-                        {{ currentTheme.label }}
-                    </span>
+                    <div class="mt-1.5 flex justify-center">
+                        <Badge
+                            size="sm"
+                            variant="outline"
+                            tone="neutral"
+                            class="text-[9px] px-1.5 font-normal scale-90 opacity-90"
+                        >
+                            {{ currentTheme.label }}
+                        </Badge>
+                    </div>
                 </div>
 
                 <!-- 底部装饰色块 -->

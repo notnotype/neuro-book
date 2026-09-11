@@ -25,9 +25,6 @@ const {t} = useI18n();
             <h1 class="picker-header-title">
                 {{ t("ide.picker.title") }}
             </h1>
-            <p class="picker-header-subtitle">
-                {{ t("ide.picker.subtitle") }}
-            </p>
         </div>
         <div class="picker-header-actions">
             <Button
@@ -71,13 +68,6 @@ const {t} = useI18n();
     color: var(--text-main);
 }
 
-.picker-header-subtitle {
-    margin-top: 0.375rem;
-    font-size: 0.8125rem;
-    line-height: 1.25rem;
-    color: var(--text-secondary);
-}
-
 .picker-header-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -98,12 +88,6 @@ const {t} = useI18n();
     .picker-header-title {
         font-size: 1.5rem;
         line-height: 2rem;
-    }
-
-    .picker-header-subtitle {
-        margin-top: 0.5rem;
-        font-size: 0.875rem;
-        line-height: 1.5rem;
     }
 
     .picker-header-actions {
