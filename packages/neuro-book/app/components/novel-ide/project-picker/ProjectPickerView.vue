@@ -6,7 +6,6 @@ import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
 import ProjectCreateForm from "./components/ProjectCreateForm.vue";
-import ProjectRecoverySection from "./components/ProjectRecoverySection.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
 import type {
     ProjectPickerCreatePayload,
@@ -31,6 +30,7 @@ const props = withDefaults(defineProps<ProjectPickerViewProps>(), {
     recoveryTotal: 0,
     recoveryHasMore: false,
     recoveryActionId: null,
+    teleportTarget: "body",
 });
 
 const emit = defineEmits<{
@@ -183,12 +183,13 @@ function handleRetryCoverRecovery(): void {
                 </div>
             </section>
 
-            <!-- 独立新建工具面板 -->
+            <!-- 新建书籍 Dialog -->
             <ProjectCreateForm
                 :is-open="isCreateFormOpen"
                 :is-creating="isCreating"
                 :recovery-notice="createRecoveryNotice"
                 :recovery-error="createRecovery?.error"
+                :teleport-target="teleportTarget"
                 @cancel="emit('cancel-create-form')"
                 @submit="emit('create', $event)"
                 @retry-recovery="emit('retry-create-recovery')"
@@ -272,23 +273,6 @@ function handleRetryCoverRecovery(): void {
                     />
                 </div>
             </section>
-
-            <!-- Session 迁移恢复区段 -->
-            <ProjectRecoverySection
-                :expanded="recoveryExpanded"
-                :loading="recoveryLoading"
-                :loaded="recoveryLoaded"
-                :error="recoveryError"
-                :sessions="recoverySessions"
-                :total="recoveryTotal"
-                :has-more="recoveryHasMore"
-                :action-id="recoveryActionId"
-                :projects="projects"
-                @toggle="emit('toggle-recovery')"
-                @retry="emit('retry-recovery')"
-                @load-more="emit('load-more-recovery')"
-                @recover="emit('recover-session', $event)"
-            />
         </main>
 
         <!-- 封面管理 Dialog -->

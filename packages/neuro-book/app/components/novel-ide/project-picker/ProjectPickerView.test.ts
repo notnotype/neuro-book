@@ -200,10 +200,10 @@ describe("ProjectPickerView", () => {
         app.mount(host);
         await nextTick();
 
-        const form = host.querySelector("[data-project-create-form]");
+        const form = document.body.querySelector("[data-project-create-form]");
         expect(form).not.toBeNull();
 
-        const submitButton = form?.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+        const submitButton = document.body.querySelector('button[type="submit"]') as HTMLButtonElement | null;
         expect(submitButton).not.toBeNull();
         submitButton?.click();
 

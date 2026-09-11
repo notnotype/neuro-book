@@ -2,15 +2,15 @@
 import {ref, computed, watch} from "vue";
 import ProjectPickerView from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.vue";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
-import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
-import type {
-    ProjectPickerCreatePayload,
-    ProjectPickerRecoverSessionPayload,
-} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
+import type {ProjectPickerCreatePayload} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 
 const props = defineProps<{
-    sceneId: string;
+    scene?: string;
+    sceneId?: string;
+    data?: unknown;
 }>();
+
+const currentScene = computed(() => props.scene ?? props.sceneId ?? "default");
 
 const emit = defineEmits<{
     (e: "event", eventName: string, payload?: unknown): void;
@@ -59,53 +59,24 @@ const SAMPLE_PROJECTS: ProjectMetadataDto[] = [
     },
 ];
 
-const SAMPLE_SESSIONS: AgentSessionSummaryDto[] = [
-    {
-        sessionId: 101,
-        sessionIdentity: "00000000-0000-0000-0000-000000000101",
-        profileKey: "writer.narrative",
-        title: "第十二章 暴风雨前夜细化",
-        summary: "针对主角潜入敌营前的心理状态进行描写扩展",
-        status: "idle",
-        archived: false,
-        updatedAt: Date.now() - 1000 * 60 * 30,
-        lastMessagePreview: "窗外的雷鸣渐渐低沉下去，他攥紧了怀里的羊皮卷...",
-    },
-    {
-        sessionId: 102,
-        sessionIdentity: "00000000-0000-0000-0000-000000000102",
-        profileKey: "editor.polish",
-        title: "第三章 对话节奏润色",
-        summary: "删减冗长说明，提升对话张力与潜台词",
-        status: "idle",
-        archived: false,
-        updatedAt: Date.now() - 1000 * 3600 * 3,
-        lastMessagePreview: "“你以为你还能走得出去？”林彻的声音没有任何起伏。",
-    },
-];
-
 const projects = ref<ProjectMetadataDto[]>([...SAMPLE_PROJECTS]);
 const isCreateFormOpen = ref(false);
 const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
-const recoveryExpanded = ref(false);
-const recoverySessions = ref<AgentSessionSummaryDto[]>([...SAMPLE_SESSIONS]);
 const deleteBusyRoots = ref<Set<string>>(new Set());
 
-watch(() => props.sceneId, (scene) => {
+watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
     isCreateFormOpen.value = false;
     isCreating.value = false;
     isLoading.value = false;
     loadError.value = "";
-    recoveryExpanded.value = false;
-    recoverySessions.value = [...SAMPLE_SESSIONS];
     deleteBusyRoots.value = new Set();
 
     if (scene === "empty") {
         projects.value = [];
-    } else if (scene === "create-open") {
+    } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {
         isCreateFormOpen.value = true;
@@ -114,8 +85,6 @@ watch(() => props.sceneId, (scene) => {
         isLoading.value = true;
     } else if (scene === "load-error") {
         loadError.value = "无法连接到本地工作区存储服务（503 Service Unavailable）";
-    } else if (scene === "recovery") {
-        recoveryExpanded.value = true;
     }
 }, {immediate: true});
 
@@ -151,11 +120,6 @@ function handleDelete(project: ProjectMetadataDto): void {
     projects.value = projects.value.filter((item) => item.projectRoot !== project.projectRoot);
 }
 
-function handleRecoverSession(payload: ProjectPickerRecoverSessionPayload): void {
-    emit("event", "recover-session", payload);
-    recoverySessions.value = recoverySessions.value.filter((s) => s.sessionId !== payload.session.sessionId);
-}
-
 function handleRetryLoad(): void {
     emit("event", "retry-load");
     loadError.value = "";
@@ -170,7 +134,7 @@ function handleRetryLoad(): void {
 <template>
     <div
         class="h-full w-full overflow-hidden bg-[var(--bg-main)]"
-        :class="props.sceneId === 'phone' ? 'max-w-[390px] mx-auto border-x border-[var(--border-color)]' : ''"
+        :class="currentScene === 'phone' ? 'max-w-[390px] mx-auto border-x border-[var(--border-color)]' : ''"
         data-lab-subject
     >
         <ProjectPickerView
@@ -180,10 +144,6 @@ function handleRetryLoad(): void {
             :is-creating="isCreating"
             :is-create-form-open="isCreateFormOpen"
             :delete-busy-roots="deleteBusyRoots"
-            :recovery-expanded="recoveryExpanded"
-            :recovery-loaded="true"
-            :recovery-sessions="recoverySessions"
-            :recovery-total="recoverySessions.length"
             @open="handleOpen"
             @open-user-assets="emit('event', 'open-user-assets')"
             @open-create-form="handleOpenCreateForm"
@@ -191,8 +151,6 @@ function handleRetryLoad(): void {
             @create="handleCreate"
             @delete="handleDelete"
             @retry-load="handleRetryLoad"
-            @toggle-recovery="recoveryExpanded = !recoveryExpanded"
-            @recover-session="handleRecoverSession"
         />
     </div>
 </template>

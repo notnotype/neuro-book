@@ -55,8 +55,8 @@ export async function assertProjectPickerViewSmoke(page: Page, failures: SmokeFa
         });
         assert(emptyScene.cards === 0 && emptyScene.hasEmptyTitle, failures, "零项目空态场景应展示空态文案且无卡片");
 
-        stage = "切换到新建展开场景";
-        await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "新建展开"}).first().click();
+        stage = "切换到新建对话框场景";
+        await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "新建对话框"}).first().click();
         await page.waitForTimeout(150);
         const createFormScene = await page.evaluate(() => {
             const form = document.querySelector<HTMLElement>("[data-project-create-form]");
@@ -71,23 +71,18 @@ export async function assertProjectPickerViewSmoke(page: Page, failures: SmokeFa
         assert(
             createFormScene.hasForm && createFormScene.hasTitleInput && createFormScene.hasSummaryInput,
             failures,
-            "新建展开场景应挂载带有可访问 label 绑定的标题与简介输入控件",
+            "新建对话框场景应挂载带有可访问 label 绑定的标题与简介输入控件",
         );
 
-        stage = "切换到会话迁移恢复场景";
-        await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "会话迁移恢复"}).first().click();
-        await page.waitForTimeout(150);
-        const recoveryScene = await page.evaluate(() => {
+        stage = "封面平滑降级排版封面检查";
+        const fallbackCheck = await page.evaluate(() => {
             const root = document.querySelector<HTMLElement>("[data-project-picker-view]");
-            const sessionRows = root?.querySelectorAll("article.rounded-\\[var\\(--radius-control\\)\\]") ?? [];
-            const selectEl = sessionRows[0]?.querySelector("select");
-            return {
-                sessionCount: sessionRows.length,
-                hasSelectLabel: Boolean(selectEl?.getAttribute("aria-label")),
-            };
+            const cards = [...(root?.querySelectorAll<HTMLElement>("[data-project-card]") ?? [])];
+            return cards.length > 0 && cards.every((card) =>
+                card.querySelector(".project-cover img") !== null
+                || card.querySelector(".project-cover-fallback") !== null);
         });
-        assert(recoveryScene.sessionCount === 2, failures, `恢复场景应展开并显示 2 个待确认会话：实际 ${recoveryScene.sessionCount}`);
-        assert(recoveryScene.hasSelectLabel, failures, "会话恢复所属选择框应包含 aria-label 无障碍标注");
+        assert(fallbackCheck, failures, "所有卡片必须具备封面图像或优雅排版回退");
 
         stage = "切换到手机 390×844 场景";
         await page.locator('[role="group"][aria-label="场景"] [role="radio"]').filter({hasText: "手机 390×844"}).first().click();

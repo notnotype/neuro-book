@@ -46,6 +46,7 @@ export interface ProjectPickerViewProps {
     coverBusy?: boolean;
     coverError?: string;
     coverRecoveryNotice?: string;
+    teleportTarget?: string | boolean;
 }
 
 export interface ProjectPickerViewEmits {

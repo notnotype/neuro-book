@@ -1,13 +1,19 @@
 <script setup lang="ts">
 import {ref, watch, nextTick} from "vue";
-import {Button, FormInput, FormTextarea} from "@notnotype/nb-ui/components";
+import {Button, DialogWindow, FormInput, FormTextarea} from "@notnotype/nb-ui/components";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     isOpen: boolean;
     isCreating?: boolean;
     recoveryNotice?: string;
     recoveryError?: string;
-}>();
+    teleportTarget?: string | boolean;
+}>(), {
+    isCreating: false,
+    recoveryNotice: "",
+    recoveryError: "",
+    teleportTarget: "body",
+});
 
 const emit = defineEmits<{
     (e: "cancel"): void;
@@ -45,87 +51,92 @@ function handleSubmit(): void {
 </script>
 
 <template>
-    <form
-        v-if="isOpen"
-        class="rounded-[var(--radius-panel,8px)] border border-[var(--accent-main)] bg-[var(--bg-panel)] p-4 sm:p-5 shadow-sm transition-[border-color,box-shadow] [transition-duration:var(--motion-fast)]"
-        data-project-create-form
-        @keydown.esc.stop.prevent="handleCancel"
-        @submit.prevent="handleSubmit"
+    <DialogWindow
+        :model-value="props.isOpen"
+        :title="t('ide.bookshelf.createBook')"
+        :width="540"
+        :min-width="360"
+        :min-height="240"
+        resizable
+        :busy="props.isCreating"
+        :teleport-target="props.teleportTarget"
+        body-class="p-5"
+        @update:model-value="!$event && handleCancel()"
     >
-        <div class="mb-4 flex items-center gap-2 text-sm font-semibold text-[var(--text-main)]">
-            <span class="i-lucide-book-plus h-4 w-4 text-[var(--accent-main)]"></span>
-            {{ t("ide.bookshelf.createBook") }}
-        </div>
-
-        <!-- 恢复通知 -->
-        <div
-            v-if="recoveryNotice"
-            class="mb-4 rounded-[var(--radius-control)] border border-[var(--status-warning-border,var(--status-warning))] bg-[color-mix(in_srgb,var(--status-warning)_8%,transparent)] px-3 py-2 text-sm text-[var(--status-warning)]"
-            role="status"
-        >
-            {{ recoveryNotice }}
-        </div>
-
-        <!-- 恢复重试报错 -->
-        <div
-            v-if="recoveryError"
-            class="mb-4 space-y-2 rounded-[var(--radius-control)] border border-[var(--status-danger-border,var(--status-danger))] bg-[color-mix(in_srgb,var(--status-danger)_8%,transparent)] px-3 py-2 text-sm text-[var(--status-danger)]"
-            role="alert"
-        >
-            <p>{{ recoveryError }}</p>
-            <Button
-                size="sm"
-                variant="danger"
-                icon-class="i-lucide-refresh-cw"
-                :disabled="isCreating"
-                @click="emit('retry-recovery')"
+        <div data-project-create-form class="space-y-4">
+            <!-- 恢复通知 -->
+            <div
+                v-if="recoveryNotice"
+                class="rounded-[var(--radius-control)] border border-[var(--status-warning-border,var(--status-warning))] bg-[color-mix(in_srgb,var(--status-warning)_8%,transparent)] px-3 py-2 text-sm text-[var(--status-warning)]"
+                role="status"
             >
-                {{ t("ide.picker.mutationRecoveryRetry") }}
-            </Button>
-        </div>
+                {{ recoveryNotice }}
+            </div>
 
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.4fr)_auto] lg:items-end">
-            <label for="create-book-title" class="block text-xs text-[var(--text-secondary)]">
-                <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.bookTitle") }}</span>
-                <FormInput
-                    id="create-book-title"
-                    ref="titleInputRef"
-                    v-model="title"
-                    :maxlength="120"
-                    :disabled="isCreating || Boolean(recoveryError)"
-                    autofocus
-                />
-            </label>
-            <label for="create-book-summary" class="block text-xs text-[var(--text-secondary)]">
-                <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.summary") }}</span>
-                <FormTextarea
-                    id="create-book-summary"
-                    v-model="summary"
-                    :rows="2"
-                    :maxlength="2000"
-                    :disabled="isCreating || Boolean(recoveryError)"
-                />
-            </label>
-            <div class="grid grid-cols-2 gap-2 lg:flex">
+            <!-- 恢复重试报错 -->
+            <div
+                v-if="recoveryError"
+                class="space-y-2 rounded-[var(--radius-control)] border border-[var(--status-danger-border,var(--status-danger))] bg-[color-mix(in_srgb,var(--status-danger)_8%,transparent)] px-3 py-2 text-sm text-[var(--status-danger)]"
+                role="alert"
+            >
+                <p>{{ recoveryError }}</p>
                 <Button
-                    type="button"
-                    variant="secondary"
-                    icon-class="i-lucide-x"
-                    :disabled="isCreating || Boolean(recoveryError)"
-                    @click="handleCancel"
+                    size="sm"
+                    variant="danger"
+                    icon-class="i-lucide-refresh-cw"
+                    :disabled="isCreating"
+                    @click="emit('retry-recovery')"
                 >
-                    {{ t("ide.bookshelf.cancel") }}
-                </Button>
-                <Button
-                    type="submit"
-                    variant="primary"
-                    :icon-class="isCreating ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check'"
-                    :disabled="isCreating || Boolean(recoveryError)"
-                    :loading="isCreating"
-                >
-                    {{ isCreating ? t("ide.bookshelf.creating") : t("ide.bookshelf.create") }}
+                    {{ t("ide.picker.mutationRecoveryRetry") }}
                 </Button>
             </div>
+
+            <form id="create-project-form" class="space-y-4" @submit.prevent="handleSubmit">
+                <label for="create-book-title" class="block text-xs text-[var(--text-secondary)]">
+                    <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.bookTitle") }}</span>
+                    <FormInput
+                        id="create-book-title"
+                        ref="titleInputRef"
+                        v-model="title"
+                        :maxlength="120"
+                        :disabled="isCreating || Boolean(recoveryError)"
+                        autofocus
+                    />
+                </label>
+                <label for="create-book-summary" class="block text-xs text-[var(--text-secondary)]">
+                    <span class="mb-1.5 block font-medium">{{ t("ide.bookshelf.summary") }}</span>
+                    <FormTextarea
+                        id="create-book-summary"
+                        v-model="summary"
+                        :rows="3"
+                        :maxlength="2000"
+                        :disabled="isCreating || Boolean(recoveryError)"
+                    />
+                </label>
+            </form>
         </div>
-    </form>
+
+        <template #footer>
+            <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                :disabled="isCreating || Boolean(recoveryError)"
+                @click="handleCancel"
+            >
+                {{ t("ide.bookshelf.cancel") }}
+            </Button>
+            <Button
+                type="submit"
+                form="create-project-form"
+                variant="primary"
+                size="sm"
+                :icon-class="isCreating ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check'"
+                :disabled="isCreating || Boolean(recoveryError) || !title.trim()"
+                :loading="isCreating"
+            >
+                {{ isCreating ? t("ide.bookshelf.creating") : t("ide.bookshelf.create") }}
+            </Button>
+        </template>
+    </DialogWindow>
 </template>

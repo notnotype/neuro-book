@@ -322,11 +322,10 @@ export const labFixtures: LabFixture[] = [
         scenes: [
             {id: "default", label: "标准书架", data: {editable: "fixture-owned"}},
             {id: "empty", label: "零项目空态", data: {editable: "fixture-owned"}},
-            {id: "create-open", label: "新建展开", data: {editable: "fixture-owned"}},
+            {id: "create-dialog", label: "新建对话框", data: {editable: "fixture-owned"}},
             {id: "creating", label: "创建中", data: {editable: "fixture-owned"}},
             {id: "loading", label: "加载中", data: {editable: "fixture-owned"}},
             {id: "load-error", label: "加载失败", data: {editable: "fixture-owned"}},
-            {id: "recovery", label: "会话迁移恢复", data: {editable: "fixture-owned"}},
             {id: "phone", label: "手机 390×844", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./ProjectPickerViewFixture.vue")).default,
