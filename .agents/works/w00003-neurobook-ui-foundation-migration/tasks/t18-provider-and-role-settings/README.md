@@ -8,7 +8,9 @@ role: tasker
 
 ## 状态
 
-**草稿，等三个前置问题定论后再开工**（见文末「待定问题」）。本任务由开发者在 t17 验收时提出，不属于 t17 范围。
+**已完成（UI 先行）**，2026-09-10 开工、2026-09-11 按开发者验收重设计后收口。后端契约仍是有意留下的缺口，见提案 [`docs/proposals/model-roles-contract.md`](../../../../../docs/proposals/model-roles-contract.md)（`accepted`，2026-09-11 按重设计修订）。
+
+本任务由开发者在 t17 验收时提出，不属于 t17 范围。文末「执行计划」保留原计划（含一处从未落地的文件名），实际结果见「执行进度」。
 
 ## 目标
 
@@ -48,8 +50,8 @@ role: tasker
 ## 执行计划
 
 1. **`sections/model` → `sections/providers`**，视图改名 `ProviderSettingsView`：只留 Provider 导轨 + 详情（连接表单 + 已启用模型清单）；把「全局默认模型」与「Agent 可见模型」两块整段移出。
-2. **新增「默认模型」区段**：`DefaultProviderSettingsView`（global 选默认模型；project 为覆盖，留空跟随全局）。
-3. **新增「可见模型」区段**：`AgentVisibleModelsView`（包住现有 `AgentVisibleModelsEditor`，附用途说明）。
+2. **新增「默认模型」区段**：视图实际命名为 `DefaultModelSettingsView`（原文写的 `DefaultProviderSettingsView` 从未落地）；**该区段与下一节的可见模型区段已于 2026-09-11 删除**，见「执行进度」。
+3. **新增「可见模型」区段**：`AgentVisibleModelsView`（包住现有 `AgentVisibleModelsEditor`，附用途说明）；**已删除**。
 4. **新增「角色」区段**：`RolesSettingsView`，UI 先行——梯度轴（tiny / fast / main / deep）与专精轴（summarize / writer / narrative / plan / vision）各一行，显示当前绑定与回落链；未配置时显示回落目标而不是空白。草稿与序列化放 `roles/roles-settings-draft.ts`，形状对齐将来的后端契约位。
 5. **布局收口**：内容列封顶（阅读型区段按规范 ≈768px，两栏型 Provider 页保持整幅）、顶部两栏控件同一条基线、分隔统一 `--divider` 横线。
 6. 每个区段照 t17 的六处配方补齐：视图 + 同名 `.md` + fixture + 注册表 + 外壳 fixture 的两条内容槽 + smoke 断言（`sectionCount` 5 → 8）。
@@ -75,18 +77,29 @@ role: tasker
 3. **可见模型区段**：`sections/agent-visible-models/AgentVisibleModelsView.vue` + `.md` + fixture（7 场景）——global 编辑有序清单，project 只说明「写在全局」。`AgentVisibleModelsEditor` 去掉自带卡片面与标题，由区段视图接管标题层级。
 4. **角色区段**：`sections/roles/RolesSettingsView.vue` + `.md` + `roles-settings-draft.ts`（+ 5 项单测）+ fixture（5 场景）——梯度轴 4 个、专精轴 5 个角色各一行，显示用途、建议候选链、当前生效角色与绑定选择；`resolveEffectiveRole()` 沿回落链取，`vision` 不回落到任何角色。
 
-外壳现在 9 个区段（agent-profile-models / web-tools / embedding / cost / observability / providers / default-model / agent-visible-models / roles），smoke 断言同步到 9。测试 49 文件 / 369 项通过。
+外壳当时变成 9 个区段（agent-profile-models / web-tools / embedding / cost / observability / providers / default-model / agent-visible-models / roles），smoke 断言同步到 9。测试 49 文件 / 369 项通过。
 
 内容列封顶：默认模型、可见模型、角色三个阅读型区段各自 `max-w-3xl`；Provider 页是两栏型，保持整幅宽度（外壳不封顶的约定见 t17）。
+
+### 2026-09-11 按验收重设计（已完成）
+
+开发者验收角色页后给出一批反馈，本任务范围内的四处落地：
+
+1. **两个区段删除**：「默认模型」与「Agent 可见模型」整体删除（视图 / 文档 / fixture / 注册表 / smoke 断言 / i18n 死键一起清），职责由角色页承担——开发者原话「默认模型和可见模型相关的设置，全部去掉，由角色取代」。注意 `AgentVisibleModelsEditor` 与 `config.models.defaultModelKey` 仍是**产品与后端**的真概念（旧面板还在用后者），删的是设置界面的两个区段，不是这些字段。
+2. **角色页重设计**：`roles-settings-draft.ts` 重写——角色成为**草稿数据**（梯度轴固定四档不可删，专精轴可增删）；角色的定义收敛为**绑定的模型 + 角色描述**（描述进模型看到的目录，由 `buildModelRoleCatalog()` 产出）；**候选链与回落链整体删除**（每行独立绑定，未配置即 `roleConfigIssues()` 报出的配置错误）；建议模型移进 tooltip；每行加图标、稳定 id 收在描述行尾；模型下拉与删除按钮同行。视图 `RolesSettingsView.vue` 同步重写，导航标签改为「模型角色」并排在 Provider 之后。
+3. **Provider 模块改名**：`sections/providers/` 四个模块与测试去掉遗留的 `model-` 前缀（`provider-settings-draft.ts` / `provider-view-types.ts` / `provider-model-draft-factory.ts` / `provider-model-cost-draft.ts`），导出类型名保持不变（跨宿主与四个会话引用，属独立动作）。改名提交 `3f983b1d`。
+4. **契约同步**：提案按重设计修订三处（候选链下线、回落语义删除、角色目录由写死改为可配置 → 段形状改 `items: Array`，与 `buildRolesSection()` 逐字对齐）。
+
+外壳区段数 9 → **7**（Provider / 模型角色 / Agent Profile / Web 工具 / 向量嵌入 / 费用显示 / 可观测），另有 `启动`（密码保护）与 `本机`（编辑器 / 桌面应用）两个作用域专属小节。smoke 断言、fixture、i18n 全部同步；测试 371 项（受影响的 49 文件）通过。
 
 ## 已知的可复用资产（t17 产出）
 
 - `settings/sections/` 下的受控视图与 Lab 场景（外壳 + 七个区段 + 三个模型窗口），角色设置页可以直接照这个配方新增一个区段。
-- `views/model/model-settings-draft.ts` 的草稿与序列化规则、`AgentVisibleModelsEditor`、`SavedModelsList`、`NovelIdeModelSelect` 等子组件都可复用。
+- `sections/providers/provider-settings-draft.ts`（2026-09-11 从 `model-settings-draft.ts` 改名）的草稿与序列化规则；`SavedModelsList`、`NovelIdeModelSelect` 等子组件仍被 Provider 页与角色页复用。`AgentVisibleModelsEditor` 目前只剩产品宿主 `NovelIdeModelSettingsPanel` 在用——旧面板接线时它才有归宿。
 - `component-lab` 的 fixture 与 smoke 断言套路（新增区段固定改六处，见 t17 README「前置事实」）。
 
 ## 验收方向（待问题定论后补成完整验收）
 
 - Provider 页只讲 Provider 与模型清单：Providers 导轨上能新增（入口从顶部的下拉 + 按钮挪到导轨），详情里能编辑连接与模型。
-- 默认模型 / Agent 可见模型各自有独立 Tab，能单独打开、单独保存。
-- 角色页列出梯度轴与专精轴，每行显示当前绑定与回落链；未配置时显示回落目标而不是空白。
+- ~~默认模型 / Agent 可见模型各自有独立 Tab，能单独打开、单独保存。~~ 2026-09-11 作废：两个区段已删除，职责由角色页承担（开发者验收原话：「默认模型和可见模型相关的设置，全部去掉，由角色取代」）。
+- 角色页列出梯度轴与专精轴，每行显示当前绑定；未配置的行标「未配置」并报配置错误（**不显示回落目标**——回落语义已删）。

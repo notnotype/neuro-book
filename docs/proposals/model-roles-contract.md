@@ -1,10 +1,10 @@
 # 模型角色（role）的后端契约
 
-- **状态**：accepted（2026-09-10 开发者就四条取舍作出结论，见「决策记录」与「方案」）
+- **状态**：accepted（2026-09-10 开发者就四条取舍作出结论；2026-09-11 按 UI 重设计修订，见「决策记录」）
 
 ## 问题
 
-开发者给了一份模型角色表（梯度轴 `tiny` / `fast` / `main` / `deep`，专精轴 `summarize` / `writer` / `narrative` / `plan` / `vision`），要求「哪个角色用哪个模型」可配置。UI 已按此做出 Lab 页面（`app/components/novel-ide/settings/sections/roles/`，UI 先行）。但后端没有 role 这一层：
+开发者要求「哪个角色用哪个模型」可配置。UI 已做出 Lab 页面（`app/components/novel-ide/settings/sections/roles/`，UI 先行）。但后端没有 role 这一层：
 
 - 一次会话的模型只由一条固定优先级链解析，链上没有「用途」这一维；
 - 只有两处隐式用途分派：子代理的 `invoke_agent.model` 单次覆盖、后台 summarizer 的独立 profile（标题 + 摘要）。`tiny` / `fast` / `deep` / `plan` / `vision` / `writer` / `narrative` 在运行时**零分派**；
@@ -14,13 +14,15 @@
 
 目标：
 
-1. 在全局配置里新增 `roles` 段，承载「角色 → 已启用模型」的绑定；未配置的角色按声明式回落解析。
+1. 在全局配置里新增 `roles` 段，承载**角色条目**：id、轴（梯度 / 专精）、名字、描述、绑定的已启用模型。
 2. 在模型解析链上增加 role 维度，使调用方可以按角色取模型（第一个消费方是子代理与 summarizer，其次是把 role 暴露给 profile 默认值）。
-3. 让 role 的「建议候选链」在配置里有位置，但**本期不做运行时的自动候选回退**。
+3. 让角色条目成为**模型看到的目录**的真相源：条目里的描述就是模型读到的那句话，目录由已绑定且有描述的条目组成。
 
 非目标：
 
-- 不做自动候选链回退（Pi 层只有 `requestOptions.maxRetries` 重试，没有模型级回退机制；自动回退是新的运行时能力，超出本契约）。
+- 不做运行时的自动候选回退，也**不存**候选链（Pi 层只有 `requestOptions.maxRetries` 重试，没有模型级回退机制；自动回退要新机制——失败探测、切换语义、可观测——属独立提案）。
+- **不做回落**：角色没有「跟随另一个角色」的语义，没绑定就是配置错误（2026-09-10 决策，2026-09-11 从 UI 到契约一致）。
+- 不把这份目录注入提示词：本契约只负责它落进配置并能被读回，消费是产品侧接线的下一步。
 - 不给本地模型新增 Provider 类型（见「证据」：本地端点今天已经能当 Provider 用）。
 - 不改 profile 的语义；role 与 profile 仍是两层。
 
@@ -44,7 +46,7 @@
 **本地模型**：
 
 - 无 apiKey 强制（`packages/neuro-book/packages-contracts/src/provider-config-contract.ts:115-125 inspectRunnableModel` 只查 baseURL）；空 key 走内部占位 `OPENAI_NO_AUTH_KEY`（`server/agent/harness/pi-request-options.ts:9,24-31`）。
-- 不强制 https（`server/models/discovery.ts:276-281`）；测试已用 `http://127.0.0.1:11434/v1` 作合法 baseURL（`server/models/model-config-validation.test.ts:41`）。
+- 不强制 https（`server/models/discovery.ts:276-281`）；测试已用 `http://127.0.0.1:11434/v1` 作合法 baseURL（`server/models/model-config.test.ts:41`）。
 - 限制：每个模型必须显式声明 `api` / `reasoning` / `input` / `contextWindowTokens` / `maxTokens`（`provider-config-contract.ts:82-113`），runtime 不读 Pi 内置目录补全（`server/agent/harness/pi-runtime-resolver.ts:20-21`）。
 - **结论：本地端点（ollama / lm studio / llama.cpp）今天已经能当 Provider 用；「本地模型」不是后端缺口**，缺的只是产品层的「本地」分类与一键模板。
 
@@ -59,17 +61,24 @@
 
 ### 配置形状
 
-`roles` 段只存**绑定**，角色目录与回落链写死在代码里（与 UI 现状一致，见「备选方案」）：
+`roles` 段承载**条目本身**，因为专精轴允许用户增删角色（gradient 固定四档，specialist 可自定义），角色集合不再是代码里的固定枚举：
 
 ```ts
 // shared/dto/config.dto.ts 的 GlobalConfigDtoSchema / GlobalConfigUpdateDtoSchema 新增
 roles: {
-    bindings: Record<string, string | null>,   // roleId → modelKey（`providerId/modelId`，与 models.defaultModelKey 同形）
-    chains?: Record<string, string[]>,         // 可选：候选链，本期只存不消费
+    items: Array<{
+        id: string;                                  // 稳定标识：custom-N 或固定档位名；建后不变
+        axis: "gradient" | "specialist";
+        name: string;                                // 给人看的名字
+        description: string;                         // 给模型看的一句话；进模型目录
+        modelKey: string | null;                      // `providerId/modelId`，与 models.defaultModelKey 同形
+    }>,
 }
 ```
 
-- 角色 id 的合法集合由代码里的 catalog 定义，DTO 只校验形状（`string` 键 + `string | null` 值）；未知 roleId 在 normalizer 里丢弃而不是报错（配置可向前兼容）。
+- **命名与形状对齐 UI 的写回体**：`app/components/novel-ide/settings/sections/roles/roles-settings-draft.ts` 的 `buildRolesSection()` 已经产出这个形状（字段名逐字相同），接线时无需转换层。
+- 归一化规则（写进 `normalizeGlobalConfig`）：按 `id` 去重（后来的覆盖先来的）、丢弃 `id` 为空的条目、`axis` 非法回落到 `specialist`、`modelKey` 空串按 `null`；**不做**按轴排序（顺序即用户顺序，梯度轴在前由 UI 保证）。
+- 固定档位（`tiny` / `fast` / `main` / `deep`）由**服务端校验**兜底：缺失时不自动补，只在该 role 被调用且无绑定时按配置错误报出（与用户删掉它们不可能发生的事实一致——UI 不允许删）。
 - `modelKey` 复用 `globalModelReferences` 的引用校验路径，坏引用按现有模型引用问题的报错方式呈现。
 
 ### 解析
@@ -78,69 +87,73 @@ roles: {
 
 ```
 override.modelKey ?? override.model
-  ?? roles 里该 role（或其回落链上第一个有绑定的 role）的 modelKey
+  ?? roles 里该 role 的 modelKey        // 没有回落，不沿任何链找别的角色
   ?? config.agent.profiles[profileKey].model.modelKey
   ?? config.agent.profileModelDefaults.modelKey
   ?? config.models.defaultModelKey
 ```
 
-- 回落链在服务端解析（UI 的 `resolveEffectiveRole` 是它的镜像）；`fallback: null` 的角色（`vision`）不借任何人的模型，此时继续往下走 profile 链，而不是硬失败。
+- **调用方显式传了 `role` 而该角色没有绑定 → 抛配置错误**，不再静默沿 profile 链取值（2026-09-10 决策）。没传 `role` 的调用方行为完全不变。
+- `vision` 不再特殊：它同样要求显式绑定（主模型多半不支持原生视觉，静默回落只会把图喂给读不了图的模型）。
 - 只有明确传 `role` 的调用方受影响；现有调用点行为不变（第一步只接子代理与 summarizer）。
 
 ### 落地清单
 
-1. `shared/dto/config.dto.ts`：`:400` / `:426` 加 `roles`（Project 覆盖与否见未决）。
-2. `server/config/types.ts`：`:174` / `:241`（+ `:252` 视未决）。
-3. `server/config/normalizer.ts`：`:176-218` 保留、`:296-300` 写默认值。
+1. `shared/dto/config.dto.ts`：`:400` / `:426` 加 `roles`（只做全局，不动 ProjectConfigDtoSchema）。
+2. `server/config/types.ts`：`:174` / `:241`。
+3. `server/config/normalizer.ts`：`:176-218` 保留并加 `roles.items` 的归一化（去重 / 丢弃 / 回落），`:296-300` 写默认值。
 4. `server/config/registry.ts`：`:5` 加一条元数据。
-5. `server/config/config-service.ts`：`:230-241` 合并、`:462-497` redact、`:671-695` 引用校验。
+5. `server/config/config-service.ts`：`:230-241` 合并、`:462-497` redact、`:671-695` 引用校验（要覆盖 `items[].modelKey`）。
 6. 重跑 openapi meta 生成（`global.put.ts` / `editor-snapshot.get.ts` / `project.put.ts`）。
-7. 解析接入：`model-resolver.ts:16` 加 role 分支；子代理与 summarizer 传 role。
-8. 测试：`server/config/config-service.test.ts`、`server/config/normalizer.test.ts`、`shared/dto/app-settings.dto.test.ts`、`server/api/config/project-http-contract.test.ts`，以及 `model-resolver` 的新优先级断言。
+7. 解析接入：`model-resolver.ts:16` 加 role 分支（显式绑定或报错）；子代理与 summarizer 传 role。
+8. 测试：`server/config/config-service.test.ts`、`server/config/normalizer.test.ts`、`shared/dto/app-settings.dto.test.ts`、`server/api/config/project-http-contract.test.ts`，以及 `model-resolver` 的新优先级与「未绑定即报错」断言。
 
 ## 备选方案与取舍
 
 | 取舍 | 选择 | 理由 |
 | --- | --- | --- |
-| 角色目录写死 vs 可配置 | **写死** | 目录与回落链是产品语义（UI 已写死，`roles-settings-draft.ts:38-105`）；写死则配置段只管绑定，形状最小 |
-| `Record<role, modelKey>` vs `Array<{role, modelKey}>` | **Record** | 与 `agent.profiles` 的键值风格一致；数组的重复 role 需要额外去重 |
-| 自动候选回退 vs 只存不消费 | **只存不消费** | Pi 层没有模型级回退；自动回退要新机制（失败探测、切换语义、可观测），属独立提案 |
+| 角色目录写死 vs 可配置 | **可配置（条目进配置）** | 2026-09-11 改：专精轴允许用户增删角色，固定枚举表达不了自定义角色；条目自带名字与描述，运行时才知道有哪些角色 |
+| `Record<role, modelKey>` vs `Array<{id, …, modelKey}>` | **Array** | 同上：集合不再固定，且顺序有意义（梯度轴在前）；重复 id 由 normalizer 去重而不是靠 Record 的键唯一性 |
+| 自动候选回退 vs 只存不消费 | **都不做** | Pi 层没有模型级回退；候选链在 UI 里也已下线（建议模型只是 tooltip 提示，不进配置）。将来要做，是独立提案 |
+| 角色未绑定时是否回落 | **报配置错误** | 没有回落语义；错误由宿主呈现在角色页（`roleConfigIssues()` 已给出 UI 侧同构判断） |
 | 本地模型单独 Provider 类型 | **不做** | 证据显示本地端点已能当普通 Provider 用（`inspectRunnableModel` 只查 baseURL、空 key 有占位） |
 | role 与 profile 的关系 | **并列两层，靠 role 名与 profileKey 同名时约定** | `@writer` 不是正式标识；正式对应关系是「role 名 ↔ profileKey」 |
 
 ## 数据、接口、安全、迁移、发布与回滚影响
 
-- 持久化：`StateRoot/.nbook/config.json` 新增 `roles` 段；旧配置无该段时按空绑定处理（回落到 profile 链），**无需迁移**。
+- 持久化：`StateRoot/.nbook/config.json` 新增 `roles` 段；旧配置无该段时按**空条目**处理（不影响任何现有调用方，因为没有调用方传 role），**无需迁移**。
 - 接口：`GlobalConfigUpdateDtoSchema` 变宽；`roles` 未出现时行为不变，回滚只需删段。
-- 安全：`roles` 只是模型选择，不引入新的凭据面；`redactGlobalConfig` 必须登记，否则 GET 静默丢失（已有 `history` 的反面证据）。
+- 安全：`roles` 只是模型选择与几行描述文本，不引入新的凭据面；`redactGlobalConfig` 必须登记，否则 GET 静默丢失（已有 `history` 的反面证据）。
 - 未白名单的风险：不写 `normalizer` 会被静默丢弃——这是本提案里最容易踩空的一步。
+- 文本边界：`name` / `description` 是用户输入且会进模型上下文，消费侧要当**不可信文本**处理（长度上限与注入防护在消费侧定，本契约只做长度与类型校验）。
 
 ## 对 Spec 的预期改动
 
-- 目标 capability：全局配置的 `roles` 段（写入、读取、引用校验）与「按 role 解析模型」的解析规则。
-- 输入：`{bindings: Record<roleId, modelKey | null>}`；输出：配置读回与解析结果 `modelKey`。
-- 状态：未配置（调用方传了 role 而链上没有绑定 → 配置错误）/ 已绑定 / 坏引用（modelKey 不可运行）。
+- 目标 capability：全局配置的 `roles` 段（写入、读取、归一化、引用校验）与「按 role 解析模型」的解析规则。
+- 输入：`{items: Array<{id, axis, name, description, modelKey | null}>}`；输出：配置读回、解析结果 `modelKey`、以及模型目录（已绑定且有描述的条目）。
+- 状态：未绑定（调用方传了 role 而该条目无 `modelKey` → 配置错误）/ 已绑定 / 坏引用（modelKey 不可运行）。
 - 副作用：仅影响显式传 role 的调用方。
-- 失败：坏引用按模型引用问题报错；role 链上没有任何绑定时报配置错误（不静默回落，2026-09-10 决策）。
-- 验收：`roles` 段往返不丢（写 → 读 → 归一化后仍在）；role 有绑定时子代理取到该模型；未绑定时行为与今天一致。
+- 失败：坏引用按模型引用问题报错；role 未绑定时报配置错误（不静默回落）。
+- 验收：`roles` 段往返不丢（写 → 读 → 归一化后仍在，含自定义角色）；role 有绑定时子代理取到该模型；未绑定时按配置错误报出；`redact` 后仍能读回。
 
 ## 决策记录
 
 - 2026-09-10：开发者确认「UI 先行，保证 Lab 可用，后端契约缺口记录下来，正式接入时再做」；本提案即为该缺口的整理。
-- 2026-09-10：开发者拍板四条取舍（见上表）——`accepted`。解析规则据此收严：**调用方传了 role 而该角色（及其回落链）没有绑定时按配置错误处理**，不再静默沿 profile 链取值；`chains` 本期只存不消费；Project 不参与；本地模型不在本契约内。
+- 2026-09-10：开发者拍板四条取舍（见上表）——`accepted`。解析规则据此收严：**调用方传了 role 而该角色没有绑定时按配置错误处理**，不再静默沿 profile 链取值；Project 不参与；本地模型不在本契约内。
+- 2026-09-11：开发者验收角色页后要求重设计，契约随之修订三处——① **候选链下线**（UI 不再产出、配置里不留位置，建议模型只是 tooltip 提示）；② **回落语义删除**（角色之间不再互相跟随，`fallback` 概念从 UI 与契约一起消失）；③ **角色目录由写死改为可配置**（专精轴可增删），因此段形状从 `bindings: Record` 改为 `items: Array`，与 UI 的 `buildRolesSection()` 写回体逐字对齐。同日新增目标 3：条目描述即模型目录的内容。
 
 ## 未决取舍（开工前必须定）
 
-四条取舍已由开发者于 2026-09-10 拍板（下表为结论）：
+四条取舍已由开发者拍板，2026-09-11 修订后如下：
 
 | 取舍 | 结论 |
 | --- | --- |
-| 未配置的角色怎么取模型 | **必须显式绑定，否则报错**（不静默回落到 profile 链；`fallback: null` 的角色同样要求显式绑定） |
-| 候选链是否本期实现运行时回退 | **只存不消费**；配置里留 `chains` 位置，解析不用它 |
+| 未配置的角色怎么取模型 | **必须显式绑定，否则报错**（不静默回落到 profile 链；视觉这类角色同样要求显式绑定） |
+| 候选链是否本期实现运行时回退 | **候选链下线**：配置里不留字段，运行时也不做；将来要做属独立提案 |
 | role 是否允许 Project 级覆盖 | **只做全局**（不动 ProjectConfigDtoSchema） |
 | 本地模型是否要分类与一键模板 | **不在本契约里做**（已由 Provider 机制覆盖，模板属 Provider 页的产品工作） |
 
 ## 参考
 
-- UI 侧唯一改写入点：`packages/neuro-book/app/components/novel-ide/settings/sections/roles/roles-settings-draft.ts`（catalog、回落、写回体形状）。
+- UI 侧唯一改写入点：`packages/neuro-book/app/components/novel-ide/settings/sections/roles/roles-settings-draft.ts`（条目种子、增删、配置问题、模型目录、写回体形状）。
 - 事实依据来源：`RoleContractScout` 报告（本提案「当前行为与证据」一节的 `文件:行号` 均来自它，已抽查复核）。
