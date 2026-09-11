@@ -162,20 +162,29 @@ function selectSection(value: string): void {
                         </Button>
                     </div>
 
-                    <div v-if="props.loadError" class="shrink-0 px-[var(--space-6)] pt-[var(--space-3)]">
-                        <div class="rounded-[var(--radius-control)] border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 text-sm text-[var(--status-danger)]">
-                            <p>{{ props.loadError }}</p>
-                            <Button class="mt-2" size="sm" variant="ghost" @click="emit('reload')">重新加载</Button>
-                        </div>
+                    <!-- 加载失败：一行普通内容（图标 + 原因 + 重试），不画会改布局的色块 -->
+                    <div v-if="props.loadError" class="flex shrink-0 flex-wrap items-center gap-[var(--space-2)] px-[var(--space-6)] pt-[var(--space-4)]">
+                        <span class="i-lucide-triangle-alert h-4 w-4 shrink-0 text-[var(--status-danger)]" aria-hidden="true"></span>
+                        <span class="min-w-0 flex-1 text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ props.loadError }}</span>
+                        <Button size="sm" variant="secondary" class="shrink-0" @click="emit('reload')">重新加载</Button>
                     </div>
 
                     <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
-                        <div v-if="props.loading" class="max-w-3xl space-y-3" aria-busy="true">
-                            <div class="h-6 w-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
-                            <div class="h-24 animate-pulse rounded bg-[var(--bg-input)]"></div>
-                            <div class="h-40 animate-pulse rounded bg-[var(--bg-input)]"></div>
+                        <div v-if="props.loading" class="max-w-3xl" aria-busy="true">
+                            <p class="text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">正在读取设置…</p>
+                            <div class="mt-[var(--space-4)] flex flex-col gap-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+                                <div v-for="index in 3" :key="index" class="flex flex-col gap-[var(--space-2)]">
+                                    <span class="h-3 w-24 animate-pulse rounded-[calc(var(--radius-control)*0.5)] bg-[var(--bg-input)]"></span>
+                                    <span class="h-8 w-full animate-pulse rounded-[var(--radius-control)] bg-[var(--bg-input)]"></span>
+                                </div>
+                            </div>
                         </div>
-                        <slot v-else :section="activeSection"></slot>
+                        <!-- 区段切换：短位移 + 淡入，时长与缓动走动效 token -->
+                        <Transition v-else name="settings-section" mode="out-in">
+                            <div :key="activeSection?.value ?? ''" class="flex min-h-0 flex-1 flex-col">
+                                <slot :section="activeSection"></slot>
+                            </div>
+                        </Transition>
                     </div>
                 </section>
             </div>
@@ -186,6 +195,25 @@ function selectSection(value: string): void {
 <style scoped>
 .settings-view-root {
     container-type: inline-size;
+}
+
+/* 区段切换：短位移 + 淡入。时长与缓动消费动效 token，不写字面量（§七）。 */
+.settings-section-enter-active {
+    transition: opacity var(--motion-base) var(--ease-standard), transform var(--motion-base) var(--ease-standard);
+}
+
+.settings-section-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.settings-section-enter-from {
+    opacity: 0;
+    transform: translateX(6px);
+}
+
+.settings-section-leave-to {
+    opacity: 0;
+    transform: translateX(-6px);
 }
 
 /* 栏间竖线与区段横线同款：1px --divider，两端留出内边距，不与标题栏或内容边线相接。 */

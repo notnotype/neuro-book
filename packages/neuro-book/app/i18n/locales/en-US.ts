@@ -227,16 +227,8 @@ const enUS = {
                 label: "Desktop App",
                 description: "Window, zoom, and system tray behavior.",
             },
-            defaultModel: {
-                label: "Default Model",
-                description: "The model Agents, continuation, and AI annotations use by default.",
-            },
-            agentVisibleModels: {
-                label: "Visible Models",
-                description: "The ordered list the Leader picks from when assigning models to sub-agents.",
-            },
             roles: {
-                label: "Roles",
+                label: "Model Roles",
                 description: "Assign models to roles by purpose; unconfigured roles follow their fallback chain.",
             },
         },
@@ -887,7 +879,6 @@ const enUS = {
                 agentVisibleModelsMoveUp: "Move up",
                 agentVisibleModelsMoveDown: "Move down",
                 agentVisibleModelsRemove: "Remove",
-                agentVisibleModelsGlobalOnly: "This list lives in the global config; the project scope does not override it. Switch to Global to edit it.",
                 addProvider: "Add Provider",
                 addProviderDescription: "Add a connection from the Pi built-in Provider catalog. Duplicate additions get a new local ID automatically.",
                 add: "Add",

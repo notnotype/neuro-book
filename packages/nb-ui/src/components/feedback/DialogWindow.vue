@@ -348,6 +348,7 @@ onBeforeUnmount(() => {
                     data-dialog-surface
                     :style="windowStyle"
                     class="nb-dialog-window nb-ui-surface-rim fixed flex flex-col overflow-hidden rounded-xl border border-[var(--panel-outline)] text-[var(--text-main)] outline-none data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:scale-[0.96]"
+                    :class="windowDepth > 1 ? 'nb-dialog-window--nested' : ''"
                 >
                     <div class="flex min-h-9 shrink-0 items-center border-b border-[var(--divider)] px-4 py-1">
                         <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none">
@@ -410,5 +411,17 @@ onBeforeUnmount(() => {
     transition:
         opacity var(--motion-base) var(--ease-standard),
         transform var(--motion-base) var(--ease-standard);
+}
+
+/*
+ * 二级及更深的窗口不再做玻璃。
+ *
+ * 材质只有一层（design-language §二）：玻璃采的是它背后的东西，而背后又是一块玻璃时，
+ * Web 上采不到可用的高频内容（backdrop-filter 不在链上叠加），只会读成一块发灰的板。
+ * 与其让它假装透明，不如直接给层级色——层级轴本来就是不透明色阶。
+ */
+.nb-dialog-window--nested {
+    background-color: var(--panel-surface, var(--bg-panel));
+    backdrop-filter: none;
 }
 </style>

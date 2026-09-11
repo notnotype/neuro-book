@@ -17,8 +17,6 @@ import EditorSettingsView from "../../components/novel-ide/settings/sections/edi
 import DesktopSettingsView from "../../components/novel-ide/settings/sections/desktop/DesktopSettingsView.vue";
 import SecuritySettingsView from "../../components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
 import ProviderSettingsView from "../../components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
-import DefaultModelSettingsView from "../../components/novel-ide/settings/sections/default-model/DefaultModelSettingsView.vue";
-import AgentVisibleModelsView from "../../components/novel-ide/settings/sections/agent-visible-models/AgentVisibleModelsView.vue";
 import RolesSettingsView from "../../components/novel-ide/settings/sections/roles/RolesSettingsView.vue";
 import {createRolesSettingsDraft} from "../../components/novel-ide/settings/sections/roles/roles-settings-draft";
 import type {ModelSettingsDraft} from "../../components/novel-ide/settings/sections/providers/model-settings-draft";
@@ -78,8 +76,22 @@ const scopeOptions: SettingsScopeOption[] = [
 
 const sectionOptions: SettingsSectionOption[] = [
     {
+        value: "providers",
+        label: "Provider",
+        description: "管理 Provider 与模型清单",
+        iconClass: "i-lucide-cpu",
+        scopes: ["global"],
+    },
+    {
+        value: "roles",
+        label: "模型角色",
+        description: "按用途把模型分配给各角色",
+        iconClass: "i-lucide-shapes",
+        scopes: ["global"],
+    },
+    {
         value: "agent-profile-models",
-        label: "Agent Profile 模型",
+        label: "Agent Profile",
         description: "Profile 的模型、运行策略与专属设置",
         iconClass: "i-lucide-bot-message-square",
         scopes: ["global", "project"],
@@ -110,34 +122,6 @@ const sectionOptions: SettingsSectionOption[] = [
         label: "可观测",
         description: "Pi 请求 trace 记录开关与保留策略",
         iconClass: "i-lucide-activity",
-        scopes: ["global"],
-    },
-    {
-        value: "providers",
-        label: "Provider",
-        description: "管理 Provider 与模型清单",
-        iconClass: "i-lucide-cpu",
-        scopes: ["global"],
-    },
-    {
-        value: "default-model",
-        label: "默认模型",
-        description: "Agent、续写与 AI 批注默认使用的模型",
-        iconClass: "i-lucide-cpu",
-        scopes: ["global", "project"],
-    },
-    {
-        value: "agent-visible-models",
-        label: "可见模型",
-        description: "Leader 为子 Agent 指定模型时的有序清单",
-        iconClass: "i-lucide-list-checks",
-        scopes: ["global", "project"],
-    },
-    {
-        value: "roles",
-        label: "角色",
-        description: "按用途把模型分配给各角色",
-        iconClass: "i-lucide-shapes",
         scopes: ["global"],
     },
     {
@@ -331,7 +315,6 @@ watch([scope, activeSection, loading, loadError], () => {
         editorMonaco: {...editorMonaco.value},
         desktopZoom: desktopSettings.value.zoomFactor,
         modelDefaultKey: modelDraft.value.defaultModelKey,
-        agentVisibleModelCount: modelDraft.value.agentVisibleModels.length,
         boundRoles: Object.values(rolesDraft.value.roles).filter(Boolean).length,
         modelProviderCount: modelDraft.value.providers.length,
         loading: loading.value,
@@ -373,17 +356,6 @@ function updateModelDraft(value: ModelSettingsDraft): void {
 function updateRolesDraft(value: typeof rolesDraft.value): void {
     rolesDraft.value = value;
     emitLabEvent("update:roles", {boundRoles: Object.values(value.roles).filter(Boolean).length});
-}
-
-/** 默认模型与可见模型在 Lab 里同样由 fixture 持有：会话与写回都在宿主。 */
-function updateModelKey(value: string | null): void {
-    modelDraft.value = {...modelDraft.value, defaultModelKey: value};
-    emitLabEvent("update:modelKey", {modelKey: value});
-}
-
-function updateAgentVisibleModels(value: typeof modelDraft.value.agentVisibleModels): void {
-    modelDraft.value = {...modelDraft.value, agentVisibleModels: value};
-    emitLabEvent("update:agentVisibleModels", {entries: value.length});
 }
 
 function openDialog(): void {
@@ -525,23 +497,7 @@ function openDialog(): void {
                     @update:model-value="updateRolesDraft"
                 />
 
-                <DefaultModelSettingsView
-                    v-else-if="activeSection === 'default-model'"
-                    :model-key="modelDraft.defaultModelKey"
-                    :models="MODEL_DEFAULT_MODEL_OPTIONS"
-                    :is-project-scope="scope === 'project'"
-                    :target-label="targetLabel"
-                    @update:model-key="updateModelKey"
-                />
 
-                <AgentVisibleModelsView
-                    v-else-if="activeSection === 'agent-visible-models'"
-                    :model-value="modelDraft.agentVisibleModels"
-                    :models="MODEL_DEFAULT_MODEL_OPTIONS"
-                    :default-model-key="modelDraft.defaultModelKey"
-                    :is-project-scope="scope === 'project'"
-                    @update:model-value="updateAgentVisibleModels"
-                />
             </NovelIdeSettingsView>
         </div>
 
@@ -699,23 +655,7 @@ function openDialog(): void {
                         @update:model-value="updateRolesDraft"
                     />
 
-                    <DefaultModelSettingsView
-                        v-else-if="activeSection === 'default-model'"
-                        :model-key="modelDraft.defaultModelKey"
-                        :models="MODEL_DEFAULT_MODEL_OPTIONS"
-                        :is-project-scope="scope === 'project'"
-                        :target-label="targetLabel"
-                        @update:model-key="updateModelKey"
-                    />
 
-                    <AgentVisibleModelsView
-                        v-else-if="activeSection === 'agent-visible-models'"
-                        :model-value="modelDraft.agentVisibleModels"
-                        :models="MODEL_DEFAULT_MODEL_OPTIONS"
-                        :default-model-key="modelDraft.defaultModelKey"
-                        :is-project-scope="scope === 'project'"
-                        @update:model-value="updateAgentVisibleModels"
-                    />
                 </NovelIdeSettingsView>
             </DialogWindow>
         </div>

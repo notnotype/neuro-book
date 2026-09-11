@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
+import {FormSelect} from "@notnotype/nb-ui/components";
+import type {FormSelectOption} from "@notnotype/nb-ui/components";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+
+/**
+ * 模型下拉。零件用 nb-ui 的 `FormSelect`——设置界面里的下拉必须是同一套外观，
+ * 这里换掉旧 app 的 FormSelect 就是为了这一条（旧的那套只在这一处还能看到）。
+ */
 
 const DEFAULT_OPTION_VALUE = "__follow_default__";
 
@@ -27,7 +33,7 @@ const emit = defineEmits<{
 
 const {t} = useI18n();
 
-const selectOptions = computed<SelectOption[]>(() => {
+const selectOptions = computed<FormSelectOption[]>(() => {
     const options = props.models.map((model) => ({
         value: model.key,
         label: model.label,
@@ -66,13 +72,13 @@ function handleUpdate(value: string): void {
 
 <template>
     <!-- 通用模型选择下拉 -->
-    <div :class="props.disabled ? 'pointer-events-none opacity-60' : ''">
-        <FormSelect
-            :model-value="selectedValue"
-            :options="selectOptions"
-            :placeholder="props.placeholder || t('settings.panels.modelSelect.placeholder')"
-            :dropdown-direction="props.dropdownDirection"
-            @update:model-value="handleUpdate"
-        />
-    </div>
+    <FormSelect
+        :model-value="selectedValue"
+        :options="selectOptions"
+        :placeholder="props.placeholder || t('settings.panels.modelSelect.placeholder')"
+        :dropdown-direction="props.dropdownDirection"
+        :disabled="props.disabled"
+        :aria-label="t('settings.panels.modelSelect.placeholder')"
+        @update:model-value="handleUpdate"
+    />
 </template>

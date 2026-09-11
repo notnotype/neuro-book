@@ -59,9 +59,9 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             `作用域选择器应给出四档且都可进入：${JSON.stringify(layout)}`,
         );
         assert(
-            layout.sectionCount === 9 && layout.activeSections === 1,
+            layout.sectionCount === 7 && layout.activeSections === 1,
             failures,
-            `区段导航应列出九个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
+            `区段导航应列出七个已迁移区段并只标出一个当前项：${JSON.stringify(layout)}`,
         );
         assert(layout.overflow <= 0, failures, `设置外壳不应造成页面级横向溢出：${JSON.stringify(layout)}`);
 
@@ -230,44 +230,6 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         await page.keyboard.press("Escape");
         await page.waitForTimeout(250);
 
-        stage = "切到默认模型区段";
-        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "默认模型"}).first().click();
-        await page.waitForTimeout(200);
-        const defaultModelSection = await page.evaluate(() => {
-            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
-            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
-            const view = body?.querySelector<HTMLElement>(".default-model-view-root") ?? null;
-            return {
-                mounted: Boolean(view),
-                hasModelLabel: (view?.textContent ?? "").includes("GPT-5.1"),
-                hasHint: (view?.textContent ?? "").includes("默认"),
-            };
-        });
-        assert(
-            defaultModelSection.mounted && defaultModelSection.hasModelLabel && defaultModelSection.hasHint,
-            failures,
-            `默认模型区段应挂载视图并给出模型选择：${JSON.stringify(defaultModelSection)}`,
-        );
-
-        stage = "切到可见模型区段";
-        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "可见模型"}).first().click();
-        await page.waitForTimeout(200);
-        const visibleModelsSection = await page.evaluate(() => {
-            const root = document.querySelector<HTMLElement>('[aria-label="配置作用域"]')?.closest<HTMLElement>(".settings-view-root") ?? null;
-            const body = root?.querySelector<HTMLElement>(".settings-detail-section") ?? null;
-            const view = body?.querySelector<HTMLElement>(".agent-visible-models-view-root") ?? null;
-            return {
-                mounted: Boolean(view),
-                noteInputs: view ? view.querySelectorAll('input[placeholder*="用途说明"]').length : 0,
-                addButtons: view ? view.querySelectorAll("button").length : 0,
-            };
-        });
-        assert(
-            visibleModelsSection.mounted && visibleModelsSection.noteInputs === 1 && visibleModelsSection.addButtons >= 2,
-            failures,
-            `可见模型区段应挂载视图并渲染一行清单：${JSON.stringify(visibleModelsSection)}`,
-        );
-
         stage = "切到角色区段";
         await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "角色"}).first().click();
         await page.waitForTimeout(200);
@@ -288,7 +250,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
         );
 
         stage = "切回 Agent Profile 区段";
-        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile 模型"}).first().click();
+        await page.locator(".settings-nav-aside nav ul li button").filter({hasText: "Agent Profile"}).first().click();
         await page.waitForTimeout(200);
 
         stage = "切到启动作用域";
