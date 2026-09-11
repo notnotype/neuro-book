@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {ref, computed, watch} from "vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 
 const props = defineProps<{
     modelValue: boolean;

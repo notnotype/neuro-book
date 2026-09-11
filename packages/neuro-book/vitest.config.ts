@@ -47,6 +47,7 @@ export default defineConfig({
             "app/stores/**/*.test.ts",
             "app/utils/novel-ide-settings-responsive.contract.test.ts",
             "app/utils/novel-ide-settings-current-project.contract.test.ts",
+            "app/utils/project-picker-recovery.contract.test.ts",
             "app/utils/world-engine-ide-entry.test.ts",
             "app/utils/world-engine-workbench-preview.test.ts",
             "server/**/*.test.ts",
