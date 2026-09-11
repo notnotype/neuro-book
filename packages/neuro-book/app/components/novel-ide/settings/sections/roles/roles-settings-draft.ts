@@ -117,8 +117,10 @@ export function findModelRole(id: ModelRoleId): ModelRoleDefinition {
 
 /**
  * 未配置时实际生效的角色：沿 `fallback` 往上找第一个有绑定的角色。
- * 找到自己还没有绑定、且链上也没有任何绑定（比如 vision 这种不能回落的）时返回 null——
- * 那时只有宿主能决定怎么办，本模块不替它猜。
+ *
+ * 返回 null 表示**这一行没有可用模型**：按 2026-09-10 的决策，调用方必须显式绑定，
+ * 后端届时按配置错误处理，不会静默沿 profile 链取值。`vision` 的 fallback 为 null，
+ * 天然落在这一档。本模块只负责把这件事说清楚，不替宿主决定怎么办。
  */
 export function resolveEffectiveRole(draft: RolesSettingsDraft, id: ModelRoleId): ModelRoleId | null {
     let current: ModelRoleId | null = id;

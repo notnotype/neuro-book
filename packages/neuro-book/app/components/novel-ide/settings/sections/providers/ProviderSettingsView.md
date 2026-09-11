@@ -4,7 +4,7 @@
 
 # ProviderSettingsView
 
-「模型设置」区段的渲染层：区段标题与说明、草稿问题横幅、默认模型与「新增 Provider」、Agent 可见模型清单，以及 global 作用域下的 Provider 双栏（左导轨 + 右详情：连接表单 + 已保存模型清单）。project 作用域只渲染默认模型与继承说明——Provider 与 API Key 仍来自全局配置。
+「Provider」区段的渲染层：区段标题、草稿问题横幅，以及 global 作用域下的 Provider 双栏（左导轨 + 右详情：连接表单 + 已保存模型清单）。**新增 Provider 的入口在导轨顶部**（模板选择 + 添加），列表在它下面独立滚动；默认模型与 Agent 可见模型已各自独立成区段，不再在这里。project 作用域只显示继承说明——Provider 与 API Key 仍来自全局配置。
 
 视图吃 props、emit 动作：四个会话（`useModelSettingsDraftSession` / `useModelCheckSession` / `useModelDiscoverySession` / `useProviderTemplateSession`）与全部 I/O 仍在旧面板 `NovelIdeModelSettingsPanel`，产品接线时由宿主把会话字段按同名 props 传进来、按同名 emit 接回去。字段改动统一走 `update:draft`（详情内部先合成整份 Provider 草稿，再由本视图按 `localKey` 换掉对应项）；打开对话框、修复、检查连通等动作各有同名事件，视图不自己解析结果、不弹通知。
 
@@ -25,7 +25,6 @@ type Props = {
     validationIssues: ProviderConfigIssue[];
     validationIssueDetails: string;       // 完整问题列表，做横幅的 title
     repairingModels: boolean;
-    defaultModelOptions: EnabledModelOptionDto[];
     savedModelGroups: SavedModelGroupView[];
     disabledModels: ModelSettingsModelDraft[];
     activeProviderKey: string;            // 当前选中 Provider 的 localKey
@@ -113,4 +112,4 @@ type Emits = {
 
 ## 布局规则
 
-与设置外壳同源：不画卡片面，标题、问题横幅、默认模型、可见模型、Provider 双栏之间用 1px `--divider` 横线分段；导轨只有控件自身的选中底色（`--accent-bg`），不加面板底与描边。Provider 连接表单的短字段并排按视图自身容器宽度（`@container min-width: 620px`）决定，双栏（`260px` 导轨 + 详情）在 `@container min-width: 700px` 时成立（与外壳的单列阈值同一档），窄容器退化为导轨在上、详情在下。视图自身不滚动（宿主负责滚动）。
+与设置外壳同源：不画卡片面，标题、问题横幅、Provider 双栏之间用 1px `--divider` 横线分段；两列之间有一条同款竖线（两端留 16px，落在两列各自留白的中间），窄容器退化为单列时去掉；导轨顶部的添加行不随列表滚动。导轨只有控件自身的选中底色（`--accent-bg`），不加面板底与描边。Provider 连接表单的短字段并排按视图自身容器宽度（`@container min-width: 620px`）决定，双栏（`260px` 导轨 + 详情）在 `@container min-width: 700px` 时成立（与外壳的单列阈值同一档），窄容器退化为导轨在上、详情在下。视图自身不滚动（宿主负责滚动）。

@@ -85,8 +85,9 @@ function toggleGroup(group: string): void {
         </div>
 
         <!-- Provider 双栏：窄容器退化为导轨在上、详情在下 -->
-        <div v-else-if="!props.isProjectScope" class="model-provider-layout mt-[var(--space-5)] grid gap-[var(--space-5)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+        <div v-else-if="!props.isProjectScope" class="model-provider-layout mt-[var(--space-5)] grid border-t border-[var(--divider)] pt-[var(--space-4)]">
             <ModelProviderRail
+                class="pr-[var(--space-5)]"
                 :providers="props.draft.providers"
                 :active-key="props.activeProviderKey"
                 :templates="props.providerTemplates"
@@ -97,6 +98,7 @@ function toggleGroup(group: string): void {
                 @add="emit('add-provider')"
             />
             <ModelProviderDetail
+                class="pl-[var(--space-5)]"
                 :provider="activeProvider"
                 :model-api-options="props.modelApiOptions"
                 :saved-model-groups="props.savedModelGroups"
@@ -231,6 +233,28 @@ function toggleGroup(group: string): void {
 @container (min-width: 700px) {
     .model-provider-layout {
         grid-template-columns: 260px minmax(0, 1fr);
+    }
+}
+
+/* 两列之间的竖线：与外壳、Agent Profile 同款——1px --divider，两端留边距，
+   落在两列各自留白的正中间。窄容器退化为单列时去掉（那里没有分栏）。 */
+.model-provider-layout :deep(.model-provider-rail) {
+    position: relative;
+}
+
+.model-provider-layout :deep(.model-provider-rail)::after {
+    content: "";
+    position: absolute;
+    top: var(--space-4);
+    right: 0;
+    bottom: var(--space-4);
+    width: var(--border-w);
+    background: var(--divider);
+}
+
+@container (max-width: 699px) {
+    .model-provider-layout :deep(.model-provider-rail)::after {
+        display: none;
     }
 }
 </style>

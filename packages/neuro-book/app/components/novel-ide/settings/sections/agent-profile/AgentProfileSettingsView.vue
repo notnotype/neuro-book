@@ -249,7 +249,7 @@ function resetDefaults(): void {
         <div class="flex min-h-0 flex-1">
             <!-- 桌面或移动端展开时展示导航；导航轨自带右分割线，不画卡片面 -->
             <aside
-                class="settings-nav-aside shrink-0 flex-col gap-[var(--space-4)] p-[var(--space-6)]"
+                class="settings-nav-aside shrink-0 flex-col gap-[var(--space-4)] p-[var(--space-4)]"
                 :class="{'is-mobile-open': mobileNavOpen}"
             >
                 <!-- 移动端导航返回条（单列打开导航时可见） -->
@@ -384,16 +384,16 @@ function resetDefaults(): void {
 .settings-nav-aside {
     position: relative;
     display: flex;
-    /* 导航轨自带 16px 内边距，宽度在此之上补足，保持内容宽度与历史版本一致。 */
+    /* 导航轨自带 16px 内边距（与文档一致，也避免嵌在外壳里时与外层页面边距叠加成 48px）。 */
     width: 276px;
 }
 
 .settings-nav-aside::after {
     content: "";
     position: absolute;
-    top: var(--space-6);
+    top: var(--space-4);
     right: 0;
-    bottom: var(--space-6);
+    bottom: var(--space-4);
     width: var(--border-w);
     background: var(--divider);
 }

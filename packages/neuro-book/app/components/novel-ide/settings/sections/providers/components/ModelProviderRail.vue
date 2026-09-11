@@ -37,17 +37,34 @@ function enabledModelCount(provider: ModelSettingsProviderDraft): number {
 </script>
 
 <template>
-    <div class="model-provider-rail min-w-0">
-        <div class="flex items-baseline justify-between gap-[var(--space-2)]">
+    <div class="model-provider-rail flex min-h-0 min-w-0 flex-col">
+        <div class="flex shrink-0 items-baseline justify-between gap-[var(--space-2)]">
             <h3 class="text-[var(--text-2xs)] [font-weight:var(--weight-strong)] uppercase tracking-[0.2em] text-[var(--text-muted)]">Providers</h3>
             <span class="text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providersHint") }}</span>
         </div>
 
-        <p v-if="props.providers.length === 0" class="mt-[var(--space-3)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
+        <!-- 新增 Provider：在列表上方，不随列表滚动；它是这一栏的第一个动作，不是列表的尾部 -->
+        <div class="mt-[var(--space-3)] flex shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
+            <FormSelect
+                size="sm"
+                class="min-w-0 flex-1"
+                :model-value="props.selectedTemplate"
+                :options="templateOptions"
+                :disabled="props.disabled"
+                :aria-label="t('settings.panels.models.addProvider')"
+                @update:model-value="emit('update:selectedTemplate', $event)"
+            />
+            <Button size="sm" variant="secondary" class="shrink-0" :disabled="props.disabled" @click="emit('add')">
+                <span class="i-lucide-plus mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
+                {{ t("settings.panels.models.add") }}
+            </Button>
+        </div>
+
+        <p v-if="props.providers.length === 0" class="mt-[var(--space-3)] shrink-0 text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
             {{ t("settings.panels.models.noProviders") }}
         </p>
 
-        <ul v-else class="mt-[var(--space-2)] flex flex-col gap-[var(--space-1)]">
+        <ul v-else class="custom-scrollbar mt-[var(--space-2)] flex min-h-0 flex-1 flex-col gap-[var(--space-1)] overflow-y-auto">
             <li v-for="provider in props.providers" :key="provider.localKey">
                 <button
                     type="button"
@@ -74,24 +91,5 @@ function enabledModelCount(provider: ModelSettingsProviderDraft): number {
                 </button>
             </li>
         </ul>
-
-        <!-- 新增 Provider 的入口：它属于这一栏（列表的尾部动作），不属于内容区顶部 -->
-        <div class="mt-[var(--space-3)] border-t border-[var(--divider)] pt-[var(--space-3)]">
-            <div class="flex items-center gap-[var(--space-2)]">
-                <FormSelect
-                    size="sm"
-                    class="min-w-0 flex-1"
-                    :model-value="props.selectedTemplate"
-                    :options="templateOptions"
-                    :disabled="props.disabled"
-                    :aria-label="t('settings.panels.models.addProvider')"
-                    @update:model-value="emit('update:selectedTemplate', $event)"
-                />
-                <Button size="sm" variant="secondary" class="shrink-0" :disabled="props.disabled" @click="emit('add')">
-                    <span class="i-lucide-plus mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
-                    {{ t("settings.panels.models.add") }}
-                </Button>
-            </div>
-        </div>
     </div>
 </template>
