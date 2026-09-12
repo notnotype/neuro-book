@@ -21,10 +21,10 @@ const props = defineProps<{scene: string; data?: unknown}>();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "default" | "project" | "no-provider" | "disabled-models" | "dialog-window" | "saving" | "loading";
+type SceneKey = "default" | "project" | "no-provider" | "disabled-models" | "dialog-window" | "saving";
 
 const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["default", "project", "no-provider", "disabled-models", "dialog-window", "saving", "loading"];
+    const known: SceneKey[] = ["default", "project", "no-provider", "disabled-models", "dialog-window", "saving"];
     return known.find((key) => key === props.scene) ?? "default";
 });
 
@@ -52,7 +52,6 @@ const windowOpen = ref(true);
 const selectedTemplate = ref(MODEL_PROVIDER_TEMPLATES[0]!.id);
 
 const isProjectScope = computed(() => sceneKey.value === "project");
-const loading = computed(() => sceneKey.value === "loading");
 const saving = computed(() => sceneKey.value === "saving");
 const hasIssues = computed(() => sceneKey.value === "disabled-models");
 const validationIssues = computed(() => hasIssues.value ? draftIssues : []);
@@ -108,7 +107,6 @@ const viewBindings = computed(() => ({
     draft: draft.value,
     isProjectScope: isProjectScope.value,
     targetLabel: "C:/novels/长夜行",
-    loading: loading.value,
     saving: saving.value,
     validationIssues: validationIssues.value,
     validationIssueDetails: validationIssueDetails.value,

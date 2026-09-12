@@ -325,6 +325,19 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
 
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+    /**
+     * 会话是否真的读过配置。没读过时草稿只是空壳，`dirty` 会误判为真——
+     * 这时写回等于把空 models 段覆盖到真配置上，所以读之前一律不写。
+     */
+    const hasLoaded = ref(false);
+
+    /**
+     * 用户是否真的改过东西。会话的 `dirty` 是「草稿与快照文本不同」的派生判断，
+     * 归一化差异也会让它为真；切档前 flush 只看它，就会把没改过的配置写回去。
+     * 所以写回的准入条件是「用户改过」，而不是「会话算出来脏」。
+     */
+    let userDirty = false;
+
     function cancelScheduledSave(): void {
         if (saveTimer !== null) {
             clearTimeout(saveTimer);
@@ -334,14 +347,26 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
 
     async function persist(): Promise<void> {
         const saved = await saveSettingsResult(null);
-        if (!saved && dirty.value) {
+        if (saved) {
+            userDirty = false;
+        } else if (dirty.value) {
             // 保存失败走系统通知：视图没有内联保存状态了。
             notification.error(t("settings.panels.models.saveFailed"));
         }
     }
 
-    /** 视图每次改动后调用：草稿已经交给会话，这里只安排一次防抖写回。 */
+    /** 读取 Provider 配置；成功后草稿才算「可写」。 */
+    async function loadProviderSettings(): Promise<void> {
+        await loadSettings();
+        hasLoaded.value = true;
+    }
+
+    /** 视图每次改动后调用：这是「用户改过」的唯一入口，同时安排一次防抖写回。 */
     function scheduleSave(): void {
+        userDirty = true;
+        if (!hasLoaded.value) {
+            return;
+        }
         cancelScheduledSave();
         saveTimer = setTimeout(() => {
             saveTimer = null;
@@ -349,9 +374,12 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         }, SAVE_DEBOUNCE_MS);
     }
 
-    /** 立即写一次（切区段、关窗口前调用），跳过防抖。 */
+    /** 切区段、切作用域前立即写一次（跳过防抖）；没读过配置或用户没改过就什么都不写。 */
     async function flushSave(): Promise<void> {
         cancelScheduledSave();
+        if (!hasLoaded.value || !userDirty) {
+            return;
+        }
         await persist();
     }
 
@@ -362,17 +390,30 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
         }
     });
 
-    // 区段没打开过就不发请求；打开过之后，作用域/配置目标变了要重新读取（草稿跟着换目标）。
+    let loadedKey = "";
+
+    /** 当前作用域 + 配置目标：换目标才需要重读，单纯重新进入区段不需要（草稿还在）。 */
+    function providerTargetKey(): string {
+        return `${options.scope()}:${JSON.stringify(options.targetQuery())}`;
+    }
+
+    // 区段没打开过就不发请求；只有配置目标真的变了才重读——重新进入区段时草稿还在，
+    // 重读会让表单先被占位替换一次（肉眼就是「闪一下」）。
     watch(
         [
             () => options.enabled(),
-            () => options.enabled() ? options.scope() : "",
-            () => options.enabled() ? JSON.stringify(options.targetQuery()) : "",
+            () => options.enabled() ? providerTargetKey() : "",
         ],
         ([enabled]) => {
-            if (enabled) {
-                void loadSettings();
+            if (!enabled) {
+                return;
             }
+            const key = providerTargetKey();
+            if (loadedKey === key) {
+                return;
+            }
+            loadedKey = key;
+            void loadProviderSettings();
         },
         {immediate: true},
     );
@@ -534,9 +575,10 @@ export function useProviderSettingsBinding(options: ProviderSettingsBindingOptio
 
     return {
         viewBindings,
-        load: loadSettings,
+        /** 是否已经成功读过一次：宿主用它判断这个区段有没有数据可渲染。 */
+        loaded: hasLoaded as Readonly<Ref<boolean>>,
+        load: loadProviderSettings,
         flushSave,
         loading,
         saving,
-    };
-}
+    };}

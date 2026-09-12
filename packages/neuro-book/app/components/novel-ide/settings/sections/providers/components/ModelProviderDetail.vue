@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {Button, FormInput, FormSelect, FormTextarea} from "@notnotype/nb-ui/components";
+import {Badge, Button, FormInput, FormSelect, FormTextarea, IconButton, Tooltip} from "@notnotype/nb-ui/components";
 import SavedModelsList from "./SavedModelsList.vue";
 import type {ModelSettingsModelDraft, ModelSettingsProviderDraft} from "../provider-settings-draft";
 import type {ModelApiOption, SavedModelGroupView} from "../provider-view-types";
@@ -72,169 +72,216 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
 </script>
 
 <template>
-    <section v-if="props.provider" class="model-provider-detail min-w-0">
-        <div class="flex flex-wrap items-center justify-between gap-[var(--space-2)]">
-            <p v-if="!props.provider.enabled" class="inline-flex min-w-0 items-center gap-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--status-warning)]">
-                <span class="i-lucide-server-off h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
-                {{ t("settings.panels.models.providerDisabledHint") }}
-            </p>
+    <div class="model-provider-detail custom-scrollbar min-h-0 min-w-0 overflow-y-auto px-[var(--space-6)] pb-[var(--space-6)] pt-[var(--space-6)]">
+    <section v-if="props.provider" class="flex min-w-0 flex-col">
+        <!--
+          身份行：左边是谁（名称 + 稳定 id + 启用状态），右边是这一页能做的动作。
+          破坏性动作降级成图标按钮，主操作（查询可用模型）保留文字，避免一行四个同级按钮。
+        -->
+        <header class="flex min-w-0 flex-wrap items-center justify-between gap-[var(--space-3)] pb-[var(--space-1)]">
+            <div class="flex min-w-0 items-center gap-[var(--space-2)]">
+                <span class="truncate text-[var(--text-sm)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ props.provider.name || props.provider.id }}</span>
+                <span class="shrink-0 font-mono text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ props.provider.id }}</span>
+                <Badge v-if="!props.provider.enabled" class="shrink-0" variant="soft" tone="warning">{{ t("settings.panels.models.providerDisabledBadge") }}</Badge>
+            </div>
 
-            <div class="ml-auto flex flex-wrap items-center justify-end gap-[var(--space-2)]">
-                <Button size="sm" :variant="props.provider.enabled ? 'secondary' : 'primary'" :disabled="props.saving" @click="emit('toggle-enabled')">
-                    <span class="mr-1 h-3.5 w-3.5" :class="props.provider.enabled ? 'i-lucide-power-off' : 'i-lucide-power'" aria-hidden="true"></span>
-                    {{ props.provider.enabled ? t("settings.panels.models.disableProvider") : t("settings.panels.models.enableProvider") }}
-                </Button>
+            <div class="flex shrink-0 items-center gap-[var(--space-1)]">
                 <Button size="sm" variant="secondary" :disabled="props.discovering || props.saving" @click="emit('discover-models')">
                     <span class="mr-1 h-3.5 w-3.5" :class="props.discovering ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-cloud-lightning'" aria-hidden="true"></span>
                     {{ props.discovering ? t("settings.panels.models.discovering") : t("settings.panels.models.discoverModels") }}
                 </Button>
-                <Button v-if="isSavedProvider" size="sm" variant="secondary" :disabled="props.saving" @click="emit('clone-connection')">
-                    <span class="i-lucide-copy-plus mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
-                    {{ t("settings.panels.models.cloneProvider") }}
-                </Button>
-                <Button size="sm" variant="danger" :disabled="props.saving" @click="emit('request-delete')">
-                    <span class="i-lucide-trash-2 mr-1 h-3.5 w-3.5" aria-hidden="true"></span>
-                    {{ t("settings.panels.models.delete") }}
-                </Button>
-            </div>
-        </div>
 
-        <div class="provider-form-grid mt-[var(--space-4)] grid gap-[var(--space-3)] border-t border-[var(--divider)] pt-[var(--space-4)]">
-            <label class="block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.providerId") }}</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    :model-value="props.provider.id"
-                    :readonly="isSavedProvider"
-                    :placeholder="t('settings.panels.models.providerIdPlaceholder')"
-                    :disabled="props.saving"
-                    @update:model-value="emit('rename-provider-id', $event)"
-                />
-                <span v-if="isSavedProvider" class="mt-[var(--space-1)] block text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerIdentityHint") }}</span>
-            </label>
-
-            <label class="block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.providerName") }}</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    :model-value="props.provider.name"
-                    :placeholder="t('settings.panels.models.providerNamePlaceholder')"
-                    :disabled="props.saving"
-                    @update:model-value="patchProvider({name: $event})"
-                />
-            </label>
-
-            <label class="provider-field-span block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">API Base</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    :model-value="props.provider.options.baseURL"
-                    :readonly="isSavedProvider"
-                    :placeholder="t('settings.panels.models.apiBasePlaceholder')"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({baseURL: $event})"
-                />
-            </label>
-
-            <label class="provider-field-span block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
-                    {{ t("settings.panels.models.providerModelApi") }}<span class="text-[var(--status-danger)]" aria-hidden="true"> *</span>
-                </span>
-                <FormSelect
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    required
-                    :model-value="props.provider.modelApi"
-                    :options="props.modelApiOptions"
-                    :placeholder="t('settings.panels.models.apiFormat')"
-                    :disabled="props.saving"
-                    @update:model-value="patchProvider({modelApi: $event})"
-                />
-                <span class="mt-[var(--space-1)] block text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerModelApiHint") }}</span>
-            </label>
-
-            <label class="provider-field-span block min-w-0">
-                <span class="flex items-center justify-between gap-[var(--space-3)]">
-                    <span class="text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">API Key</span>
-                    <button
-                        v-if="props.provider.options.apiKeyConfigured"
-                        type="button"
-                        class="text-[var(--text-2xs)] text-[var(--status-danger)] transition-colors hover:opacity-80"
+                <Tooltip :text="props.provider.enabled ? t('settings.panels.models.disableProvider') : t('settings.panels.models.enableProvider')">
+                    <IconButton
+                        size="sm"
                         :disabled="props.saving"
-                        @click.prevent="emit('clear-api-key')"
+                        :title="props.provider.enabled ? t('settings.panels.models.disableProvider') : t('settings.panels.models.enableProvider')"
+                        @click="emit('toggle-enabled')"
                     >
-                        {{ t("settings.panels.models.clearApiKey") }}
-                    </button>
-                </span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    type="password"
-                    :model-value="props.provider.options.apiKey"
-                    :placeholder="apiKeyPlaceholder"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({apiKey: $event})"
-                />
-            </label>
+                        <span class="h-4 w-4" :class="props.provider.enabled ? 'i-lucide-power-off' : 'i-lucide-power'" aria-hidden="true"></span>
+                    </IconButton>
+                </Tooltip>
 
-            <label class="provider-field-span block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.proxy") }}</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    :model-value="props.provider.options.proxy"
-                    :readonly="isSavedProvider"
-                    placeholder="http://127.0.0.1:7890"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({proxy: $event})"
-                />
-            </label>
+                <Tooltip v-if="isSavedProvider" :text="t('settings.panels.models.cloneProvider')">
+                    <IconButton
+                        size="sm"
+                        :disabled="props.saving"
+                        :title="t('settings.panels.models.cloneProvider')"
+                        @click="emit('clone-connection')"
+                    >
+                        <span class="i-lucide-copy-plus h-4 w-4" aria-hidden="true"></span>
+                    </IconButton>
+                </Tooltip>
 
-            <label class="block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.requestTimeout") }}</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    type="number"
-                    inputmode="numeric"
-                    :model-value="props.provider.options.timeoutMs"
-                    :placeholder="t('settings.panels.models.defaultTimeout')"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({timeoutMs: $event})"
-                />
-            </label>
+                <Tooltip :text="t('settings.panels.models.delete')">
+                    <IconButton
+                        size="sm"
+                        variant="danger"
+                        :disabled="props.saving"
+                        :title="t('settings.panels.models.delete')"
+                        @click="emit('request-delete')"
+                    >
+                        <span class="i-lucide-trash-2 h-4 w-4" aria-hidden="true"></span>
+                    </IconButton>
+                </Tooltip>
+            </div>
+        </header>
 
-            <label class="block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.maxRetries") }}</span>
-                <FormInput
-                    class="mt-[var(--space-2)]"
-                    size="sm"
-                    type="number"
-                    inputmode="numeric"
-                    min="0"
-                    step="1"
-                    :model-value="props.provider.options.maxRetries"
-                    :placeholder="t('settings.panels.models.defaultMaxRetries', {value: props.maxRetriesPlaceholder})"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({maxRetries: $event})"
-                />
-            </label>
+        <!-- 连接：身份与连接参数。已保存 Provider 的这三个字段只读，改动只能来自配置文件。 -->
+        <section class="mt-[var(--space-6)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+            <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.models.connectionGroup") }}</h3>
+            <p v-if="isSavedProvider" class="mt-[var(--space-1)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerIdentityHint") }}</p>
 
-            <label class="provider-field-span block min-w-0">
-                <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.requestOptions") }}</span>
-                <FormTextarea
-                    class="mt-[var(--space-2)] font-mono"
-                    :rows="4"
-                    placeholder="{&quot;temperature&quot;:0.7}"
-                    :model-value="props.provider.options.requestOptions"
-                    :disabled="props.saving"
-                    @update:model-value="patchOptions({requestOptions: $event})"
-                />
-            </label>
-        </div>
+            <div class="provider-form-grid mt-[var(--space-4)] grid gap-x-[var(--space-3)] gap-y-[var(--space-4)]">
+                <label class="block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.providerId") }}</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        :model-value="props.provider.id"
+                        :readonly="isSavedProvider"
+                        :placeholder="t('settings.panels.models.providerIdPlaceholder')"
+                        :disabled="props.saving"
+                        @update:model-value="emit('rename-provider-id', $event)"
+                    />
+                </label>
+
+                <label class="block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.providerName") }}</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        :model-value="props.provider.name"
+                        :placeholder="t('settings.panels.models.providerNamePlaceholder')"
+                        :disabled="props.saving"
+                        @update:model-value="patchProvider({name: $event})"
+                    />
+                </label>
+
+                <label class="provider-field-span block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">API Base</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        :model-value="props.provider.options.baseURL"
+                        :readonly="isSavedProvider"
+                        :placeholder="t('settings.panels.models.apiBasePlaceholder')"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({baseURL: $event})"
+                    />
+                </label>
+
+                <label class="provider-field-span block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.proxy") }}</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        :model-value="props.provider.options.proxy"
+                        :readonly="isSavedProvider"
+                        placeholder="http://127.0.0.1:7890"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({proxy: $event})"
+                    />
+                </label>
+            </div>
+        </section>
+
+        <!-- 协议与鉴权：接口格式决定「怎么说话」，密钥决定「以谁的身份说」。 -->
+        <section class="mt-[var(--space-6)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+            <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.models.protocolGroup") }}</h3>
+
+            <div class="provider-form-grid mt-[var(--space-4)] grid gap-x-[var(--space-3)] gap-y-[var(--space-4)]">
+                <label class="provider-field-span block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
+                        {{ t("settings.panels.models.providerModelApi") }}<span class="text-[var(--status-danger)]" aria-hidden="true"> *</span>
+                    </span>
+                    <FormSelect
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        required
+                        :model-value="props.provider.modelApi"
+                        :options="props.modelApiOptions"
+                        :placeholder="t('settings.panels.models.apiFormat')"
+                        :disabled="props.saving"
+                        @update:model-value="patchProvider({modelApi: $event})"
+                    />
+                    <span class="mt-[var(--space-1)] block text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providerModelApiHint") }}</span>
+                </label>
+
+                <label class="provider-field-span block min-w-0">
+                    <span class="flex items-center justify-between gap-[var(--space-3)]">
+                        <span class="text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">API Key</span>
+                        <button
+                            v-if="props.provider.options.apiKeyConfigured"
+                            type="button"
+                            class="text-[var(--text-2xs)] text-[var(--status-danger)] transition-colors hover:opacity-80"
+                            :disabled="props.saving"
+                            @click.prevent="emit('clear-api-key')"
+                        >
+                            {{ t("settings.panels.models.clearApiKey") }}
+                        </button>
+                    </span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        type="password"
+                        :model-value="props.provider.options.apiKey"
+                        :placeholder="apiKeyPlaceholder"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({apiKey: $event})"
+                    />
+                </label>
+            </div>
+        </section>
+
+        <!-- 请求参数：只影响这一家服务的调用方式，与身份无关。 -->
+        <section class="mt-[var(--space-6)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+            <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ t("settings.panels.models.requestGroup") }}</h3>
+
+            <div class="provider-form-grid mt-[var(--space-4)] grid gap-x-[var(--space-3)] gap-y-[var(--space-4)]">
+                <label class="block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.requestTimeout") }}</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        type="number"
+                        inputmode="numeric"
+                        :model-value="props.provider.options.timeoutMs"
+                        :placeholder="t('settings.panels.models.defaultTimeout')"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({timeoutMs: $event})"
+                    />
+                </label>
+
+                <label class="block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.maxRetries") }}</span>
+                    <FormInput
+                        class="mt-[var(--space-2)]"
+                        size="sm"
+                        type="number"
+                        inputmode="numeric"
+                        min="0"
+                        step="1"
+                        :model-value="props.provider.options.maxRetries"
+                        :placeholder="t('settings.panels.models.defaultMaxRetries', {value: props.maxRetriesPlaceholder})"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({maxRetries: $event})"
+                    />
+                </label>
+
+                <label class="provider-field-span block min-w-0">
+                    <span class="block text-[var(--text-xs)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.requestOptions") }}</span>
+                    <FormTextarea
+                        class="mt-[var(--space-2)] font-mono"
+                        :rows="4"
+                        placeholder="{&quot;temperature&quot;:0.7}"
+                        :model-value="props.provider.options.requestOptions"
+                        :disabled="props.saving"
+                        @update:model-value="patchOptions({requestOptions: $event})"
+                    />
+                </label>
+            </div>
+        </section>
 
         <div class="mt-[var(--space-5)]">
             <SavedModelsList
@@ -266,6 +313,7 @@ function patchOptions(patch: Partial<ModelSettingsProviderDraft["options"]>): vo
             <div class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.selectProviderHint") }}</div>
         </div>
     </section>
+    </div>
 </template>
 
 <style scoped>

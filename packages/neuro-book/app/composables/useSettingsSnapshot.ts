@@ -1,26 +1,16 @@
 import {storeToRefs} from "pinia";
-import {computed, onScopeDispose, ref, watch, type Ref} from "vue";
+import {onScopeDispose, ref, watch, type Ref} from "vue";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto} from "nbook/shared/dto/config.dto";
 
-/** 首屏加载占位的出现延时：读得快时不该闪一下。 */
-const BLOCKING_LOADING_DELAY_MS = 200;
-
 export type SettingsSnapshot = {
-    /** 最近一次成功读取的编辑快照；重取期间保留旧值，内容因此不会闪空。 */
+    /** 最近一次成功读取的编辑快照；重取期间保留旧值。 */
     snapshot: Ref<ConfigEditorSnapshotDto | null>;
     /** 请求进行中（首次加载或作用域变更后的重取）。 */
     loading: Ref<boolean>;
-    /**
-     * 值得整屏加载占位的情况：还没有任何内容可显示，且已经等过一小段时间。
-     * 有内容时的重取只该显示细进度条（见 `refreshing`）。
-     */
-    blockingLoading: Ref<boolean>;
-    /** 有内容可显示时的后台重取。 */
-    refreshing: Ref<boolean>;
     /**
      * 非空表示读取失败。只在没有内容可显示时给出——有旧内容时保留内容 + 系统通知，
      * 不必把整屏换成错误页。
@@ -28,6 +18,42 @@ export type SettingsSnapshot = {
     loadError: Ref<string>;
     reload: () => Promise<void>;
 };
+
+/**
+ * 把一个「正在忙」的信号延后一小段时间再对外呈现。
+ *
+ * 加载占位统一由外壳画，而「要不要显示」必须看延时：读得快时什么都不出现才不会闪一下。
+ * 组合出来的忙信号（快照 + 区段自带取数）也走这里，保证判据只有一条。
+ */
+export function useDelayedFlag(source: () => boolean, delayMs: number): Ref<boolean> {
+    const visible = ref(false);
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    function clear(): void {
+        if (timer !== null) {
+            clearTimeout(timer);
+            timer = null;
+        }
+    }
+
+    watch(source, (busy) => {
+        clear();
+        if (!busy) {
+            visible.value = false;
+            return;
+        }
+        timer = setTimeout(() => {
+            timer = null;
+            if (source()) {
+                visible.value = true;
+            }
+        }, delayMs);
+    }, {immediate: true});
+
+    onScopeDispose(clear);
+
+    return visible as Ref<boolean>;
+}
 
 /**
  * 设置页面共用的编辑快照来源。
@@ -46,18 +72,8 @@ export function useSettingsSnapshot(options: {
     const {configRevision} = storeToRefs(useNovelIdeStore());
     const snapshot = ref<ConfigEditorSnapshotDto | null>(null);
     const loading = ref(false);
-    const blockingLoading = ref(false);
     const loadError = ref("");
-    const refreshing = computed(() => loading.value && snapshot.value !== null);
     let requestId = 0;
-    let blockingTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function clearBlockingTimer(): void {
-        if (blockingTimer !== null) {
-            clearTimeout(blockingTimer);
-            blockingTimer = null;
-        }
-    }
 
     async function reload(): Promise<void> {
         if (!options.enabled()) {
@@ -65,16 +81,6 @@ export function useSettingsSnapshot(options: {
         }
         const id = ++requestId;
         loading.value = true;
-        // 只有当此刻确实没有内容时，才可能升级成整屏加载占位；延时是为了避开「读得快」的闪。
-        if (snapshot.value === null) {
-            clearBlockingTimer();
-            blockingTimer = setTimeout(() => {
-                blockingTimer = null;
-                if (id === requestId && loading.value && snapshot.value === null) {
-                    blockingLoading.value = true;
-                }
-            }, BLOCKING_LOADING_DELAY_MS);
-        }
         try {
             const next = await configApi.editorSnapshot(options.targetQuery());
             if (id !== requestId) {
@@ -95,8 +101,6 @@ export function useSettingsSnapshot(options: {
         } finally {
             if (id === requestId) {
                 loading.value = false;
-                blockingLoading.value = false;
-                clearBlockingTimer();
             }
         }
     }
@@ -108,14 +112,10 @@ export function useSettingsSnapshot(options: {
     ], ([enabled]) => {
         if (!enabled) {
             loading.value = false;
-            blockingLoading.value = false;
-            clearBlockingTimer();
             return;
         }
         void reload();
     }, {immediate: true});
 
-    onScopeDispose(clearBlockingTimer);
-
-    return {snapshot, loading, blockingLoading, refreshing, loadError, reload};
+    return {snapshot, loading, loadError, reload};
 }

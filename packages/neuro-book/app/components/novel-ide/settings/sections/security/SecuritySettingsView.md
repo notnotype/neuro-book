@@ -6,7 +6,9 @@
 
 「密码保护」区段的只读视图：启动期鉴权说明、`auth.enabled` 当前状态徽标、`config.yaml` 配置示例与安全警告。视图只消费一个 prop（`authEnabled`），没有任何 emit，也不提供保存入口——安全边界由根目录 `config.yaml` 与重启决定，不能在配置中心热更新，所以这页只解释、不写回。旧宿主 `NovelIdeSettingsDialog` 继续从 `useAuthSessionState()` 取 `session.authEnabled`，产品接线时再消费本视图。
 
-三态文案与色调：已开启（`success` 软底）、已关闭（`warning` 软底）、尚未读到 session（`neutral` 软底）。示例 YAML 里的值随状态同步；状态未知时写 `<true|false>` 占位，不假装知道磁盘上的值。
+三态文案与色调：已开启（`success` 软底）、已关闭（`warning` 软底）、尚未读到 session（`neutral` 软底）。每一态都配一句能独立成立的说明，讲清「这是进程启动时读到的值，磁盘上改了但没重启仍是旧值」；状态未知时写 `<true|false>` 占位，不假装知道磁盘上的值。
+
+四段自上而下：**只读说明**（这页为什么改不了）→ **当前状态**（`auth.enabled` + 一句说明 + 徽标）→ **配置示例**（等宽块 + 复制按钮；复制只写剪贴板，1.5s 后回到「复制」，失败静默）→ **代价提示**。段间统一 1px `--divider` 横线，内容列封顶 `max-w-3xl`。
 
 Component Lab 中由 `SecuritySettingsViewFixture` 提供确定性场景（enabled / disabled / unknown）。
 

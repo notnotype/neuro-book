@@ -23,7 +23,6 @@ export type ProviderSettingsViewProps = {
     isProjectScope: boolean;
     /** 项目作用域下的配置目标标签 */
     targetLabel: string;
-    loading: boolean;
     saving?: boolean;
     validationIssues: ProviderConfigIssue[];
     /** 完整问题列表（换行分隔），做问题横幅的 title */

@@ -220,6 +220,35 @@ describe("useSectionDraft", () => {
         expect(seen).toEqual(["global"]);
     });
 
+    it("来源变化时用旧上下文判干净：基准段变了也不误判为脏", async () => {
+        const source = ref<Draft | null>(null);
+        let base = "A";
+        const writes: Payload[] = [];
+        const scope = effectScope();
+        type ContextualPayload = Payload & {base: string};
+        const section = scope.run(() => useSectionDraft<Draft, ContextualPayload, {base: string}>({
+            source: () => source.value,
+            create: (value) => value ? {...(value as Draft)} : {enabled: false, maxRecords: 0},
+            toPayload: (draft, context) => ({...payloadOf(draft), base: context.base}),
+            captureContext: () => ({base}),
+            write: async (payload) => {
+                writes.push(payload);
+            },
+            fallbackErrorMessage: "保存设置失败。",
+        }))!;
+
+        // 快照到达，同时「未编辑的基准段」也变了（例如切了作用域）。
+        base = "B";
+        source.value = {enabled: true, maxRecords: 100};
+        await nextTick();
+        await section.flush();
+        await vi.advanceTimersByTimeAsync(1000);
+
+        // 草稿是干净的（没人改过），所以一次都不该写盘。
+        expect(writes).toHaveLength(0);
+        scope.stop();
+    });
+
     it("flush 跳过防抖立即写回", async () => {
         const harness = createHarness();
 

@@ -205,6 +205,19 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./WebSettingsViewFixture.vue")).default,
     },
     {
+        component: "WorkbenchViewHost",
+        scenes: [
+            {id: "normal", label: "正常：两容器 + 显隐/移动/尺寸", data: {editable: "fixture-owned"}},
+            {id: "empty", label: "空 registry", data: {editable: "fixture-owned"}},
+            {id: "duplicate", label: "重复 id", data: {editable: "fixture-owned"}},
+            {id: "context-unavailable", label: "context 不可用", data: {editable: "fixture-owned"}},
+            {id: "factory-error", label: "factory 抛错（只坏一个）", data: {editable: "fixture-owned"}},
+            {id: "stale-async", label: "异步迟到结果被丢弃", data: {editable: "fixture-owned"}},
+            {id: "corrupt-layout", label: "损坏布局快照回退", data: {editable: "fixture-owned"}},
+        ],
+        load: async () => (await import("./WorkbenchViewHostFixture.vue")).default,
+    },
+    {
         component: "EmbeddingSettingsView",
         scenes: [
             {id: "global-disabled", label: "全局未启用", data: {editable: "fixture-owned"}},

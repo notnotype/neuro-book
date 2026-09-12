@@ -6,7 +6,6 @@ import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeSettingsView from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
-import SettingsLoadState from "nbook/app/components/novel-ide/settings/sections/components/SettingsLoadState.vue";
 import type {SettingsScopeId, SettingsScopeOption, SettingsSectionOption} from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.types";
 import AgentProfileSettingsView from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue";
 import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.types";
@@ -37,7 +36,7 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import {useProviderSettingsBinding} from "nbook/app/composables/useProviderSettingsBinding";
 import {useSectionDraft} from "nbook/app/composables/useSectionDraft";
-import {useSettingsSnapshot} from "nbook/app/composables/useSettingsSnapshot";
+import {useDelayedFlag, useSettingsSnapshot} from "nbook/app/composables/useSettingsSnapshot";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {cloneModelDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
 import {createProfileRuntimeSettingsDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
@@ -108,6 +107,8 @@ const sectionItems = computed<SettingsSectionOption[]>(() => [
         description: t("settings.section.providers.description"),
         iconClass: "i-lucide-cpu",
         scopes: ["global"],
+        // 两栏型：外壳不给内边距、也不再套一层滚动，服务商列表与连接设置各自滚动。
+        layout: "fill",
     },
     {
         value: "embedding",
@@ -250,8 +251,10 @@ const desktopSaving = ref(false);
 const desktopSaveError = ref("");
 
 /**
- * 写回上下文：这份草稿是按哪个配置目标构建的。防抖写回晚到时仍写回它当初的目标，
- * 因此切换作用域不必等写回完成——切换立刻生效，写回在后台落地。
+ * 写回上下文：这份草稿是按哪个配置目标、以及当时未编辑的基准段构建的。
+ *
+ * 基准段必须一起捕获：写回体 = 基准段 + 本区段的字段，若基准段在写回时另取实时快照，
+ * 切了作用域就会「基准不同 → 写回体与基线不等 → 被判成脏」并把没改过的配置写回去。
  */
 type SectionWriteContext = {scope: SettingsScopeId; query: ConfigWorkspaceQueryDto};
 const writeContext = (): SectionWriteContext => ({scope: activeScope.value, query: targetQuery.value});
@@ -297,8 +300,8 @@ const embeddingDraft = useSectionDraft({
 const costDraft = useSectionDraft({
     source: () => settingsSnapshot.snapshot.value?.global.ui ?? null,
     create: (source) => readCostCurrency(source as GlobalConfigDto["ui"]),
-    toPayload: (currency) => buildCostPayload(settingsSnapshot.snapshot.value?.global.ui, currency),
-    captureContext: writeContext,
+    toPayload: (currency, context) => buildCostPayload(context.baseUi, currency),
+    captureContext: () => ({...writeContext(), baseUi: settingsSnapshot.snapshot.value?.global.ui}),
     write: (payload, context) => configApi.saveGlobal(payload, context.query),
     notifyError: notifySaveFailed,
     fallbackErrorMessage: t("settings.feedback.saveFailed"),
@@ -315,8 +318,8 @@ watch(() => readCostCurrency(settingsSnapshot.snapshot.value?.global.ui), (curre
 const observabilityDraft = useSectionDraft({
     source: () => settingsSnapshot.snapshot.value?.global ?? null,
     create: (source) => createObservabilityDraft(source as GlobalConfigDto | undefined),
-    toPayload: (draft) => buildObservabilityPayload(settingsSnapshot.snapshot.value?.global, draft),
-    captureContext: writeContext,
+    toPayload: (draft, context) => buildObservabilityPayload(context.baseGlobal, draft),
+    captureContext: () => ({...writeContext(), baseGlobal: settingsSnapshot.snapshot.value?.global}),
     write: (payload, context) => configApi.saveGlobal(payload, context.query),
     notifyError: notifySaveFailed,
     fallbackErrorMessage: t("settings.feedback.saveFailed"),
@@ -324,6 +327,8 @@ const observabilityDraft = useSectionDraft({
 
 /** Agent Profile 的草稿依赖两个来源：配置快照 + Profile meta（另一个端点）。 */
 const agentProfileMeta = shallowRef<ConfigAgentProfileSettingsDto | null>(null);
+/** meta 是按哪个配置目标取的。目标一换就等新数据，不能让上一个目标的表单先渲染一帧。 */
+const agentProfileMetaKey = ref("");
 const agentProfileMetaLoading = ref(false);
 const agentProfileLoadError = ref("");
 const agentProfileActive = computed(() => activeSection.value === "agent-profile-models");
@@ -360,11 +365,17 @@ const emptyAgentProfileDraft = (): AgentProfileSettingsPageDraft => ({
     profiles: [],
 });
 
+/** 当前配置目标的标识：meta 与它不一致就说明数据还没跟上。 */
+const agentProfileMetaTargetKey = (): string => `${activeScope.value === "project" ? "project" : "global"}:${JSON.stringify(targetQuery.value)}`;
+
 async function loadAgentProfileMeta(): Promise<void> {
+    const requestKey = agentProfileMetaTargetKey();
     agentProfileMetaLoading.value = true;
     agentProfileLoadError.value = "";
     try {
-        agentProfileMeta.value = await configApi.agentProfileSettings(targetQuery.value, activeScope.value === "project" ? "project" : "global");
+        const loaded = await configApi.agentProfileSettings(targetQuery.value, activeScope.value === "project" ? "project" : "global");
+        agentProfileMeta.value = loaded;
+        agentProfileMetaKey.value = requestKey;
     } catch (error) {
         agentProfileLoadError.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.loadFailed"));
         notification.error(agentProfileLoadError.value);
@@ -392,10 +403,9 @@ const agentProfileDraft = useSectionDraft({
             return buildAgentProfileProjectPayload(draft);
         }
         // meta 还没到时没有 Global 写回体可言：返回空体，与基线相等，因此不会被写出去。
-        const source = agentProfileSourceValue();
-        return source ? buildAgentProfileGlobalPayload(source, draft, agentProfileOptions.value) : {};
+        return context.source ? buildAgentProfileGlobalPayload(context.source, draft, agentProfileOptions.value) : {};
     },
-    captureContext: writeContext,
+    captureContext: () => ({...writeContext(), source: agentProfileSourceValue()}),
     write: async (payload, context) => {
         const validation = validateAgentProfileRuntimeDrafts(agentProfileDraft.draft.value);
         if (!validation.ok) {
@@ -412,7 +422,9 @@ const agentProfileDraft = useSectionDraft({
     fallbackErrorMessage: t("settings.feedback.saveFailed"),
 });
 
-const agentProfileReady = computed(() => agentProfileSourceValue() !== null);
+const agentProfileReady = computed(() => agentProfileSourceValue() !== null
+    && agentProfileMetaKey.value === agentProfileMetaTargetKey()
+    && !agentProfileMetaLoading.value);
 
 /** 视图需要完整上下文；来源未就绪时返回 null，由宿主渲染加载/失败占位。 */
 function agentProfileContext(): AgentProfileSettingsContext | null {
@@ -471,21 +483,6 @@ function flushSectionDrafts(): Promise<unknown> {
         agentProfileDraft.flush(),
         providerBinding.flushSave(),
     ]);
-}
-
-/** 「项目」作用域下可切换的项目清单来自 store，不额外加载。 */
-const projectOptions = computed(() => novelIdeStore.novels.map((project) => ({
-    id: project.projectRoot,
-    name: project.title || project.projectRoot,
-})));
-const currentProjectRoot = computed(() => novelIdeStore.currentProjectRoot);
-
-/** 切换当前项目：与标题栏走同一个入口。 */
-function switchProject(projectRoot: string): void {
-    if (!projectRoot || projectRoot === novelIdeStore.currentProjectRoot) {
-        return;
-    }
-    void novelIdeStore.switchToNovelWorkspace(projectRoot);
 }
 
 /** 编辑器区段的重置按块分发（视图只发目标名）。 */
@@ -580,6 +577,39 @@ const providerBinding = useProviderSettingsBinding({
     targetLabel: () => targetLabel.value,
     enabled: () => activeSection.value === "providers",
 });
+
+/**
+ * 当前区段有没有数据可渲染。重区段自带一次取数（Provider 会话 / Agent Profile 元数据），
+ * 这些取数折进外壳的同一块加载占位——一个区段在任何时刻只会有一个加载呈现。
+ */
+const activeSectionReady = computed(() => {
+    if (activeSection.value === "providers") {
+        // 重新读取期间也不算就绪：避免上一轮的数据先渲染一帧再被替换。
+        return providerBinding.loaded.value && !providerBinding.loading.value;
+    }
+    if (activeSection.value === "agent-profile-models") {
+        return agentProfileReady.value && !agentProfileMetaLoading.value;
+    }
+    return true;
+});
+/** 任一来源在读：交互统一按它禁用（视图不再各自维护 loading）。 */
+const settingsLoading = computed(() => settingsSnapshot.loading.value || !activeSectionReady.value);
+/** 加载占位只在读得慢时出现；呈现由外壳的共享状态组件负责。 */
+const settingsLoaderVisible = useDelayedFlag(() => settingsLoading.value, 200);
+/** 当前区段的失败原因：快照失败或该区段自带取数失败。 */
+const settingsLoadError = computed(() => settingsSnapshot.loadError.value
+    || (activeSection.value === "agent-profile-models" ? agentProfileLoadError.value : ""));
+
+/** 重试：快照 + 当前区段自带的取数。 */
+function reloadSettings(): void {
+    void settingsSnapshot.reload();
+    if (activeSection.value === "agent-profile-models") {
+        void loadAgentProfileMeta();
+    }
+    if (activeSection.value === "providers") {
+        void providerBinding.load();
+    }
+}
 
 /** 桌面应用区段只在 Desktop Envelope 里出现。 */
 const visibleSectionItems = computed<SettingsSectionOption[]>(() => sectionItems.value.filter((item) => item.value !== "desktop" || desktopAvailable.value));
@@ -988,18 +1018,13 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
             :scope="activeScope"
             :scopes="scopeOptions"
             :sections="visibleSectionItems"
-            :target-label="targetLabel"
             :version-label="versionLabel"
-            :projects="projectOptions"
-            :active-project-id="currentProjectRoot"
             :github-url="appVersion?.githubUrl ?? ''"
-            :loading="settingsSnapshot.blockingLoading.value"
-            :busy="settingsSnapshot.loading.value"
-            :load-error="settingsSnapshot.loadError.value"
+            :loading="settingsLoaderVisible"
+            :load-error="settingsLoadError"
             @update:model-value="selectSection"
             @update:scope="selectScope"
-            @update:active-project-id="switchProject"
-            @reload="settingsSnapshot.reload"
+            @reload="reloadSettings"
         >
             <template #default="{section}">
                 <div :key="`${settingsPanelKey}:${section?.value ?? ''}`" class="flex h-full min-h-0 flex-col">
@@ -1018,7 +1043,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                             :active-theme-id="activeResolvedTheme.id"
                             :active-theme-label="activeResolvedTheme.label"
                             :active-theme-is-built-in="activeThemeIsBuiltIn"
-                            :disabled="settingsSnapshot.loading.value"
+                            :disabled="settingsLoading"
                             @update:locale="updateLocale"
                             @update:view-mode="updateViewMode"
                             @update:reasoning="updateReasoning"
@@ -1060,8 +1085,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                             v-else-if="section?.value === 'embedding'"
                             :model-value="embeddingDraft.draft.value"
                             :scope="activeScope === 'project' ? 'project' : 'global'"
-                            :target-label="targetLabel"
-                            :disabled="settingsSnapshot.loading.value"
+                            :disabled="settingsLoading"
                             @update:model-value="embeddingDraft.draft.value = $event"
                         />
 
@@ -1073,7 +1097,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                             :exchange-rate-stale="costDisplay.exchangeRateStale.value"
                             :exchange-rate-fetched-at="costDisplay.exchangeRateFetchedAt.value ?? ''"
                             :refreshing="costRefreshing"
-                            :disabled="settingsSnapshot.loading.value"
+                            :disabled="settingsLoading"
                             @update:currency="setCostCurrency"
                             @refresh-rate="refreshCostExchangeRate"
                         />
@@ -1082,37 +1106,25 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                         <WebSettingsView
                             v-else-if="section?.value === 'web-tools'"
                             :model-value="webDraft.draft.value"
-                            :disabled="settingsSnapshot.loading.value"
+                            :disabled="settingsLoading"
                             @update:model-value="webDraft.draft.value = $event"
                         />
 
-                        <!-- Agent Profile：页面草稿 + 只读上下文都由宿主组装；来源未就绪时只给状态占位 -->
-                        <template v-else-if="section?.value === 'agent-profile-models'">
-                            <AgentProfileSettingsView
-                                v-if="agentProfileReady && agentProfileContext()"
-                                :model-value="agentProfileDraft.draft.value"
-                                :context="agentProfileContext()!"
-                                :show-nav-heading="false"
-                                :loading="agentProfileMetaLoading"
-                                :load-error="agentProfileLoadError"
-                                @update:model-value="agentProfileDraft.draft.value = $event"
-                                @reload="loadAgentProfileMeta"
-                            />
-                            <SettingsLoadState
-                                v-else-if="agentProfileLoadError"
-                                variant="error"
-                                :message="agentProfileLoadError"
-                                @retry="loadAgentProfileMeta"
-                            />
-                            <SettingsLoadState v-else variant="loading" />
-                        </template>
+                        <!-- Agent Profile：页面草稿 + 只读上下文都由宿主组装；读取期由外壳的加载占位交代 -->
+                        <AgentProfileSettingsView
+                            v-else-if="section?.value === 'agent-profile-models' && agentProfileReady && agentProfileContext()"
+                            :model-value="agentProfileDraft.draft.value"
+                            :context="agentProfileContext()!"
+                            :show-nav-heading="false"
+                            @update:model-value="agentProfileDraft.draft.value = $event"
+                        />
 
                         <!-- 可观测（Pi 请求 trace） -->
                         <ObservabilitySettingsView
                             v-else-if="section?.value === 'observability'"
                             :enabled="observabilityDraft.draft.value.enabled"
                             :max-records="observabilityDraft.draft.value.maxRecords"
-                            :disabled="settingsSnapshot.loading.value"
+                            :disabled="settingsLoading"
                             @update:enabled="observabilityDraft.draft.value.enabled = $event"
                             @update:max-records="observabilityDraft.draft.value.maxRecords = $event"
                         />

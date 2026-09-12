@@ -3,7 +3,6 @@ import {computed, nextTick, ref, watch, type ComponentPublicInstance} from "vue"
 import {Button, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {AgentProfileModelConfigDto} from "nbook/shared/dto/app-settings.dto";
 import AgentProfileNavList from "./components/AgentProfileNavList.vue";
-import SettingsLoadState from "../components/SettingsLoadState.vue";
 import type {AgentProfileNavItem} from "./components/AgentProfileNavList.types";
 import AgentProfileDetailPanel from "./components/AgentProfileDetailPanel.vue";
 import AgentProfileDefaultsPanel from "./components/AgentProfileDefaultsPanel.vue";
@@ -27,8 +26,6 @@ import type {AgentProfileSettingsPageDraft, AgentProfileSettingsViewEmits, Agent
 
 const props = withDefaults(defineProps<AgentProfileSettingsViewProps>(), {
     showNavHeading: true,
-    loading: false,
-    loadError: "",
 });
 const emit = defineEmits<AgentProfileSettingsViewEmits>();
 
@@ -74,9 +71,7 @@ function selectNavKey(key: string): void {
     }
 }
 
-// 就地保存失败走系统通知，视图不再有保存状态；只有读取期间禁用交互。
-const busy = computed(() => props.loading);
-
+// 读取与失败都由外壳统一呈现：视图只渲染宿主给的草稿，自己不管加载。
 const sortedProfiles = computed(() => [...props.modelValue.profiles].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
 const activeProfile = computed(() => sortedProfiles.value.find((profile) => profile.profileKey === activeNavKey.value) ?? null);
@@ -232,7 +227,6 @@ const profileModelErrors = computed<Record<string, AgentProfileModelFieldErrors>
 ));
 
 function resetDefaults(): void {
-    if (busy.value) return;
     updatePage({
         modelDefaults: props.context.scope === "project"
             ? cloneModelDraft(undefined)
@@ -300,20 +294,10 @@ function resetDefaults(): void {
                             {{ t("settings.panels.profileModels.settingsView.selectProfile") }}
                         </Button>
                     </div>
-                    <SettingsLoadState
-                        v-if="props.loading"
-                        variant="loading"
-                    />
-                    <SettingsLoadState
-                        v-else-if="props.loadError"
-                        variant="error"
-                        :message="props.loadError"
-                        @retry="emit('reload')"
-                    />
-                    <div v-else class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
+                    <div class="min-h-0 flex-1 overflow-y-auto p-[var(--space-6)]">
                     <!-- 宽窗口下内容列封顶：控件与分隔线都不随窗口宽度无上限拉伸 -->
                     <div class="max-w-3xl">
-                        <template v-if="activeProfile">
+                        <Transition v-if="activeProfile" name="nb-ui-switch" mode="out-in" appear>
                             <AgentProfileDetailPanel
                                 :key="activeProfile.profileKey"
                                 :profile="activeProfile"
@@ -325,7 +309,6 @@ function resetDefaults(): void {
                                 :runtime-baseline="resolveProfileRuntimeBaseline(activeProfile)"
                                 :runtime-errors="profileRuntimeErrors[activeProfile.profileKey] ?? {}"
                                 :descriptions="props.context.descriptions"
-                                :disabled="busy"
                                 :is-default-profile="activeProfile.profileKey === effectiveDefaultProfileKey"
                                 @update:model="updateProfile(activeProfile.profileKey, {model: $event})"
                                 @update:runtime="updateProfile(activeProfile.profileKey, {runtime: $event})"
@@ -333,9 +316,11 @@ function resetDefaults(): void {
                                 @update:settings-override-paths="updateProfile(activeProfile.profileKey, {settings: {...activeProfile.settings!, overridePaths: $event}})"
                                 @update:settings-resource-mutations="updateProfile(activeProfile.profileKey, {settings: {...activeProfile.settings!, resourceMutations: $event}})"
                             />
-                        </template>
-                        <AgentProfileDefaultsPanel
-                            v-else
+                        </Transition>
+
+                        <Transition v-else name="nb-ui-switch" mode="out-in" appear>
+
+                            <AgentProfileDefaultsPanel
                             :scope="props.context.scope"
                             :default-profile-key="props.modelValue.defaultProfileKey || defaultProfileInheritSentinel"
                             :default-profile-options="defaultProfileOptions"
@@ -349,12 +334,12 @@ function resetDefaults(): void {
                             :runtime-effective="runtimeDefaultsBaseline.settings"
                             :runtime-sources="runtimeDefaultsBaseline.sources"
                             :runtime-errors="runtimeDefaultsErrors"
-                            :disabled="busy"
                             @update:default-profile-key="updateDefaultProfileKey"
                             @update:model-defaults="updateModelDefaults"
                             @update:runtime-defaults="updateRuntimeDefaults"
                             @reset="resetDefaults"
                         />
+                        </Transition>
                     </div>
                 </div>
             </section>
@@ -364,6 +349,7 @@ function resetDefaults(): void {
 </template>
 
 <style scoped>
+
 .settings-view-root {
     container-type: inline-size;
 }

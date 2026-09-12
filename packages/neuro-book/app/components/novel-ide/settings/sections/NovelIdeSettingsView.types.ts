@@ -37,20 +37,13 @@ export type NovelIdeSettingsViewProps = {
     /** 受控区段 id；切换作用域后若该区段不可用，视图会改选新作用域的第一个区段。 */
     modelValue: string;
     /** 项目作用域下的配置目标标签；空则不显示。 */
-    targetLabel?: string;
     /** 左下角版本行；空则不显示。 */
     versionLabel?: string;
     /** 环境标注（Lab / 本地 / 生产）；只影响左下角那枚小标 */
     environmentLabel?: string;
-    /** 「项目」作用域可切换的项目；为空时这一行退回只读的 targetLabel */
-    projects?: Array<{id: string; name: string}>;
-    /** 当前项目 id */
-    activeProjectId?: string | null;
     githubUrl?: string;
-    /** 整屏加载占位：只在确实没有内容可显示时用（宿主负责延时判据） */
+    /** 读取中：占满内容区显示居中的加载占位（宿主按「首屏 + 延时」判定，避免读得快时闪一下） */
     loading?: boolean;
-    /** 有内容可显示时的后台重取：内容原地保留，只给一条细进度条 */
-    busy?: boolean;
     /** 空串 */
     loadError?: string;
 };
@@ -59,5 +52,4 @@ export type NovelIdeSettingsViewEmits = {
     (event: "update:scope", value: SettingsScopeId): void;
     (event: "update:modelValue", value: string): void;
     (event: "reload"): void;
-    (event: "update:activeProjectId", value: string): void;
 };

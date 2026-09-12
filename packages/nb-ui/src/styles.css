@@ -544,3 +544,31 @@ input.nb-ui-native-input[type="number"] {
         animation: none !important;
     }
 }
+
+/*
+ * 内容切换：一次只动一块内容（配合 <Transition mode="out-in">），两段各取 --motion-fast，
+ * 合计正好是浮层入场档 --motion-enter 的量级——「眼睛追踪一层新内容出现」的上限。
+ * 用同一个类名的地方必须同一配方：设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换。
+ */
+.nb-ui-switch-enter-active,
+.nb-ui-switch-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.nb-ui-switch-enter-from {
+    opacity: 0;
+    transform: translateX(6px);
+}
+
+.nb-ui-switch-leave-to {
+    opacity: 0;
+    transform: translateX(-6px);
+}
+
+/* 装饰性位移服从减少动效偏好：保留淡入淡出，去掉位移。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-switch-enter-from,
+    .nb-ui-switch-leave-to {
+        transform: none;
+    }
+}

@@ -62,10 +62,7 @@ const apiKeyPlaceholder = computed(() => {
 <template>
     <div class="embedding-view-root flex min-w-0 flex-col" data-lab-subject>
         <header class="shrink-0">
-            <h2 class="text-[var(--text-base)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">
-                {{ isProjectScope ? t("settings.panels.embedding.projectTitle") : t("settings.panels.embedding.globalTitle") }}
-            </h2>
-            <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
+            <p class="text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">
                 {{ isProjectScope ? t("settings.panels.embedding.projectDescription", {target: displayTargetLabel}) : t("settings.panels.embedding.globalDescription") }}
             </p>
         </header>

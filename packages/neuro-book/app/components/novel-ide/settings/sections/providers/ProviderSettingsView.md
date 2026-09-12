@@ -19,7 +19,6 @@ type Props = {
     draft: ModelSettingsDraft;            // defaultModelKey / providers / agentVisibleModels
     isProjectScope: boolean;
     targetLabel: string;
-    loading: boolean;
     saving?: boolean;
     validationIssues: ProviderConfigIssue[];
     validationIssueDetails: string;       // 完整问题列表，做横幅的 title

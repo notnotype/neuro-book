@@ -38,21 +38,7 @@ function toggleGroup(group: string): void {
 </script>
 
 <template>
-    <div class="model-view-root flex min-w-0 flex-col" data-lab-subject>
-        <header class="flex min-w-0 shrink-0 items-center gap-[var(--space-2)]">
-            <h2 class="text-[var(--text-base)] [font-weight:var(--weight-strong)] leading-[var(--leading-ui)] text-[var(--text-main)]">
-                {{ props.isProjectScope ? t("settings.panels.models.projectTitle") : t("settings.panels.models.globalTitle") }}
-            </h2>
-            <!-- 说明「这一页是什么、会写到哪里」属于元信息：按规范走 tooltip，不单独占一行 -->
-            <Tooltip :text="props.isProjectScope
-                ? t('settings.panels.models.projectDescription', {target: props.targetLabel || t('settings.panels.models.currentProject')})
-                : t('settings.panels.models.globalDescription')">
-                <button type="button" class="lab-info-button flex h-4 w-4 shrink-0 items-center justify-center text-[var(--text-muted)] transition-colors hover:text-[var(--text-main)]" aria-label="这一页说明">
-                    <span class="i-lucide-info h-3.5 w-3.5" aria-hidden="true"></span>
-                </button>
-            </Tooltip>
-        </header>
-
+    <div class="model-view-root flex h-full min-h-0 min-w-0 flex-col" data-lab-subject>
         <!-- 草稿问题：紧凑一行，完整列表交给宿主的对话框；修复只改草稿，不自动保存。 -->
         <div
             v-if="props.validationIssues.length > 0"
@@ -70,15 +56,10 @@ function toggleGroup(group: string): void {
             </Button>
         </div>
 
-        <div v-if="props.loading" class="mt-[var(--space-5)] flex min-h-[200px] flex-col items-center justify-center gap-[var(--space-3)]">
-            <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]" aria-hidden="true"></span>
-            <span class="text-[var(--text-sm)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.panels.models.loading") }}</span>
-        </div>
-
         <!-- Provider 双栏：窄容器退化为导轨在上、详情在下 -->
-        <div v-else-if="!props.isProjectScope" class="model-provider-layout mt-[var(--space-5)] grid border-t border-[var(--divider)] pt-[var(--space-4)]">
+        <div v-else-if="!props.isProjectScope" class="model-provider-layout mt-[var(--space-5)] grid min-h-0 flex-1">
             <ModelProviderRail
-                class="pr-[var(--space-5)]"
+                class="min-h-0 overflow-y-auto px-[var(--space-6)]"
                 :providers="props.draft.providers"
                 :active-key="props.activeProviderKey"
                 :templates="props.providerTemplates"
@@ -88,8 +69,9 @@ function toggleGroup(group: string): void {
                 @update:selected-template="emit('update:selectedTemplate', $event)"
                 @add="emit('add-provider')"
             />
-            <ModelProviderDetail
-                class="pl-[var(--space-5)]"
+            <Transition name="nb-ui-switch" mode="out-in">
+                <ModelProviderDetail
+                    :key="activeProvider?.localKey ?? ''"
                 :provider="activeProvider"
                 :model-api-options="props.modelApiOptions"
                 :saved-model-groups="props.savedModelGroups"
@@ -118,6 +100,7 @@ function toggleGroup(group: string): void {
                 @open-library="emit('open-library')"
                 @toggle-group="toggleGroup"
             />
+            </Transition>
         </div>
 
         <!-- 草稿问题的完整列表；开关与会话状态由宿主持有。 -->

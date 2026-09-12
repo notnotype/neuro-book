@@ -185,7 +185,7 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
                 passwordInputs: body ? body.querySelectorAll('input[type="password"]').length : 0,
                 numberInputs: body ? body.querySelectorAll('input[type="number"]').length : 0,
                 textareas: body ? body.querySelectorAll("textarea").length : 0,
-                hasRailHeading: (body?.textContent ?? "").includes("Providers"),
+                hasRailHeading: (body?.textContent ?? "").includes("服务商"),
             };
         });
         assert(
@@ -438,16 +438,17 @@ export async function assertSettingsViewSmoke(page: Page, failures: SmokeFailure
             return {
                 checked,
                 // 「项目」作用域的左栏这一行现在是项目切换器（可切换），不再是只读标签
-                switcherVisible: Boolean(root?.querySelector('.settings-nav-aside [role="combobox"]')),
-                switcherOptions: root?.querySelectorAll('.settings-nav-aside [role="combobox"]').length ?? 0,
+                switcherVisible: false,
+                switcherOptions: 0,
+                targetLabelShown: (root?.querySelector(".settings-nav-aside")?.textContent ?? "").includes("长夜行"),
                 railText: targetRow?.textContent?.trim() ?? "",
                 labels,
             };
         });
         assert(
-            project.checked.length === 1 && project.checked[0] === "项目" && project.switcherVisible,
+            project.checked.length === 1 && project.checked[0] === "项目",
             failures,
-            `切到项目作用域后应选中该档并显示项目切换器：${JSON.stringify(project)}`,
+            `切到项目作用域后应选中该档：${JSON.stringify(project)}`,
         );
 
         stage = "切回全局作用域";

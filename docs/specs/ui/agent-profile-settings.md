@@ -25,7 +25,7 @@ owners:
 
 ## 输入与前置条件
 
-- Props：页面草稿 `modelValue`、上下文 `context`（作用域、继承默认 Profile、全局模型默认、全局 Profile 模型覆盖、已准备好的配置元数据与继承层、可选用途文案表）、`showNavHeading`、`loading`、`loadError`。
+- Props：页面草稿 `modelValue`、上下文 `context`（作用域、继承默认 Profile、全局模型默认、全局 Profile 模型覆盖、已准备好的配置元数据与继承层、可选用途文案表）、`showNavHeading`。
 - 前置条件：`context.settings` 已由宿主解析为只读元数据；视图不自行发起任何请求。上下文与草稿均为确定性输入。
 - 权限：无。视图不读取凭据、文件系统或浏览器持久化。
 
@@ -39,7 +39,7 @@ owners:
 - Profile 详情固定顺序：身份与状态 → 使用模型（常驻）→ 专属设置（有表单且 loaded 时默认展开，否则显示原因）→ 高级模型参数（折叠）→ 运行策略（折叠）。失败原因仍在身份区头部可见。
 - 编辑任何字段即时发出 `update:modelValue`（复制被改分支，不修改 props），宿主随即持久化；导航的覆盖计数随之更新；切换 Profile 或搜索过滤不丢失草稿。
 - 没有独立的保存事件：宿主从 `update:modelValue` 自行持久化，成功后推进自己的快照，失败走系统通知并保留草稿。`reload` 在加载错误态发出。
-- 保存中、加载中显示对应反馈并禁用编辑；加载错误显示错误与重载入口；保存错误在内容列顶部内联显示，草稿保留、由宿主重试。
+- 读取中/读取失败由外壳统一呈现；保存失败走系统通知，草稿保留、由宿主重试。视图自身不内联任何加载或保存状态。
 ## 状态与转换
 
 本能力不引入持久状态。视图本地状态：当前选中项（Profile key 或默认页）、搜索词、折叠区开合、确认对话框。初始选中第一个按 key 排序的 Profile，空列表时选中默认设置页。选中的 Profile 从草稿移除时回到默认设置页；搜索过滤不改变选中。加载/保存忙状态统一禁用修改类动作。
@@ -69,7 +69,7 @@ owners:
 2. Given Lab `global` 场景，When 修改任一字段，Then 事件面板立即记录 `update:modelValue` 与完整草稿，提示「改动已就地保存到本次预览」，数据面板 `saved` 与 `draft` 一致；Given `save-error` 场景，When 修改，Then 内容列顶部显示保存失败且 `saved` 不推进。
 3. Given Lab `project` 场景，When 修改默认温度，Then 未覆盖项立即跟随新基线、显式覆盖项不变；When 运行策略输入非法百分比（如 2），Then 字段显示错误，改回合法值后错误消失。
 4. Given Lab `custom-settings` 场景，When 编辑九类字段并切换继承↔覆盖、执行资源创建/改名/删除，Then 草稿与事件面板反映对应变化，无文件写入。
-5. Given `loading` / `load-error` 场景，Then 分别呈现共享状态占位（加载指示 + 说明 / 原因 + 重试）并禁用编辑；Given `dialog-window` 场景，Then 同一受控视图在 nb-ui `DialogWindow` 内显示，关闭后可从场景内入口重新打开。
+5. Given 读取进行中或读取失败，Then 由**外壳**的共享状态占位交代（加载指示 + 说明 / 原因 + 重试），视图此时不渲染；Given `dialog-window` 场景，Then 同一受控视图在 nb-ui `DialogWindow` 内显示，关闭后可从场景内入口重新打开。
 6. Given 容器 1440×900、768×1024 与 390×844，Then 核心操作可完成，无页面级横向滚动；键盘可完成选择、折叠与确认，修改即时生效；明暗主题下文本与浮层可读。
 7. Given 全程监测网络，Then 除 Lab 自身资源外无业务 API、Provider 或文件请求。
 

@@ -19,12 +19,14 @@ describe("Novel IDE Settings Current Project contract", () => {
         expect(source).toContain('novelIdeStore.currentNovel?.title || novelIdeStore.currentProjectRoot || "Project Workspace"');
     });
 
-    it("项目清单来自 store，切换走标题栏同一个入口", async () => {
+    it("设置界面不提供项目切换：项目作用域只消费当前已打开的 Project", async () => {
         const source = await readDialog();
 
-        expect(source).toContain("novelIdeStore.novels.map(");
-        expect(source).toContain("novelIdeStore.switchToNovelWorkspace(");
-        expect(source).toContain('@update:active-project-id="switchProject"');
+        // 切换项目是标题栏/书架的事；设置里不做项目选择，也不显示配置目标标签。
+        expect(source).not.toContain("projectOptions");
+        expect(source).not.toContain("switchToNovelWorkspace(");
+        expect(source).not.toContain("ProjectSwitcher");
+        expect(source).not.toContain(":target-label");
     });
 
     it("没有当前 Project 或位于 user-assets 时拒绝进入 Project scope", async () => {

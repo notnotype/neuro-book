@@ -114,15 +114,17 @@ export function useSectionDraft<TDraft, TPayload, TContext = undefined>(options:
 
     watch(() => JSON.stringify(options.source()), () => {
         const next = options.create(options.source());
-        writeContext = options.captureContext?.() as TContext;
+        // 判「草稿是否干净」必须用旧上下文：当前草稿的写回体是按旧上下文算出来的，
+        // 拿新上下文去比会因为基准段不同而永远不相等，于是永远判脏、每次切档都写盘。
         const nextPayload = JSON.stringify(options.toPayload(next, writeContext));
         const clean = JSON.stringify(options.toPayload(draft.value, writeContext)) === baseline;
         // 只有干净的草稿才接受来源：写回成功后的快照回声、以及编译状态轮询引起的重取，
-        // 都不该覆盖用户正在编辑的内容。切作用域时草稿会在 flush 成功后自己变干净，于是照常采纳。
+        // 都不该覆盖用户正在编辑的内容。源不可接受时连上下文也不换——草稿还是原来那份。
         if (!clean) {
             return;
         }
-        baseline = nextPayload;
+        writeContext = options.captureContext?.() as TContext;
+        baseline = JSON.stringify(options.toPayload(next, writeContext));
         if (JSON.stringify(next) !== JSON.stringify(draft.value)) {
             draft.value = next;
         }

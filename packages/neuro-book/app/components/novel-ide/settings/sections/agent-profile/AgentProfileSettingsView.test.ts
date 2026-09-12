@@ -180,14 +180,13 @@ describe("AgentProfileSettingsView 模型校验链路", () => {
             .find((button) => button.textContent?.includes("默认设置"));
         expect(defaultsButton).toBeDefined();
         defaultsButton!.click();
-        await nextTick();
-        await nextTick();
-
-        const trigger = [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+        // 面板经过渡切换，节点会被替换：等面板挂载，再取当前的触发器。
+        const advancedTrigger = () => [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
             .find((button) => button.textContent?.includes("高级模型参数"));
+        await vi.waitFor(() => expect(advancedTrigger()).toBeDefined());
         const numberInputs = [...host.querySelectorAll<HTMLInputElement>("input[type='number']")];
 
-        expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+        expect(advancedTrigger()?.getAttribute("aria-expanded")).toBe("true");
         expect(host.textContent).toContain("温度错误");
         expect(host.textContent).toContain("TopK 错误");
         expect(numberInputs).toHaveLength(2);
@@ -210,14 +209,17 @@ describe("AgentProfileSettingsView 就地保存", () => {
             .find((button) => button.textContent?.includes("默认设置"));
         expect(defaults).toBeDefined();
         defaults!.click();
-        await nextTick();
-        await nextTick();
 
-        const advanced = [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+        await vi.waitFor(() => {
+            expect([...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
+                .some((button) => button.textContent?.includes("高级模型参数"))).toBe(true);
+        });
+
+        const advancedTrigger = () => [...host.querySelectorAll<HTMLButtonElement>("button[aria-expanded]")]
             .find((button) => button.textContent?.includes("高级模型参数"));
-        expect(advanced).toBeDefined();
-        advanced!.click();
-        await vi.waitFor(() => expect(advanced!.getAttribute("aria-expanded")).toBe("true"));
+        await vi.waitFor(() => expect(advancedTrigger()).toBeDefined());
+        advancedTrigger()!.click();
+        await vi.waitFor(() => expect(advancedTrigger()?.getAttribute("aria-expanded")).toBe("true"));
 
         const temperature = host.querySelector<HTMLInputElement>("input[type='number']");
         expect(temperature).not.toBeNull();

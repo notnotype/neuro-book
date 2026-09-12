@@ -3096,6 +3096,27 @@ input.nb-ui-native-input[type="number"] {
   opacity: 0;
   transform: translateY(-6px) scale(0.985);
 }
+@media (prefers-reduced-motion: reduce) {
+  .nb-shimmer::after, .animate-pulse {
+    animation: none !important;
+  }
+}
+.nb-ui-switch-enter-active, .nb-ui-switch-leave-active {
+  transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+.nb-ui-switch-enter-from {
+  opacity: 0;
+  transform: translateX(6px);
+}
+.nb-ui-switch-leave-to {
+  opacity: 0;
+  transform: translateX(-6px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .nb-ui-switch-enter-from, .nb-ui-switch-leave-to {
+    transform: none;
+  }
+}
 @property --tw-translate-x {
   syntax: "*";
   inherits: false;

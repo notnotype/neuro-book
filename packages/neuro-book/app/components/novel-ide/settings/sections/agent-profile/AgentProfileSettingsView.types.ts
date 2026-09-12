@@ -36,10 +36,6 @@ export type AgentProfileSettingsViewProps = {
     context: AgentProfileSettingsContext;
     /** 内嵌于已有窗口标题时隐藏导航视觉标题；无障碍标题仍保留 */
     showNavHeading?: boolean;
-    /** false */
-    loading?: boolean;
-    /** 空串 */
-    loadError?: string;
 };
 
 /**
@@ -48,5 +44,4 @@ export type AgentProfileSettingsViewProps = {
  */
 export type AgentProfileSettingsViewEmits = {
     (event: "update:modelValue", value: AgentProfileSettingsPageDraft): void;
-    (event: "reload"): void;
 };

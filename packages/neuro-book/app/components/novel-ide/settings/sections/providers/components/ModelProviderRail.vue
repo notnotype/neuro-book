@@ -39,7 +39,7 @@ function enabledModelCount(provider: ModelSettingsProviderDraft): number {
 <template>
     <div class="model-provider-rail flex min-h-0 min-w-0 flex-col">
         <div class="flex shrink-0 items-baseline justify-between gap-[var(--space-2)]">
-            <h3 class="text-[var(--text-2xs)] [font-weight:var(--weight-strong)] uppercase tracking-[0.2em] text-[var(--text-muted)]">Providers</h3>
+            <h3 class="text-[var(--text-2xs)] [font-weight:var(--weight-strong)] tracking-[0.2em] text-[var(--text-muted)]">{{ t("settings.panels.models.providersTitle") }}</h3>
             <span class="text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ t("settings.panels.models.providersHint") }}</span>
         </div>
 

@@ -55,29 +55,29 @@ async function importThemeFile(event: Event): Promise<void> {
 <template>
     <div class="flex min-w-0 flex-col" data-lab-subject>
         <div class="grid gap-3">
-            <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                    <span class="i-lucide-languages h-5 w-5"></span>
-                </div>
-                <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.languageTitle") }}</div>
-                    <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.languageDescription") }}</div>
+            <section class="flex flex-wrap items-center justify-between gap-[var(--space-3)]">
+                <div class="min-w-0">
+                    <h3 class="flex items-center gap-[var(--space-2)] text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">
+                        <span class="i-lucide-languages h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                        {{ t("settings.frontend.languageTitle") }}
+                    </h3>
+                    <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.frontend.languageDescription") }}</p>
                 </div>
                 <div class="w-48 shrink-0">
                     <FormSelect :model-value="props.locale" :options="localeOptions" :disabled="props.disabled" @update:model-value="emit('update:locale', $event)" />
                 </div>
-            </div>
+            </section>
 
-            <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
+            <section class="mt-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]">
                 <!-- 主题管理入口 -->
-                <div class="flex flex-wrap items-start gap-4">
-                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)]">
-                        <span class="i-lucide-palette h-5 w-5"></span>
-                    </div>
+                <div class="flex flex-wrap items-start justify-between gap-[var(--space-3)]">
                     <div class="min-w-0 flex-1">
-                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.themeTitle") }}</div>
-                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</div>
-                        <div class="mt-2 text-xs text-[var(--text-muted)]">{{ props.activeThemeLabel }} · {{ props.activeThemeIsBuiltIn ? t("settings.frontend.themeBuiltInPreset") : t("settings.frontend.themeCustomPreset") }}</div>
+                        <h3 class="flex items-center gap-[var(--space-2)] text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">
+                            <span class="i-lucide-palette h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                            {{ t("settings.frontend.themeTitle") }}
+                        </h3>
+                        <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</p>
+                        <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]">{{ props.activeThemeLabel }} · {{ props.activeThemeIsBuiltIn ? t("settings.frontend.themeBuiltInPreset") : t("settings.frontend.themeCustomPreset") }}</p>
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
                         <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:pointer-events-none disabled:opacity-50" :disabled="props.disabled" @click="emit('create-theme')">
@@ -176,33 +176,33 @@ async function importThemeFile(event: Event): Promise<void> {
                     </div>
                     <div v-else class="rounded-md bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-muted)]">{{ t("settings.frontend.themeNoCustom") }}</div>
                 </div>
-            </div>
+            </section>
 
-            <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                    <span class="i-lucide-brain-circuit h-5 w-5"></span>
-                </div>
-                <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.reasoningTitle") }}</div>
-                    <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.reasoningDescription") }}</div>
+            <section class="mt-[var(--space-4)] flex flex-wrap items-center justify-between gap-[var(--space-3)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+                <div class="min-w-0">
+                    <h3 class="flex items-center gap-[var(--space-2)] text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">
+                        <span class="i-lucide-brain-circuit h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                        {{ t("settings.frontend.reasoningTitle") }}
+                    </h3>
+                    <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.frontend.reasoningDescription") }}</p>
                 </div>
                 <div class="w-40 shrink-0">
                     <FormSelect :model-value="props.reasoning" :options="reasoningSelectOptions" :disabled="props.disabled" @update:model-value="emit('update:reasoning', $event)" />
                 </div>
-            </div>
+            </section>
 
-            <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                    <span class="i-lucide-layout h-5 w-5"></span>
-                </div>
-                <div class="min-w-0 flex-1">
-                    <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.viewModeTitle") }}</div>
-                    <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeDescription") }}</div>
+            <section class="mt-[var(--space-4)] flex flex-wrap items-center justify-between gap-[var(--space-3)] border-t border-[var(--divider)] pt-[var(--space-4)]">
+                <div class="min-w-0">
+                    <h3 class="flex items-center gap-[var(--space-2)] text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">
+                        <span class="i-lucide-layout h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                        {{ t("settings.frontend.viewModeTitle") }}
+                    </h3>
+                    <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeDescription") }}</p>
                 </div>
                 <div class="w-40 shrink-0">
                     <FormSelect :model-value="props.viewMode" :options="viewModeOptions" :disabled="props.disabled" @update:model-value="emit('update:viewMode', $event)" />
                 </div>
-            </div>
+            </section>
         </div>
     </div>
 </template>

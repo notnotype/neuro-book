@@ -24,7 +24,7 @@ const statuses = [
     "source_error",
 ] as const;
 
-type SceneKey = "global" | "project" | "dialog-window" | "statuses" | "custom-settings" | "empty" | "loading" | "load-error";
+type SceneKey = "global" | "project" | "dialog-window" | "statuses" | "custom-settings" | "empty";
 
 const SAVED_HINT = "改动已就地保存到本次预览；未写入真实配置。";
 const dialogOpen = ref(false);
@@ -202,8 +202,6 @@ function profilesFor(scene: SceneKey): AgentProfileDraft[] {
             });
         }
         case "empty":
-        case "loading":
-        case "load-error":
             return [];
     }
 }
@@ -221,7 +219,6 @@ const modelValue = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
 // saved：fixture 模拟的宿主持久化状态。视图是就地保存的，没有单独的保存动作。
 const saved = ref<AgentProfileSettingsPageDraft>(pageDraftFor("global"));
 const message = ref("");
-const loadError = ref("");
 
 function sceneState(scene: SceneKey) {
     const draft = pageDraftFor(scene);
@@ -230,19 +227,17 @@ function sceneState(scene: SceneKey) {
 }
 
 function isSceneKey(value: string): value is SceneKey {
-    return ["global", "project", "dialog-window", "statuses", "custom-settings", "empty", "loading", "load-error"].includes(value);
+    return ["global", "project", "dialog-window", "statuses", "custom-settings", "empty"].includes(value);
 }
 
 const sceneKey = computed<SceneKey>(() => isSceneKey(props.scene) ? props.scene : "global");
 const isDialogScene = computed(() => sceneKey.value === "dialog-window");
-const isLoadingScene = computed(() => sceneKey.value === "loading");
 
 function applyScene(): void {
     const state = sceneState(sceneKey.value);
     modelValue.value = state.draft;
     saved.value = state.saved;
     dialogOpen.value = isDialogScene.value;
-    loadError.value = sceneKey.value === "load-error" ? "读取 Agent Profile 设定失败：配置文件不可读。" : "";
     message.value = "";
 }
 
@@ -336,8 +331,6 @@ function reopenDialog(): void {
                     :model-value="modelValue"
                     :context="context"
                     :show-nav-heading="false"
-                    :loading="isLoadingScene"
-                    :load-error="loadError"
                     @update:model-value="onUpdate"
                     @reload="onReload"
                 />
@@ -350,8 +343,6 @@ function reopenDialog(): void {
                 data-lab-subject
                 :model-value="modelValue"
                 :context="context"
-                :loading="isLoadingScene"
-                :load-error="loadError"
                 @update:model-value="onUpdate"
                 @reload="onReload"
             />

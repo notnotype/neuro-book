@@ -32,15 +32,12 @@ type NovelIdeSettingsViewProps = {
     sections: SettingsSectionOption[];
     /** 受控区段 id；切换作用域时视图改选该档「上次停留」的区段，没记过才取第一个 */
     modelValue: string;
-    /** 项目作用域下的配置目标标签；空则不显示 */
-    targetLabel?: string;
+    // 外壳不显示配置目标标签，也不做项目切换；项目作用域的目标文案由各区段视图自己从宿主取。
     versionLabel?: string;      // 左下角版本，等宽数字
     environmentLabel?: string;  // 左下角环境标注（Lab / 本地 / 生产）
     githubUrl?: string;
-    /** 整屏加载占位：只在确实没有内容可显示时用（宿主负责「首屏 + 短延时」的判据） */
+    /** 读取中：外壳画居中的加载占位（宿主按「延时」判定，读得快不闪） */
     loading?: boolean;
-    /** 有内容可显示时的后台重取：内容原地保留，只在内容列顶端走一条细进度条 */
-    busy?: boolean;
     loadError?: string;
 };
 
@@ -61,10 +58,11 @@ type NovelIdeSettingsViewEmits = {
 
 ## 状态
 
-加载与失败都由共享的 `SettingsLoadState` 呈现，占满内容区并且不挂可编辑控件：
+加载与失败都由共享的 `SettingsLoadState` 呈现，占满内容区、居中，并且不挂可编辑控件：
 
-- `loading`（整屏占位：转动的指示 + 一句能独立成立的说明）；
-- `busy`（有内容时的后台重取：内容原地保留，内容列顶端走 1px 细进度条，不推动布局）；
+- `loading`（居中的指示 + 一句能独立成立的说明）；
 - `loadError`（失败形态：原因 + 重试按钮，触发 `reload`）。
 
-宿主负责「什么时候用哪个」：读得快时不该闪整屏占位——只有「确实没有内容可显示」且已经等过一个短延时（`useSettingsSnapshot` 的 `blockingLoading`）才用 `loading`；有旧内容就保留内容、只给 `busy`。三者都不影响导航可用性。外壳自身只有「移动端单列是否停在导航」与「按作用域记住区段」这两个局部状态。
+**加载只有外壳这一层**：区段视图不接收 `loading` / `loadError`——宿主把所有来源（共享快照 + 各区段自带的取数，如 Provider 会话、Agent Profile 元数据）组合成一个忙信号与一个失败信号交给外壳，读取期间外壳画占位、交互按忙信号禁用。分层各自画一次就会叠出「两层加载」。
+
+**只有延时判据**：宿主在请求飞出去后等一小段时间（`useDelayedFlag`，200ms）才显示占位——读得快时什么都不出现，不会闪一下。没有「细进度条」这类第二形态：加载就是这块居中占位，别再加第二种表达。外壳自身只有「移动端单列是否停在导航」与「按作用域记住区段」这两个局部状态。

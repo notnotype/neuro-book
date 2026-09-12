@@ -2,7 +2,6 @@
 import {computed, nextTick, ref, useId, type ComponentPublicInstance} from "vue";
 import {Button, SegmentedControl, Tooltip} from "@notnotype/nb-ui/components";
 import type {SegmentedControlOption} from "@notnotype/nb-ui/components";
-import ProjectSwitcher from "./components/ProjectSwitcher.vue";
 import SettingsLoadState from "./components/SettingsLoadState.vue";
 import type {
     NovelIdeSettingsViewEmits,
@@ -12,7 +11,6 @@ import type {
 } from "./NovelIdeSettingsView.types";
 
 const props = withDefaults(defineProps<NovelIdeSettingsViewProps>(), {
-    targetLabel: "",
     versionLabel: "",
     /** 环境标注（Lab / 本地 / 生产）；只影响左下角那枚小标 */
     environmentLabel: "",
@@ -20,7 +18,6 @@ const props = withDefaults(defineProps<NovelIdeSettingsViewProps>(), {
     activeProjectId: null,
     githubUrl: "",
     loading: false,
-    busy: false,
     loadError: "",
 });
 const emit = defineEmits<NovelIdeSettingsViewEmits>();
@@ -134,18 +131,6 @@ function selectSection(value: string): void {
                     @update:model-value="selectScope"
                 />
 
-                <!-- 「项目」作用域可以直接切项目；其余作用域仍是只读的目标标签 -->
-                <ProjectSwitcher
-                    v-if="props.scope === 'project' && props.projects.length > 0"
-                    :projects="props.projects"
-                    :model-value="props.activeProjectId"
-                    @update:model-value="emit('update:activeProjectId', $event)"
-                />
-                <div v-else-if="props.targetLabel" class="flex min-w-0 shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] pb-[var(--space-3)]">
-                    <span class="i-lucide-folder-cog h-4 w-4 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
-                    <span class="min-w-0 flex-1 truncate text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]" :title="props.targetLabel">{{ props.targetLabel }}</span>
-                </div>
-
                 <nav :aria-labelledby="headingId" class="flex min-h-0 min-w-0 flex-1 flex-col">
                     <h2 :id="headingId" class="sr-only">设置区段</h2>
                     <ul class="custom-scrollbar flex min-h-0 flex-1 flex-col gap-[var(--space-1)] overflow-y-auto pr-[var(--space-1)]">
@@ -173,11 +158,22 @@ function selectSection(value: string): void {
 
                 <!-- 左下角元信息：版本走等宽数字，环境是一枚软标注，与导航之间用发丝线分开 -->
                 <div
-                    v-if="props.versionLabel || props.environmentLabel"
-                    class="flex shrink-0 items-center gap-[var(--space-2)] border-t border-[var(--divider)] pt-[var(--space-3)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]"
+                    v-if="props.versionLabel || props.environmentLabel || props.githubUrl"
+                    class="flex shrink-0 items-center gap-[var(--space-2)] text-[var(--text-2xs)] leading-[var(--leading-ui)] text-[var(--text-muted)]"
                 >
-                    <span v-if="props.versionLabel" class="font-mono [font-variant-numeric:tabular-nums]">{{ props.versionLabel }}</span>
-                    <span v-if="props.environmentLabel" class="rounded-[var(--radius-pill)] bg-[var(--bg-input)] px-1.5 py-0.5 [font-weight:var(--weight-medium)]">{{ props.environmentLabel }}</span>
+                    <!-- 版本串可以很长（canary + commit）：整行不换行、截断，完整值走 title -->
+                    <span v-if="props.versionLabel" class="min-w-0 flex-1 truncate font-mono [font-variant-numeric:tabular-nums]" :title="props.versionLabel">{{ props.versionLabel }}</span>
+                    <span v-if="props.environmentLabel" class="shrink-0 rounded-[var(--radius-pill)] bg-[var(--bg-input)] px-1.5 py-0.5 [font-weight:var(--weight-medium)]">{{ props.environmentLabel }}</span>
+                    <a
+                        v-if="props.githubUrl"
+                        class="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                        :href="props.githubUrl"
+                        target="_blank"
+                        rel="noreferrer"
+                        :title="'打开 GitHub 仓库'"
+                    >
+                        <span class="i-lucide-github h-3.5 w-3.5" aria-hidden="true"></span>
+                    </a>
                 </div>
             </aside>
 
@@ -198,15 +194,7 @@ function selectSection(value: string): void {
                         </Button>
                     </div>
 
-                    <!-- 有内容时的后台重取：不换内容、不占位，只在内容列顶端走一条细进度条 -->
-                    <div
-                        v-if="props.busy && !props.loading && !props.loadError"
-                        class="settings-busy-bar shrink-0"
-                        aria-hidden="true"
-                    >
-                        <span class="settings-busy-bar__run"></span>
-                    </div>
-
+                    <!-- 加载与失败都由共享组件呈现：占满内容区、居中，不推动布局 -->
                     <SettingsLoadState
                         v-if="props.loading"
                         variant="loading"
@@ -219,15 +207,20 @@ function selectSection(value: string): void {
                     />
 
                     <!-- 布局由区段自己声明：scroll 型由外壳给内边距并拥有滚动，fill 型区段自己占满并管理内部滚动 -->
+                    <!-- 布局类挂在过渡内的 keyed 子元素上，而不是外层：out-in 期间离场内容还在渲染，
+                         若类跟着「已选中区段」走，离场那一帧会被套上新区段的布局（fill↔scroll 互串，表现为闪一下贴边） -->
                     <div
                         v-if="!props.loading && !props.loadError"
                         class="min-h-0 flex-1"
-                        :class="activeSection?.layout === 'fill' ? 'overflow-hidden' : 'overflow-y-auto p-[var(--space-6)]'"
                     >
                         <!-- 区段切换：短位移 + 淡入，时长与缓动走动效 token -->
-                        <Transition name="settings-section" mode="out-in">
+                        <Transition name="nb-ui-switch" mode="out-in">
                             <!-- 高度必须给足：父节点是块级，flex-1 在 fill 型下不生效，缺 h-full 会让内容槽的百分比高度退化成 auto -->
-                            <div :key="activeSection?.value ?? ''" class="flex h-full min-h-0 flex-col">
+                            <div
+                                :key="activeSection?.value ?? ''"
+                                class="flex h-full min-h-0 flex-col"
+                                :class="activeSection?.layout === 'fill' ? 'overflow-hidden' : 'overflow-y-auto p-[var(--space-6)]'"
+                            >
                                 <slot :section="activeSection"></slot>
                             </div>
                         </Transition>
@@ -243,31 +236,6 @@ function selectSection(value: string): void {
     container-type: inline-size;
 }
 
-/*
- * 区段切换：短位移 + 淡入。
- *
- * `mode="out-in"` 时两段不叠加（退场 + 入场），所以两段都取 `--motion-fast`：
- * nbook / macos 档下 90 + 90 = 180ms，正好等于浮层入场档 `--motion-enter`，
- * 也就是「眼睛追踪一层新内容出现」的上限（§七 内容切换）。
- * 左侧导航轨的选中态同样消费 `--motion-fast`——两处时长因此天然一致。
- */
-.settings-section-enter-active {
-    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
-}
-
-.settings-section-leave-active {
-    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
-}
-
-.settings-section-enter-from {
-    opacity: 0;
-    transform: translateX(6px);
-}
-
-.settings-section-leave-to {
-    opacity: 0;
-    transform: translateX(-6px);
-}
 
 /* 栏间竖线与区段横线同款：1px --divider，两端留出内边距，不与标题栏或内容边线相接。 */
 .settings-nav-aside {
@@ -294,41 +262,6 @@ function selectSection(value: string): void {
 /* 只有窄容器才出现切换条；宽容器两栏常驻。 */
 .settings-mobile-bar {
     display: none;
-}
-
-/* 后台重取的细进度条：1px 轨道上走一段强调色，不占内容高度、不推动布局。 */
-.settings-busy-bar {
-    position: relative;
-    height: var(--border-w);
-    overflow: hidden;
-    background: var(--divider);
-}
-
-.settings-busy-bar__run {
-    position: absolute;
-    inset-block: 0;
-    width: 33%;
-    background: var(--accent-main);
-    animation: settings-busy-run 1.1s var(--ease-standard) infinite;
-}
-
-@keyframes settings-busy-run {
-    from {
-        transform: translateX(-100%);
-    }
-    to {
-        transform: translateX(400%);
-    }
-}
-
-/* 装饰性关键帧服从减少动效偏好：进度条退化为静态色块，仍然表明「在读」。 */
-@media (prefers-reduced-motion: reduce) {
-    .settings-busy-bar__run {
-        animation: none;
-        transform: none;
-        width: 100%;
-        opacity: 0.6;
-    }
 }
 
 /* 窄容器退化为单列：导航与详情互斥，靠切换条往返。显示态只在这里声明，元素上不挂 display 工具类。 */

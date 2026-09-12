@@ -6,7 +6,7 @@
 
 完整 Agent Profile 设置页的受控视图：左侧 Profile 导航（含默认设置入口），右侧由身份摘要、模型设置、专属设置与运行策略等独立区段组成，常用设置优先，高级参数折叠。它组合本目录的领域区段与共享 `LowCodeForm`，自身不发起请求、不写持久化，一切修改通过 `update:modelValue` 交给宿主。
 
-行为合同见 [`docs/specs/ui/agent-profile-settings.md`](../../../../../docs/specs/ui/agent-profile-settings.md)。Component Lab 中由 `AgentProfileSettingsViewFixture` 提供确定性场景（global / project / dialog-window / statuses / custom-settings / empty / loading / load-error）；其中 `dialog-window` 通过 nb-ui `DialogWindow` 展示同一受控视图，关闭后保留本场景的重新打开入口。视图是就地保存的：fixture 在每次修改后立即更新内存快照并提示「改动已就地保存到本次预览」，不写真实配置。
+行为合同见 [`docs/specs/ui/agent-profile-settings.md`](../../../../../docs/specs/ui/agent-profile-settings.md)。Component Lab 中由 `AgentProfileSettingsViewFixture` 提供确定性场景（global / project / dialog-window / statuses / custom-settings / empty）；其中 `dialog-window` 通过 nb-ui `DialogWindow` 展示同一受控视图，关闭后保留本场景的重新打开入口。视图是就地保存的：fixture 在每次修改后立即更新内存快照并提示「改动已就地保存到本次预览」，不写真实配置。
 当视图嵌入已有窗口标题（如 `DialogWindow`）时，宿主可传入 `showNavHeading=false`：导航保留 `aria-labelledby` 对应的屏幕阅读器标题，但不再渲染视觉 `Agent Profiles` 标题，避免与窗口标题重复。
 视图自身不画卡片面：导航轨与详情由一条 1px 竖线分开，区段之间用同款横线分隔，静止态带描边的只有控件（输入框、下拉、按钮）。竖线与横线同款同色，并且和横线一样两端留 16px 边距（不顶到标题栏分隔线与窗口下沿）；导航轨与详情内容列没有会被横线穿越的底部动作栏。导航轨、详情内容列的左右内边距统一为 16px——与宿主窗口标题栏的 `pl-4` 对齐；宿主是 `DialogWindow` 时窗口里只有一层 chrome，不会出现「窗口套两张卡片」的双层边框。详情内容列封顶 `max-w-3xl`（768px）：窗口拖宽时控件与区段分隔线都不再增长，避免出现整行宽的下拉框。视图不展示作用域：它是宿主 chrome 的职责（宿主自己的设置界面已有作用域切换与标题），视图只透传 `scope` 用于继承解析。
 
@@ -42,17 +42,11 @@ interface AgentProfileSettingsViewProps {
     context: AgentProfileSettingsContext;
     /** 内嵌于已有窗口标题时隐藏导航视觉标题；无障碍标题仍保留 */
     showNavHeading?: boolean;
-    /** false */
-    loading?: boolean;
-    /** 空串 */
-    loadError?: string;
 }
 
 interface AgentProfileSettingsViewEmits {
     /** 任意字段修改；value 为复制被改分支后的新页面草稿 */
     (event: "update:modelValue", value: AgentProfileSettingsPageDraft): void;
-    /** 加载错误态的重载请求 */
-    (event: "reload"): void;
 }
 ```
 
@@ -68,8 +62,7 @@ interface AgentProfileSettingsViewEmits {
 - 运行策略默认页的 Global 基线从 harness 开始，Project 基线叠加已保存的 Global patch；Profile 详情按 `harness → profileDefault → globalDefault → globalProfile → projectDefault` 解析，当前作用域的默认设置草稿可立即影响跟随项，但当前 Profile 草稿不参与自身继承基线。
 - 依托 CSS Container Query（`container-type: inline-size`）实现容器宽度 `<700px` 单列切换，在 Lab 画布、手机视口或不同尺寸 DialogWindow 中均能精准响应。
 
-- loading：由共享的 `SettingsLoadState` 占满内容列（转动的指示 + 一句话），读取期间禁用编辑。
-- loadError：同一组件的失败形态（原因 + 重试按钮）。
+- 读取与失败都由**外壳**统一呈现（同一个加载占位 / 失败态）：视图不接收 `loading` / `loadError`，宿主在数据没就绪时根本不渲染它。
 - 就地保存失败不再内联显示：宿主统一走系统通知，草稿仍保留。
 - 校验失败（温度/TopK/运行策略）在字段下显示错误并标记 `aria-invalid`；温度/TopK 错误会自动展开高级模型区。
 

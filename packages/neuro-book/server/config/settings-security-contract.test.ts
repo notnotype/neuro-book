@@ -9,7 +9,8 @@ describe("SecuritySettingsView boot config contract", () => {
         // 宿主只把运行时状态喂给视图；说明、示例与警告都在视图里。
         expect(dialogSource).toContain("useAuthSessionState");
         expect(dialogSource).toContain(":auth-enabled=\"bootAuthEnabled\"");
-        expect(viewSource).toContain("settings.security.runtimeStatusDescription");
+        expect(viewSource).toContain("settings.security.statusEnabledHint");
+        expect(viewSource).toContain("settings.security.statusDisabledHint");
         expect(viewSource).toContain("settings.security.exampleTitle");
         expect(viewSource).toContain("settings.security.warning");
         expect(viewSource).not.toContain("FormCheckbox");
