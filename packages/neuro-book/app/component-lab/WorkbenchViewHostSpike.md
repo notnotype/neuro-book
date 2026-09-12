@@ -1,3 +1,7 @@
+---
+标签: []
+---
+
 # WorkbenchViewHostFixture
 
 **Lab-only 探针，不接产品。** 目的：在写 Issue #192（类 VS Code 的 Workbench 与 View Host）的 Proposal 之前，
