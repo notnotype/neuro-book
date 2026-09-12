@@ -45,7 +45,7 @@ onClickOutside(rootRef, () => {
 <template>
     <!-- 下拉菜单容器 -->
     <div ref="rootRef" :class="props.rootClass">
-        <div class="w-full" @click.stop="toggle">
+        <div class="flex w-full items-center" @click.stop="toggle">
             <slot />
         </div>
 
