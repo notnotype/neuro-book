@@ -230,7 +230,7 @@
     },
     "packages/neuro-book": {
       "name": "@notnotype/neuro-book",
-      "version": "0.10.0-canary.20260907.031100Z.4b10ab1d",
+      "version": "0.10.2-canary.20260908.091411Z.2e86c254",
       "dependencies": {
         "@clack/prompts": "^1.0.0",
         "@dnd-kit/helpers": "^0.3.2",
@@ -367,7 +367,7 @@
     },
     "packages/neuro-book-manager": {
       "name": "@notnotype/neuro-book-manager",
-      "version": "0.1.0-canary.58",
+      "version": "0.1.0-canary.60",
       "bin": {
         "neuro-book": "dist/neuro-book.mjs",
       },
