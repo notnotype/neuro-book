@@ -10,7 +10,9 @@
 
 NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capability 列表（`app/utils/workbench-chrome.ts:12-26`），侧栏、右栏、编辑器区各是一段模板，右栏 Agent 面板与左栏文件树是两套独立实现。结果是三件事都做不了：插件（含内置插件）注册入口、视图在栏间移动、按作用域恢复布局。
 
-**布局状态目前至少分散在四处**（不是"三处"）：store 的 `novel.ide.local` 与 `novel.ide.session`（`app/stores/novel-ide.ts:1988-2030`、`:317-326`）、页面级 ref（`app/pages/index.vue`）、设置窗口尺寸（`nbook.settingsDialog.size`，宿主内直接读写 `localStorage`）、以及 Agent 侧栏自己的 `localStorage` 键。这四处的 owner、作用域与恢复时机互不相同。
+**布局状态目前分散在四处**：store 的 `novel.ide.local`（面板宽度/开关等，`app/stores/novel-ide.ts:221-235`、`:1988-2030`）与 `novel.ide.session`（每 Project 的编辑器会话，`:317-326`）、页面级 ref（`app/pages/index.vue`）、以及设置窗口尺寸（`nbook.settingsDialog.size`，宿主内直接读写 `localStorage`）。这四处的 owner、作用域与恢复时机互不相同。
+
+**另有一处不应并入布局**：Agent 侧栏自己的 `localStorage` 存的是**固定会话身份**（workspace/project 范围的 pinned identity，`app/components/.../AgentModeSessionSidebar.vue:73-92`），它不属于布局状态，迁移时必须留在原处。
 
 现状里唯一接近这套模型的是设置外壳：元数据驱动区段 + 受控插槽 + 宿主持有 I/O + `layout: scroll|fill` 合同 + 单一加载形态（`app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue:207-224`、同目录 `.types.ts:17-28`）。它是**单容器、手写注册表**的特例，缺位置层、factory 绑定与 descriptor 级错误。
 
@@ -222,7 +224,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 通用 View 的**数据层与组合合同继承** nb-ui `ui-development-spec` §4.3（受控视图数据层：一个数据源、宿主草稿、加载与失败由外壳统一呈现、视图不接收 loading）与 §4.4（组合与布局归属：单根、布局随内容、区段接线清单）。本提案**不另立**一套；`layout: scroll|fill` 即 §4.4 的组合方式在 Workbench 层的延续。
 
-**已知例外（不要默认继承）**：设置宿主对**旧目标返回的快照**（stale snapshot）的处理，与 §4.3 的"统一失败 + 单一加载形态"口径并不一致——读取失败在 snapshot / Agent Profile 上进入外壳错误，而在 Provider 一侧走系统通知（`app/composables/useSettingsSnapshot.ts:91-100`、`NovelIdeSettingsDialog.vue:599-601`；此不一致由交叉审查指出，本轮未复核代码）。通用 View 需要**显式定义自己的 stale 语义**：建议旧目标的结果标记为 superseded、不覆盖当前快照、不触发全局错误屏。
+**已知例外（不要默认继承）**：设置宿主对**旧目标快照**（stale snapshot）的处理与 §4.3 的"统一失败 + 单一加载形态"口径不一致——目标切换时若读取失败，宿主会**保留旧快照且不设置 `loadError`**，而界面只看 `loadError`，于是可能把**旧 Project 的配置当作新目标渲染**（`app/composables/useSettingsSnapshot.ts:91-100`、`NovelIdeSettingsDialog.vue:599-601`；由交叉审查指出，本轮未复核代码）。通用 View 必须**显式定义 stale 语义**：目标切换后到达的旧结果标记为 superseded、不覆盖当前目标、不触发全局错误屏；目标切换本身失败要能表达为"当前目标无数据"，而不是沿用上一目标的数据。
 
 ## 真相源检查点
 
