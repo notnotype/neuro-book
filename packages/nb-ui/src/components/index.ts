@@ -38,6 +38,8 @@ export {default as Panel} from "./layout/Panel.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";
 export {default as Splitter} from "./layout/Splitter.vue";
+// 可序列化拆分树：领域无关的布局原语（Workbench 外壳与将来的 EditorPart 共用）
+export * from "./layout/grid";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
 export {default as FileTree} from "./navigation/FileTree.vue";
 export {default as NavigationMenu} from "./navigation/NavigationMenu.vue";

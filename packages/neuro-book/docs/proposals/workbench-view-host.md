@@ -155,9 +155,9 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 | 快照 | 未知 ref；版本号不认识；ref 重复 | 未知 ref → 丢该叶 + issue；版本不符 → 回默认 + 原因；重复 ref → 拒绝并报告 |
 | 快照纯洁性 | 快照字段扫描 | **不得出现**组件、descriptor、函数等非 ref 字段 |
 
-### Lab 验证（**待建**，不是现有探针）
+### 验证台（已建：`/workbench-spike` 独立路由，仅 Source Dev）
 
-现有 `WorkbenchViewHostSpike`（Lab 里的旧探针）只有按钮式移动、尺寸加减与内存快照，**不构成本原语的证明**。本提案要求**新建/替换**验证台，三件事缺一不可：
+旧 `WorkbenchViewHostSpike`（Lab 探针，只有按钮式移动/尺寸加减/内存快照）已删除；验证台改为**独立路由** `/workbench-spike`（`app/pages/workbench-spike.vue` + `app/components/workbench-spike/`），与 `/lab` 共用同一套 Source-Dev 排除（`nuxt.config.ts` 的 `pages:extend`），不进产品构建。三件事均已落地：
 
 1. **基于树的重新挂父**：把面板叶从"编辑器中列"移到"整行"，走 `moveLeaf`，不是切换按钮；
 2. **真实 sash**：拖拽由既有 `Splitter` handle 驱动，回调进 `resize()`；
@@ -262,6 +262,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 3. **descriptor 级错误合同** —— (a) 统一进 view 级 issue + 重试，与外壳级 loading/error 分开；(b) 只保留外壳级错误。**建议 (a)**：一个视图坏了不遮住其他；代价是要定 issue 分类（factory / 恢复目标缺失 / context 不可用）与重试动作。
 4. **状态栏位置规则**（第一版固定底部，若将来支持）—— (a) 仅顶/底两值，与面板冲突时面板让位；(b) 与面板互斥、谁在外侧谁赢。**建议 (a)**：规则少、可验收；代价是失去"状态栏贴面板"的组合。
 5. **面板对齐默认值** —— (a) `justify`（跨全宽，与现状视觉一致）；(b) `left`。**建议 (a)**：迁移时无视觉突变。
+6. **sash 的百分比与逻辑尺寸如何对齐** —— (a) 每次 `layout(sizes)` 后把百分比**反算**回逻辑尺寸（原语成为唯一尺寸真相）；(b) 逻辑尺寸只作初始值，之后以百分比为准（原语不追踪运行期尺寸）。**建议 (a)**：夹取边界与持久化快照都在逻辑尺寸里，反算才能让两者一致；代价是每次拖拽都要一次换算与一次快照写回。
 
 ## 证据与边界
 
@@ -269,3 +270,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 - 代码结论（写死的 activity union、设置外壳的元数据驱动与受控插槽、布局状态四处分散）来自设计门侦察与两轮交叉审查，逐条带 `文件:行号`。
 - 本文是**提案**，不是已生效 Spec；获批后需登记唯一 `planned` capability Spec，实现 Task 才可创建。实现被 #191 阻塞。
 - 跨窗口浮动的真实行为、编辑器分屏的恢复语义、L3 的安装与隔离**均未验证**，本文只给边界不给实现承诺。
+- **验证台实测（2026-09-13，真实 dev server）**：树挂父、空分支塌陷、未知 ref 丢弃、真实 sash 拖拽与夹取、懒实例化、factory 抛错隔离、`when` 不可见与 `requiredAuthority` 动作禁用七项均可观察；原语单测 13/13（快照键集合纯净性为断言之一）。同时暴露三个实现层面的坑，后续实现必须知道：
+  1. **作用域插槽不穿透递归**：分区渲染组件递归渲染子分支时，必须显式转发 `leaf` 插槽，否则嵌套层的叶子渲染为空（顶层正常，极易漏测）。
+  2. **插槽 prop 不驼峰化**：`:leaf-id` 在子侧解构 `{leafId}` 恒为 `undefined`，两端必须同名（或改用子组件 + 显式 prop）。
+  3. **百分比与逻辑尺寸是两个空间**：`Splitter` 按百分比夹取、原语按逻辑尺寸夹取，实测越界停在约 79px 而非逻辑上限 96px——原语不变量成立，但生产实现需要把百分比映射回逻辑尺寸，见开放问题 6。
