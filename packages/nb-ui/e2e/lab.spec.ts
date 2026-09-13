@@ -281,10 +281,21 @@ test("DialogWindow：稳定触发目标、非模态交互与 resize 行为", asy
     await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
     await expect(dialog.locator("[data-dialog-resize='right']")).toBeVisible();
     await expect(dialog.locator("[data-dialog-resize='bottom']")).toBeVisible();
-    await expect(dialog.locator("[data-dialog-resize='corner']")).toBeVisible();
+    // 组件合同是「右、下两条边加四个角」六个手柄（DialogWindow.md）；`corner` 是旧实现的单一角手柄 id。
+    for (const corner of ["top-left", "top-right", "bottom-left", "bottom-right"]) {
+        await expect(dialog.locator(`[data-dialog-resize='${corner}']`)).toBeVisible();
+    }
 
-    // 窗口外的触发按钮仍可点击，非模态窗口不能被 outside interaction 关闭。
-    await trigger.click();
+    // 窗口居中打开（d8d52be5）会盖住舞台里的触发按钮，所以「窗口外仍可点击」要换一个确实在窗口外的页面元素：
+    // 左侧组件导航的搜索框。非模态窗口不渲染 overlay、不锁背景指针事件，也不会被 outside interaction 关闭。
+    const navSearch = page.getByPlaceholder(/^搜索组件/u);
+    const windowBox = await dialog.boundingBox();
+    const searchBox = await navSearch.boundingBox();
+    const windowLeft = windowBox?.x ?? 0;
+    const searchRight = (searchBox?.x ?? 0) + (searchBox?.width ?? 0);
+    expect(searchRight, "搜索框必须整体位于窗口左侧之外，否则这条「窗口外可点击」的证人不成立").toBeLessThan(windowLeft);
+    await navSearch.click();
+    await expect(navSearch).toBeFocused();
     await expect(dialog).toBeVisible();
 
     const widthHandle = dialog.locator("[data-dialog-resize='right']");
