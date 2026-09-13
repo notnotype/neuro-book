@@ -14,7 +14,7 @@ NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capabilit
 
 **另有一处不应并入布局**：Agent 侧栏自己的 `localStorage` 存的是**固定会话身份**（workspace/project 范围的 pinned identity，`app/components/.../AgentModeSessionSidebar.vue:73-92`），它不属于布局状态，迁移时必须留在原处。
 
-现状里唯一接近这套模型的是设置外壳：元数据驱动区段 + 受控插槽 + 宿主持有 I/O + `layout: scroll|fill` 合同 + 单一加载形态（`app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue:207-224`、同目录 `.types.ts:17-28`）。它是**单容器、手写注册表**的特例，缺位置层、factory 绑定与 descriptor 级错误。
+现状里唯一接近这套模型的是设置外壳：元数据驱动区段 + 受控插槽 + 宿主持有 I/O + `layout: scroll|fill` 合同 + 加载与失败的统一呈现（`app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue:207-224`、同目录 `.types.ts:17-28`）。**注意**：最后一条有已知例外——目标切换失败时会保留旧快照且不报错，见文末「与 nb-ui 规范的关系」里的说明，不能当作已完全统一。它是**单容器、手写注册表**的特例，缺位置层、factory 绑定与 descriptor 级错误。
 
 ## 术语（首次出现处就地解释）
 
