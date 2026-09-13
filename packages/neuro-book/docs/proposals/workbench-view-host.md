@@ -273,6 +273,18 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 5. **面板对齐默认值** —— (a) `justify`（跨全宽，与现状视觉一致）；(b) `left`。**建议 (a)**：迁移时无视觉突变。
 6. **sash 的百分比与逻辑尺寸如何对齐** —— (a) 每次 `layout(sizes)` 后把百分比**反算**回逻辑尺寸（原语成为唯一尺寸真相）；(b) 逻辑尺寸只作初始值，之后以百分比为准（原语不追踪运行期尺寸）。**建议 (a)**：夹取边界与持久化快照都在逻辑尺寸里，反算才能让两者一致；代价是每次拖拽都要一次换算与一次快照写回。
 
+### 评审遗留设计项（2026-09-13 交叉审查；验证台已实现的部分不在此列）
+
+以下由三位独立审查者确认为「真实现会疼、但验证台不必实现」的设计缺口，进入 #192 设计时逐条定夺：
+
+- **容器跨栏位置状态缺失**：现只有「每个位置的活动容器」，没有「容器实际位于哪个位置」的覆盖，容器从主侧栏移到右栏/面板无法用快照表达。需要独立的 `containerPlacements`（含默认回落与版本校验），`activeContainer` 只表示选择。
+- **视图位置覆盖需要默认指纹**：覆盖只有 `containerId`/`order`，记录不了它基于哪一版默认位置；descriptor 改默认后旧覆盖会静默生效。需要 `defaultRevision`（或默认位置指纹），不匹配则丢弃覆盖、回落新默认并给 issue。
+- **布局的端到端 round-trip 未闭环**：`serializeLayout` 产字符串而 `restoreLayout` 只接对象，直接串接会静默回退默认。需要唯一的 `deserializeLayout`（安全 parse）+ 宿主侧 load/save 适配层，布局模块保持纯函数。
+- **用户隐藏偏好 ≠ 上下文可见性**：现只按 `when` 过滤，descriptor 的 `canToggleVisibility` 无处落地。需要经 catalog 校验的 `hiddenViews`，与 `when` 合并成渲染模型，恢复时分别诊断失效引用。
+- **策略上移到模型层**：`when`／authority／factory 状态／隐藏偏好在组装根合成 `ViewRenderModel[]`，渲染器只消费模型——否则第二个渲染器（面板、浮动容器）会复制同一套筛选规则。
+- **`resize` 只作用于叶子**（分支尺寸由子节点求和）⇒ 分隔**分支**的 sash 拖不动（验证台里状态栏上方那条）。真实现要么声明为已知限制，要么给原语补「按比例分配分支尺寸」的操作。
+- **移动是单向的**：叶子移出后源分支若只剩一个子节点会塌陷，按原分支 id 移回会失败（验证台的「移到整行」再移回需重建分支）。真实现需保留空分支，或让落点按内容而非 id 寻址。
+
 ## 证据与边界
 
 - 分层结论来自研究 [`03`](../research/vscode/03-workbench-layout-views.md)（Part 词表与四层状态分层以固定 commit 核对；**真实拖拽与重启恢复在该调研中未验证**），以及 [`08`](../research/vscode/08-neurobook-mapping.md)、[`12`](../research/vscode/12-workbench-view-host-refactor.md)、[`15`](../research/vscode/15-refactor-sequence-and-decision-gates.md)。

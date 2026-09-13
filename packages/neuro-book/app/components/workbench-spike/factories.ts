@@ -10,6 +10,8 @@ const FIRST_PARTY: Record<string, string> = {
     "spike.view.files": "files",
     "spike.view.outline": "outline",
     "spike.view.characters": "characters",
+    "spike.view.search": "search",
+    "spike.view.recent": "recent",
     "spike.view.trace": "trace",
     "spike.view.jobs": "jobs",
     "spike.view.problems": "problems",

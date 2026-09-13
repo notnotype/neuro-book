@@ -13,12 +13,9 @@ const props = defineProps<{
     draggable: boolean;
 }>();
 
-const emit = defineEmits<{
-    (event: "drag-start", viewId: string): void;
-}>();
-
 const dragging = ref(false);
 
+/** 起手只写 payload 与拖拽态：落点判定与落账分别由容器正文、组装根负责，本组件不向外发事件。 */
 function onDragStart(event: DragEvent) {
     if (!event.dataTransfer) {
         return;
@@ -26,7 +23,6 @@ function onDragStart(event: DragEvent) {
     event.dataTransfer.setData("text/x-nb-view", props.view.id);
     event.dataTransfer.effectAllowed = "move";
     dragging.value = true;
-    emit("drag-start", props.view.id);
 }
 </script>
 
@@ -46,7 +42,7 @@ function onDragStart(event: DragEvent) {
             <span class="shrink-0 rounded-[var(--radius-pill)] bg-[var(--bg-hover)] px-[var(--space-2)] text-[length:var(--text-2xs)] text-[var(--text-muted)]">{{ view.layout }}</span>
             <button
                 type="button"
-                class="nb-ui-focus-ring ml-auto flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                class="nb-ui-focus-ring ml-auto flex h-[var(--control-h-sm)] w-[var(--control-h-sm)] shrink-0 cursor-pointer items-center justify-center rounded-[var(--radius-control)] text-[var(--text-muted)] transition-colors [transition-duration:var(--motion-fast)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :aria-label="labelOf(view.titleKey)"
             >
                 <span class="i-lucide-ellipsis-vertical h-3.5 w-3.5" aria-hidden="true"></span>
@@ -62,15 +58,17 @@ function onDragStart(event: DragEvent) {
                 v-if="view.layout === 'scroll'"
                 class="flex flex-col gap-[var(--space-2)] overflow-y-auto p-[var(--space-2)]"
                 :class="state === 'unavailable' ? 'opacity-40' : ''"
+                data-view-body="scroll"
             >
-                <p v-for="index in 3" :key="index" class="truncate text-[length:var(--text-2xs)] text-[var(--text-muted)]">占位条目 {{ index }}</p>
+                <p v-for="index in 3" :key="index" class="shrink-0 truncate text-[length:var(--text-2xs)] text-[var(--text-muted)]">占位条目 {{ index }}</p>
             </div>
             <div
                 v-else
                 class="flex min-h-0 flex-1 flex-col gap-[var(--space-2)] overflow-y-auto rounded-[var(--radius-control)] border-[length:var(--border-w)] border-[var(--divider)] bg-[var(--bg-panel)] p-[var(--space-3)]"
                 :class="state === 'unavailable' ? 'opacity-40' : ''"
+                data-view-body="fill"
             >
-                <p v-for="index in 8" :key="index" class="truncate text-[length:var(--text-2xs)] text-[var(--text-muted)]">占位条目 {{ index }}</p>
+                <p v-for="index in 8" :key="index" class="shrink-0 truncate text-[length:var(--text-2xs)] text-[var(--text-muted)]">占位条目 {{ index }}</p>
             </div>
         </div>
     </div>
