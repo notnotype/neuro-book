@@ -222,6 +222,8 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 通用 View 的**数据层与组合合同继承** nb-ui `ui-development-spec` §4.3（受控视图数据层：一个数据源、宿主草稿、加载与失败由外壳统一呈现、视图不接收 loading）与 §4.4（组合与布局归属：单根、布局随内容、区段接线清单）。本提案**不另立**一套；`layout: scroll|fill` 即 §4.4 的组合方式在 Workbench 层的延续。
 
+**已知例外（不要默认继承）**：设置宿主对**旧目标返回的快照**（stale snapshot）的处理，与 §4.3 的"统一失败 + 单一加载形态"口径并不一致——读取失败在 snapshot / Agent Profile 上进入外壳错误，而在 Provider 一侧走系统通知（`app/composables/useSettingsSnapshot.ts:91-100`、`NovelIdeSettingsDialog.vue:599-601`；此不一致由交叉审查指出，本轮未复核代码）。通用 View 需要**显式定义自己的 stale 语义**：建议旧目标的结果标记为 superseded、不覆盖当前快照、不触发全局错误屏。
+
 ## 真相源检查点
 
 | 检查点 | 迁移时必须保持 |
