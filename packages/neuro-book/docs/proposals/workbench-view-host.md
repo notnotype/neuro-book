@@ -179,6 +179,15 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 **位置覆盖单独一键**：`workbench.views.customizations`（用户级）。
 
+**不要误迁的三类"看着像布局但不是布局"的状态**（交叉审查指出，行号未复核）：
+
+| 状态 | 真实归属 | 迁移处置 |
+|---|---|---|
+| `workspaceSessions` 的 tabs/buffers（`novel-ide.ts:199-207`、`:1988-2005`） | 编辑器会话（按 Project 分区） | 留在原处，不进 `workbench.layout` |
+| session 根对象的选中身份：`selectedLorebookEntryId` / `selectedCharacterId` / `currentProjectRoot` | 选择身份（不是布局） | 留在原处；若将来要按视图恢复选中项，走该视图自己的 memento |
+| `activeLeftTab`（在 `novel.ide.local`，用户级） | 用户级 UI 偏好 | 本期不动，退役时一次性迁移（见上节） |
+| Agent 侧栏的固定会话身份（workspace/project 范围） | 身份 | 留在原处 |
+
 **新旧键迁移**（消除与删除门禁的冲突）：
 
 - 新键**只**存布局（尺寸 / 位置 / 可见集 / 顺序）；**活动视图仍由旧键负责**（`novel.ide.local` 的 active tab 一类），本期不动既有用户数据。
