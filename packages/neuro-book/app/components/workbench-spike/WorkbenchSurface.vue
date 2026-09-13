@@ -45,7 +45,7 @@ const PROJECT_NAME = "NeuroBook 示例项目";
 /** 活动栏的两条：容器按 descriptor 的默认位置分组，面板容器不在这里（走面板标签条）。 */
 const activityGroups = computed(() => SIDEBAR_LOCATIONS.map((location) => ({
     location,
-    label: location === "sidebar-left" ? "主侧栏容器" : "右侧栏容器",
+    label: LOCATION_LABELS[location],
     containers: props.catalog.containers.filter((item) => item.location === location),
 })));
 
