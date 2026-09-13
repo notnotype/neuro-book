@@ -23,13 +23,16 @@ NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capabilit
 - **PaneView**：容器内一维 **split view**（可拖分隔的并排/上下排列，分隔条称 **sash**）里的可布局 pane。
 - **memento**：按 id 命名的一小块持久化存储（VS Code 术语），这里指「按视图 id 存的视图自身 UI 状态」。
 - **Editor Part**：编辑器区域，内部是 Editor Group（第一版单组）；**不走 View 模型**。
+
+> 上表中 View/PaneView 的生命周期（懒实例化、隐藏不销毁、离开容器释放）是**研究建议**，不是已验证合同：研究 03 明确把真实拖拽与重启恢复列为未验证。第一版按此实现，但把「何时释放」当作**可调整参数**，不写进持久化格式。
 - **factoryKey**：descriptor 里指向"由谁创建这个视图"的键；解析走宿主白名单，**不存组件、不存模块路径**。
 - **L1 / L2 / L3**：插件开放度的三档——**L1 内置**（模块随产品发布，用与第三方相同的注册 API）、**L2 声明式外部**（只有数据、无代码）、**L3 可执行第三方**（跑别人的代码，需安装账本/权限/沙箱）。
 
 ## 目标
 
 1. **标题栏**：一个 Titlebar Part，支持自绘与 Electron 原生两种呈现。
-   - 边界：平台外壳（原生窗口按钮、无边框/overlay 安全区、静态 menus 数据）仍归既有桌面任务与 `DesktopTitleBar`；Workbench 只拥有**自绘 chrome 的布局**与**菜单项数据**（菜单项来自菜单注册表，不是 Part 的内容列表）。
+   - 边界：平台外壳（原生窗口按钮、无边框/overlay 安全区、静态 menus 数据）仍归既有桌面任务与 `DesktopTitleBar`；Workbench 只拥有**自绘 chrome 的布局**与**菜单项数据**。
+   - **注意**：仓库目前**没有**菜单注册表——这是本提案要新建的基础设施；第一版只做「最小菜单项数据 + 渲染」，不实现完整菜单贡献体系。
 2. **图标栏**：图标项分两类——`kind: "container"`（点开切换容器）与 `kind: "command"`（执行命令或打开 Dialog）。现状里 `world / trace / history / settings / account` 属**第二类**（研究 12 的 Dialog/命令分类），其余才是容器。内置插件与将来的第三方走**同一条注册 API**。
 3. **侧栏**：容器的**默认位置**决定它落在主侧栏还是右侧栏；容器可在主侧栏 / 右侧栏 / 面板之间移动；**视图**也可跨容器移动（改的是视图归属，不是 Part 的父节点）。
 4. **编辑器区**：`EditorPart`，第一版**单组 + Tab**。
@@ -51,7 +54,7 @@ NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capabilit
 | 概念 | 含义 | owner | 载体 |
 |---|---|---|---|
 | **Part 位置** | 某个 Part 在布局树上的位置（左 / 右 / 底 / 顶） | 布局层 | `workbench.layout` |
-| **容器位置** | 容器**默认**落在哪个 Part：`sidebar-left` \| `sidebar-right` \| `panel`（`window` 预留未验证） | descriptor | 容器声明 |
+| **容器位置** | 容器**默认**落在哪个 Part：`sidebar-left`（主侧栏）\| `sidebar-right`（即 AuxiliaryBar 辅助侧栏）\| `panel`（面板）；`window` 仅预留、真实行为未验证 | descriptor | 容器声明 |
 | **视图位置** | 视图**实际**归属的容器（默认继承其容器位置；用户改过则以覆盖为准） | descriptor service | `workbench.views.customizations` |
 | **面板对齐** | 面板在其**所属水平区域内**的排布：`left` \| `center` \| `right` \| `justify`（研究 03） | 布局层 | `workbench.layout` |
 
@@ -91,7 +94,7 @@ justify + 父节点=整行     → 面板横跨全宽（左|编辑器|右 之下
 | `weight` | number，**无单位比例**（同容器内归一化） | 初始尺寸分配；**用户保存的尺寸（绝对像素）优先于初始 weight** | 否（新增） |
 | `canToggleVisibility` / `canMoveView` | boolean | 用户可否隐藏 / 可否跨容器移动 | 否（新增） |
 | `factoryKey` | string → 宿主白名单解析器 | 创建视图内容；**不接受组件、模块路径、HTML/CSS** | 否（现为宿主模板 `v-if` 分支） |
-| `stateScope` | `"user" \| "project" \| "session"` | 该视图的 memento 存在哪一层 | 部分 |
+| `stateScope` | `"user" \| "project" \| "session"` | 该视图的 memento 存在哪一层。**注意**：设置外壳里的 `scopes` 是「配置写入作用域」，与这里的 `stateScope` 不是一回事 | 部分 |
 
 **`when` 与 `requiredAuthority` 的分工**：`when` 管**看得见**，`requiredAuthority` 管**做得了**。可见性永远不是权限。
 
@@ -138,6 +141,8 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 操作：`addLeaf(parentId, index, leaf)`、`removeLeaf(id)`、`moveLeaf(id, parentId, index)`、`resize(id, delta)`、`serialize()`、`restore(snapshot, resolveRef)`、`layout()`。
 
+**结果合同**：所有操作返回结果对象而不抛未捕获异常——成功 `{ok: true}`；失败 `{ok: false, reason, issue?}`（未知父 id、自环、重复 ref 等）。`restore` 额外返回 `{dropped: [{ref, reason}], clamped: string[]}`；`layout()` 返回 `{rects, issues}`。调用方据此产出可诊断信息。
+
 ### 不变量测试矩阵（修完才算有验收）
 
 | 分组 | 用例 | 期望 |
@@ -165,7 +170,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 | 层级 | 内容 | 键 / scope | 现有事实 |
 |---|---|---|---|
 | **布局（用户级）** | Part 尺寸与可见性、容器位置与顺序、视图隐藏偏好、面板位置与对齐 | `workbench.layout`（版本化快照） | 现散在 `novel.ide.local`、`nbook.settingsDialog.size`、Agent 侧栏 localStorage |
-| **布局（项目级）** | 每个 Project 的布局相关恢复目标 | 沿用 `novel.ide.session` 的 `novel:${projectRoot}` 分区（`novel-ide.ts:317-326`） | 已存在，本项目级键不写用户级内容 |
+| **编辑器会话（项目级）** | **打开的 Tab 与缓冲**——这是编辑器状态，**不是布局**；第一版不引入 Project 级布局覆盖 | 沿用 `novel.ide.session` 的 `novel:${projectRoot}` 分区（`novel-ide.ts:317-326`） | 已存在；项目级键不写用户级内容 |
 | **视图自身** | 展开项、筛选等 UI 状态 | `view.<id>` memento，按 `stateScope` 落层 | 无（新增） |
 | **Session / 页面级** | 当前活动视图、临时展开态、Dialog 开关 | 组件内 ref | 页面销毁即释放；不跨 Project 恢复实例 |
 | **（排除）领域数据** | Project 文件、Session、Job、Trace | 各自 authority | **不进任何布局快照** |
@@ -231,7 +236,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 - **容器可跨栏移动**：允许（位置层与快照格式必须第一天就在）。
 - **视图可跨容器移动**：允许（改视图归属，不是改 Part 父节点）。
-- **factory 开放性**：descriptor 只放 `factoryKey`，第一版解析器为第一方（内置插件同路）；L3 不改 descriptor 格式即接入。
+- **factory 开放性**：descriptor 只放 `factoryKey`，第一版解析器为第一方（内置插件同路）。**设计意图**是 L3 接入时 descriptor 不必变更——此为推断，尚未验证（L3 的安装、权限与隔离都不在本提案内）。
 - **活动视图恢复层级**：保留现有用户级行为，本期不改既有用户数据。
 - **嵌套排布**：用可序列化拆分树原语，而非固定骨架 + 特例分支。
 - **面板位置的 scope**：用户级；**切 Project 不重置**（原开放问题 5 收敛）。
