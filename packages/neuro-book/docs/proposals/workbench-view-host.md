@@ -33,7 +33,7 @@ NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capabilit
 1. **标题栏**：一个 Titlebar Part，支持自绘与 Electron 原生两种呈现。
    - 边界：平台外壳（原生窗口按钮、无边框/overlay 安全区、静态 menus 数据）仍归既有桌面任务与 `DesktopTitleBar`；Workbench 只拥有**自绘 chrome 的布局**与**菜单项数据**。
    - **注意**：仓库目前**没有**菜单注册表——这是本提案要新建的基础设施；第一版只做「最小菜单项数据 + 渲染」，不实现完整菜单贡献体系。
-2. **图标栏**：图标项分两类——`kind: "container"`（点开切换容器）与 `kind: "command"`（执行命令或打开 Dialog）。现状里 `world / trace / history / settings / account` 属**第二类**（研究 12 的 Dialog/命令分类），其余才是容器。内置插件与将来的第三方走**同一条注册 API**。
+2. **图标栏**：图标项分两类——`kind: "container"`（点开切换容器）与 `kind: "command"`（执行命令或打开 Dialog）。现状里 `world / trace / history / settings / account` 属**第二类**（研究 12 的 Dialog/命令分类），其余才是容器。目标是让内置插件与将来的第三方走**同一条注册 API**（设计意图；第一版只实现内置解析器，L3 能否原样复用尚未验证）。
 3. **侧栏**：容器的**默认位置**决定它落在主侧栏还是右侧栏；容器可在主侧栏 / 右侧栏 / 面板之间移动；**视图**也可跨容器移动（改的是视图归属，不是 Part 的父节点）。
 4. **编辑器区**：`EditorPart`，第一版**单组 + Tab**。
 5. **面板与状态栏**：`PANEL_PART` 支持位置与对齐；状态栏**第一版固定底部**（VS Code 也无此能力），"可换位置"见开放问题 4。
@@ -203,6 +203,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 ### `editorGroupId` 合同（第一版）
 
 - 字段位置：**落在 Tab 状态上**（`WorkspaceEditorTab`，`app/stores/novel-ide.ts:84-96`），不属于布局快照。
+- **该字段当前并不存在，是第一版新增**；因此没有历史数据迁移，只需定义默认值与归一规则（下条）。
 - 取值：第一版**固定常量**（如 `"main"`）；缺失或未知值 → 归一到该常量并记诊断，**不报错**。
 - 验收：恢复后所有 Tab 的 `editorGroupId` 一致且等于该常量；将来加入第二组时，迁移是"新增取值 + 按组归属"，**不改字段位置与默认规则**。
 
@@ -236,7 +237,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 - **容器可跨栏移动**：允许（位置层与快照格式必须第一天就在）。
 - **视图可跨容器移动**：允许（改视图归属，不是改 Part 父节点）。
-- **factory 开放性**：descriptor 只放 `factoryKey`，第一版解析器为第一方（内置插件同路）。**设计意图**是 L3 接入时 descriptor 不必变更——此为推断，尚未验证（L3 的安装、权限与隔离都不在本提案内）。
+- **factory 开放性**：descriptor 只放 `factoryKey`，第一版解析器为第一方（内置插件同路）。**设计意图**是 L3 接入时注册 API 与 descriptor 都不必变更——此为推断，尚未验证（L3 的安装、权限与隔离都不在本提案内）。
 - **活动视图恢复层级**：保留现有用户级行为，本期不改既有用户数据。
 - **嵌套排布**：用可序列化拆分树原语，而非固定骨架 + 特例分支。
 - **面板位置的 scope**：用户级；**切 Project 不重置**（原开放问题 5 收敛）。
