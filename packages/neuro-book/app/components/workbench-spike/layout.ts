@@ -29,7 +29,13 @@ export type SpikeCatalog = {views: SpikeViewDescriptor[]; containers: SpikeConta
 export const SPIKE_LAYOUT_VERSION = 1;
 
 /** 位置枚举的声明顺序即界面顺序（活动栏分组、状态栏摘要）。 */
-const SPIKE_LOCATIONS: SpikeLocation[] = ["sidebar-left", "sidebar-right", "panel"];
+export const SPIKE_LOCATIONS: SpikeLocation[] = ["sidebar-left", "sidebar-right", "panel"];
+
+/** 活动栏的两条：面板容器在活动栏里没有位置（走面板标签条）。 */
+export const SIDEBAR_LOCATIONS: SpikeLocation[] = ["sidebar-left", "sidebar-right"];
+
+/** 位置的中文名：活动栏分组 aria-label 与状态栏摘要共用这一份词表。 */
+export const SPIKE_LOCATION_LABELS: Record<SpikeLocation, string> = {"sidebar-left": "主侧栏", "sidebar-right": "右侧栏", "panel": "面板"};
 
 /** 只有这三个叶子可收起：活动栏、编辑区、状态栏是工作台的固定骨架。 */
 const COLLAPSIBLE_LEAVES: string[] = SPIKE_LOCATIONS;
