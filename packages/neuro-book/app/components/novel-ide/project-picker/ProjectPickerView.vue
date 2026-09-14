@@ -6,7 +6,6 @@ import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
-import ProjectPickerClassicAmbientView from "./components/ProjectPickerClassicAmbientView.vue";
 import ProjectPickerClassicCompactView from "./components/ProjectPickerClassicCompactView.vue";
 import ProjectPickerClassicEditorialView from "./components/ProjectPickerClassicEditorialView.vue";
 import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
@@ -15,6 +14,7 @@ import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
 import ProjectPickerEmptyState from "./components/ProjectPickerEmptyState.vue";
 import type {
     ProjectPickerCreatePayload,
+    ProjectPickerLayoutMode,
     ProjectPickerRecoverSessionPayload,
     ProjectPickerViewProps,
 } from "./ProjectPickerView.types";
@@ -62,6 +62,7 @@ const emit = defineEmits<{
     (e: "cover-error", projectRoot: string): void;
     (e: "update:coverDialogOpen", value: boolean): void;
     (e: "update:coverDialogProject", value: ProjectMetadataDto | null): void;
+    (e: "update:layoutMode", value: ProjectPickerLayoutMode): void;
 }>();
 
 const {t, locale} = useI18n();
@@ -95,19 +96,30 @@ const originalPreviewUrl = ref("");
 const originalPreviewAlt = ref("");
 const originalPreviewName = ref("");
 
-const currentLayout = ref<SegmentedControlValue>(props.layoutMode ?? "grid");
+function normalizeLayoutMode(mode?: string): ProjectPickerLayoutMode {
+    if (mode === "compact" || mode === "classic-compact") return "compact";
+    if (mode === "editorial" || mode === "classic-editorial") return "editorial";
+    return "grid";
+}
+
+const currentLayout = ref<ProjectPickerLayoutMode>(normalizeLayoutMode(props.layoutMode));
 
 watch(() => props.layoutMode, (val) => {
     if (val) {
-        currentLayout.value = val;
+        currentLayout.value = normalizeLayoutMode(val);
     }
 });
 
+function handleLayoutChange(value: SegmentedControlValue): void {
+    const next = normalizeLayoutMode(String(value));
+    currentLayout.value = next;
+    emit("update:layoutMode", next);
+}
+
 const layoutOptions: SegmentedControlOption[] = [
     {value: "grid", label: "经典网格"},
-    {value: "classic-ambient", label: "优化一：沉浸画册"},
-    {value: "classic-compact", label: "优化二：密集列表"},
-    {value: "classic-editorial", label: "优化三：宽幅图文"},
+    {value: "compact", label: "密集列表"},
+    {value: "editorial", label: "宽幅图文"},
 ];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
@@ -263,79 +275,26 @@ function handleRetryCoverRecovery(): void {
                             :options="layoutOptions"
                             size="sm"
                             tone="accent"
-                            @update:model-value="currentLayout = $event"
+                            @update:model-value="handleLayoutChange"
                         />
                     </div>
                 </div>
 
-                <!-- 优化一：经典画册网格 · 沉浸呼吸卡片 -->
-                <ProjectPickerClassicAmbientView
-                    v-if="currentLayout === 'classic-ambient'"
+                <!-- 视图一：密集列表 · 生产力工作台 -->
+                <slot
+                    v-if="currentLayout === 'compact'"
+                    name="compact"
                     :projects="projects"
-                    :project-tags="props.projectTags"
-                    :delete-busy-roots="deleteBusyRoots"
-                    :failed-cover-roots="failedCoverRoots"
-                    :cover-refresh-versions="coverRefreshVersions"
-                    :picker-recoveries="pickerRecoveries"
-                    :resolve-cover-url="resolveCoverUrl"
-                    :format-date="formatDate"
-                    @open="emit('open', $event)"
-                    @delete="emit('delete', $event)"
-                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
-                    @open-cover-dialog="handleOpenCoverDialog"
-                    @cover-error="emit('cover-error', $event)"
-                    @create-book="emit('open-create-form')"
-                />
-
-                <!-- 优化二：经典密集列表 · 生产力工作台 -->
-                <ProjectPickerClassicCompactView
-                    v-else-if="currentLayout === 'classic-compact'"
-                    :projects="projects"
-                    :project-tags="props.projectTags"
-                    :delete-busy-roots="deleteBusyRoots"
-                    :failed-cover-roots="failedCoverRoots"
-                    :cover-refresh-versions="coverRefreshVersions"
-                    :picker-recoveries="pickerRecoveries"
-                    :resolve-cover-url="resolveCoverUrl"
-                    :format-date="formatDate"
-                    @open="emit('open', $event)"
-                    @delete="emit('delete', $event)"
-                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
-                    @open-cover-dialog="handleOpenCoverDialog"
-                    @cover-error="emit('cover-error', $event)"
-                    @create-book="emit('open-create-form')"
-                />
-
-                <!-- 优化三：经典对开杂志 · 宽幅图文卡片 -->
-                <ProjectPickerClassicEditorialView
-                    v-else-if="currentLayout === 'classic-editorial'"
-                    :projects="projects"
-                    :project-tags="props.projectTags"
-                    :delete-busy-roots="deleteBusyRoots"
-                    :failed-cover-roots="failedCoverRoots"
-                    :cover-refresh-versions="coverRefreshVersions"
-                    :picker-recoveries="pickerRecoveries"
-                    :resolve-cover-url="resolveCoverUrl"
-                    :format-date="formatDate"
-                    @open="emit('open', $event)"
-                    @delete="emit('delete', $event)"
-                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
-                    @open-cover-dialog="handleOpenCoverDialog"
-                    @cover-error="emit('cover-error', $event)"
-                    @create-book="emit('open-create-form')"
-                />
-
-                <!-- 原版经典网格 -->
-                <div v-else class="picker-bookshelf-grid">
-                    <ProjectCard
-                        v-for="project in projects"
-                        :key="project.projectRoot"
-                        :project="project"
-                        :tags="getTagsForProject(project)"
-                        :delete-busy="deleteBusyRoots.has(project.projectRoot)"
-                        :delete-recovery="deleteRecoveryFor(project.projectRoot)"
-                        :cover-refresh-version="coverRefreshVersions?.[project.projectRoot]"
-                        :failed-cover="failedCoverRoots.has(project.projectRoot)"
+                    :open="(r: string) => emit('open', r)"
+                    :delete-project="(p: ProjectMetadataDto) => emit('delete', p)"
+                >
+                    <ProjectPickerClassicCompactView
+                        :projects="projects"
+                        :project-tags="props.projectTags"
+                        :delete-busy-roots="deleteBusyRoots"
+                        :failed-cover-roots="failedCoverRoots"
+                        :cover-refresh-versions="coverRefreshVersions"
+                        :picker-recoveries="pickerRecoveries"
                         :resolve-cover-url="resolveCoverUrl"
                         :format-date="formatDate"
                         @open="emit('open', $event)"
@@ -343,8 +302,64 @@ function handleRetryCoverRecovery(): void {
                         @retry-delete-recovery="emit('retry-delete-recovery', $event)"
                         @open-cover-dialog="handleOpenCoverDialog"
                         @cover-error="emit('cover-error', $event)"
+                        @create-book="emit('open-create-form')"
                     />
-                </div>
+                </slot>
+
+                <!-- 视图二：宽幅图文 · 杂志对开卡片 -->
+                <slot
+                    v-else-if="currentLayout === 'editorial'"
+                    name="editorial"
+                    :projects="projects"
+                    :open="(r: string) => emit('open', r)"
+                    :delete-project="(p: ProjectMetadataDto) => emit('delete', p)"
+                >
+                    <ProjectPickerClassicEditorialView
+                        :projects="projects"
+                        :project-tags="props.projectTags"
+                        :delete-busy-roots="deleteBusyRoots"
+                        :failed-cover-roots="failedCoverRoots"
+                        :cover-refresh-versions="coverRefreshVersions"
+                        :picker-recoveries="pickerRecoveries"
+                        :resolve-cover-url="resolveCoverUrl"
+                        :format-date="formatDate"
+                        @open="emit('open', $event)"
+                        @delete="emit('delete', $event)"
+                        @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                        @open-cover-dialog="handleOpenCoverDialog"
+                        @cover-error="emit('cover-error', $event)"
+                        @create-book="emit('open-create-form')"
+                    />
+                </slot>
+
+                <!-- 视图三：经典网格 · 书架陈列 -->
+                <slot
+                    v-else
+                    name="grid"
+                    :projects="projects"
+                    :open="(r: string) => emit('open', r)"
+                    :delete-project="(p: ProjectMetadataDto) => emit('delete', p)"
+                >
+                    <div class="picker-bookshelf-grid">
+                        <ProjectCard
+                            v-for="project in projects"
+                            :key="project.projectRoot"
+                            :project="project"
+                            :tags="getTagsForProject(project)"
+                            :delete-busy="deleteBusyRoots.has(project.projectRoot)"
+                            :delete-recovery="deleteRecoveryFor(project.projectRoot)"
+                            :cover-refresh-version="coverRefreshVersions?.[project.projectRoot]"
+                            :failed-cover="failedCoverRoots.has(project.projectRoot)"
+                            :resolve-cover-url="resolveCoverUrl"
+                            :format-date="formatDate"
+                            @open="emit('open', $event)"
+                            @delete="emit('delete', $event)"
+                            @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                            @open-cover-dialog="handleOpenCoverDialog"
+                            @cover-error="emit('cover-error', $event)"
+                        />
+                    </div>
+                </slot>
             </section>
         </main>
 

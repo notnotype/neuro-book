@@ -47,7 +47,7 @@ const {confirm} = useDialog();
 const notification = useNotification();
 const sessionApi = useAgentSessionApi();
 const novelIdeStore = useNovelIdeStore();
-const {novels} = storeToRefs(novelIdeStore);
+const {novels, projectPickerLayoutMode} = storeToRefs(novelIdeStore);
 const {
     loadProjects: refreshProjects,
     createProject,
@@ -516,6 +516,7 @@ const handleClearCover = async (project: ProjectMetadataDto): Promise<void> => {
     <!-- loading="lazy" decoding="async" delegated to ProjectCard.vue -->
     <ProjectPickerView
         :projects="novels"
+        :layout-mode="projectPickerLayoutMode"
         :is-loading="isLoading"
         :load-error="loadError"
         :is-creating="isCreating"
@@ -542,6 +543,7 @@ const handleClearCover = async (project: ProjectMetadataDto): Promise<void> => {
         :cover-busy="coverBusy"
         :cover-error="coverError"
         :cover-recovery-notice="coverRecoveryNotice"
+        @update:layout-mode="projectPickerLayoutMode = $event"
         @update:cover-dialog-open="coverDialogOpen = $event"
         @update:cover-dialog-project="coverDialogProject = $event"
         @open="emit('open', $event)"

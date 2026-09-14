@@ -254,7 +254,8 @@ describe("ProjectPickerView", () => {
 
     it("renders corresponding view when layoutMode is specified", async () => {
         const layouts = [
-            {mode: "classic-ambient" as const, selector: "[data-classic-ambient-view]"},
+            {mode: "compact" as const, selector: "[data-classic-compact-view]"},
+            {mode: "editorial" as const, selector: "[data-classic-editorial-view]"},
             {mode: "classic-compact" as const, selector: "[data-classic-compact-view]"},
             {mode: "classic-editorial" as const, selector: "[data-classic-editorial-view]"},
         ];
@@ -277,5 +278,27 @@ describe("ProjectPickerView", () => {
 
             expect(host.querySelector(selector)).not.toBeNull();
         }
+    });
+
+    it("supports custom slots for views", async () => {
+        const host = document.createElement("div");
+        document.body.appendChild(host);
+
+        const app = createApp(defineComponent({
+            setup() {
+                return () => h(ProjectPickerView, {
+                    projects: SAMPLE_PROJECTS,
+                    layoutMode: "compact",
+                }, {
+                    compact: () => h("div", {"data-custom-compact-slot": "true"}, "自定义列表视图"),
+                });
+            },
+        }));
+        mounted.push(app);
+        app.mount(host);
+        await nextTick();
+
+        expect(host.querySelector("[data-custom-compact-slot]")).not.toBeNull();
+        expect(host.textContent).toContain("自定义列表视图");
     });
 });

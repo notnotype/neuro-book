@@ -35,6 +35,8 @@ import type {
 } from "nbook/shared/dto/user-assets-sync.dto";
 
 export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
+import type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
+export type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 
 type ProjectCatalogSnapshot = Readonly<{
     revision: number;
@@ -217,6 +219,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
+    const projectPickerLayoutMode = ref<ProjectPickerLayoutMode>("grid");
     const agentPanelWidth = ref(400);
     const agentSessionPanelOpen = ref(true);
     const agentSessionPanelWidth = ref(280);
@@ -1941,6 +1944,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         workspaceSessions,
         workspaceTabs,
         workspaceTree,
+        projectPickerLayoutMode,
     };
 }, {
     persist: [
@@ -1971,6 +1975,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",
+            "projectPickerLayoutMode",
         ],
         },
     ],

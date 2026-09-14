@@ -178,8 +178,8 @@ describe("ProjectPickerViewFixture", () => {
         expect(labSubject?.className).toContain("max-w-[390px]");
     });
 
-    it("支持切换至各个经典优化设计方案场景 (classic-ambient, classic-compact, classic-editorial)", async () => {
-        const scenes = ["classic-ambient", "classic-compact", "classic-editorial"] as const;
+    it("支持切换至各个视图方案场景 (compact, editorial)", async () => {
+        const scenes = ["compact", "editorial"] as const;
         for (const scene of scenes) {
             const host = document.createElement("div");
             document.body.append(host);
@@ -189,11 +189,9 @@ describe("ProjectPickerViewFixture", () => {
             app.mount(host);
             await nextTick();
 
-            if (scene === "classic-ambient") {
-                expect(host.querySelector("[data-classic-ambient-view]")).not.toBeNull();
-            } else if (scene === "classic-compact") {
+            if (scene === "compact") {
                 expect(host.querySelector("[data-classic-compact-view]")).not.toBeNull();
-            } else if (scene === "classic-editorial") {
+            } else if (scene === "editorial") {
                 expect(host.querySelector("[data-classic-editorial-view]")).not.toBeNull();
             }
         }

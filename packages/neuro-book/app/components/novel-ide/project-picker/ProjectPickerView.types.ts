@@ -49,8 +49,10 @@ export interface ProjectPickerViewProps {
     coverError?: string;
     coverRecoveryNotice?: string;
     teleportTarget?: string | boolean;
-    layoutMode?: "grid" | "classic-ambient" | "classic-compact" | "classic-editorial";
+    layoutMode?: ProjectPickerLayoutMode | "classic-compact" | "classic-editorial";
 }
+
+export type ProjectPickerLayoutMode = "grid" | "compact" | "editorial";
 
 export interface ProjectPickerViewEmits {
     (e: "open", projectRoot: string): void;
@@ -74,4 +76,5 @@ export interface ProjectPickerViewEmits {
     (e: "cover-error", projectRoot: string): void;
     (e: "update:coverDialogOpen", value: boolean): void;
     (e: "update:coverDialogProject", value: ProjectMetadataDto | null): void;
+    (e: "update:layoutMode", value: ProjectPickerLayoutMode): void;
 }

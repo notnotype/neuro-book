@@ -2,7 +2,10 @@
 import {ref, computed, watch} from "vue";
 import ProjectPickerView from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.vue";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
-import type {ProjectPickerCreatePayload} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
+import type {
+    ProjectPickerCreatePayload,
+    ProjectPickerLayoutMode,
+} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 
 const props = defineProps<{
     scene?: string;
@@ -74,7 +77,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
-const layoutMode = ref<"grid" | "classic-ambient" | "classic-compact" | "classic-editorial">("grid");
+const layoutMode = ref<ProjectPickerLayoutMode>("grid");
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
@@ -88,12 +91,10 @@ watch(currentScene, (scene) => {
 
     if (scene === "empty") {
         projects.value = [];
-    } else if (scene === "classic-ambient" || scene === "ambient") {
-        layoutMode.value = "classic-ambient";
-    } else if (scene === "classic-compact" || scene === "compact") {
-        layoutMode.value = "classic-compact";
-    } else if (scene === "classic-editorial" || scene === "editorial") {
-        layoutMode.value = "classic-editorial";
+    } else if (scene === "compact" || scene === "classic-compact") {
+        layoutMode.value = "compact";
+    } else if (scene === "editorial" || scene === "classic-editorial") {
+        layoutMode.value = "editorial";
     } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {
@@ -181,6 +182,7 @@ function handleRetryLoad(): void {
             :delete-busy-roots="deleteBusyRoots"
             :layout-mode="layoutMode"
             teleport-target="body"
+            @update:layout-mode="layoutMode = $event"
             @open="handleOpen"
             @open-user-assets="emit('event', 'open-user-assets')"
             @open-create-form="handleOpenCreateForm"
