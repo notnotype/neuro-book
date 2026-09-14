@@ -116,7 +116,11 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
                 <!-- 实底演示画布 -->
                 <div class="stage-canvas">
-                    <div class="relative flex items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-3 bg-[var(--bg-main)] rounded-t-lg">
+                    <!-- 默认方案（方案 1）的页签条是检查器的取样目标：整个 fixture 只此一处 id，多方案同屏也不会重号 -->
+                    <div
+                        id="nb-lab-target"
+                        class="relative flex items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-3 bg-[var(--bg-main)] rounded-t-lg"
+                    >
                         <button
                             v-for="item in standardTabs"
                             :key="item.value"
