@@ -72,11 +72,11 @@ defineExpose({
 </script>
 
 <template>
-    <div data-project-create-form class="project-create-form-root space-y-4">
+    <div data-project-create-form class="project-create-form-root flex-1 flex flex-col min-h-0 space-y-4">
         <!-- 创建中状态：内聚于表单组件内部，满足 ui-development-spec §4.1 规范（占满区域、居中、零布局抖动） -->
         <div
             v-if="isCreating"
-            class="flex min-h-[260px] flex-col items-center justify-center gap-3 py-8 text-center"
+            class="flex flex-1 min-h-[260px] flex-col items-center justify-center gap-3 py-8 text-center"
             role="status"
             aria-live="polite"
             aria-busy="true"
@@ -116,17 +116,17 @@ defineExpose({
                 </Button>
             </div>
 
-            <form id="create-project-form" class="space-y-4" @submit.prevent="handleSubmit">
+            <form id="create-project-form" class="flex-1 flex flex-col min-h-0 space-y-4" @submit.prevent="handleSubmit">
                 <!-- 双栏联动布局：基于 @container 自适应，容器 <480px 垂直堆叠，>=480px 左右双栏 -->
-                <div class="create-form-layout">
+                <div class="create-form-layout flex-1 min-h-0">
                     <!-- 左侧 / 移动端顶部：拟真书封预览 -->
                     <div class="flex shrink-0 justify-center sm:pt-1">
                         <ProjectCreateCoverPreview :title="title" :genre="genre" />
                     </div>
 
                     <!-- 右侧输入表单 -->
-                    <div class="min-w-0 flex-1 space-y-3.5">
-                        <label for="create-book-title" class="block text-xs text-[var(--text-secondary)]">
+                    <div class="min-w-0 flex-1 flex flex-col space-y-3.5">
+                        <label for="create-book-title" class="block shrink-0 text-xs text-[var(--text-secondary)]">
                             <span class="mb-1.5 flex items-center justify-between font-medium">
                                 <span>{{ t("ide.bookshelf.bookTitle") }}</span>
                                 <span class="text-[11px] text-[var(--text-muted)] font-mono">{{ title.length }}/120</span>
@@ -142,7 +142,7 @@ defineExpose({
                         </label>
 
                         <!-- 题材选择胶囊（消费 nb-ui Badge） -->
-                        <div class="space-y-1.5">
+                        <div class="shrink-0 space-y-1.5">
                             <span class="block text-xs font-medium text-[var(--text-secondary)]">
                                 {{ t("ide.picker.genreSelect") }}
                             </span>
@@ -170,7 +170,7 @@ defineExpose({
                             </div>
                         </div>
 
-                        <label for="create-book-summary" class="block text-xs text-[var(--text-secondary)]">
+                        <label for="create-book-summary" class="flex min-h-0 flex-1 flex-col text-xs text-[var(--text-secondary)]">
                             <span class="mb-1.5 flex items-center justify-between font-medium">
                                 <span>{{ t("ide.bookshelf.summary") }}</span>
                                 <span class="text-[11px] text-[var(--text-muted)] font-mono">{{ summary.length }}/2000</span>
@@ -179,6 +179,7 @@ defineExpose({
                                 id="create-book-summary"
                                 v-model="summary"
                                 :rows="3"
+                                class="flex-1 min-h-[72px]"
                                 :maxlength="2000"
                                 :disabled="isCreating || Boolean(recoveryError)"
                             />
@@ -204,7 +205,7 @@ defineExpose({
 @container (min-width: 480px) {
     .create-form-layout {
         flex-direction: row;
-        align-items: flex-start;
+        align-items: stretch;
     }
 }
 </style>

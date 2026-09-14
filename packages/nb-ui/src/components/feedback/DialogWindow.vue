@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, getCurrentInstance, inject, nextTick, onBeforeUnmount, provide, ref, watch} from "vue";
-import {useDraggable, useWindowSize} from "@vueuse/core";
+import {useWindowSize} from "@vueuse/core";
 import {DialogContent, DialogPortal, DialogRoot, DialogTitle} from "reka-ui";
 import {NB_DIALOG_WINDOW_DEPTH, NB_DIALOG_WINDOW_Z_STEP, NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
 import IconButton from "../controls/IconButton.vue";
@@ -115,16 +115,30 @@ const dragHandleRef = ref<HTMLElement | null>(null);
 const positioned = ref(false);
 const draftWidth = ref<number | null>(null);
 const draftHeight = ref<number | null>(null);
+const x = ref(24);
+const y = ref(24);
 let resizeCleanup: (() => void) | null = null;
+let dragCleanup: (() => void) | null = null;
 
 const {width: viewportWidth, height: viewportHeight} = useWindowSize();
-const {x, y} = useDraggable(windowRef, {
-    handle: dragHandleRef,
-    preventDefault: true,
-    initialValue: {x: 24, y: 24},
+
+const portalTarget = computed(() => {
+    if (props.teleportTarget === false) {
+        return undefined;
+    }
+    if (typeof props.teleportTarget === "string") {
+        if (typeof document !== "undefined") {
+            const el = document.querySelector(props.teleportTarget);
+            if (el) {
+                return props.teleportTarget;
+            }
+        }
+        // 当传入的选择器在当前上下文（如 Lab）中不存在时，平滑回退到 body
+        return "body";
+    }
+    return "body";
 });
 
-const portalTarget = computed(() => typeof props.teleportTarget === "string" ? props.teleportTarget : "body");
 /** 尺寸字面量只做缺省：显式传入的 width / height 覆盖对应维度。 */
 const sizePreset = computed(() => DIALOG_WINDOW_SIZE_PRESETS[props.size]);
 const resolvedWidth = computed(() => props.width ?? sizePreset.value.width);
@@ -137,19 +151,36 @@ const displayHeight = computed(() => {
     // 数字必须补单位：直接绑数字 Vue 会写成 `height: 640`，浏览器当无效值丢掉。
     return typeof resolvedHeight.value === "number" ? `${resolvedHeight.value}px` : resolvedHeight.value;
 });
+
+const containerSize = computed(() => {
+    if (props.teleportTarget === false && windowRef.value) {
+        const parent = windowRef.value.offsetParent as HTMLElement | null;
+        if (parent && parent !== document.body && parent.clientWidth > 0) {
+            return {
+                width: parent.clientWidth,
+                height: parent.clientHeight,
+            };
+        }
+    }
+    return {
+        width: viewportWidth.value,
+        height: viewportHeight.value,
+    };
+});
+
 const effectiveWidth = computed(() => {
-    const availableWidth = viewportWidth.value > 0 ? Math.max(0, viewportWidth.value - 24) : displayWidth.value;
+    const availableWidth = containerSize.value.width > 0 ? Math.max(0, containerSize.value.width - 24) : displayWidth.value;
     return Math.min(displayWidth.value, availableWidth);
 });
 
-/** 拖动边界收敛：窗口至少保留一角在视口内，标题栏始终可再次抓取。 */
+/** 拖动边界收敛：窗口至少保留一角在视口/宿主容器内，标题栏始终可再次抓取。 */
 const clampedX = computed(() => {
     const minX = 16 - effectiveWidth.value + 72;
-    const maxX = Math.max(viewportWidth.value - 72, minX);
+    const maxX = Math.max(containerSize.value.width - 72, minX);
     return Math.min(Math.max(x.value, minX), maxX);
 });
 const clampedY = computed(() => {
-    const maxY = Math.max(viewportHeight.value - 48, 8);
+    const maxY = Math.max(containerSize.value.height - 48, 8);
     return Math.min(Math.max(y.value, 8), maxY);
 });
 
@@ -216,6 +247,59 @@ function clampResize(value: number, minimum: number): number {
     return Math.max(minimum, Math.round(value));
 }
 
+function startDrag(event: PointerEvent): void {
+    if (event.button !== 0 || props.busy) {
+        return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target?.closest("button, input, textarea, a, select, [data-interactive]")) {
+        return;
+    }
+    const handle = dragHandleRef.value;
+    if (!handle || !windowRef.value) {
+        return;
+    }
+
+    dragCleanup?.();
+    event.preventDefault();
+    handle.setPointerCapture?.(event.pointerId);
+
+    const startClientX = event.clientX;
+    const startClientY = event.clientY;
+    const startLeft = clampedX.value;
+    const startTop = clampedY.value;
+
+    const rect = windowRef.value.getBoundingClientRect();
+    const offsetW = windowRef.value.offsetWidth;
+    const offsetH = windowRef.value.offsetHeight;
+    const scaleX = (offsetW > 0 && rect.width > 0) ? (rect.width / offsetW) : 1;
+    const scaleY = (offsetH > 0 && rect.height > 0) ? (rect.height / offsetH) : 1;
+
+    const move = (moveEvent: PointerEvent): void => {
+        const deltaX = (moveEvent.clientX - startClientX) / scaleX;
+        const deltaY = (moveEvent.clientY - startClientY) / scaleY;
+        x.value = startLeft + deltaX;
+        y.value = startTop + deltaY;
+    };
+
+    const finish = (): void => {
+        try {
+            handle.releasePointerCapture?.(event.pointerId);
+        } catch {
+            // ignore if already released
+        }
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", finish);
+        handle.removeEventListener("pointercancel", finish);
+        dragCleanup = null;
+    };
+
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+    dragCleanup = finish;
+}
+
 function startResize(direction: DialogWindowResizeDirection, event: PointerEvent): void {
     if (!props.resizable || props.busy) {
         return;
@@ -228,6 +312,12 @@ function startResize(direction: DialogWindowResizeDirection, event: PointerEvent
     const startHeight = currentHeight();
     const startLeft = clampedX.value;
     const startTop = clampedY.value;
+    const rect = windowRef.value?.getBoundingClientRect();
+    const offsetW = windowRef.value?.offsetWidth ?? 0;
+    const offsetH = windowRef.value?.offsetHeight ?? 0;
+    const scaleX = (offsetW > 0 && rect && rect.width > 0) ? (rect.width / offsetW) : 1;
+    const scaleY = (offsetH > 0 && rect && rect.height > 0) ? (rect.height / offsetH) : 1;
+
     event.preventDefault();
     handle.setPointerCapture?.(event.pointerId);
 
@@ -235,7 +325,7 @@ function startResize(direction: DialogWindowResizeDirection, event: PointerEvent
         // 负方向手柄（左/上）拖动时，窗口的 x / y 跟着边界走：先算新尺寸，再由尺寸反推位置，
         // 这样触到最小尺寸时位置不会继续漂移。
         if (direction.width !== 0) {
-            const delta = (moveEvent.clientX - startX) * direction.width;
+            const delta = ((moveEvent.clientX - startX) / scaleX) * direction.width;
             const nextWidth = clampResize(startWidth + delta, props.minWidth);
             draftWidth.value = nextWidth;
             if (direction.width < 0) {
@@ -243,7 +333,7 @@ function startResize(direction: DialogWindowResizeDirection, event: PointerEvent
             }
         }
         if (direction.height !== 0) {
-            const delta = (moveEvent.clientY - startY) * direction.height;
+            const delta = ((moveEvent.clientY - startY) / scaleY) * direction.height;
             const nextHeight = clampResize(startHeight + delta, props.minHeight);
             draftHeight.value = nextHeight;
             if (direction.height < 0) {
@@ -252,6 +342,11 @@ function startResize(direction: DialogWindowResizeDirection, event: PointerEvent
         }
     };
     const finish = (commit: boolean): void => {
+        try {
+            handle.releasePointerCapture?.(event.pointerId);
+        } catch {
+            // ignore
+        }
         handle.removeEventListener("pointermove", move);
         handle.removeEventListener("pointerup", onPointerUp);
         handle.removeEventListener("pointercancel", onPointerCancel);
@@ -306,15 +401,24 @@ function handleResizeKeydown(direction: DialogWindowResizeDirection, event: Keyb
 }
 
 watch(() => props.modelValue, (visible) => {
-    if (!visible || positioned.value || typeof window === "undefined") {
+    if (!visible) {
+        positioned.value = false;
+        return;
+    }
+    if (positioned.value || typeof window === "undefined") {
         return;
     }
     void nextTick(() => {
+        if (!windowRef.value) return;
         // 打开时居中：宽高都已知时正中央，高度按内容自适应时量一次实际高度，量不到就用 64px 顶距。
-        const initialLeft = Math.max(12, Math.round((viewportWidth.value - effectiveWidth.value) / 2));
-        const measuredHeight = windowRef.value?.getBoundingClientRect().height ?? 0;
+        const targetContainer = containerSize.value;
+        const initialLeft = Math.max(12, Math.round((targetContainer.width - effectiveWidth.value) / 2));
+        const rect = windowRef.value.getBoundingClientRect();
+        const offsetH = windowRef.value.offsetHeight;
+        const scaleY = (offsetH > 0 && rect.height > 0) ? (rect.height / offsetH) : 1;
+        const measuredHeight = rect.height / scaleY;
         const initialTop = measuredHeight > 0
-            ? Math.max(24, Math.round((viewportHeight.value - measuredHeight) / 2))
+            ? Math.max(24, Math.round((targetContainer.height - measuredHeight) / 2))
             : 64;
         x.value = initialLeft;
         y.value = initialTop;
@@ -324,6 +428,7 @@ watch(() => props.modelValue, (visible) => {
 
 onBeforeUnmount(() => {
     resizeCleanup?.();
+    dragCleanup?.();
 });
 </script>
 
@@ -351,7 +456,7 @@ onBeforeUnmount(() => {
                     :class="windowDepth > 1 ? 'nb-dialog-window--nested' : ''"
                 >
                     <div class="flex min-h-9 shrink-0 items-center border-b border-[var(--divider)] px-4 py-1">
-                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none">
+                        <div ref="dragHandleRef" class="min-w-0 flex-1 cursor-move touch-none select-none" @pointerdown="startDrag">
                             <DialogTitle v-if="$slots.header" as="div" class="truncate text-sm font-semibold leading-snug text-[var(--text-main)]">
                                 <slot name="header" />
                             </DialogTitle>

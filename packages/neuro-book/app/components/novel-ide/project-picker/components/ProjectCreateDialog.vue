@@ -24,10 +24,10 @@ const emit = defineEmits<{
 
 const {t} = useI18n();
 
-const CREATE_PROJECT_WINDOW_SIZE_KEY = "nbook.projectCreateDialog.size";
+const CREATE_PROJECT_WINDOW_SIZE_KEY = "nbook.projectCreateDialog.size.v2";
 type WindowSize = {width: number; height: number};
-const DEFAULT_WINDOW_SIZE: WindowSize = {width: 580, height: 440};
-const MIN_WINDOW_SIZE: WindowSize = {width: 320, height: 360};
+const DEFAULT_WINDOW_SIZE: WindowSize = {width: 580, height: 360};
+const MIN_WINDOW_SIZE: WindowSize = {width: 320, height: 330};
 
 function readStoredWindowSize(): WindowSize {
     if (!import.meta.client) {
@@ -116,7 +116,7 @@ function handleFooterSubmit(): void {
         resizable
         :busy="props.isCreating"
         :teleport-target="props.teleportTarget"
-        body-class="p-4 sm:p-5"
+        body-class="p-4 sm:px-5 sm:py-4 flex-1 flex flex-col min-h-0"
         @update:width="updateWindowWidth"
         @update:height="updateWindowHeight"
         @update:model-value="!$event && handleCancel()"
@@ -126,6 +126,7 @@ function handleFooterSubmit(): void {
             :is-creating="props.isCreating"
             :recovery-notice="props.recoveryNotice"
             :recovery-error="props.recoveryError"
+            class="flex-1 flex flex-col min-h-0"
             @submit="handleSubmit"
             @retry-recovery="emit('retry-recovery')"
         />
