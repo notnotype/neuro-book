@@ -18,11 +18,11 @@ describe("AgentProfileSettingsView Lab 场景", () => {
 });
 
 describe("FrontendSettingsView Lab 场景", () => {
-    it("登记主题网格的三种场景", () => {
+    it("登记两轴选择器的两种场景", () => {
         const fixture = findLabFixture("FrontendSettingsView");
 
         expect(fixture).not.toBeNull();
-        expect(fixture?.scenes.map((scene) => scene.id)).toEqual(["default", "no-custom", "disabled"]);
+        expect(fixture?.scenes.map((scene) => scene.id)).toEqual(["default", "disabled"]);
     });
 });
 

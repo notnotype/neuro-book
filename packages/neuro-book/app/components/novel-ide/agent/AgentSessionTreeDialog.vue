@@ -518,7 +518,7 @@ function handleKeyDown(e: KeyboardEvent): void {
         <div class="flex min-h-0 flex-1 bg-[var(--bg-main)]">
             <!-- Tree 主列表 -->
             <div class="flex min-w-0 flex-1 flex-col border-r border-[var(--border-color)] bg-[var(--bg-main)]">
-                <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]/95 px-3 py-2 backdrop-blur">
+                <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-surface)]/95 px-3 py-2 backdrop-blur">
                     <div class="flex h-8 min-w-[280px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 shadow-sm">
                         <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
                         <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" :placeholder="t('agent.sessionTree.searchPlaceholder')" />

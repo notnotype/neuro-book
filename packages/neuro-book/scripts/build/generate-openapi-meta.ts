@@ -21,7 +21,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {routeMetaMap, type RouteMetaEntry} from "../../server/openapi/route-map";
 import {buildOpenAPIOperation} from "../../server/openapi/operation-builder";
 
-const applicationRoot = fileURLToPath(new URL("../", import.meta.url));
+// 脚本在 scripts/build/ 下，应用根是上两级；写成 "../" 会落到 scripts/，所有 route 文件都找不到。
+const applicationRoot = fileURLToPath(new URL("../../", import.meta.url));
 const serverApiDir = resolve(applicationRoot, "server/api");
 
 // ─── Marker comment for idempotent replacement ──────────────────

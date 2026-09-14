@@ -23,7 +23,8 @@ import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspac
 import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceLocationProfileDialog.vue";
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
-import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {ensureThemeHost} from "nbook/app/utils/theme/host";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
@@ -133,10 +134,6 @@ const {
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
-    activeThemeId,
-    activeThemeAppearance,
-    customThemes,
-    themeVarsSnapshot,
     viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
@@ -170,7 +167,7 @@ const {
     switchToUserAssetsWorkspace,
     loadProjects,
 } = novelIdeStore;
-const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
+const theme = useProductTheme();
 const workspaceFileEvents = useWorkspaceFileEvents();
 // Current Project 只有在 open + presence_ready 后才提交；URL 在此之前只是打开意图。
 const projectSession = useProjectSession();
@@ -1786,7 +1783,7 @@ const syncDefaultModelLabel = async (): Promise<void> => {
             query,
         });
         setSelectedModelLabel(settings.modelSettings.defaultModelLabel);
-        novelIdeStore.applyThemeConfig(settings.ui.theme, settings.ui.customThemes);
+        theme.applyStoredAxes({themeId: settings.ui.themeId, appearance: settings.ui.appearance});
     } catch {
         setSelectedModelLabel(null);
     }
@@ -2424,7 +2421,7 @@ useWorkbenchChromeRegistration({
         const workspaceTitle = displayNovelTitle.value || t("ide.header.noNovelSelected");
         return fileName ? `${fileName} — ${workspaceTitle}` : workspaceTitle;
     },
-    appearance: () => activeThemeAppearance.value,
+    appearance: () => theme.appearance.value,
     surfaceActive: () => projectSurfaceActive.value,
     currentProjectRoot: () => currentProjectRoot.value || null,
     projects: () => novels.value.map((novel) => ({
@@ -2452,7 +2449,7 @@ onMounted(() => {
         }
 
         try {
-            mountThemeHost(themeHostRef.value);
+            ensureThemeHost(themeHostRef.value);
             window.addEventListener("pagehide", flushWorkspaceSession);
             window.addEventListener("beforeunload", flushWorkspaceSession);
             void syncAuthSession();
@@ -2585,7 +2582,7 @@ onBeforeUnmount(() => {
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
                 <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
-                <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--editor-bg)] p-2 text-center" data-demo-leaf="editor">
+                <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--page-surface)] p-2 text-center" data-demo-leaf="editor">
                     <span class="text-[11px] font-semibold text-[var(--text-secondary)]">editor</span>
                     <span class="text-[10px] leading-tight text-[var(--text-muted)]">编辑器：Markdown Studio / 欢迎页</span>
                     <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
@@ -2603,13 +2600,12 @@ onBeforeUnmount(() => {
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <NovelIdeProfileDialog v-model="accountProfileOpen" />
         <AgentTraceViewerDialog v-if="projectSurfaceActive" v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
-        <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" :theme="activeThemeId" />
+        <WorkspaceHistoryInboxDialog v-if="projectSurfaceActive" v-model="historyInboxOpen" :project-root="isUserAssetsWorkspace ? null : currentProjectRoot" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-if="projectSurfaceActive"
             v-model="novelIdeStore.workspaceConflictDialogOpen"
             :conflict="novelIdeStore.workspaceWriteConflict"
-            :theme="activeThemeId"
             @resolve="void resolveWorkspaceWriteConflict($event)"
         />
         <WorkspaceCharacterDetailPanel

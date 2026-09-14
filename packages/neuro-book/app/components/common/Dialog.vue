@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "@notnotype/nb-ui/theme";
-import { IDE_THEME_HOST_CLASS } from "nbook/app/utils/theme/theme-tokens";
+import { THEME_HOST_SELECTOR } from "nbook/app/utils/theme/host";
 import {computed, getCurrentInstance, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 /**
  * 通用对话框组件。
@@ -93,7 +93,7 @@ const props = withDefaults(defineProps<{
     showHeader: true,
     closeOnOverlay: true,
     closeOnEsc: true,
-    teleportTarget: `.${IDE_THEME_HOST_CLASS}`,
+    teleportTarget: THEME_HOST_SELECTOR,
     overlayType: "opaque",
     showCancel: false,
     showFooter: true,

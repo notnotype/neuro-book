@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {MarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {WorkspaceEditorKind, WorkspaceEditorTab, WorkspaceEditorViewMode, WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import type {FrontmatterProfileKind, MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
@@ -23,7 +22,6 @@ const props = withDefaults(defineProps<{
     node: WorkspaceFileNode | null;
     editorKind: WorkspaceEditorKind;
     workspaceViewMode: WorkspaceEditorViewMode;
-    theme: IdeTheme;
     editorPreferences: MarkdownEditorPreferences;
     monacoPreferences: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
@@ -85,7 +83,7 @@ watch(() => props.activePath, () => {
 
 <template>
     <!-- Markdown Studio 工作台 -->
-    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-bg)]" :class="props.compact ? 'min-w-[260px]' : 'min-w-[640px]'">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--page-surface)]" :class="props.compact ? 'min-w-[260px]' : 'min-w-[640px]'">
         <MarkdownStudioToolbar
             :tabs="props.tabs"
             :active-path="props.activePath"
@@ -104,7 +102,7 @@ watch(() => props.activePath, () => {
             @more="emit('more')"
         />
 
-        <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]">
+        <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--page-surface)]">
             <MarkdownStudioWelcome
                 v-if="!props.activePath || !props.node"
                 :node="props.node"
@@ -129,7 +127,6 @@ watch(() => props.activePath, () => {
                         class="ide-editor-shell min-w-0"
                         :class="props.controller.commentViewOpen.value ? 'markdown-comment-layout__editor' : 'flex-1'"
                         :controller="props.controller"
-                        :theme="props.theme"
                         :editor-preferences="props.editorPreferences"
                         :monaco-preferences="props.monacoPreferences"
                         :monaco-temporary-font-size="props.monacoTemporaryFontSize"
@@ -164,7 +161,6 @@ watch(() => props.activePath, () => {
                 :key="`${props.activePath}:monaco`"
                 class="min-h-0 flex-1"
                 :initial-value="props.content"
-                :theme="props.theme"
                 :language="monacoLanguage"
                 :model-path="props.activePath"
                 :monaco-preferences="props.monacoPreferences"
@@ -201,7 +197,7 @@ watch(() => props.activePath, () => {
     display: flex;
     min-height: 0;
     overflow: hidden;
-    background: var(--editor-bg);
+    background: var(--page-surface);
 }
 
 .markdown-comment-layout__spacer {

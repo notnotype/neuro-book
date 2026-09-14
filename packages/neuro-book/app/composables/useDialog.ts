@@ -1,6 +1,6 @@
 import { createApp, type App, type ComponentPublicInstance, defineComponent, h, type InjectionKey, nextTick, ref, type VNodeRef } from "vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
-import { IDE_THEME_HOST_CLASS } from "../utils/theme/theme-tokens";
+import { THEME_HOST_SELECTOR } from "../utils/theme/host";
 
 /**
  * 对话框 JS API 的内部类型。
@@ -80,7 +80,7 @@ function createDialogInstance(
     return new Promise((resolve) => {
         // 宿主 DOM 节点
         const container = document.createElement("div");
-        const themeHost = document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`);
+        const themeHost = document.querySelector<HTMLElement>(THEME_HOST_SELECTOR);
         (themeHost ?? document.body).appendChild(container);
 
         let resolved = false;
@@ -215,7 +215,7 @@ function createDialogInstance(
 function createChooseDialogInstance(options: ChooseDialogOptions, sourceApp: VueI18nContextApp): Promise<DialogActionValue> {
     return new Promise((resolve) => {
         const container = document.createElement("div");
-        const themeHost = document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`);
+        const themeHost = document.querySelector<HTMLElement>(THEME_HOST_SELECTOR);
         (themeHost ?? document.body).appendChild(container);
 
         let resolved = false;
@@ -292,7 +292,7 @@ function createChooseDialogInstance(options: ChooseDialogOptions, sourceApp: Vue
 function createChooseCardsDialogInstance(options: ChooseCardsDialogOptions, sourceApp: VueI18nContextApp): Promise<DialogActionValue> {
     return new Promise((resolve) => {
         const container = document.createElement("div");
-        const themeHost = document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`);
+        const themeHost = document.querySelector<HTMLElement>(THEME_HOST_SELECTOR);
         (themeHost ?? document.body).appendChild(container);
 
         let resolved = false;

@@ -56,7 +56,9 @@ import {
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import type {ProductThemeId} from "nbook/shared/theme/theme-axes";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
@@ -237,7 +239,8 @@ const session = useAgentSession();
 const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
-const themeManager = useThemeManager();
+const themeSettings = useThemeSettings();
+const {themeId} = useProductTheme();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
@@ -878,7 +881,7 @@ const buildClientState = () => {
     const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
     return buildAgentClientState({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
-        theme: ideStore.activeThemeId,
+        theme: themeId.value,
         novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
         workspace: ideStore.currentWorkspaceRoot || null,
         workspaceKind: ideStore.workspaceKind,
@@ -1920,10 +1923,9 @@ const acknowledgeClientPatch = async (
             },
             setTheme: async (value) => {
                 if (!isCurrent()) return false;
-                const applied = await themeManager.setTheme(value);
+                const applied = await themeSettings.saveAxes({themeId: value as ProductThemeId});
                 return isCurrent() && applied;
             },
-            customThemeIds: ideStore.customThemes.map((theme) => theme.id),
         });
         if (!isCurrent()) {
             return;

@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import {Dialog} from "@notnotype/nb-ui/components";
-import {storeToRefs} from "pinia";
-import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {ensureThemeHost} from "nbook/app/utils/theme/host";
 import {generateComplexPassword} from "nbook/app/utils/password";
 import type {AdminUserListItemDto, AuthSessionDto} from "nbook/shared/dto/auth.dto";
 
@@ -32,9 +31,6 @@ const editForm = reactive({
     status: "active" as "active" | "disabled",
 });
 const resetPassword = ref("");
-const novelIdeStore = useNovelIdeStore();
-const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 const editOpen = computed({
     get: () => Boolean(editTarget.value),
@@ -204,7 +200,7 @@ watch([createOpen, editOpen, resetOpen], () => {
 });
 
 onMounted(() => {
-    mountThemeHost(themeHostRef.value);
+    ensureThemeHost(themeHostRef.value);
     void loadUsers();
 });
 </script>
@@ -347,8 +343,3 @@ onMounted(() => {
     </div>
 </template>
 
-<style scoped>
-.admin-page {
-    --editor-bg: var(--bg-main);
-}
-</style>

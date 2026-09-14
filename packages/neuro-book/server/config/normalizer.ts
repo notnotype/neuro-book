@@ -34,15 +34,21 @@ import {
     ProfileFileChangeNoticeRuntimePatchDtoSchema,
     ProfileSummarizerRuntimePatchDtoSchema,
 } from "nbook/shared/dto/config.dto";
-import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
+import {
+    DEFAULT_PRODUCT_APPEARANCE,
+    DEFAULT_PRODUCT_THEME_ID,
+    productAppearances,
+    productThemeIds,
+    type ProductAppearance,
+    type ProductThemeId,
+} from "nbook/shared/theme/theme-axes";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
-const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
-const builtInThemeIdSet = new Set<string>(builtInThemeIds);
-const themeAppearanceSet = new Set<string>(themeAppearanceValues);
-const themeVarNameSet = new Set<string>(themeVarNames);
+/** 白名单查表：清单外的取值（老体系 id / 打错的值）一律读作无效。 */
+const productThemeIdLookup: Record<string, true> = Object.fromEntries(productThemeIds.map((id) => [id, true]));
+const productAppearanceLookup: Record<string, true> = Object.fromEntries(productAppearances.map((appearance) => [appearance, true]));
 const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     modelKey: null,
     temperature: null,
@@ -178,8 +184,8 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             visibleModels: [],
         },
         ui: {
-            theme: DEFAULT_THEME,
-            customThemes: [],
+            themeId: DEFAULT_PRODUCT_THEME_ID,
+            appearance: DEFAULT_PRODUCT_APPEARANCE,
             costCurrency: DEFAULT_COST_CURRENCY,
         },
         editor: {
@@ -197,7 +203,6 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
  */
 export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null | undefined): StoredGlobalConfig {
     const raw = input && typeof input === "object" ? input : {};
-    const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
     return {
         ...(raw.observability ? {observability: raw.observability} : {}),
         ...(raw.history ? {history: raw.history} : {}),
@@ -217,8 +222,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             visibleModels: normalizeAgentVisibleModels(raw.agent?.visibleModels),
         },
         ui: {
-            theme: normalizeTheme(raw.ui?.theme, customThemes),
-            customThemes,
+            themeId: normalizeProductThemeId(raw.ui?.themeId),
+            appearance: normalizeProductAppearance(raw.ui?.appearance),
             costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
@@ -298,8 +303,8 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
     effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
-    effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
-    effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
+    effective.ui.themeId = normalizeProductThemeId(globalConfig.ui?.themeId);
+    effective.ui.appearance = normalizeProductAppearance(globalConfig.ui?.appearance);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
@@ -629,64 +634,14 @@ function normalizeMonacoPreferences(input: Partial<MonacoEditorPreferences> | un
     };
 }
 
-function normalizeTheme(input: unknown, customThemes: CustomThemeDto[] = []): EffectiveConfig["ui"]["theme"] {
+function normalizeProductThemeId(input: unknown): ProductThemeId {
     const themeId = normalizeText(input);
-    if (builtInThemeIdSet.has(themeId) || customThemes.some((theme) => theme.id === themeId)) {
-        return themeId;
-    }
-    return DEFAULT_THEME;
+    return Object.hasOwn(productThemeIdLookup, themeId) ? themeId as ProductThemeId : DEFAULT_PRODUCT_THEME_ID;
 }
 
-function normalizeCustomThemes(input: unknown): CustomThemeDto[] {
-    if (!Array.isArray(input)) {
-        return [];
-    }
-    const result: CustomThemeDto[] = [];
-    const seenIds = new Set<string>();
-    for (const item of input) {
-        const theme = normalizeCustomTheme(item);
-        if (!theme || seenIds.has(theme.id)) {
-            continue;
-        }
-        seenIds.add(theme.id);
-        result.push(theme);
-        if (result.length >= 50) {
-            break;
-        }
-    }
-    return result;
-}
-
-function normalizeCustomTheme(input: unknown): CustomThemeDto | null {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return null;
-    }
-    const record = input as Record<string, unknown>;
-    const id = normalizeText(record.id);
-    const name = normalizeText(record.name).slice(0, 50);
-    const appearance = normalizeThemeAppearance(record.appearance);
-    const vars = normalizeThemeVars(record.vars);
-    if (!/^custom-[a-z0-9-]+$/u.test(id) || !name || !appearance) {
-        return null;
-    }
-    return {id: id as CustomThemeDto["id"], name, appearance, vars};
-}
-
-function normalizeThemeAppearance(input: unknown): ThemeAppearance | null {
-    return typeof input === "string" && themeAppearanceSet.has(input) ? input as ThemeAppearance : null;
-}
-
-function normalizeThemeVars(input: unknown): Partial<Record<ThemeVarName, string>> {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return {};
-    }
-    const result: Partial<Record<ThemeVarName, string>> = {};
-    for (const [key, value] of Object.entries(input)) {
-        if (themeVarNameSet.has(key) && typeof value === "string") {
-            result[key as ThemeVarName] = value.trim();
-        }
-    }
-    return result;
+function normalizeProductAppearance(input: unknown): ProductAppearance {
+    const appearance = normalizeText(input);
+    return Object.hasOwn(productAppearanceLookup, appearance) ? appearance as ProductAppearance : DEFAULT_PRODUCT_APPEARANCE;
 }
 
 function normalizeCostCurrency(input: unknown): EffectiveConfig["ui"]["costCurrency"] {

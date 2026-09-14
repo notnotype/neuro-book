@@ -15,7 +15,9 @@ import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAge
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import type {ProductThemeId} from "nbook/shared/theme/theme-axes";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
@@ -90,6 +92,7 @@ export function useInlineEditorAgentController(
     providedServices?: InlineEditorAgentControllerServices,
 ) {
     const ideStore = useNovelIdeStore();
+    const {themeId} = useProductTheme();
     const previousSelectedFilePath = ref<string | null>(toValue(options.selectedFilePath) || null);
     const fileChangedSinceLastSend = ref(false);
     const selectionVersion = ref(0);
@@ -115,7 +118,7 @@ export function useInlineEditorAgentController(
         const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
         return buildAgentClientState({
             activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
-            theme: ideStore.activeThemeId,
+            theme: themeId.value,
             novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
             workspace: ideStore.currentWorkspaceRoot || null,
             workspaceKind: ideStore.workspaceKind,
@@ -730,7 +733,7 @@ function createDefaultServices(
 ): InlineEditorAgentControllerServices {
     const api = useAgentSessionApi();
     const configApi = useConfigApi();
-    const themeManager = useThemeManager();
+    const themeSettings = useThemeSettings();
     const notification = useNotification();
     const {t} = useI18n();
     const storage: Pick<Storage, "getItem" | "setItem"> = import.meta.client
@@ -757,10 +760,9 @@ function createDefaultServices(
                     },
                     setTheme: async (value) => {
                         if (!isCurrent()) return false;
-                        const applied = await themeManager.setTheme(value);
+                        const applied = await themeSettings.saveAxes({themeId: value as ProductThemeId});
                         return isCurrent() && applied;
                     },
-                    customThemeIds: ideStore.customThemes.map((theme) => theme.id),
                 });
                 if (!isCurrent()) return;
                 await api.acknowledgeClientVariablePatch(sessionId, {

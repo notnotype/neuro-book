@@ -3,7 +3,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
-import {ideThemeIds} from "nbook/app/utils/theme/theme-tokens";
+import {productThemeIds} from "nbook/shared/theme/theme-axes";
 
 type RuntimeI18n = {
     t: (key: string, params?: {[key: string]: string | number}) => string;
@@ -13,7 +13,6 @@ type ClientVariableSetterResult = void | boolean | Promise<void | boolean>;
 type ClientVariablePatchOptions = {
     setActivePanel?: (value: NovelIdeTab | null) => ClientVariableSetterResult;
     setTheme?: (value: string) => ClientVariableSetterResult;
-    customThemeIds?: string[];
 };
 
 /**
@@ -102,7 +101,7 @@ async function applyKnownClientState(path: string, value: JsonValue, options: Cl
         return;
     }
     if (path === "ide.theme") {
-        const allowedThemeIds = [...ideThemeIds, ...(options.customThemeIds ?? [])];
+        const allowedThemeIds = productThemeIds as readonly string[];
         if (typeof value !== "string" || !allowedThemeIds.includes(value)) {
             const values = allowedThemeIds.join("/");
             throw new Error(translate("agent.clientVariables.themeInvalid", `client.ide.theme 只能写入 ${values}。`, {values}));

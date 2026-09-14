@@ -1,5 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import type {ThemeAppearance} from "nbook/shared/theme/theme-vars";
+import type {ProductAppearance} from "nbook/shared/theme/theme-axes";
 
 type ThemeVars = {
     accent: string;
@@ -16,56 +16,6 @@ type ThemePreset = {
     colors: Monaco.editor.IColors;
     rules: Monaco.editor.ITokenThemeRule[];
 };
-
-/**
- * Solarized Light 是现成的暖色系主题，这里把它作为 sepia 模式的基础。
- * 参考来源：
- * https://github.com/brijeshb42/monaco-themes/blob/master/themes/Solarized-light.json
- */
-const buildSepiaPreset = (vars: ThemeVars): ThemePreset => ({
-    base: "vs",
-    colors: {
-        "editor.background": vars.background,
-        "editor.foreground": vars.foreground,
-        "editorCursor.foreground": "#000000",
-        "editor.lineHighlightBackground": "#EEE8D5",
-        "editor.selectionBackground": "#EEE8D5",
-        "editorWhitespace.foreground": "#EAE3C9",
-        "editorLineNumber.foreground": "#93A1A1",
-        "editorLineNumber.activeForeground": vars.foreground,
-        "editorGutter.background": vars.background,
-        "editorIndentGuide.background1": "#EAE3C9",
-        "editorIndentGuide.activeBackground1": "#93A1A1",
-    },
-    rules: [
-        { token: "", foreground: "586E75" },
-        { token: "comment", foreground: "93A1A1" },
-        { token: "string", foreground: "2AA198" },
-        { token: "constant.numeric", foreground: "D33682" },
-        { token: "keyword", foreground: "859900" },
-        { token: "storage", foreground: "073642", fontStyle: "bold" },
-        { token: "entity.name.function", foreground: "268BD2" },
-        { token: "support.function", foreground: "268BD2" },
-        { token: "markup.heading.markdown", foreground: "268BD2" },
-        { token: "markup.heading.1.markdown", foreground: "268BD2" },
-        { token: "markup.heading.2.markdown", foreground: "268BD2" },
-        { token: "markup.heading.3.markdown", foreground: "268BD2" },
-        { token: "markup.heading.4.markdown", foreground: "268BD2" },
-        { token: "markup.heading.5.markdown", foreground: "268BD2" },
-        { token: "markup.heading.6.markdown", foreground: "268BD2" },
-        { token: "markup.bold.markdown", foreground: "586E75", fontStyle: "bold" },
-        { token: "markup.italic.markdown", foreground: "586E75", fontStyle: "italic" },
-        { token: "markup.list.unnumbered.markdown", foreground: "B58900" },
-        { token: "markup.list.numbered.markdown", foreground: "859900" },
-        { token: "markup.raw.block.markdown", foreground: "2AA198" },
-        { token: "markup.raw.inline.markdown", foreground: "2AA198" },
-        { token: "markup.quote.markdown", foreground: "6C71C4" },
-        { token: "markup.underline.link.markdown", foreground: "839496" },
-        { token: "meta.link.inet.markdown", foreground: "DC322F" },
-        { token: "punctuation.definition.link.markdown", foreground: "DC322F" },
-        { token: "text.plain", foreground: "6A8187" },
-    ],
-});
 
 /**
  * 浅色源码模式继续跟当前 IDE 的变量保持一致。
@@ -132,14 +82,10 @@ const buildDarkPreset = (vars: ThemeVars): ThemePreset => ({
 });
 
 /**
- * 根据 IDE 主题变量生成 Monaco 主题。
+ * 按配色明暗生成 Monaco 主题；色值来自当前配色的具体取值（变量表或宿主 computed style）。
  */
-export const buildMonacoTheme = (themeId: string, appearance: ThemeAppearance, vars: ThemeVars): Monaco.editor.IStandaloneThemeData => {
-    const preset = themeId === "sepia"
-        ? buildSepiaPreset(vars)
-        : appearance === "dark"
-            ? buildDarkPreset(vars)
-            : buildLightPreset(vars);
+export const buildMonacoTheme = (appearance: ProductAppearance, vars: ThemeVars): Monaco.editor.IStandaloneThemeData => {
+    const preset = appearance === "dark" ? buildDarkPreset(vars) : buildLightPreset(vars);
 
     return {
         base: preset.base,

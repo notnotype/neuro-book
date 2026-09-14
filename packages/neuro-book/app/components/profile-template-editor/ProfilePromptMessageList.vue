@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import ProfilePromptMessageCard from "nbook/app/components/profile-template-editor/ProfilePromptMessageCard.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {ProfileTemplatePreviewMessageDto} from "nbook/shared/dto/profile-template.dto";
 
 type StructuredTextMode = "rich" | "source";
@@ -9,7 +8,6 @@ type StructuredTextMode = "rich" | "source";
 const props = defineProps<{
     messages: ProfileTemplatePreviewMessageDto[];
     loading?: boolean;
-    theme: IdeTheme;
 }>();
 
 const previewModes = ref<Record<string, StructuredTextMode>>({});
@@ -69,7 +67,6 @@ async function copyMessage(message: ProfileTemplatePreviewMessageDto): Promise<v
             :index="index"
             :mode="messageMode(message, index)"
             :collapsed="isCollapsed(message, index)"
-            :theme="props.theme"
             @update:mode="updateMessageMode(message, index, $event)"
             @toggle="toggleCollapsed(message, index)"
             @copy="void copyMessage(message)"

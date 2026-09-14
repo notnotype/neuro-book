@@ -13,7 +13,6 @@ import type {
     SelectOption,
     SelectedPropEntry,
 } from "nbook/app/components/profile-template-editor/profile-template-editor-ui";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {AgentProfileDetailDto, AgentProfileSchemaFieldDto} from "nbook/shared/dto/agent-profile.dto";
 import type {
     ProfileTemplateIssueDto,
@@ -39,7 +38,6 @@ const props = defineProps<{
     roleOptions: SelectOption[];
     toolStatusOptions: SelectOption[];
     sourceOptions: SelectOption[];
-    theme: IdeTheme;
     monacoPreferences: import("nbook/shared/editor-workbench").MonacoEditorPreferences;
     isExpressionValue: (value: ProfileTemplatePropValue | undefined) => boolean;
     propInputValue: (value: ProfileTemplatePropValue) => string;
@@ -278,7 +276,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     :source-line-count="props.sourceLineCount"
                     :parsing-source="props.parsingSource"
                     :selected-template-file-name="props.selectedTemplateFileName"
-                    :theme="props.theme"
                     :monaco-preferences="props.monacoPreferences"
                     embedded
                     @change="emit('source-change', $event)"
@@ -321,7 +318,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                             :max-height="420"
                             :default-mode="props.selectedNode.textKind === 'source' ? 'source' : 'rich'"
                             :show-format-toolbar="props.selectedNode.type !== 'Text' && props.selectedNode.textKind !== 'source' && props.selectedNode.textKind !== 'template'"
-                            :theme="props.theme"
                             :placeholder="props.selectedNode.type === 'Text' ? '输入文本片段' : '输入 Message 正文，可使用 Markdown 与变量引用'"
                             @blur="emit('commit-message-text')"
                             @update:model-value="emit('update-text', $event)"

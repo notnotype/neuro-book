@@ -132,48 +132,21 @@ defineRouteMeta({
                             "ui": {
                                 "type": "object",
                                 "properties": {
-                                    "theme": {
-                                        "default": "sepia",
+                                    "themeId": {
+                                        "default": "nbook",
                                         "type": "string",
-                                        "minLength": 1
+                                        "enum": [
+                                            "nbook",
+                                            "macos"
+                                        ]
                                     },
-                                    "customThemes": {
-                                        "default": [],
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "id": {
-                                                    "type": "string",
-                                                    "pattern": "^custom-[a-z0-9-]+$"
-                                                },
-                                                "name": {
-                                                    "type": "string",
-                                                    "minLength": 1,
-                                                    "maxLength": 50
-                                                },
-                                                "appearance": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "light",
-                                                        "dark"
-                                                    ]
-                                                },
-                                                "vars": {
-                                                    "type": "object",
-                                                    "additionalProperties": {
-                                                        "type": "string"
-                                                    }
-                                                }
-                                            },
-                                            "required": [
-                                                "id",
-                                                "name",
-                                                "appearance",
-                                                "vars"
-                                            ],
-                                            "additionalProperties": false
-                                        }
+                                    "appearance": {
+                                        "default": "light",
+                                        "type": "string",
+                                        "enum": [
+                                            "light",
+                                            "dark"
+                                        ]
                                     },
                                     "costCurrency": {
                                         "default": "USD",
@@ -185,8 +158,8 @@ defineRouteMeta({
                                     }
                                 },
                                 "required": [
-                                    "theme",
-                                    "customThemes",
+                                    "themeId",
+                                    "appearance",
                                     "costCurrency"
                                 ],
                                 "additionalProperties": false
@@ -205,6 +178,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 /**
  * 读取首页启动所需的轻量配置。

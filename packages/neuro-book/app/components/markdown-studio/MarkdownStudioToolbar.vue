@@ -183,7 +183,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
 </script>
 
 <template>
-    <header class="studio-toolbar flex shrink-0 flex-col border-b border-[var(--border-color)] bg-[var(--toolbar-bg)]">
+    <header class="studio-toolbar flex shrink-0 flex-col border-b border-[var(--border-color)] bg-[var(--toolbar-surface)]">
         <!-- 固定标签行 -->
         <div
             v-if="pinnedTabs.length || draggedTabPath"
@@ -196,7 +196,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 v-for="tab in pinnedTabs"
                 :key="tab.path"
                 class="group relative flex h-8 w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
-                :class="tab.path === props.activePath ? 'bg-[var(--editor-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :class="tab.path === props.activePath ? 'bg-[var(--page-surface)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                 :title="tab.path"
                 data-role="markdown-studio-tab"
                 draggable="true"
@@ -237,7 +237,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     v-for="tab in regularTabs"
                     :key="tab.path"
                     class="group relative flex h-[34px] w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
-                    :class="tab.path === props.activePath ? 'bg-[var(--editor-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                    :class="tab.path === props.activePath ? 'bg-[var(--page-surface)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                     :title="tab.path"
                     data-role="markdown-studio-tab"
                     draggable="true"
@@ -291,7 +291,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <span class="i-lucide-message-square-text h-4 w-4"></span>
                     <span
                         v-if="props.commentCount > 0"
-                        class="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--toolbar-bg)] bg-[var(--status-warning)] px-0.5 text-[9px] font-semibold leading-none text-[var(--text-inverse)]"
+                        class="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--toolbar-surface)] bg-[var(--status-warning)] px-0.5 text-[9px] font-semibold leading-none text-[var(--text-inverse)]"
                     >{{ props.commentCount > 9 ? "9+" : props.commentCount }}</span>
                 </button>
                 <button class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('markdownStudio.toolbar.more')" @click="emit('more')">

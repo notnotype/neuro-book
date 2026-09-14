@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {ProfileTemplatePreviewMessageDto} from "nbook/shared/dto/profile-template.dto";
 
 type StructuredTextMode = "rich" | "source";
@@ -11,7 +10,6 @@ const props = defineProps<{
     index: number;
     mode: StructuredTextMode;
     collapsed: boolean;
-    theme: IdeTheme;
 }>();
 
 const emit = defineEmits<{
@@ -70,7 +68,6 @@ const copyTitle = computed(() => props.message.role === "assistant" ? "复制为
                 :min-height="130"
                 :max-height="360"
                 :show-toolbar="false"
-                :theme="props.theme"
                 size="sm"
             />
 

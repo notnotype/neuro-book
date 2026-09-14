@@ -2,7 +2,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
-import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
+import type {ProductAppearance, ProductThemeId} from "nbook/shared/theme/theme-axes";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
@@ -189,8 +189,8 @@ export type EffectiveConfig = {
         visibleModels: AgentVisibleModelConfig[];
     };
     ui: {
-        theme: string;
-        customThemes: CustomThemeDto[];
+        themeId: ProductThemeId;
+        appearance: ProductAppearance;
         costCurrency: "USD" | "CNY";
     };
     editor: {

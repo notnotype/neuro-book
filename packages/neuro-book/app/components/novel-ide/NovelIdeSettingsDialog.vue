@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
-import {Dialog, DialogWindow} from "@notnotype/nb-ui/components";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeSettingsView from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
 import type {SettingsScopeId, SettingsScopeOption, SettingsSectionOption} from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.types";
 import AgentProfileSettingsView from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue";
@@ -27,7 +26,6 @@ import {buildObservabilityPayload, createObservabilityDraft} from "nbook/app/com
 import ProviderSettingsView from "nbook/app/components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
 import SecuritySettingsView from "nbook/app/components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
 import FrontendSettingsView from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.vue";
-import type {ImportedThemeDocument} from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
 import WebSettingsView from "nbook/app/components/novel-ide/settings/sections/web/WebSettingsView.vue";
 import {buildWebPayload, createWebSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/web/web-settings-draft";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -44,20 +42,15 @@ import {createEmbeddingSettingsDraft} from "nbook/app/components/novel-ide/setti
 import type {CostDisplayCurrency} from "nbook/app/utils/cost-format";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
-import {ideThemeIds, themeMeta, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import {resolveTheme, isBuiltInThemeId} from "nbook/app/utils/theme/resolve-theme";
-import {createCustomThemeId, themeVarsToCustomVars} from "nbook/app/utils/theme/theme-editor";
-import {downloadThemeJson} from "nbook/app/utils/theme/theme-io";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
-import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 type SettingsSection = "security" | "frontend" | "editor" | "providers" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
-type ThemeEditorMode = "create" | "edit" | "copy";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -77,12 +70,11 @@ const emit = defineEmits<{
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
 const authSessionState = useAuthSessionState();
-const themeManager = useThemeManager();
+const theme = useProductTheme();
+const themeSettings = useThemeSettings();
 const {locale, setLocale, t} = useI18n();
 const {
     selectedReasoning,
-    activeThemeId,
-    customThemes,
     viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
@@ -94,10 +86,6 @@ const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
 const desktopSettings = ref<DesktopSettings>({...DEFAULT_DESKTOP_SETTINGS});
 const desktopStatus = ref<DesktopStatus | null>(null);
-const themeEditorOpen = ref(false);
-const themeEditorMode = ref<ThemeEditorMode>("create");
-const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
-const themeDeleteTarget = ref<CustomThemeDto | null>(null);
 
 const sectionItems = computed<SettingsSectionOption[]>(() => [
     {
@@ -205,32 +193,6 @@ const desktopAvailable = computed(() => Boolean(desktopBridge.value));
 const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"
     && Boolean(novelIdeStore.currentProjectRoot));
 
-/** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
-type ThemeCard = {
-    id: string;
-    name: string;
-    appearance: ThemeAppearance;
-    vars: ThemeVars;
-    /** 非空表示自定义主题，携带可编辑的原始 DTO */
-    custom: CustomThemeDto | null;
-};
-
-const builtInThemeCards = computed<ThemeCard[]>(() => ideThemeIds.map((themeId) => ({
-    id: themeId,
-    name: themeMeta[themeId].label,
-    appearance: themeMeta[themeId].appearance,
-    vars: resolveTheme(themeId, customThemes.value).vars,
-    custom: null,
-})));
-const customThemeCards = computed<ThemeCard[]>(() => customThemes.value.map((customTheme) => ({
-    id: customTheme.id,
-    name: customTheme.name,
-    appearance: customTheme.appearance,
-    vars: resolveTheme(customTheme.id, customThemes.value).vars,
-    custom: customTheme,
-})));
-const activeResolvedTheme = computed(() => resolveTheme(activeThemeId.value, customThemes.value));
-const activeThemeIsBuiltIn = computed(() => isBuiltInThemeId(activeResolvedTheme.value.id));
 const bootAuthEnabled = computed(() => authSessionState.session.value?.authEnabled ?? null);
 
 
@@ -748,161 +710,6 @@ function closeDialog(): void {
 }
 
 /**
- * 处理主题选择。
- */
-function updateTheme(value: string): void {
-    void themeManager.setTheme(value);
-}
-
-/**
- * 克隆自定义主题，避免 Dialog 草稿直接改写 store 引用。
- */
-function cloneCustomTheme(theme: CustomThemeDto): CustomThemeDto {
-    return {
-        id: theme.id,
-        name: theme.name,
-        appearance: theme.appearance,
-        vars: {...theme.vars},
-    };
-}
-
-/**
- * 基于指定主题创建编辑器初始草稿（新建/复制的起点）。
- */
-function createThemeDraftFrom(sourceThemeId: string, mode: Exclude<ThemeEditorMode, "edit">): CustomThemeDto {
-    const resolvedTheme = resolveTheme(sourceThemeId, customThemes.value);
-    const name = mode === "copy"
-        ? t("settings.frontend.themeCopyName", {name: resolvedTheme.label})
-        : t("settings.frontend.themeNewName", {name: resolvedTheme.label});
-    return {
-        id: createCustomThemeId(name, customThemes.value),
-        name,
-        appearance: resolvedTheme.appearance,
-        vars: themeVarsToCustomVars(resolvedTheme.vars),
-    };
-}
-
-/**
- * 打开新建主题编辑器（以当前主题为起点）。
- */
-function openThemeCreator(): void {
-    themeEditorMode.value = "create";
-    themeEditorInitialTheme.value = createThemeDraftFrom(activeThemeId.value, "create");
-    themeEditorOpen.value = true;
-}
-
-/**
- * 复制指定主题为自定义主题并打开编辑器。
- */
-function openThemeCopier(sourceThemeId: string): void {
-    themeEditorMode.value = "copy";
-    themeEditorInitialTheme.value = createThemeDraftFrom(sourceThemeId, "copy");
-    themeEditorOpen.value = true;
-}
-
-/**
- * 打开指定自定义主题的编辑器。
- */
-function openThemeEditor(theme: CustomThemeDto): void {
-    themeEditorMode.value = "edit";
-    themeEditorInitialTheme.value = cloneCustomTheme(theme);
-    themeEditorOpen.value = true;
-}
-
-/**
- * 主题编辑器保存成功后的反馈。
- */
-function handleThemeSaved(theme: CustomThemeDto): void {
-    notification.success(t("settings.frontend.themeSaved", {name: theme.name}));
-}
-
-/**
- * 主题编辑器是浮动窗口：打开时收起设置对话框让用户看到真实页面，
- * 关闭后恢复设置对话框继续操作。
- */
-const resumeSettingsAfterThemeEditor = ref(false);
-watch(themeEditorOpen, (open) => {
-    if (open) {
-        if (props.modelValue) {
-            resumeSettingsAfterThemeEditor.value = true;
-            emit("update:modelValue", false);
-        }
-        return;
-    }
-    if (resumeSettingsAfterThemeEditor.value) {
-        resumeSettingsAfterThemeEditor.value = false;
-        emit("update:modelValue", true);
-    }
-});
-
-/**
- * 请求删除指定自定义主题。
- */
-function requestDeleteTheme(theme: CustomThemeDto): void {
-    themeDeleteTarget.value = cloneCustomTheme(theme);
-}
-
-/**
- * 删除确认后保存新主题列表；若删掉当前主题则回退 Sepia。
- */
-async function confirmDeleteTheme(): Promise<void> {
-    const target = themeDeleteTarget.value;
-    if (!target) {
-        return;
-    }
-    const nextThemes = customThemes.value.filter((theme) => theme.id !== target.id);
-    const nextThemeId = activeThemeId.value === target.id ? "sepia" : activeThemeId.value;
-    const saved = await themeManager.saveThemeConfig(nextThemeId, nextThemes);
-    if (!saved) {
-        return;
-    }
-    themeDeleteTarget.value = null;
-    notification.success(t("settings.frontend.themeDeleted", {name: target.name}));
-}
-
-/**
- * 导出指定主题为 JSON 文件；内置主题会先转成具体变量。
- */
-function exportTheme(themeId: string): void {
-    const resolvedTheme = resolveTheme(themeId, customThemes.value);
-    downloadThemeJson({
-        name: resolvedTheme.label,
-        appearance: resolvedTheme.appearance,
-        vars: themeVarsToCustomVars(resolvedTheme.vars),
-    }, `${themeFileSlug(resolvedTheme.label)}.json`);
-    notification.success(t("settings.frontend.themeExported", {name: resolvedTheme.label}));
-}
-
-/** 导入主题：视图已经解析好，这里只负责落盘与提示。 */
-async function importTheme(theme: ImportedThemeDocument): Promise<void> {
-    const importedTheme: CustomThemeDto = {
-        id: createCustomThemeId(theme.name, customThemes.value),
-        name: theme.name,
-        appearance: theme.appearance,
-        vars: theme.vars,
-    };
-    const saved = await themeManager.saveThemeConfig(importedTheme.id, [...customThemes.value, importedTheme]);
-    if (saved) {
-        notification.success(t("settings.frontend.themeImported", {name: importedTheme.name}));
-    }
-}
-
-/** 导入失败的原因由视图带回，这里统一走系统通知。 */
-function notifyThemeImportFailed(message: string): void {
-    notification.error(message, {title: t("settings.frontend.themeImportFailed")});
-}
-
-/**
- * 把主题名转换为稳定文件名片段。
- */
-function themeFileSlug(name: string): string {
-    return name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/gu, "-")
-        .replace(/^-+|-+$/gu, "") || "theme";
-}
-
-/**
  * 处理界面语言选择。
  */
 function updateLocale(value: string): void {
@@ -1031,30 +838,22 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                         <!-- 启动期安全配置：只读说明，安全边界不能热更新 -->
                         <SecuritySettingsView v-if="section?.value === 'security'" :auth-enabled="bootAuthEnabled" />
 
-                        <!-- 前端设定：语言 / 主题 / 推理强度 / 视图模式，动作全部交回宿主 -->
+                        <!-- 前端设定：语言 / 主题两轴 / 推理强度 / 视图模式，动作全部交回宿主 -->
                         <FrontendSettingsView
                             v-else-if="section?.value === 'frontend'"
                             :locale="locale"
                             :view-mode="viewMode"
                             :reasoning="selectedReasoning"
                             :reasoning-options="novelIdeStore.reasoningOptions"
-                            :built-in-theme-cards="builtInThemeCards"
-                            :custom-theme-cards="customThemeCards"
-                            :active-theme-id="activeResolvedTheme.id"
-                            :active-theme-label="activeResolvedTheme.label"
-                            :active-theme-is-built-in="activeThemeIsBuiltIn"
+                            :theme-options="theme.themeOptions"
+                            :theme-id="theme.themeId.value"
+                            :appearance="theme.appearance.value"
                             :disabled="settingsLoading"
                             @update:locale="updateLocale"
                             @update:view-mode="updateViewMode"
                             @update:reasoning="updateReasoning"
-                            @select-theme="updateTheme"
-                            @create-theme="openThemeCreator"
-                            @copy-theme="openThemeCopier"
-                            @edit-theme="openThemeEditor"
-                            @export-theme="exportTheme"
-                            @delete-theme="requestDeleteTheme"
-                            @import-theme="importTheme"
-                            @import-failed="notifyThemeImportFailed"
+                            @select-theme="(id) => void themeSettings.saveAxes({themeId: id})"
+                            @select-appearance="(appearance) => void themeSettings.saveAxes({appearance})"
                         />
 
                         <!-- 编辑器显示偏好：走 store + localStorage，不写配置文件 -->
@@ -1133,29 +932,4 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
             </template>
         </NovelIdeSettingsView>
     </DialogWindow>
-
-    <ThemeEditorDialog
-        v-model="themeEditorOpen"
-        :mode="themeEditorMode"
-        :initial-theme="themeEditorInitialTheme"
-        :existing-themes="customThemes"
-        @saved="handleThemeSaved"
-    />
-
-    <Dialog
-        :model-value="Boolean(themeDeleteTarget)"
-        :title="t('settings.frontend.themeDeleteTitle')"
-        width="420px"
-        overlay-type="opaque"
-        show-cancel
-        closable
-        :confirm-label="t('common.confirm')"
-        teleport-target=".novel-ide-theme"
-        @confirm="void confirmDeleteTheme()"
-        @request-close="themeDeleteTarget = null"
-        @update:model-value="themeDeleteTarget = $event ? themeDeleteTarget : null"
-    >
-        <!-- 删除自定义主题确认 -->
-        <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.frontend.themeDeleteMessage", {name: themeDeleteTarget?.name ?? ""}) }}</p>
-    </Dialog>
 </template>

@@ -3,7 +3,7 @@ import type {Editor} from "@tiptap/core";
 import {BubbleMenu} from "@tiptap/vue-3/menus";
 import type {EditorState} from "@tiptap/pm/state";
 import type {EditorView} from "@tiptap/pm/view";
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {useDialog} from "nbook/app/composables/useDialog";
 
 type TextBlockCommand = "paragraph" | "heading-1" | "heading-2" | "heading-3" | "bullet-list" | "ordered-list" | "blockquote" | "code-block";
@@ -140,7 +140,7 @@ const canOutdentList = computed(() => {
 });
 
 function appendToThemeHost(): HTMLElement {
-    return document.querySelector<HTMLElement>(`.${IDE_THEME_HOST_CLASS}`) ?? document.body;
+    return document.querySelector<HTMLElement>(THEME_HOST_SELECTOR) ?? document.body;
 }
 
 function shouldShowMenu(options: {
@@ -550,7 +550,7 @@ onUnmounted(() => {
     gap: 2px;
     border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
     border-radius: 18px;
-    background: color-mix(in srgb, var(--bg-panel) 96%, var(--editor-bg));
+    background: color-mix(in srgb, var(--bg-panel) 96%, var(--page-surface));
     padding: 6px;
     color: var(--text-main);
     box-shadow: 0 18px 44px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-color) 14%, transparent);

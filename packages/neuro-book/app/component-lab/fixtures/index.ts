@@ -187,8 +187,7 @@ export const labFixtures: LabFixture[] = [
     {
         component: "FrontendSettingsView",
         scenes: [
-            {id: "default", label: "默认（含两张自定义主题）", data: {editable: "fixture-owned"}},
-            {id: "no-custom", label: "只有内置主题", data: {editable: "fixture-owned"}},
+            {id: "default", label: "默认（两轴选择器）", data: {editable: "fixture-owned"}},
             {id: "disabled", label: "读取中停用", data: {editable: "fixture-owned"}},
         ],
         load: async () => (await import("./FrontendSettingsViewFixture.vue")).default,

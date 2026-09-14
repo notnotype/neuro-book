@@ -4,8 +4,6 @@ import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/com
 import TipTapMarkdownEditor from "nbook/app/components/markdown-studio/TipTapMarkdownEditor.vue";
 import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
-import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -47,7 +45,6 @@ const props = withDefaults(defineProps<{
     editorPreferences?: MarkdownEditorPreferences;
     monacoPreferences?: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
-    theme?: IdeTheme | null;
     borderless?: boolean;
 }>(), {
     rows: 5,
@@ -73,7 +70,6 @@ const props = withDefaults(defineProps<{
     editorPreferences: () => ({...DEFAULT_MARKDOWN_EDITOR_PREFERENCES}),
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     monacoTemporaryFontSize: null,
-    theme: null,
     borderless: false,
     resolveMenu: () => ({
         title: "",
@@ -94,7 +90,6 @@ const emit = defineEmits<{
     (e: "save-request"): void;
 }>();
 
-const novelIdeStore = useNovelIdeStore();
 const rootRef = ref<HTMLDivElement | null>(null);
 const richEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
@@ -155,7 +150,6 @@ const bodyStyle = computed(() => ({
     minHeight: `${resolvedMinHeight.value}px`,
     maxHeight: `${resolvedMaxHeight.value}px`,
 }));
-const sourceTheme = computed<IdeTheme>(() => props.theme ?? novelIdeStore.theme);
 const rootClass = computed(() => {
     const classes = [];
     if (props.size === "md") classes.push("structured-text-editor--md");
@@ -409,7 +403,6 @@ defineExpose({
                 :visible="!isRichMode"
                 :readonly="props.readonly"
                 :placeholder="props.placeholder"
-                :theme="sourceTheme"
                 :monaco-preferences="sourceEditorPreferences"
                 :temporary-font-size="props.monacoTemporaryFontSize"
                 :submit-on-enter="props.submitOnEnter"
@@ -448,7 +441,7 @@ defineExpose({
     border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
 }
 .structured-text-editor--borderless :deep(.markdown-source-shell) {
-    background: var(--source-bg) !important;
+    background: var(--panel-surface) !important;
     border-top-left-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
     border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
 }
@@ -518,6 +511,6 @@ defineExpose({
 :deep(.markdown-source-shell) {
     height: 100%;
     border: 0;
-    background: var(--source-bg);
+    background: var(--panel-surface);
 }
 </style>

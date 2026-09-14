@@ -186,8 +186,8 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, null, 4), "utf8");
 
-        const snapshot = await saveGlobalConfig({ui: {theme: "sepia", customThemes: [], costCurrency: "USD"}}, {workspaceKind: "user-assets"});
-        expect(snapshot.global.ui?.theme).toBe("sepia");
+        const snapshot = await saveGlobalConfig({ui: {themeId: "nbook", appearance: "light", costCurrency: "USD"}}, {workspaceKind: "user-assets"});
+        expect(snapshot.global.ui?.themeId).toBe("nbook");
         expect(snapshot.modelSettings.validationIssues.some((issue) => issue.code === "missing_api")).toBe(true);
     });
 
@@ -473,34 +473,26 @@ describe("config service", {timeout: 30_000}, () => {
     it("Global UI 费用显示币种可以保存并被 bootstrap 读回", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {
-                theme: "custom-editor",
-                customThemes: [{
-                    id: "custom-editor",
-                    name: "Editor Custom",
-                    appearance: "dark",
-                    vars: {
-                        "bg-main": "#101014",
-                        "accent-main": "#88ccff",
-                    },
-                }],
+                themeId: "macos",
+                appearance: "dark",
                 costCurrency: "CNY",
             },
         }, {workspaceKind: "user-assets"});
         const bootstrap = await readConfigBootstrap({workspaceKind: "user-assets"}, catalog);
 
-        expect(snapshot.global.ui?.theme).toBe("custom-editor");
-        expect(snapshot.global.ui?.customThemes).toHaveLength(1);
+        expect(snapshot.global.ui?.themeId).toBe("macos");
+        expect(snapshot.global.ui?.appearance).toBe("dark");
         expect(snapshot.global.ui?.costCurrency).toBe("CNY");
-        expect(snapshot.effective.ui).toMatchObject({theme: "custom-editor", costCurrency: "CNY"});
-        expect(bootstrap.ui.theme).toBe("custom-editor");
-        expect(bootstrap.ui.customThemes).toHaveLength(1);
+        expect(snapshot.effective.ui).toMatchObject({themeId: "macos", appearance: "dark", costCurrency: "CNY"});
+        expect(bootstrap.ui.themeId).toBe("macos");
+        expect(bootstrap.ui.appearance).toBe("dark");
         expect(bootstrap.ui.costCurrency).toBe("CNY");
     });
 
     it("非法 UI 费用显示币种会回退为 USD", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {
-                theme: "sepia",
+                themeId: "nbook",
                 costCurrency: "EUR",
             },
         } as never, {workspaceKind: "user-assets"});
@@ -540,12 +532,12 @@ describe("config service", {timeout: 30_000}, () => {
     it("Project 未 open 时 Global Config 仍可独立保存", async () => {
         await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
-        const snapshot = await saveGlobalConfig({ui: {theme: "dark", customThemes: [], costCurrency: "USD"}}, {
+        const snapshot = await saveGlobalConfig({ui: {themeId: "macos", appearance: "dark", costCurrency: "USD"}}, {
             workspaceKind: "user-assets",
         });
 
         expect(snapshot.workspaceKind).toBe("user-assets");
-        expect(snapshot.global.ui?.theme).toBe("dark");
+        expect(snapshot.global.ui?.themeId).toBe("macos");
     });
 
     it("Project 未 open 时拒绝重置 Project Profile Home", async () => {
@@ -801,7 +793,7 @@ describe("config service", {timeout: 30_000}, () => {
         await fs.writeFile(configPath, `${JSON.stringify(withOldAuth, null, 4)}\n`, "utf-8");
 
         const snapshot = await saveGlobalConfig({
-            ui: {theme: "sepia", customThemes: [], costCurrency: "USD"},
+            ui: {themeId: "nbook", appearance: "light", costCurrency: "USD"},
         }, {workspaceKind: "user-assets"});
 
         expect(snapshot.modelSettings.defaultModelKey).toBe("deepseek/deepseek-v4-flash");

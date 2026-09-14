@@ -195,7 +195,7 @@ const statusLabel = computed(() => {
 <template>
     <!-- switch_mode 模式切换审批气泡；退出到 normal 时附带计划文件预览 -->
     <div class="min-w-0 w-full">
-        <div class="min-w-0 w-full rounded-xl border border-[var(--border-color)] bg-[var(--chat-ai-bg)] px-3 py-2.5 shadow-sm">
+        <div class="min-w-0 w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-subtle)] px-3 py-2.5 shadow-sm">
             <div class="mb-1.5 flex min-w-0 items-center gap-2 text-[11px] leading-5 text-[var(--text-muted)]">
                 <span :class="isPendingQuestion ? 'i-lucide-clock text-[var(--status-warning)]' : 'i-lucide-file-check-2 text-[var(--status-success)]'" class="h-3.5 w-3.5 shrink-0"></span>
                 <span class="shrink-0 font-medium text-[var(--text-main)]">{{ statusLabel }}</span>

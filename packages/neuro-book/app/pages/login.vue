@@ -1,7 +1,5 @@
 <script setup lang="ts">
-import {storeToRefs} from "pinia";
-import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
-import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {ensureThemeHost} from "nbook/app/utils/theme/host";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 
 definePageMeta({
@@ -15,9 +13,6 @@ const username = ref("");
 const password = ref("");
 const busy = ref(false);
 const errorMessage = ref("");
-const novelIdeStore = useNovelIdeStore();
-const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 
 /**
@@ -56,7 +51,7 @@ const submit = async (): Promise<void> => {
 };
 
 onMounted(() => {
-    mountThemeHost(themeHostRef.value);
+    ensureThemeHost(themeHostRef.value);
     void (async () => {
         try {
             const session = await $fetch<AuthSessionDto>("/api/auth/me");

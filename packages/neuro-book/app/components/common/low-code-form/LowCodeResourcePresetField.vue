@@ -6,7 +6,7 @@ import type {
     LowCodeResourceMutationDto,
     LowCodeResourcePresetOptionDto,
 } from "nbook/shared/dto/low-code-form.dto";
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 
 type LowCodeResourcePresetScope = "global" | "project";
 
@@ -38,7 +38,7 @@ const rootRef = ref<HTMLElement | null>(null);
  * 视图 → 详情面板 → 区段 → 低代码表单 一路当 prop 传下来：那是通用表单不该背的事。
  */
 const teleportTarget = computed<string>(() =>
-    rootRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`) ? `.${IDE_THEME_HOST_CLASS}` : "body");
+    rootRef.value?.closest(THEME_HOST_SELECTOR) ? THEME_HOST_SELECTOR : "body");
 const managerOpen = ref(false);
 const resourceDialogOpen = ref(false);
 const resourceDialogMode = ref<"create" | "rename">("create");

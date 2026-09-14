@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import FrontendSettingsView from "../../components/novel-ide/settings/sections/frontend/FrontendSettingsView.vue";
-import type {FrontendThemeCard, ImportedThemeDocument} from "../../components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
-import {ideThemeIds, themeMeta, themeTokens, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
+import type {ProductThemeOption} from "nbook/app/utils/theme/theme-packs";
+import type {ProductAppearance, ProductThemeId} from "nbook/shared/theme/theme-axes";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();
@@ -12,64 +11,23 @@ const {t} = useI18n();
 const emitLabEvent = useLabEventSink();
 const syncLabData = useLabDataSink();
 
-type SceneKey = "default" | "no-custom" | "disabled";
+type SceneKey = "default" | "disabled";
 
-const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["default", "no-custom", "disabled"];
-    return known.find((key) => key === props.scene) ?? "default";
-});
+const sceneKey = computed<SceneKey>(() => props.scene === "disabled" ? "disabled" : "default");
 
-/** 主题表的键就是 token 表的键；`ideThemeIds` 只声明成 string[]，这里按真实键收紧。 */
-type ThemeKey = keyof typeof themeTokens;
-
-/** 视图只认 props，所以 fixture 直接给出解析后的变量表：键带 `--` 前缀，与卡片预览一致。 */
-function previewVars(themeId: ThemeKey): ThemeVars {
-    return Object.fromEntries(
-        Object.entries(themeTokens[themeId]).map(([key, value]) => [`--${key}`, value ?? ""]),
-    ) as unknown as ThemeVars;
-}
-
-function builtInCards(): FrontendThemeCard[] {
-    return ideThemeIds.map((rawThemeId) => {
-        const themeId = rawThemeId as ThemeKey;
-        return {
-            id: themeId,
-            name: themeMeta[themeId].label,
-            appearance: themeMeta[themeId].appearance,
-            vars: previewVars(themeId),
-            custom: null,
-        };
-    });
-}
-
-/** 自定义主题文档用短键（与 CustomThemeDto 一致），所以把 token 的 `--` 前缀去掉。 */
-function customTheme(id: string, name: string, base: ThemeKey): CustomThemeDto {
-    const vars = Object.fromEntries(
-        Object.entries(themeTokens[base]).map(([key, value]) => [key.replace(/^--/u, ""), value ?? ""]),
-    );
-    return {id, name, appearance: themeMeta.sepia.appearance, vars};
-}
-
-const customThemes = ref<CustomThemeDto[]>([
-    customTheme("custom-dusk", "暮色", "tokyo-night"),
-    customTheme("custom-paper", "纸感", "sepia"),
-]);
-
-const customCards = computed<FrontendThemeCard[]>(() => sceneKey.value === "no-custom" ? [] : customThemes.value.map((theme) => ({
-    id: theme.id,
-    name: theme.name,
-    appearance: theme.appearance,
-    vars: previewVars(theme.id === "custom-dusk" ? "tokyo-night" : "sepia"),
-    custom: theme,
-})));
+/** 夹具的主题包清单：真实应用里由主题会话给出，名字与一句话简介来自主题包 manifest。 */
+const themeOptions: ProductThemeOption[] = [
+    {id: "nbook", name: "NeuroBook", tagline: "Liquid Glass · 中文写作版"},
+    {id: "macos", name: "macOS", tagline: "Liquid Glass"},
+];
 
 const locale = ref("zh-CN");
 const viewMode = ref("rich");
 const reasoning = ref("off");
-const activeThemeId = ref("sepia");
+const themeId = ref<ProductThemeId>("nbook");
+const appearance = ref<ProductAppearance>("light");
 
 const reasoningOptions = ["off", "low", "medium", "high"];
-const activeCard = computed(() => [...builtInCards(), ...customCards.value].find((card) => card.id === activeThemeId.value) ?? null);
 
 watch(sceneKey, applyScene, {immediate: true});
 
@@ -77,37 +35,19 @@ function applyScene(): void {
     locale.value = "zh-CN";
     viewMode.value = "rich";
     reasoning.value = "off";
-    activeThemeId.value = sceneKey.value === "no-custom" ? "tokyo-night" : "sepia";
-    customThemes.value = sceneKey.value === "no-custom"
-        ? []
-        : [customTheme("custom-dusk", "暮色", "tokyo-night"), customTheme("custom-paper", "纸感", "sepia")];
+    themeId.value = "nbook";
+    appearance.value = "light";
 }
 
-// 就地保存的模拟：视图每次动作都由 fixture 立刻应用，并记录事件。
-function onSelectTheme(themeId: string): void {
-    activeThemeId.value = themeId;
-    emitLabEvent("select-theme", {themeId});
+// 就地保存的模拟：视图每次动作都由夹具立刻应用，并记录事件。
+function onSelectTheme(value: ProductThemeId): void {
+    themeId.value = value;
+    emitLabEvent("select-theme", {themeId: value});
 }
 
-function onCopyTheme(themeId: string): void {
-    const source = [...builtInCards(), ...customCards.value].find((card) => card.id === themeId);
-    // 复制出来的主题沿用来源主题的变量；来源不是内置主题时退回落日（夹具数据，不必精确）。
-    const sourceKey: ThemeKey = themeId in themeTokens ? themeId as ThemeKey : "sepia";
-    customThemes.value = [...customThemes.value, customTheme(`${themeId}-copy`, `${source?.name ?? themeId} 副本`, sourceKey)];
-    emitLabEvent("copy-theme", {themeId});
-}
-
-function onEditTheme(theme: CustomThemeDto): void {
-    emitLabEvent("edit-theme", {id: theme.id, name: theme.name});
-}
-
-function onDeleteTheme(theme: CustomThemeDto): void {
-    customThemes.value = customThemes.value.filter((item) => item.id !== theme.id);
-    emitLabEvent("delete-theme", {id: theme.id});
-}
-
-function onImportFailed(message: string): void {
-    emitLabEvent("import-failed", {message});
+function onSelectAppearance(value: ProductAppearance): void {
+    appearance.value = value;
+    emitLabEvent("select-appearance", {appearance: value});
 }
 
 function labData() {
@@ -115,35 +55,27 @@ function labData() {
         locale: locale.value,
         viewMode: viewMode.value,
         reasoning: reasoning.value,
-        activeThemeId: activeThemeId.value,
-        customThemeCount: customThemes.value.length,
+        themeId: themeId.value,
+        appearance: appearance.value,
     };
 }
 
-watch([locale, viewMode, reasoning, activeThemeId, customThemes], () => syncLabData(labData()), {deep: true, immediate: true});
+watch([locale, viewMode, reasoning, themeId, appearance], () => syncLabData(labData()), {immediate: true});
 
 const viewBindings = computed(() => ({
     locale: locale.value,
     viewMode: viewMode.value,
     reasoning: reasoning.value,
     reasoningOptions,
-    builtInThemeCards: builtInCards(),
-    customThemeCards: customCards.value,
-    activeThemeId: activeThemeId.value,
-    activeThemeLabel: activeCard.value?.name ?? activeThemeId.value,
-    activeThemeIsBuiltIn: activeCard.value?.custom === null,
+    themeOptions,
+    themeId: themeId.value,
+    appearance: appearance.value,
     disabled: sceneKey.value === "disabled",
     "onUpdate:locale": (value: string) => { locale.value = value; },
     "onUpdate:viewMode": (value: string) => { viewMode.value = value; },
     "onUpdate:reasoning": (value: string) => { reasoning.value = value; },
     "onSelect-theme": onSelectTheme,
-    "onCreate-theme": () => emitLabEvent("create-theme", undefined),
-    "onCopy-theme": onCopyTheme,
-    "onEdit-theme": onEditTheme,
-    "onExport-theme": (themeId: string) => emitLabEvent("export-theme", {themeId}),
-    "onDelete-theme": onDeleteTheme,
-    "onImport-theme": (theme: ImportedThemeDocument) => emitLabEvent("import-theme", {name: theme.name}),
-    "onImport-failed": onImportFailed,
+    "onSelect-appearance": onSelectAppearance,
 }));
 </script>
 

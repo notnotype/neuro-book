@@ -16,17 +16,17 @@ describe("cost-settings-draft", () => {
         expect(readCostCurrency(undefined)).toBe("USD");
     });
 
-    it("整段回写 ui：theme 与 customThemes 原样保留", () => {
+    it("整段回写 ui：themeId 与 appearance 原样保留", () => {
         const baseUi = {
-            theme: "sepia",
-            customThemes: [{id: "custom-1", name: "我的主题"}],
+            themeId: "macos",
+            appearance: "dark",
         } as unknown as GlobalConfigUpdateDto["ui"];
 
         const payload = buildCostPayload(baseUi, "CNY");
 
         expect(payload.ui).toMatchObject({
-            theme: "sepia",
-            customThemes: [{id: "custom-1", name: "我的主题"}],
+            themeId: "macos",
+            appearance: "dark",
             costCurrency: "CNY",
         });
     });

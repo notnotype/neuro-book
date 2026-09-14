@@ -11,33 +11,39 @@ owners:
 
 ## 概述
 
-Novel IDE 主题系统 v2.1 使用“shared 契约 + app 变量事实源 + runtime 应用”的结构。业务组件只消费 CSS 变量，不在组件内部维护第二套颜色源。当前目标是让 8 套内置预设和用户自定义主题覆盖完整 IDE。
+Novel IDE 的主题由 **nb-ui 的两条轴**承担：**主题包**（形状 / 材质 / 排版 / 角色映射）与**配色**（颜色，按明暗分档）。产品只登记 `nbook` 与 `macos` 两套主题包，配色明暗由主题包自带的 `defaultColorway` 决定。老的自研 8 主题体系与自定义主题（`custom-*`）已整体下线，不留兼容层。
+
+业务组件只消费 CSS 变量，不维护第二套颜色源。
 
 ## 事实源
 
-- `shared/theme/theme-vars.ts`
-  - `builtInThemeIds`：8 套内置主题 ID。
-  - `themeAppearanceValues`：`light | dark`。
-  - `themeVarNames`：36 个无前缀主题变量名。
-  - `CustomThemeDto`：自定义主题 shared 类型。
-- `app/utils/theme/theme-tokens.ts`
-  - `themeTokens`：8 套内置主题的完整字面值。
-  - `themeMeta`：内置主题显示名与 appearance。
-  - `IDE_THEME_HOST_CLASS = "novel-ide-theme"`。
-- `app/styles/theme-vars.css`
-  - SSR / IDE fallback，只应与 `themeTokens.sepia` 保持一致。
-- `app/utils/theme/resolve-theme.ts`
-  - 解析内置或自定义主题；未知 ID 回退 `sepia`。
+- `packages/neuro-book/shared/theme/theme-axes.ts`
+  - `productThemeIds`：`nbook | macos`，配置白名单。
+  - `productAppearances`：`light | dark`。
+  - `DEFAULT_PRODUCT_THEME_ID` / `DEFAULT_PRODUCT_APPEARANCE`：`nbook` + `light`。
+- `packages/neuro-book/app/utils/theme/theme-packs.ts`
+  - 装载 nbook / macos（顺序 = 设置里主题列表的顺序）；已装过则跳过，避免与 `/lab` 重复装载冲突。
+- `packages/neuro-book/app/utils/theme/theme-session.ts`
+  - 两轴会话（模块级单例）：`themeId` / `appearance` / `colorwayId` / `colorwayVars`。
+  - 落地点是 `<html>`：`data-nb-theme`、`data-nb-appearance`、`style.colorScheme`，以及配色变量（`<html>` 与 `<body>` 各写一份）。
+- `packages/neuro-book/app/utils/theme/host.ts`
+  - `THEME_HOST_CLASS = "novel-ide-theme"`：页面根节点的宿主 class，浮层 Teleport 的落点；`ensureThemeHost()` 只补 class、不写变量。
+- `packages/neuro-book/app/composables/useThemeSettings.ts`
+  - 写入口：乐观应用 → 写 Global Config → 失败回滚并提示。
+- nb-ui 侧
+  - `src/theme/theme-loader.ts`：装载校验（含 `defaultColorway` 指向的配色必须存在）与 fallback 兜底层。
+  - `src/tokens.css`：设计 token、主题层基线与「角色 → 配色变量」映射。
+  - `themes/nbook`、`themes/macos`：`vars.css`（主题取值）+ 自带两套配色。
 
 ## 运行时流程
 
-1. `/api/config/bootstrap` 返回 Global Config 中的 `ui.theme` 与 `ui.customThemes`。
-2. `app/pages/index.vue` 调用 `novelIdeStore.applyThemeConfig(theme, customThemes)`。
-3. `novelIdeStore` 通过 `resolveTheme()` 生成 `themeVarsSnapshot`，并记录当前 `appearance`。
-4. `useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot)` 挂载 `.novel-ide-theme` 宿主并写入 CSS variables。
-5. 主题切换走 `useThemeManager.setTheme()`：先即时应用，再静默保存 Global Config；失败时通知并回滚。
+1. `/api/config/bootstrap` 返回 Global Config 中的 `ui.themeId` 与 `ui.appearance`。
+2. `app/pages/index.vue` 调用 `useProductTheme().applyStoredAxes(...)`：白名单外的取值（老 id、`custom-*`、缺失字段）一律回落默认，**不做映射**。
+3. 会话把两轴写到 `<html>`；配色变量来自当前主题包 `manifest.defaultColorway[appearance]` 指向的那套配色。
+4. 切换走 `useThemeSettings().saveAxes({themeId?, appearance?})`：先本地应用，再静默保存 Global Config；失败时通知并回滚。
+5. 模块首次求值就落一次默认值，配置读回之前界面也是完整主题。
 
-登录页、Admin 用户页和 Profile Template Visual Editor 也复用同一套 store snapshot 与 `useIdeTheme()`，避免独立主题源。
+登录页、Admin 用户页与 Profile Template Visual Editor 共用同一个会话单例（不再各自持有主题源）；它们与工作台一样，只需保证页面根节点带宿主 class。
 
 ## 存储契约
 
@@ -45,75 +51,40 @@ Global Config `ui` 字段：
 
 ```ts
 type UiConfig = {
-    theme: string;
-    customThemes: CustomThemeDto[];
-    costCurrency: string;
-};
-```
-
-自定义主题：
-
-```ts
-type CustomThemeDto = {
-    id: string; // 必须匹配 ^custom-[a-z0-9-]+$
-    name: string;
+    themeId: "nbook" | "macos";
     appearance: "light" | "dark";
-    vars: Partial<Record<ThemeVarName, string>>;
+    costCurrency: "USD" | "CNY";
 };
 ```
 
-服务端 normalizer 会过滤非法 ID、空名称、非法 appearance、未知变量名和空变量值；最多保留 50 个自定义主题。`ui.theme` 可以是内置 ID，也可以是当前 `customThemes` 中存在的自定义 ID，否则回退 `sepia`。
+`ui.customThemes` 与老 `ui.theme` 已从 schema 删除：配置文件里残留的旧键在 normalizer 里被忽略，读到旧 id 时回落到 `nbook` + `light`。
 
 ## 变量体系
 
-v2.1 固定为 36 个变量，分为背景、文本、边框、强调、状态、编辑器、效果和组件层变量。完整表以 `app/utils/theme/README.md` 为准。
+分三层，取值来源各不相同：
 
-核心 13 色用于快速调色：
+1. **配色变量**（随配色变化）：33 个键，契约在 nb-ui `src/colorway/colorway-contract.ts`，由主题包自带的配色给出具体值。
+2. **角色变量**（主题决策）：`--panel-surface` / `--control-surface` / `--overlay-surface` / `--divider` / `--elevation-*` 等，映射写在 nb-ui `src/tokens.css`，主题可在自己的 `vars.css` 里改判。
+3. **主题新增角色**：`--page-surface`（稿面）等由主题包 `manifest.declares` 声明，fallback 兜底层保证「别的主题激活时也成立」。
 
-- `bg-main`
-- `bg-panel`
-- `bg-sidebar`
-- `bg-input`
-- `text-main`
-- `text-secondary`
-- `text-muted`
-- `border-color`
-- `accent-main`
-- `status-info`
-- `status-success`
-- `status-warning`
-- `status-danger`
+老体系 6 个领域专用变量的映射（唯一映射表，不允许在组件里另起名字）：
 
-`deriveDefaults(coreVars, appearance)` 只为自定义主题编辑器生成派生默认值。内置 8 套预设保存完整字面值，不从派生规则反算，确保视觉零漂移。
-
-## 自定义主题
-
-设置页主题区提供：
-
-- 内置/自定义主题选择。
-- 新建：复制当前选中主题作为起点。
-- 编辑：仅允许编辑自定义主题。
-- 复制：把任意当前主题保存为新的自定义主题。
-- 删除：删除当前自定义主题；若它正在使用则回退 `sepia`。
-- 导出：下载 `{schemaVersion: 1, name, appearance, vars}` JSON。
-- 导入：校验 JSON 后生成新的 `custom-*` ID，不覆盖已有主题。`vars` 只接受取色器可编辑的具体颜色值，例如 hex、rgb(a)、hsl(a)；不接受 `var(...)`、`color-mix(...)` 或非法 hex。
-
-编辑器由四个组件组成：
-
-- `ThemeEditorDialog.vue`：draft 状态机、实时预览、保存/取消。
-- `ThemeCorePaletteSection.vue`：核心 13 色。
-- `ThemeAdvancedVarsSection.vue`：36 变量高级区。
-- `ThemePreviewCard.vue`：小型 UI 预览。
-
-打开 Dialog 时，draft 变量会实时应用到 `.novel-ide-theme` 宿主；取消时恢复当前已保存主题。内置主题中的 `color-mix(...)` 会在浏览器端解析为取色器可编辑颜色，避免把 CSS 表达式直接交给 `vue3-colorpicker`。
+| 老变量 | 现变量 |
+| --- | --- |
+| `--editor-bg` | `--page-surface` |
+| `--source-bg` | `--panel-surface` |
+| `--source-text` | `--text-main` |
+| `--source-muted` | `--text-muted` |
+| `--toolbar-bg` | `--toolbar-surface` |
+| `--chat-ai-bg` | `--bg-subtle` |
 
 ## 消费规则
 
 - 业务 UI 必须使用 `bg-[var(--...)]`、`text-[var(--...)]`、`border-[var(--...)]` 或 CSS 中的 `var(--...)`。
 - 禁止新增 Tailwind 调色板类和 `dark:` 变体。
 - 禁止直接写固定 hex / rgba 作为业务颜色；测试、外部资产预览和分类色板定义除外。
-- 阴影使用 `--shadow-color`，文本选区使用 `--selection-bg`。
-- Monaco 主题按 resolved theme 的 `appearance` 选择 light/dark 基底；语法 token 色不进入自定义调色盘。
+- 阴影使用 `--shadow-color` 或 `--elevation-*`，文本选区使用 `--selection-bg`。
+- Monaco 主题按会话的 `appearance` 选择 light/dark 基底，颜色从宿主计算样式读色彩角色（不读 `color-mix(...)` 表达式）。
 
 ## 状态语义
 
@@ -143,16 +114,16 @@ Plot / Workspace / Reference chip 分类色板是类别识别色，不迁移为�
 
 分类色用于正文或列表叠底时，应低透明或与 `--bg-panel` / `--bg-main` 混合，不得扩散到通用组件。
 
-Reference chip 的外观只由 `app/styles/reference-chips.css` 管理，组件只输出 `is-chapter`、`is-character` 等语义 class。Profile template 节点类型 accent、Markdown 正文颜色选择器、JsonViewer / Monaco 语法高亮和备用 Markdown 内容主题属于内容或第三方编辑器色板，不进入 36 主题变量；只要求其周边普通 UI 使用主题状态色、文本色和阴影变量。
+Reference chip 的外观只由 `app/styles/reference-chips.css` 管理，组件只输出 `is-chapter`、`is-character` 等语义 class。Profile template 节点类型 accent、Markdown 正文颜色选择器、JsonViewer / Monaco 语法高亮和备用 Markdown 内容主题属于内容或第三方编辑器色板，不进入配色契约；只要求其周边普通 UI 使用主题状态色、文本色和阴影变量。
 
-NotificationViewport 目前位于 `.novel-ide-theme` 宿主外，是跨入口玻璃 toast；在通知视口移入主题宿主前，其玻璃拟态和固定反色文本暂作为宿主外例外。
+NotificationViewport 挂在页面根节点之外，但配色变量写在 `<html>` 上，所以它直接消费 nb-ui 的配色变量（不再需要 JS 侧混色快照）。
 
 ## 验证
 
-- 变量新增、删除、重命名时同步 `shared/theme/theme-vars.ts`、`theme-tokens.ts`、`theme-vars.css`、`app/utils/theme/README.md` 和本参考。
-- 内置主题必须保持 8 套完整变量表。
-- 自定义主题相关变更优先跑：
-  - `bunx vitest run app/utils/theme/derive.test.ts app/utils/theme/theme-io.test.ts app/utils/theme/resolve-theme.test.ts app/utils/theme/theme-editor.test.ts`
-  - `bun run typecheck`
-  - `bun run test`
+- 变量新增、删除、重命名时同步 nb-ui 侧契约（`colorway-contract.ts` / `tokens.css`）与主题包，本参考只记映射与规则。
+- 四个组合（nbook / macos × light / dark）在 `<html>` 上的取值与主题包逐项一致，由 `app/utils/theme/theme-session.test.ts` 锁定。
+- 常用命令：
+  - `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json`
+  - `bun run --cwd packages/neuro-book test`
+  - `bun run --cwd packages/nb-ui test`
   - DTO / config route 变化后再跑 `bun run generate:openapi`

@@ -562,7 +562,7 @@ describe("World Engine IDE entry", () => {
         expect(themeVarsCss).toContain("--we-warning-border: var(--status-warning-border);");
         expect(themeVarsCss).toContain("--we-danger: var(--status-danger);");
         expect(themeVarsCss).toContain("--we-danger-border: var(--status-danger-border);");
-        expect(themeVarsCss).toContain("--we-code-bg: var(--source-bg);");
+        expect(themeVarsCss).toContain("--we-code-bg: var(--panel-surface);");
         expect(workbench).toContain("syncStatusDotClass");
         expect(workbench).toContain("bg-[var(--we-success)]");
         expect(workbench).toContain("border-[var(--we-danger-border)] bg-[var(--we-danger-soft)]");

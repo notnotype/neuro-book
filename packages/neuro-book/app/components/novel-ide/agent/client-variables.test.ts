@@ -5,7 +5,7 @@ import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 function buildState() {
     return buildAgentClientState({
         activePanel: "manuscript",
-        theme: "sepia",
+        theme: "nbook",
         novelId: "novel-1",
         workspace: "workspace/demo",
         workspaceKind: "novel",
@@ -30,7 +30,7 @@ describe("client variable patch", () => {
     it("waits for async theme setter before returning applied value", async () => {
         const events: string[] = [];
 
-        const appliedValue = await applyClientVariablePatch(replaceRequest("ide.theme", "light"), buildState(), {
+        const appliedValue = await applyClientVariablePatch(replaceRequest("ide.theme", "macos"), buildState(), {
             setTheme: async (value) => {
                 await Promise.resolve();
                 events.push(value);
@@ -38,24 +38,26 @@ describe("client variable patch", () => {
             },
         });
 
-        expect(events).toEqual(["light"]);
-        expect(appliedValue).toBe("light");
+        expect(events).toEqual(["macos"]);
+        expect(appliedValue).toBe("macos");
     });
 
     it("rejects theme patch when async setter reports failure", async () => {
-        await expect(applyClientVariablePatch(replaceRequest("ide.theme", "light"), buildState(), {
+        await expect(applyClientVariablePatch(replaceRequest("ide.theme", "nbook"), buildState(), {
             setTheme: async () => false,
         })).rejects.toThrow("client.ide.theme 应用失败");
     });
 
     it("still rejects unsupported theme ids before calling setter", async () => {
-        let called = false;
+        for (const themeId of ["missing-theme", "sepia", "tokyo-night", "custom-night"]) {
+            let called = false;
 
-        await expect(applyClientVariablePatch(replaceRequest("ide.theme", "missing-theme"), buildState(), {
-            setTheme: () => {
-                called = true;
-            },
-        })).rejects.toThrow("client.ide.theme 只能写入");
-        expect(called).toBe(false);
+            await expect(applyClientVariablePatch(replaceRequest("ide.theme", themeId), buildState(), {
+                setTheme: () => {
+                    called = true;
+                },
+            })).rejects.toThrow("client.ide.theme 只能写入");
+            expect(called).toBe(false);
+        }
     });
 });

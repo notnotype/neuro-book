@@ -206,8 +206,8 @@ export async function readConfigBootstrap(
                 effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
             },
             ui: {
-                theme: effective.ui.theme,
-                customThemes: effective.ui.customThemes,
+                themeId: effective.ui.themeId,
+                appearance: effective.ui.appearance,
                 costCurrency: effective.ui.costCurrency,
             },
         };

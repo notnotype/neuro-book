@@ -15,7 +15,7 @@ import {
     LowCodeJsonObjectSchema,
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
-import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+import {DEFAULT_PRODUCT_APPEARANCE, DEFAULT_PRODUCT_THEME_ID, productAppearances, productThemeIds} from "nbook/shared/theme/theme-axes";
 import {
     CompactionKeepRecentSchema,
     CompactionTriggerSchema,
@@ -27,8 +27,6 @@ import {
 } from "nbook/shared/agent/profile-runtime-settings";
 import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
-
-const themeVarNameSet = new Set<string>(themeVarNames);
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
@@ -276,26 +274,9 @@ export const MonacoEditorConfigDtoSchema = z.object({
     renderWhitespace: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
 });
 
-export const CustomThemeDtoSchema = z.object({
-    id: z.string().trim().regex(/^custom-[a-z0-9-]+$/u),
-    name: z.string().trim().min(1).max(50),
-    appearance: z.enum(themeAppearanceValues),
-    vars: z.record(z.string(), z.string()).superRefine((vars, ctx) => {
-        for (const key of Object.keys(vars)) {
-            if (!themeVarNameSet.has(key)) {
-                ctx.addIssue({
-                    code: "custom",
-                    path: [key],
-                    message: `未知主题变量：${key}`,
-                });
-            }
-        }
-    }),
-}).strict();
-
 export const UiConfigDtoSchema = z.object({
-    theme: z.string().trim().min(1).default("sepia"),
-    customThemes: z.array(CustomThemeDtoSchema).max(50).default([]),
+    themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
+    appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
     costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
@@ -413,7 +394,7 @@ export const GlobalConfigDtoSchema = z.object({
         profiles: ConfigAgentProfileMapDtoSchema,
         visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}, visibleModels: []}),
-    ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
+    ui: UiConfigDtoSchema.default({themeId: DEFAULT_PRODUCT_THEME_ID, appearance: DEFAULT_PRODUCT_APPEARANCE, costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -486,7 +467,6 @@ export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQu
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
-export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
@@ -524,8 +504,8 @@ export const ConfigBootstrapDtoSchema = z.object({
         effectiveProfileKey: ProfileKeySchema.nullable(),
     }),
     ui: z.object({
-        theme: z.string().trim().min(1).default("sepia"),
-        customThemes: z.array(CustomThemeDtoSchema).default([]),
+        themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
+        appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
         costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
 });

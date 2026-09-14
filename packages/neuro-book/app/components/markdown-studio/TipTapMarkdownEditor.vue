@@ -13,6 +13,7 @@ import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdow
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {refreshWorkspaceReferenceNodes, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {applyInlineAiReferenceHighlight, countMarkdownLines, InlineAiReferenceHighlight, locateInlineAiSelectionTextRange, serializeEditorPrefix} from "nbook/app/components/markdown-studio/tiptap/InlineAiReferenceHighlight";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences} from "nbook/shared/editor-workbench";
@@ -99,7 +100,7 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 const skillTriggerStarted = ref(false);
-const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
+const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(THEME_HOST_SELECTOR) as HTMLElement | null);
 const editorPlaceholder = computed(() => props.placeholder || t("markdownStudio.editor.placeholder"));
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -1287,7 +1288,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     height: 100%;
     min-height: 100%;
     overflow-y: auto;
-    background: var(--editor-bg);
+    background: var(--page-surface);
 }
 
 .tiptap-markdown-content {
@@ -1410,7 +1411,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-collapse: collapse;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     table-layout: fixed;
     white-space: normal;
 }
@@ -1426,7 +1427,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 }
 
 :deep(.nb-markdown-editor th) {
-    background: var(--source-bg);
+    background: var(--panel-surface);
     color: var(--text-secondary);
     font-weight: 700;
 }
@@ -1450,7 +1451,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow-x: auto;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.9rem 1rem;
     white-space: pre;
 }
@@ -1459,7 +1460,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border: 0;
     background: transparent;
     padding: 0;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.9em;
 }
@@ -1467,9 +1468,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(.nb-markdown-editor :not(pre) > code) {
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.04rem 0.34rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: inherit;
     font-size: 0.95em;
     line-height: 1.25;
@@ -1484,7 +1485,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     margin: 0.25rem 0 1rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: color-mix(in srgb, var(--source-bg) 88%, var(--shadow-color) 12%);
+    background: color-mix(in srgb, var(--panel-surface) 88%, var(--shadow-color) 12%);
     object-fit: contain;
 }
 
@@ -1541,7 +1542,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     justify-content: center;
     border: 1px solid var(--status-warning);
     border-radius: 999px;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     color: var(--status-warning);
     font-size: 0.52em;
     font-weight: 700;
@@ -1624,7 +1625,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
 }
 
 :deep(.nb-html-embed__header) {
@@ -1696,7 +1697,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     max-height: 280px;
     min-height: 1.6em;
     padding: 0.6rem 0.75rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.5;
@@ -1708,7 +1709,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     width: 100%;
     min-height: 40px;
     border: 0;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     opacity: 0;
     transition: opacity 0.16s ease;
 }
@@ -1727,9 +1728,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow-x: auto;
     border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.55rem 0.75rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.5;
@@ -1744,9 +1745,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(.nb-raw-inline-html) {
     border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
     border-radius: 6px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.02rem 0.3rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.3;

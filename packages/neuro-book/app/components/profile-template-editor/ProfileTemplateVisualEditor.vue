@@ -74,8 +74,8 @@ import {
     removeNodeById,
 } from "nbook/app/components/profile-template-editor/profile-template-tree-utils";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
-import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {ensureThemeHost, THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -171,15 +171,7 @@ const {t} = useI18n();
 
 const themeHostRef = ref<HTMLElement | null>(null);
 const novelIdeStore = useNovelIdeStore();
-const theme = computed<string>({
-    get: () => novelIdeStore.theme,
-    set: (value) => {
-        novelIdeStore.applyThemeSelection(value);
-    },
-});
-const customThemes = computed(() => novelIdeStore.customThemes);
-const themeVarsSnapshot = computed(() => novelIdeStore.themeVarsSnapshot);
-const {mountThemeHost} = useIdeTheme(theme, customThemes, themeVarsSnapshot);
+const {themeId} = useProductTheme();
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const profileCatalog = ref<AgentProfileCatalogItemDto[]>([]);
@@ -408,7 +400,7 @@ function createDefaultProfileForm(): NewProfileForm {
 function buildClientVariables() {
     return buildNovelIdeClientVariables({
         activePanel: novelIdeStore.activeLeftTab,
-        theme: theme.value,
+        theme: themeId.value,
         novelId: novelIdeStore.currentProjectRoot,
         workspace: novelIdeStore.currentWorkspaceRoot || null,
         workspaceKind: novelIdeStore.workspaceKind,
@@ -2164,9 +2156,7 @@ watch(selectedThreadId, async () => {
 onMounted(async () => {
     // 已处于既有主题宿主内（如工作台 Dialog 内嵌场景）时不重复创建嵌套宿主；
     // 否则 Tooltip 等 fixed 浮层会被 Teleport 进 transform 容器内的嵌套宿主，fixed 定位基准失效。
-    if (!themeHostRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`)) {
-        mountThemeHost(themeHostRef.value);
-    }
+    ensureThemeHost(themeHostRef.value);
     keyboardListener = handleEditorKeydown;
     window.addEventListener("keydown", keyboardListener);
     await Promise.all([
@@ -2321,7 +2311,6 @@ onBeforeUnmount(() => {
                         :role-options="roleOptions"
                         :tool-status-options="toolStatusOptions"
                         :source-options="sourceOptions"
-                        :theme="theme"
                         :monaco-preferences="sourceEditorPreferences"
                         :is-expression-value="isExpressionValue"
                         :prop-input-value="propInputValue"
@@ -2359,7 +2348,6 @@ onBeforeUnmount(() => {
             :thread-options="threadOptions"
             :loading-threads="loadingThreads"
             :filtered-runtime-variable-groups="filteredRuntimeVariableGroups"
-            :theme="theme"
             :is-variable-group-collapsed="isVariableGroupCollapsed"
             :format-variable-schema="formatVariableSchema"
             :format-variable-value="formatVariableValue"

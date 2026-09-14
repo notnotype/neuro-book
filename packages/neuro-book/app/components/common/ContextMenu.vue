@@ -1,5 +1,5 @@
 <template>
-    <Teleport v-if="isMounted" :to="`.${IDE_THEME_HOST_CLASS}`">
+    <Teleport v-if="isMounted" :to="THEME_HOST_SELECTOR">
         <Transition name="fade">
             <div
                 v-if="visible"
@@ -72,7 +72,7 @@ export interface ContextMenuItem {
 </script>
 
 <script setup lang="ts">
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import type {ComponentPublicInstance} from "vue";
 
 const props = defineProps<{

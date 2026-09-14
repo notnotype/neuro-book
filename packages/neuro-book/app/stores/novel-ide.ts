@@ -6,10 +6,7 @@ import type {
     ProjectMutationResponseDto,
 } from "nbook/shared/dto/project.dto";
 import {ProjectCatalogRefreshError} from "nbook/app/utils/project-mutation-error";
-import type {ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
-import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -234,11 +231,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotPlanningFocusId = ref<string | null>(null);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
-    const activeThemeId = ref<string>("sepia");
-    const customThemes = ref<CustomThemeDto[]>([]);
-    const activeThemeAppearance = ref<ThemeAppearance>("light");
-    const themeVarsSnapshot = ref<ThemeVars | null>(null);
-    const theme = activeThemeId;
     const viewMode = ref<WorkspaceEditorViewMode>("rich");
     const markdownEditorPreferences = ref<MarkdownEditorPreferences>({
         ...DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -260,41 +252,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceTreeRevision = ref(0);
 
     const reasoningOptions = [...REASONING_OPTIONS];
-
-    /**
-     * 按当前主题 ID 与自定义主题列表刷新首屏主题快照。
-     */
-    const rememberThemeSnapshot = (): void => {
-        const resolved = resolveTheme(activeThemeId.value, customThemes.value);
-        activeThemeId.value = resolved.id;
-        activeThemeAppearance.value = resolved.appearance;
-        themeVarsSnapshot.value = {...resolved.vars};
-    };
-
-    /**
-     * 应用后端返回的全局主题配置。
-     */
-    const applyThemeConfig = (themeId: string, nextCustomThemes: CustomThemeDto[]): void => {
-        customThemes.value = [...nextCustomThemes];
-        activeThemeId.value = themeId;
-        rememberThemeSnapshot();
-    };
-
-    /**
-     * 只切换当前活动主题，并同步首屏快照。
-     */
-    const applyThemeSelection = (themeId: string): void => {
-        activeThemeId.value = themeId;
-        rememberThemeSnapshot();
-    };
-
-    /**
-     * 更新自定义主题列表，并保证当前主题仍可解析。
-     */
-    const applyCustomThemes = (nextCustomThemes: CustomThemeDto[]): void => {
-        customThemes.value = [...nextCustomThemes];
-        rememberThemeSnapshot();
-    };
 
     /**
      * 同步当前默认模型展示名。
@@ -1881,12 +1838,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     return {
         activeLeftTab,
-        activeThemeAppearance,
-        activeThemeId,
         activeWorkspaceTabPath,
-        applyCustomThemes,
-        applyThemeConfig,
-        applyThemeSelection,
         applyWorkspaceConflictMergedContent,
         applyWorkspaceConflictRemote,
         clearActiveFile,
@@ -1898,7 +1850,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         currentNovel,
         currentProjectRoot,
         currentWorkspaceRoot,
-        customThemes,
         canAccessWorkspace,
         deleteProject,
         deleteWorkspacePath,
@@ -1970,8 +1921,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         uploadFileToUploadFolder,
         uploadProjectFiles,
         uploadProjectZip,
-        theme,
-        themeVarsSnapshot,
         markdownEditorPreferences,
         monacoEditorPreferences,
         monacoFontSizeOverridesByPath,
@@ -2019,10 +1968,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "leftPanelWidth",
             "selectedModel",
             "selectedReasoning",
-            "activeThemeId",
-            "activeThemeAppearance",
-            "customThemes",
-            "themeVarsSnapshot",
             "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",

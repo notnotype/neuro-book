@@ -1,6 +1,7 @@
 import {mergeAttributes, Node} from "@tiptap/core";
 import type {MarkdownToken} from "@tiptap/core";
 import {findMarkdownBlockTagStart} from "nbook/shared/markdown-workbench";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 
 /**
  * 显式 HTML 嵌入块，Markdown 序列化为开闭标签独立成行的 <html>：
@@ -269,7 +270,7 @@ async function respondHtmlEmbedRequest(frame: HTMLIFrameElement, id: number, typ
  * 组装 iframe srcdoc：主题基础样式 + bridge 脚本 + 用户 HTML。
  */
 function buildHtmlEmbedDocument(themeHost: HTMLElement, html: string): string {
-    const themeVars = getComputedStyle(themeHost.closest(".novel-ide-theme") ?? document.documentElement);
+    const themeVars = getComputedStyle(themeHost.closest(THEME_HOST_SELECTOR) ?? document.documentElement);
     const textColor = themeVars.getPropertyValue("--text-main").trim() || "#1f2937";
     const fontFamily = themeVars.getPropertyValue("--nb-markdown-editor-font-family").trim() || "inherit";
     return [

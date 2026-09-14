@@ -276,7 +276,7 @@ watch(revision, () => {
                                             <p v-if="diffRequests.state(diffIdentity(group)).loading" class="text-[10px] text-[var(--text-muted)]">{{ t("agent.workspaceChanges.loadingDiff") }}</p>
                                             <p v-else-if="diffRequests.state(diffIdentity(group)).error" class="text-[10px] text-[var(--status-danger)]">{{ diffRequests.state(diffIdentity(group)).error }}</p>
                                             <template v-else-if="diffFor(group)?.status === 'available'">
-                                                <div class="workspace-diff-scroll custom-scrollbar max-h-36 overflow-auto rounded border border-[var(--border-color)] bg-[var(--source-bg)] font-mono text-[10px] leading-4">
+                                                <div class="workspace-diff-scroll custom-scrollbar max-h-36 overflow-auto rounded border border-[var(--border-color)] bg-[var(--panel-surface)] font-mono text-[10px] leading-4">
                                                     <div v-for="(line, index) in previewLines(availableDiff(group)?.changes ?? [])" :key="index" class="flex min-w-max px-1.5" :class="line.kind === 'added' ? 'bg-[var(--status-success-bg)] text-[var(--status-success)]' : line.kind === 'removed' ? 'bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'text-[var(--text-muted)]'">
                                                         <span class="mr-1.5 select-none">{{ line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " " }}</span>
                                                         <span class="whitespace-pre">{{ line.text }}</span>

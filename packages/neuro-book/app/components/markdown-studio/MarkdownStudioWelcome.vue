@@ -111,7 +111,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 </script>
 
 <template>
-    <section class="studio-welcome-root min-h-0 flex-1 overflow-y-auto bg-[var(--editor-bg)] px-6 py-5 custom-scrollbar">
+    <section class="studio-welcome-root min-h-0 flex-1 overflow-y-auto bg-[var(--page-surface)] px-6 py-5 custom-scrollbar">
         <div v-if="readonlyNode" class="studio-welcome-container mx-auto flex w-full max-w-[720px] flex-col gap-5">
             <div class="flex items-start gap-4 border-b border-[var(--border-color)] pb-5">
                 <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--accent-text)]">

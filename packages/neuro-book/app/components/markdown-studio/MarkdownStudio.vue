@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import type { MarkdownStudioController, MarkdownStudioEditorHandle } from "nbook/app/composables/useMarkdownStudioController";
 import { useMarkdownStudioSync } from "nbook/app/composables/useMarkdownStudioSync";
-import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
@@ -10,7 +9,6 @@ import type {InlineEditReference} from "nbook/app/utils/inline-editor-selection"
 const props = withDefaults(defineProps<{
     controller: MarkdownStudioController;
     readonly?: boolean;
-    theme?: IdeTheme;
     editorPreferences?: MarkdownEditorPreferences;
     monacoPreferences?: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
@@ -24,7 +22,6 @@ const props = withDefaults(defineProps<{
     enableQuickTriggers?: boolean;
 }>(), {
     readonly: false,
-    theme: "sepia",
     editorPreferences: () => ({...DEFAULT_MARKDOWN_EDITOR_PREFERENCES}),
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     monacoTemporaryFontSize: null,
@@ -82,7 +79,7 @@ function handleSourceBlur(): void {
     <section class="ide-editor-shell flex min-h-0 flex-1 flex-col">
         <div
             v-show="controller.isPreviewVisible.value"
-            class="min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]"
+            class="min-h-0 flex-1 overflow-hidden bg-[var(--page-surface)]"
         >
             <ClientOnly>
                 <TipTapMarkdownEditor
@@ -119,13 +116,12 @@ function handleSourceBlur(): void {
 
         <div
             v-show="controller.isSourceVisible.value"
-            class="min-h-0 flex-1 overflow-hidden bg-[var(--source-bg)]"
+            class="min-h-0 flex-1 overflow-hidden bg-[var(--panel-surface)]"
         >
             <MarkdownSourceEditor
                 ref="sourceEditorRef"
                 :initial-value="initialMarkdown"
                 :readonly="readonly || controller.editorsLocked.value"
-                :theme="props.theme"
                 :visible="controller.isSourceVisible.value"
                 :monaco-preferences="props.monacoPreferences"
                 :temporary-font-size="props.monacoTemporaryFontSize"

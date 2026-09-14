@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {loadMonacoEditor, type MonacoEditorApi} from "nbook/app/components/markdown-studio/load-monaco-editor";
 import {applyMonacoDiffTheme} from "nbook/app/components/common/diff/monaco-diff-theme";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 const props = withDefaults(defineProps<{
@@ -10,7 +10,6 @@ const props = withDefaults(defineProps<{
     originalLabel?: string;
     modifiedLabel?: string;
     language?: string;
-    theme?: IdeTheme;
     readonly?: boolean;
     renderSideBySide?: boolean;
     modelKey?: string;
@@ -19,7 +18,6 @@ const props = withDefaults(defineProps<{
     originalLabel: "Original",
     modifiedLabel: "Modified",
     language: "markdown",
-    theme: "sepia",
     readonly: true,
     renderSideBySide: true,
     modelKey: "diff",
@@ -30,6 +28,8 @@ const emit = defineEmits<{
     (e: "ready"): void;
     (e: "layout"): void;
 }>();
+
+const {appearance} = useProductTheme();
 
 const rootRef = ref<HTMLDivElement | null>(null);
 let monacoApi: MonacoEditorApi | null = null;
@@ -69,7 +69,7 @@ async function ensureEditor(): Promise<void> {
         return;
     }
     monacoApi = monacoApi ?? await loadMonacoEditor();
-    applyMonacoDiffTheme(monacoApi, props.theme, rootRef.value);
+    applyMonacoDiffTheme(monacoApi, rootRef.value);
     if (!diffEditor) {
         diffEditor = monacoApi.editor.createDiffEditor(rootRef.value, {
             automaticLayout: true,
@@ -103,11 +103,14 @@ watch(() => [
     updateModels();
 });
 
-watch(() => [props.theme, props.readonly, props.renderSideBySide, props.showWhitespace], () => {
-    if (monacoApi) {
-        applyMonacoDiffTheme(monacoApi, props.theme, rootRef.value);
-    }
+watch(() => [props.readonly, props.renderSideBySide, props.showWhitespace], () => {
     updateOptions();
+});
+
+watch(appearance, () => {
+    if (monacoApi) {
+        applyMonacoDiffTheme(monacoApi, rootRef.value);
+    }
 });
 
 onBeforeUnmount(() => {

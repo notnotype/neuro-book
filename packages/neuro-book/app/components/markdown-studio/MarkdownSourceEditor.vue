@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
 import { buildMonacoTheme } from "nbook/app/components/markdown-studio/monaco-theme";
 import { loadMonacoEditor } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type { MonacoEditorApi } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
-import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import type { MarkdownStudioEditorHandle } from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
@@ -15,7 +14,6 @@ const props = withDefaults(defineProps<{
     readonly?: boolean;
     autofocus?: boolean;
     placeholder?: string;
-    theme?: IdeTheme;
     visible?: boolean;
     language?: string;
     modelPath?: string;
@@ -28,7 +26,6 @@ const props = withDefaults(defineProps<{
     readonly: false,
     autofocus: false,
     placeholder: "",
-    theme: "sepia",
     visible: false,
     language: "markdown",
     modelPath: "",
@@ -48,7 +45,7 @@ const emit = defineEmits<{
     (e: "update-temporary-font-size", value: number): void;
 }>();
 const {t} = useI18n();
-const novelIdeStore = useNovelIdeStore();
+const {appearance} = useProductTheme();
 
 const editorRootRef = ref<HTMLDivElement | null>(null);
 let monacoApi: MonacoEditorApi | null = null;
@@ -103,10 +100,10 @@ const runOutsideSync = (callback: () => void): void => {
 };
 
 /**
- * 读取当前工作区的主题变量。
+ * 读取宿主元素上的主题变量；变量写在 `<html>`，宿主只决定继承链起点。
  */
 const readThemeVars = (): CSSStyleDeclaration => {
-    const themeHost = editorRootRef.value?.closest(".novel-ide-theme");
+    const themeHost = editorRootRef.value?.closest(THEME_HOST_SELECTOR);
     return getComputedStyle(themeHost ?? document.documentElement);
 };
 
@@ -119,17 +116,16 @@ const applyTheme = (): void => {
     }
 
     const cssVars = readThemeVars();
-    const background = cssVars.getPropertyValue("--source-bg").trim() || "#1f1f1f";
-    const foreground = cssVars.getPropertyValue("--source-text").trim() || "#f3f4f6";
-    const muted = cssVars.getPropertyValue("--source-muted").trim() || "#94a3b8";
+    const background = cssVars.getPropertyValue("--panel-surface").trim() || "#1f1f1f";
+    const foreground = cssVars.getPropertyValue("--text-main").trim() || "#f3f4f6";
+    const muted = cssVars.getPropertyValue("--text-muted").trim() || "#94a3b8";
     const accent = cssVars.getPropertyValue("--accent-main").trim() || "#3b82f6";
     const lineHighlight = cssVars.getPropertyValue("--bg-hover").trim() || "rgba(255,255,255,0.04)";
     const selection = cssVars.getPropertyValue("--accent-bg").trim() || "rgba(59,130,246,0.18)";
     const border = cssVars.getPropertyValue("--border-color").trim() || "#2b3340";
-    const resolvedTheme = resolveTheme(props.theme, novelIdeStore.customThemes);
-    const themeName = `neuro-book-source-${props.theme.replace(/[^a-z0-9-]/gi, "-")}`;
+    const themeName = `neuro-book-source-${appearance.value}`;
 
-    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(props.theme, resolvedTheme.appearance, {
+    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(appearance.value, {
         accent,
         background,
         border,
@@ -384,7 +380,7 @@ watch([
     applyModelOptions();
 }, {deep: true});
 
-watch(() => props.theme, async () => {
+watch(appearance, async () => {
     await nextTick();
     applyTheme();
 });
@@ -562,7 +558,7 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
 <style scoped>
 .markdown-source-shell {
     height: 100%;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     overflow: hidden;
 }
 
@@ -574,6 +570,6 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
 .markdown-source-shell :deep(.monaco-editor),
 .markdown-source-shell :deep(.monaco-editor .margin),
 .markdown-source-shell :deep(.monaco-editor .monaco-editor-background) {
-    background: var(--source-bg) !important;
+    background: var(--panel-surface) !important;
 }
 </style>

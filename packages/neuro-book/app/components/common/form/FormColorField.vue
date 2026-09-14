@@ -3,7 +3,7 @@ import type {CSSProperties} from "vue";
 import {colord} from "colord";
 import {ColorPicker} from "vue3-colorpicker";
 import "vue3-colorpicker/style.css";
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 
 type PickerColorValue = string | {
     r: number | string;
@@ -72,7 +72,7 @@ const swatchStyle = computed(() => ({
 }));
 /** 弹层挂到主题宿主，保证消费主题变量且不被 Dialog/浮动窗口裁剪 */
 const popoverTeleportTarget = computed(() => {
-    return (fieldRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`) as HTMLElement | null) ?? "body";
+    return (fieldRef.value?.closest(THEME_HOST_SELECTOR) as HTMLElement | null) ?? "body";
 });
 
 /**

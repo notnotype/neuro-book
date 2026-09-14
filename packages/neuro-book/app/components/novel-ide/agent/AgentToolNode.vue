@@ -57,7 +57,7 @@ const parsedResult = computed<unknown | null>(() => {
 </script>
 
 <template>
-    <div v-if="renderConfig.mode !== 'hidden'" class="w-full overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--chat-ai-bg)] shadow-sm">
+    <div v-if="renderConfig.mode !== 'hidden'" class="w-full overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-subtle)] shadow-sm">
         <!-- 容器头部：点击切换展开 -->
         <button class="flex w-full items-center justify-between px-3 py-1.5 text-left transition-colors hover:bg-[var(--bg-hover)]" @click="emit('toggle')">
             <div class="flex min-w-0 items-center gap-2.5 overflow-hidden">

@@ -316,8 +316,8 @@ async function writeProductState(
             }],
         }} : {}),
         ui: {
-            theme: "sepia",
-            customThemes: [],
+            themeId: "nbook",
+            appearance: "light",
             costCurrency: configCurrency(marker),
         },
     }, {workspaceKind: "user-assets"}, smokeHarness.profiles);
