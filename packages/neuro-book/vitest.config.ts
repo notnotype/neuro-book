@@ -44,6 +44,7 @@ export default defineConfig({
             "app/components/markdown-studio/**/*.test.ts",
             "app/components/profile-template-editor/**/*.test.ts",
             "app/utils/theme/**/*.test.ts",
+            "app/utils/workbench/**/*.test.ts",
             "app/stores/**/*.test.ts",
             "app/utils/novel-ide-settings-responsive.contract.test.ts",
             "app/utils/novel-ide-settings-current-project.contract.test.ts",
