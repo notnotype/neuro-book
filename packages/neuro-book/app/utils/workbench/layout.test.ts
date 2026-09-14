@@ -2,26 +2,39 @@ import {describe, expect, it} from "vitest";
 import {createGrid, type Grid, type GridNode} from "@notnotype/nb-ui/components";
 import {
     SHELL_EDITOR_MAX_WIDTH,
+    SHELL_MAIN_ID,
+    SHELL_TITLEBAR_HEIGHT,
     clampLeafSize,
     clampLeafSizes,
     createDefaultShellGrid,
+    distributeShellHeights,
     recalcShellSizes,
     shellLeafLimits,
 } from "nbook/app/utils/workbench/layout";
 
 const VIEWPORT = 1280;
 
+/** 步骤 4 起拓扑为 root(vertical){titlebar, main(horizontal){四个宽度叶}}；本文件关心 main 下的四个叶。 */
 function leafChildren(grid: Grid<string>): GridNode<string>[] {
     const root = grid.root();
     if (!root || root.kind !== "branch") {
         throw new Error("外壳树的根必须是分支");
     }
-    return root.children;
+    const main = root.children.find((child) => child.id === SHELL_MAIN_ID);
+    if (!main || main.kind !== "branch") {
+        throw new Error("外壳树的主区分支缺失");
+    }
+    return main.children;
 }
 
 describe("createDefaultShellGrid", () => {
-    it("拓扑是 root(horizontal){activity, left, editor, right}，初始宽来自 store 初值", () => {
+    it("拓扑是 root(vertical){titlebar, main(horizontal){activity, left, editor, right}}，初始宽来自 store 初值", () => {
         const grid = createDefaultShellGrid(VIEWPORT);
+        const root = grid.root();
+        expect(root?.kind).toBe("branch");
+        expect(root?.kind === "branch" ? root.orientation : null).toBe("vertical");
+        expect(root?.kind === "branch" ? root.children.map((child) => child.id) : []).toEqual(["titlebar", SHELL_MAIN_ID]);
+        expect(root?.kind === "branch" ? root.children[0] : null).toMatchObject({kind: "leaf", size: SHELL_TITLEBAR_HEIGHT, minimumSize: 36, maximumSize: 36});
 
         expect(leafChildren(grid).map((child) => child.id)).toEqual(["activity", "left", "editor", "right"]);
         expect(leafChildren(grid).every((child) => child.kind === "leaf")).toBe(true);
@@ -46,6 +59,22 @@ describe("createDefaultShellGrid", () => {
         expect(sizes["right"]).toBe(360); // max(360, 700 × 45% = 315)
         expect(sizes["editor"]).toBe(0);
         expect(sizes["left"]).toBe(340);
+    });
+});
+
+describe("distributeShellHeights", () => {
+    it("titlebar 可见时刚性 36 + 1px sash，main 吸收余量", () => {
+        expect(distributeShellHeights(900, true)).toEqual({titlebar: 36, main: 863});
+    });
+
+    it("titlebar 不可见时不占高度、不留 sash，main 占满", () => {
+        expect(distributeShellHeights(900, false)).toEqual({titlebar: 0, main: 900});
+    });
+
+    it("外壳高度不足 36 时不产生负数（main 置 0）", () => {
+        expect(distributeShellHeights(20, true)).toEqual({titlebar: 20, main: 0});
+        expect(distributeShellHeights(0, true)).toEqual({titlebar: 0, main: 0});
+        expect(distributeShellHeights(Number.NaN, true)).toEqual({titlebar: 0, main: 0});
     });
 });
 
@@ -134,6 +163,15 @@ describe("recalcShellSizes", () => {
 
         expect(result.issues).toEqual(["隐藏列表引用了未登记的叶：ghost"]);
         expect(result.sizes.left).toBe(340);
+    });
+
+    it("标题栏是登记的隐藏项：隐藏它不报 issue，也不影响四个宽度叶", () => {
+        const grid = createDefaultShellGrid(VIEWPORT);
+        const result = recalcShellSizes(grid, {leftPanelWidth: 340, agentPanelWidth: 400, hidden: ["titlebar"]}, 1280);
+
+        expect(result.issues).toEqual([]);
+        // 调用方传入的 avail 已扣掉 sash：1280 − 788 = 492。
+        expect(result.sizes).toEqual({activity: 48, left: 340, editor: 492, right: 400});
     });
 
     it("树里缺叶时按 0 宽处理并报 issue，而不是给 NaN", () => {

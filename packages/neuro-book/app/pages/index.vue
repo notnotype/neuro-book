@@ -15,6 +15,7 @@ import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
+import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
@@ -244,6 +245,14 @@ const inlineEditorAgent = useInlineEditorAgentController({
     selectedFilePath,
 });
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
+const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
+/**
+ * titlebar 叶只在桌面（有 bridge）存在：B/S 下隐藏它，主区按外壳高度占满。
+ * 事实在页面（`desktopBridge`），叶的显隐走外壳暴露的 `setLeafVisible`。
+ */
+watch([workbenchShellRef, desktopBridge], ([shell, bridge]) => {
+    shell?.setLeafVisible("titlebar", Boolean(bridge));
+});
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
 
@@ -2535,7 +2544,11 @@ onBeforeUnmount(() => {
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。 -->
-        <WorkbenchShell v-if="projectSurfaceActive">
+        <WorkbenchShell v-if="projectSurfaceActive" ref="workbenchShellRef">
+            <template #titlebar>
+                <!-- 自绘 header 纳入 titlebar 叶：平台边界（bridge 命令、安全区、菜单数据）仍在组件内。 -->
+                <DesktopTitleBar />
+            </template>
             <template #activity>
                 <!-- 图标条宿主换成 activity 叶：宽度来自树的逻辑尺寸 48（刚性），组件内部不动。 -->
                 <NovelIdeActivityBar

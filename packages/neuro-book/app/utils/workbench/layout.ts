@@ -1,10 +1,11 @@
 /**
  * Workbench 外壳的几何：默认拓扑、可用宽换算与叶尺寸夹取。
  *
- * 公式取自批准的骨架计划（步骤 1）：
+ * 公式取自批准的骨架计划（步骤 1 / 步骤 4）：
  * - `avail = 外壳宽 − SASH_PX × (可见叶数 − 1)`（调用方按可见叶算好再传进来）；
  * - `editor = avail − activity − left − right`（编辑器是**唯一**吸收余量的叶）；
- * - activity 48/48 刚性、left 280..560、right 320..max(360, ratio × 视口)、editor 0..大值。
+ * - activity 48/48 刚性、left 280..560、right 320..max(360, ratio × 视口)、editor 0..大值；
+ * - 垂直方向：titlebar 36/36 刚性（不可见时不占高度），main 吸收余量。
  *
  * 尺寸约束的唯一真相是**树**：叶自带的 min/max 由 `shellLeafLimits` 在建树时写入，本文件的函数
  * 全部是纯函数——读树、算结果、报 issue，不写回树，不依赖 Vue（可在单测里直接跑）。
@@ -16,7 +17,7 @@ import type {WorkbenchPartId} from "nbook/app/utils/workbench/descriptors";
 /** 壳层 sash 的流内宽度：命中区由绝对定位扩展，不吃叶宽（不要沿用验证台的 8px）。 */
 export const SASH_PX = 1;
 
-/** 外壳拓扑的叶 id：顺序即渲染顺序，也是「可见叶」过滤前的完整集合。 */
+/** 外壳拓扑的宽度叶 id：顺序即渲染顺序，也是「可见叶」过滤前的完整集合。 */
 export const SHELL_LEAF_IDS = ["activity", "left", "editor", "right"] as const satisfies readonly WorkbenchPartId[];
 
 export type ShellLeafId = (typeof SHELL_LEAF_IDS)[number];
@@ -24,8 +25,20 @@ export type ShellLeafId = (typeof SHELL_LEAF_IDS)[number];
 /** 取值域成员表：静态字面量用 Record（不建 Set）。 */
 const SHELL_LEAVES: Record<string, true> = Object.fromEntries(SHELL_LEAF_IDS.map((id) => [id, true]));
 
-/** 根分支 id：拓扑 `root(horizontal){activity, left, editor, right}`。 */
+/** 根分支 id：拓扑 `root(vertical){titlebar, main(horizontal){activity, left, editor, right}}`。 */
 export const SHELL_ROOT_ID = "root";
+
+/** 主区分支 id：承载四个宽度叶（步骤 4 起根分支转垂直，横向照旧）。 */
+export const SHELL_MAIN_ID = "main";
+
+/** 标题栏叶 id；它是**高度**叶，不参与横向分配。 */
+export const SHELL_TITLEBAR_ID = "titlebar";
+
+/** 标题栏 36：`DesktopTitleBar.vue` 的 `.desktop-title-bar { height: 36px; flex: 0 0 36px }`。 */
+export const SHELL_TITLEBAR_HEIGHT = 36;
+
+/** 可隐藏叶的成员表：四个宽度叶 + 标题栏（main 是分支，不可隐藏）。 */
+const SHELL_HIDDEN_IDS: Record<string, true> = {...SHELL_LEAVES, [SHELL_TITLEBAR_ID]: true};
 
 /** 活动栏 48：`NovelIdeActivityBar.vue` 的 `w-12`（3rem）；`border-r` 走 border-box 含在这 48 里。 */
 export const SHELL_ACTIVITY_WIDTH = 48;
@@ -153,7 +166,7 @@ function distributeShellSizes(limits: Record<ShellLeafId, ShellLeafLimits>, stor
     const issues: string[] = [];
     const hidden: Record<string, true> = {};
     for (const id of store.hidden) {
-        if (SHELL_LEAVES[id]) {
+        if (SHELL_HIDDEN_IDS[id]) {
             hidden[id] = true;
         } else {
             issues.push(`隐藏列表引用了未登记的叶：${id}`);
@@ -212,6 +225,17 @@ export function recalcShellSizes(grid: Grid<string>, store: ShellSizeStore, avai
 }
 
 /**
+ * 垂直方向分配：titlebar 刚性 36（不可见时不占高度），main 吸收余量。
+ * 与横向同一套口径：可见叶之间每条 sash 占 `SASH_PX`。
+ */
+export function distributeShellHeights(shellHeight: number, titlebarVisible: boolean): {titlebar: number; main: number} {
+    const height = Number.isFinite(shellHeight) ? Math.max(0, shellHeight) : 0;
+    const titlebar = titlebarVisible ? Math.min(SHELL_TITLEBAR_HEIGHT, height) : 0;
+    const sashes = titlebarVisible && height > titlebar ? SASH_PX : 0;
+    return {titlebar, main: Math.max(0, height - titlebar - sashes)};
+}
+
+/**
  * 按给定叶尺寸重建外壳树（约束与 `createDefaultShellGrid` 同源）：外壳把「尺寸模型」收敛回原语时用。
  * 落账尺寸先按各叶 min/max 夹取——模型与树必须描述同一份布局，否则下一次拖拽会从漂移值起算。
  */
@@ -223,15 +247,33 @@ export function createShellGrid(viewportWidth: number, sizes: Readonly<Record<st
     return createGrid<string>({
         kind: "branch",
         id: SHELL_ROOT_ID,
-        orientation: "horizontal",
-        children: SHELL_LEAF_IDS.map((id): GridLeaf<string> => ({
-            kind: "leaf",
-            id,
-            ref: id,
-            minimumSize: limits[id].minimumSize,
-            maximumSize: limits[id].maximumSize,
-            size: clampLeafSize(sizes[id] ?? 0, limits[id]),
-        })),
+        orientation: "vertical",
+        children: [
+            {
+                kind: "leaf",
+                id: SHELL_TITLEBAR_ID,
+                ref: SHELL_TITLEBAR_ID,
+                minimumSize: SHELL_TITLEBAR_HEIGHT,
+                maximumSize: SHELL_TITLEBAR_HEIGHT,
+                size: clampLeafSize(sizes[SHELL_TITLEBAR_ID] ?? SHELL_TITLEBAR_HEIGHT, {
+                    minimumSize: SHELL_TITLEBAR_HEIGHT,
+                    maximumSize: SHELL_TITLEBAR_HEIGHT,
+                }),
+            },
+            {
+                kind: "branch",
+                id: SHELL_MAIN_ID,
+                orientation: "horizontal",
+                children: SHELL_LEAF_IDS.map((id): GridLeaf<string> => ({
+                    kind: "leaf",
+                    id,
+                    ref: id,
+                    minimumSize: limits[id].minimumSize,
+                    maximumSize: limits[id].maximumSize,
+                    size: clampLeafSize(sizes[id] ?? 0, limits[id]),
+                })),
+            },
+        ],
     });
 }
 

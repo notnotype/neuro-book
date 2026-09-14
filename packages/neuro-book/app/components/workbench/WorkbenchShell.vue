@@ -19,15 +19,24 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {
     createDefaultShellGrid,
     createShellGrid,
+    distributeShellHeights,
     recalcShellSizes,
     SASH_PX,
     SHELL_LEAF_IDS,
+    SHELL_MAIN_ID,
+    SHELL_TITLEBAR_ID,
+    type ShellLeafId,
     type ShellSizes,
     type ShellSizeStore,
 } from "nbook/app/utils/workbench/layout";
 
 /** 窄屏判据：与 `index.vue` 的 `agentPanelOverlay` 同源（< 800），不新造断点。 */
 const NARROW_VIEWPORT_PX = 800;
+
+/** 几何模型的键：四个宽度叶 + 垂直方向的 titlebar / main（像素高度）。 */
+const LAYOUT_SIZE_IDS = [...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID, SHELL_MAIN_ID] as const;
+
+type ShellLayoutSizes = ShellSizes & {titlebar: number; main: number};
 
 const store = useNovelIdeStore();
 const {leftPanelWidth, agentPanelWidth} = storeToRefs(store);
@@ -54,6 +63,12 @@ function availableWidth(): number {
     return Math.max(0, width - SASH_PX * Math.max(0, visibleLeafIds.value.length - 1));
 }
 
+/** 垂直方向：titlebar 刚性 36（不可见时不占高度），main 吸收余量；挂载前退回视口高。 */
+function shellHeights(): {titlebar: number; main: number} {
+    const height = shellEl.value?.clientHeight ?? (typeof window === "undefined" ? 0 : window.innerHeight);
+    return distributeShellHeights(height, !hidden.value.includes(SHELL_TITLEBAR_ID));
+}
+
 function sizeStore(): ShellSizeStore {
     return {leftPanelWidth: leftPanelWidth.value, agentPanelWidth: agentPanelWidth.value, hidden: hidden.value};
 }
@@ -68,12 +83,19 @@ function treeSizes(): ShellSizes {
     return settled;
 }
 
-function maxAbsDiff(left: ShellSizes, right: ShellSizes): number {
+function maxAbsDiff(left: ShellLayoutSizes, right: ShellLayoutSizes): number {
     let worst = 0;
-    for (const id of SHELL_LEAF_IDS) {
+    for (const id of LAYOUT_SIZE_IDS) {
         worst = Math.max(worst, Math.abs(left[id] - right[id]));
     }
     return worst;
+}
+
+/** 宽度分配（store 值 + avail）与高度分配（titlebar / main）合成一份几何模型。 */
+function composeLayout(): ShellLayoutSizes {
+    const result = recalcShellSizes(grid.value, sizeStore(), availableWidth());
+    issues.value = result.issues;
+    return {...result.sizes, ...shellHeights()};
 }
 
 /** 树 ≡ 尺寸模型：落账后按模型重建树，下一次拖拽从同一份数字起算。 */
@@ -81,25 +103,23 @@ function syncTree(): void {
     grid.value = createShellGrid(layoutViewportWidth(), sizes.value);
 }
 
-/** 首屏：默认拓扑先供出叶约束，再按 store 里持久化的宽度分配一次，避免默认值闪一帧。 */
+/** 首屏：默认拓扑先供出叶约束，再按 store 里持久化的宽度与当前外壳尺寸分配一次，避免默认值闪一帧。 */
 const grid = ref<Grid<string>>(createDefaultShellGrid(layoutViewportWidth()));
-const initialLayout = recalcShellSizes(grid.value, sizeStore(), availableWidth());
-const sizes = ref<ShellSizes>({...initialLayout.sizes});
-issues.value = initialLayout.issues;
+const initialLayout = composeLayout();
+const sizes = ref<ShellLayoutSizes>({...initialLayout});
 syncTree();
 
 /**
- * 按 `store 值 + avail` 重算四个叶的尺寸并落账。
- * `remount=false`（拖拽 / 显隐）只更新模型与树，不重挂；`remount=true`（容器宽 / 外部尺寸）差异 ≥1px 才递增
- * epoch —— <1px 直接返回，避免「自己回写 store → 自己重挂」的自激。
+ * 按 `store 值 + avail` 与外壳高重算四个宽度叶与 titlebar / main 并落账。
+ * `remount=false`（拖拽 / 显隐）只更新模型与树，不重挂；`remount=true`（容器尺寸 / 外部尺寸）差异 ≥1px 才
+ * 递增 epoch —— <1px 直接返回，避免「自己回写 store → 自己重挂」的自激。
  */
 function recalcSizes(remount: boolean): void {
-    const result = recalcShellSizes(grid.value, sizeStore(), availableWidth());
-    issues.value = result.issues;
-    if (remount && maxAbsDiff(result.sizes, sizes.value) < 1) {
+    const next = composeLayout();
+    if (remount && maxAbsDiff(next, sizes.value) < 1) {
         return;
     }
-    sizes.value = {...result.sizes};
+    sizes.value = {...next};
     syncTree();
     if (remount) {
         epoch.value += 1;
@@ -109,8 +129,12 @@ function recalcSizes(remount: boolean): void {
 /**
  * 拖拽落账：像素增量 → 原语；`left` / `right` 把夹取后的绝对值写回 store（`novel.ide.local`）。
  * 编辑器不写 store —— 它是吸收余量的叶，尺寸由分配公式决定。
+ * titlebar（36/36 刚性）与 main（分支，原语不接受分支 resize）不参与宽度结算。
  */
 function onLeafResize(id: string, deltaPx: number): void {
+    if (!(SHELL_LEAF_IDS as readonly string[]).includes(id)) {
+        return;
+    }
     const result = grid.value.resize(id, deltaPx);
     if (!result.ok) {
         issues.value = [...issues.value, result.reason];
@@ -127,9 +151,10 @@ function onLeafResize(id: string, deltaPx: number): void {
 
 /**
  * 叶的显隐：只改 children 集合（splitter key 变 → 重挂重读尺寸），不动原语拓扑、不递增 epoch。
+ * 登记的隐藏项：四个宽度叶 + titlebar（B/S 无 bridge 时由宿主关掉标题栏叶）。
  */
 function setLeafVisible(id: string, visible: boolean): void {
-    if (!(SHELL_LEAF_IDS as readonly string[]).includes(id)) {
+    if (![...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID].includes(id as ShellLeafId)) {
         issues.value = [...issues.value, `未登记的叶：${id}`];
         return;
     }
@@ -142,6 +167,12 @@ function setLeafVisible(id: string, visible: boolean): void {
     hidden.value = next;
     recalcSizes(false);
 }
+
+/** 窄屏堆叠顺序：titlebar（36 条）→ 四个宽度叶，与树的顺序一致。 */
+const stackedLeafIds = computed<string[]>(() => [
+    ...(hidden.value.includes(SHELL_TITLEBAR_ID) ? [] : [SHELL_TITLEBAR_ID]),
+    ...visibleLeafIds.value,
+]);
 
 /** 分支根：尺寸模型重建后节点对象会换，但 id / 约束不变，所以不会触发重挂。 */
 const rootBranch = computed<GridBranch<unknown> | null>(() => {
@@ -195,10 +226,10 @@ defineExpose({setLeafVisible, hidden, issues});
         <!-- 窄屏：不渲染 Splitter，按拓扑顺序单列堆叠（顺序与显隐跟树一致） -->
         <div v-else-if="narrow" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden">
             <div
-                v-for="id in visibleLeafIds"
+                v-for="id in stackedLeafIds"
                 :key="id"
                 class="min-h-0 overflow-hidden"
-                :class="id === 'activity' ? 'h-12 shrink-0' : 'flex-1'"
+                :class="id === 'activity' ? 'h-12 shrink-0' : id === 'titlebar' ? 'h-9 shrink-0' : 'flex-1'"
                 :data-leaf="id"
             >
                 <slot :name="id"></slot>
@@ -206,3 +237,13 @@ defineExpose({setLeafVisible, hidden, issues});
         </div>
     </div>
 </template>
+
+<style scoped>
+/*
+ * titlebar|main 之间的 sash 不参与拖动（titlebar 36/36 刚性），分割线由标题栏自带的 border-bottom 承担：
+ * 少一条 1px 线，活动栏的起点才与接入前一致（y = 36）。只作用于根分支自己的 handle，不动四个宽度叶的 sash。
+ */
+:deep([data-branch="root"] > div > [role="separator"]) {
+    display: none;
+}
+</style>

@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import NotificationViewport from "nbook/app/components/common/NotificationViewport.vue";
-import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import { useDialog } from "nbook/app/composables/useDialog";
 import { useNotification } from "nbook/app/composables/useNotification";
 import {provideWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
@@ -21,7 +20,7 @@ const desktopAvailable = computed(() => import.meta.client && Boolean(window.neu
 </script>
 
 <template>
-    <DesktopTitleBar />
+    <!-- 自绘标题栏已随 #192 阶段 1 步骤 4 纳入主页面外壳（titlebar 叶），平台边界（bridge 命令、安全区、菜单数据）仍在 DesktopTitleBar 内。 -->
     <div :class="{ 'desktop-page-shell': desktopAvailable }">
         <NuxtPage/>
     </div>
@@ -32,7 +31,9 @@ const desktopAvailable = computed(() => import.meta.client && Boolean(window.neu
 
 .desktop-page-shell {
     display: flex;
-    height: calc(100dvh - 36px);
+    /* 标题栏（36px）现已在外壳的 titlebar 叶里随页面一起渲染，页面承接整窗高度：
+       接入前 = 标题栏 36 + 页面 (100dvh − 36)；接入后 = 页面 100dvh = 标题栏 36 + main(外壳高 − 36)。 */
+    height: 100dvh;
     min-height: 0;
     overflow: hidden;
     flex-direction: column;
