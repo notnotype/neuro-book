@@ -2544,7 +2544,9 @@ onBeforeUnmount(() => {
 
         <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。
              Project 是否打开只影响叶内容与动作可用性，不阻塞外壳渲染（spec ui.workbench-shell）：
-             未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。 -->
+             未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。
+             占位块的面/描边/字号只走 nb-ui 主题变量（见下面 .workbench-demo-leaf）：
+             写死一个色，主题换掉后外壳就会是唯一没跟上的一块。 -->
         <WorkbenchShell ref="workbenchShellRef">
             <template #titlebar>
                 <!-- 自绘 header 纳入 titlebar 叶：平台边界（bridge 命令、安全区、菜单数据）仍在组件内。 -->
@@ -2573,26 +2575,26 @@ onBeforeUnmount(() => {
                 />
             </template>
             <template #left>
-                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-r border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-center" data-demo-leaf="left">
-                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">left</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">左栏：工具面板 / 文件树</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
+                <div class="workbench-demo-leaf workbench-demo-leaf--start" data-demo-leaf="left">
+                    <span class="workbench-demo-leaf__title">left</span>
+                    <span class="workbench-demo-leaf__hint">左栏：工具面板 / 文件树</span>
+                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
                 </div>
             </template>
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
                 <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
-                <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--page-surface)] p-2 text-center" data-demo-leaf="editor">
-                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">editor</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">编辑器：Markdown Studio / 欢迎页</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
+                <div v-else class="workbench-demo-leaf workbench-demo-leaf--page" data-demo-leaf="editor">
+                    <span class="workbench-demo-leaf__title">editor</span>
+                    <span class="workbench-demo-leaf__hint">编辑器：Markdown Studio / 欢迎页</span>
+                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
                 </div>
             </template>
             <template #right>
-                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-center" data-demo-leaf="right">
-                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">right</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">右栏：Agent Chat Surface</span>
-                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
+                <div class="workbench-demo-leaf workbench-demo-leaf--end" data-demo-leaf="right">
+                    <span class="workbench-demo-leaf__title">right</span>
+                    <span class="workbench-demo-leaf__hint">右栏：Agent Chat Surface</span>
+                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
                 </div>
             </template>
         </WorkbenchShell>
@@ -2636,9 +2638,55 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.novel-ide-page {
-    --ide-toolbar-height: 48px;
-    --editor-min-height: calc(100vh - var(--ide-toolbar-height));
+/*
+ * 演示占位块（四个叶的内容暂由这些块承担，真视图接入时整块替掉）。
+ *
+ * 属性写成 CSS 而不是原子类：面、描边宽度、字号这三样在原子类的任意值语法里
+ * 分辨不出「这是尺寸还是颜色」，写错了**静默不生效**——而静默不生效正是「换主题看不出变化」
+ * 的成因（同一判据见 `app/component-lab/LabShell.vue` 顶部那段）。
+ *
+ * 三处取值都是 nb-ui 的变量，产品侧不自造：
+ *   --panel-surface 面板的面（两个产品主题都取 --bg-panel）
+ *   --page-surface  稿面的面，主题包声明的扩展变量；没装该主题时退回 --bg-panel
+ *   --divider / --border-w  界面分隔线（--divider 是主题层角色，低 chrome 主题可以整条关掉）
+ * 叶之间的描边方向：左叶画右线、右叶画左线、编辑叶两侧都不画（它由邻居的线界定）。
+ */
+.workbench-demo-leaf {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    overflow: hidden;
+    padding: var(--space-4);
+    background: var(--panel-surface);
+    text-align: center;
+}
+
+.workbench-demo-leaf--page {
+    background: var(--page-surface, var(--bg-panel));
+}
+
+.workbench-demo-leaf--start {
+    border-right: var(--border-w) solid var(--divider);
+}
+
+.workbench-demo-leaf--end {
+    border-left: var(--border-w) solid var(--divider);
+}
+
+.workbench-demo-leaf__title {
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-strong);
+}
+
+.workbench-demo-leaf__hint {
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-tight);
 }
 
 .plain-text-editor {

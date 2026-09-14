@@ -315,12 +315,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
                             @click="toggleMenu(group.label)"
                             @keydown="menuButtonKeydown($event, group, groupIndex)"
                         >{{ group.label }}</button>
-                        <div v-if="openMenu === group.label" class="desktop-title-bar__dropdown" role="menu">
+                        <div v-if="openMenu === group.label" class="desktop-title-bar__dropdown nb-ui-popover-surface nb-ui-menu-surface" role="menu">
                             <button
                                 v-for="(item, itemIndex) in group.items"
                                 :key="item.command"
                                 type="button"
-                                class="desktop-title-bar__item"
+                                class="desktop-title-bar__item nb-ui-popover-item"
                                 role="menuitem"
                                 @click="void invoke(item.command)"
                                 @keydown="menuItemKeydown($event, group, groupIndex, itemIndex)"
@@ -341,14 +341,14 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
                     >
                         <span class="i-lucide-menu h-4 w-4"></span>
                     </button>
-                    <div v-if="openMenu === 'compact'" class="desktop-title-bar__dropdown desktop-title-bar__dropdown--compact" role="menu">
+                    <div v-if="openMenu === 'compact'" class="desktop-title-bar__dropdown desktop-title-bar__dropdown--compact nb-ui-popover-surface nb-ui-menu-surface" role="menu">
                         <template v-for="group in menus" :key="group.label">
                             <div class="desktop-title-bar__group-label">{{ group.label }}</div>
                             <button
                                 v-for="item in group.items"
                                 :key="item.command"
                                 type="button"
-                                class="desktop-title-bar__item"
+                                class="desktop-title-bar__item nb-ui-popover-item"
                                 role="menuitem"
                                 @click="void invoke(item.command)"
                                 @keydown="compactMenuItemKeydown($event, compactItems.findIndex((candidate) => candidate.command === item.command))"
@@ -372,12 +372,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
                         <span class="desktop-title-bar__project-label">{{ projectLabel }}</span>
                         <span class="i-lucide-chevron-down h-3 w-3 shrink-0"></span>
                     </button>
-                    <div v-if="openMenu === 'project'" class="desktop-title-bar__dropdown desktop-title-bar__dropdown--project" role="menu">
+                    <div v-if="openMenu === 'project'" class="desktop-title-bar__dropdown desktop-title-bar__dropdown--project nb-ui-popover-surface nb-ui-menu-surface" role="menu">
                         <button
                             v-for="(item, itemIndex) in projectMenuItems"
                             :key="item.projectRoot ?? 'bookshelf'"
                             type="button"
-                            class="desktop-title-bar__item desktop-title-bar__project-item"
+                            class="desktop-title-bar__item desktop-title-bar__project-item nb-ui-popover-item"
                             role="menuitem"
                             :aria-current="item.active ? 'page' : undefined"
                             :data-project-root="item.projectRoot ?? ''"
@@ -442,6 +442,11 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 </template>
 
 <style scoped>
+/*
+ * 标题栏是窗体 chrome：面取 --bg-panel（配色变量），底边线取主题层角色 --divider / --border-w。
+ * 未切到 --toolbar-surface（主题层那一档在本产品装的两套主题里是半透明玻璃）——理由与活动栏同，
+ * 见 NovelIdeActivityBar 顶部那段，两处要一起改。
+ */
 .desktop-title-bar {
     position: relative;
     z-index: 1000;
@@ -450,7 +455,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
     flex: 0 0 36px;
     color: var(--text-secondary);
     background: var(--bg-panel);
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: var(--border-w) solid var(--divider);
 }
 
 .desktop-title-bar__content {
@@ -487,8 +492,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
     gap: 6px;
     padding: 0 5px;
     color: var(--text-main);
-    font-size: 12px;
-    font-weight: 650;
+    font-size: var(--text-xs);
+    font-weight: var(--weight-strong);
 }
 
 .desktop-title-bar__drag-surface {
@@ -538,15 +543,19 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
     position: relative;
 }
 
+/*
+ * 控件类：高度/圆角/字号全部走主题（--control-h-sm 是主题最直观的密度维度），
+ * 与 nb-ui 的控件基座同一档取值。
+ */
 .desktop-title-bar__menu,
 .desktop-title-bar__compact-menu,
 .desktop-title-bar__project,
 .desktop-title-bar__search,
 .desktop-title-bar__agent {
-    height: 26px;
+    height: var(--control-h-sm);
     color: inherit;
-    border-radius: 4px;
-    font-size: 12px;
+    border-radius: var(--radius-control);
+    font-size: var(--text-xs);
     -webkit-app-region: no-drag;
 }
 
@@ -588,7 +597,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
     padding: 0 12px;
     color: var(--text-muted);
     background: var(--bg-input);
-    border: 1px solid var(--border-color);
+    border: var(--border-w) solid var(--control-outline, var(--border-color));
     cursor: default;
     opacity: 1;
 }
@@ -608,26 +617,31 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .desktop-title-bar__divider {
-    width: 1px;
+    width: var(--border-w);
     height: 18px;
     margin: 0 4px;
-    background: var(--border-color);
+    background: var(--divider);
 }
 
+/*
+ * 下拉的面/描边/圆角/阴影/磨砂全部由 nb-ui 的浮层基座负责（.nb-ui-popover-surface +
+ * .nb-ui-menu-surface），这里只留定位与网格。
+ *
+ * 这是 nb-ui 侧的登记处：`src/styles.css` 明确写着「新增浮层组件请消费此类，不要再复制这一组属性」。
+ * 复制一份的代价在本文件里是实测过的——原来那两条写死的阴影（0 18px 44px / 0 4px 12px）
+ * 在换主题时完全跟不上，而 .nb-ui-popover-surface 取的是主题的 --elevation-popover。
+ *
+ * 内边距必须等于基座声明的 --nb-popover-pad：浮层里贴边盒子的圆角是由外圈半径、描边与
+ * 这个内边距推出来的（同心半径），各写各的数会让弧线在角上不平行。
+ */
 .desktop-title-bar__dropdown {
     position: absolute;
     z-index: 1001;
-    top: 30px;
+    top: calc(100% + var(--space-2));
     left: 0;
     display: grid;
     min-width: 168px;
-    padding: 4px;
-    background: var(--bg-panel);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    box-shadow:
-        0 18px 44px color-mix(in srgb, var(--shadow-color) 24%, transparent),
-        0 4px 12px color-mix(in srgb, var(--shadow-color) 12%, transparent);
+    padding: var(--nb-popover-pad);
     -webkit-app-region: no-drag;
 }
 
@@ -643,19 +657,22 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 .desktop-title-bar__group-label {
     padding: 5px 10px 3px;
     color: var(--text-muted);
-    font-size: 10px;
-    font-weight: 650;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-strong);
     letter-spacing: 0.08em;
     text-transform: uppercase;
 }
 
+/*
+ * 菜单项：高度与字号取主题的控件刻度；圆角交给 .nb-ui-popover-item（同心半径由基座推），
+ * 这里不写 border-radius，否则 scoped 选择器的特异性会盖掉基座。
+ */
 .desktop-title-bar__item {
-    height: 28px;
+    height: var(--control-h-sm);
     padding: 0 10px;
     color: var(--text-secondary);
     text-align: left;
-    border-radius: 4px;
-    font-size: 12px;
+    font-size: var(--text-xs);
     white-space: nowrap;
     -webkit-app-region: no-drag;
 }
@@ -701,6 +718,12 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
     background: var(--status-info);
 }
 
+/*
+ * 窗口控制按钮：46 × 满高是 Windows 标题栏的系统绘制惯例（与 macOS 的交通灯同一类），
+ * 属「系统绘制物」——不是主题能换的东西，故保留字面值（同判据见 playground 的 workbench.css）。
+ * 颜色与悬停面照常走主题；关闭键的悬停用 --status-danger / --text-inverse，
+ * 与 nb-ui 参考实现（playground 的 .wb-winbtn--close）同一组取值。
+ */
 .desktop-title-bar__window-controls {
     height: 100%;
     margin-right: -6px;
@@ -722,8 +745,8 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
 }
 
 .desktop-title-bar__window-controls .desktop-title-bar__close:hover {
-    color: white;
-    background: #c42b1c;
+    color: var(--text-inverse);
+    background: var(--status-danger);
 }
 
 @media (max-width: 960px) {

@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <aside ref="activityBarRef" class="workbench-activity-bar flex w-12 shrink-0 flex-col items-center border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] py-2" aria-label="Workbench navigation">
+    <aside ref="activityBarRef" class="workbench-activity-bar flex w-12 shrink-0 flex-col items-center py-2" aria-label="Workbench navigation">
         <div class="flex min-h-0 w-full flex-1 flex-col items-center">
             <div ref="primaryGroupRef" class="flex w-full shrink-0 flex-col items-center">
                 <Tooltip
@@ -259,7 +259,7 @@ onBeforeUnmount(() => {
                 >
                     <button
                         type="button"
-                        class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
+                        class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center border border-transparent transition-colors"
                         :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                         :disabled="item.disabled"
                         :aria-pressed="active(item)"
@@ -271,7 +271,7 @@ onBeforeUnmount(() => {
                     </button>
                 </Tooltip>
 
-                <div class="my-1 h-px w-7 bg-[var(--border-color)]"></div>
+                <div class="workbench-activity-bar__separator my-1"></div>
             </div>
 
             <Tooltip
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
             >
                 <button
                     type="button"
-                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                     :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : ''"
                     :disabled="item.disabled"
                     :aria-pressed="active(item)"
@@ -298,7 +298,7 @@ onBeforeUnmount(() => {
                     <button
                         ref="moreButtonRef"
                         type="button"
-                        class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                        class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                         aria-haspopup="menu"
                         :aria-expanded="moreOpen"
                         aria-controls="workbench-activity-more-menu"
@@ -311,7 +311,7 @@ onBeforeUnmount(() => {
                 <div
                     v-if="moreOpen"
                     id="workbench-activity-more-menu"
-                    class="absolute left-full top-0 z-[70] ml-2 w-52 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1 shadow-xl"
+                    class="nb-ui-popover-surface nb-ui-menu-surface absolute left-full top-0 z-[70] ml-2 w-52 p-1.5"
                     role="menu"
                     :aria-label="t('ide.activityBar.moreActions')"
                 >
@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
                         ref="moreItemRefs"
                         type="button"
                         role="menuitem"
-                        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
+                        class="nb-ui-popover-item workbench-activity-bar__menu-item flex w-full items-center gap-2 text-left text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
                         :disabled="item.disabled"
                         :title="actionTitle(item)"
                         :data-activity-id="item.id"
@@ -342,7 +342,7 @@ onBeforeUnmount(() => {
                 <button
                     ref="agentPanelRef"
                     type="button"
-                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
+                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center border border-transparent transition-colors"
                     :class="props.agentPanelOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                     :disabled="activityItems.agentPanel.disabled"
                     :aria-pressed="props.agentPanelOpen"
@@ -380,6 +380,38 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/*
+ * 活动栏的「面 + 描边」写成 CSS 而不是原子类：主题 token 要落在 border-width / border-color
+ * 这类属性上，原子类的任意值语法在那里分辨不出尺寸与颜色，写错了静默不生效（判据见 LabShell 顶部）。
+ *
+ * 面取 --bg-sidebar（配色变量）而不是 --sidebar-surface（主题层角色）。后者在本产品装的
+ * nbook / macos 里是半透明玻璃（26% 的侧栏色），只有在「窗体底纹 + backdrop-filter」之上才成立；
+ * 主页面根今天两样都没有，直接切过去只会得到一层洗淡的色（Lab 实测三档 chrome 面均低于可读性下限）。
+ * 切面层与窗体底纹是一件事，待 nb-ui 的表面模型落地后一起做，已登记（tasks/t20 README）。
+ */
+.workbench-activity-bar {
+    background: var(--bg-sidebar);
+    border-right: var(--border-w) solid var(--divider);
+}
+
+.workbench-activity-bar__item {
+    border-radius: var(--radius-control);
+}
+
+.workbench-activity-bar__separator {
+    width: 28px;
+    height: var(--border-w);
+    background: var(--divider);
+}
+
+/* 菜单项的密度与 nb-ui 的 Dropdown 同配方：高度取 --control-h-sm、内边距 10px、字号 --text-xs。
+   圆角由 .nb-ui-popover-item 按外圈半径推导，这里不重复写。 */
+.workbench-activity-bar__menu-item {
+    height: var(--control-h-sm);
+    padding: 0 10px;
+    font-size: var(--text-xs);
+}
+
 .workbench-activity-bar__item:disabled {
     cursor: not-allowed;
     opacity: 0.34;
