@@ -178,8 +178,8 @@ describe("ProjectPickerViewFixture", () => {
         expect(labSubject?.className).toContain("max-w-[390px]");
     });
 
-    it("支持切换至各个设计方案场景 (spotlight, tactile, cosmos, zen, chronicle)", async () => {
-        const scenes = ["spotlight", "tactile", "cosmos", "zen", "chronicle"] as const;
+    it("支持切换至各个典藏设计方案场景 (walnut-shelf, velvet-lectern, gilded-folio)", async () => {
+        const scenes = ["walnut-shelf", "velvet-lectern", "gilded-folio"] as const;
         for (const scene of scenes) {
             const host = document.createElement("div");
             document.body.append(host);
@@ -189,16 +189,12 @@ describe("ProjectPickerViewFixture", () => {
             app.mount(host);
             await nextTick();
 
-            if (scene === "spotlight") {
-                expect(host.querySelector("[data-spotlight-studio-view]")).not.toBeNull();
-            } else if (scene === "tactile") {
-                expect(host.querySelector(".tactile-bookshelf-view")).not.toBeNull();
-            } else if (scene === "cosmos") {
-                expect(host.querySelector("[data-cosmos-atlas-view]")).not.toBeNull();
-            } else if (scene === "zen") {
-                expect(host.querySelector("[data-zen-manuscript-view]")).not.toBeNull();
-            } else if (scene === "chronicle") {
-                expect(host.querySelector("[data-chronicle-film-view]")).not.toBeNull();
+            if (scene === "walnut-shelf") {
+                expect(host.querySelector("[data-walnut-shelf-collector-view]")).not.toBeNull();
+            } else if (scene === "velvet-lectern") {
+                expect(host.querySelector("[data-velvet-lectern-collector-view]")).not.toBeNull();
+            } else if (scene === "gilded-folio") {
+                expect(host.querySelector("[data-gilded-folio-collector-view]")).not.toBeNull();
             }
         }
     });

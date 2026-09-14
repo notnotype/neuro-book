@@ -74,7 +74,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
-const layoutMode = ref<"grid" | "spotlight" | "tactile" | "cosmos" | "zen" | "chronicle">("grid");
+const layoutMode = ref<"grid" | "walnut-shelf" | "velvet-lectern" | "gilded-folio">("grid");
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
@@ -88,16 +88,12 @@ watch(currentScene, (scene) => {
 
     if (scene === "empty") {
         projects.value = [];
-    } else if (scene === "spotlight" || scene === "spotlight-studio") {
-        layoutMode.value = "spotlight";
-    } else if (scene === "tactile" || scene === "tactile-library") {
-        layoutMode.value = "tactile";
-    } else if (scene === "cosmos" || scene === "cosmos-atlas") {
-        layoutMode.value = "cosmos";
-    } else if (scene === "zen" || scene === "zen-manuscript") {
-        layoutMode.value = "zen";
-    } else if (scene === "chronicle" || scene === "chronicle-film") {
-        layoutMode.value = "chronicle";
+    } else if (scene === "walnut-shelf" || scene === "walnut") {
+        layoutMode.value = "walnut-shelf";
+    } else if (scene === "velvet-lectern" || scene === "velvet") {
+        layoutMode.value = "velvet-lectern";
+    } else if (scene === "gilded-folio" || scene === "folio") {
+        layoutMode.value = "gilded-folio";
     } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {

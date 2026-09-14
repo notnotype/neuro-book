@@ -6,11 +6,9 @@ import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
-import ProjectPickerSpotlightView from "./components/ProjectPickerSpotlightView.vue";
-import ProjectPickerTactileView from "./components/ProjectPickerTactileView.vue";
-import ProjectPickerCosmosView from "./components/ProjectPickerCosmosView.vue";
-import ProjectPickerZenView from "./components/ProjectPickerZenView.vue";
-import ProjectPickerChronicleView from "./components/ProjectPickerChronicleView.vue";
+import ProjectPickerWalnutShelfView from "./components/ProjectPickerWalnutShelfView.vue";
+import ProjectPickerVelvetLecternView from "./components/ProjectPickerVelvetLecternView.vue";
+import ProjectPickerGildedFolioView from "./components/ProjectPickerGildedFolioView.vue";
 import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
 import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
@@ -107,11 +105,9 @@ watch(() => props.layoutMode, (val) => {
 
 const layoutOptions: SegmentedControlOption[] = [
     {value: "grid", label: "经典网格"},
-    {value: "spotlight", label: "聚光灯工作室"},
-    {value: "tactile", label: "典藏 3D 书房"},
-    {value: "cosmos", label: "世界罗盘星图"},
-    {value: "zen", label: "极简禅宗手稿"},
-    {value: "chronicle", label: "时间走廊胶卷"},
+    {value: "walnut-shelf", label: "典藏一：胡桃木书阁"},
+    {value: "velvet-lectern", label: "典藏二：丝绒孤本台"},
+    {value: "gilded-folio", label: "典藏三：烫金函套典籍"},
 ];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
@@ -272,9 +268,9 @@ function handleRetryCoverRecovery(): void {
                     </div>
                 </div>
 
-                <!-- 方案一：聚光灯工作室 -->
-                <ProjectPickerSpotlightView
-                    v-if="currentLayout === 'spotlight'"
+                <!-- 典藏一：胡桃木书阁 · 凸脊插拔书架 -->
+                <ProjectPickerWalnutShelfView
+                    v-if="currentLayout === 'walnut-shelf'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"
@@ -291,9 +287,9 @@ function handleRetryCoverRecovery(): void {
                     @create-book="emit('open-create-form')"
                 />
 
-                <!-- 方案二：典藏 3D 书房 -->
-                <ProjectPickerTactileView
-                    v-else-if="currentLayout === 'tactile'"
+                <!-- 典藏二：丝绒展台 · 孤本典藏台 -->
+                <ProjectPickerVelvetLecternView
+                    v-else-if="currentLayout === 'velvet-lectern'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"
@@ -310,47 +306,9 @@ function handleRetryCoverRecovery(): void {
                     @create-book="emit('open-create-form')"
                 />
 
-                <!-- 方案三：世界罗盘星图 -->
-                <ProjectPickerCosmosView
-                    v-else-if="currentLayout === 'cosmos'"
-                    :projects="projects"
-                    :project-tags="props.projectTags"
-                    :delete-busy-roots="deleteBusyRoots"
-                    :failed-cover-roots="failedCoverRoots"
-                    :cover-refresh-versions="coverRefreshVersions"
-                    :picker-recoveries="pickerRecoveries"
-                    :resolve-cover-url="resolveCoverUrl"
-                    :format-date="formatDate"
-                    @open="emit('open', $event)"
-                    @delete="emit('delete', $event)"
-                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
-                    @open-cover-dialog="handleOpenCoverDialog"
-                    @cover-error="emit('cover-error', $event)"
-                    @create-book="emit('open-create-form')"
-                />
-
-                <!-- 方案四：极简禅宗手稿 -->
-                <ProjectPickerZenView
-                    v-else-if="currentLayout === 'zen'"
-                    :projects="projects"
-                    :project-tags="props.projectTags"
-                    :delete-busy-roots="deleteBusyRoots"
-                    :failed-cover-roots="failedCoverRoots"
-                    :cover-refresh-versions="coverRefreshVersions"
-                    :picker-recoveries="pickerRecoveries"
-                    :resolve-cover-url="resolveCoverUrl"
-                    :format-date="formatDate"
-                    @open="emit('open', $event)"
-                    @delete="emit('delete', $event)"
-                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
-                    @open-cover-dialog="handleOpenCoverDialog"
-                    @cover-error="emit('cover-error', $event)"
-                    @create-book="emit('open-create-form')"
-                />
-
-                <!-- 方案五：时间走廊胶卷 -->
-                <ProjectPickerChronicleView
-                    v-else-if="currentLayout === 'chronicle'"
+                <!-- 典藏三：羊皮对开 · 烫金函套典籍 -->
+                <ProjectPickerGildedFolioView
+                    v-else-if="currentLayout === 'gilded-folio'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"
