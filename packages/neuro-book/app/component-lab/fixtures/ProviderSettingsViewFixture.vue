@@ -139,6 +139,8 @@ const viewBindings = computed(() => ({
     modelLibrarySearchQuery: "",
     modelLibraryExpandedGroups: {},
     enabledModelIds: new Set<string>(),
+    // Lab 页没有 .novel-ide-theme 宿主，视图内窗口就地渲染（产品侧默认落在主题宿主上）。
+    teleportTarget: false,
     "onUpdate:draft": updateDraft,
     "onSelect-provider": selectProvider,
     "onUpdate:selectedTemplate": (value: string) => { selectedTemplate.value = value; },

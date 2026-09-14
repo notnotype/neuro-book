@@ -4,7 +4,7 @@ import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {DiscoveryDiagnosticsView, DiscoveryListModel, DiscoveryModelGroup, ManualModelDraft, ModelApiOption} from "nbook/app/components/novel-ide/settings/sections/providers/provider-view-types";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     providerName: string;
     groups: DiscoveryModelGroup[];
@@ -14,7 +14,11 @@ const props = defineProps<{
     diagnostics: DiscoveryDiagnosticsView | null;
     manualDraft: ManualModelDraft;
     modelApiOptions: ModelApiOption[];
-}>();
+    /** 浮层宿主；Lab 里没有 .novel-ide-theme，fixture 传 false 就地渲染。 */
+    teleportTarget?: string | boolean;
+}>(), {
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
@@ -30,7 +34,7 @@ const {t} = useI18n();
 </script>
 
 <template>
-    <DialogWindow :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" :width="800" height="85%" body-class="!overflow-hidden" @update:model-value="emit('update:modelValue', $event)">
+    <DialogWindow :model-value="props.modelValue" :title="t('settings.panels.models.discoveryTitle', {provider: props.providerName})" :width="800" height="85%" body-class="!overflow-hidden" :teleport-target="props.teleportTarget" @update:model-value="emit('update:modelValue', $event)">
         <!-- Automatic Model Discovery 本次会话结果。 -->
         <div class="flex h-full flex-col gap-4 px-1 py-2">
             <div class="flex shrink-0 items-center gap-3">

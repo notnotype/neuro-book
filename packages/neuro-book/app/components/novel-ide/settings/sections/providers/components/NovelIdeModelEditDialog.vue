@@ -37,7 +37,7 @@ type ModelEditTab = "identity" | "capabilities" | "request" | "cost";
 type JsonFieldKey = "compat" | "headers" | "thinkingLevelMap";
 type JsonFieldState = "empty" | "valid" | "invalid";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     editingModel: ModelDraft | null;
     activeProvider: ProviderDraft | null;
@@ -46,7 +46,11 @@ const props = defineProps<{
     confirmMode?: boolean;
     missingFields: string[];
     modelApiOptions: SelectOption[];
-}>();
+    /** 浮层宿主；Lab 里没有 .novel-ide-theme，fixture 传 false 就地渲染。 */
+    teleportTarget?: string | boolean;
+}>(), {
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
@@ -217,6 +221,7 @@ function updateOpen(value: boolean): void {
         height="min(760px, calc(100vh - 24px))"
         max-height="calc(100vh - 24px)"
         body-class="!overflow-hidden !p-0"
+        :teleport-target="props.teleportTarget"
         @update:model-value="updateOpen"
     >
         <div v-if="props.editingModel" class="flex min-h-0 flex-1 flex-col bg-[var(--bg-panel)]">

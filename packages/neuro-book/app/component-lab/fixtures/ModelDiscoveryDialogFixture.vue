@@ -55,6 +55,7 @@ watch([open, searchQuery, sceneKey], () => {
             :diagnostics="diagnostics"
             :manual-draft="manualDraft"
             :model-api-options="MODEL_API_OPTIONS"
+            :teleport-target="false"
             @update:model-value="open = $event"
             @update:search-query="searchQuery = $event"
             @update-manual-field="updateManualField"

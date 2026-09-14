@@ -41,6 +41,7 @@ watch([open, searchQuery, sceneKey], () => {
             :search-query="searchQuery"
             :expanded-groups="expandedGroups"
             :enabled-model-ids="enabledModelIds"
+            :teleport-target="false"
             @update:model-value="open = $event"
             @update:search-query="searchQuery = $event"
             @toggle-group="expandedGroups = {...expandedGroups, [$event]: expandedGroups[$event] === false}"

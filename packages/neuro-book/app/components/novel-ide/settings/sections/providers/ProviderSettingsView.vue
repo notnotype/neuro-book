@@ -12,6 +12,7 @@ import type {ProviderSettingsViewEmits, ProviderSettingsViewProps} from "./Provi
 
 const props = withDefaults(defineProps<ProviderSettingsViewProps>(), {
     saving: false,
+    teleportTarget: ".novel-ide-theme",
 });
 
 const emit = defineEmits<ProviderSettingsViewEmits>();
@@ -110,6 +111,7 @@ function toggleGroup(group: string): void {
             :width="680"
             height="70%"
             body-class="!overflow-hidden !p-0"
+            :teleport-target="props.teleportTarget"
             @update:model-value="emit('update:validationDialogOpen', $event)"
         >
             <div class="h-full space-y-2 overflow-y-auto pr-1 custom-scrollbar">
@@ -130,6 +132,7 @@ function toggleGroup(group: string): void {
             :title="t('settings.panels.models.deleteProviderTitle')"
             :show-cancel="true"
             :confirm-label="t('settings.panels.models.delete')"
+            :teleport-target="props.teleportTarget"
             @update:model-value="emit('update:deleteProviderDialogOpen', $event)"
             @confirm="emit('confirm-delete-provider')"
         >
@@ -150,6 +153,7 @@ function toggleGroup(group: string): void {
             :diagnostics="props.discoveryDiagnostics"
             :manual-draft="props.discoveryManualDraft"
             :model-api-options="props.modelApiOptions"
+            :teleport-target="props.teleportTarget"
             @update:model-value="emit('update:discoveryDialogOpen', $event)"
             @update:search-query="emit('update:discoverySearchQuery', $event)"
             @update-manual-field="(field, value) => emit('update:discoveryManualField', field, value)"
@@ -166,6 +170,7 @@ function toggleGroup(group: string): void {
             :search-query="props.modelLibrarySearchQuery"
             :expanded-groups="props.modelLibraryExpandedGroups"
             :enabled-model-ids="props.enabledModelIds"
+            :teleport-target="props.teleportTarget"
             @update:model-value="emit('update:modelLibraryDialogOpen', $event)"
             @update:search-query="emit('update:modelLibrarySearchQuery', $event)"
             @toggle-group="emit('toggle-model-library-group', $event)"
@@ -180,6 +185,7 @@ function toggleGroup(group: string): void {
             :confirm-mode="props.editingTransientCandidate"
             :missing-fields="props.editingModelMissingFields"
             :model-api-options="props.modelApiOptions"
+            :teleport-target="props.teleportTarget"
             @update:model-value="emit('update:modelEditDialogOpen', $event)"
             @model-id-change="emit('model-id-change')"
             @toggle-model-input="(model, inputKind) => emit('toggle-model-input', model, inputKind)"

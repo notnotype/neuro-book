@@ -4,7 +4,7 @@ import {Dialog, Button} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import {canonicalImageMime, isUnspecifiedImageMime} from "nbook/shared/media/raster-image";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     project: ProjectMetadataDto | null;
     busy?: boolean;
@@ -12,7 +12,14 @@ const props = defineProps<{
     recoveryError?: string;
     coverUrl?: string;
     apiError?: string;
-}>();
+    /**
+     * 浮层宿主。默认落在 IDE 主题宿主上，浮层才会跟着主题换面色；
+     * Lab 场景没有主题宿主，fixture 传 false 就地渲染。
+     */
+    teleportTarget?: string | boolean;
+}>(), {
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
@@ -92,6 +99,7 @@ function handleClear(): void {
         :show-footer="false"
         closable
         overlay-type="opaque"
+        :teleport-target="props.teleportTarget"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <div v-if="project" class="space-y-4" data-project-cover-dialog>

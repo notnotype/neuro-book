@@ -1007,6 +1007,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
         :min-width="720"
         :min-height="420"
         body-class="min-h-0 overflow-hidden !p-0"
+        teleport-target=".novel-ide-theme"
         @request-close="closeDialog"
         @update:width="updateSettingsWindowWidth"
         @update:height="updateSettingsWindowHeight"

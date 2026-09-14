@@ -77,6 +77,7 @@ function handleClear(): void {
             :recovery-notice="recoveryNotice"
             :recovery-error="recoveryError"
             :cover-url="coverUrl"
+            :teleport-target="false"
             @upload="handleUpload"
             @clear="handleClear"
             @preview-original="emit('event', 'preview-original')"

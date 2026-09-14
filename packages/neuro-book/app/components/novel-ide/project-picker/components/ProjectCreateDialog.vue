@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{
     isCreating: false,
     recoveryNotice: "",
     recoveryError: "",
-    teleportTarget: "body",
+    teleportTarget: ".novel-ide-theme",
 });
 
 const emit = defineEmits<{

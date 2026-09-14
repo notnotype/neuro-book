@@ -6,6 +6,7 @@ import type {
     LowCodeResourceMutationDto,
     LowCodeResourcePresetOptionDto,
 } from "nbook/shared/dto/low-code-form.dto";
+import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
 
 type LowCodeResourcePresetScope = "global" | "project";
 
@@ -28,6 +29,16 @@ const emit = defineEmits<{
 
 const draftLabel = ref("");
 const renameLabel = ref("");
+const rootRef = ref<HTMLElement | null>(null);
+
+/**
+ * 浮层宿主。两个确认框落在主题宿主内才会跟着主题换面色；宿主不存在时（Lab 场景）退回 body，
+ * 而不是硬编码 selector——硬编码会让 Teleport 找不到目标，对话框整个不出现，且只在 Lab 里报。
+ * 跟随产品既有浮层范式（`common/Tooltip.vue` 同一写法），不把 target 顺着
+ * 视图 → 详情面板 → 区段 → 低代码表单 一路当 prop 传下来：那是通用表单不该背的事。
+ */
+const teleportTarget = computed<string>(() =>
+    rootRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`) ? `.${IDE_THEME_HOST_CLASS}` : "body");
 const managerOpen = ref(false);
 const resourceDialogOpen = ref(false);
 const resourceDialogMode = ref<"create" | "rename">("create");
@@ -292,7 +303,7 @@ function normalizeSelectedKey(key: string): string {
 </script>
 
 <template>
-    <div class="grid gap-2">
+    <div ref="rootRef" class="grid gap-2">
         <div v-if="!resource" class="rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--text-muted)]">
             Resource preset is unavailable.
         </div>
@@ -385,7 +396,7 @@ function normalizeSelectedKey(key: string): string {
                 </div>
             </div>
 
-            <Dialog v-model="resourceDialogOpen" :title="resourceDialogTitle" width="420px" :show-cancel="false">
+            <Dialog v-model="resourceDialogOpen" :title="resourceDialogTitle" width="420px" :show-cancel="false" :teleport-target="teleportTarget">
                 <label class="grid gap-1.5">
                     <span class="text-xs font-medium text-[var(--text-secondary)]">资源名称</span>
                     <FormInput v-if="resourceDialogMode === 'create'" v-model="draftLabel" placeholder="输入新资源名称" />
@@ -403,7 +414,7 @@ function normalizeSelectedKey(key: string): string {
                 </template>
             </Dialog>
 
-            <Dialog v-model="deleteConfirmOpen" title="删除资源" width="420px" :show-cancel="false">
+            <Dialog v-model="deleteConfirmOpen" title="删除资源" width="420px" :show-cancel="false" :teleport-target="teleportTarget">
                 <div class="space-y-2">
                     <p class="text-sm text-[var(--text-main)]">确定删除这个资源吗？</p>
                     <p class="rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]">

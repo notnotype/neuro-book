@@ -171,6 +171,7 @@ function handleRetryLoad(): void {
             :is-creating="isCreating"
             :is-create-form-open="isCreateFormOpen"
             :delete-busy-roots="deleteBusyRoots"
+            :teleport-target="false"
             @open="handleOpen"
             @open-user-assets="emit('event', 'open-user-assets')"
             @open-create-form="handleOpenCreateForm"

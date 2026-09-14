@@ -2,12 +2,19 @@
 import {ref, computed, watch} from "vue";
 import {Dialog} from "@notnotype/nb-ui/components";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     src: string;
     alt: string;
     downloadName?: string;
-}>();
+    /**
+     * 浮层宿主。默认落在 IDE 主题宿主上，对话框才会跟着主题换面色；
+     * Lab 场景没有主题宿主，fixture 传 false 就地渲染。
+     */
+    teleportTarget?: string | boolean;
+}>(), {
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
@@ -34,7 +41,7 @@ const retry = (): void => {
 
 <template>
     <!-- 共享原图预览：仅在打开时挂载 img，因此缩略图列表不会提前请求原图。 -->
-    <Dialog :model-value="modelValue" size="xl" :title="t('ide.imagePreview.title')" :show-footer="false" body-class="!p-0 !overflow-hidden" overlay-type="opaque" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="modelValue" size="xl" :title="t('ide.imagePreview.title')" :show-footer="false" body-class="!p-0 !overflow-hidden" overlay-type="opaque" :teleport-target="props.teleportTarget" @update:model-value="emit('update:modelValue', $event)">
         <div class="flex min-h-0 flex-1 flex-col bg-[var(--bg-main)]">
             <div class="relative flex min-h-[260px] flex-1 items-center justify-center overflow-auto p-4 sm:min-h-[420px]">
                 <span v-if="loadState === 'loading'" class="i-lucide-loader-circle h-6 w-6 animate-spin text-[var(--text-muted)]" aria-hidden="true"></span>

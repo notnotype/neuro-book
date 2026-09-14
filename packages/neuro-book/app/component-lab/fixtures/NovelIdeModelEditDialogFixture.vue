@@ -48,6 +48,7 @@ watch(sceneKey, () => {
             :confirm-mode="sceneKey === 'confirm-mode'"
             :missing-fields="missingFields"
             :model-api-options="MODEL_API_OPTIONS"
+            :teleport-target="false"
             @update:model-value="open = $event"
             @confirm="emitLabEvent('confirm')"
             @model-id-change="emitLabEvent('model-id-change')"

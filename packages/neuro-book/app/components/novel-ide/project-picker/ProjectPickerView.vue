@@ -32,7 +32,7 @@ const props = withDefaults(defineProps<ProjectPickerViewProps>(), {
     recoveryTotal: 0,
     recoveryHasMore: false,
     recoveryActionId: null,
-    teleportTarget: "body",
+    teleportTarget: ".novel-ide-theme",
 });
 
 const emit = defineEmits<{
@@ -260,6 +260,7 @@ function handleRetryCoverRecovery(): void {
             v-model="activeCoverDialogOpen"
             :project="activeCoverProject"
             :busy="activeCoverBusy"
+            :teleport-target="teleportTarget"
             :api-error="coverError"
             :recovery-notice="coverRecoveryNotice || (currentCoverRecovery ? t('ide.picker.coverUnknownRefreshed') : '')"
             :recovery-error="currentCoverRecovery?.error"
@@ -276,6 +277,7 @@ function handleRetryCoverRecovery(): void {
             :src="originalPreviewUrl"
             :alt="originalPreviewAlt"
             :download-name="originalPreviewName"
+            :teleport-target="teleportTarget"
         />
     </div>
 </template>

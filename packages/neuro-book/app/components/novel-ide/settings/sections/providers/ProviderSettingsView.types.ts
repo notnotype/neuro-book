@@ -63,6 +63,11 @@ export type ProviderSettingsViewProps = {
     modelLibrarySearchQuery: string;
     modelLibraryExpandedGroups: Record<string, boolean>;
     enabledModelIds: Set<string>;
+    /**
+     * 浮层宿主。默认落在 IDE 主题宿主上，窗口才会跟着主题换面色；
+     * Lab 场景没有主题宿主，fixture 传 false 就地渲染。
+     */
+    teleportTarget?: string | boolean;
 };
 
 export type ProviderSettingsViewEmits = {
