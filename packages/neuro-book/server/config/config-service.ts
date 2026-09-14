@@ -208,6 +208,8 @@ export async function readConfigBootstrap(
             ui: {
                 themeId: effective.ui.themeId,
                 appearance: effective.ui.appearance,
+                colorwayId: effective.ui.colorwayId,
+                userColorways: effective.ui.userColorways,
                 costCurrency: effective.ui.costCurrency,
             },
         };

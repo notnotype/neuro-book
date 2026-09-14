@@ -3,6 +3,7 @@ import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/sha
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
 import type {ProductAppearance, ProductThemeId} from "nbook/shared/theme/theme-axes";
+import type {UserColorwayDto} from "nbook/shared/dto/config.dto";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
@@ -191,6 +192,10 @@ export type EffectiveConfig = {
     ui: {
         themeId: ProductThemeId;
         appearance: ProductAppearance;
+        /** 当前配色 id；空串 = 跟随主题包按明暗给出的默认配色。 */
+        colorwayId: string;
+        /** 用户自定义配色库（配色契约变量取值 + 展示名 + 明暗）。 */
+        userColorways: UserColorwayDto[];
         costCurrency: "USD" | "CNY";
     };
     editor: {

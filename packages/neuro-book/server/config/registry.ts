@@ -108,6 +108,22 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "配色明暗（light / dark），具体配色由主题包自带的 defaultColorway 决定。",
     },
     {
+        key: "ui.colorwayId",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "当前配色 id（主题自带配色或 custom-* 用户配色）；空串 = 跟随主题包按明暗给出的默认配色。",
+    },
+    {
+        key: "ui.userColorways",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "用户自定义配色库：配色契约变量取值 + 展示名 + 明暗，最多 20 套。",
+    },
+    {
         key: "editor.markdown",
         scope: "global-workspace",
         effect: "hot",

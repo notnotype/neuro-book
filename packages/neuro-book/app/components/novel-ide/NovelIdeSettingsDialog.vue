@@ -44,6 +44,10 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
 import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
+import {filterColorwayContractVars} from "nbook/app/utils/theme/colorway-vars";
+import {buildColorwayFileJson, colorwayFileName} from "nbook/app/utils/theme/colorway-io";
+import type {ColorwayDraft} from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
@@ -733,6 +737,40 @@ function updateViewMode(value: string): void {
 }
 
 /**
+ * 保存 / 覆盖一套用户配色（含从主题自带配色另存为一份）。
+ *
+ * 视图已经拦掉了取值不合法的草稿，这里返回 null 只剩两种情况：名称空、或一套合法变量都没有。
+ * 两者都属于「没东西可存」，给一条提示比静默失败好。
+ */
+async function saveColorwayDraft(draft: ColorwayDraft): Promise<void> {
+    const savedId = await themeSettings.saveUserColorway({
+        id: draft.id,
+        label: draft.label,
+        appearance: draft.appearance,
+        vars: draft.vars,
+    });
+    if (savedId === null) {
+        notification.warning(t("settings.frontend.colorwaySaveEmptyMessage"), {title: t("settings.frontend.themeSaveFailed")});
+    }
+}
+
+/**
+ * 导出当前生效配色为 JSON 文件。
+ *
+ * 导出的是**当前这一套**（用户配色给存下来的取值，主题自带配色给契约内的全量取值），
+ * 不导出整库：一次导出多套会把「哪一套是我刚调好的」这件事丢掉，而导入方也只能一次收一套。
+ */
+function exportActiveColorway(): void {
+    const label = theme.colorwayLabel.value || t("settings.frontend.customColorwayLabel");
+    const activeUserColorway = theme.userColorways.value.find((colorway) => colorway.id === theme.colorwayId.value);
+    const vars = activeUserColorway === undefined
+        ? filterColorwayContractVars(theme.colorwayVars.value)
+        : {...activeUserColorway.vars};
+    const json = buildColorwayFileJson({label, appearance: theme.appearance.value, vars});
+    triggerBrowserDownload(new Blob([json], {type: "application/json"}), colorwayFileName(label));
+}
+
+/**
  * 读取设置页底部展示的应用版本信息。
  */
 async function loadAppVersion(): Promise<void> {
@@ -838,7 +876,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                         <!-- 启动期安全配置：只读说明，安全边界不能热更新 -->
                         <SecuritySettingsView v-if="section?.value === 'security'" :auth-enabled="bootAuthEnabled" />
 
-                        <!-- 前端设定：语言 / 主题两轴 / 推理强度 / 视图模式，动作全部交回宿主 -->
+                        <!-- 前端设定：语言 / 主题两轴 / 用户配色 / 推理强度 / 视图模式，动作全部交回宿主 -->
                         <FrontendSettingsView
                             v-else-if="section?.value === 'frontend'"
                             :locale="locale"
@@ -848,12 +886,21 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                             :theme-options="theme.themeOptions"
                             :theme-id="theme.themeId.value"
                             :appearance="theme.appearance.value"
+                            :colorway-id="theme.colorwayId.value"
+                            :colorway-label="theme.colorwayLabel.value"
+                            :colorway-vars="theme.colorwayVars.value ?? {}"
+                            :colorway-is-user="theme.colorwayIsUser.value"
+                            :user-colorways="theme.userColorways.value"
                             :disabled="settingsLoading"
                             @update:locale="updateLocale"
                             @update:view-mode="updateViewMode"
                             @update:reasoning="updateReasoning"
                             @select-theme="(id) => void themeSettings.saveAxes({themeId: id})"
                             @select-appearance="(appearance) => void themeSettings.saveAxes({appearance})"
+                            @select-colorway="(id) => void themeSettings.saveColorway(id)"
+                            @save-colorway="(draft) => void saveColorwayDraft(draft)"
+                            @delete-colorway="(id) => void themeSettings.deleteUserColorway(id)"
+                            @export-colorway="exportActiveColorway"
                         />
 
                         <!-- 编辑器显示偏好：走 store + localStorage，不写配置文件 -->

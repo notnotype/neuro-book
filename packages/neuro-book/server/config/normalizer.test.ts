@@ -30,6 +30,39 @@ describe("config normalizer theme", () => {
 
         expect(effective.ui).toMatchObject({themeId: "nbook", appearance: "light"});
     });
+
+    it("用户配色：坏条目丢掉、同 id 首见优先、契约外的键保留（客户端才过滤）", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            ui: {
+                colorwayId: "custom-night",
+                userColorways: [
+                    {id: "custom-night", label: "夜航", appearance: "dark", vars: {"--bg-main": "#010203", "--bg-unknown": "#ffffff"}},
+                    {id: "custom-night", label: "重复", appearance: "light", vars: {"--bg-main": "#ffffff"}},
+                    {id: "not-custom", label: "老体系 id", appearance: "dark", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-nolabel", label: "   ", appearance: "dark", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-badappearance", label: "坏明暗", appearance: "sepia", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-badvars", label: "坏变量", appearance: "dark", vars: {"--bg-main": "red;url(x)", "bg-main": "#010203"}},
+                ],
+            },
+        } as never), null);
+
+        expect(effective.ui.colorwayId).toBe("custom-night");
+        expect(effective.ui.userColorways.map((colorway) => colorway.id)).toEqual(["custom-night", "custom-badvars"]);
+        // 形状合法的键都留着：33 个变量的白名单要求浏览器，服务端只守住形状（见 shared/theme/user-colorway.ts）
+        expect(effective.ui.userColorways[0]?.vars).toEqual({"--bg-main": "#010203", "--bg-unknown": "#ffffff"});
+        // 取值不合结构底线的键被丢掉，条目本身留着
+        expect(effective.ui.userColorways[1]?.vars).toEqual({});
+    });
+
+    it("配色 id 只认形状：写坏的值读作空串（回落主题默认），老体系 id 不做映射", () => {
+        for (const colorwayId of ["有 空格", "custom-", ";", "x".repeat(80), 42]) {
+            const effective = resolveEffectiveConfig(normalizeGlobalConfig({ui: {colorwayId}} as never), null);
+            expect(effective.ui.colorwayId).toBe("");
+        }
+
+        // 主题自带配色的 id 是合法形状，存在性由客户端回答（服务端装不进主题包）
+        expect(resolveEffectiveConfig(normalizeGlobalConfig({ui: {colorwayId: "macos-dark"}} as never), null).ui.colorwayId).toBe("macos-dark");
+    });
 });
 
 describe("config normalizer profile runtime", () => {

@@ -17,6 +17,12 @@ import {
 } from "nbook/shared/dto/low-code-form.dto";
 import {DEFAULT_PRODUCT_APPEARANCE, DEFAULT_PRODUCT_THEME_ID, productAppearances, productThemeIds} from "nbook/shared/theme/theme-axes";
 import {
+    MAX_COLORWAY_VAR_VALUE_LENGTH,
+    MAX_USER_COLORWAY_LABEL_LENGTH,
+    MAX_USER_COLORWAYS,
+    USER_COLORWAY_ID_PATTERN,
+} from "nbook/shared/theme/user-colorway";
+import {
     CompactionKeepRecentSchema,
     CompactionTriggerSchema,
     ProfileCompactionRuntimePatchSchema,
@@ -274,9 +280,24 @@ export const MonacoEditorConfigDtoSchema = z.object({
     renderWhitespace: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
 });
 
+/**
+ * 用户自定义配色。变量键的形状是 `--kebab-case`，取值只做长度与「不是别的 CSS 语句」的底线检查——
+ * 「这个值是不是合法颜色」要求助浏览器，见 shared/theme/user-colorway.ts 里的分工说明。
+ */
+export const UserColorwayDtoSchema = z.object({
+    id: z.string().trim().regex(USER_COLORWAY_ID_PATTERN).max(64),
+    label: z.string().trim().min(1).max(MAX_USER_COLORWAY_LABEL_LENGTH),
+    appearance: z.enum(productAppearances),
+    vars: z.record(z.string().regex(/^--[a-z0-9-]+$/), z.string().trim().min(1).max(MAX_COLORWAY_VAR_VALUE_LENGTH)),
+});
+
 export const UiConfigDtoSchema = z.object({
     themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
     appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
+    /** 当前配色 id；空串 = 跟随主题包按明暗给出的默认配色。主题自带配色 id 与 `custom-*` 都在这里出现。 */
+    colorwayId: z.string().trim().max(64).default(""),
+    /** 用户自定义配色库。条数有上限：这是配置写入的一部分，不该被刷成无界列表。 */
+    userColorways: z.array(UserColorwayDtoSchema).max(MAX_USER_COLORWAYS).default([]),
     costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
@@ -394,7 +415,13 @@ export const GlobalConfigDtoSchema = z.object({
         profiles: ConfigAgentProfileMapDtoSchema,
         visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}, visibleModels: []}),
-    ui: UiConfigDtoSchema.default({themeId: DEFAULT_PRODUCT_THEME_ID, appearance: DEFAULT_PRODUCT_APPEARANCE, costCurrency: "USD"}),
+    ui: UiConfigDtoSchema.default({
+        themeId: DEFAULT_PRODUCT_THEME_ID,
+        appearance: DEFAULT_PRODUCT_APPEARANCE,
+        colorwayId: "",
+        userColorways: [],
+        costCurrency: "USD",
+    }),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -462,6 +489,7 @@ export const ConfigEditorSnapshotDtoSchema = z.object({
 
 export type SecretConfigValueDto = z.infer<typeof SecretConfigValueDtoSchema>;
 export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
+export type UserColorwayDto = z.infer<typeof UserColorwayDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
 export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQueryDtoSchema>;
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
@@ -506,6 +534,8 @@ export const ConfigBootstrapDtoSchema = z.object({
     ui: z.object({
         themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
         appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
+        colorwayId: z.string().trim().max(64).default(""),
+        userColorways: z.array(UserColorwayDtoSchema).max(MAX_USER_COLORWAYS).default([]),
         costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
 });

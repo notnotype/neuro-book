@@ -42,6 +42,8 @@ import {
     type ProductAppearance,
     type ProductThemeId,
 } from "nbook/shared/theme/theme-axes";
+import {COLORWAY_ID_PATTERN, MAX_COLORWAY_ID_LENGTH, MAX_USER_COLORWAY_LABEL_LENGTH, MAX_USER_COLORWAYS, sanitizeColorwayVars, USER_COLORWAY_ID_PATTERN} from "nbook/shared/theme/user-colorway";
+import type {UserColorwayDto} from "nbook/shared/dto/config.dto";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
@@ -186,6 +188,8 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         ui: {
             themeId: DEFAULT_PRODUCT_THEME_ID,
             appearance: DEFAULT_PRODUCT_APPEARANCE,
+            colorwayId: "",
+            userColorways: [],
             costCurrency: DEFAULT_COST_CURRENCY,
         },
         editor: {
@@ -224,6 +228,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
         ui: {
             themeId: normalizeProductThemeId(raw.ui?.themeId),
             appearance: normalizeProductAppearance(raw.ui?.appearance),
+            colorwayId: normalizeColorwayId(raw.ui?.colorwayId),
+            userColorways: normalizeUserColorways(raw.ui?.userColorways),
             costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
@@ -305,6 +311,8 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
     effective.ui.themeId = normalizeProductThemeId(globalConfig.ui?.themeId);
     effective.ui.appearance = normalizeProductAppearance(globalConfig.ui?.appearance);
+    effective.ui.colorwayId = normalizeColorwayId(globalConfig.ui?.colorwayId);
+    effective.ui.userColorways = normalizeUserColorways(globalConfig.ui?.userColorways);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
@@ -642,6 +650,60 @@ function normalizeProductThemeId(input: unknown): ProductThemeId {
 function normalizeProductAppearance(input: unknown): ProductAppearance {
     const appearance = normalizeText(input);
     return Object.hasOwn(productAppearanceLookup, appearance) ? appearance as ProductAppearance : DEFAULT_PRODUCT_APPEARANCE;
+}
+
+/**
+ * 当前配色 id。
+ *
+ * 只校验**形状**，不校验存在性：主题自带配色由主题包给出，而主题包 `import "./vars.css"`，
+ * Node 侧装不进它们（同 `shared/theme/theme-axes.ts` 里把主题 id 放进 shared 的理由）。
+ * 于是不认识的 id 一律原样保留，由客户端在应用时回答「这套配色在不在」——
+ * 答不上来就回落主题默认配色，不报错、不清用户的配置（见 app/utils/theme/theme-session.ts）。
+ */
+function normalizeColorwayId(input: unknown): string {
+    const colorwayId = normalizeText(input);
+    if (colorwayId.length > MAX_COLORWAY_ID_LENGTH) {
+        return "";
+    }
+    return COLORWAY_ID_PATTERN.test(colorwayId) ? colorwayId : "";
+}
+
+/**
+ * 用户自定义配色库。
+ *
+ * 丢掉的只有「形状坏了」的项：id / 展示名 / 明暗不合法、变量名不在 `--kebab-case` 形状里、
+ * 取值过不了结构底线（长度 / 控制字符 / `;{}`）。同 id 首见优先，条数封顶。
+ * 具体变量白名单与颜色合法性是客户端的事，这里**不假装能判定**——服务端没有 CSS。
+ */
+function normalizeUserColorways(input: unknown): UserColorwayDto[] {
+    if (!Array.isArray(input)) {
+        return [];
+    }
+    const seen = new Set<string>();
+    const out: UserColorwayDto[] = [];
+    for (const entry of input) {
+        if (out.length >= MAX_USER_COLORWAYS) {
+            break;
+        }
+        if (!entry || typeof entry !== "object") {
+            continue;
+        }
+        const candidate = entry as Partial<UserColorwayDto>;
+        const id = normalizeText(candidate.id);
+        const label = normalizeText(candidate.label).slice(0, MAX_USER_COLORWAY_LABEL_LENGTH);
+        const appearance = normalizeText(candidate.appearance);
+        if (!USER_COLORWAY_ID_PATTERN.test(id) || !label || !Object.hasOwn(productAppearanceLookup, appearance) || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        out.push({
+            id,
+            label,
+            appearance: appearance as ProductAppearance,
+            vars: sanitizeColorwayVars(candidate.vars),
+        });
+    }
+    return out;
 }
 
 function normalizeCostCurrency(input: unknown): EffectiveConfig["ui"]["costCurrency"] {
