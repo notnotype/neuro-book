@@ -78,8 +78,8 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 <template>
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
-        <!-- 顶层实心控制容器 -->
-        <div class="macos-compact-card mb-6">
+        <!-- 顶层实心控制容器（保持 lab 紧凑卡宽：分段控件本身宽于任何一栏） -->
+        <div class="macos-compact-card scheme-switch-card mb-6">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div class="flex items-center gap-3">
                     <span class="text-xs font-semibold text-[var(--text-muted)] shrink-0">方案切换：</span>
@@ -119,14 +119,14 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     <!-- 默认方案（方案 1）的页签条是检查器的取样目标：整个 fixture 只此一处 id，多方案同屏也不会重号 -->
                     <div
                         id="nb-lab-target"
-                        class="relative flex items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-3 bg-[var(--bg-main)] rounded-t-lg"
+                        class="relative flex flex-wrap items-center gap-1 border-b border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] px-3 bg-[var(--bg-main)] rounded-t-lg"
                     >
                         <button
                             v-for="item in standardTabs"
                             :key="item.value"
                             type="button"
                             :disabled="item.disabled"
-                            class="relative flex items-center gap-2 py-3 px-3.5 text-[13px] font-medium transition-colors cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
+                            class="relative flex shrink-0 items-center gap-2 py-3 px-3.5 whitespace-nowrap text-[13px] font-medium transition-colors cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
                             :class="[
                                 tab1 === item.value
                                     ? 'text-[var(--accent-main)] font-semibold'
@@ -178,13 +178,13 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
                 <!-- 实底演示画布 -->
                 <div class="stage-canvas flex flex-col gap-3">
-                    <div class="inline-flex items-center gap-1 p-1 rounded-[10px] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] shadow-sm">
+                    <div class="inline-flex flex-wrap items-center gap-1 p-1 rounded-[10px] bg-[color-mix(in_srgb,var(--bg-panel)_85%,transparent)] border border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] shadow-sm">
                         <button
                             v-for="item in standardTabs"
                             :key="item.value"
                             type="button"
                             :disabled="item.disabled"
-                            class="relative flex items-center gap-2 px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
+                            class="relative flex shrink-0 items-center gap-2 px-3.5 py-1.5 rounded-[7px] whitespace-nowrap text-[13px] font-medium transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
                             :class="[
                                 tab2 === item.value
                                     ? 'bg-[var(--bg-main)] text-[var(--text-main)] shadow-[0_2px_8px_color-mix(in_srgb,var(--shadow-color)_20%,transparent),0_0_0_1px_color-mix(in_srgb,var(--text-main)_10%,transparent)] font-semibold'
@@ -234,7 +234,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                         <div
                             v-for="doc in docTabs"
                             :key="doc.value"
-                            class="group relative flex items-center gap-2 px-3.5 py-2 rounded-t-[9px] text-[13px] font-medium transition-all duration-150 cursor-pointer select-none border-t border-x"
+                            class="group relative flex min-w-0 items-center gap-2 px-3.5 py-2 rounded-t-[9px] text-[13px] font-medium transition-all duration-150 cursor-pointer select-none border-t border-x"
                             :class="[
                                 tab3 === doc.value
                                     ? 'bg-[var(--bg-main)] text-[var(--text-main)] border-[color-mix(in_srgb,var(--border-color)_80%,transparent)] -mb-[1px] pb-[9px] shadow-sm font-semibold'
@@ -291,13 +291,13 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
                 <!-- 实底演示画布 -->
                 <div class="stage-canvas flex flex-col gap-3">
-                    <div class="flex items-center gap-1.5 p-2 bg-[var(--bg-main)] rounded-lg border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)]">
+                    <div class="flex flex-wrap items-center gap-1.5 p-2 bg-[var(--bg-main)] rounded-lg border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)]">
                         <button
                             v-for="item in standardTabs"
                             :key="item.value"
                             type="button"
                             :disabled="item.disabled"
-                            class="relative flex items-center gap-2 px-3 py-1.5 rounded-[8px] text-[13px] transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
+                            class="relative flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-[8px] whitespace-nowrap text-[13px] transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
                             :class="[
                                 tab4 === item.value
                                     ? 'bg-[color-mix(in_srgb,var(--text-main)_12%,transparent)] text-[var(--text-main)] font-semibold shadow-sm'
@@ -349,7 +349,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                             :key="item.value"
                             type="button"
                             :disabled="item.disabled"
-                            class="relative flex items-center gap-2 px-3.5 py-2 rounded-[10px] text-[13px] font-medium transition-all duration-200 cursor-pointer select-none active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+                            class="relative flex shrink-0 items-center gap-2 px-3.5 py-2 rounded-[10px] whitespace-nowrap text-[13px] font-medium transition-all duration-200 cursor-pointer select-none active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
                             :class="[
                                 tab5 === item.value
                                     ? 'bg-[color-mix(in_srgb,var(--accent-main)_14%,var(--bg-panel))] text-[var(--accent-main)] border border-[color-mix(in_srgb,var(--accent-main)_35%,transparent)] shadow-[0_4px_16px_color-mix(in_srgb,var(--accent-main)_20%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent-main)_20%,transparent)] font-semibold backdrop-blur-md'
@@ -382,6 +382,9 @@ onMounted(() => void nextTick(() => emit("rendered")));
 /* 紧凑 macOS 容器卡片 */
 .macos-compact-card {
     width: 100%;
+    /* lab.css 的同类名规则把卡片压到 560px：5 方案对照矩阵的页签条（最长约 700px）
+       在里面只能靠 flex 收缩，中文标签就逐字换行；这里改回测量列本身的宽度。 */
+    max-width: none;
     padding: var(--space-5) var(--space-6);
     border-radius: 14px;
     background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
@@ -415,5 +418,14 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
 .stage-canvas {
     width: 100%;
+    /* 画布宽度只由卡片决定：画布里的内容（如方案 3 的文档页签条，天然约 800px）
+       不许把 lab 的测量栏一起撑宽——否则整个 fixture 会被测量栏裁掉。 */
+    contain: inline-size;
+}
+
+/* 顶部方案切换卡维持 lab.css 的紧凑卡宽：它内嵌的是 6 个长标签的分段控件（约 1024px），
+   本就宽于任何一栏，卡片放宽只会让它更往外溢，还会把测量栏撑宽。 */
+.scheme-switch-card {
+    max-width: 560px;
 }
 </style>
