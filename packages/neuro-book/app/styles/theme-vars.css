@@ -44,6 +44,48 @@
     --chat-ai-bg: #f8efdc;
 }
 
+/*
+ * nb-ui 角色变量的宿主级重声明（D1 修复的关键一层）。
+ *
+ * 为什么产品侧必须再声明一遍：库把「角色 → 配色变量」的映射写在 `src/tokens.css` 的 `:root` 上
+ * （`--overlay-surface: var(--bg-panel)` 等）。**var() 在声明它的元素上就代换完**，也就是在
+ * `<html>` 上拿 sepia 兜底的 `--bg-panel` 代换成 `#fdf6e3`，再把结果一路继承下去；产品在
+ * `.novel-ide-theme` 上写的主题取值到不了它。现象就是：非 sepia 主题下对话框/浮层仍是 sepia
+ * 浅底，而文字跟着主题走，于是读作「浅底 + 亮字」。
+ *
+ * 所以在宿主上按同一套映射再声明一次：var() 在这里、在**当前主题的取值上**代换，角色变量才
+ * 跟着主题走。`:root` 那份是宿主外（通知视口这类）的兜底，取到的就是本文件上面那份 sepia 副本。
+ *
+ * 取值必须与 nb-ui `src/tokens.css` 的 `:root` 角色映射段逐条一致——库改那一层时这里要跟改。
+ * 只覆盖「引用产品 token 的角色」：
+ * - `--overlay-blur` / `--overlay-sheen` 是字面值（none），没有跟随主题的问题，不重声明；
+ * - `--elevation-popover` / `--elevation-dialog` 只用 `--shadow-color` 做阴影基色，且那条基色
+ *   在 8%~14% 透明度下 sepia 兜底与各主题的差值不可见，镜像它等于把库的阴影配方（连带它自己的
+ *   `--shadow-panel` 配色钩子）在产品侧抄成第二份真源，不划算，本轮不镜像。
+ *
+ * 这层不新增键、不进 36 主题变量表：它是别名，不是颜色，自定义主题与主题编辑器草稿都无需知道。
+ */
+:root,
+.novel-ide-theme {
+    --control-surface: var(--bg-input);
+    --control-outline: var(--border-color);
+    --focus-outline: color-mix(in srgb, var(--accent-main) 80%, var(--control-outline, var(--border-color)));
+    --focus-ring:
+        0 0 0 1px color-mix(in srgb, var(--accent-main) 35%, transparent),
+        0 0 0 3.5px color-mix(in srgb, var(--accent-main) 18%, transparent),
+        0 1px 6px color-mix(in srgb, var(--accent-main) 22%, transparent);
+    --button-surface: var(--bg-input);
+    --button-outline: var(--border-color);
+    --panel-surface: var(--bg-panel);
+    --panel-outline: var(--border-color);
+    --sidebar-surface: var(--bg-sidebar);
+    --toolbar-surface: var(--bg-panel);
+    --overlay-surface: var(--bg-panel);
+    --overlay-item-active: var(--bg-hover);
+    --strip-surface: var(--bg-subtle);
+    --divider: var(--border-color);
+}
+
 .novel-ide-theme ::selection {
     background: var(--selection-bg);
 }

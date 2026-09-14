@@ -6,7 +6,7 @@
 
 - `app/utils/theme/theme-tokens.ts` 是内置主题变量的唯一事实源。
 - `shared/theme/theme-vars.ts` 是内置主题 ID、`ThemeAppearance`、36 个无前缀变量名和 `CustomThemeDto` 的 shared 契约源。
-- `app/styles/theme-vars.css` 只做 SSR / IDE fallback，必须与 `themeTokens.sepia` 保持一致。
+- `app/styles/theme-vars.css` 承载三段：SSR / IDE fallback（必须与 `themeTokens.sepia` 保持一致）、nb-ui 角色变量桥接、`--we-*` 别名层。fallback 段的 36 个键值仍由 `themeTokens.sepia` 锁定。
 - `.novel-ide-theme` 是主题宿主类，运行时会把当前主题变量写入该宿主。
 - `themeMeta` 记录内置主题的 `appearance` 与显示名称；Monaco 与自定义主题派生按 `appearance` 选择明暗策略。
 - `resolve-theme.ts` 负责把 `ui.theme: string` 解析为内置或自定义主题；未知 ID 回退 `sepia`。
@@ -101,6 +101,16 @@ Amber 有两种角色：警示类徽标走 `warning`，Sidebar 选中、ring、�
 World Engine 工作台仍保留 `--we-*` 局部别名层，真实 Dialog 与 preview 都必须挂 `.world-engine-workbench-theme`。唯一映射源是 `app/styles/theme-vars.css`，组件内 scoped style 和 preview 页面不得重复定义 `--we-*`，也不得写 `--bg-main: var(--we-bg-canvas)` 这类反向覆盖。
 
 允许修改的只有 `--we-*` 指向的 v2.1 主题变量；不要删除别名层，也不要把 preview 专属浅绿硬编码带回去。
+
+## nb-ui 角色变量桥接
+
+nb-ui 的角色变量（`--overlay-surface`、`--panel-surface`、`--control-surface`、`--divider`、`--focus-ring` …）在库里声明在 `:root` 上、值是对产品配色的 `var()` 引用（库的 `src/tokens.css`）。`var()` 在**声明元素**上就代换完，所以那批角色变量在 `<html>` 上按 sepia 兜底代换一次就不再跟随主题——非 sepia 主题下对话框/浮层会停在 sepia 浅底。
+
+因此 `theme-vars.css` 里有一段 `:root, .novel-ide-theme` 的宿主级重声明，按同一套映射把角色变量在宿主上重新解析一遍。改库那一层映射时，这段要跟着改；新增角色变量时先确认它在不在这一段里。
+
+这一层只是别名，不新增变量键：它不进变量总表、不参与自定义主题校验，主题编辑器草稿（实时写入宿主）与自定义主题都能正常跟随。宿主之外（通知视口这类）仍取 `:root` 的 sepia 兜底。
+
+已知边界：nb-ui 的浮层默认经 Teleport 落到 `document.body`（库内 `SelectPortal` / `DropdownMenuPortal` 等未指定目标，`TimePickerDefault` 直接写死 `body`），这些节点不在 `.novel-ide-theme` 内，取不到宿主上的重声明。Dialog / DialogWindow / ContextMenu 有 `teleport-target` 开关可以落进宿主；FormSelect / Combobox / Dropdown / Tooltip / DatePicker 这类没有对应开关，要在宿主内跟随主题得先改门户口径。
 
 ## 分类与内容色板例外
 
