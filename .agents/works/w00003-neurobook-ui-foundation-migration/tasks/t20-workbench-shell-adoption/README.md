@@ -233,3 +233,13 @@ owner 迁移、单 Editor Group 不变）全部满足才删。
 ### 不得重复讨论
 
 以上为已知边界；再提「产品内自定义主题」时先看本节，结论未变就不重开讨论。
+
+## 执行记录
+
+- **2026-09-14 标题栏（批次 1 前半）已按 Lab 先行两段式落地**：chrome 拆成受控零件
+  `app/components/common/DesktopTitleBarChrome.vue`（+ 同名 `.md` + Lab fixture 六场景），
+  平台边界留在宿主 `DesktopTitleBar.vue`；`app/pages/index.vue` 的 titlebar 叶一行未改。
+  四组合（nbook / macos × light / dark）与主页面的 39 项取值逐项等于同名 nb-ui 变量，
+  菜单 / Project 下拉 / 窗口命令 / appearance 上报 / 窄屏两档 / 无 bridge 态实测通过。
+  配方、坑表与反例清单见 [walkthrough 001](walkthroughs/001-titlebar-lab-first-migration.md)。
+- 已知未修：标题栏下拉被外壳叶裁掉（待办 ③.3，与本批无关，需独立 Task）。
