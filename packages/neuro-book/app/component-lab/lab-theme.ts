@@ -1,10 +1,11 @@
-import {collectThemeColorways, getInstalledThemes, installTheme} from "@notnotype/nb-ui/theme";
+import {collectThemeColorways, getInstalledThemes} from "@notnotype/nb-ui/theme";
 import {NB_UI_COLORWAY_HOST_CLASS, applyColorway, nbColorwayMeta, nbColorways} from "@notnotype/nb-ui/colorway";
 import type {ColorwayMeta, NbColorwayVars} from "@notnotype/nb-ui/colorway";
 import auroraTheme from "@notnotype/nb-ui/themes/aurora";
 import editorialTheme from "@notnotype/nb-ui/themes/editorial";
 import macosTheme from "@notnotype/nb-ui/themes/macos";
 import nbookTheme from "@notnotype/nb-ui/themes/nbook";
+import {installThemePacks} from "nbook/app/utils/theme/install-theme-packs";
 
 /**
  * Lab 用的是 nb-ui 那套主题（配色 + 主题包），不是主应用自己那 8 套。
@@ -18,9 +19,8 @@ import nbookTheme from "@notnotype/nb-ui/themes/nbook";
 
 // 装主题必须先于读配色表：配色表要合并各主题自带的配色，而模块副作用只在 import 时跑一次。
 // 装载顺序 = 主题切换器里的显示顺序（getInstalledThemes 按装载顺序返回）。
-for (const module of [nbookTheme, macosTheme, editorialTheme, auroraTheme]) {
-    installTheme(module);
-}
+// 产品侧（app/utils/theme/theme-packs.ts）也装 nbook / macos，缺则装、已装则复用由这个入口统一承担。
+installThemePacks([nbookTheme, macosTheme, editorialTheme, auroraTheme]);
 
 const fromThemes = collectThemeColorways();
 
