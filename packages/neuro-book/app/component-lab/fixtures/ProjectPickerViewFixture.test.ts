@@ -196,4 +196,29 @@ describe("ProjectPickerViewFixture", () => {
             }
         }
     });
+
+    it("密集列表与宽幅图文遇到封面加载失败时平滑回退，不产生裂图", async () => {
+        for (const scene of ["compact", "editorial"] as const) {
+            const host = document.createElement("div");
+            document.body.append(host);
+
+            const app = createApp(ProjectPickerViewFixture, {scene});
+            mounted.push(app);
+            app.mount(host);
+            await nextTick();
+
+            const img = host.querySelector<HTMLImageElement>("img");
+            expect(img).not.toBeNull();
+
+            // 触发错误事件
+            img?.dispatchEvent(new Event("error"));
+            await nextTick();
+
+            // 确保图片标签安全回退，不产生裂图
+            const selector = scene === "compact" ? "[data-classic-compact-view]" : "[data-classic-editorial-view]";
+            const viewRoot = host.querySelector(selector);
+            expect(viewRoot).not.toBeNull();
+            expect(viewRoot?.textContent).toContain("赛博霓虹");
+        }
+    });
 });

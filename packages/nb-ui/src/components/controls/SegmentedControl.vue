@@ -133,13 +133,14 @@ function handleKeydown(event: KeyboardEvent): void {
             :aria-checked="isSelected(option)"
             :tabindex="isSelected(option) ? 0 : -1"
             :disabled="option.disabled"
+            :aria-label="option.title || option.label || undefined"
             :title="option.title || option.label"
             :data-testid="option.testId"
             class="nb-ui-focus-ring relative z-10 flex-1 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-[max(2px,calc(var(--radius-control)-2px))] [font-weight:var(--weight-medium)] transition-[color,transform,opacity] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] not-disabled:active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent cursor-pointer"
             :class="[
                 props.size === 'xs'
-                    ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]'
-                    : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs',
+                    ? (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-2 text-[11px]' : 'h-[calc(var(--control-h-sm)-var(--space-1)*2)] px-1.5 text-[11px]')
+                    : (option.label ? 'h-[calc(var(--control-h-sm)-var(--space-1))] px-3 text-xs' : 'h-[calc(var(--control-h-sm)-var(--space-1))] px-2 text-xs'),
                 isSelected(option)
                     ? 'text-[var(--text-inverse)] font-semibold'
                     : 'text-[var(--text-muted)] hover:text-[var(--text-main)]',
@@ -152,7 +153,7 @@ function handleKeydown(event: KeyboardEvent): void {
                 class="h-3.5 w-3.5 shrink-0 opacity-90 transition-transform [transition-duration:var(--motion-fast)]"
                 aria-hidden="true"
             />
-            <span class="truncate">{{ option.label }}</span>
+            <span v-if="option.label" class="truncate">{{ option.label }}</span>
             <span
                 v-if="option.count !== undefined"
                 class="ml-0.5 rounded-full px-1.5 py-0.2 text-[10px] font-mono leading-none transition-colors"

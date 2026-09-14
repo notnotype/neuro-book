@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, computed} from "vue";
+import {ref, computed, watch} from "vue";
 import {Badge, Button, IconButton} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {ProjectPickerRecoveryEntry} from "nbook/app/utils/project-picker-recovery";
@@ -34,6 +34,21 @@ const emit = defineEmits<{
 }>();
 
 const {t} = useI18n();
+
+const localFailedRoots = ref<Set<string>>(new Set());
+
+watch(() => [props.projects, props.coverRefreshVersions], () => {
+    localFailedRoots.value.clear();
+}, {deep: true});
+
+function isCoverFailed(projectRoot: string): boolean {
+    return Boolean(props.failedCoverRoots?.has(projectRoot) || localFailedRoots.value.has(projectRoot));
+}
+
+function handleImageError(projectRoot: string): void {
+    localFailedRoots.value.add(projectRoot);
+    emit("cover-error", projectRoot);
+}
 
 function getTagsFor(project: ProjectMetadataDto): readonly string[] | undefined {
     if (!props.projectTags) return undefined;
@@ -70,19 +85,26 @@ function getProjectCoverSrc(project: ProjectMetadataDto): string {
                 <!-- 左侧：微型书封与核心书目信息 -->
                 <div class="flex items-center gap-3.5 min-w-0 flex-1">
                     <!-- 微型书封 (40px × 60px) -->
-                    <div class="relative aspect-[2/3] w-10 sm:w-11 shrink-0 rounded-md overflow-hidden border border-[var(--border-color)] shadow-xs">
+                    <div class="relative aspect-[2/3] w-10 sm:w-11 shrink-0 rounded-md overflow-hidden border border-[var(--border-color)] shadow-xs bg-[var(--bg-card)]">
                         <img
-                            v-if="project.cover && !failedCoverRoots.has(project.projectRoot)"
+                            v-if="project.cover && !isCoverFailed(project.projectRoot)"
+                            :key="`${project.projectRoot}:${String(coverRefreshVersions?.[project.projectRoot] ?? 0)}`"
                             :src="getProjectCoverSrc(project)"
                             :alt="project.title"
+                            loading="lazy"
+                            decoding="async"
                             class="h-full w-full object-cover"
+                            @error="handleImageError(project.projectRoot)"
                         />
                         <div
                             v-else
-                            class="h-full w-full flex items-center justify-center p-1 text-center text-[7px] text-white font-serif leading-tight"
+                            class="h-full w-full flex flex-col items-center justify-center p-1 text-center font-serif select-none"
                             :class="`bg-gradient-to-br ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.from} ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.to}`"
                         >
-                            {{ project.title.slice(0, 4) }}
+                            <span class="i-lucide-feather h-2.5 w-2.5 text-white/70 mb-0.5" aria-hidden="true"></span>
+                            <span class="text-[7px] text-white font-bold leading-tight line-clamp-2">
+                                {{ project.title.slice(0, 4) }}
+                            </span>
                         </div>
                     </div>
 

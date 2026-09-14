@@ -117,9 +117,9 @@ function handleLayoutChange(value: SegmentedControlValue): void {
 }
 
 const layoutOptions: SegmentedControlOption[] = [
-    {value: "grid", label: "经典网格"},
-    {value: "compact", label: "密集列表"},
-    {value: "editorial", label: "宽幅图文"},
+    {value: "grid", label: "", title: "经典网格", iconClass: "i-lucide-layout-grid"},
+    {value: "compact", label: "", title: "密集列表", iconClass: "i-lucide-list"},
+    {value: "editorial", label: "", title: "宽幅图文", iconClass: "i-lucide-layout-list"},
 ];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {

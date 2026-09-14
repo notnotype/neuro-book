@@ -77,6 +77,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
+const failedCoverRoots = ref<Set<string>>(new Set());
 const layoutMode = ref<ProjectPickerLayoutMode>("grid");
 
 watch(currentScene, (scene) => {
@@ -87,6 +88,7 @@ watch(currentScene, (scene) => {
     isLoading.value = false;
     loadError.value = "";
     deleteBusyRoots.value = new Set();
+    failedCoverRoots.value = new Set();
     layoutMode.value = "grid";
 
     if (scene === "empty") {
@@ -180,9 +182,11 @@ function handleRetryLoad(): void {
             :is-creating="isCreating"
             :is-create-form-open="isCreateFormOpen"
             :delete-busy-roots="deleteBusyRoots"
+            :failed-cover-roots="failedCoverRoots"
             :layout-mode="layoutMode"
             teleport-target="body"
             @update:layout-mode="layoutMode = $event"
+            @cover-error="failedCoverRoots.add($event)"
             @open="handleOpen"
             @open-user-assets="emit('event', 'open-user-assets')"
             @open-create-form="handleOpenCreateForm"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, computed} from "vue";
+import {ref, computed, watch} from "vue";
 import {Badge, Button, IconButton} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {ProjectPickerRecoveryEntry} from "nbook/app/utils/project-picker-recovery";
@@ -35,6 +35,21 @@ const emit = defineEmits<{
 
 const {t} = useI18n();
 
+const localFailedRoots = ref<Set<string>>(new Set());
+
+watch(() => [props.projects, props.coverRefreshVersions], () => {
+    localFailedRoots.value.clear();
+}, {deep: true});
+
+function isCoverFailed(projectRoot: string): boolean {
+    return Boolean(props.failedCoverRoots?.has(projectRoot) || localFailedRoots.value.has(projectRoot));
+}
+
+function handleImageError(projectRoot: string): void {
+    localFailedRoots.value.add(projectRoot);
+    emit("cover-error", projectRoot);
+}
+
 function getTagsFor(project: ProjectMetadataDto): readonly string[] | undefined {
     if (!props.projectTags) return undefined;
     if (typeof props.projectTags === "function") {
@@ -68,12 +83,16 @@ function getProjectCoverSrc(project: ProjectMetadataDto): string {
                 @click="emit('open', project.projectRoot)"
             >
                 <!-- 左侧：经典 2:3 书封 -->
-                <div class="relative aspect-[2/3] w-28 sm:w-32 shrink-0 rounded-xl overflow-hidden border border-[var(--border-color)] shadow-md mx-auto sm:mx-0">
+                <div class="relative aspect-[2/3] w-28 sm:w-32 shrink-0 rounded-xl overflow-hidden border border-[var(--border-color)] shadow-md mx-auto sm:mx-0 bg-[var(--bg-card)]">
                     <img
-                        v-if="project.cover && !failedCoverRoots.has(project.projectRoot)"
+                        v-if="project.cover && !isCoverFailed(project.projectRoot)"
+                        :key="`${project.projectRoot}:${String(coverRefreshVersions?.[project.projectRoot] ?? 0)}`"
                         :src="getProjectCoverSrc(project)"
                         :alt="project.title"
+                        loading="lazy"
+                        decoding="async"
                         class="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        @error="handleImageError(project.projectRoot)"
                     />
                     <div
                         v-else
