@@ -212,6 +212,30 @@ export function recalcShellSizes(grid: Grid<string>, store: ShellSizeStore, avai
 }
 
 /**
+ * 按给定叶尺寸重建外壳树（约束与 `createDefaultShellGrid` 同源）：外壳把「尺寸模型」收敛回原语时用。
+ * 落账尺寸先按各叶 min/max 夹取——模型与树必须描述同一份布局，否则下一次拖拽会从漂移值起算。
+ */
+export function createShellGrid(viewportWidth: number, sizes: Readonly<Record<string, number>>): Grid<string> {
+    const limits = {} as Record<ShellLeafId, ShellLeafLimits>;
+    for (const id of SHELL_LEAF_IDS) {
+        limits[id] = shellLeafLimits(id, viewportWidth);
+    }
+    return createGrid<string>({
+        kind: "branch",
+        id: SHELL_ROOT_ID,
+        orientation: "horizontal",
+        children: SHELL_LEAF_IDS.map((id): GridLeaf<string> => ({
+            kind: "leaf",
+            id,
+            ref: id,
+            minimumSize: limits[id].minimumSize,
+            maximumSize: limits[id].maximumSize,
+            size: clampLeafSize(sizes[id] ?? 0, limits[id]),
+        })),
+    });
+}
+
+/**
  * 默认外壳拓扑 `root(horizontal){activity, left, editor, right}`。
  * 初始尺寸走同一套分配公式（按视口宽算一遍），因此首屏与 `recalcShellSizes` 的结果一致，
  * 除非真实外壳宽与视口宽不同。
@@ -227,17 +251,5 @@ export function createDefaultShellGrid(viewportWidth: number): Grid<string> {
         agentPanelWidth: SHELL_RIGHT_PANEL_DEFAULT_WIDTH,
         hidden: [],
     }, avail);
-    return createGrid<string>({
-        kind: "branch",
-        id: SHELL_ROOT_ID,
-        orientation: "horizontal",
-        children: SHELL_LEAF_IDS.map((id): GridLeaf<string> => ({
-            kind: "leaf",
-            id,
-            ref: id,
-            minimumSize: limits[id].minimumSize,
-            maximumSize: limits[id].maximumSize,
-            size: initial.sizes[id],
-        })),
-    });
+    return createShellGrid(viewportWidth, initial.sizes);
 }

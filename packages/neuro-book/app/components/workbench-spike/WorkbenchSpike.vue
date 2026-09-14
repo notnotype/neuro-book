@@ -7,7 +7,7 @@
  */
 import {computed, ref, watch} from "vue";
 import {createGrid, type GridBranch, type GridNode} from "@notnotype/nb-ui/components";
-import SpikeBranch from "./SpikeBranch.vue";
+import WorkbenchBranch from "nbook/app/components/workbench/WorkbenchBranch.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import DiagnosticsRail from "./DiagnosticsRail.vue";
 import {canMoveView, labelOf, SPIKE_CONTAINERS, SPIKE_VIEWS} from "./descriptors";
@@ -32,7 +32,7 @@ const catalog: SpikeCatalog = {views: SPIKE_VIEWS, containers: SPIKE_CONTAINERS}
 const state = ref<SpikeLayoutState>(createDefaultLayout(catalog));
 /** 原语实例：只用来执行改动；**渲染与派生值一律读 state.grid 的序列化快照**。 */
 const grid = ref(createGrid(state.value.grid.root));
-/** 整棵树被换掉的次数（重置 / 恢复快照）：SpikeBranch 用它决定何时重挂 splitter。 */
+/** 整棵树被换掉的次数（重置 / 恢复快照）：WorkbenchBranch 用它决定何时重挂 splitter。 */
 const epoch = ref(0);
 const sizes = ref<Record<string, number>>({...grid.value.layout().sizes});
 const issues = ref<string[]>([]);
@@ -264,7 +264,7 @@ syncSizes();
 <template>
     <div class="flex h-dvh min-h-0 w-screen max-w-full" data-lab-subject>
         <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            <SpikeBranch :node="state.grid.root as GridBranch<unknown>" :sizes="sizes" :on-resize="onResize" :collapsed="state.collapsed" :epoch="epoch">
+            <WorkbenchBranch :node="state.grid.root as GridBranch<unknown>" :sizes="sizes" :on-resize="onResize" :hidden="state.collapsed" :epoch="epoch">
                 <template #leaf="{leafId}">
                     <WorkbenchSurface
                         :leaf-id="leafId"
@@ -278,7 +278,7 @@ syncSizes();
                         @drag-view="onDragView"
                     />
                 </template>
-            </SpikeBranch>
+            </WorkbenchBranch>
         </div>
         <DiagnosticsRail
             :snapshot-json="serializeLayout(state)"

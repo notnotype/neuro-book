@@ -15,6 +15,7 @@ import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
+import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -2528,230 +2529,43 @@ onBeforeUnmount(() => {
             </section>
         </div>
 
-        <NovelIdeActivityBar
-            :active-tab="displaySidebarActiveTab"
-            :desktop-available="Boolean(desktopBridge)"
-            :surface-active="projectSurfaceActive"
-            :user-assets-mode="isUserAssetsWorkspace"
-            :agent-panel-open="displayAgentPanelOpen"
-            :current-user="currentUser"
-            @open-home="void openProjectPicker()"
-            @open-tab="handleSidebarToggle"
-            @open-world-engine="openWorldEngineWorkbench"
-            @open-trace-viewer="traceViewerOpen = true"
-            @open-history-inbox="historyInboxOpen = true"
-            @toggle-agent-panel="void toggleAgentPanel()"
-            @open-settings="settingsDialogOpen = true"
-            @open-profile="accountProfileOpen = true"
-            @open-admin="void openAdmin()"
-            @logout="void logout()"
-        />
-
         <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <!-- 未选择 Project：项目选择界面接管整页 -->
         <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
-        <div v-if="projectSurfaceActive" class="flex min-h-0 flex-1 overflow-hidden">
-            <AgentModeSessionSidebar
-                :sessions="agentModeSessions"
-                :active-session-id="agentModeActiveSessionId"
-                :loading="agentModeLoadingSession"
-                :running="agentModeRunning"
-                :action-id="agentModeSessionActionId"
-                :session-scope-key="agentScopeKey"
-                :open="isAgentMode && agentSessionPanelOpen"
-                :width="agentSessionPanelWidth"
-                @update:width="agentSessionPanelWidth = $event"
-                @select="void selectAgentModeSession($event)"
-                @create="void createAgentModeSession()"
-                @archive="void archiveAgentModeSession($event)"
-                @rename="void renameAgentModeSession($event)"
-                @refresh="void refreshAgentModeSessions()"
-            />
-
-            <div
-                class="mode-transition-ide-tools flex h-full shrink-0 overflow-hidden transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                :class="[
-                    ideToolPanelOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none -translate-x-2 opacity-0',
-                    layoutTransitionDirection ? 'transition-none' : '',
-                ]"
-                :style="ideToolPanelStyle"
-            >
-                <NovelIdeToolPanel
-                    v-model:width="leftPanelWidth"
-                    class="ide-panel h-full"
-                    :active-tab="displayActiveLeftTab"
-                    :user-assets-mode="isUserAssetsWorkspace"
-                    :workspace-title="displayNovelTitle"
-                    :workspace-items="displayNovelItems"
-                    @close="activeLeftTab = null"
-                    @open-world-engine="openWorldEngineWorkbench"
-                    @open-home="void openProjectPicker()"
-                    @switch-workspace="void handleSwitchNovel($event)"
-                />
-            </div>
-
-            <!-- Studio 工作区 -->
-            <main
-                class="mode-transition-studio ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-bg)] transition-[width,flex-basis,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                :class="[
-                    isAgentMode ? 'shrink order-3' : 'flex-1 order-2',
-                    isAgentMode && agentStudioPanelOpen && layoutTransitionDirection !== 'to-agent' ? 'border-l border-[var(--border-color)] opacity-100' : '',
-                    isAgentMode && !agentStudioPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
-                    layoutTransitionDirection === 'to-agent' ? 'pointer-events-none border-l-0 opacity-0' : '',
-                    layoutTransitionDirection ? 'transition-none' : '',
-                    resizingAgentStudioPanel ? 'select-none transition-none' : '',
-                ]"
-                :style="agentStudioStyle"
-            >
-                <template v-if="isAgentMode && agentStudioPanelOpen">
-                    <div ref="agentStudioResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
-                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentStudioPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
-                    </div>
-                </template>
-                <div v-if="isAgentMode" class="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3">
-                    <div class="min-w-0">
-                        <div class="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Studio</div>
-                    </div>
-                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="agentStudioFileTreeOpen ? t('ide.shell.collapseFileTree') : t('ide.shell.expandFileTree')" @click="agentStudioFileTreeOpen = !agentStudioFileTreeOpen">
-                        <span :class="agentStudioFileTreeOpen ? 'i-lucide-panel-right-close' : 'i-lucide-folder-tree'" class="h-4 w-4"></span>
-                    </button>
+        <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。 -->
+        <WorkbenchShell v-if="projectSurfaceActive">
+            <template #activity>
+                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] p-1 text-center" data-demo-leaf="activity">
+                    <span class="i-lucide-panel-left h-4 w-4 text-[var(--text-muted)]" aria-hidden="true"></span>
+                    <span class="text-[10px] font-semibold text-[var(--text-secondary)]">activity</span>
+                    <span class="text-[9px] leading-tight text-[var(--text-muted)]">活动栏：图标条入口</span>
+                    <span class="text-[9px] leading-tight text-[var(--text-muted)]">（步骤 3 迁入）</span>
                 </div>
-
-                <div class="flex min-h-0 flex-1 overflow-hidden">
-                    <div class="contain-layout-paint flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'pointer-events-none select-none' : ''">
-                        <MarkdownStudioWorkbench
-                            v-model:content="selectedFileContent"
-                            :controller="studio"
-                            :tabs="displayWorkspaceTabs"
-                            :active-path="displayActiveWorkspaceTabPath"
-                            :node="displaySelectedFileNode"
-                            :editor-kind="displayCurrentEditorKind"
-                            :workspace-view-mode="displayCurrentWorkspaceViewMode"
-                            :theme="activeThemeId"
-                            :compact="isAgentMode"
-                            :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
-                            :editor-preferences="markdownEditorPreferences"
-                            :monaco-preferences="monacoEditorPreferences"
-                            :monaco-temporary-font-size="displayMonacoTemporaryFontSize"
-                            :reference-refresh-key="workspaceReferenceRefreshKey"
-                            :resolve-menu="resolveMarkdownMenu"
-                            :open-reference="openWorkspaceReference"
-                            :resolve-reference="resolveWorkspaceReferencePreview"
-                            :inline-ai-references="inlinePromptReferences"
-                            :inline-ai-highlight-reference="inlinePromptHoveredReference"
-                            :enable-quick-triggers="true"
-                            @select-tab="void selectWorkspaceTab($event)"
-                            @close-tab="void closeEditorTab($event)"
-                            @set-pin="setWorkspaceTabPinned"
-                            @keep-tab="keepWorkspaceTab"
-                            @move-tab="moveWorkspaceTab"
-                            @set-view-mode="setCurrentWorkspaceViewMode"
-                            @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
-                            @save-request="void saveCurrentWorkspaceFile()"
-                            @open-frontmatter-profile="openFrontmatterProfile"
-                            @open-path="void openWelcomeWorkspacePath($event)"
-                            @open-files="openWelcomeFiles"
-                            @create-chapter="void createWelcomeChapter()"
-                            @create-markdown-file="void createWelcomeMarkdownFile()"
-                            @create-lorebook-entry="void createWelcomeLorebookEntry()"
-                            @open-agent-panel="void openWelcomeAgentPanel()"
-                            @open-profile-workbench="profileWorkbenchOpen = true"
-                            @inline-ai-reference="addInlineAiReference"
-                        />
-                    </div>
-                    <div
-                        v-if="isAgentMode && agentStudioFileTreeOpen"
-                        class="agent-mode-studio-file-tree relative h-full shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]"
-                        :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'select-none transition-none' : ''"
-                        :style="agentStudioFileTreeStyle"
-                    >
-                        <div ref="agentStudioFileTreeResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
-                            <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentStudioFileTree ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
-                        </div>
-                        <div class="contain-layout-paint h-full">
-                            <WorkspaceFilePanel />
-                        </div>
-                    </div>
+            </template>
+            <template #left>
+                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-r border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-center" data-demo-leaf="left">
+                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">left</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">左栏：工具面板 / 文件树</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
                 </div>
-
-                <NovelPromptBar
-                    v-if="!isAgentMode && inlinePromptAvailable"
-                    class="ide-prompt-bar"
-                    :model-value="inlinePromptInstruction"
-                    :loading="inlinePromptBusy"
-                    :running="inlinePromptRunning || inlinePromptAgentRunning"
-                    :expanded="inlinePromptExpanded"
-                    :task="inlinePromptTask"
-                    :references="inlinePromptReferences"
-                    :current-path="selectedFilePath"
-                    :session-label="displayInlinePromptSessionLabel"
-                    :sessions="inlinePromptSessions"
-                    :active-session-id="inlinePromptSessionId"
-                    :session-loading="inlinePromptSessionLoading"
-                    :edit-preview="displayInlinePromptEditPreview"
-                    :result-text="inlinePromptResultText"
-                    :live-view="inlinePromptLiveView"
-                    :selectable-models="inlinePromptSelectableModels"
-                    :session-model-selection-value="inlinePromptSessionModelSelectionValue"
-                    :session-model-draft="inlinePromptSessionModelDraft"
-                    :session-model-saving="inlinePromptSessionModelSaving"
-                    :session-model-popover-open="inlinePromptSessionModelPopoverOpen"
-                    :session-thinking-resolved-label="inlinePromptSessionThinkingResolvedLabel"
-                    @update:model-value="inlinePromptInstruction = $event"
-                    @update:expanded="inlinePromptExpanded = $event"
-                    @update:task="inlinePromptTask = $event"
-                    @clear-reference="clearInlineAiReference"
-                    @hover-reference="inlinePromptHoveredReference = $event"
-                    @select-session="void selectInlineEditorSession($event)"
-                    @create-session="void createInlineEditorSession()"
-                    @open-session-chat="void openInlineEditorSessionChat()"
-                    @update-session-model-selection="void inlineEditorAgent.updateSessionModelSelection($event)"
-                    @update:session-model-draft="updateInlineSessionModelDraft"
-                    @update:session-model-popover-open="updateInlineSessionModelPopoverOpen"
-                    @toggle-session-model-popover="inlineEditorAgent.toggleSessionModelPopover()"
-                    @apply-session-model-settings="void inlineEditorAgent.applySessionModelSettings()"
-                    @reset-session-model-settings="void inlineEditorAgent.resetSessionModelSettings()"
-                    @send="void sendInlineEditorPrompt()"
-                    @stop="void stopInlineEditorPrompt()"
-                />
-            </main>
-
-            <!-- Agent Chat Surface：默认是 IDE 右侧面板；未来 Agent layout 仍复用同一实例。 -->
-            <section
-                v-if="isAgentMode || displayAgentPanelOpen"
-                data-agent-panel
-                class="mode-transition-agent relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-[width,flex,opacity,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
-                :class="[
-                    isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 border-l border-[var(--border-color)] opacity-100',
-                    agentPanelOverlay && !isAgentMode ? 'absolute right-0 top-0 bottom-0 min-w-0 border-l border-[var(--border-color)] shadow-2xl' : '',
-                    layoutTransitionDirection ? 'transition-none' : '',
-                    resizingAgentPanel ? 'select-none transition-none' : '',
-                ]"
-                :style="agentSlotStyle"
-            >
-                <template v-if="!isAgentMode">
-                    <div ref="agentResizeHandleRef" data-agent-panel-resize-handle class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
-                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
-                    </div>
-                </template>
-                <AgentChatSurface
-                    ref="agentSurfaceRef"
-                    class="contain-layout-paint min-h-0 flex-1"
-                    :active="agentSurfaceActive"
-                    :layout="isAgentMode ? 'workbench' : 'drawer'"
-                    :novel-id="displayNovelIdForAgent"
-                    :project-ready-revision="agentProjectReadyRevision"
-                    :history-inbox-refresh-key="historyInboxRefreshKey"
-                    :selected-file-path="selectedFilePath"
-                    :open-reference="openWorkspaceReference"
-                    @close="closeAgentSurface"
-                    @open-reference="void openWorkspaceReference($event)"
-                    @open-history-inbox="historyInboxOpen = true"
-                />
-            </section>
-        </div>
+            </template>
+            <template #editor>
+                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--editor-bg)] p-2 text-center" data-demo-leaf="editor">
+                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">editor</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">编辑器：Markdown Studio / 欢迎页</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
+                </div>
+            </template>
+            <template #right>
+                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-l border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-center" data-demo-leaf="right">
+                    <span class="text-[11px] font-semibold text-[var(--text-secondary)]">right</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">右栏：Agent Chat Surface</span>
+                    <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
+                </div>
+            </template>
+        </WorkbenchShell>
 
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <NovelIdeProfileDialog v-model="accountProfileOpen" />
