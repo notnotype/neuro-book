@@ -12,6 +12,7 @@
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。
 - [`nb-ui-overlay-portal-host.md`](../../packages/neuro-book/docs/archived/proposals/nb-ui-overlay-portal-host.md)：nb-ui 浮层的 portal 宿主默认值（默认 `body`、组件缺宿主通道的现状与三种长期选项），状态为 `rejected`（2026-09-14 收尾：问题前提已由主题上移到 `<html>` 消解，不立项；保留两条残留与重开条件）。
+- [`workbench-commands.md`](./workbench-commands.md)：命令系统与单一注册表（命令单一身份、`when` 上下文求值、交互入口统一分发命令 id、命令面板与派生快捷键表），状态为 `draft`。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
