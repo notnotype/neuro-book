@@ -112,6 +112,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 功能域 | 当前规范 | 缺口 |
 |---|---|---|
 | Agent Profile 设置视图 | [`ui/agent-profile-settings.md`](ui/agent-profile-settings.md) | 常用设置优先的受控 Profile 设置视图；实现与 Lab 验证闭合后晋升 implemented |
+| Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 主应用外壳按已批准的 Workbench 分区模型渲染，并保留现有固定槽位与入口；实现与真实 surface 验收闭合后晋升 implemented |
 
 ## 冻结过渡规范
 

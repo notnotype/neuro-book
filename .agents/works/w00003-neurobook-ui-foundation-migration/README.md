@@ -20,6 +20,10 @@ issueId: i191
 6. C 闭合后按消费者批次把主页接到新组件，恢复真实功能、构建、typecheck、测试和产品 surface 验收；全部消费者切换后删除旧组件与旧主题 authority。
 7. 最后对当前 merge revision 集合统一审查。Lab smoke 不能代替主页面、桌面、窄屏和 Product 构建证据。
 
+## Workbench 外壳接入（#192）
+
+Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neuro-book/docs/proposals/workbench-view-host.md)（#192）已于 2026-09-13 获批 `accepted`。阶段 1 的「外壳接入但保留现有槽位」已登记为 `planned` Spec [`docs/specs/ui/workbench-shell.md`](../../../docs/specs/ui/workbench-shell.md)（`capability: ui.workbench-shell`），实现 Task [`tasks/t20-workbench-shell-adoption`](tasks/t20-workbench-shell-adoption/README.md) 已创建、**尚未开工（pending）**。阶段 2–5 的消费者迁移与固定槽位删除不在该 Task 内，仍按 #191 与提案的删除门禁逐项推进。
+
 ## 红分支边界
 
 - 允许出现的红色只限 NeuroBook 主应用仍未接入新组件的消费者路径：主页真实流程、主应用 Product build/typecheck 或由该未接线直接导致的主应用集成检查失败。每项必须记录命令、cwd、路径、错误原文、引入批次和恢复条件。
