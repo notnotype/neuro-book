@@ -149,3 +149,57 @@ role: tasker
   （与本次改动无关，非 error）。
 - `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json` 无输出；
   `bun run --cwd packages/neuro-book test app/utils/workbench app/utils/theme` 6 文件 52 测试全过。
+
+## 主题两轴：已定裁定与延后项
+
+> 登记时间 2026-09-14（用户拍板）。本节只钉边界与出处，供以后接手直接开工；再提「自定义主题」
+> 之前先读这一节，不要从头重推。
+
+### 当前裁定：先只做「配色自定义 + 主题选择」
+
+- **主题轴**（`data-nb-theme`）：产品只提供 `nbook` / `macos` 两个选择，白名单封闭——不做第三方主题、
+  不做用户自带主题、不做组件替换。
+- **配色轴**（`data-nb-appearance`）：允许用户**运行时自定义**——`ui.colorwayId` + `ui.userColorways[]`，
+  带编辑器与导入导出，已落地（`f86a0e24`）。
+
+### 显式延后：主题轴的「组件替换 / 产品内自定义主题」
+
+不做；但把已有能力与缺口先钉住，避免以后返工或重复论证。
+
+**nb-ui 侧已有能力（今天就能用）**：
+
+- manifest 两张表：`packages/nb-ui/src/theme/theme-manifest.ts:35` 的 `overrides`（组件 key → 契约 id）
+  与 `:74` 的 `components`（运行期实现表，key 必须出现在 `overrides` 里且契约过校验）。
+- 契约登记表 `packages/nb-ui/src/theme/contracts.ts:19-21` 目前只有一条：`time-picker@1`。
+- 装载器对 `unknown-component` / `contract-mismatch` **拒绝装载**（`packages/nb-ui/src/theme/theme-loader.ts:119-138`）。
+- 消费侧 API：`packages/nb-ui/src/theme/component-registry.ts`（`provideThemeComponents` / `useThemeComponent`）。
+- 目前全仓唯一一处组件覆盖示范：`packages/nb-ui/themes/macos/index.ts:14` 用 `TimePickerWheel` 覆盖 `time-picker`。
+
+**产品侧缺口（这是「产品内自定义主题」今天做不了的原因）**：
+
+1. 产品代码零 `provideThemeComponents` / `useThemeComponent` 调用点——注入链是空的（调用点只在
+   nb-ui 自身与 playground）。
+2. 组件白名单只有 `time-picker` 一个 key；每加一个 key 就等于把该组件的 props / emits / 键盘 / a11y 冻结成契约。
+3. 主题是编译期静态 import + 白名单：`app/utils/theme/theme-packs.ts` 固定装 nbook / macos；
+   `shared/theme/theme-axes.ts` 是配置 schema 的白名单，`server/config/normalizer.ts` 的
+   `normalizeProductThemeId`（`:645-648`）对白名单外的值直接回落默认——**没有运行期装载第三方主题的路径**。
+4. 产品自有组件不走 nb-ui 组件登记表，所以产品组件今天天然不可替换。
+
+**先回答分岔，再谈开工**：
+
+- 「用户自定义主题」若**含组件替换**，等于执行用户代码 → 需要 nb-ui 还不存在的**插件档**
+  （`packages/nb-ui/src/theme/index.ts` 顶部三层术语注释：插件 = 主题 + 任意 JS，单独安装与授权，本轮不做）。
+- 若只允许**纯数据 manifest + 变量**，不需要插件档，但能力上限也只到「换配色 / 变量」。
+
+**开工前必须先定义**（每一条都会改变实现形态）：
+
+- 契约扩表成本：每加一个 key 即冻结该组件的 props / emits / 键盘 / a11y；
+- 组件调用点改走 `useThemeComponent`；
+- 装载点提供响应式组件表；
+- 主题来源从枚举改为「内置 ∪ 已装 ∪ 用户」；
+- 跨端存在性校验（主题包带 CSS，Node 侧装不进——同 `theme-axes.ts` 把主题 id 放进 shared 的理由）；
+- 用户主题与基础主题的合成规则：继承还是合并。
+
+### 不得重复讨论
+
+以上为已知边界；再提「产品内自定义主题」时先看本节，结论未变就不重开讨论。
