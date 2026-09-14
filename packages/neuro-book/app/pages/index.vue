@@ -2537,12 +2537,26 @@ onBeforeUnmount(() => {
         <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。 -->
         <WorkbenchShell v-if="projectSurfaceActive">
             <template #activity>
-                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] p-1 text-center" data-demo-leaf="activity">
-                    <span class="i-lucide-panel-left h-4 w-4 text-[var(--text-muted)]" aria-hidden="true"></span>
-                    <span class="text-[10px] font-semibold text-[var(--text-secondary)]">activity</span>
-                    <span class="text-[9px] leading-tight text-[var(--text-muted)]">活动栏：图标条入口</span>
-                    <span class="text-[9px] leading-tight text-[var(--text-muted)]">（步骤 3 迁入）</span>
-                </div>
+                <!-- 图标条宿主换成 activity 叶：宽度来自树的逻辑尺寸 48（刚性），组件内部不动。 -->
+                <NovelIdeActivityBar
+                    class="h-full"
+                    :active-tab="displaySidebarActiveTab"
+                    :desktop-available="Boolean(desktopBridge)"
+                    :surface-active="projectSurfaceActive"
+                    :user-assets-mode="isUserAssetsWorkspace"
+                    :agent-panel-open="displayAgentPanelOpen"
+                    :current-user="currentUser"
+                    @open-home="void openProjectPicker()"
+                    @open-tab="handleSidebarToggle"
+                    @open-world-engine="openWorldEngineWorkbench"
+                    @open-trace-viewer="traceViewerOpen = true"
+                    @open-history-inbox="historyInboxOpen = true"
+                    @toggle-agent-panel="void toggleAgentPanel()"
+                    @open-settings="settingsDialogOpen = true"
+                    @open-profile="accountProfileOpen = true"
+                    @open-admin="void openAdmin()"
+                    @logout="void logout()"
+                />
             </template>
             <template #left>
                 <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden border-r border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-center" data-demo-leaf="left">
