@@ -68,15 +68,25 @@ role: tasker
 每批自带回退点；旧槽位与旧组件保留到提案的删除门禁（入口闭环、行为等价证据、生命周期安全、
 owner 迁移、单 Editor Group 不变）全部满足才删。
 
+**外壳部件同样进 Lab（2026-09-14 补登记）。** 「没有旧实现要迁」不构成不进 Lab 的理由：判据是
+`docs/standards/code/components.md` 的分界——**给一份 props 就能在别处渲染出来的是零件**，
+外壳部件也不例外。只要它满足这条，就同样要留下上面那三件东西（组件 + 同名 `.md` + fixture 并登记）。
+理由是可验性：Lab 是唯一能把它摆在**四主题组合 × 两档 layout × 窄画布**下逐项量取值的地方，
+主页面只验得了当前选中主题、当前窗口宽度下那一种情形。真正进不了 Lab 的只有宿主——依赖平台 bridge /
+store / 路由的那一层（例如 `DesktopTitleBar.vue`），它的验收面才回到主页面。
+
 配方与判据沿用 t13 试迁移的沉淀
 （[002-trial-migration-gold-standard](../t13-lab-first-migration-strategy/walkthroughs/002-trial-migration-gold-standard.md)）：
 承载关系先于外观 · 零件全部来自 nb-ui（迁移目录里再出现手写面板样式就是漏项）· 冲突回 owner 层修、
 不在调用点绕过 · 形态一变就清账（prop / emit / i18n key / 测试 / 文档 / fixture 一起删）·
 每处不显然的缺陷落成可证伪的规则 + 回归。
 
-**本批（左右侧边栏容器，2026-09-14）落的是新外壳部件而不是组件迁移**：它没有旧实现要迁、
-也不替换任何现有入口，因此不另建 Lab 场景，验收面就是主页面 + 真实浏览器的实数取值
-（容器头部 / 内容区的底色、描边、圆角、留白逐项等于同组合下的 nb-ui 变量）与叶几何。
+**本批（左右侧边栏容器，2026-09-14）有两个验收面，缺一不可**：主页面量叶几何、留白归属与真实入口
+（容器头部 / 内容区的底色、描边、圆角、留白逐项等于同组合下的 nb-ui 变量）；Lab 量两档 layout 的
+**合同**（留白与滚动归谁）、四种插槽写法与四主题组合下的同一批取值。Lab 入口：
+`app/components/workbench/WorkbenchContainerSurface.md`＋
+`app/component-lab/fixtures/WorkbenchContainerSurfaceFixture.vue`（三个场景：产品落位 左 scroll / 右 fill、
+两栏都 scroll、两栏都 fill），登记在 `app/component-lab/fixtures/index.ts`。
 从 Lab 迁出的产品组件（`files` / `characters` / `plot` / Agent 面）仍按上面的两段式走。
 
 ## 验收条件
@@ -242,4 +252,14 @@ owner 迁移、单 Editor Group 不变）全部满足才删。
   四组合（nbook / macos × light / dark）与主页面的 39 项取值逐项等于同名 nb-ui 变量，
   菜单 / Project 下拉 / 窗口命令 / appearance 上报 / 窄屏两档 / 无 bridge 态实测通过。
   配方、坑表与反例清单见 [walkthrough 001](walkthroughs/001-titlebar-lab-first-migration.md)。
+- **2026-09-14 容器部件补进 Lab（同批补做）**：`WorkbenchContainerSurface` 补上同名 `.md`
+  （标签空：只有 props / slots，无隐藏通道）与 Lab fixture 三场景，登记进 `fixtures/index.ts`；
+  `/lab` 实测（1680 × 1050 窗口，四组合 nbook / macos × 昼 / 夜）：两个容器的面 / 描边 / 描边宽 /
+  圆角 / 阴影逐项等于同名 nb-ui 变量（`--panel-surface` / `--panel-outline` / `--border-w` /
+  `--radius-panel` / `--elevation-raised`；圆角 nbook 20px、macos 18px，面色昼夜分别为
+  `rgb(255, 252, 245)` / `rgb(45, 41, 37)`）；两档 layout 的合同实测为
+  内容区 padding `16px` / `0px`、`overflow-y` `auto` / `hidden`（scroll 档 30 行 915px > 474px 可视高，
+  真滚动；fill 档由视图自己的滚动区接管）；390 × 844 画布下两张卡片 167 / 197 宽、页级与卡片内
+  横向溢出皆为 0、头部动作按钮仍在卡片内、长标题走省略号（clientWidth 40 / scrollWidth 252）；
+  控制台 0 条 error。
 - 已知未修：标题栏下拉被外壳叶裁掉（待办 ③.3，与本批无关，需独立 Task）。

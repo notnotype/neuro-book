@@ -497,6 +497,28 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./ProjectCoverDialogFixture.vue")).default,
     },
+    {
+        component: "WorkbenchContainerSurface",
+        scenes: [
+            // 标题取产品译文的已解析值（`ide.workbench.container.tools` / `.agent`）：解析归宿主，fixture 扮演宿主。
+            {
+                id: "product",
+                label: "产品落位（左 scroll / 右 fill）",
+                data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "fill", rows: 30},
+            },
+            {
+                id: "scroll",
+                label: "两栏都 scroll",
+                data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "scroll", rows: 30},
+            },
+            {
+                id: "fill",
+                label: "两栏都 fill",
+                data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "fill", rightLayout: "fill", rows: 30},
+            },
+        ],
+        load: async () => (await import("./WorkbenchContainerSurfaceFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {
