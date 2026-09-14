@@ -507,6 +507,11 @@ export const labFixtures: LabFixture[] = [
                 data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "fill", rows: 30},
             },
             {
+                id: "sections",
+                label: "文件夹式侧栏（Section 列表与可见性）",
+                data: {leftTitle: "资源管理器", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "fill", rows: 15},
+            },
+            {
                 id: "scroll",
                 label: "两栏都 scroll",
                 data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "scroll", rows: 30},

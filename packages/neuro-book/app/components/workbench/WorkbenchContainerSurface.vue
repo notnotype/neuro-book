@@ -15,11 +15,14 @@
  * - 内容区按 `layout` 的**组合合同**呈现（`resolveViewLayout`：要不要外壳给留白、滚动归谁），
  *   合同读 descriptor 的表，组件里不复制一份 mode → 行为的映射。有活动视图之后，`layout`
  *   由该视图的 descriptor 决定；本批还没有视图，用默认合同（`scroll`）。
+ * - 支持 VS Code 式侧栏 Section 结构：传入 `sections` 列表时以紧凑堆叠分区呈现，
+ *   各分区通过 1px 细线分隔；头部自动提供「…」Section 可见性浮层菜单，
+ *   支持根据 `canToggleVisibility` 切换显隐（对接 `ViewDescriptor.canToggleVisibility`）。
  *
- * 单根、四个插槽：`head`（覆盖头部内容）/ `actions`（头部尾部动作区）/ `content`（内容区）/
- * 默认插槽（`content` 未给时用它，见模板）。头部缺省渲染图标 + 标题。
+ * 单根、向后兼容现有插槽与单视图模式。
  */
-import {computed} from "vue";
+import {computed, ref, useSlots, watch} from "vue";
+import {IconButton, Popover} from "@notnotype/nb-ui/components";
 import {
     DEFAULT_VIEW_LAYOUT_CONTRACT,
     resolveLocationPart,
@@ -27,6 +30,19 @@ import {
     type ContainerDescriptor,
     type ViewLayoutMode,
 } from "nbook/app/utils/workbench/descriptors";
+import WorkbenchContainerSection from "./WorkbenchContainerSection.vue";
+
+export type ContainerSectionItem = {
+    id: string;
+    title: string;
+    contextLabel?: string;
+    canToggleVisibility?: boolean;
+    collapsible?: boolean;
+    collapsed?: boolean;
+    layout?: ViewLayoutMode;
+    empty?: boolean;
+    emptyText?: string;
+};
 
 const props = withDefaults(defineProps<{
     container: ContainerDescriptor;
@@ -34,17 +50,41 @@ const props = withDefaults(defineProps<{
     title: string;
     /** 内容区按哪一档呈现；缺省 `scroll`（外壳给留白、拥有滚动）。 */
     layout?: ViewLayoutMode;
-}>(), {layout: "scroll"});
+    /** VS Code 式 section 列表声明（可对接 ViewDescriptor 集合） */
+    sections?: readonly ContainerSectionItem[];
+    /** 受控的可见 section id 集合；缺省由内部 state 维护全部可见 */
+    visibleSections?: readonly string[];
+    /** 是否在头部展示「…」Section 可见性菜单；缺省有 sections 时展示 */
+    showVisibilityMenu?: boolean;
+}>(), {
+    layout: "scroll",
+    sections: undefined,
+    visibleSections: undefined,
+    showVisibilityMenu: true,
+});
+
+const emit = defineEmits<{
+    (e: "update:visibleSections", value: string[]): void;
+    (e: "toggle-section-visibility", payload: {id: string; visible: boolean}): void;
+    (e: "toggle-section-collapsed", payload: {id: string; collapsed: boolean}): void;
+}>();
 
 defineSlots<{
     /** 覆盖头部内容（缺省：图标 + 标题）。 */
     head(): unknown;
     /** 头部尾部的动作区（收起、更多一类的按钮由宿主放进来）。 */
     actions(): unknown;
-    /** 内容区。 */
+    /** 自定义可见性菜单触发区或浮层内容。 */
+    visibilityMenu?(): unknown;
+    /** 自定义整个 sections 渲染。 */
+    sections?(): unknown;
+    /** 单个 section 的内容回退。 */
+    section?(props: {section: ContainerSectionItem}): unknown;
+    /** 内容区（单视图向后兼容模式）。 */
     content(): unknown;
     /** 内容区的默认写法：`content` 未提供时渲染它。 */
     default(): unknown;
+    [key: string]: ((props: any) => unknown) | undefined;
 }>();
 
 /** 默认落位 → Part。`window` 是预留值，求值失败就不声称落在某个 Part 上（属性为空）。 */
@@ -60,6 +100,74 @@ const part = computed(() => {
 const contract = computed(() => {
     const resolved = resolveViewLayout(props.layout);
     return resolved.ok ? resolved.value : DEFAULT_VIEW_LAYOUT_CONTRACT;
+});
+
+const slots = useSlots();
+const hasSections = computed(() => Boolean(props.sections && props.sections.length > 0));
+const isSingleViewMode = computed(() => !hasSections.value && !slots.sections);
+
+/** Section 内部折叠态（支持未受控时在组件内闭环） */
+const sectionCollapsedState = ref<Record<string, boolean>>({});
+
+function isSectionCollapsed(section: ContainerSectionItem): boolean {
+    if (section.id in sectionCollapsedState.value) {
+        return sectionCollapsedState.value[section.id]!;
+    }
+    return section.collapsed ?? false;
+}
+
+function handleSectionCollapsed(id: string, collapsed: boolean): void {
+    sectionCollapsedState.value[id] = collapsed;
+    emit("toggle-section-collapsed", {id, collapsed});
+}
+
+/** Section 可见性内部 state 与受控同步 */
+function defaultVisibleIds(): string[] {
+    return props.sections?.map((s) => s.id) ?? [];
+}
+
+const internalVisibleIds = ref<string[]>(props.visibleSections ? [...props.visibleSections] : defaultVisibleIds());
+
+watch(() => props.visibleSections, (val) => {
+    if (val !== undefined) {
+        internalVisibleIds.value = [...val];
+    }
+});
+
+watch(() => props.sections, () => {
+    if (props.visibleSections === undefined) {
+        internalVisibleIds.value = defaultVisibleIds();
+    }
+}, {deep: true});
+
+const effectiveVisibleSet = computed(() => new Set(props.visibleSections ?? internalVisibleIds.value));
+
+function isSectionVisible(id: string): boolean {
+    return effectiveVisibleSet.value.has(id);
+}
+
+function toggleSectionVisibility(id: string): void {
+    const current = new Set(effectiveVisibleSet.value);
+    const nextVisible = !current.has(id);
+    if (nextVisible) {
+        current.add(id);
+    } else {
+        current.delete(id);
+    }
+    const nextList = props.sections ? props.sections.map((s) => s.id).filter((item) => current.has(item)) : Array.from(current);
+    internalVisibleIds.value = nextList;
+    emit("update:visibleSections", nextList);
+    emit("toggle-section-visibility", {id, visible: nextVisible});
+}
+
+const renderedSections = computed(() => {
+    if (!props.sections) return [];
+    return props.sections.filter((s) => isSectionVisible(s.id));
+});
+
+const visibilityMenuOpen = ref(false);
+const hasVisibilityMenu = computed(() => {
+    return Boolean(props.showVisibilityMenu && hasSections.value);
 });
 </script>
 
@@ -77,19 +185,109 @@ const contract = computed(() => {
                 <span v-if="container.icon" :class="container.icon" class="workbench-container__icon" aria-hidden="true"></span>
                 <span class="workbench-container__title">{{ title }}</span>
             </slot>
-            <div v-if="$slots.actions" class="workbench-container__actions">
+
+            <div v-if="$slots.actions || hasVisibilityMenu" class="workbench-container__actions">
                 <slot name="actions"></slot>
+
+                <slot v-if="hasVisibilityMenu" name="visibilityMenu">
+                    <Popover
+                        v-model:open="visibilityMenuOpen"
+                        align="end"
+                        side="bottom"
+                        :side-offset="4"
+                        content-class="p-1 min-w-[170px]"
+                    >
+                        <template #trigger>
+                            <IconButton
+                                size="sm"
+                                icon-class="i-lucide-ellipsis"
+                                title="视图可见性"
+                                aria-label="视图可见性"
+                                class="workbench-container__menu-trigger"
+                                data-testid="container-visibility-menu-trigger"
+                            />
+                        </template>
+
+                        <div
+                            class="workbench-container__visibility-menu"
+                            role="menu"
+                            aria-label="Section 可见性"
+                            data-testid="container-visibility-menu"
+                        >
+                            <button
+                                v-for="sec in props.sections"
+                                :key="sec.id"
+                                type="button"
+                                role="menuitemcheckbox"
+                                :aria-checked="isSectionVisible(sec.id)"
+                                :aria-disabled="sec.canToggleVisibility === false"
+                                :disabled="sec.canToggleVisibility === false"
+                                :data-section-id="sec.id"
+                                class="nb-ui-popover-item workbench-container__menu-item"
+                                :class="{'opacity-50 cursor-not-allowed': sec.canToggleVisibility === false}"
+                                @click="sec.canToggleVisibility !== false && toggleSectionVisibility(sec.id)"
+                            >
+                                <span
+                                    class="workbench-container__menu-check"
+                                    aria-hidden="true"
+                                >
+                                    <span v-if="isSectionVisible(sec.id)" class="i-lucide-check h-3.5 w-3.5"></span>
+                                </span>
+                                <span class="workbench-container__menu-label">{{ sec.title }}</span>
+                            </button>
+                        </div>
+                    </Popover>
+                </slot>
             </div>
         </header>
 
         <div
             class="workbench-container__content"
             :class="{
-                'workbench-container__content--padded': contract.shellPadsContent,
-                'workbench-container__content--scrolling': contract.shellOwnsScroll,
+                'workbench-container__content--padded': isSingleViewMode && contract.shellPadsContent,
+                'workbench-container__content--scrolling': isSingleViewMode && contract.shellOwnsScroll,
+                'workbench-container__content--sections': !isSingleViewMode,
             }"
         >
-            <slot name="content"><slot></slot></slot>
+            <slot v-if="isSingleViewMode" name="content"><slot></slot></slot>
+            <slot v-else-if="$slots.sections" name="sections"></slot>
+            <template v-else>
+                <div v-if="renderedSections.length === 0" class="workbench-container__empty" data-testid="container-empty-state">
+                    <slot name="empty">
+                        <p class="workbench-container__empty-text">所有视图已被隐藏，可通过右上角 ··· 菜单重新显示</p>
+                    </slot>
+                </div>
+                <template v-else>
+                    <template v-for="(section, index) in renderedSections" :key="section.id">
+                        <WorkbenchContainerSection
+                            :id="section.id"
+                            :title="section.title"
+                            :context-label="section.contextLabel"
+                            :collapsible="section.collapsible"
+                            :collapsed="isSectionCollapsed(section)"
+                            :layout="section.layout"
+                            :empty="section.empty"
+                            :empty-text="section.emptyText"
+                            :class="{'workbench-container-section--divided': index > 0}"
+                            @update:collapsed="handleSectionCollapsed(section.id, $event)"
+                        >
+                            <template #default>
+                                <slot :name="`section-${section.id}`" :section="section">
+                                    <slot name="section" :section="section">
+                                        <span v-if="section.emptyText">{{ section.emptyText }}</span>
+                                    </slot>
+                                </slot>
+                            </template>
+                            <template #context>
+                                <slot :name="`section-context-${section.id}`" :section="section" />
+                            </template>
+                            <template #actions>
+                                <slot :name="`section-actions-${section.id}`" :section="section" />
+                            </template>
+                        </WorkbenchContainerSection>
+                    </template>
+                </template>
+            </template>
         </div>
     </section>
 </template>
@@ -186,5 +384,92 @@ const contract = computed(() => {
 
 .workbench-container__content--scrolling {
     overflow-y: auto;
+}
+
+/*
+ * Section 列表模式：垂直堆叠各区段。
+ * 容器内部 section 之间用 1px 分隔线（--border-w solid var(--divider)）。
+ * 卡片语言（圆角与阴影）只属于容器最外层，内部绝不再加卡片圆角。
+ */
+.workbench-container__content--sections {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+}
+
+:deep(.workbench-container-section--divided),
+:deep(.workbench-container-section + .workbench-container-section) {
+    border-top: var(--border-w) solid var(--divider);
+}
+
+/* Section 可见性浮层菜单 */
+.workbench-container__visibility-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.workbench-container__menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    height: var(--control-h-sm);
+    padding-inline: var(--space-2);
+    border: none;
+    background: transparent;
+    color: var(--text-main);
+    font-size: var(--text-xs);
+    cursor: pointer;
+    text-align: left;
+    outline: none;
+    transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.workbench-container__menu-item:hover:not(:disabled) {
+    background-color: var(--bg-hover);
+}
+
+.workbench-container__menu-item:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.workbench-container__menu-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--accent-main);
+}
+
+.workbench-container__menu-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.workbench-container__empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 1 1 auto;
+    height: 100%;
+    padding: var(--panel-p);
+    text-align: center;
+}
+
+.workbench-container__empty-text {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    line-height: var(--leading-relaxed);
 }
 </style>

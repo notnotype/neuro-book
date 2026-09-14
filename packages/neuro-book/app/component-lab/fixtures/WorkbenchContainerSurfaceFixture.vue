@@ -14,9 +14,11 @@
  *
  * 数据是确定性的内存值：标题、行数、两档 layout 都从 `data` 读，场景只换这一份初值。
  */
-import {computed} from "vue";
+import {computed, ref} from "vue";
 import {Badge, IconButton} from "@notnotype/nb-ui/components";
-import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
+import WorkbenchContainerSurface, {
+    type ContainerSectionItem,
+} from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
 import type {ViewLayoutMode} from "nbook/app/utils/workbench/descriptors";
 import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
 import {
@@ -68,15 +70,195 @@ function leafStyle(basisPx: number): Record<string, string> {
 function onAction(name: string): void {
     emitLabEvent("container-action", name);
 }
+
+/** sections 场景专用演示数据 */
+const leftSections = ref<ContainerSectionItem[]>([
+    {
+        id: "files",
+        title: "项目文件",
+        contextLabel: "workspace",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: false,
+        canToggleVisibility: true,
+    },
+    {
+        id: "outline",
+        title: "大纲",
+        contextLabel: "7 章节",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: false,
+        canToggleVisibility: true,
+    },
+    {
+        id: "timeline",
+        title: "时间线",
+        contextLabel: "已更新",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: true,
+        canToggleVisibility: true,
+    },
+    {
+        id: "references",
+        title: "关联引用",
+        contextLabel: "0 项",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: false,
+        empty: true,
+        emptyText: "暂无关联引用，在正文中 @ 引用即可添加",
+        canToggleVisibility: true,
+    },
+]);
+
+const rightSections = ref<ContainerSectionItem[]>([
+    {
+        id: "overflow",
+        title: "这是一个超长的区段标题用来检验省略截断",
+        contextLabel: "超长上下文标签描述文本",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: false,
+        canToggleVisibility: true,
+    },
+    {
+        id: "compact",
+        title: "备忘录",
+        contextLabel: "3 项",
+        layout: "scroll",
+        collapsible: true,
+        collapsed: false,
+        canToggleVisibility: true,
+    },
+]);
+
+const sampleFiles = [
+    {name: "chapter-01.md", icon: "i-lucide-file-text"},
+    {name: "chapter-02.md", icon: "i-lucide-file-text"},
+    {name: "character-sheet.json", icon: "i-lucide-file-code"},
+    {name: "worldview-notes.md", icon: "i-lucide-file-text"},
+];
+
+const sampleHeadings = [
+    "第一章：海潮未息",
+    "第二章：航图与星轨",
+    "第三章：旧港的信标",
+    "第四章：黑礁石与雾",
+    "第五章：归航路线",
+];
+
+const sampleTimeline = [
+    "14:32 保存草稿（自动）",
+    "13:10 重构第三章节大纲",
+    "10:45 创建角色档案",
+];
 </script>
 
 <template>
     <div class="workbench-container-stage flex h-[520px] min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-main)]">
         <!-- 这段是 fixture 自己的话，不是容器的一部分：容器里不写说明文字，说明归 Lab。 -->
         <p class="shrink-0 px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-xs)] text-[var(--text-muted)]">
-            左右两叶各承载一个容器；中间是编辑器叶（本场景不摆内容）。
+            <template v-if="props.scene === 'sections'">
+                VS Code 式侧栏：支持多 Section 列表、折叠/展开、空态、1px 分隔线，以及右上角「···」可见性浮层菜单。
+            </template>
+            <template v-else>
+                左右两叶各承载一个容器；中间是编辑器叶（本场景不摆内容）。
+            </template>
         </p>
-        <div class="flex min-h-0 w-full flex-1 items-stretch">
+        <!-- sections 场景：VS Code 式多 Section 侧栏与窄栏溢出测试 -->
+        <div v-if="props.scene === 'sections'" class="flex min-h-0 w-full flex-1 items-stretch">
+            <!-- 左叶：标准多 Section 侧栏 -->
+            <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(SHELL_LEFT_PANEL_DEFAULT_WIDTH)" data-fixture-leaf="left">
+                <WorkbenchContainerSurface
+                    data-lab-subject
+                    :container="SHELL_LEFT_CONTAINER"
+                    :title="knobs.leftTitle"
+                    :sections="leftSections"
+                >
+                    <template #actions>
+                        <IconButton size="sm" icon-class="i-lucide-refresh-cw" title="刷新（宿主动作）" @click="onAction('left:refresh')" />
+                    </template>
+
+                    <template #section-actions-files>
+                        <IconButton size="sm" icon-class="i-lucide-plus" title="新建文件" @click="onAction('files:new')" />
+                    </template>
+
+                    <template #section-files>
+                        <ul class="flex min-w-0 flex-col gap-[var(--space-1)]">
+                            <li
+                                v-for="file in sampleFiles"
+                                :key="file.name"
+                                class="flex min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-control)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--text-xs)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                            >
+                                <span :class="file.icon" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">{{ file.name }}</span>
+                            </li>
+                        </ul>
+                    </template>
+
+                    <template #section-outline>
+                        <ul class="flex min-w-0 flex-col gap-[var(--space-1)]">
+                            <li
+                                v-for="heading in sampleHeadings"
+                                :key="heading"
+                                class="flex min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-control)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--text-xs)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] cursor-pointer"
+                            >
+                                <span class="i-lucide-heading-2 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">{{ heading }}</span>
+                            </li>
+                        </ul>
+                    </template>
+
+                    <template #section-timeline>
+                        <ul class="flex min-w-0 flex-col gap-[var(--space-1)]">
+                            <li
+                                v-for="item in sampleTimeline"
+                                :key="item"
+                                class="flex min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-control)] px-[var(--space-2)] py-[var(--space-1)] text-[var(--text-xs)] text-[var(--text-muted)]"
+                            >
+                                <span class="i-lucide-git-commit h-3.5 w-3.5 shrink-0" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">{{ item }}</span>
+                            </li>
+                        </ul>
+                    </template>
+                </WorkbenchContainerSurface>
+            </div>
+
+            <!-- 中间叶：空编辑器占位 -->
+            <div class="min-h-0 min-w-0 flex-1" data-fixture-leaf="editor"></div>
+
+            <!-- 右叶：窄栏溢出测试（220px 宽度，展示截断与布局稳定性） -->
+            <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(220)" data-fixture-leaf="right">
+                <WorkbenchContainerSurface
+                    data-lab-subject
+                    :container="SHELL_RIGHT_CONTAINER"
+                    title="窄栏溢出测试容器标题超长展示"
+                    :sections="rightSections"
+                >
+                    <template #section-overflow>
+                        <p class="text-[var(--text-2xs)] text-[var(--text-muted)] truncate">此栏专用于实测窄宽下的单行截断。</p>
+                    </template>
+
+                    <template #section-compact>
+                        <ul class="flex min-w-0 flex-col gap-[var(--space-1)]">
+                            <li class="flex min-w-0 items-center gap-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+                                <span class="i-lucide-check-circle-2 h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">整理世界观大纲</span>
+                            </li>
+                            <li class="flex min-w-0 items-center gap-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+                                <span class="i-lucide-circle h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">更新人物关系图谱</span>
+                            </li>
+                        </ul>
+                    </template>
+                </WorkbenchContainerSurface>
+            </div>
+        </div>
+
+        <!-- 原有场景（产品落位 / 双 scroll / 双 fill） -->
+        <div v-else class="flex min-h-0 w-full flex-1 items-stretch">
             <!-- 左叶 -->
             <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(SHELL_LEFT_PANEL_DEFAULT_WIDTH)" data-fixture-leaf="left">
                 <WorkbenchContainerSurface
