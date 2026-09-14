@@ -247,4 +247,20 @@ defineExpose({setLeafVisible, hidden, issues});
 :deep([data-branch="root"] > div > [role="separator"]) {
     display: none;
 }
+
+/*
+ * activity 右侧那条 sash 同样不该提供拖拽：activity 是刚性 48 的叶，拖它没有任何可变的量，
+ * 留着只会给出「可以拖」的假信号——指针变 col-resize、悬停点亮，按下去却什么也不动。
+ *
+ * 这里整条去掉盒子，而不是只关 pointer-events：reka 的命中判定是拿指针坐标与 handle 的
+ * getBoundingClientRect 比（见 `reka-ui/dist/utils/registry.js` 的 recalculateIntersectingHandles），
+ * 盒子还在就还能命中，光标与拖动照旧。盒子没了，命中区、悬停、指针、Tab 焦点一起消失。
+ *
+ * 选择器跟的是**位置**（activity 的下一条）而不是固定下标：左栏收起时它的邻居换成 editor，
+ * 规则照旧命中；activity 自己收起时这条不存在，left|editor 的手柄没有任何变化。
+ * 少掉的那 1px 不再占宽度，由弹性叶（编辑器）吸收，尺寸模型仍按树上的 sash 槽位记账。
+ */
+:deep([data-branch="main"] > div > div:has(> [data-leaf="activity"]) + [role="separator"]) {
+    display: none;
+}
 </style>
