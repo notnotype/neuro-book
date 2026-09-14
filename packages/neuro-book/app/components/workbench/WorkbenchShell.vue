@@ -263,4 +263,20 @@ defineExpose({setLeafVisible, hidden, issues});
 :deep([data-branch="main"] > div > div:has(> [data-leaf="activity"]) + [role="separator"]) {
     display: none;
 }
+
+/*
+ * 悬停分界线时那条线会闪（DevTools 的 style recalcs/sec 冲到 ~70）：nb-ui 的 handle 用
+ * `::after` 把命中区扩到 10px，但 panel 是 `position: relative` 又排在 handle 后面，
+ * ::after 的**右半边被后一个叶按绘制顺序盖住**。于是指针在分界线两侧来回擦过时 :hover
+ * 反复开合，每开一次都要重跑一遍 nb-ui 的 transition-colors / opacity——过渡帧本身每帧
+ * 都要 recalc，观感就是这条线在闪，而布局一动没动。
+ *
+ * 把 handle 抬到相邻叶之上（z-index: 1），nb-ui 本来就设计好的命中区才真的生效：
+ * 指针在分界线 ±5px 内保持 :hover，过渡不再重启，光标与高亮都稳定。
+ * 实测（CDP Performance.getMetrics，1440×900，四叶态，指针在分界线 ±1px 抖动）：
+ * recalc 73.5 次/秒 → 0 次/秒（layout 前后都是 0），handle 的 mouseenter/mouseleave 各 29 次 → 各 0 次。
+ */
+:deep([data-branch] > div > [role="separator"]) {
+    z-index: 1;
+}
 </style>
