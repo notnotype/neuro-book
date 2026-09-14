@@ -207,8 +207,10 @@ async function verifyDesktopBookshelf(
     assertNear(titleBar.height, 36, "Desktop 标题栏高度");
     // 步骤 4 起标题栏是外壳内的 titlebar 叶，页面壳从 y=0 起、高 100dvh；
     // 「内容起点=36」由下一行的 Activity Bar 起点承担。
+    // #192 阶段 1 起图标条是卡片：外壳在 activity 叶上留 6px（SHELL_ACTIVITY_GUTTER_PX），
+    // 所以卡片自己的起点 = 36 + 6；内容起点仍是 36。
     assertNear(pageShell.y, 0, "Desktop 页面壳起点");
-    assertNear(activityBar.y, 36, "Activity Bar 起点");
+    assertNear(activityBar.y, 42, "Activity Bar 起点");
     await verifyActivityFooter(page, activityBar);
     await page.screenshot({path: resolve(evidenceDir, "desktop-bookshelf.png")});
     return {titleBar, pageShell, activityBar};
@@ -377,7 +379,8 @@ async function verifyBrowserProject(
     const pageRoot = await geometry(page, ".novel-ide-page");
     const activityBar = await geometry(page, ".workbench-activity-bar");
     assertNear(pageRoot.y, 0, "B/S 页面起点");
-    assertNear(activityBar.y, 0, "B/S Activity Bar 起点");
+    // 卡片与窗体上边界之间的 6px 留白由外壳给（见上面 Desktop 一节）
+    assertNear(activityBar.y, 6, "B/S Activity Bar 起点");
     await expectCount(page, '[data-activity-id="agent-mode"]', 0, "B/S 不再暴露 Agent 整页模式");
     const agentPanelButton = page.locator('[data-activity-id="agent-panel"]');
     await agentPanelButton.waitFor({state: "visible", timeout: 30_000});

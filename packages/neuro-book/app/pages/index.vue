@@ -2553,7 +2553,8 @@ onBeforeUnmount(() => {
                 <DesktopTitleBar />
             </template>
             <template #activity>
-                <!-- 图标条宿主换成 activity 叶：宽度来自树的逻辑尺寸 48（刚性），组件内部不动。 -->
+                <!-- 图标条宿主换成 activity 叶：叶宽是树上的刚性尺寸（卡片 + 两侧留白），
+                     卡片四周的留白由外壳加在叶上，组件只负责卡片自己长什么样。 -->
                 <NovelIdeActivityBar
                     class="h-full"
                     :active-tab="displaySidebarActiveTab"

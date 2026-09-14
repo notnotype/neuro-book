@@ -40,8 +40,18 @@ export const SHELL_TITLEBAR_HEIGHT = 36;
 /** 可隐藏叶的成员表：四个宽度叶 + 标题栏（main 是分支，不可隐藏）。 */
 const SHELL_HIDDEN_IDS: Record<string, true> = {...SHELL_LEAVES, [SHELL_TITLEBAR_ID]: true};
 
-/** 活动栏 48：`NovelIdeActivityBar.vue` 的 `w-12`（3rem）；`border-r` 走 border-box 含在这 48 里。 */
-export const SHELL_ACTIVITY_WIDTH = 48;
+/**
+ * 活动栏**卡片**的宽度：图标条本体（40px 按钮 + 两侧 4px 内边距）。
+ * 卡片是浮在窗体底上的一块面，它四周的留白由**外壳**加在叶上（`WorkbenchShell` 给
+ * `[data-leaf="activity"]` 的内边距），组件自己不写宽度也不写 margin——48 只在这里出现一次。
+ */
+export const SHELL_ACTIVITY_CARD_WIDTH = 48;
+
+/** 卡片与窗体边界、相邻叶之间的留白（四边各一份）。 */
+export const SHELL_ACTIVITY_GUTTER_PX = 6;
+
+/** 活动栏叶宽（刚性）：60 = 卡片 48 + 两侧留白 6；叶宽是树上唯一的逻辑尺寸。 */
+export const SHELL_ACTIVITY_WIDTH = SHELL_ACTIVITY_CARD_WIDTH + SHELL_ACTIVITY_GUTTER_PX * 2;
 
 /** 左栏 340 / 右栏 400：store 的 leftPanelWidth / agentPanelWidth 初值（app/stores/novel-ide.ts）。 */
 export const SHELL_LEFT_PANEL_DEFAULT_WIDTH = 340;

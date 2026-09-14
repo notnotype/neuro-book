@@ -40,11 +40,12 @@ describe("createDefaultShellGrid", () => {
         expect(leafChildren(grid).every((child) => child.kind === "leaf")).toBe(true);
 
         const sizes = grid.layout().sizes;
-        expect(sizes["activity"]).toBe(48);
+        // 活动栏叶宽 = 卡片 48 + 两侧留白 6（layout.ts 一处给出）
+        expect(sizes["activity"]).toBe(60);
         expect(sizes["left"]).toBe(340);
         expect(sizes["right"]).toBe(400);
-        // 编辑器吸收余量：1280 − 3 条 1px sash − 48 − 340 − 400
-        expect(sizes["editor"]).toBe(489);
+        // 编辑器吸收余量：1280 − 3 条 1px sash − 60 − 340 − 400
+        expect(sizes["editor"]).toBe(477);
     });
 
     it("右叶上限在建树时按视口定稿：1280 × 45% = 576", () => {
@@ -79,8 +80,8 @@ describe("distributeShellHeights", () => {
 });
 
 describe("shellLeafLimits", () => {
-    it("固定叶 min/max：活动栏刚性 48、左 280..560、右 320..max(360, 45% 视口)", () => {
-        expect(shellLeafLimits("activity", VIEWPORT)).toEqual({minimumSize: 48, maximumSize: 48});
+    it("固定叶 min/max：活动栏刚性 60（卡片 48 + 两侧留白 6）、左 280..560、右 320..max(360, 45% 视口)", () => {
+        expect(shellLeafLimits("activity", VIEWPORT)).toEqual({minimumSize: 60, maximumSize: 60});
         expect(shellLeafLimits("left", VIEWPORT)).toEqual({minimumSize: 280, maximumSize: 560});
         expect(shellLeafLimits("right", VIEWPORT)).toEqual({minimumSize: 320, maximumSize: 576});
         // 视口小到比例值不足兜底时取下限。
@@ -118,16 +119,16 @@ describe("recalcShellSizes", () => {
         const grid = createDefaultShellGrid(VIEWPORT);
         const store = {leftPanelWidth: 340, agentPanelWidth: 400, hidden: []};
 
-        expect(recalcShellSizes(grid, store, 1280).sizes).toEqual({activity: 48, left: 340, editor: 492, right: 400});
-        expect(recalcShellSizes(grid, store, 1600).sizes.editor).toBe(812);
-        expect(recalcShellSizes(grid, store, 1000).sizes.editor).toBe(212);
+        expect(recalcShellSizes(grid, store, 1280).sizes).toEqual({activity: 60, left: 340, editor: 480, right: 400});
+        expect(recalcShellSizes(grid, store, 1600).sizes.editor).toBe(800);
+        expect(recalcShellSizes(grid, store, 1000).sizes.editor).toBe(200);
     });
 
     it("store 里的越界值被各自 min/max 夹掉，不写进布局", () => {
         const grid = createDefaultShellGrid(VIEWPORT);
         const result = recalcShellSizes(grid, {leftPanelWidth: 100, agentPanelWidth: 5000, hidden: []}, 2000);
 
-        expect(result.sizes).toEqual({activity: 48, left: 280, editor: 1096, right: 576});
+        expect(result.sizes).toEqual({activity: 60, left: 280, editor: 1084, right: 576});
         expect(result.issues).toEqual([]);
     });
 
@@ -135,9 +136,9 @@ describe("recalcShellSizes", () => {
         const grid = createDefaultShellGrid(VIEWPORT);
         const result = recalcShellSizes(grid, {leftPanelWidth: 560, agentPanelWidth: 576, hidden: []}, 500);
 
-        expect(result.sizes).toEqual({activity: 48, left: 560, editor: 0, right: 576});
+        expect(result.sizes).toEqual({activity: 60, left: 560, editor: 0, right: 576});
         expect(result.issues).toHaveLength(1);
-        expect(result.issues.join()).toContain("1184");
+        expect(result.issues.join()).toContain("1196");
         expect(result.issues.join()).toContain("500");
     });
 
@@ -145,7 +146,7 @@ describe("recalcShellSizes", () => {
         const grid = createDefaultShellGrid(VIEWPORT);
         const result = recalcShellSizes(grid, {leftPanelWidth: 340, agentPanelWidth: 400, hidden: ["left"]}, 1280);
 
-        expect(result.sizes).toEqual({activity: 48, left: 0, editor: 832, right: 400});
+        expect(result.sizes).toEqual({activity: 60, left: 0, editor: 820, right: 400});
         expect(result.issues).toEqual([]);
     });
 
@@ -154,7 +155,7 @@ describe("recalcShellSizes", () => {
         const result = recalcShellSizes(grid, {leftPanelWidth: 340, agentPanelWidth: 400, hidden: ["editor"]}, 1280);
 
         expect(result.sizes.editor).toBe(0);
-        expect(result.issues).toEqual(["编辑器叶不可见：剩余 492px 没有叶吸收"]);
+        expect(result.issues).toEqual(["编辑器叶不可见：剩余 480px 没有叶吸收"]);
     });
 
     it("隐藏列表里的未登记叶报 issue 而不是静默忽略", () => {
@@ -170,8 +171,8 @@ describe("recalcShellSizes", () => {
         const result = recalcShellSizes(grid, {leftPanelWidth: 340, agentPanelWidth: 400, hidden: ["titlebar"]}, 1280);
 
         expect(result.issues).toEqual([]);
-        // 调用方传入的 avail 已扣掉 sash：1280 − 788 = 492。
-        expect(result.sizes).toEqual({activity: 48, left: 340, editor: 492, right: 400});
+        // 调用方传入的 avail 已扣掉 sash：1280 − 800 = 480。
+        expect(result.sizes).toEqual({activity: 60, left: 340, editor: 480, right: 400});
     });
 
     it("树里缺叶时按 0 宽处理并报 issue，而不是给 NaN", () => {

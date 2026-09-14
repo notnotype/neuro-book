@@ -248,7 +248,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <aside ref="activityBarRef" class="workbench-activity-bar flex w-12 shrink-0 flex-col items-center py-2" aria-label="Workbench navigation">
+    <aside ref="activityBarRef" class="workbench-activity-bar flex h-full w-full flex-col items-center py-2" aria-label="Workbench navigation">
         <div class="flex min-h-0 w-full flex-1 flex-col items-center">
             <div ref="primaryGroupRef" class="flex w-full shrink-0 flex-col items-center">
                 <Tooltip
@@ -381,17 +381,28 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /*
- * 活动栏的「面 + 描边」写成 CSS 而不是原子类：主题 token 要落在 border-width / border-color
+ * 图标条是**一块浮在窗体底上的卡片**：面 / 描边 / 圆角 / 阴影全部取自 nb-ui 的主题角色变量。
+ * 卡片四周的留白（与窗体边界、与相邻叶之间）归**外壳**——`WorkbenchShell` 给 activity 叶加了
+ * 内边距，卡片就是叶的内接盒；这里只描述它长什么样，不写宽度也不写 margin（宽度只有
+ * `layout.ts` 那一处）。写成 CSS 而不是原子类：主题 token 要落在 border-width / border-color
  * 这类属性上，原子类的任意值语法在那里分辨不出尺寸与颜色，写错了静默不生效（判据见 LabShell 顶部）。
  *
- * 面取 --bg-sidebar（配色变量）而不是 --sidebar-surface（主题层角色）。后者在本产品装的
- * nbook / macos 里是半透明玻璃（26% 的侧栏色），只有在「窗体底纹 + backdrop-filter」之上才成立；
- * 主页面根今天两样都没有，直接切过去只会得到一层洗淡的色（Lab 实测三档 chrome 面均低于可读性下限）。
- * 切面层与窗体底纹是一件事，待 nb-ui 的表面模型落地后一起做，已登记（tasks/t20 README）。
+ * 面取 --panel-surface（主题层角色，两套主题都映射到 --bg-panel）而不是原来的 --bg-sidebar：
+ * 卡片要读起来比窗体底高一档，角色这一层在装了的两套主题里都满足这一点——nbook 的暖纸
+ * (#2d2925 / #fffcf5) 与 macos 的面 (#2c2c2e / #ffffff) 都亮于各自的 --bg-main（配色轴不变量 ①）。
+ * --sidebar-surface 仍然不能用来铺底：它在本产品装的两套主题里是半透明玻璃（26% 的侧栏色），
+ * 只有在「窗体底纹 + backdrop-filter」之上才成立，主页面根今天两样都没有。切面层与窗体底纹是
+ * 一件事，待 nb-ui 的表面模型落地后一起做，已登记（tasks/t20 README）。
+ *
+ * 圆角取 --radius-control（两套主题都是 10px）而不是 --radius-panel（nbook 20 / macos 18）：
+ * 卡片只有 48 宽，panel 档的圆弧会正好切到 40px 图标按钮的角——按钮左上角到圆心 (20,20) 的
+ * 距离恰好等于半径 20。control 档与按钮自己的圆角同值，角上不打架。
  */
 .workbench-activity-bar {
-    background: var(--bg-sidebar);
-    border-right: var(--border-w) solid var(--divider);
+    background: var(--panel-surface);
+    border: var(--border-w) solid var(--panel-outline);
+    border-radius: var(--radius-control);
+    box-shadow: var(--elevation-raised);
 }
 
 .workbench-activity-bar__item {

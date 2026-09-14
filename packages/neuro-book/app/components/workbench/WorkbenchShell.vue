@@ -22,6 +22,7 @@ import {
     distributeShellHeights,
     recalcShellSizes,
     SASH_PX,
+    SHELL_ACTIVITY_GUTTER_PX,
     SHELL_LEAF_IDS,
     SHELL_MAIN_ID,
     SHELL_TITLEBAR_ID,
@@ -32,6 +33,12 @@ import {
 
 /** 窄屏判据：与 `index.vue` 的 `agentPanelOverlay` 同源（< 800），不新造断点。 */
 const NARROW_VIEWPORT_PX = 800;
+
+/**
+ * 活动栏卡片四周留白（唯一来源是 `layout.ts` 的叶宽公式）：以 CSS 变量喂给叶的内边距，
+ * 卡片样式与叶宽就不会各自记一个数字。
+ */
+const activityGutter = `${SHELL_ACTIVITY_GUTTER_PX}px`;
 
 /** 几何模型的键：四个宽度叶 + 垂直方向的 titlebar / main（像素高度）。 */
 const LAYOUT_SIZE_IDS = [...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID, SHELL_MAIN_ID] as const;
@@ -209,7 +216,7 @@ defineExpose({setLeafVisible, hidden, issues});
 </script>
 
 <template>
-    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'">
+    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" :style="{'--workbench-activity-gutter': activityGutter}" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'">
         <WorkbenchBranch
             v-if="!narrow && rootBranch"
             :node="rootBranch"
@@ -278,5 +285,16 @@ defineExpose({setLeafVisible, hidden, issues});
  */
 :deep([data-branch] > div > [role="separator"]) {
     z-index: 1;
+}
+
+/*
+ * 活动栏卡片的四周留白归外壳：留白加在叶上，卡片（`NovelIdeActivityBar` 的根元素）就是叶的内接盒。
+ * 这样叶宽与卡片样式不会各自记一个数字——叶宽 = 卡片 + 两侧留白由 `layout.ts` 一处给出
+ * （`SHELL_ACTIVITY_WIDTH = SHELL_ACTIVITY_CARD_WIDTH + SHELL_ACTIVITY_GUTTER_PX × 2`），
+ * 组件里不再出现 `w-12` 这类与树重复的宽度。卡片右侧那 6px 是纯留白：那一条边界上的 sash
+ * 已经去掉（见上），不会出现可拖/可高亮的线。
+ */
+:deep([data-leaf="activity"]) {
+    padding: var(--workbench-activity-gutter);
 }
 </style>
