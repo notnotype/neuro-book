@@ -420,9 +420,9 @@ export const labFixtures: LabFixture[] = [
         component: "ProjectPickerView",
         scenes: [
             {id: "default", label: "标准书架", data: {editable: "fixture-owned"}},
-            {id: "walnut-shelf", label: "典藏一：胡桃木书阁", data: {editable: "fixture-owned"}},
-            {id: "velvet-lectern", label: "典藏二：丝绒孤本台", data: {editable: "fixture-owned"}},
-            {id: "gilded-folio", label: "典藏三：烫金函套典籍", data: {editable: "fixture-owned"}},
+            {id: "classic-ambient", label: "优化一：沉浸画册", data: {editable: "fixture-owned"}},
+            {id: "classic-compact", label: "优化二：密集列表", data: {editable: "fixture-owned"}},
+            {id: "classic-editorial", label: "优化三：宽幅图文", data: {editable: "fixture-owned"}},
             {id: "empty", label: "零项目空态", data: {editable: "fixture-owned"}},
             {id: "create-dialog", label: "新建对话框", data: {editable: "fixture-owned"}},
             {id: "creating", label: "创建中", data: {editable: "fixture-owned"}},

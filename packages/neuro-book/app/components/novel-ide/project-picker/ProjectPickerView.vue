@@ -6,9 +6,9 @@ import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
-import ProjectPickerWalnutShelfView from "./components/ProjectPickerWalnutShelfView.vue";
-import ProjectPickerVelvetLecternView from "./components/ProjectPickerVelvetLecternView.vue";
-import ProjectPickerGildedFolioView from "./components/ProjectPickerGildedFolioView.vue";
+import ProjectPickerClassicAmbientView from "./components/ProjectPickerClassicAmbientView.vue";
+import ProjectPickerClassicCompactView from "./components/ProjectPickerClassicCompactView.vue";
+import ProjectPickerClassicEditorialView from "./components/ProjectPickerClassicEditorialView.vue";
 import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
 import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
@@ -105,9 +105,9 @@ watch(() => props.layoutMode, (val) => {
 
 const layoutOptions: SegmentedControlOption[] = [
     {value: "grid", label: "经典网格"},
-    {value: "walnut-shelf", label: "典藏一：胡桃木书阁"},
-    {value: "velvet-lectern", label: "典藏二：丝绒孤本台"},
-    {value: "gilded-folio", label: "典藏三：烫金函套典籍"},
+    {value: "classic-ambient", label: "优化一：沉浸画册"},
+    {value: "classic-compact", label: "优化二：密集列表"},
+    {value: "classic-editorial", label: "优化三：宽幅图文"},
 ];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
@@ -268,9 +268,9 @@ function handleRetryCoverRecovery(): void {
                     </div>
                 </div>
 
-                <!-- 典藏一：胡桃木书阁 · 凸脊插拔书架 -->
-                <ProjectPickerWalnutShelfView
-                    v-if="currentLayout === 'walnut-shelf'"
+                <!-- 优化一：经典画册网格 · 沉浸呼吸卡片 -->
+                <ProjectPickerClassicAmbientView
+                    v-if="currentLayout === 'classic-ambient'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"
@@ -287,9 +287,9 @@ function handleRetryCoverRecovery(): void {
                     @create-book="emit('open-create-form')"
                 />
 
-                <!-- 典藏二：丝绒展台 · 孤本典藏台 -->
-                <ProjectPickerVelvetLecternView
-                    v-else-if="currentLayout === 'velvet-lectern'"
+                <!-- 优化二：经典密集列表 · 生产力工作台 -->
+                <ProjectPickerClassicCompactView
+                    v-else-if="currentLayout === 'classic-compact'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"
@@ -306,9 +306,9 @@ function handleRetryCoverRecovery(): void {
                     @create-book="emit('open-create-form')"
                 />
 
-                <!-- 典藏三：羊皮对开 · 烫金函套典籍 -->
-                <ProjectPickerGildedFolioView
-                    v-else-if="currentLayout === 'gilded-folio'"
+                <!-- 优化三：经典对开杂志 · 宽幅图文卡片 -->
+                <ProjectPickerClassicEditorialView
+                    v-else-if="currentLayout === 'classic-editorial'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"

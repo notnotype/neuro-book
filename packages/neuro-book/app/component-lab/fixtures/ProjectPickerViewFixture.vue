@@ -74,7 +74,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
-const layoutMode = ref<"grid" | "walnut-shelf" | "velvet-lectern" | "gilded-folio">("grid");
+const layoutMode = ref<"grid" | "classic-ambient" | "classic-compact" | "classic-editorial">("grid");
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
@@ -88,12 +88,12 @@ watch(currentScene, (scene) => {
 
     if (scene === "empty") {
         projects.value = [];
-    } else if (scene === "walnut-shelf" || scene === "walnut") {
-        layoutMode.value = "walnut-shelf";
-    } else if (scene === "velvet-lectern" || scene === "velvet") {
-        layoutMode.value = "velvet-lectern";
-    } else if (scene === "gilded-folio" || scene === "folio") {
-        layoutMode.value = "gilded-folio";
+    } else if (scene === "classic-ambient" || scene === "ambient") {
+        layoutMode.value = "classic-ambient";
+    } else if (scene === "classic-compact" || scene === "compact") {
+        layoutMode.value = "classic-compact";
+    } else if (scene === "classic-editorial" || scene === "editorial") {
+        layoutMode.value = "classic-editorial";
     } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {

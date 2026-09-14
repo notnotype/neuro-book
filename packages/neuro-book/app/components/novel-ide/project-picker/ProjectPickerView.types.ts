@@ -49,7 +49,7 @@ export interface ProjectPickerViewProps {
     coverError?: string;
     coverRecoveryNotice?: string;
     teleportTarget?: string | boolean;
-    layoutMode?: "grid" | "walnut-shelf" | "velvet-lectern" | "gilded-folio";
+    layoutMode?: "grid" | "classic-ambient" | "classic-compact" | "classic-editorial";
 }
 
 export interface ProjectPickerViewEmits {

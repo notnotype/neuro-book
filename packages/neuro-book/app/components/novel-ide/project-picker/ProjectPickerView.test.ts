@@ -218,6 +218,7 @@ describe("ProjectPickerView", () => {
         expect(onCreate).toHaveBeenCalledWith({
             title: "新作品",
             summary: "",
+            genre: "general",
         });
 
         // 验证表单中无未翻译裸 key 泄露
@@ -249,5 +250,32 @@ describe("ProjectPickerView", () => {
 
         const headerSection = host.querySelector(".picker-header-section");
         expect(headerSection).not.toBeNull();
+    });
+
+    it("renders corresponding view when layoutMode is specified", async () => {
+        const layouts = [
+            {mode: "classic-ambient" as const, selector: "[data-classic-ambient-view]"},
+            {mode: "classic-compact" as const, selector: "[data-classic-compact-view]"},
+            {mode: "classic-editorial" as const, selector: "[data-classic-editorial-view]"},
+        ];
+
+        for (const {mode, selector} of layouts) {
+            const host = document.createElement("div");
+            document.body.appendChild(host);
+
+            const app = createApp(defineComponent({
+                setup() {
+                    return () => h(ProjectPickerView, {
+                        projects: SAMPLE_PROJECTS,
+                        layoutMode: mode,
+                    });
+                },
+            }));
+            mounted.push(app);
+            app.mount(host);
+            await nextTick();
+
+            expect(host.querySelector(selector)).not.toBeNull();
+        }
     });
 });

@@ -1,34 +1,85 @@
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 
-export interface CollectorBookStats {
-    // 基础文学指标
+export interface ProjectClassicStats {
     wordCount: string;
     chapterCount: number;
     lastChapterTitle: string;
     outlineProgress: number;
-    // 典藏装帧色彩与质感
-    leatherColor: string;
-    leatherGradient: string;
-    gildedColor: string;
-    gildedBorder: string;
-    ribbonColor: string;
-    // 古典书目罗马卷号与藏书票
-    tomeRoman: string;
-    volumeName: string;
-    exLibrisMotto: string;
-    catalogCode: string;
-    // 实体印鉴与工艺
-    waxSealColor: string;
-    waxSealText: string;
-    marbledBg: string;
+    genreKey: "scifi" | "xuanhuan" | "fantasy" | "mystery" | "urban" | "general";
+    genreLabel: string;
+    accentColor: string;
+    themeGradient: {
+        from: string;
+        to: string;
+        glow: string;
+    };
 }
 
 /**
- * 确定性派生典藏级别装帧参数。
- * 包含皮质色调、凸脊竹节、烫金排印、大理石环衬纹路与火漆印章。
+ * 派生经典界面的文学统计数据与题材主题色
  */
-export function getCollectorBookStats(project: ProjectMetadataDto, index: number = 0): CollectorBookStats {
+export function getProjectClassicStats(project: ProjectMetadataDto, tags?: readonly string[]): ProjectClassicStats {
     const root = project.projectRoot.toLowerCase();
+    const title = project.title;
+
+    let genreKey: ProjectClassicStats["genreKey"] = "general";
+    let genreLabel = "文学创作";
+    let accentColor = "var(--accent-main, #3b82f6)";
+    let themeGradient = {
+        from: "from-slate-700",
+        to: "to-slate-900",
+        glow: "rgba(59, 130, 246, 0.15)",
+    };
+
+    const allTagStr = (tags?.join(" ") ?? "") + " " + title + " " + (project.summary ?? "");
+
+    if (allTagStr.includes("科幻") || allTagStr.includes("星") || allTagStr.includes("赛博")) {
+        genreKey = "scifi";
+        genreLabel = "科幻未来";
+        accentColor = "#06b6d4";
+        themeGradient = {
+            from: "from-cyan-900",
+            to: "to-slate-950",
+            glow: "rgba(6, 182, 212, 0.18)",
+        };
+    } else if (allTagStr.includes("玄幻") || allTagStr.includes("修真") || allTagStr.includes("剑") || allTagStr.includes("道")) {
+        genreKey = "xuanhuan";
+        genreLabel = "玄幻修真";
+        accentColor = "#8b5cf6";
+        themeGradient = {
+            from: "from-purple-900",
+            to: "to-slate-950",
+            glow: "rgba(139, 92, 246, 0.18)",
+        };
+    } else if (allTagStr.includes("炼金") || allTagStr.includes("西幻") || allTagStr.includes("魔法") || allTagStr.includes("迷宫")) {
+        genreKey = "fantasy";
+        genreLabel = "奇幻史诗";
+        accentColor = "#10b981";
+        themeGradient = {
+            from: "from-emerald-900",
+            to: "to-slate-950",
+            glow: "rgba(16, 185, 129, 0.16)",
+        };
+    } else if (allTagStr.includes("悬疑") || allTagStr.includes("怪谈") || allTagStr.includes("诊疗室") || allTagStr.includes("梦")) {
+        genreKey = "mystery";
+        genreLabel = "悬疑惊悚";
+        accentColor = "#e11d48";
+        themeGradient = {
+            from: "from-rose-950",
+            to: "to-slate-950",
+            glow: "rgba(225, 29, 72, 0.18)",
+        };
+    } else if (allTagStr.includes("都市") || allTagStr.includes("职场")) {
+        genreKey = "urban";
+        genreLabel = "都市职场";
+        accentColor = "#3b82f6";
+        themeGradient = {
+            from: "from-blue-900",
+            to: "to-slate-950",
+            glow: "rgba(59, 130, 246, 0.16)",
+        };
+    }
+
     let hash = 0;
     for (let i = 0; i < root.length; i++) {
         hash = (hash * 31 + root.charCodeAt(i)) >>> 0;
@@ -49,97 +100,14 @@ export function getCollectorBookStats(project: ProjectMetadataDto, index: number
     ];
     const lastChapterTitle = sampleChapters[hash % sampleChapters.length] ?? defaultChapter;
 
-    // 典藏装帧皮革与金箔色阶库
-    const leatherThemes = [
-        {
-            // 摩洛哥深红真皮 (Deep Morocco Red)
-            leatherColor: "#451219",
-            leatherGradient: "linear-gradient(135deg, #591b24 0%, #3d1217 50%, #29080c 100%)",
-            gildedColor: "#f3cc69",
-            gildedBorder: "#cba038",
-            ribbonColor: "#a3222e",
-            waxSealColor: "#8b1822",
-            waxSealText: "连载",
-            marbledBg: "radial-gradient(ellipse at 40% 30%, #5e1c25 0%, #2b0c10 70%, #150406 100%)",
-        },
-        {
-            // 墨绿猎装真皮 (Forest Hunter Green)
-            leatherColor: "#132d1d",
-            leatherGradient: "linear-gradient(135deg, #1d422b 0%, #132d1d 50%, #0a1b10 100%)",
-            gildedColor: "#e8c872",
-            gildedBorder: "#be9e46",
-            ribbonColor: "#226a3f",
-            waxSealColor: "#144e2b",
-            waxSealText: "精校",
-            marbledBg: "radial-gradient(ellipse at 40% 30%, #1d442b 0%, #102919 70%, #06110a 100%)",
-        },
-        {
-            // 牛津午夜蓝皮 (Oxford Midnight Navy)
-            leatherColor: "#111d2e",
-            leatherGradient: "linear-gradient(135deg, #182a42 0%, #111d2e 50%, #080f1a 100%)",
-            gildedColor: "#f0d588",
-            gildedBorder: "#caa852",
-            ribbonColor: "#284b77",
-            waxSealColor: "#17375e",
-            waxSealText: "孤本",
-            marbledBg: "radial-gradient(ellipse at 40% 30%, #1c3250 0%, #0e1927 70%, #050a11 100%)",
-        },
-        {
-            // 鞍马琥珀棕皮 (Saddle Vintage Amber)
-            leatherColor: "#3a2214",
-            leatherGradient: "linear-gradient(135deg, #4f301d 0%, #3a2214 50%, #241309 100%)",
-            gildedColor: "#f5d378",
-            gildedBorder: "#c99e3a",
-            ribbonColor: "#8c4a1e",
-            waxSealColor: "#7e370f",
-            waxSealText: "珍藏",
-            marbledBg: "radial-gradient(ellipse at 40% 30%, #56331d 0%, #2f1a0e 70%, #140904 100%)",
-        },
-        {
-            // 拜占庭御用紫皮 (Imperial Byzantine Violet)
-            leatherColor: "#2c1533",
-            leatherGradient: "linear-gradient(135deg, #3d1f47 0%, #2c1533 50%, #190a1e 100%)",
-            gildedColor: "#eed07b",
-            gildedBorder: "#c5a44a",
-            ribbonColor: "#67297e",
-            waxSealColor: "#57186f",
-            waxSealText: "初辑",
-            marbledBg: "radial-gradient(ellipse at 40% 30%, #43214e 0%, #220e29 70%, #0f0413 100%)",
-        },
-    ];
-
-    const theme = leatherThemes[hash % leatherThemes.length] ?? leatherThemes[0]!;
-
-    const romanNumerals = ["TOMUS I", "TOMUS II", "TOMUS III", "TOMUS IV", "TOMUS V", "TOMUS VI", "TOMUS VII", "TOMUS VIII"];
-    const tomeRoman = romanNumerals[index % romanNumerals.length] ?? `TOMUS ${index + 1}`;
-    const volumeName = `第 ${(index + 1).toString().padStart(2, "0")} 卷`;
-
-    const exLibrisMottos = [
-        "EX LIBRIS · 恒久沉思与真理之书",
-        "VERITAS IN SCRIPTIS · 文字中的永恒秩序",
-        "ARS LONGA, VITA BREVIS · 孤本文存",
-        "MEMORIA IN PERPETUUM · 私家秘藏阁",
-        "LUMEN IN TENEBRIS · 黑暗中的提灯漫笔者",
-    ];
-    const exLibrisMotto = exLibrisMottos[hash % exLibrisMottos.length] ?? exLibrisMottos[0]!;
-    const catalogCode = `NB-CAT-${(1001 + (hash % 8999))}`;
-
     return {
         wordCount,
         chapterCount,
         lastChapterTitle,
         outlineProgress,
-        leatherColor: theme.leatherColor,
-        leatherGradient: theme.leatherGradient,
-        gildedColor: theme.gildedColor,
-        gildedBorder: theme.gildedBorder,
-        ribbonColor: theme.ribbonColor,
-        tomeRoman,
-        volumeName,
-        exLibrisMotto,
-        catalogCode,
-        waxSealColor: theme.waxSealColor,
-        waxSealText: theme.waxSealText,
-        marbledBg: theme.marbledBg,
+        genreKey,
+        genreLabel,
+        accentColor,
+        themeGradient,
     };
 }
