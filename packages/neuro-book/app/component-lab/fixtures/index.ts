@@ -519,6 +519,58 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./WorkbenchContainerSurfaceFixture.vue")).default,
     },
+    {
+        component: "WorkbenchPanelSurface",
+        scenes: [
+            {
+                id: "default",
+                label: "默认面板（问题列表 44 项）",
+                data: {activeTab: "problems", collapsed: false, layout: "fill"},
+            },
+            {
+                id: "terminal",
+                label: "终端视图（fill 布局）",
+                data: {activeTab: "terminal", collapsed: false, layout: "fill"},
+            },
+            {
+                id: "collapsed",
+                label: "收起态",
+                data: {activeTab: "problems", collapsed: true, layout: "fill"},
+            },
+            {
+                id: "scroll",
+                label: "滚动布局（scroll 呈现）",
+                data: {activeTab: "problems", collapsed: false, layout: "scroll"},
+            },
+        ],
+        load: async () => (await import("./WorkbenchPanelSurfaceFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchStatusBar",
+        scenes: [
+            {
+                id: "standard",
+                label: "标准状态栏（全量项与计数）",
+                data: {branch: "refactor/w00003-nb-ui-adoption", errors: 0, warnings: 3, infos: 14, narrow: false},
+            },
+            {
+                id: "errors",
+                label: "多诊断告警态（5 错误 / 12 警告）",
+                data: {branch: "refactor/w00003-nb-ui-adoption", errors: 5, warnings: 12, infos: 8, narrow: false},
+            },
+            {
+                id: "clean",
+                label: "无告警干净态",
+                data: {branch: "main", errors: 0, warnings: 0, infos: 0, narrow: false},
+            },
+            {
+                id: "narrow",
+                label: "窄容器防溢出（360px）",
+                data: {branch: "refactor/w00003-nb-ui-adoption", errors: 2, warnings: 4, infos: 6, narrow: true},
+            },
+        ],
+        load: async () => (await import("./WorkbenchStatusBarFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {
