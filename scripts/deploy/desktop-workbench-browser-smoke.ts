@@ -205,7 +205,9 @@ async function verifyDesktopBookshelf(
     const activityBar = await geometry(page, ".workbench-activity-bar");
     assertNear(titleBar.y, 0, "Desktop 标题栏 y");
     assertNear(titleBar.height, 36, "Desktop 标题栏高度");
-    assertNear(pageShell.y, 36, "Desktop 内容起点");
+    // 步骤 4 起标题栏是外壳内的 titlebar 叶，页面壳从 y=0 起、高 100dvh；
+    // 「内容起点=36」由下一行的 Activity Bar 起点承担。
+    assertNear(pageShell.y, 0, "Desktop 页面壳起点");
     assertNear(activityBar.y, 36, "Activity Bar 起点");
     await verifyActivityFooter(page, activityBar);
     await page.screenshot({path: resolve(evidenceDir, "desktop-bookshelf.png")});
