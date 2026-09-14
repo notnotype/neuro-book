@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {Dialog} from "@notnotype/nb-ui/components";
 import {storeToRefs} from "pinia";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -275,7 +276,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel :teleport-target="false" @confirm="void createUser()">
+        <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void createUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
@@ -305,7 +306,7 @@ onMounted(() => {
             </div>
         </Dialog>
 
-        <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel :teleport-target="false" @confirm="void saveUser()">
+        <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void saveUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
@@ -325,7 +326,7 @@ onMounted(() => {
             </div>
         </Dialog>
 
-        <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel :teleport-target="false" @confirm="void submitReset()">
+        <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void submitReset()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}

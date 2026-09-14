@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
 import {onClickOutside, useDebounceFn} from "@vueuse/core";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {AgentSessionListQueryDto, AgentSessionRelationFilter, AgentSessionStatusFilter, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
@@ -208,7 +208,7 @@ onClickOutside(filterPanelRef, () => {
 </script>
 
 <template>
-    <Dialog :model-value="props.modelValue" :title="t('agent.session.title')" width="min(1040px, calc(100vw - 32px))" height="min(760px, calc(100vh - 32px))" max-height="calc(100vh - 32px)" body-class="overflow-visible" :show-cancel="false" @confirm="emit('create')" @update:model-value="emit('update:modelValue', $event)">
+    <Dialog :model-value="props.modelValue" :title="t('agent.session.title')" teleport-target=".novel-ide-theme" width="min(1040px, calc(100vw - 32px))" height="min(760px, calc(100vh - 32px))" max-height="calc(100vh - 32px)" body-class="overflow-visible" :show-cancel="false" @confirm="emit('create')" @update:model-value="emit('update:modelValue', $event)">
         <template #header>
             <div class="flex min-w-0 flex-1 items-center justify-between gap-3">
                 <div class="min-w-0">

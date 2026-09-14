@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, reactive, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -443,6 +443,8 @@ watch(threadTags, (value) => {
         width="700px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="handleDialogRequestClose"
         @update:model-value="emit('update:visible', $event)"

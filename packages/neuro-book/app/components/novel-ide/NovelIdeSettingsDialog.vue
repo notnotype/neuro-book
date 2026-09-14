@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
-import {DialogWindow} from "@notnotype/nb-ui/components";
+import {Dialog, DialogWindow} from "@notnotype/nb-ui/components";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeSettingsView from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
@@ -1148,6 +1147,9 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
         width="420px"
         overlay-type="opaque"
         show-cancel
+        closable
+        :confirm-label="t('common.confirm')"
+        teleport-target=".novel-ide-theme"
         @confirm="void confirmDeleteTheme()"
         @request-close="themeDeleteTarget = null"
         @update:model-value="themeDeleteTarget = $event ? themeDeleteTarget : null"

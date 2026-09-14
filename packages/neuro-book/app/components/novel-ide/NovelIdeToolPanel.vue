@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {ref, useAttrs} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import Tooltip from "nbook/app/components/common/Tooltip.vue";
 import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
@@ -440,12 +440,12 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
             </div>
         </aside>
 
-        <Dialog v-model="downloadConfirmOpen" :title="t('ide.toolPanel.downloadTitle', {target: downloadTargetLabel})" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
+        <Dialog v-model="downloadConfirmOpen" :title="t('ide.toolPanel.downloadTitle', {target: downloadTargetLabel})" width="420px" show-cancel closable :confirm-label="t('common.confirm')" teleport-target=".novel-ide-theme" :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
             <p>{{ t("ide.toolPanel.downloadConfirm", {target: downloadTargetLabel}) }}</p>
             <p v-if="!props.userAssetsMode" class="mt-3 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-sm leading-5 text-[var(--status-warning)]">{{ t("ide.toolPanel.downloadProjectHistoryWarning") }}</p>
         </Dialog>
 
-        <Dialog v-model="syncWarningsOpen" :title="t('ide.toolPanel.syncDetailsTitle')" width="620px" :show-footer="false">
+        <Dialog v-model="syncWarningsOpen" :title="t('ide.toolPanel.syncDetailsTitle')" width="620px" :show-footer="false" closable teleport-target=".novel-ide-theme">
             <div class="space-y-3">
                 <p class="m-0 text-sm text-[var(--text-secondary)]">{{ t("ide.toolPanel.syncDetailsDescription") }}</p>
                 <div class="max-h-[52vh] space-y-2 overflow-auto pr-1">

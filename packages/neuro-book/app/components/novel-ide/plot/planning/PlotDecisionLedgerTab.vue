@@ -5,7 +5,7 @@
 // 生命周期动作:拍板(仅 open)/作废(强制填失效原因)/重开(decided|dropped)/物理删除(仅 UI/人工出口,93 D4)。
 import {computed, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import PlotDecisionAdrDetail from "nbook/app/components/novel-ide/plot/planning/PlotDecisionAdrDetail.vue";
@@ -634,6 +634,8 @@ watch(plotPlanningFocusId, (focusId) => {
             width="480px"
             show-cancel
             overlay-type="opaque"
+            closable
+            teleport-target=".novel-ide-theme"
             :busy="savingDrop"
             @request-close="dropVisible = false"
             @update:model-value="dropVisible = $event"

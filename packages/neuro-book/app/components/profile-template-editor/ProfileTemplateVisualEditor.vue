@@ -2,7 +2,7 @@
 import type {Data} from "@dnd-kit/abstract";
 import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
 import type {DragDropProviderEmits} from "@dnd-kit/vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
@@ -166,6 +166,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "close"): void;
 }>();
+
+const {t} = useI18n();
 
 const themeHostRef = ref<HTMLElement | null>(null);
 const novelIdeStore = useNovelIdeStore();
@@ -2372,6 +2374,9 @@ onBeforeUnmount(() => {
             title="新建 TSX Profile"
             width="560px"
             overlay-type="opaque"
+            closable
+            :confirm-label="t('common.confirm')"
+            teleport-target=".novel-ide-theme"
             :busy="creating"
             @confirm="void createUserProfile()"
         >

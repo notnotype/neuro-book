@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import {apiFetch} from "nbook/app/utils/api-fetch";
 import type {
     FormAnnotationKindDto,
@@ -90,6 +90,8 @@ watch(() => props.modelValue, (visible) => {
         width="760px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="loading"
         @update:model-value="emit('update:modelValue', $event)"
     >

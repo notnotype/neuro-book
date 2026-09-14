@@ -2,7 +2,7 @@
 // 承载树章节编辑器：创建 / 编辑 StoryChapter 与其 ChapterBrief 字段组。
 // 章级 writer 指令(目标/POV/信息控制/开头收尾/禁写)是防全知的按章控制面,详见 reference/plot/writer-brief.md。
 import {computed, reactive, ref, watch} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -169,6 +169,8 @@ function submit(): void {
         width="720px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

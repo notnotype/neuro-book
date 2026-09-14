@@ -3,7 +3,7 @@
 // 字段语义来自 Task 93 规划层:summary=向读者许了什么;payoffExpectation=兑现时的预期戏剧效果(只给兑现场 writer);
 // cadenceChapters=提示性参考节奏(非硬约束);deadlineChapterId=兑现期限章。可空字段空串提交时映射 null(显式清空)。
 import {computed, reactive, ref, watch} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -155,6 +155,8 @@ function submit(): void {
         width="640px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

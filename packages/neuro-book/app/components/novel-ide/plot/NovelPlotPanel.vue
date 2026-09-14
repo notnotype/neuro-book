@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import PlotThreadDetailPanel from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadDetailPanel.vue";
 import PlotThreadEditorDialog from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadEditorDialog.vue";
@@ -63,6 +63,8 @@ const {
 const emit = defineEmits<{
     (e: "openWorldEngine"): void;
 }>();
+
+const {t} = useI18n();
 
 const threads = ref<PlotThreadPanelThread[]>([]);
 const scenes = ref<PlotThreadPanelScene[]>([]);
@@ -1911,7 +1913,9 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             title="新建卷"
             width="440px"
             show-cancel
+            closable
             overlay-type="opaque"
+            teleport-target=".novel-ide-theme"
             :busy="savingAct"
             @request-close="actDialogVisible = false"
             @update:model-value="actDialogVisible = $event"
@@ -1941,7 +1945,10 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             title="删除确认"
             width="420px"
             show-cancel
+            closable
+            :confirm-label="t('common.confirm')"
             overlay-type="opaque"
+            teleport-target=".novel-ide-theme"
             @update:model-value="deleteTarget = null"
             @confirm="confirmDelete"
         >

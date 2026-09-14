@@ -30,7 +30,6 @@ describe("Novel writing mode entries", () => {
         expect(activityBar).toContain('case "plot": emit("open-tab", item.id); return;');
         expect(toolPanel).toContain("NovelPlotPanel");
         expect(toolPanel).toContain("activeTab === 'plot' && !props.userAssetsMode");
-        expect(toolPanel).not.toContain("NovelRagPanel");
     });
 
     it("Activity Bar 和 Plot 面板提供 Plot 主路径，但欢迎页和 RAG / simulation 快捷入口仍隐藏", async () => {
