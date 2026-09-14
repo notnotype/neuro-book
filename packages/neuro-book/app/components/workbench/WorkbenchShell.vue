@@ -223,12 +223,13 @@ defineExpose({setLeafVisible, hidden, issues});
             </template>
         </WorkbenchBranch>
 
-        <!-- 窄屏：不渲染 Splitter，按拓扑顺序单列堆叠（顺序与显隐跟树一致） -->
+        <!-- 窄屏：不渲染 Splitter，按拓扑顺序单列堆叠（顺序与显隐跟树一致）。
+             叶包装的 display 与分支版一致（flex column），叶内容才拿得到确定高度。 -->
         <div v-else-if="narrow" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden">
             <div
                 v-for="id in stackedLeafIds"
                 :key="id"
-                class="min-h-0 overflow-hidden"
+                class="flex min-h-0 flex-col overflow-hidden"
                 :class="id === 'activity' ? 'h-12 shrink-0' : id === 'titlebar' ? 'h-9 shrink-0' : 'flex-1'"
                 :data-leaf="id"
             >

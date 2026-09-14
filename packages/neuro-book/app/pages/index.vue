@@ -247,11 +247,15 @@ const inlineEditorAgent = useInlineEditorAgentController({
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
 const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
 /**
- * titlebar 叶只在桌面（有 bridge）存在：B/S 下隐藏它，主区按外壳高度占满。
- * 事实在页面（`desktopBridge`），叶的显隐走外壳暴露的 `setLeafVisible`。
+ * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
+ * - `titlebar` 只在桌面（有 bridge）存在：B/S 下不渲染该叶，主区按外壳高度占满；
+ * - `left` / `right` 在书架（picker）态收起，主区整个让给书架视图——与接入前「图标条 + 书架」等价。
  */
-watch([workbenchShellRef, desktopBridge], ([shell, bridge]) => {
-    shell?.setLeafVisible("titlebar", Boolean(bridge));
+watch([workbenchShellRef, desktopBridge, projectPickerActive], ([shell, bridge, pickerActive]) => {
+    if (!shell) return;
+    shell.setLeafVisible("titlebar", Boolean(bridge));
+    shell.setLeafVisible("left", !pickerActive);
+    shell.setLeafVisible("right", !pickerActive);
 });
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
@@ -2539,12 +2543,12 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <!-- 未选择 Project：项目选择界面接管整页 -->
-        <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
-        <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。 -->
-        <WorkbenchShell v-if="projectSurfaceActive" ref="workbenchShellRef">
+        <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。
+             Project 是否打开只影响叶内容与动作可用性，不阻塞外壳渲染（spec ui.workbench-shell）：
+             未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。 -->
+        <WorkbenchShell ref="workbenchShellRef">
             <template #titlebar>
                 <!-- 自绘 header 纳入 titlebar 叶：平台边界（bridge 命令、安全区、菜单数据）仍在组件内。 -->
                 <DesktopTitleBar />
@@ -2579,7 +2583,9 @@ onBeforeUnmount(() => {
                 </div>
             </template>
             <template #editor>
-                <div class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--editor-bg)] p-2 text-center" data-demo-leaf="editor">
+                <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
+                <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
+                <div v-else class="flex h-full w-full flex-col items-center justify-center gap-1 overflow-hidden bg-[var(--editor-bg)] p-2 text-center" data-demo-leaf="editor">
                     <span class="text-[11px] font-semibold text-[var(--text-secondary)]">editor</span>
                     <span class="text-[10px] leading-tight text-[var(--text-muted)]">编辑器：Markdown Studio / 欢迎页</span>
                     <span class="text-[10px] leading-tight text-[var(--text-muted)]">（后续阶段迁入）</span>
