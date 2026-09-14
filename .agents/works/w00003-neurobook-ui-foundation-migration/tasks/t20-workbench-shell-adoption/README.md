@@ -72,3 +72,80 @@ role: tasker
 - 基线数字：nb-ui 单测 279；验证台浏览器断言 34/34（最近一轮实测）。
 - 外壳现状（写死槽位与散落的布局状态）：见提案「问题」节——`app/utils/workbench-chrome.ts:12-26` 的写死 activity 列表、`app/stores/novel-ide.ts` 的 `novel.ide.local` / `novel.ide.session`、`app/pages/index.vue` 的页面级 ref 与 `nbook.settingsDialog.size`。
 - 主题通道现状：`app/styles/theme-vars.css` 的角色变量桥接（14 个角色变量在宿主上重声明）+ 24 处模板调用点显式传 `.novel-ide-theme`（`995e5e4f`）。
+
+## 待办：后续主题收口
+
+> 来源：外壳底子主题审计（提交 `4bb4a16b`，阶段 1 步骤 5）。外壳骨架（标题栏 / 活动栏 /
+> 四个叶的演示占位块）已改成只消费 nb-ui 主题变量；下面是这次**没有**一并做掉、
+> 以后重做主题时会返工的点。按「与谁一起做」分组，改之前先读对应那一段的理由。
+
+### ① World Engine：`--we-*` 别名层连同该子系统组件一起改直连
+
+- 现状：`app/styles/theme-vars.css` 里 `.world-engine-workbench-theme` 声明了 28 个 `--we-*`，
+  逐个映射到配色变量（`--we-bg-canvas: var(--bg-main)` 这一套），World Engine 的组件引用别名。
+- 目标：该子系统重建时删掉别名层，组件直接引用 nb-ui 的配色 / 角色变量（`--bg-main`、
+  `--panel-surface`、`--divider`、`--status-*` …），与外壳、与 Lab 走同一套名字。
+- 口径（开发者已定，2026-09-14）：**不单独做这一项**，与 World Engine 组件的那一轮一起做，
+  在那之前别名层保持原样——半迁移状态（别名层删了、组件没改）会让整个子系统失色。
+- 注意 `--we-code-bg` / `--we-code-text` 这两个别名今天取的是 `--panel-surface` / `--text-main`，
+  不是配色变量；改直连时顺带确认代码面是否该有独立角色（现在没有）。
+
+### ② 业务组件仍引用已下线的旧变量
+
+- 用户口径（2026-09-14）：允许现有业务组件继续引用**已不存在**的旧变量，产品侧只负责提供
+  新主题变量，不逐个补映射、不做兼容层。各子系统重建时随那一轮替换。
+- 已完成的一轮：主应用的主题与配色 authority（`269ba90a`）与本次外壳收口（`4bb4a16b`）。
+- 尚未迁移的消费面（重建时逐处替换成 nb-ui 名字）：
+  - `markdown-studio/*`（`--page-surface` 等主题扩展变量已在用；`--panel-surface` / `--toolbar-surface` 与 `--bg-*` 混用，需要一次统一）；
+  - `novel-ide/agent/*`、`novel-ide/plot/*`、`common/low-code-form/*`、`common/diff/*`；
+  - `app/components/common/Dropdown.vue`、`Tooltip.vue`：两处仍各自复制了浮层外观
+    （`rounded-md border-[var(--border-color)] bg-[var(--bg-panel)] shadow-xl`），
+    未消费 nb-ui 的 `.nb-ui-popover-surface` / `.nb-ui-popover-item`。**这两个是公共件，
+    改一次能覆盖全仓的菜单与提示**，优先级高于其它零散组件。
+
+### ③ 修不掉的返工点（本次只报告，未改）
+
+1. **外壳面层未切主题层 glass 档。** 活动栏 / 标题栏 / 叶面今天取配色变量
+   （`--bg-sidebar` / `--bg-panel`），没有取主题层角色 `--sidebar-surface` / `--toolbar-surface`
+   （本产品装的两套主题里它们是 26% / 30% 的半透明玻璃）。
+   理由：那三档只在「窗体底纹 `--window-backdrop` + 自身 `backdrop-filter: var(--glass-blur)`」
+   之上才成立，主页面根今天两样都没有；单切面层只会得到一层洗淡的色——Lab 已实测三档 chrome
+   面低于可读性下限（`app/component-lab/LabShell.vue` 顶部那段）。
+   这是一次**材质层迁移**，且 nb-ui 侧的表面模型提案（`packages/nb-ui/docs/proposals/nb-ui-surface-model.md`）
+   尚未落地，等它到了再和窗体底纹一起做。相关：`.nb-ui-popover-surface` 那一档已经在用（见下）。
+2. **窗口几何双份维护。** 标题栏 36px、活动栏 48px 同时写在组件里
+   （`DesktopTitleBar.vue` 的 `.desktop-title-bar`、`NovelIdeActivityBar.vue` 的 `w-12`）
+   与 `app/utils/workbench/layout.ts`（`SHELL_TITLEBAR_HEIGHT` / `SHELL_ACTIVITY_WIDTH`）。
+   按 nb-ui playground `workbench.css` 的既定口径，「窗口几何属产品 IA，主题不该动」，
+   所以**不新增主题 token**是对的；但两处数字得手改两遍，改一处漏一处会表现为
+   「树里的尺寸与 CSS 差几像素」。要收口只能让 JS 侧读 DOM（引入测量时机问题）或反过来由 JS 主导，
+   两条都不便宜，留待窗口 chrome 那一轮统一决定。
+3. **标题栏下拉菜单被外壳叶裁掉（既有缺陷，非本次引入）。** `titlebar` 叶的包装
+   （`WorkbenchBranch.vue` 的 `overflow-hidden`）与 nb-ui `Splitter` 面板（`overflow-auto`）
+   都带裁剪，而下拉（`position: absolute; top: 30px`）必然伸到 36px 高的叶之外，于是
+   File / Edit / View / Help 与 Project 菜单**打开后看不见**（DOM 在、`z-index: 1001` 在、
+   命中区也在，只是被裁）。实测：把祖先链的 `overflow` 临时放开，菜单立刻正常显示（外观正确）。
+   与主题无关（改前改后的定位与祖先链完全一致），但它是桌面壳的可用性缺陷。
+   修法需要菜单逃出裁剪：要么把下拉 `Teleport` 到主题宿主（会牵动 `onClickOutside` 的判定），
+   要么改成 `position: fixed` + 按钮 `getBoundingClientRect()` 定位；两条都要在真桌面壳上验证，
+   所以不在本次做。**建议开独立 Task**。
+4. **Monaco 的语法色不随主题。** `app/components/markdown-studio/monaco-theme.ts` 的
+   token 颜色按明暗写死（`#0F766E` / `#1D4ED8` …），只有背景 / 前景 / 选中 / 强调走变量；
+   换主题（甚至换配色）时源码模式的语法高亮不变。要修得先由 nb-ui 给出「语法色」角色
+   （新契约，和 `--status-*` 同级），属 nb-ui 侧设计，本次只登记。
+5. **JS 侧读变量的兜底值各自一份。** `monaco-theme.ts` / `monaco-diff-theme.ts` /
+   `MarkdownSourceEditor.vue` / `tiptap/HtmlEmbed.ts` 都用 `getPropertyValue("--x").trim() || "#…"`
+   自带一个字面色兜底。**没有装主题**时才会用到，属受支持状态（同 `tokens.css` 的口径），
+   不算缺陷；但重做主题时别把它们当成第二个事实源。
+
+### 附：验证留痕（本次）
+
+- 浏览器实测（Node + Playwright，1440×900，桌面 bridge 桩）：四个组合
+  （nbook / macos × light / dark）下，外壳 33 项取值（活动栏面与线、图标项圆角、内分隔线、
+  三个演示占位块的面 / 线 / 字号 / 字重 / 间距、标题栏面与线 / 控件高度圆角字号 / 搜索框描边、
+  nb-ui Splitter 的 sash、标题栏下拉的浮层六项）**逐项等于**同组合下该主题变量的解析值。
+- 控制台：初次加载 0 条；打开 Project 与四个组合切换后仅两条
+  `[nuxt-app] page:loading:* already exists`——来源是 `@nuxt/devtools` 的计时器包裹
+  （与本次改动无关，非 error）。
+- `bun x vue-tsc --noEmit -p packages/neuro-book/tsconfig.json` 无输出；
+  `bun run --cwd packages/neuro-book test app/utils/workbench app/utils/theme` 6 文件 52 测试全过。
