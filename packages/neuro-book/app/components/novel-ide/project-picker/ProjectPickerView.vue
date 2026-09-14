@@ -8,6 +8,9 @@ import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImag
 import ProjectCard from "./components/ProjectCard.vue";
 import ProjectPickerSpotlightView from "./components/ProjectPickerSpotlightView.vue";
 import ProjectPickerTactileView from "./components/ProjectPickerTactileView.vue";
+import ProjectPickerCosmosView from "./components/ProjectPickerCosmosView.vue";
+import ProjectPickerZenView from "./components/ProjectPickerZenView.vue";
+import ProjectPickerChronicleView from "./components/ProjectPickerChronicleView.vue";
 import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
 import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
@@ -106,6 +109,9 @@ const layoutOptions: SegmentedControlOption[] = [
     {value: "grid", label: "经典网格"},
     {value: "spotlight", label: "聚光灯工作室"},
     {value: "tactile", label: "典藏 3D 书房"},
+    {value: "cosmos", label: "世界罗盘星图"},
+    {value: "zen", label: "极简禅宗手稿"},
+    {value: "chronicle", label: "时间走廊胶卷"},
 ];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
@@ -288,6 +294,63 @@ function handleRetryCoverRecovery(): void {
                 <!-- 方案二：典藏 3D 书房 -->
                 <ProjectPickerTactileView
                     v-else-if="currentLayout === 'tactile'"
+                    :projects="projects"
+                    :project-tags="props.projectTags"
+                    :delete-busy-roots="deleteBusyRoots"
+                    :failed-cover-roots="failedCoverRoots"
+                    :cover-refresh-versions="coverRefreshVersions"
+                    :picker-recoveries="pickerRecoveries"
+                    :resolve-cover-url="resolveCoverUrl"
+                    :format-date="formatDate"
+                    @open="emit('open', $event)"
+                    @delete="emit('delete', $event)"
+                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                    @open-cover-dialog="handleOpenCoverDialog"
+                    @cover-error="emit('cover-error', $event)"
+                    @create-book="emit('open-create-form')"
+                />
+
+                <!-- 方案三：世界罗盘星图 -->
+                <ProjectPickerCosmosView
+                    v-else-if="currentLayout === 'cosmos'"
+                    :projects="projects"
+                    :project-tags="props.projectTags"
+                    :delete-busy-roots="deleteBusyRoots"
+                    :failed-cover-roots="failedCoverRoots"
+                    :cover-refresh-versions="coverRefreshVersions"
+                    :picker-recoveries="pickerRecoveries"
+                    :resolve-cover-url="resolveCoverUrl"
+                    :format-date="formatDate"
+                    @open="emit('open', $event)"
+                    @delete="emit('delete', $event)"
+                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                    @open-cover-dialog="handleOpenCoverDialog"
+                    @cover-error="emit('cover-error', $event)"
+                    @create-book="emit('open-create-form')"
+                />
+
+                <!-- 方案四：极简禅宗手稿 -->
+                <ProjectPickerZenView
+                    v-else-if="currentLayout === 'zen'"
+                    :projects="projects"
+                    :project-tags="props.projectTags"
+                    :delete-busy-roots="deleteBusyRoots"
+                    :failed-cover-roots="failedCoverRoots"
+                    :cover-refresh-versions="coverRefreshVersions"
+                    :picker-recoveries="pickerRecoveries"
+                    :resolve-cover-url="resolveCoverUrl"
+                    :format-date="formatDate"
+                    @open="emit('open', $event)"
+                    @delete="emit('delete', $event)"
+                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                    @open-cover-dialog="handleOpenCoverDialog"
+                    @cover-error="emit('cover-error', $event)"
+                    @create-book="emit('open-create-form')"
+                />
+
+                <!-- 方案五：时间走廊胶卷 -->
+                <ProjectPickerChronicleView
+                    v-else-if="currentLayout === 'chronicle'"
                     :projects="projects"
                     :project-tags="props.projectTags"
                     :delete-busy-roots="deleteBusyRoots"

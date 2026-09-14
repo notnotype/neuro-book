@@ -74,7 +74,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
-const layoutMode = ref<"grid" | "spotlight" | "tactile">("grid");
+const layoutMode = ref<"grid" | "spotlight" | "tactile" | "cosmos" | "zen" | "chronicle">("grid");
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
@@ -92,6 +92,12 @@ watch(currentScene, (scene) => {
         layoutMode.value = "spotlight";
     } else if (scene === "tactile" || scene === "tactile-library") {
         layoutMode.value = "tactile";
+    } else if (scene === "cosmos" || scene === "cosmos-atlas") {
+        layoutMode.value = "cosmos";
+    } else if (scene === "zen" || scene === "zen-manuscript") {
+        layoutMode.value = "zen";
+    } else if (scene === "chronicle" || scene === "chronicle-film") {
+        layoutMode.value = "chronicle";
     } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {

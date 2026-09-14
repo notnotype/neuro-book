@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ref, computed} from "vue";
+import {ref, computed, watch} from "vue";
 import {Badge, Button, IconButton} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {ProjectPickerRecoveryEntry} from "nbook/app/utils/project-picker-recovery";

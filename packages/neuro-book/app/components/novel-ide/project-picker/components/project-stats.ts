@@ -14,6 +14,19 @@ export interface ProjectCreativeStats {
         to: string;
         glow: string;
     };
+    // 方案三：世界罗盘星图特有字段
+    cosmosEra: string;
+    cosmosFactionCount: number;
+    cosmosCharacterCount: number;
+    cosmosCoordinates: string;
+    // 方案四：极简禅宗特有字段
+    zenQuote: string;
+    zenSubtitle: string;
+    // 方案五：时间走廊胶卷特有字段
+    chronicleReelNo: string;
+    chronicleActivitySparkline: readonly number[];
+    chronicleWeeklyWords: string;
+    chronicleTimelineDate: string;
 }
 
 /**
@@ -105,6 +118,64 @@ export function getProjectCreativeStats(project: ProjectMetadataDto, tags?: read
         general: defaultChapter,
     };
 
+    // 方案三：世界罗盘元数据
+    const defaultCosmosEra = "未定世界线 · 初始纪年";
+    const cosmosEras: Record<string, string> = {
+        scifi: "新泰拉航宇同盟 · 第七深空纪元",
+        xuanhuan: "天道崩碎三千年 · 灵墟大争世",
+        fantasy: "艾尔德兰第三帝国 · 迷宫炼金纪",
+        mystery: "暗潮泛滥期 · 诡异调查备忘录",
+        urban: "现代商战与量子算力争夺代",
+        general: defaultCosmosEra,
+    };
+    const cosmosEra = cosmosEras[genreKey] ?? defaultCosmosEra;
+    const cosmosFactionCount = 4 + (hash % 9);
+    const cosmosCharacterCount = 14 + (hash % 32);
+    const lat = 10 + (hash % 70);
+    const lng = 20 + ((hash >> 4) % 150);
+    const cosmosCoordinates = `SEC-${(hash % 99).toString().padStart(2, "0")} // ${lat}°N ${lng}°E`;
+
+    // 方案四：极简禅宗金句与副题
+    const defaultZenQuote = "“笔尖触碰纸面的那一瞬，未曾发生的故事便在静谧中诞生。”";
+    const zenQuotes: Record<string, string> = {
+        scifi: "“跃迁引擎熄火的第七个标准日，科考船终于在双星潮汐中，捕获到了那阵微弱的心跳。”",
+        xuanhuan: "“断剑埋入黄沙三千尺，少年再拔出时，天道已崩，天下已无敢言长生者。”",
+        fantasy: "“羊皮卷上的水银符文在满月下重写了禁忌公式，指向帝国最深处的第七层水牢。”",
+        mystery: "“电梯停在并不存在的十四层，镜子映不出任何影子，门外却响起了熟悉的敲门声。”",
+        urban: "“暴雨倾盆的拂晓，代码在服务器集群深处完成了自我复制，无人知晓变局已至。”",
+        general: defaultZenQuote,
+    };
+    const defaultZenSubtitle = "UNTITLED MANUSCRIPT IN PROGRESS";
+    const zenSubtitles: Record<string, string> = {
+        scifi: "THE BIONIC ERA & STELLAR HORIZON",
+        xuanhuan: "SHATTERED BLADE OF HEAVEN",
+        fantasy: "CHRONICLES OF ABYSS ALCHEMY",
+        mystery: "ANOMALY IN THE SEVENTH CLINIC",
+        urban: "WHISPERS ACROSS THE NEON SKYLINE",
+        general: defaultZenSubtitle,
+    };
+    const zenQuote = zenQuotes[genreKey] ?? defaultZenQuote;
+    const zenSubtitle = zenSubtitles[genreKey] ?? defaultZenSubtitle;
+
+    // 方案五：时间走廊胶卷数据
+    const reelIndex = (hash % 12) + 1;
+    const chronicleReelNo = `REEL #${reelIndex.toString().padStart(2, "0")}`;
+    const sparklineBase = [
+        12 + (hash % 20),
+        25 + ((hash >> 2) % 30),
+        40 + ((hash >> 4) % 40),
+        65 + ((hash >> 6) % 35),
+        95 + ((hash >> 8) % 25),
+        80 + ((hash >> 10) % 30),
+        45 + ((hash >> 12) % 40),
+    ];
+    const chronicleWeeklyNum = (1.2 + ((hash % 18) / 10)).toFixed(1);
+    const chronicleWeeklyWords = `+${chronicleWeeklyNum} 万字`;
+    const dateYear = 2026;
+    const dateMonth = 6 + (hash % 4);
+    const dateDay = 10 + (hash % 18);
+    const chronicleTimelineDate = `${dateYear}.${dateMonth.toString().padStart(2, "0")}.${dateDay.toString().padStart(2, "0")}`;
+
     return {
         wordCount,
         chapterCount,
@@ -115,5 +186,16 @@ export function getProjectCreativeStats(project: ProjectMetadataDto, tags?: read
         genreLabel,
         accentColor,
         themeGradient,
+        cosmosEra,
+        cosmosFactionCount,
+        cosmosCharacterCount,
+        cosmosCoordinates,
+        zenQuote,
+        zenSubtitle,
+        chronicleReelNo,
+        chronicleActivitySparkline: sparklineBase,
+        chronicleWeeklyWords,
+        chronicleTimelineDate,
     };
 }
+

@@ -177,4 +177,29 @@ describe("ProjectPickerViewFixture", () => {
         const labSubject = host.querySelector("[data-lab-subject]");
         expect(labSubject?.className).toContain("max-w-[390px]");
     });
+
+    it("支持切换至各个设计方案场景 (spotlight, tactile, cosmos, zen, chronicle)", async () => {
+        const scenes = ["spotlight", "tactile", "cosmos", "zen", "chronicle"] as const;
+        for (const scene of scenes) {
+            const host = document.createElement("div");
+            document.body.append(host);
+
+            const app = createApp(ProjectPickerViewFixture, {scene});
+            mounted.push(app);
+            app.mount(host);
+            await nextTick();
+
+            if (scene === "spotlight") {
+                expect(host.querySelector("[data-spotlight-studio-view]")).not.toBeNull();
+            } else if (scene === "tactile") {
+                expect(host.querySelector(".tactile-bookshelf-view")).not.toBeNull();
+            } else if (scene === "cosmos") {
+                expect(host.querySelector("[data-cosmos-atlas-view]")).not.toBeNull();
+            } else if (scene === "zen") {
+                expect(host.querySelector("[data-zen-manuscript-view]")).not.toBeNull();
+            } else if (scene === "chronicle") {
+                expect(host.querySelector("[data-chronicle-film-view]")).not.toBeNull();
+            }
+        }
+    });
 });
