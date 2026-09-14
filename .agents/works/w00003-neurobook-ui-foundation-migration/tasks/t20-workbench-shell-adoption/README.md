@@ -49,6 +49,36 @@ role: tasker
 - 每批独立提交、独立验证；批次之间不互相引用未落地的中间态；
 - 任何一批出现回归都只撤该批；「旧槽位未删」就是各批的天然回退路径。
 
+## 工作方式：Lab 先行（2026-09-14 登记）
+
+上表的每一批都按**两段式**推进，不直接在主页面一次性全切。
+
+**第一段：Lab 先行。** 要迁的组件先在 Component Lab（`packages/neuro-book/app/component-lab/`，
+路由 `/lab`，与 `/workbench-spike` 共用 Source-Dev 排除）里迁成**消费 nb-ui 主题变量的新组件**，
+并留下三件东西：
+
+- 组件本身（`<Component>.vue`）与同名 `<Component>.md` 说明——Lab 导航由**文档扫描派生**
+  （`app/component-lab/component-index.ts`），所以没有第二份手写清单，文档必须与实现并列；
+- `fixtures/<Component>Fixture.vue` 场景与数据面板（几何 / 层级 / 动画有断言价值时再加
+  `*.Fixture.test.ts`）；
+- Lab 场景在**真实浏览器**里逐场景验收：暗色与窄容器各过一遍，能断言的几何 / 层级 / 显示态写进
+  smoke，不把「页面 smoke 通过」写成「功能已验证」。
+
+**第二段：再进主页面。** Lab 验收过的组件按批次切片接进 `app/pages/index.vue` 的叶 / 槽位——一次一批、
+每批自带回退点；旧槽位与旧组件保留到提案的删除门禁（入口闭环、行为等价证据、生命周期安全、
+owner 迁移、单 Editor Group 不变）全部满足才删。
+
+配方与判据沿用 t13 试迁移的沉淀
+（[002-trial-migration-gold-standard](../t13-lab-first-migration-strategy/walkthroughs/002-trial-migration-gold-standard.md)）：
+承载关系先于外观 · 零件全部来自 nb-ui（迁移目录里再出现手写面板样式就是漏项）· 冲突回 owner 层修、
+不在调用点绕过 · 形态一变就清账（prop / emit / i18n key / 测试 / 文档 / fixture 一起删）·
+每处不显然的缺陷落成可证伪的规则 + 回归。
+
+**本批（左右侧边栏容器，2026-09-14）落的是新外壳部件而不是组件迁移**：它没有旧实现要迁、
+也不替换任何现有入口，因此不另建 Lab 场景，验收面就是主页面 + 真实浏览器的实数取值
+（容器头部 / 内容区的底色、描边、圆角、留白逐项等于同组合下的 nb-ui 变量）与叶几何。
+从 Lab 迁出的产品组件（`files` / `characters` / `plot` / Agent 面）仍按上面的两段式走。
+
 ## 验收条件
 
 - **布局等价**：外壳渲染出与现状等价的布局（区域顺序、相对位置；无双重边框 / 双重标题条 / 双重标签条）。
