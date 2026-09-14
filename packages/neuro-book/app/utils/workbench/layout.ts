@@ -50,6 +50,13 @@ export const SHELL_ACTIVITY_CARD_WIDTH = 48;
 /** 卡片与窗体边界、相邻叶之间的留白（四边各一份）。 */
 export const SHELL_ACTIVITY_GUTTER_PX = 6;
 
+/**
+ * 侧栏**容器卡片**四周的留白：取值与活动栏卡片同源（两张卡片四周的留白是同一个视觉量，
+ * 改一处两张一起动），机制也同一套——外壳把它喂给叶的内边距，卡片自己是叶的内接盒。
+ * 代价写在明处：容器内容区比叶窄 2 × 6 = 12px（叶尺寸与 min/max 不受影响）。
+ */
+export const SHELL_CONTAINER_GUTTER_PX = SHELL_ACTIVITY_GUTTER_PX;
+
 /** 活动栏叶宽（刚性）：60 = 卡片 48 + 两侧留白 6；叶宽是树上唯一的逻辑尺寸。 */
 export const SHELL_ACTIVITY_WIDTH = SHELL_ACTIVITY_CARD_WIDTH + SHELL_ACTIVITY_GUTTER_PX * 2;
 

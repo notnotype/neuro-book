@@ -99,6 +99,12 @@ const VIEW_LAYOUT_CONTRACTS: Record<string, ViewLayoutContract> = {
     fill: {mode: "fill", shellPadsContent: false, shellOwnsScroll: false},
 } satisfies Record<ViewLayoutMode, ViewLayoutContract>;
 
+/**
+ * 没指定 `layout` 时的呈现合同（= `scroll`：外壳给内边距并拥有滚动）。
+ * 「还没有活动视图」的容器与宿主取默认值都用它——默认值只有这一份，调用方不各写一份字面量。
+ */
+export const DEFAULT_VIEW_LAYOUT_CONTRACT: ViewLayoutContract = VIEW_LAYOUT_CONTRACTS.scroll!;
+
 export function resolveViewLayout(layout: string): DescriptorResult<ViewLayoutContract> {
     const contract = registered(VIEW_LAYOUT_CONTRACTS, layout);
     return contract ? ok(contract) : fail(`未登记的 layout 取值：${layout}`);

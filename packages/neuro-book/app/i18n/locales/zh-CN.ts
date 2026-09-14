@@ -895,6 +895,12 @@ const zhCN = {
             moreActions: "更多工作台入口",
             needOpenProject: "请先打开一个 Project",
         },
+        workbench: {
+            container: {
+                tools: "工具",
+                agent: "Agent",
+            },
+        },
         header: {
             openAdmin: "进入后台",
             profile: "个人中心",

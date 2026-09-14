@@ -17,6 +17,8 @@ import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/Workspa
 import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
 import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
+import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
+import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -2542,7 +2544,8 @@ onBeforeUnmount(() => {
         <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
-        <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶先放演示占位块，业务组件暂不挂载（仍在仓库里）。
+        <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶挂的是外壳部件，业务组件暂不挂载（仍在仓库里）。
+             left / right 叶已换成容器部件（步骤 5），editor 叶仍是演示占位块。
              Project 是否打开只影响叶内容与动作可用性，不阻塞外壳渲染（spec ui.workbench-shell）：
              未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。
              占位块的面/描边/字号只走 nb-ui 主题变量（见下面 .workbench-demo-leaf）：
@@ -2576,11 +2579,12 @@ onBeforeUnmount(() => {
                 />
             </template>
             <template #left>
-                <div class="workbench-demo-leaf workbench-demo-leaf--start" data-demo-leaf="left">
-                    <span class="workbench-demo-leaf__title">left</span>
-                    <span class="workbench-demo-leaf__hint">左栏：工具面板 / 文件树</span>
-                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
-                </div>
+                <!-- 左容器（容器部件，不是业务视图）：头部 + 内容区，卡片样式与留白分别来自 nb-ui 主题
+                     角色变量与外壳喂的 gutter。内容区按 `scroll` 呈现（外壳给留白、拥有滚动），
+                     真视图（文件树 / 角色 / 情节）在后续阶段迁入时整块替掉下面这段演示文案。 -->
+                <WorkbenchContainerSurface :container="SHELL_LEFT_CONTAINER" :title="t(SHELL_LEFT_CONTAINER.titleKey)" layout="scroll">
+                    <p class="workbench-leaf-placeholder">左栏容器：工具面板 / 文件树（后续阶段迁入）</p>
+                </WorkbenchContainerSurface>
             </template>
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
@@ -2592,11 +2596,13 @@ onBeforeUnmount(() => {
                 </div>
             </template>
             <template #right>
-                <div class="workbench-demo-leaf workbench-demo-leaf--end" data-demo-leaf="right">
-                    <span class="workbench-demo-leaf__title">right</span>
-                    <span class="workbench-demo-leaf__hint">右栏：Agent Chat Surface</span>
-                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
-                </div>
+                <!-- 右容器：内容区按 `fill` 呈现（视图自己占满、自管内部滚动）——Agent 对话面就是这一档。
+                     本批仍只有演示文案，真视图（Agent 会话 / 对话面）在后续阶段迁入。 -->
+                <WorkbenchContainerSurface :container="SHELL_RIGHT_CONTAINER" :title="t(SHELL_RIGHT_CONTAINER.titleKey)" layout="fill">
+                    <div class="workbench-leaf-placeholder workbench-leaf-placeholder--fill">
+                        <span>右栏容器：Agent Chat Surface（后续阶段迁入）</span>
+                    </div>
+                </WorkbenchContainerSurface>
             </template>
         </WorkbenchShell>
 
@@ -2640,17 +2646,16 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /*
- * 演示占位块（四个叶的内容暂由这些块承担，真视图接入时整块替掉）。
+ * 演示占位块（editor 叶的内容暂由它承担，真视图接入时整块替掉；left / right 叶已换成容器部件）。
  *
  * 属性写成 CSS 而不是原子类：面、描边宽度、字号这三样在原子类的任意值语法里
  * 分辨不出「这是尺寸还是颜色」，写错了**静默不生效**——而静默不生效正是「换主题看不出变化」
  * 的成因（同一判据见 `app/component-lab/LabShell.vue` 顶部那段）。
  *
- * 三处取值都是 nb-ui 的变量，产品侧不自造：
+ * 取值都是 nb-ui 的变量，产品侧不自造：
  *   --panel-surface 面板的面（两个产品主题都取 --bg-panel）
  *   --page-surface  稿面的面，主题包声明的扩展变量；没装该主题时退回 --bg-panel
- *   --divider / --border-w  界面分隔线（--divider 是主题层角色，低 chrome 主题可以整条关掉）
- * 叶之间的描边方向：左叶画右线、右叶画左线、编辑叶两侧都不画（它由邻居的线界定）。
+ * 占位块填满所在叶，所以它自己不再画边界线：相邻容器卡片的描边已由卡片给出。
  */
 .workbench-demo-leaf {
     display: flex;
@@ -2670,14 +2675,6 @@ onBeforeUnmount(() => {
     background: var(--page-surface, var(--bg-panel));
 }
 
-.workbench-demo-leaf--start {
-    border-right: var(--border-w) solid var(--divider);
-}
-
-.workbench-demo-leaf--end {
-    border-left: var(--border-w) solid var(--divider);
-}
-
 .workbench-demo-leaf__title {
     color: var(--text-secondary);
     font-size: var(--text-xs);
@@ -2688,6 +2685,25 @@ onBeforeUnmount(() => {
     color: var(--text-muted);
     font-size: var(--text-2xs);
     line-height: var(--leading-tight);
+}
+
+/*
+ * 左右容器的**演示文案**（真视图接入时整块替掉，连同这两条规则）：容器部件只提供头部与内容区，
+ * 文案的观感不归它管。两档 layout 各自的呈现由容器按合同决定，这里只描述文案自己：
+ * `scroll` 档落在留白里（外壳给的内边距就是它的左边）；`fill` 档占满内容区、居中。
+ */
+.workbench-leaf-placeholder {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--text-2xs);
+    line-height: var(--leading-tight);
+}
+
+.workbench-leaf-placeholder--fill {
+    display: grid;
+    height: 100%;
+    place-items: center;
+    text-align: center;
 }
 
 .plain-text-editor {

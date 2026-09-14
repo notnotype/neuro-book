@@ -897,6 +897,12 @@ const enUS = {
             moreActions: "More workbench actions",
             needOpenProject: "Please open a Project first",
         },
+        workbench: {
+            container: {
+                tools: "Tools",
+                agent: "Agent",
+            },
+        },
         header: {
             openAdmin: "Admin Console",
             profile: "Profile",

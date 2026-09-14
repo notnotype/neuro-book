@@ -23,6 +23,7 @@ import {
     recalcShellSizes,
     SASH_PX,
     SHELL_ACTIVITY_GUTTER_PX,
+    SHELL_CONTAINER_GUTTER_PX,
     SHELL_LEAF_IDS,
     SHELL_MAIN_ID,
     SHELL_TITLEBAR_ID,
@@ -39,6 +40,13 @@ const NARROW_VIEWPORT_PX = 800;
  * 卡片样式与叶宽就不会各自记一个数字。
  */
 const activityGutter = `${SHELL_ACTIVITY_GUTTER_PX}px`;
+
+/**
+ * 左右容器卡片四周的留白：机制与活动栏同一套（外壳喂给叶的内边距，卡片是叶的内接盒），
+ * 取值同源（`SHELL_CONTAINER_GUTTER_PX = SHELL_ACTIVITY_GUTTER_PX`）——容器组件里不写宽度也不写
+ * margin，内容区比叶窄 2 × 6px 这件事只在 `layout.ts` 记账。
+ */
+const containerGutter = `${SHELL_CONTAINER_GUTTER_PX}px`;
 
 /** 几何模型的键：四个宽度叶 + 垂直方向的 titlebar / main（像素高度）。 */
 const LAYOUT_SIZE_IDS = [...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID, SHELL_MAIN_ID] as const;
@@ -216,7 +224,7 @@ defineExpose({setLeafVisible, hidden, issues});
 </script>
 
 <template>
-    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" :style="{'--workbench-activity-gutter': activityGutter}" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'">
+    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" :style="{'--workbench-activity-gutter': activityGutter, '--workbench-container-gutter': containerGutter}" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'">
         <WorkbenchBranch
             v-if="!narrow && rootBranch"
             :node="rootBranch"
@@ -296,5 +304,15 @@ defineExpose({setLeafVisible, hidden, issues});
  */
 :deep([data-leaf="activity"]) {
     padding: var(--workbench-activity-gutter);
+}
+
+/*
+ * 左右叶的留白同活动栏卡片：容器卡片是叶的内接盒（面 / 描边 / 圆角都由组件画），
+ * 留白加在叶上，叶宽仍是树上的逻辑尺寸（340 / 400）。容器组件因此不写宽度也不写 margin。
+ * 窄屏堆叠态用的是同一批 `data-leaf` 包装，规则照旧命中，两个容器之间也留出这条缝。
+ */
+:deep([data-leaf="left"]),
+:deep([data-leaf="right"]) {
+    padding: var(--workbench-container-gutter);
 }
 </style>
