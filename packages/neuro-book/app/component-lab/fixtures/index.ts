@@ -317,6 +317,8 @@ export const labFixtures: LabFixture[] = [
         component: "ProjectPickerView",
         scenes: [
             {id: "default", label: "标准书架", data: {editable: "fixture-owned"}},
+            {id: "spotlight", label: "方案一：聚光灯工作室", data: {editable: "fixture-owned"}},
+            {id: "tactile", label: "方案二：典藏 3D 书房", data: {editable: "fixture-owned"}},
             {id: "empty", label: "零项目空态", data: {editable: "fixture-owned"}},
             {id: "create-dialog", label: "新建对话框", data: {editable: "fixture-owned"}},
             {id: "creating", label: "创建中", data: {editable: "fixture-owned"}},

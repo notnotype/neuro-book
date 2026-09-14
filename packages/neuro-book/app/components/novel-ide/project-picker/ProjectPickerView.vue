@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import {ref, computed} from "vue";
-import {Button, Spinner} from "@notnotype/nb-ui/components";
+import {ref, computed, watch} from "vue";
+import {Button, SegmentedControl, Spinner} from "@notnotype/nb-ui/components";
+import type {SegmentedControlOption, SegmentedControlValue} from "@notnotype/nb-ui/components";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import ProjectCard from "./components/ProjectCard.vue";
+import ProjectPickerSpotlightView from "./components/ProjectPickerSpotlightView.vue";
+import ProjectPickerTactileView from "./components/ProjectPickerTactileView.vue";
 import ProjectCreateDialog from "./components/ProjectCreateDialog.vue";
 import ProjectCoverDialog from "./components/ProjectCoverDialog.vue";
 import ProjectPickerHeader from "./components/ProjectPickerHeader.vue";
@@ -33,6 +36,7 @@ const props = withDefaults(defineProps<ProjectPickerViewProps>(), {
     recoveryHasMore: false,
     recoveryActionId: null,
     teleportTarget: ".novel-ide-theme",
+    layoutMode: "grid",
 });
 
 const emit = defineEmits<{
@@ -89,6 +93,20 @@ const originalPreviewOpen = ref(false);
 const originalPreviewUrl = ref("");
 const originalPreviewAlt = ref("");
 const originalPreviewName = ref("");
+
+const currentLayout = ref<SegmentedControlValue>(props.layoutMode ?? "grid");
+
+watch(() => props.layoutMode, (val) => {
+    if (val) {
+        currentLayout.value = val;
+    }
+});
+
+const layoutOptions: SegmentedControlOption[] = [
+    {value: "grid", label: "经典网格"},
+    {value: "spotlight", label: "聚光灯工作室"},
+    {value: "tactile", label: "典藏 3D 书房"},
+];
 
 const dateFormatter = computed(() => new Intl.DateTimeFormat(locale.value, {
     year: "numeric",
@@ -227,13 +245,67 @@ function handleRetryCoverRecovery(): void {
                 @create-book="emit('open-create-form')"
             />
 
-            <!-- 最近项目网格 -->
-            <section v-else>
-                <div class="mb-4 sm:mb-5 flex items-center justify-between gap-4">
-                    <h2 class="text-sm font-semibold text-[var(--text-main)]">{{ t("ide.picker.recentProjects") }}</h2>
-                    <span class="text-xs text-[var(--text-muted)] font-mono">{{ t("ide.picker.projectCount", {count: projects.length}) }}</span>
+            <!-- 最近项目网格与高级视图 -->
+            <section v-else class="space-y-6">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div class="flex items-center gap-3">
+                        <h2 class="text-sm font-semibold text-[var(--text-main)]">{{ t("ide.picker.recentProjects") }}</h2>
+                        <span class="text-xs text-[var(--text-muted)] font-mono">{{ t("ide.picker.projectCount", {count: projects.length}) }}</span>
+                    </div>
+
+                    <!-- 布局体验自由切换 -->
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-[var(--text-muted)] hidden sm:inline">展示形态：</span>
+                        <SegmentedControl
+                            :model-value="currentLayout"
+                            :options="layoutOptions"
+                            size="sm"
+                            tone="accent"
+                            @update:model-value="currentLayout = $event"
+                        />
+                    </div>
                 </div>
-                <div class="picker-bookshelf-grid">
+
+                <!-- 方案一：聚光灯工作室 -->
+                <ProjectPickerSpotlightView
+                    v-if="currentLayout === 'spotlight'"
+                    :projects="projects"
+                    :project-tags="props.projectTags"
+                    :delete-busy-roots="deleteBusyRoots"
+                    :failed-cover-roots="failedCoverRoots"
+                    :cover-refresh-versions="coverRefreshVersions"
+                    :picker-recoveries="pickerRecoveries"
+                    :resolve-cover-url="resolveCoverUrl"
+                    :format-date="formatDate"
+                    @open="emit('open', $event)"
+                    @delete="emit('delete', $event)"
+                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                    @open-cover-dialog="handleOpenCoverDialog"
+                    @cover-error="emit('cover-error', $event)"
+                    @create-book="emit('open-create-form')"
+                />
+
+                <!-- 方案二：典藏 3D 书房 -->
+                <ProjectPickerTactileView
+                    v-else-if="currentLayout === 'tactile'"
+                    :projects="projects"
+                    :project-tags="props.projectTags"
+                    :delete-busy-roots="deleteBusyRoots"
+                    :failed-cover-roots="failedCoverRoots"
+                    :cover-refresh-versions="coverRefreshVersions"
+                    :picker-recoveries="pickerRecoveries"
+                    :resolve-cover-url="resolveCoverUrl"
+                    :format-date="formatDate"
+                    @open="emit('open', $event)"
+                    @delete="emit('delete', $event)"
+                    @retry-delete-recovery="emit('retry-delete-recovery', $event)"
+                    @open-cover-dialog="handleOpenCoverDialog"
+                    @cover-error="emit('cover-error', $event)"
+                    @create-book="emit('open-create-form')"
+                />
+
+                <!-- 原版经典网格 -->
+                <div v-else class="picker-bookshelf-grid">
                     <ProjectCard
                         v-for="project in projects"
                         :key="project.projectRoot"

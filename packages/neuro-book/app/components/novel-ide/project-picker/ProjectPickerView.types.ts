@@ -49,6 +49,7 @@ export interface ProjectPickerViewProps {
     coverError?: string;
     coverRecoveryNotice?: string;
     teleportTarget?: string | boolean;
+    layoutMode?: "grid" | "spotlight" | "tactile";
 }
 
 export interface ProjectPickerViewEmits {

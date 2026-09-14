@@ -74,6 +74,7 @@ const isCreating = ref(false);
 const isLoading = ref(false);
 const loadError = ref("");
 const deleteBusyRoots = ref<Set<string>>(new Set());
+const layoutMode = ref<"grid" | "spotlight" | "tactile">("grid");
 
 watch(currentScene, (scene) => {
     projects.value = [...SAMPLE_PROJECTS];
@@ -83,9 +84,14 @@ watch(currentScene, (scene) => {
     isLoading.value = false;
     loadError.value = "";
     deleteBusyRoots.value = new Set();
+    layoutMode.value = "grid";
 
     if (scene === "empty") {
         projects.value = [];
+    } else if (scene === "spotlight" || scene === "spotlight-studio") {
+        layoutMode.value = "spotlight";
+    } else if (scene === "tactile" || scene === "tactile-library") {
+        layoutMode.value = "tactile";
     } else if (scene === "create-dialog" || scene === "create-open") {
         isCreateFormOpen.value = true;
     } else if (scene === "creating") {
@@ -171,6 +177,7 @@ function handleRetryLoad(): void {
             :is-creating="isCreating"
             :is-create-form-open="isCreateFormOpen"
             :delete-busy-roots="deleteBusyRoots"
+            :layout-mode="layoutMode"
             teleport-target="body"
             @open="handleOpen"
             @open-user-assets="emit('event', 'open-user-assets')"
