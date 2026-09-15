@@ -1,7 +1,7 @@
 # Storage 底座与浏览器标题栏实施计划
 
-- 状态：设计与计划已补充；运行时实现未开始
-- Work：w00003-neurobook-ui-foundation-migration；当前文档 Task：[t21](tasks/t21-storage-design-review/README.md)
+- 状态：Spec 与治理已提交 `44710392`；实现 goal active，切片 1 由服务核心增量开始
+- Work：w00003-neurobook-ui-foundation-migration；文档 Task：[t21](tasks/t21-storage-design-review/README.md)；当前实现 Task：[t22](tasks/t22-storage-core/README.md)
 - 工作区：`.worktree/w00003-neurobook-ui-foundation-migration`；分支：`refactor/w00003-nb-ui-adoption`
 - 2026-09-16：开发者同意补齐审查缺口，包含最小嵌套验证与必要原语修复；不提前迁移 World Engine 整页
 - 随后开发者明确授权：Spec 与文档治理完成并单独提交后，直接进入 goal 模式实现本计划。

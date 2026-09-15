@@ -33,7 +33,9 @@ Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neur
 [t21](tasks/t21-storage-design-review/README.md) 负责审查与文档；2026-09-16 开发者同意补充计划。
 当前合同为 [storage.boundaries](../../../docs/specs/storage/boundaries.md)、[storage.persistence](../../../docs/specs/storage/persistence.md)
 与 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，均保持 planned。
-[实施计划](storage-implementation-plan.md) 固定依赖、切片、迁移与验收；本轮仅完成文档，运行时实现与旧键迁移尚未开始。
+[实施计划](storage-implementation-plan.md) 固定依赖、切片、迁移与验收。
+Spec 与治理已单独提交为 `44710392`；开发者授权后已建立实现 goal，由 [t22](tasks/t22-storage-core/README.md) 开始服务核心增量。
+实现与各验收逐项推进，旧键迁移尚未执行；局部增量完成不代表全部 capability 已实现。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界
