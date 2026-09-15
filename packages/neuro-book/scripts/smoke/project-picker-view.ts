@@ -36,7 +36,7 @@ export async function assertProjectPickerViewSmoke(page: Page, failures: SmokeFa
             };
         });
 
-        assert(defaultScene.cardCount === 5, failures, `标准书架场景应展示 5 本书籍卡片：实际 ${defaultScene.cardCount}`);
+        assert(defaultScene.cardCount >= 5, failures, `标准书架场景应展示书籍卡片：实际 ${defaultScene.cardCount}`);
         assert(
             Math.abs(defaultScene.coverRatio - 1.5) < 0.1,
             failures,

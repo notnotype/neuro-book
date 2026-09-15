@@ -98,11 +98,10 @@ function getProjectCoverSrc(project: ProjectMetadataDto): string {
                         />
                         <div
                             v-else
-                            class="h-full w-full flex flex-col items-center justify-center p-1 text-center font-serif select-none"
-                            :class="`bg-gradient-to-br ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.from} ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.to}`"
+                            class="h-full w-full flex flex-col items-center justify-center p-1 text-center font-serif select-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[color-mix(in_srgb,var(--bg-panel)_85%,var(--accent-main)_15%)] to-[var(--bg-panel)]"
                         >
-                            <span class="i-lucide-feather h-2.5 w-2.5 text-white/70 mb-0.5" aria-hidden="true"></span>
-                            <span class="text-[7px] text-white font-bold leading-tight line-clamp-2">
+                            <span class="i-lucide-feather h-2.5 w-2.5 text-[var(--accent-text)] mb-0.5" aria-hidden="true"></span>
+                            <span class="text-[7px] text-[var(--text-main)] font-bold leading-tight line-clamp-2">
                                 {{ project.title.slice(0, 4) }}
                             </span>
                         </div>

@@ -96,22 +96,23 @@ function getProjectCoverSrc(project: ProjectMetadataDto): string {
                     />
                     <div
                         v-else
-                        class="h-full w-full flex flex-col justify-between p-3 text-center text-white"
-                        :class="`bg-gradient-to-br ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.from} ${getProjectClassicStats(project, getTagsFor(project)).themeGradient.to}`"
+                        class="h-full w-full flex flex-col justify-between p-3 text-center select-none bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[color-mix(in_srgb,var(--bg-panel)_85%,var(--accent-main)_15%)] to-[var(--bg-panel)]"
                     >
-                        <span class="text-[9px] font-mono text-white/50 uppercase">
-                            {{ getProjectClassicStats(project, getTagsFor(project)).genreKey }}
-                        </span>
-                        <h4 class="font-serif text-sm font-bold leading-tight drop-shadow line-clamp-3 my-auto">
-                            {{ project.title }}
-                        </h4>
-                        <span class="text-[9px] font-mono text-white/60">
+                        <span class="text-[9px] font-mono text-[var(--text-muted)] uppercase tracking-wider">
                             {{ getProjectClassicStats(project, getTagsFor(project)).genreLabel }}
                         </span>
+                        <h4 class="font-serif text-sm font-bold leading-tight text-[var(--text-main)] line-clamp-3 my-auto">
+                            {{ project.title }}
+                        </h4>
+                        <div class="flex items-center justify-center gap-1.5 text-[var(--text-muted)]">
+                            <span class="i-lucide-feather h-3 w-3 text-[var(--accent-text)]"></span>
+                            <span class="h-0.5 w-6 rounded-full bg-[var(--accent-main)] opacity-75"></span>
+                        </div>
                     </div>
 
                     <!-- 封面左侧微型书脊高光 -->
-                    <div class="absolute inset-y-0 left-0 w-1 border-r border-white/10 bg-black/10"></div>
+                    <div class="absolute inset-y-0 left-0 w-1 sm:w-1.5 border-r border-[var(--border-color)] bg-[color-mix(in_srgb,var(--border-color)_30%,transparent)]"></div>
+                    <div class="absolute inset-y-2 right-0 w-0.5 border-l border-[var(--border-color)] opacity-60"></div>
                 </div>
 
                 <!-- 右侧：文学排印、大纲进度与操作 -->

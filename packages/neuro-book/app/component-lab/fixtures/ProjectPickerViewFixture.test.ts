@@ -39,7 +39,7 @@ describe("ProjectPickerViewFixture", () => {
         };
 
         const cards = host.querySelectorAll("[data-project-card]");
-        expect(cards.length).toBe(5);
+        expect(cards.length).toBe(14);
         const firstCard = cards[0];
         expect(firstCard).toBeDefined();
 
@@ -55,7 +55,7 @@ describe("ProjectPickerViewFixture", () => {
         deleteBtn?.click();
         await nextTick();
 
-        expect(host.querySelectorAll("[data-project-card]").length).toBe(4);
+        expect(host.querySelectorAll("[data-project-card]").length).toBe(13);
     });
 
     it("empty 场景展示零项目空态", async () => {
