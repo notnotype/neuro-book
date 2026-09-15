@@ -35,7 +35,7 @@
 | `record-file.ts` / `record-codec.ts` | 有界读取、文件格式、原子替换、诊断原件和临时文件 |
 | `identity-domain.ts` | data 身份域的受锁初始化 |
 | `access-context.ts` | 独立访问标识、绑定声明、空闲到期、容量、存活检查与 session 撤销 |
-| `handle-pool.ts` | 值操作的共享句柄：收敛、上限、释放与关闭排空 |
+| `handle-pool.ts` | 值操作的共享句柄：按代次绑定收敛、上限、释放与关闭排空 |
 | `storage-actions.ts` | 动作请求的有界读取与解析、逻辑地址解析、核心调用 |
 | `host.ts` / `http-error.ts` | 浏览器请求身份核验、值动作接线、初始化排空与公开错误投影 |
 
@@ -59,18 +59,24 @@ auth-off 使用跟随 data 身份域的本地主体。签发还绑定真实目�
 后续 adapter 须在失效后重新初始化；不能因重签发丢弃当前界面的未提交意图。
 
 user 值动作入口为 `POST /api/storage/user/action`，请求体使用 shared 的 action DTO：只提交动作名、owner/key、
-可选资源标识与该操作的值或条件凭据。scope、locality、主体、客户端、存储根与注册定义都由服务端拥有，
-未知字段一律拒绝，请求体在解析前按字节上限有界读取。同一访问与同一 owner 的并发请求收敛到同一个句柄，
-最后一名使用者结束时释放；释放访问、撤销 session、空闲到期与产品关闭都让句柄停止接纳，并按提交分界收口：
+可选资源标识、本次消费的定义版本与该操作的值或条件凭据。scope、locality、主体、客户端、存储根与注册定义
+都由服务端拥有，未知字段一律拒绝，请求体在解析前按字节上限有界读取。
+服务端取回注册定义后核对定义版本，不等即拒绝：旧客户端不能按自己那一版解释或覆盖当前值语义。
+除 `bind` 外的每个动作都必须携带 `bind` 返回的分区代次绑定。
+同一访问、同一 owner 与同一代次绑定的并发请求收敛到同一个句柄，最后一名使用者结束时释放；
+`bind` 独立打开句柄，以便读到分区当前代次，而不是别的请求当时捕获的那一个。
+释放访问、撤销 session、空闲到期与产品关闭都让句柄停止接纳，并按提交分界收口：
 授权失效或根替换在真实文件副作用前停写；已签发访问的根缺失时普通动作不会重新创建它。
 已实际提交后的领域失败保留 `committed: true`，锁失败另会明确报告是否提交。
 定义只由受信模块登记（`registerStorageStateDefinitions`），请求不能注册定义、换掉已登记实例或改写 locality。
 
-尚未接入：Project scope、浏览器值适配器与网络订阅、长连接持续撤销、Project ready/关闭接线、备份、UI 与旧键迁移。
+浏览器值适配器与串行轮询订阅见 [app/utils/storage](../../app/utils/storage/README.md)。每次轮询重新核验访问，未引入值事件长连接。
+尚未接入：Project scope 的宿主入口、Project ready/关闭接线、备份、UI 与旧键迁移。
 迁移原件专用预留、在线同步与领域数据 Store 不属于普通记录实现。
 
 聚焦验证命令：`bun run --cwd packages/neuro-book test shared/storage server/storage server/api/storage`。
 服务入口已纳入主应用 typecheck；测试包含真实 HTTP 宿主、真实跨进程 revision 竞争、Windows 目录联接和注入的磁盘/锁故障。
 核心证据见 [t22 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t22-storage-core/walkthroughs/leader-review.md)，
 宿主身份增量见 [t23](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t23-storage-host-identity/README.md)，
-值动作与句柄生命周期见 [t24 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t24-storage-user-http/walkthroughs/implementation.md)。
+值动作与句柄生命周期见 [t24 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t24-storage-user-http/walkthroughs/implementation.md)，
+浏览器适配器与代次绑定见 [t26 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t26-storage-browser-adapter/walkthroughs/implementation.md)。

@@ -11,6 +11,7 @@ import path from "node:path";
 import type {
     StorageAddress,
     StorageCredential,
+    StoragePartitionBinding,
     StorageReadResult,
     StorageReclaimResult,
     StorageRepairCredential,
@@ -71,6 +72,11 @@ export type StorageHandleInput = {
     readonly guard?: StorageMutationGuard;
     /** 已签发访问只能打开原根；提供身份时不创建缺失目录。 */
     readonly expectedRootIdentity?: string;
+    /**
+     * 远程句柄捕获的分区代次；提供时 `initialize` 先把绑定写进代次盒，
+     * 让核心在接纳与读取边界按原代次失败关闭，而不是悄悄采用当前代次。
+     */
+    readonly binding?: StoragePartitionBinding;
 };
 
 export type StorageServiceOptions = {
@@ -136,17 +142,23 @@ export class StorageService {
         this.fileOptions = options.fileOptions ?? {};
     }
 
-    /** 建立 owner 句柄；上下文不合法或服务已关闭时不给可写句柄。 */
+    /**
+     * 建立 owner 句柄；上下文不合法或服务已关闭时不给可写句柄。
+     *
+     * 绑定在第一次 await 之前复制并校验标量：调用方之后改写自己的对象既不能改变这次已接纳的打开，
+     * 也不能让尚未返回的句柄改用另一个代次。
+     */
     async openHandle(input: StorageHandleInput): Promise<StorageHandle> {
         if (this.closed) {
             throw new StorageServiceClosedError();
         }
-        const pending = this.createHandle({...input, context: {...input.context}});
+        const binding = capturePartitionBinding(input.binding);
+        const pending = this.createHandle({...input, context: {...input.context}, binding});
         this.opening.add(pending);
         try { return await pending; } finally { this.opening.delete(pending); }
     }
 
-    private async createHandle({owner, context, guard, expectedRootIdentity}: StorageHandleInput): Promise<StorageHandle> {
+    private async createHandle({owner, context, guard, expectedRootIdentity, binding}: StorageHandleInput): Promise<StorageHandle> {
         if (context.scope !== "user" && context.scope !== "project") {
             throw new StorageContextInvalidError("scope", `Storage scope 非法：${String(context.scope)}`);
         }
@@ -190,6 +202,7 @@ export class StorageService {
             lockAdapter: this.lockAdapter,
             fileOptions: this.fileOptions,
             guard,
+            binding,
         });
         await handle.initialize();
         if (this.closed) {
@@ -240,6 +253,7 @@ type StorageHandleOptions = {
     readonly lockAdapter: StorageLockAdapter | undefined;
     readonly fileOptions: StoragePartitionStoreOptions;
     readonly guard: StorageMutationGuard | undefined;
+    readonly binding: StoragePartitionBinding | undefined;
 };
 
 export class StorageHandle {
@@ -256,6 +270,7 @@ export class StorageHandle {
     private readonly lock: StoragePartitionLock;
     private readonly fileOptions: StoragePartitionStoreOptions;
     private readonly guard: StorageMutationGuard | undefined;
+    private readonly binding: StoragePartitionBinding | undefined;
     private readonly partitions = new Map<string, PartitionHandle>();
     private readonly subscriptions = new Set<StorageSubscription<unknown>>();
     private readonly accepted = new Set<Promise<unknown>>();
@@ -276,17 +291,49 @@ export class StorageHandle {
         this.clientId = options.clientId;
         this.fileOptions = options.fileOptions;
         this.guard = options.guard;
+        this.binding = options.binding;
         this.lock = new StoragePartitionLock(options.root, {adapter: options.lockAdapter, rootIdentity: options.rootIdentity});
     }
 
-    /** 在签发句柄时捕获可访问分区代次，尚未读过任何记录的旧句柄也不能绕过回收。 */
+    /**
+     * 在签发句柄时捕获可访问分区代次，尚未读过任何记录的旧句柄也不能绕过回收。
+     *
+     * 提供绑定时先写入调用方捕获的代次，再由核心比对当前代次：绑定过期即失败关闭，
+     * 不会先读当前代次再让调用方事后比较。
+     */
     async initialize(): Promise<void> {
         return this.run(async () => {
-            for (const locality of this.clientId === undefined ? ["shared" as const] : ["local" as const, "shared" as const]) {
+            for (const locality of this.clientId === undefined ? (["shared"] as const) : (["local", "shared"] as const)) {
                 const resolved = this.resolvePartition(locality);
+                if (this.binding !== undefined) {
+                    const bound = locality === "shared" ? this.binding.shared : this.binding.local;
+                    if (bound === null) {
+                        throw new StorageContextInvalidError(
+                            "binding",
+                            `Storage 分区代次绑定缺少 ${locality} 分区，不能改为采用当前代次`,
+                        );
+                    }
+                    resolved.box.value = bound;
+                }
                 await resolved.store.bindGeneration(resolved.box);
             }
         });
+    }
+
+    /** 已捕获的分区代次；只暴露代次，不暴露主体、存储根或路径，用于签发远程绑定。 */
+    capturePartitionBinding(): StoragePartitionBinding {
+        const shared = this.resolvePartition("shared").box.value;
+        if (shared === null) {
+            throw new StorageContextInvalidError("binding", "Storage 句柄尚未捕获分区代次，不能签发绑定");
+        }
+        if (this.clientId === undefined) {
+            return {local: null, shared};
+        }
+        const local = this.resolvePartition("local").box.value;
+        if (local === null) {
+            throw new StorageContextInvalidError("binding", "Storage 句柄尚未捕获 local 分区代次，不能签发绑定");
+        }
+        return {local, shared};
     }
 
     /** 读取分类；缺失不创建文件，损坏与更高版本带修复凭据返回。 */
@@ -498,4 +545,24 @@ export class StorageHandle {
         }
         return this.registry.resolve(definition) as DefinedStorageState<unknown>;
     }
+}
+
+/**
+ * 复制并校验一份跨边界传入的分区代次绑定。
+ *
+ * 绑定描述调用方要使用的代次，不是授权凭据；这里只保证它是可比较的标量并取走副本，
+ * 是否仍是当前代次由句柄在接纳边界按真实分区判定。
+ */
+function capturePartitionBinding(binding: StoragePartitionBinding | undefined): StoragePartitionBinding | undefined {
+    if (binding === undefined) return undefined;
+    const {local, shared} = binding;
+    const validShared = Number.isSafeInteger(shared) && shared >= 1;
+    const validLocal = local === null || (Number.isSafeInteger(local) && local >= 1);
+    if (!validShared || !validLocal) {
+        throw new StorageContextInvalidError(
+            "binding",
+            `Storage 分区代次绑定不是正安全整数：local=${String(local)} shared=${String(shared)}`,
+        );
+    }
+    return {local, shared};
 }

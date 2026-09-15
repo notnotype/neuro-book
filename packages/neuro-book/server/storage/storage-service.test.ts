@@ -3,7 +3,7 @@ import path from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {afterEach, describe, expect, it} from "vitest";
-import type {StorageCredential, StorageLocality, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
+import type {StorageCredential, StorageLocality, StoragePartitionBinding, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
 import {defineStorageState, StorageStateRegistry, type DefinedStorageState} from "nbook/shared/storage/definition";
 import {StorageContextInvalidError} from "nbook/shared/storage/storage-errors";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -138,6 +138,7 @@ type TestOpenOptions = {
     readonly clientId?: string;
     readonly identityDomain?: string;
     readonly owner?: string;
+    readonly binding?: StoragePartitionBinding;
 };
 
 type StorageTestContext = {
@@ -177,6 +178,7 @@ async function createStorageContext(prefix: string, options: TestContextOptions 
         registry,
         open: async (openOptions: TestOpenOptions = {}) => service.openHandle({
             owner: openOptions.owner ?? ROOT_OWNER,
+            binding: openOptions.binding,
             context: {
                 scope: "user",
                 storageRoot: root,
@@ -760,6 +762,38 @@ describe("墓碑回收与代次", () => {
             kind: "missing",
             credential: {partitionGeneration: 2},
         });
+    });
+
+    it("接纳时复制并校验绑定标量：调用方之后改写对象不能改写未完成的打开", async () => {
+        const context = await createStorageContext("nbook-storage-binding-");
+        const binding = {local: 1, shared: 1};
+        const pending = context.open({binding});
+        // 打开还没有返回：调用方立刻改写自己的对象，不能改变这次已经接纳的绑定。
+        binding.local = 2;
+        binding.shared = 7;
+
+        const handle = await pending;
+        try {
+            expect(handle.capturePartitionBinding()).toEqual({local: 1, shared: 1});
+        } finally {
+            await handle.release();
+        }
+    });
+
+    it("绑定不是正安全整数时在打开前拒绝，不给出句柄", async () => {
+        const context = await createStorageContext("nbook-storage-binding-invalid-");
+        const invalid: readonly StoragePartitionBinding[] = [
+            {local: 0, shared: 1},
+            {local: 1, shared: 0},
+            {local: 1.5, shared: 1},
+            {local: null, shared: -1},
+        ];
+        for (const binding of invalid) {
+            await expect(context.open({binding})).rejects.toMatchObject({
+                code: "STORAGE_CONTEXT_INVALID",
+                reason: "binding",
+            });
+        }
     });
 
     it("代次提升后中断回收可由重试继续释放墓碑", async () => {

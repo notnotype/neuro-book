@@ -1,13 +1,14 @@
 /**
  * 值操作的共享句柄生命周期。
  *
- * 同一次访问与同一 owner 的并发请求收敛到同一个句柄，最后一名使用者结束时释放：
- * 句柄不跨访问复用，也不为同一对访问/owner 打开多份。释放与关闭都拒绝新取得并排空在途打开与已开始的释放，
+ * 同一次访问、同一 owner 与同一代次绑定的并发请求收敛到同一个句柄，最后一名使用者结束时释放：
+ * 值句柄不跨访问或代次复用；bind 每次独立打开。释放与关闭都拒绝新取得并排空在途打开与已开始的释放，
  * 因此关闭竞态中打开的句柄不会留在池外。池只依赖“打开句柄”这一个能力，
  * 宿主传入服务入口、测试注入隔离实现，授权失效停写由传入核心的 guard 保证。
  */
 
 import {StorageContextLimitError, StorageServiceClosedError} from "nbook/shared/storage/storage-errors";
+import type {StoragePartitionBinding} from "nbook/shared/storage/contract";
 import type {StorageMutationGuard} from "nbook/server/storage/partition-store";
 import type {
     StorageAccessContext,
@@ -35,8 +36,23 @@ export type StorageHandleAcquireInput = {
     readonly owner: string;
     readonly context: StorageAccessContext;
     readonly expectedRootIdentity?: string;
+    /**
+     * 本次动作要使用的分区代次；值动作必填（见 `StorageValueHandleAcquireInput`）。
+     * 来自 `bind` 的返回值：它描述代次，不是授权凭据。缺省时句柄在打开时采用分区当前代次。
+     */
+    readonly binding?: StoragePartitionBinding;
     /** 受信边界提供的授权检查；同一对访问/owner 的所有使用者共用第一个打开者的检查。 */
     readonly guard: StorageMutationGuard;
+};
+
+/**
+ * 值动作的取得输入。
+ *
+ * 绑定必填：句柄在打开时捕获分区代次，所以复用范围必须包含绑定，
+ * 否则一个请求会拿到别的请求按另一个代次打开的句柄。
+ */
+export type StorageValueHandleAcquireInput = StorageHandleAcquireInput & {
+    readonly binding: StoragePartitionBinding;
 };
 
 export type StorageHandleLease = {
@@ -61,6 +77,8 @@ export class StorageHandlePool {
     private readonly entries = new Map<string, PoolEntry>();
     private readonly opening = new Set<Promise<StorageHandle>>();
     private readonly releases = new Set<Promise<void>>();
+    /** `bind` 的独占打开计数：只用于给每个独占条目一个互不相同的键。 */
+    private detachedOpens = 0;
     private closing: Promise<void> | null = null;
 
     constructor(options: StorageHandlePoolOptions) {
@@ -76,13 +94,27 @@ export class StorageHandlePool {
     }
 
     /**
-     * 取得共享句柄。
+     * 取得值动作的共享句柄。
      *
-     * 已打开或正在打开的同一对访问/owner 收敛到同一个句柄，等待打开的调用方看到与打开者相同的错误；
+     * 已打开或正在打开的同一对访问/owner/绑定的请求收敛到同一个句柄，等待打开的调用方看到与打开者相同的错误；
      * 上一个句柄还在释放时先等它排空，不会把已释放的句柄交给新请求。
      */
-    async acquire(input: StorageHandleAcquireInput): Promise<StorageHandleLease> {
-        const key = poolKey(input.contextId, input.owner);
+    async acquire(input: StorageValueHandleAcquireInput): Promise<StorageHandleLease> {
+        return await this.acquireAt(poolKey(input), input);
+    }
+
+    /**
+     * `bind` 的取得：不复用池内句柄，本次打开独占一个条目。
+     *
+     * 复用别的请求早先打开的句柄会把那个句柄当时捕获的代次当成当前代次返回，
+     * 调用方据此签发的绑定可能已经过期。独占打开仍计入容量、纳入关闭排空，并在释放后销毁。
+     */
+    async acquireDetached(input: StorageHandleAcquireInput): Promise<StorageHandleLease> {
+        this.detachedOpens += 1;
+        return await this.acquireAt(`\u0000detached\u0000${String(this.detachedOpens)}`, input);
+    }
+
+    private async acquireAt(key: string, input: StorageHandleAcquireInput): Promise<StorageHandleLease> {
         for (;;) {
             this.assertOpen();
             const existing = this.entries.get(key);
@@ -149,7 +181,7 @@ export class StorageHandlePool {
         try {
             handle = await this.openHandle({
                 owner: input.owner, context: {...input.context}, guard: input.guard,
-                expectedRootIdentity: input.expectedRootIdentity,
+                expectedRootIdentity: input.expectedRootIdentity, binding: input.binding,
             });
         } catch (error) {
             entry.opening = null;
@@ -233,7 +265,13 @@ export class StorageHandlePool {
     }
 }
 
-/** 同一 owner 的不同访问不共享句柄；访问标识是定位键，不构成任何授权。 */
-function poolKey(contextId: string, owner: string): string {
-    return `${contextId}\u0000${owner}`;
+/**
+ * 句柄身份：访问、owner 与本次动作要使用的代次绑定。
+ *
+ * 访问标识与绑定只用于定位，都不构成授权；但代次必须是身份的一部分——
+ * 句柄在打开时捕获分区代次，复用另一个代次的句柄会让本次请求读到/写到不是它声明的那个代次。
+ */
+function poolKey(input: StorageValueHandleAcquireInput): string {
+    const {local, shared} = input.binding;
+    return `${input.contextId}\u0000${input.owner}\u0000${String(local)}\u0000${String(shared)}`;
 }

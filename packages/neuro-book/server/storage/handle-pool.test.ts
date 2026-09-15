@@ -18,7 +18,7 @@ const context: StorageAccessContext = {
 };
 
 const noopGuard = (): void => undefined;
-const address = {contextId: "context-a", owner: "owner-a", context, guard: noopGuard};
+const address = {contextId: "context-a", owner: "owner-a", context, guard: noopGuard, binding: {local: 1, shared: 1}};
 
 function fakeOpener(releaseGate?: Promise<void>): {
     readonly handles: FakeHandle[];
@@ -73,6 +73,34 @@ describe("StorageHandlePool", () => {
         const third = await pool.acquire({...address, owner: "owner-b"});
         expect(opener.openCount()).toBe(3);
         expect(new Set([first.handle, second.handle, third.handle]).size).toBe(3);
+    });
+
+    it("代次绑定是复用身份：并发请求各自按自己的绑定打开，不互相借用句柄", async () => {
+        const opener = fakeOpener();
+        const pool = new StorageHandlePool({openHandle: opener.openHandle});
+        const fresh = {...address, binding: {local: 2, shared: 1}};
+
+        const [stale, current] = await Promise.all([pool.acquire(address), pool.acquire(fresh)]);
+        expect(opener.openCount()).toBe(2);
+        expect(stale.handle).not.toBe(current.handle);
+        // 同一绑定的第三个请求仍然收敛到它自己那一个句柄。
+        expect((await pool.acquire(fresh)).handle).toBe(current.handle);
+        expect(opener.openCount()).toBe(2);
+
+        await Promise.all([stale.release(), current.release()]);
+    });
+
+    it("bind 的独占取得不复用池内句柄，也不被其它请求共享", async () => {
+        const opener = fakeOpener();
+        const pool = new StorageHandlePool({openHandle: opener.openHandle});
+
+        const shared = await pool.acquire(address);
+        const first = await pool.acquireDetached({contextId: address.contextId, owner: address.owner, context, guard: noopGuard});
+        const second = await pool.acquireDetached({contextId: address.contextId, owner: address.owner, context, guard: noopGuard});
+        expect(opener.openCount()).toBe(3);
+        expect(new Set([shared.handle, first.handle, second.handle]).size).toBe(3);
+
+        await Promise.all([shared.release(), first.release(), second.release()]);
     });
 
     it("释放后重新取得会打开新句柄，不把已释放的句柄交出去", async () => {

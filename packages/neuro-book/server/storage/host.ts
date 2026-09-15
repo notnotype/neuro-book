@@ -7,7 +7,8 @@ import {
 import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
 import {StorageStateRegistry, type DefinedStorageState} from "nbook/shared/storage/definition";
 import {
-    StorageClientCredentialInvalidError, StorageContextInvalidError, StorageServiceClosedError,
+    StorageClientCredentialInvalidError, StorageContextInvalidError,
+    StorageServiceClosedError,
 } from "nbook/shared/storage/storage-errors";
 import {
     deriveStorageClientId, deriveStorageSessionGeneration, localStorageSubject,
@@ -134,18 +135,23 @@ export function resolveStorageAccessContext(event: H3Event): Promise<StorageAcce
 }
 
 /**
- * 在已核验的 user 访问下执行一次值动作。
+ * 在已核验的 user 访问下执行一次动作。
  *
- * 顺序固定：重新核验访问声明 → 解析注册定义 → 取得该访问与 owner 的共享句柄 → 执行；
- * 句柄绑定本次访问的真实根身份，核验与打开之间根被替换就拒绝，取得句柄后与每个真实文件副作用前
- * 都重新检查授权，因此慢打开期间被释放的访问连读取都不再继续。
+ * 顺序固定：重新核验访问声明 → 解析注册定义并核对定义版本（`bind` 只解析 owner）→
+ * 取得该访问与 owner 的句柄 →执行；句柄绑定本次访问的真实根身份与请求携带的分区代次，
+ * 核验与打开之间根被替换、或绑定与分区当前代次不符都拒绝，取得句柄后与每个真实文件副作用前都重新检查授权，
+ * 因此慢打开期间被释放的访问连读取都不再继续。
+ *
+ * 句柄按代次绑定复用：两个请求只有在声明同一组代次时才共享句柄，绑定不匹配不会借到别人的句柄。
  */
 export function performStorageUserAction(event: H3Event, action: StorageActionRequest): Promise<StorageActionResponse> {
     return operate(async (owner, assertActive, bindSession) => {
         const lease = await resolveContextLease(event, owner, assertActive, bindSession);
-        const definition = requireStorageActionState(owner.registry, action);
+        const definition = action.kind === "bind"
+            ? owner.registry.resolveOwner(action.owner)
+            : requireStorageActionState(owner.registry, action);
         assertActive();
-        const held = await owner.pool.acquire({
+        const acquire = {
             contextId: lease.contextId,
             owner: definition.owner,
             expectedRootIdentity: lease.rootIdentity,
@@ -157,10 +163,17 @@ export function performStorageUserAction(event: H3Event, action: StorageActionRe
                 clientId: lease.clientId,
             },
             guard: () => owner.accessContexts.assertLive(lease.contextId),
-        });
+        };
+        // `bind` 不复用池内句柄：它必须读到分区当前代次，而不是别的请求当时捕获的那一个。
+        const held = action.kind === "bind"
+            ? await owner.pool.acquireDetached(acquire)
+            : await owner.pool.acquire({...acquire, binding: action.binding});
         try {
             owner.accessContexts.assertLive(lease.contextId);
             await assertLeaseRootIdentity(lease);
+            if (action.kind === "bind") {
+                return {kind: "bind", binding: held.handle.capturePartitionBinding()};
+            }
             return await runStorageAction({handle: held.handle, state: definition, action});
         } finally {
             // 释放以排空为准：等待句柄停用，但排空失败不能覆盖本次动作的真实结果。

@@ -1,4 +1,5 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
+import {createApp, defineEventHandler, toWebHandler} from "h3";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
@@ -35,6 +36,7 @@ describe("Storage 宿主 HMR 换代", () => {
     afterEach(() => {
         delete hostGlobals.__nbookStorageHostV2;
         delete hostGlobals.__nbookStorageHostV3;
+        vi.unstubAllGlobals();
         vi.resetModules();
     });
 
@@ -86,5 +88,34 @@ describe("Storage 宿主 HMR 换代", () => {
         expect(owner).toBeDefined();
         expect(hostGlobals.__nbookStorageHostV3).toBe(owner);
         await reloaded.disposeStorageHost();
+    });
+
+    it("旧宿主 pending 未收口时，新 owner 的请求不会开始", async () => {
+        const gate = Promise.withResolvers<void>();
+        const previous = {registry: new StorageAccessContextRegistry(), pending: new Set([gate.promise]), closing: null};
+        hostGlobals.__nbookStorageHostV2 = previous;
+        delete hostGlobals.__nbookStorageHostV3;
+        vi.resetModules();
+        vi.stubGlobal("defineEventHandler", defineEventHandler);
+        // 路由模块在 `defineEventHandler` 就位后才加载：这里的动态导入是模块加载边界，不是运行期选择。
+        const host = await import("nbook/server/storage/host");
+        const route = await import("nbook/server/api/storage/user/context.post");
+        const app = createApp();
+        app.use("/api/storage/user/context", defineEventHandler((event) => route.default(event)));
+        const send = toWebHandler(app);
+
+        // 缺少客户端凭证的请求仍然先等 ready：新宿主在旧 pending 收口前不进入任何核验，
+        // 因此它既不会碰默认 data，也不会用新 owner 的身份元数据覆盖旧宿主。
+        const pending = send(new Request("http://localhost/api/storage/user/context", {method: "POST"}));
+        let settled = false;
+        void pending.then(() => { settled = true; }, () => { settled = true; });
+        // 推进一整轮事件循环（而不是等待一个时长）：请求该完成的微任务与 I/O 回调都已跑完。
+        await new Promise<void>((resolve) => { setImmediate(resolve); });
+        expect(settled).toBe(false);
+
+        gate.resolve();
+        const response = await pending;
+        expect(response.status).toBe(400);
+        await host.disposeStorageHost();
     });
 });

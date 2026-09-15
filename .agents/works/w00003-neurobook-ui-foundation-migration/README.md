@@ -38,9 +38,11 @@ Spec 与治理已单独提交为 `44710392`；开发者授权后已建立实现 
 实现与各验收逐项推进，旧键迁移尚未执行；局部增量完成不代表全部 capability 已实现。
 服务核心 t22 已提交 `dfc5df82`（86 个聚焦用例、包含新入口的 typecheck 通过）；
 宿主身份 [t23](tasks/t23-storage-host-identity/README.md) 已提交 `3b8d87fb`（149 用例、主应用 typecheck、普通 HTTP Chrome smoke 通过，独立复核不阻断）；
-user 受管句柄与 HTTP 值读写 [t24](tasks/t24-storage-user-http/README.md) 已实现，
+user 受管句柄与 HTTP 值读写 [t24](tasks/t24-storage-user-http/README.md) 已提交 `8b1229ea`，
 [t25](tasks/t25-storage-http-review/README.md) 完成独立审查及 HMR 追加复核，无阻断项；
-下一增量由 [t26](tasks/t26-storage-browser-adapter/README.md) 闭合浏览器分区绑定、值适配器和订阅。
+[t26](tasks/t26-storage-browser-adapter/README.md) 已实现浏览器分区绑定、值适配器和订阅，真实 Chrome 值 smoke 与最终主应用 typecheck 通过；
+[t27](tasks/t27-storage-adapter-review/README.md) 发现读取超时缺陷，修复后追加复核建议合并。
+切片 1 已闭合，下一增量进入 Project 生命周期与文件消费接线。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界

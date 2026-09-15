@@ -13,6 +13,7 @@ export {
 } from "nbook/server/storage/handle-pool";
 export type {
     StorageHandleAcquireInput,
+    StorageValueHandleAcquireInput,
     StorageHandleLease,
     StorageHandlePoolLimits,
     StorageHandlePoolOptions,

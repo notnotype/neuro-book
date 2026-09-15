@@ -1,6 +1,7 @@
 import {access, mkdir, readFile, readdir, realpath, rename} from "node:fs/promises";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it, vi} from "vitest";
+import type {StoragePartitionBinding} from "nbook/shared/storage/contract";
 import {defineStorageState, type DefinedStorageState} from "nbook/shared/storage/definition";
 import {disposeStorageHost} from "nbook/server/storage/host";
 import {
@@ -38,8 +39,7 @@ const note: DefinedStorageState<NoteState> = defineStorageState<NoteState>({
     records: "identified",
     schemaVersion: 1,
     defaultValue: {text: ""},
-    validate: (value): value is NoteState => typeof value === "object" && value !== null
-        && typeof (value as NoteState).text === "string",
+    validate: (value): value is NoteState => typeof value === "object" && value !== null && typeof (value as NoteState).text === "string",
 });
 
 const definitions: readonly DefinedStorageState<unknown>[] = [layout, note];
@@ -71,6 +71,35 @@ const save = (width: number, height: number) => ({
     value: {width, height},
 });
 
+/** 一次已取得分区代次绑定的访问：值动作必须原样携带 `bind` 返回的绑定与本次消费的定义版本。 */
+type Access = {
+    readonly contextId: string;
+    readonly binding: StoragePartitionBinding;
+    readonly schemaVersion: number;
+};
+
+async function bound(
+    host: StorageActionHostFixture,
+    contextId: string,
+    definition: DefinedStorageState<unknown>,
+): Promise<Access> {
+    return {contextId, schemaVersion: definition.schemaVersion, binding: await host.bind(contextId, definition.owner)};
+}
+
+function act(host: StorageActionHostFixture, session: Access, action: Record<string, unknown>): Promise<Response> {
+    return host.act(session.contextId, {...action, schemaVersion: session.schemaVersion, binding: session.binding});
+}
+
+/**
+ * 值动作句柄的打开接缝：`binding` 为空的是 `bind` 动作自己的打开，不在竞态用例的注入范围内。
+ *
+ * 只覆盖值动作的打开，让绑定先正常完成，注入点仍然落在测试要观察的那一次打开上。
+ */
+function valueOnly(open: (input: StorageHandleInput, service: StorageService) => Promise<StorageHandle>) {
+    return async (input: StorageHandleInput, service: StorageService): Promise<StorageHandle> =>
+        input.binding === undefined ? await service.openHandle(input) : await open(input, service);
+}
+
 /** 在真实分区锁之前插入闸门：请求通过身份与句柄阶段，但尚未产生任何文件副作用。 */
 function gatedLockAdapter(): {readonly adapter: StorageLockAdapter; readonly entered: Promise<void>; readonly open: () => void} {
     const entered = Promise.withResolvers<void>();
@@ -92,11 +121,12 @@ describe("值动作的访问与句柄生命周期", () => {
     it("释放访问后动作以 403 拒绝，重复释放幂等", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
         const release = {method: "DELETE", contextId, credential: host.clientCredential};
 
         await expect((await host.request(STORAGE_CONTEXT_PATH, release)).json()).resolves.toEqual({released: true});
         await expect((await host.request(STORAGE_CONTEXT_PATH, release)).json()).resolves.toEqual({released: false});
-        await expectFailure(await host.act(contextId, {...save(1, 1)}), 403, "STORAGE_CONTEXT_INVALID");
+        await expectFailure(await act(host, session, save(1, 1)), 403, "STORAGE_CONTEXT_INVALID");
         expect((await readdir(host.root)).sort()).toEqual([".locks", "identity.json"]);
     });
 
@@ -104,8 +134,9 @@ describe("值动作的访问与句柄生命周期", () => {
         const gate = gatedLockAdapter();
         const host = await createHost({definitions, lockAdapter: gate.adapter});
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        const pending = host.act(contextId, save(50, 60));
+        const pending = act(host, session, save(50, 60));
         await gate.entered;
         await host.request(STORAGE_CONTEXT_PATH, {method: "DELETE", contextId, credential: host.clientCredential});
         gate.open();
@@ -123,8 +154,9 @@ describe("值动作的访问与句柄生命周期", () => {
         try {
             const host = await createHost({definitions, lockAdapter: gate.adapter, accessContextIdleMs: 40});
             const contextId = await host.issue();
+            const session = await bound(host, contextId, layout);
 
-            const pending = host.act(contextId, save(70, 80));
+            const pending = act(host, session, save(70, 80));
             await gate.entered;
             vi.setSystemTime(Date.now() + 1_000);
             gate.open();
@@ -139,15 +171,16 @@ describe("值动作的访问与句柄生命周期", () => {
     it("核验与打开之间替换存储根：拒绝本次动作且不写入新目录", async () => {
         const host = await createHost({
             definitions,
-            openHandle: async (input: StorageHandleInput, service: StorageService): Promise<StorageHandle> => {
+            openHandle: valueOnly(async (input, service) => {
                 await rename(host.root, `${host.root}-replaced`);
                 await mkdir(host.root);
                 return await service.openHandle(input);
-            },
+            }),
         });
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        const failure = await expectFailure(await host.act(contextId, save(90, 100)), 403, "STORAGE_CONTEXT_INVALID");
+        const failure = await expectFailure(await act(host, session, save(90, 100)), 403, "STORAGE_CONTEXT_INVALID");
         expect(failure.data?.reason).toBe("claims-mismatch");
         expect(await readdir(host.root)).toEqual([]);
     });
@@ -155,13 +188,14 @@ describe("值动作的访问与句柄生命周期", () => {
     it("核验后根被移走：普通读取失败，不重建缺失目录", async () => {
         const host = await createHost({
             definitions,
-            openHandle: async (input, service) => {
+            openHandle: valueOnly(async (input, service) => {
                 await rename(host.root, `${host.root}-moved`);
                 return await service.openHandle(input);
-            },
+            }),
         });
         const contextId = await host.issue();
-        await expectFailure(await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}), 500, "STORAGE_IO_FAILURE");
+        const session = await bound(host, contextId, layout);
+        await expectFailure(await act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}), 500, "STORAGE_IO_FAILURE");
         await expect(access(host.root)).rejects.toMatchObject({code: "ENOENT"});
         expect(await readdir(`${host.root}-moved`)).toContain("identity.json");
     });
@@ -178,12 +212,13 @@ describe("值动作的访问与句柄生命周期", () => {
         };
         const host = await createHost({definitions, lockAdapter});
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        const failure = await expectFailure(await host.act(contextId, save(110, 120)), 503, "STORAGE_LOCK_UNAVAILABLE");
+        const failure = await expectFailure(await act(host, session, save(110, 120)), 503, "STORAGE_LOCK_UNAVAILABLE");
         expect(failure.data?.committed).toBe(true);
         // 已提交不能被伪装成“未保存”：磁盘上是完整的新值，后续读取也能看到。
         expect(await readFile(await host.recordPath({owner: LAYOUT_OWNER, key: "layout"}), "utf8")).toContain('"width":110');
-        const read = await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        const read = await act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await expect(read.json()).resolves.toMatchObject({result: {kind: "value", value: {width: 110, height: 120}}});
     });
 
@@ -206,8 +241,9 @@ describe("值动作的访问与句柄生命周期", () => {
             },
         });
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        await expectFailure(await host.act(contextId, save(150, 160)), 403, "STORAGE_CONTEXT_INVALID");
+        await expectFailure(await act(host, session, save(150, 160)), 403, "STORAGE_CONTEXT_INVALID");
         expect(replacements).toBe(1);
         // 重试前停写：分区目录里既没有分区元数据，也没有本次写入的临时文件。
         const partition = await host.partition({owner: LAYOUT_OWNER});
@@ -226,11 +262,14 @@ describe("值动作的访问与句柄生命周期", () => {
             },
         });
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
+        // 绑定本身打开过一次句柄；这里只观察值动作之间的收敛。
+        opens = 0;
 
-        const saving = host.act(contextId, save(130, 140));
+        const saving = act(host, session, save(130, 140));
         await gate.entered;
         // 保存仍持锁等待时，同一访问的读取必须复用同一个句柄，而不是再打开一份。
-        const reading = await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        const reading = await act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await expect(reading.json()).resolves.toMatchObject({result: {kind: "missing"}});
         expect(opens).toBe(1);
 
@@ -244,17 +283,18 @@ describe("值动作的访问与句柄生命周期", () => {
         const gate = Promise.withResolvers<void>();
         const host = await createHost({
             definitions,
-            openHandle: async (input, service) => {
+            openHandle: valueOnly(async (input, service) => {
                 // 句柄已经建立，但在动作拿到它之前停住：撤销发生在这段等待里。
                 const handle = await service.openHandle(input);
                 opened.resolve();
                 await gate.promise;
                 return handle;
-            },
+            }),
         });
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        const reading = host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        const reading = act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await opened.promise;
         await host.request(STORAGE_CONTEXT_PATH, {method: "DELETE", contextId, credential: host.clientCredential});
         gate.resolve();
@@ -281,7 +321,8 @@ describe("值动作的访问与句柄生命周期", () => {
             },
         });
         const contextId = await host.issue();
-        const saved = await host.act(contextId, {
+        const session = await bound(host, contextId, note);
+        const saved = await act(host, session, {
             kind: "save",
             owner: NOTE_OWNER,
             key: "note",
@@ -291,7 +332,7 @@ describe("值动作的访问与句柄生命周期", () => {
         });
         expect(saved.status).toBe(200);
         const savedCredential = (await saved.json() as {credential: {revision: string; partitionGeneration: number}}).credential;
-        const removed = await host.act(contextId, {
+        const removed = await act(host, session, {
             kind: "remove",
             owner: NOTE_OWNER,
             key: "note",
@@ -303,7 +344,7 @@ describe("值动作的访问与句柄生命周期", () => {
         // 句柄持有的是规范化后的真实路径：比较前先解析，避免同一目录的不同拼写被当成两个地址。
         metaPath = await realpath(partition.metaPath);
 
-        const failure = await expectFailure(await host.act(contextId, {
+        const failure = await expectFailure(await act(host, session, {
             kind: "reclaim",
             owner: NOTE_OWNER,
             key: "note",
@@ -313,7 +354,8 @@ describe("值动作的访问与句柄生命周期", () => {
         expect(failure.data?.committed).toBe(true);
 
         const resumed = await host.issue();
-        await expect((await host.act(resumed, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"})).json())
+        const resumedSession = await bound(host, resumed, note);
+        await expect((await act(host, resumedSession, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"})).json())
             .resolves.toMatchObject({result: {kind: "deleted", credential: {partitionGeneration: 2}}});
     });
 
@@ -322,15 +364,16 @@ describe("值动作的访问与句柄生命周期", () => {
         const gate = Promise.withResolvers<void>();
         const host = await createHost({
             definitions,
-            openHandle: async (input, service) => {
+            openHandle: valueOnly(async (input, service) => {
                 entered.resolve();
                 await gate.promise;
                 return await service.openHandle(input);
-            },
+            }),
         });
         const contextId = await host.issue();
+        const session = await bound(host, contextId, layout);
 
-        const pending = host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        const pending = act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await entered.promise;
         const closed = disposeStorageHost();
         gate.resolve();
@@ -338,7 +381,7 @@ describe("值动作的访问与句柄生命周期", () => {
         await expectFailure(await pending, 503, "STORAGE_SERVICE_CLOSED");
         await closed;
         await expectFailure(
-            await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}),
+            await act(host, session, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}),
             503,
             "STORAGE_SERVICE_CLOSED",
         );

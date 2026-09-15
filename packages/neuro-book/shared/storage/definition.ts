@@ -193,6 +193,19 @@ export class StorageStateRegistry {
         return registered;
     }
 
+    /**
+     * 按 owner 取回该 owner 已登记的任一实例。
+     *
+     * 远程分区代次绑定只描述 owner 的分区，不涉及具体 key；这里只确认 owner 已在受信边界登记，
+     * 未登记的 owner 拿不到绑定，也就不能用随意的字符串探测分区代次。
+     */
+    resolveOwner(owner: string): DefinedStorageState<unknown> {
+        for (const registered of this.definitions.values()) {
+            if (registered.owner === owner) return registered;
+        }
+        throw new StorageStateUnregisteredError(owner, "*", "该 owner 没有登记任何状态定义");
+    }
+
     /** 列出已登记定义，供宿主暴露或诊断使用。 */
     list(): readonly DefinedStorageState<unknown>[] {
         return [...this.definitions.values()];

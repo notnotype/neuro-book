@@ -6,6 +6,34 @@ role: tasker
 
 # 浏览器值适配器、分区绑定与状态订阅
 
+## 当前续修分工（2026-09-16 04:32）
+
+第一轮已退出（exit 0 但没有完成报告），只算中间代码。主 Agent 已独立复现问题，见
+`walkthroughs/leader-progress-review.md`，本轮不要重做整体设计。
+
+**此次 omp 独占 server/storage、server/api/storage、shared/storage 的源码与测试；不得修改 app、scripts、package.json。
+主 Agent 以同一 Task 的 tasker 身份独占 app/utils/storage、smoke 脚本与必要 package 命令，修前端缺陷。**
+本节优先于下文原始的整 Task 独占说明；不覆盖对方文件。中间 typecheck 可能因共享 DTO 更新暂时失败。
+
+服务端本轮必须闭合：
+
+1. openHandle 在第一次 await 前复制并校验 binding；参考主 Agent 已复现的“调用后修改 binding 会改写未完成 open”问题。
+2. 同 context/owner 的并发绑定检查有确定性用例；既不让旧绑定借新句柄，也不声称数值绑定是签名授权 token。
+3. **旧浏览器代码与新后端定义的版本检查。** 所有非 bind 的 HTTP 值动作新增必填 `schemaVersion`（正安全整数），
+   表示调用方实际消费定义的版本；服务端从注册表取回定义后、任何记录动作前核对必须相等。
+   不相等报新增 `STORAGE_SCHEMA_MISMATCH`，HTTP 409、固定公开文案；旧请求不能把后端当前 value(v2) 当 v1 消费或保存。
+   这与磁盘记录 legacy/unsupported 分类独立：双方定义同 v2、磁盘 v1 仍可显式 migrate；双方定义同 v2、磁盘 v3 仍受未知版本保护。
+   主 Agent 会同步让前端所有值请求发送 definition.schemaVersion，并对 value 响应按定义验证。
+4. 当前 `StorageActionResponse` 把 save/remove/migrate/repair 写成一个 kind 联合，导致前端 `Extract<...,{kind:K}>` 得到 never。
+   用真正的逐 kind 判别联合（显式或 mapped type）表达，保持 wire payload 不变；不要用 any 绕过。
+5. 修完受影响的服务端测试类型收窄；跑 server/shared 聚焦测试，记录结果。
+   `storage-actions.test.ts` 当前把 parse 结果（可能 bind）直接传 requireStorageActionState，需要真实收窄。
+6. 用真实 HTTP 测试覆盖前后端 schema 不匹配时 read/save/migrate/repair 均拒绝、原件不变；
+   继续覆盖回收未读键失效、unsupported-version 公开诊断和 HMR ready 接纳顺序。
+
+交接写 `walkthroughs/server-followup.md`（先写进行中，再逐项追加），不修改主 Agent 的 review 文件。
+不要运行主应用完整 typecheck 或浏览器 smoke，它们在双方完成后由主 Agent 统一跑。
+
 Work：[w00003](../../README.md)；当前[计划](../../storage-implementation-plan.md)的切片 1。
 前置实现：[t24](../t24-storage-user-http/walkthroughs/implementation.md)；独立审查：[t25](../t25-storage-http-review/README.md)。
 行为以 [storage.persistence](../../../../../docs/specs/storage/persistence.md) 为准。

@@ -1,7 +1,7 @@
 # Storage 底座与浏览器标题栏实施计划
 
-- 状态：Spec 与治理 `44710392`、服务核心 `dfc5df82`、宿主身份 `3b8d87fb` 已提交；HTTP 值读写 t24 已通过独立审查；实现 goal active，切片 1 继续浏览器适配
-- Work：w00003-neurobook-ui-foundation-migration；文档 Task：[t21](tasks/t21-storage-design-review/README.md)；核心 [t22](tasks/t22-storage-core/README.md)、宿主身份 [t23](tasks/t23-storage-host-identity/README.md)、HTTP [t24](tasks/t24-storage-user-http/README.md) 已完成；独立审查 [t25](tasks/t25-storage-http-review/README.md)；下一增量 [t26](tasks/t26-storage-browser-adapter/README.md)
+- 状态：Spec 与治理 `44710392`、服务核心 `dfc5df82`、宿主身份 `3b8d87fb`、HTTP 值读写 `8b1229ea` 已提交；浏览器适配 t26 经独立审查修复、最终类型检查和 Chrome 值 smoke 通过，切片 1 闭合；实现 goal active
+- Work：w00003-neurobook-ui-foundation-migration；文档 [t21](tasks/t21-storage-design-review/README.md)、核心 [t22](tasks/t22-storage-core/README.md)、宿主身份 [t23](tasks/t23-storage-host-identity/README.md)、HTTP [t24](tasks/t24-storage-user-http/README.md)；HTTP 独立审查 [t25](tasks/t25-storage-http-review/README.md)；浏览器适配 [t26](tasks/t26-storage-browser-adapter/README.md) 与独立审查 [t27](tasks/t27-storage-adapter-review/README.md)
 - 工作区：`.worktree/w00003-neurobook-ui-foundation-migration`；分支：`refactor/w00003-nb-ui-adoption`
 - 2026-09-16：开发者同意补齐审查缺口，包含最小嵌套验证与必要原语修复；不提前迁移 World Engine 整页
 - 随后开发者明确授权：Spec 与文档治理完成并单独提交后，直接进入 goal 模式实现本计划。
@@ -92,6 +92,7 @@
   迁移字段退出旧 `novel.ide.local` writer；旧消费者最多读新 authority 的投影，所有写都经宿主提交。
 - 正常切换收口旧目标队列，失败提供重试/放弃；Project 删除与断线不能延迟使用旧上下文。
   将错误与原工作面绑定，不让迟到失败在新项目显示错误的“未保存”状态。
+  值传输已固定 notify=false；消费宿主必须把 mutation 失败与未确认通过现有通知、重试/放弃入口展示，不能只接入后台 onError。
 
 **验收：** 两项目分别记忆尺寸，用户资产/书架独立；窄视口夹取不改变保存值；
 同项目两标签并发分别改左右栏不丢另一字段，二次冲突可见；所有旧入口操作后刷新两次仍只有一个 writer；

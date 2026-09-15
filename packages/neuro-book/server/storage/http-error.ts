@@ -41,6 +41,7 @@ const STORAGE_PUBLIC_MESSAGES: Record<StorageErrorCode, string> = {
     STORAGE_DEFINITION_INVALID: "Storage 状态定义不合法",
     STORAGE_REGISTRATION_CONFLICT: "Storage 状态定义与已登记定义冲突",
     STORAGE_STATE_UNREGISTERED: "Storage 状态未在服务端注册",
+    STORAGE_SCHEMA_MISMATCH: "Storage 状态定义版本与当前服务不一致，请更新后重试",
     STORAGE_CONTEXT_INVALID: "Storage 访问上下文已失效，请重新初始化",
     STORAGE_CONTEXT_LIMIT: "暂时无法建立新的存储连接，请稍后重试",
     STORAGE_ADDRESS_INVALID: "Storage 记录地址不合法",

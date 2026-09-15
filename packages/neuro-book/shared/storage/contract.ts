@@ -49,6 +49,17 @@ export type StorageLimits = {
     readonly maxPartitionBytes: number;
 };
 
+/**
+ * 一次远程 owner 访问捕获的分区代次绑定。
+ *
+ * 长期句柄用它在接纳边界核对代次：绑定只含分区代次，不含主体、存储根或路径，
+ * 也不代替身份核验——每个请求仍要重新核验访问上下文。上下文没有客户端分区时 `local` 为 `null`。
+ */
+export type StoragePartitionBinding = {
+    readonly local: number | null;
+    readonly shared: number;
+};
+
 /** 记录的条件凭据；`revision: null` 表示读取时该记录缺失。 */
 export type StorageCredential = {
     readonly revision: string | null;

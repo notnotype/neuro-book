@@ -12,6 +12,7 @@ export type StorageErrorCode =
     | "STORAGE_DEFINITION_INVALID"
     | "STORAGE_REGISTRATION_CONFLICT"
     | "STORAGE_STATE_UNREGISTERED"
+    | "STORAGE_SCHEMA_MISMATCH"
     | "STORAGE_CONTEXT_INVALID"
     | "STORAGE_CONTEXT_LIMIT"
     | "STORAGE_ADDRESS_INVALID"
@@ -102,6 +103,27 @@ export class StorageStateUnregisteredError extends StorageDomainError {
         this.owner = owner;
         this.key = key;
         this.detail = detail;
+    }
+}
+
+/**
+ * 调用方消费的定义版本与注册定义不一致：值语义由版本决定，服务端不能替它解释另一个版本。
+ *
+ * 与磁盘记录的 legacy/unsupported 分类独立：那些描述已存记录的格式，这里描述双方当前的定义。
+ */
+export class StorageSchemaMismatchError extends StorageDomainError {
+    readonly consumedVersion: number;
+    readonly registeredVersion: number;
+
+    constructor(consumedVersion: number, registeredVersion: number) {
+        super(
+            "STORAGE_SCHEMA_MISMATCH",
+            409,
+            `Storage 定义版本不一致：调用方消费 ${String(consumedVersion)}，服务端注册 ${String(registeredVersion)}`,
+        );
+        this.name = "StorageSchemaMismatchError";
+        this.consumedVersion = consumedVersion;
+        this.registeredVersion = registeredVersion;
     }
 }
 

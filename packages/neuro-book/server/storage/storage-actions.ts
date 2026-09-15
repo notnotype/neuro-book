@@ -12,11 +12,13 @@ import {
     StorageActionRequestSchema,
     type StorageActionRequest,
     type StorageActionResponse,
+    type StorageValueActionRequest,
 } from "nbook/shared/storage/action";
 import {isSafeStorageIdentifier, type DefinedStorageState, type StorageStateRegistry} from "nbook/shared/storage/definition";
 import {
     StorageAddressInvalidError,
     StorageRequestInvalidError,
+    StorageSchemaMismatchError,
 } from "nbook/shared/storage/storage-errors";
 import type {StorageHandle} from "nbook/server/storage/storage-service";
 
@@ -73,23 +75,33 @@ export function parseStorageActionRequest(body: unknown): StorageActionRequest {
 }
 
 /**
- * 解析动作的逻辑地址并取回注册定义。
+ * 解析动作的逻辑地址并取回注册定义，随后核对调用方消费的定义版本。
  *
  * 字符集在这里判定，注册状态与寻址方式由注册表判定；两者都不接受调用方提交的策略。
+ * 版本核对的时机是取回定义之后、取得句柄之前：旧客户端不能把服务端当前的值语义
+ * 当成自己那一版来读取或写入，也不会为一次注定失败的请求打开句柄或触碰记录。
  */
 export function requireStorageActionState(
     registry: StorageStateRegistry,
-    action: StorageActionRequest,
+    action: StorageValueActionRequest,
 ): DefinedStorageState<unknown> {
     assertSafeAddress({owner: action.owner, key: action.key, resource: action.resource});
-    return registry.resolveAddress(action.owner, action.key);
+    const definition = registry.resolveAddress(action.owner, action.key);
+    if (action.schemaVersion !== definition.schemaVersion) {
+        throw new StorageSchemaMismatchError(action.schemaVersion, definition.schemaVersion);
+    }
+    return definition;
 }
 
-/** 执行动作；条件凭据、容量、原子替换与失败分类都由句柄背后的核心拥有。 */
+/**
+ * 执行一次值动作；`bind` 由宿主在取得句柄后直接回答，不进入这里。
+ *
+ * 条件凭据、容量、原子替换与失败分类都由句柄背后的核心拥有。
+ */
 export async function runStorageAction(input: {
     readonly handle: StorageHandle;
     readonly state: DefinedStorageState<unknown>;
-    readonly action: StorageActionRequest;
+    readonly action: StorageValueActionRequest;
 }): Promise<StorageActionResponse> {
     const {handle, state, action} = input;
     switch (action.kind) {

@@ -1,7 +1,10 @@
 import {mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {lock as acquireFileLock} from "proper-lockfile";
 import {afterEach, describe, expect, it} from "vitest";
 import {STORAGE_ACTION_BODY_LIMIT_BYTES} from "nbook/shared/storage/action";
+import type {StoragePartitionBinding} from "nbook/shared/storage/contract";
 import {defineStorageState, type DefinedStorageState} from "nbook/shared/storage/definition";
+import type {StorageLockAdapter} from "nbook/server/storage/partition-lock";
 import {
     createStorageActionHost,
     STORAGE_TEST_CLIENT_A,
@@ -54,7 +57,19 @@ const note: DefinedStorageState<NoteState> = defineStorageState<NoteState>({
     limits: {maxRecords: 3, maxPartitionBytes: 4096},
 });
 
-const definitions: readonly DefinedStorageState<unknown>[] = [layoutV1, note];
+/** 与 note 同 owner 的 shared 键：两者落在不同分区，可以各自持锁。 */
+const sharedNote: DefinedStorageState<NoteState> = defineStorageState<NoteState>({
+    owner: NOTE_OWNER,
+    key: "shared-note",
+    scope: "user",
+    locality: "shared",
+    records: "identified",
+    schemaVersion: 1,
+    defaultValue: {text: ""},
+    validate: isNoteState,
+});
+
+const definitions: readonly DefinedStorageState<unknown>[] = [layoutV1, note, sharedNote];
 
 function isLayoutState(value: unknown): value is LayoutState {
     return typeof value === "object" && value !== null
@@ -70,7 +85,7 @@ function isNoteState(value: unknown): value is NoteState {
     return typeof value === "object" && value !== null && typeof (value as NoteState).text === "string";
 }
 
-type StorageErrorBody = {readonly data?: {readonly code?: string; readonly reason?: string; readonly committed?: boolean}};
+type StorageErrorBody = {readonly data?: {readonly code?: string; readonly reason?: string; readonly committed?: boolean; readonly message?: string}};
 type Credential = {readonly revision: string | null; readonly partitionGeneration: number};
 /** 修复凭据绑定原始内容，与条件凭据分开。 */
 type RepairCredential = {readonly partitionGeneration: number; readonly contentFingerprint: string};
@@ -78,6 +93,8 @@ type ReadBody = {readonly result?: {
     readonly kind?: string;
     readonly value?: unknown;
     readonly schemaVersion?: number;
+    readonly wrapperVersion?: number | null;
+    readonly diagnosis?: string;
     readonly credential?: Credential;
     readonly repair?: RepairCredential;
 }};
@@ -105,8 +122,44 @@ async function expectFailure(response: Response, status: number, code: string): 
     return body;
 }
 
-async function readState(host: StorageActionHostFixture, contextId: string, options: {readonly resource?: string} = {}): Promise<ReadBody> {
-    const response = await host.act(contextId, {
+/**
+ * 一次已取得分区代次绑定的访问：值动作必须原样携带 `bind` 返回的绑定与本次消费的定义版本。
+ *
+ * 测试用它模拟前端句柄：句柄持有绑定，同时明确自己消费哪一版定义。
+ * 绑定或版本语义本身的用例直接调用 `host.act` 传具体值。
+ */
+type Access = {
+    readonly contextId: string;
+    readonly binding: StoragePartitionBinding;
+    readonly schemaVersion: number;
+    readonly credential?: string;
+    readonly subject?: string;
+};
+
+async function bindAccess(
+    host: StorageActionHostFixture,
+    contextId: string,
+    definition: DefinedStorageState<unknown>,
+    options: {readonly credential?: string; readonly subject?: string} = {},
+): Promise<Access> {
+    return {
+        ...options,
+        schemaVersion: definition.schemaVersion,
+        contextId,
+        binding: await host.bind(contextId, definition.owner, options),
+    };
+}
+
+async function act(host: StorageActionHostFixture, access: Access, action: Record<string, unknown>): Promise<Response> {
+    return await host.act(
+        access.contextId,
+        {...action, schemaVersion: access.schemaVersion, binding: access.binding},
+        {credential: access.credential, subject: access.subject},
+    );
+}
+
+async function readState(host: StorageActionHostFixture, access: Access, options: {readonly resource?: string} = {}): Promise<ReadBody> {
+    const response = await act(host, access, {
         kind: "read",
         owner: LAYOUT_OWNER,
         key: "layout",
@@ -116,12 +169,44 @@ async function readState(host: StorageActionHostFixture, contextId: string, opti
     return await response.json() as ReadBody;
 }
 
+/**
+ * 在真实分区锁之前插入一次闸门：让一个请求停住并继续持有它的句柄，其余请求正常进行。
+ *
+ * 闸门要显式启用：调用方先完成准备动作，再让下一个取得分区锁的请求挂起。
+ */
+function lockGate(): {
+    readonly arm: () => void;
+    readonly entered: Promise<void>;
+    readonly open: () => void;
+    readonly adapter: StorageLockAdapter;
+} {
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    let armed = false;
+    return {
+        arm: () => { armed = true; },
+        entered: entered.promise,
+        open: () => { gate.resolve(); },
+        adapter: {
+            acquire: async (file, options) => {
+                if (armed) {
+                    armed = false;
+                    entered.resolve();
+                    await gate.promise;
+                }
+                return await acquireFileLock(file, options);
+            },
+        },
+    };
+}
+
 describe("user 值动作 HTTP 合同", () => {
     it("未注册状态被拒绝且不创建任何记录", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
 
-        const response = await host.act(contextId, {kind: "read", owner: "test.other", key: "layout"});
+        const response = await host.act(contextId, {kind: "read", owner: "test.other", key: "layout", schemaVersion: layoutV1.schemaVersion, binding: access.binding});
         await expectFailure(response, 500, "STORAGE_STATE_UNREGISTERED");
 
         // 未注册动作不能通过地址推导出分区；隔离根里只有身份域与锁目录。
@@ -131,12 +216,17 @@ describe("user 值动作 HTTP 合同", () => {
     it("请求体与动作形状不合法时在触碰记录前拒绝", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
 
-        const unknownAction = await host.act(contextId, {kind: "purge", owner: LAYOUT_OWNER, key: "layout"});
+        const unknownAction = await host.act(contextId, {kind: "purge", owner: LAYOUT_OWNER, key: "layout", schemaVersion: layoutV1.schemaVersion, binding: access.binding});
         await expectFailure(unknownAction, 400, "STORAGE_REQUEST_INVALID");
 
+        // 值动作缺少分区代次绑定即被拒绝：不能退回“每次请求采用当前代次”。
+        const unbound = await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout", schemaVersion: layoutV1.schemaVersion});
+        await expectFailure(unbound, 400, "STORAGE_REQUEST_INVALID");
+
         // 客户端不能借额外字段提交 scope、locality、主体或磁盘路径。
-        const forged = await host.act(contextId, {
+        const forged = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -153,7 +243,7 @@ describe("user 值动作 HTTP 合同", () => {
         const malformedJson = await host.request("/api/storage/user/action", {contextId, body: "{"});
         await expectFailure(malformedJson, 400, "STORAGE_REQUEST_INVALID");
 
-        const oversized = await host.act(contextId, {
+        const oversized = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -165,7 +255,7 @@ describe("user 值动作 HTTP 合同", () => {
 
         const noCredential = await host.request("/api/storage/user/action", {
             contextId,
-            body: {kind: "read", owner: LAYOUT_OWNER, key: "layout"},
+            body: {kind: "read", owner: LAYOUT_OWNER, key: "layout", schemaVersion: layoutV1.schemaVersion, binding: access.binding},
             credential: "",
         });
         expect(noCredential.status).toBe(400);
@@ -178,8 +268,10 @@ describe("user 值动作 HTTP 合同", () => {
         const forSubjectA = await host.issue(STORAGE_TEST_CLIENT_A, STORAGE_TEST_SUBJECT);
         const forSubjectB = await host.issue(STORAGE_TEST_CLIENT_B, "user:8");
         const subjectBOptions = {credential: STORAGE_TEST_CLIENT_B, subject: "user:8"};
+        const accessA = await bindAccess(host, forSubjectA, layoutV1);
+        const accessB = await bindAccess(host, forSubjectB, layoutV1, subjectBOptions);
 
-        const saved = await host.act(forSubjectA, {
+        const saved = await act(host, accessA, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -188,14 +280,15 @@ describe("user 值动作 HTTP 合同", () => {
         });
         expect(saved.status).toBe(200);
 
-        const otherSubject = await host.act(forSubjectB, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}, subjectBOptions);
+        const otherSubject = await act(host, accessB, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await expect(otherSubject.json()).resolves.toMatchObject({result: {kind: "missing"}});
 
         const otherClient = await host.issue(STORAGE_TEST_CLIENT_B, STORAGE_TEST_SUBJECT);
-        const perClient = await host.act(otherClient, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}, {credential: STORAGE_TEST_CLIENT_B});
+        const accessC = await bindAccess(host, otherClient, layoutV1, {credential: STORAGE_TEST_CLIENT_B});
+        const perClient = await act(host, accessC, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         await expect(perClient.json()).resolves.toMatchObject({result: {kind: "missing"}});
 
-        const own = await readState(host, forSubjectA);
+        const own = await readState(host, accessA);
         expect(own.result).toMatchObject({kind: "value", value: {width: 100, height: 200}});
 
         const ownPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
@@ -207,14 +300,15 @@ describe("user 值动作 HTTP 合同", () => {
     it("缺失读取不创建记录，保存后重读并在新运行期恢复", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
         const recordPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
 
-        const missing = await readState(host, contextId);
+        const missing = await readState(host, access);
         expect(missing.result).toMatchObject({kind: "missing"});
         // 默认显示不落盘：读取缺失状态不能创建值记录。
         await expect(readFile(recordPath, "utf8")).rejects.toMatchObject({code: "ENOENT"});
 
-        const saved = await host.act(contextId, {
+        const saved = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -224,31 +318,33 @@ describe("user 值动作 HTTP 合同", () => {
         expect(saved.status).toBe(200);
         expect((await saved.json() as WriteBody).credential?.revision).toMatch(/^[0-9a-f-]{36}$/u);
         expect(JSON.parse(await readFile(recordPath, "utf8"))).toMatchObject({state: "value", value: {width: 640, height: 480}});
-        expect((await readState(host, contextId)).result).toMatchObject({kind: "value", value: {width: 640, height: 480}});
+        expect((await readState(host, access)).result).toMatchObject({kind: "value", value: {width: 640, height: 480}});
 
         // 新运行期：旧标识失效，同一客户端凭证仍定位到原 local 分区并读到已确认值。
         await host.configure();
-        await expectFailure(await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}), 403, "STORAGE_CONTEXT_INVALID");
+        await expectFailure(await act(host, access, {kind: "read", owner: LAYOUT_OWNER, key: "layout"}), 403, "STORAGE_CONTEXT_INVALID");
         const resumed = await host.issue();
-        expect((await readState(host, resumed)).result).toMatchObject({kind: "value", value: {width: 640, height: 480}});
+        expect((await readState(host, await bindAccess(host, resumed, layoutV1))).result)
+            .toMatchObject({kind: "value", value: {width: 640, height: 480}});
     });
 
     it("同一旧 revision 的并发保存只有一个成功", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
-        await host.act(contextId, {
+        const access = await bindAccess(host, contextId, layoutV1);
+        await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
             expected: {revision: null, partitionGeneration: 1},
             value: {width: 1, height: 1},
         });
-        const current = (await readState(host, contextId)).result?.credential;
+        const current = (await readState(host, access)).result?.credential;
         expect(current).toBeDefined();
 
         const [first, second] = await Promise.all([
-            host.act(contextId, {kind: "save", owner: LAYOUT_OWNER, key: "layout", expected: current, value: {width: 2, height: 2}}),
-            host.act(contextId, {kind: "save", owner: LAYOUT_OWNER, key: "layout", expected: current, value: {width: 3, height: 3}}),
+            act(host, access, {kind: "save", owner: LAYOUT_OWNER, key: "layout", expected: current, value: {width: 2, height: 2}}),
+            act(host, access, {kind: "save", owner: LAYOUT_OWNER, key: "layout", expected: current, value: {width: 3, height: 3}}),
         ]);
         const statuses = [first.status, second.status].sort((left, right) => left - right);
         expect(statuses).toEqual([200, 409]);
@@ -257,30 +353,31 @@ describe("user 值动作 HTTP 合同", () => {
 
         const winner = first.status === 200 ? first : second;
         expect((await winner.json() as WriteBody).credential?.revision).not.toBe(current?.revision);
-        const after = (await readState(host, contextId)).result;
+        const after = (await readState(host, access)).result;
         expect([{width: 2, height: 2}, {width: 3, height: 3}]).toContainEqual(after?.value);
     });
 
     it("删除形成墓碑，删除前的凭据不能复活记录", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
-        await host.act(contextId, {
+        const access = await bindAccess(host, contextId, layoutV1);
+        await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
             expected: {revision: null, partitionGeneration: 1},
             value: {width: 10, height: 20},
         });
-        const beforeDelete = (await readState(host, contextId)).result?.credential;
+        const beforeDelete = (await readState(host, access)).result?.credential;
         expect(beforeDelete).toBeDefined();
 
-        const removed = await host.act(contextId, {kind: "remove", owner: LAYOUT_OWNER, key: "layout", expected: beforeDelete});
+        const removed = await act(host, access, {kind: "remove", owner: LAYOUT_OWNER, key: "layout", expected: beforeDelete});
         expect(removed.status).toBe(200);
-        const tombstone = (await readState(host, contextId)).result;
+        const tombstone = (await readState(host, access)).result;
         expect(tombstone?.kind).toBe("deleted");
         expect(tombstone?.credential?.revision).not.toBe(beforeDelete?.revision);
 
-        const revived = await host.act(contextId, {
+        const revived = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -288,9 +385,9 @@ describe("user 值动作 HTTP 合同", () => {
             value: {width: 11, height: 21},
         });
         await expectFailure(revived, 409, "STORAGE_REVISION_CONFLICT");
-        expect((await readState(host, contextId)).result?.kind).toBe("deleted");
+        expect((await readState(host, access)).result?.kind).toBe("deleted");
 
-        const recreated = await host.act(contextId, {
+        const recreated = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -298,14 +395,15 @@ describe("user 值动作 HTTP 合同", () => {
             value: {width: 30, height: 40},
         });
         expect(recreated.status).toBe(200);
-        expect((await readState(host, contextId)).result).toMatchObject({kind: "value", value: {width: 30, height: 40}});
+        expect((await readState(host, access)).result).toMatchObject({kind: "value", value: {width: 30, height: 40}});
     });
 
     it("损坏记录禁止普通保存，显式修复保留原件并让旧修复凭据失效", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
         const recordPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
-        await host.act(contextId, {
+        await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -315,12 +413,12 @@ describe("user 值动作 HTTP 合同", () => {
         const brokenContent = "private-diagnostic-marker";
         await writeFile(recordPath, brokenContent, "utf8");
 
-        const corrupted = (await readState(host, contextId)).result;
+        const corrupted = (await readState(host, access)).result;
         expect(corrupted?.kind).toBe("corrupt");
         expect(corrupted?.repair).toBeDefined();
         expect(JSON.stringify(corrupted)).not.toContain(brokenContent);
 
-        const plainSave = await host.act(contextId, {
+        const plainSave = await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -330,7 +428,7 @@ describe("user 值动作 HTTP 合同", () => {
         await expectFailure(plainSave, 409, "STORAGE_WRITE_BLOCKED");
         expect(await readFile(recordPath, "utf8")).toBe(brokenContent);
 
-        const repaired = await host.act(contextId, {
+        const repaired = await act(host, access, {
             kind: "repair",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -338,9 +436,9 @@ describe("user 值动作 HTTP 合同", () => {
             value: {width: 7, height: 8},
         });
         expect(repaired.status).toBe(200);
-        expect((await readState(host, contextId)).result).toMatchObject({kind: "value", value: {width: 7, height: 8}});
+        expect((await readState(host, access)).result).toMatchObject({kind: "value", value: {width: 7, height: 8}});
 
-        const repeated = await host.act(contextId, {
+        const repeated = await act(host, access, {
             kind: "repair",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -358,7 +456,8 @@ describe("user 值动作 HTTP 合同", () => {
     it("旧 schemaVersion 只能显式迁移，普通保存被拒绝", async () => {
         const host = await createHost({definitions: [layoutV1]});
         const contextId = await host.issue();
-        await host.act(contextId, {
+        const access = await bindAccess(host, contextId, layoutV1);
+        await act(host, access, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -368,10 +467,11 @@ describe("user 值动作 HTTP 合同", () => {
 
         await host.configure({definitions: [layoutV2]});
         const reloaded = await host.issue();
-        const legacy = (await readState(host, reloaded)).result;
+        const reloadedAccess = await bindAccess(host, reloaded, layoutV2);
+        const legacy = (await readState(host, reloadedAccess)).result;
         expect(legacy).toMatchObject({kind: "legacy-value", schemaVersion: 1, value: {width: 12, height: 24}});
 
-        const blocked = await host.act(reloaded, {
+        const blocked = await act(host, reloadedAccess, {
             kind: "save",
             owner: LAYOUT_OWNER,
             key: "layout",
@@ -380,26 +480,27 @@ describe("user 值动作 HTTP 合同", () => {
         });
         await expectFailure(blocked, 409, "STORAGE_WRITE_BLOCKED");
 
-        const migrated = await host.act(reloaded, {
+        const migrated = await act(host, reloadedAccess, {
             kind: "migrate",
             owner: LAYOUT_OWNER,
             key: "layout",
             expected: legacy?.credential,
         });
         expect(migrated.status).toBe(200);
-        expect((await readState(host, reloaded)).result).toMatchObject({
+        expect((await readState(host, reloadedAccess)).result).toMatchObject({
             kind: "value",
             schemaVersion: 2,
             value: {width: 12, height: 24, theme: "migrated"},
         });
     });
 
-    it("回收选定的墓碑并让回收前的条件凭据失效", async () => {
+    it("回收选定的墓碑并让回收前的绑定与条件凭据一起失效", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, note);
         const credentials: Credential[] = [];
         for (const resource of ["first", "second"]) {
-            const saved = await host.act(contextId, {
+            const saved = await act(host, access, {
                 kind: "save",
                 owner: NOTE_OWNER,
                 key: "note",
@@ -411,7 +512,7 @@ describe("user 值动作 HTTP 合同", () => {
             credentials.push((await saved.json() as WriteBody).credential!);
         }
         for (const [index, resource] of ["first", "second"].entries()) {
-            const removed = await host.act(contextId, {
+            const removed = await act(host, access, {
                 kind: "remove",
                 owner: NOTE_OWNER,
                 key: "note",
@@ -421,7 +522,7 @@ describe("user 值动作 HTTP 合同", () => {
             expect(removed.status).toBe(200);
         }
 
-        const reclaimed = await host.act(contextId, {
+        const reclaimed = await act(host, access, {
             kind: "reclaim",
             owner: NOTE_OWNER,
             key: "note",
@@ -437,10 +538,10 @@ describe("user 值动作 HTTP 合同", () => {
         const partition = await host.partition({owner: NOTE_OWNER});
         expect(await readdir(partition.recordsDirectory)).toEqual([]);
 
-        const missing = await host.act(contextId, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"});
-        await expect(missing.json()).resolves.toMatchObject({result: {kind: "missing", credential: {partitionGeneration: 2}}});
+        // 回收后旧绑定连同尚未读过的键一起失效：同一访问继续用旧绑定读不到新代次。
+        await expectFailure(await act(host, access, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"}), 409, "STORAGE_CREDENTIAL_STALE");
 
-        const stale = await host.act(contextId, {
+        const stale = await act(host, access, {
             kind: "save",
             owner: NOTE_OWNER,
             key: "note",
@@ -449,22 +550,242 @@ describe("user 值动作 HTTP 合同", () => {
             value: {text: "revived"},
         });
         await expectFailure(stale, 409, "STORAGE_CREDENTIAL_STALE");
+
+        // 显式重新绑定是调用方的动作；重新绑定后可读到回收后的当前状态。
+        const rebound = await bindAccess(host, contextId, note);
+        await expect((await act(host, rebound, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"})).json())
+            .resolves.toMatchObject({result: {kind: "missing", credential: {partitionGeneration: 2}}});
         expect(await readdir(partition.recordsDirectory)).toEqual([]);
+    });
+
+    it("自行编造的绑定不能进入分区，也不接受缺少 local 的绑定", async () => {
+        const host = await createHost({definitions});
+        const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
+        await act(host, access, {
+            kind: "save",
+            owner: LAYOUT_OWNER,
+            key: "layout",
+            expected: {revision: null, partitionGeneration: 1},
+            value: {width: 1, height: 1},
+        });
+
+        // 比当前更高的代次无法从任何真实回收得到：句柄按它打开即失败关闭，不会跳过检查读当前记录。
+        const forgedHigh = await host.act(contextId, {
+            kind: "read",
+            owner: LAYOUT_OWNER,
+            key: "layout",
+            schemaVersion: layoutV1.schemaVersion,
+            binding: {local: access.binding.local! + 1, shared: access.binding.shared},
+        });
+        await expectFailure(forgedHigh, 409, "STORAGE_CREDENTIAL_STALE");
+
+        // 有客户端上下文的访问必须带 local 代次；少传一项就是要求句柄重新采用当前代次。
+        const forgedMissing = await host.act(contextId, {
+            kind: "read",
+            owner: LAYOUT_OWNER,
+            key: "layout",
+            schemaVersion: layoutV1.schemaVersion,
+            binding: {local: null, shared: access.binding.shared},
+        });
+        await expectFailure(forgedMissing, 403, "STORAGE_CONTEXT_INVALID");
+
+        expect((await readState(host, access)).result).toMatchObject({kind: "value", value: {width: 1, height: 1}});
     });
 
     it("读取 I/O 失败与缺失区分，响应不包含内部路径", async () => {
         const host = await createHost({definitions});
         const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV1);
         const recordPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
         await mkdir(recordPath, {recursive: true});
 
-        const failed = await host.act(contextId, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        const failed = await act(host, access, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
         const body = await expectFailure(failed, 500, "STORAGE_IO_FAILURE");
         expect(body.data?.code).toBe("STORAGE_IO_FAILURE");
         const text = JSON.stringify(body);
         expect(text).not.toContain(host.root);
         expect(text).not.toContain(STORAGE_TEST_CLIENT_A);
         await rm(recordPath, {recursive: true, force: true});
-        expect((await readState(host, contextId)).result?.kind).toBe("missing");
+        expect((await readState(host, access)).result?.kind).toBe("missing");
+    });
+
+    it("定义版本不一致时拒绝全部非 bind 动作，且不改动记录", async () => {
+        const host = await createHost({definitions: [layoutV2]});
+        const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV2);
+        await act(host, access, {
+            kind: "save",
+            owner: LAYOUT_OWNER,
+            key: "layout",
+            expected: {revision: null, partitionGeneration: 1},
+            value: {width: 1, height: 2, theme: "server"},
+        });
+        const recordPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
+        const original = await readFile(recordPath, "utf8");
+        const current = (await readState(host, access)).result?.credential;
+
+        // 旧客户端只消费 v1，服务端注册的是 v2：任何非 bind 动作都不能按 v1 解释或覆盖 v2 的值。
+        const actions: readonly Record<string, unknown>[] = [
+            {kind: "read", owner: LAYOUT_OWNER, key: "layout"},
+            {kind: "save", owner: LAYOUT_OWNER, key: "layout", expected: current, value: {width: 9, height: 9}},
+            {kind: "remove", owner: LAYOUT_OWNER, key: "layout", expected: current},
+            {kind: "migrate", owner: LAYOUT_OWNER, key: "layout", expected: current},
+            {kind: "repair", owner: LAYOUT_OWNER, key: "layout", expected: {partitionGeneration: 1, contentFingerprint: "sha256:00"}, value: {width: 9, height: 9, theme: "repaired"}},
+            {kind: "reclaim", owner: LAYOUT_OWNER, key: "layout", targets: [{}]},
+        ];
+        const messages = new Set<string>();
+        for (const action of actions) {
+            const response = await host.act(contextId, {
+                ...action,
+                schemaVersion: layoutV1.schemaVersion,
+                binding: access.binding,
+            });
+            const body = await expectFailure(response, 409, "STORAGE_SCHEMA_MISMATCH");
+            messages.add(body.data?.message ?? "");
+        }
+        // 固定公开文案：所有动作给出同一条可展示文本，不泄漏服务端诊断。
+        expect(messages.size).toBe(1);
+        // 拒绝发生在取得句柄之前：这次旧版本请求没有改动记录，也没有触发回收。
+        expect(await readFile(recordPath, "utf8")).toBe(original);
+        expect((await readState(host, access)).result).toMatchObject({
+            kind: "value",
+            value: {width: 1, height: 2, theme: "server"},
+            credential: {partitionGeneration: 1},
+        });
+    });
+
+    it("更高 schemaVersion 的记录给出公开诊断，禁止普通保存且保留原件", async () => {
+        const host = await createHost({definitions: [layoutV2]});
+        const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, layoutV2);
+        const recordPath = await host.recordPath({owner: LAYOUT_OWNER, key: "layout"});
+        await mkdir((await host.partition({owner: LAYOUT_OWNER})).recordsDirectory, {recursive: true});
+        const revision = "00000000-0000-4000-8000-000000000000";
+        const original = `${JSON.stringify({
+            wrapper: 1,
+            revision,
+            state: "value",
+            schemaVersion: 3,
+            value: {width: 1, height: 2, theme: "from-newer-client"},
+        })}\n`;
+        await writeFile(recordPath, original, "utf8");
+
+        const read = await act(host, access, {kind: "read", owner: LAYOUT_OWNER, key: "layout"});
+        expect(read.status).toBe(200);
+        const body = await read.json() as ReadBody;
+        expect(body.result).toMatchObject({kind: "unsupported-version", schemaVersion: 3, wrapperVersion: null});
+        expect(body.result?.diagnosis).toBeDefined();
+        // 公开诊断不暴露原始内容；原件保持原样，等待显式修复。
+        expect(JSON.stringify(body)).not.toContain("from-newer-client");
+
+        const blocked = await act(host, access, {
+            kind: "save",
+            owner: LAYOUT_OWNER,
+            key: "layout",
+            expected: {revision, partitionGeneration: 1},
+            value: {width: 9, height: 9, theme: "overwrite"},
+        });
+        await expectFailure(blocked, 409, "STORAGE_WRITE_BLOCKED");
+        expect(await readFile(recordPath, "utf8")).toBe(original);
+    });
+
+    it("bind 不复用池内旧句柄：同上下文仍持旧代次句柄时返回分区当前代次", async () => {
+        const gate = lockGate();
+        const host = await createHost({definitions, lockAdapter: gate.adapter});
+        const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, note);
+        await act(host, access, {
+            kind: "save",
+            owner: NOTE_OWNER,
+            key: "note",
+            resource: "first",
+            expected: {revision: null, partitionGeneration: 1},
+            value: {text: "kept"},
+        });
+
+        // 一个 shared 分区的保存停在它自己的分区锁上：它已经打开并继续持有该访问/owner 的句柄，
+        // 而那个句柄捕获的是回收前的代次。
+        gate.arm();
+        const held = act(host, access, {
+            kind: "save",
+            owner: NOTE_OWNER,
+            key: "shared-note",
+            resource: "first",
+            expected: {revision: null, partitionGeneration: 1},
+            value: {text: "held"},
+        });
+        await gate.entered;
+
+        // 另一个上下文回收 local 分区的墓碑：该分区代次变成 2。
+        const other = await bindAccess(host, await host.issue(), note);
+        const credential = ((await (await act(host, other, {
+            kind: "read",
+            owner: NOTE_OWNER,
+            key: "note",
+            resource: "first",
+        })).json()) as ReadBody).result?.credential;
+        await act(host, other, {kind: "remove", owner: NOTE_OWNER, key: "note", resource: "first", expected: credential});
+        expect((await act(host, other, {kind: "reclaim", owner: NOTE_OWNER, key: "note", targets: [{resource: "first"}]})).status).toBe(200);
+
+        // `bind` 不借那个还持旧代次的句柄：它返回回收后的当前代次。
+        const reboundBinding = await host.bind(contextId, NOTE_OWNER);
+        expect(reboundBinding).toEqual({local: 2, shared: 1});
+        gate.open();
+        expect((await held).status).toBe(200);
+
+        await expectFailure(await act(host, access, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"}), 409, "STORAGE_CREDENTIAL_STALE");
+        // 显式重新绑定是调用方的动作；重新绑定后读到回收后的当前状态。
+        await expect((await act(host, {...access, binding: reboundBinding}, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"})).json())
+            .resolves.toMatchObject({result: {kind: "missing", credential: {partitionGeneration: 2}}});
+    });
+
+    it("同上下文不同绑定并发：旧绑定请求不借在途的新代次句柄", async () => {
+        const opened = Promise.withResolvers<void>();
+        const gate = Promise.withResolvers<void>();
+        let armed = false;
+        const host = await createHost({
+            definitions,
+            openHandle: async (input, service) => {
+                if (armed && input.binding !== undefined) {
+                    armed = false;
+                    opened.resolve();
+                    await gate.promise;
+                }
+                return await service.openHandle(input);
+            },
+        });
+        const contextId = await host.issue();
+        const access = await bindAccess(host, contextId, note);
+        await act(host, access, {
+            kind: "save",
+            owner: NOTE_OWNER,
+            key: "note",
+            resource: "first",
+            expected: {revision: null, partitionGeneration: 1},
+            value: {text: "kept"},
+        });
+        const other = await bindAccess(host, await host.issue(), note);
+        const credential = ((await (await act(host, other, {
+            kind: "read",
+            owner: NOTE_OWNER,
+            key: "note",
+            resource: "first",
+        })).json()) as ReadBody).result?.credential;
+        await act(host, other, {kind: "remove", owner: NOTE_OWNER, key: "note", resource: "first", expected: credential});
+        expect((await act(host, other, {kind: "reclaim", owner: NOTE_OWNER, key: "note", targets: [{resource: "first"}]})).status).toBe(200);
+
+        // 同一访问重新绑定到当前代次：这次读取按新代次打开句柄，被闸在打开边界。
+        const currentBinding = await host.bind(contextId, NOTE_OWNER);
+        expect(currentBinding).toEqual({local: 2, shared: 1});
+        armed = true;
+        const current = act(host, {...access, binding: currentBinding}, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"});
+        await opened.promise;
+        // 旧绑定的并发请求只能自己按旧代次打开，不能借那个正在打开的新代次句柄。
+        const stale = act(host, access, {kind: "read", owner: NOTE_OWNER, key: "note", resource: "first"});
+        gate.resolve();
+
+        await expect((await current).json()).resolves.toMatchObject({result: {kind: "missing", credential: {partitionGeneration: 2}}});
+        await expectFailure(await stale, 409, "STORAGE_CREDENTIAL_STALE");
     });
 });

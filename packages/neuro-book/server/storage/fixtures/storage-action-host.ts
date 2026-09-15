@@ -12,6 +12,7 @@ import path from "node:path";
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {createApp, createError, defineEventHandler, getHeader, toNodeListener} from "h3";
 import type {DefinedStorageState} from "nbook/shared/storage/definition";
+import type {StoragePartitionBinding} from "nbook/shared/storage/contract";
 import {STORAGE_ACCESS_CONTEXT_HEADER, STORAGE_CLIENT_CREDENTIAL_HEADER} from "nbook/shared/storage/host";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {
@@ -74,6 +75,8 @@ export type StorageActionHostFixture = {
     /** 同根换一套宿主配置：验证重启恢复、重新加载定义与生命周期接缝。 */
     configure(next?: StorageActionHostOptions): Promise<void>;
     issue(clientCredential?: string, subject?: string): Promise<string>;
+    /** 取得该访问与 owner 的分区代次绑定；值动作必须原样携带它。 */
+    bind(contextId: string, owner: string, options?: {readonly credential?: string; readonly subject?: string}): Promise<StoragePartitionBinding>;
     act(contextId: string, action: unknown, options?: {readonly credential?: string; readonly subject?: string}): Promise<Response>;
     identityDomain(): Promise<string>;
     /** 生产寻址逻辑推出的分区路径；直接读盘断言隔离与文件状态用。 */
@@ -176,6 +179,19 @@ export async function createStorageActionHost(options: StorageActionHostOptions 
                 throw new Error(`初始化未返回上下文：${String(response.status)} ${JSON.stringify(body)}`);
             }
             return body.contextId;
+        },
+        async bind(contextId, owner, options = {}) {
+            const response = await request(STORAGE_ACTION_PATH, {
+                body: {kind: "bind", owner},
+                contextId,
+                credential: options.credential ?? clientCredential,
+                subject: options.subject,
+            });
+            const body = await response.json() as {binding?: StoragePartitionBinding};
+            if (response.status !== 200 || body.binding === undefined) {
+                throw new Error(`绑定未返回分区代次：${String(response.status)} ${JSON.stringify(body)}`);
+            }
+            return body.binding;
         },
         act(contextId, action, options = {}) {
             return request(STORAGE_ACTION_PATH, {
