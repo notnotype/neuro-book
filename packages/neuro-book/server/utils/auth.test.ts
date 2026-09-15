@@ -34,7 +34,7 @@ describe("auth utils", () => {
             error.statusCode = input.statusCode;
             return error;
         }) as never;
-        globals.getUserSession = vi.fn();
+        globals.getUserSession = vi.fn().mockResolvedValue({});
         globals.setUserSession = vi.fn();
         globals.clearUserSession = vi.fn();
     });

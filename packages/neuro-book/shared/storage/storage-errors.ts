@@ -7,10 +7,12 @@
 
 /** Storage 失败种类；新增种类必须同时给出 HTTP 映射与可观察的触发条件。 */
 export type StorageErrorCode =
+    | "STORAGE_CLIENT_CREDENTIAL_INVALID"
     | "STORAGE_DEFINITION_INVALID"
     | "STORAGE_REGISTRATION_CONFLICT"
     | "STORAGE_STATE_UNREGISTERED"
     | "STORAGE_CONTEXT_INVALID"
+    | "STORAGE_CONTEXT_LIMIT"
     | "STORAGE_ADDRESS_INVALID"
     | "STORAGE_VALUE_INVALID"
     | "STORAGE_VALUE_TOO_LARGE"
@@ -92,6 +94,29 @@ export class StorageStateUnregisteredError extends StorageDomainError {
         this.owner = owner;
         this.key = key;
         this.detail = detail;
+    }
+}
+
+/**
+ * 请求没有携带可用的客户端定位凭证；服务端不接受调用方自报 clientId。
+ *
+ * message 只描述格式要求：原始凭证不进错误响应、日志或任何持久化记录。
+ */
+export class StorageClientCredentialInvalidError extends StorageDomainError {
+    readonly reason: "missing" | "malformed";
+
+    constructor(reason: "missing" | "malformed", message: string) {
+        super("STORAGE_CLIENT_CREDENTIAL_INVALID", 400, message);
+        this.name = "StorageClientCredentialInvalidError";
+        this.reason = reason;
+    }
+}
+
+/** 活跃访问达到上限，拒绝新签发以保留现有访问。 */
+export class StorageContextLimitError extends StorageDomainError {
+    constructor() {
+        super("STORAGE_CONTEXT_LIMIT", 503, "Storage 活跃访问上下文已达容量上限");
+        this.name = "StorageContextLimitError";
     }
 }
 

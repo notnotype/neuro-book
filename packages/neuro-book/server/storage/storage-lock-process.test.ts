@@ -100,6 +100,9 @@ describe("Storage 跨进程条件写", () => {
         });
 
         const missing = await parent.read(racerDefinition);
+        if (missing.kind !== "missing") {
+            throw new Error(`初始读取需要 missing，实际 ${missing.kind}`);
+        }
         const initial = await parent.save(racerDefinition, {expected: missing.credential, value: {writer: "parent-initial"}});
         if (initial.revision === null) {
             throw new Error("初始保存必须产生 revision");
@@ -159,7 +162,9 @@ describe("Storage 跨进程条件写", () => {
                 throw new Error(`child 未报告 revision：${childResult}`);
             }
 
-            expect(racing.ok).toBe(false);
+            if (racing.ok) {
+                throw new Error("父进程竞争写入不应成功");
+            }
             expect(racing.error).toMatchObject({
                 code: "STORAGE_REVISION_CONFLICT",
                 expectedRevision: initial.revision,

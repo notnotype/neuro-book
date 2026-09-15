@@ -3,7 +3,7 @@ import path from "node:path";
 import {lock as acquireFileLock} from "proper-lockfile";
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {afterEach, describe, expect, it} from "vitest";
-import type {StorageLocality, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
+import type {StorageCredential, StorageLocality, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
 import {defineStorageState, StorageStateRegistry, type DefinedStorageState} from "nbook/shared/storage/definition";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {storagePartitionPaths, type StoragePartitionPaths} from "nbook/server/storage/storage-address";
@@ -222,6 +222,14 @@ function valueCredential(credential: {readonly revision: string | null; readonly
     return {revision: credential.revision, partitionGeneration: credential.partitionGeneration};
 }
 
+/** 缺失读取的条件凭据；非 missing 分类立即失败，避免用错凭据继续写。 */
+function missingCredential<T>(result: StorageReadResult<T>): StorageCredential {
+    if (result.kind !== "missing") {
+        throw new Error(`需要 missing 读取结果，实际 ${result.kind}`);
+    }
+    return result.credential;
+}
+
 describe("StorageService 归属与隔离", () => {
     it("两个主体、两个客户端与两个身份域分别读写同名键", async () => {
         const context = await createStorageContext("nbook-storage-isolation-");
@@ -232,7 +240,7 @@ describe("StorageService 归属与隔离", () => {
         const initial = await first.read(layoutDefinition);
         expect(initial).toMatchObject({kind: "missing", credential: {revision: null, partitionGeneration: 1}});
         const saved = await first.save(layoutDefinition, {
-            expected: initial.credential,
+            expected: missingCredential(initial),
             value: {width: 400, height: 200},
         });
 
@@ -251,7 +259,7 @@ describe("StorageService 归属与隔离", () => {
 
         const sharedInitial = await first.read(sharedLayoutDefinition);
         await first.save(sharedLayoutDefinition, {
-            expected: sharedInitial.credential,
+            expected: missingCredential(sharedInitial),
             value: {width: 111, height: 222},
         });
         await expect(secondClient.read(sharedLayoutDefinition)).resolves.toMatchObject({
@@ -326,10 +334,10 @@ describe("条件保存、删除与恢复", () => {
 
         const missing = await handle.read(layoutDefinition);
         const first = await handle.save(layoutDefinition, {
-            expected: missing.credential,
+            expected: missingCredential(missing),
             value: {width: 1, height: 1},
         });
-        await expect(handle.save(layoutDefinition, {expected: missing.credential, value: {width: 2, height: 2}}))
+        await expect(handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 2, height: 2}}))
             .rejects.toMatchObject({
                 code: "STORAGE_REVISION_CONFLICT",
                 expectedRevision: null,
@@ -353,7 +361,7 @@ describe("条件保存、删除与恢复", () => {
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
         const saved = await handle.save(layoutDefinition, {
-            expected: missing.credential,
+            expected: missingCredential(missing),
             value: {width: 500, height: 300},
         });
 
@@ -375,7 +383,7 @@ describe("条件保存、删除与恢复", () => {
         const context = await createStorageContext("nbook-storage-restart-");
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
-        await handle.save(layoutDefinition, {expected: missing.credential, value: {width: 640, height: 480}});
+        await handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 640, height: 480}});
         await handle.release();
 
         const restarted = await createStorageContext("nbook-storage-restart-", {
@@ -397,11 +405,11 @@ describe("条件保存、删除与恢复", () => {
         const missing = await handle.read(layoutDefinition);
 
         await expect(handle.save(layoutDefinition, {
-            expected: missing.credential,
+            expected: missingCredential(missing),
             value: {width: Number.NaN, height: 1},
         })).rejects.toMatchObject({code: "STORAGE_VALUE_INVALID"});
         await expect(handle.save(layoutDefinition, {
-            expected: missing.credential,
+            expected: missingCredential(missing),
             value: {width: "320", height: 1} as unknown as LayoutState,
         })).rejects.toMatchObject({code: "STORAGE_VALUE_INVALID", reason: "validate"});
         await expect(viewHandle.save(noteDefinition, {
@@ -851,14 +859,13 @@ describe("订阅与生命周期", () => {
     });
 
     it("释放句柄时拒绝新操作并等待已接纳请求收口", async () => {
-        let gate: Promise<void> | null = null;
-        let openGate: (() => void) | null = null;
+        const gate = Promise.withResolvers<void>();
         const lockAdapter: StorageLockAdapter = {
             acquire: async (file, options) => {
                 const release = await acquireFileLock(file, options);
                 return async () => {
                     // 闸门替代真实耗时：让保存停在已接纳状态，验证释放必须等它收口。
-                    await gate;
+                    await gate.promise;
                     await release();
                 };
             },
@@ -866,11 +873,8 @@ describe("订阅与生命周期", () => {
         const context = await createStorageContext("nbook-storage-drain-", {lockAdapter});
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
-        gate = new Promise<void>((resolve) => {
-            openGate = resolve;
-        });
 
-        const saving = handle.save(layoutDefinition, {expected: missing.credential, value: {width: 5, height: 6}});
+        const saving = handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 5, height: 6}});
         let released = false;
         const releasing = handle.release().then(() => {
             released = true;
@@ -878,7 +882,7 @@ describe("订阅与生命周期", () => {
         await new Promise<void>((resolve) => setImmediate(resolve));
         expect(released).toBe(false);
 
-        openGate?.();
+        gate.resolve();
         await releasing;
         await expect(saving).resolves.toMatchObject({revision: expect.any(String)});
         await expect(handle.read(layoutDefinition)).rejects.toMatchObject({code: "STORAGE_HANDLE_CLOSED"});
@@ -948,7 +952,7 @@ describe("分区锁失败语义", () => {
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
 
-        await expect(handle.save(layoutDefinition, {expected: missing.credential, value: {width: 1, height: 1}}))
+        await expect(handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 1, height: 1}}))
             .rejects.toMatchObject({code: "STORAGE_LOCK_UNAVAILABLE", reason: "contended", committed: false});
         await expect(handle.read(layoutDefinition)).resolves.toMatchObject({kind: "missing"});
     });
@@ -965,7 +969,7 @@ describe("分区锁失败语义", () => {
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
 
-        await expect(handle.save(layoutDefinition, {expected: missing.credential, value: {width: 1, height: 1}}))
+        await expect(handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 1, height: 1}}))
             .rejects.toMatchObject({code: "STORAGE_LOCK_UNAVAILABLE", reason: "compromised", committed: false});
         await expect(handle.read(layoutDefinition)).resolves.toMatchObject({kind: "missing"});
     });
@@ -979,7 +983,7 @@ describe("分区锁失败语义", () => {
         await utimes(partition.lockPath, staleAt, staleAt);
 
         const missing = await handle.read(layoutDefinition);
-        await expect(handle.save(layoutDefinition, {expected: missing.credential, value: {width: 2, height: 3}}))
+        await expect(handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 2, height: 3}}))
             .resolves.toMatchObject({revision: expect.any(String)});
         await expect(access(partition.lockPath)).rejects.toMatchObject({code: "ENOENT"});
     });
@@ -1002,7 +1006,7 @@ describe("分区锁失败语义", () => {
         });
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
-        const saved = await handle.save(layoutDefinition, {expected: missing.credential, value: {width: 4, height: 4}});
+        const saved = await handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 4, height: 4}});
 
         failRelease = true;
         await expect(handle.save(layoutDefinition, {
@@ -1051,7 +1055,7 @@ describe("路径边界与原子替换", () => {
 
         await expect(handle.read(layoutDefinition)).rejects.toMatchObject({code: "STORAGE_PATH_ESCAPE"});
         await expect(handle.save(layoutDefinition, {
-            expected: missing.credential,
+            expected: missingCredential(missing),
             value: {width: 1, height: 1},
         })).rejects.toMatchObject({code: "STORAGE_PATH_ESCAPE"});
         expect(await readdir(outside)).toEqual([]);
@@ -1088,7 +1092,7 @@ describe("路径边界与原子替换", () => {
         const context = await createStorageContext("nbook-storage-replace-retry-", {fileOptions: {replace: adapter}});
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
-        const saved = await handle.save(layoutDefinition, {expected: missing.credential, value: {width: 1, height: 1}});
+        const saved = await handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 1, height: 1}});
 
         attempts = 0;
         failuresRemaining = 2;
@@ -1118,7 +1122,7 @@ describe("路径边界与原子替换", () => {
         const context = await createStorageContext("nbook-storage-replace-failure-", {fileOptions: {replace: adapter}});
         const handle = await context.open();
         const missing = await handle.read(layoutDefinition);
-        const saved = await handle.save(layoutDefinition, {expected: missing.credential, value: {width: 7, height: 8}});
+        const saved = await handle.save(layoutDefinition, {expected: missingCredential(missing), value: {width: 7, height: 8}});
         const partition = await partitionOf(context);
         const before = (await readdir(partition.recordsDirectory)).sort();
 
@@ -1155,7 +1159,7 @@ describe("路径边界与原子替换", () => {
         // 读取循环的失败在测试内收口，不在清理阶段变成无人处理的 rejection。
         const readerOutcome = reader.then(() => null, (error: unknown) => error);
 
-        let credential = missing.credential;
+        let credential = missingCredential(missing);
         for (let index = 0; index < 20; index += 1) {
             credential = await handle.save(layoutDefinition, {
                 expected: credential,

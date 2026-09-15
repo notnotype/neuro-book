@@ -89,6 +89,13 @@ export async function ensureStorageIdentityDomain(
     return result;
 }
 
+/** 只核验已有身份域；请求核验不能偷偷重建被删除的 data 元数据。 */
+export async function readStorageIdentityDomain(root: AbsoluteFsPath): Promise<string | null> {
+    const target = storageIdentityFilePath(root);
+    await assertStorageTargetContained(root, target);
+    return await readIdentityDomain(target);
+}
+
 /** 读取身份域元数据；缺失返回 null，损坏或版本不支持必须与缺失区分。 */
 async function readIdentityDomain(identityPath: AbsoluteFsPath): Promise<string | null> {
     const outcome = await readStorageRecordFile(identityPath, 64 * 1024);

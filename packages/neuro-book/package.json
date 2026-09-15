@@ -53,6 +53,7 @@
     "smoke:component-lab": "node --import tsx scripts/smoke/component-lab.ts",
     "smoke:component-lab:core": "node --import tsx scripts/smoke/component-lab.ts --suite core",
     "smoke:component-lab:agent-profile": "node --import tsx scripts/smoke/component-lab.ts --suite agent-profile",
+    "smoke:storage-host-identity": "node --import tsx scripts/smoke/storage-host-identity.ts",
     "seed:world-engine-demo": "bun scripts/seed/world-engine-demo.ts",
     "seed:heroes-story": "bun scripts/seed/heroes-story.ts",
     "seed:chapter-01-slices": "bun scripts/seed/chapter-01-slices.ts",

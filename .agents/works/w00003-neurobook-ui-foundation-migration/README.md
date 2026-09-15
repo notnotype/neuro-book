@@ -36,6 +36,8 @@ Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neur
 [实施计划](storage-implementation-plan.md) 固定依赖、切片、迁移与验收。
 Spec 与治理已单独提交为 `44710392`；开发者授权后已建立实现 goal，由 [t22](tasks/t22-storage-core/README.md) 开始服务核心增量。
 实现与各验收逐项推进，旧键迁移尚未执行；局部增量完成不代表全部 capability 已实现。
+服务核心 t22 已提交 `dfc5df82`（86 个聚焦用例、包含新入口的 typecheck 通过）；
+当前由 [t23](tasks/t23-storage-host-identity/README.md) 处理浏览器客户端身份与 user 访问上下文。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界

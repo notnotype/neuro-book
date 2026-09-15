@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => {
         disposeAgentHarness: vi.fn(async () => { order.push("agent"); }),
         closeAllProjects: vi.fn(async () => { order.push("projects"); }),
         closeAllWorkspaceTreeIndexes: vi.fn(async () => { order.push("indexes"); }),
+        disposeStorageHost: vi.fn(async () => { order.push("storage"); }),
         stopAgentSessionStoreRuntime: vi.fn(async () => { order.push("sessions"); }),
         disconnectPrismaClient: vi.fn(async () => { order.push("prisma"); }),
         checkpointAppSqliteDatabase: vi.fn(async () => { order.push("checkpoint"); }),
@@ -19,6 +20,7 @@ vi.mock("nbook/server/app-logs/logger", () => ({
     appLogger: {flush: mocks.flush, fatalSync: vi.fn()},
 }));
 vi.mock("nbook/server/agent/http", () => ({disposeAgentHarness: mocks.disposeAgentHarness}));
+vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost}));
 vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     stopAgentSessionStoreRuntime: mocks.stopAgentSessionStoreRuntime,
 }));
@@ -55,6 +57,7 @@ describe("Product shutdown wiring", () => {
             "agent",
             "projects",
             "indexes",
+            "storage",
             "sessions",
             "checkpoint",
             "prisma",

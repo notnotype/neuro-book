@@ -26,10 +26,11 @@
     ".nuxt/**/*.d.ts",
     "app/**/*",
     "server/agent/**/*",
+    "server/api/storage/**/*",
+    "server/storage/**/*",
     "shared/**/*",
     "*.d.ts",
-    "nuxt.config.ts",
-    "server/storage/index.ts"
+    "nuxt.config.ts"
   ],
   "exclude": [
     "server/agent-v2/**/*",

@@ -1,4 +1,4 @@
-# Storage 本地服务核心
+# Storage 本地服务与宿主身份
 
 本目录实现 [storage.persistence](../../../../docs/specs/storage/persistence.md) 的宿主无关服务核心。
 公开入口为 `nbook/server/storage`；浏览器可消费的定义、DTO、状态投影与错误码在 `nbook/shared/storage`。
@@ -32,6 +32,8 @@
 | `partition-lock.ts` | 实际分区的跨进程锁、心跳失效与释放结果 |
 | `record-file.ts` / `record-codec.ts` | 有界读取、文件格式、原子替换、诊断原件和临时文件 |
 | `identity-domain.ts` | data 身份域的受锁初始化 |
+| `access-context.ts` | 独立访问标识、绑定声明、空闲到期、容量与 session 撤销 |
+| `host.ts` / `http-error.ts` | 浏览器请求身份核验、初始化排空与公开错误投影 |
 
 订阅对本服务提交立即调度观察，同时以默认 500ms 间隔观察外部提交；每个订阅读取串行，
 实际轮询间隔从上次读取完成起算。它可以合并中间值，不能用作审计事件流。
@@ -45,10 +47,17 @@
 
 ## 当前边界与验证
 
-本增量没有接入 HTTP 鉴权、客户端身份签发、Project ready/关闭、产品停机、备份或 UI。
-它接受已核验的宿主上下文；后续宿主适配器必须在每次请求与长连接期间维护真实授权。
+user 身份入口为 `POST/DELETE /api/storage/user/context`，请求头使用 shared 的 host 合同。
+浏览器用同一 IndexedDB readwrite 事务持久保存随机定位凭证；同源标签页共享凭证但各自签发独立访问。
+auth-on 先核验 active/sessionVersion，访问绑定 session 标识；成功登录与退出撤销旧 session 的访问。
+auth-off 使用跟随 data 身份域的本地主体。签发还绑定真实目录身份，复制身份文件不能恢复旧访问。
+上下文全宿主默认最多 256 个，每个主体与客户端最多 32 个，30 分钟未核验即到期；满额只回收已到期项，仍满则拒绝新签发。
+后续 adapter 须在失效后重新初始化；不能因重签发丢弃当前界面的未提交意图。
+关闭会拒绝新身份操作并排空在途初始化；当前尚未接入值读写 HTTP、长连接撤销、Project ready/关闭、备份或 UI。
+这些消费者仍须在每次请求与长连接期间维护真实授权，并让实际 Storage 句柄在授权撤销时停止接纳并排空。
 专用旧桶迁移原件预留、在线同步与领域数据 Store 不属于普通记录实现。
 
 聚焦验证命令：`bun run --cwd packages/neuro-book test shared/storage server/storage`。
 服务入口已纳入主应用 typecheck；测试包含真实跨进程 revision 竞争、Windows 目录联接和注入的磁盘/锁故障。
-本轮证据记录在 [t22 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t22-storage-core/walkthroughs/leader-review.md)。
+核心证据见 [t22 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t22-storage-core/walkthroughs/leader-review.md)，
+宿主身份增量见 [t23](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t23-storage-host-identity/README.md)。

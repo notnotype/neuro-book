@@ -34,12 +34,14 @@ describe("POST /api/auth/login", () => {
             defineEventHandler?: unknown;
             readBody?: unknown;
             setUserSession?: unknown;
+            getUserSession?: unknown;
             clearUserSession?: unknown;
             createError?: unknown;
         };
         globals.defineEventHandler = ((handler: unknown) => handler) as never;
         globals.readBody = vi.fn();
         globals.setUserSession = vi.fn();
+        globals.getUserSession = vi.fn().mockResolvedValue({});
         globals.clearUserSession = vi.fn();
         globals.createError = ((input: {statusCode?: number; message?: string}) => {
             const error = new Error(input.message ?? "未知错误") as Error & {statusCode?: number};
