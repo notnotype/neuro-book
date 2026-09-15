@@ -107,12 +107,15 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片 |
 
 ## 待实现规范
-以下已获批准但尚未实现的行为合同必须在代码切换前完成；实现和验证闭合后原地晋升为 `implemented`。
+以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。
 
 | 功能域 | 当前规范 | 缺口 |
 |---|---|---|
 | Agent Profile 设置视图 | [`ui/agent-profile-settings.md`](ui/agent-profile-settings.md) | 常用设置优先的受控 Profile 设置视图；实现与 Lab 验证闭合后晋升 implemented |
 | Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 主应用外壳按已批准的 Workbench 分区模型渲染，并保留现有固定槽位与入口；实现与真实 surface 验收闭合后晋升 implemented |
+| Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
+| Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
+| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 最小横纵嵌套、分支尺寸吸收、鼠标/键盘提交与安全恢复；原语修复和真实 fixture 待实现 |
 
 ## 冻结过渡规范
 
@@ -133,6 +136,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 |---|---|---|---|
 | P0 | Desktop、安装与 Product Runtime | `packages/neuro-book/docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载和失败恢复未汇成当前规范 |
 | P0 | 应用状态、备份与数据迁移 | `packages/neuro-book/docs/adr/0005-*`、`0008-*`、`0012-*`，`packages/neuro-book/server/backup/`、`packages/neuro-book/server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
+| P0 | Project 生命周期与身份 | [ADR 0007](../../packages/neuro-book/docs/adr/0007-project-close-then-open.md)、[Project Session 入口](../../packages/neuro-book/server/workspace-files/project-session.ts)、[Root Identity](../../packages/neuro-book/server/workspace-files/project-root-identity.ts) | Project / Workspace 模块负责；完整领域生命周期仍缺 implemented Spec。首期 Storage 所需的目录携带、代次与关闭/删除边界已在 [storage.persistence](storage/persistence.md) 固定；不因此宣称全域规范完成 |
 | P0 | Agent Session 持久化与历史 | `packages/neuro-book/docs/adr/0003-*`、`0014-agent-job-*`，`packages/neuro-book/server/agent/session/`、`packages/neuro-book/server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |
 | P1 | 配置、模型与凭据 | `packages/neuro-book/server/config/`、`packages/neuro-book/server/models/`、`packages/neuro-book/shared/dto/app-settings.dto.ts` | 配置优先级、敏感字段、provider identity、错误和 UI 行为没有单一规范 |
 | P1 | Markdown Studio 与编辑工作台 | [`../../vitepress/locales/zh-Hans/core/markdown-studio.md`](../../vitepress/locales/zh-Hans/core/markdown-studio.md)、[历史 editor plan](../../packages/neuro-book/docs/archived/plan/06-editor-workbench.md)、`packages/neuro-book/shared/editor-workbench.ts` | 用户文档与历史 plan 存在，但需要按当前代码和测试核对后转成内部当前规范 |

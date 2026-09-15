@@ -35,5 +35,8 @@ bun run migrate:application-state -- --rollback --run-id <runId>
 
 ## 版本索引
 
+计划中的消费者迁移见 [Storage 状态首批迁移](storage-state.md)；该文档尚未绑定发布版本，
+浏览器旧键导入不是 Manager 能离线执行的 Application State catalog 步骤，不改变本页已有启动与发布合同。
+
 - [0.9.0：Application State catalog v3 与 Agent Session v2](0.9.0-session-v2.md)
 - [0.9.3-canary：Job durable history、Source Dev Cache Root 与升级边界](0.9.3-canary.md)

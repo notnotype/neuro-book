@@ -19,43 +19,41 @@
 
 ## 客户端持久化与存储分层
 
-前端状态与偏好的持久化严格执行分层治理，单一数据源维护唯一持久化路径：
+职责、归属、同步边界和版本恢复的唯一架构合同见 [Storage 架构规范](../../specs/storage/boundaries.md)（planned）；
+初始化、生命周期、保存反馈与磁盘落点见 [持久化行为规范](../../specs/storage/persistence.md)；
+取舍依据见 [ADR 0021](../../../packages/neuro-book/docs/adr/0021-local-storage-persistence.md)。
+本节保留前端消费入口与存量债务；新的通用 Storage service 和数据迁移尚未实现。
 
-### 分层原则
+### 前端接入
 
-1. **UI 偏好（窗口尺寸、面板开合、视图模式、编辑器字体等）**：统一归 **Pinia store 持久化**（`pinia-plugin-persistedstate`，存储介质为 `localStorage`），键名统一为 store id 或规范命名空间（如 `novel.ide.local`）。**UI 组件层严禁新增裸 `localStorage` 直接读写**。
-2. **会话瞬时态（打开标签页、当前活动 tab、编辑器缓冲、即时撤销栈、工作区恢复点等）**：统一归 **`sessionStorage` 或 session store**（如 `novel.ide.session`），生命周期绑定浏览器当前标签页，关闭标签页即丢弃，不跨会话污染本地存储。
-3. **服务端权威配置（主题包、明暗外观、配色方案、费用币种等）**：统一归 **Global Config（HTTP API `PUT /api/config/global`，`ui.*` 命名空间）**，启动时由 bootstrap 载入并同步内存状态。前端组件与 composable 不得将服务端权威配置私自写入本地 `localStorage`。
-4. **草稿类富文本与大体量领域数据**：统一归**服务端磁盘 Store**（通过专用 HTTP Adapter），严禁占用 `localStorage` 额度；存量旧草稿仅作一次性迁移源，迁移后删除。
-5. **Component Lab / Playground 私有键**：Lab 与组件库 playground 的偏好设置属于开发/调试隔离环境，不进入产品运行时规范；私有键 **MUST** 具备独立前缀（如 `nb-lab:*`、`nb-ui-playground-*`），与产品命名空间严格隔离，不得读写产品持久化数据。
+- 新状态先按架构规范确定 Config / Storage / 内存 / 领域数据归属，再声明 owner 与恢复合同；不以 Pinia 或浏览器介质反推归属。
+- 禁止新增组件内裸 `localStorage` / `sessionStorage` 读写。现有消费者迁移时由宿主统一接入，Pinia 承担前端投影。
+- Project 上下文必须明确有效；用户资产工作区残留的上次项目路径不能拿来选 Storage 分区。
+- UI 回落默认、过滤未知引用和夹取尺寸时，按架构规范保留原记录，避免 watch 自动保存回退结果。
+- grid 只消费内存布局及快照；组件不得自行建立同步通道。Component Lab / Playground 继续使用独立开发环境前缀。
 
-### 版本与兼容
+### 存量迁移方向
 
-- 持久化数据 **MUST** 包含 schema 版本字段（`schema: <number>`）。
-- **容错与回退**：反序列化异常、版本不匹配或结构校验失败时，**MUST** 记录告警并安全回落至预设默认值，同时自动以合法默认结构重写存储，严禁向外抛出未捕获异常阻断应用初始化与界面渲染。
+下表是已识别的主要入口；仅登记目标，不声称已完成迁移。
 
-### 存量债务清单与迁移方向
+| 现状 | 归属与迁移方向 |
+|---|---|
+| `novel.ide.local` 的主工作台左右尺寸 | Project/local 分别记忆；无项目和用户资产使用显式 User/local；旧全局值不批量复制给每个项目 |
+| `novel.ide.local` 的编辑器偏好 | 核对现有 `editor.markdown` / `editor.monaco` Config 投影，消除持久化权威副本 |
+| `novel.ide.session` 的 `workspaceSessions` | 拆分项目编辑器与 `user-assets` 编辑器恢复态；未保存正文按编辑器合同处理 |
+| `novel.ide.session` 的 `currentProjectRoot` | 当前值是内存事实；需要记住“上次打开哪个项目”时归 User Storage |
+| `novel.ide.session` 的选择项和 `detailUndoStacks` | 项目内选择需要恢复时归 Project Storage；撤销栈按编辑器合同决定保留和失效 |
+| `nbook.settingsDialog.size`、`nbook.projectCreateDialog.size.v2` | User Storage 的对话框布局状态 |
+| `nbook.locale` | 语言作为 Global Config 设置；字段接入仍待迁移 |
+| `nbook.costDisplay.usdToCnyRate` | 汇率缓存，注明来源与有效期；持久化缓存或纯内存由缓存需求决定 |
+| `agent:pinned-sessions:*`、`agent:last-session:*`、`agent:inline-editor-session:*` | 保存身份记忆；项目入口归 Project，用户资产入口归 User；继续校验 sessionIdentity，不是 Session 本身 |
+| World Engine 的尺寸 ref | 目标为 Project/local；按项目分别记忆，由宿主接入，尚未迁移 |
 
-产品前端既有裸 `localStorage` 写入点均已列入存量债务清单，禁止作为新功能参考，后续按指定方向逐步迁移：
+### 待细化
 
-| 存量写入点 | 当前位置 | 状态 | 迁移方向 |
-|---|---|---|---|
-| `nbook.settingsDialog.size` | `NovelIdeSettingsDialog.vue` | 待迁移 | 归入外壳/对话框布局 Pinia store 持久化 |
-| `nbook.projectCreateDialog.size.v2` | `ProjectCreateDialog.vue` | 待迁移 | 归入外壳/对话框布局 Pinia store 持久化 |
-| `nbook.locale` | `i18n-locale.client.ts` | 待迁移 | 迁移至 Global Config `ui.locale` 或独立偏好 store |
-| `nbook.costDisplay.usdToCnyRate` | `useCostDisplay.ts` | 待迁移 | 迁移至专用运行时缓存/session store，或保留但登记为离线汇率缓存例外 |
-| `agent:pinned-sessions:<scopeKey>` | `AgentModeSessionSidebar.vue` | 待迁移 | 迁移至 Agent 领域 Pinia store 或工作区持久化配置 |
-| `agent:last-session:<scopeKey>` | `AgentChatSurface.vue` | 待迁移 | 迁移至 session store（会话级恢复）或专用 Pinia store |
-| `agent:inline-editor-session:<scopeKey>` | `AgentChatSurface.vue` | 待迁移 | 迁移至 session store 或专用 Pinia store |
-
-### 待深入讨论（明确留白）
-
-底座先行，细节另开任务。以下技术细节本次明确不做定论，由后续专项任务细化：
-- 跨标签页状态同步机制（是否监听 `storage` 事件同步更新 store，抑或维持单标签页独立生命周期）
-- Pinia store 拆分粒度（既有单一庞大 `novelIde` store 拆分为 `workbench-layout`、`agent-session` 等领域子 store 的边界）
-- 客户端缓存淘汰策略（TTL 自动失效、存储容量保护与主动清理机制）
-- 存量裸键迁移批次与平滑退役周期（读取旧键后静默写入新 store 并删除旧键的双轨过渡期）
-- Global Config 与本地响应式状态的双写一致性与网络抖动回滚细则
+本地阶段、身份分区与恢复已在 [持久化行为规范](../../specs/storage/persistence.md) 固定，
+首批顺序见 [迁移合同](../../../packages/neuro-book/docs/migrations/storage-state.md)。
+跨独立 data 的在线同步、缓存失效及未列入首批的消费者继续独立设计，不能借本次迁移整桶搬走领域恢复数据。
 
 ## 验证
 

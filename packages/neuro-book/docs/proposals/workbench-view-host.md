@@ -46,7 +46,7 @@ NeuroBook 的产品 UI 是**固定槽位**：Activity Bar 是写死的 capabilit
 - **不做编辑器分屏**（多 Editor Group）。
 - **不做把 Panel Part 拖到别处形成新分栏**（改变 Part 在布局树上的父节点）——与"视图跨容器移动"是两件事，见「三种拖动」。
 - **不做跨窗口浮动**：`window` 只在位置枚举里保留，其真实行为研究未验证。
-- **不重写 resize**：sash 与尺寸提交继续走既有边界（`app/composables/useResizablePanel.ts`、nb-ui `Splitter`）。研究 03 原文：「现有 `useResizablePanel.ts` 继续作为唯一 resize 边界；不要新增第二套面板宽度持久化」。
+- **复用 resize 边界**：sash 与尺寸提交继续使用 `useResizablePanel` 和 nb-ui `Splitter`；嵌套与用户调整结束能力按 ui.nested-grid 扩展这些边界，不建立第二套面板持久化。
 - **不把任意组件放进快照**；**不把 Dialog / 命令塞进 View 抽象**。
 
 ## 位置与意图（集中定义，避免三类移动混淆）
@@ -96,7 +96,7 @@ justify + 父节点=整行     → 面板横跨全宽（左|编辑器|右 之下
 | `weight` | number，**无单位比例**（同容器内归一化） | 初始尺寸分配；**用户保存的尺寸（绝对像素）优先于初始 weight** | 否（新增） |
 | `canToggleVisibility` / `canMoveView` | boolean | 用户可否隐藏 / 可否跨容器移动 | 否（新增） |
 | `factoryKey` | string → 宿主白名单解析器 | 创建视图内容；**不接受组件、模块路径、HTML/CSS** | 否（现为宿主模板 `v-if` 分支） |
-| `stateScope` | `"user" \| "project" \| "session"` | 该视图的 memento 存在哪一层。**注意**：设置外壳里的 `scopes` 是「配置写入作用域」，与这里的 `stateScope` 不是一回事 | 部分 |
+| `stateScope` | `"user" \| "project"` | 该视图的 memento 存在哪一层。**不存在 session/window scope**。**注意**：设置外壳里的 `scopes` 是「Config 写入作用域」，与这里的 `stateScope` 不是一回事 | 部分 |
 
 **`when` 与 `requiredAuthority` 的分工**：`when` 管**看得见**，`requiredAuthority` 管**做得了**。可见性永远不是权限。
 
@@ -176,31 +176,44 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 
 ## 状态分层与持久化键
 
-**四类状态 + 一类排除项**（原文"三层"是笔误，此处定为四类）：
+**两类 Config、两类 Storage，加上内存态与领域数据排除项**。Config 和 Storage 是不同的
+owner；不能因为都能保存 JSON 就互相替代。
 
 | 层级 | 内容 | 键 / scope | 现有事实 |
 |---|---|---|---|
-| **布局（用户级）** | Part 尺寸与可见性、容器位置与顺序、视图隐藏偏好、面板位置与对齐 | `workbench.layout`（版本化快照） | 现散在 `novel.ide.local`、`nbook.settingsDialog.size`、Agent 侧栏 localStorage |
-| **编辑器会话（项目级）** | **打开的 Tab 与缓冲**——这是编辑器状态，**不是布局**；第一版不引入 Project 级布局覆盖 | 沿用 `novel.ide.session` 的 `novel:${projectRoot}` 分区（`novel-ide.ts:317-326`） | 已存在；项目级键不写用户级内容 |
-| **视图自身** | 展开项、筛选等 UI 状态 | `view.<id>` memento，按 `stateScope` 落层 | 无（新增） |
-| **Session / 页面级** | 当前活动视图、临时展开态、Dialog 开关 | 组件内 ref | 页面销毁即释放；不跨 Project 恢复实例 |
-| **（排除）领域数据** | Project 文件、Session、Job、Trace | 各自 authority | **不进任何布局快照** |
+| **Global Config** | 跨 Project 生效的设置与策略 | Config service；`Workspace Root/.nbook/config.json` | 例如主题、外观、费用币种；不由 Workbench storage 写入 |
+| **Project Config** | 单个 Project 的设置覆盖 | Config service；`Project Workspace Root/.nbook/config.json` | 写入服从既有 Project ready gate；global-only 字段被拒绝 |
+| **User Storage** | 未开项目/用户资产尺寸、普通窗口尺寸、容器位置与顺序、视图隐藏偏好、面板位置与对齐 | 独立 user/local 尺寸记录与 `workbench.views.customizations` | 现散在旧浏览器键；目标按 storage.persistence 迁移 |
+| **Project Storage** | 主工作台左右尺寸、World Engine 尺寸及按项目恢复的插件状态 | project/local 尺寸与 owner 的独立记录 | 通用 service 尚未实现；主尺寸首批迁移，World Engine 后续接入 |
+| **内存态** | 当前焦点、拖拽态、Dialog 开关、无需恢复的跨模块状态 | 组件 ref、非持久化 Pinia、宿主 service 或 context | 页面/进程销毁即释放；不是 Storage scope |
+| **（排除）领域数据** | Project 文件、Agent Session、Job、Trace | 各自 authority | **不进任何布局键** |
 
-**位置覆盖单独一键**：`workbench.views.customizations`（用户级）。
+**位置覆盖单独一键**：`workbench.views.customizations`（User Storage）。
 
-**不要误迁的三类"看着像布局但不是布局"的状态**（交叉审查指出，行号未复核）：
+作用域与职责按 [ADR 0020](../adr/0020-user-project-storage-boundaries.md)，本地阶段与消费者归属按 [ADR 0021](../adr/0021-local-storage-persistence.md)。
+一个插件可同时消费 User Storage、Project Storage 与内存状态；World Engine 尺寸逐项目记忆是开发者的明确选择。
+`stateScope` 只描述该视图的默认记忆归属，不限制插件其它状态。有效 Project 上下文、身份隔离、版本保留与 grid 消费边界
+以 [Storage 架构规范](../../../../docs/specs/storage/boundaries.md) 和 [本地持久化合同](../../../../docs/specs/storage/persistence.md) 为准；
+跨独立 data 的在线同步仍由 [后续提案](../../../../docs/proposals/storage-service-and-sync.md) 设计。
+
+2026-09-16 补充：[ui.nested-grid](../../../../docs/specs/ui/nested-grid.md) 承接最小嵌套样例及必要原语修复。
+下文历史验证台的“分支 sash 不可拖”等限制描述实施前基线，不能代替该新增能力的验收。
+
+**迁移前需要分清的状态**：
 
 | 状态 | 真实归属 | 迁移处置 |
 |---|---|---|
-| `workspaceSessions` 的 tabs/buffers（`novel-ide.ts:199-207`、`:1988-2005`） | 编辑器会话（按 Project 分区） | 留在原处，不进 `workbench.layout` |
-| session 根对象的选中身份：`selectedLorebookEntryId` / `selectedCharacterId` / `currentProjectRoot` | 选择身份（不是布局） | 留在原处；若将来要按视图恢复选中项，走该视图自己的 memento |
+| `workspaceSessions` 的项目编辑器状态 | 编辑器恢复态（按 Project 分区） | Tabs/活动文件的记忆可归 Project Storage；未保存 buffer 按编辑器数据恢复合同迁移，不塞进布局 |
+| `workspaceSessions["user-assets"]` | 用户资产编辑器恢复态 | 没有 Project 身份；其界面记忆可归 User Storage，未保存正文仍归编辑器 owner |
+| `selectedLorebookEntryId` / `selectedCharacterId` | 项目内选择 | 需要恢复时归 Project Storage；仅当前页面使用时留内存 |
+| `currentProjectRoot` | 当前打开哪个 Project | 当前事实留内存；“上次打开项目”的记忆需要在打开项目之前可读，应归 User Storage |
 | `activeLeftTab`（在 `novel.ide.local`，用户级） | 用户级 UI 偏好 | 本期不动，退役时一次性迁移（见上节） |
 | Agent 侧栏的固定会话身份（workspace/project 范围） | 身份 | 留在原处 |
 
 **新旧键迁移**（消除与删除门禁的冲突）：
 
-- 新键**只**存布局（尺寸 / 位置 / 可见集 / 顺序）；**活动视图仍由旧键负责**（`novel.ide.local` 的 active tab 一类），本期不动既有用户数据。
-- 旧键整体退役时**单独开一次迁移**：一次性读旧写新 + 保留**一个版本**的只读兼容；不做长期双读。
+- 本提案的布局键只存尺寸 / 位置 / 可见集 / 顺序；活动视图仍由旧键负责（`novel.ide.local` 的 active tab 一类），不属于 Storage 首批迁移。
+- 主左右尺寸和书架模式按 [首批迁移合同](../migrations/storage-state.md) 逐字段迁移；原件保留，不持续双写。其它旧桶字段退役时另定迁移，不能套用统一的“一个版本兼容”期限。
 - 新旧键**并存期内不双写**：任一时刻只有一个写者。
 
 ## 第一版范围
@@ -210,7 +223,7 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 | 注册表 + `when` 求值 + 懒实例化 | 现在做 | 后加会改公共契约 |
 | 位置层（Part / 容器 / 视图 / 对齐四个概念）+ 位置枚举 | 现在做 | 已决定允许移动，晚做要重写快照 |
 | 可序列化拆分树原语 + 测试矩阵 + 新 Lab 验证台 | 现在做 | 面板拓扑与将来编辑器分屏共用 |
-| 四类状态分层与键 | 现在做 | 混了以后是数据事故 |
+| 状态归属与持久化键 | 现在做 | Config、Storage、内存与领域数据各自有明确 owner |
 | Tab（单组）+ Tab 状态带 `editorGroupId` | 现在做 | 见下「`editorGroupId` 合同」 |
 | **视图跨容器移动**（改视图归属） | 现在做 | 目标 3 |
 | **L1 内置插件注册路径** | 现在做，落在**阶段 2（`files` 同批）** | 与研究 15 排序一致：先用最简单的 View 验证注册表；图生文若属 Dialog 边界（研究 12），走命令注册，不进 View Host |
@@ -304,6 +317,8 @@ type GridSnapshot = {version: 1; root: GridNode<string>};
 | 2026-09-13 | 评审遗留 7–11（`containerPlacements`、`defaultRevision`、`deserializeLayout`、`hiddenViews`、`ViewRenderModel`） | 要做，进入第一版范围 |
 | 2026-09-13 | 评审遗留 12–13（分支 sash 不可拖、移动单向性） | 第一版已知限制，逐条写明限制行为与解封条件 |
 | 2026-09-13 | 提案整体 | 开发者批准，状态 `draft` → `accepted` |
+| 2026-09-15 | Storage scope 与 Config 边界 | 开发者确认 Config 为 Global/Project，Storage 为 user/project；不引入 session/window Storage scope，详见 ADR 0020。Storage 同步和消费者细分仍在讨论 |
+| 2026-09-16 | 本地持久化与嵌套验证 | 开发者确定 project/local 尺寸、user 定制与本地备份阶段，并同意计划审查补充；当前合同为 storage.persistence 与 ui.nested-grid，取舍见 ADR 0021 |
 
 决策者：开发者（经 #192 设计门复核）。
 

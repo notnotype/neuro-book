@@ -22,7 +22,19 @@ issueId: i191
 
 ## Workbench 外壳接入（#192）
 
-Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neuro-book/docs/proposals/workbench-view-host.md)（#192）已于 2026-09-13 获批 `accepted`。阶段 1 的「外壳接入但保留现有槽位」已登记为 `planned` Spec [`docs/specs/ui/workbench-shell.md`](../../../docs/specs/ui/workbench-shell.md)（`capability: ui.workbench-shell`），实现 Task [`tasks/t20-workbench-shell-adoption`](tasks/t20-workbench-shell-adoption/README.md) 已创建、**尚未开工（pending）**。阶段 2–5 的消费者迁移与固定槽位删除不在该 Task 内，仍按 #191 与提案的删除门禁逐项推进。
+Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neuro-book/docs/proposals/workbench-view-host.md)（#192）已于 2026-09-13 获批 `accepted`。
+[t20](tasks/t20-workbench-shell-adoption/README.md) 已有外壳、标题栏 Chrome 与部件 Lab 的实现和历史验收记录，不能再称 pending；
+完整消费者等价与真实主页面闭环仍未完成，[ui.workbench-shell](../../../docs/specs/ui/workbench-shell.md) 保持 planned。
+后续 Storage、浏览器标题栏与迁移清单按下面的当前计划推进；未迁消费者仍遵守提案的删除门禁。
+
+## Storage 设计审查
+
+开发者于 2026-09-15 要求先审查 Storage 设计，再沉淀符合当前需求的 Spec。
+[t21](tasks/t21-storage-design-review/README.md) 负责审查与文档；2026-09-16 开发者同意补充计划。
+当前合同为 [storage.boundaries](../../../docs/specs/storage/boundaries.md)、[storage.persistence](../../../docs/specs/storage/persistence.md)
+与 [ui.nested-grid](../../../docs/specs/ui/nested-grid.md)，均保持 planned。
+[实施计划](storage-implementation-plan.md) 固定依赖、切片、迁移与验收；本轮仅完成文档，运行时实现与旧键迁移尚未开始。
+命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界
 
