@@ -8,6 +8,7 @@
 /** Storage 失败种类；新增种类必须同时给出 HTTP 映射与可观察的触发条件。 */
 export type StorageErrorCode =
     | "STORAGE_CLIENT_CREDENTIAL_INVALID"
+    | "STORAGE_REQUEST_INVALID"
     | "STORAGE_DEFINITION_INVALID"
     | "STORAGE_REGISTRATION_CONFLICT"
     | "STORAGE_STATE_UNREGISTERED"
@@ -32,6 +33,13 @@ export type StorageErrorCode =
 class StorageDomainErrorDefinition extends Error {
     declare readonly code: StorageErrorCode;
     declare readonly statusCode: number;
+    /**
+     * 本次 mutation 的真实文件副作用是否已经提交。
+     *
+     * 只有提交后失败的操作携带它：调用方据此区分“确定未写入”和“已提交但结果未确认”，
+     * 不能把后者报告成未保存或自动重放。
+     */
+    declare committed?: boolean;
 
     /** 建立带稳定 code 的 Storage 领域错误；code 与 statusCode 保持非枚举，避免意外进入响应。 */
     constructor(code: StorageErrorCode, statusCode: number, message: string, options?: ErrorOptions) {
@@ -108,6 +116,21 @@ export class StorageClientCredentialInvalidError extends StorageDomainError {
     constructor(reason: "missing" | "malformed", message: string) {
         super("STORAGE_CLIENT_CREDENTIAL_INVALID", 400, message);
         this.name = "StorageClientCredentialInvalidError";
+        this.reason = reason;
+    }
+}
+
+/**
+ * 请求体或逻辑地址不是本合同的合法动作；形状问题与状态内容问题分开报告。
+ *
+ * HTTP 入口在读取注册定义之前拒绝它，因此不合法的动作不会触碰任何记录文件。
+ */
+export class StorageRequestInvalidError extends StorageDomainError {
+    readonly reason: string;
+
+    constructor(reason: string, message: string) {
+        super("STORAGE_REQUEST_INVALID", 400, message);
+        this.name = "StorageRequestInvalidError";
         this.reason = reason;
     }
 }
@@ -291,7 +314,8 @@ export class StoragePathEscapeError extends StorageDomainError {
 /** 分区锁竞争超时、被判失效，或释放结果无法确认；已提交事实不因此回滚。 */
 export class StorageLockUnavailableError extends StorageDomainError {
     readonly reason: "contended" | "compromised" | "release";
-    readonly committed: boolean;
+    /** 锁失败总是携带提交事实：释放结果未确认时调用方必须重读当前记录。 */
+    declare committed: boolean;
 
     constructor(reason: "contended" | "compromised" | "release", committed: boolean, options?: ErrorOptions) {
         super(

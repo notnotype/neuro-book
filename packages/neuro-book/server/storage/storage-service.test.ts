@@ -5,6 +5,7 @@ import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {afterEach, describe, expect, it} from "vitest";
 import type {StorageCredential, StorageLocality, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
 import {defineStorageState, StorageStateRegistry, type DefinedStorageState} from "nbook/shared/storage/definition";
+import {StorageContextInvalidError} from "nbook/shared/storage/storage-errors";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {storagePartitionPaths, type StoragePartitionPaths} from "nbook/server/storage/storage-address";
 import {STORAGE_LOCK_STALE_MS, type StorageLockAdapter} from "nbook/server/storage/partition-lock";
@@ -935,6 +936,30 @@ describe("订阅与生命周期", () => {
                 clientId: "client-1",
             },
         })).rejects.toMatchObject({code: "STORAGE_IO_FAILURE", operation: "mkdir"});
+    });
+
+    it("打开句柄的授权检查先于存储根创建", async () => {
+        const scratch = await mkdtemp(testHostPath("nbook-storage-open-guard-"));
+        roots.push(scratch);
+        const root = absoluteFsPath(path.join(scratch, "storage"));
+        const service = new StorageService({registry: testRegistry()});
+        services.push(service);
+
+        await expect(service.openHandle({
+            owner: ROOT_OWNER,
+            context: {
+                scope: "user",
+                storageRoot: root,
+                identityDomain: "3f0c9a1e-6d2b-4b0e-9f4a-2c1d8e7b5a90",
+                subject: "user-a",
+                clientId: "client-1",
+            },
+            guard: () => {
+                throw new StorageContextInvalidError("unknown-context", "测试注入的失效访问");
+            },
+        })).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID", reason: "unknown-context"});
+        // 目录创建是打开的第一次真实副作用：授权失效时连存储根都不建，更不会读到分区元数据。
+        await expect(readdir(root)).rejects.toMatchObject({code: "ENOENT"});
     });
 });
 

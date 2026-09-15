@@ -179,6 +179,20 @@ export class StorageStateRegistry {
         return definition;
     }
 
+    /**
+     * 按逻辑地址取回登记定义。
+     *
+     * HTTP 等边界只有 owner/key，拿不到定义实例；这里只返回注册时的同一实例，
+     * 因此调用方的读写策略仍由注册边界决定，不能用同名临时定义绕过校验与容量。
+     */
+    resolveAddress(owner: string, key: string): DefinedStorageState<unknown> {
+        const registered = this.definitions.get(storageStateRegistryKey(owner, key));
+        if (registered === undefined) {
+            throw new StorageStateUnregisteredError(owner, key, "该 owner/key 没有注册定义");
+        }
+        return registered;
+    }
+
     /** 列出已登记定义，供宿主暴露或诊断使用。 */
     list(): readonly DefinedStorageState<unknown>[] {
         return [...this.definitions.values()];

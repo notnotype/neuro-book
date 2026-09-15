@@ -172,6 +172,17 @@ export class StorageAccessContextRegistry {
         return true;
     }
 
+    /**
+     * 真实文件副作用前的存活检查。
+     *
+     * 与 `resolve` 不同：这里不更新最近核验时刻，也不返回声明。已释放、已被主动撤销与自然到期的访问
+     * 都在此失效，使已经打开的句柄在授权失效后停止产生新的副作用，而不是把签发时的事实当作无限期授权。
+     */
+    assertLive(contextId: string): void {
+        this.assertOpen();
+        this.lookup(contextId);
+    }
+
     /** 幂等关闭：释放全部访问并拒绝后续签发与核验。 */
     close(): Promise<void> {
         if (this.closing === null) {

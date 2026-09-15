@@ -202,4 +202,44 @@ describe("StorageAccessContextRegistry", () => {
             .toThrowError(expect.objectContaining({code: "STORAGE_SERVICE_CLOSED"}));
         expect(registry.release({contextId: issued.contextId, subject: "user:7", clientId: CLIENT_A})).toBe(false);
     });
+
+    it("副作用前的存活检查在释放、session 撤销与自然到期后失效，且不延长闲置期限", () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date("2026-09-16T00:00:00.000Z"));
+            const registry = new StorageAccessContextRegistry({idleMs: 60_000});
+            const live = registry.issue(claims());
+            registry.assertLive(live.contextId);
+            registry.assertLive(live.contextId);
+
+            const revoked = registry.issue(claims({sessionGeneration: SESSION_B}));
+            registry.revokeSession(SESSION_B);
+            expect(() => registry.assertLive(revoked.contextId))
+                .toThrowError(expect.objectContaining({code: "STORAGE_CONTEXT_INVALID", reason: "unknown-context"}));
+
+            registry.release({contextId: live.contextId, subject: "user:7", clientId: CLIENT_A});
+            expect(() => registry.assertLive(live.contextId))
+                .toThrowError(expect.objectContaining({reason: "unknown-context"}));
+
+            // 存活检查不更新最近核验时刻：闲置期限仍按上次核验起算。
+            const expiring = registry.issue(claims({subject: "user:9"}));
+            vi.setSystemTime(new Date("2026-09-16T00:00:59.000Z"));
+            registry.assertLive(expiring.contextId);
+            vi.setSystemTime(new Date("2026-09-16T00:02:00.000Z"));
+            expect(() => registry.assertLive(expiring.contextId))
+                .toThrowError(expect.objectContaining({reason: "unknown-context"}));
+            expect(() => registry.assertLive("not-a-context"))
+                .toThrowError(expect.objectContaining({reason: "context-id"}));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("关闭后副作用前的存活检查按服务关闭拒绝", async () => {
+        const registry = new StorageAccessContextRegistry();
+        const issued = registry.issue(claims());
+        await registry.close();
+        expect(() => registry.assertLive(issued.contextId))
+            .toThrowError(expect.objectContaining({code: "STORAGE_SERVICE_CLOSED"}));
+    });
 });

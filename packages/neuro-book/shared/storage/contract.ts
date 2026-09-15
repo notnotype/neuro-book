@@ -66,6 +66,7 @@ export type StorageRepairCredential = {
  *
  * `missing`、`deleted`、`legacy-value`、`unsupported-version` 与 `corrupt` 必须互不混淆：
  * 缺失不创建默认值记录，未知版本与损坏禁止普通保存，只有 `value` 是当前 schemaVersion 的已确认值。
+ * 服务端诊断用于定位坏记录；HTTP adapter 投影为固定公开文案，不能原样公开解析器错误。
  */
 export type StorageReadResult<T> =
     | {
@@ -99,12 +100,16 @@ export type StorageReadResult<T> =
 /** 订阅快照与读取分类同形；订阅只报告当前状态，不做每个中间值的审计重放。 */
 export type StorageSnapshot<T> = StorageReadResult<T>;
 
-/** 单个回收目标的处理结果；只有 `reclaimed` 表示墓碑已被删除。 */
+/**
+ * 单个回收目标的处理结果；只有 `reclaimed` 表示墓碑已被删除。
+ *
+ * 这里只报告原因类别，不返回原始错误文本：结果的消费方包括 HTTP 响应，
+ * 内部诊断可能带磁盘路径、身份域或锁细节。
+ */
 export type StorageReclaimOutcome = {
     readonly address: StorageAddress;
     readonly outcome: "reclaimed" | "retained";
     readonly reason?: "live" | "missing" | "broken" | "io-failure";
-    readonly diagnosis?: string;
 };
 
 /** 一次墓碑回收的结果；新代次使回收前的全部条件凭据失效。 */

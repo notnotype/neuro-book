@@ -198,6 +198,11 @@ export async function assertStorageRootIdentity(root: AbsoluteFsPath, expected: 
     }
 }
 
+/** 真实目录身份的稳定摘要；签发声明与打开句柄之间按它比对，相同路径不代表还是同一个目录。 */
+export function storageRootIdentityDigest(identity: StorageRootIdentity): string {
+    return `${identity.device}:${identity.inode}:${identity.born}`;
+}
+
 /** 存储根本身消失属于 I/O 失败；只有真实路径越界才按逃逸报告。 */
 function containmentFailure(root: AbsoluteFsPath, label: string, error: unknown): Error {
     if (isMissingPathError(error)) {

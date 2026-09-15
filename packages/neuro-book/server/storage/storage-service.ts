@@ -28,7 +28,9 @@ import {
 import {
     assertStorageIdentityContext,
     assertStorageRecordAddress,
+    assertStorageRootIdentity,
     captureStorageRootIdentity,
+    storageRootIdentityDigest,
     type StorageRootIdentity,
     storagePartitionPaths,
     storageRecordFileName,
@@ -39,6 +41,7 @@ import {captureStorageValue} from "nbook/server/storage/storage-value";
 import {
     StoragePartitionStore,
     type StorageGenerationBox,
+    type StorageMutationGuard,
     type StoragePartitionStoreOptions,
     type StorageRecordPolicy,
 } from "nbook/server/storage/partition-store";
@@ -64,6 +67,10 @@ export type StorageAccessContext = {
 export type StorageHandleInput = {
     readonly owner: string;
     readonly context: StorageAccessContext;
+    /** 受信边界注入的授权检查；每个真实副作用前调用，见 `StorageMutationGuard`。 */
+    readonly guard?: StorageMutationGuard;
+    /** 已签发访问只能打开原根；提供身份时不创建缺失目录。 */
+    readonly expectedRootIdentity?: string;
 };
 
 export type StorageServiceOptions = {
@@ -134,12 +141,12 @@ export class StorageService {
         if (this.closed) {
             throw new StorageServiceClosedError();
         }
-        const pending = this.createHandle({owner: input.owner, context: {...input.context}});
+        const pending = this.createHandle({...input, context: {...input.context}});
         this.opening.add(pending);
         try { return await pending; } finally { this.opening.delete(pending); }
     }
 
-    private async createHandle({owner, context}: StorageHandleInput): Promise<StorageHandle> {
+    private async createHandle({owner, context, guard, expectedRootIdentity}: StorageHandleInput): Promise<StorageHandle> {
         if (context.scope !== "user" && context.scope !== "project") {
             throw new StorageContextInvalidError("scope", `Storage scope 非法：${String(context.scope)}`);
         }
@@ -155,8 +162,19 @@ export class StorageService {
         if (!path.isAbsolute(context.storageRoot)) {
             throw new StorageContextInvalidError("storage-root", `Storage 存储根必须是绝对路径：${context.storageRoot}`);
         }
-        const root = await this.canonicalStorageRoot(context.storageRoot);
-        const rootIdentity = await captureStorageRootIdentity(root);
+        // 建出存储根本身就是真实副作用：授权已经失效时不能先创建目录，也不能把目录创建算作无害读取。
+        guard?.();
+        const requestedRoot = expectedRootIdentity === undefined
+            ? await this.canonicalStorageRoot(context.storageRoot)
+            : context.storageRoot;
+        const rootIdentity = await captureStorageRootIdentity(requestedRoot);
+        if (expectedRootIdentity !== undefined && storageRootIdentityDigest(rootIdentity) !== expectedRootIdentity) {
+            throw new StorageContextInvalidError("claims-mismatch", "Storage 存储根已被替换，请重新初始化");
+        }
+        // 已有根仍需规范化，以便短路径/大小写别名使用相同的锁与订阅身份；这一步不创建目录。
+        const root = absoluteFsPath(await realpath(requestedRoot));
+        await assertStorageRootIdentity(root, rootIdentity);
+        guard?.();
         if (this.closed) throw new StorageServiceClosedError();
         const handle = new StorageHandle({
             onFinished: (finished) => { this.handles.delete(finished); },
@@ -171,9 +189,14 @@ export class StorageService {
             clientId: context.clientId,
             lockAdapter: this.lockAdapter,
             fileOptions: this.fileOptions,
+            guard,
         });
         await handle.initialize();
-        if (this.closed) throw new StorageServiceClosedError();
+        if (this.closed) {
+            // 关闭竞态中打开的句柄不属于任何调用方：先释放，别把它留在服务之外。
+            await handle.release();
+            throw new StorageServiceClosedError();
+        }
         this.handles.add(handle);
         return handle;
     }
@@ -216,6 +239,7 @@ type StorageHandleOptions = {
     readonly clientId: string | undefined;
     readonly lockAdapter: StorageLockAdapter | undefined;
     readonly fileOptions: StoragePartitionStoreOptions;
+    readonly guard: StorageMutationGuard | undefined;
 };
 
 export class StorageHandle {
@@ -231,6 +255,7 @@ export class StorageHandle {
     private readonly clientId: string | undefined;
     private readonly lock: StoragePartitionLock;
     private readonly fileOptions: StoragePartitionStoreOptions;
+    private readonly guard: StorageMutationGuard | undefined;
     private readonly partitions = new Map<string, PartitionHandle>();
     private readonly subscriptions = new Set<StorageSubscription<unknown>>();
     private readonly accepted = new Set<Promise<unknown>>();
@@ -250,6 +275,7 @@ export class StorageHandle {
         this.subject = options.subject;
         this.clientId = options.clientId;
         this.fileOptions = options.fileOptions;
+        this.guard = options.guard;
         this.lock = new StoragePartitionLock(options.root, {adapter: options.lockAdapter, rootIdentity: options.rootIdentity});
     }
 
@@ -448,7 +474,7 @@ export class StorageHandle {
         const cached = this.partitions.get(partition.relative);
         const handle = cached ?? {
             partition,
-            store: new StoragePartitionStore(partition, this.lock, this.fileOptions, this.rootIdentity),
+            store: new StoragePartitionStore(partition, this.lock, {...this.fileOptions, guard: this.guard}, this.rootIdentity),
             box: {value: null},
         };
         if (cached === undefined) {

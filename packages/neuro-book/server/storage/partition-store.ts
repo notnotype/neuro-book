@@ -121,18 +121,31 @@ type ExistingRecordSize = {
     readonly bytes: number;
 };
 
-export type StoragePartitionStoreOptions = Pick<StorageRecordFileOptions, "replace" | "retryDelaysMs">;
+export type StoragePartitionStoreOptions = Pick<StorageRecordFileOptions, "replace" | "retryDelaysMs"> & {
+    /**
+     * 宿主授权的生命周期检查；每个真实文件副作用前调用，授权失效即抛错停写。
+     *
+     * 由受信边界注入，本层不导入 H3、鉴权或宿主会话；等锁与替换重试之后仍会重新检查。
+     */
+    readonly guard?: StorageMutationGuard;
+};
+
+/** 真实副作用前的授权检查；抛错表示该操作不得继续写盘。 */
+export type StorageMutationGuard = () => void;
 
 export class StoragePartitionStore {
     private readonly partition: StoragePartitionPaths;
     private readonly lock: StoragePartitionLock;
-    private readonly fileOptions: StorageRecordFileOptions;
+    private readonly fileOptions: Pick<StorageRecordFileOptions, "replace" | "retryDelaysMs">;
+    private readonly guard: StorageMutationGuard | undefined;
     private readonly rootIdentity: StorageRootIdentity | undefined;
 
     constructor(partition: StoragePartitionPaths, lock: StoragePartitionLock, options: StoragePartitionStoreOptions = {}, rootIdentity?: StorageRootIdentity) {
         this.partition = partition;
         this.lock = lock;
-        this.fileOptions = options;
+        // 显式挑选文件层选项：guard 属于本层，不能随文件选项一起传下去。
+        this.fileOptions = {replace: options.replace, retryDelaysMs: options.retryDelaysMs};
+        this.guard = options.guard;
         this.rootIdentity = rootIdentity;
     }
 
@@ -297,7 +310,7 @@ export class StoragePartitionStore {
         return this.mutate(generation, async (context) => {
             const nextGeneration = context.generation + 1;
             if (!Number.isSafeInteger(nextGeneration)) throw new StoragePartitionInvalidError("分区代次已达安全整数上限");
-            await this.writeGeneration(nextGeneration, context.lock);
+            await this.writeGeneration(nextGeneration, context);
             context.committed = true;
             context.lock.assertHealthy();
             const outcomes: StorageReclaimOutcome[] = [];
@@ -317,9 +330,9 @@ export class StoragePartitionStore {
         let state: RecordState;
         try {
             state = await this.readRecordState(policy);
-        } catch (error) {
-            const diagnosis = error instanceof Error ? error.message : String(error);
-            return {address, outcome: "retained", reason: "io-failure", diagnosis};
+        } catch {
+            // 结果会被跨边界返回，因此只报原因类别：原始错误消息可能带磁盘路径或身份域。
+            return {address, outcome: "retained", reason: "io-failure"};
         }
         if (state.kind !== "deleted") {
             const reason = state.kind === "missing" ? "missing" : state.kind === "value" ? "live" : "broken";
@@ -345,7 +358,7 @@ export class StoragePartitionStore {
         const context: MutationContext = {generation: STORAGE_INITIAL_GENERATION, lock, committed: false};
         const outcome = await (async () => {
             lock.assertHealthy();
-            context.generation = await this.ensureGeneration(lock, generation);
+            context.generation = await this.ensureGeneration(context, generation);
             await sweepStorageTempFiles(this.partition.directory, () => this.assertMutationHealthy(context, this.partition.directory));
             await sweepStorageTempFiles(this.partition.recordsDirectory, () => this.assertMutationHealthy(context, this.partition.recordsDirectory));
             return await action(context);
@@ -355,6 +368,11 @@ export class StoragePartitionStore {
         );
         const releaseFailure = await lock.release().then(() => null, (error: unknown) => error);
         if (!outcome.ok) {
+            if (isStorageDomainError(outcome.error) && context.committed) {
+                // 已提交事实属于本次 mutation 的结果：错误保持原 code 与 message，只补一个非枚举标记，
+                // 因此提交后的授权失效或 I/O 失败也不能被报告成“没有写入”。
+                Object.defineProperty(outcome.error, "committed", {configurable: true, enumerable: false, writable: false, value: true});
+            }
             if (isStorageDomainError(outcome.error) && outcome.error instanceof StorageLockUnavailableError) {
                 throw new StorageLockUnavailableError(outcome.error.reason, context.committed, {cause: outcome.error});
             }
@@ -426,22 +444,25 @@ export class StoragePartitionStore {
     }
 
     /** mutation 起点：首次 mutation 创建必要分区元数据，缺失记录的读取路径不写默认值。 */
-    private async ensureGeneration(lock: StorageLockHandle, generation: StorageGenerationBox): Promise<number> {
+    private async ensureGeneration(context: MutationContext, generation: StorageGenerationBox): Promise<number> {
         const existing = await this.readGenerationState();
         this.assertHandleGeneration(generation, existing ?? STORAGE_INITIAL_GENERATION);
         if (existing !== null) {
             return existing;
         }
-        await this.writeGeneration(STORAGE_INITIAL_GENERATION, lock);
+        await this.writeGeneration(STORAGE_INITIAL_GENERATION, context);
         return STORAGE_INITIAL_GENERATION;
     }
 
-    private async writeGeneration(generation: number, lock: StorageLockHandle): Promise<void> {
+    /** 持久化分区代次；维护元数据同样是真实副作用，因此先检查授权、归属与锁。 */
+    private async writeGeneration(generation: number, context: MutationContext): Promise<void> {
         const content = `${JSON.stringify({schema: STORAGE_PARTITION_META_SCHEMA, generation})}\n`;
-        await writeStorageRecordFile({target: this.partition.metaPath, content, ...this.fileOptions, beforeWrite: async () => {
-            await this.assertContained(this.partition.metaPath);
-            lock.assertHealthy();
-        }});
+        await writeStorageRecordFile({
+            target: this.partition.metaPath,
+            content,
+            ...this.fileOptions,
+            beforeWrite: () => this.assertMutationHealthy(context, this.partition.metaPath),
+        });
     }
 
     /** 句柄绑定的代次必须与当前代次一致；显式回收后旧句柄须重新初始化。 */
@@ -677,9 +698,17 @@ export class StoragePartitionStore {
         await assertStorageTargetContained(this.partition.root, target);
     }
 
+    /**
+     * 真实副作用前的统一检查：授权仍有效、目标仍在存储根内、分区锁未被接管。
+     *
+     * 路径归属检查是异步的，等待期间授权可能失效；因此在它之后再次检查授权，
+     * 使“检查通过 → 等待 → 撤销 → 副作用”的窗口也停写。
+     */
     private async assertMutationHealthy(context: MutationContext, target: AbsoluteFsPath): Promise<void> {
+        this.guard?.();
         await this.assertContained(target);
         context.lock.assertHealthy();
+        this.guard?.();
     }
 }
 
