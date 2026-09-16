@@ -612,6 +612,15 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./WorkbenchStatusBarFixture.vue")).default,
     },
+    {
+        component: "WorkbenchViewHost",
+        scenes: [
+            {id: "default", label: "可见视图（fill 内容区）"},
+            {id: "hidden", label: "when 不可见（空态给原因）"},
+            {id: "unknown-factory", label: "未知 factoryKey（失败可见）"},
+        ],
+        load: async () => (await import("./WorkbenchViewHostFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {

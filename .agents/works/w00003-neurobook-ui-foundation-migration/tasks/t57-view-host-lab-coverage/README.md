@@ -6,7 +6,7 @@ role: tasker
 
 # 视图宿主的 Lab 覆盖与契约文档
 
-**状态：待实现。** t55 把 `WorkbenchViewHost.vue` 与 `product-catalog.ts` 接进产品（左叶文件树），但该组件**既无同名文档也无 Lab 条目**（`app/component-lab/component-index.ts` 只从 `app/components/**/*.md` 的 frontmatter 标签推导可挂载性，没有 `.md` 就进不了索引）。红分支要求组件独立达到 Lab-ready，本 Task 补齐这一缺口。
+**状态：已实现并验证（2026-09-16）。** 交付物见 [`walkthroughs/implementation.md`](walkthroughs/implementation.md)（契约文档 + 三场景 fixture、可挂载性 `mountable: true`、Lab smoke 对 3001 exit 0、`docs:check` exit 0、未运行项与偏差）。t55 把 `WorkbenchViewHost.vue` 与 `product-catalog.ts` 接进产品（左叶文件树），但该组件**既无同名文档也无 Lab 条目**（`app/component-lab/component-index.ts` 只从 `app/components/**/*.md` 的 frontmatter 标签推导可挂载性，没有 `.md` 就进不了索引）。红分支要求组件独立达到 Lab-ready，本 Task 补齐这一缺口。
 
 依据：[清单 §2.1](../../view-migration-inventory.md)（t55 增量的偏差「未补 Lab fixture」）、`app/component-lab/component-index.ts:59-108`（标签推导规则）、`packages/neuro-book/docs/proposals/workbench-view-host.md:229/247`（内置注册路径）。
 

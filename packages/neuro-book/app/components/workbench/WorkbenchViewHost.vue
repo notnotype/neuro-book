@@ -7,6 +7,7 @@
  * - 懒实例化：只有可见视图才解析并渲染（不可见的视图没有实例，也没有解析结果）；
  * - 求值失败与 factory 解析失败都在容器内可见地报出来，不静默变成空白；
  * - 内容区合同取第一个可见视图的 `layout`（容器部件只认合同，不认 mode）。
+ * - 两处测试缝隙：注册表与 factory 解析器可由 props 注入（缺省即产品路径），产品页面一个都不传。
  *
  * 本组件不读 store、不读 Storage、不做 i18n：环境事实与已解析的标题由页面填（谁能填谁填）。
  */
@@ -14,6 +15,7 @@ import {computed, ref, shallowRef, watch, type Component} from "vue";
 import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
 import type {
     ContainerDescriptor,
+    DescriptorResult,
     ViewDescriptor,
     WorkbenchContext,
     WorkbenchRegistry,
@@ -33,6 +35,8 @@ const props = defineProps<{
     context: WorkbenchContext;
     /** 测试注入的注册表；缺省用产品注册表。 */
     registry?: WorkbenchRegistry;
+    /** 测试注入的 factory 解析器；缺省用产品白名单（`view-factories.ts`）。 */
+    viewFactoryResolver?: (factoryKey: string) => DescriptorResult<Component>;
 }>();
 
 function failedResolution(problem: string): ContainerViewResolution {
@@ -58,6 +62,7 @@ const components = shallowRef<Readonly<Record<string, Component>>>({});
 const factoryProblems = ref<Readonly<Record<string, string>>>({});
 
 watch(resolution, (current) => {
+    const resolveFactory = props.viewFactoryResolver ?? resolveWorkbenchViewFactory;
     const nextComponents: Record<string, Component> = {};
     const nextProblems: Record<string, string> = {};
     for (const view of current.views) {
@@ -66,7 +71,7 @@ watch(resolution, (current) => {
             nextComponents[view.id] = known;
             continue;
         }
-        const factory = resolveWorkbenchViewFactory(view.factoryKey);
+        const factory = resolveFactory(view.factoryKey);
         if (factory.ok) {
             nextComponents[view.id] = factory.value;
         } else {
