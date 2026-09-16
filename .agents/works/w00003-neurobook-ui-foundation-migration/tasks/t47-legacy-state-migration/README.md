@@ -6,7 +6,8 @@ role: tasker
 
 # 旧状态迁移门禁与原件保护
 
-**状态：待实现。** [实施计划](../../storage-implementation-plan.md) 切片 4 的第一增量：把 `novel.ide.local` 的三个源字段按迁移合同导入新 Storage，并保证原件先于任何重写被固化。
+**状态：已实现，待独立审查。** Leader 已复跑聚焦测试（4 文件 49 例 exit 0）、相关测试域（12 文件 139 例 exit 0）与主应用 `bun run typecheck`（exit 0，含 Leader 修正的一处测试类型断言）。
+实现记录见 [`walkthroughs/implementation.md`](walkthroughs/implementation.md)。[实施计划](../../storage-implementation-plan.md) 切片 4 的第一增量：把 `novel.ide.local` 的三个源字段按迁移合同导入新 Storage，并保证原件先于任何重写被固化。
 本 Task 只做迁移门禁与原件保护；三个字段的消费入口切换、旧 `pick` 移除与主工作台接线是紧随其后的 t48（依赖本 Task 的公开接口）。
 
 Work：[w00003](../../README.md)。合同：[迁移合同](../../../../../packages/neuro-book/docs/migrations/storage-state.md)（逐条为验收依据）、[storage.persistence](../../../../../docs/specs/storage/persistence.md)、[storage.boundaries](../../../../../docs/specs/storage/boundaries.md)。

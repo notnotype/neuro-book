@@ -15,6 +15,10 @@
  * （固定叶取 store 值、编辑器吸收余量），它被写进树的意图，渲染器再从树上读回比例。
  */
 import {createGrid, type Grid, type GridAxis, type GridBranch, type GridLeaf, type GridNode, type GridNodeInput} from "@notnotype/nb-ui/components";
+import {
+    WORKBENCH_AGENT_PANEL_DEFAULT_WIDTH,
+    WORKBENCH_LEFT_PANEL_DEFAULT_WIDTH,
+} from "nbook/shared/storage/workbench-state";
 import type {WorkbenchPartId} from "nbook/app/utils/workbench/descriptors";
 
 /** 壳层 sash 的流内宽度：命中区由绝对定位扩展，不吃叶宽（不要沿用验证台的 8px）。 */
@@ -64,8 +68,8 @@ export const SHELL_CONTAINER_GUTTER_PX = SHELL_ACTIVITY_GUTTER_PX;
 export const SHELL_ACTIVITY_WIDTH = SHELL_ACTIVITY_CARD_WIDTH + SHELL_ACTIVITY_GUTTER_PX * 2;
 
 /** 左栏 340 / 右栏 400：store 的 leftPanelWidth / agentPanelWidth 初值（app/stores/novel-ide.ts）。 */
-export const SHELL_LEFT_PANEL_DEFAULT_WIDTH = 340;
-export const SHELL_RIGHT_PANEL_DEFAULT_WIDTH = 400;
+export const SHELL_LEFT_PANEL_DEFAULT_WIDTH = WORKBENCH_LEFT_PANEL_DEFAULT_WIDTH;
+export const SHELL_RIGHT_PANEL_DEFAULT_WIDTH = WORKBENCH_AGENT_PANEL_DEFAULT_WIDTH;
 
 /** 左栏 280..560：NovelIdeToolPanel 的 MIN_PANEL_WIDTH / MAX_PANEL_WIDTH 原值。 */
 export const SHELL_LEFT_PANEL_MIN_WIDTH = 280;

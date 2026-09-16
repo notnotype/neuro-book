@@ -35,6 +35,10 @@ import type {
 } from "nbook/shared/dto/user-assets-sync.dto";
 
 export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
+import {
+    legacyBucketSerializer,
+    legacyBucketStorage,
+} from "nbook/app/utils/workbench/storage-migration-legacy-bucket";
 import type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 export type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 
@@ -1961,6 +1965,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     },
     {
             key: "novel.ide.local",
+            // 迁移期写回门禁：三个源字段固定为捕获值，原件无法暂存时整桶冻结（见 storage-migration-legacy-bucket.ts）。
+            storage: legacyBucketStorage(),
+            serializer: legacyBucketSerializer,
             pick: [
             "activeLeftTab",
             "agentPanelWidth",
