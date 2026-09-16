@@ -106,6 +106,7 @@ const projectMenuItems = computed<ProjectMenuItem[]>(() => [
 /**
  * 宿主直接给 `openMenu`（受控用法、Lab 场景）时没有打开事件，`anchorRef` 是空的：
  * 按菜单名回查对应的触发按钮，定位照样成立——文档承诺的「贴着触发按钮下沿、fixed」对受控路径同样有效。
+ * 菜单名 → 按钮的钩子对所有菜单统一（File/Edit/View/Help 与 `compact` / `project` 都挂 `data-menu-button`）。
  */
 function anchorForOpenMenu(): HTMLElement | null {
     return rootRef.value?.querySelector<HTMLElement>(`[data-menu-button="${props.openMenu ?? ""}"]`) ?? null;
@@ -476,6 +477,7 @@ onBeforeUnmount(() => resizeObserver?.disconnect());
                     <button
                         type="button"
                         class="desktop-title-bar__project"
+                        data-menu-button="project"
                         data-titlebar-action="project-switcher"
                         aria-haspopup="menu"
                         :aria-expanded="openMenu === 'project'"

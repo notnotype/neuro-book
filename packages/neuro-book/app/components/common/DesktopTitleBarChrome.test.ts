@@ -198,6 +198,14 @@ describe("DesktopTitleBarChrome", () => {
         expect(style).toContain("top: 6px");
         expect(style).toContain("left: 8px");
         expect(itemLabels(view!)).toEqual(["重新载入"]);
+
+        // Project 菜单也挂同一个钩子：受控展开时同样贴着触发按钮。
+        await wrapper.setProps({openMenu: "project"});
+        await wrapper.vm.$nextTick();
+        const project = panel("project");
+        expect(project).not.toBeNull();
+        expect(project!.getAttribute("style")).toContain("position: fixed");
+        expect(project!.getAttribute("style")).toContain("top: 6px");
     });
 
     it("Escape 在焦点不在面板里时也关菜单，并把焦点还给触发按钮", async () => {

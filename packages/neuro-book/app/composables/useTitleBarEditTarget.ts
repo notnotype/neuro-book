@@ -40,22 +40,33 @@ export function useTitleBarEditTarget(options: {
 
     watch([activeElement, liveTarget], () => {
         const element = activeElement.value;
-        if (liveTarget.value === "none" || !(element instanceof HTMLElement)) {
+        if (liveTarget.value === "none" || !(element instanceof HTMLElement) || !element.isConnected) {
             return;
         }
         remembered.value = {element, target: liveTarget.value};
     }, {immediate: true});
 
+    /**
+     * 记忆值只在元素**仍在文档里**时有效：对话框 / 内联编辑器关掉后元素会游离，
+     * 那时的「记忆」既不是可编辑目标（execCommand 作用不到），也不是可归还焦点的对象。
+     */
+    const rememberedFocus = computed(() => {
+        // 元素被卸载（对话框关闭）不会触发响应式：焦点变化才是重算的时机，这里显式依赖它。
+        void activeElement.value;
+        const entry = remembered.value;
+        return entry !== null && entry.element.isConnected ? entry : null;
+    });
+
     const titleBarOwnsFocus = computed(() => isTitleBarFocusOwner(activeElement.value ?? null));
     const target = computed(() => resolveEffectiveTitleBarEditTarget({
         liveTarget: liveTarget.value,
-        rememberedTarget: remembered.value?.target ?? null,
+        rememberedTarget: rememberedFocus.value?.target ?? null,
         titleBarOwnsFocus: titleBarOwnsFocus.value,
     }));
 
     return {
         target,
-        rememberedElement: computed(() => remembered.value?.element ?? null),
+        rememberedElement: computed(() => rememberedFocus.value?.element ?? null),
         titleBarOwnsFocus,
     };
 }

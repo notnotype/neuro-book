@@ -132,3 +132,150 @@ bbdc9a4a41367dfadb5a72be6c12309e2d0300b4b6f20d8e235935976e80fc23  app/components
 | `ui.nested-grid` | 宿主与 Lab fixture 的既有证据来自 t44/t45（本轮未复测）；t50 只在 `WorkbenchShell.vue` 的窄屏堆叠路径上确认标题栏叶不再被 `flex-1` 拉高（代码 + P3 抽取的 CSS 证据） | 嵌套 grid 的保存格式、宿主行为本轮未复测 | 否（未在本切片改动范围内） |
 | 桌面 envelope（bridge 回归限制） | 能力判定只认 bridge（无 UA 探测）；`quit`/`zoom*` 在无 bridge 时不执行（`bridge ? bridge.window("quit") : undefined`，`queueDesktopZoom` 内 `if (!bridge) return`）；组件用例覆盖 `desktop:true` 档的菜单补回 | **没有真实桌面宿主回归**（本机无 Envelope；t50 §4.4 同样披露）；窗口控制、桌面缩放、退出应用的真实执行路径未验证 | 是：桌面专属动作只由 bridge 判定，浏览器里整条不画（不是「未接入却显示可用」） |
 
+
+---
+
+# 追加复核（修复后）：R1–R4
+
+- 被复核状态：首轮基线是 `a74c7fb8`；R1–R4 复核时是 worktree 工作树改动，复核后由实现者提交为 **`9df461e1`**
+  （`fix(titlebar): keep the edit target and clear the titlebar`，同提交里也带上了我更新的探针 P2/P3/P5）。
+  §8.1 的 SHA256 与 §8.2 的读数就是该提交的内容（与 `git show 9df461e1` 一致）。该提交涉及的文件：`app/app.vue`、`app/components/common/{DesktopTitleBar,DesktopTitleBarChrome,NotificationViewport}.vue(+test)`、`app/pages/index.vue`、`app/utils/workbench-chrome.ts(+test)`、新增 `app/composables/useTitleBarEditTarget.ts(+test)`、`app/composables/useTitleBarPresent.ts`。
+- 复核方式：只读取证 + 我自己的探针（jsdom）+ 独立跑产品用例（`vitest`，不跑 Nuxt/不建 `.nuxt`）；**没有**启动 dev server（按 Leader 广播），真机读数沿用实现者提供值并标注来源。
+- 本 Task 目录之外只读了文件，没有写入；产品代码/测试与 t50 目录未被我改动。
+
+## 8.1 被复核文件 SHA256（工作树当前内容）
+
+```
+dff4357940885e8cdf05bdb41a75bb6e9bb9fe39e723b3c80a09a1d2d9e946ef  app/composables/useTitleBarEditTarget.ts（新）
+eec6b149d19f92c638bffab677c1b39850429bad1bbe25bf633516eb20e8d203  app/composables/useTitleBarEditTarget.test.ts（新）
+cc9abacd1b72f804034cfb4e220c48e37c85948c2e724daa103261592a258087  app/composables/useTitleBarPresent.ts（新）
+c41e050654bf7353f387af9b84c09bb6a326240a5d02f19ea5af615675a75bd8  app/components/common/NotificationViewport.vue
+ff7bdd370a99fe0a58b657b957c643b472636dd11f2c1fe8618d9c3da3436ce4  app/components/common/NotificationViewport.test.ts（新）
+d885c8e2bb7f434f7a5c999f2c847ecaa3bdb773b23adb1408ee1f01db269b08  app/app.vue
+fdf1201c36c5874819c96c4fd3fed64399c3fb5a4e58dff8bae7fafac0fb0315  app/utils/workbench-chrome.ts
+e0e40602f4f244d5b13736c75c5de278366f429170fc15c693d55821b7a4ffb7  app/utils/workbench-chrome.test.ts
+b7de652b371fce6ab6491c88b52cc8c895a8497a4e4617a6ec4e4030f60b2762  app/components/common/DesktopTitleBarChrome.vue
+0eeabf2d7cd1d7b9fe3da615932401d2b50a12038f3e2c5e56bcb770cd251331  app/components/common/DesktopTitleBarChrome.test.ts
+d51aee73741e5ee047d1e550cb0609dafe453e62b9afbfaead18b0fb5c78e95f  app/components/common/DesktopTitleBar.vue
+0583a268a7d4b349ffdd82c78a79adc1e30bdcd8663b81f6394d6c49514fa15a  app/components/common/DesktopTitleBar.test.ts
+2dfca25f2bc2304150c001f2456a12d3aa04ca7b92e47b539653d09d4ed08df3  app/pages/index.vue
+```
+
+## 8.2 本轮命令与退出码（cwd 见括号）
+
+| # | 命令 | 退出码 | 结果 |
+|---|---|---|---|
+| 1 | `git status --porcelain` / `git diff`（worktree 根，只读） | 0 | 见 8.1 的改动清单 |
+| 2 | `bunx vitest run --reporter=verbose --silent false --config .agents/.../probes/vitest.probe.config.ts`（worktree 根） | **1** | 3 文件 10 例：9 通过、**1 例按预期失败**——`P5/R1b` 复现出残留缺陷（记忆元素已 `isConnected=false` 却仍报可编辑）；首轮同命令是 6 例全过 |
+| 3 | `bunx vitest run app/utils/workbench-chrome.test.ts app/composables/useTitleBarEditTarget.test.ts app/composables/useWorkbenchChrome.test.ts app/components/common/NotificationViewport.test.ts app/components/common/DesktopTitleBarChrome.test.ts app/components/common/DesktopTitleBar.test.ts`（`packages/neuro-book`） | **0** | `Test Files 6 passed`、`Tests 28 passed`（与实现者自报的 6 文件 28 例一致） |
+| 4 | 探针 P1 未重跑 | — | `execCommand` 路径本轮未改，首轮结论（Chromium 真机生效）继续有效 |
+| 5 | 探针 P4 未重跑 | — | 没有新截图；R2 的真机读数由实现者提供，我离线复核的是机制与数值来源 |
+
+## 8.3 逐条裁定（R1–R4）
+
+### R1 编辑目标会话 — **成立（1 处残留，见 8.5-R1b）**
+- 实现：新增 `useTitleBarEditTarget`（`activeElement` 可注入）+ `resolveEffectiveTitleBarEditTarget` / `isTitleBarFocusOwner`（`TITLE_BAR_FOCUS_SELECTOR = ".desktop-title-bar, [data-titlebar-menu-panel]"`），`index.vue` 改为 `titleBarEdit.target.value` 并在原生命令前 `rememberedElement?.focus()`。
+- 前后差异（同一探针口径）：首轮 `[P2/B] 键盘打开菜单：editTarget=none；可点项=0` → 本轮 `[P2/B] 键盘打开菜单（焦点在触发按钮）：target=native；titleBarOwnsFocus=true；可点项=5`；`[P5/R1] 记忆元素=输入框`，`rememberedElement.focus()` 后 `document.activeElement` 就是那个输入框。
+- 与首轮成果一致：Studio 档位仍走会话（`P2/C`：`edit.undo=studio`），焦点在页面普通控件时回到实时判定（`[P5/R1] 焦点移到页面普通按钮：target=none`），没有「拿记忆冒充所有输入框」的路径。
+- 实现者提供的真机读数（输入框键入 → 标题栏 Edit → ArrowDown 六条可用 → Enter 后输入框被撤销）与我离线复现的机制一致；真机那一步我未复跑（无 dev server 窗口，按 Leader 约束）。
+
+### R2 通知让位 — **成立**
+- 实现：新增 `useTitleBarPresent`（模块级 ref，标题栏组件 onMounted/onBeforeUnmount 写），`app.vue` 传 `:titlebar`，`NotificationViewport` 用 `SHELL_TITLEBAR_HEIGHT` 写行内 `top`，删掉 `.notification-viewport--desktop { top: 36px }`。
+- 证据：`[P5/R2] titlebar=true → 容器内联 style="top: 36px;"`（卡片首行 = 36 + 默认 offsetY 16 = 52 > 标题栏 bottom 36，不再重叠）、`titlebar=false → style=""`；源码里 `notification-viewport--desktop` 与字面 `36` 只余缓存构建产物，源码零命中；`:desktop` 这个旧 prop 只剩一个调用点已改名为 `:titlebar`。
+- 与首轮缺陷对照：首轮实测截图红块 y=16..83 对标题栏 0..35；修后按同一算术应为 y=52 起，重叠消失（实现者真机读数 `容器 top=36px、卡片 top=52`）。真机那一步我未复跑。
+
+### R3 受控路径定位 — **成立（Project 一条分支残留，见 8.5-R3p）**
+- 实现：`anchorForOpenMenu()` 按 `props.openMenu` 回查 `[data-menu-button="…"]`，`panelStyle` 里 `anchorRef.value ?? anchorForOpenMenu()`。
+- 证据：`[P3/host] openMenu=View → 内联 style="position: fixed; top: 6px; left: 8px; max-height: 320px;"`（父节点仍是 BODY，样式表仍不提供定位 → 坐标只来自这条回查）；点击路径不变（`[P3/click]` 同上）。产品用例也补了同名场景（`宿主直接给 openMenu（受控用法）时，下拉层照样贴在触发按钮下方`）。
+- 残留：`[P3/project] openMenu="project" → 面板内联 style=""`，因为标题栏里 Project 触发按钮只有 `data-titlebar-action="project-switcher"`、没有 `data-menu-button`。
+
+### R4 分类器覆盖 — **成立**
+- 实现：`workbench-chrome.test.ts` 改 jsdom 环境，新增「编辑目标的分类只认真实焦点」（input/textarea/select/contenteditable/button/body/null + Studio 优先）与「焦点在标题栏里时沿用记忆的编辑目标」（含 `isTitleBarFocusOwner` 四种输入与 `resolveEffectiveTitleBarEditTarget` 五档）；新增 `useTitleBarEditTarget.test.ts`（2 例）、`NotificationViewport.test.ts`（2 例）。
+- 独立复核：`grep -rn resolveTitleBarEditTarget` 现在命中测试文件；我独立跑 6 文件 28 例 **exit 0**。
+- 附带改动核查：`resolveTitleBarEditTarget` 额外用 `closest('[contenteditable="true"], [contenteditable=""]')` 兜住子节点与不实现 `isContentEditable` 的环境——`[P2/A] jsdom 对 contenteditable 的读数：isContentEditable=undefined；closest 判据下分类=native`；全仓无 `contenteditable="plaintext-only"`（grep 零命中），故该分支无遗漏调用场景。
+
+## 8.4 首轮成果未回归（本轮复核）
+
+| 首轮结论 | 本轮复核方式 | 结果 |
+|---|---|---|
+| 能力映射只由宿主能力决定（无 UA 探测） | `workbench-chrome.ts` diff 只增 `isTitleBarFocusOwner`/`resolveEffectiveTitleBarEditTarget`/`contenteditable` 兜底，IA 表与 `desktopOnly`/`requiresSurface` 未动；`grep userAgent` 仍零命中 | 未回归 |
+| 鼠标路径（`@mousedown.prevent` 保住焦点与前选区） | `DesktopTitleBarChrome.vue` 只增 `anchorForOpenMenu()`；探针 `[P2/B]` 鼠标路径 5/6 可点项、`[P3/click]` 定位不变 | 未回归 |
+| Teleport 逃裁剪 + outside/Escape/方向键 | 同一文件未动相关代码；`[P3/host]` 仍 `parentElement=BODY`；产品用例 28 例含键盘遍历/Escape/outside 全过 | 未回归 |
+| 几何单一来源（`SHELL_TITLEBAR_HEIGHT`） | 标题栏与 `WorkbenchShell.vue` 未改；本轮新增的让位量也取同一常量（`NotificationViewport` 不再有字面 36） | 更强 |
+| 两条 Project 打开路径、能力裁剪 | `DesktopTitleBar.vue` 只增在场登记；`index.vue` 只改编辑目标接线；相关用例全过 | 未回归 |
+
+## 8.5 本轮残留（建议与本次修复一并收口，均不阻塞合并）
+
+1. **R1b 记忆元素卸载后仍报可编辑**（P3）：`useTitleBarEditTarget` 只在 liveTarget ≠ none 时写记忆、从不校验元素是否仍在文档里。探针实测：`input` 移出文档 → `rememberedElement.isConnected=false` → 键盘进标题栏后 `target=native`（可点项 5/6）。用户看到的是「撤销可用」但原生路线执行时 `focus()` 落在游离节点上、`execCommand` 作用不到，只会得到「当前没有可编辑的选区」提示。一行 `isConnected` 守卫即可闭合（建议块随本轮缺陷回报一并给出）。
+2. **R3p `openMenu="project"` 仍无定位**（P3）：`anchorForOpenMenu()` 的回查选择器与 Project 触发按钮的属性不匹配（`data-menu-button` vs `data-titlebar-action`）。命中面只在 Lab/受控宿主（产品路径总是点击带入锚点），但与 R3 是同一缺陷的残留分支，且组件文档承诺的是「受控用法也贴着触发按钮」。
+
+## 8.6 最终裁定
+
+**可合并（correct）**：首轮三项 P2 与一项 P3 均已被修复，且四项修复我都独立复现成立（R1/R3 在机制层用真组件/真会话复现；R2 在组件层复现让位数与来源；R4 独立跑通 6 文件 28 例 exit 0）；首轮确认成立的主干（能力映射只由宿主能力决定、鼠标路径、Teleport 逃裁剪、几何单一来源）未回归；第一轮的「色值表诚实性」「ADR superseding 准确」「nb-ui portal 排除链」结论不受本轮改动影响。
+
+两条 P3 残留（8.5）建议在合并前一并修掉——都是一处小改，且都属于「显示为可用但实际执行不了」这一类，与本切片「不装成可用」的判据同源；若不在本轮修，请在 t50 的 §七 或后续 Task 里显式登记为遗留，不要静默略过。
+
+## 8.7 capability 证据表（修复轮更新）
+
+| capability | 已覆盖的行为（证据） | 未覆盖的入口 | 是否依赖未接入路径 |
+|---|---|---|---|
+| `ui.workbench-shell` | 标题栏两种宿主都显示 + 高度单一来源（`SHELL_TITLEBAR_HEIGHT`）；能力映射双向用例；**编辑动作在键盘路径也可用**（R1：探针 P2/B、P5/R1a + 产品用例 28 例）；**受控展开态有定位**（R3：探针 P3/host + 产品用例） | 记忆元素卸载后的档位（R1b 残留）；`openMenu="project"` 受控路径定位（R3p 残留）；真机滚动/缩放重算；桌面真机回归 | 是：菜单命令仍经 `WorkbenchChromeRegistration.invokeMenuCommand` 落地（已接线）；命令 registry / Ctrl+P / 搜索仍未接入且未伪装可用 |
+| `storage.persistence` | t48 接线的既有证据 + t50 §4.2 真机（失败可见/可重试/恢复后提交成功）未变；本轮未触及 `layout-session.ts` 与 `server/storage/**` | 迁移门禁本轮仍未复测（沿用 t49 两轮复核） | 否 |
+| `ui.nested-grid` | 与本轮改动无交集（`WorkbenchShell.vue` 本轮未被改）；窄屏叶包装仍读同一常量 | 嵌套 grid 保存格式/宿主行为未复测 | 否 |
+| 桌面 envelope（bridge 回归限制） | 能力判定仍只认 bridge（无 UA 探测；`quit`/`zoom*` 无 bridge 不执行）；本轮新增的在场事实（`useTitleBarPresent`）不参与桌面能力判定，不引入新的宿主假设 | 仍无真实桌面宿主回归（本机无 Envelope）；R1/R2 的真机读数由实现者在桌面/浏览器档提供，我未复跑真机 | 是（同上，且浏览器档整条不画桌面动作） |
+
+---
+
+# 追加复核（P3 残留收口后）
+
+- 被复核状态：`9df461e1` 之后的工作树改动，截至复核时**尚未提交**（HEAD 已是 `8d20808d`；未提交的是
+  `app/composables/useTitleBarEditTarget{,.test}.ts`、`app/components/common/DesktopTitleBarChrome.{vue,test.ts}` 四个文件）。
+  §9.1 的 SHA256 对应这些工作树内容。
+- 收口范围（实现者自报）：① 记忆不校验 `isConnected`；② `openMenu="project"` 受控展开无定位。
+
+## 9.1 改动与哈希（收口后）
+
+```
+619953f0db7f3944acd1197abf6d388c39afdd300b5b0eb8672595f33132d640  app/composables/useTitleBarEditTarget.ts
+dffe0bbead55713b0ee971000cf19edafb22e30995abee9c6241e30e67f06e09  app/composables/useTitleBarEditTarget.test.ts
+8d5bc83bbddab06000ebe3f9119584b02d64f55a328f894fc0035a8ba69d2b0e  app/components/common/DesktopTitleBarChrome.vue
+8c34212dd112558da4e69bfa4d5eca565e2df2af4c7d44fd228b49de125ff0ef  app/components/common/DesktopTitleBarChrome.test.ts
+```
+
+- ① `useTitleBarEditTarget`：写入侧加 `!element.isConnected` 守卫；读取侧新增 `rememberedFocus` computed（`entry.element.isConnected ? entry : null`），并显式 `void activeElement.value` 依赖当前焦点——因为 DOM 卸载本身不触发响应式，焦点变化才是重算时机。`target` 与 `rememberedElement` 都改读它。
+- ② `DesktopTitleBarChrome.vue`：Project 触发按钮补 `data-menu-button="project"`，菜单名 → 按钮的钩子对 File/Edit/View/Help 与 `compact`/`project` 统一。
+
+## 9.2 本轮命令与退出码
+
+| # | 命令（cwd） | 退出码 | 结果 |
+|---|---|---|---|
+| 1 | `bunx vitest run --reporter=verbose --silent false --config .agents/.../probes/vitest.probe.config.ts`（worktree 根） | **0** | 3 files / **10 tests passed**（上一轮为 9 通过 + 1 失败） |
+| 2 | `bunx vitest run app/utils/workbench-chrome.test.ts app/composables/useTitleBarEditTarget.test.ts app/composables/useWorkbenchChrome.test.ts app/components/common/NotificationViewport.test.ts app/components/common/DesktopTitleBarChrome.test.ts app/components/common/DesktopTitleBar.test.ts`（`packages/neuro-book`） | **0** | `Test Files 6 passed`、`Tests 29 passed`（上一轮 28，与实现者自报一致） |
+
+## 9.3 前后差异（我自己的探针读数）
+
+| 残留 | 上轮读数 | 本轮读数 |
+|---|---|---|
+| R1b 记忆元素游离 | `[P5/R1b] 记忆元素 isConnected=false；键盘进标题栏后 target=native；可点项=5` | `[P5/R1b] rememberedElement=null（isConnected=null）；键盘进标题栏后 target=none；可点项=0` |
+| R3p Project 受控展开 | `[P3/project] 面板内联 style=""; 触发按钮无 data-menu-button` | `[P3/project] style="position: fixed; top: 6px; left: 8px; max-height: 320px;"；触发按钮有 data-menu-button=true` |
+
+其余探针读数不变（`[P2/B]` 鼠标与键盘路径均 5/6 可点项；`[P3/click]`/`[P3/host]` 定位一致；`[P5/R1a]` 焦点归还输入框；`[P5/R2]` `top: 36px`、卡片首行 52）。
+
+## 9.4 副作用核查
+
+- 新增的 `data-menu-button="project"` 只被两处消费：`anchorForOpenMenu()`（接受任意菜单名）与 `groupTrigger(label)`（只被 `menus.value` 的组名调用，取值为 File/Edit/View/Help）——两组取值不相交，不会把 Project 按钮误当组触发按钮；产品用例 29 例全过，没有用例钉住「该按钮没有这个属性」。
+- 收口没有改动首轮与修复轮已成立的部分（能力映射、鼠标路径、Teleport/outside/Escape/方向键、几何单一来源），diff 仅上述两处 + 一条注释。
+
+## 9.5 未验证项（本轮）
+
+- 收口后的 `bun run typecheck`：实现者按 Leader 指令中止（`nuxt prepare` 会重建共享 `.nuxt`，影响开发者正在用的 3001）。我同样不运行——**需由 Leader 在合适窗口补跑**（残留前的 typecheck 为 exit 0）。
+- R1/R2 的真机读数仍由实现者提供（我无 dev server 窗口），我复核的是机制、数值来源与两条残留的消解。
+
+## 9.6 最终裁定（收口后）
+
+**可合并（correct）**。首轮三项 P2、一项 P3 与追加轮的两项 P3 残留全部闭合，且每一条我都独立复现（探针 10 例全过、产品用例 6 文件 29 例 exit 0）；首轮确认成立的主干未回归，收口改动没有引入新的越界（属性钩子取值不相交、无测试被反过来放宽）。合并前唯一待补的门禁是收口后的 `bun run typecheck`，因共享 `.nuxt` 约束需 Leader 侧执行。
+
+### 9.7 台账更正与披露
+
+- 复核期间仓库在动：我完成 §8（R1–R4 复核）时那些改动还在工作树里，之后被提交为 `9df461e1`；§9（残留收口）复核时 HEAD 已是 `8d20808d`，收口的四个文件仍未提交。两节的「被复核状态」已按此更正，读数与 SHA256 都对应各自时点的实际内容。
+- 披露：`9df461e1` 里误带了一个 `probes/.vite/vitest/.../results.json`（**我**跑探针留下的 vitest 缓存，虽然我在本轮结束前已删 `probes/node_modules`，但提交发生在删除之前），已由 `8d20808d`（`chore(work): drop a probe build cache that slipped into a commit`）删除。它不影响任何结论，但读者若看到该文件不必当作证据。

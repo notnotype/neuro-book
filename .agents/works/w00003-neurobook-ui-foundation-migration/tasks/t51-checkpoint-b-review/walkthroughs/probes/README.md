@@ -72,3 +72,33 @@ P1 可用 `PROBE_BROWSER=<chrome.exe>` 指定其它浏览器；P4 可传截图�
 | combo4-macos-dark-390 | (44,44,46) | — | — | 无 |
 
 判断阈值：底色 ±2 视为吻合；文字色因抗锯齿只统计 ±2 邻域像素数（标题栏里的菜单文字本来就只有几十个纯色像素），26–55 px 与「File/Edit/View/Help + Project 标题」的字量同量级，故判定 §4.1 的色值读数**与截图一致**。
+
+---
+
+## 修复轮（R1–R4 后）的更新
+
+实现者按首轮缺陷返工后，本目录的探针按**修复后的口径**更新（首轮读数与结论保留在 `../review.md` 的「首轮」小节）：
+
+| 探针 | 更新内容 | 修前（首轮读数） | 修后（本轮读数） |
+|---|---|---|---|
+| `p2-edit-focus-gating.probe.test.ts` | B 段改用产品新口径 `useTitleBarEditTarget`（`index.vue:275-280` + `:311-316`）；A 段补 `closest` 判据下的 contenteditable | `[P2/B]` 键盘路径 `editTarget=none`、可点项 **0** | `[P2/B]` 键盘路径 `target=native`、`titleBarOwnsFocus=true`、可点项 **5**；`[P2/A]` jsdom 里 contenteditable 也归 `native` |
+| `p3-host-driven-panel-position.probe.test.ts` | 第三段改为断言修复后的定位口径；新增第四段探 `openMenu="project"` | `[P3/host]` 内联 `style=""`、样式表无 `position` → static 块 | `[P3/host]` `style="position: fixed; top: 6px; left: 8px; max-height: 320px;"`；`[P3/project]` 仍为 `style=""`（残留分支，已回报） |
+| `p5-fix-round-r1-r2.probe.test.ts`（新） | R1 会话语义（键盘路径/焦点归还/离开标题栏回落）与 R2 让位量 | — | R1a 通过；**R1b 失败并复现出残留缺陷**（记忆元素 `isConnected=false` 仍报可编辑）；R2 通过（`top: 36px`，卡片首行 52 > 36） |
+
+修复轮复现命令（与首轮相同，cwd = worktree 根）：
+
+```
+bunx vitest run --reporter=verbose --silent false \
+  --config .agents/works/w00003-neurobook-ui-foundation-migration/tasks/t51-checkpoint-b-review/walkthroughs/probes/vitest.probe.config.ts
+# 本轮：3 files / 10 tests，9 passed / 1 failed（P5/R1b 即残留缺陷），exit 1
+```
+
+另外独立跑了产品用例（cwd = `packages/neuro-book`，不跑 Nuxt、不建 `.nuxt`）：
+
+```
+bunx vitest run app/utils/workbench-chrome.test.ts app/composables/useTitleBarEditTarget.test.ts \
+  app/composables/useWorkbenchChrome.test.ts app/components/common/NotificationViewport.test.ts \
+  app/components/common/DesktopTitleBarChrome.test.ts app/components/common/DesktopTitleBar.test.ts
+# 修复轮：6 files / 28 tests passed，exit 0
+# 残留收口后：6 files / 29 tests passed，exit 0
+```

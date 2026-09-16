@@ -68,6 +68,26 @@ describe("useTitleBarEditTarget", () => {
         expect(session.target.value).toBe("native");
     });
 
+    it("记忆的元素一旦离开文档就不再算可编辑目标：不显示可用、也不归还焦点", async () => {
+        const {input, barTrigger} = tree();
+        const activeElement = ref<Element | null>(null);
+        const session = useTitleBarEditTarget({editorActive: () => false, activeElement});
+
+        activeElement.value = input;
+        await nextTick();
+        expect(session.target.value).toBe("native");
+
+        // 对话框 / 内联编辑器关闭：元素游离，焦点回到 body。
+        input.remove();
+        activeElement.value = document.body;
+        await nextTick();
+        activeElement.value = barTrigger;
+        await nextTick();
+
+        expect(session.target.value).toBe("none");
+        expect(session.rememberedElement.value).toBeNull();
+    });
+
     it("Studio 活跃时记的是 editor 档：焦点进标题栏后撤销仍走会话", async () => {
         const {barTrigger} = tree();
         const activeElement = ref<Element | null>(null);

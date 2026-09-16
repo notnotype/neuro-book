@@ -10,7 +10,8 @@
  *
  * **修复轮更新（R3 后）**：首轮在这里实测到「受控路径面板无定位」（内联 style 为空 + 样式表无 position）
  * 并交回 t50；实现者加了 `anchorForOpenMenu()`（按菜单名回查触发按钮）。第三段改为断言修复后的口径；
- * 第四段继续探 `openMenu: "project"` 这条分支（标题栏里 Project 触发按钮**没有** `data-menu-button` 属性）。
+ * 第四段继续探 `openMenu: "project"` 这条分支：首轮该分支内联 style 为空（Project 触发按钮当时没有
+ * `data-menu-button`），收口后实现者给该按钮补上了这个钩子——第四段现在断言它同样带定位。
  *
  * 运行（cwd = worktree 根）：
  *   bunx vitest run --reporter=verbose --silent false --config .agents/works/w00003-neurobook-ui-foundation-migration/tasks/t51-checkpoint-b-review/walkthroughs/probes/vitest.probe.config.ts
@@ -128,7 +129,7 @@ describe("P3 宿主驱动展开态下的面板定位", () => {
         expect(rule.includes("position")).toBe(false);
     });
 
-    it("宿主驱动 openMenu=\"project\"：Project 面板仍然没有定位（R3 残留分支）", async () => {
+    it("宿主驱动 openMenu=\"project\"：Project 面板同样有定位（收口后）", async () => {
         mountChrome("project");
         await Promise.resolve();
         await Promise.resolve();
@@ -138,7 +139,9 @@ describe("P3 宿主驱动展开态下的面板定位", () => {
         const trigger = document.querySelector('[data-titlebar-action="project-switcher"]');
         console.log(`[P3/project] 面板内联 style=${JSON.stringify(style)}；Project 触发按钮是否有 data-menu-button=${String(trigger?.hasAttribute("data-menu-button") ?? null)}`);
         expect(trigger).not.toBeNull();
-        expect(trigger!.hasAttribute("data-menu-button")).toBe(false);
-        expect(style.includes("position")).toBe(false);
+        expect(trigger!.hasAttribute("data-menu-button")).toBe(true);
+        expect(style).toContain("position: fixed");
+        expect(style).toContain("top:");
+        expect(style).toContain("left:");
     });
 });

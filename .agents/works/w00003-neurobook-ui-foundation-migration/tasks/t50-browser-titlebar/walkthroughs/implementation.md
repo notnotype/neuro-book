@@ -122,6 +122,14 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 - R3 的受控路径（宿主直接给 `openMenu`）在产品 UI 里没有入口（`openMenu` 只由用户交互设置），真机确认需要 Lab 场景；由组件用例覆盖（§七表格）。
 - 宿主已用宿主句柄停止；`netstat` 复核 **3511 与 3001 均无监听**。
 
+### 7.2 追加复核的两条 P3 残留（已收口）
+
+- **编辑目标记忆不校验元素是否仍在文档里**（探针 P5/R1b）：`useTitleBarEditTarget` 现在两处都要求 `element.isConnected`——写入记忆时不收游离元素，读取时记忆值只在元素仍连接时有效（`rememberedFocus` 显式依赖当前焦点，因为 DOM 卸载不触发响应式）；游离后 `target` 回到 `none`、`rememberedElement` 为 null，不会出现「显示可用但命令落不到任何可编辑内容」。用例：`useTitleBarEditTarget.test.ts`「记忆的元素一旦离开文档就不再算可编辑目标」。
+- **受控展开态下 Project 菜单仍无定位**（探针 P3 第四段）：Project 触发按钮补上 `data-menu-button="project"`，菜单名 → 触发按钮的钩子对 File/Edit/View/Help 与 `compact`/`project` 统一，`anchorForOpenMenu()` 一条查询覆盖全部受控展开。用例：`DesktopTitleBarChrome.test.ts` 同一条「受控用法」用例里追加 `openMenu="project"`（面板存在、`position: fixed`、`top: 6px`）。
+
+命令与结果：`bun run --cwd packages/neuro-book test <6 个文件>` → **exit 0，6 文件 29 用例全过**（较上一轮 +1：游离元素用例）。
+**类型门禁**：这两处残留改动后的全包 `bun run typecheck` **按 Leader 指令中止**（内部 `nuxt prepare` 会重建共享的 `packages/neuro-book/.nuxt`，摧毁开发者正在用的 3001）；残留改动前的同命令为 **exit 0**。残留改动只动了一个 computed 守卫、一个模板数据属性与两个测试文件；全包 typecheck 由 Leader 侧执行。
+
 ## 八、给检查点 B 的核对清单
 
 | 合同项 | 用例 | 真机证据 |
