@@ -1,6 +1,9 @@
 # Storage 底座与浏览器标题栏实施计划
 
-- 状态：切片1、切片2及切片3的Storage上下文/grid/手势核心已验证收口；用户缩小本轮范围后的余项已交接，完整六切片仍未完成。证据见 [核心验证](storage-core-validation.md)。
+- 状态：切片1、切片2、切片3的Storage上下文/grid/手势核心已收口（`da4c5aca`）；2026-09-16 继续推进切片3余项——
+  t44 grid持久化宿主已提交 `5fcdf8b8`，t45 Lab静态fixture与四主题/窄屏浏览器验收、t46 检查点A独立审查进行中；
+  迁移、主工作台、标题栏与视图清单（切片4–6）未开始；完整六切片仍未完成。证据见 [核心验证](storage-core-validation.md)。
+- 2026-09-16 本轮补充：t43 Project Storage浏览器/HTTP/磁盘验收按返工要求闭合并提交 `2cfc871d`（隔离profile、精确磁盘断言、根归属校验）。
 - Work：w00003-neurobook-ui-foundation-migration；文档 [t21](tasks/t21-storage-design-review/README.md)、核心 [t22](tasks/t22-storage-core/README.md)、宿主身份 [t23](tasks/t23-storage-host-identity/README.md)、HTTP [t24](tasks/t24-storage-user-http/README.md)；HTTP 独立审查 [t25](tasks/t25-storage-http-review/README.md)；浏览器适配 [t26](tasks/t26-storage-browser-adapter/README.md) 与独立审查 [t27](tasks/t27-storage-adapter-review/README.md)
 - 工作区：`.worktree/w00003-neurobook-ui-foundation-migration`；分支：`refactor/w00003-nb-ui-adoption`
 - 2026-09-16：开发者同意补齐审查缺口，包含最小嵌套验证与必要原语修复；不提前迁移 World Engine 整页

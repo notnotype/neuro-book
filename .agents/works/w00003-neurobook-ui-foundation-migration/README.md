@@ -61,8 +61,16 @@ t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Proje
 该核心已提交 `7a5d04de`，Leader独立94用例通过，t42最终复核另有9个探针通过并建议合并；消费文档已说明切换等待、目标与可用状态的区别。
 [t41](tasks/t41-grid-consumer-review/README.md) 独立复核grid与真实消费者，变动中的版本需收口后追加确认。
 [t42](tasks/t42-storage-context-review/README.md) 独立复核工作台Storage上下文与插件样例的生命周期和失败清理。
-[t43](tasks/t43-project-storage-browser-smoke/README.md) 并行补齐已提交Project适配器的真实浏览器/HTTP/磁盘验证，独立临时根且不依赖布局。
-其脚本仍有验证覆盖与失败清理缺口，按用户收紧范围保留未提交稿交接，不能采信作者“全部完成”的结论；见 [Leader交接状态](tasks/t43-project-storage-browser-smoke/walkthroughs/leader-handoff-status.md)。
+[t43](tasks/t43-project-storage-browser-smoke/README.md) 补齐已提交Project适配器的真实浏览器/HTTP/磁盘验证。
+第二稿按 [Leader返工要求](tasks/t43-project-storage-browser-smoke/walkthroughs/leader-rework-requirements.md) 闭合 R1–R9：
+根内持久profile与cache、同客户端跨Project隔离、`project/shared` 定义、生产地址/身份入口推导的精确磁盘断言、
+槽级资源生命周期、根归属校验与全阶段失败清理。Leader独立复跑 exit 0、findings `[]`、清理 10/10，已提交 `2cfc871d`；
+证据见 [返工证据](tasks/t43-project-storage-browser-smoke/walkthroughs/rework-evidence.md) 与 `evidences/`。
+[t44](tasks/t44-plugin-grid-storage-host/README.md) 实现插件grid持久化宿主 `app/utils/workbench/storage-grid-host.ts`：
+快照v2恢复、原件合成保存、手势单次提交、订阅基线更新、CAS冲突重放与重试/放弃出口、释放排空；
+17聚焦用例与主应用typecheck通过，已提交 `5fcdf8b8`。
+[t45](tasks/t45-nested-grid-lab-fixture/README.md) 提供Lab静态确定性嵌套fixture与四主题/桌面/390×844浏览器验收；
+[t46](tasks/t46-checkpoint-a-review/README.md) 独立审查公共类型、身份、生命周期与插件消费（检查点A）。
 开发者已有 `http://localhost:3001/` 后台服务，后续验收不占用、复用、重启或关闭它；
 产品验收显式使用系统Temp内独立State Root、Workspace Root与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。

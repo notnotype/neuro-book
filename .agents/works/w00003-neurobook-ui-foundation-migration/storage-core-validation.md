@@ -40,3 +40,22 @@
 ## 后续执行入口
 
 用户要求的系统Temp HANDOFF.md引用本Work的storage-implementation-plan.md和storage-consumer-source-map.md。下一受限增量是插件grid宿主的原件合成、订阅/手势投影与冲突处理，然后按计划迁移旧键、接主页面/标题栏并盘点未迁视图。命令系统仍需另行讨论。
+
+## 2026-09-16 延续轮（Leader 记录）
+
+本节只记本轮的提交、命令与结果；上一节的核心证据不变。
+
+| 增量 | 提交 | Leader 复跑与结果 |
+|---|---|---|
+| t43 Project Storage 浏览器/HTTP/磁盘验收第二稿 | `2cfc871d` | `node --import tsx scripts/smoke/storage-project-adapter.ts --browser-executable <chrome>`（cwd 为 worktree 内 `packages/neuro-book`）exit 0、`findings []`、`cleanup` 10/10 ok、隔离根为 `Temp/neuro-book/nb-t43/<hex>` 且运行后为空；`bunx tsc -p scripts/tsconfig.json` 仅剩既有 `product-agent-state-root-smoke.ts:318` 基线错误 |
+| t44 grid 持久化宿主（原件合成/手势/订阅/CAS 收口） | `5fcdf8b8` + 修复 `1f1942c3` | 聚焦 17 → 20 用例（修复后）exit 0；`bun run --cwd packages/neuro-book typecheck` exit 0；检查点 A 审查见 t46（首轮裁定需修复，修复后追加复核） |
+| t45 Lab 嵌套 grid fixture 与浏览器验收 | `0bcea164` | nb-ui `bun run test` 18 文件 350 用例 exit 0；`bun run typecheck` exit 0；`playwright test` 全量 **64 passed** exit 0（原 48 + 新增 16） |
+| 文档与治理 | 本文件与 Work 状态 | `bun run docs:check` 5796 文件 `failures: []`；`bun run governance:check` `failures: []`、`warnings: []` |
+
+视觉基线更新（t45）：新增 Lab 组件使导航计数 `49/49 → 50/50`、`布局` 分组 `3 → 4`，13 张基线图随之变化。
+Leader 逐张核对 expected/actual/diff：红色像素仅落在上述计数区域（桌面 1440×800 的 diff 红像素 bbox 约 `(203,92)-(237,97)`；窄屏 390 落在计数 pill 与分组徽标），无组件渲染回归；
+更新后连续两次 `--update-snapshots` 生成**字节一致**（两次 `sha256sum` 列表 `diff` 为空）。
+
+本轮未验证（保持明写）：主页面接线、旧键迁移、标题栏、World Engine 整页；桌面桥接与多窗口。命令系统仍未讨论。
+
+进程观察：worktree 内存在一个自 10:16 起运行的 `nuxt dev`（PID 14916/55568，监听 `[::1]:3001`），本轮未启动、未访问、未复用它，也未停止；所有验收使用独立端口与隔离根。
