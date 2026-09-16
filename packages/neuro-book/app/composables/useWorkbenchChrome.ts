@@ -6,6 +6,8 @@ import {
     type InjectionKey,
     type ShallowRef,
 } from "vue";
+import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
+import type {TitleBarEditTarget} from "nbook/app/utils/workbench-chrome";
 
 export type WorkbenchProjectItem = Readonly<{
     projectRoot: string;
@@ -22,6 +24,12 @@ export type WorkbenchChromeRegistration = Readonly<{
     openBookshelf: () => void | Promise<void>;
     switchProject: (projectRoot: string) => void | Promise<void>;
     toggleAgentPanel: () => void | Promise<void>;
+    /** 菜单命令在页面里的执行入口：没有桌面宿主时自绘菜单直接走它（两种宿主同一份派发）。 */
+    invokeMenuCommand: (command: DesktopMenuCommandId) => void | Promise<void>;
+    /** 标题栏编辑动作按这个真实焦点判断：焦点不在可编辑处就没有编辑动作。 */
+    editTarget: () => TitleBarEditTarget;
+    /** 新标签打开用的标准 Project URL；`null` 表示书架。 */
+    projectUrl: (projectRoot: string | null) => string;
 }>;
 
 export type WorkbenchChromeRegistry = Readonly<{

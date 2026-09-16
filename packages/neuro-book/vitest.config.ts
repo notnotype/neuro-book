@@ -56,6 +56,7 @@ export default defineConfig({
             "app/utils/project-route-transition.contract.test.ts",
             "app/utils/world-engine-ide-entry.test.ts",
             "app/utils/world-engine-workbench-preview.test.ts",
+            "app/utils/workbench-chrome.test.ts",
             "server/**/*.test.ts",
             "server/**/*.test.tsx",
             "shared/**/*.test.ts",

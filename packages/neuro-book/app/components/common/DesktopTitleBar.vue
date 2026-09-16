@@ -2,14 +2,14 @@
 /**
  * 自绘标题栏的**宿主**：桌面平台边界都在这一层。
  *
- * - 有没有 bridge（桌面 / B/S 两态）；
+ * - 有没有 bridge（桌面 / B/S 两态）：**两种宿主都画标题栏**，没有 bridge 时应用动作走页面登记的回调；
  * - bridge 状态（菜单由谁画、窗口按钮由谁画、连接方式）；
- * - 菜单命令派发、Project 切换、Agent 面板开关、外观上报；
- * - 菜单在组件外被点掉时收起（`onClickOutside` 是页面级行为，按组件规范由宿主执行）。
+ * - 宿主能力投影（`TitleBarHostCapabilities`）：菜单的 enabled / visible 由它决定；
+ * - 菜单命令派发、Project 切换、Agent 面板开关、外观上报。
  *
- * chrome 本身在 `DesktopTitleBarChrome.vue`（受控零件，Lab 可挂载），本组件只做投影与派发。
+ * chrome 本身在 `DesktopTitleBarChrome.vue`（受控零件，Lab 可挂载），本组件只做投影与派发；
+ * 点组件外收起菜单也归 chrome（它自己知道传送到 body 的下拉层）。
  */
-import {onClickOutside} from "@vueuse/core";
 import {computed, onMounted, ref, watch} from "vue";
 import DesktopTitleBarChrome, {type TitleBarWindowCommand} from "nbook/app/components/common/DesktopTitleBarChrome.vue";
 import {useWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
@@ -18,27 +18,45 @@ import {
     type DesktopMenuCommandId,
     type DesktopStatus,
 } from "@notnotype/neuro-book-contracts/desktop";
+import type {TitleBarHostCapabilities} from "nbook/app/utils/workbench-chrome";
 
 const bridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
 const chrome = useWorkbenchChrome();
 const status = ref<DesktopStatus | null>(null);
 const openMenu = ref<string | null>(null);
-const barRef = ref<InstanceType<typeof DesktopTitleBarChrome> | null>(null);
-/** outside 判定要的是根 DOM 节点：组件的 `$el` 就是那一个根。 */
-const barEl = computed<HTMLElement | null>(() => (barRef.value?.$el as HTMLElement | undefined) ?? null);
 
 const registration = computed(() => chrome.current.value);
 const title = computed(() => registration.value?.title() || "NeuroBook");
-const surfaceActive = computed(() => registration.value?.surfaceActive() ?? false);
 const currentProjectRoot = computed(() => registration.value?.currentProjectRoot() ?? null);
 const projects = computed(() => registration.value?.projects() ?? []);
 const agentPanelOpen = computed(() => registration.value?.agentPanelOpen() ?? false);
 const rendererMenus = computed(() => status.value?.menuPresentation !== "native");
 const customWindowControls = computed(() => status.value?.windowControls === "custom");
+/**
+ * 宿主能力：没有 bridge 就不是桌面（退出应用、窗口控制与桌面缩放整条不画）；
+ * 编辑动作按页面登记的真实焦点判断，不按「哪个编辑器更常用」。
+ */
+const capabilities = computed<TitleBarHostCapabilities>(() => ({
+    desktop: bridge.value !== undefined,
+    surfaceActive: registration.value?.surfaceActive() ?? false,
+    editTarget: registration.value?.editTarget() ?? "none",
+}));
+/** 新标签打开要的是页面路由给出的标准 Project URL；页面没登记这条能力就整条不画。 */
+const projectUrl = computed<((projectRoot: string | null) => string) | null>(() => {
+    const current = registration.value;
+    return current === null ? null : (projectRoot) => current.projectUrl(projectRoot);
+});
 
 async function invoke(command: DesktopMenuCommandId): Promise<void> {
     openMenu.value = null;
-    await bridge.value?.menu(command);
+    const desktop = bridge.value;
+    if (desktop) {
+        // 桌面：命令照旧回到桌面宿主，原生菜单与自绘菜单同一条派发路径。
+        await desktop.menu(command);
+        return;
+    }
+    // 浏览器：没有桌面宿主，应用动作由页面登记的回调执行。
+    await registration.value?.invokeMenuCommand(command);
 }
 
 async function selectProject(projectRoot: string | null): Promise<void> {
@@ -54,17 +72,13 @@ async function selectProject(projectRoot: string | null): Promise<void> {
 }
 
 async function toggleAgentPanel(): Promise<void> {
-    if (!surfaceActive.value) return;
+    if (!capabilities.value.surfaceActive) return;
     await registration.value?.toggleAgentPanel();
 }
 
 function windowCommand(command: TitleBarWindowCommand): void {
     void bridge.value?.window(command);
 }
-
-onClickOutside(barEl, () => {
-    openMenu.value = null;
-});
 
 onMounted(async () => {
     if (bridge.value) {
@@ -83,13 +97,12 @@ watch(
 
 <template>
     <DesktopTitleBarChrome
-        v-if="bridge"
-        ref="barRef"
         v-model:open-menu="openMenu"
         :title="title"
         :projects="projects"
         :current-project-root="currentProjectRoot"
-        :surface-active="surfaceActive"
+        :capabilities="capabilities"
+        :project-url="projectUrl"
         :agent-panel-available="Boolean(registration)"
         :agent-panel-open="agentPanelOpen"
         :renderer-menus="rendererMenus"

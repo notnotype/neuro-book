@@ -27,6 +27,7 @@ import {
     SHELL_CONTAINER_GUTTER_PX,
     SHELL_LEAF_IDS,
     SHELL_MAIN_ID,
+    SHELL_TITLEBAR_HEIGHT,
     SHELL_TITLEBAR_ID,
     type ShellLeafId,
     type ShellSizes,
@@ -59,6 +60,13 @@ const activityGutter = `${SHELL_ACTIVITY_GUTTER_PX}px`;
  * margin，内容区比叶窄 2 × 6px 这件事只在 `layout.ts` 记账。
  */
 const containerGutter = `${SHELL_CONTAINER_GUTTER_PX}px`;
+
+/**
+ * 标题栏叶的高度：唯一来源是产品几何常量 `SHELL_TITLEBAR_HEIGHT`（与 `distributeShellHeights`
+ * 的垂直分配同一个数）。做成 CSS 变量有两个消费者——标题栏组件自己的高度，以及**窄屏堆叠时**
+ * 那层叶包装：堆叠态不跑 Splitter，包装默认按 `flex-1` 等分，标题栏会被拉成整屏的 1/5。
+ */
+const titlebarExtent = `${SHELL_TITLEBAR_HEIGHT}px`;
 
 /** 几何模型的键：四个宽度叶 + 垂直方向的 titlebar / main（像素高度）。 */
 const LAYOUT_SIZE_IDS = [...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID, SHELL_MAIN_ID] as const;
@@ -253,7 +261,8 @@ function onGestureCancel(branchId: string): void {
 
 /**
  * 叶的显隐：只改 children 集合（splitter key 变 → 重挂重读尺寸），不动原语拓扑、不递增 epoch。
- * 登记的隐藏项：四个宽度叶 + titlebar（B/S 无 bridge 时由宿主关掉标题栏叶）。显隐是临时的，不保存。
+ * 登记的隐藏项：四个宽度叶 + titlebar（页面在书架态收起左右栏；标题栏两种宿主都显示）。
+ * 显隐是临时的，不保存。
  */
 function setLeafVisible(id: string, visible: boolean): void {
     if (![...SHELL_LEAF_IDS, SHELL_TITLEBAR_ID].includes(id as ShellLeafId)) {
@@ -319,7 +328,7 @@ defineExpose({setLeafVisible, hidden, issues, layoutNotice});
 </script>
 
 <template>
-    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" :style="{'--workbench-activity-gutter': activityGutter, '--workbench-container-gutter': containerGutter}" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'" :data-layout-diagnostics="layoutDiagnostics">
+    <div ref="shellEl" class="workbench-shell flex h-full w-full min-h-0 min-w-0 overflow-hidden" :style="{'--workbench-activity-gutter': activityGutter, '--workbench-container-gutter': containerGutter, '--workbench-titlebar-height': titlebarExtent}" data-workbench-shell :data-shell-layout="narrow ? 'stacked' : 'split'" :data-layout-diagnostics="layoutDiagnostics">
         <WorkbenchBranch
             v-if="!narrow && rootBranch"
             :node="rootBranch"
@@ -340,7 +349,14 @@ defineExpose({setLeafVisible, hidden, issues, layoutNotice});
         <!-- 窄屏：不渲染 Splitter，按拓扑顺序单列堆叠（顺序与显隐跟树一致）。
              叶包装的 display 与分支版一致（flex column），叶内容才拿得到确定高度。 -->
         <div v-else-if="narrow" class="flex h-full w-full min-h-0 min-w-0 flex-col overflow-hidden">
-            <div v-for="leafId in stackedLeafIds" :key="leafId" class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" :data-leaf="leafId">
+            <div
+                v-for="leafId in stackedLeafIds"
+                :key="leafId"
+                class="flex min-h-0 min-w-0 flex-col overflow-hidden"
+                :class="leafId === SHELL_TITLEBAR_ID ? 'flex-none' : 'flex-1'"
+                :style="leafId === SHELL_TITLEBAR_ID ? {flex: '0 0 var(--workbench-titlebar-height)'} : undefined"
+                :data-leaf="leafId"
+            >
                 <slot :name="leafId"></slot>
             </div>
         </div>

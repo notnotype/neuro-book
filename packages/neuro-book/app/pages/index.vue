@@ -58,6 +58,12 @@ import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
 import {dispatchDesktopMenuCommand} from "@notnotype/neuro-book-contracts/desktop";
+import {
+    resolveTitleBarEditRoute,
+    resolveTitleBarEditTarget,
+    type TitleBarEditCommand,
+    type TitleBarEditTarget,
+} from "nbook/app/utils/workbench-chrome";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;
@@ -261,24 +267,55 @@ const desktopBridge = computed(() => import.meta.client ? window.neuroBookDeskto
 const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
 /**
  * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
- * - `titlebar` 只在桌面（有 bridge）存在：B/S 下不渲染该叶，主区按外壳高度占满；
+ * - `titlebar` **两种宿主都显示**：浏览器没有 bridge 也要有可用标题栏（菜单按真实能力裁剪）；
  * - `left` / `right` 在书架（picker）态收起，主区整个让给书架视图——与接入前「图标条 + 书架」等价。
  */
-watch([workbenchShellRef, desktopBridge, projectPickerActive], ([shell, bridge, pickerActive]) => {
+watch([workbenchShellRef, projectPickerActive], ([shell, pickerActive]) => {
     if (!shell) return;
-    shell.setLeafVisible("titlebar", Boolean(bridge));
     shell.setLeafVisible("left", !pickerActive);
     shell.setLeafVisible("right", !pickerActive);
 });
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
 
+/** 焦点事实：菜单的编辑动作按真实焦点判断（Studio 的 undo 不冒充所有输入框的 undo）。 */
+const activeElement = useActiveElement();
+const titleBarEditTarget = computed<TitleBarEditTarget>(() =>
+    resolveTitleBarEditTarget(activeElement.value ?? null, studio.activeEditor.value !== null));
 
+/** 原生编辑命令的 DOM 命令名（`selectAll` 的拼写是 DOM 的规定，不是这里的命名口味）。 */
+const NATIVE_EDIT_COMMANDS: Record<TitleBarEditCommand, string> = {
+    "edit.undo": "undo",
+    "edit.redo": "redo",
+    "edit.cut": "cut",
+    "edit.copy": "copy",
+    "edit.paste": "paste",
+    "edit.select-all": "selectAll",
+};
 
-/** 执行当前焦点元素支持的原生编辑命令；没有选区时给出明确反馈。 */
-function executeDesktopEditCommand(command: "cut" | "copy" | "paste" | "selectAll"): void {
-    const executed = document.execCommand(command);
-    if (!executed) {
+/**
+ * 编辑命令的执行去处，与标题栏菜单的 enabled 用同一份判定：
+ * 菜单里禁用过的命令，这里也不会跑到另一个编辑器上。
+ */
+function executeEditCommand(command: TitleBarEditCommand): void {
+    const route = resolveTitleBarEditRoute(command, {
+        desktop: desktopBridge.value !== undefined,
+        surfaceActive: projectSurfaceActive.value,
+        editTarget: titleBarEditTarget.value,
+    });
+    if (route === "unavailable") {
+        notification.info("当前没有可执行的编辑动作：请先把光标放进编辑器或输入框。", {title: "编辑命令未执行"});
+        return;
+    }
+    if (route === "studio") {
+        if (command === "edit.undo") {
+            studio.undo();
+        } else {
+            studio.redo();
+        }
+        return;
+    }
+    if (!document.execCommand(NATIVE_EDIT_COMMANDS[command])) {
         notification.info("当前没有可编辑的选区。", {title: "编辑命令未执行"});
     }
 }
@@ -298,10 +335,9 @@ function queueDesktopZoom(target: "in" | "out" | "reset"): void {
     });
 }
 
-/** 消费 Electron/Tauri 发送到当前页面的菜单命令。 */
-async function handleDesktopMenuCommand(command: DesktopMenuCommandId): Promise<void> {
+/** 消费桌面宿主发来的菜单命令（原生菜单，或自绘菜单经 bridge 转发）。 */
+async function dispatchMenuCommand(command: DesktopMenuCommandId): Promise<void> {
     const bridge = desktopBridge.value;
-    if (!bridge) return;
     await dispatchDesktopMenuCommand(command, {
         open: () => {
             if (projectSurfaceActive.value) {
@@ -313,23 +349,25 @@ async function handleDesktopMenuCommand(command: DesktopMenuCommandId): Promise<
         settings: () => {
             settingsDialogOpen.value = true;
         },
-        quit: () => bridge.window("quit"),
-        undo: () => studio.undo(),
-        redo: () => studio.redo(),
-        cut: () => executeDesktopEditCommand("cut"),
-        copy: () => executeDesktopEditCommand("copy"),
-        paste: () => executeDesktopEditCommand("paste"),
-        selectAll: () => executeDesktopEditCommand("selectAll"),
+        quit: () => bridge ? bridge.window("quit") : undefined,
+        undo: () => executeEditCommand("edit.undo"),
+        redo: () => executeEditCommand("edit.redo"),
+        cut: () => executeEditCommand("edit.cut"),
+        copy: () => executeEditCommand("edit.copy"),
+        paste: () => executeEditCommand("edit.paste"),
+        selectAll: () => executeEditCommand("edit.select-all"),
         reload: () => window.location.reload(),
         zoomIn: () => queueDesktopZoom("in"),
         zoomOut: () => queueDesktopZoom("out"),
         zoomReset: () => queueDesktopZoom("reset"),
         documentation: () => {
-            notification.info("文档站尚未嵌入 Desktop Envelope，请在浏览器中打开文档站。", {title: "文档"});
+            notification.info("文档站尚未嵌入应用外壳，请在浏览器中打开文档站。", {title: "文档"});
         },
         about: async () => {
-            const status = await bridge.status();
-            await alert(`NeuroBook\n版本：${status.version}\n连接：${status.connection === "local" ? "本地 Product" : "远端服务"}`, "关于 NeuroBook");
+            const status = await bridge?.status();
+            await alert(status
+                ? `NeuroBook\n版本：${status.version}\n连接：${status.connection === "local" ? "本地 Product" : "远端服务"}`
+                : "NeuroBook\n运行方式：浏览器（无桌面外壳）", "关于 NeuroBook");
         },
     });
 }
@@ -2428,12 +2466,15 @@ useWorkbenchChromeRegistration({
     openBookshelf: () => openProjectPicker(),
     switchProject: (projectRoot) => handleSwitchNovel(projectRoot),
     toggleAgentPanel: () => toggleAgentPanel(),
+    invokeMenuCommand: (command) => dispatchMenuCommand(command),
+    editTarget: () => titleBarEditTarget.value,
+    projectUrl: (projectRoot) => router.resolve(projectRoot === null ? "/" : buildProjectRoute(projectRoot)).href,
 });
 
 onMounted(() => {
     if (import.meta.client) {
         removeDesktopMenuListener = desktopBridge.value?.onMenuCommand((command) => {
-            void handleDesktopMenuCommand(command).catch((error: unknown) => {
+            void dispatchMenuCommand(command).catch((error: unknown) => {
                 notification.error(error instanceof Error ? error.message : "Desktop 菜单命令执行失败。", {title: "Desktop 菜单"});
             });
         }) ?? null;

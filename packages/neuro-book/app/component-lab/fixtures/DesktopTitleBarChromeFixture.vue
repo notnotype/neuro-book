@@ -6,13 +6,14 @@ import type {
     TitleBarWindowCommand,
 } from "nbook/app/components/common/DesktopTitleBarChrome.vue";
 import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
+import type {TitleBarEditTarget, TitleBarHostCapabilities} from "nbook/app/utils/workbench-chrome";
 import {useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<{scene: string; data?: unknown}>();
 
 const emitLabEvent = useLabEventSink();
 
-/** fixture 扮演宿主：菜单展开状态在这里，点组件外收起的全局判定不在 Lab 里做。 */
+/** fixture 扮演宿主：菜单展开状态在这里；点组件外收起由组件自己判定（下拉层 Teleport 到 body）。 */
 const openMenu = ref<string | null>(null);
 
 function readString(value: unknown, fallback: string): string {
@@ -37,6 +38,10 @@ function readConnection(value: unknown): "local" | "remote" | null {
     return value === "local" || value === "remote" ? value : null;
 }
 
+function readEditTarget(value: unknown): TitleBarEditTarget {
+    return value === "native" || value === "editor" ? value : "none";
+}
+
 const knobs = computed(() => {
     const data = (props.data ?? {}) as Record<string, unknown>;
     return {
@@ -44,6 +49,8 @@ const knobs = computed(() => {
         projects: readProjects(data.projects),
         currentProjectRoot: typeof data.currentProjectRoot === "string" ? data.currentProjectRoot : null,
         surfaceActive: readBoolean(data.surfaceActive, true),
+        desktop: readBoolean(data.desktop, true),
+        editTarget: readEditTarget(data.editTarget),
         agentPanelAvailable: readBoolean(data.agentPanelAvailable, true),
         agentPanelOpen: readBoolean(data.agentPanelOpen, false),
         rendererMenus: readBoolean(data.rendererMenus, true),
@@ -51,6 +58,18 @@ const knobs = computed(() => {
         connection: readConnection(data.connection),
     };
 });
+
+/** 宿主能力就是组件收到的菜单依据：Lab 用旋钮表达「浏览器 / 桌面」与「焦点在哪」。 */
+const capabilities = computed<TitleBarHostCapabilities>(() => ({
+    desktop: knobs.value.desktop,
+    surfaceActive: knobs.value.surfaceActive,
+    editTarget: knobs.value.editTarget,
+}));
+
+/** 新标签打开的 URL：Lab 只需要看得见链接，指到项目自己的草稿路由即可。 */
+function projectUrl(projectRoot: string | null): string {
+    return projectRoot === null ? "/?lab=bookshelf" : `/?lab=${encodeURIComponent(projectRoot)}`;
+}
 
 /** 场景可以要求一开局就展开某一组，用来固定「下拉浮层长什么样」这一条观察。 */
 const initialMenu = computed(() => readString((props.data as Record<string, unknown> | undefined)?.openMenu, ""));
@@ -84,7 +103,8 @@ function onSelectProject(projectRoot: string | null): void {
                 :title="knobs.title"
                 :projects="knobs.projects"
                 :current-project-root="knobs.currentProjectRoot"
-                :surface-active="knobs.surfaceActive"
+                :capabilities="capabilities"
+                :project-url="projectUrl"
                 :agent-panel-available="knobs.agentPanelAvailable"
                 :agent-panel-open="knobs.agentPanelOpen"
                 :renderer-menus="knobs.rendererMenus"

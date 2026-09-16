@@ -32,6 +32,7 @@ Electron 与 Tauri 在 Task 143 内继续并行；本 ADR 不冻结最终框架�
 4. Windows/Linux 在标题栏显示 File/Edit/View/Help；macOS 使用原生全局菜单。Renderer 只能提交白名单 command ID，不能传任意 accelerator、脚本或宿主命令。
 5. Desktop 页面只绘制一个 36px Workbench 标题栏。应用菜单、连续拖动区、Agent/IDE 模式、Studio 控制和窗口按钮安全区使用同一个四区网格；空间不足时整体切换为单个应用菜单，不逐项隐藏菜单。
 6. B/S 不绘制伪标题栏，也不保留 36px 顶部空白。标题栏是否存在只由安全注入的 Desktop Bridge 决定。
+   > 2026-09-16 取代说明：本条中「B/S 不绘制伪标题栏、标题栏是否存在只由 Desktop Bridge 决定」已被 [ADR 0021](0021-local-storage-persistence.md) 记录的「浏览器标题栏优先」取代（实施见 w00003 `storage-implementation-plan.md` 切片 5）；判据纪律不变——不做 UA 探测，桌面专属能力（退出应用、窗口控制、桌面缩放）仍只由安全注入的 bridge 判定。
 
 ### Workbench Chrome 与 Activity Bar
 
