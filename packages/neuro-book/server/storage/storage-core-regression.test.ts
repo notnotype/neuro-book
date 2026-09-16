@@ -7,6 +7,7 @@ import {defineStorageState, StorageStateRegistry} from "nbook/shared/storage/def
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {StorageService, type StorageServiceOptions} from "nbook/server/storage/storage-service";
 import {storagePartitionPaths} from "nbook/server/storage/storage-address";
+import {isStorageTempFileName} from "nbook/server/storage/record-codec";
 
 const state = defineStorageState({
     owner: "test.owner", key: "grid", scope: "user", records: "identified", schemaVersion: 1,
@@ -237,5 +238,35 @@ describe("Storage 核心边界回归", () => {
         const fresh = await f.open();
         await expect(fresh.reclaim(state, {targets: [{resource: "one"}]})).rejects.toMatchObject({code: "STORAGE_PARTITION_INVALID"});
         await expect(fresh.read(state, {resource: "one"})).resolves.toMatchObject({kind: "deleted"});
+    });
+
+    it("最后一次异步物理复核期间锁被接管时停写，旧值字节不变", async () => {
+        let compromise: ((error: Error) => void) | undefined;
+        const f = await fixture({lockAdapter: {acquire: async (file, options) => {
+            compromise = options.onCompromised;
+            return acquireFileLock(file, options);
+        }}});
+        // 记录目录里出现「已写入完整新值、即将替换」的临时文件后，assertMutationHealthy 还会在最后一次
+        // await guard 之后同步确认锁；这次复核窗口内的接管必须停写，而不是让替换先落盘。
+        let finalRechecks = 0;
+        const guard = async (): Promise<void> => {
+            const entries = await readdir(f.partition.recordsDirectory).catch(() => [] as string[]);
+            for (const entry of entries) {
+                if (!isStorageTempFileName(entry)) continue;
+                const content = await readFile(path.join(f.partition.recordsDirectory, entry), "utf8").catch(() => "");
+                if (!content.includes('"width":5')) continue;
+                finalRechecks += 1;
+                if (finalRechecks === 2) compromise?.(new Error("heartbeat lost"));
+                return;
+            }
+        };
+        const handle = await f.service.openHandle({...f.input, guard});
+        const saved = await handle.save(state, {resource: "one", expected: {revision: null, partitionGeneration: 1}, value: {width: 4}});
+        const target = path.join(f.partition.recordsDirectory, "grid~one.json");
+        const before = await readFile(target, "utf8");
+        await expect(handle.save(state, {resource: "one", expected: saved, value: {width: 5}}))
+            .rejects.toMatchObject({code: "STORAGE_LOCK_UNAVAILABLE", committed: false});
+        expect(await readFile(target, "utf8")).toBe(before);
+        await expect(handle.read(state, {resource: "one"})).resolves.toMatchObject({kind: "value", value: {width: 4}});
     });
 });

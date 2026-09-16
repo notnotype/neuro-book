@@ -125,13 +125,13 @@ export type StoragePartitionStoreOptions = Pick<StorageRecordFileOptions, "repla
     /**
      * 宿主授权的生命周期检查；每个真实文件副作用前调用，授权失效即抛错停写。
      *
-     * 由受信边界注入，本层不导入 H3、鉴权或宿主会话；等锁与替换重试之后仍会重新检查。
+     * 由受信边界注入，本层不导入 H3、鉴权或宿主会话；等锁、替换重试与异步复核之后仍会重新检查。
      */
     readonly guard?: StorageMutationGuard;
 };
 
-/** 真实副作用前的授权检查；抛错表示该操作不得继续写盘。 */
-export type StorageMutationGuard = () => void;
+/** 真实副作用前的授权检查；抛错表示该操作不得继续写盘；返回 Promise 的物理复核在每处副作用前 await。 */
+export type StorageMutationGuard = () => void | Promise<void>;
 
 export class StoragePartitionStore {
     private readonly partition: StoragePartitionPaths;
@@ -701,14 +701,16 @@ export class StoragePartitionStore {
     /**
      * 真实副作用前的统一检查：授权仍有效、目标仍在存储根内、分区锁未被接管。
      *
-     * 路径归属检查是异步的，等待期间授权可能失效；因此在它之后再次检查授权，
-     * 使“检查通过 → 等待 → 撤销 → 副作用”的窗口也停写。
+     * 路径归属检查与 guard 的物理复核都是异步的，等待期间授权或锁可能失效；因此在它们之后再次检查
+     * 授权与锁健康，使“检查通过 → 等待 → 撤销/锁接管 → 副作用”的窗口也停写。
      */
     private async assertMutationHealthy(context: MutationContext, target: AbsoluteFsPath): Promise<void> {
-        this.guard?.();
+        await this.guard?.();
         await this.assertContained(target);
         context.lock.assertHealthy();
-        this.guard?.();
+        await this.guard?.();
+        // 最后一次 guard 是 await 的物理复核：等它期间锁可能已被接管，返回后必须再同步确认才允许副作用。
+        context.lock.assertHealthy();
     }
 }
 

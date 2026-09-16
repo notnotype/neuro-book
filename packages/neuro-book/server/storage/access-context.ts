@@ -81,6 +81,23 @@ export type StorageAccessContextClaims = {
     readonly sessionGeneration: string;
     /** local 分区必需；shared 记录会忽略它。 */
     readonly clientId?: string;
+    /**
+     * project scope 的精确定位绑定；只用于重新解析签发时的同一个 ready generation，不构成授权。
+     *
+     * 这里不含路径与物理身份：存储根与 rootIdentity 仍独立比较，因此闭后重开、同名重建
+     * 或另一个 Project 的标识都不会命中同一绑定。
+     */
+    readonly project?: {
+        readonly publicId: string;
+        readonly projectRoot: string;
+    };
+    /**
+     * project scope 绑定的 data 物理根（WorkspaceRoot/.nbook/storage）身份摘要。
+     *
+     * user scope 的 `rootIdentity` 就是 data 根，因此省略；project scope 的 `rootIdentity` 是 Project
+     * 存储根，只有这一项能拒绝「同路径重建 data 根并复制同一份 identity.json」后的旧 Project 访问。
+     */
+    readonly dataRootIdentity?: string;
 };
 
 /** 一次访问的标识与声明；`contextId` 只是定位键，持有它不构成任何授权。 */
@@ -173,6 +190,41 @@ export class StorageAccessContextRegistry {
     }
 
     /**
+     * 读取一次访问的签发声明，供宿主按它的精确绑定重新核验。
+     *
+     * 与 `resolve` 不同：不更新最近核验时刻，不可用或空闲到期返回 null，
+     * 因此释放这类幂等路径不会因为上下文已经消失而报错；返回值同样不构成授权。
+     */
+    peek(contextId: string): StorageAccessContextClaims | null {
+        if (this.closing !== null) return null;
+        if (!isStorageAccessContextId(contextId)) {
+            throw new StorageContextInvalidError("context-id", "Storage 访问上下文标识不是本合同的标识");
+        }
+        const entry = this.byContextId.get(contextId);
+        if (entry === undefined) return null;
+        if (Date.now() - entry.usedAt >= this.idleMs) {
+            this.byContextId.delete(contextId);
+            return null;
+        }
+        return Object.freeze({...entry.claims});
+    }
+
+    /**
+     * Project generation 终止时主动撤销该存储根上的全部访问并释放容量。
+     *
+     * 只按 storageRoot 匹配：同 data 内其它 Project 与全部 user 访问都不受影响；
+     * 已打开句柄的 guard 会在下一个真实副作用前失败。持久化记录不因此删除。
+     */
+    revokeProject(storageRoot: string): void {
+        if (this.closing !== null) return;
+        for (const [contextId, entry] of this.byContextId) {
+            if (entry.claims.scope === "project" && entry.claims.storageRoot === storageRoot) {
+                this.byContextId.delete(contextId);
+            }
+        }
+    }
+
+    /**
      * 真实文件副作用前的存活检查。
      *
      * 与 `resolve` 不同：这里不更新最近核验时刻，也不返回声明。已释放、已被主动撤销与自然到期的访问
@@ -235,7 +287,10 @@ function assertSameClaims(signed: StorageAccessContextClaims, current: StorageAc
         || signed.rootIdentity !== current.rootIdentity
         || signed.subject !== current.subject
         || signed.sessionGeneration !== current.sessionGeneration
-        || signed.clientId !== current.clientId) {
+        || signed.clientId !== current.clientId
+        || signed.project?.publicId !== current.project?.publicId
+        || signed.project?.projectRoot !== current.project?.projectRoot
+        || signed.dataRootIdentity !== current.dataRootIdentity) {
         throw new StorageContextInvalidError(
             "claims-mismatch",
             "Storage 访问上下文与当前请求的存储根、身份域、主体、session 或客户端凭证不一致，请重新初始化",

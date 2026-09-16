@@ -180,6 +180,11 @@ type ProjectSessionRecord = {
     readonly dataOperations: Set<Promise<void>>;
     lazyModules: readonly ProjectModule[];
     state: "opening" | "ready" | "closing" | "closing_failed" | "release_failed";
+    /**
+     * 锁失效或根替换后写入目标不再有效；普通关闭（用户关闭、宽限到期、删除、关停）不置位，
+     * 因此已接纳操作仍可在 Module close 之前排空。
+     */
+    targetInvalid: boolean;
     readyRef: ReadyProjectSessionRef | null;
     closePromise: Promise<void> | null;
     closeFailure: Error | null;
@@ -269,6 +274,7 @@ export class ProjectSessionRuntime {
             dataOperations: new Set(),
             lazyModules: [],
             state: "opening",
+            targetInvalid: false,
             readyRef: null,
             closePromise: null,
             closeFailure: null,
@@ -358,6 +364,23 @@ export class ProjectSessionRuntime {
             openedAt: record.openedAt,
             lastActivityAt: record.lastActivityAt,
         });
+    }
+
+    /**
+     * 已接纳数据面操作在真实副作用前的写入目标核验。
+     *
+     * 只拒绝不再有效的目标：锁失效（Occupancy 不健康）与根替换都必须停写。用户关闭、宽限到期、
+     * 删除与关停属于正常排空，因此这里不看 closing 状态，已接纳操作仍能在 Module close 之前收口。
+     */
+    assertProjectOperationTarget(session: ReadyProjectSessionRef): void {
+        const record = this.sessions.get(session.workspace.key);
+        if (!record || record.readyRef !== session || record.generation !== session.generation) {
+            throw new ProjectNotReadyError(session.workspace.ref.projectRoot);
+        }
+        if (record.targetInvalid) {
+            throw new ProjectNotReadyError(session.workspace.ref.projectRoot);
+        }
+        record.prepared.occupancy.assertHealthy();
     }
 
     /** 注册结构化Agent presence探针；单槽覆盖，null用于注销。 */
@@ -492,7 +515,7 @@ export class ProjectSessionRuntime {
      */
     startProjectOperation<TResult>(
         session: ReadyProjectSessionRef,
-        start: (signal: AbortSignal) => ProjectOperationStart<TResult>,
+        start: (signal: AbortSignal, assertTarget: () => void) => ProjectOperationStart<TResult>,
     ): TResult {
         if (this.state !== "running") {
             throw new ProjectNotReadyError(session.workspace.ref.projectRoot);
@@ -515,7 +538,7 @@ export class ProjectSessionRuntime {
         };
 
         try {
-            const started = start(record.controller.signal);
+            const started = start(record.controller.signal, () => this.assertProjectOperationTarget(session));
             void started.completion.then(settle, settle);
             return started.result;
         } catch (error) {
@@ -527,11 +550,11 @@ export class ProjectSessionRuntime {
     /** 在精确ready generation登记一个普通Promise操作；同步start语义由长生命周期内核保证。 */
     runProjectOperation<TResult>(
         session: ReadyProjectSessionRef,
-        operation: (signal: AbortSignal) => Promise<TResult>,
+        operation: (signal: AbortSignal, assertTarget: () => void) => Promise<TResult>,
     ): Promise<TResult> {
         try {
-            return this.startProjectOperation(session, (signal) => {
-                const result = Promise.resolve(operation(signal));
+            return this.startProjectOperation(session, (signal, assertTarget) => {
+                const result = Promise.resolve(operation(signal, assertTarget));
                 return {
                     result,
                     completion: result.then(() => undefined, () => undefined),
@@ -577,6 +600,10 @@ export class ProjectSessionRuntime {
         }
         if (record.state === "release_failed" && record.closeFailure) {
             return Promise.reject(record.closeFailure);
+        }
+        // 锁失效与根替换的目标立即失效：已接纳操作不能等到 Module close 才停写。
+        if (reason === "root-replaced" || reason === "lock-compromised") {
+            record.targetInvalid = true;
         }
         record.state = "closing";
         record.controller.abort(new Error(`ProjectSession已开始关闭：${reason}`));

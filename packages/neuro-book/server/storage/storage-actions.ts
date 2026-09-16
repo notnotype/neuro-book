@@ -1,8 +1,8 @@
 /**
  * 值动作的请求解析与核心执行。
  *
- * 这是 HTTP 与 Storage 核心之间唯一的动作边界：请求体在这里有界读取并按共享 DTO 解析，
- * 逻辑地址在这里解析为注册定义，动作只调用句柄持有的核心能力。
+ * 这是 HTTP 与 Storage 核心之间唯一的请求边界：请求体在这里有界读取并按共享 DTO 解析，
+ * 逻辑地址在这里解析为注册定义，动作只调用句柄持有的核心能力；project 访问初始化参数同样只在这里解析。
  * 因此外部输入不能提交自己的 scope、locality、root、主体或校验规则，本模块也不复制核心算法。
  */
 
@@ -14,6 +14,10 @@ import {
     type StorageActionResponse,
     type StorageValueActionRequest,
 } from "nbook/shared/storage/action";
+import {
+    StorageProjectContextRequestSchema,
+    type StorageProjectContextRequest,
+} from "nbook/shared/storage/host";
 import {isSafeStorageIdentifier, type DefinedStorageState, type StorageStateRegistry} from "nbook/shared/storage/definition";
 import {
     StorageAddressInvalidError,
@@ -38,6 +42,15 @@ export type StorageActionAddress = {
  * 先核对 Content-Length、再在读取过程中执行硬字节上限，因此无长度声明的流式请求也不能让内存无界增长。
  */
 export async function readStorageActionRequest(event: H3Event, maxBytes: number): Promise<StorageActionRequest> {
+    return parseStorageActionRequest(await readStorageJsonBody(event, maxBytes));
+}
+
+/**
+ * 有界读取一次 JSON 请求体。
+ *
+ * 先核对 Content-Length、再在读取过程中执行硬字节上限，因此无长度声明的流式请求也不能让内存无界增长。
+ */
+export async function readStorageJsonBody(event: H3Event, maxBytes: number): Promise<unknown> {
     const declaredLength = getHeader(event, "content-length");
     if (declaredLength !== undefined && Number(declaredLength) > maxBytes) {
         throw bodyTooLarge(Number(declaredLength), maxBytes);
@@ -52,13 +65,33 @@ export async function readStorageActionRequest(event: H3Event, maxBytes: number)
         }
         throw error;
     }
-    let body: unknown;
     try {
-        body = JSON.parse(raw) as unknown;
+        return JSON.parse(raw) as unknown;
     } catch {
-        throw new StorageRequestInvalidError("body", "Storage 动作请求体必须是有效 JSON");
+        throw new StorageRequestInvalidError("body", "Storage 请求体必须是有效 JSON");
     }
-    return parseStorageActionRequest(body);
+}
+
+/** project 访问参数只有两个短标识，因此按固定小上限读取，不占用动作值的字节预算。 */
+export const STORAGE_PROJECT_CONTEXT_BODY_LIMIT_BYTES = 4 * 1024;
+
+/**
+ * 读取一次 project 访问初始化参数。
+ *
+ * 未知字段一律拒绝：客户端不能借自定义字段提交 scope、locality、主体、客户端或磁盘路径；
+ * publicId 只是代次定位，服务端仍按当前 data 身份与精确 ready 重新核验。
+ */
+export async function readStorageProjectContextRequest(event: H3Event): Promise<StorageProjectContextRequest> {
+    const body = await readStorageJsonBody(event, STORAGE_PROJECT_CONTEXT_BODY_LIMIT_BYTES);
+    const parsed = StorageProjectContextRequestSchema.safeParse(body);
+    if (!parsed.success) {
+        const issue = parsed.error.issues[0];
+        throw new StorageRequestInvalidError(
+            "project",
+            `Storage project 访问参数不合法：${issue === undefined ? "未知字段" : `${issue.path.join(".")} ${issue.message}`}`,
+        );
+    }
+    return parsed.data;
 }
 
 /** 解析动作请求：形状、动作名与边界值不合法时在触碰任何记录或注册定义之前拒绝。 */
@@ -140,7 +173,7 @@ function assertSafeAddress(address: StorageActionAddress): void {
 function bodyTooLarge(bytes: number, maxBytes: number): Error {
     return createError({
         statusCode: 413,
-        message: "Storage 动作请求体超过允许大小",
+        message: "Storage 请求体超过允许大小",
         data: {code: REQUEST_BODY_TOO_LARGE, bytes, maxBytes},
     });
 }

@@ -68,7 +68,7 @@ export type StorageAccessContext = {
 export type StorageHandleInput = {
     readonly owner: string;
     readonly context: StorageAccessContext;
-    /** 受信边界注入的授权检查；每个真实副作用前调用，见 `StorageMutationGuard`。 */
+    /** 受信边界注入的授权检查；每个真实副作用前调用并 await，见 `StorageMutationGuard`。 */
     readonly guard?: StorageMutationGuard;
     /** 已签发访问只能打开原根；提供身份时不创建缺失目录。 */
     readonly expectedRootIdentity?: string;
@@ -175,7 +175,7 @@ export class StorageService {
             throw new StorageContextInvalidError("storage-root", `Storage 存储根必须是绝对路径：${context.storageRoot}`);
         }
         // 建出存储根本身就是真实副作用：授权已经失效时不能先创建目录，也不能把目录创建算作无害读取。
-        guard?.();
+        await guard?.();
         const requestedRoot = expectedRootIdentity === undefined
             ? await this.canonicalStorageRoot(context.storageRoot)
             : context.storageRoot;
@@ -186,7 +186,7 @@ export class StorageService {
         // 已有根仍需规范化，以便短路径/大小写别名使用相同的锁与订阅身份；这一步不创建目录。
         const root = absoluteFsPath(await realpath(requestedRoot));
         await assertStorageRootIdentity(root, rootIdentity);
-        guard?.();
+        await guard?.();
         if (this.closed) throw new StorageServiceClosedError();
         const handle = new StorageHandle({
             onFinished: (finished) => { this.handles.delete(finished); },

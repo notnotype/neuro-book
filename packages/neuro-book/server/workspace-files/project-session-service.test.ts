@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {
+    ProjectLifecycleError,
     createProjectWorkspaceKey,
     projectWorkspaceRef,
     resolvedProjectWorkspace,
@@ -666,6 +667,99 @@ describe("ProjectSessionService", () => {
         expect(stopObservation).toHaveBeenCalledTimes(1);
     });
 
+    it("物理复核在watcher通知前停写，普通关闭仍允许已接纳操作收口", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "revalidated-target");
+        const prepared = preparedProject(workspaceRoot, "revalidated-target");
+        // 受控 Lifecycle 物理身份：watcher 尚未回调，Facade entry 也没有终止标记，
+        // 因此只有 `revalidateTarget` 的物理复核能发现根已被同路径替换。
+        const replacement = new ProjectLifecycleError("PROJECT_ROOT_REPLACED", "Project Workspace已被同路径替换");
+        let rootReplaced = false;
+        const lifecycle = controlLifecycle(prepared, {
+            revalidateWorkspace: vi.fn(async () => {
+                if (rootReplaced) throw replacement;
+            }),
+            observeWorkspace: vi.fn(() => () => undefined),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("revalidated-target");
+        const ready = await service.openProject(ref, {kind: "user"});
+        const physicalCheck = async (
+            _signal: AbortSignal,
+            assertTarget: () => void,
+            revalidateTarget: () => Promise<void>,
+        ): Promise<void> => {
+            assertTarget();
+            await revalidateTarget();
+        };
+
+        rootReplaced = true;
+        await expect(service.runReadyProjectOperation(ready, physicalCheck)).rejects.toBe(replacement);
+
+        rootReplaced = false;
+        await expect(service.runReadyProjectOperation(ready, physicalCheck)).resolves.toBeUndefined();
+
+        // 普通关闭先封住新登记；已经在排空中的操作仍能复核通过后收口，不被「要求 open」的旧核验破坏。
+        let release: () => void = () => undefined;
+        const pause = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const drained = vi.fn();
+        const operation = service.runReadyProjectOperation(ready, async (_signal, assertTarget, revalidateTarget) => {
+            await pause;
+            assertTarget();
+            await revalidateTarget();
+            drained();
+        });
+        const closing = service.closeProject(ref, "user");
+        release();
+        await operation;
+        await closing;
+        expect(drained).toHaveBeenCalledOnce();
+        expect(() => service.requireReadyProject(ref)).toThrow(ProjectNotOpenError);
+    });
+
+    it("整体shutdown仍允许已接纳操作在gate与物理复核之后收口", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "shutdown-drain");
+        const prepared = preparedProject(workspaceRoot, "shutdown-drain");
+        const lifecycle = controlLifecycle(prepared);
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("shutdown-drain");
+        const ready = await service.openProject(ref, {kind: "user"});
+        let release: () => void = () => undefined;
+        const pause = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const drained = vi.fn();
+        const operation = service.runReadyProjectOperation(ready, async (_signal, assertTarget, revalidateTarget) => {
+            await pause;
+            assertTarget();
+            await revalidateTarget();
+            drained();
+        });
+        const closing = service.closeAll();
+        release();
+        await operation;
+        await closing;
+        expect(drained).toHaveBeenCalledOnce();
+        expect(lifecycle.revalidateWorkspace).toHaveBeenCalled();
+    });
+
     it("close失败保留Facade entry并阻止重开，重试命中原handle", async () => {
         let closeFails = true;
         const close = vi.fn(async () => {
@@ -1002,6 +1096,7 @@ function controlLifecycle(
         })),
         delete: vi.fn(async (ref) => ({revision: prepared.revision + 1, projectRoot: ref.projectRoot})),
         prepareOpen: vi.fn(async () => prepared),
+        revalidateWorkspace: vi.fn(async () => undefined),
         observeWorkspace: vi.fn(() => () => undefined),
         close: vi.fn(async () => undefined),
         ...overrides,

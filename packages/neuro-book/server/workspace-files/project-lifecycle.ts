@@ -686,6 +686,17 @@ export class ProjectLifecycle {
         };
     }
 
+    /**
+     * 复核调用方已捕获的 workspace 仍指向 capture 时的同一个物理目录。
+     *
+     * 供已签发访问在每次动作边界重新核验：本方法不取得锁、不写盘、不推进 snapshot，
+     * 因此同路径 rename/delete/recreate 的 ABA 只能被失败关闭，不能被当成新的当前项目。
+     * 它也不看 Lifecycle 是否关闭：只读复核在 close 后仍要供已接纳操作收口，新操作另由 runOperation gate 拒绝。
+     */
+    revalidateWorkspace(workspace: ResolvedProjectWorkspace): Promise<void> {
+        return this.rootIdentity.revalidate(workspace);
+    }
+
     /** 在当前Lifecycle operation中解析Project root，避免内部递归登记公开operation。 */
     private async resolveWithin(
         ref: ProjectWorkspaceRef,

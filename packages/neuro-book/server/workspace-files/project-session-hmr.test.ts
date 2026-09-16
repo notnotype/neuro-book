@@ -14,11 +14,31 @@ import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-
 import {writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 
-/** 升级前的槽形状：只保留排空旧 owner 与承接探针所需的字段。 */
-type PreviousProjectSessionState = {
+/** V2 槽形状：本文件只读写排空旧 owner 与承接探针所需的字段。 */
+type PreviousProjectSessionV2State = {
     service: {closeAll(): Promise<void>} | null;
     agentProbe: ((session: ReadyProjectSessionRef) => boolean) | null;
     maintenanceTimer: ReturnType<typeof setInterval> | null;
+};
+
+/**
+ * V3 槽（基线 `0d66064b`）的真实形状：`service` 是与 `previousClose` 链并存的本版 owner。
+ *
+ * 这里按最终源码逐字段声明，不用最小形状掩盖升级差异；`service` 只实现旧方法，新模块若原地复用
+ * 该实例，新增的 `revalidateReadyProject` 与写入目标核验会在运行期缺方法，旧 lazy 快照也不含 Storage。
+ */
+type PreviousProjectSessionV3State = {
+    lifecycle: {close(): Promise<void>} | null;
+    service: {closeAll(): Promise<void>} | null;
+    workspaceRoot: AbsoluteFsPath | null;
+    compilerRoot: AbsoluteFsPath | null;
+    compilerContext: unknown;
+    agentProbe: ((session: ReadyProjectSessionRef) => boolean) | null;
+    maintenanceTimer: ReturnType<typeof setInterval> | null;
+    sweepInFlight: boolean;
+    previousClose: Promise<void> | null;
+    epoch: number;
+    closing: Promise<void> | null;
 };
 
 type CurrentProjectSessionState = {
@@ -27,19 +47,21 @@ type CurrentProjectSessionState = {
 };
 
 const globalForProjectSession = globalThis as typeof globalThis & {
-    __nbookProjectSessionV2?: PreviousProjectSessionState;
-    __nbookProjectSessionV3?: CurrentProjectSessionState;
+    __nbookProjectSessionV2?: PreviousProjectSessionV2State;
+    __nbookProjectSessionV3?: PreviousProjectSessionV3State;
+    __nbookProjectSessionV4?: CurrentProjectSessionState;
 };
 
 describe("project-session HMR boundaries", () => {
     let tempRoot: string;
 
     beforeEach(async () => {
-        const current = globalForProjectSession.__nbookProjectSessionV3;
+        const current = globalForProjectSession.__nbookProjectSessionV4;
         if (current?.maintenanceTimer) clearInterval(current.maintenanceTimer);
         await current?.service?.closeAll();
         delete globalForProjectSession.__nbookProjectSessionV2;
         delete globalForProjectSession.__nbookProjectSessionV3;
+        delete globalForProjectSession.__nbookProjectSessionV4;
         vi.resetModules();
     });
 
@@ -50,7 +72,11 @@ describe("project-session HMR boundaries", () => {
         } catch {
             // 旧 owner 关闭失败用例仍须通过 Facade 观察同一失败，不能在 teardown 启用新 owner。
         }
-        for (const state of [globalForProjectSession.__nbookProjectSessionV2, globalForProjectSession.__nbookProjectSessionV3]) {
+        for (const state of [
+            globalForProjectSession.__nbookProjectSessionV2,
+            globalForProjectSession.__nbookProjectSessionV3,
+            globalForProjectSession.__nbookProjectSessionV4,
+        ]) {
             if (state?.maintenanceTimer) {
                 clearInterval(state.maintenanceTimer);
             }
@@ -62,6 +88,7 @@ describe("project-session HMR boundaries", () => {
         }
         delete globalForProjectSession.__nbookProjectSessionV2;
         delete globalForProjectSession.__nbookProjectSessionV3;
+        delete globalForProjectSession.__nbookProjectSessionV4;
         setWorkspaceRuntimeRootContextForTest(null);
         collectReleasedSqliteHandles({force: true});
         if (tempRoot) {
@@ -124,7 +151,7 @@ describe("project-session HMR boundaries", () => {
         const facade = await import("nbook/server/workspace-files/project-session");
 
         await expect(facade.openProject(ref, {kind: "user"}, workspaceRoot)).rejects.toBe(failure);
-        expect(globalForProjectSession.__nbookProjectSessionV3?.service).toBeNull();
+        expect(globalForProjectSession.__nbookProjectSessionV4?.service).toBeNull();
         await expect(facade.closeAllProjects()).rejects.toBe(failure);
         await expect(facade.openProject(ref, {kind: "user"}, workspaceRoot)).rejects.toBe(failure);
     });
@@ -150,7 +177,7 @@ describe("project-session HMR boundaries", () => {
         }
         await closing;
         await rejected;
-        expect(globalForProjectSession.__nbookProjectSessionV3?.service).toBeNull();
+        expect(globalForProjectSession.__nbookProjectSessionV4?.service).toBeNull();
     });
 
     it("同版 HMR 保留 ready 对象与 presence owner，不重新打开项目", async () => {
@@ -158,11 +185,11 @@ describe("project-session HMR boundaries", () => {
         const firstFacade = await import("nbook/server/workspace-files/project-session");
         const firstReady = await firstFacade.openProject(ref, {kind: "user"}, workspaceRoot);
         const firstPresence = firstFacade.acquireUserPresence(ref, firstReady.publicId);
-        const owner = globalForProjectSession.__nbookProjectSessionV3;
+        const owner = globalForProjectSession.__nbookProjectSessionV4;
         vi.resetModules();
         const reloaded = await import("nbook/server/workspace-files/project-session");
         const secondReady = await reloaded.openProject(ref, {kind: "user"}, workspaceRoot);
-        expect(globalForProjectSession.__nbookProjectSessionV3).toBe(owner);
+        expect(globalForProjectSession.__nbookProjectSessionV4).toBe(owner);
         expect(secondReady).toBe(firstReady);
         const secondPresence = reloaded.acquireUserPresence(ref, secondReady.publicId);
         firstPresence.release();
@@ -221,6 +248,77 @@ describe("project-session HMR boundaries", () => {
 
         expect(facade.projectOccupancy(ref)).toMatchObject({agentActive: true});
         expect(probe).toHaveBeenCalled();
+    });
+
+    it("旧 V3 槽按真实形状交接：排空旧 Service 并继承未完成的 previousClose", async () => {
+        const {workspaceRoot, ref} = await createProjectFixture("handoff-v3-shape");
+        const oldPreviousClose = Promise.withResolvers<void>();
+        // 旧 V3 Service 只实现 V3 的方法：新模块若原样复用这个实例，新入口会在它身上缺方法。
+        const oldService = {closeAll: vi.fn(async () => undefined)};
+        globalForProjectSession.__nbookProjectSessionV3 = {
+            lifecycle: null,
+            service: oldService,
+            workspaceRoot,
+            compilerRoot: null,
+            compilerContext: null,
+            agentProbe: null,
+            maintenanceTimer: null,
+            sweepInFlight: false,
+            previousClose: oldPreviousClose.promise,
+            epoch: 0,
+            closing: null,
+        };
+
+        vi.resetModules();
+        const facade = await import("nbook/server/workspace-files/project-session");
+        // 交接先排空旧 Service，旧实例不会被当成本版 owner。
+        expect(oldService.closeAll).toHaveBeenCalledTimes(1);
+
+        // 继承的 previousClose 未完成前，新 owner 不取得任何 Project Occupancy。
+        let settled = false;
+        const opened = facade.openProject(ref, {kind: "user"}, workspaceRoot).then(
+            (value) => {
+                settled = true;
+                return value;
+            },
+            (error: unknown) => {
+                settled = true;
+                throw error;
+            },
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        expect(settled).toBe(false);
+
+        oldPreviousClose.resolve();
+        const ready = await opened;
+        expect(ready.publicId).toEqual(expect.any(String));
+        // 新 owner 是本版 Service：V3 没有的精确标识解析与物理复核入口都可用。
+        await expect(facade.revalidateReadyProject(ready)).resolves.toBeUndefined();
+        expect(facade.requireReadyProjectByPublicId(ref, ready.publicId)).toBe(ready);
+        facade.acquireUserPresence(ref, ready.publicId).release();
+    }, 30_000);
+
+    it("旧 V3 排空失败仍阻止新接纳", async () => {
+        const {workspaceRoot, ref} = await createProjectFixture("failed-handoff-v3");
+        const failure = new Error("old v3 service close failed");
+        globalForProjectSession.__nbookProjectSessionV3 = {
+            lifecycle: null,
+            service: {closeAll: () => Promise.reject(failure)},
+            workspaceRoot,
+            compilerRoot: null,
+            compilerContext: null,
+            agentProbe: null,
+            maintenanceTimer: null,
+            sweepInFlight: false,
+            previousClose: null,
+            epoch: 0,
+            closing: null,
+        };
+
+        const facade = await import("nbook/server/workspace-files/project-session");
+        await expect(facade.openProject(ref, {kind: "user"}, workspaceRoot)).rejects.toBe(failure);
+        expect(globalForProjectSession.__nbookProjectSessionV4?.service).toBeNull();
+        await expect(facade.closeAllProjects()).rejects.toBe(failure);
     });
 
     /** 建立带 manifest 的隔离 Workspace Root，使新旧 owner 都能真实取得同一个 Project 的 Occupancy。 */

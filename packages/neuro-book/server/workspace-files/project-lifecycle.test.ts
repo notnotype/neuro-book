@@ -3697,6 +3697,22 @@ describe("ProjectLifecycle", () => {
         }
     });
 
+    it("Lifecycle关闭后仍可只读复核已捕获的Project物理root", async () => {
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
+        roots.push(workspaceRoot);
+        const projectRoot = path.join(workspaceRoot, "revalidate-after-close");
+        await mkdir(projectRoot);
+        await writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: AfterClose\nsummary: \"\"\n", "utf8");
+        const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot));
+        const prepared = await lifecycle.prepareOpen(projectWorkspaceRef("revalidate-after-close"));
+        await prepared.occupancy.release();
+        await lifecycle.close();
+        // 新操作继续被 runOperation 的 close gate 拒绝。
+        await expect(async () => lifecycle.readProjects()).rejects.toMatchObject({code: "PROJECT_LIFECYCLE_CLOSED"});
+        // 只读物理复核不取得锁、不写盘，close 后仍供已接纳访问在副作用前确认原 root。
+        await expect(lifecycle.revalidateWorkspace(prepared.workspace)).resolves.toBeUndefined();
+    });
+
     it("运行中metadata update借用prepareOpen的Occupancy并发布新revision", async () => {
         const workspaceRoot = await mkdtemp(testHostPath("nbook-project-lifecycle-"));
         roots.push(workspaceRoot);

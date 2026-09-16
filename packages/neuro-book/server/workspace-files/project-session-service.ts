@@ -57,6 +57,8 @@ export type ProjectControlLifecycle = {
     ): Promise<ProjectCoverUpdateResult>;
     delete(ref: ProjectWorkspaceRef): Promise<ProjectDeleteResult>;
     prepareOpen(ref: ProjectWorkspaceRef): Promise<PreparedProjectOpen>;
+    /** 复核已发布workspace的物理root仍指向捕获时的目录；replacement通知必须是generation-scoped。 */
+    revalidateWorkspace(workspace: ResolvedProjectWorkspace): Promise<void>;
     /** 观察同一Lifecycle捕获的物理root identity；replacement通知必须是generation-scoped。 */
     observeWorkspace(
         workspace: ResolvedProjectWorkspace,
@@ -102,6 +104,8 @@ export function isProjectNotOpenError(error: unknown): error is ProjectNotOpenEr
 type ProjectServiceEntry = {
     maintenanceGates: Set<symbol>;
     terminalGates: Set<symbol>;
+    /** Lifecycle 已观察到物理根被替换；已接纳操作的写入目标立即失效，不等控制面排空。 */
+    targetInvalid: boolean;
     controlOperations: Set<Promise<void>>;
     handoffReady: Promise<void>;
     settleHandoff(): void;
@@ -189,6 +193,7 @@ export class ProjectSessionService {
         const entry: ProjectServiceEntry = {
             maintenanceGates: new Set(),
             terminalGates: new Set(),
+            targetInvalid: false,
             controlOperations: new Set(),
             handoffReady,
             settleHandoff,
@@ -208,6 +213,8 @@ export class ProjectSessionService {
                 entry.stopRootObservation = this.lifecycle.observeWorkspace(
                     prepared.workspace,
                     () => {
+                        // 先同步失效写入目标，再排空：等锁中的 Storage 操作不能写已替换的根。
+                        entry.targetInvalid = true;
                         void this.closeRootReplaced(locator, entry).catch(() => undefined);
                     },
                 );
@@ -528,6 +535,26 @@ export class ProjectSessionService {
         return this.runtime.requireProjectModuleHandle(ready, token);
     }
 
+    /**
+     * 复核精确 ready generation 的 Occupancy 与 Project 物理目录仍可承载新的数据面操作。
+     *
+     * 已经 closing、已替换或被 Facade 移除的 generation 都不再返回，因此在核验与动作之间
+     * 被关闭的 Project 不会让 Storage 在失效目标上继续建根或写盘。
+     */
+    async revalidateReadyProject(ready: ReadyProjectSessionRef): Promise<void> {
+        const locator = canonicalProjectLocator(this.workspaceRoot, ready.workspace.ref);
+        const entry = this.entries.get(locator);
+        if (this.state !== "running" || !entry || entry.ready !== ready || entry.terminalGates.size > 0) {
+            throw new ProjectNotOpenError(ready.workspace.ref.projectRoot);
+        }
+        try {
+            this.runtime.projectPresence(ready);
+        } catch (error) {
+            throw new ProjectNotOpenError(ready.workspace.ref.projectRoot, {cause: error});
+        }
+        await this.lifecycle.revalidateWorkspace(ready.workspace);
+    }
+
     /** 在调用方已经捕获的精确 ready generation 内激活 lazy Module。 */
     activateReadyProjectModule<THandle extends ProjectModuleHandle>(
         ready: ReadyProjectSessionRef,
@@ -539,10 +566,17 @@ export class ProjectSessionService {
     /**
      * 在调用方已经捕获的精确ready generation登记一次数据面操作。
      * Service terminal gate先于Runtime close建立，因此root replacement/control close窗口也会fail closed。
+     *
+     * `assertTarget` 是同步目标核验；`revalidateTarget` 是副作用前的异步物理复核（Project 根身份）。
+     * 后者不要求 Service 仍 open，普通关闭下已接纳操作仍能复核后收口。
      */
     runReadyProjectOperation<TResult>(
         ready: ReadyProjectSessionRef,
-        operation: (signal: AbortSignal) => Promise<TResult>,
+        operation: (
+            signal: AbortSignal,
+            assertTarget: () => void,
+            revalidateTarget: () => Promise<void>,
+        ) => Promise<TResult>,
     ): Promise<TResult> {
         const locator = canonicalProjectLocator(this.workspaceRoot, ready.workspace.ref);
         const entry = this.entries.get(locator);
@@ -554,7 +588,11 @@ export class ProjectSessionService {
         ) {
             return Promise.reject(new ProjectNotOpenError(ready.workspace.ref.projectRoot));
         }
-        return this.runtime.runProjectOperation(ready, operation).catch((error: unknown) => {
+        return this.runtime.runProjectOperation(ready, (signal) => operation(
+            signal,
+            this.projectTargetGuard(locator, entry, ready),
+            this.projectTargetRevalidator(locator, entry, ready),
+        )).catch((error: unknown) => {
             if (isProjectNotReadyError(error)) {
                 throw new ProjectNotOpenError(ready.workspace.ref.projectRoot, {cause: error});
             }
@@ -562,10 +600,17 @@ export class ProjectSessionService {
         });
     }
 
-    /** 同步启动长生命周期数据面操作；result可立即返回，completion在terminal时才释放gate。 */
+    /**
+     * 同步启动长生命周期数据面操作；result可立即返回，completion在terminal时才释放gate。
+     * 两个目标核验能力与 `runReadyProjectOperation` 相同：同步归属检查 + 副作用前的异步物理复核。
+     */
     startReadyProjectOperation<TResult>(
         ready: ReadyProjectSessionRef,
-        start: (signal: AbortSignal) => ProjectOperationStart<TResult>,
+        start: (
+            signal: AbortSignal,
+            assertTarget: () => void,
+            revalidateTarget: () => Promise<void>,
+        ) => ProjectOperationStart<TResult>,
     ): TResult {
         const locator = canonicalProjectLocator(this.workspaceRoot, ready.workspace.ref);
         const entry = this.entries.get(locator);
@@ -578,13 +623,66 @@ export class ProjectSessionService {
             throw new ProjectNotOpenError(ready.workspace.ref.projectRoot);
         }
         try {
-            return this.runtime.startProjectOperation(ready, start);
+            return this.runtime.startProjectOperation(ready, (signal) => start(
+                signal,
+                this.projectTargetGuard(locator, entry, ready),
+                this.projectTargetRevalidator(locator, entry, ready),
+            ));
         } catch (error) {
             if (isProjectNotReadyError(error)) {
                 throw new ProjectNotOpenError(ready.workspace.ref.projectRoot, {cause: error});
             }
             throw error;
         }
+    }
+
+    /**
+     * 已接纳数据面操作的同步写入目标核验能力。
+     *
+     * Service 归属（entry 与 ready）与 Runtime 精确世代、锁失效和根替换终止标记共同判定；关停是否
+     * 已开始不改变结论，普通关闭与整体 shutdown 都必须让已接纳操作排空，新操作另由入口 gate 拒绝。
+     */
+    private projectTargetGuard(
+        locator: string,
+        entry: ProjectServiceEntry,
+        ready: ReadyProjectSessionRef,
+    ): () => void {
+        return () => this.assertProjectTargetIdentity(locator, entry, ready);
+    }
+
+    /**
+     * 已接纳数据面操作的异步物理复核能力。
+     *
+     * 与 `projectTargetGuard` 的分工：本能力补齐同步 guard 覆盖不到的物理目录检查，同样不看关停状态；
+     * 它只对不再有效的目标失败，并在 Lifecycle 关闭后仍保留对原 root 的只读复核。
+     */
+    private projectTargetRevalidator(
+        locator: string,
+        entry: ProjectServiceEntry,
+        ready: ReadyProjectSessionRef,
+    ): () => Promise<void> {
+        const guard = this.projectTargetGuard(locator, entry, ready);
+        return async () => {
+            guard();
+            // Lifecycle 的 replacement 通知是异步且去抖的，只靠 entry.targetInvalid 会在这段窗口里写已替换的根。
+            await this.lifecycle.revalidateWorkspace(ready.workspace);
+        };
+    }
+
+    /** 精确世代归属与失效标记；不看 Service 状态与 terminal gate，普通关闭不因此阻断排空。 */
+    private assertProjectTargetIdentity(
+        locator: string,
+        entry: ProjectServiceEntry,
+        ready: ReadyProjectSessionRef,
+    ): void {
+        if (
+            this.entries.get(locator) !== entry
+            || entry.ready !== ready
+            || entry.targetInvalid
+        ) {
+            throw new ProjectNotOpenError(ready.workspace.ref.projectRoot);
+        }
+        this.runtime.assertProjectOperationTarget(ready);
     }
 
     /**

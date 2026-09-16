@@ -7,6 +7,8 @@
  * 状态内容、身份域与分区地址仍在 data 内，由 `server/storage` 拥有。
  */
 
+import {z} from "zod";
+
 /** 客户端定位凭证的请求头；由宿主适配器保存与提供，不作为可自由改写的业务字段。 */
 export const STORAGE_CLIENT_CREDENTIAL_HEADER = "x-nbook-storage-client";
 
@@ -33,6 +35,24 @@ export function isStorageAccessContextId(value: string): boolean {
 
 /** user 访问上下文的初始化结果；contextId 只在签发它的后端运行期有效。 */
 export type StorageUserContextDto = {
+    readonly contextId: string;
+};
+
+/**
+ * project 访问的初始化参数。
+ *
+ * `projectRoot + publicId` 只用于定位精确 ready 代次；请求不能声明 scope、locality、主体、客户端或磁盘路径。
+ * 标识不是授权：服务端仍按当前身份核验，闭后重开、同名重建与另一个 Project 的标识都拿不到新代次。
+ */
+export const StorageProjectContextRequestSchema = z.object({
+    projectRoot: z.string().min(1).max(512),
+    publicId: z.string().min(1).max(512),
+}).strict();
+
+export type StorageProjectContextRequest = z.infer<typeof StorageProjectContextRequestSchema>;
+
+/** project 访问上下文的初始化结果；与 user 一样只在签发它的后端运行期有效。 */
+export type StorageProjectContextDto = {
     readonly contextId: string;
 };
 

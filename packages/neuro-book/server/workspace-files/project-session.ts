@@ -47,6 +47,7 @@ import "nbook/server/workspace-history/project-history";
 import "nbook/server/workspace-files/project-file-index";
 import "nbook/server/plot/index";
 import "nbook/server/agent/tools/agent-sql-project-module";
+import "nbook/server/storage/project-storage-module";
 
 export {isProjectNotOpenError, PROJECT_GRACE_MS, ProjectNotOpenError};
 export type {ProjectOpener, ProjectOperationStart, ReadyProjectSessionRef};
@@ -62,18 +63,31 @@ type ProjectSessionGlobalState = {
     agentProbe: ((session: ReadyProjectSessionRef) => boolean) | null;
     maintenanceTimer: ReturnType<typeof setInterval> | null;
     sweepInFlight: boolean;
-    /** 升级前 owner 的排空；新 owner 取得任何 Occupancy 前必须等待它。 */
+    /** 升级前各代 owner 的排空；新 owner 取得任何 Occupancy 前必须等待整条链。 */
     previousClose: Promise<void> | null;
     /** Facade 关闭次数，令仍等待 HMR 交接的旧请求失效。 */
     epoch: number;
     closing: Promise<void> | null;
 };
 
-/** 升级前的槽形状；旧 Service 不认 publicId，只能排空，不能当成本版 owner 复用。 */
-type PreviousProjectSessionState = {
+/** V2 槽形状；旧 Service 不认 publicId，只能排空，不能当成本版 owner 复用。 */
+type PreviousProjectSessionV2State = {
     readonly service: {closeAll(): Promise<void>} | null;
     readonly agentProbe: ((session: ReadyProjectSessionRef) => boolean) | null;
     readonly maintenanceTimer: ReturnType<typeof setInterval> | null;
+};
+
+/**
+ * V3 槽（基线 `0d66064b`）的排空与探针承接字段。
+ *
+ * 真实 V3 还带 lifecycle/workspaceRoot/compilerRoot/compilerContext/sweepInFlight/epoch/closing；
+ * 本版只读这里的字段，其余不能按本版 `ProjectSessionGlobalState` 复用：V3 的 Service 已有
+ * `requireReadyProjectByPublicId`（缺的是旧 Facade 未导出它），真正没有的是本轮新增的
+ * `revalidateReadyProject`/写入目标核验，以及 Project Storage lazy Module 登记。
+ */
+type PreviousProjectSessionV3State = PreviousProjectSessionV2State & {
+    /** V3 自己尚未排空的更早一代；新 owner 必须继承整条链，不能只交接本版。 */
+    readonly previousClose: Promise<void> | null;
 };
 
 type ProjectOccupancySnapshot = {
@@ -89,30 +103,47 @@ type OpenProjectSnapshot = ProjectOccupancySnapshot & {
 };
 
 const globalForProjectSession = globalThis as typeof globalThis & {
-    __nbookProjectSessionV2?: PreviousProjectSessionState;
-    __nbookProjectSessionV3?: ProjectSessionGlobalState;
+    __nbookProjectSessionV2?: PreviousProjectSessionV2State;
+    __nbookProjectSessionV3?: PreviousProjectSessionV3State;
+    __nbookProjectSessionV4?: ProjectSessionGlobalState;
 };
-const globalState = globalForProjectSession.__nbookProjectSessionV3
-    ?? (globalForProjectSession.__nbookProjectSessionV3 = createHandoffState(globalForProjectSession.__nbookProjectSessionV2));
+const globalState = globalForProjectSession.__nbookProjectSessionV4
+    ?? (globalForProjectSession.__nbookProjectSessionV4 = createHandoffState(
+        globalForProjectSession.__nbookProjectSessionV3,
+        globalForProjectSession.__nbookProjectSessionV2,
+    ));
 
 /**
  * 建立本版合同的 owner，并排空升级前的 owner。
  *
- * V2 实例不认 publicId：旧 acquireUserPresence 会忽略新增参数，旧 publication 也带不上标识。
- * 复用同一实例会把「按公开标识取得精确代次」静默降级成按路径查当前 generation，
- * 因此这里先停掉旧维护定时器并关闭旧 Service（Lifecycle、Module 与 Occupancy），
- * 再由新 owner 从空 Session 状态重建；旧标识属于旧 Runtime，在新 owner 中无法解析。
+ * V2 不认 publicId：旧 acquireUserPresence 会忽略新增参数，旧 publication 也带不上标识；V3 的 Facade
+ * 未导出 `requireReadyProjectByPublicId`（Service 已有），也没有本轮新增的 `revalidateReadyProject`/
+ * 写入目标核验与 Project Storage lazy Module 登记。复用旧对象会把「按公开标识取得精确代次」与
+ * 「已接纳操作的物理前置」静默降级成运行期 TypeError 或漏建 lazy Module，因此这里先停掉旧维护定时器、
+ * 关闭旧 Service（Lifecycle、Module 与 Occupancy），再由新 owner 从空 Session 状态重建；
+ * 旧标识属于旧 Runtime，在新 owner 中无法解析。
  */
-function createHandoffState(previous: PreviousProjectSessionState | undefined): ProjectSessionGlobalState {
-    if (previous?.maintenanceTimer) {
-        clearInterval(previous.maintenanceTimer);
+function createHandoffState(
+    previousV3: PreviousProjectSessionV3State | undefined,
+    previousV2: PreviousProjectSessionV2State | undefined,
+): ProjectSessionGlobalState {
+    const pending: Promise<void>[] = [];
+    // V3 自己的 previousClose 可能仍在排空更早一代：整条链都要在新 owner 取得 Occupancy 之前完成。
+    if (previousV3?.previousClose) {
+        pending.push(previousV3.previousClose);
     }
-    let previousClose: Promise<void> | null = null;
-    try {
-        previousClose = previous?.service?.closeAll() ?? null;
-    } catch (error) {
-        previousClose = Promise.reject(error);
+    for (const previous of [previousV3, previousV2]) {
+        if (previous?.maintenanceTimer) {
+            clearInterval(previous.maintenanceTimer);
+        }
+        try {
+            const closed = previous?.service?.closeAll();
+            if (closed) pending.push(closed);
+        } catch (error) {
+            pending.push(Promise.reject(error));
+        }
     }
+    const previousClose: Promise<void> | null = pending.length === 0 ? null : Promise.all(pending).then(() => undefined);
     // import 本身没有等待方；保留拒绝给所有后续请求和 shutdown，避免未观察的 rejection。
     void previousClose?.catch(() => undefined);
     return {
@@ -122,7 +153,7 @@ function createHandoffState(previous: PreviousProjectSessionState | undefined): 
         compilerRoot: null,
         compilerContext: null,
         // 探针属于 Agent owner；它继续按精确 ready 对象核对，而不是让 Facade 建第二份在场状态。
-        agentProbe: previous?.agentProbe ?? null,
+        agentProbe: previousV3?.agentProbe ?? previousV2?.agentProbe ?? null,
         maintenanceTimer: null,
         sweepInFlight: false,
         previousClose,
@@ -246,10 +277,18 @@ export function activateReadyProjectModule<THandle extends ProjectModuleHandle>(
 /**
  * 在精确ready generation同步登记一次异步数据面操作。
  * terminal close会先封住后续登记，再等待本入口已经接纳的操作settle。
+ *
+ * `assertTarget` 是已接纳操作的同步写入目标核验：在真实副作用前调用，锁失效与根替换立即失败，
+ * 普通关闭不阻止排空；`revalidateTarget` 补齐副作用前的异步物理复核（Project 根身份），
+ * 同样不要求 Project 仍 open；调用方不能从 abort reason 文本自行判断目标是否仍然有效。
  */
 export function runReadyProjectOperation<TResult>(
     ready: ReadyProjectSessionRef,
-    operation: (signal: AbortSignal) => Promise<TResult>,
+    operation: (
+        signal: AbortSignal,
+        assertTarget: () => void,
+        revalidateTarget: () => Promise<void>,
+    ) => Promise<TResult>,
 ): Promise<TResult> {
     const service = globalState.service;
     if (!service) {
@@ -261,10 +300,15 @@ export function runReadyProjectOperation<TResult>(
 /**
  * 同步启动长生命周期数据面操作：start同步返回result，completion到最终terminal才允许close继续。
  * 适用于Workflow这类先返回runId、随后跨waiting状态继续运行的后台任务。
+ * 两个目标核验能力的语义与 `runReadyProjectOperation` 相同。
  */
 export function startReadyProjectOperation<TResult>(
     ready: ReadyProjectSessionRef,
-    start: (signal: AbortSignal) => ProjectOperationStart<TResult>,
+    start: (
+        signal: AbortSignal,
+        assertTarget: () => void,
+        revalidateTarget: () => Promise<void>,
+    ) => ProjectOperationStart<TResult>,
 ): TResult {
     const service = globalState.service;
     if (!service) {
@@ -307,6 +351,29 @@ export function projectOccupancy(ref: ProjectWorkspaceRef): ProjectOccupancySnap
         userConnections: occupancy.userConnections,
         agentActive: occupancy.agentActive,
     };
+}
+
+/**
+ * 按浏览器持有的公开标识取得精确 ready generation。
+ *
+ * 只返回本运行期仍 live、仍被 Facade entry 发布的那一个对象：闭后重开、另一个 Project 与旧运行期的
+ * 标识都拿不到新代次；路径相同不能替代标识。
+ */
+export function requireReadyProjectByPublicId(ref: ProjectWorkspaceRef, publicId: string): ReadyProjectSessionRef {
+    const service = globalState.service;
+    if (!service) {
+        throw new ProjectNotOpenError(ref.projectRoot);
+    }
+    return service.requireReadyProjectByPublicId(ref, publicId);
+}
+
+/** 复核精确 ready generation 的 Occupancy 与 Project 物理目录；已关闭或被替换时抛出。 */
+export function revalidateReadyProject(ready: ReadyProjectSessionRef): Promise<void> {
+    const service = globalState.service;
+    if (!service) {
+        return Promise.reject(new ProjectNotOpenError(ready.workspace.ref.projectRoot));
+    }
+    return service.revalidateReadyProject(ready);
 }
 
 /** 为公开标识指定的精确 ready generation取得一路用户presence。 */
