@@ -1,8 +1,8 @@
 /**
  * 探针共用的存储替身：真实传输合同 + 内存记录，只换掉 HTTP。
  *
- * 与作者聚焦测试的做法一致（真实记录会话 + 内存传输），但多两个故障注入点，
- * 用来复现作者测试没有覆盖的失败路径：回读失败、并发第二次迁移、删除失败。
+ * 与作者聚焦测试的做法一致（真实记录会话 + 内存传输），但多三个故障注入点，
+ * 用来复现作者测试没有覆盖的失败路径：回读失败、删除失败、用户上下文不可用。
  */
 import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
 import type {StorageCredential, StorageReadResult} from "nbook/shared/storage/contract";
@@ -23,6 +23,9 @@ export type Harness = {
     holdReads(): () => void;
     /** 从这一刻起，保存成功后的回读抛错（模拟回读失败）。 */
     failReadsAfterSave(): void;
+    /** 用户上下文不可用（冷启动/后端不可达）；`recoverUserContext()` 让后端"恢复"。 */
+    failUserContext(diagnosis?: string): void;
+    recoverUserContext(): void;
     write(key: string, value: unknown, schemaVersion?: number): void;
     recordOf(key: string): unknown;
     saveCount(key: string): number;
@@ -33,6 +36,7 @@ export function storageHarness(): Harness {
     const saves: {key: string; value: unknown}[] = [];
     const gate: {current: Promise<void>; release: () => void} = {current: Promise.resolve(), release: () => undefined};
     let failReadAfterSave = false;
+    let userContextFailure: string | null = null;
     let savedSinceRead = 0;
     let sequence = 0;
     const credential = (revision: string | null): StorageCredential => ({revision, partitionGeneration: 1});
@@ -91,10 +95,18 @@ export function storageHarness(): Harness {
     };
 
     const adapters: WorkbenchStorageAdapters = {
-        openUserContext: async () => ({
-            status: "ready",
-            session: {scope: "user", contextId: "user".padEnd(64, "u"), clientCredential: CLIENT_CREDENTIAL},
-        }),
+        openUserContext: async () => userContextFailure === null
+            ? {
+                status: "ready",
+                session: {scope: "user", contextId: "user".padEnd(64, "u"), clientCredential: CLIENT_CREDENTIAL},
+            }
+            : {
+                status: "unavailable",
+                reason: "backend-unreachable",
+                diagnosis: userContextFailure,
+                code: null,
+                statusCode: null,
+            },
         openProjectContext: async () => ({
             status: "unavailable",
             reason: "target-invalid",
@@ -123,6 +135,12 @@ export function storageHarness(): Harness {
         },
         failReadsAfterSave(): void {
             failReadAfterSave = true;
+        },
+        failUserContext(diagnosis = "Storage 宿主暂不可达（cold start）"): void {
+            userContextFailure = diagnosis;
+        },
+        recoverUserContext(): void {
+            userContextFailure = null;
         },
         write(key: string, value: unknown, schemaVersion = 1): void {
             records.set(key, {value, revision: `revision-${++sequence}`, schemaVersion});

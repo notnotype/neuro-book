@@ -52,6 +52,8 @@ type Harness = {
     readonly fixedReads: Map<string, StorageReadResult<unknown>>;
     readonly saves: string[];
     readonly hooks: {beforeSave: ((key: string) => void) | null; afterSave: ((key: string) => void) | null};
+    /** 用户上下文故障开关：置字符串即让 `openUserContext` 返回不可用（诊断就是这段文字）。 */
+    readonly userContextFailure: {current: string | null};
     readonly adapters: WorkbenchStorageAdapters;
     /** 让后续读取全部停在闸上；返回放行函数。 */
     holdReads(): () => void;
@@ -64,6 +66,7 @@ function storageHarness(): Harness {
     const fixedReads = new Map<string, StorageReadResult<unknown>>();
     const saves: string[] = [];
     const hooks: Harness["hooks"] = {beforeSave: null, afterSave: null};
+    const userContextFailure: Harness["userContextFailure"] = {current: null};
     const gate: {current: ReadGate} = {current: {reads: Promise.resolve(), release: () => undefined}};
     let sequence = 0;
     const credential = (revision: string | null): StorageCredential => ({revision, partitionGeneration: 1});
@@ -131,10 +134,18 @@ function storageHarness(): Harness {
     };
 
     const adapters: WorkbenchStorageAdapters = {
-        openUserContext: async () => ({
-            status: "ready",
-            session: {scope: "user", contextId: "user".padEnd(64, "u"), clientCredential: CLIENT_CREDENTIAL},
-        }),
+        openUserContext: async () => userContextFailure.current === null
+            ? {
+                status: "ready",
+                session: {scope: "user", contextId: "user".padEnd(64, "u"), clientCredential: CLIENT_CREDENTIAL},
+            }
+            : {
+                status: "unavailable",
+                reason: "backend-unreachable",
+                diagnosis: userContextFailure.current,
+                code: null,
+                statusCode: null,
+            },
         openProjectContext: async () => ({
             status: "unavailable",
             reason: "target-invalid",
@@ -155,6 +166,7 @@ function storageHarness(): Harness {
         fixedReads,
         saves,
         hooks,
+        userContextFailure,
         adapters,
         holdReads(): () => void {
             gate.current = readGate();
@@ -264,6 +276,36 @@ describe("useWorkbenchFileTreeExpandedPaths", () => {
             paths: ["manuscript/", "manuscript/vol-1", "lorebook/"],
         });
         expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/", "manuscript/vol-1", "lorebook/"]);
+        opened.stop();
+    });
+
+    it("句柄不可用：commit 不覆盖准确诊断、不落盘，并自己重试连接（后端恢复后同一手势落盘）", async () => {
+        const harness = storageHarness();
+        harness.userContextFailure.current = "Storage 宿主暂不可达（cold start）";
+        const opened = openConsumer(harness, legacyStore(null));
+
+        await flushUntil(() => opened.consumer.notice.value !== null);
+        await flushUntil(() => !opened.consumer.loading.value);
+        expect(opened.consumer.notice.value?.diagnosis).toBe("Storage 宿主暂不可达（cold start）");
+        // 唯一能恢复的入口是 retry()，因此这条诊断必须让界面把「重试」按钮画出来。
+        expect(opened.consumer.notice.value?.retryable).toBe(true);
+
+        await opened.consumer.commit(["lorebook/"]);
+        await flushMicrotasks();
+        expect(harness.saves).toEqual([]);
+        // 门禁文案不许顶掉更准确的诊断（那是用户真正需要的信息）。
+        expect(opened.consumer.notice.value?.diagnosis).toBe("Storage 宿主暂不可达（cold start）");
+
+        // 后端恢复：提交会重新触发 open()（因此手势也把连接带回来了），但不重放这次基于默认显示的意图。
+        harness.userContextFailure.current = null;
+        await opened.consumer.commit(["lorebook/"]);
+        await flushUntil(() => !opened.consumer.loading.value && opened.consumer.notice.value === null);
+        expect(harness.saves).toEqual([]);
+
+        // 会话就绪后，同一手势基于已确认显示重算后照常落盘。
+        await opened.consumer.commit(["lorebook/"]);
+        expect(harness.saves).toEqual([harness.storeKey()]);
+        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["lorebook/"]});
         opened.stop();
     });
 

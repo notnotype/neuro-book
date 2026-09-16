@@ -13,6 +13,10 @@
 
 **裁定：需修复（`overall_correctness = incorrect`），但不阻断本轮检查点合并。**
 
+> **状态：§一~§七 是首轮复核（被审 `c2152f83`）；返工 R1–R3 已落盘，§八「追加复核（修复后）」是最终裁定：
+> R1（F1）与 R2（F3）已闭合并经探针复验，R3 文档/口径 4+1 处已改对；新增一条 P3（F4：句柄不可用时
+> `commit` 既不重连、又顶掉更准确的诊断）。下面 §一 的 F1 结论按 §八 更新，其余各问题结论仍然有效。**
+
 - **唯一实质缺陷（P2）**：`files` 视图的**消费端**没有遵守「记录读取就绪前调整控件不可用」。
   文件树在记录还没读到分类时已经可交互，而界面此刻显示的是产品默认（空展开）；
   这时任何一次树手势都会把「默认 + 本次路径」当成整份意图提交，**覆盖掉记录里已确认的展开项**。
@@ -310,3 +314,211 @@ bd1358e0473fb610043ae5771b764e9c9d2c3a3896516dad6b62d2ce99f551b8  app/components
    落盘，不是订阅关闭）。
 5. **`createBrowserLegacyValueStore` 的 SSR 分支**：只做代码阅读（`!import.meta.client` → 读作
    absent、删除恒 false），未在 SSR 环境实跑（F3 已把这条列为测试缺口）。
+
+---
+
+## 八、追加复核（修复后，`FilesViewMigration` 返工 R1–R3）
+
+**裁定：R1（F1）、R2（F3）、R3（文档与 legacy 口径）全部闭合；新增一条 P3（F4）——F4 随后被返工二次修复，最终复核见 §九。**
+
+被审状态：返工落在工作区（未提交），产品代码 diff 相对 `c2152f83`；本节 SHA256 为返工后的字节。
+
+### R1（F1，P2）闭合
+
+- **产品改动两处**：`WorkspaceFilePanel.vue` 新增 `expandedPathsLoading`，树所在的分支链首条改成
+  `v-if="expandedPathsLoading || (loadingWorkspaceTree && workspaceTree.length === 0)"` →
+  读取未就绪时渲染既有加载占位、**树根本不挂载**（没有手势可 emit）；
+  `user-record-session.ts` 的 `commit` 去掉 `await open()` 排队重放，改成
+  「`session === null || loading` → 写一条可见诊断（`不排队重放`）并返回」。
+- **探针 01 重写后实测**（原文，见 §探针表）：
+  `[probe-01/files-window] 提交被拒 | 落盘次数 = 0 | 显示 = [] | 诊断 = {"…没完成首次读取…","retryable":false}`；
+  放开闸门后显示与记录都回到 `{"paths":["manuscript/","manuscript/vol-1"]}`；
+  `[probe-01/settings-window] 提交被拒 | 落盘次数 = 0 | 记录 = {"width":1000,"height":700}`，
+  就绪后同一手势落盘 `{"width":1200,"height":700}`（height 不再被默认值顶掉）。
+  对照组（就绪后整份数组提交 → 并集）仍绿：差异只来自读取窗口。
+- **作者的回归钉**（本轮新增/改写，逐条与探针同口径）：`files-view-session.test.ts`「首读门禁：读取未分类前
+  拒绝提交且不落盘，读完后提交的是已确认值以上的并集」、`window-size-session.test.ts` 同名用例、
+  `WorkspaceFilePanel.test.ts`「记录读取中就绪前不渲染树（调整控件不可用），就绪后按记录的展开项渲染」。
+- **旁的同类窗口**：设置/新建作品对话框在读取窗口内的拖动现在同样只被拒绝、不落盘
+  （两个对话框都在挂载时开会话，用户能拖拽时读取早已结束，属加固而非必需）。
+
+### R2（F3，P3）闭合
+
+- 新增 `app/utils/workbench/legacy-record-migration.test.ts`（**15 例**），逐条命中我列的等价类缺口：
+  `旧键不可读（unavailable）`、`用户意图在飞（deferred）`、`迁移未确认（commit 失败，且不做回读）`、
+  `回读抛错`、`回读不一致`、`记录已是权威时删除失败`、`空旧值`、`不可解析不给重试`，
+  以及 `createBrowserLegacyValueStore` 的「没有可用存储（SSR）」「访问存储本身抛错」「删除没有生效」三例。
+- 产品侧唯一改动是为该访问器加可注入的存储解析器（默认 `import.meta.client ? window.localStorage : null`）：
+  默认路径语义与返工前一致（无存储 → 读作 absent、删除返回 false），且把 `window.localStorage` 的
+  **属性访问**移进 try（隐私模式抛错现在归类为 `unavailable` 而不是冒泡），属改善。
+  产品调用点只有 `files-view-session.ts:131` 与 `window-size-session.ts:133` 两处，都只传 key（已核对）；
+  第二参只出现在新测试里。
+
+### R3（P3）闭合
+
+- 4 处文档不符逐条按实测改对：`WorkbenchViewHost.md:14`（三类「都画出来」→ 说明 hidden 只在没有可见视图时
+  作为空态出现，有可见视图时不进 DOM）、`:52`（只有提示行是 `role="status"`，空态不带 live region）、
+  `WorkspaceFilePanel.md:9`（提交未确认/旧键没迁完可重试；记录读不到分类不可重试，与壳层同一约定）、
+  `:42`（「文件转同名目录」补上「且自身不是 `index.md`」）——四条都与我在 §三 Q8 的实测一致。
+- legacy 口径按逐件原因改写：3 个由 `world-engine-ide-entry.test.ts:62-64/963-980` 读取并断言，
+  第 4 个（`WorldEngineSubjectStateViewer.vue` 与同目录 `…Row.vue`）只被彼此引用。
+  与我的 Q7 结论一致。
+
+### F4（新，P3，交回 **t56**）句柄不可用时 `commit` 既不重连、也顶掉更准确的诊断——**已在 §九 复核为闭合**
+
+- **触发**：首次打开时用户上下文不可用（`openUserContext` 返回 `backend-unreachable`/`identity-unrecoverable`，
+  即 `open()` 的 `owned.status !== "ready"` 分支：`opening = null`、`loading = false`、`session` 仍是 null）。
+- **行为**（探针 01「F4 探针」实测原文）：
+  `原诊断 = "Storage 宿主暂不可达（cold start）" | 提交后诊断 = {"…没完成首次读取…","retryable":false} | 落盘次数 = 0`。
+  三点后果：① `commit` 不再触发 `open()`，因此后端恢复后**用户的手势也不会重连**（返工前 `commit` 会
+  `await open()` → `opening ??=` 重试并成功）；② `open()` 给出的准确诊断被门禁文案顶掉，
+  用户读到的是"读取没完成"（不实）；③ 这条诊断是 `retryable: false`，界面因此不显示「重试」按钮
+  （`WorkspaceFilePanel`/两个对话框都是 `v-if="notice.retryable"`），而**唯一**能恢复的 `retry()`
+  正好只能从那个按钮到达——只剩刷新页面一条路。这与本模块自己写在失败分支上的注释
+  「句柄不可用不是终局：保留重试入口（否则一次冷启动失败会让偏好永久不可读写）」相矛盾。
+- **影响**：无数据损坏（记录未被触碰），但偏好写入在本会话内失效 + 诊断不实；刷新即可恢复。
+- **最小修复**：把「会话还没建起来」与「读取还在进行」分开处理——`session === null` 时不要覆盖
+  `open()` 留下的诊断（或把它并进文案），并让该分支重新触发一次 `open()`（或在诊断里给出
+  `retryable: true` 让现有「重试」按钮可达）。`loading` 分支维持现状即可。
+- **证据**：`walkthroughs/probes/probe-01-first-read-intent.probe.test.ts` 第 4 例；
+  命令与退出码见下。
+
+### 变更文件 SHA256（返工后）
+
+```
+f70d23d565be4998e3e3bbee5cc6288814db6300f186f6b41d0379d58cfe9148  app/utils/workbench/user-record-session.ts
+ad86199f1b13a7aae6afcd93c62c17d84840e2ea645b1e2b8f218fa6c885263d  app/utils/workbench/legacy-record-migration.ts
+4e5398e5bab424ac9d11f79bdb9c9c477583129d9e0dfc8a9c7bd618ad2c1a57  app/utils/workbench/legacy-record-migration.test.ts（新增）
+245f5de1c3032f8cc195fcc67092834265040631dbedaa800f277d0e96cb7878  app/components/novel-ide/workspace/WorkspaceFilePanel.vue
+9238a9f6fc3003fd9a435b3b454db518b2395a1df99875875d3ab012e4b34779  app/components/novel-ide/workspace/WorkspaceFilePanel.test.ts
+100726229adf119c1f9f1b53855b42d3bc368eee83d6c87cc9a4f35eae749da3  app/utils/workbench/files-view-session.test.ts
+29377dc4fb72fc700f32709828ab1dfcdc543a932911ec493c3941167fe92333  app/utils/workbench/window-size-session.test.ts
+1d700f6be248bde8daf222d310883f1c92f3e9594b92e00b1c8e91a545c9aebf  app/components/workbench/WorkbenchViewHost.md
+b6d8874531d2db56c9ace02586cc1b152b2c128b550643d24c0ec3b62f4abb16  app/components/novel-ide/workspace/WorkspaceFilePanel.md
+# 未变（与 §五.1 相同，抽两件作核对点）
+f383ae7003549158a044330dfb1622e0eb4dc2cd960468ba7c917dadf755c92e  app/utils/workbench/files-view-session.ts
+8df30471f57a5f92289ab3cb8fefe30309c953f70e12198d627df123164fab52  app/components/workbench/WorkbenchViewHost.vue
+```
+
+### 追加复核的命令与退出码
+
+| # | 命令（cwd = worktree 根） | 退出码 / 结果 |
+|---|---|---|
+| 1 | `bunx vitest run --config .agents/works/.../t60-view-migration-review/walkthroughs/probes/vitest.probes.config.ts` | **exit 0**，`Test Files 3 passed (3)`、`Tests 15 passed (15)`（探针 01 重写后含 4 例） |
+| 2 | 同上 `-t "files 展开项"`（F1 最小复现） | **exit 0**，1 passed / 14 skipped |
+| 3 | `git diff c2152f83 -- <被审文件>`（逐处读改动） | 见 §八 各条 |
+| 4 | `grep -rn "createBrowserLegacyValueStore(" packages/neuro-book/app` | 产品调用点 2 处，都只传 key；第二参只在新测试 |
+| 5 | `sha256sum <返工后文件>` | 见上表 |
+
+### 未验证项（追加复核后仍未变）
+
+- 真实浏览器与真实存储宿主：本轮复核仍未起 dev server、未动 3001（约束不变），F1 的窗口时长与
+  F4 的现场表现都只有探针级证据（会话层 + jsdom 挂载）。
+- `bun run typecheck` / 全量测试 / Lab smoke：由返工方与 Leader 跑（其 walkthrough §七 记录），本轮未复跑。
+
+---
+
+## 九、F4 二次复核与最终裁定（`a16d9edb` 之后的未提交修复）
+
+**最终裁定：无需修复（`overall_correctness = correct`）。** F1、F3、F4 全部闭合；Q1/Q2/Q3/Q4/Q5 的既有结论在新 revision 上复验仍成立。
+
+### 复核实况（务必先看这条）
+
+- 返工 commit `a16d9edb`（`fix(workbench): gate the file tree on the first read`，Main 复核过）**不含** F4 的修复：
+  我核对时 `packages/neuro-book/app/utils/workbench/user-record-session.ts` 仍处于 **modified**，
+  即该文件的 F4 修复（以及 `files-view-session.test.ts` 新增的对应回归用例）**尚未提交**。
+  本节结论对应的是**工作区**（hash 见下），不是 `a16d9edb` 的树；实现者提交后请以本文 hash 核对。
+- 我复核的两个 hash（`sha256sum`）：
+
+```
+019347d059333d8711c92999b83fc08df33bb315d0c773b89152d091898d998d  app/utils/workbench/user-record-session.ts（F4 修复）
+c3dd2e0fd2aea65bb84ddc25b11268bbc34830b5286d3648a21c0119af3d67ef  app/utils/workbench/files-view-session.test.ts（F4 回归用例）
+```
+
+### F4 闭合（实测原文）
+
+修复内容与我给的最小修复一致：`session === null` 与 `loading` 分流——`loading` 期间仍旧拒绝并写门禁诊断；
+`session === null`（句柄不可用）时**保留 `open()` 的准确诊断**、把它的 `retryable` 改为 `true`（「重试」按钮因此可达）、
+并顺手 `void open()` 再连一次；本次基于默认显示的意图仍然**不写盘**（重放正是要挡的覆盖）。
+
+探针 01「F4 复核」实测（原文）：
+
+```
+[probe-01/owner-down]      诊断 = {"diagnosis":"Storage 宿主暂不可达（cold start）","retryable":true} | 落盘次数 = 0 | 显示 = []
+[probe-01/owner-recovered] 记录 = {"paths":["manuscript/","manuscript/vol-1","lorebook/"]}
+```
+
+三件事同时成立：① 准确诊断没被门禁文案顶掉且带可达的重试入口；② 后端仍不可达时的整份数组意图不落盘；
+③ 后端恢复后同一手势顺带重连，记录随即读到（显示回到已确认的两条），再提交落盘为并集——**会话内即可恢复，不必刷新**。
+实现者另在 `files-view-session.test.ts` 加了同口径回归用例
+「句柄不可用：commit 不覆盖准确诊断、不落盘，并自己重试连接（后端恢复后同一手势落盘）」，与本探针互为双钉。
+
+### 复验「未被破坏」的部分（在新 revision 上重跑）
+
+| 声明 | 复核方式 | 结果 |
+|---|---|---|
+| Q1 迁移原语：回读失败/删除失败/双 retry/双会话都保留旧键、记录不被覆盖 | 探针 02（5 例） | 全绿（与首轮同口径，原语本身本轮未再改） |
+| Q2 单写者：三处记录各一条写路径，产品代码只剩迁移原语一处 `localStorage` | `grep` 全仓（命令见下） | 成立；返工只加了渲染门禁与会话拒绝，没有新增写路径 |
+| Q4 定义与注册：唯一入口 + 幂等 | `grep registerProductStorageDefinitions()` | 仍只有 `server/plugins/storage-definitions.ts:11` 一处调用 |
+| Q5 视图解析与两处注入缝隙的缺省路径 | 探针 03（6 例） | 全绿；`WorkbenchViewHost.md` 修正后与实测一致 |
+| 探针 01 的主结论（窗口内被拒 + 就绪后并集） | 探针 01（4 例） | 全绿 |
+
+### 最终命令与退出码
+
+| # | 命令（cwd = worktree 根） | 退出码 / 结果 |
+|---|---|---|
+| 1 | `bunx vitest run --config .agents/works/.../t60-view-migration-review/walkthroughs/probes/vitest.probes.config.ts` | **exit 0**，`Test Files 3 passed (3)`、`Tests 15 passed (15)` |
+| 2 | `git diff a16d9edb --stat` | 7 files（4 件我的探针/记录 + 用户 dirty 2 件 + `user-record-session.ts`）→ 说明 F4 修复未提交 |
+| 3 | `sha256sum <23 个被审文件>`（`packages/neuro-book`） | 见下 |
+| 4 | `grep -rn "localStorage\.\(setItem\|removeItem\|getItem\)" app/ --include=*.ts --include=*.vue` | 产品代码只剩迁移原语与两处无关模块 |
+| 5 | `grep -rn "registerProductStorageDefinitions()" server/` | 唯一入口 |
+
+### 最终 SHA256（工作区；标 ★ 者与 §八 表不同）
+
+```
+019347d059333d8711c92999b83fc08df33bb315d0c773b89152d091898d998d ★ app/utils/workbench/user-record-session.ts
+ad86199f1b13a7aae6afcd93c62c17d84840e2ea645b1e2b8f218fa6c885263d   app/utils/workbench/legacy-record-migration.ts
+4e5398e5bab424ac9d11f79bdb9c9c477583129d9e0dfc8a9c7bd618ad2c1a57   app/utils/workbench/legacy-record-migration.test.ts
+245f5de1c3032f8cc195fcc67092834265040631dbedaa800f277d0e96cb7878   app/components/novel-ide/workspace/WorkspaceFilePanel.vue
+9238a9f6fc3003fd9a435b3b454db518b2395a1df99875875d3ab012e4b34779   app/components/novel-ide/workspace/WorkspaceFilePanel.test.ts
+c3dd2e0fd2aea65bb84ddc25b11268bbc34830b5286d3648a21c0119af3d67ef ★ app/utils/workbench/files-view-session.test.ts
+29377dc4fb72fc700f32709828ab1dfcdc543a932911ec493c3941167fe92333   app/utils/workbench/window-size-session.test.ts
+1d700f6be248bde8daf222d310883f1c92f3e9594b92e00b1c8e91a545c9aebf   app/components/workbench/WorkbenchViewHost.md
+b6d8874531d2db56c9ace02586cc1b152b2c128b550643d24c0ec3b62f4abb16   app/components/novel-ide/workspace/WorkspaceFilePanel.md
+f383ae7003549158a044330dfb1622e0eb4dc2cd960468ba7c917dadf755c92e   app/utils/workbench/files-view-session.ts
+c3625e004249cd42501dc132bd1e73a8483c464880bc7a792af960c6dca6c6cb   app/utils/workbench/window-size-session.ts
+31264cd38d8d54e653df6717521d055d04f3c1e2f8ac353002991bc24b852096   app/utils/workbench/world-engine-session.ts
+1055e0a0c247d1bb8deced5a2d715dc028187c3114d768b5c125866cfc8da147   app/utils/workbench/product-catalog.ts
+130d3785a76dd67ca0bc04ecfd5b118905f330d1aa340ef889de825fef988636   app/utils/workbench/view-factories.ts
+8df30471f57a5f92289ab3cb8fefe30309c953f70e12198d627df123164fab52   app/components/workbench/WorkbenchViewHost.vue
+51fdf38a19567b54d7d444c37a6194f4c279bc0fe1137fe41787fe99e74689a3   shared/storage/workbench-files.ts
+bf2db6e4cf0d41b5cad5694b9e73df5e21eb6cf29da471bd27803a34c820536a   shared/storage/workbench-window-sizes.ts
+2f5d400f2574f6d16d033a58023d3062afc03d4d8879a08bf60d56edf93c0114   shared/storage/workbench-world-engine.ts
+a01206a1e9cee4e1d9025e0d23ee0b3206b0871177e429bc598f4977fc2f56e9   server/storage/product-definitions.ts
+02178019e7f9c77e47761de42947641702c758ef735571064f907a338e8e65a9   app/utils/world-engine-workbench-preview.test.ts
+d762d26b96e46834fc998b82ab3e2717da7740ab711e52792060f5c2dd03446c   app/components/novel-ide/NovelIdeSettingsDialog.vue
+bd1358e0473fb610043ae5771b764e9c9d2c3a3896516dad6b62d2ce99f551b8   app/components/novel-ide/project-picker/components/ProjectCreateDialog.vue
+61e567a587d23bd2380fc0a53bcf6751ebc8cfb56e162e3bcb7cbf02c174c63b   app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue
+```
+
+### 残余观察（均非阻断，留给实现者判断）
+
+1. 句柄不可用那条诊断现在带「重试 / 放弃」两个按钮，但 `abandon()` 在该状态下是空操作
+   （`session.value?.abandon()` 无会话可弃，`publish()` 又因 `session === null` 直接返回），
+   即「放弃」不消除诊断。语义上没错（没有待弃意图），但按钮看着能用却什么都没发生。
+2. 同一状态下用户的手势会被丢弃且**没有专门文案**：诊断条仍显示宿主不可达（准确），
+   树不会展开（记录读不到、显示就是默认）。规范允许「读取失败后可选提供暂时调整」，故不判缺陷。
+3. 首轮 §六 的 5 条非阻断观察仍然有效（墓碑语义、`issues.at(-1)` 诊断取法、提示条未 i18n、
+   `canToggleVisibility/canMoveView=false` 与提案范围的差距、Lab fixture 边界）。
+
+### 仍未验证项（最终）
+
+- 真实浏览器与真实存储宿主：本轮复核全程只读、未起 dev server、未动 3001；F1/F4 的证据是
+  会话层（真实记录会话 + 内存传输）与 jsdom 挂载级，不含真实界面时序。
+- `bun run typecheck` / 全量测试 / Lab smoke：由返工方与 Main 跑（其 walkthrough §七 与 Main 的复核记录），本轮未复跑。
+- 工作区仍在变动：若实现者在本文之后继续改动 `user-record-session.ts` 或探针之外的产品文件，
+  请以新 hash 重新触发本 Task 的追加复核。
+
+### 残余观察的归档结论（实现者回应后）
+
+实现者按「不收，只记录」处理，理由我已复核，均成立：① 面板用**同一个** `retryable` 标志同时决定「重试 / 放弃」两个按钮（三处提示条同形，属既有约定），要在该状态隐藏「放弃」得给通知加一个「可放弃」维度，是提示条契约改动，留到统一诊断文案时一起收；② 手势被丢弃时保留宿主不可达那条诊断（重连后树按记录重画，用户能看到结果），而重放基于默认显示正是首读门禁要挡的覆盖，故不补专文。两条已记入 t56 的「未运行项与偏差」。因此两条都不构成本增量的缺陷，§九 的最终裁定不变（`correct`，无待修项）。提交动作不在实现者约束内（归 Main），待提交清单与 hash 已报 Main。

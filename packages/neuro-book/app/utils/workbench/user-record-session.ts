@@ -146,9 +146,10 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
             const owned = await context.userOwner(definition.owner);
             if (owned.status !== "ready") {
                 // 句柄不可用不是终局：保留重试入口（否则一次冷启动失败会让偏好永久不可读写）。
+                // `retryable: true` 让界面上的「重试」按钮可达——它是这条诊断之外唯一的恢复路径。
                 opening = null;
                 loading.value = false;
-                notice.value = {diagnosis: owned.diagnosis, retryable: false};
+                notice.value = {diagnosis: owned.diagnosis, retryable: true};
                 return;
             }
             ownerHandle = owned.handle;
@@ -175,19 +176,31 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
 
         async commit(intent: I): Promise<void> {
             const current = session.value;
-            // 首读门禁：读到分类之前不接受提交。读取完成前界面上就没有可交互的控件（面板渲染加载态、
-            // 其它宿主禁用调整手势），这里兜住漏网调用——**不排队重放**：此刻调用方基于的是产品默认值，
-            // 等读回来再按它合成会用陈旧意图覆盖已确认记录；拒绝同样必须可见，不能静默丢弃。
-            if (current === null || loading.value) {
-                gateNotice = {
-                    diagnosis: "记录还没完成首次读取，本次调整没有保存",
-                    retryable: false,
-                };
-                if (current === null) {
+            if (current === null) {
+                if (loading.value) {
+                    // 首读门禁：读到分类之前不接受提交。读取完成前界面上就没有可交互的控件（面板渲染加载态、
+                    // 其它宿主禁用调整手势），这里兜住漏网调用——**不排队重放**：此刻调用方基于的是产品默认值，
+                    // 等读回来再按它合成会用陈旧意图覆盖已确认记录；拒绝同样必须可见，不能静默丢弃。
+                    gateNotice = {
+                        diagnosis: "记录还没完成首次读取，本次调整没有保存",
+                        retryable: false,
+                    };
                     // 会话还没建起来：publish() 此刻什么都不刷新，直接把这条诊断放上条。
                     notice.value = gateNotice;
                     return;
                 }
+                // 已经失败过（句柄不可用一类）：`open()` 留下的诊断比门禁文案准确，**保留它**（含它的重试入口），
+                // 并顺手再试一次连接——后端恢复后用户的手势不该被吞掉，也不该只剩刷新一条路。
+                // 本次意图仍然不写盘：它基于产品默认显示算出来，重放就是首读门禁要挡的那种覆盖。
+                void open();
+                return;
+            }
+            if (loading.value) {
+                // 会话已建但首读未分类：同上，拒绝且可见。
+                gateNotice = {
+                    diagnosis: "记录还没完成首次读取，本次调整没有保存",
+                    retryable: false,
+                };
                 publish();
                 return;
             }
