@@ -107,3 +107,17 @@ Project 两条打开路径（本标签只发意图、新标签 `target=_blank re
 3001：按开发者指示先停 → 实施验证 → 用**同一隔离根**（`Temp/nb-3001-8KseHT`，State/Cache 均在该根）重启，`persistent`；重启后实测 `GET /` 200 且主页面渲染出浏览器标题栏（File/Edit/View/Help）。开发者真实根 `%LOCALAPPDATA%/NeuroBook/{data,cache}` 未被写入（mtime 仍为 2026-08-19 / 2026-08-25）。
 
 流程事故（已修复，如实登记）：一次 `git add packages/neuro-book/app` 把用户 dirty 的 `descriptors{,.test}.ts` 一并纳入提交；随即 `git reset --soft HEAD~1` + `git restore --staged` 两个文件后重新提交（`5591f8fa` → `a74c7fb8`），两文件回到未暂存且 SHA256 仍为 `11BDDDA8…`/`81D3CC73…`。后续只逐文件 `git add`，不再对目录做 add。
+
+## 2026-09-16 检查点 B 与切片 5 收口（Leader 记录）
+
+| 增量 | 提交 | 结果 |
+|---|---|---|
+| t51 检查点 B 首轮 | `3e3f42e3`（文档） | 裁定**需修复**：键盘打开 Edit 菜单六条动作整组禁用（P2）、浏览器通知条压 36px 标题栏（P2）、宿主 `openMenu` 面板无定位（P2）、`resolveTitleBarEditTarget` 零覆盖（P3） |
+| t50 返工 R1–R4 | `9df461e1` | 焦点在标题栏/下拉层时沿用最近一次真实可编辑焦点（执行前把焦点还给记忆元素）、通知让位跟随标题栏存在事实、受控 `openMenu` 按菜单名回查触发按钮、分类器补真实用例；真机确认键盘路径六条可用且原生命令作用于输入框 |
+| t50 两条 P3 收口 | `5e7ac703` | 记忆元素检查 `isConnected`、Project 组纳入同一锚点钩子 |
+| t52 + t53 | `cbb8ef38` | picker smoke 对齐当前场景（含 compact/editorial）、5 条 400 归因夹具合成根非法（服务端正确拒绝）、缺 key 文案改用既有 key |
+| 探针缓存误提交清理 | `8d20808d` | 审查探针目录下的 vite 缓存曾被 `git add <目录>` 带入提交，已从索引与工作树移除 |
+
+Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun run typecheck` **exit 0**（收口后）；t50 聚焦 6 文件 **29 例** exit 0；`component-lab --suite all` 对运行中的 3001 **exit 0**（core / agent-profile / project-picker 三者皆绿，红项因此关闭）。t51 追加复核终审 **correct / 可合并**（探针 3 文件 10 例、产品 6 文件 29 例，主干未回归），未晋升任何 Spec 状态。
+
+事故与恢复（如实登记）：3001 期间崩溃一次（exit 5）——原因是另一个 dev server 在同目录执行 `nuxt prepare/generate` 重建共享 `.nuxt`，摧毁了正在运行的实例。已按「停 → 验证 → 重启」的窗口流程恢复，并在代理侧广播约束（同目录不得并存两个 dev server；需要真实浏览器先报 Leader 协调窗口）。当前 3001 在隔离根 `Temp/nb-3001-8KseHT` 上运行（`persistent`），`/` 与 `/lab` 均 200；开发者真实根未写入。

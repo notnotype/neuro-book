@@ -81,7 +81,8 @@ t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Proje
 user 工作面只写主动字段、退役发生在原件安全保留之后，真实浏览器验收 8/8 场景。
 切片 5 已落地：[t50](tasks/t50-browser-titlebar/README.md) 浏览器标题栏与真实主页面（无 bridge 也显示可用标题栏、菜单由宿主能力映射、编辑动作按真实焦点路由、
 菜单 Teleport 消裁剪 + 键盘/焦点、项目本标签/新标签两条打开路径）提交 `a74c7fb8`；Leader 复跑 typecheck exit 0、聚焦 20 例、Lab smoke `core` 与 `agent-profile` exit 0；
-[t51](tasks/t51-checkpoint-b-review/README.md) 检查点 B 独立审查进行中。切片 6（未迁视图清单）未开始；红分支登记见下。
+[t51](tasks/t51-checkpoint-b-review/README.md) 检查点 B 独立审查：首轮裁定**需修复**（键盘打开 Edit 菜单六条动作整组禁用、浏览器通知条压标题栏、宿主 `openMenu` 无定位、分类器零覆盖），返工后追加复核 **correct / 可合并**（探针 3 文件 10 例、产品用例 6 文件 29 例，主干未回归）。
+切片 5 相关修复提交：`9df461e1`（R1–R4）、`5e7ac703`（两条 P3 收口）、`cbb8ef38`（t52 picker smoke 对齐 + t53 文案 key）。切片 6（未迁视图清单）未开始；红分支登记见下。
 `http://localhost:3001/` 现为开发者使用中的服务，由本 Work 在**隔离根** `Temp/nb-3001-8KseHT/{state,cache}` 上启动并保持（`persistent`），开发者真实根 `%LOCALAPPDATA%/NeuroBook` 未被写入；
 该端口保留给开发者：产品验收不得占用、复用、重启或停止它，另用系统 Temp 隔离 State Root、Workspace Root 与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
@@ -101,8 +102,8 @@ user 工作面只写主动字段、退役发生在原件安全保留之后，真
 | 路径 | `packages/neuro-book/scripts/smoke/project-picker-view.ts:18`（断言方）↔ `packages/neuro-book/app/component-lab/fixtures/index.ts` 的 `component: "ProjectPickerView"` 场景表（现状方） |
 | 错误原文 | `[assertion] ProjectPickerView smoke 在阶段 [选择组件与默认场景] 失败：locator.click: Timeout 30000ms exceeded. … waiting for locator('[role="group"][aria-label="场景"] [role="radio"]').filter({ hasText: '标准书架' }).first()`；另有 5 条 `Failed to load resource: the server responded with a status of 400 (Server Error)` |
 | 引入批次 | 既有：picker 场景改名提交 `139cf49a`、`0f038c32`、`655c3d06`；基线 `da4c5aca` 上「标准书架」场景名同样不存在 → 非本批引入（切片 4/5 未触碰该脚本与 picker 夹具） |
-| 恢复条件 | t52 把 smoke 断言对齐当前 fixture 场景（优先稳定 id）并使 `--suite project-picker` exit 0；`--suite core` 与 `--suite agent-profile` 在同一 revision 上已 exit 0 |
-| 影响面 | 不得据此宣称「Lab smoke 全绿」；`ui.workbench-shell` 的晋升仍需检查点 B 结论 |
+| 恢复条件 | **已关闭**：t52 把 smoke 断言对齐当前 fixture 场景并覆盖 compact/editorial 两布局，`--suite project-picker`、`core`、`agent-profile`、`all` 均 exit 0（提交 `cbb8ef38`；Leader 独立复跑 `--suite all` 对 3001 exit 0）。另查明 5 条 400 的真因是夹具合成根非法（服务端正确拒绝），并被 t53 带出的产品文案缺陷（`ide.picker.changeCover/deleteProject` 缺 key）一并修正 |
+| 影响面 | 已解除：红项关闭，Lab smoke 恢复绿色；`ui.workbench-shell` 的成熟度判定见检查点 B 结论（可合并，未晋升 Spec） |
 
 ## 下一阶段触发条件
 
