@@ -4,6 +4,7 @@ import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/sto
 import type {StorageCredential, StoragePartitionBinding, StorageReadResult} from "nbook/shared/storage/contract";
 import {openStorageOwnerHandle, STORAGE_SUBSCRIBE_LIMIT} from "nbook/app/utils/storage/owner-handle";
 import {isStorageAdapterError, StorageAdapterError, type StorageValueTransport} from "nbook/app/utils/storage/value-transport";
+import type {StorageProjectContextSession} from "nbook/app/utils/storage/host-context-client";
 
 type LayoutState = {readonly width: number};
 
@@ -34,7 +35,19 @@ const note: DefinedStorageState<LayoutState> = defineStorageState<LayoutState>({
         && typeof (value as LayoutState).width === "number",
 });
 
-const session = {contextId: "f".repeat(64), clientCredential: "0123456789abcdef".repeat(4)};
+const projectLayout: DefinedStorageState<LayoutState> = defineStorageState<LayoutState>({
+    owner: OWNER,
+    key: "project-layout",
+    scope: "project",
+    locality: "local",
+    records: "single",
+    schemaVersion: 1,
+    defaultValue: {width: 320},
+    validate: (value): value is LayoutState => typeof value === "object" && value !== null
+        && typeof (value as LayoutState).width === "number",
+});
+
+const session = {scope: "user", contextId: "f".repeat(64), clientCredential: "0123456789abcdef".repeat(4)} as const;
 
 /** 记录每个动作的可观察替身；默认按合同回答，用例可以覆盖单个动作。 */
 function fakeTransport(answer?: (action: StorageActionRequest, call: number) => StorageActionResponse | Promise<StorageActionResponse>) {
@@ -578,5 +591,54 @@ describe("不可变绑定与响应语义", () => {
         expect(sent).toHaveLength(count);
         await handle.release();
         expect(vi.getTimerCount()).toBe(0);
+    });
+});
+
+describe("scope 与 session 归属", () => {
+    const projectSession: StorageProjectContextSession = {
+        scope: "project",
+        contextId: "e".repeat(64),
+        clientCredential: "0123456789abcdef".repeat(4),
+        projectRoot: "/workspace/A",
+        publicId: "public-a",
+    };
+
+    it("user session 读写 project 归属定义时在本地拒绝，且不发出动作", async () => {
+        const {transport, sent} = fakeTransport();
+        const handle = await openStorageOwnerHandle({session, owner: OWNER, transport});
+
+        await expect(handle.read(projectLayout)).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+        await expect(handle.save(projectLayout, {expected: credential, value: {width: 1}}))
+            .rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+        await expect(handle.subscribe(projectLayout)).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+        expect(sent.map((action) => action.kind)).toEqual(["bind"]);
+        await handle.release();
+    });
+
+    it("project session 读写 user 归属定义时在本地拒绝", async () => {
+        const {transport, sent} = fakeTransport();
+        const handle = await openStorageOwnerHandle({session: projectSession, owner: OWNER, transport});
+
+        await expect(handle.read(layout)).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+        expect(sent.map((action) => action.kind)).toEqual(["bind"]);
+        await handle.release();
+    });
+
+    it("project 发布失效后句柄终止，不重新绑定也不按路径重取 ready", async () => {
+        let reads = 0;
+        const {transport, sent} = fakeTransport((action) => {
+            if (action.kind === "read" && ++reads === 2) throw adapterError("STORAGE_CONTEXT_INVALID", {status: 403});
+            return defaultAnswer(action);
+        });
+        const handle = await openStorageOwnerHandle({session: projectSession, owner: OWNER, transport});
+
+        await expect(handle.read(projectLayout)).resolves.toMatchObject({kind: "missing"});
+        await expect(handle.read(projectLayout)).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+
+        const before = sent.length;
+        await expect(handle.read(projectLayout)).rejects.toMatchObject({code: "STORAGE_CONTEXT_INVALID"});
+        expect(sent).toHaveLength(before);
+        expect(sent.filter((action) => action.kind === "bind")).toHaveLength(1);
+        await handle.release();
     });
 });

@@ -4,7 +4,7 @@ import type {ApiFetchOptions} from "nbook/app/utils/api-fetch";
 import {createStorageHttpTransport, isStorageAdapterError} from "nbook/app/utils/storage/value-transport";
 import {STORAGE_ACCESS_CONTEXT_HEADER, STORAGE_CLIENT_CREDENTIAL_HEADER} from "nbook/shared/storage/host";
 
-const session = {contextId: "f".repeat(64), clientCredential: "0123456789abcdef".repeat(4)};
+const session = {scope: "user", contextId: "f".repeat(64), clientCredential: "0123456789abcdef".repeat(4)} as const;
 const binding = {local: 1, shared: 1};
 const readAction = {kind: "read", owner: "test.adapter", key: "layout", schemaVersion: 1, binding} as const;
 
@@ -41,6 +41,31 @@ describe("createStorageHttpTransport", () => {
         // 自动重放会把第二次请求落在新 revision 或新代次上，因此由传输显式关闭。
         expect(calls[0]?.options?.retry).toBe(false);
         expect(calls[0]?.options?.notify).toBe(false);
+    });
+
+    it("project session 提交到 project 动作入口，并携带捕获的定位字段", async () => {
+        const calls: RecordedCall[] = [];
+        const projectSession = {
+            scope: "project",
+            contextId: "a".repeat(64),
+            clientCredential: "0123456789abcdef".repeat(4),
+            projectRoot: "/workspace/A",
+            publicId: "public-a",
+        } as const;
+        const transport = createStorageHttpTransport({
+            session: projectSession,
+            request: recordingRequest({kind: "read", result: {kind: "missing", credential: {revision: null, partitionGeneration: 1}}}, calls),
+        });
+
+        await transport.send(readAction);
+
+        expect(calls[0]?.request).toBe("/api/storage/project/action");
+        expect(calls[0]?.options?.headers).toEqual({
+            [STORAGE_ACCESS_CONTEXT_HEADER]: projectSession.contextId,
+            [STORAGE_CLIENT_CREDENTIAL_HEADER]: projectSession.clientCredential,
+        });
+        // 定位字段只用于签发上下文，值动作不重复提交路径。
+        expect(calls[0]?.options?.body).toEqual(readAction);
     });
 
     it("响应与本合同不一致时按适配器失败报告，不返回半个结果", async () => {

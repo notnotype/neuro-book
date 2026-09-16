@@ -4,11 +4,17 @@
  * 这是前端与后端之间唯一的动作边界：请求在发送前按共享 DTO 校验，响应在网络边界上按同一合同校验，
  * 失败投影为带 code/status/committed 的适配器错误。传输不缓存状态值、不持有身份，也不决定重试策略：
  * mutation 显式禁止 HTTP 层自动重放，结果不明时由 owner 决定重读还是放弃。
+ * 入口按 session 固定的 scope 选择，调用方不能自带 URL。
  */
 
 import {resolveApiErrorCode, resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import {apiFetch} from "nbook/app/utils/api-fetch";
-import type {StorageHostRequest, StorageUserContextSession} from "nbook/app/utils/storage/host-context-client";
+import type {
+    StorageAccessSession,
+    StorageContextScope,
+    StorageHostRequest,
+} from "nbook/app/utils/storage/host-context-client";
+import {createRequestCancellation} from "nbook/app/utils/storage/request-deadline";
 import {
     StorageActionRequestSchema,
     StorageActionResponseSchema,
@@ -17,9 +23,11 @@ import {
 } from "nbook/shared/storage/action";
 import {STORAGE_ACCESS_CONTEXT_HEADER, STORAGE_CLIENT_CREDENTIAL_HEADER} from "nbook/shared/storage/host";
 
-/** user 值动作入口；scope、主体、存储根与注册定义只由服务端拥有。 */
-const STORAGE_USER_ACTION_PATH = "/api/storage/user/action";
-const STORAGE_REQUEST_TIMEOUT_MS = 15_000;
+/** 值动作入口；scope、主体、存储根与注册定义只由服务端拥有。 */
+const STORAGE_ACTION_PATHS: Record<StorageContextScope, string> = {
+    user: "/api/storage/user/action",
+    project: "/api/storage/project/action",
+};
 
 /** 一次失败的可观察事实；`committed` 为 `null` 表示结果未确认（超时或断线）。 */
 export type StorageAdapterFailure = {
@@ -71,7 +79,7 @@ export type StorageValueTransport = {
 };
 
 export type StorageHttpTransportOptions = {
-    readonly session: StorageUserContextSession;
+    readonly session: StorageAccessSession;
     /** 宿主 HTTP 入口；产品内是 `apiFetch`，隔离宿主与测试可以注入自己的实现。 */
     readonly request?: StorageHostRequest;
 };
@@ -83,6 +91,7 @@ export type StorageHttpTransportOptions = {
  */
 export function createStorageHttpTransport(options: StorageHttpTransportOptions): StorageValueTransport {
     const request = options.request ?? apiFetch;
+    const path = STORAGE_ACTION_PATHS[options.session.scope];
     const headers = {
         [STORAGE_ACCESS_CONTEXT_HEADER]: options.session.contextId,
         [STORAGE_CLIENT_CREDENTIAL_HEADER]: options.session.clientCredential,
@@ -104,7 +113,7 @@ export function createStorageHttpTransport(options: StorageHttpTransportOptions)
             // ofetch 在提供 signal 时忽略 timeout，且自带计时器只覆盖响应头；这里覆盖完整响应体读取。
             const cancellation = createRequestCancellation(sendOptions?.signal);
             try {
-                payload = await request(STORAGE_USER_ACTION_PATH, {
+                payload = await request(path, {
                     method: "POST",
                     headers,
                     body: parsed.data,
@@ -129,22 +138,6 @@ export function createStorageHttpTransport(options: StorageHttpTransportOptions)
                 });
             }
             return response.data;
-        },
-    };
-}
-
-/** 每次请求独占计时器和监听器；外部取消不拥有写队列，也不替代请求期限。 */
-function createRequestCancellation(signal: AbortSignal | undefined): {readonly signal: AbortSignal; dispose(): void} {
-    const controller = new AbortController();
-    const cancel = (): void => controller.abort(signal?.reason);
-    if (signal?.aborted) cancel();
-    else signal?.addEventListener("abort", cancel, {once: true});
-    const timeout = setTimeout(() => controller.abort(new DOMException("Storage 请求超时", "TimeoutError")), STORAGE_REQUEST_TIMEOUT_MS);
-    return {
-        signal: controller.signal,
-        dispose() {
-            clearTimeout(timeout);
-            signal?.removeEventListener("abort", cancel);
         },
     };
 }

@@ -46,6 +46,16 @@
 首个增量 [t28](tasks/t28-project-ready-publication/README.md) 先发布精确服务端 ready 与 presence 配对；
 t28 经 30 文件 215 用例、主应用类型检查与 [t29 独立审查](tasks/t29-project-ready-review/walkthroughs/review.md)闭合；
 继续接 Storage lazy module 与文件消费，沿用 t28 的[取证](tasks/t28-project-ready-publication/walkthroughs/leader-next-evidence.md)。
+当前 [t30](tasks/t30-project-storage-host/README.md) 负责 Project 宿主，
+[t31](tasks/t31-storage-file-boundary/README.md) 负责普通文件与资产同步边界，
+[t32](tasks/t32-storage-archive/README.md) 负责归档；文件 owner 互不重叠，统一验证后再收口切片。
+[t33](tasks/t33-storage-file-archive-review/README.md)、[t34](tasks/t34-project-storage-review/README.md) 已完成首轮及部分追加审查；
+文件边界与备份 t31/t32 已提交 `6d644059`，包含 CLI 最后补修及最终类型检查。
+Project 宿主 t30 已提交 `7e1fe94d`，真实写入窗口与关停排空补修经最终独立复核通过。
+浏览器 Project 适配 [t35](tasks/t35-storage-project-browser/README.md) 已有实现，
+[t36](tasks/t36-storage-project-browser-review/README.md) 独立 76 用例通过并建议合并，最终主应用typecheck通过。
+服务/适配器与磁盘接线闭合后进入切片3；原切片2的descriptor消费上下文接线随第二消费者样例一起做，
+避免在没有消费点时伪造上下文。旧 `resolveViewStateLayer` 当前只有测试调用；不得让后续插件沿用它从残留路径取得访问。
 
 - 扩展 Project 控制面/presence 的上下文发布，让浏览器持有绑定精确服务端 ready 引用、运行期、主体与客户端的标识。
   禁止 Storage 请求只传 projectRoot 后重新取得当前 generation。句柄捕获目标，Project 重启、换用户/服务后重新初始化。

@@ -12,7 +12,7 @@ import type {DefinedStorageState} from "nbook/shared/storage/definition";
 import {captureStorageJsonValue} from "nbook/shared/storage/bounded-json";
 import {STORAGE_MAX_VALUE_BYTES} from "nbook/shared/storage/contract";
 import type {StorageActionKind, StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
-import type {StorageUserContextSession} from "nbook/app/utils/storage/host-context-client";
+import type {StorageAccessSession} from "nbook/app/utils/storage/host-context-client";
 import {
     createStorageHttpTransport,
     isStorageAdapterError,
@@ -42,7 +42,7 @@ const TERMINAL_STORAGE_CODES: Record<string, true> = {
 };
 
 export type StorageOwnerHandleOptions = {
-    readonly session: StorageUserContextSession;
+    readonly session: StorageAccessSession;
     readonly owner: string;
     /** 传输替换接缝；默认是宿主 HTTP 动作入口。 */
     readonly transport?: StorageValueTransport;
@@ -105,7 +105,8 @@ type ReadEntry = {
 /** 建立句柄：先由服务端打开受信 owner 并捕获分区代次，之后每个动作都携带这份绑定。 */
 export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): Promise<StorageOwnerHandle> {
     const owner = input.owner;
-    const transport = input.transport ?? createStorageHttpTransport({session: input.session});
+    const session = input.session;
+    const transport = input.transport ?? createStorageHttpTransport({session});
     const intervalMs = input.subscribe?.intervalMs ?? STORAGE_SUBSCRIBE_INTERVAL_MS;
     const maxBackoffMs = input.subscribe?.maxBackoffMs ?? STORAGE_SUBSCRIBE_MAX_BACKOFF_MS;
     if (!Number.isSafeInteger(intervalMs) || intervalMs < 10 || !Number.isSafeInteger(maxBackoffMs)
@@ -130,7 +131,8 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
         if (invalid !== null) throw invalid;
     };
 
-    const assertOwner = (definition: DefinedStorageState<unknown>): void => {
+    /** 会话固定一种 scope，定义声明另一种归属时服务端必然拒绝，适配器在本地提前拒绝。 */
+    const assertDefinition = (definition: DefinedStorageState<unknown>): void => {
         if (definition.owner !== owner) {
             throw new StorageAdapterError({
                 code: "STORAGE_CONTEXT_INVALID",
@@ -139,8 +141,15 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
                 committed: false,
             });
         }
+        if (definition.scope !== session.scope) {
+            throw new StorageAdapterError({
+                code: "STORAGE_CONTEXT_INVALID",
+                status: null,
+                message: `Storage ${session.scope} 访问不能读写 ${definition.scope} 归属的状态 ${definition.address}`,
+                committed: false,
+            });
+        }
     };
-
     const send = async <TKind extends StorageActionKind>(
         action: StorageActionRequest,
         expectedKind: TKind,
@@ -179,7 +188,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const read = async <T>(definition: DefinedStorageState<T>, options: StorageOwnerReadOptions = {}): Promise<StorageReadResult<T>> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         return await sendRead(definition, options.resource);
     };
 
@@ -194,7 +203,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const save = async <T>(definition: DefinedStorageState<T>, saveInput: StorageOwnerSaveInput<T>): Promise<StorageCredential> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         // 值在接纳边界捕获：调用方之后改写原对象不改变已提交请求。
         const captured = {expected: captureCredential(saveInput.expected), value: captureValue(saveInput.value), resource: saveInput.resource};
         const key = recordKey(definition, saveInput.resource);
@@ -207,7 +216,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const remove = async (definition: DefinedStorageState<unknown>, removeInput: StorageOwnerConditionalInput): Promise<StorageCredential> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         const captured = {expected: captureCredential(removeInput.expected), resource: removeInput.resource};
         const key = recordKey(definition, removeInput.resource);
         return await enqueue(key, async () => {
@@ -219,7 +228,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const migrate = async <T>(definition: DefinedStorageState<T>, migrateInput: StorageOwnerMigrateInput<T>): Promise<StorageCredential> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         const captured = {
             expected: captureCredential(migrateInput.expected),
             value: migrateInput.value === undefined ? undefined : captureValue(migrateInput.value),
@@ -235,7 +244,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const repair = async <T>(definition: DefinedStorageState<T>, repairInput: StorageOwnerRepairInput<T>): Promise<StorageCredential> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         const captured = {
             expected: {partitionGeneration: repairInput.expected.partitionGeneration, contentFingerprint: repairInput.expected.contentFingerprint},
             value: captureValue(repairInput.value),
@@ -251,7 +260,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
 
     const reclaim = async (definition: DefinedStorageState<unknown>, reclaimInput: StorageOwnerReclaimInput): Promise<StorageReclaimResult> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         const targets = reclaimInput.targets.map((target) => (target.resource === undefined ? {} : {resource: target.resource}));
         const key = recordKey(definition, undefined);
         return await enqueue(key, async () => {
@@ -265,7 +274,7 @@ export async function openStorageOwnerHandle(input: StorageOwnerHandleOptions): 
         options: StorageOwnerSubscribeOptions<T> = {},
     ): Promise<StorageOwnerSubscription<T>> => {
         assertAcceptable();
-        assertOwner(definition);
+        assertDefinition(definition);
         if (subscriptions.size >= STORAGE_SUBSCRIBE_LIMIT) {
             throw new StorageAdapterError({
                 code: "STORAGE_CONTEXT_LIMIT",

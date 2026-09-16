@@ -44,7 +44,14 @@ user 受管句柄与 HTTP 值读写 [t24](tasks/t24-storage-user-http/README.md)
 [t27](tasks/t27-storage-adapter-review/README.md) 发现读取超时缺陷，修复后追加复核建议合并。
 切片 1 已提交 `42d65b7c`；[t28](tasks/t28-project-ready-publication/README.md) 实现 Project 精确 ready 发布与 presence 配对，
 30 文件 215 用例与主应用类型检查通过，[t29](tasks/t29-project-ready-review/README.md) 独立审查建议合并；
-下一增量接入 Project Storage lazy module 与宿主访问上下文，随后完成文件消费。
+t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Project Storage lazy module 与宿主访问已提交 `7e1fe94d`，
+包含物理复核、HMR与关停排空补修；[t34](tasks/t34-project-storage-review/README.md) 最终独立150用例通过、1跳过并建议合并。
+[t31](tasks/t31-storage-file-boundary/README.md) 文件保护与资产同步、[t32](tasks/t32-storage-archive/README.md) 归档已由
+[t33](tasks/t33-storage-file-archive-review/README.md) 追加复核建议合并；最后 CLI parse/递归修复保护及类型检查通过，已提交 `6d644059`。
+[t35](tasks/t35-storage-project-browser/README.md) 浏览器 Project 适配完成，
+[t36](tasks/t36-storage-project-browser-review/README.md) 独立 76 用例通过、建议合并，主 Agent统一类型检查通过。
+切片2的服务/适配器与磁盘接线已闭合；有效宿主上下文替代旧 `resolveViewStateLayer(projectRoot)` 的消费接线，
+随切片3插件样例一起验证，当前该旧函数只有测试调用，尚未被产品Storage消费。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界
