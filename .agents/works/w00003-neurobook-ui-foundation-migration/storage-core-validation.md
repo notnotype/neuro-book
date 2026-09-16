@@ -152,3 +152,21 @@ Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun ru
 本地修正（登记）：`packages/neuro-book/.gitignore:20` 的裸 `workspace/` 规则会忽略 `app/components/novel-ide/workspace/` 下的**新文件**（已跟踪文件不受影响，故此前未被发现）；新增一行例外 `!app/components/novel-ide/workspace/`，随本增量提交。
 
 事故：本 Task 期间 3001 崩溃一次（exit 5），原因为编辑 `server/storage/product-definitions.ts`（服务端模块）触发 Nitro 全量重建；已恢复并给 3001 增加 `restart: on-failure` 自动恢复策略。约束更新：服务端模块改动成批落盘、落盘前报 Leader。
+
+## 2026-09-16 收尾切片：尺寸归属（Leader 记录）
+
+增量：t56（提交 `4bf1562a`）。A World Engine 三处尺寸 → project/local 记录；B 设置/新建作品对话框两个裸键 → user/local 记录（与书架模式同 owner）；C 四处过时文档修订（`RolesSettingsView` 保持不挂，登记决策）。
+
+| 检查（cwd = worktree 内 `packages/neuro-book`） | 结果 |
+|---|---|
+| `bun run typecheck`（Leader 在有序停机窗口内复跑） | **exit 0** |
+| Leader 抽跑 7 文件（新会话 + files/layout/shell 回归 + 契约测试） | **66 例** exit 0 |
+| 实现者全量：聚焦 + 回归 17 文件 | 99 例 exit 0（新增 19） |
+| `bun run docs:check` | exit 0，5890 文件，failures `[]` |
+
+记录定义（一次落盘于 `server/storage/product-definitions.ts`）：`workbench.layout/world-engine-sizes`（project/local，默认 320/420/292）、`workbench.layout/settings-dialog-size`（user/local，默认 1120×640）、`workbench.layout/create-project-dialog-size`（user/local，默认 580×360）。
+旧键迁移只删记录缺失且回读一致后的旧键，七类失败均保留旧键并给可重试诊断（11 例覆盖）。契约测试 `world-engine-workbench-preview.test.ts` 由「钉住旧尺寸实现」改为「禁止旧路径 + 要求单次提交」。
+
+遗留待办（不删）：四个 World Engine legacy 组件全仓零引用，但 `world-engine-ide-entry.test.ts:62-64/963-979` 仍读取并断言其内容，删除需连同该断言一起改——已记入清单 §2.6。
+
+流程：本增量前 Leader 有序停止 3001（避免服务端定义落盘触发 Nitro 重建导致 exit 5），完成后按其完成信号恢复；3001 现带 `restart: on-failure`。
