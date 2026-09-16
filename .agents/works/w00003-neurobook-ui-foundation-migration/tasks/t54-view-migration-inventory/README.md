@@ -6,7 +6,8 @@ role: tasker
 
 # 未迁视图迁移清单
 
-**状态：待调查。** [实施计划](../../storage-implementation-plan.md) 切片 6：标题栏与主工作台已真实接入（切片 4/5 收口、检查点 B correct），现在按**真实证据**盘点尚未迁移的视图并排序，供后续逐项立项；本 Task **不实现迁移**。
+**状态：调查完成（2026-09-16）。** 交付物：[`view-migration-inventory.md`](../../view-migration-inventory.md)（Work 根，总表 + 9 项逐条六类证据 + 依赖图 + 排序理由 + 未覆盖项）与 [`walkthroughs/implementation.md`](walkthroughs/implementation.md)（命令/退出码/取证方式/未运行项，`bun run docs:check` exit 0）。
+[实施计划](../../storage-implementation-plan.md) 切片 6：标题栏与主工作台已真实接入（切片 4/5 收口、检查点 B correct），现在按**真实证据**盘点尚未迁移的视图并排序，供后续逐项立项；本 Task **不实现迁移**。
 
 ## 结果
 
