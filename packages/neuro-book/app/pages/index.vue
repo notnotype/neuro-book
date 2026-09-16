@@ -19,6 +19,7 @@ import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
 import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
 import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
+import type {WorkbenchLayoutSurface} from "nbook/app/utils/workbench/layout-session";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -89,7 +90,6 @@ const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
-const agentResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
 const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
@@ -126,7 +126,6 @@ const {
     loadingWorkspace,
     restoringWorkspaceFile,
     layoutMode,
-    agentPanelWidth,
     agentSessionPanelOpen,
     agentSessionPanelWidth,
     agentStudioFileTreeWidth,
@@ -146,7 +145,6 @@ const {
     workspaceTree,
     workspaceKind,
     isUserAssetsWorkspace,
-    leftPanelWidth,
     plotWorkbenchOpen,
 } = storeToRefs(novelIdeStore);
 const {
@@ -192,6 +190,22 @@ const projectSurfaceActive = computed(() => workspaceBootstrapped.value && (
 const agentProjectReadyRevision = computed(() => projectSession.state.value.status === "ready"
     ? projectSession.state.value.ready.revision
     : null);
+/**
+ * 工作台布局的工作面：布局记录归属由它决定，外壳据此进入 / 切换 Storage 会话。
+ *
+ * 与 `projectSurfaceActive` 同源（exact ready Project / 用户资产 / 未开项目），但**不**受 `projectSwitching`
+ * 与 `workspaceBootstrapped` 影响：过渡期仍属于上一个工作面，切换收口由会话负责（旧目标意图先提交、再释放）。
+ */
+const workbenchLayoutSurface = computed<WorkbenchLayoutSurface>(() => {
+    if (isUserAssetsWorkspace.value) {
+        return {kind: "user-assets"};
+    }
+    const state = projectSession.state.value;
+    if (state.status !== "ready" || !currentProjectRoot.value || state.ready.projectRoot !== currentProjectRoot.value) {
+        return {kind: "idle"};
+    }
+    return {kind: "project", ready: {projectRoot: state.ready.projectRoot, publicId: state.ready.publicId, revision: state.ready.revision}};
+});
 watch(projectSurfaceActive, (active) => {
     if (!active) agentPanelOpen.value = false;
 });
@@ -388,7 +402,6 @@ const agentModeRunning = computed(() => agentSurfaceRef.value?.running ?? false)
 const agentModeSessionActionId = computed(() => agentSurfaceRef.value?.sessionActionId ?? null);
 const agentModeReservedWidth = computed(() => 56 + (agentSessionPanelOpen.value ? agentSessionPanelWidth.value : 0) + 340);
 const {width: viewportWidth} = useWindowSize();
-const agentPanelMaxWidth = computed(() => Math.max(360, Math.floor((viewportWidth.value || 1280) * 0.45)));
 const agentPanelOverlay = computed(() => viewportWidth.value > 0 && viewportWidth.value < 800);
 const agentStudioMaxWidth = computed(() => {
     if (!import.meta.client) {
@@ -404,17 +417,6 @@ const agentStudioPanelVisible = computed({
     },
 });
 const agentStudioPanelOpen = computed(() => workspaceBootstrapped.value && agentStudioPanelVisible.value);
-const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
-    size: computed(() => agentPanelWidth.value),
-    minSize: 320,
-    maxSize: agentPanelMaxWidth,
-    edge: "left",
-    enabled: computed(() => !isAgentMode.value && displayAgentPanelOpen.value),
-    syncDuringResize: true,
-    onResize: (width) => {
-        agentPanelWidth.value = width;
-    },
-});
 const {isResizing: resizingAgentStudioPanel, panelStyle: agentStudioPanelStyle} = useResizablePanel(agentStudioResizeHandleRef, {
     size: computed(() => agentStudioPanelWidth.value),
     minSize: 320,
@@ -444,12 +446,6 @@ const agentStudioStyle = computed(() => {
     }
     return agentStudioPanelOpen.value ? agentStudioPanelStyle.value : {width: "0px"};
 });
-const agentSlotStyle = computed(() => {
-    if (isAgentMode.value) {
-        return {};
-    }
-    return displayAgentPanelOpen.value ? agentPanelStyle.value : {width: "0px"};
-});
 const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (!workspaceBootstrapped.value) {
         return "files";
@@ -462,8 +458,6 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     }
     return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
 });
-const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
-const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
 const displaySidebarActiveTab = computed<NovelIdeTab | null>(() => displayActiveLeftTab.value);
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value
     ? t("ide.header.userAssets")
@@ -2550,7 +2544,7 @@ onBeforeUnmount(() => {
              未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。
              占位块的面/描边/字号只走 nb-ui 主题变量（见下面 .workbench-demo-leaf）：
              写死一个色，主题换掉后外壳就会是唯一没跟上的一块。 -->
-        <WorkbenchShell ref="workbenchShellRef">
+        <WorkbenchShell ref="workbenchShellRef" :surface="workbenchLayoutSurface">
             <template #titlebar>
                 <!-- 自绘 header 纳入 titlebar 叶：平台边界（bridge 命令、安全区、菜单数据）仍在组件内。 -->
                 <DesktopTitleBar />

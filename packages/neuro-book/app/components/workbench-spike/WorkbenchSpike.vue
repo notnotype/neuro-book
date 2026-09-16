@@ -6,8 +6,9 @@
  * 这不是产品实现，只用于验证提案的公共契约（见 docs/proposals/workbench-view-host.md）。
  */
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
-import {createGrid, GRID_SNAPSHOT_VERSION, type GridAxis, type GridBranch, type GridExtent, type GridLayoutResult, type GridSnapshotNode, type GridSnapshotBranch} from "@notnotype/nb-ui/components";
+import {createGrid, GRID_SNAPSHOT_VERSION, axisOf, type GridAxis, type GridBranch, type GridExtent, type GridLayoutResult, type GridNode, type GridSnapshotNode, type GridSnapshotBranch, type SplitterGestureState} from "@notnotype/nb-ui/components";
 import WorkbenchBranch from "nbook/app/components/workbench/WorkbenchBranch.vue";
+import {workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import DiagnosticsRail from "./DiagnosticsRail.vue";
 import {canMoveView, labelOf, SPIKE_CONTAINERS, SPIKE_VIEWS} from "./descriptors";
@@ -96,6 +97,56 @@ function onResizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Rec
         return;
     }
     syncLayout();
+}
+
+/** 手势开始时的呈现：百分比 → px 的换算要用当时那份（验证台没有持久化记录，换算留在本组件）。 */
+type SpikeGestureBaseline = {
+    readonly branchId: string;
+    readonly axis: GridAxis;
+    readonly children: readonly GridNode<string>[];
+    readonly layout: GridLayoutResult;
+};
+
+let gestureBaseline: SpikeGestureBaseline | null = null;
+
+function branchOf(branchId: string): {children: readonly GridNode<string>[]; axis: GridAxis} | null {
+    const root = visibleRoot.value;
+    if (root === null) {
+        return null;
+    }
+    if (root.id === branchId) {
+        return {children: root.children, axis: axisOf(root.orientation)};
+    }
+    for (const child of root.children) {
+        if (child.kind === "branch" && child.id === branchId) {
+            return {children: child.children, axis: axisOf(child.orientation)};
+        }
+    }
+    return null;
+}
+
+function onGestureStart(branchId: string, gesture: SplitterGestureState): void {
+    const branch = branchOf(branchId);
+    gestureBaseline = branch === null
+        ? null
+        : {branchId, axis: branch.axis, children: branch.children, layout: layout.value};
+}
+
+function onGestureEnd(branchId: string, gesture: SplitterGestureState): void {
+    const captured = gestureBaseline;
+    gestureBaseline = null;
+    if (captured === null || captured.branchId !== branchId) {
+        return;
+    }
+    const conversion = workbenchBranchGesture(captured.children, captured.layout, captured.axis, gesture.sizes);
+    if (conversion === null) {
+        return;
+    }
+    onResizeBranch(branchId, captured.axis, conversion.baseline, conversion.target);
+}
+
+function onGestureCancel(): void {
+    gestureBaseline = null;
 }
 
 function applyState(next: SpikeLayoutState) {
@@ -300,7 +351,7 @@ syncLayout();
 <template>
     <div class="flex h-dvh min-h-0 w-screen max-w-full" data-lab-subject>
         <div ref="stageEl" class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            <WorkbenchBranch v-if="visibleRoot" :node="visibleRoot" :layout="layout" :on-resize-branch="onResizeBranch" :epoch="epoch">
+            <WorkbenchBranch v-if="visibleRoot" :node="visibleRoot" :layout="layout" :on-gesture-start="onGestureStart" :on-gesture-end="onGestureEnd" :on-gesture-cancel="onGestureCancel" :epoch="epoch">
                 <template #leaf="{leafId}">
                     <WorkbenchSurface
                         :leaf-id="leafId"

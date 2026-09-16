@@ -900,6 +900,13 @@ const zhCN = {
                 tools: "工具",
                 agent: "Agent",
             },
+            layout: {
+                unsaved: "布局调整未保存：{diagnosis}",
+                switchBlocked: "上一个工作面的布局调整未保存：{diagnosis}",
+                migrationBlocked: "历史布局迁移未完成：{diagnosis}",
+                retry: "重试",
+                abandon: "放弃",
+            },
         },
         header: {
             openAdmin: "进入后台",
@@ -1615,6 +1622,8 @@ const zhCN = {
             loading: "正在读取书架",
             loadFailed: "读取书架失败",
             retry: "重试",
+            layoutUnsaved: "书架模式未保存：{diagnosis}",
+            layoutAbandon: "放弃",
             emptyTitle: "还没有作品",
             empty: "新建第一本书，开始整理故事与正文。",
             recentProjects: "最近项目",

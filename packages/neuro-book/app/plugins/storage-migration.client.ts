@@ -1,3 +1,4 @@
+import {retireLegacyBucketWriterWhenPreserved} from "nbook/app/utils/workbench/legacy-bucket-retirement";
 import {storageMigrationController} from "nbook/app/utils/workbench/storage-migration";
 
 /**
@@ -15,12 +16,16 @@ import {storageMigrationController} from "nbook/app/utils/workbench/storage-migr
  *
  * 因此这里用 `enforce: "pre"` 并把 `setup` 等到暂存结算：应用挂载时写回门禁已经生效。
  * data 备份与逐项导入不阻塞启动（后端不可达不能扩大为整桶不可持久化），状态由迁移快照观察。
+ * 旧桶三字段此时还在 `novel.ide.local` 里（`pick` 已不含它们，但序列化器继续从捕获原件补齐），
+ * 只有在原件确实安全保留之后才退役——见下。
  */
+
 export default defineNuxtPlugin({
     name: "storage-migration",
     enforce: "pre",
     async setup() {
         const migration = storageMigrationController();
+        retireLegacyBucketWriterWhenPreserved(migration);
         void migration.start();
         await migration.staged;
         return {provide: {storageMigration: migration}};

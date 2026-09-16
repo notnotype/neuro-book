@@ -902,6 +902,13 @@ const enUS = {
                 tools: "Tools",
                 agent: "Agent",
             },
+            layout: {
+                unsaved: "Layout changes are not saved: {diagnosis}",
+                switchBlocked: "The previous surface still has unsaved layout changes: {diagnosis}",
+                migrationBlocked: "Legacy layout migration is not finished: {diagnosis}",
+                retry: "Retry",
+                abandon: "Discard",
+            },
         },
         header: {
             openAdmin: "Admin Console",
@@ -1617,6 +1624,8 @@ const enUS = {
             loading: "Loading bookshelf",
             loadFailed: "Failed to load bookshelf",
             retry: "Retry",
+            layoutUnsaved: "Bookshelf layout mode is not saved: {diagnosis}",
+            layoutAbandon: "Discard",
             emptyTitle: "No stories yet",
             empty: "Create your first book and start shaping the story.",
             recentProjects: "Recent projects",

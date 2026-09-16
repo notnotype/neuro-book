@@ -2,16 +2,26 @@
 /**
  * 分区渲染：一个分支对应一个 nb-ui `Splitter`，叶子对应内容区域。
  * 当前容器的尺寸、约束与 sash 来自 grid `layout(container)`；树上的 `size` 只表示可持久化意图，不能直接渲染。
- * `layout` 事件只是 Reka 的呈现事实；一次用户手势只在 `gesture-end` 调用一次原语调整入口。
+ * `layout` 事件只是 Reka 的呈现事实；`gesture-*` 是本组件向上转发的用户意图，保存由下游（宿主 / 记录会话）收口。
  */
 import {computed, ref, watch} from "vue";
 import {Splitter, axisOf, type GridAxis, type GridBranch, type GridLayoutResult, type GridNode, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
-import {buildWorkbenchBranchPanels, workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
+import {buildWorkbenchBranchPanels} from "nbook/app/components/workbench/workbench-branch-layout";
 
 const props = withDefaults(defineProps<{
     node: GridBranch<unknown>;
     layout: GridLayoutResult;
-    onResizeBranch: (branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>, active: readonly string[]) => void;
+    /**
+     * 手势开始：宿主捕获基线。
+     *
+     * 传递的是 Splitter 的原始手势状态（百分比 + `active`），不是转换后的 px：
+     * 宿主与持久化记录都对「哪些面板被主动改变」有各自的口径，转换只做一次、且只在下游做。
+     */
+    onGestureStart: (branchId: string, state: SplitterGestureState) => void;
+    /** 手势正常结束且尺寸确实变了：这是唯一需要保存的最终意图。 */
+    onGestureEnd: (branchId: string, state: SplitterGestureState) => void;
+    /** 手势被放弃或没有变化：不产生保存意图。 */
+    onGestureCancel: (branchId: string) => void;
     /** 已隐藏的叶子：从本分支的 children 里过滤掉（树与尺寸模型不变，展开即重新插入）。 */
     hidden?: string[];
     /** 整棵树被换掉的次数；只有它变时才重挂 splitter。 */
@@ -59,28 +69,17 @@ function slotName(id: string): string {
 }
 
 
-/** 一次 gesture 提交本分支全部直接子节点的当前基线与目标呈现。 */
-let gestureLayout: GridLayoutResult | null = null;
-
-function onGestureStart(): void {
-    gestureLayout = props.layout;
-}
-
-function onGestureCancel(): void {
-    gestureLayout = null;
+/** 一次 gesture 由下游（宿主 / 记录会话）结算；本组件只转发原始状态。 */
+function onGestureStart(state: SplitterGestureState): void {
+    props.onGestureStart(props.node.id, state);
 }
 
 function onGestureEnd(state: SplitterGestureState): void {
-    const baseline = gestureLayout;
-    gestureLayout = null;
-    if (!baseline || baseline !== props.layout) {
-        return;
-    }
-    const gesture = workbenchBranchGesture(children.value, baseline, mainAxis.value, state.sizes);
-    if (!gesture) {
-        return;
-    }
-    props.onResizeBranch(props.node.id, mainAxis.value, gesture.baseline, gesture.target, state.active);
+    props.onGestureEnd(props.node.id, state);
+}
+
+function onGestureCancel(): void {
+    props.onGestureCancel(props.node.id);
 }
 
 /** 重挂或容器布局变化时重新读取当前呈现。 */
@@ -109,7 +108,9 @@ watch(() => props.layout, resyncSplitter);
                     v-if="child.kind === 'branch'"
                     :node="child"
                     :layout="layout"
-                    :on-resize-branch="onResizeBranch"
+                    :on-gesture-start="props.onGestureStart"
+                    :on-gesture-end="props.onGestureEnd"
+                    :on-gesture-cancel="props.onGestureCancel"
                     :hidden="hidden"
                     :epoch="epoch"
                 >

@@ -39,8 +39,6 @@ import {
     legacyBucketSerializer,
     legacyBucketStorage,
 } from "nbook/app/utils/workbench/storage-migration-legacy-bucket";
-import type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
-export type {ProjectPickerLayoutMode} from "nbook/app/components/novel-ide/project-picker/ProjectPickerView.types";
 
 type ProjectCatalogSnapshot = Readonly<{
     revision: number;
@@ -223,14 +221,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
-    const projectPickerLayoutMode = ref<ProjectPickerLayoutMode>("grid");
-    const agentPanelWidth = ref(400);
     const agentSessionPanelOpen = ref(true);
     const agentSessionPanelWidth = ref(280);
     const agentStudioPanelOpen = ref(true);
     const agentStudioPanelWidth = ref(460);
     const agentStudioFileTreeWidth = ref(200);
-    const leftPanelWidth = ref(340);
     const plotWorkbenchOpen = ref(false);
     // 剧本工作台当前 tab:线程规划 / 承诺账本 / 决策记录;侧栏计数入口与账本跳转联动直接写它。
     const plotWorkbenchTab = ref<"thread" | "promises" | "decisions">("thread");
@@ -1867,13 +1862,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         initializeWorkspace,
         lastSyncedFileContent,
         layoutMode,
-        agentPanelWidth,
         agentSessionPanelOpen,
         agentSessionPanelWidth,
         agentStudioPanelOpen,
         agentStudioPanelWidth,
         agentStudioFileTreeWidth,
-        leftPanelWidth,
         loadingWorkspace,
         loadProjects,
         loadWorkspaceFile,
@@ -1948,7 +1941,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         workspaceSessions,
         workspaceTabs,
         workspaceTree,
-        projectPickerLayoutMode,
     };
 }, {
     persist: [
@@ -1965,24 +1957,27 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     },
     {
             key: "novel.ide.local",
-            // 迁移期写回门禁：三个源字段固定为捕获值，原件无法暂存时整桶冻结（见 storage-migration-legacy-bucket.ts）。
+            // 三个已迁移字段（左右栏尺寸与书架模式）已退出 `pick`：读写都在工作台 Storage 会话里
+            // （`app/utils/workbench/layout-session.ts`），本桶不再承载它们的运行期值。
+            //
+            // 但 storage/serializer 门禁**暂时保留**：原件未安全保留（暂存失败、data 备份未落盘）时，
+            // 三个源值只存在于这个桶里，序列化器必须继续从捕获原件补齐它们，免得其它字段的整键重写
+            // 把它们抹掉（迁移合同「启动顺序」第 2/5 步）。退役判据与调用点在启动接线
+            // `app/plugins/storage-migration.client.ts`：原件已暂存且 data 备份落盘（或迁移 phase 已 complete）。
             storage: legacyBucketStorage(),
             serializer: legacyBucketSerializer,
             pick: [
             "activeLeftTab",
-            "agentPanelWidth",
             "agentSessionPanelOpen",
             "agentSessionPanelWidth",
             "agentStudioPanelOpen",
             "agentStudioPanelWidth",
             "agentStudioFileTreeWidth",
-            "leftPanelWidth",
             "selectedModel",
             "selectedReasoning",
             "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",
-            "projectPickerLayoutMode",
         ],
         },
     ],

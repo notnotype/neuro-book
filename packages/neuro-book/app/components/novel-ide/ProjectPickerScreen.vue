@@ -25,9 +25,11 @@ import {
 } from "nbook/app/utils/project-picker-recovery";
 import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import {useWorkbenchShelfMode} from "nbook/app/utils/workbench/layout-session";
 import ProjectPickerView from "./project-picker/ProjectPickerView.vue";
 import type {
     ProjectPickerCreatePayload,
+    ProjectPickerLayoutMode,
     ProjectPickerRecoverSessionPayload,
 } from "./project-picker/ProjectPickerView.types";
 
@@ -47,7 +49,7 @@ const {confirm} = useDialog();
 const notification = useNotification();
 const sessionApi = useAgentSessionApi();
 const novelIdeStore = useNovelIdeStore();
-const {novels, projectPickerLayoutMode} = storeToRefs(novelIdeStore);
+const {novels} = storeToRefs(novelIdeStore);
 const {
     loadProjects: refreshProjects,
     createProject,
@@ -56,6 +58,21 @@ const {
     updateProjectCover,
 } = novelIdeStore;
 const {t} = useI18n();
+/**
+ * 书架显示模式：user/local 的 `workbench.layout/shelf-mode` 记录（迁移合同的首批目标之一）。
+ * 加载中先显示默认模式；保存失败保留当前显示与未保存意图，给出重试/放弃入口，不静默吞掉。
+ */
+const shelf = useWorkbenchShelfMode();
+const shelfMode = shelf.mode;
+const shelfUnsaved = shelf.unsaved;
+
+function updateShelfMode(mode: ProjectPickerLayoutMode): void {
+    void shelf.commit(mode);
+}
+
+function retryShelfMode(): void {
+    void shelf.retry();
+}
 
 const isLoading = ref(true);
 const loadError = ref("");
@@ -513,57 +530,102 @@ const handleClearCover = async (project: ProjectMetadataDto): Promise<void> => {
 </script>
 
 <template>
-    <!-- loading="lazy" decoding="async" delegated to ProjectCard.vue -->
-    <ProjectPickerView
-        :projects="novels"
-        :layout-mode="projectPickerLayoutMode"
-        :is-loading="isLoading"
-        :load-error="loadError"
-        :is-creating="isCreating"
-        :is-create-form-open="isCreateFormOpen"
-        :create-recovery-notice="createRecoveryNotice"
-        :create-recovery="createRecovery"
-        :delete-busy-roots="deleteBusyRoots"
-        :picker-recoveries="pickerRecoveries"
-        :cover-recoveries="coverRecoveries"
-        :cover-refresh-versions="coverRefreshVersions"
-        :failed-cover-roots="failedCoverRoots"
-        :recovery-expanded="recoveryExpanded"
-        :recovery-loading="recoveryLoading"
-        :recovery-loaded="recoveryLoaded"
-        :recovery-error="recoveryError"
-        :recovery-sessions="recoverySessions"
-        :recovery-total="recoveryTotal"
-        :recovery-has-more="recoveryHasMore"
-        :recovery-action-id="recoveryActionId"
-        :resolve-cover-url="projectCoverUrl"
-        :resolve-original-cover-url="projectOriginalCoverUrl"
-        :cover-dialog-open="coverDialogOpen"
-        :cover-dialog-project="coverDialogProject"
-        :cover-busy="coverBusy"
-        :cover-error="coverError"
-        :cover-recovery-notice="coverRecoveryNotice"
-        @update:layout-mode="projectPickerLayoutMode = $event"
-        @update:cover-dialog-open="coverDialogOpen = $event"
-        @update:cover-dialog-project="coverDialogProject = $event"
-        @open="emit('open', $event)"
-        @open-user-assets="emit('open-user-assets')"
-        @open-create-form="openCreateForm"
-        @cancel-create-form="cancelCreateForm"
-        @create="handleCreateNovel"
-        @retry-create-recovery="retryCreateRecovery"
-        @delete="handleDeleteNovel"
-        @retry-delete-recovery="retryDeleteRecovery"
-        @retry-load="loadProjects"
-        @toggle-recovery="toggleRecovery"
-        @load-more-recovery="loadRecoverySessions(recoveryOffset, true)"
-        @retry-recovery="loadRecoverySessions(0, false)"
-        @recover-session="recoverSession"
-        @open-cover-dialog="openCoverDialog"
-        @close-cover-dialog="closeCoverDialog"
-        @upload-cover="handleUploadCover"
-        @clear-cover="handleClearCover"
-        @retry-cover-recovery="refreshCoverMutationState"
-        @cover-error="handleCoverError"
-    />
+    <div class="flex h-full min-h-0 w-full flex-col">
+        <!-- 书架模式的保存反馈：与外壳的布局提示同一口径（保留未保存意图，给出重试/放弃）。 -->
+        <div v-if="shelfUnsaved" class="project-picker-layout-notice" role="status" aria-live="polite" data-picker-layout-notice>
+            <span class="project-picker-layout-notice__text">{{ t("ide.picker.layoutUnsaved", {diagnosis: shelfUnsaved.diagnosis}) }}</span>
+            <button v-if="shelfUnsaved.retryable" type="button" class="project-picker-layout-notice__action" @click="retryShelfMode">{{ t("ide.picker.retry") }}</button>
+            <button type="button" class="project-picker-layout-notice__action" @click="shelf.abandon()">{{ t("ide.picker.layoutAbandon") }}</button>
+        </div>
+        <!-- loading="lazy" decoding="async" delegated to ProjectCard.vue -->
+        <ProjectPickerView
+            :projects="novels"
+            :layout-mode="shelfMode"
+            :is-loading="isLoading"
+            :load-error="loadError"
+            :is-creating="isCreating"
+            :is-create-form-open="isCreateFormOpen"
+            :create-recovery-notice="createRecoveryNotice"
+            :create-recovery="createRecovery"
+            :delete-busy-roots="deleteBusyRoots"
+            :picker-recoveries="pickerRecoveries"
+            :cover-recoveries="coverRecoveries"
+            :cover-refresh-versions="coverRefreshVersions"
+            :failed-cover-roots="failedCoverRoots"
+            :recovery-expanded="recoveryExpanded"
+            :recovery-loading="recoveryLoading"
+            :recovery-loaded="recoveryLoaded"
+            :recovery-error="recoveryError"
+            :recovery-sessions="recoverySessions"
+            :recovery-total="recoveryTotal"
+            :recovery-has-more="recoveryHasMore"
+            :recovery-action-id="recoveryActionId"
+            :resolve-cover-url="projectCoverUrl"
+            :resolve-original-cover-url="projectOriginalCoverUrl"
+            :cover-dialog-open="coverDialogOpen"
+            :cover-dialog-project="coverDialogProject"
+            :cover-busy="coverBusy"
+            :cover-error="coverError"
+            :cover-recovery-notice="coverRecoveryNotice"
+            @update:layout-mode="updateShelfMode"
+            @update:cover-dialog-open="coverDialogOpen = $event"
+            @update:cover-dialog-project="coverDialogProject = $event"
+            @open="emit('open', $event)"
+            @open-user-assets="emit('open-user-assets')"
+            @open-create-form="openCreateForm"
+            @cancel-create-form="cancelCreateForm"
+            @create="handleCreateNovel"
+            @retry-create-recovery="retryCreateRecovery"
+            @delete="handleDeleteNovel"
+            @retry-delete-recovery="retryDeleteRecovery"
+            @retry-load="loadProjects"
+            @toggle-recovery="toggleRecovery"
+            @load-more-recovery="loadRecoverySessions(recoveryOffset, true)"
+            @retry-recovery="loadRecoverySessions(0, false)"
+            @recover-session="recoverSession"
+            @open-cover-dialog="openCoverDialog"
+            @close-cover-dialog="closeCoverDialog"
+            @upload-cover="handleUploadCover"
+            @clear-cover="handleClearCover"
+            @retry-cover-recovery="refreshCoverMutationState"
+            @cover-error="handleCoverError"
+        />
+    </div>
 </template>
+
+<style scoped>
+/*
+ * 书架模式的反馈条：只走主题变量，和外壳的布局提示同一套观感（面 / 描边 / 字号）。
+ */
+.project-picker-layout-notice {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-block-end: 1px solid var(--border-color);
+    background: var(--bg-panel);
+    color: var(--text-main);
+    font-size: 12px;
+}
+
+.project-picker-layout-notice__text {
+    min-width: 0;
+}
+
+.project-picker-layout-notice__action {
+    flex: 0 0 auto;
+    padding: 2px 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-main);
+    font: inherit;
+    cursor: pointer;
+}
+
+.project-picker-layout-notice__action:hover {
+    border-color: var(--status-info);
+    color: var(--status-info);
+}
+</style>
