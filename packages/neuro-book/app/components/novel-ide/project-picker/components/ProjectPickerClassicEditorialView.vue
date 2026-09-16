@@ -175,14 +175,14 @@ function getProjectCoverSrc(project: ProjectMetadataDto): string {
                             <IconButton
                                 size="sm"
                                 icon-class="i-lucide-image"
-                                :title="t('ide.picker.changeCover')"
+                                :title="t('ide.picker.setCover')"
                                 @click="emit('open-cover-dialog', project)"
                             />
                             <IconButton
                                 size="sm"
                                 variant="danger"
                                 icon-class="i-lucide-trash-2"
-                                :title="t('ide.picker.deleteProject')"
+                                :title="t('ide.bookshelf.deleteBook')"
                                 @click="emit('delete', project)"
                             />
                             <Button
