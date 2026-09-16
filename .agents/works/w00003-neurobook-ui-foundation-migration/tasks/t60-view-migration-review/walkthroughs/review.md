@@ -522,3 +522,11 @@ bd1358e0473fb610043ae5771b764e9c9d2c3a3896516dad6b62d2ce99f551b8   app/component
 ### 残余观察的归档结论（实现者回应后）
 
 实现者按「不收，只记录」处理，理由我已复核，均成立：① 面板用**同一个** `retryable` 标志同时决定「重试 / 放弃」两个按钮（三处提示条同形，属既有约定），要在该状态隐藏「放弃」得给通知加一个「可放弃」维度，是提示条契约改动，留到统一诊断文案时一起收；② 手势被丢弃时保留宿主不可达那条诊断（重连后树按记录重画，用户能看到结果），而重放基于默认显示正是首读门禁要挡的覆盖，故不补专文。两条已记入 t56 的「未运行项与偏差」。因此两条都不构成本增量的缺陷，§九 的最终裁定不变（`correct`，无待修项）。提交动作不在实现者约束内（归 Main），待提交清单与 hash 已报 Main。
+
+### 提交落点（复核闭环）
+
+Main 已把待提交清单落成两个 commit：`80912b2f fix(workbench): reconnect a record session after a cold start`（含 F4 修复与回归用例）
+与紧随其后的 `fa9d4c7a docs(work): record the cold start fix in both walkthroughs`。落盘后核对：
+`git status --porcelain` 里除用户 dirty 的 `descriptors{,.test}.ts` 外已无 modified 产品文件——即 §九 表中
+`user-record-session.ts`（019347d0…）与 `files-view-session.test.ts`（c3dd2e0f…）的**工作区字节就是我复核过的字节**，
+本 Task 的追加复核闭环完成（探针与结论均无需重跑；上表的 hash 以工作区字节为准，与 git blob 的换行归一化无关）。
