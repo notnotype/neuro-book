@@ -1,3 +1,4 @@
+import {randomUUID} from "node:crypto";
 import type {ProjectWorkspaceKey} from "nbook/server/workspace-files/project-identity";
 import type {PreparedProjectOpen} from "nbook/server/workspace-files/project-lifecycle";
 import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-artifact-compiler-context";
@@ -135,6 +136,18 @@ export type ProjectSessionPresence = {
     readonly lastActivityAt: string;
 };
 
+/**
+ * 精确 ready generation 上的一路用户 presence。
+ *
+ * `signal` 在该 generation 进入终止关闭（close/reopen、root 替换、shutdown）时 abort；
+ * presence 长连接必须据此结束，否则会在 ready 已经不可消费后继续心跳并让浏览器保留旧代次。
+ */
+export type ProjectUserPresence = {
+    readonly signal: AbortSignal;
+    /** 释放本标签 presence；幂等，且只影响签发它的 generation。 */
+    readonly release: () => void;
+};
+
 /** ProjectSession Runtime的进程级依赖；测试可注入单调时间与缩短的grace。 */
 export type ProjectSessionRuntimeOptions = {
     readonly registryProvider?: () => ProjectModuleRegistrySnapshot;
@@ -193,6 +206,11 @@ export type ProjectSessionCloseReason = "user" | "grace-expired" | "delete" | "s
  */
 export class ProjectSessionRuntime {
     private readonly sessions = new Map<ProjectWorkspaceKey, ProjectSessionRecord>();
+    /**
+     * 本运行期的标识前缀：新 Runtime 即使 generation 从 1 重新开始，也无法解析旧运行期签发的 publicId。
+     * HMR 复用同一 Runtime 对象时保持不变，旧标识继续精确对应原 ready 对象。
+     */
+    private readonly runtimeId = randomUUID();
     private readonly registryProvider: () => ProjectModuleRegistrySnapshot;
     private readonly now: () => number;
     private readonly graceMs: number;
@@ -302,6 +320,20 @@ export class ProjectSessionRuntime {
         return record.readyRef;
     }
 
+    /**
+     * 按公开标识解析本运行期已发布的精确 ready generation。
+     *
+     * 只遍历当前 live sessions，不建立脱离生命周期的永久映射；旧运行期、已关闭或已替换的代次都解析不到。
+     */
+    resolveReadyProject(publicId: string): ReadyProjectSessionRef | null {
+        for (const record of this.sessions.values()) {
+            if (record.state === "ready" && record.readyRef?.publicId === publicId) {
+                return record.readyRef;
+            }
+        }
+        return null;
+    }
+
     /** 幂等open快速路径：复用当前ready generation并取消尚未到期的grace。 */
     resumeReadyProject(key: ProjectWorkspaceKey): ReadyProjectSessionRef {
         const readyRef = this.requireReadyProject(key);
@@ -337,25 +369,29 @@ export class ProjectSessionRuntime {
      * 为精确ready generation取得一路用户presence。
      * release按record身份绑定；旧generation的迟到release不会扣减新generation。
      */
-    acquireUserPresence(session: ReadyProjectSessionRef): () => void {
+    acquireUserPresence(session: ReadyProjectSessionRef): ProjectUserPresence {
         const record = this.requireExactReadyRecord(session);
         record.userConnections += 1;
         record.presenceState = "open";
         record.graceDeadline = null;
         let released = false;
-        return () => {
-            if (released) {
-                return;
-            }
-            released = true;
-            if (this.sessions.get(session.workspace.key) !== record || record.state !== "ready") {
-                return;
-            }
-            record.userConnections = Math.max(0, record.userConnections - 1);
-            if (record.userConnections === 0 && record.presenceState === "open" && !this.isAgentActive(record)) {
-                record.presenceState = "grace";
-                record.graceDeadline = this.now() + this.graceMs;
-            }
+        return {
+            // controller在terminal close、root替换与shutdown时abort：presence长连接与Module数据面共享同一终止边界。
+            signal: record.controller.signal,
+            release: () => {
+                if (released) {
+                    return;
+                }
+                released = true;
+                if (this.sessions.get(session.workspace.key) !== record || record.state !== "ready") {
+                    return;
+                }
+                record.userConnections = Math.max(0, record.userConnections - 1);
+                if (record.userConnections === 0 && record.presenceState === "open" && !this.isAgentActive(record)) {
+                    record.presenceState = "grace";
+                    record.graceDeadline = this.now() + this.graceMs;
+                }
+            },
         };
     }
 
@@ -696,6 +732,7 @@ export class ProjectSessionRuntime {
         }
         const readyRef = Object.freeze({
             workspace: record.prepared.workspace,
+            publicId: `${this.runtimeId}:${record.generation}`,
             generation: record.generation,
         });
         record.readyRef = readyRef;

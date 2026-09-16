@@ -43,6 +43,9 @@
 ## 切片 2：Project 生命周期与文件消费接线
 
 **依赖：** 切片 1。
+首个增量 [t28](tasks/t28-project-ready-publication/README.md) 先发布精确服务端 ready 与 presence 配对；
+t28 经 30 文件 215 用例、主应用类型检查与 [t29 独立审查](tasks/t29-project-ready-review/walkthroughs/review.md)闭合；
+继续接 Storage lazy module 与文件消费，沿用 t28 的[取证](tasks/t28-project-ready-publication/walkthroughs/leader-next-evidence.md)。
 
 - 扩展 Project 控制面/presence 的上下文发布，让浏览器持有绑定精确服务端 ready 引用、运行期、主体与客户端的标识。
   禁止 Storage 请求只传 projectRoot 后重新取得当前 generation。句柄捕获目标，Project 重启、换用户/服务后重新初始化。

@@ -11,7 +11,7 @@ import type {ProjectSessionState} from "nbook/app/composables/useProjectSession"
 
 const readyState: ProjectSessionState = {
     status: "ready",
-    ready: {projectRoot: "project-a", revision: 1},
+    ready: {projectRoot: "project-a", publicId: "test-ready:1", revision: 1},
 };
 
 const reconnectingState = (phase: "waiting-reconnect" | "opening-project" | "connecting-presence"): ProjectSessionState => ({

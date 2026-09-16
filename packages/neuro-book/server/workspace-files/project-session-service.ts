@@ -29,6 +29,7 @@ import {
     ProjectSessionRuntimeClosedError,
     type ProjectSessionCloseReason,
     type ProjectSessionPresence,
+    type ProjectUserPresence,
     type ProjectOperationStart,
     type ReadyProjectSessionRef,
 } from "nbook/server/workspace-files/project-session-runtime";
@@ -400,9 +401,28 @@ export class ProjectSessionService {
         return this.runtime.projectPresence(this.requireReadyProject(ref));
     }
 
-    /** 为当前ready generation取得一路用户presence。 */
-    acquireUserPresence(ref: ProjectWorkspaceRef): () => void {
-        return this.runtime.acquireUserPresence(this.requireReadyProject(ref));
+    /**
+     * 按浏览器持有的公开标识取得精确 ready generation。
+     *
+     * `ref` 只用于定位同一 Facade entry；标识与 entry 的 ready 对象必须精确相等，
+     * 因此 close/reopen 后的旧标识、另一个 Project 的标识都拿不到新代次。
+     */
+    requireReadyProjectByPublicId(ref: ProjectWorkspaceRef, publicId: string): ReadyProjectSessionRef {
+        const ready = this.state === "running" ? this.runtime.resolveReadyProject(publicId) : null;
+        const entry = ready ? this.entries.get(canonicalProjectLocator(this.workspaceRoot, ref)) : undefined;
+        if (!ready || !entry || entry.ready !== ready || entry.terminalGates.size > 0) {
+            throw new ProjectNotOpenError(ref.projectRoot);
+        }
+        try {
+            return this.runtime.requireReadyProject(ready.workspace.key);
+        } catch (error) {
+            throw new ProjectNotOpenError(ref.projectRoot, {cause: error});
+        }
+    }
+
+    /** 为公开标识指定的精确 ready generation取得一路用户presence。 */
+    acquireUserPresence(ref: ProjectWorkspaceRef, publicId: string): ProjectUserPresence {
+        return this.runtime.acquireUserPresence(this.requireReadyProjectByPublicId(ref, publicId));
     }
 
     /** 注册按精确 ready generation 判断的 Agent presence 探针。 */

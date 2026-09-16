@@ -50,6 +50,7 @@ describe("profile context access", () => {
                 createProjectWorkspaceKey(workspaceRoot, ref),
             ),
             generation: 7,
+            publicId: "test-ready:7",
         };
     });
 

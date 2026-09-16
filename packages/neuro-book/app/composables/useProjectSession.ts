@@ -3,11 +3,18 @@ import {readSseStream} from "nbook/app/utils/http/read-sse";
 import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {SseReconnectBackoff} from "nbook/app/utils/http/sse-reconnect-backoff";
-import type {ProjectOpenResponseDto} from "nbook/shared/dto/project.dto";
+import {
+    ProjectOpenResponseDtoSchema,
+    ProjectPresenceReadyEventDtoSchema,
+    ProjectPresenceHeartbeatEventDtoSchema,
+} from "nbook/shared/dto/project.dto";
 
 /** 已完成 open 与匹配 presence_ready 的 Project generation。 */
 export type ProjectSessionReady = {
     projectRoot: string;
+    /** 服务端为这一精确 ready 代次签发的公开标识；后续消费者必须沿用它而不是按路径重新求代次。 */
+    publicId: string;
+    /** 仅表示本标签页第几次发布 ready 的 UI 更新计数，不是服务端代次标识。 */
     revision: number;
 };
 
@@ -27,11 +34,6 @@ export type ProjectSessionState =
     | {status: "ready"; ready: ProjectSessionReady}
     | {status: "failed"; projectRoot: string; ready: null};
 
-/** 服务端 presence SSE 的稳定事件合同。 */
-export type ProjectPresenceEventDto =
-    | {type: "presence_ready"; projectRoot: string}
-    | {type: "heartbeat"};
-
 /** Project 激活事务的唯一前端 Interface。 */
 export type ProjectSessionController = {
     readonly state: Readonly<Ref<ProjectSessionState>>;
@@ -45,12 +47,13 @@ export type ProjectSessionController = {
 
 export type ProjectSessionTransport = {
     /** 幂等打开指定 Project；必须接受取消当前标签页意图的 signal。 */
-    open(projectRoot: string, signal: AbortSignal): Promise<ProjectOpenResponseDto>;
-    /** 订阅 presence，直到 EOF、异常或 signal 中止。 */
+    open(projectRoot: string, signal: AbortSignal): Promise<unknown>;
+    /** 按 open 发布的精确 ready 标识订阅 presence，直到 EOF、异常或 signal 中止。 */
     stream(
         projectRoot: string,
+        publicId: string,
         signal: AbortSignal,
-        onEvent: (event: ProjectPresenceEventDto) => void,
+        onEvent: (event: unknown) => void,
     ): Promise<void>;
 };
 
@@ -130,8 +133,8 @@ export function createProjectSessionController(
         !disposed && opening === current && current.token === token
     );
 
-    /** 只在 matching presence_ready 后兑现 ready；EOF/错误在 ready 前均视为打开失败。 */
-    const connectPresence = (projectRoot: string, signal: AbortSignal): PresenceConnection => {
+    /** 只在 matching presence_ready 后兑现 ready；根或标识不匹配、EOF、错误在 ready 前均视为打开失败。 */
+    const connectPresence = (projectRoot: string, publicId: string, signal: AbortSignal): PresenceConnection => {
         let settled = false;
         let resolveReady: () => void = () => undefined;
         let rejectReady: (error: unknown) => void = () => undefined;
@@ -139,11 +142,20 @@ export function createProjectSessionController(
             resolveReady = resolve;
             rejectReady = reject;
         });
-        const completion = transport.stream(projectRoot, signal, (event) => {
-            if (settled || event.type !== "presence_ready") return;
-            if (event.projectRoot !== projectRoot) {
+        const completion = transport.stream(projectRoot, publicId, signal, (rawEvent) => {
+            if (settled || ProjectPresenceHeartbeatEventDtoSchema.safeParse(rawEvent).success) return;
+            const parsed = ProjectPresenceReadyEventDtoSchema.safeParse(rawEvent);
+            if (!parsed.success) {
                 settled = true;
-                rejectReady(new Error("presence_ready Project 不匹配：" + event.projectRoot));
+                rejectReady(new Error("presence_ready 响应不符合项目连接合同", {cause: parsed.error}));
+                return;
+            }
+            const event = parsed.data;
+            if (event.projectRoot !== projectRoot || event.publicId !== publicId) {
+                settled = true;
+                rejectReady(new Error(
+                    "presence_ready 与 open 的精确 ready 不匹配：" + event.projectRoot + "/" + event.publicId,
+                ));
                 return;
             }
             settled = true;
@@ -214,63 +226,69 @@ export function createProjectSessionController(
         active?.abort.abort();
         active = null;
         const abort = new AbortController();
-        const current: Opening = {
-            projectRoot,
-            token: currentToken,
-            abort,
-            reconnecting,
-            presence: null,
-            promise: Promise.resolve({projectRoot, revision: readyRevision}),
-        };
         mutableState.value = {
             status: reconnecting ? "reconnecting" : "opening",
             phase: "opening-project",
             projectRoot,
             ready: null,
         };
-        current.promise = (async () => {
-            try {
-                const publication = await transport.open(projectRoot, abort.signal);
-                if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
-                mutableState.value = {
-                    status: reconnecting ? "reconnecting" : "opening",
-                    phase: "connecting-presence",
-                    projectRoot,
-                    ready: null,
-                };
-                const presence = connectPresence(projectRoot, abort.signal);
-                current.presence = presence;
-                await presence.ready;
-                if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+        // 延后启动使 owner 先就位；transport 在返回 Promise 前同步抛错也走同一失败路径。
+        const current: Opening = {
+            projectRoot,
+            token: currentToken,
+            abort,
+            reconnecting,
+            presence: null,
+            promise: Promise.resolve().then(async (): Promise<ProjectSessionReady> => {
+                try {
+                    if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+                    const publication = ProjectOpenResponseDtoSchema.parse(await transport.open(projectRoot, abort.signal));
+                    if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
+                    if (publication.project.projectRoot !== projectRoot) {
+                        throw new Error("open 响应与请求的项目不匹配：" + publication.project.projectRoot);
+                    }
+                    mutableState.value = {
+                        status: reconnecting ? "reconnecting" : "opening",
+                        phase: "connecting-presence",
+                        projectRoot,
+                        ready: null,
+                    };
+                    const presence = connectPresence(projectRoot, publication.publicId, abort.signal);
+                    current.presence = presence;
+                    await presence.ready;
+                    if (!ownsOpening(current)) throw new ProjectSessionSupersededError(projectRoot);
 
-                reconnectBackoff.opened();
-                interruptedNotified = false;
-                const ready = {projectRoot, revision: ++readyRevision};
-                const committed: ActivePresence = {projectRoot, token: currentToken, abort, presence};
-                active = committed;
-                opening = null;
-                mutableState.value = {status: "ready", ready};
-                observeActive(committed);
-                if (publication.change === "normalized" || publication.change === "recovered") {
-                    notifications.manifestRecovered(projectRoot, publication.recoveryPath);
+                    reconnectBackoff.opened();
+                    interruptedNotified = false;
+                    const ready = {projectRoot, publicId: publication.publicId, revision: ++readyRevision};
+                    const committed: ActivePresence = {projectRoot, token: currentToken, abort, presence};
+                    active = committed;
+                    opening = null;
+                    mutableState.value = {status: "ready", ready};
+                    observeActive(committed);
+                    if (publication.change === "normalized" || publication.change === "recovered") {
+                        notifications.manifestRecovered(projectRoot, publication.recoveryPath);
+                    }
+                    return ready;
+                } catch (error) {
+                    current.abort.abort();
+                    // ready 首帧可能与 release 同轮到达；owner 失效仍需等待它已建立的流退出。
+                    await current.presence?.completion.catch(() => undefined);
+                    if (!ownsOpening(current)) {
+                        throw new ProjectSessionSupersededError(projectRoot);
+                    }
+                    opening = null;
+                    if (current.reconnecting && !isProjectMissingError(error)) {
+                        mutableState.value = {status: "reconnecting", phase: "waiting-reconnect", projectRoot, ready: null};
+                        scheduleReconnect(projectRoot, currentToken);
+                    } else {
+                        mutableState.value = {status: "failed", projectRoot, ready: null};
+                        notifications.openFailed(projectRoot, error);
+                    }
+                    throw error;
                 }
-                return ready;
-            } catch (error) {
-                if (!ownsOpening(current)) {
-                    throw new ProjectSessionSupersededError(projectRoot);
-                }
-                current.abort.abort();
-                opening = null;
-                if (current.reconnecting && !isProjectMissingError(error)) {
-                    mutableState.value = {status: "reconnecting", phase: "waiting-reconnect", projectRoot, ready: null};
-                    scheduleReconnect(projectRoot, currentToken);
-                } else {
-                    mutableState.value = {status: "failed", projectRoot, ready: null};
-                    notifications.openFailed(projectRoot, error);
-                }
-                throw error;
-            }
-        })();
+            }),
+        };
         opening = current;
         return current.promise;
     };
@@ -323,7 +341,8 @@ export function useProjectSession(): ProjectSessionController {
         const state = ref<ProjectSessionState>({status: "idle", ready: null});
         return {
             state: readonly(state),
-            open: async (projectRoot) => ({projectRoot, revision: 0}),
+            // SSR 没有服务端签发的精确 ready 标识；不伪造可写就绪，必须由浏览器重新 open。
+            open: (projectRoot) => Promise.reject(new Error("Project Session 只能在浏览器中打开：" + projectRoot)),
             release: async () => undefined,
             dispose: () => undefined,
         };
@@ -333,19 +352,20 @@ export function useProjectSession(): ProjectSessionController {
     const projectRequest = $fetch as unknown as (
         path: string,
         options: {method: "POST"; body: {projectRoot: string}; signal: AbortSignal},
-    ) => Promise<ProjectOpenResponseDto>;
+    ) => Promise<unknown>;
     const lifecycle = createProjectSessionController({
         open: async (projectRoot, signal) => await projectRequest("/api/projects/open", {
             method: "POST",
             body: {projectRoot},
             signal,
         }),
-        stream: async (projectRoot, signal, onEvent) => {
-            const response = await fetch("/api/projects/presence?projectRoot=" + encodeURIComponent(projectRoot), {
+        stream: async (projectRoot, publicId, signal, onEvent) => {
+            const query = new URLSearchParams({projectRoot, publicId});
+            const response = await fetch("/api/projects/presence?" + query.toString(), {
                 method: "GET",
                 signal,
             });
-            await readSseStream<ProjectPresenceEventDto>(response, onEvent);
+            await readSseStream<unknown>(response, onEvent);
         },
     }, {
         interrupted: () => notification.warning("项目在场连接中断，正在重新连接", {title: "项目连接中断"}),

@@ -274,6 +274,7 @@ function readyProject(): ReadyProjectSessionRef {
             createProjectWorkspaceKey(workspaceRoot, ref),
         ),
         generation: 7,
+        publicId: "test-ready:7",
     });
 }
 

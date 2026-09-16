@@ -42,7 +42,9 @@ user 受管句柄与 HTTP 值读写 [t24](tasks/t24-storage-user-http/README.md)
 [t25](tasks/t25-storage-http-review/README.md) 完成独立审查及 HMR 追加复核，无阻断项；
 [t26](tasks/t26-storage-browser-adapter/README.md) 已实现浏览器分区绑定、值适配器和订阅，真实 Chrome 值 smoke 与最终主应用 typecheck 通过；
 [t27](tasks/t27-storage-adapter-review/README.md) 发现读取超时缺陷，修复后追加复核建议合并。
-切片 1 已闭合，下一增量进入 Project 生命周期与文件消费接线。
+切片 1 已提交 `42d65b7c`；[t28](tasks/t28-project-ready-publication/README.md) 实现 Project 精确 ready 发布与 presence 配对，
+30 文件 215 用例与主应用类型检查通过，[t29](tasks/t29-project-ready-review/README.md) 独立审查建议合并；
+下一增量接入 Project Storage lazy module 与宿主访问上下文，随后完成文件消费。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界

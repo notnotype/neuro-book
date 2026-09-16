@@ -58,7 +58,7 @@ describe("ProjectSessionService", () => {
         expect(first).toBe(second);
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 
-        runtime.acquireUserPresence(first)();
+        runtime.acquireUserPresence(first).release();
         expect(runtime.projectPresence(first).state).toBe("grace");
         const reused = await service.openProject(ref, {kind: "user"});
 
@@ -525,15 +525,92 @@ describe("ProjectSessionService", () => {
         const ref = projectWorkspaceRef("close-entry");
         const ready = await service.openProject(ref, {kind: "user"});
 
-        const release = service.acquireUserPresence(ref);
+        const release = service.acquireUserPresence(ref, ready.publicId).release;
         expect(service.projectPresence(ref)).toMatchObject({state: "open", userConnections: 1});
         release();
         expect(service.projectPresence(ref).state).toBe("grace");
 
+        // 已关闭代次的标识不能再解析；只凭路径也不行。
         await service.closeProject(ref, "shutdown");
+        expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
         expect(() => service.requireReadyProject(ref)).toThrow();
         expect(() => runtime.requireReadyProject(ready.workspace.key)).toThrow();
         expect(prepared.occupancy.release).toHaveBeenCalledTimes(1);
+    });
+
+    it("ready标识只在签发它的运行期与Project上解析", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
+        const preparedA = preparedProject(workspaceRoot, "identity-a");
+        const preparedB = preparedProject(workspaceRoot, "identity-b");
+        const lifecycle = controlLifecycle(preparedA, {
+            prepareOpen: vi.fn(async (ref) => (ref.projectRoot === "identity-b" ? preparedB : preparedA)),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const refA = projectWorkspaceRef("identity-a");
+        const refB = projectWorkspaceRef("identity-b");
+        const readyA = await service.openProject(refA, {kind: "user"});
+        const readyB = await service.openProject(refB, {kind: "user"});
+
+        expect(readyA.publicId).not.toBe(readyB.publicId);
+        expect(service.requireReadyProjectByPublicId(refA, readyA.publicId)).toBe(readyA);
+        // 另一个 Project 的标识不能解析成本 Project 的 ready。
+        expect(() => service.requireReadyProjectByPublicId(refB, readyA.publicId)).toThrow(ProjectNotOpenError);
+        expect(() => service.requireReadyProjectByPublicId(refA, readyB.publicId)).toThrow(ProjectNotOpenError);
+
+        // 另一个运行期即使 generation 从 1 重新开始，也不能解析旧运行期签发的标识，反之亦然。
+        const otherService = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const otherReady = await otherService.openProject(refA, {kind: "user"});
+        expect(otherReady.generation).toBe(readyA.generation);
+        expect(otherReady.publicId).not.toBe(readyA.publicId);
+        expect(() => service.requireReadyProjectByPublicId(refA, otherReady.publicId)).toThrow(ProjectNotOpenError);
+        expect(() => otherService.requireReadyProjectByPublicId(refA, readyA.publicId)).toThrow(ProjectNotOpenError);
+        await otherService.closeAll();
+        await service.closeAll();
+    });
+
+    it("根替换与terminal gate后旧ready标识不再解析", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
+        const prepared = preparedProject(workspaceRoot, "replaced-identity");
+        let notifyReplaced: (() => void) | null = null;
+        const lifecycle = controlLifecycle(prepared, {
+            observeWorkspace: vi.fn((_workspace, listener) => {
+                notifyReplaced = listener;
+                return () => undefined;
+            }),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("replaced-identity");
+        const ready = await service.openProject(ref, {kind: "user"});
+
+        notifyReplaced?.();
+        await vi.waitFor(() => {
+            expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
+        });
+
+        // exact close 完成后同一路径可以重新 open，但拿到的是新的 ready 对象与标识。
+        const reopened = await vi.waitFor(async () => await service.openProject(ref, {kind: "user"}));
+        expect(reopened.publicId).not.toBe(ready.publicId);
+        expect(service.requireReadyProjectByPublicId(ref, reopened.publicId)).toBe(reopened);
+        expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
     });
 
     it("root replacement先封门并等待已登记数据面operation后关闭同一generation", async () => {

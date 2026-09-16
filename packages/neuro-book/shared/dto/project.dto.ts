@@ -22,6 +22,13 @@ export const ProjectRootDtoSchema = z.string()
 
 const ProjectRevisionDtoSchema = z.number().int().positive();
 
+/**
+ * 服务端运行期为一次精确 ready 代次签发的公开标识。
+ *
+ * 不透明、可跨 HTTP 传播；由服务端核验，客户端不能自行构造或改写代次。
+ */
+export const ProjectReadyIdDtoSchema = z.string().min(1).max(128);
+
 /** Project Workspace 内可携带的封面图片相对路径。 */
 export const ProjectCoverPathDtoSchema = z.string()
     .min(1)
@@ -91,6 +98,8 @@ export const ProjectOpenRequestDtoSchema = z.object({
 const ProjectOpenBaseShape = {
     revision: ProjectRevisionDtoSchema,
     project: ProjectMetadataDtoSchema,
+    /** 本次 open 发布的精确 ready 代次标识；presence 必须回报同一个值。 */
+    publicId: ProjectReadyIdDtoSchema,
 };
 
 /**
@@ -126,6 +135,23 @@ export const ProjectOpenResponseDtoSchema = z.discriminatedUnion("change", [
         });
     }
 });
+
+/** GET /api/projects/presence 首帧：服务端接受 presence 时回报与 open 相同的精确 ready 标识。 */
+export const ProjectPresenceReadyEventDtoSchema = z.object({
+    type: z.literal("presence_ready"),
+    projectRoot: ProjectRootDtoSchema,
+    publicId: ProjectReadyIdDtoSchema,
+}).strict();
+
+/** presence SSE 周期心跳；不携带代次，不能用于判定 ready。 */
+export const ProjectPresenceHeartbeatEventDtoSchema = z.object({
+    type: z.literal("heartbeat"),
+}).strict();
+
+/** presence SSE 的稳定事件合同；服务端推送与前端解析共用同一 schema 事实。 */
+export type ProjectPresenceEventDto =
+    | z.infer<typeof ProjectPresenceReadyEventDtoSchema>
+    | z.infer<typeof ProjectPresenceHeartbeatEventDtoSchema>;
 
 /** 显式关闭当前进程内的 ProjectSession；close 不等同于 delete。 */
 export const ProjectCloseRequestDtoSchema = z.object({
