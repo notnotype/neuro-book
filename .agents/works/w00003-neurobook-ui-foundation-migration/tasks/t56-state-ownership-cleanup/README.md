@@ -6,7 +6,7 @@ role: tasker
 
 # 收尾小切片：World Engine 尺寸归属与设置窗口尺寸归属
 
-**状态：待实现。** 开发者选择的低风险收尾项（不影响主页面结构）。两项都只做**归属与清理**，不做整页搬迁。
+**状态：已实现并验证（2026-09-16）。** 交付物见 [`walkthroughs/implementation.md`](walkthroughs/implementation.md)（聚焦测试 19 例新增 + 80 例回归全绿、`bun run typecheck` exit 0、`bunx tsc --noEmit` 只读、`docs:check`、未运行项与偏差）。A/B 两处尺寸均已落 project/local 与 user/local 记录；C 四处过时文档已修订并登记 `RolesSettingsView` 决策；四个 legacy 组件**未删**（契约测试仍断言其内容，删除条件不成立）——待办记在清单 §2.6。
 
 依据：[清单 §2.6 与 §2.7](../../view-migration-inventory.md)（含行号）、[storage.persistence](../../../../../docs/specs/storage/persistence.md):95/97、[storage.boundaries](../../../../../docs/specs/storage/boundaries.md):103/121。
 

@@ -16,6 +16,8 @@ import type {
 const props = withDefaults(defineProps<{
     busy?: boolean;
     collapsed: boolean;
+    /** 尺寸记录还没读到分类：调整控件在此前不可用（`persistence.md` 的「读取就绪前不可用」）。 */
+    resizeDisabled?: boolean;
     focusedSubjectId?: string;
     resetKey: number;
     schema: WorldWorkbenchPreviewSchema;
@@ -27,6 +29,7 @@ const props = withDefaults(defineProps<{
     valueDraftSummaries: WorldWorkbenchPreviewValueDraftSummary[];
 }>(), {
     busy: false,
+    resizeDisabled: false,
     focusedSubjectId: "",
     subjectSystemSummaries: () => [],
 });
@@ -123,9 +126,8 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     minSize: 220,
     maxSize: 420,
     edge: "right",
-    enabled: computed(() => !props.collapsed),
-    syncDuringResize: true,
-    onResize: (width) => emit("update:width", width),
+    enabled: computed(() => !props.collapsed && !props.resizeDisabled),
+    // 拖拽期间只更新面板自己的预览；结束才提交一次（宿主据此写记录，不在每帧写盘）。
     onResizeEnd: (width) => emit("update:width", width),
 });
 

@@ -33,6 +33,8 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import {useProviderSettingsBinding} from "nbook/app/composables/useProviderSettingsBinding";
 import {useSectionDraft} from "nbook/app/composables/useSectionDraft";
+import {useSettingsWindowSize} from "nbook/app/utils/workbench/window-size-session";
+import {WORKBENCH_SETTINGS_WINDOW_MIN_SIZE} from "nbook/shared/storage/workbench-window-sizes";
 import {useDelayedFlag, useSettingsSnapshot} from "nbook/app/composables/useSettingsSnapshot";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {cloneModelDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
@@ -483,57 +485,17 @@ function setCostCurrency(currency: CostDisplayCurrency): void {
     }
 }
 
-/** 设置窗口的尺寸是本机偏好：与配置无关，落在 localStorage（读不到就用默认值）。 */
-const SETTINGS_WINDOW_SIZE_KEY = "nbook.settingsDialog.size";
-type SettingsWindowSize = {width: number; height: number};
-const DEFAULT_SETTINGS_WINDOW_SIZE: SettingsWindowSize = {width: 1120, height: 640};
-const MIN_SETTINGS_WINDOW_SIZE: SettingsWindowSize = {width: 720, height: 420};
-
-function readStoredSettingsWindowSize(): SettingsWindowSize {
-    if (!import.meta.client) {
-        return {...DEFAULT_SETTINGS_WINDOW_SIZE};
-    }
-    try {
-        const raw = window.localStorage.getItem(SETTINGS_WINDOW_SIZE_KEY);
-        if (!raw) {
-            return {...DEFAULT_SETTINGS_WINDOW_SIZE};
-        }
-        const parsed = JSON.parse(raw) as Partial<SettingsWindowSize>;
-        const width = Math.round(Number(parsed.width));
-        const height = Math.round(Number(parsed.height));
-        if (!Number.isFinite(width) || !Number.isFinite(height)) {
-            return {...DEFAULT_SETTINGS_WINDOW_SIZE};
-        }
-        return {
-            width: Math.max(width, MIN_SETTINGS_WINDOW_SIZE.width),
-            height: Math.max(height, MIN_SETTINGS_WINDOW_SIZE.height),
-        };
-    } catch {
-        return {...DEFAULT_SETTINGS_WINDOW_SIZE};
-    }
-}
-
-function persistSettingsWindowSize(size: SettingsWindowSize): void {
-    if (!import.meta.client) {
-        return;
-    }
-    try {
-        window.localStorage.setItem(SETTINGS_WINDOW_SIZE_KEY, JSON.stringify(size));
-    } catch {
-        // 本机存储不可用时静默放弃：窗口尺寸只是偏好，不影响任何功能。
-    }
-}
-
-const settingsWindowSize = ref<SettingsWindowSize>(readStoredSettingsWindowSize());
+/** 设置窗口尺寸是本机偏好（user/local），唯一写者是记录会话：旧裸键 `nbook.settingsDialog.size` 已迁入并删除。 */
+const windowSizeRecord = useSettingsWindowSize();
+const settingsWindowSize = windowSizeRecord.size;
+const settingsWindowSizeNotice = windowSizeRecord.notice;
 
 function updateSettingsWindowWidth(width: number): void {
-    settingsWindowSize.value = {...settingsWindowSize.value, width};
-    persistSettingsWindowSize(settingsWindowSize.value);
+    void windowSizeRecord.commit({...settingsWindowSize.value, width});
 }
 
 function updateSettingsWindowHeight(height: number): void {
-    settingsWindowSize.value = {...settingsWindowSize.value, height};
-    persistSettingsWindowSize(settingsWindowSize.value);
+    void windowSizeRecord.commit({...settingsWindowSize.value, height});
 }
 
 const providerBinding = useProviderSettingsBinding({
@@ -849,8 +811,8 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
         :width="settingsWindowSize.width"
         :height="settingsWindowSize.height"
         resizable
-        :min-width="720"
-        :min-height="420"
+        :min-width="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.width"
+        :min-height="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.height"
         body-class="min-h-0 overflow-hidden !p-0"
         teleport-target=".novel-ide-theme"
         @request-close="closeDialog"
@@ -858,6 +820,16 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
         @update:height="updateSettingsWindowHeight"
         @update:model-value="emit('update:modelValue', $event)"
     >
+        <div
+            v-if="settingsWindowSizeNotice"
+            data-testid="settings-window-size-notice"
+            class="flex shrink-0 items-start gap-2 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-2 text-[11px] leading-4 text-[var(--status-warning)]"
+        >
+            <span class="min-w-0 flex-1">窗口尺寸记录未就绪：{{ settingsWindowSizeNotice.diagnosis }}</span>
+            <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="void windowSizeRecord.retry()">重试</button>
+            <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
+        </div>
+
         <NovelIdeSettingsView
             :model-value="activeSection"
             :scope="activeScope"

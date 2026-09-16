@@ -6,7 +6,7 @@
 
 「Provider」区段的渲染层：区段标题、草稿问题横幅，以及 global 作用域下的 Provider 双栏（左导轨 + 右详情：连接表单 + 已保存模型清单）。**新增 Provider 的入口在导轨顶部**（模板选择 + 添加），列表在它下面独立滚动；默认模型与 Agent 可见模型已各自独立成区段，不再在这里。project 作用域只显示继承说明——Provider 与 API Key 仍来自全局配置。
 
-视图吃 props、emit 动作：四个会话（`useModelSettingsDraftSession` / `useModelCheckSession` / `useModelDiscoverySession` / `useProviderTemplateSession`）与全部 I/O 仍在旧面板 `NovelIdeModelSettingsPanel`，产品接线时由宿主把会话字段按同名 props 传进来、按同名 emit 接回去。字段改动统一走 `update:draft`（详情内部先合成整份 Provider 草稿，再由本视图按 `localKey` 换掉对应项）；打开对话框、修复、检查连通等动作各有同名事件，视图不自己解析结果、不弹通知。
+视图吃 props、emit 动作：四个会话（`useModelSettingsDraftSession` / `useModelCheckSession` / `useModelDiscoverySession` / `useProviderTemplateSession`）与全部 I/O 都在宿主侧绑定 `useProviderSettingsBinding`（`app/composables/useProviderSettingsBinding.ts`），由它把会话字段按同名 props 传进来、按同名 emit 接回去；宿主是 `NovelIdeSettingsDialog.vue`（`v-bind="providerBinding.viewBindings.value"`）。字段改动统一走 `update:draft`（详情内部先合成整份 Provider 草稿，再由本视图按 `localKey` 换掉对应项）；打开对话框、修复、检查连通等动作各有同名事件，视图不自己解析结果、不弹通知。
 
 视图内唯一自持状态是「已保存模型清单的分组折叠」（`expandedGroups`）：它不影响草稿，也不上报。列表与分组数据由 `provider-view-types.ts` 的视图类型描述（`SavedModelGroupView`），由宿主算好传入。
 

@@ -2,40 +2,36 @@ import {effectScope} from "vue";
 import {describe, expect, it} from "vitest";
 import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
 import type {StorageCredential, StorageReadResult} from "nbook/shared/storage/contract";
-import {
-    StorageAdapterError,
-    type StorageValueTransport,
-} from "nbook/app/utils/storage/value-transport";
+import {StorageAdapterError, type StorageValueTransport} from "nbook/app/utils/storage/value-transport";
 import {openStorageOwnerHandle} from "nbook/app/utils/storage/owner-handle";
+import type {WorkbenchStorageAdapters} from "nbook/app/utils/workbench/storage-context";
+import type {LegacyValueReading, LegacyValueStore} from "nbook/app/utils/workbench/legacy-record-migration";
 import {
-    createWorkbenchStorageContext,
-    type WorkbenchStorageAdapters,
-} from "nbook/app/utils/workbench/storage-context";
+    LEGACY_CREATE_PROJECT_WINDOW_SIZE_KEY,
+    LEGACY_SETTINGS_WINDOW_SIZE_KEY,
+    parseLegacyWindowSize,
+    useCreateProjectWindowSize,
+    useSettingsWindowSize,
+    type WorkbenchWindowSizeConsumer,
+} from "nbook/app/utils/workbench/window-size-session";
+import {WORKBENCH_LAYOUT_OWNER} from "nbook/shared/storage/workbench-state";
 import {
-    LEGACY_FILE_TREE_EXPANDED_PATHS_KEY,
-    parseLegacyExpandedPaths,
-    useWorkbenchFileTreeExpandedPaths,
-    type WorkbenchFileTreeExpandedPathsConsumer,
-} from "nbook/app/utils/workbench/files-view-session";
-import type {
-    LegacyValueReading,
-    LegacyValueStore,
-} from "nbook/app/utils/workbench/legacy-record-migration";
-import {
-    WORKBENCH_FILES_OWNER,
-    WORKBENCH_FILE_TREE_EXPANDED_PATHS_KEY,
-} from "nbook/shared/storage/workbench-files";
+    WORKBENCH_CREATE_PROJECT_WINDOW_SIZE_KEY,
+    WORKBENCH_SETTINGS_WINDOW_MIN_SIZE,
+    WORKBENCH_SETTINGS_WINDOW_SIZE_KEY,
+} from "nbook/shared/storage/workbench-window-sizes";
 
 /**
- * `files` 视图展开项记录的行为：单一写者、首读门禁、条件初始化，以及旧裸键
- * （`nbook.workspaceFilePanel.expandedPaths`）的一次性迁移与回读验证。
+ * 两个普通窗口尺寸记录的行为：单一写者、首读门禁、条件初始化，以及旧裸键
+ * （`nbook.settingsDialog.size` / `nbook.projectCreateDialog.size.v2`）的一次性迁移与回读验证。
  *
  * 走真实记录会话（读取分类、条件写、订阅都来自产品实现），只把传输与旧键访问器换成替身：
- * 验证的是产品语义，不是 stub 的调用次数。
+ * 断言的是落盘记录路径、落盘 JSON 与显示语义，不是 stub 的调用次数。
  */
 
 const CLIENT_CREDENTIAL = "0123456789abcdef".repeat(4);
-const RECORD_KEY = `${WORKBENCH_FILES_OWNER}/${WORKBENCH_FILE_TREE_EXPANDED_PATHS_KEY}/`;
+const SETTINGS_RECORD_KEY = `${WORKBENCH_LAYOUT_OWNER}/${WORKBENCH_SETTINGS_WINDOW_SIZE_KEY}/`;
+const CREATE_PROJECT_RECORD_KEY = `${WORKBENCH_LAYOUT_OWNER}/${WORKBENCH_CREATE_PROJECT_WINDOW_SIZE_KEY}/`;
 
 type StoredRecord = {value: unknown; revision: string; schemaVersion: number};
 
@@ -55,8 +51,7 @@ type Harness = {
     readonly adapters: WorkbenchStorageAdapters;
     /** 让后续读取全部停在闸上；返回放行函数。 */
     holdReads(): () => void;
-    write(value: unknown, schemaVersion?: number): void;
-    storeKey(): string;
+    write(key: string, value: unknown, schemaVersion?: number): void;
 };
 
 function storageHarness(): Harness {
@@ -67,7 +62,6 @@ function storageHarness(): Harness {
     const gate: {current: ReadGate} = {current: {reads: Promise.resolve(), release: () => undefined}};
     let sequence = 0;
     const credential = (revision: string | null): StorageCredential => ({revision, partitionGeneration: 1});
-    const storeKey = (): string => RECORD_KEY;
 
     const transport: StorageValueTransport = {
         async send(action: StorageActionRequest): Promise<StorageActionResponse> {
@@ -160,10 +154,9 @@ function storageHarness(): Harness {
             gate.current = readGate();
             return gate.current.release;
         },
-        write(value: unknown, schemaVersion = 1): void {
-            records.set(storeKey(), {value, revision: `revision-${++sequence}`, schemaVersion});
+        write(key: string, value: unknown, schemaVersion = 1): void {
+            records.set(key, {value, revision: `revision-${++sequence}`, schemaVersion});
         },
-        storeKey,
     };
 }
 
@@ -185,21 +178,14 @@ function legacyStore(initial: string | null): LegacyFake {
     };
 }
 
-function openConsumer(harness: Harness, legacy: LegacyValueStore): {
-    consumer: WorkbenchFileTreeExpandedPathsConsumer;
+/** 打开一个设置窗口尺寸会话；`scope.stop()` 释放它（等价于组件卸载）。 */
+function openSettingsWindow(harness: Harness, legacy: LegacyValueStore): {
+    consumer: WorkbenchWindowSizeConsumer;
     stop(): void;
 } {
     const scope = effectScope();
-    const consumer = scope.run(() => useWorkbenchFileTreeExpandedPaths({
-        adapters: harness.adapters,
-        legacy,
-    }))!;
-    return {
-        consumer,
-        stop: () => {
-            scope.stop();
-        },
-    };
+    const consumer = scope.run(() => useSettingsWindowSize({adapters: harness.adapters, legacy}))!;
+    return {consumer, stop: () => scope.stop()};
 }
 
 /**
@@ -215,197 +201,148 @@ async function flushUntil(condition: () => boolean): Promise<void> {
     }
 }
 
-/** 只推进微任务，不等任何条件（用于断言"此刻仍然没有发生"）。 */
-async function flushMicrotasks(rounds = 64): Promise<void> {
-    for (let round = 0; round < rounds; round += 1) {
-        await Promise.resolve();
-    }
-}
-
-describe("parseLegacyExpandedPaths", () => {
-    it("非 JSON 与非数组都被当作不可迁移，不冒充空展开", () => {
-        expect(parseLegacyExpandedPaths("{not json")).toEqual({value: null, diagnosis: "旧键内容不是合法 JSON"});
-        expect(parseLegacyExpandedPaths("\"manuscript/\"")).toEqual({value: null, diagnosis: "旧键内容不是路径数组"});
+describe("parseLegacyWindowSize", () => {
+    it("非 JSON 与非对象都被当作不可迁移，不冒充「没有旧尺寸」", () => {
+        expect(parseLegacyWindowSize("{not json", WORKBENCH_SETTINGS_WINDOW_MIN_SIZE))
+            .toEqual({value: null, diagnosis: "旧键内容不是合法 JSON"});
+        expect(parseLegacyWindowSize("[1120,640]", WORKBENCH_SETTINGS_WINDOW_MIN_SIZE))
+            .toEqual({value: null, diagnosis: "旧键内容不是窗口尺寸对象"});
     });
 
-    it("数组按旧写法清洗：只留非空字符串并去重", () => {
-        expect(parseLegacyExpandedPaths("[\"manuscript/\",\"manuscript/\",\"\",3]"))
-            .toEqual({value: ["manuscript/"], diagnosis: null});
+    it("宽高不是有限数字时不可迁移；合法值取整并按最小尺寸夹紧", () => {
+        expect(parseLegacyWindowSize("{\"width\":\"wide\",\"height\":640}", WORKBENCH_SETTINGS_WINDOW_MIN_SIZE))
+            .toEqual({value: null, diagnosis: "旧键宽高不是有限数字"});
+        expect(parseLegacyWindowSize("{\"width\":980.4,\"height\":640}", WORKBENCH_SETTINGS_WINDOW_MIN_SIZE))
+            .toEqual({value: {width: 980, height: 640}, diagnosis: null});
     });
 });
 
-describe("useWorkbenchFileTreeExpandedPaths", () => {
-    it("首读门禁：读取未分类前不落盘，读完后按本次调整写一次", async () => {
+describe("窗口尺寸记录会话", () => {
+    it("首读门禁：读取未分类前不落盘，读完后按本次调整写一次（含记录路径与 JSON）", async () => {
         const harness = storageHarness();
         const release = harness.holdReads();
-        const opened = openConsumer(harness, legacyStore(null));
+        const opened = openSettingsWindow(harness, legacyStore(null));
 
-        const committed = opened.consumer.commit(["lorebook/"]);
+        const committed = opened.consumer.commit({width: 1000, height: 700});
         await flushUntil(() => false).catch(() => undefined);
         expect(harness.saves).toEqual([]);
-        expect(opened.consumer.expandedPaths.value).toEqual([]);
+        expect(opened.consumer.size.value).toEqual({width: 1120, height: 640});
         expect(opened.consumer.loading.value).toBe(true);
 
         release();
         await committed;
-        expect(harness.saves).toEqual([harness.storeKey()]);
-        expect(opened.consumer.expandedPaths.value).toEqual(["lorebook/"]);
-        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["lorebook/"]});
+        expect(harness.saves).toEqual([SETTINGS_RECORD_KEY]);
+        expect(opened.consumer.size.value).toEqual({width: 1000, height: 700});
+        expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 1000, height: 700});
         opened.stop();
     });
 
     it("记录缺失时不写默认值：首次读取完成也不会产生记录", async () => {
         const harness = storageHarness();
-        const opened = openConsumer(harness, legacyStore(null));
+        const opened = openSettingsWindow(harness, legacyStore(null));
 
         await flushUntil(() => !opened.consumer.loading.value);
         expect(harness.saves).toEqual([]);
         expect(harness.records.size).toBe(0);
-        expect(opened.consumer.expandedPaths.value).toEqual([]);
+        expect(opened.consumer.size.value).toEqual({width: 1120, height: 640});
         expect(opened.consumer.notice.value).toBeNull();
         opened.stop();
     });
 
-    it("旧键迁移：条件初始化一次，回读一致后删除旧键", async () => {
+    it("旧键迁移：记录缺失时条件初始化一次，回读一致后删除旧键", async () => {
         const harness = storageHarness();
-        const legacy = legacyStore(JSON.stringify(["manuscript/", "lorebook/", "manuscript/"]));
-        const opened = openConsumer(harness, legacy);
+        const legacy = legacyStore(JSON.stringify({width: 980, height: 700}));
+        const opened = openSettingsWindow(harness, legacy);
 
         await flushUntil(() => legacy.remaining === null);
-        expect(harness.saves).toEqual([harness.storeKey()]);
-        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["manuscript/", "lorebook/"]});
-        expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/", "lorebook/"]);
+        expect(harness.saves).toEqual([SETTINGS_RECORD_KEY]);
+        expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 980, height: 700});
+        expect(opened.consumer.size.value).toEqual({width: 980, height: 700});
         expect(opened.consumer.notice.value).toBeNull();
         opened.stop();
     });
 
     it("已有记录不被旧键覆盖：只删旧键，不写记录", async () => {
         const harness = storageHarness();
-        harness.write({paths: ["world-engine/"]});
-        const legacy = legacyStore(JSON.stringify(["manuscript/"]));
-        const opened = openConsumer(harness, legacy);
+        harness.write(SETTINGS_RECORD_KEY, {width: 800, height: 600});
+        const legacy = legacyStore(JSON.stringify({width: 980, height: 700}));
+        const opened = openSettingsWindow(harness, legacy);
 
         await flushUntil(() => legacy.remaining === null);
         expect(harness.saves).toEqual([]);
-        expect(opened.consumer.expandedPaths.value).toEqual(["world-engine/"]);
+        expect(opened.consumer.size.value).toEqual({width: 800, height: 600});
         opened.stop();
     });
 
-    it("空旧值没有可迁移的信息：删除旧键也不写记录", async () => {
+    it("旧尺寸低于窗口最小尺寸：夹紧后写入，回读一致仍收尾删除旧键", async () => {
         const harness = storageHarness();
-        const legacy = legacyStore("[]");
-        const opened = openConsumer(harness, legacy);
+        const legacy = legacyStore(JSON.stringify({width: 600, height: 300}));
+        const opened = openSettingsWindow(harness, legacy);
 
         await flushUntil(() => legacy.remaining === null);
-        expect(harness.saves).toEqual([]);
-        expect(harness.records.size).toBe(0);
+        expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 720, height: 420});
+        expect(opened.consumer.size.value).toEqual({width: 720, height: 420});
         opened.stop();
     });
 
     it("旧键无法解析：不迁移也不删除，并给出可见诊断", async () => {
         const harness = storageHarness();
         const legacy = legacyStore("{not json");
-        const opened = openConsumer(harness, legacy);
+        const opened = openSettingsWindow(harness, legacy);
 
         await flushUntil(() => opened.consumer.notice.value !== null);
         expect(harness.saves).toEqual([]);
+        expect(harness.records.size).toBe(0);
         expect(legacy.remaining).toBe("{not json");
-        expect(opened.consumer.notice.value?.diagnosis).toContain("旧展开记录未迁移");
+        expect(opened.consumer.notice.value?.diagnosis).toContain("旧设置窗口尺寸记录未迁移");
         expect(opened.consumer.notice.value?.retryable).toBe(false);
         opened.stop();
     });
 
-    it("回读与写入不一致：旧键保留，诊断可重试", async () => {
+    it("冲突不静默：未确认意图保留并显示诊断，重试后写入一次", async () => {
         const harness = storageHarness();
-        const legacy = legacyStore(JSON.stringify(["manuscript/"]));
-        // 模拟写入后立刻被另一写者改写：回读拿到的不是本次写入的值。
-        harness.hooks.afterSave = (key) => {
-            harness.records.set(key, {value: {paths: ["elsewhere/"]}, revision: "revision-99", schemaVersion: 1});
-        };
-        const opened = openConsumer(harness, legacy);
-
-        await flushUntil(() => opened.consumer.notice.value !== null);
-        expect(harness.saves).toEqual([harness.storeKey()]);
-        expect(legacy.remaining).toBe(JSON.stringify(["manuscript/"]));
-        expect(opened.consumer.notice.value?.diagnosis).toContain("回读与写入不一致");
-        expect(opened.consumer.notice.value?.retryable).toBe(true);
-        opened.stop();
-    });
-
-    it("记录损坏时旧键保留原位（迁移不能在没有可写记录时宣称完成）", async () => {
-        const harness = storageHarness();
-        harness.fixedReads.set(harness.storeKey(), {
-            kind: "corrupt",
-            diagnosis: "记录内容不是合法封装",
-            repair: {partitionGeneration: 1, contentFingerprint: "seed-fingerprint"},
-        });
-        const legacy = legacyStore(JSON.stringify(["manuscript/"]));
-        const opened = openConsumer(harness, legacy);
-
-        await flushUntil(() => opened.consumer.notice.value !== null);
-        expect(legacy.remaining).toBe(JSON.stringify(["manuscript/"]));
-        expect(harness.saves).toEqual([]);
-        // 记录侧自己的阻断原因就是给用户的诊断（损坏不可普通保存，也没有"重试保存"这条路）。
-        expect(opened.consumer.notice.value?.diagnosis.length).toBeGreaterThan(0);
-        expect(opened.consumer.notice.value?.retryable).toBe(false);
-        opened.stop();
-    });
-
-    it("条件冲突不静默：未确认意图保留并显示诊断，重试后写入一次", async () => {
-        const harness = storageHarness();
-        // 每次保存前都被另一写者改写 → 条件冲突重放后仍冲突，意图进入未确认态。
         let conflictSequence = 0;
         harness.hooks.beforeSave = (key) => {
             conflictSequence += 1;
             harness.records.set(key, {
-                value: {paths: ["edited-elsewhere/"]},
+                value: {width: 640, height: 480},
                 revision: `revision-conflict-${conflictSequence}`,
                 schemaVersion: 1,
             });
         };
-        const opened = openConsumer(harness, legacyStore(null));
+        const opened = openSettingsWindow(harness, legacyStore(null));
 
         await flushUntil(() => !opened.consumer.loading.value);
-        await opened.consumer.commit(["manuscript/"]);
+        await opened.consumer.commit({width: 1000, height: 700});
         expect(harness.saves).toEqual([]);
-        expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/"]);
+        expect(opened.consumer.size.value).toEqual({width: 1000, height: 700});
         expect(opened.consumer.notice.value?.retryable).toBe(true);
         expect(opened.consumer.notice.value?.diagnosis).toContain("记录已被其它窗口改写");
 
         harness.hooks.beforeSave = null;
         await opened.consumer.retry();
-        expect(harness.saves).toEqual([harness.storeKey()]);
+        expect(harness.saves).toEqual([SETTINGS_RECORD_KEY]);
         expect(opened.consumer.notice.value).toBeNull();
-        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["manuscript/"]});
+        expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 1000, height: 700});
         opened.stop();
     });
 
-    it("放弃未确认意图回到已确认值", async () => {
+    it("新建作品对话框写自己的键，不碰设置窗口记录", async () => {
         const harness = storageHarness();
-        harness.write({paths: ["world-engine/"]});
-        const opened = openConsumer(harness, legacyStore(null));
+        const legacy = legacyStore(JSON.stringify({width: 640, height: 400}));
+        const scope = effectScope();
+        const consumer = scope.run(() => useCreateProjectWindowSize({adapters: harness.adapters, legacy}))!;
 
-        await flushUntil(() => !opened.consumer.loading.value);
-        // 写入结果未确认（不是冲突重读）：已确认基线不动，本次意图留在未确认态。
-        harness.hooks.beforeSave = () => {
-            throw new StorageAdapterError({
-                code: "STORAGE_IO",
-                status: 500,
-                message: "写入结果未确认",
-                committed: null,
-            });
-        };
-        await opened.consumer.commit(["manuscript/"]);
-        expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/"]);
-        expect(opened.consumer.notice.value?.retryable).toBe(true);
-
-        opened.consumer.abandon();
-        expect(opened.consumer.expandedPaths.value).toEqual(["world-engine/"]);
-        expect(opened.consumer.notice.value).toBeNull();
-        opened.stop();
+        await flushUntil(() => legacy.remaining === null);
+        expect(harness.saves).toEqual([CREATE_PROJECT_RECORD_KEY]);
+        expect(harness.records.get(CREATE_PROJECT_RECORD_KEY)?.value).toEqual({width: 640, height: 400});
+        expect(harness.records.has(SETTINGS_RECORD_KEY)).toBe(false);
+        expect(consumer.size.value).toEqual({width: 640, height: 400});
+        scope.stop();
     });
 
     it("旧键名保持未改名：迁移读的是原键，不是新记录键", () => {
-        expect(LEGACY_FILE_TREE_EXPANDED_PATHS_KEY).toBe("nbook.workspaceFilePanel.expandedPaths");
+        expect(LEGACY_SETTINGS_WINDOW_SIZE_KEY).toBe("nbook.settingsDialog.size");
+        expect(LEGACY_CREATE_PROJECT_WINDOW_SIZE_KEY).toBe("nbook.projectCreateDialog.size.v2");
     });
 });

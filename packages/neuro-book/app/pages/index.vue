@@ -2601,7 +2601,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
+        <WorldEngineWorkbenchDialog v-if="projectSurfaceActive && !isUserAssetsWorkspace" v-model="worldEngineWorkbenchOpen" :project-root="currentProjectRoot" :project-title="displayNovelTitle" :surface="workbenchLayoutSurface" @has-unsaved-drafts-change="worldEngineWorkbenchHasUnsavedDrafts = $event" @saving-change="worldEngineWorkbenchSaving = $event" @open-workspace-path="void openWelcomeWorkspacePath($event)" />
 
         <!-- 工作台外壳骨架（#192 阶段 1 步骤 2）：四个叶挂的是外壳部件，业务组件暂不挂载（仍在仓库里）。
              left / right 叶已换成容器部件（步骤 5），editor 叶仍是演示占位块。

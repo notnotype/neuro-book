@@ -122,20 +122,21 @@ describe("World Engine Workbench contract", () => {
         expect(workbenchDialog).toContain("worldViewFilterParts");
         expect(workbenchDialog).toContain("function removeSubjectFilter(subjectId: string): void");
         expect(workbenchDialog).toContain("void updateSelectedSubjectIdsForTimeline(selectedSubjectIds.value.filter((id) => id !== subjectId));");
-        expect(workbenchDialog).toContain("defaultSidebarWidth");
-        expect(workbenchDialog).toContain("defaultInspectorWidth");
-        expect(workbenchDialog).toContain("const defaultSidebarWidth = 320;");
-        expect(workbenchDialog).toContain("const defaultInspectorWidth = 420;");
-        expect(workbenchDialog).toContain("defaultMutationEditorHeight");
-        expect(workbenchDialog).toContain("sidebarWidth = ref(defaultSidebarWidth)");
-        expect(workbenchDialog).toContain("inspectorWidth = ref(defaultInspectorWidth)");
-        expect(workbenchDialog).toContain("mutationEditorHeight = ref(defaultMutationEditorHeight)");
+        // 三栏尺寸是 project/local 记录的唯一投影：组件不再自持 ref，也不再留第二份默认值常量。
+        expect(workbenchDialog).toContain("const panelSizes = useWorldEnginePanelSizes({surface: () => props.surface});");
+        expect(workbenchDialog).not.toContain("defaultSidebarWidth");
+        expect(workbenchDialog).not.toContain("defaultInspectorWidth");
+        expect(workbenchDialog).not.toContain("defaultMutationEditorHeight");
         expect(workbenchDialog).toContain(":width=\"sidebarWidth\"");
         expect(workbenchDialog).toContain(":width=\"inspectorWidth\"");
         expect(workbenchDialog).toContain(":height=\"mutationEditorHeight\"");
-        expect(workbenchDialog).toContain("@update:width=\"sidebarWidth = $event\"");
-        expect(workbenchDialog).toContain("@update:width=\"inspectorWidth = $event\"");
-        expect(workbenchDialog).toContain("@update:height=\"mutationEditorHeight = $event\"");
+        // 每个面板只有一条写路径，且只在拖拽结束时提交一次。
+        expect(workbenchDialog).toContain("@update:width=\"updateSidebarWidth\"");
+        expect(workbenchDialog).toContain("@update:width=\"updateInspectorWidth\"");
+        expect(workbenchDialog).toContain("@update:height=\"updateMutationEditorHeight\"");
+        expect(workbenchDialog).toContain("void panelSizes.commit({sidebarWidth: width});");
+        expect(workbenchDialog).toContain("void panelSizes.commit({inspectorWidth: width});");
+        expect(workbenchDialog).toContain("void panelSizes.commit({mutationEditorHeight: height});");
         expect(workbenchDialog).toContain("world-inspector-restore-rail");
         expect(workbenchDialog).toContain("toggleInspectorPanel");
         expect(workbenchDialog).toContain("@click=\"toggleInspectorPanel\"");
@@ -286,7 +287,9 @@ describe("World Engine Workbench contract", () => {
         expect(sidebar).toContain("minSize: 220");
         expect(sidebar).toContain("maxSize: 420");
         expect(sidebar).toContain("edge: \"right\"");
-        expect(sidebar).toContain("onResize: (width) => emit(\"update:width\", width)");
+        // 拖拽期间只本地预览：不再逐帧回写，一次手势只有结束时的 onResizeEnd 提交。
+        expect(sidebar).not.toContain("onResize:");
+        expect(sidebar).not.toContain("syncDuringResize: true");
         expect(sidebar).toContain("onResizeEnd: (width) => emit(\"update:width\", width)");
         expect(sidebar).toContain("worldEngine.workbenchPreview.activeSubjects");
         expect(sidebar).toContain("worldEngine.workbenchPreview.selectedSubjects");
@@ -599,7 +602,9 @@ describe("World Engine Workbench contract", () => {
         expect(inspector).toContain("minSize: 300");
         expect(inspector).toContain("maxSize: 560");
         expect(inspector).toContain("edge: \"left\"");
-        expect(inspector).toContain("onResize: (width) => emit(\"update:width\", width)");
+        // 同 sidebar：拖拽不逐帧回写，结束才提交一次。
+        expect(inspector).not.toContain("onResize:");
+        expect(inspector).not.toContain("syncDuringResize: true");
         expect(inspector).toContain("onResizeEnd: (width) => emit(\"update:width\", width)");
         expect(inspector).not.toContain("worldEngine.workbenchPreview.reviewIssues");
         expect(inspector).not.toContain("worldEngine.workbenchPreview.reviewQueue");
@@ -729,7 +734,9 @@ describe("World Engine Workbench contract", () => {
         expect(editor).toContain("minSize: 160");
         expect(editor).toContain("maxSize: 520");
         expect(editor).toContain("edge: \"top\"");
-        expect(editor).toContain("onResize: (height) => emit(\"update:height\", height)");
+        // 同 sidebar：拖拽不逐帧回写，结束才提交一次。
+        expect(editor).not.toContain("onResize:");
+        expect(editor).not.toContain("syncDuringResize: true");
         expect(editor).toContain("onResizeEnd: (height) => emit(\"update:height\", height)");
         expect(editor).toContain("SegmentedControl");
         expect(editor).toContain("SegmentedControlOption");

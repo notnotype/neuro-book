@@ -116,6 +116,8 @@ type IssueTriageOption = {
 const props = defineProps<{
     busy?: boolean;
     collapsed: boolean;
+    /** 尺寸记录还没读到分类：调整控件在此前不可用。 */
+    resizeDisabled?: boolean;
     discardDraftSliceId?: string;
     discardDraftVersion?: number;
     focusedSubjectId: string;
@@ -388,9 +390,8 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     minSize: 160,
     maxSize: 520,
     edge: "top",
-    enabled: computed(() => !props.collapsed),
-    syncDuringResize: true,
-    onResize: (height) => emit("update:height", height),
+    enabled: computed(() => !props.collapsed && !props.resizeDisabled),
+    // 拖拽期间只更新面板自己的预览；结束才提交一次。
     onResizeEnd: (height) => emit("update:height", height),
 });
 const reviewPanelStyle = computed(() => props.collapsed ? {height: "40px"} : panelStyle.value);

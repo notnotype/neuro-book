@@ -15,14 +15,19 @@
  *
  * scope/locality 划分见 [storage.persistence](../../../../docs/specs/storage/persistence.md)：
  * 迁移原件与元数据是 `workbench.migration` 的 user/local 专用备份边界；
- * 未开项目/用户资产尺寸与书架模式是 `workbench.layout` 的 user/local 记录；
- * 主工作台的 Project 内 grid 布局记录是同 owner 的 project/local 记录（快照 v2，一个 Project 一条）。
+ * 未开项目/用户资产尺寸、书架模式与两个普通窗口尺寸是 `workbench.layout` 的 user/local 记录；
+ * 主工作台的 Project 内 grid 布局记录与 World Engine 内部尺寸是同 owner 的 project/local 记录（各占一键）。
  */
 
 import type {DefinedStorageState} from "nbook/shared/storage/definition";
 import {defineWorkbenchShellLayoutState} from "nbook/shared/storage/workbench-shell-layout";
 import {defineWorkbenchMigrationStates} from "nbook/shared/storage/workbench-migration";
 import {defineWorkbenchFileTreeExpandedPathsState} from "nbook/shared/storage/workbench-files";
+import {defineWorkbenchWorldEnginePanelSizesState} from "nbook/shared/storage/workbench-world-engine";
+import {
+    defineWorkbenchCreateProjectWindowSizeState,
+    defineWorkbenchSettingsWindowSizeState,
+} from "nbook/shared/storage/workbench-window-sizes";
 import {defineWorkbenchShelfModeState, defineWorkbenchSurfaceSizesState} from "nbook/shared/storage/workbench-state";
 import {registerStorageStateDefinitions} from "nbook/server/storage/host";
 
@@ -45,6 +50,12 @@ function buildProductStorageStates(): readonly DefinedStorageState<unknown>[] {
         defineWorkbenchShellLayoutState() as unknown as DefinedStorageState<unknown>,
         // `files` 视图的展开项（user/local）：旧裸键 `nbook.workspaceFilePanel.expandedPaths` 的正式归属。
         defineWorkbenchFileTreeExpandedPathsState() as unknown as DefinedStorageState<unknown>,
+        // World Engine 内部尺寸（project/local，`persistence.md:95`）：组件自持 ref 的正式归属。
+        defineWorkbenchWorldEnginePanelSizesState() as unknown as DefinedStorageState<unknown>,
+        // 两个普通窗口尺寸（user/local，`persistence.md:97`）：旧裸键 `nbook.settingsDialog.size` 与
+        // `nbook.projectCreateDialog.size.v2` 的正式归属，与书架模式同 owner。
+        defineWorkbenchSettingsWindowSizeState() as unknown as DefinedStorageState<unknown>,
+        defineWorkbenchCreateProjectWindowSizeState() as unknown as DefinedStorageState<unknown>,
     ]);
 }
 

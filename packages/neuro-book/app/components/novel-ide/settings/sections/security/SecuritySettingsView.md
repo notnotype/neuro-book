@@ -4,7 +4,7 @@
 
 # SecuritySettingsView
 
-「密码保护」区段的只读视图：启动期鉴权说明、`auth.enabled` 当前状态徽标、`config.yaml` 配置示例与安全警告。视图只消费一个 prop（`authEnabled`），没有任何 emit，也不提供保存入口——安全边界由根目录 `config.yaml` 与重启决定，不能在配置中心热更新，所以这页只解释、不写回。旧宿主 `NovelIdeSettingsDialog` 继续从 `useAuthSessionState()` 取 `session.authEnabled`，产品接线时再消费本视图。
+「密码保护」区段的只读视图：启动期鉴权说明、`auth.enabled` 当前状态徽标、`config.yaml` 配置示例与安全警告。视图只消费一个 prop（`authEnabled`），没有任何 emit，也不提供保存入口——安全边界由根目录 `config.yaml` 与重启决定，不能在配置中心热更新，所以这页只解释、不写回。宿主 `NovelIdeSettingsDialog.vue` 从 `useAuthSessionState()` 取 `session.authEnabled`（`bootAuthEnabled`）并传给本视图。
 
 三态文案与色调：已开启（`success` 软底）、已关闭（`warning` 软底）、尚未读到 session（`neutral` 软底）。每一态都配一句能独立成立的说明，讲清「这是进程启动时读到的值，磁盘上改了但没重启仍是旧值」；状态未知时写 `<true|false>` 占位，不假装知道磁盘上的值。
 

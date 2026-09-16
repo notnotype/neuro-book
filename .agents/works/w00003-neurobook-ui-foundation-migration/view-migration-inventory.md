@@ -203,9 +203,9 @@
 
 ### 2.6 World Engine
 
-**owner / 当前状态 / 依赖**：`app/components/novel-ide/world-engine/**`｜**部分接入**（Dialog 已可达，尺寸未归属、legacy 件未删）｜仅依赖外壳尺寸记录与有效 Project 上下文；领域 authority 不变。
+**owner / 当前状态 / 依赖**：`app/components/novel-ide/world-engine/**`｜**部分接入**（Dialog 已可达；内部尺寸已归 project/local 记录 `workbench.layout`/`world-engine-sizes`，t56；四个 legacy 件待删，见「旧实现删除条件」）｜依赖外壳工作面（`surface` prop = `workbenchLayoutSurface`）与有效 Project 上下文；领域 authority 不变。
 
-**① 源码调用**：视图本体 `WorldEngineWorkbenchDialog.vue`（2192 行），页面挂载 `index.vue:2580`（`v-if="projectSurfaceActive && !isUserAssetsWorkspace"`，位于 shell 之外的同级 div），打开入口 `index.vue:2606` `@open-world-engine="openWorldEngineWorkbench"`（定义 `:1871-1876`）← activity `world`（`NovelIdeActivityBar.vue:115`、`workbench-chrome.ts:74`）；Plot 侧 `NovelPlotPanel.vue:1227-1230` 也会关闭自身再 emit 同一事件。数据全走 `/api/projects/world-engine/*`（`WorldEngineWorkbenchDialog.vue:405-409/447-449/483/567/592/614/665/760/816/892/1077/1464`）+ `SubjectCreator.vue:53` + `MutationEditor.vue:181`。内部三栏尺寸是组件自持 ref（`:105-107` 默认 320/420/292，`:162-164` 状态），三处 `useResizablePanel` 在子组件（`WorldEngineWorkbenchPreviewSidebar.vue:121-130` min220/max420、`…Inspector.vue:355-364` min300/max560、`…MutationEditor.vue:386-395` min160/max520），**无 store、无 localStorage、无 Storage 记录**。legacy 件 `WorldEngineTimeline.vue`/`WorldEngineSliceInspector.vue`/`WorldEngineStateSummary.vue`/`WorldEngineSubjectStateViewer(.Row).vue` **零引用**，且被契约测试禁止回流（`app/utils/world-engine-ide-entry.test.ts:604-607`，`:136` 要求真身是 `WorldEngineWorkbenchPreviewSliceList`）。
+**① 源码调用**：视图本体 `WorldEngineWorkbenchDialog.vue`（2192 行），页面挂载 `index.vue:2580`（`v-if="projectSurfaceActive && !isUserAssetsWorkspace"`，位于 shell 之外的同级 div），打开入口 `index.vue:2606` `@open-world-engine="openWorldEngineWorkbench"`（定义 `:1871-1876`）← activity `world`（`NovelIdeActivityBar.vue:115`、`workbench-chrome.ts:74`）；Plot 侧 `NovelPlotPanel.vue:1227-1230` 也会关闭自身再 emit 同一事件。数据全走 `/api/projects/world-engine/*`（`WorldEngineWorkbenchDialog.vue:405-409/447-449/483/567/592/614/665/760/816/892/1077/1464`）+ `SubjectCreator.vue:53` + `MutationEditor.vue:181`。内部三栏尺寸（t56 前是组件自持 ref `:105-107` 默认 320/420/292、`:162-164` 状态）现读 project/local 记录 `workbench.layout`/`world-engine-sizes`，三处 `useResizablePanel` 在子组件（`WorldEngineWorkbenchPreviewSidebar.vue:121-130` min220/max420、`…Inspector.vue:355-364` min300/max560、`…MutationEditor.vue:386-395` min160/max520）且只在拖拽结束时 emit 一次提交；**无 store、无 localStorage、无第二写路径**。legacy 件 `WorldEngineTimeline.vue`/`WorldEngineSliceInspector.vue`/`WorldEngineStateSummary.vue`/`WorldEngineSubjectStateViewer(.Row).vue` **零引用**，且被契约测试禁止回流（`app/utils/world-engine-ide-entry.test.ts:604-607`，`:136` 要求真身是 `WorldEngineWorkbenchPreviewSliceList`）。
 
 **② 同名文档**：无（`world-engine/**` 零 `.md`；`world-engine-workbench.types.ts` 与 `workbench-preview/*.types.ts` 内 grep `width|height|grid|size` 无命中）。提案原文与实现**矛盾**：`workbench-view-host.md:187` 把「World Engine 尺寸」列进 Project Storage、`:194` 称「World Engine 尺寸逐项目记忆是开发者的明确选择」，而实现三处尺寸从未持久化（见 ①）。研究口径：`docs/research/vscode/12-workbench-view-host-refactor.md:34,146`（world 继续以命令/对话框为主，不强行注册为侧栏 View）。
 
@@ -216,20 +216,21 @@
 **⑤ 真实运行观察**：O1（书架态 `world` 按钮禁用，与 Project 前置一致）；本次未打开该 Dialog（属交互，未执行）；`storage-implementation-plan.md` 记录切片 3 检查点曾明确「不提前迁移 World Engine 整页」。
 
 **⑥ 状态归属判定**：
-- 内部尺寸（左栏/右栏/底部 composer）：**project/local**（`persistence.md:95` 明列「World Engine 内部尺寸」；`boundaries.md:121`）。实现与合同不一致，属**待补归属**（无旧值迁移，只是新增记录）。
+- 内部尺寸（左栏/右栏/底部 composer）：**project/local**（`persistence.md:95` 明列「World Engine 内部尺寸」；`boundaries.md:121`）。**已归属**（t56）：记录 `workbench.layout`/`world-engine-sizes`（`records: "single"`，默认 320/420/292 为显示回落），会话 `app/utils/workbench/world-engine-session.ts`，三个 `useResizablePanel` 只在拖拽结束后提交一次；无旧值迁移。
 - 对象记忆（选中 slice/subject、筛选、折叠）：**按对象归属声明 user 或 project，默认 local**（`persistence.md:99`）。建议先声明 project/local（与尺寸同 Project 记忆），跨项目共享需求出现时再另立。
 - 焦点/编辑草稿/请求进度：**内存**（`persistence.md:100`）。
 - 领域数据（schema/subjects/slices/state）：**领域 Store**，不走 Storage。
 
-**真实功能缺口**：功能本身可用（Dialog 已接入），缺口在**归属与清理**：尺寸不记忆（每次打开回默认 320/420/292）、四个 legacy 组件仍占位、且 `world` 未登记 descriptor/container（`app/utils/workbench/containers.ts` 只有 `nbook.tools`/`nbook.agent`）。
+**真实功能缺口**：功能本身可用（Dialog 已接入）。尺寸不记忆已由 t56 补上；剩余**清理**：四个 legacy 组件仍占位，且 `world` 未登记 descriptor/container（`app/utils/workbench/containers.ts` 只有 `nbook.tools`/`nbook.agent`）。
 
 **建议切片**：**World Engine 尺寸与对象记忆归属**（小切片，独立于整页搬迁）+ **legacy 件删除**；整页迁入 View Host 继续单列（`storage-implementation-plan.md` 切片 3 检查点 A 的既有裁定）。
 
 **旧实现删除条件**：四个 legacy 组件在「无引用 + 契约测试许可」下删除；三处尺寸 ref 在宿主记录接入后改为读记录（默认值仍取 `:105-107` 同名常量）；不得为尺寸另开 localStorage。
+**t56 状态**：三处尺寸 ref 已改为读 `workbench.layout`/`world-engine-sizes`（默认值搬到 `shared/storage/workbench-world-engine.ts`，组件内不再留一份）；四个 legacy 件在本轮**不删（待办）**——全仓零引用已核对（除历史文档与 `world-engine-ide-entry.test.ts`），但契约测试**仍读取并断言这三个文件的内容**（`world-engine-ide-entry.test.ts:62-64` 读 `WorldEngine{SliceInspector,StateSummary,Timeline}.vue`，`:963-979` 断言其内容；`WorldEngineSubjectStateViewer.vue` 与 `…Row.vue` 互相引用），删除会直接让测试失败，故「契约测试许可」不成立。删除需连同该测试的相应断言一起改（属 legacy 清理切片：删文件 + 把「禁回流」断言改成「文件不存在」）。
 
 ### 2.7 设置
 
-**owner / 当前状态 / 依赖**：`app/components/novel-ide/settings/**` + 宿主 `NovelIdeSettingsDialog.vue`｜**部分接入**（区段视图全部真实接线；窗口尺寸仍是裸 localStorage；`RolesSettingsView` 未挂）｜仅依赖外壳浮层位置；Config authority 不变。
+**owner / 当前状态 / 依赖**：`app/components/novel-ide/settings/**` + 宿主 `NovelIdeSettingsDialog.vue`｜**部分接入**（区段视图全部真实接线；窗口尺寸已归 user/local 记录，t56；`RolesSettingsView` 未挂——决策见下）｜仅依赖外壳浮层位置；Config authority 不变。
 
 **① 源码调用**：宿主 `NovelIdeSettingsDialog.vue`（982 行）是唯一 I/O 点：快照 `useSettingsSnapshot` → `GET /api/config/editor-snapshot`（`app/composables/useConfigApi.ts:75`），写 `PUT /api/config/global|project`（`:118-137`），模型相关 `POST /api/config/models/*`（`settings/useModelCheckSession.ts:164`、`useModelDiscoverySession.ts:88`、`useModelSettingsDraftSession.ts:543`），Agent Profile `GET /api/agent/profiles/settings`（`:87`）。10 个区段视图（`sectionItems` 定义 `:94-168`：providers/embedding/cost/web-tools/agent-profile-models/observability/security/frontend/editor/desktop）全部是 props+emit 受控视图，渲染分发 `:874-980`。页面挂载 `index.vue:2644`（**壳外**页面级浮层）；入口两条：activity `settings`（`NovelIdeActivityBar.vue:372-373` → `index.vue:2610`）与标题栏 File→设置（`workbench-chrome.ts:259` → `index.vue:349-351`）。
 
@@ -243,14 +244,15 @@
 
 **⑥ 状态归属判定**：
 - 设置值（主题/字体/模型/策略等）：**Global/Project Config**（`persistence.md:94`；`boundaries.md:28-40`），authority 保持 `/api/config/*`，**不进 Storage**。
-- 设置窗口尺寸：**user/local**（`persistence.md:97`「普通设置窗口尺寸」）。现状违规：裸 localStorage 键 `nbook.settingsDialog.size`（`NovelIdeSettingsDialog.vue:487`，默认 1120×640 `:489`，读 `:496-500`、写 `:520-524`）、新建作品对话框 `nbook.projectCreateDialog.size.v2`（`project-picker/components/ProjectCreateDialog.vue:27`）——按 `boundaries.md:103` 应经宿主适配层。
+- 设置窗口尺寸：**user/local**（`persistence.md:97`「普通设置窗口尺寸」）。**已归属**（t56）：`workbench.layout`/`settings-dialog-size` 与 `workbench.layout`/`create-project-dialog-size`（均 `records: "single"`，默认 1120×640 / 580×360），会话 `app/utils/workbench/window-size-session.ts`；旧裸键 `nbook.settingsDialog.size`、`nbook.projectCreateDialog.size.v2` 按「记录缺失时条件初始化 → 回读一致 → 删旧键」一次性迁移，组件内不再有第二写路径。
 - 当前 section / 滚动位置：**内存**或 user/local 视图记忆（`persistence.md:98/100`），不得写入 Config。
 
-**真实功能缺口**：小——主要是窗口尺寸归属与 `RolesSettingsView` 未挂宿主（后者还等后端契约）。
+**真实功能缺口**：小——窗口尺寸归属已由 t56 补上；剩余 `RolesSettingsView` 未挂宿主。
+**`RolesSettingsView` 决策（t56 登记，不实现）**：该区段是唯一「有 Lab fixture（`fixtures/index.ts:417-426`）但主宿主未挂」的区段，原因是后端角色契约尚不存在（`roles/RolesSettingsView.md:15` 与实现一致）。本 Task 只登记状态：**保持不挂**，等后端契约落地后由「角色面」切片接线；在此之前不改宿主分发（`NovelIdeSettingsDialog.vue:874-980` 分支不含 roles），也不删 fixture 与视图。
 
 **建议切片**：**设置窗口尺寸归属**（把两个尺寸键并入 user/local 记录，与书架模式同一 owner `workbench.layout`）+ 旧文档修订（4 篇「旧面板」表述）+ `RolesSettingsView` 挂载决策。
 
-**旧实现删除条件**：`nbook.settingsDialog.size`、`nbook.projectCreateDialog.size.v2` 在记录迁入并回读验证后删除；文档中已不存在的 `NovelIdeModelSettingsPanel` 等旧面板表述删除。
+**旧实现删除条件**：`nbook.settingsDialog.size`、`nbook.projectCreateDialog.size.v2` 在记录迁入并回读验证后删除（t56 已交付：迁移路径回读一致才删旧键，四篇文档的「旧面板/旧宿主」表述已改为与实现一致）。
 
 ### 2.8 历史 / 时间线
 
@@ -401,8 +403,8 @@ graph TD
 | 3 角色 | `selectedCharacterId`/`selectedLorebookEntryId` 死状态（`novel-ide.ts:201-202`）；`openFrontmatterProfile` 无调用方（`index.vue:2159-2161`）；`NovelIdeToolPanel.vue:437` 槽位 |
 | 4 Plot | `openPlotWorkbench` 无调用方（`index.vue:1881-1896`）；`NovelIdeToolPanel.vue:439` 槽位；三处硬编码宽度 class（`PlotWorkbenchSidebar.vue:144` 等） |
 | 5 Agent | `index.vue:7-8` 未用 import；`index.vue:224` 无绑定 ref + `:1610-1698` 死接线；三个裸键 `agent:last-session:*`/`agent:inline-editor-session:*`/`agent:pinned-sessions:*`；`novel.ide.local` 的 agent* 字段（`novel-ide.ts:1969-1975`）；`AgentJobsDialog` 接线或删除 |
-| 6 World Engine | `WorldEngineTimeline.vue`、`WorldEngineSliceInspector.vue`、`WorldEngineStateSummary.vue`、`WorldEngineSubjectStateViewer(.Row).vue`（零引用，`world-engine-ide-entry.test.ts:604-607` 禁回流）；三处尺寸 ref（`WorldEngineWorkbenchDialog.vue:162-164`）改读记录 |
-| 7 设置 | `nbook.settingsDialog.size`（`NovelIdeSettingsDialog.vue:487`）；`nbook.projectCreateDialog.size.v2`（`ProjectCreateDialog.vue:27`）；4 篇过时文档表述；`RolesSettingsView` 挂载决策 |
+| 6 World Engine | ✅ 三处尺寸 ref 已改读 `workbench.layout`/`world-engine-sizes`（t56）；⏳ `WorldEngineTimeline.vue`、`WorldEngineSliceInspector.vue`、`WorldEngineStateSummary.vue`、`WorldEngineSubjectStateViewer(.Row).vue`（零引用，`world-engine-ide-entry.test.ts:604-607` 禁回流；删除与测试改写留给 legacy 清理切片） |
+| 7 设置 | ✅ 两个裸尺寸键已迁入 `workbench.layout` 记录并删除（t56）；✅ 4 篇「旧面板/旧宿主」表述已修订（t56）；✅ `RolesSettingsView` 决策已登记（保持不挂，等后端契约） |
 | 8 历史 | 无（收件箱保留）；`WorldEngineTimeline.vue` 归 6 |
 | 9 弹窗 | `UserProfileWorkbenchDialog` 入口决策；RAG 三件套接线或删除；`NovelIdeSettingsDialog`/`ProjectPickerScreen`/`NovelIdeProfileDialog`/`NovelIdeAccountMenu` 的文档补齐 |
 

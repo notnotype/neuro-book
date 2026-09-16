@@ -14,7 +14,7 @@ import type {
 /**
  * 模型区段渲染层的受控契约：每个渲染用到的会话字段都作为 props 传入（名字与会话字段一致），
  * 每个动作都作为同名 emit 交回宿主。四个会话（draft / check / discovery / template）与全部
- * I/O 仍留在 `NovelIdeModelSettingsPanel`，视图自己不读 store、不发请求。
+ * I/O 在宿主侧绑定 `useProviderSettingsBinding`，视图自己不读 store、不发请求。
  */
 export type ProviderSettingsViewProps = {
     /** 当前草稿；字段改动一律通过 update:draft 交回 */

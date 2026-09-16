@@ -29,6 +29,8 @@ import type {
 const props = withDefaults(defineProps<{
     applyButtonLabel?: string;
     busy?: boolean;
+    /** 尺寸记录还没读到分类：调整控件在此前不可用。 */
+    resizeDisabled?: boolean;
     committedSubjectEventKeys?: string[];
     discardDraftSliceId?: string;
     discardDraftVersion?: number;
@@ -357,9 +359,8 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     minSize: 300,
     maxSize: 560,
     edge: "left",
-    enabled: true,
-    syncDuringResize: true,
-    onResize: (width) => emit("update:width", width),
+    enabled: computed(() => !props.resizeDisabled),
+    // 拖拽期间只更新面板自己的预览；结束才提交一次。
     onResizeEnd: (width) => emit("update:width", width),
 });
 </script>
