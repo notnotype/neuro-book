@@ -827,7 +827,7 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
         >
             <span class="min-w-0 flex-1">窗口尺寸记录未就绪：{{ settingsWindowSizeNotice.diagnosis }}</span>
             <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="void windowSizeRecord.retry()">重试</button>
-            <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
+            <button v-if="settingsWindowSizeNotice.abandonable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
         </div>
 
         <NovelIdeSettingsView

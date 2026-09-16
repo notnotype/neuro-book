@@ -289,6 +289,8 @@ describe("useWorkbenchFileTreeExpandedPaths", () => {
         expect(opened.consumer.notice.value?.diagnosis).toBe("Storage 宿主暂不可达（cold start）");
         // 唯一能恢复的入口是 retry()，因此这条诊断必须让界面把「重试」按钮画出来。
         expect(opened.consumer.notice.value?.retryable).toBe(true);
+        // 但此刻没有任何会话内意图可弃：界面不该画出按了没反应的「放弃」。
+        expect(opened.consumer.notice.value?.abandonable).toBe(false);
 
         await opened.consumer.commit(["lorebook/"]);
         await flushMicrotasks();
@@ -444,6 +446,7 @@ describe("useWorkbenchFileTreeExpandedPaths", () => {
         expect(harness.saves).toEqual([]);
         expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/"]);
         expect(opened.consumer.notice.value?.retryable).toBe(true);
+        expect(opened.consumer.notice.value?.abandonable).toBe(true);
         expect(opened.consumer.notice.value?.diagnosis).toContain("记录已被其它窗口改写");
 
         harness.hooks.beforeSave = null;

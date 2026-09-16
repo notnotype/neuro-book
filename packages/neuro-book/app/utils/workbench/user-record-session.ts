@@ -31,6 +31,13 @@ import type {DefinedStorageState} from "nbook/shared/storage/definition";
 export type UserRecordSessionNotice = {
     readonly diagnosis: string;
     readonly retryable: boolean;
+    /**
+     * 现在调用 `abandon()` 是否真的会丢弃未确认意图。
+     *
+     * 与 `retryable` 分开：句柄不可达或首读未完成时也可以重试，但那些状态下没有任何会话内意图可弃，
+     * `abandon()` 只是空操作——界面不该给出按了没反应的「放弃」。
+     */
+    readonly abandonable: boolean;
 };
 
 export type UserRecordSession<T, I> = {
@@ -102,13 +109,14 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
             gateNotice = null;
         }
         if (state.pending !== null) {
-            notice.value = {diagnosis: state.pending.diagnosis, retryable: state.pending.retryable};
+            notice.value = {diagnosis: state.pending.diagnosis, retryable: state.pending.retryable, abandonable: true};
             return;
         }
         if (state.blocked !== null) {
             notice.value = {
                 diagnosis: state.issues.at(-1) ?? `Storage 记录不可用（${state.blocked}）`,
                 retryable: false,
+                abandonable: false,
             };
             return;
         }
@@ -136,7 +144,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         if (result.kind === "deferred") {
             return;
         }
-        migrationNotice = result.kind === "notice" ? {diagnosis: result.diagnosis, retryable: result.retryable} : null;
+        migrationNotice = result.kind === "notice" ? {diagnosis: result.diagnosis, retryable: result.retryable, abandonable: false} : null;
         publish();
     };
 
@@ -149,7 +157,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
                 // `retryable: true` 让界面上的「重试」按钮可达——它是这条诊断之外唯一的恢复路径。
                 opening = null;
                 loading.value = false;
-                notice.value = {diagnosis: owned.diagnosis, retryable: true};
+                notice.value = {diagnosis: owned.diagnosis, retryable: true, abandonable: false};
                 return;
             }
             ownerHandle = owned.handle;
@@ -184,6 +192,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
                     gateNotice = {
                         diagnosis: "记录还没完成首次读取，本次调整没有保存",
                         retryable: false,
+                        abandonable: false,
                     };
                     // 会话还没建起来：publish() 此刻什么都不刷新，直接把这条诊断放上条。
                     notice.value = gateNotice;
@@ -200,6 +209,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
                 gateNotice = {
                     diagnosis: "记录还没完成首次读取，本次调整没有保存",
                     retryable: false,
+                    abandonable: false,
                 };
                 publish();
                 return;

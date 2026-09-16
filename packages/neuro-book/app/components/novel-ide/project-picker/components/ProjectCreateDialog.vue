@@ -95,7 +95,7 @@ function handleFooterSubmit(): void {
         >
             <span class="min-w-0 flex-1">窗口尺寸记录未就绪：{{ windowSizeNotice.diagnosis }}</span>
             <button v-if="windowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="void windowSizeRecord.retry()">重试</button>
-            <button v-if="windowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
+            <button v-if="windowSizeNotice.abandonable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
         </div>
 
         <ProjectCreateForm

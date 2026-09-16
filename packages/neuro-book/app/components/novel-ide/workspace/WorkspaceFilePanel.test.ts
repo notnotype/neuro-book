@@ -24,7 +24,7 @@ const fake = vi.hoisted(() => ({
 vi.mock("nbook/app/utils/workbench/files-view-session", async () => {
     const {ref} = await import("vue");
     const expandedPaths = ref<string[]>([]);
-    const notice = ref<{diagnosis: string; retryable: boolean} | null>(null);
+    const notice = ref<{diagnosis: string; retryable: boolean; abandonable: boolean} | null>(null);
     const loading = ref(false);
     fake.refs = {expandedPaths, notice, loading};
     return {
@@ -150,7 +150,7 @@ const manuscriptFile = nodeOf({path: "manuscript/chapter-1.md", title: "chapter-
 function recordRefs() {
     return fake.refs as {
         expandedPaths: Ref<string[]>;
-        notice: Ref<{diagnosis: string; retryable: boolean} | null>;
+        notice: Ref<{diagnosis: string; retryable: boolean; abandonable: boolean} | null>;
         loading: Ref<boolean>;
     };
 }
@@ -282,7 +282,7 @@ describe("WorkspaceFilePanel", () => {
     });
 
     it("记录诊断可见，并且带重试 / 放弃出口", async () => {
-        recordRefs().notice.value = {diagnosis: "Storage 记录当前不可写，旧展开记录保留原位", retryable: true};
+        recordRefs().notice.value = {diagnosis: "Storage 记录当前不可写，旧展开记录保留原位", retryable: true, abandonable: true};
         const wrapper = mountPanel();
 
         const notice = wrapper.find("[data-file-panel-record-notice]");
@@ -293,6 +293,21 @@ describe("WorkspaceFilePanel", () => {
         expect(fake.retries).toBe(1);
         await notice.findAll("button")[1]!.trigger("click");
         expect(fake.abandons).toBe(1);
+    });
+
+    it("没有可放弃的意图时不给出「放弃」按钮（宿主不可达仍可重试）", async () => {
+        recordRefs().notice.value = {diagnosis: "Storage 宿主暂不可达（cold start）", retryable: true, abandonable: false};
+        const wrapper = mountPanel();
+
+        const notice = wrapper.find("[data-file-panel-record-notice]");
+        expect(notice.exists()).toBe(true);
+        expect(notice.text()).toContain("Storage 宿主暂不可达");
+
+        const buttons = notice.findAll("button");
+        expect(buttons).toHaveLength(1);
+        await buttons[0]!.trigger("click");
+        expect(fake.retries).toBe(1);
+        expect(fake.abandons).toBe(0);
     });
 
     it("没有诊断时不显示记录提示条", () => {

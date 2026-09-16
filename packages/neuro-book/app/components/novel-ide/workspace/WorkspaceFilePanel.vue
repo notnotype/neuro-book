@@ -665,7 +665,7 @@ watch(canAccessWorkspace, (canAccess) => {
             <button v-if="expandedPathsNotice.retryable" type="button" class="shrink-0 underline" @click="retryExpandedPathsRecord()">
                 {{ t("ide.workspace.filePanel.recordRetry") }}
             </button>
-            <button v-if="expandedPathsNotice.retryable" type="button" class="shrink-0 underline" @click="abandonExpandedPathsRecord()">
+            <button v-if="expandedPathsNotice.abandonable" type="button" class="shrink-0 underline" @click="abandonExpandedPathsRecord()">
                 {{ t("ide.workspace.filePanel.recordAbandon") }}
             </button>
         </div>
