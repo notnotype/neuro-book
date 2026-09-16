@@ -10,6 +10,7 @@ import {
 } from "@notnotype/nb-ui/components";
 import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
 import type {StorageCredential, StorageReadResult} from "nbook/shared/storage/contract";
+import {defineStorageState} from "nbook/shared/storage/definition";
 import {StorageAdapterError, type StorageValueTransport} from "nbook/app/utils/storage/value-transport";
 import {openStorageOwnerHandle} from "nbook/app/utils/storage/owner-handle";
 import type {StorageProjectContextTarget} from "nbook/app/utils/storage/host-context-client";
@@ -84,6 +85,25 @@ function recordFixture(outlineWidth = 240): GridLayoutRecord {
             children: [
                 {kind: "leaf", id: "outline", ref: "outline", size: {width: outlineWidth, height: 0}},
                 {kind: "leaf", id: "plugin", ref: "plugin", size: {width: 180, height: 0}},
+                {kind: "leaf", id: "editor", ref: "editor", size: {width: 660, height: 0}},
+                {kind: "leaf", id: "console", ref: "console", size: {width: 300, height: 0}},
+            ],
+        },
+    } as unknown as GridLayoutRecord;
+}
+
+/** 外部窗口改写结构后的记录：`outline` 已不存在（改名 `outline-v2`）。 */
+function renamedRecordFixture(): GridLayoutRecord {
+    return {
+        version: 2,
+        note: "renamed",
+        root: {
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            size: {width: 0, height: 0},
+            children: [
+                {kind: "leaf", id: "outline-v2", ref: "outline-v2", size: {width: 300, height: 0}},
                 {kind: "leaf", id: "editor", ref: "editor", size: {width: 660, height: 0}},
                 {kind: "leaf", id: "console", ref: "console", size: {width: 300, height: 0}},
             ],
@@ -725,6 +745,44 @@ describe("插件 grid 持久化宿主", () => {
         await workbench.release();
     });
 
+    it("重放后主动字段没有落点：不报已保存，保留未确认意图且重试/放弃可用", async () => {
+        const harness = storageHarness();
+        harness.records.set(harness.userKey(RESOURCE), {value: recordFixture(), revision: "seed-1", schemaVersion: 2});
+        const workbench = createWorkbenchStorageContext({adapters: harness.adapters});
+        const host = createGridLayoutHost({
+            grid: createTestGrid(),
+            handle: await userHandle(workbench),
+            definition,
+            resource: RESOURCE,
+            resolveRef: (ref) => (ref === "plugin" ? null : {ref}),
+        });
+        await host.open();
+        host.setContainer({width: 1200, height: 800});
+        // 另一个窗口改写结构后写入：本窗口手势的主动字段在新记录里已没有对应节点。
+        harness.write(RESOURCE, renamedRecordFixture());
+        const revision = harness.records.get(harness.userKey(RESOURCE))?.revision ?? "";
+
+        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
+        const outcome = await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+
+        expect(outcome.status).toBe("unsaved");
+        expect(host.state.pending).toMatchObject({retryable: true, fields: [{id: "outline", axis: "width", value: 360}]});
+        expect(host.state.credential).toEqual(credential(revision));
+        expect(harness.records.get(harness.userKey(RESOURCE))?.revision).toBe(revision);
+        expect(host.state.issues.some((issue) => issue.kind === "save" && issue.message.includes("没有落点"))).toBe(true);
+
+        // 显式重试仍然没有落点：不谎报保存，意图继续保留。
+        expect((await host.retry()).status).toBe("unsaved");
+        expect(host.state.pending).not.toBeNull();
+
+        // 放弃采用当前已确认值（结构已改写的记录），不清记录。
+        host.abandon();
+        expect(host.state.pending).toBeNull();
+        expect(idsOf(host.grid.root())).toEqual(["root", "outline-v2", "editor", "console"]);
+        expect(harness.records.get(harness.userKey(RESOURCE))?.revision).toBe(revision);
+        await workbench.release();
+    });
+
     it("订阅补齐基线但不重挂呈现，显式恢复才应用记录", async () => {
         let reads = 0;
         const harness = storageHarness({
@@ -865,6 +923,77 @@ describe("插件 grid 持久化宿主", () => {
         expect(settled).toBe(true);
         expect(await committing).toMatchObject({status: "saved"});
         expect(attempts).toHaveLength(1);
+        await workbench.release();
+    });
+
+    it("release 后 open 不接受新动作：返回当前状态且不发起读取", async () => {
+        const harness = storageHarness();
+        const workbench = createWorkbenchStorageContext({adapters: harness.adapters});
+        const handle = await userHandle(workbench);
+        const readsNow = (): number => harness.sent.filter((kind) => kind === "read").length;
+
+        // 从未打开过的宿主：释放后 open() 不得发起读取。
+        const neverOpened = createHost(handle);
+        await neverOpened.release();
+        const readsBeforeRelease = readsNow();
+        expect((await neverOpened.open()).phase).toBe("released");
+        expect(readsNow()).toBe(readsBeforeRelease);
+
+        // 已打开过的宿主：释放后 open() 同样只返回当前状态。
+        const opened = createHost(handle);
+        await opened.open();
+        await opened.release();
+        const readsAfterOpen = readsNow();
+        expect((await opened.open()).phase).toBe("released");
+        expect(readsNow()).toBe(readsAfterOpen);
+        await workbench.release();
+    });
+
+    it("构造期守卫拒绝不匹配的句柄、寻址与定义版本且不接触句柄", async () => {
+        const harness = storageHarness();
+        const workbench = createWorkbenchStorageContext({adapters: harness.adapters});
+        const handle = await userHandle(workbench);
+        const otherOwner = defineGridLayoutState({
+            owner: "nbook.other-owner",
+            key: "layout",
+            scope: "user",
+            records: "identified",
+            defaultLayout: createTestGrid().serialize(),
+        });
+        const singleRecord = defineGridLayoutState({
+            owner: OWNER,
+            key: "layout",
+            scope: "user",
+            records: "single",
+            defaultLayout: createTestGrid().serialize(),
+        });
+        const wrongSchema = defineStorageState<GridLayoutRecord>({
+            owner: OWNER,
+            key: "layout",
+            scope: "user",
+            records: "identified",
+            schemaVersion: 3,
+            defaultValue: definition.defaultValue,
+            validate: definition.validate,
+        });
+        const actionsBefore = harness.sent.length;
+
+        expect(() => createGridLayoutHost({
+            grid: createTestGrid(), handle, definition: otherOwner, resource: RESOURCE, resolveRef: resolver(),
+        })).toThrow(TypeError);
+        expect(() => createGridLayoutHost({
+            grid: createTestGrid(), handle, definition, resolveRef: resolver(),
+        })).toThrow(/稳定资源标识/);
+        expect(() => createGridLayoutHost({
+            grid: createTestGrid(), handle, definition: singleRecord, resource: RESOURCE, resolveRef: resolver(),
+        })).toThrow(/single/);
+        expect(() => createGridLayoutHost({
+            grid: createTestGrid(), handle, definition, resource: "Main/Ref", resolveRef: resolver(),
+        })).toThrow(/安全逻辑标识/);
+        expect(() => createGridLayoutHost({
+            grid: createTestGrid(), handle, definition: wrongSchema, resource: RESOURCE, resolveRef: resolver(),
+        })).toThrow(/schemaVersion/);
+        expect(harness.sent.length).toBe(actionsBefore);
         await workbench.release();
     });
 

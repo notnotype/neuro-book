@@ -110,10 +110,13 @@ const outcome = await host.gestureEnd({branchId: node.id, active: state.active, 
 
 ## 文件
 
-- `packages/neuro-book/app/utils/workbench/storage-grid-host.ts`（新增，974 行，含公开类型与纯 helper）
-- `packages/neuro-book/app/utils/workbench/storage-grid-host.test.ts`（新增，891 行，17 用例）
+- `packages/neuro-book/app/utils/workbench/storage-grid-host.ts`（1000 行，含公开类型与纯 helper）
+- `packages/neuro-book/app/utils/workbench/storage-grid-host.test.ts`（1020 行，20 用例）
 - `packages/neuro-book/app/utils/storage/README.md`（新增一段 grid 宿主消费说明，不改既有语义）
 - 本记录
+
+上一轮两个文件已在 `5fcdf8b8`（`feat(storage): persist grid layouts with original-record composition`）提交；
+本节的返工改动仍以工作区未提交修改的形式存在。
 
 ## 未运行与偏差
 
@@ -127,4 +130,56 @@ const outcome = await host.gestureEnd({branchId: node.id, active: state.active, 
   关闭自身订阅由实现保证（`subscription.close()` 后在稳定点收口），用例只断言了"停止接纳 + 在途排空"。
 - 结构编辑（增删/移动叶）不在本切片：`fields` 指到原件树里不存在的节点时记 `skipped(unknown-node)`
   并报告，不用过滤树覆盖原件；结构持久化留给后续切片。
-- 未提交、未 push、未创建 PR；未触碰用户 dirty 的 `app/utils/workbench/descriptors{,.test}.ts`。
+- 本轮返工未提交（上一轮两个文件由 Leader 提交为 `5fcdf8b8`）；未 push、未创建 PR；未触碰用户 dirty 的
+  `app/utils/workbench/descriptors{,.test}.ts`，未改动 t46 目录下的探针与报告。
+
+## 返工（2026-09-16，依据 t46 检查点 A 审查）
+
+本轮只改 `app/utils/workbench/storage-grid-host.ts` 与其同名测试，未改公共类型与签名，未触碰
+t46 目录下的探针与报告。
+
+### 修复落地
+
+| 项 | 位置 | 改动 |
+|---|---|---|
+| P2 重放/核对结果分类 | `rereadAfterFailure` 的 `applied.length === 0` 分支 | `skipped.length > 0` 时不再当成"目标已满足"：保留未确认意图（`pending.autoReplayed=true`，停止自动重放）并返回 `unsaved`，诊断写明"重读后主动字段没有落点（记录里已没有对应节点）"；只有确实无 `skipped` 时才 `clearPending()` 并返回 `saved`。 |
+| P2 同源次生（初始提交路径） | `commit` 的 `applied.length === 0` 分支 | 结果分类仍是 `unchanged`（不声称已保存，与公开类型中 `unchanged` 的既有定义一致），诊断按 `skipped` 区分语义："主动字段在原件里没有落点（记录里没有对应节点），未写盘" 与 "没有产生与原件不同的字段，未写盘"。 |
+| P3 释放后 `open()` | `open()` 入口 + `runOpen()` 首行 | 释放/失效后 `open()` 直接返回当前状态快照、不发起读取；`runOpen` 在读取后的复核改用 `!accepting`（释放与失效都会关闭接纳），读取期间被释放也不再建订阅。 |
+| 观察 1a | `TERMINAL_STORAGE_CODES` 注释 | 改为准确表述：宿主集合 = `owner-handle.ts` 私有终止码 **再加** `STORAGE_SCHEMA_MISMATCH`（适配器 `isTerminalFailure` 同样按终止处理），并注明适配器新增终止码时宿主要同步跟随。行为未变。 |
+
+`saved` 与 `unchanged` 的语义边界本轮钉死：只有"每个主动字段都有落点且已确认值相同"才是 `saved`；
+"没有落点"在任何路径都不报 `saved`。
+
+### 新增用例（共 20 用例）
+
+- 「重放后主动字段没有落点：不报已保存，保留未确认意图且重试/放弃可用」：另一窗口改名节点后写入 →
+  冲突重读 → `unsaved`、`pending.retryable=true`、凭据换成重读到的 revision、记录 revision 未变、
+  `save` 诊断含"没有落点"；显式 `retry()` 仍 `unsaved` 且保留意图；`abandon()` 清空意图并采用
+  已确认（改名后）的呈现。
+- 「release 后 open 不接受新动作：返回当前状态且不发起读取」：从未打开过的宿主与已打开过的宿主各一条，
+  释放后 `open()` 返回 `phase="released"` 且传输读取计数不变。
+- 「构造期守卫拒绝不匹配的句柄、寻址与定义版本且不接触句柄」：owner 不匹配 / `identified` 缺 resource /
+  `single` 带 resource / 不安全 resource / 定义 schemaVersion 不符 各自抛 `TypeError`，且构造期间
+  传输动作数不变（未接触句柄）。
+
+### 命令与结果（本轮）
+
+- `bun run test app/utils/workbench/storage-grid-host.test.ts`（cwd 为本 worktree 的 `packages/neuro-book`）
+  - 首次本轮运行 **exit 1**：1 个失败——已打开过的宿主释放后 `open()` 返回的是缓存 promise 里的旧快照
+    （`phase` 仍为 `ready`）；在 `open()` 入口补守卫后通过。
+  - 最终 **exit 0**：1 file passed / **20 tests passed**（末次运行 `Duration 5.67s`）。
+- scoped 类型检查（临时配置已删除，命令同上轮）：修复过程中出现 1 处真实类型错误——`runOpen` 里
+  `phase === "released"` 在收窄后不可达（TS2367）；改为 `!accepting` 复核（语义等价）后
+  **本 Task 两个文件 0 条错误**。
+
+### 未处理项与需 Leader 知悉
+
+- t46 的探针套件本轮**只读复跑**（未改动任何探针文件）：
+  `bunx vitest run --config ../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t46-checkpoint-a-review/walkthroughs/probes/vitest.probe.config.ts`
+  → **exit 1**：3 files / 8 tests 通过（含关键探针 A「原件保留」、探针 C、探针 D1/D2），2 条按设计失败——
+  - `replay-no-landing.probe.test.ts`：`AssertionError: expected 'unsaved' to be 'saved'`（修复前该探针记录缺陷为 `saved`；现在不再谎报已保存）；
+  - `lifecycle-and-guards.probe.test.ts`「从未打开的宿主 release 后 open()」：`AssertionError: expected +0 to be 1`（释放后不再发起读取）。
+  即两条探针固化了修复前的行为，修复后失败属预期；若要把它们留作回归门禁，需要把断言改成修复后的期望
+  （属 t46 目录，本轮按要求未动）。
+- 其余审查观察项（1b、6a、7a 与未验证项）按返工要求本轮不处理；7a 的接线约定（切片 4 消费方必须读
+  `state.blocked`，不能只看 `state.projection.status`）已写在上面「公开 API 用法」一节。

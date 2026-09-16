@@ -235,7 +235,7 @@ export type GridLayoutHostState = {
 
 export type GridLayoutCommitResult =
     | {readonly status: "saved"; readonly credential: StorageCredential; readonly fields: readonly GridLayoutField[]}
-    /** 没有需要保存的字段（no-op 手势、字段与原件相同、全部没有落点）。 */
+    /** 没有需要保存的字段（no-op 手势、字段与原件相同、主动字段全部没有落点）；诊断说明是哪种。 */
     | {readonly status: "unchanged"; readonly diagnosis: string}
     /** 保存失败或结果未确认：当前显示与未确认意图都保留，出口见 `retry()` / `abandon()`。 */
     | {readonly status: "unsaved"; readonly diagnosis: string; readonly fields: readonly GridLayoutField[]}
@@ -303,7 +303,12 @@ export type GridLayoutHost<T> = {
     release(): Promise<void>;
 };
 
-/** 句柄的永久失效：与 `owner-handle.ts` 的 `TERMINAL_STORAGE_CODES` 同一集合。 */
+/**
+ * 宿主视为永久失效的失败：`owner-handle.ts` 的终止码（该模块私有的 `TERMINAL_STORAGE_CODES`）再加
+ * `STORAGE_SCHEMA_MISMATCH`——适配器在 `isTerminalFailure` 里同样把它当终止并关掉订阅。
+ *
+ * 这里只用于收敛"还能不能重试"，不代替适配器自己的失效判定；适配器若新增终止码，宿主要同步跟随。
+ */
 const TERMINAL_STORAGE_CODES: Record<string, true> = {
     STORAGE_CONTEXT_INVALID: true,
     STORAGE_CLIENT_CREDENTIAL_INVALID: true,
@@ -651,7 +656,13 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         const composed = composeGridLayoutRecord(baselineRecord, fields);
         reportSkips(composed.skipped);
         if (composed.applied.length === 0) {
-            // 已确认值已经满足主动意图：视为目标已达成，不伪造某次历史请求的回执（Spec「输出与可观察行为」）。
+            if (composed.skipped.length > 0) {
+                // 主动字段在重读后的记录里没有落点：既没有落盘，也没有"当前值已满足意图"这回事。
+                const unresolved = `${diagnosis}；重读后主动字段没有落点（记录里已没有对应节点），未确认调整保留`;
+                keepPending(fields, unresolved, true);
+                return unsaved(unresolved, pendingList());
+            }
+            // 每个字段都落点且值已相同：视为目标已达成，不伪造某次历史请求的回执（Spec「输出与可观察行为」）。
             clearPending();
             return {status: "saved", credential, fields: []};
         }
@@ -678,12 +689,22 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         const composed = composeGridLayoutRecord(baselineRecord ?? definition.defaultValue, fields);
         reportSkips(composed.skipped);
         if (composed.applied.length === 0) {
-            return {status: "unchanged", diagnosis: "本次手势没有产生与原件不同的字段，未写盘"};
+            // 结果分类仍是 unchanged（记录没有变化、也没有声称已保存），诊断区分"没有落点"与"值相同"。
+            return {
+                status: "unchanged",
+                diagnosis: composed.skipped.length > 0
+                    ? "本次手势的主动字段在原件里没有落点（记录里没有对应节点），未写盘"
+                    : "本次手势没有产生与原件不同的字段，未写盘",
+            };
         }
         return await submit(credential, composed.value, composed.applied, fields, true);
     };
 
     const runOpen = async (): Promise<GridLayoutHostState> => {
+        // 释放/失效后不接受任何新动作：连读取也不发起（`open()` 直接返回当前状态快照）。
+        if (!accepting || phase === "released" || phase === "invalidated") {
+            return stateSnapshot();
+        }
         try {
             const snapshot = await track(handle.read(definition, address));
             if (!accepting) {
@@ -698,7 +719,8 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             }
             block("unavailable", `读取布局记录失败，当前呈现保持产品默认布局：${failure.diagnosis}`);
         }
-        if (!accepting || phase === "invalidated" || phase === "released") {
+        // 读取期间可能已被释放或失效（两者都会关闭接纳）：那时不再建立订阅。
+        if (!accepting) {
             return stateSnapshot();
         }
         if (subscription === null) {
@@ -771,6 +793,10 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         },
 
         open() {
+            // 释放/失效后不接受任何新动作：直接返回当前状态快照，不发读取。
+            if (!accepting || phase === "released" || phase === "invalidated") {
+                return Promise.resolve(stateSnapshot());
+            }
             // 一次调用保证"已读取并已订阅"：没拿到分类（后端暂不可达）或订阅没建立时保留重试入口。
             openPromise ??= runOpen().then((state) => {
                 if (phase === "ready" && (projection === null || subscription === null)) {

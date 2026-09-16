@@ -70,3 +70,20 @@ Work：[w00003](../../README.md)。依赖已提交 `70c7168d`（浏览器适配�
 
 检查点 A 由独立 Reviewer 复核（公共类型、身份/寻址、生命周期、原件合成与冲突边界），Leader 复跑聚焦测试与 typecheck。
 Lab fixture 与四主题/桌面/390×844 浏览器验收由后续 Task 承接，本 Task 不声明切片 3 整体完成。
+
+## 返工要求（2026-09-16，依据 [t46 独立审查](../t46-checkpoint-a-review/walkthroughs/review.md)）
+
+审查裁定「需修复」；公共边界其余各条通过。本轮只闭合下列项，不改公共类型与签名：
+
+1. **P2（阻断）：重放/核对路径的结果分类**。`rereadAfterFailure` 在 `composed.applied.length === 0` 时不区分"值本来就相同"与"字段全部 `skipped`（记录里已无对应节点）"，把后者报成 `saved` 并 `clearPending()`，导致既未落盘、又无 pending、也无法 retry/abandon 的意图被当成已保存（reviewer 探针 `replay-no-landing.probe.test.ts` 复现；规范依据 persistence.md:114/144）。
+   最小修复：`skipped` 非空时保留未确认意图并返回 `unsaved`（重试已停止自动重放），诊断文本说明"重读后主动字段没有落点"；仅当确实无 skipped 时才视为目标已满足。
+   同源次生项：初始提交路径把"全部没有落点"报成 `unchanged`，诊断文本需按 skipped 区分语义（不声称已保存）。
+2. **P3：`release()` 后 `open()` 仍发起一次读取**（reviewer 探针 `lifecycle-and-guards.probe.test.ts` D3）。释放后不得接受任何新动作；`open()` 在未接纳时应直接返回当前状态快照，不发读取。
+3. **观察 1a：注释与集合不符**。`TERMINAL_STORAGE_CODES` 自注释称与 `owner-handle.ts` 同集合，实际多一项。改为准确表述（或引用既有导出谓词），不改变行为。
+4. **补测试**（覆盖本轮修复与既有缺口的可观察合同）：
+   - 重放/核对时主动字段没有落点：不得报 `saved`，必须保留 pending 且 retry/abandon 可用；
+   - 释放后 `open()` 不接受新动作（不产生读取）；
+   - 构造期守卫四条：owner 不匹配、`identified` 缺 resource、`single` 带 resource、不安全 resource 各自抛错且不接触句柄。
+5. 其余审查观察项（1b、6a、7a、未验证项）本轮不处理：7a 写入切片 4 接线约定，6a 记录为已知行为。
+
+验证与报告：聚焦测试重跑并记录用例数/退出码；报告追加到 `walkthroughs/implementation.md`（本轮小节），说明每条修复的落地位置与新增用例；Leader 复跑 typecheck。
