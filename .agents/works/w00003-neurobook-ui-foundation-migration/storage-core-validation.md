@@ -170,3 +170,12 @@ Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun ru
 遗留待办（不删）：四个 World Engine legacy 组件全仓零引用，但 `world-engine-ide-entry.test.ts:62-64/963-979` 仍读取并断言其内容，删除需连同该断言一起改——已记入清单 §2.6。
 
 流程：本增量前 Leader 有序停止 3001（避免服务端定义落盘触发 Nitro 重建导致 exit 5），完成后按其完成信号恢复；3001 现带 `restart: on-failure`。
+
+## 2026-09-16 视图宿主 Lab 覆盖（Leader 记录）
+
+增量：t57（提交 `ef51c81b`）。为 t55 接入产品的 `WorkbenchViewHost.vue` 补契约文档与 Lab fixture（此前无 `.md` → 按 `component-index.ts:59-108` 的标签推导规则连索引都进不去）。
+
+- 交付：`WorkbenchViewHost.md`（frontmatter `标签: [state:local]`）、`WorkbenchViewHostFixture.vue` 三场景（可见视图渲染 / `when` 不可见给原因 / 未知 `factoryKey` 失败可见）、`fixtures/index.ts` 登记；唯一产品改动是可选且文档化的 `viewFactoryResolver` 注入缝隙（页面不传，默认行为不变）。
+- Leader 独立复跑：聚焦 2 文件 **9 例** exit 0；`component-lab --suite all` 对 3001 **exit 0**；`bun run typecheck` **exit 0**（在有序停机窗口内跑）。
+- 实现者另有 `vue-tsc --noEmit` exit 0（并用临时探针证明该命令确实检查 SFC）与 `docs:check` exit 0（5894 文件）。
+- 可挂载性证据：标签推导 `mountable: true`，且 Lab 页面 workbench 分组可见并可选中（右栏显示目录/标签/确定性验证）。
