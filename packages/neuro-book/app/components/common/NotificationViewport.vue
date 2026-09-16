@@ -1,9 +1,21 @@
 <script setup lang="ts">
+import {computed} from "vue";
 import {useNotification, type NotificationItem, type NotificationPosition, type NotificationTone} from "nbook/app/composables/useNotification";
+import {SHELL_TITLEBAR_HEIGHT} from "nbook/app/utils/workbench/layout";
 
-const props = withDefaults(defineProps<{desktop?: boolean}>(), {
-    desktop: false,
+const props = withDefaults(defineProps<{
+    /** 标题栏是否真的在场（切片 5 起浏览器也有）：在场就让出它那 36px，不按 bridge 判。 */
+    titlebar?: boolean;
+}>(), {
+    titlebar: false,
 });
+
+/**
+ * 让位量取标题栏高度的同一来源（`SHELL_TITLEBAR_HEIGHT`），并且只在标题栏真在场时让。
+ * 写死在 CSS 类里的 36 在浏览器档会失效（toast 会从 y=16 起画并压住标题栏右侧控件）。
+ */
+const viewportOffset = computed<Record<string, string> | undefined>(() =>
+    props.titlebar ? {top: `${String(SHELL_TITLEBAR_HEIGHT)}px`} : undefined);
 
 type NotificationGroup = {
     key: string;
@@ -87,7 +99,7 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
 
 <template>
     <ClientOnly>
-        <div class="pointer-events-none fixed inset-0 z-[9800]" :class="{'notification-viewport--desktop': props.desktop}">
+        <div class="pointer-events-none fixed inset-0 z-[9800]" :style="viewportOffset">
             <div
                 v-for="group in groupedNotifications"
                 :key="group.key"
@@ -188,7 +200,5 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
 </style>
 
 <style>
-.notification-viewport--desktop {
-    top: 36px;
-}
+/* 让位量由脚本按「标题栏真在场 + SHELL_TITLEBAR_HEIGHT」写在容器行内样式上，这里不再留一份数字。 */
 </style>

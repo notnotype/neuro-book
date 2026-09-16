@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {defineComponent, h, ref} from "vue";
+import {defineComponent, h, ref, type Ref} from "vue";
 import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
+import {useTitleBarEditTarget} from "nbook/app/composables/useTitleBarEditTarget";
 import {
     provideWorkbenchChrome,
     type WorkbenchChromeRegistration,
@@ -12,6 +13,9 @@ import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop
 /**
  * 宿主的组件边界：**没有桌面 bridge 也画出标题栏**，应用动作走页面登记的回调，
  * 菜单能力与两条 Project 打开路径取自登记（URL 由页面路由给出）。
+ *
+ * 编辑目标按页面同样的接线驱动（`useTitleBarEditTarget` + 可注入的焦点来源），
+ * 这样「键盘进标题栏后编辑动作仍可用」这条发生在真实页面里的行为在组件层可验证。
  *
  * 桌面 bridge 分支（`import.meta.client` 为真、`window.neuroBookDesktop` 在场）在 vitest 里不可达，
  * 由产品真实验收覆盖；这里只验证浏览器这条新增路径与登记契约。
@@ -40,16 +44,24 @@ type Harness = {
     invoked: DesktopMenuCommandId[];
     switched: (string | null)[];
     opened: string[];
-    editTarget: {value: "none" | "native" | "editor"};
+    activeElement: Ref<Element | null>;
     surfaceActive: {value: boolean};
 };
+
+/** 焦点元素：不在元素上时直接失败，别让断言在后面对 undefined 下手。 */
+function focusedElement(): HTMLElement {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement)) throw new Error("当前焦点不在元素上");
+    return active;
+}
 
 function mountHost(): Harness {
     const invoked: DesktopMenuCommandId[] = [];
     const switched: (string | null)[] = [];
     const opened: string[] = [];
-    const editTarget = ref<"none" | "native" | "editor">("native");
     const surfaceActive = ref(true);
+    const activeElement = ref<Element | null>(null);
+    const editSession = useTitleBarEditTarget({editorActive: () => false, activeElement});
     const registration: WorkbenchChromeRegistration = {
         title: () => "命定之诗 — NeuroBook",
         appearance: () => "light",
@@ -70,7 +82,7 @@ function mountHost(): Harness {
         invokeMenuCommand: (command: DesktopMenuCommandId) => {
             invoked.push(command);
         },
-        editTarget: () => editTarget.value,
+        editTarget: () => editSession.target.value,
         projectUrl: (projectRoot) => projectRoot === null ? "/" : `/?project=${projectRoot}`,
     };
 
@@ -81,7 +93,7 @@ function mountHost(): Harness {
         },
     }), {attachTo: document.body});
     mounted.push(wrapper);
-    return {wrapper, invoked, switched, opened, editTarget, surfaceActive};
+    return {wrapper, invoked, switched, opened, activeElement, surfaceActive};
 }
 
 function menuItem(label: string): HTMLButtonElement {
@@ -98,7 +110,7 @@ async function openMenu(wrapper: VueWrapper, label: string): Promise<void> {
 
 describe("DesktopTitleBar", () => {
     it("没有桌面 bridge 也画标题栏，并按页面的真实焦点决定编辑动作", async () => {
-        const {wrapper, invoked, editTarget} = mountHost();
+        const {wrapper, invoked, activeElement} = mountHost();
 
         expect(wrapper.find(".desktop-title-bar").exists()).toBe(true);
 
@@ -110,8 +122,8 @@ describe("DesktopTitleBar", () => {
         await wrapper.vm.$nextTick();
         expect(invoked).toEqual(["file.settings"]);
 
-        // 焦点离开可编辑处：编辑动作画成禁用（菜单与执行共用同一份判定）。
-        editTarget.value = "none";
+        // 焦点在页面的非可编辑处：编辑动作画成禁用（菜单与执行共用同一份判定）。
+        activeElement.value = document.body;
         await wrapper.vm.$nextTick();
         await openMenu(wrapper, "Edit");
         expect(menuItem("撤销").disabled).toBe(true);
@@ -146,6 +158,41 @@ describe("DesktopTitleBar", () => {
 
         // 书架链接同样只给 URL，不触发页面切换。
         expect(opened).toEqual([]);
+    });
+
+    it("键盘进标题栏后 Edit 六条仍可用，且激活后发的是同一条编辑命令", async () => {
+        const {wrapper, invoked, activeElement} = mountHost();
+
+        // 页面里的真实过程：焦点先在输入框（编辑可用），随后 Tab 进标题栏（焦点离开输入框）。
+        const input = document.createElement("input");
+        document.body.append(input);
+        activeElement.value = input;
+        input.focus();
+        await wrapper.vm.$nextTick();
+
+        const trigger = wrapper.get('[data-menu-button="Edit"]');
+        if (!(trigger.element instanceof HTMLElement)) throw new Error("触发按钮不是元素");
+        trigger.element.focus();
+        activeElement.value = trigger.element;
+        await wrapper.vm.$nextTick();
+
+        await trigger.trigger("keydown", {key: "ArrowDown"});
+        await wrapper.vm.$nextTick();
+
+        expect([...document.querySelectorAll<HTMLButtonElement>('[data-titlebar-menu-panel="group"] [role="menuitem"]')]
+            .map((item) => [item.textContent?.trim(), item.disabled])).toEqual([
+            ["撤销", false],
+            ["重做", false],
+            ["剪切", false],
+            ["复制", false],
+            ["粘贴", true],
+            ["全选", false],
+        ]);
+        expect(focusedElement().textContent?.trim()).toBe("撤销");
+
+        focusedElement().dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, detail: 0}));
+        await wrapper.vm.$nextTick();
+        expect(invoked).toEqual(["edit.undo"]);
     });
 
     it("Agent 按钮跟着工作面的真实状态，不假装可用", async () => {

@@ -6,8 +6,13 @@
  *   A. 「编辑动作按真实焦点判断」——菜单里的 enabled 与执行去处同一份判定；
  *   B. 「键盘与焦点行为可用」——键盘打开 Edit 菜单后编辑动作仍能点。
  *
+ * **修复轮更新（R1 后）**：B 段改用产品新口径 `useTitleBarEditTarget`（`index.vue:278-280` + `:311-316`），
+ * 因为首轮复现出的缺陷正是「键盘路径整组禁用」，实现者已按本 Task 的缺陷交回修复。
+ * 首轮结论与当时读数保留在 `../review.md` 的「首轮」小节。
+ *
  * 复刻依据（逐行对照，不是自创口径）：
- *   index.vue:282-284  `titleBarEditTarget = resolveTitleBarEditTarget(activeElement, studio.activeEditor !== null)`
+ *   index.vue:275-280  `titleBarEdit = useTitleBarEditTarget({editorActive: () => studio.activeEditor.value !== null})`
+ *   index.vue:296-316  `executeEditCommand` 走 `titleBarEdit.target.value`，原生命令前把焦点还给 `rememberedElement`
  *   index.vue:  88-96  `executeEditCommand` 用 `resolveTitleBarEditRoute` 选去处（unavailable 只提示不执行）
  *   DesktopTitleBarChrome.vue:191-196  `focusableMenuItems` 过滤 `disabled` 的 menuitem（键盘遍历看不见禁用项）
  *
@@ -15,6 +20,8 @@
  *   bunx vitest run --config .agents/works/w00003-neurobook-ui-foundation-migration/tasks/t51-checkpoint-b-review/walkthroughs/probes/vitest.probe.config.ts
  */
 import {describe, expect, it} from "vitest";
+import {nextTick, ref, type Ref} from "vue";
+import {useTitleBarEditTarget} from "nbook/app/composables/useTitleBarEditTarget";
 import {
     resolveTitleBarEditRoute,
     resolveTitleBarEditTarget,
@@ -75,30 +82,37 @@ describe("P2 编辑动作的焦点口径", () => {
             expect(actual).toBe(expected);
         }
 
-        // jsdom 的限制要如实记下：真机里 `contenteditable` 的 isContentEditable 为 true，jsdom 不实现。
-        console.log(`[P2/A] jsdom 对 contenteditable 的读数：${String(editable.isContentEditable)}；jsdom 不实现该属性，本探针对此不作真机结论`);
+        // jsdom 不实现 isContentEditable；修复轮补了 closest 判据，所以 jsdom 里也能判出 contenteditable。
+        console.log(`[P2/A] jsdom 对 contenteditable 的读数：isContentEditable=${String(editable.isContentEditable)}；closest 判据下分类=${resolveTitleBarEditTarget(editable, false)}`);
+        expect(resolveTitleBarEditTarget(editable, false)).toBe("native");
     });
 
-    it("B. 同一份判定下，鼠标路径可用而键盘路径整组禁用", () => {
-        // 鼠标路径：触发按钮与菜单项都 @mousedown.prevent，焦点留在原输入框（index.vue 的真实焦点仍是输入框）。
+    it("B. 同一份判定下，鼠标路径与键盘路径都可用（修复轮：键盘路径不再整组禁用）", async () => {
         const input = element("input");
-        input.focus();
-        const mouseTarget = pageEditTarget(document.activeElement, null);
-        const mouseItems = editItems(mouseTarget);
-        console.log(`[P2/B] 鼠标打开菜单（焦点仍在输入框）：editTarget=${mouseTarget}；${describeItems(mouseItems)}；可点项=${String(focusableCount(mouseItems))}`);
-        expect(mouseTarget).toBe("native");
+        const trigger = element("button", {"data-menu-button": "Edit"});
+        const bar = document.createElement("div");
+        bar.className = "desktop-title-bar";
+        document.body.append(bar);
+        bar.append(trigger);
+        const activeElement: Ref<Element | null> = ref(input);
+        const session = useTitleBarEditTarget({editorActive: () => false, activeElement});
+        await nextTick();
+
+        // 鼠标路径：触发按钮与菜单项都 @mousedown.prevent，焦点留在原输入框。
+        const mouseItems = editItems(session.target.value);
+        console.log(`[P2/B] 鼠标打开菜单（焦点仍在输入框）：target=${session.target.value}；${describeItems(mouseItems)}；可点项=${String(focusableCount(mouseItems))}`);
+        expect(session.target.value).toBe("native");
         expect(focusableCount(mouseItems)).toBe(5);
 
-        // 键盘路径：要把菜单打开，焦点必须先落到标题栏触发按钮上（Tab 或 ArrowRight 换组）。
-        const trigger = element("button", {"data-menu-button": "Edit"});
-        trigger.focus();
-        const keyboardTarget = pageEditTarget(document.activeElement, null);
-        const keyboardItems = editItems(keyboardTarget);
-        console.log(`[P2/B] 键盘打开菜单（焦点在触发按钮）：editTarget=${keyboardTarget}；${describeItems(keyboardItems)}；可点项=${String(focusableCount(keyboardItems))}`);
-        expect(document.activeElement).toBe(trigger);
-        expect(keyboardTarget).toBe("none");
-        expect(keyboardItems.every((item) => item.disabled)).toBe(true);
-        expect(focusableCount(keyboardItems)).toBe(0);
+        // 键盘路径：焦点先落到标题栏触发按钮上（Tab / ArrowRight 换组），编辑目标按会话沿用记忆值。
+        activeElement.value = trigger;
+        await nextTick();
+        const keyboardItems = editItems(session.target.value);
+        console.log(`[P2/B] 键盘打开菜单（焦点在触发按钮）：target=${session.target.value}；titleBarOwnsFocus=${String(session.titleBarOwnsFocus.value)}；${describeItems(keyboardItems)}；可点项=${String(focusableCount(keyboardItems))}`);
+        expect(session.titleBarOwnsFocus.value).toBe(true);
+        expect(session.target.value).toBe("native");
+        expect(focusableCount(keyboardItems)).toBe(5);
+        expect(session.rememberedElement.value).toBe(input);
     });
 
     it("C. 焦点在 Studio 编辑器时的去处：undo/redo 走会话，其余走原生（浏览器无粘贴）", () => {

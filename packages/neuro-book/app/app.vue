@@ -2,6 +2,7 @@
 import NotificationViewport from "nbook/app/components/common/NotificationViewport.vue";
 import { useDialog } from "nbook/app/composables/useDialog";
 import { useNotification } from "nbook/app/composables/useNotification";
+import {useTitleBarPresent} from "nbook/app/composables/useTitleBarPresent";
 import {provideWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
 
 provideWorkbenchChrome();
@@ -17,6 +18,8 @@ if (import.meta.client) {
 }
 
 const desktopAvailable = computed(() => import.meta.client && Boolean(window.neuroBookDesktop));
+/** 通知视口按**标题栏真在场**让位：浏览器也有标题栏，不能只按 bridge 判。 */
+const titleBarPresent = useTitleBarPresent();
 </script>
 
 <template>
@@ -24,7 +27,7 @@ const desktopAvailable = computed(() => import.meta.client && Boolean(window.neu
     <div :class="{ 'desktop-page-shell': desktopAvailable }">
         <NuxtPage/>
     </div>
-    <NotificationViewport :desktop="desktopAvailable" />
+    <NotificationViewport :titlebar="titleBarPresent" />
 </template>
 
 <style>

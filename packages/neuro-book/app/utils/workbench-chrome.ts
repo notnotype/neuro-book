@@ -189,7 +189,35 @@ export function resolveTitleBarEditTarget(
     if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
         return "native";
     }
-    return activeElement instanceof HTMLElement && activeElement.isContentEditable ? "native" : "none";
+    // `isContentEditable` 是浏览器的权威判据；`closest` 兜住「焦点落在 contenteditable 的子节点上」
+    // 与不实现该属性的 DOM 环境（jsdom）。
+    if (activeElement instanceof HTMLElement && activeElement.isContentEditable) {
+        return "native";
+    }
+    return activeElement.closest('[contenteditable="true"], [contenteditable=""]') !== null ? "native" : "none";
+}
+
+/** 编辑目标的最终判定：标题栏拿走焦点时沿用记忆值，否则用此刻的真实焦点。 */
+export function resolveEffectiveTitleBarEditTarget(input: {
+    liveTarget: TitleBarEditTarget;
+    rememberedTarget: TitleBarEditTarget | null;
+    titleBarOwnsFocus: boolean;
+}): TitleBarEditTarget {
+    if (input.liveTarget !== "none") {
+        return input.liveTarget;
+    }
+    return input.titleBarOwnsFocus ? input.rememberedTarget ?? "none" : "none";
+}
+
+/** 标题栏 chrome 与它 Teleport 出去的下拉层：焦点落在这里时不该把编辑目标抹成 none。 */
+export const TITLE_BAR_FOCUS_SELECTOR = ".desktop-title-bar, [data-titlebar-menu-panel]";
+
+/** 焦点是否在标题栏（含下拉层）里。 */
+export function isTitleBarFocusOwner(activeElement: Element | null): boolean {
+    if (activeElement === null || typeof activeElement.closest !== "function") {
+        return false;
+    }
+    return activeElement.closest(TITLE_BAR_FOCUS_SELECTOR) !== null;
 }
 
 /** 一条编辑命令现在该往哪里执行；`unavailable` 表示菜单项必须禁用。 */

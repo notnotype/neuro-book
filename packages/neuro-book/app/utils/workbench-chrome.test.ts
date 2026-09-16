@@ -1,8 +1,12 @@
+// @vitest-environment jsdom
 import {describe, expect, it} from "vitest";
 import {
     createWorkbenchActivityItems,
+    isTitleBarFocusOwner,
     resolveActivityBarSecondaryItems,
+    resolveEffectiveTitleBarEditTarget,
     resolveTitleBarEditRoute,
+    resolveTitleBarEditTarget,
     resolveTitleBarMenuGroups,
     resolveTitleBarMenuPresentation,
     type TitleBarHostCapabilities,
@@ -159,5 +163,61 @@ describe("Workbench Chrome", () => {
         // 同一个焦点在桌面宿主里能执行：菜单项跟着可用。
         expect(resolveTitleBarMenuGroups({...browser, desktop: true}).find((group) => group.label === "Edit")!
             .items.find((item) => item.command === "edit.paste")!.disabled).toBe(false);
+    });
+
+    it("编辑目标的分类只认真实焦点：原生控件、contenteditable 与 Studio 各归各位", () => {
+        const input = document.createElement("input");
+        const textarea = document.createElement("textarea");
+        const select = document.createElement("select");
+        const editable = document.createElement("div");
+        editable.setAttribute("contenteditable", "true");
+        const button = document.createElement("button");
+
+        expect(resolveTitleBarEditTarget(input, false)).toBe("native");
+        expect(resolveTitleBarEditTarget(textarea, false)).toBe("native");
+        expect(resolveTitleBarEditTarget(select, false)).toBe("native");
+        expect(resolveTitleBarEditTarget(editable, false)).toBe("native");
+        expect(resolveTitleBarEditTarget(button, false)).toBe("none");
+        expect(resolveTitleBarEditTarget(document.body, false)).toBe("none");
+        expect(resolveTitleBarEditTarget(null, false)).toBe("none");
+
+        // Studio 活跃优先于 activeElement：source 编辑器（Monaco 的 textarea）必须走会话而不是原生命令。
+        expect(resolveTitleBarEditTarget(textarea, true)).toBe("editor");
+        expect(resolveTitleBarEditTarget(button, true)).toBe("editor");
+        expect(resolveTitleBarEditTarget(null, true)).toBe("editor");
+    });
+
+    it("焦点在标题栏里时沿用记忆的编辑目标，在页面其它地方时用此刻的真实焦点", () => {
+        const inBar = document.createElement("button");
+        const bar = document.createElement("div");
+        bar.className = "desktop-title-bar";
+        bar.append(inBar);
+        const panel = document.createElement("div");
+        panel.setAttribute("data-titlebar-menu-panel", "group");
+        const panelItem = document.createElement("button");
+        panel.append(panelItem);
+        const pageButton = document.createElement("button");
+        const pageBody = document.createElement("div");
+        pageBody.append(pageButton);
+
+        expect(isTitleBarFocusOwner(inBar)).toBe(true);
+        expect(isTitleBarFocusOwner(panelItem)).toBe(true);
+        expect(isTitleBarFocusOwner(pageButton)).toBe(false);
+        expect(isTitleBarFocusOwner(document.body)).toBe(false);
+        expect(isTitleBarFocusOwner(null)).toBe(false);
+
+        // 键盘进标题栏：宿主报 none，但编辑动作要沿用记忆值。
+        expect(resolveEffectiveTitleBarEditTarget({liveTarget: "none", rememberedTarget: "native", titleBarOwnsFocus: true})).toBe("native");
+        expect(resolveEffectiveTitleBarEditTarget({liveTarget: "none", rememberedTarget: "editor", titleBarOwnsFocus: true})).toBe("editor");
+        // 没有记忆（从没在可编辑处落过焦点）：仍然没有编辑动作。
+        expect(resolveEffectiveTitleBarEditTarget({liveTarget: "none", rememberedTarget: null, titleBarOwnsFocus: true})).toBe("none");
+        // 焦点在页面其它地方：不拿记忆冒充可编辑。
+        expect(resolveEffectiveTitleBarEditTarget({liveTarget: "none", rememberedTarget: "native", titleBarOwnsFocus: false})).toBe("none");
+        // 鼠标路径（焦点还在输入框里）：以此刻焦点为准，不被记忆值覆盖。
+        expect(resolveEffectiveTitleBarEditTarget({liveTarget: "native", rememberedTarget: "editor", titleBarOwnsFocus: false})).toBe("native");
+
+        // 沿用记忆值时的执行去处与记忆档位一致：Studio 的撤销不会跑成原生撤销。
+        expect(resolveTitleBarEditRoute("edit.undo", {desktop: false, surfaceActive: true, editTarget: "editor"})).toBe("studio");
+        expect(resolveTitleBarEditRoute("edit.undo", {desktop: false, surfaceActive: true, editTarget: "native"})).toBe("native");
     });
 });

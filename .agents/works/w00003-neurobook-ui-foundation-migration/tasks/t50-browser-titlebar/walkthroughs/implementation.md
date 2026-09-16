@@ -100,7 +100,29 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 8. **`vitest.config.ts` include 漏项修复**：`app/utils/workbench-chrome.test.ts` 原本从不运行（基线 exit 1 `No test files found`）。
 9. **ADR 0013 第 6 条一行 superseding 说明**（Leader 裁定 ①，依据 ADR 0021 记录开发者「浏览器标题栏优先」）；判据纪律不变：不做 UA 探测，桌面专属能力仍只由 bridge 判定。
 
-## 六、给检查点 B 的核对清单
+## 七、检查点 B 返工（R1–R4）与证据
+
+| # | 修复 | 文件 | 证据 |
+|---|---|---|---|
+| R1 | 编辑目标会话：焦点在标题栏（含 Teleport 出去的下拉层）里时沿用**最近一次真实可编辑焦点**，离开标题栏立刻回到「按此刻焦点判」；菜单 enabled 与执行去处共用同一份判定，执行原生命令前把焦点还给记忆元素 | 新增 `app/composables/useTitleBarEditTarget.ts`；`app/utils/workbench-chrome.ts`（`resolveEffectiveTitleBarEditTarget` / `isTitleBarFocusOwner` / `TITLE_BAR_FOCUS_SELECTOR` / contenteditable 判据）；`index.vue`（`useTitleBarEditTarget` 接线 + 执行前还焦点） | `useTitleBarEditTarget.test.ts` 2 例（含 Tab 进标题栏、面板内焦点、离开标题栏回退、Studio 档记忆）；`DesktopTitleBar.test.ts`「键盘进标题栏后 Edit 六条仍可用…」（Tab → ArrowDown → 六条可用、粘贴禁用、焦点在「撤销」、激活发 `edit.undo`）；`workbench-chrome.test.ts` 的决策函数四分支 |
+| R2 | 通知视口让位跟随**标题栏是否真的在场**（不再是 bridge 标志），让位量取 `SHELL_TITLEBAR_HEIGHT` | 新增 `app/composables/useTitleBarPresent.ts`（挂载事实登记）；`DesktopTitleBar.vue`（mount/unmount 登记）；`NotificationViewport.vue`（`titlebar` prop + 行内 `top`，删掉写死的 `--desktop` 36px）；`app.vue` | `NotificationViewport.test.ts` 2 例（在场 → `top: 36px`；不在场 → 不占位；「浏览器档无 bridge 但有标题栏」同样让位） |
+| R3 | 宿主直接给 `openMenu`（Lab 受控用法）时按菜单名回查触发按钮做锚点回退 | `DesktopTitleBarChrome.vue`（`anchorForOpenMenu()` + `anchorRef.value ?? anchorForOpenMenu()`） | `DesktopTitleBarChrome.test.ts`「宿主直接给 openMenu（受控用法）时，下拉层照样贴在触发按钮下方」（`openMenu: "View"` → 面板存在、`position: fixed`、`top: 6px`、`left: 8px`） |
+| R4 | 分类器真实用例 | `app/utils/workbench-chrome.test.ts`（改为 jsdom 环境） | input / textarea / select / contenteditable（含 `closest` 判据）/ button / body / null；Studio 活跃优先于 activeElement（`editorFocused=true` 时三类元素都归 `editor`）；`isTitleBarFocusOwner` 对标题栏、下拉层、页面控件、body、null 的判定 |
+
+命令与结果（cwd=worktree 根 / `packages/neuro-book`）：
+
+- `bun run --cwd packages/neuro-book test app/utils/workbench-chrome.test.ts app/composables/useTitleBarEditTarget.test.ts app/components/common/DesktopTitleBarChrome.test.ts app/components/common/DesktopTitleBar.test.ts app/components/common/NotificationViewport.test.ts app/composables/useWorkbenchChrome.test.ts` → **exit 0，6 文件 28 用例全过**（workbench-chrome 9 / useTitleBarEditTarget 2 / DesktopTitleBarChrome 10 / DesktopTitleBar 4 / NotificationViewport 2 / useWorkbenchChrome 1）。
+- `bun run typecheck`（cwd=`packages/neuro-book`）→ 见本轮收口报告（R1–R4 落盘后复跑）。
+- 顺带修：`NotificationViewport.vue` 用 `computed` 但只有 Nuxt 自动导入，缺显式 `import {computed} from "vue"`（组件测试挂载即暴露）；`resolveTitleBarEditTarget` 的 contenteditable 判据改成 `isContentEditable || closest('[contenteditable]')`（后者还兜住「焦点落在 contenteditable 子节点上」）。
+
+### 7.1 R1 / R2 真机确认（Main 开放窗口后，隔离根 + 端口 3511，跑完即停）
+
+- **R1 键盘路径（真机）**：新建项目对话框里真实键入（`#create-book-title` = `新小标题甲末尾`）→ 焦点移到标题栏 Edit 触发按钮（与 Tab 到标题栏同一焦点状态）→ **真实按键 ArrowDown** 打开菜单：`撤销/重做/剪切/复制/全选` **全部可用**、`粘贴` 禁用（浏览器档），焦点落在「撤销」；**真实 Enter 激活后输入框值 `新小标题甲末尾` → `新小标题甲末`** —— 原生命令作用在输入框上，没有跑到 Studio 会话。
+- **R2 让位（真机）**：Help → 文档 触发真实通知，通知容器 `top` 计算值 = **36px**、卡片 `top` = 52 > 标题栏 `bottom` = 36 → **不再压住标题栏右侧控件**。
+- R3 的受控路径（宿主直接给 `openMenu`）在产品 UI 里没有入口（`openMenu` 只由用户交互设置），真机确认需要 Lab 场景；由组件用例覆盖（§七表格）。
+- 宿主已用宿主句柄停止；`netstat` 复核 **3511 与 3001 均无监听**。
+
+## 八、给检查点 B 的核对清单
 
 | 合同项 | 用例 | 真机证据 |
 |---|---|---|

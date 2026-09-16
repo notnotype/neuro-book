@@ -10,8 +10,9 @@
  * chrome 本身在 `DesktopTitleBarChrome.vue`（受控零件，Lab 可挂载），本组件只做投影与派发；
  * 点组件外收起菜单也归 chrome（它自己知道传送到 body 的下拉层）。
  */
-import {computed, onMounted, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import DesktopTitleBarChrome, {type TitleBarWindowCommand} from "nbook/app/components/common/DesktopTitleBarChrome.vue";
+import {markTitleBarPresent} from "nbook/app/composables/useTitleBarPresent";
 import {useWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
 import {
     parseDesktopStatus,
@@ -81,9 +82,15 @@ function windowCommand(command: TitleBarWindowCommand): void {
 }
 
 onMounted(async () => {
+    // 在场事实登记给通知视口这类抢同一块屏幕的组件（浏览器同样有标题栏）。
+    markTitleBarPresent(true);
     if (bridge.value) {
         status.value = await bridge.value.status().then(parseDesktopStatus).catch(() => null);
     }
+});
+
+onBeforeUnmount(() => {
+    markTitleBarPresent(false);
 });
 
 watch(

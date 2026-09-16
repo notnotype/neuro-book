@@ -58,12 +58,8 @@ import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
 import {dispatchDesktopMenuCommand} from "@notnotype/neuro-book-contracts/desktop";
-import {
-    resolveTitleBarEditRoute,
-    resolveTitleBarEditTarget,
-    type TitleBarEditCommand,
-    type TitleBarEditTarget,
-} from "nbook/app/utils/workbench-chrome";
+import {resolveTitleBarEditRoute, type TitleBarEditCommand} from "nbook/app/utils/workbench-chrome";
+import {useTitleBarEditTarget} from "nbook/app/composables/useTitleBarEditTarget";
 
 type SameDocumentViewTransition = {
     ready: Promise<void>;
@@ -279,9 +275,9 @@ let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
 
 /** 焦点事实：菜单的编辑动作按真实焦点判断（Studio 的 undo 不冒充所有输入框的 undo）。 */
-const activeElement = useActiveElement();
-const titleBarEditTarget = computed<TitleBarEditTarget>(() =>
-    resolveTitleBarEditTarget(activeElement.value ?? null, studio.activeEditor.value !== null));
+const titleBarEdit = useTitleBarEditTarget({
+    editorActive: () => studio.activeEditor.value !== null,
+});
 
 /** 原生编辑命令的 DOM 命令名（`selectAll` 的拼写是 DOM 的规定，不是这里的命名口味）。 */
 const NATIVE_EDIT_COMMANDS: Record<TitleBarEditCommand, string> = {
@@ -301,7 +297,7 @@ function executeEditCommand(command: TitleBarEditCommand): void {
     const route = resolveTitleBarEditRoute(command, {
         desktop: desktopBridge.value !== undefined,
         surfaceActive: projectSurfaceActive.value,
-        editTarget: titleBarEditTarget.value,
+        editTarget: titleBarEdit.target.value,
     });
     if (route === "unavailable") {
         notification.info("当前没有可执行的编辑动作：请先把光标放进编辑器或输入框。", {title: "编辑命令未执行"});
@@ -314,6 +310,10 @@ function executeEditCommand(command: TitleBarEditCommand): void {
             studio.redo();
         }
         return;
+    }
+    // 键盘从标题栏发起时焦点在标题栏里：先把焦点还给最近的可编辑元素，原生命令才会作用在它身上。
+    if (titleBarEdit.titleBarOwnsFocus.value) {
+        titleBarEdit.rememberedElement.value?.focus();
     }
     if (!document.execCommand(NATIVE_EDIT_COMMANDS[command])) {
         notification.info("当前没有可编辑的选区。", {title: "编辑命令未执行"});
@@ -2467,7 +2467,7 @@ useWorkbenchChromeRegistration({
     switchProject: (projectRoot) => handleSwitchNovel(projectRoot),
     toggleAgentPanel: () => toggleAgentPanel(),
     invokeMenuCommand: (command) => dispatchMenuCommand(command),
-    editTarget: () => titleBarEditTarget.value,
+    editTarget: () => titleBarEdit.target.value,
     projectUrl: (projectRoot) => router.resolve(projectRoot === null ? "/" : buildProjectRoute(projectRoot)).href,
 });
 

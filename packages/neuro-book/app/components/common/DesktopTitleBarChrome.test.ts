@@ -185,6 +185,21 @@ describe("DesktopTitleBarChrome", () => {
         expect(document.activeElement?.textContent?.trim()).toBe("撤销");
     });
 
+    it("宿主直接给 openMenu（受控用法）时，下拉层照样贴在触发按钮下方", async () => {
+        const {wrapper} = mountChrome();
+        // jsdom 里量不到真实矩形，但定位口径是可断言的：fixed + 触发按钮下沿 + 视口左边距。
+        await wrapper.setProps({openMenu: "View"});
+        await wrapper.vm.$nextTick();
+
+        const view = panel("group");
+        expect(view).not.toBeNull();
+        const style = view!.getAttribute("style") ?? "";
+        expect(style).toContain("position: fixed");
+        expect(style).toContain("top: 6px");
+        expect(style).toContain("left: 8px");
+        expect(itemLabels(view!)).toEqual(["重新载入"]);
+    });
+
     it("Escape 在焦点不在面板里时也关菜单，并把焦点还给触发按钮", async () => {
         const {wrapper} = mountChrome();
         const trigger = wrapper.get('[data-menu-button="File"]');
