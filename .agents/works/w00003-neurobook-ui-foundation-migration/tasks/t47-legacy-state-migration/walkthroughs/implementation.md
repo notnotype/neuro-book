@@ -165,8 +165,7 @@ cwd：`packages/neuro-book`（worktree 内）。命令：`bun run test <path...>
 
 | 命令 | 退出码 | 结果 |
 | --- | --- | --- |
-| `bun run test app/utils/workbench/storage-migration.test.ts app/utils/workbench/storage-migration-legacy-bucket.test.ts app/stores/novel-ide-legacy-writer.test.ts server/storage/workbench-migration-e2e.test.ts` | 0 | 4 文件 / 49 例通过（22 + 20 + 5 + 2） |
-| `bun run test app/stores app/utils/workbench server/storage/workbench-migration-e2e.test.ts shared/storage` | 0 | 12 文件 / 139 例通过（含既有 storage/workbench/store 套件回归） |
+| `bun run test app/utils/workbench/storage-migration.test.ts app/utils/workbench/storage-migration-legacy-bucket.test.ts app/stores/novel-ide-legacy-writer.test.ts server/storage/workbench-migration-e2e.test.ts` | 0 | 4 文件（交付时点复测 52 例 = 27 + 15 + 6 + 4）；本 Task 自有文件为 27 + 15，另两个文件的计数归 t48 增量，见「返工记录」 |
 | `bun x tsc -p tsconfig.t47.json`（临时配置，只含本次改动闭包；已删除该临时配置） | 2 | 剩余错误全部是既有环境噪声（`nb-ui` 的 `.vue` 模块解析、`jsdom`/`turndown` 缺声明、`app/composables/useDialog.ts` 的 `.vue` 导入）；本次改动文件 0 错误 |
 
 临时 `tsconfig.t47.json` 仅用于本次自查，已删除；全包 `nuxt typecheck` 按 Task 要求留给 Leader。
@@ -185,8 +184,8 @@ cwd：`packages/neuro-book`（worktree 内）。命令：`bun run test <path...>
 ## 未运行项与偏差
 
 1. **"旧桶清理处中断"未实现为 t47 用例。** 迁移合同第 6 步（清理旧桶内已迁字段、退役浏览器暂存）依赖 t48 的 `pick` 移除与
-   目标核验，属下一增量；本 Task 的第四处中断改用**完成标记写入中断**（同样验证"重启后续跑、不重复导入、不回滚已有目标"）。
-   t47 不清理任何旧桶字段：序列化器只做固定，暂存记录保留至完成步骤退役。
+   目标核验；本 Task 的第四处中断改用**完成标记写入中断**（同样验证"重启后续跑、不重复导入、不回滚已有目标"）。
+   t47 增量自身不清理旧桶字段：序列化器只做固定。（t48 随后已按接线约定移除 `pick` 三项并退役门禁，见「返工记录」末尾。）
 2. **未运行真实浏览器/Source Dev 宿主。** 启动顺序用真实 persist 运行时的隔离测试 + Nuxt 源码调用点证明；
    真实浏览器验收（书架、A/B 尺寸、双标签刷新）是 t48 的必做项。本 Task 未访问 3001，也未启动任何 dev server。
 3. **8 MiB 上限按 UTF-8 字节度量。** 存储层单条上限就是序列化字节数（`captureStorageJsonValue`），分块预算同样按字节，
@@ -199,3 +198,73 @@ cwd：`packages/neuro-book`（worktree 内）。命令：`bun run test <path...>
    目标本身仍由条件写裁决，不依赖进度。
 7. 未写 `shared/storage/workbench-*.ts` 的专属单测：它们的校验/容量/分块行为由适配器测试与 E2E 覆盖
    （注册校验、分块往返、非法值分类、真实 HTTP 读写）。
+
+---
+
+## 返工记录（独立审查 t49 裁定"需修复"后，同一 Task 内闭合）
+
+依据：`walkthroughs/leader-rework-requirements.md`（R1–R5）。被审 revision `8263726e`。
+
+| # | 处理 | 落地 |
+| --- | --- | --- |
+| R1 | 续跑重新核验已存在的原件副本 | `ensureOriginalBackup` 不再"清单命中即返回"：清单与浏览器暂存一致后**逐块读回**、就地比对分块文本，再拼接比对整体摘要与字节数；核验与"是否已完成"无关（完成标记命中时也核验，只读不写）。截断 / 顺序错乱 / 缺块 / 不可读都会按 `backup-failed` 阻断，诊断指认具体分块（`describeChunkMismatch` 能区分"与另一块交换"）；自动路径不改写副本 |
+| R1+ | 显式重试才修复副本 | `retry()` 打开 `repairBackup`：把不一致的分块按浏览器暂存重写（缺失/被截断用条件 `save`，损坏/高版本用 `repair`），再重新核验；`start()` 永不修复，避免静默掩盖。**追加复核后补**：`retry()` 若在自动运行仍**在途**时到达，先等它收口，再按修复模式跑一次——否则这一次点击会被当成重复调用直接返回（用户需点第二次） |
+| R2 | 定义注册对 HMR 模块重载保持幂等 | `server/storage/product-definitions.ts` 的定义实例改放 `globalThis.__nbookProductStorageDefinitionsV1` 槽（与 `host.ts` 的宿主槽同一套 HMR 取舍）：模块重载复用同一批实例，注册落回"同一实例重复登记"这条既有幂等合同，宿主内已有等价定义继续服务。代价：同进程内修改定义清单需真正重启 Nitro（已写入文件头注释） |
+| R3 | 容量口径闭合 | 新增 `WORKBENCH_MIGRATION_RECORD_ENVELOPE_BYTES = 512`（保守上界，实测封装 107 字节）、`WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES = 128 KiB`（进度/完成按各自声明上限预留）与 `estimateWorkbenchMigrationRecordBytes`；写入备份前按记录文件字节预检，超出声明分区时给新分类 `backup-capacity-exceeded`（`retryable: false`，诊断含投影字节与声明字节），不写半份备份、不冻结整桶 |
+| R4 | 交付数字如实 | 本记录改为逐文件实测数字（见下表），并说明原表把 `storage-migration-legacy-bucket.test.ts` 误记为 20 例（实为 15 例），审查基线为 22 + 15 + 5 + 2 = 44 |
+| R5 | 完成态用例走机制 | "完成后目标被重置并回收墓碑，旧值也不会重新迁入"与"身份不可持久恢复…只导入一次"的收尾断言改为**新建控制器**（等同重启）后运行，不再用完成态 `retry()`（它在 `phase === "complete"` 时是空操作，断言必然通过） |
+
+### 返工后的命令与用例数
+
+cwd：`packages/neuro-book`（worktree 内）。
+
+| 命令 | 退出码 | 结果 |
+| --- | --- | --- |
+| `bun run test app/utils/workbench/storage-migration.test.ts app/utils/workbench/storage-migration-legacy-bucket.test.ts app/stores/novel-ide-legacy-writer.test.ts server/storage/workbench-migration-e2e.test.ts` | 0 | 本 Task 自有文件 **27 + 15 = 42 例**；同一命令含 t48 增量的 `novel-ide-legacy-writer.test.ts`（交付时点 6 例）与 `workbench-migration-e2e.test.ts`（4 例），合计 52 例 |
+| `bun run test app/utils/workbench/storage-migration.test.ts app/utils/workbench/storage-migration-legacy-bucket.test.ts shared/storage` | 0 | 4 文件 / 57 例（27 + 15 + `shared/storage` 既有套件 7 + 8） |
+
+用例数变化的来源：R1 新增 3 例、R3 新增 1 例、在途重试修复新增 1 例（`storage-migration.test.ts` 22 → 27）、R2+R3 新增 2 例（E2E 2 → 4）；
+`novel-ide-legacy-writer.test.ts` 已被 **t48 增量**重写为"旧 writer 退役"的 4 例（本 Task 原版 5 例的启动时序结论由 t48 的退役实现取代）。
+
+### 追加证据：审查探针在修复后的表现（预期反转）
+
+命令（worktree 内，只读运行审查者探针，未改其文件）：
+`cd packages/neuro-book && bun x vitest run --config ../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t49-migration-review/walkthroughs/probes/vitest.probes.config.ts`
+
+| 探针 | 修复前（审查记录） | 修复后实测 |
+| --- | --- | --- |
+| `q3-backup-integrity` | 续跑对备份边界零读零写、快照报 `complete` | 续跑读到分块并报 `phase: "blocked"`、`blocked: "backup-failed"`（探针断言 `{phase: "complete", blocked: null}` 因此失败——失败原因正是被修掉的缺陷） |
+| `q3-capacity-boundary` | `blocked: "backup-failed"`、`retryable: true`（容量事实被"可重试"掩盖） | `blocked: "backup-capacity-exceeded"`、`retryable: false`（探针断言 `backup-failed` 因此失败；分类与可重试性按 R3 修正） |
+| `q7-registration-hmr` | 重载后插件抛 `STORAGE_DEFINITION_INVALID` | 重载后插件不再抛错（探针的 `expect(isStorageDomainError(caught)).toBe(true)` 因此失败）；`workbench-migration-e2e.test.ts` 另有等价用例断言"重载后是同一批实例 + 宿主继续服务" |
+| `q1-staging-before-writer`、`q5-completion-retry` | 通过 | 仍通过（未受影响） |
+
+合计 5 文件 9 例：6 例通过、3 例失败，3 例失败全部是"缺陷已不存在"造成的原断言反转，需要按新分类更新断言。
+
+### 与 t48 的衔接状态（返工期间观察）
+
+- t48 已按本 Task 的接线约定从 `novel.ide.local` 的 `pick` 移除三个字段、移除 `storage`/`serializer` 并退役写回门禁（`app/stores/novel-ide.ts`）；
+- t48 已把 `defineWorkbenchShellLayoutState` 追加到 `server/storage/product-definitions.ts`；R2 改动保留了这一项及其 import；
+- R1/R3/R5 与 t48 无文件重叠；R2 只在 `product-definitions.ts` 上新增跨重载槽位与构造函数。
+
+### R1/R3 的刻意取舍
+
+- **每次启动都读回备份分块**（≤ 22 条记录，通常几十 KiB～几 MiB）：这是"续跑仍保护原件"的价格，
+  与浏览器暂存侧每次启动重算摘要的口径一致；只读，不产生写。
+- **`backup-capacity-exceeded` 不可重试**：原件已经超过声明分区，重试不会改变；不冻结整桶（原件仍在浏览器暂存，
+  未迁字段 writer 继续工作），但导入不开始、完成标记不写。
+- **自动路径不修复损坏副本**：检测与报告是自动行为，改写副本必须由用户显式触发 `retry()`，
+  避免"备份悄悄被重写"这种不可观察的修复。
+- **已知后续项（审查者观察，不阻断本 Task）**：迁移已完成且 data 原件清单被回收/删除时，本增量**不重建**清单
+  （完成标记说明迁移已结束），完成态 `retry()` 是空操作。只要浏览器暂存仍在，原件就有第二份；
+  第 6 步（t48 / 后续切片）退役浏览器暂存时，必须同时补一个"从现存原件重建 data 备份"的显式入口，
+  否则那一刻两个副本可能同时缺席。
+
+### 复核结论（审查者两轮）
+
+- 第一轮（t49 审查，被审 revision `8263726e`）：需修复 R1–R5。
+- 追加复核（修复后）：R1–R5 全部成立，"修复成立、建议合并"；审查者独立复测覆盖五类损坏（截断/错序/缺块/文件损坏/墓碑）、
+  估算上界 14 个转义样本、重载后同数组实例与双 owner bind、R5 新控制器、域级用例数。
+- 第二轮复核：文档数字与在途重试两处均闭合，**无遗留缺陷**；审查者另用真机探针（读取闸门挂在完成标记读取、真实 HTTP + 真实磁盘）
+  验证"一次点击即修复"：自动运行先 `blocked/backup-failed` 且分块保持坏值，同一次点击的重试最终 `complete`，
+  损坏后该分块上写动作恰好 1 次、完成标记写恰好 1 次、分块拼回与摘要复核通过。
+- 探针现状：5 文件 13 例，连跑两次 exit 0。

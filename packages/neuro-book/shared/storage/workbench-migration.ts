@@ -5,9 +5,13 @@
  * 原件与元数据属于 data 内的**专用备份边界**，由本 owner 的 user/local 分区拥有，
  * 使用本次迁移版本与来源定位，不跟随尺寸目标的删除或分区回收，也不占其它 owner 的普通状态 quota。
  *
- * 容量分配（硬约束见 `shared/storage/contract.ts`）：
- * - 单条值硬上限 1 MiB → 8 MiB 原件必须**分块**，每块原始预算 384 KiB（UTF-8 字节），
- *   最坏情况（逐字符转义）序列化后仍在 1 MiB 内；
+ * 容量分配与**口径闭合**（硬约束见 `shared/storage/contract.ts`）：
+ * - 单条值硬上限 1 MiB → 原件必须**分块**，每块原文预算 384 KiB（UTF-8 字节），
+ *   最坏情况（逐字符转义）分块值序列化后仍在 1 MiB 内；
+ * - 分区容量按**记录文件字节**度量：原文里的 `"`、`\` 与其它需转义字符在记录文件里会占更多字节。
+ *   因此"8 MiB 原文一定能放进 9 MiB 分区"不成立，写入前必须按记录文件字节口径预检
+ *   （`estimateWorkbenchMigrationRecordBytes` + `WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES`）；
+ *   放不进去的原件按容量分类阻断，不用"可重试"掩盖；
  * - 整个分区 ≤ 16 MiB → 声明 9 MiB：8 MiB 原件 + 进度/完成各 64 KiB + 封装预留；
  * - 分区条数与字节对同一 owner/scope/locality 必须一致，因此四个定义声明同一份 limits。
  *
@@ -42,6 +46,32 @@ export const WORKBENCH_MIGRATION_CHUNK_VALUE_BYTES = STORAGE_MAX_VALUE_BYTES;
 export const WORKBENCH_MIGRATION_PARTITION_BYTES = 9 * 1024 * 1024;
 /** 备份边界条数上限：8 MiB 原件最多 22 块，加三个元数据记录后仍有余量。 */
 export const WORKBENCH_MIGRATION_MAX_RECORDS = 64;
+
+/**
+ * 单条记录文件的封装预留字节。
+ *
+ * 记录文件是 `{"wrapper":1,"revision":"<uuid>","state":"value","schemaVersion":N,"value":<值>}\n`：
+ * 固定封装实测 107 字节（含 36 字符 revision 与结尾换行），这里取 512 作为保守上界，
+ * 因此 `estimateWorkbenchMigrationRecordBytes` 一定不小于真实文件字节。
+ */
+export const WORKBENCH_MIGRATION_RECORD_ENVELOPE_BYTES = 512;
+
+/** 进度与完成标记的记录文件预留：按各自声明上限 64 KiB 计入分区，不靠"实际很小"的假设。 */
+export const WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES = WORKBENCH_MIGRATION_METADATA_LIMIT_BYTES * 2;
+
+/**
+ * 估算一条记录写入分区后占用的记录文件字节（上界）。
+ *
+ * 只依赖 `JSON.stringify` 与 UTF-8 编码，浏览器与 Nitro 都能算；调用方据此在写入前判断
+ * "这份原件能不能放进声明的分区"，而不是先写一半再失败。
+ */
+export function estimateWorkbenchMigrationRecordBytes(value: unknown): number {
+    const serialized = JSON.stringify(value);
+    if (serialized === undefined) {
+        return WORKBENCH_MIGRATION_RECORD_ENVELOPE_BYTES;
+    }
+    return new TextEncoder().encode(serialized).byteLength + WORKBENCH_MIGRATION_RECORD_ENVELOPE_BYTES;
+}
 
 const WORKBENCH_MIGRATION_LIMITS: StorageLimits = {
     maxValueBytes: WORKBENCH_MIGRATION_CHUNK_VALUE_BYTES,

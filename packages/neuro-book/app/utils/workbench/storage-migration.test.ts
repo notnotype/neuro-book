@@ -57,6 +57,8 @@ type Harness = {
     throwNextRead(owner: string, key: string, times: number): void;
     /** 在真实条件写之前模拟另一个标签页先写入同一记录。 */
     raceBeforeSave(owner: string, key: string, value: unknown, options?: {resource?: string}): void;
+    /** 挂起下一次匹配的读取；返回释放函数（用于制造"运行仍在途"的时序）。 */
+    holdNextRead(owner: string, key: string): () => void;
 };
 
 const CLIENT_CREDENTIAL = "0".repeat(64);
@@ -74,6 +76,7 @@ function createHarness(): Harness {
     const failures = new Map<string, number>();
     const readFailures = new Map<string, number>();
     const races = new Map<string, {value: unknown; resource?: string}>();
+    const readGates = new Map<string, Promise<void>>();
     let sequence = 0;
     let contextResult: StorageUserContextOpenResult = {
         status: "ready",
@@ -90,6 +93,11 @@ function createHarness(): Harness {
             const key = keyOf(action.owner, action.key, "resource" in action ? action.resource : undefined);
             if (action.kind === "read") {
                 reads.set(key, (reads.get(key) ?? 0) + 1);
+                const gate = readGates.get(key);
+                if (gate !== undefined) {
+                    readGates.delete(key);
+                    await gate;
+                }
                 const remaining = readFailures.get(key) ?? 0;
                 if (remaining > 0) {
                     readFailures.set(key, remaining - 1);
@@ -162,6 +170,11 @@ function createHarness(): Harness {
         raceBeforeSave(owner, key, value, options = {}) {
             races.set(keyOf(owner, key, options.resource), {value});
         },
+        holdNextRead(owner, key) {
+            const {promise, resolve} = Promise.withResolvers<void>();
+            readGates.set(keyOf(owner, key), promise);
+            return resolve;
+        },
     };
 }
 
@@ -230,6 +243,16 @@ const progressRecord = (harness: Harness): WorkbenchMigrationProgressRecord | un
     harness.records.get(`${WORKBENCH_MIGRATION_OWNER}/${WORKBENCH_MIGRATION_PROGRESS_KEY}/`)?.value as WorkbenchMigrationProgressRecord | undefined;
 const completionRecord = (harness: Harness): WorkbenchMigrationCompletionRecord | undefined =>
     harness.records.get(`${WORKBENCH_MIGRATION_OWNER}/${WORKBENCH_MIGRATION_COMPLETION_KEY}/`)?.value as WorkbenchMigrationCompletionRecord | undefined;
+
+const chunkKey = (index: number): string => `${WORKBENCH_MIGRATION_OWNER}/${WORKBENCH_MIGRATION_CHUNK_KEY}/${workbenchMigrationChunkResource(index)}`;
+
+const chunkText = (harness: Harness, index: number): string | undefined =>
+    harness.records.get(chunkKey(index))?.value as string | undefined;
+
+/** 模拟"另一个写入者（或磁盘损坏）改掉了备份分块"：保留记录、换一个 revision。 */
+function corruptChunk(harness: Harness, index: number, value: string): void {
+    harness.records.set(chunkKey(index), {value, revision: `corrupt-${String(index)}`, schemaVersion: 1, deleted: false});
+}
 
 function backupText(harness: Harness): string {
     const manifest = harness.records.get(`${WORKBENCH_MIGRATION_OWNER}/${WORKBENCH_MIGRATION_ORIGINAL_KEY}/`)?.value as WorkbenchMigrationOriginalRecord;
@@ -511,6 +534,141 @@ describe("中断续跑", () => {
     });
 });
 
+describe("原件的续跑核验与容量口径", () => {
+    it("续跑读回既有分块并保持完整副本（只读不写）", async () => {
+        const harness = createHarness();
+        const raw = JSON.stringify({leftPanelWidth: 427, filler: "x".repeat(500_000)});
+        const staging = stagingStub(raw);
+        const first = controller(harness, staging);
+        await first.start();
+        expect(first.snapshot()).toMatchObject({phase: "complete", backup: "saved"});
+        const chunkCount = (harness.records.get(`${WORKBENCH_MIGRATION_OWNER}/${WORKBENCH_MIGRATION_ORIGINAL_KEY}/`)?.value as WorkbenchMigrationOriginalRecord).chunkCount;
+        expect(chunkCount).toBeGreaterThan(1);
+        const readsBefore = harness.readCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_CHUNK_KEY, workbenchMigrationChunkResource(0));
+        const writesBefore = harness.saveCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_CHUNK_KEY, workbenchMigrationChunkResource(0));
+
+        // 新控制器 = 重启或新标签页：完成标记命中也要重新核验副本。
+        const second = controller(harness, staging);
+        await second.start();
+
+        expect(second.snapshot()).toMatchObject({phase: "complete", blocked: null, backup: "saved"});
+        expect(harness.readCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_CHUNK_KEY, workbenchMigrationChunkResource(0)))
+            .toBeGreaterThan(readsBefore);
+        expect(harness.saveCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_CHUNK_KEY, workbenchMigrationChunkResource(0)))
+            .toBe(writesBefore);
+        expect(backupText(harness)).toBe(raw);
+    });
+
+    it("续跑发现分块被截断/顺序错乱/缺块：按 backup-failed 阻断且不改写副本", async () => {
+        const harness = createHarness();
+        const raw = JSON.stringify({leftPanelWidth: 427, filler: "y".repeat(500_000)});
+        const staging = stagingStub(raw);
+        const first = controller(harness, staging);
+        await first.start();
+        const original = chunkText(harness, 0) ?? "";
+        const next = chunkText(harness, 1) ?? "";
+        expect(original.length).toBeGreaterThan(16);
+
+        // 截断：内容变化 → 逐块比对直接指认。
+        corruptChunk(harness, 0, original.slice(0, 16));
+        const truncated = controller(harness, staging);
+        await truncated.start();
+        expect(truncated.snapshot()).toMatchObject({phase: "blocked", blocked: "backup-failed", retryable: true, backup: "failed"});
+        expect(truncated.snapshot().diagnosis).toContain(workbenchMigrationChunkResource(0));
+        expect(chunkText(harness, 0)).toBe(original.slice(0, 16));
+
+        // 顺序错乱：把 chunk-001 的文本放进 chunk-000。
+        corruptChunk(harness, 0, next);
+        const swapped = controller(harness, staging);
+        await swapped.start();
+        expect(swapped.snapshot()).toMatchObject({phase: "blocked", blocked: "backup-failed"});
+        expect(swapped.snapshot().diagnosis).toContain("顺序错乱");
+
+        // 缺块：整条记录被回收。
+        harness.records.delete(chunkKey(1));
+        const missing = controller(harness, staging);
+        await missing.start();
+        expect(missing.snapshot()).toMatchObject({phase: "blocked", blocked: "backup-failed"});
+        expect(missing.snapshot().diagnosis).toContain("记录缺失");
+    });
+
+    it("显式重试才从浏览器暂存重写不一致的分块并完成", async () => {
+        const harness = createHarness();
+        const raw = JSON.stringify({leftPanelWidth: 427, filler: "z".repeat(500_000)});
+        const staging = stagingStub(raw);
+        const first = controller(harness, staging);
+        await first.start();
+        const expected = chunkText(harness, 0) ?? "";
+        corruptChunk(harness, 0, "broken");
+        harness.records.delete(chunkKey(1));
+
+        const migration = controller(harness, staging);
+        await migration.start();
+        expect(migration.snapshot()).toMatchObject({phase: "blocked", blocked: "backup-failed"});
+        expect(chunkText(harness, 0)).toBe("broken");
+
+        await migration.retry();
+
+        expect(migration.snapshot()).toMatchObject({phase: "complete", blocked: null, backup: "saved"});
+        expect(chunkText(harness, 0)).toBe(expected);
+        expect(backupText(harness)).toBe(raw);
+    });
+
+    it("在途运行时到达的显式重试会等它收口后按修复模式继续", async () => {
+        const harness = createHarness();
+        const raw = JSON.stringify({leftPanelWidth: 427, filler: "q".repeat(500_000)});
+        const staging = stagingStub(raw);
+        const first = controller(harness, staging);
+        await first.start();
+        const expected = chunkText(harness, 0) ?? "";
+        corruptChunk(harness, 0, "broken");
+
+        const migration = controller(harness, staging);
+        const release = harness.holdNextRead(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_COMPLETION_KEY);
+        const auto = migration.start();
+        const retried = migration.retry();
+        release();
+        await auto;
+        // 自动路径先按"只报告不修复"收口。
+        expect(migration.snapshot()).toMatchObject({phase: "blocked", blocked: "backup-failed"});
+        expect(chunkText(harness, 0)).toBe("broken");
+
+        await retried;
+
+        expect(migration.snapshot()).toMatchObject({phase: "complete", blocked: null, backup: "saved"});
+        expect(chunkText(harness, 0)).toBe(expected);
+        expect(backupText(harness)).toBe(raw);
+    });
+
+    it("原件转义后超过备份分区容量：容量分类阻断、不写半份备份、重试不改变", async () => {
+        const harness = createHarness();
+        // 原文全是最需要转义的字符（每个 `"` 在记录文件里占两字节）：暂存接受，但备份分区放不下。
+        const raw = '"'.repeat(5 * 1024 * 1024);
+        const staging = stagingStub(raw);
+        const migration = controller(harness, staging);
+
+        await migration.start();
+
+        expect(migration.snapshot()).toMatchObject({
+            phase: "blocked",
+            blocked: "backup-capacity-exceeded",
+            retryable: false,
+            backup: "failed",
+            bucket: "pinned",
+        });
+        expect(migration.snapshot().diagnosis).toContain("超过备份分区声明");
+        // 不写半份备份，也不冻结整桶：原件仍在浏览器暂存里，未迁字段 writer 不受影响。
+        expect(harness.saveCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_CHUNK_KEY, workbenchMigrationChunkResource(0))).toBe(0);
+        expect(harness.saveCount(WORKBENCH_MIGRATION_OWNER, WORKBENCH_MIGRATION_ORIGINAL_KEY)).toBe(0);
+        expect(legacyBucketWriterPolicy().mode).toBe("pinned");
+
+        // 新的控制器（重启）得到同一分类：这不是瞬时故障，重试不会改变。
+        const restarted = controller(harness, staging);
+        await restarted.start();
+        expect(restarted.snapshot()).toMatchObject({blocked: "backup-capacity-exceeded", retryable: false});
+    });
+});
+
 describe("并发与身份", () => {
     it("另一标签页先写入同一目标时冲突后重读，不用源覆盖", async () => {
         const harness = createHarness();
@@ -572,8 +730,10 @@ describe("并发与身份", () => {
         expect(migration.snapshot()).toMatchObject({phase: "complete"});
         expect(harness.saveCount(...surfaceKey("idle"))).toBe(1);
 
-        // 之后即使目标被重置（墓碑）或再次运行，完成标记让本次迁移不再重新导入。
-        await migration.retry();
+        // 之后即使再次运行（新控制器 = 重启），完成标记让本次迁移不再重新导入。
+        const restarted = controller(harness, staging);
+        await restarted.start();
+        expect(restarted.snapshot()).toMatchObject({phase: "complete"});
         expect(harness.saveCount(...surfaceKey("idle"))).toBe(1);
     });
 
@@ -588,11 +748,13 @@ describe("并发与身份", () => {
         harness.seed(WORKBENCH_LAYOUT_OWNER, WORKBENCH_SURFACE_SIZES_KEY, undefined, {resource: "idle", deleted: true});
         harness.records.delete(`${WORKBENCH_LAYOUT_OWNER}/${WORKBENCH_SURFACE_SIZES_KEY}/idle`);
 
-        await migration.retry();
+        // 新控制器 = 重启/新标签页：走真正的续跑路径，而不是完成态下的空 retry()。
+        const restarted = controller(harness, staging);
+        await restarted.start();
 
         expect(harness.saveCount(...surfaceKey("idle"))).toBe(1);
         expect(surfaceValue(harness, "idle")).toBeUndefined();
-        expect(migration.snapshot()).toMatchObject({phase: "complete"});
+        expect(restarted.snapshot()).toMatchObject({phase: "complete"});
     });
 
     it("完成标记读取失败不得当作尚未迁移", async () => {

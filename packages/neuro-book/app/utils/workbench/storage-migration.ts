@@ -27,7 +27,10 @@ import type {DefinedStorageState} from "nbook/shared/storage/definition";
 import {
     WORKBENCH_MIGRATION_CHUNK_BYTES,
     WORKBENCH_MIGRATION_FIELDS,
+    WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES,
     WORKBENCH_MIGRATION_OWNER,
+    WORKBENCH_MIGRATION_PARTITION_BYTES,
+    estimateWorkbenchMigrationRecordBytes,
     WORKBENCH_MIGRATION_SOURCE,
     WORKBENCH_MIGRATION_VERSION,
     defineWorkbenchMigrationChunkState,
@@ -74,8 +77,10 @@ export type StorageMigrationBlockReason =
     | "identity-unrecoverable"
     /** 后端不可达或访问上下文签发失败：保留暂存与源字段，未迁字段 writer 不受影响。 */
     | "backend-unreachable"
-    /** data 原件备份失败：保留浏览器暂存与源字段。 */
+    /** data 原件备份失败（写入或核验不一致）：保留浏览器暂存与源字段。 */
     | "backup-failed"
+    /** 原件按记录文件字节会超过备份分区声明容量：重试不会改变，浏览器暂存与源字段保留。 */
+    | "backup-capacity-exceeded"
     /** 目标写入或进度登记失败：保留源与已完成进度。 */
     | "import-failed"
     /** 进度元数据读不出来：不能当作"尚未迁移"继续。 */
@@ -210,6 +215,8 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
     let sourceValues: LegacyBucketFieldValues = {};
     let stagedOriginal: LegacyOriginalRecord | null = null;
     let running: Promise<StorageMigrationSnapshot> | null = null;
+    // 只由显式 retry() 打开：自动路径发现副本损坏就报告，改写副本必须是用户的明确动作。
+    let repairBackup = false;
 
     const publish = (patch: Partial<StorageMigrationSnapshot>, outcomes?: readonly WorkbenchMigrationTargetProgress[]): void => {
         state = {
@@ -261,12 +268,14 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
         return true;
     };
 
-    const run = (): Promise<StorageMigrationSnapshot> => {
+    const run = (options: {readonly repairBackup?: boolean} = {}): Promise<StorageMigrationSnapshot> => {
         if (running !== null) {
             return running;
         }
+        repairBackup = options.repairBackup === true;
         running = execute().finally(() => {
             running = null;
+            repairBackup = false;
         });
         return running;
     };
@@ -370,26 +379,46 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
                 retryable: false,
             };
         }
+        let completed = false;
         if (completionRead.result.kind === "value") {
             const completion = completionRead.result.value as WorkbenchMigrationCompletionRecord;
-            if (completion.source === WORKBENCH_MIGRATION_SOURCE && completion.version === WORKBENCH_MIGRATION_VERSION) {
-                publish({}, completion.entries.map((entry) => ({
-                    target: entry.target,
-                    field: entry.field,
-                    outcome: entry.outcome,
-                    at: completion.completedAt,
-                    revision: null,
-                    diagnosis: null,
-                })));
-                return {kind: "complete"};
+            if (completion.source !== WORKBENCH_MIGRATION_SOURCE || completion.version !== WORKBENCH_MIGRATION_VERSION) {
+                // 其它客户端或源版本不能改写完成标记；本版本只读取，不覆盖。
+                return {
+                    kind: "blocked",
+                    reason: "completion-unprotected",
+                    diagnosis: "完成标记属于其它迁移版本或来源，本版本不读取也不覆盖",
+                    retryable: false,
+                };
             }
-            // 其它客户端或源版本不能改写完成标记；本版本只读取，不覆盖。
-            return {
-                kind: "blocked",
-                reason: "completion-unprotected",
-                diagnosis: "完成标记属于其它迁移版本或来源，本版本不读取也不覆盖",
-                retryable: false,
-            };
+            completed = true;
+            publish({}, completion.entries.map((entry) => ({
+                target: entry.target,
+                field: entry.field,
+                outcome: entry.outcome,
+                at: completion.completedAt,
+                revision: null,
+                diagnosis: null,
+            })));
+        }
+
+        // 原件副本的核验与"是否已完成"无关：续跑同样要读回分块，否则损坏的副本会被静默当成完好备份。
+        if (stagedOriginal !== null) {
+            try {
+                const backup = await ensureOriginalBackup(handle, {completed});
+                publish({backup});
+            } catch (error) {
+                return {
+                    kind: "blocked",
+                    reason: error instanceof MigrationStepFailure ? error.reason : "backup-failed",
+                    diagnosis: describeError(error),
+                    retryable: error instanceof MigrationStepFailure ? blockIsRetryable(error.reason) : true,
+                    backupFailed: true,
+                };
+            }
+        }
+        if (completed) {
+            return {kind: "complete"};
         }
 
         const progressRead = await readStep(handle, progressState, undefined, "progress-unreadable");
@@ -417,32 +446,18 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
         }
         publish({}, tracker.entries());
 
-        if (stagedOriginal !== null) {
-            try {
-                await ensureOriginalBackup(handle);
-            } catch (error) {
-                return {
-                    kind: "blocked",
-                    reason: "backup-failed",
-                    diagnosis: describeError(error),
-                    retryable: true,
-                    backupFailed: true,
-                };
-            }
-            publish({backup: "saved"});
-        }
-
         for (const target of targets) {
             try {
                 await importTarget(layout, target, tracker);
             } catch (error) {
                 // 已确认写入的目标已经登记进度：失败保留源与进度，下次只续跑未完成项。
                 publish({}, tracker.entries());
+                const reason = error instanceof MigrationStepFailure ? error.reason : "import-failed";
                 return {
                     kind: "blocked",
-                    reason: error instanceof MigrationStepFailure ? error.reason : "import-failed",
+                    reason,
                     diagnosis: describeError(error),
-                    retryable: true,
+                    retryable: blockIsRetryable(reason),
                 };
             }
             publish({}, tracker.entries());
@@ -504,11 +519,21 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
         await tracker.record(entries.map((item) => (item.outcome === "imported" ? {...item, revision: credential.revision} : item)));
     }
 
-    /** data 原件备份：先写块、最后写清单；写完立刻按摘要重新拼接核验。 */
-    async function ensureOriginalBackup(handle: StorageOwnerHandle): Promise<void> {
+    /**
+     * data 原件备份。
+     *
+     * 三条路径都要能收口：
+     * - **清单存在**：它必须与浏览器暂存同一份（来源/版本/摘要/字节数/块数/捕获时刻），随后**逐块读回**核验，
+     *   发现分块被截断、顺序错乱、缺失或不可读时按 `backup-failed` 阻断；只有显式重试（用户选择的修复动作）
+     *   才从浏览器暂存重写不一致的分块。清单存在时也要核验，是"续跑仍保护原件"的判据——
+     *   否则损坏的副本会被静默当成完好的备份。
+     * - **清单缺失且迁移未完成**：按记录文件字节口径预检容量，先写块、最后写清单，再拼接核验。
+     * - **清单缺失且迁移已完成**：不重建（完成标记说明本次迁移已结束），只在状态里如实报告 `backup: "none"`。
+     */
+    async function ensureOriginalBackup(handle: StorageOwnerHandle, options: {readonly completed: boolean}): Promise<"saved" | "none"> {
         const original = stagedOriginal;
         if (original === null) {
-            return;
+            return "none";
         }
         const chunks = splitLegacyOriginalChunks(original.raw);
         const manifestRead = await handle.read(originalState);
@@ -522,8 +547,14 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
                 || manifest.chunkCount !== chunks.length || manifest.capturedAt !== original.capturedAt) {
                 throw new MigrationStepFailure("backup-failed", "data 原件清单与浏览器暂存不一致，本版本不覆盖也不复用");
             }
-            return;
+            await verifyOriginalBackup(handle, manifest, chunks);
+            return "saved";
         }
+        if (options.completed) {
+            // 已完成的迁移不重建被删掉的备份：原件仍在浏览器暂存，重建属于"完成之后再写一次备份"。
+            return "none";
+        }
+        assertBackupFitsPartition(chunks, original);
         for (const [index, text] of chunks.entries()) {
             await ensureBackupChunk(handle, index, text);
         }
@@ -546,19 +577,49 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
             if (reread.kind !== "value" || (reread.value as WorkbenchMigrationOriginalRecord).digest !== original.digest) {
                 throw new MigrationStepFailure("backup-failed", "data 原件清单被其它标签页改写且内容不一致");
             }
-            return;
+            return "saved";
         }
-        await verifyOriginalBackup(handle, manifest);
+        await verifyOriginalBackup(handle, manifest, chunks);
+        return "saved";
     }
 
-    async function ensureBackupChunk(handle: StorageOwnerHandle, index: number, text: string): Promise<void> {
+    /**
+     * 容量预检：分区按记录文件字节计量，原文里的转义字符会放大占用。
+     *
+     * 这里判定的原件一定放不进声明的分区时，直接给容量分类并停手：不写半份备份，也不用"可重试"
+     * 掩盖一个重试不会改变的事实。元数据按各自声明的 64 KiB 上限预留，不假设"实际很小"。
+     */
+    function assertBackupFitsPartition(chunks: readonly string[], original: LegacyOriginalRecord): void {
+        const manifest: WorkbenchMigrationOriginalRecord = {
+            source: WORKBENCH_MIGRATION_SOURCE,
+            version: WORKBENCH_MIGRATION_VERSION,
+            capturedAt: original.capturedAt,
+            byteLength: original.byteLength,
+            digest: original.digest,
+            chunkCount: chunks.length,
+            chunkBytes: WORKBENCH_MIGRATION_CHUNK_BYTES,
+        };
+        let projected = WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES + estimateWorkbenchMigrationRecordBytes(manifest);
+        for (const chunk of chunks) {
+            projected += estimateWorkbenchMigrationRecordBytes(chunk);
+        }
+        if (projected > WORKBENCH_MIGRATION_PARTITION_BYTES) {
+            throw new MigrationStepFailure(
+                "backup-capacity-exceeded",
+                `data 原件按记录文件字节计约 ${String(projected)} 字节，超过备份分区声明 ${String(WORKBENCH_MIGRATION_PARTITION_BYTES)} 字节`
+                + `（原件 ${String(original.byteLength)} 字节在记录文件里需要转义），重试不会改变；浏览器暂存与源字段保留`,
+            );
+        }
+    }
+
+    async function ensureBackupChunk(handle: StorageOwnerHandle, index: number, text: string, known?: StorageReadResult<unknown>): Promise<void> {
         const resource = workbenchMigrationChunkResource(index);
-        const read = await handle.read(chunkState, {resource});
+        const read = known ?? await handle.read(chunkState, {resource});
         if (read.kind === "value") {
             if (read.value === text) {
                 return;
             }
-            // 自己写的块内容不符（截断等）：按读到的 revision 条件重写，仍保留诊断原件。
+            // 自己写的块内容不符（截断、顺序错乱等）：按读到的 revision 条件重写，仍保留诊断原件。
             await handle.save(chunkState, {expected: read.credential, value: text, resource});
             return;
         }
@@ -566,17 +627,44 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
             await handle.repair(chunkState, {expected: read.repair, value: text, resource});
             return;
         }
+        if (read.kind === "legacy-value") {
+            throw new MigrationStepFailure("backup-failed", `data 原件分块 ${resource} 是更低版本记录，本版本不覆盖`);
+        }
         await handle.save(chunkState, {expected: read.credential, value: text, resource});
     }
 
-    /** 核验备份：逐块读回拼接后与浏览器暂存的原件比较摘要与字节数。 */
-    async function verifyOriginalBackup(handle: StorageOwnerHandle, manifest: WorkbenchMigrationOriginalRecord): Promise<void> {
+    /**
+     * 核验备份：逐块读回、就地比对浏览器暂存的分块文本，再拼接比对整体摘要与字节数。
+     *
+     * 逐块比对让诊断能指认"哪一块、错在哪"（截断 / 与另一块交换 / 缺失 / 不可读）；
+     * `repair` 只由显式重试打开：自动路径发现不一致就按 `backup-failed` 收口，不改写副本。
+     */
+    async function verifyOriginalBackup(handle: StorageOwnerHandle, manifest: WorkbenchMigrationOriginalRecord, chunks: readonly string[]): Promise<void> {
+        const problems: string[] = [];
+        for (let index = 0; index < manifest.chunkCount; index += 1) {
+            const resource = workbenchMigrationChunkResource(index);
+            const expected = chunks[index] ?? "";
+            const read = await handle.read(chunkState, {resource});
+            if (read.kind === "value" && read.value === expected) {
+                continue;
+            }
+            problems.push(describeChunkMismatch(resource, read, expected, chunks, index));
+            if (repairBackup) {
+                await ensureBackupChunk(handle, index, expected, read);
+            }
+        }
+        if (problems.length > 0 && !repairBackup) {
+            throw new MigrationStepFailure(
+                "backup-failed",
+                `${problems.join("；")}；已保留原件，显式重试会按浏览器暂存重写不一致的分块`,
+            );
+        }
         const parts: string[] = [];
         for (let index = 0; index < manifest.chunkCount; index += 1) {
             const resource = workbenchMigrationChunkResource(index);
             const read = await handle.read(chunkState, {resource});
             if (read.kind !== "value" || typeof read.value !== "string") {
-                throw new MigrationStepFailure("backup-failed", `data 原件分块 ${resource} 写入后不可读`);
+                throw new MigrationStepFailure("backup-failed", `data 原件分块 ${resource} 核验时不可读（${describeReadKind(read)}）`);
             }
             parts.push(read.value);
         }
@@ -627,7 +715,14 @@ export function createStorageMigration(options: StorageMigrationOptions = {}): S
         staged: staged.promise,
         settled: settled.promise,
         start: run,
-        retry: () => (state.phase === "complete" ? Promise.resolve(state) : run()),
+        retry: async () => {
+            // 在途运行（通常是启动时的自动运行）先收口：否则显式重试会被当成重复调用直接返回，
+            // 用户看到"点了没反应"，而副本修复恰恰要由这一次点击触发。
+            if (running !== null) {
+                await running.catch(() => undefined);
+            }
+            return state.phase === "complete" ? state : await run({repairBackup: true});
+        },
         snapshot: () => state,
         subscribe(listener) {
             listeners.add(listener);
@@ -798,6 +893,54 @@ function requireConditionalCredential(read: StorageReadResult<unknown>): Storage
         return read.credential;
     }
     throw new MigrationStepFailure("import-failed", `记录不可写：${read.diagnosis}`);
+}
+
+/** 阻断分类是否值得用户重试：容量与"记录不可按本版本处理"都重试不会改变。 */
+function blockIsRetryable(reason: StorageMigrationBlockReason): boolean {
+    return reason !== "backup-capacity-exceeded"
+        && reason !== "progress-unprotected"
+        && reason !== "completion-unprotected";
+}
+
+function describeReadKind(read: StorageReadResult<unknown>): string {
+    switch (read.kind) {
+        case "value":
+            return "值记录";
+        case "legacy-value":
+            return `低版本记录 v${String(read.schemaVersion)}`;
+        case "deleted":
+            return "删除标记";
+        case "missing":
+            return "记录缺失";
+        case "unsupported-version":
+            return `未知高版本 v${String(read.schemaVersion ?? read.wrapperVersion ?? "?")}`;
+        case "corrupt":
+            return "记录损坏";
+    }
+}
+
+/**
+ * 分块不一致的可诊断说明。
+ *
+ * 逐块比对能区分"截断/改写"与"顺序错乱"（内容正好是另一块应有的文本），
+ * 缺失与不可读则分别报告记录状态，让修复动作知道该写还是该显式修复。
+ */
+function describeChunkMismatch(
+    resource: string,
+    read: StorageReadResult<unknown>,
+    expected: string,
+    chunks: readonly string[],
+    index: number,
+): string {
+    const target = `data 原件分块 ${resource}`;
+    if (read.kind !== "value" || typeof read.value !== "string") {
+        return `${target} 不是可用分块（${describeReadKind(read)}）`;
+    }
+    const swappedWith = chunks.findIndex((chunk, position) => position !== index && chunk === read.value);
+    if (swappedWith >= 0) {
+        return `${target} 顺序错乱：内容是 ${workbenchMigrationChunkResource(swappedWith)} 的文本`;
+    }
+    return `${target} 与浏览器暂存的原件不符（读回 ${String(read.value.length)} 字符，应为 ${String(expected.length)} 字符）`;
 }
 
 function isRevisionConflict(error: unknown): error is StorageAdapterError {

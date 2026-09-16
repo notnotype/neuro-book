@@ -10,11 +10,21 @@ import {
     createStorageActionHost,
     STORAGE_TEST_CLIENT_A,
 } from "nbook/server/storage/fixtures/storage-action-host";
+import {STORAGE_MAX_VALUE_BYTES} from "nbook/shared/storage/contract";
+import type {StorageJsonValue} from "nbook/shared/storage/bounded-json";
 import {
+    WORKBENCH_MIGRATION_CHUNK_BYTES,
+    WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES,
     WORKBENCH_MIGRATION_OWNER,
+    WORKBENCH_MIGRATION_ORIGINAL_LIMIT_BYTES,
+    WORKBENCH_MIGRATION_PARTITION_BYTES,
     WORKBENCH_MIGRATION_PROGRESS_KEY,
+    estimateWorkbenchMigrationRecordBytes,
+    type WorkbenchMigrationOriginalRecord,
     type WorkbenchMigrationProgressRecord,
 } from "nbook/shared/storage/workbench-migration";
+import {serializeStorageRecord} from "nbook/server/storage/record-codec";
+import {productStorageDefinitions} from "nbook/server/storage/product-definitions";
 import {WORKBENCH_LAYOUT_OWNER, WORKBENCH_SURFACE_SIZES_KEY} from "nbook/shared/storage/workbench-state";
 import {closeStorageContext, openStorageUserContext, type StorageHostRequest} from "nbook/app/utils/storage/host-context-client";
 import {STORAGE_ACCESS_CONTEXT_HEADER, STORAGE_CLIENT_CREDENTIAL_HEADER} from "nbook/shared/storage/host";
@@ -25,7 +35,7 @@ import {
     type StorageMigrationAdapters,
     type StorageMigrationController,
 } from "nbook/app/utils/workbench/storage-migration";
-import {measureLegacyOriginal, type LegacyBucketStaging} from "nbook/app/utils/workbench/storage-migration-legacy-bucket";
+import {measureLegacyOriginal, splitLegacyOriginalChunks, type LegacyBucketStaging} from "nbook/app/utils/workbench/storage-migration-legacy-bucket";
 
 /**
  * 生产注册入口与迁移备份边界的真实可达性。
@@ -251,4 +261,86 @@ describe("产品定义注册与迁移边界可达性", () => {
             await host.close();
         }
     });
+
+    it("模块重载后重复注册仍幂等，宿主继续用已登记的定义服务", async () => {
+        const host = await createStorageActionHost();
+        try {
+            const plugin = (await import("nbook/server/plugins/storage-definitions")).default as unknown as () => void;
+            plugin();
+            const contextId = await host.issue();
+            await expect(host.bind(contextId, WORKBENCH_LAYOUT_OWNER)).resolves.toBeDefined();
+            const beforeReload = productStorageDefinitions();
+
+            // 模拟 HMR：模块图重新实例化（宿主全局槽保留注册表，这是宿主自己的 HMR 交接设计）。
+            vi.resetModules();
+            await import("nbook/server/storage/host");
+            const reloaded = await import("nbook/server/storage/product-definitions");
+            const pluginAfterReload = (await import("nbook/server/plugins/storage-definitions")).default as unknown as () => void;
+
+            expect(() => pluginAfterReload()).not.toThrow();
+            // 定义实例跨重载复用：注册是同一实例的幂等重复，而不是另一个实例的冲突。
+            expect(reloaded.productStorageDefinitions()).toBe(beforeReload);
+            await expect(host.bind(contextId, WORKBENCH_LAYOUT_OWNER)).resolves.toBeDefined();
+            await expect(host.bind(contextId, WORKBENCH_MIGRATION_OWNER)).resolves.toBeDefined();
+        } finally {
+            await host.close();
+        }
+    });
+
+    it("记录文件字节口径：估算上界覆盖真实封装，常规 8 MiB 原件仍在声明分区内", () => {
+        // 估算必须是不小于真实记录文件的**上界**：它决定"被接受的元件一定放得进分区"。
+        const samples: StorageJsonValue[] = [
+            "",
+            "plain ascii",
+            "\"".repeat(4096),
+            "\\\\".repeat(4096),
+            "中文 😀 混排".repeat(2000),
+            "quote\"backslash\\newline\n中文".repeat(1000),
+            {leftPanelWidth: 427, monacoEditorPreferences: {nested: "\"quoted\"".repeat(200)}},
+        ];
+        for (const sample of samples) {
+            expect(estimateWorkbenchMigrationRecordBytes(sample)).toBeGreaterThanOrEqual(recordFileBytes(sample as StorageJsonValue));
+        }
+
+        // 常规 8 MiB 旧桶（JSON 结构、转义比例正常）按记录文件字节计仍落在 9 MiB 声明内。
+        const filler = "这是一段普通配置文本 with ascii padding ".repeat(160_000);
+        const raw = JSON.stringify({
+            leftPanelWidth: 427,
+            agentPanelWidth: 488,
+            projectPickerLayoutMode: "compact",
+            markdownEditorPreferences: {filler},
+        });
+        const chunks = splitLegacyOriginalChunks(raw);
+        const manifest: WorkbenchMigrationOriginalRecord = {
+            source: "novel.ide.local",
+            version: 1,
+            capturedAt: "2026-09-16T00:00:00.000Z",
+            byteLength: measureLegacyOriginal(raw).byteLength,
+            digest: measureLegacyOriginal(raw).digest,
+            chunkCount: chunks.length,
+            chunkBytes: WORKBENCH_MIGRATION_CHUNK_BYTES,
+        };
+        // 接近但不超过声明上限的常规旧桶：8 MiB 级，且分块后仍是多条记录。
+        expect(manifest.byteLength).toBeGreaterThan(WORKBENCH_MIGRATION_ORIGINAL_LIMIT_BYTES * 0.9);
+        expect(manifest.byteLength).toBeLessThanOrEqual(WORKBENCH_MIGRATION_ORIGINAL_LIMIT_BYTES);
+        expect(chunks.length).toBeGreaterThan(4);
+        const projected = chunks.reduce((total, chunk) => total + estimateWorkbenchMigrationRecordBytes(chunk), 0)
+            + estimateWorkbenchMigrationRecordBytes(manifest)
+            + WORKBENCH_MIGRATION_METADATA_RESERVE_BYTES;
+        expect(projected).toBeLessThanOrEqual(WORKBENCH_MIGRATION_PARTITION_BYTES);
+        // 单块仍满足单条硬上限。
+        for (const chunk of chunks) {
+            expect(recordFileBytes(chunk)).toBeLessThanOrEqual(STORAGE_MAX_VALUE_BYTES);
+        }
+    });
 });
+
+/** 产品自己的记录编码器算出的记录文件字节数（含封装与结尾换行）。 */
+function recordFileBytes(value: StorageJsonValue): number {
+    return Buffer.byteLength(serializeStorageRecord({
+        kind: "value",
+        revision: "0".repeat(36),
+        schemaVersion: 1,
+        value,
+    }), "utf8");
+}
