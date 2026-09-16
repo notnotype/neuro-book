@@ -179,3 +179,13 @@ Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun ru
 - Leader 独立复跑：聚焦 2 文件 **9 例** exit 0；`component-lab --suite all` 对 3001 **exit 0**；`bun run typecheck` **exit 0**（在有序停机窗口内跑）。
 - 实现者另有 `vue-tsc --noEmit` exit 0（并用临时探针证明该命令确实检查 SFC）与 `docs:check` exit 0（5894 文件）。
 - 可挂载性证据：标签推导 `mountable: true`，且 Lab 页面 workbench 分组可见并可选中（右栏显示目录/标签/确定性验证）。
+
+## 2026-09-16 文件树组件文档与 Lab 判定（Leader 记录）
+
+增量：t59（提交 `6f9813c1`）。为 t55 迁入产品的 `WorkspaceFilePanel.vue` 补同名契约文档（此前 `novel-ide/workspace/**` 14 文件零 `.md`，按 `component-index.ts:59-108` 连 Lab 索引都进不去）。
+
+- 判定：**不可挂载**（标签含 `state:shared-write`/`io:read`/`io:mutate`/`persist:local` → `mountable:false`）。实测证据：Lab 左栏 `novel-ide→workspace` 下已出现该组件（46 个组件，搜索 1/46），中栏原文给出阻断原因「会真的读写产品数据（state:shared-write、io:read、io:mutate），只能在正式界面验证」，console 零 error/warning。
+- 不造替代 fixture：Lab 规范禁止为阻断条目造替代 fixture；数据在 Pinia store + 记录 + Storage 宿主客户端，确定性挂载等价于把读写上移到宿主（属真实迁移，超出本 Task）。
+- 替代验证：`WorkspaceFilePanel.test.ts` 6 例 + t55 的隔离宿主真机验收（展开落记录、两种旧键迁移、打开提示条、书架态不渲染）+ 本 Task 对 3001 的 Lab smoke 全量 exit 0 ×2。
+- 门禁：`bun run docs:check` exit 0（5898 文件，failures `[]`）；聚焦 2 文件 10 例 exit 0；无产品代码改动（仅 1 个 `.md` + 台账文件），故未跑 typecheck。
+- 写文档时按实现收窄了两处口径（重命名/递归确认失败是**未捕获拒绝**、无通知；树读取失败无专门文案），已在文档「不支持/注意事项」写明。
