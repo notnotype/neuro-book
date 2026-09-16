@@ -59,3 +59,30 @@ Leader 逐张核对 expected/actual/diff：红色像素仅落在上述计数区�
 本轮未验证（保持明写）：主页面接线、旧键迁移、标题栏、World Engine 整页；桌面桥接与多窗口。命令系统仍未讨论。
 
 进程观察：worktree 内存在一个自 10:16 起运行的 `nuxt dev`（PID 14916/55568，监听 `[::1]:3001`），本轮未启动、未访问、未复用它，也未停止；所有验收使用独立端口与隔离根。
+
+## 2026-09-16 切片 3 收口与切片 4 落地（Leader 记录）
+
+检查点 A 关闭：t46 首轮裁定「需修复」（P2 重放无落点误报 `saved` 并清未确认意图、P3 release 后 open 仍读取、观察 1a），
+已回 t44 修复（`1f1942c3`，聚焦 20 例）；追加复核逐项独立复现闭合、G1–G4 相邻路径全绿、探针 6 文件 14 例 exit 0，**建议合并**。
+
+切片 4 两增量落地（均经 Leader 复跑与独立审查）：
+
+| 增量 | 提交 | Leader 复跑与结果 |
+|---|---|---|
+| t47 迁移门禁与原件保护 | `8263726e` + 返工 `b5babea8` | 相关测试域 35 文件 344 用例 exit 0；`bun run typecheck` exit 0；t49 独立审查两轮（首轮 F1 分块损坏静默通过、F2 HMR 注册非幂等、三条 P3；返工后逐项独立复测闭合，**修复成立、建议合并**） |
+| t48 主工作台接线与旧 writer 退役 | `8e9a803d` | 真实浏览器验收 8/8 场景（隔离根 `Temp/nb-t48-ece09483` + 端口 4371，记录文件逐项取证）；`bun run typecheck` exit 0 |
+
+要点证据：
+
+- 迁移：原件在旧 writer 任何重写前固化（`enforce:"pre"` + 等暂存结算，真实 persist 运行时 5 例含负向对照）；data 原件按 8 MiB 上限分块存 `workbench.migration` 专用分区，
+  续跑逐块回读核验（修后），显式 retry 才修复不一致副本；逐目标条件初始化（`value`/`legacy-value`→已存在、`deleted`→墓碑、高版本/损坏→受保护、`missing`→初始化），进度与完成标记独立于目标与墓碑。
+- 接线：单写者成立——刷新两次后记录 revision 不变、`novel.ide.local` 仅剩 `pick` 集合且三字段不存在；Project A/B 各自记录（`b53523c5` / `ae81a7be`）互不继承，
+  双标签同项目改动共存（`left=280, editor=563, right=460`）；user 工作面 `surface-sizes~user-assets` 只写主动字段且不落默认值；退役发生在原件安全保留之后。
+- 端到端可达：`server/plugins/storage-definitions.ts`（唯一 Nitro 注册插件）注册 `server/storage/product-definitions.ts` 定义清单后，经真实 HTTP 的读写与完整迁移链路在隔离根落盘。
+
+门禁：`bun run docs:check` 5842 文件 `failures: []`；`bun run governance:check` `failures: []`、`warnings: []`；nb-ui 全量 `playwright test` 64 passed（t45 已记）。
+
+未验证（保持明写）：浏览器标题栏与桌面 bridge（切片 5）、未迁视图清单（切片 6）、World Engine/Agent Chat Flow 整页、命令系统；
+另记一条环境时序观察——在旧 Project 释放仍收口时导航到 user-assets 路由曾回退到 `/`（同树新标签 + 重启宿主下不可复现，非本批引入），留待切片 5 路由接线时复核。
+
+受保护文件 `app/utils/workbench/descriptors{,.test}.ts` 的 SHA256 全程未变；`http://localhost:3001/` 未访问、未占用、未复用、未重启、未停止。
