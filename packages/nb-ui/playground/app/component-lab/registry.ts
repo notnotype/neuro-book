@@ -17,7 +17,8 @@ export type LabComponentId =
     | "badge" | "avatar" | "progress" | "kbd" | "spinner" | "rating"
     | "pagination" | "breadcrumb" | "navigation-menu" | "tree"
     | "splitter" | "accordion" | "scroll-area"
-    | "dialog-window" | "drawer" | "popover" | "alert-dialog";
+    | "dialog-window" | "drawer" | "popover" | "alert-dialog"
+    | "nested-grid";
 export type LabViewportId = "responsive" | "phone" | "tablet";
 export type LabControlType = "boolean" | "text" | "select";
 
@@ -599,6 +600,26 @@ export const labComponents: LabComponentDefinition[] = [
         ],
         targetSelector: "#nb-lab-target",
         events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
+    },
+    {
+        id: "nested-grid",
+        label: "NestedGrid",
+        labelZh: "嵌套分栏",
+        group: "布局",
+        description: "两轴嵌套分栏工作区（外层左右 + 内层上下）；两轴几何独立、手势单次提交与快照恢复保障。",
+        scenes: [
+            {id: "default", label: "默认两轴嵌套"},
+            {id: "unknown-ref", label: "未知引用恢复"},
+            {id: "malformed", label: "畸形重复身份拒绝"},
+            {id: "high-version", label: "高版本快照拒绝"},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "forceOverConstrained", label: "模拟过约束降级", type: "boolean"},
+            {id: "zeroInnerSash", label: "内层分隔条零高", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
     },
     {
         id: "accordion",

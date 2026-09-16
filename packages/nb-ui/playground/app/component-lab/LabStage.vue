@@ -43,6 +43,7 @@ import SegmentedControlFixture from "./fixtures/SegmentedControlFixture.vue";
 import SliderFixture from "./fixtures/SliderFixture.vue";
 import SpinnerFixture from "./fixtures/SpinnerFixture.vue";
 import SplitterFixture from "./fixtures/SplitterFixture.vue";
+import NestedGridFixture from "./fixtures/NestedGridFixture.vue";
 import StepperFixture from "./fixtures/StepperFixture.vue";
 import SwitchFieldFixture from "./fixtures/SwitchFieldFixture.vue";
 import SwitchFixture from "./fixtures/SwitchFixture.vue";
@@ -120,6 +121,7 @@ const fixtures: Record<LabComponentId, any> = {
     "navigation-menu": NavigationMenuFixture,
     "tree": TreeFixture,
     "splitter": SplitterFixture,
+    "nested-grid": NestedGridFixture,
     "accordion": AccordionFixture,
     "scroll-area": ScrollAreaFixture,
     "dialog-window": DialogWindowFixture,
