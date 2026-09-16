@@ -101,12 +101,12 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
   bunx vitest run --config .agents/works/w00003-neurobook-ui-foundation-migration/tasks/t60-view-migration-review/walkthroughs/probes/vitest.probes.config.ts
   ```
 
-  **exit 1**，`Test Files 1 failed | 2 passed (3)`、`Tests 3 failed | 12 passed (15)`：`probe-01-first-read-intent.probe.test.ts` 的 3 例（它 pin 的正是修复前的缺陷行为）现在断言失败，实测值变成修复后的正确值——
+  首轮（复核者重写 probe-01 之前）**exit 1**，`Test Files 1 failed | 2 passed (3)`、`Tests 3 failed | 12 passed (15)`：`probe-01-first-read-intent.probe.test.ts` 的 3 例（它 pin 的正是修复前的缺陷行为）断言失败，实测值变成修复后的正确值——
   - files：`stored` 不再是 `{"paths":["lorebook/"]}`（记录保住）；
   - settings：记录仍是 `{width:1000,height:700}`（不再被 `{width:1200,height:640}` 覆盖）；
   - create-project：记录不存在（未用默认尺寸创造记录）。
   **对照组仍绿**：「读取完成后同样的手势不会丢已确认值」——差异只来自读取窗口，修复没有改变就绪后的语义。
-  探针是 t60 的证物（pin 缺陷），未擅自改其断言；是否把它翻成「记录保住」的期望由复核者决定。
+  探针是 t60 的证物（pin 缺陷），未擅自改其断言；复核者已自行把它重写成「窗口内拒绝 + 就绪后并集」的期望，并加了 F4 例——修掉 F4 后**三个探针文件全绿**（`Test Files 3 passed (3)`、`Tests 15 passed (15)`，见 t56 §七 的 F4 段）。
 
 ### R3（P3）文档与实现不符 4 处 + legacy 组件口径
 
@@ -125,9 +125,9 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 | 命令（cwd） | 结果 |
 |---|---|
 | `bun run --cwd packages/neuro-book test app/utils/workbench app/components/workbench app/components/novel-ide/workspace`（worktree 根） | **exit 0**，`Test Files 21 passed (21)`、`Tests 227 passed (227)` |
-| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 621 passed (621)` |
+| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 622 passed (622)` |
 | `bunx tsc --noEmit -p tsconfig.json`（`packages/neuro-book`，只读） | 本次改动文件零错误（按文件名过滤无输出） |
 | `bun run docs:check`（worktree 根） | **exit 0**，`{"failures":[],"checkedFiles":5907}` |
-| 复核探针（命令见 R1） | exit 1：3 例按预期翻红（pin 缺陷），对照组 12 例仍绿 |
+| 复核探针（命令见 R1；复核者重写 probe-01 并加 F4 例之后） | **exit 0**，`Test Files 3 passed (3)`、`Tests 15 passed (15)` |
 
 未运行：`bun run typecheck`（会重建 `.nuxt`；本轮不需要，只读 `tsc` 已覆盖）、全量 `bun run test`、Lab smoke、构建、浏览器验收（本轮改动是门禁与文档，会话层与组件层由上述聚焦测试与探针覆盖；`git status` 显示工作区只有本轮改动与用户 dirty 的 `descriptors{,.test}.ts`）。未 `git add`、未 commit、未 push。

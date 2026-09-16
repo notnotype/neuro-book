@@ -107,7 +107,8 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 - **偏差 3（提示条文案）**：三处提示条用字面量「重试 / 放弃」+ Storage 层的中文诊断，未新增 i18n 键（`WorkspaceFilePanel` 用的是 `t(...)`）；诊断文案本身目前只有中文，等统一诊断本地化时一起收口。
 - **偏差 4（对象记忆）**：World Engine 的选中 slice/subject、筛选、折叠仍是组件内存态，未并入 project/local（清单 §2.6 ⑥ 建议的第二项，不在本 Task 范围）。
 - **偏差 5（清单行号）**：清单 §2.7 ① 引用的 `NovelIdeSettingsDialog.vue` 行号（如 `:927/952-956`）因本次改动下移若干行，未逐条重算（清单行号本就随实现漂移）；本次只改状态与结论性表述。
-- **未提交**：未 `git add`（更未对目录 add）、未 commit、未 push。
+- **偏差 6（F4 的两条残余观察，复核者提出，本轮判断为「不收、只记录」）**：① 句柄不可用那条诊断现在 `retryable: true`，界面因此同时画「重试 / 放弃」，但 `abandon()` 在该状态空操作（无会话可弃、`publish()` 因 `session === null` 直接返回）——根因是面板用一个 `retryable` 标志同时决定两个按钮（三处提示条同形），要在该状态隐藏「放弃」得给通知加「可放弃」维度，属提示条契约改动，不在本轮；② 该状态下用户手势被丢弃时只有宿主不可达那条诊断，没有专门文案——重连后树按记录重画（用户能看到结果），且该意图基于默认显示、重放反而是缺陷（F1），故作罢。两条等统一诊断文案/提示条契约时一起收。
+- **未提交**：未 `git add`（更未对目录 add）、未 commit、未 push；F4 修复的两个文件（`user-record-session.ts`、`files-view-session.test.ts`）由 Main 落 commit（复核者已按其 hash 归档）。
 
 ## 六、门禁
 
@@ -141,7 +142,17 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 | 命令（cwd） | 结果 |
 |---|---|
 | `bun run --cwd packages/neuro-book test app/utils/workbench app/components/workbench app/components/novel-ide/workspace`（worktree 根） | **exit 0**，`Test Files 21 passed (21)`、`Tests 227 passed (227)`（含新文件 15 例） |
-| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 621 passed (621)` |
+| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 622 passed (622)` |
 | `bunx tsc --noEmit -p tsconfig.json`（`packages/neuro-book`，只读） | 本次改动文件零错误 |
 | `bun run docs:check`（worktree 根） | **exit 0**，`{"failures":[],"checkedFiles":5907}` |
-| 复核探针（`--config .agents/.../t60.../probes/vitest.probes.config.ts`） | exit 1：probe-01 的 3 例 pin 的是 R1 缺陷、按预期翻红；对照组 12 例仍绿（详见 t55 §七） |
+| 复核探针（`--config .agents/.../t60.../probes/vitest.probes.config.ts`） | **exit 0**，`Test Files 3 passed (3)`、`Tests 15 passed (15)`（含复核者重写后的 probe-01 与其中的 F4 例） |
+
+### F4（P3，追加复核新发现，本次修掉）
+
+复核在 R1 修复后指出：`open()` 的句柄不可用分支（`opening = null`、`loading = false`、`session` 仍为 null）下，`commit` 的 `current === null` 会把 `open()` 留下的**准确诊断**顶成「记录还没完成首次读取」（不实），且该文案 `retryable: false` 让界面不画「重试」按钮——而 `retry()` 是此刻唯一的恢复入口；同时 `commit` 不再触发 `open()`，后端恢复后用户手势也不会重连。
+
+- **修法**（`user-record-session.ts` 两处小改）：
+  1. 把 `session === null` 与 `loading` 拆成两个分支：**`loading` 为真**（首读还没分类）才写门禁诊断；**`loading` 为假且会话仍为 null**（已经失败过）时**保留**既有诊断，并 `void open()` 再试一次连接——手势因此把连接带回来，且**不重放**这次基于默认显示的意图（重放就是首读门禁要挡的覆盖）。
+  2. 句柄不可用分支的诊断改成 `retryable: true`，让界面上的「重试」按钮可达（`retry()` 会重新 `open()`）。
+- **回归钉**（`files-view-session.test.ts` 新增 1 例，「句柄不可用：commit 不覆盖准确诊断、不落盘，并自己重试连接」）：替身新增 `userContextFailure` 开关；断言 ① 诊断仍是 `Storage 宿主暂不可达（cold start）` 且 `retryable: true`；② 提交后 `saves` 为空且诊断**未被顶掉**；③ 恢复后提交触发重连（不重放）、会话就绪、同一手势落盘 `{"paths":["lorebook/"]}`。
+- **复核探针**：probe-01 的 F4 例从「记录缺陷」翻成「要求保留准确诊断与可达重试」后，本次修复让它转绿——三个探针文件全绿（15/15）。
