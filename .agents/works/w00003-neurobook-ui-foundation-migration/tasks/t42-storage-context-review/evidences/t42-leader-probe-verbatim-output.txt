@@ -1,0 +1,29 @@
+$ vitest run "app/utils/workbench/t42-leader-probe-verbatim.test.ts"
+
+ RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+ ❯ app/utils/workbench/t42-leader-probe-verbatim.test.ts (1 test | 1 failed) 5013ms
+   × 离开到用户资产后，旧enterProject等待释放完成不能重新安装Project 5009ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/utils/workbench/t42-leader-probe-verbatim.test.ts > 离开到用户资产后，旧enterProject等待释放完成不能重新安装Project
+Error: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".
+ ❯ app/utils/workbench/t42-leader-probe-verbatim.test.ts:9:1
+      7| import type {StorageOwnerHandle} from "nbook/app/utils/storage/owner-h…
+      8|
+      9| it("离开到用户资产后，旧enterProject等待释放完成不能重新安装Project", async () => {
+       | ^
+     10|     let finishRelease!: () => void;
+     11|     const gate = new Promise<void>((resolve) => { finishRelease = reso…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed (1)
+   Start at  11:50:09
+   Duration  7.33s (transform 127ms, setup 86ms, import 152ms, tests 5.01s, environment 0ms)
+
+error: script "test" exited with code 1

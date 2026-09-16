@@ -39,6 +39,23 @@ UI 消费、切换期间的未提交意图展示与旧键迁移按 Work 的后�
   切换工作面时的旧目标收口、失败重试/放弃与提示属于后续切片。
 - 自定义 `StorageValueTransport` 应让请求最终结束并支持只读取消。释放会等待已接纳请求，不因更换 transport 放宽生命周期。
 
+## 工作台消费上下文
+
+`../workbench/storage-context.ts` 是每个工作台实例独立持有的消费宿主。宿主传入 Project owner 发布的精确
+`{projectRoot, publicId}` ready 和可选失效信号；它不会读取残留路径、打开 Project 或回退到 user。
+
+- `userOwner(owner)` 在工作台生命周期内复用 user session 与 owner 句柄。
+- `enterProject(ready)` 先释放旧 Project 的句柄、session 和内存服务，再发布新代次；并发切换只有最后一次明确目标生效。
+- `enterProject` 与 `enterUserSurface` 返回的 Promise 会等待旧 Project 已接纳的 owner 初始化和释放收口；旧句柄停止接纳不等待这些初始化。`target` 表示本次选择的目标，不保证访问已就绪；UI 以返回的 `project.available` 或 owner 结果判断能否消费，切换失败时不能仅凭 `target.kind` 显示可用。
+- `project.owner(owner)` 返回不含 `release()` 的借用句柄。切换、失效或工作台释放一进入同步边界，已借用句柄立即拒绝新动作；此前已接纳动作仍由底层句柄排空，订阅随释放停止。底层释放权只属于工作台。
+- `project.memory.selection(owner)` 提供 Project 代次内共享的选择与订阅；切换或失效后旧引用拒绝读写，新工作台不共享实例。一个监听器异常不会阻断其它监听器，`set` 已提交的内存值保持有效。
+- `release()` 先禁止新借用，并立即开始停止已有句柄；它分别等待 Project 与 user 的已接纳初始化、句柄排空和 session 关闭，一侧清理失败不跳过另一侧，重复调用共同等待同一结果。清理失败通过返回 Promise 和 `project.released` 明确报告。
+- 释放会聚合在途 owner 初始化的非上下文失效错误，以及句柄和 session 的清理错误；返回失败本身不等于资源仍未释放。宿主应保留错误诊断，不把它当成另一 scope 未执行清理的证据。
+
+`../workbench/storage-plugin-sample.ts` 是不注册到产品全局 registry 的第二消费者样例。它固定
+`nbook.storage-sample/preference` 为 user/local 单例，`nbook.storage-sample/object-memory/<resource>` 为
+project/local 对象记忆；对象存在性由插件 owner 在读写前校验。保存时由 owner 把本次已知字段合入已确认投影，保留未来字段；相同 resource 表示共享恢复地址，不共享实例投影或生命周期。
+
 ## 验证
 
 聚焦测试：`bun run --cwd packages/neuro-book test app/utils/storage`。

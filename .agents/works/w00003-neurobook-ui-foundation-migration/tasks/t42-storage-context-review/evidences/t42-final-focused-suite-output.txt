@@ -1,0 +1,18 @@
+# t40 聚焦测试集复跑（t42 最终追加复核基线）
+
+命令：bun run test app/utils/workbench/storage-context.test.ts app/utils/workbench/storage-plugin-sample.test.ts app/utils/storage
+cwd ：C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+```
+$ vitest run app/utils/workbench/storage-context.test.ts app/utils/workbench/storage-plugin-sample.test.ts app/utils/storage
+
+ RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+
+ Test Files  6 passed (6)
+      Tests  94 passed (94)
+   Start at  12:22:28
+   Duration  2.63s (transform 279ms, setup 250ms, import 683ms, tests 84ms, environment 0ms)
+
+EXIT:0
+```

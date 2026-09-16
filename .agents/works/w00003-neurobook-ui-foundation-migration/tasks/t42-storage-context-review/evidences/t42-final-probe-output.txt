@@ -1,0 +1,21 @@
+# t42 最终追加复核探针输出（原始）
+
+命令：bun run test app/utils/workbench/t42-final-probe.test.ts
+cwd ：C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+探针文件运行位置：packages/neuro-book/app/utils/workbench/t42-final-probe.test.ts（运行后原样移到本 Task evidences）
+
+```
+$ vitest run "app/utils/workbench/t42-final-probe.test.ts"
+
+ RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+
+ Test Files  1 passed (1)
+      Tests  9 passed (9)
+   Start at  12:23:16
+   Duration  2.04s (transform 137ms, setup 80ms, import 172ms, tests 12ms, environment 0ms)
+
+EXIT:0
+```
+
+复跑方式：把 `t42-final-probe.test.ts` 复制回 `packages/neuro-book/app/utils/workbench/`，在 `packages/neuro-book` 下执行上面命令，再用单文件移动收回本目录。
