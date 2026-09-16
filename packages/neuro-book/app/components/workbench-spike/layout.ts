@@ -10,7 +10,7 @@
  * 本文件不认识注册表：可用视图与容器由调用方按 `SpikeCatalog` 注入（组装根见 WorkbenchSpike.vue）。
  * 快照版本与恢复规则（版本不符 / 未知 ref / 非法根 / 覆盖失效 / 收起失效 / 活动容器回落的 issue）都收敛在本文件。
  */
-import {createGrid, type GridLeaf, type GridNode, type GridRestoreResult, type GridSnapshot} from "@notnotype/nb-ui/components";
+import {createGrid, type Grid, type GridAxis, type GridBranchInput, type GridBranchResizeResult, type GridLeafInput, type GridNode, type GridNodeInput, type GridRestoreResult, type GridSnapshot, type GridSnapshotNode} from "@notnotype/nb-ui/components";
 import type {SpikeContainerDescriptor, SpikeViewDescriptor} from "./descriptors";
 
 export type SpikeLocation = "sidebar-left" | "sidebar-right" | "panel";
@@ -40,12 +40,20 @@ export const SPIKE_LOCATION_LABELS: Record<SpikeLocation, string> = {"sidebar-le
 /** 只有这三个叶子可收起：活动栏、编辑区、状态栏是工作台的固定骨架。 */
 const COLLAPSIBLE_LEAVES: string[] = SPIKE_LOCATIONS;
 
-function leaf(id: string, size: number, minimumSize = 80, maximumSize = 900): GridLeaf<string> {
-    return {kind: "leaf", id, ref: id, minimumSize, maximumSize, size};
+/** 叶：`axis` 是**父分支主轴**，`intent` 是它在那根轴上的用户分配；交叉轴共享，不设上限。 */
+function leaf(id: string, axis: GridAxis, intent: number, minimumSize: number, maximumSize: number): GridLeafInput<string> {
+    return {
+        kind: "leaf",
+        id,
+        ref: id,
+        size: axis === "width" ? {width: intent, height: 0} : {width: 0, height: intent},
+        minimumSize: axis === "width" ? {width: minimumSize, height: 0} : {width: 0, height: minimumSize},
+        maximumSize: axis === "width" ? {width: maximumSize, height: Number.MAX_SAFE_INTEGER} : {width: Number.MAX_SAFE_INTEGER, height: maximumSize},
+    };
 }
 
-/** 初始拓扑：面板在编辑器中列（嵌套），可被移到整行（跨全宽）。 */
-function defaultTree(): GridNode<string> {
+/** 初始拓扑：面板在编辑器中列（嵌套），可被移到整行（跨全宽）。分支的 `size` 是它在这一列的外部分配。 */
+function defaultTree(): GridBranchInput<string> {
     return {
         kind: "branch",
         id: "root",
@@ -55,14 +63,23 @@ function defaultTree(): GridNode<string> {
                 kind: "branch",
                 id: "main",
                 orientation: "horizontal",
+                // 根分支是垂直的：main 的外部分配落在高度轴上（初始比例，容器实测后由 layout 重算）
+                size: {width: 0, height: 860},
                 children: [
-                    leaf("activity", 64, 48, 96),
-                    leaf("sidebar-left", 280, 180, 520),
-                    {kind: "branch", id: "center", orientation: "vertical", children: [leaf("editor", 520, 240, 1200), leaf("panel", 200, 120, 600)]},
-                    leaf("sidebar-right", 300, 180, 520),
+                    leaf("activity", "width", 64, 48, 96),
+                    leaf("sidebar-left", "width", 280, 180, 520),
+                    {
+                        kind: "branch",
+                        id: "center",
+                        orientation: "vertical",
+                        // main 是横向的：center 这一列的外部分配落在宽度轴上
+                        size: {width: 520, height: 0},
+                        children: [leaf("editor", "height", 520, 240, 1200), leaf("panel", "height", 200, 120, 600)],
+                    },
+                    leaf("sidebar-right", "width", 300, 180, 520),
                 ],
             },
-            leaf("statusbar", 40, 32, 64),
+            leaf("statusbar", "height", 40, 32, 64),
         ],
     };
 }
@@ -86,26 +103,62 @@ export function createDefaultLayout(catalog: SpikeCatalog): SpikeLayoutState {
     };
 }
 
+/** 快照没有运行约束；每次实例化先取得当前宿主约束，再恢复尺寸意图。 */
+export function createSpikeGrid(snapshot: GridSnapshot): Grid<string> {
+    const grid = createGrid(defaultTree(), {sashSize: 1});
+    const result = grid.restore(snapshot, (ref) => ({ref}));
+    if (!result.ok) {
+        throw new Error(result.reason ?? "已校验的验证台快照无法恢复");
+    }
+    return grid;
+}
+
+/** 可见分支独立结算；只合入该分支可见子节点的意图，隐藏叶与另一轴保持原件。 */
+export function resizeSpikeBranch(
+    grid: Grid<string>, hidden: readonly string[], branchId: string, axis: GridAxis,
+    baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>,
+): GridBranchResizeResult {
+    const visible = createGrid(visibleGridTree(grid.root(), hidden), {sashSize: 1});
+    const result = visible.resizeBranch(branchId, axis, baseline, target);
+    if (!result.ok) {
+        return result;
+    }
+    const apply = (node: GridNode<string> | null): void => {
+        if (!node) return;
+        if (Object.hasOwn(result.sizes, node.id)) node.size[axis] = result.sizes[node.id]!;
+        if (node.kind === "branch") node.children.forEach(apply);
+    };
+    apply(grid.root());
+    return result;
+}
+
 export function serializeLayout(state: SpikeLayoutState): string {
     return JSON.stringify(state, null, 1);
 }
 
-export function liveLeafIds(root: GridNode<string> | null | undefined): string[] {
+export function liveLeafIds(root: GridSnapshotNode | null | undefined): string[] {
     if (!root) {
         return [];
     }
     return root.kind === "leaf" ? [root.id] : root.children.flatMap((child) => liveLeafIds(child));
 }
 
+/** 当前呈现只包含可见叶；返回新分支容器，原树及其尺寸意图保持不变。 */
+export function visibleGridTree<T>(root: GridNode<T> | null, hidden: readonly string[]): GridNode<T> | null {
+    if (!root || root.kind === "leaf") {
+        return root && !hidden.includes(root.id) ? root : null;
+    }
+    return {...root, children: root.children.map((child) => visibleGridTree(child, hidden)).filter((child): child is GridNode<T> => child !== null)};
+}
+
 /** 默认树的全部节点 id（分支 + 叶）：恢复白名单里的骨架部分。 */
-function treeIds(root: GridNode<string>): string[] {
+function treeIds(root: GridNodeInput<string>): string[] {
     return root.kind === "leaf" ? [root.id] : [root.id, ...root.children.flatMap((child) => treeIds(child))];
 }
 
 /**
- * 原语**不做**的那些校验：节点 id（白名单、全树唯一、与叶子 ref 对齐）与叶子尺寸
- * （有限、非负、min ≤ max）。原语只按 ref 去重，会把非法字段原样 spread 进树，下游 layout()/
- * resize() 的 Math.max 与百分比换算就会产出 NaN。
+ * 快照层管不住的校验：节点 id（白名单、全树唯一）与叶子的 ref 对齐。
+ * 尺寸与方向由原语在恢复时整体校验（非法快照根本进不了树），这里不重复判。
  */
 function nodeProblems(root: GridNode<string>, allowed: string[]): string[] {
     const seen = new Set<string>();
@@ -116,22 +169,11 @@ function nodeProblems(root: GridNode<string>, allowed: string[]): string[] {
         }
         seen.add(node.id);
         if (node.kind === "branch") {
-            if (node.orientation !== "horizontal" && node.orientation !== "vertical") {
-                problems.push(`分支方向非法：${node.id}`);
-            }
             node.children.forEach(walk);
             return;
         }
         if (node.ref !== node.id) {
             problems.push(`叶子 id 与 ref 不一致：${node.id}(ref=${node.ref})`);
-        }
-        for (const [name, value] of [["size", node.size], ["minimumSize", node.minimumSize], ["maximumSize", node.maximumSize]] as const) {
-            if (!Number.isFinite(value) || value < 0) {
-                problems.push(`叶子尺寸非法：${node.id}（${name}=${String(value)}）`);
-            }
-        }
-        if (node.minimumSize > node.maximumSize) {
-            problems.push(`叶子尺寸非法：${node.id}（minimumSize > maximumSize）`);
         }
     };
     walk(root);
@@ -143,7 +185,7 @@ function nodeProblems(root: GridNode<string>, allowed: string[]): string[] {
  * 再把原语不做或做不干净的校验一次做完——
  * ① 根必须是非空分支（单叶根在渲染侧没有 children）；
  * ② 节点 id 白名单、全树唯一、与 ref 对齐；③ ref 白名单（未知 ref 由 resolver 丢弃并转 issue）；
- * ④ 叶子尺寸有限、非负、min ≤ max；⑤ 原语的 dropped / clamped / reason 逐条转 issue。
+ * ④ 原语的 dropped / clamped / reason 逐条转 issue（尺寸与结构错由原语整体拒绝，本层不再复检）。
  * 任一项不合法 → **整树**回退默认布局，不做「半合法半非法」的接受。
  */
 function validateAndNormalizeGrid(raw: unknown, catalog: SpikeCatalog): {ok: true; grid: GridSnapshot; issues: string[]} | {ok: false; fallback: string; issues: string[]} {
@@ -151,19 +193,19 @@ function validateAndNormalizeGrid(raw: unknown, catalog: SpikeCatalog): {ok: tru
         return {ok: false, fallback: "布局快照缺少树，已回退默认布局", issues: ["快照缺少树"]};
     }
     // 快照里的 ref 必须命中骨架节点、容器或视图，其余一律当作未知引用。
-    // 身份 resolver（`(ref) => ref`）会让任意 ref 通过，未知引用的叶于是静默留在树里。
+    // 身份 resolver 必须显式给出解析结果：把任意 ref 原样放行会让未知引用的叶静默留在树里。
     const knownRefs = [...treeIds(defaultTree()), ...catalog.containers.map((container) => container.id), ...catalog.views.map((view) => view.id)];
-    const probe = createGrid<string>(null);
+    const probe = createGrid(defaultTree(), {sashSize: 1});
     let result: GridRestoreResult;
     try {
-        result = probe.restore(raw, (ref) => (knownRefs.includes(ref) ? ref : null));
+        result = probe.restore(raw, (ref) => (knownRefs.includes(ref) ? {ref} : null));
     } catch (error) {
-        // 原语对结构错乱的 children（例如字符串）会直接抛错，恢复路径不能因此中断。
+        // 原语把结构错报成 reason；这里保留兜底，恢复路径不因意外异常中断。
         return {ok: false, fallback: "布局快照无法解析，已回退默认布局", issues: [`布局快照无法解析：${error instanceof Error ? error.message : String(error)}`]};
     }
     const issues = result.dropped.map((item) => `布局快照丢弃了未知引用「${item.ref}」（${item.reason}）`);
     if (result.clamped.length > 0) {
-        issues.push(`布局快照的叶子尺寸越界，已夹取：${result.clamped.join("、")}`);
+        issues.push(`布局快照的尺寸意图超出当前宿主约束，呈现将夹取：${result.clamped.join("、")}`);
     }
     if (!result.ok) {
         issues.push(`布局快照里的树无效：${String(result.reason ?? "未知结构")}`);

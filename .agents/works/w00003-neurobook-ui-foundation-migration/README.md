@@ -36,6 +36,7 @@ Workbench 与 View Host 提案 [`workbench-view-host.md`](../../../packages/neur
 [实施计划](storage-implementation-plan.md) 固定依赖、切片、迁移与验收。
 Spec 与治理已单独提交为 `44710392`；开发者授权后已建立实现 goal，由 [t22](tasks/t22-storage-core/README.md) 开始服务核心增量。
 实现与各验收逐项推进，旧键迁移尚未执行；局部增量完成不代表全部 capability 已实现。
+开发者随后将本轮收口缩为核心底座修复、验证与本地提交；余下集成按 handoff 技能在系统Temp交接，不要求本轮完成全部六切片，也不据此晋升planned能力。
 服务核心 t22 已提交 `dfc5df82`（86 个聚焦用例、包含新入口的 typecheck 通过）；
 宿主身份 [t23](tasks/t23-storage-host-identity/README.md) 已提交 `3b8d87fb`（149 用例、主应用 typecheck、普通 HTTP Chrome smoke 通过，独立复核不阻断）；
 user 受管句柄与 HTTP 值读写 [t24](tasks/t24-storage-user-http/README.md) 已提交 `8b1229ea`，
@@ -48,10 +49,22 @@ t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Proje
 包含物理复核、HMR与关停排空补修；[t34](tasks/t34-project-storage-review/README.md) 最终独立150用例通过、1跳过并建议合并。
 [t31](tasks/t31-storage-file-boundary/README.md) 文件保护与资产同步、[t32](tasks/t32-storage-archive/README.md) 归档已由
 [t33](tasks/t33-storage-file-archive-review/README.md) 追加复核建议合并；最后 CLI parse/递归修复保护及类型检查通过，已提交 `6d644059`。
-[t35](tasks/t35-storage-project-browser/README.md) 浏览器 Project 适配完成，
+[t35](tasks/t35-storage-project-browser/README.md) 浏览器 Project 适配已提交 `70c7168d`，
 [t36](tasks/t36-storage-project-browser-review/README.md) 独立 76 用例通过、建议合并，主 Agent统一类型检查通过。
 切片2的服务/适配器与磁盘接线已闭合；有效宿主上下文替代旧 `resolveViewStateLayer(projectRoot)` 的消费接线，
 随切片3插件样例一起验证，当前该旧函数只有测试调用，尚未被产品Storage消费。
+切片3的核心增量已闭合：[t37](tasks/t37-grid-geometry/README.md) 完成两轴几何、快照与Shell/Spike消费，
+[t38](tasks/t38-splitter-gestures/README.md) 完成用户手势边界；t39/t41最终独立复核建议合并。
+最终[核心验证](storage-core-validation.md)：主应用类型检查与142聚焦用例、nb-ui类型检查/350单测/48浏览器用例通过，CSS连续构建一致。
+完整插件持久化宿主、原件合成、旧键迁移与主页面/标题栏仍交接后续；隐藏editor的公开API边界问题已登记，不影响当前主页路径。
+[t40](tasks/t40-workbench-storage-context/README.md) 并行消费已验证的Storage接口，实现不依赖grid的工作台上下文与插件内存样例。
+该核心已提交 `7a5d04de`，Leader独立94用例通过，t42最终复核另有9个探针通过并建议合并；消费文档已说明切换等待、目标与可用状态的区别。
+[t41](tasks/t41-grid-consumer-review/README.md) 独立复核grid与真实消费者，变动中的版本需收口后追加确认。
+[t42](tasks/t42-storage-context-review/README.md) 独立复核工作台Storage上下文与插件样例的生命周期和失败清理。
+[t43](tasks/t43-project-storage-browser-smoke/README.md) 并行补齐已提交Project适配器的真实浏览器/HTTP/磁盘验证，独立临时根且不依赖布局。
+其脚本仍有验证覆盖与失败清理缺口，按用户收紧范围保留未提交稿交接，不能采信作者“全部完成”的结论；见 [Leader交接状态](tasks/t43-project-storage-browser-smoke/walkthroughs/leader-handoff-status.md)。
+开发者已有 `http://localhost:3001/` 后台服务，后续验收不占用、复用、重启或关闭它；
+产品验收显式使用系统Temp内独立State Root、Workspace Root与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界

@@ -1,10 +1,11 @@
 # Storage 底座与浏览器标题栏实施计划
 
-- 状态：Spec 与治理 `44710392`、服务核心 `dfc5df82`、宿主身份 `3b8d87fb`、HTTP 值读写 `8b1229ea` 已提交；浏览器适配 t26 经独立审查修复、最终类型检查和 Chrome 值 smoke 通过，切片 1 闭合；实现 goal active
+- 状态：切片1、切片2及切片3的Storage上下文/grid/手势核心已验证收口；用户缩小本轮范围后的余项已交接，完整六切片仍未完成。证据见 [核心验证](storage-core-validation.md)。
 - Work：w00003-neurobook-ui-foundation-migration；文档 [t21](tasks/t21-storage-design-review/README.md)、核心 [t22](tasks/t22-storage-core/README.md)、宿主身份 [t23](tasks/t23-storage-host-identity/README.md)、HTTP [t24](tasks/t24-storage-user-http/README.md)；HTTP 独立审查 [t25](tasks/t25-storage-http-review/README.md)；浏览器适配 [t26](tasks/t26-storage-browser-adapter/README.md) 与独立审查 [t27](tasks/t27-storage-adapter-review/README.md)
 - 工作区：`.worktree/w00003-neurobook-ui-foundation-migration`；分支：`refactor/w00003-nb-ui-adoption`
 - 2026-09-16：开发者同意补齐审查缺口，包含最小嵌套验证与必要原语修复；不提前迁移 World Engine 整页
 - 随后开发者明确授权：Spec 与文档治理完成并单独提交后，直接进入 goal 模式实现本计划。
+- 2026-09-16 后续收口：开发者要求“把最核心的地方做了”，其余按 handoff 交接。本轮完成并验证 Storage 消费上下文、grid 几何与 Splitter 手势核心；插件grid持久化宿主、迁移、主页/标题栏接线与清单转交后续。六切片仍是总体路线，后续集成中的原件合成、冲突投影不是可跳过的细节。
 
 ## 合同与交付顺序
 
@@ -52,7 +53,7 @@ t28 经 30 文件 215 用例、主应用类型检查与 [t29 独立审查](tasks
 [t33](tasks/t33-storage-file-archive-review/README.md)、[t34](tasks/t34-project-storage-review/README.md) 已完成首轮及部分追加审查；
 文件边界与备份 t31/t32 已提交 `6d644059`，包含 CLI 最后补修及最终类型检查。
 Project 宿主 t30 已提交 `7e1fe94d`，真实写入窗口与关停排空补修经最终独立复核通过。
-浏览器 Project 适配 [t35](tasks/t35-storage-project-browser/README.md) 已有实现，
+浏览器 Project 适配 [t35](tasks/t35-storage-project-browser/README.md) 已提交 `70c7168d`，
 [t36](tasks/t36-storage-project-browser-review/README.md) 独立 76 用例通过并建议合并，最终主应用typecheck通过。
 服务/适配器与磁盘接线闭合后进入切片3；原切片2的descriptor消费上下文接线随第二消费者样例一起做，
 避免在没有消费点时伪造上下文。旧 `resolveViewStateLayer` 当前只有测试调用；不得让后续插件沿用它从残留路径取得访问。
@@ -76,6 +77,11 @@ Project 宿主 t30 已提交 `7e1fe94d`，真实写入窗口与关停排空补�
 
 **依赖：** 前两片；达到本检查点后才固定嵌套 grid 的新版快照格式。
 
+当前 [t37](tasks/t37-grid-geometry/README.md) 拥有几何/快照及直接消费者，
+[t38](tasks/t38-splitter-gestures/README.md) 拥有Splitter手势。
+[t40](tasks/t40-workbench-storage-context/README.md) 依据已验证的t35接口并行实现不依赖grid的工作台上下文及插件内存样例；
+grid宿主接线仍在两项公共合同验证后继续。
+
 - 提供无真实业务数据的内置测试插件：project/local 布局、project 对象记忆、user/local 偏好及 Project 内存选择。
   每工作台注入独立上下文；同一插件的两个 grid 用不同稳定资源标识，也验证两个窗口明确共享同一恢复地址的情况。
 - 完成 `ui.nested-grid` 的两轴几何、叶/分支之间空间吸收与约束传播。
@@ -95,6 +101,7 @@ Project 宿主 t30 已提交 `7e1fe94d`，真实写入窗口与关停排空补�
 ## 切片 4：迁移与主工作台恢复闭环
 
 **依赖：** 检查点 A。
+源码入口取证见 [消费者接线入口](storage-consumer-source-map.md)，开始实现前按当时diff重读。
 
 - 实现迁移合同的启动门禁、临时浏览器原件暂存、data 备份与逐项进度。原件按原始字节保存，不要求损坏旧值先解析成功。
   原件暂存须早于旧持久化插件写入；暂存成功后仅冻结三个源字段，未迁字段继续保存，不受后端不可达影响。
@@ -143,6 +150,8 @@ Agent 列表与 Chat Flow、World Engine、Plot、角色、设置、历史和相
 
 ## 验证与交接
 
+- 开发者已有后台服务 `http://localhost:3001/`，验收不占用或复用该端口、不重启或关闭它。
+  产品验收在系统Temp显式指定独立State Root、Workspace Root和浏览器数据目录；纯nb-ui playground不启动产品服务。
 - 文档：`bun run docs:check`、本地链接、跨文档语义和 `git diff --check`；当前 Task 不运行无关业务全量测试。
 - 实现：按包 `package.json` 运行受影响聚焦测试与 typecheck；nb-ui 自身测试/build、Component Lab smoke 与 Product 排除门禁保持绿色。
   主应用采用 `bun run --cwd packages/neuro-book test <目标>` 与 `bun run --cwd packages/neuro-book typecheck`。

@@ -140,8 +140,14 @@
 - **长文写作场景**：`HoverCard` 预设 250ms 打开延迟与 200ms 关闭平滑过渡，为设定集词条、人名档案与外部链接提供即时轻量预览。
 
 #### 12. `Splitter`（多栏可调节工作区规范）
-- **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏可折叠面板分配（`SplitterGroup` / `SplitterPanel` / `SplitterResizeHandle`）。
-- **拖拽触感**：1px 精细分隔线 + 悬浮与拖拽时点亮品牌色胶囊指示器，扩大命中热区（10px），拖拽过程绝不产生盒模型卡顿。
+- **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏可折叠面板分配（`SplitterGroup` / `SplitterPanel` / `SplitterResizeHandle`）；`Enter` 通过 Panel 公开 API 折叠或恢复并保持 `layout` 与手势一致。
+- **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，非法值诊断后回退，主轴守恒不依赖 CSS 隐藏。
+- **拖拽触感**：精细分隔线 + 悬浮与拖拽时点亮品牌色胶囊指示器，扩大命中热区（10px），拖拽过程绝不产生盒模型卡顿。
+- **手势边界**：`layout` 只描述几何；用户调整另发四段 `gesture-start` / `gesture-update` / `gesture-end` / `gesture-cancel`，
+  `gesture-end` 携带 `{source, sash, active, compensated, sizes}`；`sizes` 是百分比，宿主按实际 `active` 字段合成偏好，不整份覆盖补偿变化。
+- **边界规则**：基线在用户开始时捕获，一次指针操作或一次键盘连发只结束一次；`keyup` 或失焦结束键盘手势；
+  Escape、pointercancel、窗口失焦、卸载与 panel 身份/约束/方向/禁用变化取消且不产生保存意图，并同时复位上游拖动状态；挂载、约束变化与视口重算仍只发 `layout`。
+- **主动与补偿**：`active` 只含 sash 两侧相对基线实际改变的面板；相邻候选触界未变化时不冒充主动字段，被推着让出空间的远端兄弟记为 `compensated`。
 
 #### 13. `Drawer`、`DialogWindow` & `AlertDialog`（浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。

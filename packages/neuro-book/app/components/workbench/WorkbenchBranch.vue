@@ -1,23 +1,20 @@
 <script setup lang="ts">
 /**
- * 分区渲染：一个分支 = 一个 nb-ui `Splitter`（它提供 sash handle），叶子 = 一个区域。
- * 尺寸夹取与传播归原语；本组件只把 splitter 的尺寸事件换算成像素增量后调 onResize。
- *
- * 提升自验证台 `workbench-spike/SpikeBranch.vue`（#192 阶段 1 步骤 2）：逻辑原样，sash 不再自绘——
- * nb-ui `Splitter` 已经是「流内 1px 细线 + `::after` 绝对定位命中区 + 悬停高亮」，
- * 沿用验证台的 `min-width: 8px` 会让 4 个叶吃掉编辑器 24px。
+ * 分区渲染：一个分支对应一个 nb-ui `Splitter`，叶子对应内容区域。
+ * 当前容器的尺寸、约束与 sash 来自 grid `layout(container)`；树上的 `size` 只表示可持久化意图，不能直接渲染。
+ * `layout` 事件只是 Reka 的呈现事实；一次用户手势只在 `gesture-end` 调用一次原语调整入口。
  */
-import {computed, onMounted, ref, watch} from "vue";
-import {Splitter, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
-import type {GridBranch, GridNode} from "@notnotype/nb-ui/components";
+import {computed, ref, watch} from "vue";
+import {Splitter, axisOf, type GridAxis, type GridBranch, type GridLayoutResult, type GridNode, type SplitterGestureState, type SplitterPanelConfig} from "@notnotype/nb-ui/components";
+import {buildWorkbenchBranchPanels, workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
 
 const props = withDefaults(defineProps<{
     node: GridBranch<unknown>;
-    sizes: Record<string, number>;
-    onResize: (id: string, deltaPx: number) => void;
+    layout: GridLayoutResult;
+    onResizeBranch: (branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>, active: readonly string[]) => void;
     /** 已隐藏的叶子：从本分支的 children 里过滤掉（树与尺寸模型不变，展开即重新插入）。 */
     hidden?: string[];
-    /** 整棵树被换掉的次数（容器宽变化 / 外部改尺寸）：只有它变时才重挂 splitter 去重新读默认尺寸。 */
+    /** 整棵树被换掉的次数；只有它变时才重挂 splitter。 */
     epoch?: number;
 }>(), {hidden: () => [], epoch: 0});
 
@@ -25,29 +22,31 @@ defineSlots<{
     leaf(props: {leafId: string}): unknown;
 }>();
 
-const el = ref<HTMLElement | null>(null);
-const lastPercent = ref<number[] | null>(null);
+
+/** 本分支的分配轴：子节点只有这根轴上的意图参与比例。 */
+const mainAxis = computed<GridAxis>(() => axisOf(props.node.orientation));
+
+/** 子项全部触顶时原语会保留留白；百分比面板的容器必须采用同一份实际宽高。 */
+const branchStyle = computed(() => {
+    const size = props.layout.sizes[props.node.id];
+    return {width: `${size?.width ?? 0}px`, height: `${size?.height ?? 0}px`, flexShrink: 0};
+});
 
 const children = computed<GridNode<unknown>[]>(() => props.node.children.filter((child) => !props.hidden.includes(child.id)));
 
-/**
- * 面板配置**只在挂载 / 重挂时算一次**：
- * reka 会 watch 每个 panel 的 min/max 约束，中途改它等于把 reka 的内部布局也拽着改，
- * 于是「它派发 layout → 我们改 grid → 我们又算新的 min/max → 它再派发」形成递归更新。
- * 拖拽期间的尺寸真相在 reka 手里，我们只在事件里收增量。
- */
+/** 面板配置只读原语在当前容器算出的呈现与有效交互约束。 */
 function buildPanels(): SplitterPanelConfig[] {
-    const sum = children.value.reduce((total, child) => total + (props.sizes[child.id] ?? 0), 0);
-    const percent = (size: number) => (sum > 0 ? Math.max(0, Math.min(100, (size / sum) * 100)) : 0);
-    return children.value.map((child) => ({
-        id: child.id,
-        defaultSize: sum > 0 ? percent(props.sizes[child.id] ?? 0) : 100 / Math.max(1, children.value.length),
-        minSize: child.kind === "leaf" ? percent(child.minimumSize) : 0,
-        maxSize: child.kind === "leaf" ? percent(child.maximumSize) : 100,
-    }));
+    return buildWorkbenchBranchPanels(children.value, props.layout, mainAxis.value);
 }
 
 const panels = ref<SplitterPanelConfig[]>(buildPanels());
+const sashSizes = computed(() => {
+    const all = props.layout.sashSizes[props.node.id] ?? [];
+    const visible = props.node.children
+        .map((child, index) => ({child, index}))
+        .filter(({child}) => !props.hidden.includes(child.id));
+    return visible.slice(0, -1).map(({index}) => all[index] ?? 0);
+});
 
 /**
  * splitter 的重挂只在「子节点集合变了」或「整棵树换了」时发生：
@@ -59,55 +58,58 @@ function slotName(id: string): string {
     return "panel-" + id;
 }
 
-function onLayout(sizes: number[]) {
-    const previous = lastPercent.value;
-    lastPercent.value = [...sizes];
-    if (!previous || previous.length !== sizes.length) {
-        return;
-    }
-    const extent = props.node.orientation === "horizontal"
-        ? (el.value?.clientWidth ?? 0)
-        : (el.value?.clientHeight ?? 0);
-    if (extent <= 0) {
-        return;
-    }
-    for (const [index, child] of children.value.entries()) {
-        const deltaPercent = sizes[index]! - previous[index]!;
-        if (Math.abs(deltaPercent) < 0.01) {
-            continue;
-        }
-        props.onResize(child.id, (deltaPercent / 100) * extent);
-    }
+
+/** 一次 gesture 提交本分支全部直接子节点的当前基线与目标呈现。 */
+let gestureLayout: GridLayoutResult | null = null;
+
+function onGestureStart(): void {
+    gestureLayout = props.layout;
 }
 
-/**
- * 重挂时同步两件事：面板配置重新读一次当前逻辑尺寸；reka 随后报的第一次尺寸只作基线（不当成用户拖动）。
- */
-function resyncSplitter() {
+function onGestureCancel(): void {
+    gestureLayout = null;
+}
+
+function onGestureEnd(state: SplitterGestureState): void {
+    const baseline = gestureLayout;
+    gestureLayout = null;
+    if (!baseline || baseline !== props.layout) {
+        return;
+    }
+    const gesture = workbenchBranchGesture(children.value, baseline, mainAxis.value, state.sizes);
+    if (!gesture) {
+        return;
+    }
+    props.onResizeBranch(props.node.id, mainAxis.value, gesture.baseline, gesture.target, state.active);
+}
+
+/** 重挂或容器布局变化时重新读取当前呈现。 */
+function resyncSplitter(): void {
     panels.value = buildPanels();
-    lastPercent.value = null;
 }
 
 watch(splitterKey, resyncSplitter);
-
-onMounted(resyncSplitter);
+watch(() => props.layout, resyncSplitter);
 </script>
 
 <template>
-    <div ref="el" class="h-full w-full min-h-0 min-w-0" :data-branch="node.id">
+    <div class="min-h-0 min-w-0" :style="branchStyle" :data-branch="node.id">
         <Splitter
             :key="splitterKey"
             :direction="node.orientation === 'horizontal' ? 'horizontal' : 'vertical'"
             :panels="panels"
+            :sash-sizes="sashSizes"
             class="h-full"
-            @layout="onLayout"
+            @gesture-start="onGestureStart"
+            @gesture-end="onGestureEnd"
+            @gesture-cancel="onGestureCancel"
         >
             <template v-for="child in children" :key="child.id" #[slotName(child.id)]>
                 <WorkbenchBranch
                     v-if="child.kind === 'branch'"
                     :node="child"
-                    :sizes="sizes"
-                    :on-resize="onResize"
+                    :layout="layout"
+                    :on-resize-branch="onResizeBranch"
                     :hidden="hidden"
                     :epoch="epoch"
                 >

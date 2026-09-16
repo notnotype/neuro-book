@@ -9,9 +9,12 @@
  *
  * 尺寸约束的唯一真相是**树**：叶自带的 min/max 由 `shellLeafLimits` 在建树时写入，本文件的函数
  * 全部是纯函数——读树、算结果、报 issue，不写回树，不依赖 Vue（可在单测里直接跑）。
+ *
+ * 原语里「意图」与「呈现」是两件事：树上的 `size` 是**意图**（叶与分支各自在父分支主轴上的分配值，
+ * 一列宽度就是分支自己的这份值），呈现尺寸由 `layout(容器)` 现算。外壳的 `sizes` 模型属于产品规则
+ * （固定叶取 store 值、编辑器吸收余量），它被写进树的意图，渲染器再从树上读回比例。
  */
-
-import {createGrid, type Grid, type GridLeaf, type GridNode} from "@notnotype/nb-ui/components";
+import {createGrid, type Grid, type GridAxis, type GridBranch, type GridLeaf, type GridNode, type GridNodeInput} from "@notnotype/nb-ui/components";
 import type {WorkbenchPartId} from "nbook/app/utils/workbench/descriptors";
 
 /** 壳层 sash 的流内宽度：命中区由绝对定位扩展，不吃叶宽（不要沿用验证台的 8px）。 */
@@ -139,6 +142,11 @@ function leavesOf(grid: Grid<string>): Map<string, GridLeaf<string>> {
     return leaves;
 }
 
+/** 宽度叶的约束：外壳的分配只在宽度轴上记账，高度由容器共享。 */
+function widthLimits(leaf: GridLeaf<string>): ShellLeafLimits {
+    return {minimumSize: leaf.minimumSize.width, maximumSize: leaf.maximumSize.width};
+}
+
 /**
  * 一批尺寸的逐叶夹取（store 值、拖拽写回、恢复快照共用这一条口径）。
  * 约束取自**树**：树里没有的 id 报 issue 并丢弃，不静默保留；返回值不写回树。
@@ -153,7 +161,7 @@ export function clampLeafSizes(grid: Grid<string>, sizes: Readonly<Record<string
             issues.push(`尺寸表引用了树里没有的叶：${id}`);
             continue;
         }
-        clamped[id] = clampLeafSize(size, leaf);
+        clamped[id] = clampLeafSize(size, widthLimits(leaf));
     }
     return {sizes: clamped, issues};
 }
@@ -165,6 +173,29 @@ export type ShellSizeStore = {
     /** 已收起的叶：不参与排布、不占宽度；重新展开时按 store 值恢复（收起不写进树）。 */
     hidden: readonly string[];
 };
+
+/** 完整分支手势只结算一次；侧栏保存绝对 px，编辑器继续吸收余量。未改变的侧栏偏好保持原样。 */
+export function resizeShellBranch(
+    grid: Grid<string>, branchId: string, axis: GridAxis,
+    baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>,
+    store: ShellSizeStore, active: readonly string[],
+): {ok: true; store: ShellSizeStore} | {ok: false; reason: string} {
+    if (branchId !== SHELL_MAIN_ID || axis !== "width") {
+        return {ok: false, reason: "外壳只接受主区的宽度手势"};
+    }
+    const result = grid.resizeBranch(branchId, axis, baseline, target);
+    if (!result.ok) {
+        return result;
+    }
+    const next = {...store};
+    if (active.includes("left") && target.left !== undefined && Math.abs(target.left - baseline.left!) > 1e-6) {
+        next.leftPanelWidth = target.left;
+    }
+    if (active.includes("right") && target.right !== undefined && Math.abs(target.right - baseline.right!) > 1e-6) {
+        next.agentPanelWidth = target.right;
+    }
+    return {ok: true, store: next};
+}
 
 /** 四个叶的目标逻辑尺寸；隐藏叶为 0。 */
 export type ShellSizes = Record<ShellLeafId, number>;
@@ -231,7 +262,7 @@ export function recalcShellSizes(grid: Grid<string>, store: ShellSizeStore, avai
     for (const id of SHELL_LEAF_IDS) {
         const leaf = leaves.get(id);
         if (leaf) {
-            limits[id] = leaf;
+            limits[id] = widthLimits(leaf);
         } else {
             limits[id] = {minimumSize: 0, maximumSize: 0};
             issues.push(`布局树缺少叶：${id}（按 0 宽处理）`);
@@ -241,74 +272,74 @@ export function recalcShellSizes(grid: Grid<string>, store: ShellSizeStore, avai
     return {sizes: distributed.sizes, issues: [...issues, ...distributed.issues]};
 }
 
-/**
- * 垂直方向分配：titlebar 刚性 36（不可见时不占高度），main 吸收余量。
- * 与横向同一套口径：可见叶之间每条 sash 占 `SASH_PX`。
- */
+/** 垂直方向分配：titlebar 刚性 36，根 sash 由宿主隐藏且不占流内空间，main 吸收余量。 */
 export function distributeShellHeights(shellHeight: number, titlebarVisible: boolean): {titlebar: number; main: number} {
     const height = Number.isFinite(shellHeight) ? Math.max(0, shellHeight) : 0;
     const titlebar = titlebarVisible ? Math.min(SHELL_TITLEBAR_HEIGHT, height) : 0;
-    const sashes = titlebarVisible && height > titlebar ? SASH_PX : 0;
-    return {titlebar, main: Math.max(0, height - titlebar - sashes)};
+    return {titlebar, main: Math.max(0, height - titlebar)};
 }
 
 /**
  * 按给定叶尺寸重建外壳树（约束与 `createDefaultShellGrid` 同源）：外壳把「尺寸模型」收敛回原语时用。
  * 落账尺寸先按各叶 min/max 夹取——模型与树必须描述同一份布局，否则下一次拖拽会从漂移值起算。
+ * 树的 `size` 是**意图**：宽度叶写在 width 上，titlebar 与 main 写在 height 上（父分支是垂直的）。
  */
-export function createShellGrid(viewportWidth: number, sizes: Readonly<Record<string, number>>): Grid<string> {
+export function createShellGrid(viewportWidth: number, sizes: Readonly<Record<string, number>>, hidden: readonly string[] = []): Grid<string> {
     const limits = {} as Record<ShellLeafId, ShellLeafLimits>;
+    const hiddenSet = new Set(hidden);
     for (const id of SHELL_LEAF_IDS) {
         limits[id] = shellLeafLimits(id, viewportWidth);
     }
-    return createGrid<string>({
+    const titlebarHidden = hiddenSet.has(SHELL_TITLEBAR_ID);
+    const titlebar = titlebarHidden ? 0 : clampLeafSize(sizes[SHELL_TITLEBAR_ID] ?? SHELL_TITLEBAR_HEIGHT, {
+        minimumSize: SHELL_TITLEBAR_HEIGHT,
+        maximumSize: SHELL_TITLEBAR_HEIGHT,
+    });
+    const visibleLeafIds = SHELL_LEAF_IDS.filter((id) => !hiddenSet.has(id));
+    const children: GridLeaf<string>[] = visibleLeafIds.map((id) => ({
+        kind: "leaf",
+        id,
+        ref: id,
+        size: {width: clampLeafSize(sizes[id] ?? 0, limits[id]), height: 0},
+        minimumSize: {width: limits[id].minimumSize, height: 0},
+        maximumSize: {width: limits[id].maximumSize, height: Number.MAX_SAFE_INTEGER},
+    }));
+    const main: GridBranch<string> = {
         kind: "branch",
-        id: SHELL_ROOT_ID,
-        orientation: "vertical",
-        children: [
-            {
-                kind: "leaf",
-                id: SHELL_TITLEBAR_ID,
-                ref: SHELL_TITLEBAR_ID,
-                minimumSize: SHELL_TITLEBAR_HEIGHT,
-                maximumSize: SHELL_TITLEBAR_HEIGHT,
-                size: clampLeafSize(sizes[SHELL_TITLEBAR_ID] ?? SHELL_TITLEBAR_HEIGHT, {
-                    minimumSize: SHELL_TITLEBAR_HEIGHT,
-                    maximumSize: SHELL_TITLEBAR_HEIGHT,
-                }),
-            },
-            {
-                kind: "branch",
-                id: SHELL_MAIN_ID,
-                orientation: "horizontal",
-                children: SHELL_LEAF_IDS.map((id): GridLeaf<string> => ({
-                    kind: "leaf",
-                    id,
-                    ref: id,
-                    minimumSize: limits[id].minimumSize,
-                    maximumSize: limits[id].maximumSize,
-                    size: clampLeafSize(sizes[id] ?? 0, limits[id]),
-                })),
-            },
-        ],
+        id: SHELL_MAIN_ID,
+        orientation: "horizontal",
+        size: {width: 0, height: Math.max(0, sizes[SHELL_MAIN_ID] ?? 0)},
+        minimumSize: {width: 0, height: 0},
+        maximumSize: {width: Number.MAX_SAFE_INTEGER, height: Number.MAX_SAFE_INTEGER},
+        children,
+    };
+    const rootChildren: GridNodeInput<string>[] = titlebarHidden
+        ? [main]
+        : [{
+            kind: "leaf",
+            id: SHELL_TITLEBAR_ID,
+            ref: SHELL_TITLEBAR_ID,
+            size: {width: 0, height: titlebar},
+            minimumSize: {width: 0, height: SHELL_TITLEBAR_HEIGHT},
+            maximumSize: {width: Number.MAX_SAFE_INTEGER, height: SHELL_TITLEBAR_HEIGHT},
+        }, main];
+    return createGrid<string>({kind: "branch", id: SHELL_ROOT_ID, orientation: "vertical", children: rootChildren}, {
+        sashSize: (branchId, sashIndex) => branchId === SHELL_ROOT_ID || (branchId === SHELL_MAIN_ID && visibleLeafIds[sashIndex] === "activity") ? 0 : SASH_PX,
     });
 }
 
-/**
- * 默认外壳拓扑 `root(horizontal){activity, left, editor, right}`。
- * 初始尺寸走同一套分配公式（按视口宽算一遍），因此首屏与 `recalcShellSizes` 的结果一致，
- * 除非真实外壳宽与视口宽不同。
- */
-export function createDefaultShellGrid(viewportWidth: number): Grid<string> {
+/** 默认外壳拓扑按当前默认显隐集合创建。 */
+export function createDefaultShellGrid(viewportWidth: number, viewportHeight: number): Grid<string> {
     const limits = {} as Record<ShellLeafId, ShellLeafLimits>;
     for (const id of SHELL_LEAF_IDS) {
         limits[id] = shellLeafLimits(id, viewportWidth);
     }
-    const avail = Math.max(0, viewportWidth - SASH_PX * (SHELL_LEAF_IDS.length - 1));
+    const avail = Math.max(0, viewportWidth - SASH_PX * Math.max(0, SHELL_LEAF_IDS.length - 2));
     const initial = distributeShellSizes(limits, {
         leftPanelWidth: SHELL_LEFT_PANEL_DEFAULT_WIDTH,
         agentPanelWidth: SHELL_RIGHT_PANEL_DEFAULT_WIDTH,
         hidden: [],
     }, avail);
-    return createShellGrid(viewportWidth, initial.sizes);
+    const heights = distributeShellHeights(viewportHeight, true);
+    return createShellGrid(viewportWidth, {...initial.sizes, [SHELL_TITLEBAR_ID]: heights.titlebar, [SHELL_MAIN_ID]: heights.main});
 }

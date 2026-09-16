@@ -594,9 +594,11 @@ export const labComponents: LabComponentDefinition[] = [
                 {label: "水平", value: "horizontal"},
                 {label: "垂直", value: "vertical"},
             ]},
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "zeroSecondSash", label: "第二条分隔条零宽", type: "boolean"},
         ],
         targetSelector: "#nb-lab-target",
-        events: ["layout"],
+        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
     },
     {
         id: "accordion",

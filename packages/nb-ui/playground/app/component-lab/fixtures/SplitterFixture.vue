@@ -2,6 +2,10 @@
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 import SegmentedControl from "../../../../src/components/controls/SegmentedControl.vue";
 import Splitter, {type SplitterPanelConfig} from "../../../../src/components/layout/Splitter.vue";
+import type {
+    SplitterGestureCancellation,
+    SplitterGestureState,
+} from "../../../../src/components/layout/splitter-gesture";
 import FileTree from "../../../../src/components/navigation/FileTree.vue";
 import type {FileTreeNode} from "../../../../src/components/navigation/file-tree.types";
 import FixtureShell from "../FixtureShell.vue";
@@ -28,13 +32,16 @@ const designOptions = [
 ];
 
 const controls = ref<Record<string, string | boolean>>({});
-const direction = computed(() => (controls.value.direction as any) || "horizontal");
+const direction = computed(() => (controls.value.direction as "horizontal" | "vertical") || "horizontal");
+const disabled = computed(() => controls.value.disabled === true);
+const zeroSecondSash = computed(() => controls.value.zeroSecondSash === true);
 
 const panels: SplitterPanelConfig[] = [
     {id: "outline", defaultSize: 28, minSize: 18, maxSize: 45, collapsible: true},
     {id: "editor", defaultSize: 52, minSize: 30},
     {id: "inspector", defaultSize: 20, minSize: 15, maxSize: 35, collapsible: true},
 ];
+const sashSizes = computed(() => zeroSecondSash.value ? [7, 0] as const : [7, 1] as const);
 
 const treeData: FileTreeNode[] = [
     {
@@ -61,6 +68,37 @@ const treeData: FileTreeNode[] = [
 const selectedTreeId = ref<string | null>("c1");
 const expandedTreeIds = ref<string[]>(["v1", "v2"]);
 
+// 手势提交是宿主要保存的那份意图：主动调整的面板与兄弟补偿分开，空操作不出现提交
+const lastGesture = ref("尚无用户调整提交");
+const lastGesturePayload = ref("");
+const gestureState = ref<"none" | "commit" | "cancel">("none");
+
+function formatList(values: readonly (string | number)[]): string {
+    return `[${values.join(", ")}]`;
+}
+
+function onGestureStart(state: SplitterGestureState): void {
+    emit("lab-event", "gesture-start", state);
+}
+
+function onGestureUpdate(state: SplitterGestureState): void {
+    emit("lab-event", "gesture-update", state);
+}
+
+function onGestureEnd(state: SplitterGestureState): void {
+    emit("lab-event", "gesture-end", state);
+    gestureState.value = "commit";
+    lastGesturePayload.value = JSON.stringify(state);
+    lastGesture.value = `提交 · ${state.source} · ${state.sash} · 主动 ${formatList(state.active)} · 补偿 ${formatList(state.compensated)} · 尺寸 ${formatList(state.sizes)}`;
+}
+
+function onGestureCancel(info: SplitterGestureCancellation): void {
+    emit("lab-event", "gesture-cancel", info);
+    gestureState.value = "cancel";
+    lastGesturePayload.value = "";
+    lastGesture.value = `未提交 · ${info.reason} · ${info.sash}`;
+}
+
 function resetState(): void {
     const defaults: Record<string, string | boolean> = {};
     for (const control of props.definition.controls) defaults[control.id] = controlDefaultValue(control);
@@ -79,59 +117,65 @@ onMounted(() => void nextTick(() => emit("rendered")));
     <FixtureShell v-model:controls="controls" :definition="definition" :scene-id="sceneId">
         <!-- 顶层设计风格切换栏 -->
         <div class="mb-6 flex flex-col gap-3">
-            <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
-                <div class="flex flex-wrap items-center gap-2">
+            <div class="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
                     <span class="text-xs font-semibold text-[var(--text-secondary)] shrink-0">Splitter 方案:</span>
                     <SegmentedControl
                         v-model="designStyle"
                         :options="designOptions"
                         size="sm"
+                        class="min-w-0 max-w-full"
                     />
                 </div>
-                <span class="text-xs text-[var(--text-muted)]">按住栏间分割线左右拖拽缩放各栏宽度</span>
+                <span class="min-w-0 text-xs text-[var(--text-muted)]">拖动栏间分隔条调整宽度</span>
             </div>
 
             <!-- 设计说明条 -->
             <div class="scheme-banner">
-                <div class="flex items-center gap-2">
+                <div class="flex min-w-0 items-start gap-2">
                     <span class="scheme-pill">设计解析</span>
                     <span v-if="designStyle === 'macos'" class="scheme-banner-text">
-                        <strong>方案 1：macOS 原生自隐分割线（推荐）</strong>——常态 1px 细微环境缝隙；悬停时平滑加粗至 3px 并浮现 <strong>品牌蓝柔光高亮</strong>，拖拽阻尼平滑连贯。
+                        <strong>macOS 自隐分隔线</strong>——常态 1px，悬停时显示品牌色握柄。
                     </span>
                     <span v-else-if="designStyle === 'minimal'" class="scheme-banner-text">
-                        <strong>方案 2：现代极简无缝纯平</strong>——去分割条可视物；仅在鼠标经过边缘时呈现精准缩放光标，视觉最纯净。
+                        <strong>现代极简</strong>——常态无可见隔条，悬停时显示调整光标。
                     </span>
                     <span v-else-if="designStyle === 'crystal'" class="scheme-banner-text">
-                        <strong>方案 3：悬浮微晶发光握柄</strong>——分割条中间常驻 75% 磨砂小晶体胶囊握柄，悬停扩散 <strong>3px 光晕</strong>。
+                        <strong>悬浮微晶</strong>——常驻磨砂握柄，悬停时显示光晕。
                     </span>
                     <span v-else-if="designStyle === 'industrial'" class="scheme-banner-text">
-                        <strong>方案 4：精工工控凹槽刻度</strong>——分割条带有 3 组微型物理防滑凹槽刻线（Grip Lines），工业感强。
+                        <strong>精工工控</strong>——分隔条显示防滑刻线。
                     </span>
                     <span v-else-if="designStyle === 'solid'" class="scheme-banner-text">
-                        <strong>方案 5：实底工控高反差隔条</strong>——深色饱满实体隔条，高反差黑白对比。
+                        <strong>实底工控</strong>——高反差实体隔条。
                     </span>
                 </div>
             </div>
         </div>
 
         <!-- macOS 紧凑卡片容器 -->
-        <div class="macos-compact-card p-0 overflow-hidden h-[450px] flex flex-col !max-w-[880px]">
+        <div class="macos-compact-card min-w-0 p-0 overflow-hidden h-[450px] flex flex-col !max-w-[880px]">
             <!-- 顶栏标题 -->
-            <div class="flex items-center justify-between px-4 py-2.5 bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] border-b border-[color-mix(in_srgb,var(--border-color)_50%,transparent)]">
-                <div class="flex items-center gap-2">
-                    <span class="i-lucide-columns-3 text-[var(--accent-main)] h-4 w-4" aria-hidden="true" />
-                    <span class="text-xs font-bold text-[var(--text-main)]">三栏可调节长篇写作工作区 (Splitter)</span>
+            <div class="flex min-w-0 items-center justify-between gap-2 px-4 py-2.5 bg-[color-mix(in_srgb,var(--text-main)_4%,transparent)] border-b border-[color-mix(in_srgb,var(--border-color)_50%,transparent)]">
+                <div class="flex min-w-0 items-center gap-2">
+                    <span class="i-lucide-columns-3 text-[var(--accent-main)] h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span class="min-w-0 truncate text-xs font-bold text-[var(--text-main)]">三栏写作工作区</span>
                 </div>
-                <span class="text-[11px] text-[var(--text-muted)]">按住分割线自由拖拽缩放</span>
+                <span class="shrink-0 text-[11px] text-[var(--text-muted)]">拖动分隔条</span>
             </div>
 
             <!-- 分割工作区 -->
-            <div class="flex-1 min-h-0">
+            <div id="nb-lab-target" class="flex-1 min-h-0">
                 <Splitter
-                    id="nb-lab-target"
                     :direction="direction"
+                    :disabled="disabled"
                     :panels="panels"
+                    :sash-sizes="sashSizes"
                     @layout="emit('lab-event', 'layout', $event)"
+                    @gesture-start="onGestureStart"
+                    @gesture-update="onGestureUpdate"
+                    @gesture-end="onGestureEnd"
+                    @gesture-cancel="onGestureCancel"
                 >
                     <!-- 左侧大纲栏 -->
                     <template #panel-outline>
@@ -183,9 +227,17 @@ onMounted(() => void nextTick(() => emit("rendered")));
             </div>
 
             <!-- 底部状态栏 -->
-            <div class="flex items-center justify-between px-4 py-2 border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] bg-[color-mix(in_srgb,var(--bg-panel)_80%,transparent)] text-[11px] text-[var(--text-muted)]">
-                <span>布局方向: {{ direction === 'horizontal' ? '横向三栏 (Horizontal)' : '纵向多层 (Vertical)' }}</span>
-                <span>当前方案: {{ designOptions.find(o => o.value === designStyle)?.label }}</span>
+            <div class="flex min-w-0 items-center justify-between gap-2 px-4 py-2 border-t border-[color-mix(in_srgb,var(--border-color)_40%,transparent)] bg-[color-mix(in_srgb,var(--bg-panel)_80%,transparent)] text-[11px] text-[var(--text-muted)]">
+                <span class="min-w-0 truncate">{{ direction === 'horizontal' ? '横向三栏' : '纵向多层' }}</span>
+                <span
+                    class="min-w-0 flex-1 truncate font-mono"
+                    data-lab-gesture
+                    :data-lab-gesture-state="gestureState"
+                    :data-lab-gesture-payload="lastGesturePayload"
+                    :title="lastGesture"
+                >
+                    用户调整: {{ lastGesture }}
+                </span>
             </div>
         </div>
     </FixtureShell>

@@ -3,17 +3,17 @@
  * 工作台外壳骨架（#192 阶段 1 步骤 2）：布局树（nb-ui 原语）与四个 Part 叶的宿主。
  *
  * 尺寸真相分两层：
- * - 拖拽期间在 Splitter（reka）手里，本组件只收 `@layout` 的像素增量；
- * - 落账后归**尺寸模型**（`sizes`）与 store：固定叶取夹取后的绝对值，编辑器是唯一吸收余量的叶。
- * 原语实例与模型在每次落账后收敛为同一份布局（原语没有「改尺寸」API，重建是唯一精确写法），
- * 否则下一次拖拽会从漂移值起算。
+ * - 拖拽期间在 Splitter（reka）手里，结束时提交完整分支的呈现目标；
+ * - 手势结束保留原语反解后的呈现，只将主动侧栏的绝对宽度写入 store。
+ * - 容器、显隐或外部偏好变化时按产品模型重建：固定栏读取偏好，编辑器吸收余量。
+ * 保存自己的手势不能立即触发重建，否则受限 viewport 中的被动兄弟会回弹。
  *
  * 结构真相只有一处：隐藏集合变 → 分支 children 变 → 重挂 splitter 重读默认尺寸。
  * 尺寸落账**不**递增 epoch —— 拖拽中重挂会打断 reka 已开始的拖拽会话。
  */
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {storeToRefs} from "pinia";
-import type {Grid, GridBranch} from "@notnotype/nb-ui/components";
+import type {Grid, GridAxis, GridBranch, GridLayoutResult} from "@notnotype/nb-ui/components";
 import WorkbenchBranch from "nbook/app/components/workbench/WorkbenchBranch.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {
@@ -21,6 +21,7 @@ import {
     createShellGrid,
     distributeShellHeights,
     recalcShellSizes,
+    resizeShellBranch,
     SASH_PX,
     SHELL_ACTIVITY_GUTTER_PX,
     SHELL_CONTAINER_GUTTER_PX,
@@ -62,6 +63,7 @@ const shellEl = ref<HTMLElement | null>(null);
 const hidden = ref<string[]>([]);
 const issues = ref<string[]>([]);
 const epoch = ref(0);
+const layout = ref<GridLayoutResult>(createDefaultShellGrid(0, 0).layout({width: 0, height: 0}));
 
 const visibleLeafIds = computed<string[]>(() => SHELL_LEAF_IDS.filter((id) => !hidden.value.includes(id)));
 const narrow = computed(() => viewportWidth.value > 0 && viewportWidth.value < NARROW_VIEWPORT_PX);
@@ -72,30 +74,26 @@ function layoutViewportWidth(): number {
     return measured > 0 ? measured : Math.max(1, shellEl.value?.clientWidth ?? 1);
 }
 
-/** `avail = 外壳宽 − SASH_PX ×（可见叶数 − 1）`；挂载前退回视口宽。 */
+/** 外壳高的实测值（挂载前退回视口高）：只用于默认拓扑的垂直比例，与宽度手势无关。 */
+function layoutViewportHeight(): number {
+    return shellEl.value?.clientHeight ?? (typeof window === "undefined" ? 0 : window.innerHeight);
+}
+/** 只扣真实流内 sash：根 sash 与 activity 后的 sash 被隐藏，其余可见宽度叶之间各 1px。 */
 function availableWidth(): number {
     const width = shellEl.value?.clientWidth ?? (typeof window === "undefined" ? 0 : window.innerWidth);
-    return Math.max(0, width - SASH_PX * Math.max(0, visibleLeafIds.value.length - 1));
+    const visible = visibleLeafIds.value.length;
+    const activityAdjustment = visibleLeafIds.value[0] === "activity" ? 1 : 0;
+    return Math.max(0, width - SASH_PX * Math.max(0, visible - 1 - activityAdjustment));
 }
 
 /** 垂直方向：titlebar 刚性 36（不可见时不占高度），main 吸收余量；挂载前退回视口高。 */
 function shellHeights(): {titlebar: number; main: number} {
-    const height = shellEl.value?.clientHeight ?? (typeof window === "undefined" ? 0 : window.innerHeight);
+    const height = layoutViewportHeight();
     return distributeShellHeights(height, !hidden.value.includes(SHELL_TITLEBAR_ID));
 }
 
 function sizeStore(): ShellSizeStore {
     return {leftPanelWidth: leftPanelWidth.value, agentPanelWidth: agentPanelWidth.value, hidden: hidden.value};
-}
-
-/** 原语当前结算出的叶尺寸（本次 `resize` 后已经过夹取与兄弟吸收）。 */
-function treeSizes(): ShellSizes {
-    const layout = grid.value.layout().sizes;
-    const settled = {} as ShellSizes;
-    for (const id of SHELL_LEAF_IDS) {
-        settled[id] = layout[id] ?? 0;
-    }
-    return settled;
 }
 
 function maxAbsDiff(left: ShellLayoutSizes, right: ShellLayoutSizes): number {
@@ -108,25 +106,26 @@ function maxAbsDiff(left: ShellLayoutSizes, right: ShellLayoutSizes): number {
 
 /** 宽度分配（store 值 + avail）与高度分配（titlebar / main）合成一份几何模型。 */
 function composeLayout(): ShellLayoutSizes {
-    const result = recalcShellSizes(grid.value, sizeStore(), availableWidth());
+    const result = recalcShellSizes(createDefaultShellGrid(layoutViewportWidth(), layoutViewportHeight()), sizeStore(), availableWidth());
     issues.value = result.issues;
     return {...result.sizes, ...shellHeights()};
 }
 
-/** 树 ≡ 尺寸模型：落账后按模型重建树，下一次拖拽从同一份数字起算。 */
+/** 树与尺寸模型收敛后，立即按当前容器发布原语呈现。 */
 function syncTree(): void {
-    grid.value = createShellGrid(layoutViewportWidth(), sizes.value);
+    grid.value = createShellGrid(layoutViewportWidth(), sizes.value, hidden.value);
+    layout.value = grid.value.layout({width: shellEl.value?.clientWidth ?? layoutViewportWidth(), height: layoutViewportHeight()});
 }
 
 /** 首屏：默认拓扑先供出叶约束，再按 store 里持久化的宽度与当前外壳尺寸分配一次，避免默认值闪一帧。 */
-const grid = ref<Grid<string>>(createDefaultShellGrid(layoutViewportWidth()));
+const grid = ref<Grid<string>>(createDefaultShellGrid(layoutViewportWidth(), layoutViewportHeight()));
 const initialLayout = composeLayout();
 const sizes = ref<ShellLayoutSizes>({...initialLayout});
 syncTree();
 
 /**
  * 按 `store 值 + avail` 与外壳高重算四个宽度叶与 titlebar / main 并落账。
- * `remount=false`（拖拽 / 显隐）只更新模型与树，不重挂；`remount=true`（容器尺寸 / 外部尺寸）差异 ≥1px 才
+ * `remount=false`（显隐）只更新模型与树，不重挂；`remount=true`（容器尺寸 / 外部尺寸）差异 ≥1px 才
  * 递增 epoch —— <1px 直接返回，避免「自己回写 store → 自己重挂」的自激。
  */
 function recalcSizes(remount: boolean): void {
@@ -142,26 +141,26 @@ function recalcSizes(remount: boolean): void {
 }
 
 /**
- * 拖拽落账：像素增量 → 原语；`left` / `right` 把夹取后的绝对值写回 store（`novel.ide.local`）。
- * 编辑器不写 store —— 它是吸收余量的叶，尺寸由分配公式决定。
- * titlebar（36/36 刚性）与 main（分支，原语不接受分支 resize）不参与宽度结算。
+ * 一次完整分支提交可同时包含 editor/right，不能靠第一个 active id 决定保存哪条侧栏。
+ * 壳层的产品偏好是侧栏绝对宽度；原语验证手势后，只保存用户实际改变的侧栏目标。
  */
-function onLeafResize(id: string, deltaPx: number): void {
-    if (!(SHELL_LEAF_IDS as readonly string[]).includes(id)) {
-        return;
-    }
-    const result = grid.value.resize(id, deltaPx);
+let committedStore: {left: number; right: number} | null = null;
+
+function onResizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>, active: readonly string[]): void {
+    const result = resizeShellBranch(grid.value, branchId, axis, baseline, target, sizeStore(), active);
     if (!result.ok) {
         issues.value = [...issues.value, result.reason];
         return;
     }
-    const settled = treeSizes();
-    if (id === "left") {
-        leftPanelWidth.value = settled.left;
-    } else if (id === "right") {
-        agentPanelWidth.value = settled.right;
+    committedStore = {left: result.store.leftPanelWidth, right: result.store.agentPanelWidth};
+    leftPanelWidth.value = result.store.leftPanelWidth;
+    agentPanelWidth.value = result.store.agentPanelWidth;
+    // 保留原语已反解的当前呈现。立即按固定栏偏好重建会让受限 viewport 中未动的兄弟回弹。
+    for (const id of SHELL_LEAF_IDS) {
+        if (target[id] !== undefined) sizes.value[id] = target[id];
     }
-    recalcSizes(false);
+    layout.value = grid.value.layout({width: shellEl.value?.clientWidth ?? layoutViewportWidth(), height: layoutViewportHeight()});
+    issues.value = layout.value.issues;
 }
 
 /**
@@ -211,8 +210,13 @@ onBeforeUnmount(() => {
     resizeObserver = null;
 });
 
-/** store 的外部改写（持久化恢复 / 别处的尺寸入口）→ 重新分配；自己回写的差 <1px，直接返回。 */
-watch([leftPanelWidth, agentPanelWidth], () => recalcSizes(true));
+/** 自己提交的侧栏偏好已有对应的原语呈现；只有外部改写才重新分配。 */
+watch([leftPanelWidth, agentPanelWidth], ([left, right]) => {
+    const ownCommit = committedStore;
+    committedStore = null;
+    if (ownCommit?.left === left && ownCommit.right === right) return;
+    recalcSizes(true);
+});
 
 /** 视口宽变了：right 的上限要重来（约束在建树时定稿），先重建树再重算尺寸。 */
 watch(viewportWidth, () => {
@@ -228,8 +232,8 @@ defineExpose({setLeafVisible, hidden, issues});
         <WorkbenchBranch
             v-if="!narrow && rootBranch"
             :node="rootBranch"
-            :sizes="sizes"
-            :on-resize="onLeafResize"
+            :layout="layout"
+            :on-resize-branch="onResizeBranch"
             :hidden="hidden"
             :epoch="epoch"
         >
@@ -255,29 +259,6 @@ defineExpose({setLeafVisible, hidden, issues});
 </template>
 
 <style scoped>
-/*
- * titlebar|main 之间的 sash 不参与拖动（titlebar 36/36 刚性），分割线由标题栏自带的 border-bottom 承担：
- * 少一条 1px 线，活动栏的起点才与接入前一致（y = 36）。只作用于根分支自己的 handle，不动四个宽度叶的 sash。
- */
-:deep([data-branch="root"] > div > [role="separator"]) {
-    display: none;
-}
-
-/*
- * activity 右侧那条 sash 同样不该提供拖拽：activity 是刚性 48 的叶，拖它没有任何可变的量，
- * 留着只会给出「可以拖」的假信号——指针变 col-resize、悬停点亮，按下去却什么也不动。
- *
- * 这里整条去掉盒子，而不是只关 pointer-events：reka 的命中判定是拿指针坐标与 handle 的
- * getBoundingClientRect 比（见 `reka-ui/dist/utils/registry.js` 的 recalculateIntersectingHandles），
- * 盒子还在就还能命中，光标与拖动照旧。盒子没了，命中区、悬停、指针、Tab 焦点一起消失。
- *
- * 选择器跟的是**位置**（activity 的下一条）而不是固定下标：左栏收起时它的邻居换成 editor，
- * 规则照旧命中；activity 自己收起时这条不存在，left|editor 的手柄没有任何变化。
- * 少掉的那 1px 不再占宽度，由弹性叶（编辑器）吸收，尺寸模型仍按树上的 sash 槽位记账。
- */
-:deep([data-branch="main"] > div > div:has(> [data-leaf="activity"]) + [role="separator"]) {
-    display: none;
-}
 
 /*
  * 悬停分界线时那条线会闪（DevTools 的 style recalcs/sec 冲到 ~70）：nb-ui 的 handle 用

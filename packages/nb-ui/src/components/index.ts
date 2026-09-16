@@ -104,6 +104,12 @@ export type {AccordionItemData} from "./layout/Accordion.vue";
 export type {PanelPadding, PanelTone} from "./layout/Panel.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
 export type {SplitterPanelConfig} from "./layout/Splitter.vue";
+export type {
+    SplitterGestureCancellation,
+    SplitterGestureCancelReason,
+    SplitterGestureSource,
+    SplitterGestureState,
+} from "./layout/splitter-gesture";
 export type {BreadcrumbItemData} from "./navigation/Breadcrumb.vue";
 export type {FileTreeMove, FileTreeNode, FileTreeVisibleNode} from "./navigation/file-tree.types";
 export type {NavigationMenuItemData, NavigationMenuLinkItem} from "./navigation/NavigationMenu.vue";

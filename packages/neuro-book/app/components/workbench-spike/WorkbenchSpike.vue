@@ -5,8 +5,8 @@
  * 本组件是**组装根**：注册表（视图 / 容器）在这里注入状态层与界面层，layout.ts 自己不认识它。
  * 这不是产品实现，只用于验证提案的公共契约（见 docs/proposals/workbench-view-host.md）。
  */
-import {computed, ref, watch} from "vue";
-import {createGrid, type GridBranch, type GridNode} from "@notnotype/nb-ui/components";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {createGrid, GRID_SNAPSHOT_VERSION, type GridAxis, type GridBranch, type GridExtent, type GridLayoutResult, type GridSnapshotNode, type GridSnapshotBranch} from "@notnotype/nb-ui/components";
 import WorkbenchBranch from "nbook/app/components/workbench/WorkbenchBranch.vue";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import DiagnosticsRail from "./DiagnosticsRail.vue";
@@ -15,11 +15,14 @@ import {createSpikeContext, evaluateAuthority, evaluateWhen, type SpikeContextVa
 import {resolveFactory, type FactoryResolution} from "./factories";
 import {
     createDefaultLayout,
+    createSpikeGrid,
     liveLeafIds,
-    placementOf,
     placeView,
+    placementOf,
     restoreLayout,
+    resizeSpikeBranch,
     serializeLayout,
+    visibleGridTree,
     viewsOfContainer,
     type SpikeCatalog,
     type SpikeLayoutState,
@@ -30,13 +33,19 @@ import {
 const catalog: SpikeCatalog = {views: SPIKE_VIEWS, containers: SPIKE_CONTAINERS};
 
 const state = ref<SpikeLayoutState>(createDefaultLayout(catalog));
-/** 原语实例：只用来执行改动；**渲染与派生值一律读 state.grid 的序列化快照**。 */
-const grid = ref(createGrid(state.value.grid.root));
+/** 持有完整意图；当前约束由宿主恢复，可见树单独用于呈现。 */
+const grid = ref(createSpikeGrid(state.value.grid));
+const visibleRoot = ref<GridBranch<string> | null>(null);
 /** 整棵树被换掉的次数（重置 / 恢复快照）：WorkbenchBranch 用它决定何时重挂 splitter。 */
 const epoch = ref(0);
-const sizes = ref<Record<string, number>>({...grid.value.layout().sizes});
+/** 渲染区实测尺寸：原语的呈现与诊断要当前容器，挂载后由 ResizeObserver 更新。 */
+const container = ref<GridExtent>({width: 0, height: 0});
+const stageEl = ref<HTMLElement | null>(null);
+let stageObserver: ResizeObserver | null = null;
 const issues = ref<string[]>([]);
+const layout = ref<GridLayoutResult>(grid.value.layout(container.value));
 const notices = ref<string[]>([]);
+
 const context = createSpikeContext();
 
 const factoryStates = ref<Record<string, FactoryResolution>>({});
@@ -65,11 +74,12 @@ const contextValues = computed<SpikeContextValues>(() => ({
     job: context.job.value,
 }));
 
-function syncSizes() {
-    const layout = grid.value.layout();
-    sizes.value = {...layout.sizes};
-    issues.value = layout.issues;
-    // 唯一的 collapsed 清理点：叶被空分支塌陷或移走后，收起列表里的陈旧条目会让快照与实际不一致。
+/** 改动后重新发布快照并刷新诊断：渲染读快照的意图，呈现尺寸只在拿到实测容器后算。 */
+function syncLayout() {
+    const visibleTree = visibleGridTree(grid.value.root(), state.value.collapsed);
+    visibleRoot.value = visibleTree?.kind === "branch" ? visibleTree : null;
+    layout.value = createGrid(visibleTree, {sashSize: 1}).layout(container.value);
+    issues.value = container.value.width > 0 ? layout.value.issues : [];
     const snapshot = grid.value.serialize();
     const live = liveLeafIds(snapshot.root);
     const stale = state.value.collapsed.filter((id) => !live.includes(id));
@@ -79,20 +89,20 @@ function syncSizes() {
     state.value = {...state.value, grid: snapshot, collapsed: state.value.collapsed.filter((id) => live.includes(id))};
 }
 
-function onResize(id: string, deltaPx: number) {
-    const result = grid.value.resize(id, deltaPx);
+function onResizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>) {
+    const result = resizeSpikeBranch(grid.value, state.value.collapsed, branchId, axis, baseline, target);
     if (!result.ok) {
         issues.value = [...issues.value, result.reason];
         return;
     }
-    syncSizes();
+    syncLayout();
 }
 
 function applyState(next: SpikeLayoutState) {
     state.value = next;
-    grid.value = createGrid(next.grid.root);
+    grid.value = createSpikeGrid(next.grid);
     epoch.value += 1;
-    syncSizes();
+    syncLayout();
 }
 
 function setCollapsed(leafId: string, collapsed: boolean) {
@@ -100,6 +110,7 @@ function setCollapsed(leafId: string, collapsed: boolean) {
         ? (state.value.collapsed.includes(leafId) ? state.value.collapsed : [...state.value.collapsed, leafId])
         : state.value.collapsed.filter((id) => id !== leafId);
     state.value = {...state.value, collapsed: next};
+    syncLayout();
     const container = catalog.containers.find((item) => item.id === state.value.activeContainer[leafId as SpikeLocation]);
     notices.value = [`${collapsed ? "已收起" : "已展开"}「${container ? labelOf(container.titleKey) : leafId}」。`];
 }
@@ -114,6 +125,7 @@ function setActiveContainer(location: SpikeLocation, containerId: string) {
         activeContainer: {...state.value.activeContainer, [location]: containerId},
         collapsed: state.value.collapsed.filter((id) => id !== location),
     };
+    syncLayout();
     const container = catalog.containers.find((item) => item.id === containerId);
     notices.value = [`已切换到容器「${container ? labelOf(container.titleKey) : containerId}」。`];
 }
@@ -162,7 +174,7 @@ const panelInFullRow = computed(() => {
 
 /** 原语会把「只剩一个子节点」的分支收掉：面板搬走后 center 不复存在，移回时要重新找编辑器所在的分支。 */
 function editorSlot(): {parentId: string; index: number} {
-    const walk = (node: GridNode<string>): {parentId: string; index: number} | null => {
+    const walk = (node: GridSnapshotNode): {parentId: string; index: number} | null => {
         if (node.kind === "leaf") {
             return null;
         }
@@ -185,7 +197,7 @@ function movePanel() {
     const toFullRow = panelInFullRow.value === false;
     const target = toFullRow ? {parentId: "root", index: 1} : editorSlot();
     const result = grid.value.moveLeaf("panel", target.parentId, target.index);
-    syncSizes();
+    syncLayout();
     notices.value = result.ok
         ? [toFullRow ? "面板已移到整行（跨全宽）。" : "面板已移回编辑器所在列。"]
         : ["移动失败：" + result.reason];
@@ -202,15 +214,15 @@ function inject(kind: "unknown-ref" | "invalid-root" | "single-leaf-root" | "ver
     }
     if (kind === "single-leaf-root") {
         // 单叶根能通过原语恢复，但渲染侧没有 children：必须在恢复层拒绝，否则工作台白屏。
-        const result = restoreLayout({...state.value, grid: {version: 1, root: {kind: "leaf", id: "statusbar", ref: "statusbar", minimumSize: 32, maximumSize: 64, size: 40}}}, catalog);
+        const result = restoreLayout({...state.value, grid: {version: GRID_SNAPSHOT_VERSION, root: {kind: "leaf", id: "statusbar", ref: "statusbar", size: {width: 0, height: 40}, minimumSize: {width: 0, height: 32}, maximumSize: {width: 0, height: 64}}}}, catalog);
         applyState(result.state);
         issues.value = [...issues.value, ...result.issues];
         notices.value = ["已注入单叶根快照：回退默认布局并记录 issue。"];
         return;
     }
     if (kind === "invalid-root") {
-        // 根节点 kind 既非 leaf 也非 branch：原语会留下空树却仍报 ok，必须回退而不是静默接受空树。
-        const result = restoreLayout({...state.value, grid: {version: 1, root: {kind: "bogus"}}}, catalog);
+        // 根节点 kind 既非 leaf 也非 branch：原语整体拒绝，恢复层再回退默认布局。
+        const result = restoreLayout({...state.value, grid: {version: GRID_SNAPSHOT_VERSION, root: {kind: "bogus"}}}, catalog);
         applyState(result.state);
         issues.value = [...issues.value, ...result.issues];
         notices.value = ["已注入非法根节点快照：回退默认布局并记录 issue。"];
@@ -219,20 +231,20 @@ function inject(kind: "unknown-ref" | "invalid-root" | "single-leaf-root" | "ver
     if (kind === "empty-branch") {
         grid.value.removeLeaf("panel");
         grid.value.removeLeaf("editor");
-        syncSizes();
+        syncLayout();
         notices.value = ["已删空 center 分支：空分支塌陷，根收敛为单叶。"];
         return;
     }
-    const snapshot = JSON.parse(JSON.stringify(grid.value.serialize())) as {version: number; root: GridBranch<string>};
+    const snapshot = JSON.parse(JSON.stringify(grid.value.serialize())) as {version: number; root: GridSnapshotBranch};
     if (kind === "unknown-ref") {
-        snapshot.root.children.push({kind: "leaf", id: "ghost", ref: "ghost-ref", minimumSize: 10, maximumSize: 100, size: 50});
+        snapshot.root.children.push({kind: "leaf", id: "ghost", ref: "ghost-ref", size: {width: 50, height: 0}});
         const result = restoreLayout({...state.value, grid: snapshot}, catalog);
         applyState(result.state);
         issues.value = [...issues.value, ...result.issues];
         notices.value = ["已注入未知引用：恢复时丢弃该叶并记录 issue。"];
         return;
     }
-    snapshot.root.children.push({kind: "leaf", id: "dup", ref: "activity", minimumSize: 10, maximumSize: 100, size: 50});
+    snapshot.root.children.push({kind: "leaf", id: "dup", ref: "activity", size: {width: 50, height: 0}});
     const result = restoreLayout({...state.value, grid: snapshot}, catalog);
     applyState(result.state);
     issues.value = [...issues.value, ...result.issues];
@@ -258,13 +270,37 @@ function reset() {
     notices.value = ["布局已重置。"];
 }
 
-syncSizes();
+/** 渲染区尺寸变化即容器的真相：原语的呈现与诊断按它重算，快照里的意图不动。 */
+function measureStage(): void {
+    const element = stageEl.value;
+    if (!element) {
+        return;
+    }
+    container.value = {width: element.clientWidth, height: element.clientHeight};
+    syncLayout();
+}
+
+onMounted(() => {
+    measureStage();
+    if (!stageEl.value) {
+        return;
+    }
+    stageObserver = new ResizeObserver(measureStage);
+    stageObserver.observe(stageEl.value);
+});
+
+onBeforeUnmount(() => {
+    stageObserver?.disconnect();
+    stageObserver = null;
+});
+
+syncLayout();
 </script>
 
 <template>
     <div class="flex h-dvh min-h-0 w-screen max-w-full" data-lab-subject>
-        <div class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            <WorkbenchBranch :node="state.grid.root as GridBranch<unknown>" :sizes="sizes" :on-resize="onResize" :hidden="state.collapsed" :epoch="epoch">
+        <div ref="stageEl" class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+            <WorkbenchBranch v-if="visibleRoot" :node="visibleRoot" :layout="layout" :on-resize-branch="onResizeBranch" :epoch="epoch">
                 <template #leaf="{leafId}">
                     <WorkbenchSurface
                         :leaf-id="leafId"

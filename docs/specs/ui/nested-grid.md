@@ -85,7 +85,9 @@ Smoke 入口：Component Lab 最小嵌套 grid fixture，桌面与 `390 × 844`�
 
 ## 实现合同
 
-尚未实现。
+当前原语增量采用快照 v2：结构、稳定 id/ref 与叶/分支的两轴意图；运行约束由当前树或宿主引用解析器提供。v1 缺少可靠的两轴信息，整体拒绝且由宿主保留原件。非字符串引用要求显式稳定编码器；未知引用过滤与非法格式分别报告。
+
+分支手势使用完整当前呈现基线与目标的原子入口，Renderer 消费原语给出的有效交互约束及实际 sash。公开消费细节见 [grid API](../../../packages/nb-ui/src/components/layout/grid.md)。原语与 Shell/Spike 的聚焦验证不代表 Storage 插件宿主、未知引用合成保存及真实浏览器验收已闭合；本 capability 保持 planned。
 
 ## 证据
 

@@ -284,7 +284,7 @@ describe("工作台 Storage 消费上下文", () => {
     });
 
     it("workbench release 同步封锁 user facade", async () => {
-        const rawRead = vi.fn(fakeHandle("unused").read);
+        const rawRead = vi.fn(async (): Promise<never> => { throw new Error("释放后不能委派读取"); });
         const raw: StorageOwnerHandle = {...fakeHandle("nbook.user"), read: rawRead};
         const harness = adapters({openOwnerHandle: vi.fn(async () => raw)});
         const context = createWorkbenchStorageContext({adapters: harness.value});

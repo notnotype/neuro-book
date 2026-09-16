@@ -37,6 +37,9 @@
 .pointer-events-none {
   pointer-events: none;
 }
+.collapse {
+  visibility: collapse;
+}
 .visible {
   visibility: visible;
 }
@@ -2080,6 +2083,10 @@
 }
 .placeholder\:text-\[var\(--text-muted\)\]::placeholder {
   color: var(--text-muted);
+}
+.after\:pointer-events-none::after {
+  content: var(--tw-content);
+  pointer-events: none;
 }
 .after\:absolute::after {
   content: var(--tw-content);
