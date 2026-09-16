@@ -18,7 +18,10 @@ import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import {createStoredUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
-import type {StoredAgentMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
+import type {StoredAgentMessage, StoredToolResultMessage, StoredUserMessage} from "nbook/server/agent/messages/stored-types";
+import {TOOL_RESULT_HARD_MAX_BYTES} from "nbook/server/agent/harness/tool-result-budget";
+import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {createRuntimePaths, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {storedMessageText} from "nbook/server/agent/messages/stored-message-presentation";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 import type {NeuroSessionContext, SessionEntry} from "nbook/server/agent/session/types";
@@ -2259,6 +2262,134 @@ describe("NeuroAgentHarness black-box contract", () => {
             await observer.stop();
         }
     }, 15_000);
+    describe("tool result budget", () => {
+        let spillRoot: string;
+        let spillPaths: RuntimePaths;
+        let spillHarness: NeuroAgentHarness;
+
+        beforeEach(async () => {
+            spillRoot = testHostPath("agent-harness-tool-budget-test", randomUUID());
+            spillPaths = createRuntimePaths({
+                applicationRoot: absoluteFsPath(join(spillRoot, "app")),
+                stateRoot: absoluteFsPath(join(spillRoot, "state")),
+            });
+            await writeFauxProviderConfig(spillPaths.workspaceRoot, faux);
+            spillHarness = new NeuroAgentHarness({
+                runtimePaths: spillPaths,
+                modelResolver: () => faux.getModel(),
+                runtimeResolver: () => faux.runtime,
+                enableSessionSummarizer: false,
+            });
+        });
+
+        afterEach(async () => {
+            await spillHarness.drainBackgroundTasks();
+            await rm(spillRoot, {recursive: true, force: true});
+        });
+
+        it("超大工具结果只把头部和tool-output locator交给模型，完整文本可用read分页读回", async () => {
+            const payload = Array.from({length: 4000}, (_, index) => `payload ${index + 1} ${"z".repeat(48)}`).join("\n");
+            spillHarness.tools.register({
+                key: "bb_big_output",
+                name: "bb_big_output",
+                label: "Big Output",
+                description: "Returns an oversized payload.",
+                parameters: Type.Object({}),
+                async execute() {
+                    return {content: [{type: "text", text: payload}], details: {marker: "keep"}};
+                },
+            });
+            spillHarness.profiles.register(defineAgentProfile({
+                manifest: {
+                    key: "test.blackbox.tool-budget",
+                    name: "BlackBox Tool Budget",
+                },
+                initialSchema: Type.Object({}),
+                allowedToolKeys: ["bb_big_output", "read"],
+                prepare() {
+                    return {};
+                },
+            }), false);
+
+            faux.setResponses([
+                fauxAssistantMessage([
+                    fauxText("call big tool"),
+                    fauxToolCall("bb_big_output", {}, {id: "big-1"}),
+                ], {stopReason: "toolUse"}),
+                fauxAssistantMessage("first turn done"),
+            ]);
+            const created = await spillHarness.createAgent({
+                profileKey: "test.blackbox.tool-budget",
+                initial: {},
+            });
+            const first = await runAndObserve(spillHarness, created.sessionId, () => spillHarness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "run"},
+            }));
+
+            expect(first.result.status).toBe("completed");
+            const bigResult = first.context.messages
+                .find((message): message is StoredToolResultMessage => message.role === "toolResult" && message.toolName === "bb_big_output");
+            expect(bigResult?.role).toBe("toolResult");
+            const bigText = bigResult ? messageText(bigResult) : "";
+            const locator = /tool-output:\/\/[0-9a-f-]{36}\/output\.log/u.exec(bigText)?.[0];
+            if (!locator) {
+                throw new Error(`超大工具结果没有落盘locator：${bigText.slice(-300)}`);
+            }
+            expect(Buffer.byteLength(bigText, "utf-8")).toBeLessThanOrEqual(TOOL_RESULT_HARD_MAX_BYTES);
+            expect(bigText).toContain("payload 1 ");
+            expect(bigText).not.toContain("payload 4000 ");
+            expect(bigResult?.details).toEqual({marker: "keep"});
+
+            // 模型按locator读第一页，并拿到继续读取的 offset。
+            faux.setResponses([
+                fauxAssistantMessage([
+                    fauxText("read head"),
+                    fauxToolCall("read", {path: locator, limit: 3}, {id: "read-1"}),
+                ], {stopReason: "toolUse"}),
+                fauxAssistantMessage("second turn done"),
+            ]);
+            const second = await runAndObserve(spillHarness, created.sessionId, () => spillHarness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "read the locator head"},
+            }));
+            const headRead = [...second.context.messages].reverse()
+                .find((message): message is StoredToolResultMessage => message.role === "toolResult" && message.toolName === "read");
+
+            expect(headRead ? messageText(headRead) : "").toContain("1 | payload 1 ");
+            expect(headRead?.details).toEqual(expect.objectContaining({
+                startLine: 1,
+                endLine: 3,
+                totalLines: 4000,
+                nextOffset: 4,
+            }));
+
+            // 直接读尾部区间：可见头部之外的内容确实来自落盘文件。
+            faux.setResponses([
+                fauxAssistantMessage([
+                    fauxText("read tail"),
+                    fauxToolCall("read", {path: locator, offset: 3900, limit: 3}, {id: "read-2"}),
+                ], {stopReason: "toolUse"}),
+                fauxAssistantMessage("third turn done"),
+            ]);
+            const third = await runAndObserve(spillHarness, created.sessionId, () => spillHarness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "read the locator tail"},
+            }));
+            const tailRead = [...third.context.messages].reverse()
+                .find((message): message is StoredToolResultMessage => message.role === "toolResult" && message.toolName === "read");
+
+            expect(tailRead ? messageText(tailRead) : "").toContain("3900 | payload 3900 ");
+            expect(tailRead?.details).toEqual(expect.objectContaining({
+                startLine: 3900,
+                endLine: 3902,
+                totalLines: 4000,
+            }));
+        }, 30_000);
+    });
 });
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<NeuroSessionContext> {

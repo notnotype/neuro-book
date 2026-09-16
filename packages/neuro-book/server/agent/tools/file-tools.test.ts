@@ -15,6 +15,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {createProfileArtifactPathContextResolver} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
+import {TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES} from "nbook/server/agent/tools/truncate";
 import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
 import {closeAllProjects, openProject} from "nbook/server/workspace-files/project-session";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
@@ -155,10 +156,10 @@ describe("v3 file tools", () => {
         expect(Value.Check(tool.parameters, {path: "notes.md", limit: 2.5})).toBe(false);
     });
 
-    it("read 截断输出自动显示行号并返回 nextOffset", async () => {
+    it("read 按字节上限截断长行文件并返回 nextOffset", async () => {
         await writeFile(
             join(workspaceRoot, "long.md"),
-            Array.from({length: 2001}, (_, index) => `line ${index + 1}`).join("\n"),
+            Array.from({length: 2001}, (_, index) => `line ${index + 1} ${"y".repeat(40)}`).join("\n"),
             "utf-8",
         );
         const tool = mustTool("read", harness);
@@ -167,16 +168,41 @@ describe("v3 file tools", () => {
             path: "long.md",
         });
         const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        const details = result?.details as {
+            startLine: number;
+            endLine: number;
+            totalLines: number;
+            nextOffset: number;
+            truncation?: {truncatedBy: string | null; outputBytes: number; maxBytes: number};
+        };
 
-        expect(text).toContain("1 | line 1");
-        expect(text).toContain("2000 | line 2000");
-        expect(text).toContain("[Showing lines 1-2000 of 2001. Use offset=2001 to continue.]");
-        expect(result?.details).toEqual(expect.objectContaining({
-            startLine: 1,
-            endLine: 2000,
-            totalLines: 2001,
-            nextOffset: 2001,
-        }));
+        expect(text.startsWith("1 | line 1 ")).toBe(true);
+        expect(details.truncation).toMatchObject({truncatedBy: "bytes", maxBytes: TOOL_RESULT_MAX_BYTES});
+        expect(details.truncation!.outputBytes).toBeLessThanOrEqual(TOOL_RESULT_MAX_BYTES);
+        expect(details.totalLines).toBe(2001);
+        expect(details.endLine).toBeLessThan(TOOL_RESULT_MAX_LINES);
+        expect(details.endLine).toBe(details.nextOffset - 1);
+        expect(text).toContain(`[Showing lines 1-${details.endLine} of 2001. Use offset=${details.nextOffset} to continue.]`);
+        expect(text).toContain(`${details.endLine} | line ${details.endLine} `);
+    });
+
+    it("read 按行数上限截断短行文件", async () => {
+        await writeFile(
+            join(workspaceRoot, "many-lines.md"),
+            Array.from({length: 1200}, (_, index) => `x${index + 1}`).join("\n"),
+            "utf-8",
+        );
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.(context, "read-truncated-lines", {
+            path: "many-lines.md",
+        });
+        const details = result?.details as {endLine: number; totalLines: number; nextOffset: number; truncation?: {truncatedBy: string | null}};
+
+        expect(details.truncation?.truncatedBy).toBe("lines");
+        expect(details.endLine).toBe(TOOL_RESULT_MAX_LINES);
+        expect(details.totalLines).toBe(1200);
+        expect(details.nextOffset).toBe(TOOL_RESULT_MAX_LINES + 1);
     });
 
     it("read 图片时直接返回 attachment ref，不生成 base64", async () => {

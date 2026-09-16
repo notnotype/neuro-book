@@ -216,6 +216,8 @@ import {SessionAttachmentAuthority} from "nbook/server/agent/attachments/session
 import {estimateStoredContextTokens} from "nbook/server/agent/messages/stored-message-tokens";
 import {createRecoveryMaterialTracker, materializeRecoveryMaterials, recoveryMaterialKey, type RecoveryMaterializationResult, type RecoveryMaterialTracker} from "nbook/server/agent/harness/recovery-materials";
 import {assertProviderContextWithinWindow, estimateProviderContextTokens, pruneProviderMessagesForWindow} from "nbook/server/agent/harness/context-admission";
+import {boundToolResult} from "nbook/server/agent/harness/tool-result-budget";
+import {agentOutputStoreFor, TOOL_OUTPUT_SPEC} from "nbook/server/agent/tools/agent-output-store";
 import type {AttachmentId, AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {AttachmentError} from "nbook/server/agent/attachments/types";
 import {attachmentIdFromMarkdownTarget, parseAgentImageMarkdown, serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
@@ -6230,15 +6232,21 @@ export class NeuroAgentHarness {
                 throw new Error(`Tool ${tool.key} 没有可执行入口`);
             }
             return {
-                result,
+                result: await this.applyToolResultBudget(result),
                 isError: false,
             };
         } catch (error) {
             return {
-                result: this.errorToolResult(error instanceof Error ? error.message : String(error)),
+                result: await this.applyToolResultBudget(this.errorToolResult(error instanceof Error ? error.message : String(error))),
                 isError: true,
             };
         }
+    }
+
+    /** 工具结果进模型上下文前的统一上限；超限文本先落盘再把locator写回可见文本。 */
+    private async applyToolResultBudget(result: NeuroToolResult): Promise<NeuroToolResult> {
+        const store = await agentOutputStoreFor(TOOL_OUTPUT_SPEC, this.runtimePaths);
+        return boundToolResult({result, spill: store ? (text) => store.spill(text) : undefined});
     }
 
     private assertSessionIdle(sessionId: number): void {

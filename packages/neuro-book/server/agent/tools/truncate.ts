@@ -1,7 +1,7 @@
 /** 单条工具结果进模型上下文前的行数上限。 */
-export const TOOL_RESULT_MAX_LINES = 2000;
+export const TOOL_RESULT_MAX_LINES = 1000;
 /** 单条工具结果进模型上下文前的字节上限。 */
-export const TOOL_RESULT_MAX_BYTES = 50 * 1024;
+export const TOOL_RESULT_MAX_BYTES = 16 * 1024;
 
 export type TruncationResult = {
     content: string;
