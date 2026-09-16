@@ -71,6 +71,13 @@ t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Proje
 17聚焦用例与主应用typecheck通过，已提交 `5fcdf8b8`。
 [t45](tasks/t45-nested-grid-lab-fixture/README.md) 提供Lab静态确定性嵌套fixture与四主题/桌面/390×844浏览器验收；
 [t46](tasks/t46-checkpoint-a-review/README.md) 独立审查公共类型、身份、生命周期与插件消费（检查点A）。
+首轮裁定需修复（P2 重放无落点误报 `saved` 并清未确认意图、P3 release 后 open 仍读取、观察 1a），
+已回 t44 修复（`1f1942c3`，聚焦 20 例）；追加复核逐项复现闭合、G1–G4 相邻路径全绿，**建议合并**，
+证据见 [审查记录](tasks/t46-checkpoint-a-review/walkthroughs/review.md) 与 `walkthroughs/probes/`。检查点 A 关闭。
+切片 4 已启动：[t47](tasks/t47-legacy-state-migration/README.md) 迁移门禁与原件保护（浏览器暂存早于旧 writer、迁移期冻结三字段、
+`workbench.migration` 分块原件备份、逐项条件导入、进度/完成标记、状态可观察）已提交 `8263726e`，
+Leader 复跑 4 文件 49 例、相关测试域 12 文件 139 例与主应用 typecheck 均通过；
+[t49](tasks/t49-migration-review/README.md) 独立审查与 [t48](tasks/t48-workbench-layout-authority/README.md) 主工作台接线并行进行。
 开发者已有 `http://localhost:3001/` 后台服务，后续验收不占用、复用、重启或关闭它；
 产品验收显式使用系统Temp内独立State Root、Workspace Root与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
