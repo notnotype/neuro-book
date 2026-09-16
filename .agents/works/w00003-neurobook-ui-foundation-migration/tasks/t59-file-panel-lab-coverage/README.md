@@ -6,7 +6,7 @@ role: tasker
 
 # 文件树组件的文档与 Lab 覆盖
 
-**状态：待实现。** t55 把文件树接进产品左叶，但 `app/components/novel-ide/workspace/**`（14 个文件）**零 `.md`**，按 `app/component-lab/component-index.ts:59-108` 的标签推导规则连 Lab 索引都进不去；红分支要求组件独立达到 Lab-ready，本 Task 补齐**用户可见的入口组件**这一环（与 t57 对视图宿主做的一致）。
+**状态：已实现并验证（2026-09-16）**——交付物与证据见 [walkthroughs/implementation.md](walkthroughs/implementation.md)：同名文档（`标签: [state:local, state:shared-read, state:shared-write, io:read, io:mutate, persist:local, env:clipboard]`）落盘、Lab 索引已收录并给出「不能在 Lab 里验证」的原因；按规则判为**不可挂载**，不造替代 fixture。 t55 把文件树接进产品左叶，但 `app/components/novel-ide/workspace/**`（14 个文件）**零 `.md`**，按 `app/component-lab/component-index.ts:59-108` 的标签推导规则连 Lab 索引都进不去；红分支要求组件独立达到 Lab-ready，本 Task 补齐**用户可见的入口组件**这一环（与 t57 对视图宿主做的一致）。
 
 依据：[清单 §2.1](../../view-migration-inventory.md) 与 §2.2 的跨面事实（239 个组件仅 39 个有同名文档）。
 
