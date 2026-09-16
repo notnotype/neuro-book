@@ -17,6 +17,7 @@ export type RuntimePaths = Readonly<{
     llmlintCacheRoot: AbsoluteFsPath;
     bunInstallCacheRoot: AbsoluteFsPath;
     bashOutputRoot: AbsoluteFsPath;
+    toolOutputRoot: AbsoluteFsPath;
     secretsRoot: AbsoluteFsPath;
     backupKeyringPath: AbsoluteFsPath;
 }>;
@@ -47,6 +48,7 @@ export function createRuntimePaths(input: {
         llmlintCacheRoot: absoluteFsPath(path.join(cacheRoot, "llmlint")),
         bunInstallCacheRoot: absoluteFsPath(path.join(cacheRoot, "bun", "install")),
         bashOutputRoot: absoluteFsPath(path.join(cacheRoot, "agent", "bash-output")),
+        toolOutputRoot: absoluteFsPath(path.join(cacheRoot, "agent", "tool-output")),
         secretsRoot: absoluteFsPath(path.join(input.stateRoot, "secrets")),
         backupKeyringPath: absoluteFsPath(path.join(input.stateRoot, "secrets", "backup-keyring.json")),
     });

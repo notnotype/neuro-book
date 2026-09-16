@@ -1,11 +1,11 @@
 import {createWriteStream, type WriteStream} from "node:fs";
-import {DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, type TruncationResult} from "nbook/server/agent/tools/truncate";
-import type {BashOutputReference, BashOutputReservation} from "nbook/server/agent/tools/bash-output-store";
+import {TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateTail, type TruncationResult} from "nbook/server/agent/tools/truncate";
+import type {AgentOutputReference, AgentOutputReservation} from "nbook/server/agent/tools/agent-output-store";
 
 export type OutputSnapshot = {
     content: string;
     truncation: TruncationResult;
-    fullOutput?: BashOutputReference;
+    fullOutput?: AgentOutputReference;
 };
 
 /**
@@ -13,7 +13,7 @@ export type OutputSnapshot = {
  */
 export class OutputAccumulator {
     private readonly decoder = new TextDecoder();
-    private readonly maxRollingBytes = DEFAULT_MAX_BYTES * 2;
+    private readonly maxRollingBytes = TOOL_RESULT_MAX_BYTES * 2;
     private rawChunks: Buffer[] = [];
     private tailText = "";
     private tailBytes = 0;
@@ -26,7 +26,7 @@ export class OutputAccumulator {
     private persistedBytes = 0;
     private capped = false;
 
-    constructor(private readonly reservation: BashOutputReservation | null) {}
+    constructor(private readonly reservation: AgentOutputReservation | null) {}
 
     /**
      * 追加原始输出 chunk。
@@ -64,14 +64,14 @@ export class OutputAccumulator {
      */
     snapshot(persistIfTruncated = false): OutputSnapshot {
         const truncation = truncateTail(this.tailText, {
-            maxLines: DEFAULT_MAX_LINES,
-            maxBytes: DEFAULT_MAX_BYTES,
+            maxLines: TOOL_RESULT_MAX_LINES,
+            maxBytes: TOOL_RESULT_MAX_BYTES,
         });
-        const truncated = this.totalLines > DEFAULT_MAX_LINES || this.totalDecodedBytes > DEFAULT_MAX_BYTES;
+        const truncated = this.totalLines > TOOL_RESULT_MAX_LINES || this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES;
         const finalTruncation: TruncationResult = {
             ...truncation,
             truncated,
-            truncatedBy: truncated ? truncation.truncatedBy ?? (this.totalDecodedBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines") : null,
+            truncatedBy: truncated ? truncation.truncatedBy ?? (this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES ? "bytes" : "lines") : null,
             totalLines: this.totalLines,
             totalBytes: this.totalDecodedBytes,
         };
@@ -148,7 +148,7 @@ export class OutputAccumulator {
     }
 
     private shouldUseOutputFile(): boolean {
-        return this.totalRawBytes > DEFAULT_MAX_BYTES || this.totalDecodedBytes > DEFAULT_MAX_BYTES || this.totalLines > DEFAULT_MAX_LINES;
+        return this.totalRawBytes > TOOL_RESULT_MAX_BYTES || this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES || this.totalLines > TOOL_RESULT_MAX_LINES;
     }
 
     private ensureOutputFile(): void {

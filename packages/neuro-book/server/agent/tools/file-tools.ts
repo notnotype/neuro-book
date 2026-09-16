@@ -7,13 +7,16 @@ import type {Static} from "typebox";
 import {spawnOwnedProcess} from "@notnotype/owned-process";
 import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
 import {detectImageMimeType, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
-import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
+import {formatSize, TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import {
-    BashOutputStore,
-    isBashOutputLocator,
-    type BashOutputReference,
-} from "nbook/server/agent/tools/bash-output-store";
+    agentOutputStoreFor,
+    agentOutputStoreForLocator,
+    BASH_OUTPUT_SPEC,
+    isAgentOutputLocator,
+    type AgentOutputReference,
+    type AgentOutputStore,
+} from "nbook/server/agent/tools/agent-output-store";
 import type {NeuroAgentTool, NeuroToolResult, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch, extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
@@ -84,10 +87,8 @@ type EditDetails = {
 
 type BashDetails = {
     truncation?: TruncationResult;
-    fullOutput?: BashOutputReference;
+    fullOutput?: AgentOutputReference;
 };
-
-const bashOutputStores = new Map<string, Promise<BashOutputStore>>();
 
 /**
  * 构造 Pi 风格基础文件与 bash 工具。
@@ -118,12 +119,16 @@ function createReadTool(): NeuroAgentTool {
         name: "read",
         label: "read",
         executionMode: "parallel",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Any absolute filesystem path can be used directly. For another managed Project, prefer workspace/<project>/... when Project identity, open gate, History, or Context Access matters. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${TOOL_RESULT_MAX_LINES} lines or ${TOOL_RESULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Any absolute filesystem path can be used directly. For another managed Project, prefer workspace/<project>/... when Project identity, open gate, History, or Context Access matters. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
-            if (isBashOutputLocator(input.path)) {
-                const buffer = await (await bashOutputStore(context)).read(input.path);
+            if (isAgentOutputLocator(input.path)) {
+                const store = await agentOutputStoreForLocator(input.path, context.harness.runtimePaths);
+                if (!store) {
+                    throw new Error("Agent完整输出需要显式RuntimePaths Cache Root");
+                }
+                const buffer = await store.read(input.path);
                 return formatTextRead(buffer, input, input.path);
             }
             const target = await resolveToolFile(context, input.path, "read");
@@ -841,24 +846,15 @@ function formatBashOutput(snapshot: ReturnType<OutputAccumulator["snapshot"]>, e
 }
 
 /** Cache Root由生产RuntimePaths注入；纯Repository测试不允许隐式回退到Workspace。 */
-async function bashOutputStore(context: ToolExecutionContext): Promise<BashOutputStore> {
-    const root = context.harness.runtimePaths?.bashOutputRoot;
-    if (!root) {
-        throw new Error("Bash完整输出需要显式RuntimePaths Cache Root");
-    }
-    let store = bashOutputStores.get(root);
+async function bashOutputStore(context: ToolExecutionContext): Promise<AgentOutputStore> {
+    const store = await agentOutputStoreFor(BASH_OUTPUT_SPEC, context.harness.runtimePaths);
     if (!store) {
-        store = (async () => {
-            const created = new BashOutputStore(root);
-            await created.collect();
-            return created;
-        })();
-        bashOutputStores.set(root, store);
+        throw new Error("Bash完整输出需要显式RuntimePaths Cache Root");
     }
     return store;
 }
 
-function formatFullOutput(reference: BashOutputReference | undefined): string {
+function formatFullOutput(reference: AgentOutputReference | undefined): string {
     if (!reference || reference.state === "reclaimed") return "Full output reclaimed";
     return reference.state === "partial"
         ? `Full output capped at cache limit: ${reference.locator}`
@@ -884,7 +880,7 @@ function formatTextRead(buffer: Buffer, input: ReadInput, reportedPath: string):
     let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
     if (truncation.firstLineExceedsLimit) {
         const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
-        outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use read with offset/limit to inspect retained output.]`;
+        outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(TOOL_RESULT_MAX_BYTES)} limit. Use read with offset/limit to inspect retained output.]`;
     } else if (truncation.truncated) {
         outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
     } else if (nextOffset !== undefined) {
