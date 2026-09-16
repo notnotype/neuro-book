@@ -9,17 +9,17 @@ import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-v
 import NovelIdeActivityBar from "nbook/app/components/novel-ide/NovelIdeActivityBar.vue";
 import NovelIdeProfileDialog from "nbook/app/components/novel-ide/NovelIdeProfileDialog.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
-import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
-import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
 import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
 import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
+import WorkbenchViewHost from "nbook/app/components/workbench/WorkbenchViewHost.vue";
 import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
 import type {WorkbenchLayoutSurface} from "nbook/app/utils/workbench/layout-session";
+import type {WorkbenchContext} from "nbook/app/utils/workbench/descriptors";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -260,6 +260,30 @@ const inlineEditorAgent = useInlineEditorAgentController({
     selectedFilePath,
 });
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
+/**
+ * 视图宿主的上下文事实：谁持有事实谁填，descriptor 层不 import store。
+ *
+ * `project` 与 `workbenchLayoutSurface` 同源（不受 `projectSwitching` 影响）：切换过渡期仍按上一个
+ * 工作面呈现，避免左叶在切项目时空一下。`session` / `job` 的 authority 目前没有页面级投影，
+ * 按不可用上报——没有视图声明它们，将来声明时必须接真实事实（失败方向安全）。
+ */
+const workbenchViewContext = computed<WorkbenchContext>(() => {
+    const surface = workbenchLayoutSurface.value;
+    const project = surface.kind === "project";
+    return {
+        project,
+        selection: Boolean(selectedFileNode.value),
+        "user-assets": isUserAssetsWorkspace.value,
+        desktop: Boolean(desktopBridge.value),
+        authorities: {
+            project,
+            files: novelIdeStore.canAccessWorkspace,
+            session: false,
+            job: false,
+        },
+        projectRoot: surface.kind === "project" ? surface.ready.projectRoot : null,
+    };
+});
 const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
 /**
  * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
@@ -2614,12 +2638,15 @@ onBeforeUnmount(() => {
                 />
             </template>
             <template #left>
-                <!-- 左容器（容器部件，不是业务视图）：头部 + 内容区，卡片样式与留白分别来自 nb-ui 主题
-                     角色变量与外壳喂的 gutter。内容区按 `scroll` 呈现（外壳给留白、拥有滚动），
-                     真视图（文件树 / 角色 / 情节）在后续阶段迁入时整块替掉下面这段演示文案。 -->
-                <WorkbenchContainerSurface :container="SHELL_LEFT_CONTAINER" :title="t(SHELL_LEFT_CONTAINER.titleKey)" layout="scroll">
-                    <p class="workbench-leaf-placeholder">左栏容器：工具面板 / 文件树（后续阶段迁入）</p>
-                </WorkbenchContainerSurface>
+                <!-- 左容器 + 视图宿主：容器声明走 descriptor（`containers.ts`），视图由注册表求值
+                     （`product-catalog.ts`）后经 factoryKey 白名单解析——左叶不再写死业务组件。
+                     内容区合同取可见视图的 layout（files 是 fill：面板自己占满并管内部滚动）；
+                     收起/展开仍由外壳几何决定，这里不改叶的显隐语义。 -->
+                <WorkbenchViewHost
+                    :container="SHELL_LEFT_CONTAINER"
+                    :container-title="t(SHELL_LEFT_CONTAINER.titleKey)"
+                    :context="workbenchViewContext"
+                />
             </template>
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->

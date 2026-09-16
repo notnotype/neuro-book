@@ -88,14 +88,17 @@
 **⑥ 状态归属判定**：
 - 左/右栏尺寸：**project/local**，未开项目与用户资产为 **user/local**（`persistence.md:95-96`）；依据 `boundaries.md:121`与 `persistence.md:94-101` 表；**已实现**（`layout-session.ts`，O3 落盘）。
 - 文件树展开项：**user/local**（`persistence.md:98`「视图排序、位置、显式隐藏偏好」）。现状违规：`nbook.workspaceFilePanel.expandedPaths` 裸 localStorage（`WorkspaceFilePanel.vue:44/54/598/619`），违反 `boundaries.md:103`，迁移时须并入宿主记录。
+  **2026-09-16 落地**：已并入 `workbench.files`/`expanded-paths`（user/local、`records: "single"`、schemaVersion 1、默认 `{paths: []}`；定义在 `shared/storage/workbench-files.ts`，只追加到 `server/storage/product-definitions.ts` 的唯一清单）。组件不再读写 `localStorage`；旧键按「读旧键 → 记录缺失时条件初始化 → 回读一致 → 删除旧键」一次性迁移，记录已有值时不被旧键覆盖。见 [t55 实施记录](tasks/t55-files-view-migration/walkthroughs/implementation.md)。
 - 打开的标签/活动文件：**按 Project 分区的编辑器恢复态**（`workbench-view-host.md:210`、`persistence.md:101` 领域 Store 排除项）；现状在 sessionStorage `novel.ide.session`（`novel-ide.ts:1948-1956`）。
 - 文件内容：领域数据，仍走 `/api/workspace-files/*`，**不进 Storage**。
 
-**真实功能缺口**：验收旅程 `docs/testing/manual-eval/journeys/workspace-tour.md`「文件树骨架」「打开文件」两项当前必然失败（左叶无内容）。
+**真实功能缺口**：验收旅程 `docs/testing/manual-eval/journeys/workspace-tour.md`「文件树骨架」当前必然失败（左叶无内容）。
+**2026-09-16 落地**：左叶已渲染真实文件树（`nbook.files` 走 L1 注册路径挂进 `nbook.tools` 容器），「文件树骨架」可得；「打开文件」仍不可通过——编辑器叶还没迁入（双击打开会在文件面板给出可见提示条，不静默）。
 
 **建议切片**：`files` 视图接入（左容器 + descriptor/registry 的 L1 内置注册路径同批，`workbench-view-host.md:229,247`），展开项一并从裸 localStorage 迁到 user/local；文件内容 authority 不动。
 
 **旧实现删除条件**（除公共门禁外）：`index.vue:12/:16` 未用 import 删除；`NovelIdeToolPanel.vue` 的 files 槽位退役（角色/情节未迁完前保留其余槽位同理）；`nbook.workspaceFilePanel.expandedPaths` 键在记录迁入且回读验证后删除。
+**2026-09-16 状态**：`index.vue:12/:16` 两个 import 已删；`NovelIdeToolPanel.vue` 已无任何 importer（它的 files 槽位因此成为死代码，随角色/情节迁移一并退役——组件本体按本 Task 范围保留）；裸键由运行时迁移在回读验证后删除（两种情形都在真实浏览器验证过）。
 
 ### 2.2 Markdown Studio
 
@@ -393,6 +396,7 @@ graph TD
 | 视图 | 待删/待退对象（现状证据） |
 |---|---|
 | 1 文件树 | `index.vue:12,16` 未用 import；`NovelIdeToolPanel.vue:435` 槽位；`nbook.workspaceFilePanel.expandedPaths`（`WorkspaceFilePanel.vue:54`） |
+| 1 文件树（2026-09-16 落地后） | ~~`index.vue:12,16`~~（已删）；~~`nbook.workspaceFilePanel.expandedPaths`~~（迁入 `workbench.files`/`expanded-paths`，裸键由运行时迁移删除）；仍余 `NovelIdeToolPanel.vue:435` 槽位（组件已无 importer，与角色/情节槽位一并退役） |
 | 2 Studio | `index.vue:6` 未用 import；`index.vue:2627-2633` 占位块；`novel.ide.local` 的 `viewMode`/`markdownEditorPreferences`/`monacoEditorPreferences`（`novel-ide.ts:1978-1980`） |
 | 3 角色 | `selectedCharacterId`/`selectedLorebookEntryId` 死状态（`novel-ide.ts:201-202`）；`openFrontmatterProfile` 无调用方（`index.vue:2159-2161`）；`NovelIdeToolPanel.vue:437` 槽位 |
 | 4 Plot | `openPlotWorkbench` 无调用方（`index.vue:1881-1896`）；`NovelIdeToolPanel.vue:439` 槽位；三处硬编码宽度 class（`PlotWorkbenchSidebar.vue:144` 等） |

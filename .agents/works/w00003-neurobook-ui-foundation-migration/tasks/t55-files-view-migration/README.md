@@ -6,7 +6,7 @@ role: tasker
 
 # `files` 视图接入：左叶文件树与工具面板
 
-**状态：待实现。** 第一个视图迁移（[清单](../../view-migration-inventory.md) §2.1 指定，开发者选定）。目标是把**已在仓库里但从未挂载**的文件树接回外壳左叶，并把展开项从裸 `localStorage` 并入 Storage 归属；**不重写**既有文件树实现。
+**状态：已实现并验证（2026-09-16）。** 交付物见 [`walkthroughs/implementation.md`](walkthroughs/implementation.md)（聚焦测试 30 例、只读 typecheck、真实浏览器验收、未运行项与偏差）。第一个视图迁移（[清单](../../view-migration-inventory.md) §2.1 指定，开发者选定）。目标是把**已在仓库里但从未挂载**的文件树接回外壳左叶，并把展开项从裸 `localStorage` 并入 Storage 归属；**不重写**既有文件树实现。
 
 依据：[清单 §2.1](../../view-migration-inventory.md)（六类证据与行号）、[storage.persistence](../../../../../docs/specs/storage/persistence.md):94-101、[storage.boundaries](../../../../../docs/specs/storage/boundaries.md):103/121、[workbench-view-host 提案](../../../../../packages/neuro-book/docs/proposals/workbench-view-host.md):229/247。
 

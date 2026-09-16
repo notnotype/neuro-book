@@ -22,6 +22,7 @@
 import type {DefinedStorageState} from "nbook/shared/storage/definition";
 import {defineWorkbenchShellLayoutState} from "nbook/shared/storage/workbench-shell-layout";
 import {defineWorkbenchMigrationStates} from "nbook/shared/storage/workbench-migration";
+import {defineWorkbenchFileTreeExpandedPathsState} from "nbook/shared/storage/workbench-files";
 import {defineWorkbenchShelfModeState, defineWorkbenchSurfaceSizesState} from "nbook/shared/storage/workbench-state";
 import {registerStorageStateDefinitions} from "nbook/server/storage/host";
 
@@ -42,6 +43,8 @@ function buildProductStorageStates(): readonly DefinedStorageState<unknown>[] {
         defineWorkbenchSurfaceSizesState() as DefinedStorageState<unknown>,
         defineWorkbenchShelfModeState() as unknown as DefinedStorageState<unknown>,
         defineWorkbenchShellLayoutState() as unknown as DefinedStorageState<unknown>,
+        // `files` 视图的展开项（user/local）：旧裸键 `nbook.workspaceFilePanel.expandedPaths` 的正式归属。
+        defineWorkbenchFileTreeExpandedPathsState() as unknown as DefinedStorageState<unknown>,
     ]);
 }
 

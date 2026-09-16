@@ -18,6 +18,8 @@ server/generated/prisma/
 server/agent/variables/generated-profile-variable-types.d.ts
 server/.agent/
 workspace/
+# 例外：主应用源码里同名的视图目录（勿把新文件判为运行期工作区数据）
+!app/components/novel-ide/workspace/
 
 # Package-local governance and runtime state
 .agent/

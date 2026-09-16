@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {computed, onMounted, ref, watch} from "vue";
+import {useI18n} from "vue-i18n";
 import {storeToRefs} from "pinia";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import WorkspaceCreateFileDialog, {
@@ -11,6 +13,7 @@ import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/worksp
 import WorkspaceLorebookDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useWorkbenchFileTreeExpandedPaths} from "nbook/app/utils/workbench/files-view-session";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {buildDefaultWorkspaceCreatePath} from "nbook/app/utils/workspace-create-path";
 import {buildWorkspacePathCopyText, type WorkspacePathCopyMode} from "nbook/app/utils/workspace-path-copy";
@@ -41,7 +44,18 @@ const {
 } = storeToRefs(store);
 
 const searchQuery = ref("");
-const expandedPaths = ref<string[]>([]);
+/**
+ * 展开项归 `workbench.files`/`expanded-paths` 的 user/local 记录（`persistence.md:98`）：
+ * 本组件不再直接读写 `localStorage`（`boundaries.md:103`），旧裸键由会话一次性迁入。
+ */
+const expandedPathsRecord = useWorkbenchFileTreeExpandedPaths();
+const expandedPaths = computed({
+    get: () => [...expandedPathsRecord.expandedPaths.value],
+    set: (paths: string[]) => void expandedPathsRecord.commit(paths),
+});
+const expandedPathsNotice = computed(() => expandedPathsRecord.notice.value);
+/** 打开文件后的可见反馈：编辑器叶迁入前正文无处呈现，不静默失败。 */
+const openedFilePath = ref("");
 const detailHeight = ref(260);
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
@@ -51,7 +65,6 @@ const createDialogVisible = ref(false);
 const createDialogKind = ref<WorkspaceCreateKind>("file");
 const createDialogDefaultPath = ref("");
 const creatingWorkspaceNode = ref(false);
-const WORKSPACE_EXPANDED_PATHS_STORAGE_KEY = "nbook.workspaceFilePanel.expandedPaths";
 const LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "note"] as const;
 
 type LorebookEntryType = typeof LOREBOOK_ENTRY_TYPES[number];
@@ -96,9 +109,25 @@ async function selectNode(node: WorkspaceFileNode): Promise<void> {
 
 /**
  * 双击打开节点并保留标签。
+ *
+ * 编辑器叶（Markdown Studio）还没迁入，正文暂时无处呈现：把这次打开如实说出来，
+ * 不让链路看起来"什么都没发生"。
  */
 async function openNode(node: WorkspaceFileNode): Promise<void> {
-    await store.openWorkspaceNode(node, "permanent");
+    const opened = await store.openWorkspaceNode(node, "permanent");
+    if (opened !== null) {
+        openedFilePath.value = opened.path;
+    }
+}
+
+/** 重试未确认的展开项提交（旧键迁移失败也走这里重试）。 */
+function retryExpandedPathsRecord(): void {
+    void expandedPathsRecord.retry();
+}
+
+/** 放弃未确认的展开项调整，回到已确认值。 */
+function abandonExpandedPathsRecord(): void {
+    expandedPathsRecord.abandon();
 }
 
 /**
@@ -590,45 +619,11 @@ function formatCreateError(error: unknown): string {
     return t("ide.workspace.filePanel.createFailedFallback");
 }
 
-function loadExpandedPaths(): string[] {
-    if (!import.meta.client) {
-        return [];
-    }
-
-    const rawValue = localStorage.getItem(WORKSPACE_EXPANDED_PATHS_STORAGE_KEY);
-    if (!rawValue) {
-        return [];
-    }
-
-    try {
-        const parsedValue = JSON.parse(rawValue) as unknown;
-        if (!Array.isArray(parsedValue)) {
-            return [];
-        }
-        return [...new Set(parsedValue.filter((path): path is string => typeof path === "string" && path.length > 0))];
-    } catch {
-        return [];
-    }
-}
-
-function saveExpandedPaths(paths: string[]): void {
-    if (!import.meta.client) {
-        return;
-    }
-
-    localStorage.setItem(WORKSPACE_EXPANDED_PATHS_STORAGE_KEY, JSON.stringify([...new Set(paths)]));
-}
-
 onMounted(() => {
-    expandedPaths.value = loadExpandedPaths();
     if (canAccessWorkspace.value && workspaceTree.value.length === 0) {
         void store.loadWorkspaceTree();
     }
 });
-
-watch(expandedPaths, (paths) => {
-    saveExpandedPaths(paths);
-}, {deep: true});
 
 watch(canAccessWorkspace, (canAccess) => {
     if (canAccess && workspaceTree.value.length === 0) {
@@ -647,6 +642,37 @@ watch(canAccessWorkspace, (canAccess) => {
             </div>
             <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="void refreshTree()">
                 <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
+            </button>
+        </div>
+
+        <!-- 展开记录诊断：未保存 / 不可写 / 旧键迁移未完成都不静默 -->
+        <div
+            v-if="expandedPathsNotice"
+            class="flex shrink-0 items-start gap-2 border-b border-[var(--border-color)] bg-[var(--status-warning-bg)] px-3 py-2 text-[11px] leading-4 text-[var(--status-warning)]"
+            role="status"
+            aria-live="polite"
+            data-file-panel-record-notice
+        >
+            <span class="min-w-0 flex-1">{{ t("ide.workspace.filePanel.recordNotice", {diagnosis: expandedPathsNotice.diagnosis}) }}</span>
+            <button v-if="expandedPathsNotice.retryable" type="button" class="shrink-0 underline" @click="retryExpandedPathsRecord()">
+                {{ t("ide.workspace.filePanel.recordRetry") }}
+            </button>
+            <button v-if="expandedPathsNotice.retryable" type="button" class="shrink-0 underline" @click="abandonExpandedPathsRecord()">
+                {{ t("ide.workspace.filePanel.recordAbandon") }}
+            </button>
+        </div>
+
+        <!-- 打开文件的可见结果：编辑器叶迁入前正文无处呈现，本次打开如实报出 -->
+        <div
+            v-if="openedFilePath"
+            class="flex shrink-0 items-start gap-2 border-b border-[var(--border-color)] bg-[var(--bg-hover)] px-3 py-2 text-[11px] leading-4 text-[var(--text-secondary)]"
+            role="status"
+            aria-live="polite"
+            data-file-panel-open-notice
+        >
+            <span class="min-w-0 flex-1 break-all">{{ t("ide.workspace.filePanel.openedWithoutEditor", {path: openedFilePath}) }}</span>
+            <button type="button" class="shrink-0 underline" @click="openedFilePath = ''">
+                {{ t("ide.workspace.filePanel.openNoticeDismiss") }}
             </button>
         </div>
 
