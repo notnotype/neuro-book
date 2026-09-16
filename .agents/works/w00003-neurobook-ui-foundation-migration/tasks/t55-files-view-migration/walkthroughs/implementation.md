@@ -80,3 +80,54 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 | 命令（cwd） | 结果 |
 |---|---|
 | `bun run docs:check`（worktree 根，本记录 + 清单更新 + Task README 状态落盘后；只读，不起服务） | **exit 0**，`{"failures":[],"checkedFiles":5879}` |
+
+## 七、返工（t60 复核裁定「需修复」，R1 / R3）
+
+要求见 [`t60/walkthroughs/leader-rework-requirements.md`](../../t60-view-migration-review/walkthroughs/leader-rework-requirements.md)；复核正文见 [`review.md`](../../t60-view-migration-review/walkthroughs/review.md) 的 F1 / Q6 / Q7 / Q8。
+
+### R1（P2）首读完成前树手势会静默覆盖已确认展开项
+
+- **缺陷**：`WorkspaceFileTree` 的手势提交的是**整份** `props.expandedPaths`（`WorkspaceFileTree.vue:98-104` 的 `sanitizeExpandedPaths` 看护），而记录读到分类前面板显示的是产品默认（空展开）；此时提交会以「已确认记录」为底、以「默认 + 本次路径」为意图合成，把记录里原有的展开项静默丢掉（无诊断）。
+- **修法（两层，互补）**：
+  1. **界面层**（`WorkspaceFilePanel.vue`）：`expandedPathsLoading`（= 记录会话的 `loading`）为真时**不渲染树**，走既有加载占位 `t("ide.workspace.filePanel.loadingTree")`——读取就绪前展开控件不存在，`persistence.md`「调整控件在读取就绪前不可用」的界面义务落地（与同批 World Engine 的 `resizeDisabled = panelSizes.loading` 同口径）。
+  2. **会话层**（`user-record-session.ts` 的 `commit`）：不再「等首读完成后重放」，改为**拒绝**未就绪的提交并写入一条可见诊断（`记录还没完成首次读取，本次调整没有保存`，`retryable:false`）。这条同时修掉同类窗口：读取窗口内基于默认尺寸的拖动（设置 / 新建作品对话框，复核 F2）此前会覆盖已确认尺寸，现在只被拒绝、不落盘。模块头与 `WorkspaceFilePanel.md` 的口径同步改成「两层门禁 + 不排队重放」。
+- **测试**（新增/改写，全部真能失败）：
+  - `files-view-session.test.ts`「首读门禁」改写为回归钉：记录预置 `{"paths":["manuscript/","manuscript/vol-1"]}`、闸住首读 → 提交 `["lorebook/"]` 被拒（`saves` 空、记录原值不变、诊断含「没完成首次读取」且不可重试）→ 放行读完后显示仍是两条已确认值 → 就绪后提交整份数组 `["manuscript/","manuscript/vol-1","lorebook/"]` 落盘为并集。
+  - `window-size-session.test.ts` 同名用例按新语义改写（同上，尺寸侧）。
+  - `WorkspaceFilePanel.test.ts` 新增「记录读取中就绪前不渲染树（调整控件不可用），就绪后按记录的展开项渲染」。
+- **复核探针的真实反应**（确定性复现命令，cwd = worktree 根）：
+
+  ```
+  bunx vitest run --config .agents/works/w00003-neurobook-ui-foundation-migration/tasks/t60-view-migration-review/walkthroughs/probes/vitest.probes.config.ts
+  ```
+
+  **exit 1**，`Test Files 1 failed | 2 passed (3)`、`Tests 3 failed | 12 passed (15)`：`probe-01-first-read-intent.probe.test.ts` 的 3 例（它 pin 的正是修复前的缺陷行为）现在断言失败，实测值变成修复后的正确值——
+  - files：`stored` 不再是 `{"paths":["lorebook/"]}`（记录保住）；
+  - settings：记录仍是 `{width:1000,height:700}`（不再被 `{width:1200,height:640}` 覆盖）；
+  - create-project：记录不存在（未用默认尺寸创造记录）。
+  **对照组仍绿**：「读取完成后同样的手势不会丢已确认值」——差异只来自读取窗口，修复没有改变就绪后的语义。
+  探针是 t60 的证物（pin 缺陷），未擅自改其断言；是否把它翻成「记录保住」的期望由复核者决定。
+
+### R3（P3）文档与实现不符 4 处 + legacy 组件口径
+
+| # | 文档 | 原文 → 实测不符 | 改法 |
+|---|---|---|---|
+| 1 | `WorkbenchViewHost.md` §分工 | 「宿主负责把这三类都画出来，不吞任何一类」——有可见视图时 `hidden` 的原因不进 DOM | 改为「三类都参与渲染，但方式不同：可见的画出内容；两类失败各成提示行；不可见的原因只在**没有可见视图时**作为空态文案」 |
+| 2 | `WorkbenchViewHost.md` §布局 | 「提示与空态都用 `role="status"`」——空态 `<p>` 没有 `role` | 改为「提示行是 `role="status"`；空态是静态说明，不带 live region」（实现侧不改：静态文案不是实时播报） |
+| 3 | `WorkspaceFilePanel.md` 开篇 | 「记录没读到分类、提交未确认、不可写、旧键没迁完都变成一条**可重试的**诊断条」——`blocked` 分支固定 `retryable:false`（与壳层同一约定） | 改为「提交未确认与旧键没迁完可重试；记录读不到分类（损坏 / 版本不支持）不可重试」 |
+| 4 | `WorkspaceFilePanel.md` §交互 | 「文件转同名目录（内容 scope 下的可编辑文件）」——实现还要求不是 `index.md`（`WorkspaceFilePanel.vue:587-589`） | 补上「且自身不是 `index.md`」 |
+| 5 | 口径（README / `storage-core-validation.md` / 清单 §2.6 / t56 实施记录） | 「四个 legacy 组件因契约测试仍断言其内容而保留」——只对 3 个成立 | 逐件写明：`WorldEngine{SliceInspector,StateSummary,Timeline}.vue` 被 `world-engine-ide-entry.test.ts:62-64/963-980` 读取并断言（删它们测试会红）；`WorldEngineSubjectStateViewer.vue`（连同同目录 `…Row.vue`）只是两者互为引用，删它不会让任何测试失败，属独立清理项 |
+
+另同步更新（因 R1 改变了行为口径）：`WorkspaceFilePanel.md` 的「展开项归记录」（首读门禁两层、不排队重放）、§状态「加载中」条（记录读取期间树不挂载）、Lab 替代验证清单（补 `legacy-record-migration.test.ts` 与读取态用例）。
+
+### 返工后的门禁
+
+| 命令（cwd） | 结果 |
+|---|---|
+| `bun run --cwd packages/neuro-book test app/utils/workbench app/components/workbench app/components/novel-ide/workspace`（worktree 根） | **exit 0**，`Test Files 21 passed (21)`、`Tests 227 passed (227)` |
+| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 621 passed (621)` |
+| `bunx tsc --noEmit -p tsconfig.json`（`packages/neuro-book`，只读） | 本次改动文件零错误（按文件名过滤无输出） |
+| `bun run docs:check`（worktree 根） | **exit 0**，`{"failures":[],"checkedFiles":5907}` |
+| 复核探针（命令见 R1） | exit 1：3 例按预期翻红（pin 缺陷），对照组 12 例仍绿 |
+
+未运行：`bun run typecheck`（会重建 `.nuxt`；本轮不需要，只读 `tsc` 已覆盖）、全量 `bun run test`、Lab smoke、构建、浏览器验收（本轮改动是门禁与文档，会话层与组件层由上述聚焦测试与探针覆盖；`git status` 显示工作区只有本轮改动与用户 dirty 的 `descriptors{,.test}.ts`）。未 `git add`、未 commit、未 push。

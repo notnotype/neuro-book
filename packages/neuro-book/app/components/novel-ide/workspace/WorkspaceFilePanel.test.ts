@@ -25,11 +25,12 @@ vi.mock("nbook/app/utils/workbench/files-view-session", async () => {
     const {ref} = await import("vue");
     const expandedPaths = ref<string[]>([]);
     const notice = ref<{diagnosis: string; retryable: boolean} | null>(null);
-    fake.refs = {expandedPaths, notice};
+    const loading = ref(false);
+    fake.refs = {expandedPaths, notice, loading};
     return {
         useWorkbenchFileTreeExpandedPaths: () => ({
             expandedPaths,
-            loading: ref(false),
+            loading,
             notice,
             async commit(paths: string[]) {
                 fake.commits.push([...paths]);
@@ -147,7 +148,11 @@ const lorebookLocation = nodeOf({
 const manuscriptFile = nodeOf({path: "manuscript/chapter-1.md", title: "chapter-1"});
 
 function recordRefs() {
-    return fake.refs as {expandedPaths: Ref<string[]>; notice: Ref<{diagnosis: string; retryable: boolean} | null>};
+    return fake.refs as {
+        expandedPaths: Ref<string[]>;
+        notice: Ref<{diagnosis: string; retryable: boolean} | null>;
+        loading: Ref<boolean>;
+    };
 }
 
 function storeMock() {
@@ -184,6 +189,7 @@ beforeEach(() => {
     fake.abandons = 0;
     recordRefs().expandedPaths.value = [];
     recordRefs().notice.value = null;
+    recordRefs().loading.value = false;
     storeMock().selectedFileNode.value = null;
     storeMock().workspaceTree.value = [manuscriptFile, lorebookCharacter, lorebookLocation];
     storeMock().openWorkspaceNode.mockClear();
@@ -206,6 +212,25 @@ describe("WorkspaceFilePanel", () => {
         expect(wrapper.find("[data-stub=\"tree\"]").attributes("data-expanded")).toBe(JSON.stringify(["lorebook/"]));
         expect(setItemSpy).not.toHaveBeenCalled();
         expect(getItemSpy).not.toHaveBeenCalled();
+    });
+
+    it("记录读取中就绪前不渲染树（调整控件不可用），就绪后按记录的展开项渲染", async () => {
+        recordRefs().expandedPaths.value = ["manuscript/"];
+        recordRefs().loading.value = true;
+        const wrapper = mountPanel();
+
+        // 读取窗口：树不挂载（因此没有任何手势能 emit 整份默认数组），诊断条也不在。
+        expect(wrapper.find("[data-stub=\"tree\"]").exists()).toBe(false);
+        expect(wrapper.text()).toContain("ide.workspace.filePanel.loadingTree");
+        expect(fake.commits).toEqual([]);
+
+        recordRefs().loading.value = false;
+        await nextTick();
+
+        const tree = wrapper.findComponent(TreeStub);
+        expect(tree.exists()).toBe(true);
+        expect(tree.attributes("data-expanded")).toBe(JSON.stringify(["manuscript/"]));
+        expect(fake.commits).toEqual([]);
     });
 
     it("树的展开变化只提交给记录（唯一写路径），不落裸键", async () => {

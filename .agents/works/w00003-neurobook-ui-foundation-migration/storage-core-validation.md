@@ -167,7 +167,7 @@ Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun ru
 记录定义（一次落盘于 `server/storage/product-definitions.ts`）：`workbench.layout/world-engine-sizes`（project/local，默认 320/420/292）、`workbench.layout/settings-dialog-size`（user/local，默认 1120×640）、`workbench.layout/create-project-dialog-size`（user/local，默认 580×360）。
 旧键迁移只删记录缺失且回读一致后的旧键，七类失败均保留旧键并给可重试诊断（11 例覆盖）。契约测试 `world-engine-workbench-preview.test.ts` 由「钉住旧尺寸实现」改为「禁止旧路径 + 要求单次提交」。
 
-遗留待办（不删）：四个 World Engine legacy 组件全仓零引用，但 `world-engine-ide-entry.test.ts:62-64/963-979` 仍读取并断言其内容，删除需连同该断言一起改——已记入清单 §2.6。
+遗留待办（保留不删，原因逐件不同）：4 个 World Engine legacy 组件全仓零引用——其中 3 个（`WorldEngine{SliceInspector,StateSummary,Timeline}.vue`）被 `world-engine-ide-entry.test.ts:62-64/963-980` 读取并断言其内容，删除需连同该断言一起改；第 4 个 `WorldEngineSubjectStateViewer.vue`（连同同目录 `…Row.vue`）只是两者互相引用，删它不会让任何测试失败——已记入清单 §2.6。
 
 流程：本增量前 Leader 有序停止 3001（避免服务端定义落盘触发 Nitro 重建导致 exit 5），完成后按其完成信号恢复；3001 现带 `restart: on-failure`。
 

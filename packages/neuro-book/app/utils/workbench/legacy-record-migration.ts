@@ -31,15 +31,33 @@ export type LegacyValueParse<T> = {
     readonly diagnosis: string | null;
 };
 
-/** 浏览器旧键访问器：一个键一个实例；SSR 下读作"不存在"，删除一律失败（不假装迁完）。 */
-export function createBrowserLegacyValueStore(key: string): LegacyValueStore {
+/** 浏览器存储的最小面：只看得到 `createBrowserLegacyValueStore` 真正用到的那两个方法。 */
+export type LegacyValueStorage = Pick<Storage, "getItem" | "removeItem">;
+
+/**
+ * 解析当前环境可用的浏览器存储；没有（SSR）返回 null。
+ *
+ * 访问 `window.localStorage` **本身**也可能抛（隐私模式、被策略禁用），所以解析放在 `read`/`remove`
+ * 的 try 里，由调用方把它归到 `unavailable`——注入这个解析器是测试缝隙：vitest 里 `import.meta.client`
+ * 不为真，抛错这条路径只能靠注入走到。
+ */
+function browserLegacyStorage(): LegacyValueStorage | null {
+    return import.meta.client ? window.localStorage : null;
+}
+
+/** 浏览器旧键访问器：一个键一个实例；没有存储时读作"不存在"，删除一律失败（不假装迁完）。 */
+export function createBrowserLegacyValueStore(
+    key: string,
+    resolveStorage: () => LegacyValueStorage | null = browserLegacyStorage,
+): LegacyValueStore {
     return {
         read(): LegacyValueReading {
-            if (!import.meta.client) {
-                return {kind: "absent"};
-            }
             try {
-                const raw = window.localStorage.getItem(key);
+                const storage = resolveStorage();
+                if (storage === null) {
+                    return {kind: "absent"};
+                }
+                const raw = storage.getItem(key);
                 return raw === null ? {kind: "absent"} : {kind: "value", raw};
             } catch (error) {
                 return {
@@ -49,12 +67,13 @@ export function createBrowserLegacyValueStore(key: string): LegacyValueStore {
             }
         },
         remove(): boolean {
-            if (!import.meta.client) {
-                return false;
-            }
             try {
-                window.localStorage.removeItem(key);
-                return window.localStorage.getItem(key) === null;
+                const storage = resolveStorage();
+                if (storage === null) {
+                    return false;
+                }
+                storage.removeItem(key);
+                return storage.getItem(key) === null;
             } catch {
                 return false;
             }

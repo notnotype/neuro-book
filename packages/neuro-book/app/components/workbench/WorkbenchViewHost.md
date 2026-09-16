@@ -11,7 +11,7 @@
 ## 分工：谁声明、谁求值、谁解析
 
 - **声明**在 `product-catalog.ts`（容器在 `containers.ts`）：进程里唯一的容器 / 视图清单，注册表按它构建一次。本组件不组装清单，它拿到的 `container` 就是声明里的那一条，`context` 由页面填。
-- **求值**也在 `product-catalog.ts`：`resolveContainerViews(registry, container.id, context)` 把容器内视图分成三类——可见的（`views`）、求值失败的（`problems`）、不可见的（`hidden`，各带 `when` 的原因）；`layoutContractOfViews(views)` 给出内容区合同。宿主负责把这三类都画出来，不吞任何一类。
+- **求值**也在 `product-catalog.ts`：`resolveContainerViews(registry, container.id, context)` 把容器内视图分成三类——可见的（`views`）、求值失败的（`problems`）、不可见的（`hidden`，各带 `when` 的原因）；`layoutContractOfViews(views)` 给出内容区合同。三类都参与渲染，但方式不同：可见的画出内容；两类失败各成一条提示行（都不吞）；不可见的原因**只在没有可见视图时**作为空态文案出现——有可见视图时它不进 DOM（否则会拿"看不见的原因"挤占真正的内容）。
 - **解析**在 `view-factories.ts`：`factoryKey` → 组件的第一方白名单。descriptor 里没有组件、没有模块路径、没有 HTML/CSS，「哪个视图用哪个组件」只有那一处映射；宿主只在视图**可见**时才去解析。
 - `requiredAuthority`（动作可用性）与 `stateScope`（memento 归属）不在本组件的求值范围内：可见性不是权限，动作能不能点由拥有该动作的宿主判断。
 
@@ -49,7 +49,7 @@ type Props = {
 
 - 每个视图锚点 `flex: 1 1 auto`——视图自己占满内容区（`layout: fill` 的合同：容器不给留白、不代管滚动，视图自己接内部滚动）；`scroll` 档的留白与滚动归容器部件。
 - 内容区合同取**第一个可见视图**的 `layout`；一个可见视图都没有时用默认合同（`scroll`）。多个可见视图共用这一份合同——内容区只有一块。
-- 提示行的顺序固定：先是注册表级问题（容器求值失败一类），再按视图顺序排视图级诊断，最后才是空态说明。提示与空态都用 `role="status"`，颜色取 `--status-warning` / `--text-muted`。
+- 提示行的顺序固定：先是注册表级问题（容器求值失败一类），再按视图顺序排视图级诊断，最后才是空态说明。提示行是 `role="status"`（实时播报）；空态是一段静态说明，不带 live region。颜色取 `--status-warning` / `--text-muted`。
 - 宿主不给视图加任何装饰（不套卡片、不加 margin）；视图之间也不插分隔线——本版内容区一次只承载一件东西。
 
 ## 交互

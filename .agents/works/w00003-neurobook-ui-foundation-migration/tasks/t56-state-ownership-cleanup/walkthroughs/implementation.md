@@ -60,7 +60,7 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 
 - 四处过时句改为与实现一致：providers（四个会话与 I/O 在宿主侧 `useProviderSettingsBinding`）、web（`webDraft` = `useSectionDraft` 承担快照读写与 `saveGlobal`；删掉「旧面板 `applySettings()`」括注）、security（宿主 `useAuthSessionState()` → `bootAuthEnabled` → prop）、desktop（宿主 `updateDesktopSettings` 调 `bridge.updateSettings`；「旧宿主用 `desktopAvailable` 判断」→「宿主用…」）。`NovelIdeSettingsPanel`/`NovelIdeWebSettingsPanel` 等旧面板在仓库里已不存在，文档不再引用。
 - 清单 §2.6/§2.7：状态行、尺寸归属条、真实功能缺口、旧实现删除条件、结尾「旧实现待删除」表 6/7 行全部改为与本轮实现一致，并**登记 `RolesSettingsView` 决策**：保持不挂（后端角色契约尚不存在），等「角色面」切片接线；本 Task 不改宿主分发、不删 fixture 与视图。
-- **四个 legacy 组件未删（待办）**：全仓零引用已核对（除历史文档与 `world-engine-ide-entry.test.ts`），但契约测试**仍读取并断言这三个文件的内容**——`world-engine-ide-entry.test.ts:62-64` 读 `WorldEngine{SliceInspector,StateSummary,Timeline}.vue`、`:963-979` 断言其内容；`WorldEngineSubjectStateViewer.vue` 与 `…Row.vue` 互为引用。删除会直接让该测试失败，故「契约测试许可」不成立，**不满足删除条件**。待办已写进清单 §2.6：删除需连同该测试的相应断言一起改（删文件 + 把「禁回流」断言改成「文件不存在」），属 legacy 清理切片。
+- **4 个 legacy 组件未删（待办，原因逐件不同）**：全仓零引用已核对（除历史文档与 `world-engine-ide-entry.test.ts`）。其中**3 个**被契约测试仍读取并断言内容——`world-engine-ide-entry.test.ts:62-64` 读 `WorldEngine{SliceInspector,StateSummary,Timeline}.vue`、`:963-979` 断言其内容；删除它们会直接让该测试失败，故「契约测试许可」不成立。**第 4 个** `WorldEngineSubjectStateViewer.vue`（连同同目录 `…Row.vue`）只是两者互为引用，删它不会让任何测试失败，属另一处待清理项。待办已写进清单 §2.6：删除需连同该测试的相应断言一起改（删文件 + 把「禁回流」断言改成「文件不存在」），属 legacy 清理切片。
 
 ## 四、验证
 
@@ -116,3 +116,32 @@ Work：`.agents/works/w00003-neurobook-ui-foundation-migration`；Task：`tasks/
 | `bun run docs:check`（worktree 根） | **exit 0**，`{"failures":[],"checkedFiles":5889}` |
 | `bunx tsc --noEmit -p tsconfig.json`（`packages/neuro-book`） | 本次改动文件零错误；全仓 88 条既有错误全在未触碰文件（§4.2） |
 | `bun run typecheck`（`packages/neuro-book`，Leader 显式放行的窗口内） | **exit 0**——全包（含 `.vue`）类型门禁通过 |
+
+## 七、返工（t60 复核裁定「需修复」，R2 / R3）
+
+要求见 [`t60/walkthroughs/leader-rework-requirements.md`](../../t60-view-migration-review/walkthroughs/leader-rework-requirements.md)；复核 F3 / Q7 / Q8 见 [`review.md`](../../t60-view-migration-review/walkthroughs/review.md)。
+
+### R2（P3）共享迁移原语的保留分支与浏览器旧键访问器补测
+
+复核的等价类缺口：两个会话测试的旧键替身只能产 `absent` / `value` 且 `remove()` 恒 `true`，于是 `legacy-record-migration.ts` 的三条保留分支（`unavailable`、`deferred`、迁移未确认）与整个 `createBrowserLegacyValueStore` 零测试。
+
+- **新增** `app/utils/workbench/legacy-record-migration.test.ts`（15 例，会话/句柄/旧键按原语真正用到的面收窄成替身，**不改产品语义**）：
+  - 原语分支：absent（不碰存储）；`unavailable`（保留旧键、诊断可重试）；旧值不可解析（保留旧键、不给重试）；记录不可写（保留、可重试）；`deferred`（用户意图在飞 → 本轮不碰旧键）；记录已是权威（不写记录、只收尾；删除失败则保留）；空旧值（只收尾）；**迁移未确认**（`commit` 返回 `unsaved`/`rejected`：保留旧键、可重试、且**不做回读**）；回读抛错 / 回读不一致（保留、可重试）；回读一致（删除成功 → settled，删除失败 → notice）。
+  - `createBrowserLegacyValueStore`：没有可用存储（SSR）读作 `absent`、删除返回 `false`；**访问存储本身抛错**（隐私模式 / 被策略禁用）读作 `unavailable`（带诊断）、删除失败；有存储时读到原值、删除后确认不存在；存储拒绝删除（`removeItem` 不生效）时 `remove()` 返回 `false`。
+- **产品侧唯一改动（测试缝隙）**：`createBrowserLegacyValueStore(key, resolveStorage?)` 增加可注入的存储解析器（默认仍是 `import.meta.client ? window.localStorage : null`），并把「解析存储」也放进 try——vitest 里 `import.meta.client` 不为真，抛错那条路径此前**不可达**；现在它既可达也可测，`read`/`remove` 的语义与顺序未变。
+- 会话层的接线另有 1 例落在 `files-view-session.test.ts`（「旧键不可读（隐私模式/被禁用）：不迁移不删除，诊断经会话显示出来」），覆盖 `notice` 的透传。
+
+### R3（P3）文档与口径修正
+
+- 与本原语相关的口径修正：`tasks/t56.../walkthroughs/implementation.md` §3.4（4 个 legacy 组件**逐件**写明原因：3 个被契约测试读取并断言、第 4 个只与同目录 `…Row.vue` 互为引用）、`README.md` 收尾段、`storage-core-validation.md` 遗留待办、`view-migration-inventory.md` §2.6 旧实现删除条件。
+- 另两份组件文档（`WorkbenchViewHost.md`、`WorkspaceFilePanel.md`）的 4 处不符由 t55 的记录一并记；其中与共享会话层直接相关的一处是 `WorkspaceFilePanel.md` 对「首读门禁」的描述——R1 修掉了 `useUserRecordSession.commit` 的「排队重放」语义（读取就绪前改为拒绝 + 可见诊断），该文档已同步。
+
+### 返工后的门禁
+
+| 命令（cwd） | 结果 |
+|---|---|
+| `bun run --cwd packages/neuro-book test app/utils/workbench app/components/workbench app/components/novel-ide/workspace`（worktree 根） | **exit 0**，`Test Files 21 passed (21)`、`Tests 227 passed (227)`（含新文件 15 例） |
+| 更宽一圈（把所有会话消费端一起跑）：`bun run --cwd packages/neuro-book test app/components/novel-ide app/utils/workbench app/components/workbench`（worktree 根） | **exit 0**，`Test Files 71 passed (71)`、`Tests 621 passed (621)` |
+| `bunx tsc --noEmit -p tsconfig.json`（`packages/neuro-book`，只读） | 本次改动文件零错误 |
+| `bun run docs:check`（worktree 根） | **exit 0**，`{"failures":[],"checkedFiles":5907}` |
+| 复核探针（`--config .agents/.../t60.../probes/vitest.probes.config.ts`） | exit 1：probe-01 的 3 例 pin 的是 R1 缺陷、按预期翻红；对照组 12 例仍绿（详见 t55 §七） |

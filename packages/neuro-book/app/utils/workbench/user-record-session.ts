@@ -5,6 +5,11 @@
  * 与布局记录同一套可见语义（复用 `createLayoutRecordSession`）：读到分类之前不接受提交；与已确认值相同
  * 就不写盘；冲突/失败保留未确认意图并给出 `retry()`/`abandon()`，不静默吞掉。
  *
+ * 首读门禁是**两层**：调用方必须让调整控件在 `loading` 期间不可用（`persistence.md`
+ * 「尺寸调整控件在读取就绪前不可用」的界面义务），本模块的 `commit` 再兜一层——
+ * 读取就绪前拒绝该次提交（**不排队重放**：那种调用基于产品默认值，重放会覆盖已确认记录），
+ * 并把拒绝写成一条可见诊断。
+ *
  * 归属由调用方给出的定义决定（owner/键/schema/默认值都在 `shared/storage/**`）；本模块只做接线，
  * 不认识具体记录形状。
  */
@@ -81,6 +86,8 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
     let ownerHandle: WorkbenchStorageOwnerHandle | null = null;
     /** 旧键迁移的诊断：只在旧键确实还在、且迁移没做完时存在。 */
     let migrationNotice: UserRecordSessionNotice | null = null;
+    /** 首读门禁被触发的诊断：读取就绪前控件本该不可用，这里兜住漏网的提交。 */
+    let gateNotice: UserRecordSessionNotice | null = null;
 
     const publish = (): void => {
         const current = session.value;
@@ -90,6 +97,10 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         const state = current.state();
         display.value = current.display();
         loading.value = state.phase === "loading" || state.phase === "idle";
+        if (!loading.value) {
+            // 读取已就绪：门禁诊断不再成立（此刻显示的就是已确认值，用户看到的是真实状态）。
+            gateNotice = null;
+        }
         if (state.pending !== null) {
             notice.value = {diagnosis: state.pending.diagnosis, retryable: state.pending.retryable};
             return;
@@ -101,7 +112,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
             };
             return;
         }
-        notice.value = migrationNotice;
+        notice.value = gateNotice ?? migrationNotice;
     };
 
     /** 旧键迁移：任何一步失败都保留旧键并留下诊断（实现在 `legacy-record-migration.ts`）。 */
@@ -163,10 +174,21 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         notice: readonly(notice),
 
         async commit(intent: I): Promise<void> {
-            // 首读门禁：等首次读取分类完成再提交，用户的调整不因为"还在读"被丢掉。
-            await open();
             const current = session.value;
-            if (current === null) {
+            // 首读门禁：读到分类之前不接受提交。读取完成前界面上就没有可交互的控件（面板渲染加载态、
+            // 其它宿主禁用调整手势），这里兜住漏网调用——**不排队重放**：此刻调用方基于的是产品默认值，
+            // 等读回来再按它合成会用陈旧意图覆盖已确认记录；拒绝同样必须可见，不能静默丢弃。
+            if (current === null || loading.value) {
+                gateNotice = {
+                    diagnosis: "记录还没完成首次读取，本次调整没有保存",
+                    retryable: false,
+                };
+                if (current === null) {
+                    // 会话还没建起来：publish() 此刻什么都不刷新，直接把这条诊断放上条。
+                    notice.value = gateNotice;
+                    return;
+                }
+                publish();
                 return;
             }
             await current.commit(intent);

@@ -226,7 +226,7 @@
 
 **建议切片**：**World Engine 尺寸与对象记忆归属**（小切片，独立于整页搬迁）+ **legacy 件删除**；整页迁入 View Host 继续单列（`storage-implementation-plan.md` 切片 3 检查点 A 的既有裁定）。
 
-**旧实现删除条件**：四个 legacy 组件在「无引用 + 契约测试许可」下删除；三处尺寸 ref 在宿主记录接入后改为读记录（默认值仍取 `:105-107` 同名常量）；不得为尺寸另开 localStorage。
+**旧实现删除条件**：4 个 legacy 件的条件**逐件不同**——`WorldEngine{SliceInspector,StateSummary,Timeline}.vue` 需「无引用 + 契约测试许可」，而契约测试**仍读取并断言**它们的源码（`world-engine-ide-entry.test.ts:62-64/963-980`），删除要连同该断言一起改；`WorldEngineSubjectStateViewer.vue`（连同同目录 `…Row.vue`）只被彼此引用，删除不会让任何测试失败，属独立清理项。三处尺寸 ref 已改为读记录（默认值取 `shared/storage/workbench-world-engine.ts`）；不得为尺寸另开 localStorage。
 **t56 状态**：三处尺寸 ref 已改为读 `workbench.layout`/`world-engine-sizes`（默认值搬到 `shared/storage/workbench-world-engine.ts`，组件内不再留一份）；四个 legacy 件在本轮**不删（待办）**——全仓零引用已核对（除历史文档与 `world-engine-ide-entry.test.ts`），但契约测试**仍读取并断言这三个文件的内容**（`world-engine-ide-entry.test.ts:62-64` 读 `WorldEngine{SliceInspector,StateSummary,Timeline}.vue`，`:963-979` 断言其内容；`WorldEngineSubjectStateViewer.vue` 与 `…Row.vue` 互相引用），删除会直接让测试失败，故「契约测试许可」不成立。删除需连同该测试的相应断言一起改（属 legacy 清理切片：删文件 + 把「禁回流」断言改成「文件不存在」）。
 
 ### 2.7 设置

@@ -201,6 +201,13 @@ async function flushUntil(condition: () => boolean): Promise<void> {
     }
 }
 
+/** 只推进微任务，不等任何条件（用于断言"此刻仍然没有发生"）。 */
+async function flushMicrotasks(rounds = 64): Promise<void> {
+    for (let round = 0; round < rounds; round += 1) {
+        await Promise.resolve();
+    }
+}
+
 describe("parseLegacyWindowSize", () => {
     it("非 JSON 与非对象都被当作不可迁移，不冒充「没有旧尺寸」", () => {
         expect(parseLegacyWindowSize("{not json", WORKBENCH_SETTINGS_WINDOW_MIN_SIZE))
@@ -218,22 +225,30 @@ describe("parseLegacyWindowSize", () => {
 });
 
 describe("窗口尺寸记录会话", () => {
-    it("首读门禁：读取未分类前不落盘，读完后按本次调整写一次（含记录路径与 JSON）", async () => {
+    it("首读门禁：读取未分类前拒绝提交（不落盘、有诊断），就绪后提交才写（含记录路径与 JSON）", async () => {
         const harness = storageHarness();
+        harness.write(SETTINGS_RECORD_KEY, {width: 1000, height: 700});
         const release = harness.holdReads();
         const opened = openSettingsWindow(harness, legacyStore(null));
 
-        const committed = opened.consumer.commit({width: 1000, height: 700});
-        await flushUntil(() => false).catch(() => undefined);
-        expect(harness.saves).toEqual([]);
+        await flushUntil(() => opened.consumer.loading.value);
         expect(opened.consumer.size.value).toEqual({width: 1120, height: 640});
-        expect(opened.consumer.loading.value).toBe(true);
+        // 读取窗口内的拖动基于产品默认尺寸，必须被拒绝：否则合成时会覆盖已确认记录。
+        await opened.consumer.commit({width: 1200, height: 640});
+        await flushMicrotasks();
+        expect(harness.saves).toEqual([]);
+        expect(opened.consumer.notice.value?.diagnosis).toContain("没完成首次读取");
+        expect(opened.consumer.notice.value?.retryable).toBe(false);
 
         release();
-        await committed;
-        expect(harness.saves).toEqual([SETTINGS_RECORD_KEY]);
+        await flushUntil(() => !opened.consumer.loading.value);
         expect(opened.consumer.size.value).toEqual({width: 1000, height: 700});
         expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 1000, height: 700});
+
+        await opened.consumer.commit({width: 900, height: 600});
+        expect(harness.saves).toEqual([SETTINGS_RECORD_KEY]);
+        expect(opened.consumer.size.value).toEqual({width: 900, height: 600});
+        expect(harness.records.get(SETTINGS_RECORD_KEY)?.value).toEqual({width: 900, height: 600});
         opened.stop();
     });
 

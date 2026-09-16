@@ -54,6 +54,14 @@ const expandedPaths = computed({
     set: (paths: string[]) => void expandedPathsRecord.commit(paths),
 });
 const expandedPathsNotice = computed(() => expandedPathsRecord.notice.value);
+/**
+ * 读取就绪前不渲染树（`persistence.md`：「调整控件在读取就绪前不可用」）。
+ *
+ * 这条门禁是必须的，不是保险：树在挂载与节点变化时会把**整份** `expandedPaths` 当作意图 emit
+ * （`WorkspaceFileTree` 的 `sanitizeExpandedPaths` 看护），而读取完成前这份值是产品默认——
+ * 让它提交就是用默认值覆盖记录里已确认的展开项。读取中这里渲染加载态，树根本不挂载。
+ */
+const expandedPathsLoading = computed(() => expandedPathsRecord.loading.value);
 /** 打开文件后的可见反馈：编辑器叶迁入前正文无处呈现，不静默失败。 */
 const openedFilePath = ref("");
 const detailHeight = ref(260);
@@ -678,7 +686,7 @@ watch(canAccessWorkspace, (canAccess) => {
 
         <!-- 工作区文件树容器 -->
         <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">
-            <div v-if="loadingWorkspaceTree && workspaceTree.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
+            <div v-if="expandedPathsLoading || (loadingWorkspaceTree && workspaceTree.length === 0)" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
                 {{ t("ide.workspace.filePanel.loadingTree") }}
             </div>
             <div v-else-if="filteredNodes.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]" @contextmenu.prevent.stop="openRootMenu">

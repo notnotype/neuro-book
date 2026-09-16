@@ -235,22 +235,54 @@ describe("parseLegacyExpandedPaths", () => {
 });
 
 describe("useWorkbenchFileTreeExpandedPaths", () => {
-    it("首读门禁：读取未分类前不落盘，读完后按本次调整写一次", async () => {
+    it("首读门禁：读取未分类前拒绝提交且不落盘，读完后提交的是已确认值以上的并集", async () => {
         const harness = storageHarness();
+        harness.write({paths: ["manuscript/", "manuscript/vol-1"]});
         const release = harness.holdReads();
         const opened = openConsumer(harness, legacyStore(null));
 
-        const committed = opened.consumer.commit(["lorebook/"]);
-        await flushUntil(() => false).catch(() => undefined);
+        await flushUntil(() => opened.consumer.loading.value);
+        // 读取窗口内界面显示的是产品默认（不展开）；此刻任何提交都基于这份默认值，必须被拒绝。
+        expect(opened.consumer.expandedPaths.value).toEqual([]);
+        await opened.consumer.commit(["lorebook/"]);
+        await flushMicrotasks();
         expect(harness.saves).toEqual([]);
         expect(opened.consumer.expandedPaths.value).toEqual([]);
-        expect(opened.consumer.loading.value).toBe(true);
+        expect(opened.consumer.notice.value?.diagnosis).toContain("没完成首次读取");
+        expect(opened.consumer.notice.value?.retryable).toBe(false);
 
         release();
-        await committed;
+        await flushUntil(() => !opened.consumer.loading.value);
+        // 拒绝重放：记录里已确认的两条展开项仍在（这正是读取窗口内提交会造成的静默覆盖）。
+        expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/", "manuscript/vol-1"]);
+        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["manuscript/", "manuscript/vol-1"]});
+
+        // 读取就绪后，树按整份数组提交（已显示值 + 本次路径），落盘是并集。
+        await opened.consumer.commit(["manuscript/", "manuscript/vol-1", "lorebook/"]);
         expect(harness.saves).toEqual([harness.storeKey()]);
-        expect(opened.consumer.expandedPaths.value).toEqual(["lorebook/"]);
-        expect(harness.records.get(harness.storeKey())?.value).toEqual({paths: ["lorebook/"]});
+        expect(harness.records.get(harness.storeKey())?.value).toEqual({
+            paths: ["manuscript/", "manuscript/vol-1", "lorebook/"],
+        });
+        expect(opened.consumer.expandedPaths.value).toEqual(["manuscript/", "manuscript/vol-1", "lorebook/"]);
+        opened.stop();
+    });
+
+    it("旧键不可读（隐私模式/被禁用）：不迁移不删除，诊断经会话显示出来", async () => {
+        const harness = storageHarness();
+        harness.write({paths: ["world-engine/"]});
+        const legacy: LegacyValueStore = {
+            read: () => ({kind: "unavailable", diagnosis: "存储被浏览器策略禁用"}),
+            remove: () => false,
+        };
+        const opened = openConsumer(harness, legacy);
+
+        await flushUntil(() => opened.consumer.notice.value !== null);
+        expect(harness.saves).toEqual([]);
+        expect(opened.consumer.notice.value?.diagnosis).toContain("不可读");
+        expect(opened.consumer.notice.value?.diagnosis).toContain("存储被浏览器策略禁用");
+        expect(opened.consumer.notice.value?.retryable).toBe(true);
+        // 旧键仍在（替身恒返回不可读，且删除从未被请求）。
+        expect(opened.consumer.expandedPaths.value).toEqual(["world-engine/"]);
         opened.stop();
     });
 
