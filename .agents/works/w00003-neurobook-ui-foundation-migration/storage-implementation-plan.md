@@ -3,8 +3,9 @@
 - 状态：切片1、切片2、切片3的Storage上下文/grid/手势核心已收口（`da4c5aca`）；2026-09-16 继续推进切片3余项——
   t44 grid持久化宿主已提交 `5fcdf8b8`（修复 `1f1942c3`），t45 Lab静态fixture与四主题/窄屏浏览器验收已提交 `0bcea164`，t46 检查点A独立审查已收口（建议合并）；
   **切片4 已落地**：t47 迁移门禁与原件保护 `8263726e`（返工 `b5babea8`）、t48 主工作台接线与旧 writer 退役 `8e9a803d`，t49 独立审查两轮裁定修复成立；
-  **切片5 已落地**：t50 合同 `55acd747`、实现 `a74c7fb8`（浏览器标题栏 + 能力映射 + 项目两条打开路径），t51 检查点 B 独立审查进行中，t52 修复既有 project-picker Lab smoke 漂移；
-  切片6（未迁视图清单）未开始；完整六切片仍未完成。证据见 [核心验证](storage-core-validation.md)。
+  **切片5 已落地**：t50 合同 `55acd747`、实现 `a74c7fb8`（浏览器标题栏 + 能力映射 + 项目两条打开路径），t51 检查点 B 独立审查首轮需修复、返工后 `9df461e1`/`5e7ac703` 终审 **correct**，t52/t53 修复既有 project-picker Lab smoke 与文案 key（`cbb8ef38`）；
+  **切片6 调查完成**：`view-migration-inventory.md`（提交 `1bfc2268`）登记 9 个视图族 + 外壳基线的六类证据、状态归属与依赖排序；
+  完整六切片的**调查与登记**到此完成，但**迁移实现**尚未开始（待开发者定优先级）。证据见 [核心验证](storage-core-validation.md)。
 - 2026-09-16 本轮补充：t43 Project Storage浏览器/HTTP/磁盘验收按返工要求闭合并提交 `2cfc871d`（隔离profile、精确磁盘断言、根归属校验）。
 - Work：w00003-neurobook-ui-foundation-migration；文档 [t21](tasks/t21-storage-design-review/README.md)、核心 [t22](tasks/t22-storage-core/README.md)、宿主身份 [t23](tasks/t23-storage-host-identity/README.md)、HTTP [t24](tasks/t24-storage-user-http/README.md)；HTTP 独立审查 [t25](tasks/t25-storage-http-review/README.md)；浏览器适配 [t26](tasks/t26-storage-browser-adapter/README.md) 与独立审查 [t27](tasks/t27-storage-adapter-review/README.md)
 - 工作区：`.worktree/w00003-neurobook-ui-foundation-migration`；分支：`refactor/w00003-nb-ui-adoption`

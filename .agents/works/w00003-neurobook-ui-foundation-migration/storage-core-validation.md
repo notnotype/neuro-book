@@ -121,3 +121,15 @@ Project 两条打开路径（本标签只发意图、新标签 `target=_blank re
 Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun run typecheck` **exit 0**（收口后）；t50 聚焦 6 文件 **29 例** exit 0；`component-lab --suite all` 对运行中的 3001 **exit 0**（core / agent-profile / project-picker 三者皆绿，红项因此关闭）。t51 追加复核终审 **correct / 可合并**（探针 3 文件 10 例、产品 6 文件 29 例，主干未回归），未晋升任何 Spec 状态。
 
 事故与恢复（如实登记）：3001 期间崩溃一次（exit 5）——原因是另一个 dev server 在同目录执行 `nuxt prepare/generate` 重建共享 `.nuxt`，摧毁了正在运行的实例。已按「停 → 验证 → 重启」的窗口流程恢复，并在代理侧广播约束（同目录不得并存两个 dev server；需要真实浏览器先报 Leader 协调窗口）。当前 3001 在隔离根 `Temp/nb-3001-8KseHT` 上运行（`persistent`），`/` 与 `/lab` 均 200；开发者真实根未写入。
+
+## 2026-09-16 切片 6：未迁视图清单（Leader 记录）
+
+增量：t54 只读调查，提交 `1bfc2268`。交付 `view-migration-inventory.md`（424 行）与 3001 书架态只读截图 `tasks/t54-view-migration-inventory/probe-3001-shell.png`。
+
+- 取证等级：`O1` 本次 3001 只读 DOM/几何、`O2` 切片 5 真机截图、`O3` 隔离根磁盘只读、`O4` 规格/提案原文；每行都指向 `文件:行` 或真实观察。
+- Leader 抽查三条关键结论，均属实：`MarkdownStudioWorkbench` 在 `app/pages/index.vue:6` 仅死 import、`openPlotWorkbench`（`:1881`）无调用方、`NovelIdeToolPanel`（`:12`）仅 import 未渲染。
+- 跨面事实：239 个 `app/components/**/*.vue` 中仅 39 个有同名 `.md`；markdown-studio / agent / workspace / plot / world-engine / history / jobs / profile / rag 等视图族**零文档、零 fixture**，按 `component-index.ts:62` 连 Lab 索引都进不去。
+- 排序（依赖 → 成熟度 → 恢复价值）：1 文件树与工具面板 → 2 Markdown Studio → 3 角色 → 4 Plot → 5 Agent 列表与 Chat Flow（拆 5a/5b）→ 6 World Engine（先做尺寸归属小切片）→ 7 设置收尾 → 8 历史/时间线 → 9 相关弹窗；命令系统与桌面多窗口单列。
+- 门禁：`bun run docs:check` **exit 0**（5869 文件，failures `[]`）；本 Task 未运行任何测试/typecheck/构建（只读调查，未启动 dev server，未启停 3001）。
+
+未开始：视图迁移实现（每个视图独立立项，按开发者选择的优先级推进）。
