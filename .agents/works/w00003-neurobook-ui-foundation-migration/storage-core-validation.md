@@ -86,3 +86,24 @@ Leader 逐张核对 expected/actual/diff：红色像素仅落在上述计数区�
 另记一条环境时序观察——在旧 Project 释放仍收口时导航到 user-assets 路由曾回退到 `/`（同树新标签 + 重启宿主下不可复现，非本批引入），留待切片 5 路由接线时复核。
 
 受保护文件 `app/utils/workbench/descriptors{,.test}.ts` 的 SHA256 全程未变；`http://localhost:3001/` 未访问、未占用、未复用、未重启、未停止。
+
+## 2026-09-16 切片 5：浏览器标题栏与真实主页面（Leader 记录）
+
+增量：t50 合同 `55acd747`、实现 `a74c7fb8`（返工含 6 处类型错误修复）。t51 检查点 B 独立审查已派发（结果见该 Task）。
+
+| 检查 | 命令（cwd = worktree 内 `packages/neuro-book`，除注明外） | 结果 |
+|---|---|---|
+| 类型检查 | `bun run typecheck` | exit 0（返工前 6 处错误全在 t50 文件内，已修） |
+| 聚焦测试 | `bun run --cwd packages/neuro-book test app/utils/workbench-chrome.test.ts app/components/common/DesktopTitleBarChrome.test.ts app/components/common/DesktopTitleBar.test.ts app/composables/useWorkbenchChrome.test.ts` | 4 文件 20 例 exit 0 |
+| Lab smoke（core） | `node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:3521 --browser-executable <chrome> --suite core` | exit 0（含主页面 `/` 检查） |
+| Lab smoke（agent-profile） | 同上 `--suite agent-profile` | exit 0 |
+| Lab smoke（project-picker） | 同上（默认 all） | **exit 1（既有漂移）**，见红分支登记 |
+
+t50 真机验收（隔离根 `Temp/nbook-t50-accept`、端口 3511、未碰 3001）：四主题 × 1440×900/390×844 逐组合读数（标题栏恒 `y=0`、高 36、`--workbench-titlebar-height=36px`，四组背景色与对比可读）；
+能力映射（浏览器无退出应用/桌面缩放，未接入动作禁用并给原因）；编辑动作按真实焦点（文本框原生撤销实测 `新小长名字XYZ→新小长名字XY`）；
+菜单 Teleport 到 body 且在 1440×900/390×844/390×500/390×360 均在视口内；键盘与焦点（ArrowDown 跳禁用项、ArrowRight 换组不掉焦点、Escape 全局可关并归还焦点）；
+Project 两条打开路径（本标签只发意图、新标签 `target=_blank rel=noopener noreferrer` 且当前标签不变）；窄屏叶包装后标题栏叶高 36；Storage 失败腿（abort 全部 `/api/storage/**` 后重载，页面不崩、提示条带重试、恢复后拖拽提交成功）。
+
+3001：按开发者指示先停 → 实施验证 → 用**同一隔离根**（`Temp/nb-3001-8KseHT`，State/Cache 均在该根）重启，`persistent`；重启后实测 `GET /` 200 且主页面渲染出浏览器标题栏（File/Edit/View/Help）。开发者真实根 `%LOCALAPPDATA%/NeuroBook/{data,cache}` 未被写入（mtime 仍为 2026-08-19 / 2026-08-25）。
+
+流程事故（已修复，如实登记）：一次 `git add packages/neuro-book/app` 把用户 dirty 的 `descriptors{,.test}.ts` 一并纳入提交；随即 `git reset --soft HEAD~1` + `git restore --staged` 两个文件后重新提交（`5591f8fa` → `a74c7fb8`），两文件回到未暂存且 SHA256 仍为 `11BDDDA8…`/`81D3CC73…`。后续只逐文件 `git add`，不再对目录做 add。

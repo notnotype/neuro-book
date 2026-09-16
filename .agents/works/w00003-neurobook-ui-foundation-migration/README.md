@@ -78,9 +78,12 @@ t28 已提交 `0d66064b`。[t30](tasks/t30-project-storage-host/README.md) Proje
 `workbench.migration` 分块原件备份、逐项条件导入、进度/完成标记、状态可观察）提交 `8263726e`，返工 `b5babea8`；
 [t49](tasks/t49-migration-review/README.md) 独立审查两轮（首轮 F1 分块损坏静默通过、F2 HMR 注册非幂等、三条 P3；返工后逐项复测闭合）裁定**修复成立、建议合并**；
 [t48](tasks/t48-workbench-layout-authority/README.md) 主工作台接线与旧 writer 退役提交 `8e9a803d`：单写者成立、Project A/B 各自记录、双标签改动共存、
-user 工作面只写主动字段、退役发生在原件安全保留之后，真实浏览器验收 8/8 场景。切片 5/6（标题栏、未迁视图清单）未开始。
-开发者已有 `http://localhost:3001/` 后台服务，后续验收不占用、复用、重启或关闭它；
-产品验收显式使用系统Temp内独立State Root、Workspace Root与浏览器数据目录，以及其它空闲端口。
+user 工作面只写主动字段、退役发生在原件安全保留之后，真实浏览器验收 8/8 场景。
+切片 5 已落地：[t50](tasks/t50-browser-titlebar/README.md) 浏览器标题栏与真实主页面（无 bridge 也显示可用标题栏、菜单由宿主能力映射、编辑动作按真实焦点路由、
+菜单 Teleport 消裁剪 + 键盘/焦点、项目本标签/新标签两条打开路径）提交 `a74c7fb8`；Leader 复跑 typecheck exit 0、聚焦 20 例、Lab smoke `core` 与 `agent-profile` exit 0；
+[t51](tasks/t51-checkpoint-b-review/README.md) 检查点 B 独立审查进行中。切片 6（未迁视图清单）未开始；红分支登记见下。
+`http://localhost:3001/` 现为开发者使用中的服务，由本 Work 在**隔离根** `Temp/nb-3001-8KseHT/{state,cache}` 上启动并保持（`persistent`），开发者真实根 `%LOCALAPPDATA%/NeuroBook` 未被写入；
+该端口保留给开发者：产品验收不得占用、复用、重启或停止它，另用系统 Temp 隔离 State Root、Workspace Root 与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
 
 ## 红分支边界
@@ -89,6 +92,17 @@ user 工作面只写主动字段、退役发生在原件安全保留之后，真
 - `packages/nb-ui` 自身的 build、typecheck、测试与 E2E；NeuroBook Component Lab 的聚焦测试、Lab smoke；以及 Product 排除门禁必须保持绿色。它们失败时不得归因于“主页未接入”，当前批次不得宣称 Lab-ready，必须定位并修复或停止交付。
 - 红色中间 revision 不得 push、提 PR、合并、发布、部署或声明 Work 完成。不得损坏数据库、Project Workspace、Session、用户文件或其它产品数据。
 - 每个组件仍须独立达到 Lab-ready；主应用集成失败不能放宽组件、nb-ui、Lab 或 Product 排除门禁。t09 `LabShell.vue` 拆分继续延期；命中其 Leader walkthrough 的恢复触发条件时必须先恢复 t09。
+
+### 红分支登记（2026-09-16 切片 5）
+
+| 项 | 值 |
+|---|---|
+| 命令与 cwd | `node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:3521 --browser-executable <chrome>`（cwd `packages/neuro-book`，默认 `--suite all`） |
+| 路径 | `packages/neuro-book/scripts/smoke/project-picker-view.ts:18`（断言方）↔ `packages/neuro-book/app/component-lab/fixtures/index.ts` 的 `component: "ProjectPickerView"` 场景表（现状方） |
+| 错误原文 | `[assertion] ProjectPickerView smoke 在阶段 [选择组件与默认场景] 失败：locator.click: Timeout 30000ms exceeded. … waiting for locator('[role="group"][aria-label="场景"] [role="radio"]').filter({ hasText: '标准书架' }).first()`；另有 5 条 `Failed to load resource: the server responded with a status of 400 (Server Error)` |
+| 引入批次 | 既有：picker 场景改名提交 `139cf49a`、`0f038c32`、`655c3d06`；基线 `da4c5aca` 上「标准书架」场景名同样不存在 → 非本批引入（切片 4/5 未触碰该脚本与 picker 夹具） |
+| 恢复条件 | t52 把 smoke 断言对齐当前 fixture 场景（优先稳定 id）并使 `--suite project-picker` exit 0；`--suite core` 与 `--suite agent-profile` 在同一 revision 上已 exit 0 |
+| 影响面 | 不得据此宣称「Lab smoke 全绿」；`ui.workbench-shell` 的晋升仍需检查点 B 结论 |
 
 ## 下一阶段触发条件
 
