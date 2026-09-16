@@ -85,6 +85,7 @@ user 工作面只写主动字段、退役发生在原件安全保留之后，真
 切片 5 相关修复提交：`9df461e1`（R1–R4）、`5e7ac703`（两条 P3 收口）、`cbb8ef38`（t52 picker smoke 对齐 + t53 文案 key）。切片 6（未迁视图清单）已交付并关闭。
 **视图迁移已开始**：按开发者选择先做 [t55](tasks/t55-files-view-migration/README.md) `files` 视图接入（左叶文件树 + 展开项并入 user/local 归属），提交 `aec1e0d8`；Leader 复跑 typecheck exit 0、聚焦 30 例、Lab smoke 对 3001 exit 0。
 清单排序的下一项是 Markdown Studio（写作主链路），待开发者确认后启动。
+**收尾小切片已落地**：[t56](tasks/t56-state-ownership-cleanup/README.md)（提交 `4bf1562a`）把 World Engine 三处尺寸改为 project/local 记录、设置与新建作品对话框的裸 `localStorage` 尺寸键并入 user/local 记录（旧键回读验证后删除）、修订四处过时组件文档；四个 legacy 组件因契约测试仍断言其内容而保留并记待办。
 `http://localhost:3001/` 现为开发者使用中的服务，由本 Work 在**隔离根** `Temp/nb-3001-8KseHT/{state,cache}` 上启动并保持（`persistent`），开发者真实根 `%LOCALAPPDATA%/NeuroBook` 未被写入；
 该端口保留给开发者：产品验收不得占用、复用、重启或停止它，另用系统 Temp 隔离 State Root、Workspace Root 与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。
