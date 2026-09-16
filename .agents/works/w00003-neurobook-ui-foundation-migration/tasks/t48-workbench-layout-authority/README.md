@@ -24,6 +24,8 @@ Work：[w00003](../../README.md)。依赖：[t47 迁移门禁](../t47-legacy-sta
 - 切换消费入口：`app/components/workbench/WorkbenchShell.vue`、`app/pages/index.vue`、`app/components/novel-ide/ProjectPickerScreen.vue`。
 - `app/stores/novel-ide.ts`：把 `leftPanelWidth`、`agentPanelWidth`、`projectPickerLayoutMode` 从 `novel.ide.local` 的 `pick` 移除（迁移全部目标处理完成后），保留其余字段原归属。
 - 目标定义：主工作台左右尺寸 project/local（grid 布局记录，复用 t44 的 `defineGridLayoutState`）；未开项目/用户资产的尺寸与书架模式 user/local。
+- **服务端定义注册（前置缺口）**：`server/storage/host.ts:486 registerStorageStateDefinitions` 目前无生产调用方，须建立单一定义清单模块 + Nitro 插件完成注册，
+  与 t47 建立的注册入口保持同一处（t47 先建，本 Task 追加 grid 布局等定义，不新建第二个插件）。
 
 ## 排除
 
@@ -46,6 +48,7 @@ Work：[w00003](../../README.md)。依赖：[t47 迁移门禁](../t47-legacy-sta
    Project 删除/断线不得延迟使用旧上下文；迟到失败不显示在新项目的「未保存」状态上。
 6. **user 工作面**：未开项目/用户资产尺寸与书架模式用显式 user/local 记录，与 Project 尺寸独立；书架模式保留加载/失败反馈。
 7. **迁移收尾**：与 t47 的门禁衔接——迁移未就绪时遵守加载与未保存反馈，不启用旧值写入；全部目标处理完成后才移除 `pick` 条目。
+8. **注册与可达性**：主工作台的布局记录定义必须经服务端注册在真实应用可达；未注册时不得声称端到端可用（当前生产无注册调用方，见计划切片 4 的 Leader 取证）。
 
 ## 验证与交付
 
