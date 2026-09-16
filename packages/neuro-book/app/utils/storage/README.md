@@ -56,6 +56,12 @@ UI 消费、切换期间的未提交意图展示与旧键迁移按 Work 的后�
 `nbook.storage-sample/preference` 为 user/local 单例，`nbook.storage-sample/object-memory/<resource>` 为
 project/local 对象记忆；对象存在性由插件 owner 在读写前校验。保存时由 owner 把本次已知字段合入已确认投影，保留未来字段；相同 resource 表示共享恢复地址，不共享实例投影或生命周期。
 
+`../workbench/storage-grid-host.ts` 是 grid 布局的持久化宿主。`defineGridLayoutState` 登记布局记录
+（`{version, root}` 加未知字段），宿主借用工作台句柄完成恢复、原件合成保存与订阅基线：
+保存只写 `Splitter` `gesture-end` 的 `active` 字段并合成进读取时保留的原件（不用过滤后的渲染树覆盖，
+未知引用与未知字段原样保留）；订阅只更新已确认基线，不重挂当前呈现；冲突重读后只重放本次字段并再
+条件提交一次，二次冲突保留未确认意图并由 `retry()` / `abandon()` 收口。
+
 ## 验证
 
 聚焦测试：`bun run --cwd packages/neuro-book test app/utils/storage`。
