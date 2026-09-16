@@ -1,5 +1,8 @@
 # 实现与验证记录
 
+> **已被取代（历史记录）**：本文是首稿作者记录，其中的隔离与磁盘断言表述低于 [返工证据（第二稿）](./rework-evidence.md) 覆盖，
+> 以返工证据为准。
+
 ## 结果
 
 新增 `packages/neuro-book/scripts/smoke/storage-project-adapter.ts`，并在 `packages/neuro-book/package.json` 登记 `smoke:storage-project-adapter`。脚本使用真实 Chrome、esbuild 打包的产品浏览器 Storage 模块、ofetch、Node/H3 最小宿主、真实 Project Session/Project Storage lazy Module 与隔离磁盘目录；未启动或访问完整 Nuxt，也未使用 `localhost:3001`。

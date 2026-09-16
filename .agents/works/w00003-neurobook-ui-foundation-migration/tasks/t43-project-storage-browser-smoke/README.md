@@ -6,9 +6,11 @@ role: tasker
 
 # Project Storage真实浏览器与HTTP验证
 
-**当前交付状态：未完成，保留未提交脚本交接。** 以 [Leader交接裁定](walkthroughs/leader-handoff-status.md) 为准；作者implementation记录不代表Task全部要求通过。
+**当前交付状态：第二稿完成并已按 R1–R9 真实运行通过（未提交）。** 证据：[返工证据](walkthroughs/rework-evidence.md)（命令/cwd/退出码/场景/隔离根/端口/未运行项）；
+以 [Leader交接裁定](walkthroughs/leader-handoff-status.md) 与 [返工要求](walkthroughs/leader-rework-requirements.md) 为准，作者早期 implementation 记录已被返工证据取代。
 
-收口前读取 [Leader首稿复核](walkthroughs/leader-first-review.md)，首稿的场景与隔离清理尚未满足本Task要求，不能靠最小可运行就宣称通过。
+收口前读取 [Leader首稿复核](walkthroughs/leader-first-review.md) 与 [Leader返工要求](walkthroughs/leader-rework-requirements.md)（R1–R9 逐项闭合，含 profile 内置于隔离根、同客户端跨 Project 隔离、shared 定义、精确磁盘断言、PageApi 生命周期、根归属校验与可读性）。
+证据写入 `walkthroughs/rework-evidence.md`。
 
 Work：[w00003](../../README.md)；依赖已提交t30与[t35](../t35-storage-project-browser/README.md)，不依赖并行t37/t38/t40。
 补齐切片2尚缺的浏览器→HTTP→Project Storage磁盘证据，不能用旧user smoke冒充Project链路。

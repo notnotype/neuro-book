@@ -1,0 +1,17 @@
+# 隔离根归属校验（assertOwnedIsolationRoot）真实输出
+
+执行：worktree/packages/neuro-book 下运行内联校验（不创建、不删除任何目录）
+
+```text
+REFUSE | 历史临时根 product-runtime | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\acceptance\product-runtime\storage-browser-MxfyHy
+REFUSE | 历史临时根 scratch | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\storage-browser-MxfyHy
+REFUSE | 旧命名服务目录 | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\storage-project-adapter\deadbeef
+REFUSE | 系统 Temp 根 | 拒绝删除本次运行之外的隔离根：C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book
+REFUSE | 仓库根 | 拒绝删除本次运行之外的隔离根：C:\Users\notnotype\Documents\CodeRepository\GithubProjects\neuro-book\.worktree\w00003-neurobook-ui-foundation-migration\packages\neuro-book
+REFUSE | 相对路径 | 拒绝删除非绝对或未规范化的隔离根：nb-t43/deadbeef
+ACCEPT | 本次形状(应接受) | C:\Users\NOTNOT~1\AppData\Local\Temp\neuro-book\nb-t43\cf11fb22
+退出码：0
+```
+
+说明：删除前必须通过「绝对路径 == resolve 结果、父目录 == nb-t43、叶子 == 本次 8 位十六进制随机名、真实路径位于 test-support scratch 根之下」；
+历史临时根在两种拼写（scratch 根与 acceptance/product-runtime 根）下都被拒绝。
