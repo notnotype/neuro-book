@@ -18,6 +18,7 @@ import {
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import type {WorkspaceUploadedFileResult} from "nbook/server/workspace-files/workspace-upload";
+import {assertWorkspaceStorageBoundary} from "nbook/server/workspace-files/workspace-storage-boundary";
 import {
     LOCAL_USER_ID,
     collectTrackedDiskFiles,
@@ -56,6 +57,7 @@ export async function writeWorkspaceTextFileTracked(input: {
     actor: OperationActor;
     knownBefore?: string | null;
 }): Promise<void> {
+    await assertWorkspaceStorageBoundary(input.target, input.filePath, "mutation");
     const target = historyTarget(input.target);
     const before = target === null
         ? null
@@ -75,6 +77,7 @@ export async function writeWorkspaceTextFileTracked(input: {
 
 /** 创建新文本文件 + 记账（已存在时核心函数拒绝，不会产生覆盖语义）。 */
 export async function createWorkspaceFileTracked(input: Omit<WorkspaceNewFileInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
+    await assertWorkspaceStorageBoundary(input.target, input.filePath, "mutation");
     const node = await createWorkspaceFile({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
@@ -90,6 +93,7 @@ export async function createWorkspaceFileTracked(input: Omit<WorkspaceNewFileInp
 
 /** 创建目录 + 对附带的 index.md / state.md 逐个记账（目录本身不是账面对象）。 */
 export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDirectoryInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
+    await assertWorkspaceStorageBoundary(input.target, input.dirPath, "mutation");
     const node = await createWorkspaceDirectory({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
@@ -119,6 +123,7 @@ export async function createWorkspaceDirectoryTracked(input: Omit<WorkspaceNewDi
  * 时间线跨转换连续，优于 delete + create 的断链表达。
  */
 export async function convertWorkspaceFileToDirectoryTracked(input: Omit<WorkspaceFileToDirectoryInput, "root"> & {target: WorkspaceFileTarget; history?: ProjectHistoryHandle; actor: OperationActor}): Promise<WorkspaceFileNode> {
+    await assertWorkspaceStorageBoundary(input.target, input.filePath, "mutation");
     const node = await convertWorkspaceFileToDirectory({...input, root: input.target.root});
     const target = historyTarget(input.target);
     if (target !== null) {
@@ -143,6 +148,8 @@ export async function renameWorkspacePathTracked(input: {
     actor: OperationActor;
 }): Promise<WorkspaceFileNode> {
     const target = historyTarget(input.target);
+    await assertWorkspaceStorageBoundary(input.target, input.fromPath, "mutation");
+    await assertWorkspaceStorageBoundary(input.target, input.toPath, "mutation");
     const fromPath = normalizeSlashes(input.fromPath);
     const toPath = normalizeSlashes(input.toPath);
     // rename 前判定形态并枚举目录内容（rename 后源路径已不存在）。
@@ -174,6 +181,7 @@ export async function deleteWorkspacePathTracked(input: {
     actor: OperationActor;
 }): Promise<void> {
     const target = historyTarget(input.target);
+    await assertWorkspaceStorageBoundary(input.target, input.filePath, "mutation");
     const filePath = normalizeSlashes(input.filePath);
     // 删除前收集 before：文件 = 单条；目录 = 目录内全部受管文件。
     const pendingDeletes: Array<{relativePath: string; before: Uint8Array}> = [];

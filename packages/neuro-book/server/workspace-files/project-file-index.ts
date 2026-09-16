@@ -31,6 +31,7 @@ import {
 import {workspaceFileTargetRef, type WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
 import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
 import {projectWorkspacePathPolicy} from "nbook/server/workspace-files/project-workspace-path-policy";
+import {isWorkspaceStoragePath} from "nbook/server/workspace-files/workspace-storage-boundary";
 import {
     createWorkspaceContentIssues,
     scanWorkspaceTree,
@@ -435,7 +436,7 @@ async function buildProductionSnapshot(input: {
         signal: input.signal,
         pathPredicate: workspace
             ? ({relativePath}) => !isIgnoredProjectFileIndexWatchPath(workspace, relativePath)
-            : undefined,
+            : ({relativePath}) => !isWorkspaceStoragePath(input.target, relativePath),
     });
     input.signal.throwIfAborted();
     const issues = input.target.kind === "project-workspace"
@@ -536,14 +537,14 @@ async function openProductionWatcher(input: Parameters<ProjectFileIndexWatcherOp
     });
 }
 
-/** Project watcher使用联合Policy，plain watcher保持既有runtime/helper合同。 */
+/** Project watcher使用联合Policy；plain watcher额外排除自身 Storage 根后再走runtime/helper合同。 */
 function isIgnoredFileIndexWatchPath(
     input: Parameters<ProjectFileIndexWatcherOpen>[0],
     relativePath: string,
 ): boolean {
     return input.workspace
         ? isIgnoredProjectFileIndexWatchPath(input.workspace, relativePath)
-        : isIgnoredProjectFileIndexPath(relativePath);
+        : isWorkspaceStoragePath(input.target, relativePath) || isIgnoredProjectFileIndexPath(relativePath);
 }
 
 /** 只把真实 ENOENT 当作可为空的 plain Workspace，其他 I/O 必须上抛。 */

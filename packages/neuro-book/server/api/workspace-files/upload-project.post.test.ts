@@ -48,7 +48,7 @@ describe("POST /api/workspace-files/upload-project", () => {
         const handler = (await import("nbook/server/api/workspace-files/upload-project.post")).default;
         await handler({} as never);
 
-        expect(uploadWorkspaceProjectFiles).toHaveBeenCalledWith(root, [
+        expect(uploadWorkspaceProjectFiles).toHaveBeenCalledWith({kind: "workspace-root", root}, [
             {fileName: "index.md", relativePath: "project/index.md", data: Buffer.from("one")},
             {fileName: "index.md", relativePath: "project/nested/index.md", data: Buffer.from("two")},
         ]);
@@ -81,7 +81,7 @@ describe("POST /api/workspace-files/upload-project", () => {
         const handler = (await import("nbook/server/api/workspace-files/upload-project.post")).default;
         await handler({} as never);
 
-        expect(uploadWorkspaceProjectZip).toHaveBeenCalledWith(root, {
+        expect(uploadWorkspaceProjectZip).toHaveBeenCalledWith({kind: "workspace-root", root}, {
             fileName: "project.zip",
             data: Buffer.from([1, 2, 3]),
         });

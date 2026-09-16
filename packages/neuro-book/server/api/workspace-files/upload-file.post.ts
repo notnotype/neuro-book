@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
     });
     return withProjectTargetMutation(target, async (projectHandles) => {
         try {
-            const result = await uploadWorkspaceFile(target.root, {
+            const result = await uploadWorkspaceFile(target, {
                 fileName: file.filename ?? "upload.bin",
                 data: file.data,
             });

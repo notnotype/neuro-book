@@ -114,3 +114,53 @@ describe("ProjectWorkspacePathPolicy", () => {
         }
     });
 });
+
+describe("ProjectWorkspacePathPolicy Storage 类别", () => {
+    it.runIf(process.platform === "win32")("Windows 目录大小写不改变 Storage 的消费策略", () => {
+        expect(projectWorkspacePathPolicy({workspace, relativePath: ".NBOOK/Storage/records/layout.json", consumer: "archive"}))
+            .toEqual({category: "storage", disposition: "preserve"});
+        expect(projectWorkspacePathPolicy({workspace, relativePath: ".NBOOK/Storage/.LOCKS/owner", consumer: "archive"}))
+            .toEqual({category: "storage-runtime", disposition: "ignore"});
+    });
+    it("正式记录、墓碑、原件与身份域元数据由 Archive 保留，被 Index/History 忽略", () => {
+        const storagePaths = [
+            ".nbook/storage/identity.json",
+            ".nbook/storage/records/shelf.json",
+
+        ];
+        for (const relativePath of storagePaths) {
+            expect(projectWorkspacePathPolicy({workspace, relativePath, consumer: "file-index"})).toEqual({category: "storage", disposition: "ignore"});
+            expect(projectWorkspacePathPolicy({workspace, relativePath, consumer: "history"})).toEqual({category: "storage", disposition: "ignore"});
+            expect(projectWorkspacePathPolicy({workspace, relativePath, consumer: "archive"})).toEqual({category: "storage", disposition: "preserve"});
+        }
+        expect(projectWorkspacePathPolicy({
+            workspace,
+            relativePath: ".nbook/storage/quarantine/shelf.json.corrupt",
+            consumer: "archive",
+        })).toEqual({category: "storage", disposition: "preserve"});
+    });
+
+    it("分区锁与本模块同目录临时名对三个消费者都是 ignore", () => {
+        const moduleTempName = "shelf.json.123e4567-e89b-12d3-a456-426614174000.tmp";
+        for (const relativePath of [
+            ".nbook/storage/.locks/identity-domain.lock",
+            `.nbook/storage/records/${moduleTempName}`,
+        ]) {
+            for (const consumer of ["file-index", "history", "archive"] as const) {
+                expect(projectWorkspacePathPolicy({workspace, relativePath, consumer}))
+                    .toEqual({category: "storage-runtime", disposition: "ignore"});
+            }
+        }
+    });
+
+    it("同名 storage 普通目录按内容消费，手工 .tmp 仍属于 Storage 内容", () => {
+        const content = {category: "content", disposition: "consume"} as const;
+        expect(projectWorkspacePathPolicy({workspace, relativePath: "notes/storage/a.md", consumer: "archive"})).toEqual(content);
+        expect(projectWorkspacePathPolicy({workspace, relativePath: "notes/storage/a.md", consumer: "file-index"})).toEqual(content);
+        expect(projectWorkspacePathPolicy({
+            workspace,
+            relativePath: ".nbook/storage/records/manual.tmp",
+            consumer: "archive",
+        })).toEqual({category: "storage", disposition: "preserve"});
+    });
+});

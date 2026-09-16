@@ -47,12 +47,14 @@ async function readAppVersion(): Promise<string> {
 /**
  * 递归收集目录下全部文件的相对路径（/ 分隔，前缀 prefix）。
  */
-async function collectFiles(dir: string, prefix: string, out: string[]): Promise<void> {
+async function collectFiles(dir: string, prefix: string, out: string[], allowMissing = false): Promise<void> {
     let entries;
     try {
         entries = await readdir(dir, {withFileTypes: true});
-    } catch {
-        return; // 目录不存在（如全新实例无 workspace 子目录）
+    } catch (error) {
+        // 全新实例可没有 Workspace；已枚举目录的失败不能让备份静默遗漏 Storage 等产品数据。
+        if (allowMissing && isMissingFile(error)) return;
+        throw error;
     }
     for (const entry of entries) {
         const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
@@ -97,14 +99,14 @@ export class BackupArchiveService {
 
         // 收集打包清单：workspace/ 全量 + State Root 顶层 config.yaml / .env
         const files: string[] = [];
-        await collectFiles(paths.workspaceRoot, "workspace", files);
+        await collectFiles(paths.workspaceRoot, "workspace", files, true);
         for (const topLevel of ["config.yaml", ".env"]) {
             try {
                 if ((await stat(join(paths.stateRoot, topLevel))).isFile()) {
                     files.push(topLevel);
                 }
-            } catch {
-                // 不存在则跳过（dev 环境常无 config.yaml）
+            } catch (error) {
+                if (!isMissingFile(error)) throw error;
             }
         }
 
@@ -214,4 +216,8 @@ export class BackupArchiveService {
             warnings: [],
         };
     }
+}
+
+function isMissingFile(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

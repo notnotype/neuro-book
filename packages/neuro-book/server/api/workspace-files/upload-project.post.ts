@@ -27,7 +27,7 @@ export default defineEventHandler(async (event) => {
             const zipFile = firstFilePart(parts, "zip");
             assertZipFile(zipFile.filename ?? "");
             try {
-                const result = await uploadWorkspaceProjectZip(target.root, {
+                const result = await uploadWorkspaceProjectZip(target, {
                     fileName: zipFile.filename ?? "project.zip",
                     data: zipFile.data,
                 });
@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
             throw createError({statusCode: 400, message: "缺少 Project 上传文件"});
         }
         try {
-            const result = await uploadWorkspaceProjectFiles(target.root, files);
+            const result = await uploadWorkspaceProjectFiles(target, files);
             await recordUploadedFiles({target, history: projectHandles?.history, files: result.files, actor: USER_LOCAL_ACTOR});
             return result;
         } catch (error) {

@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
             }
             archive = await createProjectWorkspaceZipStream(projectHandles.ready.workspace);
         } else {
-            archive = await createWorkspaceZipStream(target.root);
+            archive = await createWorkspaceZipStream(target);
         }
         return sendArchive(event, archive);
     });

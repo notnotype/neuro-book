@@ -42,6 +42,8 @@ import {
     relativeRealPathInside,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
+import {assertWorkspaceStorageBoundary, isWorkspaceStoragePath} from "nbook/server/workspace-files/workspace-storage-boundary";
 import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspace-runtime-root";
 
 type WorkspaceNodeNewOptions = {
@@ -80,7 +82,7 @@ type WorkspaceProjectOptions = {
 };
 
 type ResolvedWorkspaceTarget = {
-    root: string;
+    root: AbsoluteFsPath;
     relativePath: string;
 };
 
@@ -232,6 +234,7 @@ nodeCommand
             assertValidContentType(options.type);
             assertValidStatus(options.status);
             const resolvedTarget = await resolveSingleWorkspaceTarget(target);
+            await assertWorkspaceStorageBoundary(workspaceTargetForContentRoot(resolvedTarget.root), resolvedTarget.relativePath, "mutation");
             const content = renderWorkspaceContentTemplateBundle({
                 title: options.title?.trim() || inferTitle(resolvedTarget.relativePath),
                 type: options.type,
@@ -258,6 +261,7 @@ nodeCommand
     .action(async (target: string) => {
         try {
             const resolvedTarget = await resolveSingleWorkspaceTarget(target);
+            await assertWorkspaceStorageBoundary(workspaceTargetForContentRoot(resolvedTarget.root), resolvedTarget.relativePath, "mutation");
             const node = await statWorkspacePath(resolvedTarget.root, resolvedTarget.relativePath);
             if (!node.isDirectory || !node.contentNode) {
                 throw new Error(`目标不是标准内容节点目录: ${node.path}`);
@@ -330,11 +334,13 @@ nodeCommand
             const inputTargets = await collectInputTargets(targets, options);
             const resolvedTargets = await resolveWorkspaceTargets(inputTargets);
             const root = assertSingleWorkspaceRoot(resolvedTargets);
+            const contentTarget = workspaceTargetForContentRoot(root);
             const result = await validateWorkspaceContentNodes({
                 root,
                 targets: resolvedTargets.map((target) => target.relativePath),
                 recursive: options.recursive,
                 fixMissing: options.fixMissing,
+                pathPredicate: ({relativePath}) => !isWorkspaceStoragePath(contentTarget, relativePath),
             });
 
             if (options.json) {
@@ -471,10 +477,9 @@ async function resolveSingleWorkspaceTarget(target: string): Promise<ResolvedWor
     const root = await resolveWorkspaceContentRoot();
     const absoluteTarget = resolveWorkspaceCliTarget(root, target);
     const contentDirectoryPath = normalizeContentNodeDirectoryPath(root, absoluteTarget);
-    return {
-        root,
-        relativePath: toWorkspaceDisplayPath(root, contentDirectoryPath, true).replace(/\/$/, "") || ".",
-    };
+    const relativePath = toWorkspaceDisplayPath(root, contentDirectoryPath, true).replace(/\/$/, "") || ".";
+    await assertWorkspaceStorageBoundary(workspaceTargetForContentRoot(root), relativePath, "read");
+    return {root, relativePath};
 }
 
 /**
@@ -621,6 +626,19 @@ async function resolveWorkspaceContentRoot(): Promise<AbsoluteFsPath> {
 }
 
 /**
+ * 把已解析的内容根投影为 Workspace 文件目标。
+ *
+ * 内容命令跟随调用方 File Scope：从 Workspace Root 调用得到 workspace-root，
+ * 从一级 Project Workspace 调用得到 project-workspace，Storage 边界才能按真实种类判定。
+ */
+function workspaceTargetForContentRoot(root: AbsoluteFsPath): WorkspaceFileTarget {
+    if (root === resolveWorkspaceContainerRoot()) {
+        return {kind: "workspace-root", root};
+    }
+    return {kind: "project-workspace", root, projectRoot: projectWorkspaceRef(path.basename(root)).projectRoot};
+}
+
+/**
  * 将目录或 index.md 输入统一成内容节点目录绝对路径。
  */
 function normalizeContentNodeDirectoryPath(root: string, absoluteTarget: string): string {
@@ -634,7 +652,7 @@ function normalizeContentNodeDirectoryPath(root: string, absoluteTarget: string)
 /**
  * 确认所有目标都属于同一个 workspace，并返回该 root。
  */
-function assertSingleWorkspaceRoot(targets: ResolvedWorkspaceTarget[]): string {
+function assertSingleWorkspaceRoot(targets: ResolvedWorkspaceTarget[]): AbsoluteFsPath {
     const root = targets[0]?.root;
     if (!root) {
         throw new Error("至少需要提供一个内容节点路径");

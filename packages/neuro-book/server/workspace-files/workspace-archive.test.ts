@@ -51,7 +51,7 @@ describe("workspace-archive", () => {
         await writeFile("world-engine/.runtime-artifact-import-cache/world-engine-schema/a.mjs", "export {};\n");
         await writeFile(".gitignore", "*.tmp\n");
 
-        const archive = await createWorkspaceZipStream(root);
+        const archive = await createWorkspaceZipStream({kind: "workspace-root", root: absoluteFsPath(root)});
         const buffer = await readStreamBuffer(archive.stream);
         const entries = readZipEntryNames(buffer);
 
@@ -68,12 +68,36 @@ describe("workspace-archive", () => {
         expect(entries.some((entry) => entry.includes("runtime-artifact-import-cache"))).toBe(false);
     });
 
+    it("user-assets 下载排除 Storage 根，但保留同名普通目录", async () => {
+        const userAssetsRoot = path.join(root, ".nbook");
+        await writeFile(".nbook/config.json", "{}");
+        await writeFile(".nbook/notes/storage/note.md", "普通目录");
+        await writeFile(".nbook/storage/records/shelf.json", JSON.stringify({revision: "original"}));
+        await writeFile(".nbook/storage/identity.json", "{}");
+        await writeFile(".nbook/storage/.locks/partition.lock/owner.json", "lock");
+
+        const archive = await createWorkspaceZipStream({kind: "user-assets", root: absoluteFsPath(userAssetsRoot)});
+        const files = unzipSync(await readStreamBuffer(archive.stream));
+        const entries = Object.keys(files);
+
+        expect(entries).toEqual(expect.arrayContaining(["config.json", "notes/storage/note.md"]));
+        expect(entries.some((entry) => entry === "storage" || entry.startsWith("storage/"))).toBe(false);
+        expect(Buffer.from(files["notes/storage/note.md"]!).toString()).toBe("普通目录");
+        await expect(fs.readFile(path.join(userAssetsRoot, "storage", "records", "shelf.json"), "utf-8"))
+            .resolves.toBe(JSON.stringify({revision: "original"}));
+    });
+
     it("Project 下载在线快照两个 SQLite，并强制纳入 metadata 且排除 live sidecar", async () => {
         await writeFile("project.yaml", "kind: novel\ntitle: test\nsummary: ''\n");
         await writeFile(".nbook/config.json", "{}\n");
         await writeFile("ignored.tmp", "skip\n");
         await writeFile(".nbook/private.txt", "ignored by directory rule\n");
         await writeFile(".nbook/recovery/project-manifest-original.yaml", "broken manifest bytes\n");
+        await writeFile(".nbook/storage/records/value.json", '{"state":"value","value":{"width":320}}\n');
+        await writeFile(".nbook/storage/records/deleted.json", '{"state":"deleted"}\n');
+        await writeFile(".nbook/storage/quarantine/broken.corrupt", Buffer.from([0, 255, 13, 10]));
+        await writeFile(".nbook/storage/.locks/partition.lock/owner.json", "lock");
+        await writeFile(`.nbook/storage/records/value.json.${randomUUID()}.tmp`, "incomplete");
         await writeFile(".nbook/runtime-artifact-import-cache/world-engine-calendar/a.mjs", "export {};\n");
         await writeFile("world-engine/.runtime-artifact-import-cache/world-engine-schema/a.mjs", "export {};\n");
         await writeFile("world-engine/calendar.ts", "export default {};\n");
@@ -128,6 +152,9 @@ describe("workspace-archive", () => {
                 ".nbook/history.sqlite",
                 ".nbook/project.sqlite",
                 ".nbook/recovery/project-manifest-original.yaml",
+                ".nbook/storage/records/value.json",
+                ".nbook/storage/records/deleted.json",
+                ".nbook/storage/quarantine/broken.corrupt",
                 "project.yaml",
                 "world-engine/calendar.ts",
             ]));
@@ -135,6 +162,9 @@ describe("workspace-archive", () => {
             expect(entries).not.toContain(".nbook/private.txt");
             expect(entries.some((entry) => entry.endsWith(".sqlite-wal") || entry.endsWith(".sqlite-shm"))).toBe(false);
             expect(entries.some((entry) => entry.includes("runtime-artifact-import-cache"))).toBe(false);
+            expect(entries.some((entry) => entry.includes("/.locks/") || entry.endsWith(".tmp"))).toBe(false);
+            expect(Buffer.from(files[".nbook/storage/quarantine/broken.corrupt"]!)).toEqual(Buffer.from([0, 255, 13, 10]));
+            expect(JSON.parse(Buffer.from(files[".nbook/storage/records/deleted.json"]!).toString())).toEqual({state: "deleted"});
 
             const extractedRoot = path.join(root, "extracted");
             const extractedProjectPath = await writeExtractedDatabase(files, PROJECT_DATABASE_ENTRY, extractedRoot);
@@ -193,6 +223,27 @@ describe("workspace-archive", () => {
         const remainingStaging = (await fs.readdir(childTempRoot))
             .filter((name) => name.startsWith("nbook-project-archive-"));
         expect(remainingStaging).toEqual([]);
+    });
+
+    it("Storage 在归档准备后替换为不同大小的新值，ZIP 仍包含完整的单记录快照", async () => {
+        await writeFile("project.yaml", "kind: novel\ntitle: storage\nsummary: ''\n");
+        const entry = ".nbook/storage/records/layout.json";
+        const original = JSON.stringify({revision: "before", value: {width: 310}});
+        const replacement = JSON.stringify({revision: "after", value: {width: 470, note: "new".repeat(10000)}});
+        await writeFile(entry, original);
+        const database = createClient({url: toSqliteFileUrl(path.join(root, PROJECT_DATABASE_ENTRY))});
+        await database.execute("CREATE TABLE archive_probe (value TEXT)");
+        await database.close();
+        collectReleasedSqliteHandles({force: true});
+
+        const archive = await createProjectWorkspaceZipStream(projectWorkspace(root));
+        const source = path.join(root, entry);
+        const stagedReplacement = `${source}.${randomUUID()}.tmp`;
+        await fs.writeFile(stagedReplacement, replacement);
+        await fs.rename(stagedReplacement, source);
+        const files = unzipSync(await readStreamBuffer(archive.stream));
+        expect(Buffer.from(files[entry]!).toString()).toBe(original);
+        expect(await fs.readFile(source, "utf8")).toBe(replacement);
     });
 
     it("可选 Project Config 不可访问时失败，不伪装成缺失后继续下载", async () => {

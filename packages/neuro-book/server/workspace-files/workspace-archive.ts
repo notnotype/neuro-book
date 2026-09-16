@@ -16,6 +16,8 @@ import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/projec
 import {projectWorkspacePathPolicy} from "nbook/server/workspace-files/project-workspace-path-policy";
 import {toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
+import {isWorkspaceStoragePath} from "nbook/server/workspace-files/workspace-storage-boundary";
 
 const PROJECT_MANIFEST_PATH = "project.yaml";
 const PROJECT_CONFIG_PATH = ".nbook/config.json";
@@ -31,9 +33,13 @@ export type WorkspaceArchive = {
 };
 
 /**
- * 创建当前 workspace 的 zip 输出流。
+ * 创建当前 Workspace 目标的 zip 输出流。
+ *
+ * 显式 target 决定是否排除 Storage 根：user-assets 下载不导出 Storage 记录、锁与在途临时名，
+ * 而同名普通目录 `notes/storage` 继续保留。完整 data 备份与 Project 归档另行保留正式记录。
  */
-export async function createWorkspaceZipStream(root: AbsoluteFsPath): Promise<WorkspaceArchive> {
+export async function createWorkspaceZipStream(target: WorkspaceFileTarget): Promise<WorkspaceArchive> {
+    const root = target.root;
     const stat = await fs.stat(root);
     if (!stat.isDirectory()) {
         throw new Error("Workspace root is not a directory");
@@ -41,7 +47,7 @@ export async function createWorkspaceZipStream(root: AbsoluteFsPath): Promise<Wo
 
     const ignoreRules = await readWorkspaceIgnoreRules(root);
     const zipFile = new ZipFile();
-    await addWorkspaceEntries(zipFile, root, root, ignoreRules);
+    await addWorkspaceEntries(zipFile, root, root, ignoreRules, (archivePath) => isWorkspaceStoragePath(target, archivePath));
     zipFile.end();
 
     return {
@@ -98,7 +104,8 @@ export async function createProjectWorkspaceZipStream(
         }
 
         const excludedPaths = projectArchiveExcludedPaths();
-        await addWorkspaceEntries(zipFile, root, root, ignoreRules, excludedPaths, workspace);
+        const isExcludedPath = (archivePath: string): boolean => excludedPaths.has(archivePath);
+        await addWorkspaceEntries(zipFile, root, root, ignoreRules, isExcludedPath, {workspace, stagingRoot});
         attachStagingCleanup(zipFile.outputStream, stagingRoot);
         zipFile.end();
 
@@ -115,14 +122,17 @@ export async function createProjectWorkspaceZipStream(
 
 /**
  * 递归加入 workspace 文件；目录只在为空时写入 zip，文件保留相对路径。
+ *
+ * `isExcluded` 按归档路径判定整体跳过：Project 用它覆盖快照或强制 metadata 的 live 路径，
+ * 普通下载用它排除 Storage 根，两者的子树都在递归前被剪掉。
  */
 async function addWorkspaceEntries(
     zipFile: ZipFile,
     root: string,
     currentPath: string,
     ignoreRules: WorkspaceIgnoreRule[],
-    excludedPaths: ReadonlySet<string> = new Set(),
-    workspace?: ResolvedProjectWorkspace,
+    isExcluded: (archivePath: string) => boolean = () => false,
+    projectArchive?: {workspace: ResolvedProjectWorkspace; stagingRoot: string},
     inheritedIgnore: boolean = false,
 ): Promise<boolean> {
     const entries = await fs.readdir(currentPath, {withFileTypes: true});
@@ -131,11 +141,11 @@ async function addWorkspaceEntries(
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"))) {
         const absolutePath = path.join(currentPath, entry.name);
         const archivePath = toArchivePath(root, absolutePath);
-        if (excludedPaths.has(archivePath)) {
+        if (isExcluded(archivePath)) {
             continue;
         }
-        const policy = workspace
-            ? projectWorkspacePathPolicy({workspace, relativePath: archivePath, consumer: "archive"})
+        const policy = projectArchive
+            ? projectWorkspacePathPolicy({workspace: projectArchive.workspace, relativePath: archivePath, consumer: "archive"})
             : null;
         if (policy?.disposition === "ignore") {
             continue;
@@ -143,8 +153,9 @@ async function addWorkspaceEntries(
         const ignoredByWorkspaceRules = inheritedIgnore
             || shouldSkipWorkspacePath(root, absolutePath, entry.isDirectory(), ignoreRules);
         const skippedByIgnore = policy?.disposition !== "preserve" && ignoredByWorkspaceRules;
-        // recovery是Archive强制保留项；根.nbook被忽略时仍只向下寻找它，不自动纳入其他控制面文件。
-        const traverseForPreservedChildren = workspace && entry.isDirectory() && archivePath === ".nbook";
+        // 根 .nbook 被忽略时仍寻找 policy 强制保留的子项，不自动纳入其他控制面文件。
+        const controlDirectory = process.platform === "win32" ? archivePath.toLowerCase() : archivePath;
+        const traverseForPreservedChildren = projectArchive && entry.isDirectory() && controlDirectory === ".nbook";
         if (skippedByIgnore && !traverseForPreservedChildren) {
             continue;
         }
@@ -155,8 +166,8 @@ async function addWorkspaceEntries(
                 root,
                 absolutePath,
                 ignoreRules,
-                excludedPaths,
-                workspace,
+                isExcluded,
+                projectArchive,
                 skippedByIgnore,
             );
             if (!childAdded && !skippedByIgnore) {
@@ -167,7 +178,15 @@ async function addWorkspaceEntries(
         }
 
         if (entry.isFile()) {
-            zipFile.addFile(absolutePath, archivePath);
+            if (projectArchive && policy?.disposition === "preserve") {
+                // yazl 会先 stat、稍后再打开源。先固定单文件快照，避免原子替换后大小与内容属于不同修订。
+                const snapshotPath = path.join(projectArchive.stagingRoot, "preserved", archivePath);
+                await fs.mkdir(path.dirname(snapshotPath), {recursive: true});
+                await fs.copyFile(absolutePath, snapshotPath);
+                zipFile.addFile(snapshotPath, archivePath);
+            } else {
+                zipFile.addFile(absolutePath, archivePath);
+            }
             added = true;
         }
     }

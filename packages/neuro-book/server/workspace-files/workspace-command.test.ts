@@ -115,6 +115,91 @@ describe("Workspace CLI hard cut", {timeout: 120_000}, () => {
         expect(oldAlias.stderr).toContain("ENOENT");
     });
 
+    it("node new/state 在拥有 target 的边界拒绝 Storage 路径", async () => {
+        const fixture = await createFixture();
+
+        const storageNew = await runWorkspace(fixture, ["node", "new", ".nbook/storage/evil", "--type", "character"]);
+        expect(storageNew.code).toBe(1);
+        expect(storageNew.stderr).toContain("Storage 数据由 Storage 服务独占");
+        await expect(readFile(join(fixture.workspaceRoot, ".nbook", "storage", "evil", "index.md"), "utf8"))
+            .rejects.toMatchObject({code: "ENOENT"});
+
+        const projectStorageNew = await runWorkspace(fixture, ["node", "new", "proj/.nbook/storage/evil", "--type", "character"]);
+        expect(projectStorageNew.code).toBe(1);
+        expect(projectStorageNew.stderr).toContain("Storage 数据由 Storage 服务独占");
+
+        const storageState = await runWorkspace(fixture, ["node", "state", ".nbook/storage/records"]);
+        expect(storageState.code).toBe(1);
+        expect(storageState.stderr).toContain("Storage 数据由 Storage 服务独占");
+
+        const plain = await runWorkspace(fixture, ["node", "new", "notes/storage/ok", "--type", "character"]);
+        expect(plain.code).toBe(0);
+        await expect(readFile(join(fixture.workspaceRoot, "notes", "storage", "ok", "index.md"), "utf8"))
+            .resolves.toContain("type: character");
+    });
+
+    it("node parse/validate 拒绝 Storage 输入，递归校验不进入 Storage", async () => {
+        const fixture = await createFixture();
+        const storageRecord = join(fixture.workspaceRoot, ".nbook", "storage", "records");
+        await mkdir(storageRecord, {recursive: true});
+        const originalBytes = "---\ntitle: 未知原件\n---\n\n原始正文\n";
+        await writeFile(join(storageRecord, "index.md"), originalBytes, "utf8");
+
+        const explicitParse = await runWorkspace(fixture, ["node", "parse", ".nbook/storage/records", "--json", "--body"]);
+        expect(explicitParse.code).toBe(1);
+        expect(explicitParse.stderr).toContain("Storage 数据由 Storage 服务独占");
+
+        const explicitValidate = await runWorkspace(fixture, ["node", "validate", ".nbook/storage/records", "--fix-missing"]);
+        expect(explicitValidate.code).toBe(1);
+        expect(explicitValidate.stderr).toContain("Storage 数据由 Storage 服务独占");
+
+        const hero = join(fixture.workspaceRoot, "lorebook", "character", "hero");
+        await mkdir(hero, {recursive: true});
+        await writeFile(join(hero, "index.md"), [
+            "---",
+            "title: Hero",
+            "type: character",
+            "status: draft",
+            "---",
+            "",
+            "正文",
+        ].join("\n"), "utf8");
+
+        const recursive = await runWorkspace(fixture, ["node", "validate", ".", "--recursive", "--fix-missing", "--json"]);
+        expect(recursive.code, recursive.stderr).toBe(0);
+        expect(parseJson(recursive.stdout)).toMatchObject({fixedPaths: ["lorebook/character/hero/index.md"]});
+        await expect(readFile(join(storageRecord, "index.md"), "utf8")).resolves.toBe(originalBytes);
+
+        const plainNode = join(fixture.workspaceRoot, "notes", "storage", "ok");
+        await mkdir(plainNode, {recursive: true});
+        await writeFile(join(plainNode, "index.md"), [
+            "---",
+            "title: Ok",
+            "type: character",
+            "status: draft",
+            "---",
+            "",
+            "正文",
+        ].join("\n"), "utf8");
+        const plainParse = await runWorkspace(fixture, ["node", "parse", "notes/storage/ok", "--json"]);
+        expect(plainParse.code, plainParse.stderr).toBe(0);
+
+        const projectRoot = join(fixture.workspaceRoot, "proj");
+        const projectStorage = join(projectRoot, ".nbook", "storage", "records");
+        await mkdir(projectStorage, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Proj\nsummary: ''\n", "utf8");
+        const projectBytes = "---\ntitle: 项目原件\n---\n\n原始\n";
+        await writeFile(join(projectStorage, "index.md"), projectBytes, "utf8");
+
+        const projectParse = await runWorkspace(fixture, ["node", "parse", ".nbook/storage/records", "--json"], projectRoot);
+        expect(projectParse.code).toBe(1);
+        expect(projectParse.stderr).toContain("Storage 数据由 Storage 服务独占");
+
+        const projectRecursive = await runWorkspace(fixture, ["node", "validate", ".", "--recursive", "--fix-missing"], projectRoot);
+        expect(projectRecursive.code, projectRecursive.stderr).toBe(0);
+        await expect(readFile(join(projectStorage, "index.md"), "utf8")).resolves.toBe(projectBytes);
+    });
+
     it("从 Project Workspace及其子目录调用 node 时相对路径从Project File Scope解析", async () => {
         const fixture = await createFixture();
         const projectRoot = join(fixture.workspaceRoot, "zeta");
