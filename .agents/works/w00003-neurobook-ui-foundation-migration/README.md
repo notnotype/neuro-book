@@ -82,7 +82,9 @@ user 工作面只写主动字段、退役发生在原件安全保留之后，真
 切片 5 已落地：[t50](tasks/t50-browser-titlebar/README.md) 浏览器标题栏与真实主页面（无 bridge 也显示可用标题栏、菜单由宿主能力映射、编辑动作按真实焦点路由、
 菜单 Teleport 消裁剪 + 键盘/焦点、项目本标签/新标签两条打开路径）提交 `a74c7fb8`；Leader 复跑 typecheck exit 0、聚焦 20 例、Lab smoke `core` 与 `agent-profile` exit 0；
 [t51](tasks/t51-checkpoint-b-review/README.md) 检查点 B 独立审查：首轮裁定**需修复**（键盘打开 Edit 菜单六条动作整组禁用、浏览器通知条压标题栏、宿主 `openMenu` 无定位、分类器零覆盖），返工后追加复核 **correct / 可合并**（探针 3 文件 10 例、产品用例 6 文件 29 例，主干未回归）。
-切片 5 相关修复提交：`9df461e1`（R1–R4）、`5e7ac703`（两条 P3 收口）、`cbb8ef38`（t52 picker smoke 对齐 + t53 文案 key）。切片 6（未迁视图清单）未开始；红分支登记见下。
+切片 5 相关修复提交：`9df461e1`（R1–R4）、`5e7ac703`（两条 P3 收口）、`cbb8ef38`（t52 picker smoke 对齐 + t53 文案 key）。切片 6（未迁视图清单）已交付并关闭。
+**视图迁移已开始**：按开发者选择先做 [t55](tasks/t55-files-view-migration/README.md) `files` 视图接入（左叶文件树 + 展开项并入 user/local 归属），提交 `aec1e0d8`；Leader 复跑 typecheck exit 0、聚焦 30 例、Lab smoke 对 3001 exit 0。
+清单排序的下一项是 Markdown Studio（写作主链路），待开发者确认后启动。
 `http://localhost:3001/` 现为开发者使用中的服务，由本 Work 在**隔离根** `Temp/nb-3001-8KseHT/{state,cache}` 上启动并保持（`persistent`），开发者真实根 `%LOCALAPPDATA%/NeuroBook` 未被写入；
 该端口保留给开发者：产品验收不得占用、复用、重启或停止它，另用系统 Temp 隔离 State Root、Workspace Root 与浏览器数据目录，以及其它空闲端口。
 命令系统、跨独立 data 在线同步、桌面多窗口和 World Engine/Agent Chat Flow 整页接入继续单列。

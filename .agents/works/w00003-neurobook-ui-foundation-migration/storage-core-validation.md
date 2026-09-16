@@ -133,3 +133,22 @@ Leader 独立复跑（worktree 内 `packages/neuro-book` 绝对 cwd）：`bun ru
 - 门禁：`bun run docs:check` **exit 0**（5869 文件，failures `[]`）；本 Task 未运行任何测试/typecheck/构建（只读调查，未启动 dev server，未启停 3001）。
 
 未开始：视图迁移实现（每个视图独立立项，按开发者选择的优先级推进）。
+
+## 2026-09-16 首个视图迁移：`files`（Leader 记录）
+
+增量：t55（提交 `aec1e0d8`）。清单 §2.1 指定的左叶文件树接回 + 展开项并入 user/local 归属。
+
+| 检查（cwd = worktree 内 `packages/neuro-book`，除注明外） | 结果 |
+|---|---|
+| `bun run typecheck`（趁窗口执行，避免与 3001 并存） | **exit 0** |
+| 聚焦测试 4 文件（`files-view-session` / `product-catalog` / `WorkbenchViewHost` / `WorkspaceFilePanel`） | 4 文件 **30 例** exit 0 |
+| `component-lab --suite all`（对运行中的 3001） | **exit 0**（core / agent-profile / project-picker） |
+| `bun run docs:check` | exit 0，5879 文件，failures `[]` |
+
+真机验收（隔离宿主，端口 4321，隔离根 `Temp/nb-t55-verify`，omp managed Chromium 1440×900）：Project 态左叶渲染真实文件树（行含 智能体上下文/世界书/手册/正文/参考资料/上传/世界引擎/AGENTS/project.yaml）；
+展开「世界书」后磁盘出现 `workbench.files/records/expanded-paths.json={"paths":["lorebook/"]}`（user/local 分区，无第二写路径）；刷新后恢复；旧裸键两种情形（记录已存在→旧键删且记录未被覆盖；记录缺失→条件初始化并回读一致后删旧键）；
+双击 `project.yaml` 给出可见提示（编辑器叶未迁入）；书架态左叶不渲染且 `files` 入口仍 disabled。
+
+本地修正（登记）：`packages/neuro-book/.gitignore:20` 的裸 `workspace/` 规则会忽略 `app/components/novel-ide/workspace/` 下的**新文件**（已跟踪文件不受影响，故此前未被发现）；新增一行例外 `!app/components/novel-ide/workspace/`，随本增量提交。
+
+事故：本 Task 期间 3001 崩溃一次（exit 5），原因为编辑 `server/storage/product-definitions.ts`（服务端模块）触发 Nitro 全量重建；已恢复并给 3001 增加 `restart: on-failure` 自动恢复策略。约束更新：服务端模块改动成批落盘、落盘前报 Leader。
