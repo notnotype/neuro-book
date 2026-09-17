@@ -44,8 +44,8 @@ type SceneSpec = {
 /**
  * 五档结构表：场景管结构，右栏 data 管文案与行数。
  *
- * 不可折叠那档不摆动作：头部此时是 `disabled` 的 button，动作槽在它里面，按钮跟着点不动——
- * 摆上去只会让人以为动作是坏的；要验这条得先改组件头部的结构。
+ * 不可折叠那档也摆动作：头部此时不是折叠控件，动作按钮必须可点——
+ * 这条组合就是本组件的回归项。
  */
 const SCENES: Record<SceneKey, SceneSpec> = {
     scroll: {
@@ -85,7 +85,7 @@ const SCENES: Record<SceneKey, SceneSpec> = {
         collapsible: false,
         hasBody: true,
         contextSlot: false,
-        actions: false,
+        actions: true,
         fallback: {title: "工作区信息", contextLabel: "只读", rows: 4, collapsed: false},
     },
 };

@@ -79,9 +79,11 @@ const LAB_MOBILE_BREAKPOINT = 700;
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
+const fixtureLoadError = ref("");
 const sceneData = ref<unknown>(undefined);
 const fixtureData = ref<unknown>(undefined);
 const events = ref<LabEventEntry[]>([]);
+let fixtureLoadToken = 0;
 let eventCounter = 0;
 
 const matchedComponents = computed(() => {
@@ -596,8 +598,26 @@ function resetScene(): void {
 }
 
 watch(fixture, async (next) => {
+    const token = ++fixtureLoadToken;
     selectedScene.value = next?.scenes[0]?.id ?? "";
-    fixtureComponent.value = next ? await next.load() : null;
+    fixtureLoadError.value = "";
+    if (!next) {
+        fixtureComponent.value = null;
+        return;
+    }
+    try {
+        const component = await next.load();
+        // 组件切得快时先发的 loader 可能后到：只有仍是当前这次选择才允许写入。
+        if (token !== fixtureLoadToken) {
+            return;
+        }
+        fixtureComponent.value = component;
+    } catch (error) {
+        if (token !== fixtureLoadToken) {
+            return;
+        }
+        fixtureLoadError.value = error instanceof Error ? error.message : String(error);
+    }
 }, {immediate: true});
 
 // 换场景等于重来一次：假数据回到登记的初值，事件日志清空，
@@ -817,6 +837,11 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     <div v-else-if="!fixture" class="lab-empty lab-empty--stack">
                         <p class="lab-title">{{ selected.name }} 还没有场景</p>
                         <p class="lab-note">它可以挂载，但还没有人为它写 fixture。</p>
+                    </div>
+                    <div v-else-if="fixtureLoadError" class="lab-empty lab-empty--stack">
+                        <span class="i-lucide-triangle-alert h-6 w-6 text-[var(--status-danger)]" aria-hidden="true"></span>
+                        <p class="lab-title">{{ selected.name }} 的场景加载失败</p>
+                        <p class="lab-note max-w-md">{{ fixtureLoadError }}</p>
                     </div>
                     <ViewportCanvas
                         v-else

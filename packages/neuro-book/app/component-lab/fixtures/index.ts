@@ -926,7 +926,7 @@ export const labFixtures: LabFixture[] = [
             {
                 id: "view-error",
                 label: "视图抛错被宿主收敛",
-                data: {editorId: "code", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
+                data: {editorId: "crash", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
             },
             {
                 id: "single",

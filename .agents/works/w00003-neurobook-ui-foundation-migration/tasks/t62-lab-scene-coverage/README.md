@@ -14,9 +14,9 @@ role: tasker
 
 ## 范围
 
-- `packages/neuro-book/app/component-lab/fixtures/` 下新增 9 个夹具与 `fixtures/index.ts` 登记；**只补场景，不改组件实现**。
+- `packages/neuro-book/app/component-lab/fixtures/` 下新增 9 个夹具与 `fixtures/index.ts` 登记；**第二轮审查同时修正 Lab loader、fixture 数据边界、宿主错误态与 `WorkbenchContainerSection` 结构。**
 - `fixtures/index.test.ts` 增加两条覆盖断言：可挂载组件必须有场景登记（含非空场景与 loader）；登记不得指向不存在或不可挂载的组件。
-- 顺带修两处被新场景照出来的既有缺陷（见下）。
+- 顺带修两处被新场景照出来的既有缺陷；第二轮修复记录见 walkthrough。
 
 ## 排除
 
@@ -39,6 +39,6 @@ role: tasker
 
 ## 验证
 
-- 真实浏览器（隔离验收副本 44322）：9 个组件共 40 个场景逐个选中并切换，全部挂载出内容、`data-lab-subject` 有正尺寸、页面横向溢出 0、控制台无错误。
-- 宿主交互路径实测：点「慢就绪替身」后 350ms 内可见的仍是旧视图，2 秒后才切换；点「失败替身」后出现「宿主收敛到的失败：…」诊断且旧视图仍在。
-- `bun run test app/component-lab app/components/editor-workbench app/components/workbench` → 15 文件 72 例通过；`bun run typecheck` exit 0；`bun run docs:check` 无失败；Lab smoke `--suite all` exit 0。
+- 真实浏览器（隔离验收副本 44322）：9 个组件共 41 个场景逐个选中并切换，全部挂载出内容、`data-lab-subject` 有正尺寸、页面横向溢出 0、控制台无错误；第二轮额外验证了不可折叠区段 actions、`view-error` 初始失败态与切回正常替身后的错误清理、390×844 窄屏无溢出。
+- 宿主交互路径实测：点「慢就绪替身」后 350ms 内可见的仍是旧视图，2 秒后才切换；点「失败替身」后出现「宿主收敛到的失败：…」诊断且旧视图仍在；切回「源码替身」后错误横幅消失。
+- `bun run test app/component-lab app/components/editor-workbench app/components/workbench` → 16 文件 74 例通过；`bun run typecheck` exit 0；`bun run docs:check` 无失败；`bun run governance:check` 无失败或警告；Lab smoke `--suite all` exit 0。

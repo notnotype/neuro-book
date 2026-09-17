@@ -101,22 +101,23 @@ function toggle(): void {
         :data-collapsed="isCollapsed ? 'true' : 'false'"
         :data-layout="layout"
     >
-        <button
-            type="button"
-            class="workbench-container-section__header"
-            :class="{'cursor-default': !collapsible}"
-            :aria-expanded="collapsible ? !isCollapsed : undefined"
-            :aria-controls="id ? `section-body-${id}` : undefined"
-            :disabled="!collapsible"
-            @click="toggle"
-        >
-            <span
+        <div class="workbench-container-section__header">
+            <button
                 v-if="collapsible"
-                class="workbench-container-section__chevron i-lucide-chevron-right"
-                :class="{'workbench-container-section__chevron--expanded': !isCollapsed}"
-                aria-hidden="true"
-            ></span>
-            <span class="workbench-container-section__title">{{ title }}</span>
+                type="button"
+                class="workbench-container-section__toggle"
+                :aria-expanded="!isCollapsed"
+                :aria-controls="id ? `section-body-${id}` : undefined"
+                @click="toggle"
+            >
+                <span
+                    class="workbench-container-section__chevron i-lucide-chevron-right"
+                    :class="{'workbench-container-section__chevron--expanded': !isCollapsed}"
+                    aria-hidden="true"
+                ></span>
+                <span class="workbench-container-section__title">{{ title }}</span>
+            </button>
+            <span v-else class="workbench-container-section__title">{{ title }}</span>
 
             <span
                 v-if="contextLabel || $slots.context"
@@ -132,7 +133,7 @@ function toggle(): void {
             >
                 <slot name="actions"></slot>
             </div>
-        </button>
+        </div>
 
         <div
             v-show="!isCollapsed"
@@ -192,10 +193,7 @@ function toggle(): void {
     height: var(--control-h-sm);
     padding-inline: var(--panel-p);
     background: transparent;
-    border: none;
-    cursor: pointer;
     user-select: none;
-    text-align: left;
     transition: background-color var(--motion-fast) var(--ease-standard);
 }
 
@@ -203,7 +201,23 @@ function toggle(): void {
     background-color: var(--bg-hover);
 }
 
-.workbench-container-section__header:focus-visible {
+.workbench-container-section__toggle {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 1 1 auto;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    text-align: left;
+}
+
+.workbench-container-section__toggle:focus-visible {
     outline: none;
     box-shadow: var(--focus-ring);
 }
@@ -245,11 +259,7 @@ function toggle(): void {
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    margin-left: auto;
-}
-
-.workbench-container-section__context + .workbench-container-section__actions {
-    margin-left: var(--space-2);
+    flex: 0 0 auto;
 }
 
 .workbench-container-section__body {

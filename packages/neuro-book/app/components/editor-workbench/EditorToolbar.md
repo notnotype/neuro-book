@@ -35,7 +35,7 @@ type Emits = {
 3. **安全禁用态与分割线**：带 `disabled: true` 或 `separator: true` 的项不可聚焦且不可点击；快捷键标签（如 Ctrl+S、Ctrl+W）纯文本展示在项右侧；
 4. **叶子动作选择**：仅当用户激活有效叶子项时发出 `select(item)` 事件，外壳负责解析对应动作并派发至宿主，不直接污染菜单组件内部展开状态；
 5. **复选/单选状态展示适配**：底层 `Menubar` 只渲染普通菜单项，不消费 `checked`，也不渲染任何勾选 ARIA，因此本组件在展示层补齐**可读**的勾选表达：
-   - `checked: true` 项提供 `i-lucide-check` 勾选图标，并在文案后追加「已选」后缀，肉眼与读屏都能读出选中态；写一个模板根本不渲染的 `aria-checked` 只会制造虚假的无障碍声明；
+   - `checked: true` 项提供 `i-lucide-check` 勾选图标，并在文案后追加 `editorWorkbench.selected` 的译文（当前 zh-CN 为「已选中」、en-US 为「Selected」，形如 `源码 (已选中)`），肉眼与读屏都能读出选中态；写一个模板根本不渲染的 `aria-checked` 只会制造虚假的无障碍声明；
    - `checked: false` 项提供同尺寸隐形占位图标（`invisible i-lucide-check`），保证同组文本对齐；
    - 选择叶子项时通过原始对象缓存恢复并完整发出原始 `MenubarItemData`（`value` / `shortcut` / `tone` 等字段一个不少），不回传被改写过的显示副本。
 

@@ -64,7 +64,7 @@ describe("Lab 场景覆盖", () => {
     /**
      * 这不是「所有组件都该有场景」的整洁强迫症：组件规范把纯零件与受控零件的状态说明交给
      * fixture 承载，所以一个可挂载却没有场景的组件，等于既没有文档也没有演示。
-     * 能力标签阻断的组件（io:/state:shared-write/persist:）不在此列——Lab 不给它们造替代场景。
+     * 能力标签阻断的组件（io:/state:shared-write/persist:）不在此列——Lab 不给它们造替代场景。该仓库合同见 `docs/specs/ui/component-lab.md` 的失败与恢复与验收条款。
      */
     it("索引里每个可挂载组件都登记了至少一个场景", () => {
         const missing = labComponents

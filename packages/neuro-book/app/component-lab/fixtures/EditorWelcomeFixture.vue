@@ -5,6 +5,7 @@ import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/
 import type {WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {useLabEventSink} from "../lab-event-sink";
 
+/** Lab 宿主会传场景数据；这五个场景不登记 data，夹具不消费它。 */
 const props = defineProps<{scene: string; data?: unknown}>();
 
 const emitLabEvent = useLabEventSink();
@@ -145,44 +146,9 @@ function isSceneKey(value: string): value is SceneKey {
 }
 
 const sceneKey = computed<SceneKey>(() => isSceneKey(props.scene) ? props.scene : "novel-empty");
+/** 当前场景只取夹具内的静态节点与标签快照。 */
+const sceneView = computed(() => sceneViews[sceneKey.value]);
 
-/**
- * 右栏数据面板给的是 JSON，不是校验过的对象：这里只认夹具关心的四个键，
- * 缺项交回场景初值，写坏的项被忽略而不是让整个场景变空白。
- */
-function readSceneData(value: unknown): Partial<SceneView> {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
-    const raw = value as Record<string, unknown>;
-    return {
-        node: raw.node === undefined ? undefined : raw.node === null ? null : raw.node as WorkspaceFileNode,
-        tabs: Array.isArray(raw.tabs) ? raw.tabs.map(readTab) : undefined,
-        compact: typeof raw.compact === "boolean" ? raw.compact : undefined,
-        workspaceMode: raw.workspaceMode === "user-assets" ? "user-assets" : raw.workspaceMode === "novel" ? "novel" : undefined,
-    };
-}
-
-function readTab(value: unknown): EditorTabPresentation {
-    const raw = (value ?? {}) as Record<string, unknown>;
-    return {
-        path: String(raw.path ?? ""),
-        title: String(raw.title ?? ""),
-        pinned: Boolean(raw.pinned),
-        preview: Boolean(raw.preview),
-        dirty: Boolean(raw.dirty),
-        iconClass: typeof raw.iconClass === "string" ? raw.iconClass : "i-lucide-file-text",
-    };
-}
-
-const view = computed<SceneView>(() => {
-    const fallback = sceneViews[sceneKey.value];
-    const data = readSceneData(props.data);
-    return {
-        node: data.node === undefined ? fallback.node : data.node,
-        tabs: data.tabs ?? fallback.tabs,
-        compact: data.compact ?? fallback.compact,
-        workspaceMode: data.workspaceMode ?? fallback.workspaceMode,
-    };
-});
 
 /** 事件名与载荷一起显示：主按钮落在「继续 X」还是「新建章节」，只有载荷看得出来。 */
 function forward(name: string, payload?: unknown): void {
@@ -195,10 +161,10 @@ function forward(name: string, payload?: unknown): void {
     <div class="flex h-full min-h-0 min-w-0 flex-col">
         <EditorWelcome
             data-lab-subject
-            :node="view.node"
-            :tabs="view.tabs"
-            :compact="view.compact"
-            :workspace-mode="view.workspaceMode"
+            :node="sceneView.node"
+            :tabs="sceneView.tabs"
+            :compact="sceneView.compact"
+            :workspace-mode="sceneView.workspaceMode"
             class="min-h-0 flex-1"
             @select-tab="(path: string) => forward('select-tab', path)"
             @open-path="(path: string) => forward('open-path', path)"

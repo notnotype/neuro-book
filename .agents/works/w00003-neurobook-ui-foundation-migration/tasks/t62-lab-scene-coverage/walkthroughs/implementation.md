@@ -58,18 +58,31 @@
   - 点「失败替身」后出现「宿主收敛到的失败：失败替身 渲染即失败：这是替身登记的失败分支，不是产品缺陷。」，旧视图仍在，无白屏。
 - 截图留在验收根：`lab-CodeEditorView-markdown.png`、`lab-CodeEditorView-json-invalid.png`、`lab-EditorViewHost-error.png`、`lab-MarkdownEditorView-prose.png`。
 
-## 门禁
+## 审查后修复（第二轮）
 
-| 命令 | cwd | 结果 |
-|---|---|---|
-| `bun run test app/component-lab app/components/editor-workbench app/components/workbench` | 隔离副本 `packages/neuro-book` | 15 文件 / 72 例通过 |
-| `bun run typecheck` | 隔离副本 `packages/neuro-book` | exit 0，无诊断 |
-| `bun run docs:check` | 仓库根 | failures=[]，5944 文件 |
-| `node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:44322 --browser-executable <chrome> --suite all` | 隔离副本 `packages/neuro-book` | exit 0，28.15s |
+- 对齐 `docs/specs/ui/component-lab.md` 与 `fixtures/index.test.ts`：源码仓库内所有可挂载组件必须有非空 fixture 场景；Lab 仍保留无 fixture 的防御性空态。
+- 修正 `EditorViewHost` 的 `view-error` 初始场景为 `crash`，并为宿主替身 textarea 增加可访问名称；切换回正常替身时清除旧错误横幅，避免错误态与正常视图并存。
+- 删除 `EditorTabBarFixture` / `EditorWelcomeFixture` 中未登记数据驱动路径；`MonacoCodeEditorFixture` 对顶层 JSON 与 `preferences` 按字段运行期收窄，非法值回退登记初值。
+- 重构 `WorkbenchContainerSection`：折叠 toggle、静态标题和 actions 同级渲染；不可折叠区段不再使用 disabled header button；新增 2 个行为回归测试。
+- 为 `LabShell` 的异步 fixture loader 增加 revision guard 和局部错误收敛；迟到 loader 不得覆盖最后一次组件选择，失败不产生未处理 Promise。
 
-## 未运行 / 未声称
+## 第二轮验证
 
-- 未跑全仓测试与生产 build；未重跑四主题视觉矩阵（本批新增场景在默认主题下逐场景看过，未逐主题采集）。
-- 未验证 `EditorTabBar` 的拖拽换位与右键菜单在 Lab 内的完整手势（其行为由 `EditorTabBar.test.ts` 覆盖；夹具只就地把选中 / 关闭 / 保留预览三项应用到本地列表，固定与换位只透传事件）。
-- `WorkbenchContainerSection` 的 `collapsible: false` 组合下，头部是 `disabled` 的按钮，动作槽位于其内部——若某个区段同时要「不可折叠」和「头动作」，按钮会点不动。当前 `descriptors.ts` 没有任何区段设 `collapsible: false`，属潜在问题，未在本任务改动组件结构。
-- `EditorToolbar` 空菜单数组场景下 nb-ui `Menubar` 仍渲染一个约 10px 宽的空壳；夹具如实摆出该状态，未改组件。
+| 命令 / 场景 | 结果 |
+|---|---|
+| `bun run test app/component-lab app/components/editor-workbench app/components/workbench` | 16 文件 / 74 例通过 |
+| `bun run typecheck` | exit 0，无诊断 |
+| `bun run docs:check` | failures=[]，5947 文件 |
+| `bun run governance:check` | failures=[]，warnings=[] |
+| `git diff --check` | 无空白错误；仅报告工作树文件的 LF/CRLF 转换提示 |
+| 隔离浏览器 `WorkbenchContainerSection / 不可折叠` | 无嵌套 button；无 toggle button；宿主刷新 action 可见且可点击 |
+| 隔离浏览器 `EditorViewHost / 视图抛错被宿主收敛` | 初始错误横幅与失败替身出现；切回源码替身后错误横幅消失，textarea 的 `aria-label` 为 `源码替身 正文草稿` |
+| 隔离浏览器 390×844 | `scrollWidth=390`、`clientWidth=390`，无横向溢出，无失败文案 |
+| `node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:44322 --browser-executable <chrome> --suite all` | exit 0，Component Lab smoke passed |
+
+验收副本与 44322 服务仅用于浏览器验证；3001 未参与。临时 `lab-loader-race.ts` 已删除。
+
+## 最终边界
+
+- 未跑全仓测试与生产 build；未执行四主题完整视觉矩阵、真实桌面 bridge、Provider/Model、多窗口或 World Engine / Agent Chat Flow。
+- 本地工作树保留用户原有 `descriptors.ts` 与 `descriptors.test.ts` dirty 改动；本任务未修改其内容、未暂存、未重置。

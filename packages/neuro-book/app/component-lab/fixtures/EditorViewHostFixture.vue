@@ -107,6 +107,7 @@ const LabStubView = defineComponent({
                 h("span", `${viewProps.settleDelayMs}ms 后结算输入`),
             ]),
             h("textarea", {
+                "aria-label": `${viewProps.label} 正文草稿`,
                 ref: textareaRef,
                 value: draft.value,
                 spellcheck: false,
@@ -162,11 +163,11 @@ function contribution(options: StubOptions): EditorContribution {
     };
 }
 
-/** 场景登记：注册表里必须有 `code`，这是产品注册表的既有约束。 */
+/** 场景登记：注册表里必须有 `code`，这是产品注册表的既有约束；失败档默认进入 crash。 */
 const sceneDefinitions: Record<string, {stubs: StubOptions[]; editorId: string}> = {
     switch: {stubs: [codeStub, richStub], editorId: "code"},
     pending: {stubs: [codeStub, slowStub], editorId: "code"},
-    "view-error": {stubs: [codeStub, crashStub], editorId: "code"},
+    "view-error": {stubs: [codeStub, crashStub], editorId: "crash"},
     single: {stubs: [codeStub], editorId: "code"},
 };
 
@@ -227,6 +228,12 @@ watch(() => [props.scene, props.data] as const, () => {
     activeEditorId.value = "";
 }, {immediate: true});
 
+function switchEditor(nextEditorId: string): void {
+    failure.value = "";
+    editorId.value = nextEditorId;
+    log("switch-editor", nextEditorId);
+}
+
 function log(name: string, payload: string): void {
     lastEvent.value = payload ? `${name}：${payload}` : name;
     emitLabEvent(name, payload);
@@ -276,7 +283,7 @@ function onViewError(nextTarget: EditorDocumentTarget, message: string): void {
                 type="button"
                 class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
                 :class="definition.id === editorId ? 'border-[var(--accent-main)] text-[var(--accent-text)]' : ''"
-                @click="editorId = definition.id; log('switch-editor', definition.id)"
+                @click="switchEditor(definition.id)"
             >
                 {{ definition.label }}
             </button>

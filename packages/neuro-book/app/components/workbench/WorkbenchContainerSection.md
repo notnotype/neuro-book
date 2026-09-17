@@ -58,4 +58,4 @@ type Slots = {
 ## 单根契约
 
 单根 `<section class="workbench-container-section">`，属性带 `data-section`、`data-collapsed`、`data-layout`。
-展开/收起切换通过头部 `<button class="workbench-container-section__header">` 触发，支持键盘 Accessible 操作（`aria-expanded`、`aria-controls`）。
+折叠由头部内 `<button class="workbench-container-section__toggle">` 触发，支持键盘 Accessible 操作（`aria-expanded`、`aria-controls`）；头部本身是布局容器，`actions` 槽与其同级，点选不触发折叠。`collapsible: false` 时头部不渲染按钮，只留静态标题行。

@@ -14,6 +14,7 @@ import EditorTabBar from "nbook/app/components/editor-workbench/EditorTabBar.vue
 import type {EditorTabDropPosition, EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
 import {useLabEventSink} from "../lab-event-sink";
 
+/** Lab 宿主会传场景数据；这四个场景不登记 data，夹具不消费它。 */
 const props = defineProps<{scene: string; data?: unknown}>();
 
 const emitLabEvent = useLabEventSink();
@@ -61,7 +62,7 @@ const SINGLE_PREVIEW_TABS: EditorTabPresentation[] = [
     {path: "src/story/chapter-03.md", title: "chapter-03.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
 ];
 
-/** 场景登记初值：与 fixtures/index.ts 里每个场景的 data 是同一份内容，改一处必须改两处。 */
+/** 场景初值只登记在这里一处：`fixtures/index.ts` 不给这些场景登记 data，Lab 数据面板对它们不可编辑。 */
 const SCENE_SEEDS: Record<SceneKey, SceneSeed> = {
     "mixed": {tabs: MIXED_TABS, activePath: "src/story/chapter-02.md"},
     "overflow": {tabs: OVERFLOW_TABS, activePath: "src/notes/2026-09-17-editor-tab-bar-scroll-and-truncation-manual-verification-checklist.txt"},
@@ -73,33 +74,6 @@ function resolveScene(scene: string): SceneKey {
     return SCENE_KEYS.find((key) => key === scene) ?? "mixed";
 }
 
-/**
- * 数据面板里的 tabs 是手改的 JSON：类型不对就整块回落到场景登记初值，
- * 条目缺 path 才丢掉——没有 path 的标签连 key 都组不出来。
- */
-function readTabs(value: unknown, fallback: EditorTabPresentation[]): EditorTabPresentation[] {
-    if (!Array.isArray(value)) {
-        return fallback;
-    }
-    return value.flatMap((item): EditorTabPresentation[] => {
-        if (typeof item !== "object" || item === null) {
-            return [];
-        }
-        const raw = item as Record<string, unknown>;
-        const path = typeof raw.path === "string" ? raw.path : "";
-        if (!path) {
-            return [];
-        }
-        return [{
-            path,
-            title: typeof raw.title === "string" && raw.title !== "" ? raw.title : path,
-            pinned: raw.pinned === true,
-            preview: raw.preview === true,
-            dirty: raw.dirty === true,
-            iconClass: typeof raw.iconClass === "string" && raw.iconClass !== "" ? raw.iconClass : "i-lucide-file-text",
-        }];
-    });
-}
 
 const tabs = ref<EditorTabPresentation[]>([]);
 const activePath = ref("");
@@ -107,22 +81,18 @@ const lastEvent = ref("—");
 
 function applyScene(): void {
     const seed = SCENE_SEEDS[resolveScene(props.scene)];
-    const data = (props.data ?? {}) as Record<string, unknown>;
     // 拷贝一份：双击保留预览要改标签对象，登记初值不能被就地污染。
-    tabs.value = readTabs(data.tabs, seed.tabs).map((tab) => ({...tab}));
+    tabs.value = seed.tabs.map((tab) => ({...tab}));
 
-    const wantedPath = typeof data.activePath === "string" ? data.activePath : seed.activePath;
     // 活动路径必须真的在列表里：否则每一行的 aria-selected 都是 false，
     // 看起来像「没有选中项」，而不是「指向了不存在的标签」。
-    activePath.value = tabs.value.some((tab) => tab.path === wantedPath)
-        ? wantedPath
+    activePath.value = tabs.value.some((tab) => tab.path === seed.activePath)
+        ? seed.activePath
         : (tabs.value[0]?.path ?? "");
     lastEvent.value = "—";
 }
 
 watch(() => props.scene, applyScene, {immediate: true});
-// 数据面板改完立刻回流到 :data，还原也会换一个新对象，两条路都按初值重播种。
-watch(() => props.data, applyScene);
 
 function handleSelectTab(path: string): void {
     activePath.value = path;

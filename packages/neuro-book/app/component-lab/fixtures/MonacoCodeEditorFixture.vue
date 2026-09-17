@@ -26,6 +26,14 @@ type SceneData = {
     preferences: MonacoEditorPreferences;
 };
 
+type ScenePatch = {
+    initialValue?: string;
+    language?: string;
+    readonly?: boolean;
+    placeholder?: string;
+    temporaryFontSize?: number | null;
+    preferences?: Partial<MonacoEditorPreferences>;
+};
 function preferences(overrides: Partial<MonacoEditorPreferences> = {}): MonacoEditorPreferences {
     return {...DEFAULT_MONACO_EDITOR_PREFERENCES, ...overrides};
 }
@@ -87,12 +95,45 @@ const liveValue = ref("");
 const lastEvent = ref("");
 
 /** 右栏数据是按字段覆盖场景初值的补丁，不是整份替换：少写一个键就沿用场景的登记值。 */
-function normalize(value: unknown): Partial<SceneData> | null {
-    if (!value || typeof value !== "object") {
+function readPreferences(value: unknown): Partial<MonacoEditorPreferences> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
         return null;
     }
-    const candidate = value as Partial<SceneData>;
-    const patch: Partial<SceneData> = {};
+    const raw = value as Record<string, unknown>;
+    const patch: Partial<MonacoEditorPreferences> = {};
+    if (typeof raw.fontFamily === "string") {
+        patch.fontFamily = raw.fontFamily;
+    }
+    if (typeof raw.fontSize === "number" && Number.isFinite(raw.fontSize)) {
+        patch.fontSize = raw.fontSize;
+    }
+    if (typeof raw.lineHeight === "number" && Number.isFinite(raw.lineHeight)) {
+        patch.lineHeight = raw.lineHeight;
+    }
+    if (typeof raw.tabSize === "number" && Number.isFinite(raw.tabSize)) {
+        patch.tabSize = raw.tabSize;
+    }
+    if (typeof raw.wordWrap === "boolean") {
+        patch.wordWrap = raw.wordWrap;
+    }
+    if (typeof raw.minimapEnabled === "boolean") {
+        patch.minimapEnabled = raw.minimapEnabled;
+    }
+    if (typeof raw.lineNumbers === "boolean") {
+        patch.lineNumbers = raw.lineNumbers;
+    }
+    if (typeof raw.renderWhitespace === "boolean") {
+        patch.renderWhitespace = raw.renderWhitespace;
+    }
+    return patch;
+}
+
+function normalize(value: unknown): ScenePatch | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const candidate = value as Record<string, unknown>;
+    const patch: ScenePatch = {};
     if (typeof candidate.initialValue === "string") {
         patch.initialValue = candidate.initialValue;
     }
@@ -105,11 +146,14 @@ function normalize(value: unknown): Partial<SceneData> | null {
     if (typeof candidate.placeholder === "string") {
         patch.placeholder = candidate.placeholder;
     }
-    if (typeof candidate.temporaryFontSize === "number" || candidate.temporaryFontSize === null) {
+    if (candidate.temporaryFontSize === null || (typeof candidate.temporaryFontSize === "number" && Number.isFinite(candidate.temporaryFontSize))) {
         patch.temporaryFontSize = candidate.temporaryFontSize;
     }
-    if (typeof candidate.preferences === "object" && candidate.preferences !== null) {
-        patch.preferences = {...preferences(), ...candidate.preferences};
+    if (candidate.preferences !== undefined) {
+        const preferencePatch = readPreferences(candidate.preferences);
+        if (preferencePatch !== null) {
+            patch.preferences = preferencePatch;
+        }
     }
     return patch;
 }
