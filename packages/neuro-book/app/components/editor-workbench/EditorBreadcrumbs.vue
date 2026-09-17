@@ -69,7 +69,8 @@ const resolvedSegments = computed<BreadcrumbItem[]>(() => {
             id: accPath,
             label: part,
             path: accPath,
-            iconClass: isLastFile ? resolveFileIcon(part) : "i-lucide-folder text-[var(--text-muted)]",
+            // 严格对齐 VS Code：路径目录段不显示文件夹图标，保持清爽；只有末尾具体文件显示图标
+            iconClass: isLastFile ? resolveFileIcon(part) : undefined,
             isLast: isLastFile && props.symbols.length === 0,
         });
     });
@@ -96,23 +97,23 @@ function handleItemClick(item: BreadcrumbItem): void {
 <template>
     <nav
         aria-label="文件路径大纲导航"
-        class="editor-breadcrumbs flex h-6 shrink-0 items-center overflow-x-auto overflow-y-hidden border-b border-[var(--divider)] bg-[var(--panel-surface)] px-2 text-[11px] text-[var(--text-secondary)] select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        class="editor-breadcrumbs flex h-[22px] shrink-0 items-center overflow-x-auto overflow-y-hidden border-b border-[var(--divider)] bg-[var(--panel-surface)] px-2.5 text-[11px] text-[var(--text-secondary)] select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
     >
-        <ol class="flex items-center gap-1 min-w-0">
+        <ol class="flex items-center gap-0.5 min-w-0">
             <template v-for="(item, index) in resolvedSegments" :key="item.id">
                 <li
                     v-if="index > 0"
-                    class="flex items-center text-[var(--text-muted)]"
+                    class="flex items-center text-[var(--text-muted)] opacity-60 mx-0.5"
                     aria-hidden="true"
                 >
-                    <span class="i-lucide-chevron-right h-3 w-3 shrink-0" />
+                    <span class="i-lucide-chevron-right h-2.5 w-2.5 shrink-0" />
                 </li>
 
                 <li class="flex items-center min-w-0">
                     <button
                         type="button"
-                        class="flex items-center gap-1 rounded-[var(--radius-control)] px-1 py-0.5 leading-tight transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
-                        :class="item.isLast ? 'text-[var(--text-main)] font-medium' : 'text-[var(--text-secondary)]'"
+                        class="flex items-center gap-1 rounded-[calc(var(--radius-control)-2px)] px-1 py-0 leading-none transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
+                        :class="item.isLast ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
                         :title="item.path || item.label"
                         @click="handleItemClick(item)"
                     >

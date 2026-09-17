@@ -123,16 +123,15 @@ export const VIEW_AUTHORITIES = ["project", "session", "job", "files"] as const;
 
 export type ViewAuthority = (typeof VIEW_AUTHORITIES)[number];
 
-/** `stateScope` 取值域：该视图的 memento 落在哪一层（提案「状态分层」表）。 */
-export const VIEW_STATE_SCOPES = ["user", "project", "session"] as const;
+/** `stateScope` 取值域：该视图的 memento 落在 User Storage 或 Project Storage。 */
+export const VIEW_STATE_SCOPES = ["user", "project"] as const;
 
 export type ViewStateScope = (typeof VIEW_STATE_SCOPES)[number];
 
-/** memento 的归属层：`project` / `session` 带各自的实例身份，`user` 是用户级。 */
+/** memento 的归属层；不持久化的瞬时状态不通过 stateScope 表达。 */
 export type ViewStateLayer =
     | {scope: "user"}
-    | {scope: "project"; projectRoot: string}
-    | {scope: "session"; sessionId: string};
+    | {scope: "project"; projectRoot: string};
 
 /** 宿主注入的环境事实。本层不 import store、不读 window——谁持有事实谁填。 */
 export type WorkbenchContext = Readonly<{
@@ -148,8 +147,6 @@ export type WorkbenchContext = Readonly<{
     authorities: Readonly<Record<ViewAuthority, boolean>>;
     /** 当前 Project 根；`stateScope=project` 的 memento 需要它。 */
     projectRoot: string | null;
-    /** 当前会话 id；`stateScope=session` 的 memento 需要它。 */
-    sessionId: string | null;
 }>;
 
 type ContextCheck = {available: (context: WorkbenchContext) => boolean; reason: string};
@@ -168,16 +165,13 @@ const AUTHORITY_CHECKS: Record<string, ContextCheck> = {
     files: {available: (context) => context.authorities.files, reason: "需要工作区文件 authority"},
 } satisfies Record<ViewAuthority, ContextCheck>;
 
-type StateLayerContext = Pick<WorkbenchContext, "projectRoot" | "sessionId">;
+type StateLayerContext = Pick<WorkbenchContext, "projectRoot">;
 
 const STATE_SCOPE_RESOLVERS: Record<string, (context: StateLayerContext) => DescriptorResult<ViewStateLayer>> = {
     user: () => ok({scope: "user"}),
     project: (context) => context.projectRoot === null
         ? fail("stateScope=project 需要当前 Project 根")
         : ok({scope: "project", projectRoot: context.projectRoot}),
-    session: (context) => context.sessionId === null
-        ? fail("stateScope=session 需要活动会话 id")
-        : ok({scope: "session", sessionId: context.sessionId}),
 } satisfies Record<ViewStateScope, (context: StateLayerContext) => DescriptorResult<ViewStateLayer>>;
 
 /** 可见性求值结果：原因供容器内展示（可见性永远不是权限）。 */

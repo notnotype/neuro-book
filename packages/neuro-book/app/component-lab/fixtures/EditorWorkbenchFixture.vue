@@ -253,8 +253,8 @@ const SCENE_TABS: Record<string, EditorTabPresentation[]> = {
     mixed: [
         {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
         {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
-        {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-        {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
+        {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, statusText: "U", iconClass: "i-lucide-file-text"},
+        {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, statusText: "M", iconClass: "i-lucide-file-text"},
         {path: "src/notes/quick-draft.txt", title: "quick-draft.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
     ],
     "long-titles": [
@@ -599,7 +599,7 @@ function addTab(type: "normal" | "pinned" | "preview"): void {
     documentContents[newPath] = `# 新建笔记 0${count}\n\n这是动态添加的草稿。`;
     tabs.value = [...tabs.value, {
         path: newPath, title: `note-0${count}.md`, pinned: type === "pinned", preview: type === "preview",
-        dirty: false, iconClass: "i-lucide-file-text",
+        dirty: false, statusText: "U", iconClass: "i-lucide-file-text",
     }];
     activePath.value = newPath;
     syncDataSink();
@@ -705,19 +705,6 @@ watch(activePath, (p) => {
                 @open-as-code="handleOpenAsCode"
                 @split-tab="handleSplitTab"
             >
-                <template #status>
-                    <div class="flex items-center gap-2 px-2 text-[11px]">
-                        <span v-if="activeTab?.dirty" class="flex items-center gap-1 font-medium text-[var(--status-warning)]">
-                            <span class="h-2 w-2 rounded-full bg-[var(--status-warning)]" />
-                            未保存修改
-                        </span>
-                        <span v-else-if="activePath" class="flex items-center gap-1 text-[var(--text-muted)]">
-                            <span class="i-lucide-check h-3.5 w-3.5 text-[var(--status-success)]" />
-                            已保存
-                        </span>
-                    </div>
-                </template>
-
                 <template #default>
                     <EditorViewHost
                         v-if="documentSnapshot"

@@ -462,12 +462,12 @@ function getDropIndicator(tab: EditorTabPresentation, pinned: boolean): "before"
         <!-- 普通标签行与尾部工具插槽 -->
         <div
             ref="activeRowContainerRef"
-            class="flex h-9 shrink-0 items-center justify-between gap-1 overflow-hidden px-1"
+            class="flex h-[34px] shrink-0 items-center justify-between gap-1 overflow-hidden px-2"
         >
             <div
                 role="tablist"
                 :aria-label="t('editorWorkbench.regularTabs')"
-                class="editor-tab-group editor-regular-tabs flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                class="editor-tab-group editor-regular-tabs flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden gap-0.5"
                 @wheel="handleTabWheel"
                 @dragover="updateGroupDrop(false, $event)"
                 @drop="commitTabDrop"

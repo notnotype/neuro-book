@@ -20,7 +20,6 @@ const context: WorkbenchContext = {
     desktop: true,
     authorities: {project: true, session: false, job: false, files: true},
     projectRoot: "/workspace/novel",
-    sessionId: null,
 };
 
 function view(overrides: Partial<ViewDescriptor> & {id: string}): ViewDescriptor {
@@ -155,11 +154,10 @@ describe("evaluateAuthorities", () => {
 });
 
 describe("resolveViewStateLayer", () => {
-    it("user / project 层可直接求值；缺会话实例身份时失败", () => {
+    it("user / project 层可直接求值；session 不属于 Storage scope", () => {
         expect(resolveViewStateLayer("user", context)).toEqual({ok: true, value: {scope: "user"}});
         expect(resolveViewStateLayer("project", context)).toEqual({ok: true, value: {scope: "project", projectRoot: "/workspace/novel"}});
-        expect(resolveViewStateLayer("session", context)).toEqual({ok: false, reason: "stateScope=session 需要活动会话 id"});
-        expect(resolveViewStateLayer("session", {...context, sessionId: "session-1"})).toEqual({ok: true, value: {scope: "session", sessionId: "session-1"}});
+        expect(resolveViewStateLayer("session", context)).toEqual({ok: false, reason: "未登记的 stateScope 取值：session"});
     });
 
     it("未登记的 stateScope 取值返回失败", () => {

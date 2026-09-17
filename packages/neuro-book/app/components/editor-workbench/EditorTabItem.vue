@@ -72,12 +72,12 @@ defineExpose({
 <template>
     <div
         data-role="editor-tab-item"
-        class="editor-tab-item group relative flex shrink-0 items-center border-r border-[var(--divider)] transition-colors select-none"
+        class="editor-tab-item group relative flex shrink-0 items-center rounded-[var(--radius-control)] transition-all select-none mx-0.5 my-1"
         :class="[
-            pinned ? 'h-7' : 'h-8.5',
+            pinned ? 'h-6' : 'h-[26px]',
             active
-                ? 'bg-[var(--panel-surface)] text-[var(--text-main)] shadow-xs after:absolute after:top-0 after:left-0 after:h-[2px] after:w-full after:bg-[var(--accent-main)]'
-                : 'bg-[var(--bg-panel)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
+                ? 'bg-[var(--panel-surface)] text-[var(--text-main)] shadow-2xs ring-1 ring-[var(--border-color)]/60 font-medium'
+                : 'bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
             tab.preview ? 'is-preview' : '',
             tab.dirty ? 'is-dirty' : '',
         ]"
@@ -92,12 +92,12 @@ defineExpose({
         <!-- 拖拽目标指示线 -->
         <div
             v-if="dropIndicator === 'before'"
-            class="absolute inset-y-0 left-0 w-0.5 z-10 bg-[var(--accent-main)]"
+            class="absolute inset-y-1 left-0 -translate-x-1/2 w-0.5 z-10 bg-[var(--accent-main)] rounded-full"
             aria-hidden="true"
         />
         <div
             v-if="dropIndicator === 'after'"
-            class="absolute inset-y-0 right-0 w-0.5 z-10 bg-[var(--accent-main)]"
+            class="absolute inset-y-1 right-0 translate-x-1/2 w-0.5 z-10 bg-[var(--accent-main)] rounded-full"
             aria-hidden="true"
         />
 
@@ -109,54 +109,58 @@ defineExpose({
             :aria-selected="active"
             :aria-controls="ariaControls"
             :tabindex="focused ? 0 : -1"
-            class="editor-tab-button flex min-w-0 items-center gap-1.5 px-3 py-1 text-xs font-medium text-left outline-none cursor-pointer focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
-            :class="pinned ? 'max-w-[180px]' : 'max-w-[220px]'"
+            class="editor-tab-button flex min-w-0 items-center gap-1.5 pl-2.5 pr-1 py-1 text-xs text-left outline-none cursor-pointer focus-visible:ring-1 focus-visible:ring-[var(--accent-main)] rounded-[calc(var(--radius-control)-1px)]"
+            :class="pinned ? 'max-w-[160px]' : 'max-w-[220px]'"
             @click="emit('select', tab.path)"
             @dblclick="emit('keep', tab.path)"
             @keydown="emit('keydown', $event)"
         >
             <span :class="resolvedIconClass" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span
-                class="min-w-0 flex-1 truncate"
+                class="min-w-0 flex-1 truncate font-normal text-[11.5px]"
                 :class="[
                     tab.preview ? 'italic text-[var(--text-secondary)]' : '',
-                    tab.statusText === 'U' ? 'text-emerald-600 dark:text-emerald-400 font-medium' : '',
-                    tab.statusText === 'M' ? 'text-amber-600 dark:text-amber-400 font-medium' : '',
+                    tab.statusText === 'U' || (!tab.statusText && tab.dirty) ? 'text-emerald-600 dark:text-emerald-400' : '',
+                    tab.statusText === 'M' ? 'text-amber-600 dark:text-amber-400' : '',
                 ]"
             >
                 {{ tab.title }}
             </span>
 
-            <!-- Git 状态标识 (如 U, M) -->
+            <!-- Git 状态标识 (对齐 VS Code: 浅绿小字母 U 或 浅橙小字母 M) -->
             <span
                 v-if="tab.statusText"
-                class="text-[10px] font-mono leading-none px-0.5"
+                class="text-[11px] font-mono leading-none font-normal"
                 :class="tab.statusText === 'U' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'"
                 :aria-label="`状态: ${tab.statusText}`"
             >
                 {{ tab.statusText }}
             </span>
+        </button>
 
-            <!-- 未保存 Dirty 圆点 -->
+        <!-- VS Code 风格关闭/未保存圆点区域：未保存时默认小圆点，hover 时切换为叉号 -->
+        <div class="relative flex h-4.5 w-4.5 shrink-0 items-center justify-center mr-1 ml-0.5">
             <span
                 v-if="tab.dirty"
-                class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-warning)]"
+                class="h-2 w-2 shrink-0 rounded-full bg-[var(--text-secondary)] transition-opacity duration-150 group-hover:opacity-0"
                 :title="t('editorWorkbench.unsaved')"
                 :aria-label="t('editorWorkbench.unsaved')"
             />
-        </button>
-
-        <!-- 关闭按钮 -->
-        <button
-            type="button"
-            class="editor-tab-close mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[calc(var(--radius-control)*0.75)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-main)]"
-            :class="active ? 'opacity-70 hover:opacity-100' : ''"
-            :title="`${t('editorWorkbench.close')} (${tab.title})`"
-            :aria-label="`${t('editorWorkbench.close')} ${tab.title}`"
-            tabindex="-1"
-            @click.stop="emit('close', tab.path)"
-        >
-            <span class="i-lucide-x h-3 w-3" aria-hidden="true" />
-        </button>
+            <button
+                type="button"
+                class="editor-tab-close absolute inset-0 flex items-center justify-center rounded-[calc(var(--radius-control)*0.75)] text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] transition-all cursor-pointer"
+                :class="[
+                    tab.dirty
+                        ? 'opacity-0 group-hover:opacity-80 hover:!opacity-100 focus-visible:opacity-100'
+                        : (active ? 'opacity-60 hover:opacity-100' : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:opacity-100'),
+                ]"
+                :title="`${t('editorWorkbench.close')} (${tab.title})`"
+                :aria-label="`${t('editorWorkbench.close')} ${tab.title}`"
+                tabindex="-1"
+                @click.stop="emit('close', tab.path)"
+            >
+                <span class="i-lucide-x h-3 w-3" aria-hidden="true" />
+            </button>
+        </div>
     </div>
 </template>
