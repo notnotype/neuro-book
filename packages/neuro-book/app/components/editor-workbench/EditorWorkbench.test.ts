@@ -263,4 +263,52 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(emitted("close-tab")).toBeUndefined();
         expect(wrapper.get('[role="tab"][aria-selected="true"]').element.textContent?.trim()).toBe("a.md");
     });
+
+    it("有活动文档时渲染面包屑导航栏", () => {
+        const {wrapper} = mountShell({tabs: [tab("src/draft/note-01.md")], activePath: "src/draft/note-01.md"});
+        const breadcrumbs = wrapper.findComponent({name: "EditorBreadcrumbs"});
+        expect(breadcrumbs.exists()).toBe(true);
+        expect(breadcrumbs.text()).toContain("draft");
+        expect(breadcrumbs.text()).toContain("note-01.md");
+    });
+
+    it("拖拽 tab 到编辑区边缘显示分屏遮罩并在 drop 时发出 split-tab 事件", async () => {
+        const {wrapper, emitted} = mountShell({tabs: [tab("a.md")], activePath: "a.md"});
+        const content = wrapper.get('[role="tabpanel"]');
+
+        // 模拟 bounding rect
+        content.element.getBoundingClientRect = vi.fn().mockReturnValue({
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+            right: 800,
+            bottom: 600,
+        });
+
+        // 拖到右侧边缘 (clientX = 700 / 800 = 87.5% > 75%)
+        const dragOverEvent = new MouseEvent("dragover", {clientX: 700, clientY: 300, bubbles: true}) as DragEvent;
+        Object.defineProperty(dragOverEvent, "dataTransfer", {
+            value: {dropEffect: "none", types: ["application/x-editor-tab"]},
+        });
+        content.element.dispatchEvent(dragOverEvent);
+        await nextTick();
+
+        const overlay = wrapper.find('[data-role="editor-split-overlay"]');
+        expect(overlay.exists()).toBe(true);
+        expect(overlay.text()).toContain("分屏打开到右侧");
+
+        // 模拟 drop
+        const dropEvent = new MouseEvent("drop", {clientX: 700, clientY: 300, bubbles: true}) as DragEvent;
+        Object.defineProperty(dropEvent, "dataTransfer", {
+            value: {
+                getData: (type: string) => (type === "application/x-editor-tab" ? "other.md" : ""),
+            },
+        });
+        content.element.dispatchEvent(dropEvent);
+        await nextTick();
+
+        expect(emitted("split-tab")).toEqual([["other.md", "right"]]);
+        expect(wrapper.find('[data-role="editor-split-overlay"]').exists()).toBe(false);
+    });
 });

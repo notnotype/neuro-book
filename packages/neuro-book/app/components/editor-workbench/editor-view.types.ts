@@ -64,8 +64,10 @@ export type EditorTabPresentation = Readonly<{
     preview: boolean;
     dirty: boolean;
     iconClass: string;
+    statusText?: string;
 }>;
 export type EditorTabDropPosition = "before" | "after";
+export type EditorSplitDirection = "left" | "right" | "top" | "bottom";
 
 export function matchesEditorDocument(a: EditorDocumentTarget | null, b: EditorDocumentTarget | null): boolean {
     return a !== null && b !== null && a.workspaceKey === b.workspaceKey

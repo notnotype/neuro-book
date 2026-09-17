@@ -2,6 +2,7 @@
 import {computed, nextTick, onMounted, onUnmounted, ref, watch} from "vue";
 import {ContextMenu, type ContextMenuItem} from "@notnotype/nb-ui/components";
 import type {EditorTabDropPosition, EditorTabPresentation} from "./editor-view.types";
+import EditorTabItem from "./EditorTabItem.vue";
 
 const props = defineProps<{
     tabs: readonly EditorTabPresentation[];
@@ -23,8 +24,31 @@ const pinnedTabs = computed(() => props.tabs.filter((tab) => tab.pinned));
 const regularTabs = computed(() => props.tabs.filter((tab) => !tab.pinned));
 
 const focusedPath = ref<string>("");
-const tabButtonRefs = ref<Record<string, HTMLButtonElement | null>>({});
+const tabItemRefs = ref<Record<string, unknown>>({});
 const activeRowContainerRef = ref<HTMLElement | null>(null);
+
+function getTabButton(path: string): HTMLButtonElement | null {
+    const comp = tabItemRefs.value[path];
+    if (!comp) return null;
+    if (comp instanceof HTMLButtonElement) return comp;
+    if (typeof comp === "object" && comp !== null) {
+        if ("$el" in comp && (comp as any).$el instanceof HTMLElement) {
+            return (comp as any).$el.querySelector('button[role="tab"]');
+        }
+        if ("getButtonElement" in comp && typeof (comp as any).getButtonElement === "function") {
+            return (comp as any).getButtonElement();
+        }
+    }
+    return null;
+}
+
+const tabButtonRefs = computed(() => {
+    const map: Record<string, HTMLButtonElement | null> = {};
+    for (const path of props.tabs.map((t) => t.path)) {
+        map[path] = getTabButton(path);
+    }
+    return map;
+});
 
 const draggedTabPath = ref<string | null>(null);
 const dropTargetPath = ref<string | null>(null);
@@ -47,11 +71,11 @@ function panelDomId(path: string): string {
     return `editor-tabpanel-${encodeURIComponent(path)}`;
 }
 
-function setTabButtonRef(path: string, el: unknown): void {
-    if (el instanceof HTMLButtonElement) {
-        tabButtonRefs.value[path] = el;
+function setTabItemRef(path: string, comp: unknown): void {
+    if (comp) {
+        tabItemRefs.value[path] = comp;
     } else {
-        delete tabButtonRefs.value[path];
+        delete tabItemRefs.value[path];
     }
 }
 
@@ -95,7 +119,7 @@ watch(
             }
         } else if (focusedPath.value && typeof document !== "undefined" && (!document.activeElement || document.activeElement === document.body)) {
             nextTick(() => {
-                tabButtonRefs.value[focusedPath.value]?.focus();
+                getTabButton(focusedPath.value)?.focus();
             });
         }
     },
@@ -104,7 +128,7 @@ watch(
 
 function scrollToActiveTab(): void {
     nextTick(() => {
-        const btn = tabButtonRefs.value[props.activePath];
+        const btn = getTabButton(props.activePath);
         if (btn) {
             btn.scrollIntoView({behavior: "smooth", block: "nearest", inline: "nearest"});
         }
@@ -114,7 +138,7 @@ function scrollToActiveTab(): void {
 function focusTab(path: string): void {
     focusedPath.value = path;
     nextTick(() => {
-        tabButtonRefs.value[path]?.focus();
+        getTabButton(path)?.focus();
     });
 }
 
@@ -166,7 +190,7 @@ function handleTabKeydown(tab: EditorTabPresentation, pinned: boolean, event: Ke
         handleCloseTab(tab.path);
     } else if (event.shiftKey && event.key === "F10") {
         event.preventDefault();
-        const btn = tabButtonRefs.value[tab.path];
+        const btn = getTabButton(tab.path);
         if (btn) {
             const rect = btn.getBoundingClientRect();
             openTabContextMenuAt(tab, rect.left + rect.width / 2, rect.bottom);
@@ -247,7 +271,7 @@ function openTabContextMenu(tab: EditorTabPresentation, event: MouseEvent): void
 function openTabContextMenuAt(tab: EditorTabPresentation, x: number, y: number): void {
     contextMenuX.value = x;
     contextMenuY.value = y;
-    const el = tabButtonRefs.value[tab.path] ?? null;
+    const el = getTabButton(tab.path);
     openContextMenuForTab(tab, el);
 }
 
@@ -319,11 +343,22 @@ onUnmounted(() => {
     window.removeEventListener("keydown", handleWindowKeydown, true);
 });
 
+/** 鼠标滚轮横向滚动 TabBar */
+function handleTabWheel(event: WheelEvent): void {
+    const container = event.currentTarget as HTMLElement;
+    if (!container || container.scrollWidth <= container.clientWidth) return;
+    if (Math.abs(event.deltaY) > 0) {
+        event.preventDefault();
+        container.scrollLeft += event.deltaY;
+    }
+}
+
 function startTabDrag(tab: EditorTabPresentation, event: DragEvent): void {
     draggedTabPath.value = tab.path;
     if (event.dataTransfer) {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", tab.path);
+        event.dataTransfer.setData("application/x-editor-tab", tab.path);
     }
 }
 
@@ -381,8 +416,11 @@ function clearTabDrag(): void {
     dropReady.value = false;
 }
 
-function isDropTarget(tab: EditorTabPresentation, pinned: boolean, position: EditorTabDropPosition): boolean {
-    return dropTargetPath.value === tab.path && dropTargetPinned.value === pinned && dropPosition.value === position;
+function getDropIndicator(tab: EditorTabPresentation, pinned: boolean): "before" | "after" | null {
+    if (dropTargetPath.value === tab.path && dropTargetPinned.value === pinned) {
+        return dropPosition.value;
+    }
+    return null;
 }
 </script>
 
@@ -394,80 +432,31 @@ function isDropTarget(tab: EditorTabPresentation, pinned: boolean, position: Edi
             role="tablist"
             :aria-label="t('editorWorkbench.pinnedTabs')"
             class="editor-tab-group editor-pinned-tabs flex h-8 shrink-0 items-center overflow-x-auto overflow-y-hidden border-b border-[var(--divider)] px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            @wheel="handleTabWheel"
             @dragover="updateGroupDrop(true, $event)"
             @drop="commitTabDrop"
         >
-            <div
+            <EditorTabItem
                 v-for="tab in pinnedTabs"
                 :key="tab.path"
-                data-role="editor-tab-item"
-                class="editor-tab-item group relative flex h-7 shrink-0 items-center rounded-t-[var(--radius-control)] border-r border-[var(--divider)] transition-colors"
-                :class="[
-                    tab.path === props.activePath
-                        ? 'bg-[var(--panel-surface)] text-[var(--text-main)] shadow-xs after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-full after:bg-[var(--accent-main)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
-                    tab.preview ? 'is-preview' : '',
-                    tab.dirty ? 'is-dirty' : '',
-                ]"
-                :title="tab.path"
-                draggable="true"
+                :ref="(el) => setTabItemRef(tab.path, el)"
+                :tab="tab"
+                :active="tab.path === props.activePath"
+                :focused="tab.path === focusedPath"
+                :pinned="true"
+                :drop-indicator="getDropIndicator(tab, true)"
+                :tab-id="tabDomId(tab.path)"
+                :aria-controls="panelDomId(tab.path)"
+                @select="handleTabClick"
+                @close="handleCloseTab"
+                @keep="emit('keep-tab', $event)"
+                @contextmenu="openTabContextMenu(tab, $event)"
                 @dragstart="startTabDrag(tab, $event)"
                 @dragover="updateTabDrop(tab, true, $event)"
                 @drop="commitTabDrop"
                 @dragend="clearTabDrag"
-                @contextmenu.prevent.stop="openTabContextMenu(tab, $event)"
-            >
-                <div
-                    v-if="isDropTarget(tab, true, 'before')"
-                    class="absolute inset-y-0 left-0 w-0.5 z-10 bg-[var(--accent-main)]"
-                    aria-hidden="true"
-                />
-                <div
-                    v-if="isDropTarget(tab, true, 'after')"
-                    class="absolute inset-y-0 right-0 w-0.5 z-10 bg-[var(--accent-main)]"
-                    aria-hidden="true"
-                />
-
-                <button
-                    type="button"
-                    role="tab"
-                    :id="tabDomId(tab.path)"
-                    :aria-selected="tab.path === props.activePath"
-                    :aria-controls="panelDomId(tab.path)"
-                    :tabindex="tab.path === focusedPath ? 0 : -1"
-                    :ref="(el) => setTabButtonRef(tab.path, el)"
-                    class="editor-tab-button flex min-w-0 max-w-[180px] items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-left outline-none cursor-pointer focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
-                    @click="handleTabClick(tab.path)"
-                    @dblclick="emit('keep-tab', tab.path)"
-                    @keydown="handleTabKeydown(tab, true, $event)"
-                >
-                    <span :class="tab.iconClass || 'i-lucide-file-text'" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                    <span
-                        class="min-w-0 flex-1 truncate"
-                        :class="tab.preview ? 'italic text-[var(--text-secondary)]' : ''"
-                    >
-                        {{ tab.title }}
-                    </span>
-                    <span
-                        v-if="tab.dirty"
-                        class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-warning)]"
-                        :title="t('editorWorkbench.unsaved')"
-                        :aria-label="t('editorWorkbench.unsaved')"
-                    />
-                </button>
-
-                <button
-                    type="button"
-                    class="editor-tab-close mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[calc(var(--radius-control)*0.75)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
-                    :class="tab.path === props.activePath ? 'opacity-70 hover:opacity-100' : ''"
-                    :title="`${t('editorWorkbench.close')} (${tab.title})`"
-                    :aria-label="`${t('editorWorkbench.close')} ${tab.title}`"
-                    tabindex="-1"
-                    @click.stop="handleCloseTab(tab.path)"
-                >
-                    <span class="i-lucide-x h-3 w-3" aria-hidden="true" />
-                </button>
-            </div>
+                @keydown="handleTabKeydown(tab, true, $event)"
+            />
         </div>
 
         <!-- 普通标签行与尾部工具插槽 -->
@@ -479,80 +468,31 @@ function isDropTarget(tab: EditorTabPresentation, pinned: boolean, position: Edi
                 role="tablist"
                 :aria-label="t('editorWorkbench.regularTabs')"
                 class="editor-tab-group editor-regular-tabs flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+                @wheel="handleTabWheel"
                 @dragover="updateGroupDrop(false, $event)"
                 @drop="commitTabDrop"
             >
-                <div
+                <EditorTabItem
                     v-for="tab in regularTabs"
                     :key="tab.path"
-                    data-role="editor-tab-item"
-                    class="editor-tab-item group relative flex h-8 shrink-0 items-center rounded-t-[var(--radius-control)] border-r border-[var(--divider)] transition-colors"
-                    :class="[
-                        tab.path === props.activePath
-                            ? 'bg-[var(--panel-surface)] text-[var(--text-main)] shadow-xs after:absolute after:bottom-0 after:left-0 after:h-[2px] after:w-full after:bg-[var(--accent-main)]'
-                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
-                        tab.preview ? 'is-preview' : '',
-                        tab.dirty ? 'is-dirty' : '',
-                    ]"
-                    :title="tab.path"
-                    draggable="true"
+                    :ref="(el) => setTabItemRef(tab.path, el)"
+                    :tab="tab"
+                    :active="tab.path === props.activePath"
+                    :focused="tab.path === focusedPath"
+                    :pinned="false"
+                    :drop-indicator="getDropIndicator(tab, false)"
+                    :tab-id="tabDomId(tab.path)"
+                    :aria-controls="panelDomId(tab.path)"
+                    @select="handleTabClick"
+                    @close="handleCloseTab"
+                    @keep="emit('keep-tab', $event)"
+                    @contextmenu="openTabContextMenu(tab, $event)"
                     @dragstart="startTabDrag(tab, $event)"
                     @dragover="updateTabDrop(tab, false, $event)"
                     @drop="commitTabDrop"
                     @dragend="clearTabDrag"
-                    @contextmenu.prevent.stop="openTabContextMenu(tab, $event)"
-                >
-                    <div
-                        v-if="isDropTarget(tab, false, 'before')"
-                        class="absolute inset-y-0 left-0 w-0.5 z-10 bg-[var(--accent-main)]"
-                        aria-hidden="true"
-                    />
-                    <div
-                        v-if="isDropTarget(tab, false, 'after')"
-                        class="absolute inset-y-0 right-0 w-0.5 z-10 bg-[var(--accent-main)]"
-                        aria-hidden="true"
-                    />
-
-                    <button
-                        type="button"
-                        role="tab"
-                        :id="tabDomId(tab.path)"
-                        :aria-selected="tab.path === props.activePath"
-                        :aria-controls="panelDomId(tab.path)"
-                        :tabindex="tab.path === focusedPath ? 0 : -1"
-                        :ref="(el) => setTabButtonRef(tab.path, el)"
-                        class="editor-tab-button flex min-w-0 max-w-[200px] items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-left outline-none cursor-pointer focus-visible:ring-1 focus-visible:ring-[var(--accent-main)]"
-                        @click="handleTabClick(tab.path)"
-                        @dblclick="emit('keep-tab', tab.path)"
-                        @keydown="handleTabKeydown(tab, false, $event)"
-                    >
-                        <span :class="tab.iconClass || 'i-lucide-file-text'" class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                        <span
-                            class="min-w-0 flex-1 truncate"
-                            :class="tab.preview ? 'italic text-[var(--text-secondary)]' : ''"
-                        >
-                            {{ tab.title }}
-                        </span>
-                        <span
-                            v-if="tab.dirty"
-                            class="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--status-warning)]"
-                            :title="t('editorWorkbench.unsaved')"
-                            :aria-label="t('editorWorkbench.unsaved')"
-                        />
-                    </button>
-
-                    <button
-                        type="button"
-                        class="editor-tab-close mr-1.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[calc(var(--radius-control)*0.75)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] group-hover:opacity-100 focus-visible:opacity-100 cursor-pointer"
-                        :class="tab.path === props.activePath ? 'opacity-70 hover:opacity-100' : ''"
-                        :title="`${t('editorWorkbench.close')} (${tab.title})`"
-                        :aria-label="`${t('editorWorkbench.close')} ${tab.title}`"
-                        tabindex="-1"
-                        @click.stop="handleCloseTab(tab.path)"
-                    >
-                        <span class="i-lucide-x h-3 w-3" aria-hidden="true" />
-                    </button>
-                </div>
+                    @keydown="handleTabKeydown(tab, false, $event)"
+                />
             </div>
 
             <!-- 尾部插槽 (用于放置 EditorToolbar / status) -->

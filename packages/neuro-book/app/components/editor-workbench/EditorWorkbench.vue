@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import {computed, nextTick, ref, watch} from "vue";
 import type {MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
-import type {EditorTabDropPosition, EditorTabPresentation} from "./editor-view.types";
+import type {EditorSplitDirection, EditorTabDropPosition, EditorTabPresentation} from "./editor-view.types";
 import EditorTabBar from "./EditorTabBar.vue";
 import EditorToolbar from "./EditorToolbar.vue";
+import EditorBreadcrumbs, {type BreadcrumbItem} from "./EditorBreadcrumbs.vue";
 
 const props = withDefaults(defineProps<{
     tabs?: readonly EditorTabPresentation[];
@@ -11,12 +12,14 @@ const props = withDefaults(defineProps<{
     menus?: MenubarMenuData[];
     busy?: boolean;
     diagnosis?: string | null;
+    breadcrumbsSymbols?: readonly {id: string; label: string; iconClass?: string}[];
 }>(), {
     tabs: () => [],
     activePath: "",
     menus: () => [],
     busy: false,
     diagnosis: null,
+    breadcrumbsSymbols: () => [],
 });
 
 const emit = defineEmits<{
@@ -28,11 +31,16 @@ const emit = defineEmits<{
     (e: "select-menu", item: MenubarItemData): void;
     (e: "retry"): void;
     (e: "open-as-code"): void;
+    (e: "split-tab", path: string, direction: EditorSplitDirection): void;
+    (e: "navigate-breadcrumb", item: BreadcrumbItem): void;
 }>();
 
 const {t} = useI18n();
 
 const emptyContainerRef = ref<HTMLElement | null>(null);
+const contentContainerRef = ref<HTMLElement | null>(null);
+const activeSplitZone = ref<EditorSplitDirection | null>(null);
+let dragCounter = 0;
 
 const hasTabs = computed(() => props.tabs.length > 0);
 const hasActiveDoc = computed(() => Boolean(props.activePath && props.tabs.some((tab) => tab.path === props.activePath)));
@@ -63,13 +71,61 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
         });
     }
 });
+
+function handleContentDragEnter(event: DragEvent): void {
+    if (event.dataTransfer?.types.includes("application/x-editor-tab") || event.dataTransfer?.types.includes("text/plain")) {
+        dragCounter++;
+    }
+}
+
+function handleContentDragOver(event: DragEvent): void {
+    const rect = contentContainerRef.value?.getBoundingClientRect();
+    if (!rect) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+    }
+
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const relX = x / rect.width;
+    const relY = y / rect.height;
+
+    if (relX < 0.25) activeSplitZone.value = "left";
+    else if (relX > 0.75) activeSplitZone.value = "right";
+    else if (relY < 0.25) activeSplitZone.value = "top";
+    else if (relY > 0.75) activeSplitZone.value = "bottom";
+    else activeSplitZone.value = null;
+}
+
+function handleContentDragLeave(): void {
+    dragCounter--;
+    if (dragCounter <= 0) {
+        dragCounter = 0;
+        activeSplitZone.value = null;
+    }
+}
+
+function handleContentDrop(event: DragEvent): void {
+    event.preventDefault();
+    dragCounter = 0;
+    const zone = activeSplitZone.value;
+    activeSplitZone.value = null;
+    if (!zone) return;
+
+    const path = event.dataTransfer?.getData("application/x-editor-tab")
+        || event.dataTransfer?.getData("text/plain");
+    if (path) {
+        emit("split-tab", path, zone);
+    }
+}
 </script>
 
 <template>
     <section
         class="editor-workbench flex h-full w-full min-w-0 min-h-0 flex-col overflow-hidden bg-[var(--panel-surface)] text-[var(--text-main)]"
     >
-        <!-- 顶部外壳区：标签与操作栏（对齐 VS Code，仅在有打开标签时显示） -->
+        <!-- 顶部外壳区：标签栏与面包屑（对齐 VS Code，仅在有打开标签时显示） -->
         <header
             v-if="hasTabs"
             class="editor-workbench-header flex shrink-0 flex-col border-b border-[var(--divider)] bg-[var(--bg-panel)] select-none"
@@ -95,6 +151,14 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
                     </div>
                 </template>
             </EditorTabBar>
+
+            <!-- VS Code 风格极窄路径/大纲面包屑 -->
+            <EditorBreadcrumbs
+                v-if="hasActiveDoc"
+                :path="props.activePath"
+                :symbols="props.breadcrumbsSymbols"
+                @navigate="(item) => emit('navigate-breadcrumb', item)"
+            />
         </header>
 
         <!-- 诊断/错误提示条：错误可见但绝不卸载正文 -->
@@ -130,14 +194,38 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
         <!-- 主内容区：有文档时为 tabpanel 承载视图；无文档时为欢迎页 -->
         <div
             v-if="hasActiveDoc || hasTabs"
+            ref="contentContainerRef"
             role="tabpanel"
             :id="activePanelDomId"
             :aria-labelledby="activeTabDomId"
             class="editor-workbench-content relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--panel-surface)]"
             :aria-busy="props.busy ? 'true' : undefined"
+            @dragenter="handleContentDragEnter"
+            @dragover="handleContentDragOver"
+            @dragleave="handleContentDragLeave"
+            @drop="handleContentDrop"
         >
             <!-- 视图插槽 (如 EditorViewHost) -->
             <slot />
+
+            <!-- 拖拽分屏高亮指示遮罩 -->
+            <div
+                v-if="activeSplitZone"
+                data-role="editor-split-overlay"
+                class="pointer-events-none absolute z-40 transition-all duration-150 border-2 border-[var(--accent-main)] bg-[color-mix(in_srgb,var(--accent-main)_20%,transparent)] shadow-lg"
+                :class="{
+                    'inset-y-0 left-0 w-1/2': activeSplitZone === 'left',
+                    'inset-y-0 right-0 w-1/2': activeSplitZone === 'right',
+                    'inset-x-0 top-0 h-1/2': activeSplitZone === 'top',
+                    'inset-x-0 bottom-0 h-1/2': activeSplitZone === 'bottom',
+                }"
+                aria-hidden="true"
+            >
+                <div class="absolute inset-0 flex items-center justify-center font-medium text-xs text-[var(--accent-main)] bg-[var(--panel-surface)]/80 rounded m-2 border border-[var(--accent-main)]/30 backdrop-blur-xs">
+                    <span class="mr-1.5 h-4 w-4" :class="activeSplitZone === 'left' || activeSplitZone === 'right' ? 'i-lucide-columns' : 'i-lucide-rows'" />
+                    分屏打开到{{ activeSplitZone === 'left' ? '左侧' : activeSplitZone === 'right' ? '右侧' : activeSplitZone === 'top' ? '上方' : '下方' }}
+                </div>
+            </div>
 
             <!-- 读取/切换忙碌遮罩：禁止输入非保存中 -->
             <div

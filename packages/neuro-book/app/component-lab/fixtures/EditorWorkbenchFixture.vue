@@ -11,11 +11,13 @@
  *    以及第三注册视图 (test.preview)，在同一文档快照下切换不同呈现与操作，正文毫发无损；
  * 6. 语义化插槽与无障碍：tabpanel 与 roving tabindex 焦点管理，无标签时自动引导至 EditorWelcome 欢迎页。
  */
-import {computed, defineComponent, h, onBeforeUnmount, onMounted, reactive, ref, shallowRef, watch, type PropType} from "vue";
+import {computed, defineComponent, h, inject, onBeforeUnmount, onMounted, provide, reactive, ref, shallowRef, watch, type PropType} from "vue";
 import type {MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
 import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
 import EditorWelcome from "nbook/app/components/editor-workbench/EditorWelcome.vue";
 import EditorViewHost from "nbook/app/components/editor-workbench/EditorViewHost.vue";
+import WorkbenchStatusBar from "nbook/app/components/workbench/WorkbenchStatusBar.vue";
+import WorkbenchStatusBarItem from "nbook/app/components/workbench/WorkbenchStatusBarItem.vue";
 import LabFixtureControls from "../LabFixtureControls.vue";
 import type {
     EditorAction,
@@ -23,6 +25,7 @@ import type {
     EditorDocumentSnapshot,
     EditorDocumentTarget,
     EditorResource,
+    EditorSplitDirection,
     EditorTabDropPosition,
     EditorTabPresentation,
     EditorViewEvents,
@@ -56,6 +59,16 @@ const LabCodeEditorView = defineComponent({
     emits: ["change", "save", "focus", "ready"],
     setup(viewProps, {emit}) {
         const textareaRef = ref<HTMLTextAreaElement | null>(null);
+        const reportCursor = inject<((line: number, col: number, len: number) => void) | null>("lab-editor-cursor", null);
+
+        function updateCursor(el: HTMLTextAreaElement | null): void {
+            if (!el) return;
+            const pos = el.selectionStart || 0;
+            const textBefore = el.value.substring(0, pos);
+            const lines = textBefore.split("\n");
+            reportCursor?.(lines.length, lines[lines.length - 1]!.length + 1, el.value.length);
+        }
+
         const handle: EditorViewHandle = {
             flushPendingChange() {},
             focus() { textareaRef.value?.focus(); },
@@ -63,31 +76,35 @@ const LabCodeEditorView = defineComponent({
             redo() { document.execCommand?.("redo"); },
         };
 
-        onMounted(() => emit("ready", handle));
+        onMounted(() => {
+            emit("ready", handle);
+            updateCursor(textareaRef.value);
+        });
         onBeforeUnmount(() => emit("ready", null));
 
         return () => h("div", {class: "flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--panel-surface)] font-mono text-xs"}, [
-            h("div", {class: "flex shrink-0 items-center justify-between border-b border-[var(--divider)] bg-[var(--bg-panel)] px-3 py-1 text-[11px] text-[var(--text-muted)]"}, [
-                h("div", {class: "flex items-center gap-1.5"}, [
-                    h("span", {class: "i-lucide-file-code-2 text-[var(--accent-text)] h-3.5 w-3.5"}),
-                    h("span", {class: "font-medium text-[var(--text-main)]"}, "通用源码内核示例"),
-                    h("span", {class: "rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[10px]"}, viewProps.document.languageId),
-                ]),
-                h("span", "Ctrl+S 保存"),
-            ]),
             h("textarea", {
                 ref: textareaRef,
                 value: viewProps.document.content,
                 class: "h-full w-full flex-1 resize-none bg-transparent p-3 font-mono text-xs leading-5 text-[var(--text-main)] outline-none selection:bg-[var(--accent-main)] selection:text-white",
                 spellcheck: false,
-                onInput: (e: Event) => emit("change", viewProps.document.target, (e.target as HTMLTextAreaElement).value),
+                onInput: (e: Event) => {
+                    const el = e.target as HTMLTextAreaElement;
+                    emit("change", viewProps.document.target, el.value);
+                    updateCursor(el);
+                },
+                onClick: (e: MouseEvent) => updateCursor(e.target as HTMLTextAreaElement),
+                onKeyup: (e: KeyboardEvent) => updateCursor(e.target as HTMLTextAreaElement),
                 onKeydown: (e: KeyboardEvent) => {
                     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
                         e.preventDefault();
                         emit("save", viewProps.document.target);
                     }
                 },
-                onFocus: () => emit("focus", viewProps.document.target, true),
+                onFocus: (e: FocusEvent) => {
+                    emit("focus", viewProps.document.target, true);
+                    updateCursor(e.target as HTMLTextAreaElement);
+                },
                 onBlur: () => emit("focus", viewProps.document.target, false),
             }),
         ]);
@@ -105,6 +122,15 @@ const LabMarkdownEditorView = defineComponent({
     setup(viewProps, {emit}) {
         const textareaRef = ref<HTMLTextAreaElement | null>(null);
         const commentsOpen = ref(true);
+        const reportCursor = inject<((line: number, col: number, len: number) => void) | null>("lab-editor-cursor", null);
+
+        function updateCursor(el: HTMLTextAreaElement | null): void {
+            if (!el) return;
+            const pos = el.selectionStart || 0;
+            const textBefore = el.value.substring(0, pos);
+            const lines = textBefore.split("\n");
+            reportCursor?.(lines.length, lines[lines.length - 1]!.length + 1, el.value.length);
+        }
 
         function emitActions(): void {
             emit("actions", viewProps.document.target, [
@@ -126,31 +152,27 @@ const LabMarkdownEditorView = defineComponent({
         onMounted(() => {
             emit("ready", handle);
             emitActions();
+            updateCursor(textareaRef.value);
         });
         onBeforeUnmount(() => emit("ready", null));
 
         return () => h("div", {class: "flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--panel-surface)] text-xs"}, [
-            h("div", {class: "flex shrink-0 items-center justify-between border-b border-[var(--divider)] bg-[var(--bg-panel)] px-3 py-1.5"}, [
-                h("div", {class: "flex items-center gap-1.5"}, [
-                    h("span", {class: "i-lucide-file-text text-[var(--accent-text)] h-4 w-4"}),
-                    h("span", {class: "font-medium text-[var(--text-main)]"}, "Markdown 富文本视图示例"),
-                ]),
-                h("button", {
-                    type: "button",
-                    class: "inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] cursor-pointer",
-                    onClick: () => {
-                        const next = `${viewProps.document.content}\n**粗体文本**`;
-                        emit("change", viewProps.document.target, next);
-                    },
-                }, "+ 插入粗体"),
-            ]),
             h("div", {class: "flex min-h-0 flex-1 overflow-hidden"}, [
                 h("textarea", {
                     ref: textareaRef,
                     value: viewProps.document.content,
                     class: "min-h-0 flex-1 resize-none bg-transparent p-3 font-sans text-sm leading-6 text-[var(--text-main)] outline-none",
-                    onInput: (e: Event) => emit("change", viewProps.document.target, (e.target as HTMLTextAreaElement).value),
-                    onFocus: () => emit("focus", viewProps.document.target, true),
+                    onInput: (e: Event) => {
+                        const el = e.target as HTMLTextAreaElement;
+                        emit("change", viewProps.document.target, el.value);
+                        updateCursor(el);
+                    },
+                    onClick: (e: MouseEvent) => updateCursor(e.target as HTMLTextAreaElement),
+                    onKeyup: (e: KeyboardEvent) => updateCursor(e.target as HTMLTextAreaElement),
+                    onFocus: (e: FocusEvent) => {
+                        emit("focus", viewProps.document.target, true);
+                        updateCursor(e.target as HTMLTextAreaElement);
+                    },
                     onBlur: () => emit("focus", viewProps.document.target, false),
                 }),
                 commentsOpen.value ? h("aside", {class: "w-56 shrink-0 border-l border-[var(--divider)] bg-[var(--bg-panel)] p-3 text-[11px] text-[var(--text-secondary)] flex flex-col gap-2"}, [
@@ -180,14 +202,6 @@ const LabPreviewEditorView = defineComponent({
         onBeforeUnmount(() => emit("ready", null));
 
         return () => h("div", {class: "flex h-full w-full min-h-0 flex-1 flex-col overflow-hidden bg-[var(--panel-surface)] text-xs"}, [
-            h("div", {class: "flex shrink-0 items-center justify-between border-b border-[var(--divider)] bg-[var(--bg-panel)] px-3 py-1.5 text-[11px]"}, [
-                h("div", {class: "flex items-center gap-1.5"}, [
-                    h("span", {class: "i-lucide-eye text-[var(--accent-text)] h-4 w-4"}),
-                    h("span", {class: "font-semibold text-[var(--text-main)]"}, "第三注册视图：阅读预览 (test.preview)"),
-                    h("span", {class: "rounded-full bg-[var(--status-success-bg)] border border-[var(--status-success-border)] px-1.5 py-0.5 text-[10px] text-[var(--status-success)]"}, "同一正文已同步"),
-                ]),
-                h("span", {class: "text-[var(--text-muted)]"}, `${viewProps.document.content.length} 字符`),
-            ]),
             h("div", {class: "flex min-h-0 flex-1 flex-col overflow-y-auto p-4 max-w-2xl mx-auto w-full"}, [
                 h("div", {class: "prose max-w-none text-sm leading-6 text-[var(--text-main)] whitespace-pre-wrap font-serif"}, viewProps.document.content || "（空文档）"),
             ]),
@@ -592,6 +606,34 @@ function addTab(type: "normal" | "pinned" | "preview"): void {
 }
 
 const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.value));
+
+const cursorState = ref({line: 1, column: 1, length: 0});
+const splitPanePath = ref<string | null>(null);
+const splitPaneDirection = ref<EditorSplitDirection | null>(null);
+
+provide("lab-editor-cursor", (line: number, column: number, length: number) => {
+    cursorState.value = {line, column, length};
+});
+
+function handleSplitTab(path: string, direction: EditorSplitDirection): void {
+    splitPanePath.value = path;
+    splitPaneDirection.value = direction;
+    emitLabEvent("split-tab", {path, direction});
+    syncDataSink();
+}
+
+const activeDocumentLanguage = computed(() => {
+    if (!activePath.value) return "";
+    if (activePath.value.endsWith(".md")) return "Markdown";
+    if (activePath.value.endsWith(".json")) return "JSON";
+    if (activePath.value.endsWith(".html")) return "HTML";
+    if (activePath.value.endsWith(".ts")) return "TypeScript";
+    return "纯文本";
+});
+
+watch(activePath, (p) => {
+    cursorState.value = {line: 1, column: 1, length: p ? documentContents[p]?.length ?? 0 : 0};
+});
 </script>
 
 <template>
@@ -644,9 +686,10 @@ const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.va
         </LabFixtureControls>
 
         <!-- 主体被测试零件：EditorWorkbench 绑定 data-lab-subject -->
-        <main class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <main class="relative flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
             <EditorWorkbench
                 data-lab-subject
+                class="flex-1 min-w-0"
                 :tabs="tabs"
                 :active-path="activePath"
                 :menus="menus"
@@ -660,6 +703,7 @@ const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.va
                 @select-menu="handleMenuSelect"
                 @retry="handleRetry"
                 @open-as-code="handleOpenAsCode"
+                @split-tab="handleSplitTab"
             >
                 <template #status>
                     <div class="flex items-center gap-2 px-2 text-[11px]">
@@ -697,6 +741,30 @@ const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.va
                     />
                 </template>
             </EditorWorkbench>
+
+            <!-- 拖拽分屏副视口 -->
+            <section
+                v-if="splitPanePath"
+                class="flex w-80 shrink-0 flex-col border-l border-[var(--divider)] bg-[var(--bg-panel)] overflow-hidden text-xs"
+            >
+                <header class="flex h-9 shrink-0 items-center justify-between border-b border-[var(--divider)] bg-[var(--panel-surface)] px-3 select-none">
+                    <div class="flex items-center gap-1.5 font-medium text-[var(--text-main)] truncate">
+                        <span class="i-lucide-columns text-[var(--accent-text)] h-3.5 w-3.5 shrink-0" />
+                        <span class="truncate">{{ splitPanePath }} (副屏)</span>
+                    </div>
+                    <button
+                        type="button"
+                        class="hover:bg-[var(--bg-hover)] p-1 rounded cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+                        title="关闭分屏"
+                        @click="splitPanePath = null"
+                    >
+                        <span class="i-lucide-x h-3.5 w-3.5" />
+                    </button>
+                </header>
+                <div class="flex-1 overflow-y-auto p-3 font-mono text-xs whitespace-pre-wrap text-[var(--text-main)]">
+                    {{ documentContents[splitPanePath] || "（空文件）" }}
+                </div>
+            </section>
 
             <!-- 脏文件关闭保护确认卡片 -->
             <div
@@ -739,5 +807,36 @@ const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.va
                 </div>
             </div>
         </main>
+
+        <!-- 底部标准状态栏：对齐 VS Code 规范 -->
+        <WorkbenchStatusBar class="shrink-0">
+            <template #left>
+                <WorkbenchStatusBarItem label="main*" icon-class="i-lucide-git-branch" />
+                <WorkbenchStatusBarItem
+                    v-if="activeTab?.dirty"
+                    label="未保存修改"
+                    icon-class="i-lucide-circle-dot text-[var(--status-warning)]"
+                />
+                <WorkbenchStatusBarItem
+                    v-else-if="activePath"
+                    label="就绪"
+                    icon-class="i-lucide-check text-[var(--status-success)]"
+                />
+                <WorkbenchStatusBarItem
+                    v-if="splitPanePath"
+                    :label="`分屏: ${splitPanePath}`"
+                    icon-class="i-lucide-columns"
+                    @click="splitPanePath = null"
+                />
+            </template>
+            <template #right>
+                <WorkbenchStatusBarItem :label="`行 ${cursorState.line}, 列 ${cursorState.column}`" />
+                <WorkbenchStatusBarItem :label="`${cursorState.length || (activePath ? documentContents[activePath]?.length : 0) || 0} 字符`" />
+                <WorkbenchStatusBarItem label="空格: 4" />
+                <WorkbenchStatusBarItem label="UTF-8" />
+                <WorkbenchStatusBarItem label="CRLF" />
+                <WorkbenchStatusBarItem :label="activeDocumentLanguage || 'Markdown'" icon-class="i-lucide-file-code" />
+            </template>
+        </WorkbenchStatusBar>
     </div>
 </template>

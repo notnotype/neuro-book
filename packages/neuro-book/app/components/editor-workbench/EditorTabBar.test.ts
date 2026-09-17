@@ -281,4 +281,19 @@ describe("EditorTabBar 关闭与固定", () => {
         expect(wrapper.emitted("keep-tab")).toEqual([["draft.md"]]);
         expect(wrapper.find('[data-role="editor-tab-item"][title="draft.md"] [aria-label="editorWorkbench.unsaved"]').exists()).toBe(true);
     });
+
+    it("鼠标滚轮在溢出的标签栏滚动时转化为横向 scrollLeft", async () => {
+        const wrapper = mountBar([tab("a.md"), tab("b.md"), tab("c.md")], "a.md");
+        const regularTablist = wrapper.get<HTMLDivElement>(".editor-regular-tabs").element;
+
+        Object.defineProperty(regularTablist, "scrollWidth", {value: 1000, configurable: true});
+        Object.defineProperty(regularTablist, "clientWidth", {value: 300, configurable: true});
+        regularTablist.scrollLeft = 0;
+
+        const wheelEvent = new WheelEvent("wheel", {deltaY: 100, bubbles: true, cancelable: true});
+        regularTablist.dispatchEvent(wheelEvent);
+        await nextTick();
+
+        expect(regularTablist.scrollLeft).toBe(100);
+    });
 });
