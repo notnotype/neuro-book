@@ -1,11 +1,11 @@
 import {createWriteStream, type WriteStream} from "node:fs";
-import {DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, truncateTail, type TruncationResult} from "nbook/server/agent/tools/truncate";
-import type {BashOutputReference, BashOutputReservation} from "nbook/server/agent/tools/bash-output-store";
+import {TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateStringToBytesFromEnd, truncateTail, type TruncationResult} from "nbook/server/agent/tools/truncate";
+import type {AgentOutputReference, AgentOutputReservation} from "nbook/server/agent/tools/agent-output-store";
 
 export type OutputSnapshot = {
     content: string;
     truncation: TruncationResult;
-    fullOutput?: BashOutputReference;
+    fullOutput?: AgentOutputReference;
 };
 
 /**
@@ -13,7 +13,7 @@ export type OutputSnapshot = {
  */
 export class OutputAccumulator {
     private readonly decoder = new TextDecoder();
-    private readonly maxRollingBytes = DEFAULT_MAX_BYTES * 2;
+    private readonly maxRollingBytes = TOOL_RESULT_MAX_BYTES * 2;
     private rawChunks: Buffer[] = [];
     private tailText = "";
     private tailBytes = 0;
@@ -23,10 +23,14 @@ export class OutputAccumulator {
     private currentLineBytes = 0;
     private finished = false;
     private outputStream: WriteStream | undefined;
+    private outputError: Error | undefined;
     private persistedBytes = 0;
     private capped = false;
+    private reservation: AgentOutputReservation | null;
 
-    constructor(private readonly reservation: BashOutputReservation | null) {}
+    constructor(reservation: AgentOutputReservation | null) {
+        this.reservation = reservation;
+    }
 
     /**
      * 追加原始输出 chunk。
@@ -64,14 +68,14 @@ export class OutputAccumulator {
      */
     snapshot(persistIfTruncated = false): OutputSnapshot {
         const truncation = truncateTail(this.tailText, {
-            maxLines: DEFAULT_MAX_LINES,
-            maxBytes: DEFAULT_MAX_BYTES,
+            maxLines: TOOL_RESULT_MAX_LINES,
+            maxBytes: TOOL_RESULT_MAX_BYTES,
         });
-        const truncated = this.totalLines > DEFAULT_MAX_LINES || this.totalDecodedBytes > DEFAULT_MAX_BYTES;
+        const truncated = this.totalLines > TOOL_RESULT_MAX_LINES || this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES;
         const finalTruncation: TruncationResult = {
             ...truncation,
             truncated,
-            truncatedBy: truncated ? truncation.truncatedBy ?? (this.totalDecodedBytes > DEFAULT_MAX_BYTES ? "bytes" : "lines") : null,
+            truncatedBy: truncated ? truncation.truncatedBy ?? (this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES ? "bytes" : "lines") : null,
             totalLines: this.totalLines,
             totalBytes: this.totalDecodedBytes,
         };
@@ -83,12 +87,14 @@ export class OutputAccumulator {
             truncation: finalTruncation,
             fullOutput: !finalTruncation.truncated
                 ? undefined
-                : this.reservation
-                    ? {
-                        locator: this.reservation.reference.locator,
-                        state: this.capped ? "partial" : "available",
-                    }
-                    : {state: "reclaimed"},
+                : this.outputError
+                    ? {state: "reclaimed"}
+                    : this.reservation
+                        ? {
+                            locator: this.reservation.reference.locator,
+                            state: this.capped ? "partial" : "available",
+                        }
+                        : {state: "reclaimed"},
         };
     }
 
@@ -96,23 +102,43 @@ export class OutputAccumulator {
      * 关闭临时文件流。
      */
     async closeOutput(): Promise<void> {
+        const reservation = this.reservation;
         if (!this.outputStream) {
-            await this.reservation?.discard();
+            await reservation?.discard().catch(() => undefined);
+            this.reservation = null;
             return;
         }
         const stream = this.outputStream;
         this.outputStream = undefined;
         try {
             await new Promise<void>((resolve, reject) => {
-                stream.once("error", reject);
-                stream.once("finish", resolve);
+                let settled = false;
+                const finish = (): void => {
+                    if (settled) return;
+                    settled = true;
+                    resolve();
+                };
+                const fail = (error: Error): void => {
+                    if (settled) return;
+                    settled = true;
+                    reject(error);
+                };
+                stream.once("finish", finish);
+                stream.once("error", fail);
+                if (this.outputError) {
+                    fail(this.outputError);
+                    return;
+                }
                 stream.end();
             });
-        } catch (error) {
-            await this.reservation?.discard();
-            throw error;
+        } catch {
+            stream.destroy();
+            await reservation?.discard().catch(() => undefined);
+            this.reservation = null;
+            return;
         }
-        await this.reservation?.complete(this.persistedBytes, this.capped);
+        await reservation?.complete(this.persistedBytes, this.capped).catch(() => undefined);
+        this.reservation = null;
     }
 
     get lastLineBytes(): number {
@@ -128,9 +154,7 @@ export class OutputAccumulator {
         this.tailText += text;
         this.tailBytes += bytes;
         if (this.tailBytes > this.maxRollingBytes * 2) {
-            const buffer = Buffer.from(this.tailText, "utf-8");
-            const start = Math.max(0, buffer.length - this.maxRollingBytes);
-            this.tailText = buffer.subarray(start).toString("utf-8");
+            this.tailText = truncateStringToBytesFromEnd(this.tailText, this.maxRollingBytes);
             this.tailBytes = Buffer.byteLength(this.tailText, "utf-8");
         }
         let newlines = 0;
@@ -148,16 +172,34 @@ export class OutputAccumulator {
     }
 
     private shouldUseOutputFile(): boolean {
-        return this.totalRawBytes > DEFAULT_MAX_BYTES || this.totalDecodedBytes > DEFAULT_MAX_BYTES || this.totalLines > DEFAULT_MAX_LINES;
+        return this.totalRawBytes > TOOL_RESULT_MAX_BYTES || this.totalDecodedBytes > TOOL_RESULT_MAX_BYTES || this.totalLines > TOOL_RESULT_MAX_LINES;
     }
 
     private ensureOutputFile(): void {
         if (this.outputStream || !this.reservation) {
             return;
         }
-        this.outputStream = createWriteStream(this.reservation.physicalPath, {flags: "wx"});
-        for (const chunk of this.rawChunks) {
-            this.persist(chunk);
+        const reservation = this.reservation;
+        let stream: WriteStream;
+        try {
+            stream = createWriteStream(reservation.physicalPath, {flags: "wx"});
+        } catch (error) {
+            this.outputError = error instanceof Error ? error : new Error(String(error));
+            this.reservation = null;
+            this.rawChunks = [];
+            void reservation.discard().catch(() => undefined);
+            return;
+        }
+        this.outputStream = stream;
+        stream.on("error", (error: Error) => {
+            this.outputError = error;
+        });
+        try {
+            for (const chunk of this.rawChunks) {
+                this.persist(chunk);
+            }
+        } catch (error) {
+            this.outputError = error instanceof Error ? error : new Error(String(error));
         }
         this.rawChunks = [];
     }

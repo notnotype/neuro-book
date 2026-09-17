@@ -1,5 +1,7 @@
-export const DEFAULT_MAX_LINES = 2000;
-export const DEFAULT_MAX_BYTES = 50 * 1024;
+/** 单条工具结果进模型上下文前的行数上限。 */
+export const TOOL_RESULT_MAX_LINES = 1000;
+/** 单条工具结果进模型上下文前的字节上限。 */
+export const TOOL_RESULT_MAX_BYTES = 16 * 1024;
 
 export type TruncationResult = {
     content: string;
@@ -37,8 +39,8 @@ export function formatSize(bytes: number): string {
  * 从文件头部截断，保留完整行。
  */
 export function truncateHead(content: string, options: TruncationOptions = {}): TruncationResult {
-    const maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
-    const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+    const maxLines = options.maxLines ?? TOOL_RESULT_MAX_LINES;
+    const maxBytes = options.maxBytes ?? TOOL_RESULT_MAX_BYTES;
     const totalBytes = Buffer.byteLength(content, "utf-8");
     const lines = content.split("\n");
     const totalLines = lines.length;
@@ -74,8 +76,8 @@ export function truncateHead(content: string, options: TruncationOptions = {}): 
  * 从输出尾部截断，供 bash 这类长日志使用。
  */
 export function truncateTail(content: string, options: TruncationOptions = {}): TruncationResult {
-    const maxLines = options.maxLines ?? DEFAULT_MAX_LINES;
-    const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+    const maxLines = options.maxLines ?? TOOL_RESULT_MAX_LINES;
+    const maxBytes = options.maxBytes ?? TOOL_RESULT_MAX_BYTES;
     const totalBytes = Buffer.byteLength(content, "utf-8");
     const lines = content.split("\n");
     const totalLines = lines.length;
@@ -138,7 +140,20 @@ function createResult(
     };
 }
 
-function truncateStringToBytesFromEnd(text: string, maxBytes: number): string {
+/** 按UTF-8码位边界保留字符串前缀，返回值不会包含替换字符。 */
+export function truncateStringToBytes(text: string, maxBytes: number): string {
+    const buffer = Buffer.from(text, "utf-8");
+    if (buffer.length <= maxBytes) {
+        return text;
+    }
+    let end = maxBytes;
+    while (end > 0 && end < buffer.length && (((buffer[end] ?? 0) & 0xc0) === 0x80)) {
+        end -= 1;
+    }
+    return buffer.subarray(0, end).toString("utf-8");
+}
+
+export function truncateStringToBytesFromEnd(text: string, maxBytes: number): string {
     const buffer = Buffer.from(text, "utf-8");
     if (buffer.length <= maxBytes) {
         return text;

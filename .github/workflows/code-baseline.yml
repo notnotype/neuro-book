@@ -130,6 +130,8 @@ jobs:
     name: Full tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NEURO_BOOK_REPOSITORY_ROOT: ${{ github.workspace }}
     needs: changes
     if: needs.changes.outputs.tests == 'true'
     steps:

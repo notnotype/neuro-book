@@ -53,6 +53,7 @@ WebView Root       = <Installation Root>/data/.desktop/webview
 | `Cache Root/bun/install` | 托管 Bun 的专属 install cache；通过 `BUN_INSTALL_CACHE_DIR` 隔离 |
 | `Cache Root/authoring/<kind>/<lease>` | Profile preview、Profile variable typecheck、Profile/Variable authoring check 的短期工作目录；带 owner marker 与活跃锁，正常完成或初始化失败都立即删除；24 小时失活回收；创建前以 128 个 lease / 256 MiB 做准入，准备完成后在消费前复核，超限时关闭当前 lease 并拒绝消费 |
 | `Cache Root/agent/bash-output/<lease>` | 带 owner marker 的逻辑 locator；7 天、128 个文件、256 MiB，每次最多 16 MiB；过期读取明确返回“已回收” |
+| `Cache Root/agent/tool-output/<lease>` | 带 owner marker 的逻辑 locator；7 天、128 个文件、256 MiB，每次最多 16 MiB；承载超出工具结果硬上限的完整文本，模型以 `tool-output://` 前缀分页读取；过期读取明确返回“已回收” |
 | `Workspace Root/.nbook/agent/composer-drafts.json` | Agent Draft Store；单条 256 KiB、最多 10 条、30 天，发送成功删除；首次加载迁移旧 WebView 草稿 |
 | Skill root 内 `node_modules` | 对应 Skill owner；按 Task 120 合同失效，内容备份排除 |
 | Desktop Local/WebView Root | 设备本地 UI state；更新保留、内容备份排除，仅显式 desktop reset 或卸载删除 |

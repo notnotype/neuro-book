@@ -46,7 +46,7 @@ _Avoid_: profile-sdk variable exports, server variable internals, cwd-derived sc
 _Avoid_: Workspace Root, source root
 
 **Cache Root**:
-NeuroBook 可删除、可重建数据的物理根。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/cache`，Portable 固定为 `Installation Root/.cache/`；图片变体、llmlint detect cache、Bun install cache、authoring lease 和 Bash 完整输出分别由自己的 Module 管理预算。Bun cache 当前只有路径隔离，尚无受管 `bun install` 消费者；硬预算在该安装命令落地时执行，不把普通 Product 启动变成全盘扫描。
+NeuroBook 可删除、可重建数据的物理根。受管 Installed Windows 固定为 `%LOCALAPPDATA%/NeuroBook/cache`，Portable 固定为 `Installation Root/.cache/`；图片变体、llmlint detect cache、Bun install cache、authoring lease、Bash 完整输出与工具结果完整输出分别由自己的 Module 管理预算。Bun cache 当前只有路径隔离，尚无受管 `bun install` 消费者；硬预算在该安装命令落地时执行，不把普通 Product 启动变成全盘扫描。
 _Avoid_: State Root, temporary directory, one global cache owner
 
 **Desktop Local Root**:

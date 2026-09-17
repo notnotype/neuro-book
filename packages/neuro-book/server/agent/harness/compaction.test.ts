@@ -6,7 +6,8 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
 import type {Context} from "@earendil-works/pi-ai";
 import {createFauxModels, type FauxModelsFixture} from "nbook/server/agent/test-utils/faux-models";
-import {appendCompaction, COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX, compactIfNeeded, resolveCompactionOptions, shouldCompactWithOptions} from "nbook/server/agent/harness/compaction";
+import {appendCompaction, assertCompactionMadeProgress, COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX, compactIfNeeded, resolveCompactionOptions, shouldCompactWithOptions} from "nbook/server/agent/harness/compaction";
+import {assertProviderContextWithinWindow, estimateProviderContextTokens, pruneProviderMessagesForWindow} from "nbook/server/agent/harness/context-admission";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {StoredAgentMessage, StoredAttachmentContent} from "nbook/server/agent/messages/stored-types";
@@ -73,6 +74,30 @@ describe("compaction", () => {
         expect(messageText(context.messages[0] as never)).toContain("LLM SUMMARY");
         expect(context.messages.map((message) => message.role)).toEqual(["user", "user"]);
         expect(messageText(context.messages[1] as never)).toBe("user 6");
+    });
+    it("摘要provider返回空文本时使用包含真实历史的确定性回退", async () => {
+        faux.setResponses([fauxAssistantMessage([], {stopReason: "stop"})]);
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "历史文件状态必须保留"}));
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "最近一轮"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model: faux.getModel(),
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+            compaction: {reserveTokens: 2_000, keepRecent: {kind: "tokens", value: 1}},
+            allowFallback: true,
+        });
+
+        const latest = (await repo.readSession(session.metadata.sessionId)).entries.filter((entry) => entry.type === "compaction").at(-1);
+        expect(latest?.type === "compaction" ? latest.details?.summaryStrategy : undefined).toBe("deterministic-fallback");
+        expect(latest?.type === "compaction" ? latest.details?.summaryError : undefined).toContain("compaction summary 为空");
+        expect(latest?.type === "compaction" ? latest.summary : "").toContain("历史文件状态必须保留");
+        expect(latest?.type === "compaction" ? latest.summary : "").not.toContain("No prior history.");
     });
 
     it("AbortSignal透传给摘要Provider，取消后不写compaction entry", async () => {
@@ -218,6 +243,214 @@ describe("compaction", () => {
         });
 
         expect(compacted).toBe(false);
+    });
+    it("摘要输入按独立窗口预算裁剪，避免摘要请求自身超窗", async () => {
+        let summaryPromptTokens = 0;
+        faux.setResponses([
+            (context, _options, _state, model) => {
+                summaryPromptTokens = estimateProviderContextTokens({
+                    systemPrompt: context.systemPrompt,
+                    messages: context.messages as never,
+                }).tokens;
+                if (summaryPromptTokens > model.contextWindow) {
+                    return fauxAssistantMessage([], {
+                        stopReason: "error",
+                        errorMessage: `This model's maximum context length is ${model.contextWindow} tokens. However, you requested ${summaryPromptTokens} tokens.`,
+                    });
+                }
+                return fauxAssistantMessage(fauxText("BOUNDED SUMMARY"));
+            },
+        ]);
+        const model = {
+            ...faux.getModel(),
+            contextWindow: 2_000,
+            maxTokens: 8_000,
+        };
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context " + "old ".repeat(2_000)}));
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent context"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model,
+            compaction: {trigger: {kind: "tokens", value: 1}, keepRecent: {kind: "tokens", value: 1}, reserveTokens: 1_000},
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        });
+
+        expect(summaryPromptTokens).toBeLessThanOrEqual(model.contextWindow);
+        const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
+        expect(messageText(reduced.messages[0] as never)).toContain("BOUNDED SUMMARY");
+    });
+
+    it("摘要输入工具结果超 2000 字符时裁剪并写标记", async () => {
+        let summaryPrompt: Context | null = null;
+        faux.setResponses([(context) => {
+            summaryPrompt = context;
+            return fauxAssistantMessage(fauxText("SUMMARY"));
+        }]);
+        const model = {...faux.getModel(), contextWindow: 8_000, maxTokens: 4_000};
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        const toolCall = createAssistantTextMessage({text: ""});
+        toolCall.content = [{type: "toolCall", id: "tc-1", name: "read", arguments: {path: "large.txt"}}];
+        await repo.appendMessage(session.metadata.sessionId, toolCall);
+        // 3000 字符工具结果，超过 COMPACTION_TOOL_RESULT_MAX_CHARS (2000)
+        await repo.appendMessage(session.metadata.sessionId, createTextToolResult({
+            toolCallId: "tc-1",
+            toolName: "read",
+            text: "x".repeat(3_000),
+        }));
+        // 保留一条更新消息作为 recent 区，使前面的 toolResult 进入摘要 provider 输入。
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent context"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model,
+            compaction: {trigger: {kind: "tokens", value: 1}, keepRecent: {kind: "tokens", value: 1}, reserveTokens: 1_000},
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        });
+
+        const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
+        expect(messageText(reduced.messages[0] as never)).toContain("SUMMARY");
+        // marker 位于发送给摘要 provider 的输入，不会自动出现在 provider 的摘要输出中。
+        expect(summaryPromptText(summaryPrompt)).toContain("[... tool result truncated for compaction ...]");
+    });
+
+    it("摘要最终上下文超窗时在 provider 调用前降级", async () => {
+        let providerCalls = 0;
+        faux.setResponses([() => {
+            providerCalls += 1;
+            return fauxAssistantMessage(fauxText("SHOULD NOT RUN"));
+        }]);
+        const model = {...faux.getModel(), contextWindow: 64, maxTokens: 16};
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await expect(compactIfNeeded({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model,
+            compaction: {
+                trigger: {kind: "tokens", value: 1},
+                keepRecent: {kind: "tokens", value: 1},
+                reserveTokens: 16,
+                prompt: "p".repeat(512),
+            },
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        })).resolves.toBe(true);
+
+        const latest = (await repo.readSession(session.metadata.sessionId)).entries
+            .filter((entry) => entry.type === "compaction")
+            .at(-1);
+        expect(providerCalls).toBe(0);
+        expect(latest?.type === "compaction" ? latest.details?.summaryStrategy : undefined).toBe("deterministic-fallback");
+        expect(latest?.type === "compaction" ? latest.details?.summaryError : undefined).toContain("Provider 请求上下文");
+    });
+
+    it("自动压缩摘要 provider 失败时写入有界确定性回退", async () => {
+        faux.setResponses([
+            fauxAssistantMessage([], {
+                stopReason: "error",
+                errorMessage: "This model's maximum context length is 2000 tokens. However, you requested 2029 tokens.",
+            }),
+        ]);
+        const model = {...faux.getModel(), contextWindow: 2_000, maxTokens: 8_000};
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context " + "old ".repeat(2_000)}));
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "recent context"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await expect(compactIfNeeded({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model,
+            compaction: {trigger: {kind: "tokens", value: 1}, keepRecent: {kind: "tokens", value: 1}, reserveTokens: 1_000},
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+        })).resolves.toBe(true);
+
+        const latest = (await repo.readSession(session.metadata.sessionId)).entries.filter((entry) => entry.type === "compaction").at(-1);
+        expect(latest?.type === "compaction" ? latest.details?.summaryStrategy : undefined).toBe("deterministic-fallback");
+        expect(latest?.type === "compaction" ? latest.details?.summaryInputTokens : undefined).toBeLessThanOrEqual(model.contextWindow);
+    });
+
+    it("provider 门禁只裁剪 toolResult 正文并保留消息配对与完整输出locator", () => {
+        const toolCall = createAssistantTextMessage({text: ""});
+        toolCall.content = [{type: "toolCall", id: "tool-1", name: "read", arguments: {path: "large.md"}}];
+        const locator = "tool-output://11111111-1111-4111-8111-111111111111/output.log";
+        const toolResult = createTextToolResult({toolCallId: "tool-1", toolName: "read", text: `${"x".repeat(20_000)}\n${locator}`});
+        const result = pruneProviderMessagesForWindow({
+            systemPrompt: "system",
+            messages: [toolCall, toolResult] as never,
+            contextWindow: 1_000,
+        });
+
+        expect(result.pruned).toBe(true);
+        expect(result.messages).toHaveLength(2);
+        expect(result.messages[0]?.role).toBe("assistant");
+        expect(result.messages[1]?.role).toBe("toolResult");
+        expect(messageText(result.messages[1] as never).length).toBeLessThan(20_000);
+        expect(messageText(result.messages[1] as never)).toContain(locator);
+        expect(estimateProviderContextTokens({systemPrompt: "system", messages: result.messages as never}).tokens).toBeLessThanOrEqual(1_000);
+    });
+
+    it("上一轮 assistant usage 不会掩盖当前 system/tools 固定开销", () => {
+        const assistant = createAssistantTextMessage({text: "prior"});
+        assistant.usage = {
+            input: 10,
+            output: 1,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 11,
+            cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+        };
+
+        expect(() => assertProviderContextWithinWindow({
+            systemPrompt: "x".repeat(800),
+            messages: [assistant],
+            contextWindow: 100,
+            modelId: "dynamic-prefix-model",
+        })).toThrow("Provider 请求上下文");
+    });
+
+    it("已有 checkpoint 且恢复后仍过触发线时停止重复压缩", () => {
+        const options = resolveCompactionOptions({
+            trigger: {kind: "tokens", value: 100},
+            keepRecent: {kind: "tokens", value: 20},
+        }, faux.getModel());
+
+        expect(() => assertCompactionMadeProgress({
+            beforeTokens: 160,
+            afterTokens: 120,
+            contextWindow: faux.getModel().contextWindow,
+            options,
+            hadPreviousCompaction: true,
+        })).toThrow("自动压缩无进展");
+        expect(() => assertCompactionMadeProgress({
+            beforeTokens: 160,
+            afterTokens: 99,
+            contextWindow: faux.getModel().contextWindow,
+            options,
+            hadPreviousCompaction: true,
+        })).not.toThrow();
+        expect(() => assertCompactionMadeProgress({
+            beforeTokens: 160,
+            afterTokens: 120,
+            contextWindow: faux.getModel().contextWindow,
+            options,
+            hadPreviousCompaction: false,
+        })).not.toThrow();
     });
 
     it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {

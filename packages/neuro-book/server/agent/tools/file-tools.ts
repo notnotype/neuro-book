@@ -7,13 +7,17 @@ import type {Static} from "typebox";
 import {spawnOwnedProcess} from "@notnotype/owned-process";
 import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
 import {detectImageMimeType, firstChangedLine} from "nbook/server/agent/tools/file-tool-utils";
-import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
+import {formatSize, TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import {
-    BashOutputStore,
-    isBashOutputLocator,
-    type BashOutputReference,
-} from "nbook/server/agent/tools/bash-output-store";
+    agentOutputStoreFor,
+    agentOutputStoreForLocator,
+    BASH_OUTPUT_SPEC,
+    isAgentOutputLocator,
+    type AgentOutputReference,
+    type AgentOutputReservation,
+    type AgentOutputStore,
+} from "nbook/server/agent/tools/agent-output-store";
 import type {NeuroAgentTool, NeuroToolResult, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {applyCodexPatch, extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {captureAgentWorkspaceWrite, recordAgentWorkspaceWrite} from "nbook/server/workspace-history/agent-file-recorder";
@@ -84,10 +88,8 @@ type EditDetails = {
 
 type BashDetails = {
     truncation?: TruncationResult;
-    fullOutput?: BashOutputReference;
+    fullOutput?: AgentOutputReference;
 };
-
-const bashOutputStores = new Map<string, Promise<BashOutputStore>>();
 
 /**
  * 构造 Pi 风格基础文件与 bash 工具。
@@ -118,12 +120,16 @@ function createReadTool(): NeuroAgentTool {
         name: "read",
         label: "read",
         executionMode: "parallel",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Any absolute filesystem path can be used directly. For another managed Project, prefer workspace/<project>/... when Project identity, open gate, History, or Context Access matters. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to ${TOOL_RESULT_MAX_LINES} lines or ${TOOL_RESULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Text output includes line numbers automatically when offset/limit is used or output is truncated; pass lineNumbers=true to force them for short full-file reads. In a Project-bound session, cwd is the current Project Workspace, so use lorebook/..., manuscript/... or other Project-relative paths. Any absolute filesystem path can be used directly. For another managed Project, prefer workspace/<project>/... when Project identity, open gate, History, or Context Access matters. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
             const input = params as ReadInput;
-            if (isBashOutputLocator(input.path)) {
-                const buffer = await (await bashOutputStore(context)).read(input.path);
+            if (isAgentOutputLocator(input.path)) {
+                const store = await agentOutputStoreForLocator(input.path, context.harness.runtimePaths);
+                if (!store) {
+                    throw new Error("Agent完整输出需要显式RuntimePaths Cache Root");
+                }
+                const buffer = await store.read(input.path);
                 return formatTextRead(buffer, input, input.path);
             }
             const target = await resolveToolFile(context, input.path, "read");
@@ -157,6 +163,7 @@ function createReadTool(): NeuroAgentTool {
                 }
 
                 await recordReadContextAccess(context, contextAccess);
+                await recordRecoveryRead(context, target, buffer);
                 return formatTextRead(buffer, input, absolutePath);
             });
         },
@@ -235,6 +242,7 @@ function createWriteTool(): NeuroAgentTool {
                     before,
                     after: input.content,
                 });
+                await recordRecoveryWrite(context, target, input.content, "write");
                 return {
                     content: [{type: "text", text: `Successfully wrote ${Buffer.byteLength(input.content, "utf-8")} bytes to ${input.path}`}],
                     details: undefined,
@@ -292,6 +300,7 @@ function createEditTool(): NeuroAgentTool {
                     before: original,
                     after: updated,
                 });
+                await recordRecoveryWrite(context, target, updated, "edit");
                 const diff = createPatch(input.path, original, updated, undefined, undefined, {context: 4});
                 return {
                     content: [{type: "text", text: `Successfully replaced ${input.edits.length} block(s) in ${input.path}.`}],
@@ -345,6 +354,9 @@ function createApplyPatchTool(): NeuroAgentTool {
                         before: change.originalExists ? change.original : null,
                         after: change.updated,
                     });
+                    if (change.updated !== null) {
+                        await recordRecoveryWrite(context, change.target, change.updated, "apply_patch");
+                    }
                 }
                 return {
                     content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
@@ -362,13 +374,48 @@ function createApplyPatchTool(): NeuroAgentTool {
     };
 }
 
+async function recordRecoveryRead(context: ToolExecutionContext, target: ResolvedFileTarget, buffer: Buffer): Promise<void> {
+    if (!context.recoveryMaterials || !target.project || !target.relativePath || target.relativePath === ".") {
+        return;
+    }
+    try {
+        const fileStat = await stat(target.absolutePath);
+        if (!fileStat.isFile()) {
+            return;
+        }
+        context.recoveryMaterials.recordSuccess({
+            target,
+            source: "read",
+            content: buffer.toString("utf8"),
+            mtimeMs: fileStat.mtimeMs,
+        });
+    } catch {
+        // 恢复材料是辅助状态，不能把已成功的 read 变成工具失败。
+    }
+}
+
+async function recordRecoveryWrite(context: ToolExecutionContext, target: ResolvedFileTarget, content: string, source: "write" | "edit" | "apply_patch"): Promise<void> {
+    if (!context.recoveryMaterials || !target.project || !target.relativePath || target.relativePath === ".") {
+        return;
+    }
+    try {
+        const fileStat = await stat(target.absolutePath);
+        if (!fileStat.isFile()) {
+            return;
+        }
+        context.recoveryMaterials.recordSuccess({target, source, content, mtimeMs: fileStat.mtimeMs});
+    } catch {
+        // 恢复材料是辅助状态，不能把已成功的 write/edit/apply_patch 变成工具失败。
+    }
+}
+
 function createBashTool(): NeuroAgentTool {
     return {
         key: "bash",
         name: "bash",
         label: "bash",
         executionMode: "sequential",
-        description: "Execute a bash command in the current Project Workspace, or in the Workspace Root when the session has no Current Project. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the retained output is addressed by a logical bash-output locator and can be read with the read tool while it remains available. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: `Execute a bash command in the current Project Workspace, or in the Workspace Root when the session has no Current Project. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last ${TOOL_RESULT_MAX_LINES} lines or ${TOOL_RESULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, the retained output is addressed by a logical bash-output locator and can be read with the read tool while it remains available. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.`,
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,
@@ -390,7 +437,7 @@ function createBashTool(): NeuroAgentTool {
                     originToolCallId: _toolCallId,
                     ref: {command: input.command},
                     run: async (ctx) => {
-                        const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
+                        const output = new OutputAccumulator(await bashOutputReservation(context));
                         try {
                             const result = await runBash({
                                 bash,
@@ -442,7 +489,7 @@ function createBashTool(): NeuroAgentTool {
                     }),
                 };
             }
-            const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
+            const output = new OutputAccumulator(await bashOutputReservation(context));
             try {
                 const result = await runBash({
                     bash,
@@ -799,25 +846,17 @@ function formatBashOutput(snapshot: ReturnType<OutputAccumulator["snapshot"]>, e
     return text;
 }
 
-/** Cache Root由生产RuntimePaths注入；纯Repository测试不允许隐式回退到Workspace。 */
-async function bashOutputStore(context: ToolExecutionContext): Promise<BashOutputStore> {
-    const root = context.harness.runtimePaths?.bashOutputRoot;
-    if (!root) {
-        throw new Error("Bash完整输出需要显式RuntimePaths Cache Root");
-    }
-    let store = bashOutputStores.get(root);
-    if (!store) {
-        store = (async () => {
-            const created = new BashOutputStore(root);
-            await created.collect();
-            return created;
-        })();
-        bashOutputStores.set(root, store);
-    }
-    return store;
+/** Cache Root由生产RuntimePaths注入；缓存不可用时Bash仍返回有界结果。 */
+async function bashOutputStore(context: ToolExecutionContext): Promise<AgentOutputStore | null> {
+    return agentOutputStoreFor(BASH_OUTPUT_SPEC, context.harness.runtimePaths).catch(() => null);
 }
 
-function formatFullOutput(reference: BashOutputReference | undefined): string {
+async function bashOutputReservation(context: ToolExecutionContext): Promise<AgentOutputReservation | null> {
+    const store = await bashOutputStore(context);
+    return store ? store.reserve().catch(() => null) : null;
+}
+
+function formatFullOutput(reference: AgentOutputReference | undefined): string {
     if (!reference || reference.state === "reclaimed") return "Full output reclaimed";
     return reference.state === "partial"
         ? `Full output capped at cache limit: ${reference.locator}`
@@ -843,7 +882,7 @@ function formatTextRead(buffer: Buffer, input: ReadInput, reportedPath: string):
     let outputText = shouldShowLineNumbers ? addLineNumbers(truncation.content, startLine + 1) : truncation.content;
     if (truncation.firstLineExceedsLimit) {
         const firstLineSize = formatSize(Buffer.byteLength(lines[startLine] ?? "", "utf-8"));
-        outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use read with offset/limit to inspect retained output.]`;
+        outputText = `[Line ${startLine + 1} is ${firstLineSize}, exceeds ${formatSize(TOOL_RESULT_MAX_BYTES)} limit. Use read with offset/limit to inspect retained output.]`;
     } else if (truncation.truncated) {
         outputText += `\n\n[Showing lines ${startLine + 1}-${endLine} of ${lines.length}. Use offset=${endLine + 1} to continue.]`;
     } else if (nextOffset !== undefined) {

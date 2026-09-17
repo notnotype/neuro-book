@@ -27,6 +27,7 @@ describe("Runtime Paths Module", () => {
             llmlintCacheRoot: path.join(stateRoot, "cache", "llmlint"),
             bunInstallCacheRoot: path.join(stateRoot, "cache", "bun", "install"),
             bashOutputRoot: path.join(stateRoot, "cache", "agent", "bash-output"),
+            toolOutputRoot: path.join(stateRoot, "cache", "agent", "tool-output"),
             secretsRoot: path.join(stateRoot, "secrets"),
             backupKeyringPath: path.join(stateRoot, "secrets", "backup-keyring.json"),
         });
