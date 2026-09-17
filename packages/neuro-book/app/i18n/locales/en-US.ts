@@ -2387,6 +2387,7 @@ const enUS = {
         loadFailed: "Load failed",
         selected: "Selected",
         unselected: "Unselected",
+        moreActions: "More Actions",
         welcome: {
             viewAssets: "View Asset Files",
             viewAssetsDescription: "Open the user assets file tree.",

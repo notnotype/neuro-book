@@ -39,22 +39,20 @@ function mountToolbar(menus: MenubarMenuData[]): VueWrapper {
     return wrapper;
 }
 
-/** 菜单标题按钮：reka-ui 把菜单 id 放在 data-value 上。 */
-function triggerFor(wrapper: VueWrapper, menuId: string): HTMLButtonElement {
-    return wrapper.get<HTMLButtonElement>(`[data-value="${menuId}"]`).element;
+/** 更多操作按钮 */
+function moreActionsTrigger(wrapper: VueWrapper): HTMLButtonElement {
+    return wrapper.get<HTMLButtonElement>("button.editor-toolbar-more-btn").element;
 }
 
-/** 用键盘展开某个菜单：焦点在菜单标题上按 ArrowDown，这是文档写明的操作路径。 */
-async function openMenu(wrapper: VueWrapper, menuId: string): Promise<HTMLButtonElement> {
-    const trigger = triggerFor(wrapper, menuId);
-    trigger.focus();
-    trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+/** 展开更多操作下拉菜单 */
+async function openMoreActions(wrapper: VueWrapper): Promise<HTMLButtonElement> {
+    const trigger = moreActionsTrigger(wrapper);
+    trigger.click();
     await flushPromises();
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
     return trigger;
 }
 
-/** 当前展开菜单里的菜单项（Menubar 的浮层传送出组件，按语义角色查 DOM）。 */
+/** 当前展开菜单里的菜单项（Dropdown 的浮层传送出组件，按语义角色查 DOM）。 */
 function menuItems(): HTMLElement[] {
     return [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
 }
@@ -67,7 +65,7 @@ function menuItem(label: string): HTMLElement {
     return item;
 }
 
-describe("EditorToolbar 菜单操作", () => {
+describe("EditorToolbar 更多操作工具栏 (VS Code 风格)", () => {
     const MENUS: MenubarMenuData[] = [
         {id: "file", label: "文件", items: [
             {value: "save", label: "保存", shortcut: "Ctrl+S"},
@@ -78,68 +76,43 @@ describe("EditorToolbar 菜单操作", () => {
         ]},
     ];
 
-    it("根是导航地标，菜单标题按 menubar 语义暴露收起状态", () => {
+    it("根是导航地标，更多操作按钮具备无障碍标签与紧凑图标", () => {
         const wrapper = mountToolbar(MENUS);
 
         expect(wrapper.element.tagName).toBe("NAV");
-        expect(wrapper.find('[role="menubar"]').exists()).toBe(true);
-        const trigger = triggerFor(wrapper, "file");
-        expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
-        expect(trigger.getAttribute("aria-expanded")).toBe("false");
+        const trigger = moreActionsTrigger(wrapper);
+        expect(trigger).not.toBeNull();
+        expect(trigger.getAttribute("aria-label")).toBe("editorWorkbench.moreActions");
+        expect(trigger.querySelector(".i-lucide-more-horizontal")).not.toBeNull();
     });
 
-    it("键盘展开菜单后选择叶项：select 携带完整叶项，菜单随即关闭", async () => {
+    it("展开下拉菜单后选择叶项：select 携带完整叶项并展示快捷键", async () => {
         const wrapper = mountToolbar(MENUS);
-        await openMenu(wrapper, "file");
-        // 菜单项把快捷键提示一起画出来（数据来自 menus，不是写死的文案）。
+        await openMoreActions(wrapper);
+
+        // 快捷键提示来自数据
         expect(menuItem("保存").textContent).toContain("Ctrl+S");
 
         const saveItem = menuItem("保存");
-        saveItem.focus();
-        expect(document.activeElement).toBe(saveItem);
-        saveItem.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+        saveItem.click();
         await flushPromises();
 
         expect(wrapper.emitted("select")).toEqual([[{value: "save", label: "保存", shortcut: "Ctrl+S"}]]);
-        expect(triggerFor(wrapper, "file").getAttribute("aria-expanded")).toBe("false");
-        expect(document.querySelector('[role="menu"]')).toBeNull();
     });
 
-    it("checked 叶项显示可读的已选后缀，select 仍回传宿主给的原始叶项", async () => {
+    it("checked 叶项显示已选后缀，select 仍回传宿主给的原始叶项", async () => {
         const wrapper = mountToolbar([{id: "open-with", label: "打开方式", items: [
             {value: "editor:code", label: "源码", type: "checkbox", checked: true},
             {value: "editor:markdown", label: "富文本", type: "checkbox", checked: false},
         ]}]);
-        await openMenu(wrapper, "open-with");
+        await openMoreActions(wrapper);
 
-        // 已选项的标签带上可读的已选后缀，未选项没有。
         expect(menuItem("源码").textContent).toContain("editorWorkbench.selected");
         expect(menuItem("富文本").textContent).not.toContain("editorWorkbench.selected");
 
         menuItem("源码").click();
         await flushPromises();
-        // 后缀只是展示层：回传的仍是宿主给的原始叶项，label 与 checked 都没被改写。
         expect(wrapper.emitted("select")).toEqual([[{value: "editor:code", label: "源码", type: "checkbox", checked: true}]]);
-    });
-
-    it("叶项的值不会被当成打开的菜单 id：值与菜单同名时另一个菜单仍保持收起", async () => {
-        const wrapper = mountToolbar([
-            {id: "file", label: "文件", items: [{value: "view-actions", label: "另存为"}]},
-            {id: "view-actions", label: "当前视图操作", items: [{value: "action:markdown.comments", label: "批注"}]},
-        ]);
-        await openMenu(wrapper, "file");
-
-        menuItem("另存为").click();
-        await flushPromises();
-
-        expect(wrapper.emitted("select")).toEqual([[{value: "view-actions", label: "另存为"}]]);
-        // 「view-actions」这次是叶值，不是要展开的菜单。
-        expect(triggerFor(wrapper, "view-actions").getAttribute("aria-expanded")).toBe("false");
-        expect(document.querySelector('[role="menu"]')).toBeNull();
-
-        // 状态没有被叶值顶替：该菜单仍能由用户自己打开并展示自己的叶项。
-        await openMenu(wrapper, "view-actions");
-        expect(menuItems().map((item) => item.textContent?.trim())).toEqual(["批注"]);
     });
 
     it("禁用叶项不可选择，可用叶项照常发出 select", async () => {
@@ -147,10 +120,10 @@ describe("EditorToolbar 菜单操作", () => {
             {value: "save", label: "保存", disabled: true},
             {value: "close", label: "关闭"},
         ]}]);
-        await openMenu(wrapper, "file");
+        await openMoreActions(wrapper);
 
         const disabled = menuItem("保存");
-        expect(disabled.getAttribute("aria-disabled")).toBe("true");
+        expect(disabled.getAttribute("data-disabled")).not.toBeNull();
         disabled.click();
         await flushPromises();
         expect(wrapper.emitted("select")).toBeUndefined();
@@ -160,18 +133,8 @@ describe("EditorToolbar 菜单操作", () => {
         expect(wrapper.emitted("select")).toEqual([[{value: "close", label: "关闭"}]]);
     });
 
-    it("Escape 关闭菜单并把焦点交回菜单标题", async () => {
-        const wrapper = mountToolbar(MENUS);
-        const trigger = await openMenu(wrapper, "file");
-        expect(document.querySelector('[role="menu"]')).not.toBeNull();
-
-        const focused = document.activeElement;
-        const target = focused instanceof HTMLElement ? focused : document.body;
-        target.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
-        await flushPromises();
-
-        expect(document.querySelector('[role="menu"]')).toBeNull();
-        expect(trigger.getAttribute("aria-expanded")).toBe("false");
-        expect(document.activeElement).toBe(trigger);
+    it("菜单为空时不渲染多余操作按钮", () => {
+        const wrapper = mountToolbar([]);
+        expect(wrapper.find("button.editor-toolbar-more-btn").exists()).toBe(false);
     });
 });

@@ -2385,6 +2385,7 @@ const zhCN = {
         loadFailed: "加载失败",
         selected: "已选中",
         unselected: "未选中",
+        moreActions: "更多操作",
         welcome: {
             viewAssets: "查看资产文件",
             viewAssetsDescription: "打开用户资产文件树。",

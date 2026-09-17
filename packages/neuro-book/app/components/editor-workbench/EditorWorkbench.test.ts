@@ -147,7 +147,7 @@ describe("EditorWorkbench 受控外壳", () => {
         // 有正文时不画欢迎页，两者不会同时出现。
         expect(panel.find("[data-welcome]").exists()).toBe(false);
         expect(wrapper.find("[data-status]").exists()).toBe(true);
-        expect(wrapper.find('[role="menubar"]').exists()).toBe(true);
+        expect(wrapper.find(".editor-toolbar-more-btn").exists()).toBe(true);
     });
 
     it("单根 section 承载外壳，外部 attrs 由它原样透传", () => {
@@ -202,7 +202,7 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(wrapper.get("[data-body]").element).toBe(bodyBefore);
     });
 
-    it("没有文档时画欢迎页：关闭最后一个标签后焦点交给欢迎区主动作", async () => {
+    it("没有文档时画欢迎页：关闭最后一个标签后焦点交给欢迎区主动作，且不渲染多余顶栏", async () => {
         // 干净标签的关闭路径：宿主在同一事件里接受，标签随即消失（脏标签要等保存/放弃决策，另见 useEditorWorkbench 测试）。
         const {wrapper, emitted} = mountShell({tabs: [tab("only.md")], activePath: "only.md", menus: FILE_MENUS});
         expect(wrapper.find("[data-welcome]").exists()).toBe(false);
@@ -215,8 +215,8 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(wrapper.find('[role="tabpanel"]').exists()).toBe(false);
         const welcome = wrapper.get("[data-welcome]").element;
         expect(document.activeElement).toBe(welcome);
-        // 全部关掉后菜单仍要可达，用户不能被困在空白里。
-        expect(wrapper.find('[role="menubar"]').exists()).toBe(true);
+        // 对齐 VS Code：全部关掉后工作区全高通透，不渲染突兀的占位顶栏。
+        expect(wrapper.find(".editor-workbench-header").exists()).toBe(false);
     });
 
     it("宿主延迟接受最后一个标签的关闭时，焦点仍旧交给欢迎区主动作", async () => {
@@ -244,16 +244,16 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(document.activeElement).toBe(welcome);
     });
 
-    it("菜单叶项只转发为 select-menu，外壳不自行执行命令", async () => {
+    it("更多操作菜单叶项只转发为 select-menu，外壳不自行执行命令", async () => {
         const {wrapper, emitted} = mountShell({tabs: [tab("a.md")], activePath: "a.md", menus: FILE_MENUS});
-        const trigger = wrapper.get<HTMLButtonElement>('[data-value="file"]').element;
-        trigger.focus();
-        trigger.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowDown", bubbles: true}));
+        const trigger = wrapper.get<HTMLButtonElement>(".editor-toolbar-more-btn").element;
+        trigger.click();
         await flushPromises();
 
-        const save = document.querySelector<HTMLElement>('[role="menu"] [role="menuitem"]');
+        const menuItems = [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
+        const save = menuItems.find((el) => el.textContent?.includes("保存"));
         if (!save) {
-            throw new Error("文件菜单没有展开");
+            throw new Error("更多操作菜单里没有保存项");
         }
         save.click();
         await flushPromises();

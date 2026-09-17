@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {Menubar, type MenubarItemData, type MenubarMenuData} from "@notnotype/nb-ui/components";
+import {Dropdown, IconButton, type DropdownItem, type MenubarItemData, type MenubarMenuData} from "@notnotype/nb-ui/components";
 
 const props = withDefaults(defineProps<{
     menus?: MenubarMenuData[];
@@ -16,41 +16,54 @@ const {t} = useI18n();
 
 const originalItemByValue = new Map<string, MenubarItemData>();
 
-function mapItem(item: MenubarItemData): MenubarItemData {
-    originalItemByValue.set(item.value, item);
-
-    const isCheckable = typeof item.checked === "boolean" || item.type === "checkbox" || item.type === "radio";
-    const mappedChildren = item.children && item.children.length > 0 ? item.children.map(mapItem) : undefined;
-
-    if (!isCheckable) {
-        if (mappedChildren) {
-            return {
-                ...item,
-                children: mappedChildren,
-            };
-        }
-        return item;
-    }
-
-    const isChecked = Boolean(item.checked);
-    return {
-        ...item,
-        label: isChecked ? `${item.label} (${t("editorWorkbench.selected")})` : item.label,
-        iconClass: isChecked ? "i-lucide-check" : "invisible i-lucide-check",
-        children: mappedChildren,
-    };
-}
-
-const displayMenus = computed<MenubarMenuData[]>(() => {
+const dropdownItems = computed<DropdownItem[]>(() => {
     originalItemByValue.clear();
-    return props.menus.map((menu) => ({
-        ...menu,
-        items: menu.items.map(mapItem),
-    }));
+    const result: DropdownItem[] = [];
+
+    props.menus.forEach((menu, menuIndex) => {
+        if (!menu.items || menu.items.length === 0) return;
+
+        // 分组之间插入优雅分割线（对齐 VS Code 下拉菜单排布）
+        if (result.length > 0) {
+            result.push({
+                label: "",
+                value: `sep-${menu.id || menuIndex}`,
+                separator: true,
+            });
+        }
+
+        for (const item of menu.items) {
+            originalItemByValue.set(item.value, item);
+
+            const isCheckable = typeof item.checked === "boolean" || item.type === "checkbox" || item.type === "radio";
+            const isChecked = Boolean(item.checked);
+
+            let iconClass = item.iconClass;
+            if (isCheckable) {
+                iconClass = isChecked ? "i-lucide-check" : "invisible i-lucide-check";
+            }
+
+            result.push({
+                label: isCheckable && isChecked
+                    ? `${item.label} (${t("editorWorkbench.selected")})`
+                    : item.label,
+                value: item.value,
+                disabled: Boolean(menu.disabled || item.disabled),
+                shortcut: item.shortcut,
+                iconClass,
+                active: isChecked,
+            });
+        }
+    });
+
+    return result;
 });
 
-function handleSelect(item: MenubarItemData): void {
-    const original = originalItemByValue.get(item.value) ?? item;
+function handleSelect(value: string): void {
+    const original = originalItemByValue.get(value);
+    if (!original || original.disabled) {
+        return;
+    }
     emit("select", original);
 }
 </script>
@@ -58,12 +71,25 @@ function handleSelect(item: MenubarItemData): void {
 <template>
     <nav
         class="editor-toolbar flex shrink-0 items-center select-none"
-        aria-label="Editor Workbench Menus"
+        aria-label="Editor Workbench Actions"
     >
-        <Menubar
-            :menus="displayMenus"
-            size="sm"
+        <Dropdown
+            v-if="dropdownItems.length > 0"
+            :items="dropdownItems"
+            align="end"
+            side="bottom"
+            :side-offset="6"
+            menu-class="min-w-[200px] max-w-[300px]"
             @select="handleSelect"
-        />
+        >
+            <IconButton
+                icon-class="i-lucide-more-horizontal"
+                size="sm"
+                variant="default"
+                :title="t('editorWorkbench.moreActions')"
+                :aria-label="t('editorWorkbench.moreActions')"
+                class="editor-toolbar-more-btn cursor-pointer"
+            />
+        </Dropdown>
     </nav>
 </template>

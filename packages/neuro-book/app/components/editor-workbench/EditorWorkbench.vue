@@ -69,10 +69,12 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
     <section
         class="editor-workbench flex h-full w-full min-w-0 min-h-0 flex-col overflow-hidden bg-[var(--panel-surface)] text-[var(--text-main)]"
     >
-        <!-- 顶部外壳区：标签与菜单 -->
-        <header class="editor-workbench-header flex shrink-0 flex-col border-b border-[var(--divider)] bg-[var(--bg-panel)] select-none">
+        <!-- 顶部外壳区：标签与操作栏（对齐 VS Code，仅在有打开标签时显示） -->
+        <header
+            v-if="hasTabs"
+            class="editor-workbench-header flex shrink-0 flex-col border-b border-[var(--divider)] bg-[var(--bg-panel)] select-none"
+        >
             <EditorTabBar
-                v-if="hasTabs"
                 :tabs="props.tabs"
                 :active-path="props.activePath"
                 @select-tab="(path) => emit('select-tab', path)"
@@ -93,25 +95,6 @@ watch(hasTabs, (newHasTabs, oldHasTabs) => {
                     </div>
                 </template>
             </EditorTabBar>
-
-            <!-- 无标签但有菜单/状态时的轻量外壳行 -->
-            <div
-                v-else-if="(props.menus && props.menus.length > 0) || $slots.status"
-                class="flex h-9 shrink-0 items-center justify-between px-2"
-            >
-                <div class="flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-medium">
-                    <span class="i-lucide-layout-panel-top text-[var(--accent-text)] h-3.5 w-3.5" aria-hidden="true" />
-                    <span>{{ t("editorWorkbench.title") }}</span>
-                </div>
-                <div class="flex shrink-0 items-center gap-1.5">
-                    <slot name="status" />
-                    <EditorToolbar
-                        v-if="props.menus && props.menus.length > 0"
-                        :menus="props.menus"
-                        @select="(item) => emit('select-menu', item)"
-                    />
-                </div>
-            </div>
         </header>
 
         <!-- 诊断/错误提示条：错误可见但绝不卸载正文 -->
