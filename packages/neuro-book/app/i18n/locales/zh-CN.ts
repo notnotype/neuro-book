@@ -380,6 +380,7 @@ const zhCN = {
         },
         state: {
             loading: "正在读取设置…",
+            reload: "重新读取",
         },
         panels: {
             cost: {

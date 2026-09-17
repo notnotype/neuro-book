@@ -382,6 +382,7 @@ const enUS = {
         },
         state: {
             loading: "Loading settings…",
+            reload: "Reload",
         },
         panels: {
             cost: {

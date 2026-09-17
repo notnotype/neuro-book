@@ -332,6 +332,17 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./FrontendSettingsViewFixture.vue")).default,
     },
     {
+        component: "SettingsLoadState",
+        scenes: [
+            // data 只带文本入参：形态由场景 id 决定，数据面板改不出「叫 loading 却画 error」的场景
+            {id: "loading", label: "加载中（默认文案）", data: {message: "", actionLabel: ""}},
+            {id: "loading-message", label: "加载中（自定义说明）", data: {message: "正在读取本机设定…", actionLabel: ""}},
+            {id: "error", label: "读取失败（默认重试文案）", data: {message: "读取全局配置失败：文件被占用", actionLabel: ""}},
+            {id: "error-custom-action", label: "读取失败（自定义重试文案）", data: {message: "读取全局配置失败：文件被占用", actionLabel: "重新加载设置"}},
+        ],
+        load: async () => (await import("./SettingsLoadStateFixture.vue")).default,
+    },
+    {
         component: "WebSettingsView",
         scenes: [
             {id: "default", label: "默认", data: {editable: "fixture-owned"}},
@@ -561,6 +572,17 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./WorkbenchContainerSurfaceFixture.vue")).default,
     },
     {
+        component: "WorkbenchContainerSection",
+        scenes: [
+            {id: "scroll", label: "展开（scroll 档 40 行长列表）", data: {title: "工具", contextLabel: "40 条", rows: 40, collapsed: false}},
+            {id: "collapsed", label: "受控折叠初值（collapsed: true）", data: {title: "大纲", contextLabel: "7 章节", rows: 7, collapsed: true}},
+            {id: "fill", label: "fill 档（内容自己滚）", data: {title: "对话记录", rows: 40, collapsed: false}},
+            {id: "empty-text", label: "空态说明文字", data: {title: "关联引用", contextLabel: "0 项", rows: 0, collapsed: false, emptyText: "暂无关联引用，在正文中 @ 引用即可添加"}},
+            {id: "no-collapse", label: "不可折叠（头部无展开语义）", data: {title: "工作区信息", contextLabel: "只读", rows: 4, collapsed: false}},
+        ],
+        load: async () => (await import("./WorkbenchContainerSectionFixture.vue")).default,
+    },
+    {
         component: "WorkbenchPanelSurface",
         scenes: [
             {
@@ -749,6 +771,231 @@ export const labFixtures: LabFixture[] = [
             },
         ],
         load: async () => (await import("./EditorWorkbenchFixture.vue")).default,
+    },
+    {
+        component: "CodeEditorView",
+        scenes: [
+            {
+                id: "markdown",
+                label: "Markdown 正文源码",
+                data: {
+                    path: "manuscript/chapter-01.md",
+                    languageId: "markdown",
+                    readonly: false,
+                    content: "# 开场\n\n潮水退下去的时候，礁石上留下了一层薄薄的盐。\n\n她把鞋提在手里，沿着滩涂往东走。\n\n> 那些没有说出口的话，最后都变成了潮声。\n\n- 第一件事：把灯点上\n- 第二件事：等他回来\n",
+                },
+            },
+            {
+                id: "json-invalid",
+                label: "非法 JSON 原样保留",
+                data: {
+                    path: "project/chapters.json",
+                    languageId: "json",
+                    readonly: false,
+                    content: "{\n    \"chapters\": [\n        {\"id\": 1, \"title\": \"开场\"},\n        {\"id\": 2, \"title\": \"退潮\", \"draft\": tru\n",
+                },
+            },
+            {
+                id: "html-source",
+                label: "HTML 只有源码",
+                data: {
+                    path: "export/page.html",
+                    languageId: "html",
+                    readonly: false,
+                    content: "<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n    <meta charset=\"utf-8\">\n    <title>退潮</title>\n</head>\n<body>\n    <p>这段 HTML 只有源码，没有预览。</p>\n</body>\n</html>\n",
+                },
+            },
+            {
+                id: "readonly",
+                label: "只读文档",
+                data: {
+                    path: "assets/导出的旧稿.txt",
+                    languageId: "plaintext",
+                    readonly: true,
+                    content: "这是一份只读文档：内核不允许输入，夹具也不伪造「保存成功」。\n",
+                },
+            },
+            {
+                id: "empty",
+                label: "空文档",
+                data: {path: "manuscript/未命名.md", languageId: "markdown", readonly: false, content: ""},
+            },
+        ],
+        load: async () => (await import("./CodeEditorViewFixture.vue")).default,
+    },
+    {
+        component: "MonacoCodeEditor",
+        scenes: [
+            {
+                id: "markdown",
+                label: "Markdown 源码",
+                data: {initialValue: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n\n- 把灯点上\n- 等他回来\n", language: "markdown", readonly: false},
+            },
+            {
+                id: "typescript",
+                label: "TypeScript 源码",
+                data: {initialValue: "type Draft = {\n    id: string;\n    title: string;\n    words: number;\n};\n\nfunction isLong(draft: Draft): boolean {\n    return draft.words > 3000;\n}\n", language: "typescript", readonly: false},
+            },
+            {
+                id: "readonly",
+                label: "只读",
+                data: {initialValue: "这份文档只读：可以选中、复制、滚动，但输入不会进入正文。\n", language: "plaintext", readonly: true},
+            },
+            {
+                id: "placeholder",
+                label: "空值占位文案",
+                data: {initialValue: "", language: "markdown", placeholder: "在此输入正文，Ctrl+S 发出保存请求…"},
+            },
+            {
+                id: "preferences",
+                label: "显示偏好（不换行 / 无行号 / 显示空白 / 临时字号 22）",
+                data: {
+                    initialValue: "const unwrapped = \"这一段不自动换行，并且显示空白字符与行号开关的效果\";\n\n\t缩进用制表符，字号被临时调大。\n",
+                    language: "javascript",
+                    temporaryFontSize: 22,
+                    preferences: {wordWrap: false, lineNumbers: false, renderWhitespace: true, tabSize: 8, fontSize: 18},
+                },
+            },
+        ],
+        load: async () => (await import("./MonacoCodeEditorFixture.vue")).default,
+    },
+    {
+        component: "MarkdownEditorView",
+        scenes: [
+            {
+                id: "prose",
+                label: "普通正文",
+                data: {
+                    path: "manuscript/chapter-01.md",
+                    readonly: false,
+                    showFrontmatterPanel: false,
+                    content: "# 开场\n\n潮水退下去的时候，礁石上留下了一层薄薄的盐。\n\n她把鞋提在手里，沿着滩涂往东走，**没有回头**。\n\n> 那些没有说出口的话，最后都变成了潮声。\n\n- 把灯点上\n- 等他回来\n\n行内代码写作 `manuscript/chapter-01.md`。\n",
+                },
+            },
+            {
+                id: "comments",
+                label: "含批注的正文（批注面板经视图动作打开）",
+                data: {
+                    path: "manuscript/chapter-02.md",
+                    readonly: false,
+                    showFrontmatterPanel: false,
+                    content: "# 退潮\n\n<comment body=\"这里要补一段潮汐的细节\">她把鞋提在手里，沿着滩涂往东走。</comment>\n\n<comment body=\"第二处批注：删掉重复的比喻\">礁石上留下了一层薄薄的盐。</comment>\n\n（打开右上角的批注动作可以看到这两条；修改批注会写回这份正文。）\n",
+                },
+            },
+            {
+                id: "frontmatter",
+                label: "frontmatter 与正文分离",
+                data: {
+                    path: "manuscript/退潮/index.md",
+                    readonly: false,
+                    showFrontmatterPanel: true,
+                    content: "---\ntitle: 退潮\nstatus: 草稿\nwords: 1284\n---\n\n# 退潮\n\n正文在第一段之后开始，frontmatter 不属于正文。\n",
+                },
+            },
+            {
+                id: "readonly",
+                label: "只读文档",
+                data: {
+                    path: "manuscript/定稿/开场.md",
+                    readonly: true,
+                    showFrontmatterPanel: false,
+                    content: "# 开场（定稿）\n\n这份文档只读：可以选中、复制、滚动与查看批注，但输入不会写回正文。\n",
+                },
+            },
+            {
+                id: "empty",
+                label: "空文档",
+                data: {path: "manuscript/未命名.md", readonly: false, showFrontmatterPanel: false, content: ""},
+            },
+        ],
+        load: async () => (await import("./MarkdownEditorViewFixture.vue")).default,
+    },
+    {
+        component: "EditorViewHost",
+        scenes: [
+            {
+                id: "switch",
+                label: "两个替身视图对同一份正文切换",
+                data: {editorId: "code", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
+            },
+            {
+                id: "pending",
+                label: "目标视图慢就绪（旧视图仍可见）",
+                data: {editorId: "code", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
+            },
+            {
+                id: "view-error",
+                label: "视图抛错被宿主收敛",
+                data: {editorId: "code", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
+            },
+            {
+                id: "single",
+                label: "单视图最小结构",
+                data: {editorId: "code", path: "manuscript/chapter-01.md", content: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n"},
+            },
+        ],
+        load: async () => (await import("./EditorViewHostFixture.vue")).default,
+    },
+    {
+        component: "EditorTabBar",
+        scenes: [
+            // 标签清单很长，登记初值只放在夹具里：两处各写一份 12 个长路径必然漂移。
+            {id: "mixed", label: "固定 / 普通 / 预览 / 脏标记混排"},
+            {id: "overflow", label: "12 个长标题横向滚动（选中项滚入可见）"},
+            {id: "pinned-only", label: "只有固定标签（固定行独立成行）"},
+            {id: "single-preview", label: "预览标签与脏标记"},
+        ],
+        load: async () => (await import("./EditorTabBarFixture.vue")).default,
+    },
+    {
+        component: "EditorToolbar",
+        scenes: [
+            {id: "default", label: "快捷键、分隔符、停用与危险项"},
+            {
+                id: "checked",
+                label: "可勾选项与停用菜单",
+                data: {
+                    checked: {
+                        "view.sidebar": true,
+                        "view.outline": false,
+                        "view.line-numbers": true,
+                        "view.theme-light": false,
+                        "view.theme-sepia": true,
+                        "view.theme-dark": false,
+                        "view.minimap": true,
+                    },
+                },
+            },
+            {
+                id: "submenu",
+                label: "子菜单递归勾选",
+                data: {
+                    checked: {
+                        "export.epub": true,
+                        "export.pdf": false,
+                        "export.md": false,
+                        "layout.wrap": true,
+                        "layout.line-numbers": true,
+                        "layout.font-mono": false,
+                        "layout.font-serif": true,
+                    },
+                },
+            },
+            {id: "empty", label: "空菜单数组"},
+        ],
+        load: async () => (await import("./EditorToolbarFixture.vue")).default,
+    },
+    {
+        component: "EditorWelcome",
+        scenes: [
+            // 节点快照字段很多，登记初值同样只放夹具一处。
+            {id: "novel-empty", label: "小说工作区无标签（快捷动作）"},
+            {id: "novel-recent", label: "有最近标签（主按钮变继续）"},
+            {id: "user-assets", label: "素材库工作区"},
+            {id: "compact", label: "紧凑档（只显示前 3 个标签）"},
+            {id: "readonly-node", label: "节点不可编辑"},
+        ],
+        load: async () => (await import("./EditorWelcomeFixture.vue")).default,
     },
 ];
 
