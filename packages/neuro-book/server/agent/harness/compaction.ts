@@ -375,6 +375,9 @@ async function generateCompactionSummary(input: {
             .filter(Boolean)
             .join("\n")
             .trim();
+        if (!text) {
+            throw new Error("compaction summary 为空");
+        }
         return {
             text: truncateTextToTokens(text, outputBudgetTokens),
             strategy: "llm",

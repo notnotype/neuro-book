@@ -140,7 +140,20 @@ function createResult(
     };
 }
 
-function truncateStringToBytesFromEnd(text: string, maxBytes: number): string {
+/** 按UTF-8码位边界保留字符串前缀，返回值不会包含替换字符。 */
+export function truncateStringToBytes(text: string, maxBytes: number): string {
+    const buffer = Buffer.from(text, "utf-8");
+    if (buffer.length <= maxBytes) {
+        return text;
+    }
+    let end = maxBytes;
+    while (end > 0 && end < buffer.length && (((buffer[end] ?? 0) & 0xc0) === 0x80)) {
+        end -= 1;
+    }
+    return buffer.subarray(0, end).toString("utf-8");
+}
+
+export function truncateStringToBytesFromEnd(text: string, maxBytes: number): string {
     const buffer = Buffer.from(text, "utf-8");
     if (buffer.length <= maxBytes) {
         return text;

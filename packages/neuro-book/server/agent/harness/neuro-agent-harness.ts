@@ -6243,9 +6243,9 @@ export class NeuroAgentHarness {
         }
     }
 
-    /** 工具结果进模型上下文前的统一上限；超限文本先落盘再把locator写回可见文本。 */
+    /** 工具结果进模型上下文前的统一上限；缓存不可用时仍保持工具结果成功。 */
     private async applyToolResultBudget(result: NeuroToolResult): Promise<NeuroToolResult> {
-        const store = await agentOutputStoreFor(TOOL_OUTPUT_SPEC, this.runtimePaths);
+        const store = await agentOutputStoreFor(TOOL_OUTPUT_SPEC, this.runtimePaths).catch(() => null);
         return boundToolResult({result, spill: store ? (text) => store.spill(text) : undefined});
     }
 

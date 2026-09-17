@@ -1,6 +1,6 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {randomUUID} from "node:crypto";
-import {rm} from "node:fs/promises";
+import {rm, writeFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall} from "@earendil-works/pi-ai";
@@ -2388,6 +2388,52 @@ describe("NeuroAgentHarness black-box contract", () => {
                 endLine: 3902,
                 totalLines: 4000,
             }));
+        }, 30_000);
+        it("工具结果缓存初始化失败时工具调用仍成功并显示无法落盘", async () => {
+            const blocked = join(spillRoot, "blocked-tool-cache");
+            await writeFile(blocked, "not a directory", "utf8");
+            const brokenPaths = {...spillPaths, toolOutputRoot: absoluteFsPath(blocked)};
+            const brokenHarness = new NeuroAgentHarness({
+                runtimePaths: brokenPaths,
+                modelResolver: () => faux.getModel(),
+                runtimeResolver: () => faux.runtime,
+                enableSessionSummarizer: false,
+            });
+            try {
+                brokenHarness.tools.register({
+                    key: "bb_broken_cache_output",
+                    name: "bb_broken_cache_output",
+                    label: "Broken Cache Output",
+                    description: "Returns an oversized payload.",
+                    parameters: Type.Object({}),
+                    async execute() {
+                        return {content: [{type: "text", text: "q".repeat(TOOL_RESULT_HARD_MAX_BYTES + 1)}]};
+                    },
+                });
+                brokenHarness.profiles.register(defineAgentProfile({
+                    manifest: {key: "test.blackbox.broken-cache", name: "Broken Cache"},
+                    initialSchema: Type.Object({}),
+                    allowedToolKeys: ["bb_broken_cache_output"],
+                    prepare() {
+                        return {};
+                    },
+                }), false);
+                faux.setResponses([
+                    fauxAssistantMessage([fauxToolCall("bb_broken_cache_output", {}, {id: "broken-cache-1"})], {stopReason: "toolUse"}),
+                    fauxAssistantMessage("cache failure is non-fatal"),
+                ]);
+                const created = await brokenHarness.createAgent({profileKey: "test.blackbox.broken-cache", initial: {}});
+                const run = await runAndObserve(brokenHarness, created.sessionId, () => brokenHarness.invokeAgent({
+                    sessionId: created.sessionId,
+                    mode: "prompt",
+                    message: {text: "run"},
+                }));
+                expect(run.result.status).toBe("completed");
+                const toolResult = run.context.messages.find((message): message is StoredToolResultMessage => message.role === "toolResult");
+                expect(toolResult ? messageText(toolResult) : "").toContain("无法落盘");
+            } finally {
+                await brokenHarness.dispose();
+            }
         }, 30_000);
     });
 });

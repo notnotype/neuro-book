@@ -829,6 +829,19 @@ describe("v3 file tools", () => {
             path: locator,
         })).rejects.toThrow(`Bash完整输出已回收：${locator}`);
     });
+    it("Bash缓存初始化失败时仍执行命令并返回结果", async () => {
+        const blocked = join(root, "blocked-bash-cache");
+        await writeFile(blocked, "not a directory", "utf8");
+        const brokenHarness = {...harness, runtimePaths: {...harness.runtimePaths!, bashOutputRoot: absoluteFsPath(blocked)}} as NeuroAgentHarness;
+        const tool = mustTool("bash", brokenHarness);
+
+        const result = await tool.executeWithContext?.({...context, harness: brokenHarness}, "bash-cache-failure", {
+            command: "printf 'still works\\n'",
+            timeout: 10,
+        });
+
+        expect(result?.content).toEqual([{type: "text", text: "still works\n"}]);
+    });
 
     it("bash 自动注入 Agent bin 并允许 workspace CLI 从 workspace cwd 运行", async () => {
         const tool = mustTool("bash", harness);
@@ -1037,6 +1050,7 @@ describe("v3 file tools", () => {
         expect(bash.description).toContain("quote Windows backslash paths");
         expect(bash.description).toContain("stdout and stderr merged");
         expect(bash.description).toContain("rg/find/ls/git/tests/build/workspace CLI");
+        expect(bash.description).toContain("1000 lines or 16KB");
         expect(bash.description).toContain("not for file reading or editing");
     });
 });

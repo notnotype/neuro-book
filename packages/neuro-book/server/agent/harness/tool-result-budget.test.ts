@@ -68,14 +68,23 @@ describe("boundToolResult", () => {
         });
         expect(visibleText(failing)).toContain("无法落盘");
     });
+    it("超限结果的locator位于发送前头部裁剪可保留的位置", async () => {
+        const text = oversizedText();
+        const bounded = await boundToolResult({
+            result: {content: [{type: "text", text}]},
+            spill: async () => ({locator: LOCATOR, state: "available"}),
+        });
 
-    it("单行正文超过上限时保留字节前缀而不是整段丢弃", async () => {
-        const result: NeuroToolResult = {content: [{type: "text", text: "y".repeat(TOOL_RESULT_HARD_MAX_BYTES + 1)}]};
+        expect(visibleText(bounded).indexOf(LOCATOR)).toBeLessThan(2_000);
+    });
+
+    it("单行正文超过上限时保留字节前缀且不切断UTF-8码位", async () => {
+        const result: NeuroToolResult = {content: [{type: "text", text: "中".repeat(TOOL_RESULT_HARD_MAX_BYTES + 1)}]};
 
         const bounded = await boundToolResult({result, spill: async () => ({locator: LOCATOR, state: "available"})});
 
         const visible = visibleText(bounded);
-        expect(visible.startsWith("y".repeat(64))).toBe(true);
         expect(visible).toContain(LOCATOR);
+        expect(visible).not.toContain("\uFFFD");
     });
 });

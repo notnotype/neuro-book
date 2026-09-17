@@ -75,6 +75,30 @@ describe("compaction", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "user"]);
         expect(messageText(context.messages[1] as never)).toBe("user 6");
     });
+    it("摘要provider返回空文本时使用包含真实历史的确定性回退", async () => {
+        faux.setResponses([fauxAssistantMessage([], {stopReason: "stop"})]);
+        const session = await repo.createSession({profileKey: "leader.default", initial: {}});
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "历史文件状态必须保留"}));
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "最近一轮"}));
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        await appendCompaction({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            models: faux.runtime,
+            model: faux.getModel(),
+            writeCompactionEntry: createCompactionEntryWriter(repo, session.metadata.sessionId),
+            compaction: {reserveTokens: 2_000, keepRecent: {kind: "tokens", value: 1}},
+            allowFallback: true,
+        });
+
+        const latest = (await repo.readSession(session.metadata.sessionId)).entries.filter((entry) => entry.type === "compaction").at(-1);
+        expect(latest?.type === "compaction" ? latest.details?.summaryStrategy : undefined).toBe("deterministic-fallback");
+        expect(latest?.type === "compaction" ? latest.details?.summaryError : undefined).toContain("compaction summary 为空");
+        expect(latest?.type === "compaction" ? latest.summary : "").toContain("历史文件状态必须保留");
+        expect(latest?.type === "compaction" ? latest.summary : "").not.toContain("No prior history.");
+    });
 
     it("AbortSignal透传给摘要Provider，取消后不写compaction entry", async () => {
         let receivedSignal: AbortSignal | undefined;
@@ -361,10 +385,11 @@ describe("compaction", () => {
         expect(latest?.type === "compaction" ? latest.details?.summaryInputTokens : undefined).toBeLessThanOrEqual(model.contextWindow);
     });
 
-    it("provider 门禁只裁剪 toolResult 正文并保留消息配对", () => {
+    it("provider 门禁只裁剪 toolResult 正文并保留消息配对与完整输出locator", () => {
         const toolCall = createAssistantTextMessage({text: ""});
         toolCall.content = [{type: "toolCall", id: "tool-1", name: "read", arguments: {path: "large.md"}}];
-        const toolResult = createTextToolResult({toolCallId: "tool-1", toolName: "read", text: "x".repeat(20_000)});
+        const locator = "tool-output://11111111-1111-4111-8111-111111111111/output.log";
+        const toolResult = createTextToolResult({toolCallId: "tool-1", toolName: "read", text: `${"x".repeat(20_000)}\n${locator}`});
         const result = pruneProviderMessagesForWindow({
             systemPrompt: "system",
             messages: [toolCall, toolResult] as never,
@@ -376,6 +401,7 @@ describe("compaction", () => {
         expect(result.messages[0]?.role).toBe("assistant");
         expect(result.messages[1]?.role).toBe("toolResult");
         expect(messageText(result.messages[1] as never).length).toBeLessThan(20_000);
+        expect(messageText(result.messages[1] as never)).toContain(locator);
         expect(estimateProviderContextTokens({systemPrompt: "system", messages: result.messages as never}).tokens).toBeLessThanOrEqual(1_000);
     });
 

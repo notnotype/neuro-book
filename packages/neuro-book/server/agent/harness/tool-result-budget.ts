@@ -1,4 +1,4 @@
-import {formatSize, TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateHead} from "nbook/server/agent/tools/truncate";
+import {formatSize, TOOL_RESULT_MAX_BYTES, TOOL_RESULT_MAX_LINES, truncateHead, truncateStringToBytes} from "nbook/server/agent/tools/truncate";
 import type {AgentOutputSpill} from "nbook/server/agent/tools/agent-output-store";
 import type {NeuroToolResult} from "nbook/server/agent/tools/types";
 
@@ -29,9 +29,9 @@ export async function boundToolResult(input: {result: NeuroToolResult; spill?: T
         return input.result;
     }
     const truncation = truncateHead(text, {maxLines: TOOL_RESULT_MAX_LINES, maxBytes: TOOL_RESULT_MAX_BYTES});
-    // 单行本身超过上限时truncateHead没有可保留的完整行，退化为字节前缀。
+    // 单行本身超过上限时truncateHead没有可保留的完整行，退化为UTF-8安全的字节前缀。
     const head = truncation.firstLineExceedsLimit
-        ? Buffer.from(text, "utf-8").subarray(0, TOOL_RESULT_MAX_BYTES).toString("utf-8")
+        ? truncateStringToBytes(text, TOOL_RESULT_MAX_BYTES)
         : truncation.content;
     const headBytes = formatSize(Buffer.byteLength(head, "utf-8"));
     const spill = input.spill ? await input.spill(text).catch(() => null) : null;
@@ -43,7 +43,7 @@ export async function boundToolResult(input: {result: NeuroToolResult; spill?: T
     return {
         ...input.result,
         content: [
-            {type: "text", text: `${head}\n\n${marker}`},
+            {type: "text", text: `${marker}\n\n${head}`},
             ...input.result.content.filter((block) => block.type !== "text"),
         ],
     };

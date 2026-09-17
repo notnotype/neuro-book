@@ -5,6 +5,7 @@ import {afterEach, describe, expect, it} from "vitest";
 import {
     AgentOutputReclaimedError,
     AgentOutputStore,
+    agentOutputStoreFor,
     agentOutputStoreForLocator,
     BASH_OUTPUT_SPEC,
     isAgentOutputLocator,
@@ -150,6 +151,15 @@ describe("AgentOutputStore 工具结果cache", () => {
 
         await expect(store.spill("payload")).resolves.toBeNull();
         await active.discard();
+    });
+    it("Store初始化失败时返回null而不传播缓存设施错误", async () => {
+        const root = await temporaryRoot();
+        const blocked = path.join(root, "blocked");
+        await fs.writeFile(blocked, "not a directory", "utf8");
+        const paths = createRuntimePaths({applicationRoot: absoluteFsPath(root), stateRoot: absoluteFsPath(root)});
+        const brokenPaths = {...paths, toolOutputRoot: absoluteFsPath(blocked)};
+
+        await expect(agentOutputStoreFor(TOOL_OUTPUT_SPEC, brokenPaths)).resolves.toBeNull();
     });
 });
 

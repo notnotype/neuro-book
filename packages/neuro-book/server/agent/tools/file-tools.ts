@@ -15,6 +15,7 @@ import {
     BASH_OUTPUT_SPEC,
     isAgentOutputLocator,
     type AgentOutputReference,
+    type AgentOutputReservation,
     type AgentOutputStore,
 } from "nbook/server/agent/tools/agent-output-store";
 import type {NeuroAgentTool, NeuroToolResult, NeuroToolUpdateCallback, ToolExecutionContext} from "nbook/server/agent/tools/types";
@@ -414,7 +415,7 @@ function createBashTool(): NeuroAgentTool {
         name: "bash",
         label: "bash",
         executionMode: "sequential",
-        description: "Execute a bash command in the current Project Workspace, or in the Workspace Root when the session has no Current Project. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the retained output is addressed by a logical bash-output locator and can be read with the read tool while it remains available. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: `Execute a bash command in the current Project Workspace, or in the Workspace Root when the session has no Current Project. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last ${TOOL_RESULT_MAX_LINES} lines or ${TOOL_RESULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, the retained output is addressed by a logical bash-output locator and can be read with the read tool while it remains available. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.`,
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,
@@ -436,7 +437,7 @@ function createBashTool(): NeuroAgentTool {
                     originToolCallId: _toolCallId,
                     ref: {command: input.command},
                     run: async (ctx) => {
-                        const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
+                        const output = new OutputAccumulator(await bashOutputReservation(context));
                         try {
                             const result = await runBash({
                                 bash,
@@ -488,7 +489,7 @@ function createBashTool(): NeuroAgentTool {
                     }),
                 };
             }
-            const output = new OutputAccumulator(await (await bashOutputStore(context)).reserve());
+            const output = new OutputAccumulator(await bashOutputReservation(context));
             try {
                 const result = await runBash({
                     bash,
@@ -845,13 +846,14 @@ function formatBashOutput(snapshot: ReturnType<OutputAccumulator["snapshot"]>, e
     return text;
 }
 
-/** Cache Root由生产RuntimePaths注入；纯Repository测试不允许隐式回退到Workspace。 */
-async function bashOutputStore(context: ToolExecutionContext): Promise<AgentOutputStore> {
-    const store = await agentOutputStoreFor(BASH_OUTPUT_SPEC, context.harness.runtimePaths);
-    if (!store) {
-        throw new Error("Bash完整输出需要显式RuntimePaths Cache Root");
-    }
-    return store;
+/** Cache Root由生产RuntimePaths注入；缓存不可用时Bash仍返回有界结果。 */
+async function bashOutputStore(context: ToolExecutionContext): Promise<AgentOutputStore | null> {
+    return agentOutputStoreFor(BASH_OUTPUT_SPEC, context.harness.runtimePaths).catch(() => null);
+}
+
+async function bashOutputReservation(context: ToolExecutionContext): Promise<AgentOutputReservation | null> {
+    const store = await bashOutputStore(context);
+    return store ? store.reserve().catch(() => null) : null;
 }
 
 function formatFullOutput(reference: AgentOutputReference | undefined): string {

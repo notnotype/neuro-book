@@ -1,3 +1,4 @@
+import {truncateStringToBytes} from "nbook/server/agent/tools/truncate";
 import {createHash} from "node:crypto";
 import {readFile, stat} from "node:fs/promises";
 import type {StoredAgentMessage} from "nbook/server/agent/messages/stored-types";
@@ -237,11 +238,7 @@ function isSafeText(value: string): boolean {
 }
 
 function truncateUtf8(value: string, maxBytes: number): string {
-    const bytes = Buffer.from(value, "utf8");
-    if (bytes.byteLength <= maxBytes) {
-        return value;
-    }
-    return bytes.subarray(0, maxBytes).toString("utf8");
+    return truncateStringToBytes(value, maxBytes);
 }
 
 function recoveryMessageTokens(references: string[], bodies: string[]): number {

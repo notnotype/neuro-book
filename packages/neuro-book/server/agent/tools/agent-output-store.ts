@@ -350,7 +350,7 @@ export class AgentOutputStore {
     }
 }
 
-const agentOutputStores = new Map<string, Promise<AgentOutputStore>>();
+const agentOutputStores = new Map<string, Promise<AgentOutputStore | null>>();
 
 /** 判断read工具输入是否属于任一Agent完整输出cache逻辑地址。 */
 export function isAgentOutputLocator(value: string): boolean {
@@ -363,18 +363,19 @@ export async function agentOutputStoreFor(spec: AgentOutputStoreSpec, paths: Run
     if (!root) {
         return null;
     }
-    let store = agentOutputStores.get(root);
+    const cacheKey = `${spec.owner}:${root}`;
+    let store = agentOutputStores.get(cacheKey);
     if (!store) {
         const created = (async () => {
             const instantiated = new AgentOutputStore(root, spec);
             await instantiated.collect();
             return instantiated;
         })();
-        store = created.catch((error: unknown) => {
-            agentOutputStores.delete(root);
-            throw error;
+        store = created.catch(() => {
+            agentOutputStores.delete(cacheKey);
+            return null;
         });
-        agentOutputStores.set(root, store);
+        agentOutputStores.set(cacheKey, store);
     }
     return store;
 }

@@ -87,6 +87,18 @@ export type ProviderMessagePruneResult = {
 const INITIAL_TOOL_RESULT_MAX_CHARS = 2_000;
 const MIN_TOOL_RESULT_CHARS = 128;
 const TOOL_RESULT_TRUNCATION_MARKER = "\n\n[tool result truncated to fit the model context window]";
+const TOOL_OUTPUT_LOCATOR_PATTERN = /(?:bash-output|tool-output):\/\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/output\.log/giu;
+
+function retainToolOutputLocator(text: string, availableChars: number): string {
+    const locator = text.match(TOOL_OUTPUT_LOCATOR_PATTERN)?.[0];
+    if (!locator || availableChars <= 0) {
+        return text.slice(0, Math.max(0, availableChars));
+    }
+    if (locator.length >= availableChars) {
+        return locator.slice(0, availableChars);
+    }
+    return `${text.slice(0, Math.max(0, availableChars - locator.length - 2))}\n${locator}`;
+}
 
 /**
  * 在不删除消息、不改变 toolCall/toolResult 配对的前提下，逐步压缩 toolResult 文本。
@@ -127,7 +139,7 @@ export function pruneProviderMessagesForWindow(input: ProviderContextInput & {
                 remaining = 0;
                 return {
                     type: "text" as const,
-                    text: `${block.text.slice(0, available)}${TOOL_RESULT_TRUNCATION_MARKER}`,
+                    text: `${retainToolOutputLocator(block.text, available)}${TOOL_RESULT_TRUNCATION_MARKER}`,
                 };
             });
             return changed ? {...message, content} : message;
