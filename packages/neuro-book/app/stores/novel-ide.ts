@@ -1,3 +1,4 @@
+import {matchesEditorDocument, type EditorDocumentTarget} from "nbook/app/components/editor-workbench/editor-view.types";
 import type {
     ProjectCreateResponseDto,
     ProjectDeleteResponseDto,
@@ -11,13 +12,9 @@ import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
-    resolveDefaultWorkspaceViewMode,
-    resolveWorkspaceEditorKind,
     resolveWorkspaceFileExtension,
     type MarkdownEditorPreferences,
     type MonacoEditorPreferences,
-    type WorkspaceEditorKind,
-    type WorkspaceEditorViewMode,
 } from "nbook/shared/editor-workbench";
 import type {WorkspaceFileChangeEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {
@@ -34,7 +31,6 @@ import type {
     UserAssetsSyncResultDto,
 } from "nbook/shared/dto/user-assets-sync.dto";
 
-export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
 import {
     legacyBucketSerializer,
     legacyBucketStorage,
@@ -87,8 +83,8 @@ export type WorkspaceFileIssue = {
 export type WorkspaceEditorTab = {
     path: string;
     title: string;
-    editorKind: WorkspaceEditorKind;
-    viewMode: WorkspaceEditorViewMode;
+    editorGroupId: "main";
+    editorId: string | null;
     pinned: boolean;
     preview: boolean;
     dirty: boolean;
@@ -209,6 +205,13 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceKind = ref<WorkspaceKind>("novel");
     const configRevision = ref(0);
     const activeWorkspaceFile = ref<WorkspaceActiveFile | null>(null);
+    const workspaceGeneration = ref(0);
+    const loadingWorkspaceDocument = ref(false);
+    const workspaceDocumentError = ref<string | null>(null);
+    let documentSequence = 0;
+    let activationSequence = 0;
+    const documentIds = new Map<string, string>();
+    let saveOwner: object | null = null;
     const workspaceIssues = ref<WorkspaceFileIssue[]>([]);
     const workspaceWriteConflict = ref<WorkspaceWriteConflictDto | null>(null);
     const workspaceConflictDialogOpen = ref(false);
@@ -233,7 +236,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotPlanningFocusId = ref<string | null>(null);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
-    const viewMode = ref<WorkspaceEditorViewMode>("rich");
     const markdownEditorPreferences = ref<MarkdownEditorPreferences>({
         ...DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     });
@@ -284,6 +286,31 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
     const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentProjectRoot.value));
 
+    const documentTarget = (path: string): EditorDocumentTarget => {
+        let documentId = documentIds.get(path);
+        if (!documentId) {
+            documentId = String(++documentSequence);
+            documentIds.set(path, documentId);
+        }
+        return {workspaceKey: workspaceSessionKey.value, generation: workspaceGeneration.value, documentId, path};
+    };
+    const activeWorkspaceDocumentTarget = computed(() => activeWorkspaceFile.value
+        ? documentTarget(activeWorkspaceFile.value.node.path) : null);
+    const acceptsDocument = (target: EditorDocumentTarget): boolean => target.workspaceKey === workspaceSessionKey.value
+        && target.generation === workspaceGeneration.value && documentIds.get(target.path) === target.documentId;
+    const resetDocumentLifecycle = (): void => {
+        workspaceGeneration.value += 1;
+        activationSequence += 1;
+        documentIds.clear();
+        activeEditorFlush = null;
+        loadingWorkspaceDocument.value = false;
+        restoringWorkspaceFile.value = false;
+        workspaceDocumentError.value = null;
+        saveOwner = null;
+        savingFile.value = false;
+        workspaceTreeRequest = null;
+    };
+
     /**
      * 当前活动文件路径。对外保留 selected 命名，内部只从 activeWorkspaceFile 投影。
      */
@@ -309,6 +336,19 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             };
         },
     });
+
+    const updateWorkspaceDocument = (target: EditorDocumentTarget, content: string): boolean => {
+        if (!acceptsDocument(target)) return false;
+        if (matchesEditorDocument(target, activeWorkspaceDocumentTarget.value)) {
+            selectedFileContent.value = content;
+        } else {
+            const buffer = workspaceBuffers.value[target.path];
+            if (!buffer) return false;
+            workspaceBuffers.value = {...workspaceBuffers.value, [target.path]: {...buffer, content}};
+        }
+        syncWorkspaceTabDirty(target.path);
+        return true;
+    };
 
     /**
      * 当前活动文件最近一次同步到磁盘的正文。
@@ -397,9 +437,18 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 恢复指定 workspace 会话的编辑状态。
      */
     const restoreWorkspaceSession = (): void => {
+        resetDocumentLifecycle();
         const snapshot = workspaceSessions.value[workspaceSessionKey.value];
         activeWorkspaceTabPath.value = snapshot?.activeWorkspaceTabPath ?? "";
-        workspaceTabs.value = snapshot?.workspaceTabs ?? [];
+        workspaceTabs.value = (snapshot?.workspaceTabs ?? []).map((tab) => {
+            const legacy = tab as WorkspaceEditorTab & {viewMode?: string; editorKind?: string};
+            const markdown = [".md", ".markdown"].includes(resolveWorkspaceFileExtension(tab.path));
+            const editorId = "editorId" in tab ? tab.editorId
+                : markdown && legacy.viewMode === "source" ? "code"
+                : markdown && ["rich", "split", "mixed"].includes(legacy.viewMode ?? "") ? "markdown"
+                : legacy.editorKind === "monaco" ? "code" : null;
+            return {path: tab.path, title: tab.title, editorId, editorGroupId: "main", pinned: tab.pinned, preview: tab.preview, dirty: tab.dirty};
+        });
         workspaceBuffers.value = snapshot?.workspaceBuffers ?? {};
         monacoFontSizeOverridesByPath.value = snapshot?.monacoFontSizeOverridesByPath ?? {};
         activeWorkspaceFile.value = null;
@@ -439,30 +488,23 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 当前 tree 请求的去重键。Project Workspace 与 user-assets 必须隔离。
      */
-    const workspaceTreeRequestKey = (): string => {
-        const query = workspaceQuery();
-        return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectRoot}`;
+    const workspaceTreeRequestKey = (): string => workspaceSessionKey.value;
+
+    let activeEditorFlush: {target: EditorDocumentTarget; flush: () => void} | null = null;
+
+    /** 清理仅撤销本次登记，旧视图卸载不能抹掉新视图的输入结算入口。 */
+    const registerActiveEditorFlush = (target: EditorDocumentTarget, flush: () => void): (() => void) => {
+        const registration = {target, flush};
+        activeEditorFlush = registration;
+        return () => {
+            if (activeEditorFlush === registration) activeEditorFlush = null;
+        };
     };
 
-    /** 活动编辑器防抖结算钩子，见 registerActiveEditorFlush */
-    let activeEditorFlush: (() => void) | null = null;
-
-    /**
-     * 注册活动编辑器的防抖结算钩子（由 index.vue 在 studio controller 就绪后注入）。
-     * 编辑器输入走 300ms 防抖上报，store 在读取 activeWorkspaceFile.content 做
-     * dirty 判定 / buffer 持久化 / 保存之前必须先触发一次 flush，否则防抖窗口内
-     * 的输入会被误判为「无修改」——切文件丢字、外部同步覆盖导致的文本回退都源于此。
-     */
-    const registerActiveEditorFlush = (fn: (() => void) | null): void => {
-        activeEditorFlush = fn;
-    };
-
-    /**
-     * 结算活动编辑器的未上报输入（未注册钩子时 no-op）。
-     * 调用后 activeWorkspaceFile.content 即为编辑器最新内容。
-     */
     const flushActiveEditorPending = (): void => {
-        activeEditorFlush?.();
+        if (activeEditorFlush && matchesEditorDocument(activeEditorFlush.target, activeWorkspaceDocumentTarget.value)) {
+            activeEditorFlush.flush();
+        }
     };
 
     /**
@@ -488,26 +530,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 根据文件路径推断编辑器类型。
-     */
-    const inferWorkspaceEditorKind = (node: WorkspaceFileNode): WorkspaceEditorKind => {
-        return resolveWorkspaceEditorKind(node.path, node.editable);
-    };
-
-    /**
-     * 兼容旧持久化中的 split/mixed 模式，并约束标签视图模式。
-     */
-    const normalizeWorkspaceViewMode = (mode: string | undefined): WorkspaceEditorViewMode => {
-        if (mode === "source" || mode === "rich") {
-            return mode;
-        }
-        if (mode === "split" || mode === "mixed") {
-            return "rich";
-        }
-        return "rich";
-    };
-
-    /**
      * 打开或更新一个工作区标签页。
      */
     const upsertWorkspaceTab = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode): void => {
@@ -522,8 +544,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const nextTab: WorkspaceEditorTab = {
             path,
             title: node.title?.trim() || path,
-            editorKind: inferWorkspaceEditorKind(node),
-            viewMode: normalizeWorkspaceViewMode(existingTab?.viewMode ?? resolveDefaultWorkspaceViewMode(path)),
+            editorId: existingTab?.editorId ?? null,
+            editorGroupId: "main",
             pinned: existingTab?.pinned ?? false,
             preview: existingTab?.pinned ? false : preview,
             dirty: activeDirty,
@@ -533,6 +555,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             for (const tab of workspaceTabs.value) {
                 if (tab.preview && !tab.dirty && tab.path !== path) {
                     delete nextBuffers[tab.path];
+                    documentIds.delete(tab.path);
                 }
             }
             workspaceBuffers.value = nextBuffers;
@@ -562,18 +585,12 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             dirty,
             preview: dirty ? false : Boolean(tab.preview),
             title: node?.title?.trim() || tab.title,
-            editorKind: node ? inferWorkspaceEditorKind(node) : tab.editorKind,
         } : tab);
     };
 
-    /**
-     * 设置当前 Markdown 标签的显示模式。
-     */
-    const setWorkspaceTabViewMode = (filePath: string, mode: WorkspaceEditorViewMode): void => {
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {
-            ...tab,
-            viewMode: normalizeWorkspaceViewMode(mode),
-        } : tab);
+    /** 只记录本标签的显式选择；null 表示下次恢复按配置选择。 */
+    const setWorkspaceTabEditor = (filePath: string, editorId: string | null): void => {
+        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {...tab, editorId} : tab);
     };
 
     /**
@@ -652,6 +669,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 移除一个无法恢复的工作区标签和对应缓存。
      */
     const removeWorkspaceTabState = (filePath: string): void => {
+        documentIds.delete(filePath);
         const nextBuffers = {...workspaceBuffers.value};
         delete nextBuffers[filePath];
         workspaceBuffers.value = nextBuffers;
@@ -668,27 +686,31 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 从持久化的标签状态中恢复当前活动文件。
      */
     const restoreWorkspaceTabFromPersistedState = async (): Promise<void> => {
+        const operation = beginDocumentActivation();
         restoringWorkspaceFile.value = true;
         try {
-            const candidatePaths = [
-                activeWorkspaceTabPath.value,
-                selectedFilePath.value,
-                ...workspaceTabs.value.map((tab) => tab.path),
-            ].filter((path, index, paths) => Boolean(path) && paths.indexOf(path) === index);
-
-            for (const path of candidatePaths) {
+            const paths = [...new Set([activeWorkspaceTabPath.value, selectedFilePath.value, ...workspaceTabs.value.map((tab) => tab.path)])].filter(Boolean);
+            for (const path of paths) {
+                if (!acceptsActivation(operation)) return;
                 const tab = workspaceTabs.value.find((item) => item.path === path);
                 try {
-                    await selectWorkspacePath(path, tab?.preview ? "preview" : "permanent", {forceDisk: true});
+                    await activateWorkspaceFile(path, tab?.preview ? "preview" : "permanent", {forceDisk: true}, operation);
                     return;
-                } catch {
-                    removeWorkspaceTabState(path);
+                } catch (error) {
+                    if (!acceptsActivation(operation)) return;
+                    if (isMissingWorkspaceFile(error) && !tab?.dirty) removeWorkspaceTabState(path);
+                    else {
+                        workspaceDocumentError.value = error instanceof Error ? error.message : "文件读取失败";
+                        return;
+                    }
                 }
             }
-
-            clearActiveFile();
+            if (acceptsActivation(operation)) clearActiveFile();
         } finally {
-            restoringWorkspaceFile.value = false;
+            if (operation.generation === workspaceGeneration.value && operation.workspaceKey === workspaceSessionKey.value) {
+                restoringWorkspaceFile.value = false;
+                if (operation.sequence === activationSequence) loadingWorkspaceDocument.value = false;
+            }
         }
     };
 
@@ -697,6 +719,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const loadWorkspaceTree = async (options: WorkspaceTreeLoadOptions = {}): Promise<WorkspaceFileNode[]> => {
         const requestKey = workspaceTreeRequestKey();
+        const generation = workspaceGeneration.value;
         if (!options.bypassPendingRequest && workspaceTreeRequest?.key === requestKey) {
             return await workspaceTreeRequest.promise;
         }
@@ -705,7 +728,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             const snapshot = await $fetch<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>("/api/workspace-files/tree", {
                 query: workspaceQuery(),
             });
-            if (workspaceTreeRequestKey() !== requestKey) {
+            if (generation !== workspaceGeneration.value || workspaceSessionKey.value !== requestKey) {
                 return snapshot.nodes;
             }
             workspaceTree.value = snapshot.nodes;
@@ -742,7 +765,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         try {
             return await promise;
         } finally {
-            if (workspaceTreeRequest?.key === requestKey) {
+            if (workspaceTreeRequest?.promise === promise) {
                 workspaceTreeRequest = null;
                 loadingWorkspaceTree.value = false;
             }
@@ -766,105 +789,86 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         return workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizedPath);
     };
 
-    /**
-     * 激活一个可编辑文件，并按需从缓存或磁盘读取正文。
-     */
-    const activateEditableWorkspaceFile = async (
-        filePath: string,
-        knownDetail: WorkspaceFileNode | undefined,
-        openMode: WorkspaceOpenMode,
-        options: WorkspaceLoadOptions,
-    ): Promise<WorkspaceFileNode | null> => {
-        const [detail, file] = await Promise.all([
-            knownDetail ? Promise.resolve(knownDetail) : statWorkspacePath(filePath),
-            $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {
-                query: {...workspaceQuery(), path: filePath},
-            }),
-        ]);
-        const existingBuffer = options.forceDisk ? undefined : workspaceBuffers.value[detail.path];
-        const content = existingBuffer?.content ?? file.content;
-        const lastSyncedContent = existingBuffer?.lastSyncedContent ?? file.content;
+    type DocumentActivation = {generation: number; workspaceKey: string; sequence: number; query: WorkspaceQueryInput};
+    const beginDocumentActivation = (): DocumentActivation => {
+        persistActiveWorkspaceBuffer();
+        const operation = {generation: workspaceGeneration.value, workspaceKey: workspaceSessionKey.value, sequence: ++activationSequence, query: workspaceQuery()};
+        loadingWorkspaceDocument.value = true;
+        workspaceDocumentError.value = null;
+        return operation;
+    };
+    const acceptsActivation = (operation: DocumentActivation): boolean => operation.generation === workspaceGeneration.value
+        && operation.workspaceKey === workspaceSessionKey.value && operation.sequence === activationSequence;
+    const isMissingWorkspaceFile = (error: unknown): boolean => typeof error === "object" && error !== null
+        && (("statusCode" in error && error.statusCode === 404) || ("status" in error && error.status === 404));
 
-        activeWorkspaceFile.value = {
-            node: detail,
-            content,
-            lastSyncedContent,
-            lastSyncedMtimeMs: existingBuffer?.lastSyncedMtimeMs ?? file.mtimeMs,
-        };
+    const activateEditableWorkspaceFile = async (
+        filePath: string, knownDetail: WorkspaceFileNode | undefined, openMode: WorkspaceOpenMode,
+        options: WorkspaceLoadOptions, operation: DocumentActivation,
+    ): Promise<WorkspaceFileNode | null> => {
+        const cached = workspaceBuffers.value[filePath];
+        if (cached && (!options.forceDisk || cached.content !== cached.lastSyncedContent)) {
+            if (!acceptsActivation(operation)) return null;
+            documentTarget(filePath);
+            activeWorkspaceFile.value = {...cached};
+            upsertWorkspaceTab(cached.node, openMode);
+            return cached.node;
+        }
+        const detail = knownDetail ?? await $fetch<WorkspaceFileNode>("/api/workspace-files/stat", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
+        if (!detail.editable) {
+            documentTarget(detail.path);
+            activeWorkspaceFile.value = {node: detail, content: "", lastSyncedContent: "", lastSyncedMtimeMs: detail.mtimeMs};
+            upsertWorkspaceTab(detail, openMode);
+            return detail;
+        }
+        const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
+        documentTarget(detail.path);
+        activeWorkspaceFile.value = {node: detail, content: file.content, lastSyncedContent: file.content, lastSyncedMtimeMs: file.mtimeMs};
         upsertWorkspaceTab(detail, openMode);
         return detail;
     };
 
-    /**
-     * 激活工作区文件或目录，是文件树、标签页和刷新恢复共用的唯一入口。
-     */
-    const activateWorkspaceFile = async (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        const detail = findWorkspaceNode(filePath) ?? await statWorkspacePath(filePath);
+    const activateWorkspaceFile = async (
+        filePath: string, openMode: WorkspaceOpenMode, options: WorkspaceLoadOptions, operation: DocumentActivation,
+        knownDetail?: WorkspaceFileNode,
+    ): Promise<WorkspaceFileNode | null> => {
+        const cached = workspaceBuffers.value[filePath];
+        if (cached && (!options.forceDisk || cached.content !== cached.lastSyncedContent)) {
+            return activateEditableWorkspaceFile(filePath, cached.node, openMode, options, operation);
+        }
+        const detail = knownDetail ?? findWorkspaceNode(filePath)
+            ?? await $fetch<WorkspaceFileNode>("/api/workspace-files/stat", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
         if (detail.isDirectory && detail.contentNode) {
-            const normalizedDir = detail.path.replace(/\/$/, "");
-            const indexPath = `${normalizedDir}/index.md`;
-            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
+            const indexPath = `${detail.path.replace(/\/$/, "")}/index.md`;
+            return activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options, operation);
         }
+        return activateEditableWorkspaceFile(detail.path, detail, openMode, options, operation);
+    };
 
-        if (!detail.editable) {
-            activeWorkspaceFile.value = {
-                node: detail,
-                content: "",
-                lastSyncedContent: "",
-                lastSyncedMtimeMs: detail.mtimeMs,
-            };
-            upsertWorkspaceTab(detail, openMode);
-            return detail;
+    const requestWorkspaceActivation = async (filePath: string, openMode: WorkspaceOpenMode, options: WorkspaceLoadOptions, detail?: WorkspaceFileNode): Promise<WorkspaceFileNode | null> => {
+        const operation = beginDocumentActivation();
+        try {
+            return await activateWorkspaceFile(filePath, openMode, options, operation, detail);
+        } catch (error) {
+            if (!acceptsActivation(operation)) return null;
+            workspaceDocumentError.value = error instanceof Error ? error.message : "文件读取失败";
+            throw error;
+        } finally {
+            if (acceptsActivation(operation)) loadingWorkspaceDocument.value = false;
         }
-
-        return await activateEditableWorkspaceFile(detail.path, detail, openMode, options);
     };
 
-    /**
-     * 加载可编辑文本文件。
-     */
-    const loadWorkspaceFile = async (filePath: string, knownDetail?: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        return await activateEditableWorkspaceFile(filePath, knownDetail, openMode, options);
-    };
-
-    /**
-     * 选择工作区文件或目录。
-     */
-    const selectWorkspacePath = async (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        return await activateWorkspaceFile(filePath, openMode, options);
-    };
-
-    /**
-     * 以预览或常驻方式打开工作区路径。
-     */
-    const openWorkspacePath = async (filePath: string, openMode: WorkspaceOpenMode): Promise<WorkspaceFileNode | null> => {
-        return await selectWorkspacePath(filePath, openMode);
-    };
-
-    /**
-     * 从文件树节点打开路径。调用方已经持有节点元信息时走这个入口，避免额外 stat 请求。
-     */
-    const openWorkspaceNode = async (node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        if (node.isDirectory && node.contentNode) {
-            const normalizedDir = node.path.replace(/\/$/, "");
-            const indexPath = `${normalizedDir}/index.md`;
-            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
-        }
-        if (!node.editable) {
-            activeWorkspaceFile.value = {
-                node,
-                content: "",
-                lastSyncedContent: "",
-                lastSyncedMtimeMs: node.mtimeMs,
-            };
-            upsertWorkspaceTab(node, openMode);
-            return node;
-        }
-        return await activateEditableWorkspaceFile(node.path, node, openMode, options);
-    };
+    const loadWorkspaceFile = (filePath: string, knownDetail?: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(filePath, openMode, options, knownDetail);
+    const selectWorkspacePath = (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(filePath, openMode, options);
+    const openWorkspacePath = (filePath: string, openMode: WorkspaceOpenMode): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(filePath, openMode, {});
+    const openWorkspaceNode = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(node.path, openMode, options, node);
 
     /**
      * 保存当前工作区文件。
@@ -879,6 +883,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
         const pathToSave = activeFile.node.path;
         const contentToSave = options.content ?? activeFile.content;
+        const target = documentTarget(pathToSave);
+        const owner = {};
+        saveOwner = owner;
         savingFile.value = true;
         try {
             const nextNode = await $fetch<WorkspaceFileNode>("/api/workspace-files/write", {
@@ -892,10 +899,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                     force: options.force ?? false,
                 },
             });
+            if (!acceptsDocument(target)) return null;
             const isStillActiveFile = activeWorkspaceFile.value?.node.path === pathToSave;
-            const nextActiveContent = options.content !== undefined
-                ? contentToSave
-                : activeWorkspaceFile.value?.content ?? contentToSave;
+            const nextActiveContent = options.content !== undefined && activeWorkspaceFile.value?.content === activeFile.content
+                ? contentToSave : activeWorkspaceFile.value?.content ?? contentToSave;
             if (isStillActiveFile) {
                 activeWorkspaceFile.value = {
                     node: nextNode,
@@ -922,6 +929,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             await loadWorkspaceTree();
             return nextNode;
         } catch (error) {
+            if (!acceptsDocument(target)) return null;
             const conflict = readWorkspaceWriteConflict(error);
             if (conflict) {
                 workspaceWriteConflict.value = conflict;
@@ -930,7 +938,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             }
             throw error;
         } finally {
-            savingFile.value = false;
+            if (saveOwner === owner) {
+                saveOwner = null;
+                savingFile.value = false;
+            }
         }
     };
 
@@ -939,13 +950,17 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const saveDirtyWorkspaceFiles = async (): Promise<void> => {
         persistActiveWorkspaceBuffer();
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
         const dirtyPaths = workspaceTabs.value
             .filter((tab) => tab.dirty)
             .map((tab) => tab.path);
 
         for (const filePath of dirtyPaths) {
+            if (generation !== workspaceGeneration.value || key !== workspaceSessionKey.value) return;
             await selectWorkspaceTab(filePath);
-            await saveCurrentFile();
+            if (generation !== workspaceGeneration.value || key !== workspaceSessionKey.value) return;
+            if (!await saveCurrentFile()) return;
         }
     };
 
@@ -1237,6 +1252,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 关闭指定标签页。调用方负责在脏文件时先确认。
      */
     const closeWorkspaceTab = async (filePath: string, discardChanges = false): Promise<void> => {
+        flushActiveEditorPending();
+        if (activeWorkspaceFile.value?.node.path === filePath) syncWorkspaceTabDirty(filePath);
         const tabIndex = workspaceTabs.value.findIndex((tab) => tab.path === filePath);
         if (tabIndex < 0) {
             return;
@@ -1246,6 +1263,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             return;
         }
 
+        documentIds.delete(filePath);
         const nextBuffers = {...workspaceBuffers.value};
         delete nextBuffers[filePath];
         workspaceBuffers.value = nextBuffers;
@@ -1259,6 +1277,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             return;
         }
 
+        activationSequence += 1;
+        loadingWorkspaceDocument.value = false;
+        activeWorkspaceFile.value = null;
+        activeWorkspaceTabPath.value = "";
         const nextTab = nextTabs[Math.max(0, tabIndex - 1)] ?? nextTabs[0] ?? null;
         if (!nextTab) {
             activeWorkspaceTabPath.value = "";
@@ -1287,129 +1309,73 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 从磁盘同步外部文件变化。dirty 文件只标记冲突，不自动覆盖用户输入。
      */
     const syncWorkspaceFromDisk = async (events: WorkspaceFileChangeEventDto[]): Promise<WorkspaceDiskSyncResult> => {
-        if ((workspaceKind.value !== "user-assets" && !currentProjectRoot.value) || events.length === 0) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths: [],
-                deletedPaths: [],
-            };
-        }
-
-        // 先结算防抖输入再取 dirty 快照：防抖窗口内的输入若不计入判定，
-        // 活动文件会被误判为「无修改」而走 forceDisk 重载，本地输入被磁盘内容覆盖（文本回退）
+        const unchanged: WorkspaceDiskSyncResult = {activeFile: "unchanged", dirtyPaths: [], deletedPaths: []};
+        if (!canAccessWorkspace.value || events.length === 0) return unchanged;
         flushActiveEditorPending();
-        const previousActivePath = activeWorkspaceFile.value?.node.path ?? "";
-        const previousActiveDirty = Boolean(
-            activeWorkspaceFile.value
-            && activeWorkspaceFile.value.content !== activeWorkspaceFile.value.lastSyncedContent,
-        );
-        const previousActiveTab = workspaceTabs.value.find((tab) => tab.path === previousActivePath);
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
+        const sequence = activationSequence;
+        const query = workspaceQuery();
+        const previousTarget = activeWorkspaceDocumentTarget.value;
+        const previousPath = previousTarget?.path ?? "";
         const dirtyPaths: string[] = [];
         const deletedPaths: string[] = [];
-
+        const current = () => generation === workspaceGeneration.value && key === workspaceSessionKey.value && sequence === activationSequence;
         await loadWorkspaceTree({bypassPendingRequest: true});
-
-        const syncInactiveTabBuffer = async (tab: WorkspaceEditorTab): Promise<void> => {
-            if (tab.path === previousActivePath || !workspacePathTouchedByEvents(tab.path, events)) {
-                return;
-            }
+        if (!current()) return unchanged;
+        for (const tab of [...workspaceTabs.value]) {
+            if (!current()) return unchanged;
+            if (tab.path === previousPath || !workspacePathTouchedByEvents(tab.path, events)) continue;
+            const target = documentTarget(tab.path);
             const buffer = workspaceBuffers.value[tab.path];
             if (buffer && buffer.content !== buffer.lastSyncedContent) {
                 dirtyPaths.push(tab.path);
-                return;
+                continue;
             }
-
-            const nextNode = workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(tab.path));
-            if (!nextNode) {
+            const node = findWorkspaceNode(tab.path);
+            if (!node) {
                 removeWorkspaceTabState(tab.path);
                 deletedPaths.push(tab.path);
-                return;
+                continue;
             }
-            if (!nextNode.editable) {
-                return;
-            }
-
+            if (!node.editable) continue;
             try {
-                const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {
-                    query: {...workspaceQuery(), path: tab.path},
-                });
-                workspaceBuffers.value = {
-                    ...workspaceBuffers.value,
-                    [tab.path]: {
-                        node: nextNode,
-                        content: file.content,
-                        lastSyncedContent: file.content,
-                        lastSyncedMtimeMs: file.mtimeMs,
-                    },
-                };
+                const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {query: {...query, path: tab.path}});
+                if (!current() || !acceptsDocument(target)) return unchanged;
+                const latest = workspaceBuffers.value[tab.path];
+                if (latest && latest.content !== latest.lastSyncedContent) {
+                    dirtyPaths.push(tab.path);
+                    continue;
+                }
+                workspaceBuffers.value = {...workspaceBuffers.value, [tab.path]: {node, content: file.content, lastSyncedContent: file.content, lastSyncedMtimeMs: file.mtimeMs}};
                 syncWorkspaceTabDirty(tab.path);
-            } catch {
-                removeWorkspaceTabState(tab.path);
-                deletedPaths.push(tab.path);
+            } catch (error) {
+                if (!current() || !acceptsDocument(target)) return unchanged;
+                if (isMissingWorkspaceFile(error)) {
+                    removeWorkspaceTabState(tab.path);
+                    deletedPaths.push(tab.path);
+                } else workspaceDocumentError.value = error instanceof Error ? error.message : "文件同步失败";
             }
+        }
+        if (!current() || !previousTarget || !matchesEditorDocument(previousTarget, activeWorkspaceDocumentTarget.value)
+            || !workspacePathTouchedByEvents(previousPath, events)) return {activeFile: "unchanged", dirtyPaths, deletedPaths};
+        flushActiveEditorPending();
+        const active = activeWorkspaceFile.value!;
+        const node = findWorkspaceNode(previousPath);
+        if (node?.mtimeMs === active.lastSyncedMtimeMs) return {activeFile: "unchanged", dirtyPaths, deletedPaths};
+        if (active.content !== active.lastSyncedContent) return {
+            activeFile: "dirty", dirtyPaths: [...dirtyPaths, previousPath], deletedPaths: node ? deletedPaths : [...deletedPaths, previousPath],
         };
-
-        for (const tab of [...workspaceTabs.value]) {
-            await syncInactiveTabBuffer(tab);
+        if (!node) {
+            removeWorkspaceTabState(previousPath);
+            return {activeFile: "deleted", dirtyPaths, deletedPaths: [...deletedPaths, previousPath]};
         }
-
-        if (!previousActivePath || !workspacePathTouchedByEvents(previousActivePath, events)) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths,
-                deletedPaths,
-            };
-        }
-
-        // 保存回声抑制：磁盘 mtime 与本地最后同步 mtime 一致，说明这次事件是
-        // 自己 save 落盘后的 watcher 回声。此时既不该报冲突（保存后继续打字是
-        // 正常 dirty，不是外部改动），也不该 forceDisk 重载（会白跑一次读取并
-        // 重置光标）。外部工具写入必然产生新 mtime，不会命中该分支。
-        const activeNodeOnDisk = workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
-        if (
-            activeNodeOnDisk
-            && activeWorkspaceFile.value?.node.path === previousActivePath
-            && activeNodeOnDisk.mtimeMs === activeWorkspaceFile.value.lastSyncedMtimeMs
-        ) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths,
-                deletedPaths,
-            };
-        }
-
-        const activeStillExists = workspaceTree.value.some((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
-        if (previousActiveDirty) {
-            return {
-                activeFile: "dirty",
-                dirtyPaths: [...dirtyPaths, previousActivePath],
-                deletedPaths: activeStillExists ? deletedPaths : [...deletedPaths, previousActivePath],
-            };
-        }
-
-        if (!activeStillExists) {
-            removeWorkspaceTabState(previousActivePath);
-            return {
-                activeFile: "deleted",
-                dirtyPaths,
-                deletedPaths: [...deletedPaths, previousActivePath],
-            };
-        }
-
         try {
-            await selectWorkspacePath(previousActivePath, previousActiveTab?.preview ? "preview" : "permanent", {forceDisk: true});
-            return {
-                activeFile: "reloaded",
-                dirtyPaths,
-                deletedPaths,
-            };
+            const tab = workspaceTabs.value.find((item) => item.path === previousPath);
+            const result = await selectWorkspacePath(previousPath, tab?.preview ? "preview" : "permanent", {forceDisk: true});
+            return {activeFile: result ? "reloaded" : "unchanged", dirtyPaths, deletedPaths};
         } catch {
-            removeWorkspaceTabState(previousActivePath);
-            return {
-                activeFile: "deleted",
-                dirtyPaths,
-                deletedPaths: [...deletedPaths, previousActivePath],
-            };
+            return {activeFile: "unchanged", dirtyPaths, deletedPaths};
         }
     };
 
@@ -1702,6 +1668,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const closeProjectWorkspace = (): void => {
         persistWorkspaceSession();
+        resetDocumentLifecycle();
         workspaceKind.value = "novel";
         currentProjectRoot.value = "";
         clearWorkspaceSelection();
@@ -1724,24 +1691,13 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         persistWorkspaceSession();
         workspaceKind.value = "user-assets";
         restoreWorkspaceSession();
-        loadingWorkspace.value = true;
-        try {
-            await loadWorkspaceTree();
-            await restoreWorkspaceTabFromPersistedState();
-        } finally {
-            loadingWorkspace.value = false;
-        }
+        await initializeWorkspace();
     };
 
     /**
      * 提交已经通过 Project 激活事务的目标，并初始化其文件树与标签。
      */
     const switchToNovelWorkspace = async (projectRoot: string): Promise<void> => {
-        if (workspaceKind.value === "novel" && projectRoot === currentProjectRoot.value) {
-            await initializeWorkspace();
-            return;
-        }
-
         persistWorkspaceSession();
         workspaceKind.value = "novel";
         currentProjectRoot.value = projectRoot;
@@ -1798,36 +1754,21 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 初始化已激活的 Project Workspace；缺失目标进入未选择状态，绝不自动挑选其它 Project。
      */
     const initializeWorkspace = async (): Promise<void> => {
-        if (workspaceKind.value === "user-assets") {
-            loadingWorkspace.value = true;
-            try {
-                await loadWorkspaceTree();
-                await restoreWorkspaceTabFromPersistedState();
-            } finally {
-                loadingWorkspace.value = false;
-            }
-            return;
-        }
-
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
         loadingWorkspace.value = true;
-
         try {
-            if (!currentProjectRoot.value) {
+            if (!canAccessWorkspace.value) {
                 clearWorkspaceSelection();
                 clearActiveFile();
                 clearWorkspaceState();
                 return;
             }
-
-            if (workspaceKind.value !== "novel") {
-                workspaceKind.value = "novel";
-            }
-
             await loadWorkspaceTree();
-
+            if (generation !== workspaceGeneration.value || key !== workspaceSessionKey.value) return;
             await restoreWorkspaceTabFromPersistedState();
         } finally {
-            loadingWorkspace.value = false;
+            if (generation === workspaceGeneration.value && key === workspaceSessionKey.value) loadingWorkspace.value = false;
         }
     };
 
@@ -1839,6 +1780,12 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     });
 
     return {
+        activeWorkspaceDocumentTarget,
+        workspaceGeneration,
+        loadingWorkspaceDocument,
+        workspaceDocumentError,
+        updateWorkspaceDocument,
+        flushActiveEditorPending,
         activeLeftTab,
         activeWorkspaceTabPath,
         applyWorkspaceConflictMergedContent,
@@ -1910,7 +1857,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         selectWorkspacePath,
         setMonacoFontSizeOverride,
         setWorkspaceTabPinned,
-        setWorkspaceTabViewMode,
+        setWorkspaceTabEditor,
         toggleWorkspaceTabPinned,
         switchToNovelWorkspace,
         closeProjectWorkspace,
@@ -1924,7 +1871,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         markdownEditorPreferences,
         monacoEditorPreferences,
         monacoFontSizeOverridesByPath,
-        viewMode,
         plotRefreshVersion,
         loadingWorkspaceTree,
         renameWorkspacePath,
@@ -1975,7 +1921,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "agentStudioFileTreeWidth",
             "selectedModel",
             "selectedReasoning",
-            "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",
         ],

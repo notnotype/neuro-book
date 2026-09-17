@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
+import MonacoCodeEditor from "nbook/app/components/editor-workbench/MonacoCodeEditor.vue";
 import type {MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 const props = defineProps<{
@@ -27,7 +27,7 @@ const emit = defineEmits<{
                 <span class="text-[11px] text-[var(--text-muted)]">{{ props.sourceLineCount }} 行</span>
             </div>
         </div>
-        <MarkdownSourceEditor
+        <MonacoCodeEditor
             class="source-preview min-h-0 flex-1 overflow-hidden rounded-md"
             :class="props.embedded ? 'border-0' : 'border border-[var(--border-color)]'"
             :initial-value="props.sourceText"

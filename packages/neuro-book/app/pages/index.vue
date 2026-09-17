@@ -3,7 +3,10 @@ import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
-import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
+import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
+import EditorViewHost from "nbook/app/components/editor-workbench/EditorViewHost.vue";
+import EditorWelcome from "nbook/app/components/editor-workbench/EditorWelcome.vue";
+import {useEditorWorkbench} from "nbook/app/composables/useEditorWorkbench";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import NovelIdeActivityBar from "nbook/app/components/novel-ide/NovelIdeActivityBar.vue";
@@ -29,7 +32,6 @@ import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-
 import {ensureThemeHost} from "nbook/app/utils/theme/host";
 import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
-import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
 import {isProjectSessionSupersededError, useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
@@ -39,7 +41,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useInlineEditorAgentController} from "nbook/app/composables/useInlineEditorAgentController";
 import {useWorkbenchChromeRegistration} from "nbook/app/composables/useWorkbenchChrome";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
-import {useNovelIdeStore, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {useNovelIdeStore, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
@@ -54,7 +56,7 @@ import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
 import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
-import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
+import {canEditContentFrontmatter, resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 import {buildSelectionRefChip, type InlineEditPayload, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
 import {dispatchDesktopMenuCommand} from "@notnotype/neuro-book-contracts/desktop";
@@ -90,7 +92,6 @@ const worldEngineWorkbenchSaving = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const agentStudioFileTreeOpen = ref(false);
-const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
@@ -137,7 +138,6 @@ const {
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
-    viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
     monacoFontSizeOverridesByPath,
@@ -161,7 +161,6 @@ const {
     setSelectedModelLabel,
     setMonacoFontSizeOverride,
     setWorkspaceTabPinned,
-    setWorkspaceTabViewMode,
     resolveWorkspaceWriteConflict,
     syncWorkspaceFromDisk,
     switchToNovelWorkspace,
@@ -244,16 +243,39 @@ function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
         && unref(owner.surface.inlineOperationScopeKey) === owner.operationKey;
 }
 
-const studio = useMarkdownStudioController({
-    markdown: selectedFileContent,
-    viewMode,
-});
-// store 在切文件 / 磁盘同步 / 保存前先结算编辑器防抖输入，防止防抖窗口内的输入被误判为「无修改」
-novelIdeStore.registerActiveEditorFlush(() => studio.flushActiveEditor());
 
 const {alert, choose, chooseCards, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
+const editorWorkbench = useEditorWorkbench({
+    bindings: {
+        code: {
+            preferences: () => monacoEditorPreferences.value,
+            temporaryFontSize: (path) => monacoFontSizeOverridesByPath.value[path] ?? null,
+            setTemporaryFontSize: (target, size) => {
+                if (target.generation === novelIdeStore.workspaceGeneration) setMonacoFontSizeOverride(target.path, size);
+            },
+        },
+        markdown: {
+            preferences: () => markdownEditorPreferences.value,
+            canEditFrontmatter: (target) => canEditContentFrontmatter(target.path, selectedFileNode.value?.editable ?? false, selectedFileNode.value?.contentNode ?? false),
+            referenceRefreshKey: () => workspaceReferenceRefreshKey.value,
+            resolveMenu: resolveMarkdownMenu,
+            openReference: (target) => {void openWorkspaceReference(target);},
+            resolveReference: resolveWorkspaceReferencePreview,
+            inlineAiReferences: () => inlinePromptReferences.value,
+            inlineAiHighlightReference: () => inlinePromptHoveredReference.value,
+            enableQuickTriggers: () => true,
+            openFrontmatterProfile,
+            addInlineAiReference,
+        },
+    },
+    chooseClose: (title) => choose(t("editorWorkbench.closeMessage", {title}), [
+        {label: t("editorWorkbench.saveAndClose"), value: "save", tone: "primary"},
+        {label: t("editorWorkbench.discard"), value: "discard", tone: "danger"},
+        {label: t("editorWorkbench.cancel"), value: "cancel"},
+    ], t("editorWorkbench.closeTitle")),
+});
 const inlineEditorAgent = useInlineEditorAgentController({
     active: projectSurfaceActive,
     projectReadyRevision: agentProjectReadyRevision,
@@ -300,7 +322,7 @@ let desktopZoomQueue: Promise<void> = Promise.resolve();
 
 /** 焦点事实：菜单的编辑动作按真实焦点判断（Studio 的 undo 不冒充所有输入框的 undo）。 */
 const titleBarEdit = useTitleBarEditTarget({
-    editorActive: () => studio.activeEditor.value !== null,
+    editorActive: () => editorWorkbench.editorFocused.value,
 });
 
 /** 原生编辑命令的 DOM 命令名（`selectAll` 的拼写是 DOM 的规定，不是这里的命名口味）。 */
@@ -327,11 +349,11 @@ function executeEditCommand(command: TitleBarEditCommand): void {
         notification.info("当前没有可执行的编辑动作：请先把光标放进编辑器或输入框。", {title: "编辑命令未执行"});
         return;
     }
-    if (route === "studio") {
+    if (route === "editor") {
         if (command === "edit.undo") {
-            studio.undo();
+            editorWorkbench.undo();
         } else {
-            studio.redo();
+            editorWorkbench.redo();
         }
         return;
     }
@@ -535,18 +557,10 @@ const currentFileExtension = computed(() => {
     return resolveWorkspaceFileExtension(selectedFilePath.value);
 });
 
-const activeWorkspaceTab = computed(() => workspaceTabs.value.find((tab) => tab.path === activeWorkspaceTabPath.value) ?? null);
-const currentWorkspaceViewMode = computed(() => activeWorkspaceTab.value?.viewMode ?? (isMarkdownFile.value ? "rich" : "source"));
-const currentEditorKind = computed(() => activeWorkspaceTab.value?.editorKind ?? (isMarkdownFile.value ? "markdown" : selectedFileNode.value?.editable ? "monaco" : "readonly"));
 const workspaceDisplayReady = computed(() => workspaceBootstrapped.value && workspaceReady.value);
-const displayWorkspaceTabs = computed(() => workspaceDisplayReady.value ? workspaceTabs.value : []);
+const displayWorkspaceTabs = computed(() => workspaceDisplayReady.value ? editorWorkbench.tabs.value : []);
 const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value ? activeWorkspaceTabPath.value : "");
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
-const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
-const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
-const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
-    ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
-    : null);
 const characterProfileVisible = computed({
     get: () => frontmatterProfileKind.value === "character",
     set: (visible: boolean): void => {
@@ -1003,26 +1017,7 @@ function normalizeWorkspacePath(filePath: string): string {
  * 保存当前真实文件；保存冲突由 store 打开 Diff dialog。
  */
 const saveCurrentWorkspaceFile = async (): Promise<void> => {
-    if (!initialized.value || !selectedFileNode.value?.editable) {
-        return;
-    }
-    if (savingFile.value) {
-        saveQueued.value = true;
-        return;
-    }
-
-    try {
-        await saveCurrentFile();
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("ide.shell.autoSaveFailed")), {title: t("ide.shell.autoSaveFailedTitle")});
-    } finally {
-        if (saveQueued.value && !novelIdeStore.workspaceWriteConflict && selectedFileContent.value !== lastSyncedFileContent.value) {
-            saveQueued.value = false;
-            await saveCurrentWorkspaceFile();
-            return;
-        }
-        saveQueued.value = false;
-    }
+    await editorWorkbench.save();
 };
 
 /**
@@ -1249,20 +1244,6 @@ function updateInlineSessionModelPopoverOpen(value: boolean): void {
     inlineEditorAgent.setSessionModelPopoverOpen(value);
 }
 
-/**
- * 切换工作区编辑模式。
- */
-const setCurrentWorkspaceViewMode = (mode: WorkspaceEditorViewMode): void => {
-    if (!selectedFilePath.value) {
-        return;
-    }
-    setWorkspaceTabViewMode(selectedFilePath.value, mode);
-    viewMode.value = mode;
-};
-
-watch(currentWorkspaceViewMode, (mode) => {
-    viewMode.value = mode;
-}, {immediate: true});
 
 watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
     if (available && surface?.refreshInlineEditorSessions) {
@@ -1290,31 +1271,7 @@ watch(selectedFilePath, () => {
 /**
  * 关闭标签页，脏文件先确认。
  */
-const closeEditorTab = async (filePath: string): Promise<void> => {
-    const tab = workspaceTabs.value.find((item) => item.path === filePath);
-    if (!tab) {
-        return;
-    }
-    if (!tab.dirty) {
-        await closeWorkspaceTab(filePath, true);
-        return;
-    }
-    const action = await choose(t("ide.shell.closeTabUnsaved"), [
-        {label: t("ide.shell.save"), value: "save", tone: "primary"},
-        {label: t("ide.shell.discard"), value: "discard", tone: "danger"},
-        {label: t("common.cancel"), value: "cancel"},
-    ], t("ide.shell.closeTabTitle"));
-    if (action === "cancel") {
-        return;
-    }
-    if (action === "save" && filePath !== selectedFilePath.value) {
-        await selectWorkspaceTab(filePath);
-    }
-    if (action === "save") {
-        await saveCurrentWorkspaceFile();
-    }
-    await closeWorkspaceTab(filePath, true);
-};
+const closeEditorTab = editorWorkbench.closeTab;
 
 /**
  * 处理切换前的未保存文件修改。
@@ -2651,11 +2608,29 @@ onBeforeUnmount(() => {
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
                 <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
-                <div v-else class="workbench-demo-leaf workbench-demo-leaf--page" data-demo-leaf="editor">
-                    <span class="workbench-demo-leaf__title">editor</span>
-                    <span class="workbench-demo-leaf__hint">编辑器：Markdown Studio / 欢迎页</span>
-                    <span class="workbench-demo-leaf__hint">（后续阶段迁入）</span>
-                </div>
+                <EditorWorkbench v-else
+                    :tabs="displayWorkspaceTabs" :active-path="displayActiveWorkspaceTabPath" :menus="editorWorkbench.menus.value"
+                    :busy="!workspaceDisplayReady || editorWorkbench.busy.value" :diagnosis="editorWorkbench.diagnosis.value"
+                    @select-tab="editorWorkbench.selectTab" @close-tab="editorWorkbench.closeTab" @set-pin="setWorkspaceTabPinned"
+                    @keep-tab="keepWorkspaceTab" @move-tab="moveWorkspaceTab" @select-menu="editorWorkbench.selectMenu"
+                    @retry="editorWorkbench.retry" @open-as-code="editorWorkbench.switchEditor('code')">
+                    <EditorViewHost v-if="editorWorkbench.document.value"
+                        :document="editorWorkbench.document.value" :editor-id="editorWorkbench.editorId.value" :registry="editorWorkbench.registry"
+                        @handle-ready="editorWorkbench.bindViewHandle" @change="novelIdeStore.updateWorkspaceDocument"
+                        @save-request="editorWorkbench.saveRequested" @focus-change="editorWorkbench.setFocus"
+                        @view-actions="editorWorkbench.setActions" @view-error="editorWorkbench.viewError" />
+                    <EditorWelcome v-else :node="displaySelectedFileNode" :tabs="displayWorkspaceTabs" :workspace-mode="workspaceKind"
+                        @select-tab="editorWorkbench.selectTab" @open-path="openWelcomeWorkspacePath" @open-files="openWelcomeFiles"
+                        @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile" @create-lorebook-entry="createWelcomeLorebookEntry"
+                        @open-agent-panel="openWelcomeAgentPanel" @open-profile-workbench="profileWorkbenchOpen = true" />
+                    <template #empty>
+                        <EditorWelcome :node="displaySelectedFileNode" :tabs="displayWorkspaceTabs" :workspace-mode="workspaceKind"
+                            @select-tab="editorWorkbench.selectTab" @open-path="openWelcomeWorkspacePath" @open-files="openWelcomeFiles"
+                            @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile" @create-lorebook-entry="createWelcomeLorebookEntry"
+                            @open-agent-panel="openWelcomeAgentPanel" @open-profile-workbench="profileWorkbenchOpen = true" />
+                    </template>
+                    <template #status><span role="status">{{ savingFile ? t('editorWorkbench.saving') : novelIdeStore.hasUnsavedFileChanges ? t('editorWorkbench.unsaved') : selectedFileNode?.editable ? t('editorWorkbench.saved') : '' }}</span></template>
+                </EditorWorkbench>
             </template>
             <template #right>
                 <!-- 右容器：内容区按 `fill` 呈现（视图自己占满、自管内部滚动）——Agent 对话面就是这一档。

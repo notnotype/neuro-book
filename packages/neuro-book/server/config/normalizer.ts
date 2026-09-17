@@ -1,3 +1,4 @@
+import {mergeEditorAssociations} from "nbook/shared/editor-associations";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -30,6 +31,7 @@ import type {
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {
+    EditorConfigPatchDtoSchema,
     ProfileCompactionRuntimePatchDtoSchema,
     ProfileFileChangeNoticeRuntimePatchDtoSchema,
     ProfileSummarizerRuntimePatchDtoSchema,
@@ -195,6 +197,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         editor: {
             markdown: {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES},
             monaco: {...DEFAULT_MONACO_EDITOR_PREFERENCES},
+            ...mergeEditorAssociations(undefined),
         },
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
@@ -207,6 +210,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
  */
 export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null | undefined): StoredGlobalConfig {
     const raw = input && typeof input === "object" ? input : {};
+    const editor = EditorConfigPatchDtoSchema.parse(raw.editor === undefined ? {} : raw.editor);
     return {
         ...(raw.observability ? {observability: raw.observability} : {}),
         ...(raw.history ? {history: raw.history} : {}),
@@ -233,8 +237,10 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
-            markdown: normalizeMarkdownPreferences(raw.editor?.markdown),
-            monaco: normalizeMonacoPreferences(raw.editor?.monaco),
+            markdown: normalizeMarkdownPreferences(editor.markdown),
+            monaco: normalizeMonacoPreferences(editor.monaco),
+            associations: editor.associations ?? {},
+            languageAssociations: editor.languageAssociations ?? {},
         },
         web: normalizeStoredWebSettings(raw.web),
     };
@@ -245,6 +251,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
  */
 export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | null | undefined): StoredProjectConfig {
     const raw = input && typeof input === "object" ? input : {};
+    const editor = raw.editor === undefined ? undefined : EditorConfigPatchDtoSchema.parse(raw.editor);
     return {
         ...raw,
         ...(raw.models ? {
@@ -265,12 +272,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
                 profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
-        ...(raw.editor ? {
-            editor: {
-                markdown: raw.editor.markdown ? normalizeMarkdownPreferences(raw.editor.markdown) : undefined,
-                monaco: raw.editor.monaco ? normalizeMonacoPreferences(raw.editor.monaco) : undefined,
-            },
-        } : {}),
+        ...(editor ? {editor} : {}),
         ...(raw.history ? {
             history: normalizeWorkspaceHistoryPatch(raw.history),
         } : {}),
@@ -316,6 +318,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
+    Object.assign(effective.editor, mergeEditorAssociations(globalConfig.editor, projectConfig?.editor));
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
@@ -377,13 +380,13 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     if (projectConfig.editor?.markdown) {
         effective.editor.markdown = {
             ...effective.editor.markdown,
-            ...normalizeMarkdownPreferences(projectConfig.editor.markdown),
+            ...projectConfig.editor.markdown,
         };
     }
     if (projectConfig.editor?.monaco) {
         effective.editor.monaco = {
             ...effective.editor.monaco,
-            ...normalizeMonacoPreferences(projectConfig.editor.monaco),
+            ...projectConfig.editor.monaco,
         };
     }
     if (projectConfig.history) {

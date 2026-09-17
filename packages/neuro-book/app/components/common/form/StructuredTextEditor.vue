@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import type {MarkdownFormatCommand, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownEditorHandle} from "nbook/app/components/markdown-studio/markdown-editor.types";
+import type {TextEditorHandle} from "nbook/app/components/editor-workbench/editor-view.types";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import TipTapMarkdownEditor from "nbook/app/components/markdown-studio/TipTapMarkdownEditor.vue";
-import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
+import MonacoCodeEditor from "nbook/app/components/editor-workbench/MonacoCodeEditor.vue";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -91,8 +92,8 @@ const emit = defineEmits<{
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
-const richEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
-const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
+const richEditorRef = ref<MarkdownEditorHandle | null>(null);
+const sourceEditorRef = ref<TextEditorHandle | null>(null);
 const currentMode = ref<StructuredTextMode>(props.defaultMode);
 const compactToolbar = ref(true);
 let toolbarResizeObserver: ResizeObserver | null = null;
@@ -267,7 +268,7 @@ function insertText(text: string): void {
         richEditorRef.value?.insertMarkdown?.(text);
         return;
     }
-    sourceEditorRef.value?.insertMarkdown?.(text);
+    sourceEditorRef.value?.insertText(text);
 }
 
 /**
@@ -396,9 +397,10 @@ defineExpose({
                 @save-request="emit('save-request')"
             />
 
-            <MarkdownSourceEditor
+            <MonacoCodeEditor
                 v-else
                 ref="sourceEditorRef"
+                language="markdown"
                 :initial-value="props.modelValue"
                 :visible="!isRichMode"
                 :readonly="props.readonly"

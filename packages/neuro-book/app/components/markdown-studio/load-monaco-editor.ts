@@ -61,7 +61,10 @@ export const loadMonacoEditor = async (): Promise<MonacoEditorApi> => {
                 json: jsonWorkerModule.default,
             });
             return monacoModule;
-        })();
+        })().catch((error: unknown) => {
+            monacoLoader = null;
+            throw error;
+        });
     }
 
     return monacoLoader;

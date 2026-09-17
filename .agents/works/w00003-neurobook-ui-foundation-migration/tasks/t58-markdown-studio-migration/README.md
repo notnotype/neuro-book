@@ -4,46 +4,32 @@ taskId: t58-markdown-studio-migration
 role: tasker
 ---
 
-# 编辑器叶接入：Markdown Studio
+# 编辑器工作区：源码与富文本视图
 
-**状态：合同已备，待开发者放行实施**（实施需停 3001：编辑器接入会大范围热更新，按既有约定「先停 → 实施验证 → 完成后同 root 重启」）。放大镜下的依据来自 [清单 §2.2](../../view-migration-inventory.md)。
+状态：实现与隔离验收完成。主代理以 Tasker 身份亲自实现关键链路，展示组件、文案、Lab 与展示测试由子代理配套；独立数据/视图审查发现的三项正确性问题已修复并复核通过。
 
 ## 结果
 
-Project 态 editor 叶渲染真实 Markdown Studio（不再占位），写作主链路可用：文件树双击/打开文件 → Studio 显示正文 → 富文本/源码双模式切换 → 编辑保存落盘；编辑器展示偏好归 user/local 记录，`novel.ide.local` 的对应字段退役。
+中央 EditorWorkbench 的通用标签/菜单外壳承载可注册编辑器：code 统一复用 Monaco 按 language 高亮，markdown 为 TipTap 富文本。实际主页面完成文件树打开、标签管理、视图切换、编辑、保存和错误恢复；HTML 仅源码。不改变现有正文 authority，不将正文或编辑器偏好迁入通用 Storage。
 
-## 范围
+## 实施合同
 
-- **A 挂载**：把 `MarkdownStudioWorkbench.vue`（233 行，当前 `index.vue:6` 死 import）接入 editor 叶，替换占位块 `index.vue:2627-2633`；按 t55 的容器/视图路径登记（`product-catalog.ts` 内置视图 + `WorkbenchViewHost`），不新建第二套宿主机制。
-- **B 打开文件链路**：文件树打开文件的意图接到 Studio（t55 目前给的是「编辑器叶还没迁入」提示，本 Task 用真实行为替换）；标签条/活动文件按 Project 分区保持既有语义（领域恢复态排除项，不入 Storage）。
-- **C 展示偏好归属**：`viewMode` / `markdownEditorPreferences` / `monacoEditorPreferences`（现于 `novel.ide.local`，`novel-ide.ts:1978-1980`）→ user/local 记录；用既有 `legacy-record-migration.ts` 原语一次性迁移（记录缺失才条件初始化、回读一致后才删旧字段），并在迁移完成后把这三个字段从 `pick` 移除，保持单写者（刷新两次验证）。
-- **D 旧实现删除**：`index.vue:2627-2633` 占位块；页面对 studio 的旧 resize/布局读取残留（见 [source map](../../storage-consumer-source-map.md)）；`index.vue:6` 由死 import 转为真实使用。
-- **E Lab 覆盖**：为 `MarkdownStudioWorkbench` 补同名 `.md` 与确定性 Lab 条目；若编辑器内核（TipTap/Monaco）在 Lab 无法确定性挂载，允许按规则标注不可挂载并**给出理由与替代验证**（不得静默跳过）。
+- Config 的 editor.associations 与 editor.languageAssociations 分别选择视图与语言，内置 .md → markdown，其余可编辑文本 → code；Global 与 Project 按扩展名层叠。配置文件可由用户编辑并手动重新加载；已有标签不强制换视图。
+- 配置 PATCH 未提交字段保持原值，提交空映射清除该层覆盖；未知 ID 显示诊断，非法结构明确失败且不改原件。
+- 领域 store 保持唯一正文/buffer/dirty owner。旧 tab editorKind/viewMode 读取边界转换为 editorId 和 editorGroupId=main，不丢 dirty 正文。
+- 工作面 generation、文档 documentId 和打开 activation token 为非持久身份。旧请求/旧视图回调不得污染新文档；切换前 flush；保存确认不能清掉后续输入。
+- 保存失败、冲突、取消或保存中继续输入时不得强关标签。中央视图 blur 只 flush 不自动保存。
+- 主代理负责公共合同、Config、文档生命周期、内核提取、视图宿主和 index.vue 集成。子代理负责受控外壳/文案及后续独立 Lab 配套，禁止并发修改核心文件。
+- 移除旧双模式 wrapper/controller 和未迁提示；表单源码消费者迁到通用内核但不改变表单语义。
 
-## 排除
+## 验证与安全边界
 
-- 不改 TipTap / Monaco 版本与其内核行为；不动 `common/form/StructuredTextEditor.vue` 的既有消费者（plot、profile-template-editor）。
-- 不做右叶 Agent 面、不做 World Engine 整页搬迁、不做命令系统。
-- 不改正文 authority（`/api/workspace-files/*`）；正文/草稿/未保存内容**不进 Storage**。
-- 不新增裸 `localStorage`/`sessionStorage`。
+3001 为开发者保留：不用于验收、不停止、不重启。用户 dirty descriptors.ts 与 descriptors.test.ts 不编辑、不暂存。验收在系统 Temp 的独立源码、依赖、State/Workspace/Cache 根与独立浏览器 profile 中，使用其它空闲端口；不得复用 .nuxt 或写真实数据根。
 
-## 实现要求
+每个增量由主代理运行聚焦行为测试、typecheck；最终完成 Lab all 与真实浏览器：JSON 原样保存、Markdown 防抖窗口切换、保存失败保留正文、Global/Project 覆盖与设置保存、HTML/未知/只读文件、跨项目迟到响应、批注引用/frontmatter 与源码表单、四主题桌面及390×844。不调用真实 Provider/Model。
 
-1. **单写者**：三个偏好字段只有记录一条写路径；旧桶字段在迁移后退出 `pick`，不再有第二 writer。
-2. **失败可见**：打开文件失败、保存失败、记录写入失败都必须给出可理解反馈（沿用 `layout-session`/`files-view-session` 的既有诊断与重试范式），不得静默。
-3. **首读门禁**：编辑器偏好首次读取完成前不写默认值；缺失记录不落盘默认。
-4. **几何一致**：editor 叶尺寸继续由切片 4 的 project/local 记录承担（`layout-session.ts`），不得新增第二套布局写入。
-5. **不打断 3001 的约束**：实施期间按 Leader 给的窗口进行；服务端模块改动（如需注册定义）**成批一次落盘**并提前报 Leader。
+授权含本地实现、隔离验证及绿色提交，不含 push/PR/合并/部署、真实数据迁移或历史暂存删除。首次执行身份核对：refactor/w00003-nb-ui-adoption，基线 5b3b1069，governance:context failures=[]。
 
-## 验证与交付
+## 交付
 
-- 聚焦测试：打开文件 → 内容装载、双模式切换、保存链路、偏好记录（首读门禁/条件初始化/旧字段迁移与回读验证/冲突不静默）、单写者。
-- 真实浏览器（必做，窗口内）：Project 态 editor 叶渲染 Studio；双击文件 → 显示正文；双模式切换；编辑并保存后磁盘/文件 API 侧可见；刷新两次只有一个 writer 且偏好恢复；失败路径可见（至少一次真实失败注入）。
-- Lab：按 §E 交付并保持 Lab smoke 绿色（跑法：对运行中的 3001 只读跑 `component-lab --suite all`）。
-- 报告写 `walkthroughs/implementation.md`：真实命令、cwd、退出码、隔离根与端口、用例数、未运行项与偏差。
-- 不提交、不 push；只逐文件 `git add`；不覆盖用户 dirty `app/utils/workbench/descriptors{,.test}.ts`。
-- 最终回复具体结果，不返回空文本或句点。
-
-## 继续条件
-
-Leader 复核（typecheck、聚焦测试、Lab smoke、浏览器证据）后提交；随后按清单推进下一项（角色 / Plot）。
+实施、红→绿过程、真实浏览器证据与未运行范围见 [实施记录](walkthroughs/implementation.md)。最终聚焦18文件166例通过，typecheck exit0，Lab all smoke exit0；仅逐文件本地提交，不含受保护用户改动、Temp产物或远端操作。

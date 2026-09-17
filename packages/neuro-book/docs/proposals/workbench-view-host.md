@@ -235,10 +235,23 @@ owner；不能因为都能保存 JSON 就互相替代。
 
 ### `editorGroupId` 合同（第一版）
 
-- 字段位置：**落在 Tab 状态上**（`WorkspaceEditorTab`，`app/stores/novel-ide.ts:84-96`），不属于布局快照。
-- **该字段当前并不存在，是第一版新增**；因此没有历史数据迁移，只需定义默认值与归一规则（下条）。
-- 取值：第一版**固定常量**（如 `"main"`）；缺失或未知值 → 归一到该常量并记诊断，**不报错**。
+- 字段位置：落在 Tab 状态 `WorkspaceEditorTab` 上，不属于布局快照；EditorWorkbench 迁移已加入该字段。
+- 取值：当前固定为 `"main"`；恢复缺失或旧值时归一到该常量，不创建第二组。
 - 验收：恢复后所有 Tab 的 `editorGroupId` 一致且等于该常量；将来加入第二组时，迁移是"新增取值 + 按组归属"，**不改字段位置与默认规则**。
+
+### EditorWorkbench 与默认打开方式
+
+中央 Editor Part 固定挂载 `EditorWorkbench`，与侧栏的 ViewDescriptor 注册分离。外壳管理标签和菜单呈现，`EditorViewHost` 按注册表承载视图；正文、dirty buffer、保存冲突和工作面会话仍由领域 store 拥有。
+
+- `code` 使用同一 Monaco 内核，通过 language 区分 JSON、HTML、Markdown 和其它文本；非法 JSON 保留原文本并允许保存。HTML 没有预览视图。`markdown` 是可编辑 Markdown 的 TipTap 富文本视图。
+- Global `Workspace Root/.nbook/config.json` 与 Project `Project Workspace Root/.nbook/config.json` 支持 `editor.associations`（扩展名→视图）和 `editor.languageAssociations`（扩展名→语言），分别按内置→Global→Project 逐键覆盖。内置仅 `.md → markdown`，其它文本默认 `code`。
+- 例如 `{"editor":{"languageAssociations":{".note":"markdown"}}}` 只改变 `.note` 的语言，仍进入源码视图；再配置 `associations[".note"] = "markdown"` 才进入富文本。键只接受小写单扩展名，不支持 glob 或路径。
+- PATCH 未提交字段保留原值；提交某张映射表替换该层整张显式表，`{}` 清除该层覆盖、重新继承。字体等编辑器偏好按字段合并，不因保存关联而重置。
+- 合法但未知的视图/语言 ID 显示诊断并回落到 `code`/`plaintext`，不改配置原件；非法结构或 JSON 明确读取失败。文件菜单「重新加载打开方式」影响后续新标签，不强换已打开视图。
+- 设置页「Markdown 默认打开方式」仅修改 Global 的 `.md` 关联；Project 可以覆盖。标签菜单选择仅作用于本标签，不写默认配置。
+- 旧 source/monaco 标签恢复为 `code`，旧 Markdown rich/split/mixed 恢复为 `markdown`，保留 dirty 正文、固定状态和顺序。切视图先结算输入，不自动读盘或保存；没有跨内核统一撤销。
+
+实现与隔离验收记录见 [t58](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t58-markdown-studio-migration/README.md)。本节不代表侧栏、命令系统、多窗口或整个 Work 已完成。
 
 ## 迁移顺序与删除门禁
 

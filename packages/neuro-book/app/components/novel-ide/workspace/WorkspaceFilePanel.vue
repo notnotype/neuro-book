@@ -62,8 +62,6 @@ const expandedPathsNotice = computed(() => expandedPathsRecord.notice.value);
  * 让它提交就是用默认值覆盖记录里已确认的展开项。读取中这里渲染加载态，树根本不挂载。
  */
 const expandedPathsLoading = computed(() => expandedPathsRecord.loading.value);
-/** 打开文件后的可见反馈：编辑器叶迁入前正文无处呈现，不静默失败。 */
-const openedFilePath = ref("");
 const detailHeight = ref(260);
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
@@ -115,17 +113,9 @@ async function selectNode(node: WorkspaceFileNode): Promise<void> {
     await store.openWorkspaceNode(node, "preview");
 }
 
-/**
- * 双击打开节点并保留标签。
- *
- * 编辑器叶（Markdown Studio）还没迁入，正文暂时无处呈现：把这次打开如实说出来，
- * 不让链路看起来"什么都没发生"。
- */
+/** 双击打开节点并保留标签；正文与失败反馈由编辑器宿主呈现。 */
 async function openNode(node: WorkspaceFileNode): Promise<void> {
-    const opened = await store.openWorkspaceNode(node, "permanent");
-    if (opened !== null) {
-        openedFilePath.value = opened.path;
-    }
+    await store.openWorkspaceNode(node, "permanent");
 }
 
 /** 重试未确认的展开项提交（旧键迁移失败也走这里重试）。 */
@@ -670,19 +660,6 @@ watch(canAccessWorkspace, (canAccess) => {
             </button>
         </div>
 
-        <!-- 打开文件的可见结果：编辑器叶迁入前正文无处呈现，本次打开如实报出 -->
-        <div
-            v-if="openedFilePath"
-            class="flex shrink-0 items-start gap-2 border-b border-[var(--border-color)] bg-[var(--bg-hover)] px-3 py-2 text-[11px] leading-4 text-[var(--text-secondary)]"
-            role="status"
-            aria-live="polite"
-            data-file-panel-open-notice
-        >
-            <span class="min-w-0 flex-1 break-all">{{ t("ide.workspace.filePanel.openedWithoutEditor", {path: openedFilePath}) }}</span>
-            <button type="button" class="shrink-0 underline" @click="openedFilePath = ''">
-                {{ t("ide.workspace.filePanel.openNoticeDismiss") }}
-            </button>
-        </div>
 
         <!-- 工作区文件树容器 -->
         <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">

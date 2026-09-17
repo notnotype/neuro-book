@@ -245,20 +245,18 @@ describe("WorkspaceFilePanel", () => {
         expect(setItemSpy).not.toHaveBeenCalled();
     });
 
-    it("选中走 preview、双击打开走 permanent，并把打开结果说出来", async () => {
+    it("选中走 preview、双击打开走 permanent", async () => {
         const wrapper = mountPanel();
         const tree = wrapper.findComponent(TreeStub);
 
         tree.vm.$emit("select", manuscriptFile);
         await nextTick();
         expect(storeMock().openWorkspaceNode).toHaveBeenCalledWith(manuscriptFile, "preview");
-        expect(wrapper.find("[data-file-panel-open-notice]").exists()).toBe(false);
 
         tree.vm.$emit("open", manuscriptFile);
         await flushPromises();
         await nextTick();
         expect(storeMock().openWorkspaceNode).toHaveBeenCalledWith(manuscriptFile, "permanent");
-        expect(wrapper.find("[data-file-panel-open-notice]").text()).toContain("manuscript/chapter-1.md");
     });
 
     it("明细面板按选中节点分派：角色 / Lorebook 条目 / 普通文件", async () => {

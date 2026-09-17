@@ -212,6 +212,10 @@ export async function readConfigBootstrap(
                 userColorways: effective.ui.userColorways,
                 costCurrency: effective.ui.costCurrency,
             },
+            editor: {
+                associations: effective.editor.associations,
+                languageAssociations: effective.editor.languageAssociations,
+            },
         };
     });
 }
@@ -235,7 +239,7 @@ export async function saveGlobalConfig(
             ...current,
             ...(input.agent !== undefined ? {agent: input.agent} : {}),
             ...(input.ui !== undefined ? {ui: input.ui} : {}),
-            ...(input.editor !== undefined ? {editor: input.editor} : {}),
+            ...(input.editor !== undefined ? {editor: mergeEditorConfig(current.editor, input.editor)} : {}),
             ...(input.observability !== undefined ? {observability: input.observability} : {}),
             ...(input.history !== undefined ? {history: input.history} : {}),
             ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
@@ -762,6 +766,20 @@ function assertProjectModelReferences(global: StoredGlobalConfig, project: Store
     });
 }
 
+/** 映射表提交 {} 表示清除本层；偏好只覆盖明确提交的字段。 */
+function mergeEditorConfig(
+    current: StoredGlobalConfig["editor"],
+    patch: NonNullable<StoredGlobalConfig["editor"]>,
+): NonNullable<StoredGlobalConfig["editor"]> {
+    return {
+        ...current,
+        ...(patch.markdown !== undefined ? {markdown: {...current?.markdown, ...patch.markdown}} : {}),
+        ...(patch.monaco !== undefined ? {monaco: {...current?.monaco, ...patch.monaco}} : {}),
+        ...(Object.hasOwn(patch, "associations") ? {associations: patch.associations} : {}),
+        ...(Object.hasOwn(patch, "languageAssociations") ? {languageAssociations: patch.languageAssociations} : {}),
+    };
+}
+
 /**
  * 将 Project Config 请求解释为顶层 section patch。
  * 未提交 section 保持原值；profiles 明确提交时替换当前 Project 的完整 override map。
@@ -775,12 +793,7 @@ function mergeProjectConfig(current: StoredProjectConfig, patch: StoredProjectCo
         next.embedding = {...current.embedding, ...patch.embedding};
     }
     if (patch.editor) {
-        next.editor = {
-            ...current.editor,
-            ...patch.editor,
-            ...(patch.editor.markdown ? {markdown: {...current.editor?.markdown, ...patch.editor.markdown}} : {}),
-            ...(patch.editor.monaco ? {monaco: {...current.editor?.monaco, ...patch.editor.monaco}} : {}),
-        };
+        next.editor = mergeEditorConfig(current.editor, patch.editor);
     }
     if (patch.history) {
         next.history = {...current.history, ...patch.history};

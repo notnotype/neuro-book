@@ -7,7 +7,7 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
 import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/MarkdownSelectionMenu.vue";
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
-import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownEditorHandle} from "nbook/app/components/markdown-studio/markdown-editor.types";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
 import {useDialog} from "nbook/app/composables/useDialog";
@@ -70,6 +70,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+    (e: "ready"): void;
     (e: "change", value: string): void;
     (e: "focus"): void;
     (e: "blur"): void;
@@ -297,8 +298,10 @@ const editor = useEditor({
         },
     },
     onCreate: ({editor: currentEditor}) => {
+        currentEditor.setEditable(!props.readonly);
         emit("inline-comments-change", COMMENT_PLUGIN_KEY.getState(currentEditor.state)?.comments ?? []);
         refreshInlineAiReferenceHighlight(currentEditor);
+        emit("ready");
     },
     onUpdate: () => {
         if (syncingFromOutside.value || props.readonly || !props.visible || !focused.value) {
@@ -1034,7 +1037,7 @@ onBeforeUnmount(() => {
     changeDebounce.cancel();
 });
 
-defineExpose<MarkdownStudioEditorHandle>({
+defineExpose<MarkdownEditorHandle>({
     update,
     focus,
     scrollToTop,

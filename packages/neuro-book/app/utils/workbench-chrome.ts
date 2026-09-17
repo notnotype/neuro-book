@@ -135,7 +135,7 @@ export const TITLE_BAR_EDIT_COMMANDS = [
 export type TitleBarEditCommand = (typeof TITLE_BAR_EDIT_COMMANDS)[number];
 
 /** 编辑命令的执行去处：Studio 会话 / 原生编辑命令 / 当前焦点接不住。 */
-export type TitleBarEditRoute = "studio" | "native" | "unavailable";
+export type TitleBarEditRoute = "editor" | "native" | "unavailable";
 
 export type TitleBarHostCapabilities = Readonly<{
     /** 桌面桥接在场：退出应用、窗口控制与系统缩放由宿主进程负责。 */
@@ -229,7 +229,7 @@ export function resolveTitleBarEditRoute(
         return "unavailable";
     }
     if (command === "edit.undo" || command === "edit.redo") {
-        return capabilities.editTarget === "editor" ? "studio" : "native";
+        return capabilities.editTarget === "editor" ? "editor" : "native";
     }
     if (command === "edit.paste") {
         // 浏览器不允许页面代替用户读剪贴板：这条动作只有桌面宿主能真正执行。

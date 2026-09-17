@@ -212,12 +212,41 @@ defineRouteMeta({
                                     "costCurrency"
                                 ],
                                 "additionalProperties": false
+                            },
+                            "editor": {
+                                "type": "object",
+                                "properties": {
+                                    "associations": {
+                                        "default": {},
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "pattern": "^\\S+$"
+                                        }
+                                    },
+                                    "languageAssociations": {
+                                        "default": {},
+                                        "type": "object",
+                                        "additionalProperties": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "pattern": "^\\S+$"
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "associations",
+                                    "languageAssociations"
+                                ],
+                                "additionalProperties": false
                             }
                         },
                         "required": [
                             "modelSettings",
                             "defaultProfileSettings",
-                            "ui"
+                            "ui",
+                            "editor"
                         ],
                         "additionalProperties": false
                     }
@@ -227,6 +256,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

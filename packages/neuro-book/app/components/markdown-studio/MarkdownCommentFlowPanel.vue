@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {MarkdownInlineCommentItem} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownInlineCommentItem} from "nbook/app/components/markdown-studio/markdown-editor.types";
 
 const props = defineProps<{
     comments: MarkdownInlineCommentItem[];

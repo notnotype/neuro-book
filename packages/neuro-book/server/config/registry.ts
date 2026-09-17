@@ -140,6 +140,22 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "Monaco 源码编辑器显示偏好。",
     },
     {
+        key: "editor.associations",
+        scope: "global-workspace",
+        effect: "hot",
+        merge: "deep-merge",
+        secret: false,
+        description: "文件扩展名到默认编辑器视图的关联。",
+    },
+    {
+        key: "editor.languageAssociations",
+        scope: "global-workspace",
+        effect: "hot",
+        merge: "deep-merge",
+        secret: false,
+        description: "文件扩展名到源码语言的关联。",
+    },
+    {
         key: "web.search",
         scope: "global",
         effect: "next-run",

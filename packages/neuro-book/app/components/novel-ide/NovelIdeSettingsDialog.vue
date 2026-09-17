@@ -50,7 +50,6 @@ import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
 import {filterColorwayContractVars} from "nbook/app/utils/theme/colorway-vars";
 import {buildColorwayFileJson, colorwayFileName} from "nbook/app/utils/theme/colorway-io";
 import type {ColorwayDraft} from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
-import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
@@ -81,7 +80,6 @@ const themeSettings = useThemeSettings();
 const {locale, setLocale, t} = useI18n();
 const {
     selectedReasoning,
-    viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
 } = storeToRefs(novelIdeStore);
@@ -203,7 +201,7 @@ const bootAuthEnabled = computed(() => authSessionState.session.value?.authEnabl
 
 
 
-const targetQuery = computed(() => activeScope.value === "project" && novelIdeStore.currentProjectRoot
+const targetQuery = computed(() => (activeScope.value === "project" || activeSection.value === "frontend") && novelIdeStore.workspaceKind === "novel" && novelIdeStore.currentProjectRoot
     ? {workspaceKind: "novel" as const, projectRoot: novelIdeStore.currentProjectRoot}
     : {workspaceKind: "user-assets" as const});
 const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
@@ -229,13 +227,19 @@ const notifySaveFailed = (message: string): void => {
     notification.error(message);
 };
 
-/** 只有全局/项目两个作用域需要配置快照；启动与浏览器区段读的是运行时状态。 */
-const snapshotEnabled = computed(() => props.modelValue && (activeScope.value === "global" || activeScope.value === "project"));
+/** 前端区段的默认打开方式来自Config；不能依赖先访问其它区段留下的快照。 */
+const snapshotEnabled = computed(() => props.modelValue && (activeScope.value === "global" || activeScope.value === "project" || activeSection.value === "frontend"));
 const settingsSnapshot = useSettingsSnapshot({
     enabled: () => snapshotEnabled.value,
     targetQuery: () => targetQuery.value,
     fallbackErrorMessage: t("settings.feedback.loadFailed"),
 });
+const viewModeSaving = ref(false);
+const viewMode = computed(() => {
+    const id = settingsSnapshot.snapshot.value?.global.editor?.associations?.[".md"] ?? "markdown";
+    return id === "markdown" ? "rich" : id === "code" ? "source" : "custom";
+});
+const viewModeProjectOverride = computed(() => Boolean(settingsSnapshot.snapshot.value?.project?.editor?.associations?.[".md"]));
 
 /** Web 工具只有全局段。 */
 const webDraft = useSectionDraft({
@@ -692,9 +696,18 @@ function updateReasoning(value: string): void {
 /**
  * 处理默认视图模式选择。
  */
-function updateViewMode(value: string): void {
-    if (value === "rich" || value === "source") {
-        viewMode.value = value as MarkdownStudioViewMode;
+async function updateViewMode(value: string): Promise<void> {
+    if ((value !== "rich" && value !== "source") || viewModeSaving.value) return;
+    viewModeSaving.value = true;
+    try {
+        const query = configApi.currentQuery();
+        const snapshot = await configApi.editorSnapshot(query);
+        await configApi.saveGlobal({editor: {associations: {...snapshot.global.editor?.associations, ".md": value === "rich" ? "markdown" : "code"}}}, query);
+        await settingsSnapshot.reload();
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.frontend.viewModeSaveFailed")));
+    } finally {
+        viewModeSaving.value = false;
     }
 }
 
@@ -853,6 +866,8 @@ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomF
                             v-else-if="section?.value === 'frontend'"
                             :locale="locale"
                             :view-mode="viewMode"
+                            :view-mode-saving="viewModeSaving"
+                            :view-mode-project-override="viewModeProjectOverride"
                             :reasoning="selectedReasoning"
                             :reasoning-options="novelIdeStore.reasoningOptions"
                             :theme-options="theme.themeOptions"

@@ -110,6 +110,40 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("关联更新保留偏好，偏好局部更新保留关联和其它字段", async () => {
+        const query = {workspaceKind: "user-assets"} as const;
+        await saveGlobalConfig({editor: {markdown: {fontSize: 23, lineHeight: 2.2}, monaco: {fontSize: 19}}}, query, catalog);
+        await saveGlobalConfig({editor: {associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"}}}, query, catalog);
+        const saved = await saveGlobalConfig({editor: {markdown: {fontSize: 24}}}, query, catalog);
+        expect(saved.effective.editor).toMatchObject({
+            markdown: {fontSize: 24, lineHeight: 2.2}, monaco: {fontSize: 19},
+            associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"},
+        });
+        const bootstrap = await readConfigBootstrap(query);
+        expect(bootstrap.editor).toEqual({associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"}});
+    });
+
+    it("清空项目关联重新继承全局，保存文件不固化有效默认", async () => {
+        const query = {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT} as const;
+        await saveGlobalConfig({editor: {associations: {".md": "code"}, markdown: {fontSize: 23, lineHeight: 2.2}}}, query, catalog);
+        await saveProjectConfig({editor: {associations: {".md": "markdown"}, markdown: {fontSize: 25}}}, query, catalog);
+        expect((await readConfigBootstrap(query)).editor.associations[".md"]).toBe("markdown");
+        const saved = await saveProjectConfig({editor: {associations: {}}}, query, catalog);
+        expect(saved.effective.editor).toMatchObject({associations: {".md": "code"}, markdown: {fontSize: 25, lineHeight: 2.2}});
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), CONFIG_TEST_PROJECT_ROOT, ".nbook", "config.json"), "utf8"));
+        expect(raw.editor).toEqual({associations: {}, markdown: {fontSize: 25}});
+    });
+
+    it("手写关联非法时读取失败且写入不能覆盖原件", async () => {
+        const file = path.join(workspaceRoot(), ".nbook", "config.json");
+        await fs.mkdir(path.dirname(file), {recursive: true});
+        const invalid = JSON.stringify({editor: {associations: {"*.md": "code"}}});
+        await fs.writeFile(file, invalid, "utf8");
+        await expect(readConfigBootstrap({workspaceKind: "user-assets"})).rejects.toThrow();
+        await expect(saveGlobalConfig({editor: {associations: {}}}, {workspaceKind: "user-assets"}, catalog)).rejects.toThrow();
+        expect(await fs.readFile(file, "utf8")).toBe(invalid);
+    });
+
     it("Config target 复用 ready Project 的已解析 workspace", async () => {
         const target = await resolveConfigTarget({
             workspaceKind: "novel",

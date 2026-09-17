@@ -621,6 +621,135 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./WorkbenchViewHostFixture.vue")).default,
     },
+    {
+        component: "EditorWorkbench",
+        scenes: [
+            {
+                id: "empty",
+                label: "空工作区 / 欢迎页",
+                data: {
+                    activePath: "",
+                    tabs: [],
+                    busy: false,
+                    diagnosis: null,
+                },
+            },
+            {
+                id: "mixed",
+                label: "固定、普通、预览与脏标记标签",
+                data: {
+                    activePath: "src/story/chapter-02.md",
+                    busy: false,
+                    diagnosis: null,
+                    tabs: [
+                        {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
+                        {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
+                        {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
+                        {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
+                        {path: "src/notes/quick-draft.txt", title: "quick-draft.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
+                    ],
+                },
+            },
+            {
+                id: "long-titles",
+                label: "超长路径与横向截断滚动",
+                data: {
+                    activePath: "packages/neuro-book/app/components/novel-ide/settings/sections/providers/components/ProviderSettingsViewFixtureLongPathComponentName.vue",
+                    busy: false,
+                    diagnosis: null,
+                    tabs: [
+                        {
+                            path: "packages/neuro-book/app/components/novel-ide/settings/sections/providers/components/ProviderSettingsViewFixtureLongPathComponentName.vue",
+                            title: "ProviderSettingsViewFixtureLongPathComponentName.vue",
+                            pinned: false,
+                            preview: false,
+                            dirty: true,
+                            iconClass: "i-lucide-file-code-2",
+                        },
+                        {
+                            path: "docs/specifications/drafts/2026-09-16-editor-workbench-architecture-and-view-host-contract-specification.md",
+                            title: "2026-09-16-editor-workbench-architecture-and-view-host-contract-specification.md",
+                            pinned: false,
+                            preview: false,
+                            dirty: false,
+                            iconClass: "i-lucide-file-text",
+                        },
+                        {
+                            path: "assets/workspace/deeply/nested/directory/structure/with-multiple-submodules/long-configuration-matrix-sample.json",
+                            title: "long-configuration-matrix-sample.json",
+                            pinned: false,
+                            preview: true,
+                            dirty: false,
+                            iconClass: "i-lucide-file-code-2",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "loading",
+                label: "加载中 / 忙碌遮罩态",
+                data: {
+                    activePath: "src/heavy-dataset.json",
+                    busy: true,
+                    diagnosis: null,
+                    tabs: [
+                        {path: "src/heavy-dataset.json", title: "heavy-dataset.json", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
+                    ],
+                },
+            },
+            {
+                id: "diagnosis",
+                label: "诊断警告 / 未知打开方式",
+                data: {
+                    activePath: "assets/diagram.drawio",
+                    busy: false,
+                    diagnosis: "打开方式“diagram-viewer”不可用，当前使用源码编辑器。",
+                    tabs: [
+                        {path: "assets/diagram.drawio", title: "diagram.drawio", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-question"},
+                    ],
+                },
+            },
+            {
+                id: "closing-cancel",
+                label: "未保存关闭保护与取消决策",
+                data: {
+                    activePath: "src/draft-chapter.md",
+                    busy: false,
+                    diagnosis: null,
+                    tabs: [
+                        {path: "src/draft-chapter.md", title: "draft-chapter.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
+                        {path: "src/saved-notes.md", title: "saved-notes.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
+                    ],
+                },
+            },
+            {
+                id: "keyboard-menu",
+                label: "菜单栏集合与键盘无障碍漫游",
+                data: {
+                    activePath: "src/main.ts",
+                    busy: false,
+                    diagnosis: null,
+                    tabs: [
+                        {path: "src/main.ts", title: "main.ts", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
+                    ],
+                },
+            },
+            {
+                id: "multi-view",
+                label: "真实 Registry / 第三视图同一正文切换",
+                data: {
+                    activePath: "chapter-01.md",
+                    editorId: "code",
+                    busy: false,
+                    diagnosis: null,
+                    tabs: [
+                        {path: "chapter-01.md", title: "chapter-01.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
+                    ],
+                },
+            },
+        ],
+        load: async () => (await import("./EditorWorkbenchFixture.vue")).default,
+    },
 ];
 
 export function findLabFixture(component: string): LabFixture | null {

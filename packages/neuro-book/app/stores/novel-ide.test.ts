@@ -342,8 +342,8 @@ function createWorkspaceSession(path: string) {
         workspaceTabs: [{
             path,
             title: path,
-            editorKind: "markdown" as const,
-            viewMode: "rich" as const,
+            editorGroupId: "main" as const,
+            editorId: "markdown",
             pinned: false,
             preview: false,
             dirty: false,

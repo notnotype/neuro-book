@@ -141,12 +141,12 @@ describe("Workbench Chrome", () => {
 
         const nativeFocus = {desktop: true, surfaceActive: true, editTarget: "native"} as const;
         expect(resolveTitleBarEditRoute("edit.undo", nativeFocus)).toBe("native");
-        expect(resolveTitleBarEditRoute("edit.undo", {...nativeFocus, editTarget: "editor"})).toBe("studio");
+        expect(resolveTitleBarEditRoute("edit.undo", {...nativeFocus, editTarget: "editor"})).toBe("editor");
         expect(resolveTitleBarEditRoute("edit.paste", nativeFocus)).toBe("native");
 
         // 焦点在编辑器里：undo 走会话，剪贴板动作仍交给原生命令。
         const editorFocus = {desktop: false, surfaceActive: true, editTarget: "editor"} as const;
-        expect(resolveTitleBarEditRoute("edit.undo", editorFocus)).toBe("studio");
+        expect(resolveTitleBarEditRoute("edit.undo", editorFocus)).toBe("editor");
         expect(resolveTitleBarEditRoute("edit.cut", editorFocus)).toBe("native");
         expect(resolveTitleBarEditRoute("edit.select-all", editorFocus)).toBe("native");
     });
@@ -217,7 +217,7 @@ describe("Workbench Chrome", () => {
         expect(resolveEffectiveTitleBarEditTarget({liveTarget: "native", rememberedTarget: "editor", titleBarOwnsFocus: false})).toBe("native");
 
         // 沿用记忆值时的执行去处与记忆档位一致：Studio 的撤销不会跑成原生撤销。
-        expect(resolveTitleBarEditRoute("edit.undo", {desktop: false, surfaceActive: true, editTarget: "editor"})).toBe("studio");
+        expect(resolveTitleBarEditRoute("edit.undo", {desktop: false, surfaceActive: true, editTarget: "editor"})).toBe("editor");
         expect(resolveTitleBarEditRoute("edit.undo", {desktop: false, surfaceActive: true, editTarget: "native"})).toBe("native");
     });
 });

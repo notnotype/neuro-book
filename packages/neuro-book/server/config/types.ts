@@ -201,6 +201,8 @@ export type EffectiveConfig = {
     editor: {
         markdown: MarkdownEditorPreferences;
         monaco: MonacoEditorPreferences;
+        associations: Record<string, string>;
+        languageAssociations: Record<string, string>;
     };
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
@@ -263,6 +265,8 @@ export type StoredGlobalConfig = {
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
+        associations?: Record<string, string>;
+        languageAssociations?: Record<string, string>;
     };
     web?: StoredWebSettingsConfig;
     observability?: {
@@ -285,6 +289,8 @@ export type StoredProjectConfig = {
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
+        associations?: Record<string, string>;
+        languageAssociations?: Record<string, string>;
     };
     /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
     history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;

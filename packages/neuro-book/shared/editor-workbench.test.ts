@@ -2,21 +2,12 @@ import {describe, expect, it} from "vitest";
 import {
     canEditContentFrontmatter,
     composeMarkdownFrontmatter,
-    resolveDefaultWorkspaceViewMode,
     resolveMonacoLanguage,
-    resolveWorkspaceEditorKind,
     resolveWorkspaceFileExtension,
     splitMarkdownFrontmatter,
 } from "nbook/shared/editor-workbench";
 
 describe("editor-workbench", () => {
-    it("按扩展名分发编辑器类型与默认视图", () => {
-        expect(resolveWorkspaceEditorKind("manuscript/chapter.md", true)).toBe("markdown");
-        expect(resolveWorkspaceEditorKind("notes/data.json", true)).toBe("monaco");
-        expect(resolveWorkspaceEditorKind("assets/cover.png", false)).toBe("readonly");
-        expect(resolveDefaultWorkspaceViewMode("manuscript/chapter.md")).toBe("rich");
-        expect(resolveDefaultWorkspaceViewMode("notes/data.json")).toBe("source");
-    });
 
     it("映射 Monaco language，未知扩展回退 plaintext", () => {
         expect(resolveMonacoLanguage("data/config.json")).toBe("json");

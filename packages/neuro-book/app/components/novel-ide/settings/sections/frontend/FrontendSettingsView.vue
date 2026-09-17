@@ -22,7 +22,9 @@ const emit = defineEmits<FrontendSettingsViewEmits>();
 const {t} = useI18n();
 
 const localeOptions = computed(() => buildLocaleOptions(t));
-const viewModeOptions = computed(() => buildViewModeOptions(t));
+const viewModeOptions = computed(() => props.viewMode === "custom"
+    ? [...buildViewModeOptions(t), {value: "custom", label: t("settings.frontend.viewModeCustom"), disabled: true}]
+    : buildViewModeOptions(t));
 const reasoningSelectOptions = computed(() => props.reasoningOptions.map((item) => ({value: item, label: item})));
 
 /** 两档配色的展示：文案走 i18n，图标只是明暗提示；顺序取 `productAppearances`（亮在前）。 */
@@ -287,9 +289,11 @@ const importErrorText = computed(() => importError.value === null
                         {{ t("settings.frontend.viewModeTitle") }}
                     </h3>
                     <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeDescription") }}</p>
+                    <p v-if="props.viewModeProjectOverride" class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeProjectOverride") }}</p>
+                    <p v-if="props.viewModeSaving" role="status" class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeSaving") }}</p>
                 </div>
                 <div class="w-40 shrink-0">
-                    <FormSelect :model-value="props.viewMode" :options="viewModeOptions" :disabled="props.disabled" @update:model-value="emit('update:viewMode', $event)" />
+                    <FormSelect :model-value="props.viewMode" :options="viewModeOptions" :disabled="props.disabled || props.viewModeSaving" @update:model-value="emit('update:viewMode', $event)" />
                 </div>
             </section>
         </div>

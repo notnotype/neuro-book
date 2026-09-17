@@ -138,7 +138,6 @@ describe("旧 novel.ide.local writer 的退役", () => {
             expect(Object.hasOwn(store, field)).toBe(false);
         }
         expect(store.activeLeftTab).toBe("outline");
-        expect(store.viewMode).toBe("content");
     });
 
     it("门禁为 pinned（原件已暂存、备份未落盘）时，未迁字段的写回仍保留三个源字段", async () => {
@@ -155,13 +154,11 @@ describe("旧 novel.ide.local writer 的退役", () => {
         expect(storage.writes).toHaveLength(0);
 
         store.activeLeftTab = "search";
-        store.viewMode = "source";
         await flushPersist();
 
         // 运行期值不再写旧桶（pick 已移除），但原件里的三个值必须原样保留：此刻它们只存在于这里。
         const written = lastWrittenBucket(storage);
         expect(written.activeLeftTab).toBe("search");
-        expect(written.viewMode).toBe("source");
         expect(written.leftPanelWidth).toBe(427);
         expect(written.agentPanelWidth).toBe(488);
         expect(written.projectPickerLayoutMode).toBe("compact");
@@ -191,7 +188,6 @@ describe("旧 novel.ide.local writer 的退役", () => {
         const store = await instantiateStore();
         retireLegacyBucketWriterPolicy();
         store.activeLeftTab = "search";
-        store.viewMode = "source";
         await flushPersist();
 
         const written = lastWrittenBucket(storage);

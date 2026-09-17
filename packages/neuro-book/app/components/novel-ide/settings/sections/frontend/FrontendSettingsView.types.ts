@@ -17,6 +17,8 @@ export type FrontendSettingsViewProps = {
     locale: string;
     /** 默认视图模式 */
     viewMode: string;
+    viewModeSaving?: boolean;
+    viewModeProjectOverride?: boolean;
     /** 推理强度（本地 UI 偏好） */
     reasoning: string;
     /** 推理强度可选值 */

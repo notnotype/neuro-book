@@ -6,7 +6,7 @@ import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebo
 import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-import type { MarkdownStudioEditorHandle } from "nbook/app/composables/useMarkdownStudioController";
+import type {TextEditorHandle} from "nbook/app/components/editor-workbench/editor-view.types";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 const props = withDefaults(defineProps<{
@@ -27,7 +27,7 @@ const props = withDefaults(defineProps<{
     autofocus: false,
     placeholder: "",
     visible: false,
-    language: "markdown",
+    language: "plaintext",
     modelPath: "",
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     temporaryFontSize: null,
@@ -36,6 +36,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+    (e: "ready"): void;
     (e: "change", value: string): void;
     (e: "focus"): void;
     (e: "blur"): void;
@@ -142,7 +143,10 @@ const applyTheme = (): void => {
  * 让 Monaco 重新计算当前容器尺寸。
  */
 const layoutEditor = (): void => {
-    editorInstance?.layout();
+    const root = editorRootRef.value;
+    if (root && root.clientWidth > 0 && root.clientHeight > 0) {
+        editorInstance?.layout({width: root.clientWidth, height: root.clientHeight});
+    }
 };
 
 /**
@@ -291,9 +295,9 @@ const redo = (): void => {
 };
 
 /**
- * 在当前光标插入 Markdown。
+ * 在当前光标插入文本。
  */
-const insertMarkdown = (markdown: string): void => {
+const insertText = (markdown: string): void => {
     const editor = editorInstance;
     const model = modelInstance;
     const api = monacoApi;
@@ -315,16 +319,16 @@ const replaceSelection = (markdown: string): void => {
     }
     const range = editor.getSelection();
     if (!range) {
-        insertMarkdown(markdown);
+        insertText(markdown);
         return;
     }
     editor.executeEdits("markdown-replace", [{range, text: markdown, forceMoveMarkers: true}]);
 };
 
 /**
- * 将 Markdown 追加到文件末尾。
+ * 将文本追加到文件末尾。
  */
-const appendMarkdown = (markdown: string): void => {
+const appendText = (markdown: string): void => {
     const editor = editorInstance;
     const model = modelInstance;
     const api = monacoApi;
@@ -387,6 +391,10 @@ watch(appearance, async () => {
 
 watch(() => props.initialValue, (value) => {
     update(value);
+});
+
+watch(() => props.language, (language) => {
+    if (monacoApi && modelInstance) monacoApi.editor.setModelLanguage(modelInstance, language);
 });
 
 watch(() => props.visible, async (visible) => {
@@ -493,6 +501,7 @@ onMounted(async () => {
 
     await nextTick();
     layoutEditor();
+    emit("ready");
 
     if (props.autofocus) {
         focus();
@@ -524,15 +533,15 @@ onBeforeUnmount(() => {
     monacoApi = null;
 });
 
-defineExpose<MarkdownStudioEditorHandle>({
+defineExpose<TextEditorHandle>({
     update,
     focus,
     scrollToTop,
     undo,
     redo,
-    insertMarkdown,
+    insertText,
     replaceSelection,
-    appendMarkdown,
+    appendText,
     getValue,
     flushPendingChange,
 });

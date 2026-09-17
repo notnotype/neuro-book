@@ -1,5 +1,3 @@
-export type WorkspaceEditorKind = "markdown" | "monaco" | "readonly";
-export type WorkspaceEditorViewMode = "rich" | "source";
 export type FrontmatterProfileKind = "character" | "location" | "rule";
 
 /**
@@ -67,6 +65,7 @@ export interface MonacoLanguageRule {
 }
 
 export const MONACO_LANGUAGE_RULES: MonacoLanguageRule[] = [
+    {extensions: [".md", ".markdown"], language: "markdown"},
     {extensions: [".json"], language: "json"},
     {extensions: [".js", ".mjs", ".cjs"], language: "javascript"},
     {extensions: [".ts", ".tsx"], language: "typescript"},
@@ -74,7 +73,7 @@ export const MONACO_LANGUAGE_RULES: MonacoLanguageRule[] = [
     {extensions: [".css"], language: "css"},
     {extensions: [".html", ".htm"], language: "html"},
     {extensions: [".yaml", ".yml"], language: "yaml"},
-    {extensions: [".txt", ""], language: "plaintext"},
+    {extensions: [".txt", ".text", ""], language: "plaintext"},
 ];
 
 /**
@@ -89,15 +88,6 @@ export function resolveWorkspaceFileExtension(filePath: string): string {
     return fileName.slice(dotIndex).toLowerCase();
 }
 
-/**
- * 根据路径与可编辑状态决定中央工作台使用的编辑器类型。
- */
-export function resolveWorkspaceEditorKind(filePath: string, editable: boolean): WorkspaceEditorKind {
-    if (!editable) {
-        return "readonly";
-    }
-    return resolveWorkspaceFileExtension(filePath) === ".md" ? "markdown" : "monaco";
-}
 
 /**
  * 根据文件扩展名映射 Monaco language，未知文本回退 plaintext。
@@ -107,12 +97,6 @@ export function resolveMonacoLanguage(filePath: string): string {
     return MONACO_LANGUAGE_RULES.find((rule) => rule.extensions.includes(extension))?.language ?? "plaintext";
 }
 
-/**
- * Markdown 默认视图模式：Markdown 进入富文本模式，其它可编辑文本进入源码。
- */
-export function resolveDefaultWorkspaceViewMode(filePath: string): WorkspaceEditorViewMode {
-    return resolveWorkspaceFileExtension(filePath) === ".md" ? "rich" : "source";
-}
 
 /**
  * 只有 manuscript/ 与 lorebook/ 内容节点的 Markdown 文件开放 frontmatter dialog。
