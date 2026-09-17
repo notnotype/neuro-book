@@ -16,6 +16,7 @@ import type {MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components
 import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
 import EditorWelcome from "nbook/app/components/editor-workbench/EditorWelcome.vue";
 import EditorViewHost from "nbook/app/components/editor-workbench/EditorViewHost.vue";
+import LabFixtureControls from "../LabFixtureControls.vue";
 import type {
     EditorAction,
     EditorContribution,
@@ -595,53 +596,52 @@ const activeTab = computed(() => tabs.value.find((t) => t.path === activePath.va
 
 <template>
     <div class="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)]">
-        <!-- Fixture 顶部交互调试说明带 -->
-        <header class="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-[var(--divider)] bg-[var(--bg-panel)] px-4 py-2 text-xs select-none">
-            <div class="flex items-center gap-2">
-                <span class="rounded bg-[var(--bg-hover)] px-2 py-0.5 font-mono text-[11px] font-semibold text-[var(--accent-text)]">
-                    场景: {{ props.scene }}
-                </span>
-                <span class="text-[var(--text-secondary)]">受控模式 · 四主题自适应 · 零网络/本地存储</span>
+        <!-- Fixture 场景交互控制：挂载到底部抽屉面板 -->
+        <LabFixtureControls>
+            <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs select-none">
+                <div class="flex items-center gap-2">
+                    <span class="text-[var(--text-secondary)]">受控模式 · 四主题自适应 · 零网络/本地存储</span>
+                </div>
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <button
+                        type="button"
+                        class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                        @click="addTab('normal')"
+                    >
+                        + 新建标签
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                        @click="addTab('preview')"
+                    >
+                        + 预览标签
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                        @click="() => { busy = !busy; syncDataSink(); }"
+                    >
+                        {{ busy ? "关闭忙碌" : "开启忙碌 (busy)" }}
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                        @click="() => { diagnosis = diagnosis ? null : '打开方式“diagram-viewer”不可用，当前使用源码编辑器。'; syncDataSink(); }"
+                    >
+                        {{ diagnosis ? "清除诊断" : "模拟未知视图" }}
+                    </button>
+                    <button
+                        v-if="activeTab"
+                        type="button"
+                        class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                        @click="() => { if (activePath) { tabs = tabs.map((t) => t.path === activePath ? {...t, dirty: !t.dirty} : t); syncDataSink(); } }"
+                    >
+                        {{ activeTab.dirty ? "清除未保存标记" : "标为未保存 (dirty)" }}
+                    </button>
+                </div>
             </div>
-            <div class="flex flex-wrap items-center gap-1.5">
-                <button
-                    type="button"
-                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                    @click="addTab('normal')"
-                >
-                    + 新建标签
-                </button>
-                <button
-                    type="button"
-                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                    @click="addTab('preview')"
-                >
-                    + 预览标签
-                </button>
-                <button
-                    type="button"
-                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                    @click="() => { busy = !busy; syncDataSink(); }"
-                >
-                    {{ busy ? "关闭忙碌" : "开启忙碌 (busy)" }}
-                </button>
-                <button
-                    type="button"
-                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                    @click="() => { diagnosis = diagnosis ? null : '打开方式“diagram-viewer”不可用，当前使用源码编辑器。'; syncDataSink(); }"
-                >
-                    {{ diagnosis ? "清除诊断" : "模拟未知视图" }}
-                </button>
-                <button
-                    v-if="activeTab"
-                    type="button"
-                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                    @click="() => { if (activePath) { tabs = tabs.map((t) => t.path === activePath ? {...t, dirty: !t.dirty} : t); syncDataSink(); } }"
-                >
-                    {{ activeTab.dirty ? "清除未保存标记" : "标为未保存 (dirty)" }}
-                </button>
-            </div>
-        </header>
+        </LabFixtureControls>
 
         <!-- 主体被测试零件：EditorWorkbench 绑定 data-lab-subject -->
         <main class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

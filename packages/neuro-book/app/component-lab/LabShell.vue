@@ -19,7 +19,7 @@ import HighlightBox from "./HighlightBox.vue";
 import {labComponents, findLabComponent} from "./component-index";
 import type {LabComponentKind} from "./component-index";
 import {findLabFixture} from "./fixtures";
-import {LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
+import {LAB_CONTROLS_REGISTER, LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
@@ -590,6 +590,13 @@ provide(LAB_DATA_SINK, (value: unknown) => {
     fixtureData.value = structuredClone(value);
 });
 
+const hasFixtureControls = ref(false);
+const bottomPanelCollapsed = ref(false);
+
+provide(LAB_CONTROLS_REGISTER, (active: boolean) => {
+    hasFixtureControls.value = active;
+});
+
 function resetScene(): void {
     const initialData = structuredClone(scene.value?.data);
     sceneData.value = initialData;
@@ -624,6 +631,7 @@ watch(fixture, async (next) => {
 // 否则「同一场景重复打开结果一致」这条验收就不成立。
 watch([selectedScene, fixture], () => {
     resetScene();
+    hasFixtureControls.value = false;
 }, {immediate: true});
 
 // 挂上新 fixture 或换场景后是另一批 DOM 节点，之前选中的那个已经不在了
@@ -858,6 +866,43 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                             :data="fixtureData"
                         />
                     </ViewportCanvas>
+                </div>
+
+                <!-- 底部场景调试交互面板（仅在 Fixture 声明控制实体时可见） -->
+                <div
+                    v-show="hasFixtureControls"
+                    class="lab-bottom-panel flex shrink-0 flex-col border-t border-[var(--divider)] bg-[var(--lab-surface)] backdrop-blur-[var(--lab-surface-blur)] select-none"
+                >
+                    <div class="flex h-9 shrink-0 items-center justify-between px-3 text-xs font-medium text-[var(--text-muted)]">
+                        <div class="flex items-center gap-2">
+                            <span class="i-lucide-sliders-horizontal text-[var(--accent-text)] h-3.5 w-3.5" aria-hidden="true" />
+                            <span class="font-medium text-[var(--text-main)]">场景交互控制</span>
+                            <span class="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
+                                {{ selectedScene }}
+                            </span>
+                        </div>
+                        <button
+                            type="button"
+                            class="lab-btn lab-btn--icon h-6 px-2 text-[11px]"
+                            :title="bottomPanelCollapsed ? '展开控制面板' : '收起控制面板'"
+                            @click="bottomPanelCollapsed = !bottomPanelCollapsed"
+                        >
+                            <span
+                                class="h-3.5 w-3.5"
+                                :class="bottomPanelCollapsed ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                                aria-hidden="true"
+                            />
+                            <span>{{ bottomPanelCollapsed ? '展开' : '收起' }}</span>
+                        </button>
+                    </div>
+
+                    <div
+                        v-show="!bottomPanelCollapsed"
+                        id="lab-fixture-controls-target"
+                        class="min-h-0 max-h-48 overflow-auto border-t border-[var(--divider)] px-4 py-2 text-xs"
+                    >
+                        <!-- Fixture 的 LabFixtureControls 将 Teleport 到此处 -->
+                    </div>
                 </div>
             </main>
 

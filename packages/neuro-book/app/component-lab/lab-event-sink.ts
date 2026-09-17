@@ -13,6 +13,10 @@ export type LabDataSink = (value: unknown) => void;
 
 export const LAB_DATA_SINK: InjectionKey<LabDataSink> = Symbol("lab-data-sink");
 
+export type LabControlsRegister = (active: boolean) => void;
+
+export const LAB_CONTROLS_REGISTER: InjectionKey<LabControlsRegister> = Symbol("lab-controls-register");
+
 /** fixture 可把当前受控状态同步到 Lab 的数据面板。 */
 export function useLabDataSink(): LabDataSink {
     return inject(LAB_DATA_SINK, () => undefined);
@@ -21,4 +25,9 @@ export function useLabDataSink(): LabDataSink {
 /** fixture 之外的地方调用会拿到一个什么都不做的 sink，因此 fixture 单独渲染也不报错。 */
 export function useLabEventSink(): LabEventSink {
     return inject(LAB_EVENT_SINK, () => undefined);
+}
+
+/** fixture 挂载交互调试控制实体时通知 Lab 展开底部控制栏。 */
+export function useLabControlsRegister(): LabControlsRegister {
+    return inject(LAB_CONTROLS_REGISTER, () => undefined);
 }
