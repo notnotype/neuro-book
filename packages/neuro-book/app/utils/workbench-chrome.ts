@@ -65,7 +65,7 @@ export function createWorkbenchActivityItems(
     const novelOnlyDisabled = projectDisabled || context.userAssetsMode;
     return {
         primary: [
-            ...(!context.desktopAvailable ? [{id: "home" as const, disabled: false}] : []),
+            {id: "home" as const, disabled: false},
             {id: "files", disabled: projectDisabled},
             {id: "characters", disabled: novelOnlyDisabled},
             {id: "plot", disabled: novelOnlyDisabled},

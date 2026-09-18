@@ -361,12 +361,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
             </div>
 
             <div class="shrink-0 border-b border-[var(--border-color)]">
-                <div class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
-                    <Tooltip :text="t('ide.header.bookshelfTitle')" placement="bottom">
-                        <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('openHome')">
-                            <span class="i-lucide-library h-4 w-4"></span>
-                        </button>
-                    </Tooltip>
+                <div v-if="!props.userAssetsMode" class="flex h-9 items-center gap-1 border-b border-[var(--border-color)] px-2">
                     <Dropdown
                         v-if="!props.userAssetsMode"
                         class="min-w-0 flex-1"
@@ -382,7 +377,7 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                             <span class="i-lucide-chevron-down h-3.5 w-3.5 shrink-0"></span>
                         </button>
                     </Dropdown>
-                    <div v-else class="min-w-0 flex-1 truncate px-2 text-xs text-[var(--text-secondary)]">{{ props.workspaceTitle }}</div>
+
                 </div>
 
                 <div class="flex items-center justify-between px-3 py-2">
@@ -400,13 +395,13 @@ function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
                                 <span :class="uploadingSingleFile ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-file-up'" class="h-4 w-4"></span>
                             </button>
                         </Tooltip>
-                        <Dropdown class="!w-auto" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
-                            <Tooltip :text="t('ide.toolPanel.uploadProjectTitle')" placement="bottom">
+                        <Tooltip :text="t('ide.toolPanel.uploadProjectTitle')" placement="bottom">
+                            <Dropdown root-class="relative inline-flex items-center" :items="projectUploadItems" menu-class="right-0 top-full mt-1 w-36" @select="selectProjectUploadMode">
                                 <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="uploadingProject">
                                     <span :class="uploadingProject ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-up'" class="h-4 w-4"></span>
                                 </button>
-                            </Tooltip>
-                        </Dropdown>
+                            </Dropdown>
+                        </Tooltip>
                         <Tooltip :text="downloadButtonTitle" placement="bottom">
                             <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
                                 <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
