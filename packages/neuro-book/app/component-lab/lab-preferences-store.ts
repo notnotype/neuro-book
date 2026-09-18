@@ -6,6 +6,7 @@ export type LabPreferenceCatalog = {
     canvasBackdropIds: readonly string[];
     pageBackdropIds: readonly string[];
     zooms: readonly number[];
+    componentNames?: readonly string[];
 };
 
 /**
@@ -34,6 +35,12 @@ export type LabPreferences = {
     leftPanelWidth?: number;
     /** 右侧栏（检视）宽度，px */
     rightPanelWidth?: number;
+    /** 当前选中的组件名 */
+    selectedComponentName?: string;
+    /** 当前选中的场景 ID */
+    selectedSceneId?: string;
+    /** 右侧检视栏激活的 Tab */
+    activeInspectTab?: string;
 };
 
 const MAX_CANVAS_SIZE = 16_384;
@@ -62,6 +69,17 @@ export function loadLabPreferences(storage: Storage, catalog: LabPreferenceCatal
         copyBoolean(parsed, "rightCollapsed", preferences);
         copyPanelWidth(parsed, "leftPanelWidth", LAB_PANEL_WIDTH_LIMITS.left, preferences);
         copyPanelWidth(parsed, "rightPanelWidth", LAB_PANEL_WIDTH_LIMITS.right, preferences);
+        if (catalog.componentNames) {
+            copyAllowedString(parsed, "selectedComponentName", catalog.componentNames, preferences);
+        } else if (typeof parsed.selectedComponentName === "string" && parsed.selectedComponentName.length <= 100) {
+            preferences.selectedComponentName = parsed.selectedComponentName;
+        }
+        if (typeof parsed.selectedSceneId === "string" && /^[a-zA-Z0-9_.-]+$/.test(parsed.selectedSceneId) && parsed.selectedSceneId.length <= 100) {
+            preferences.selectedSceneId = parsed.selectedSceneId;
+        }
+        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element"].includes(parsed.activeInspectTab)) {
+            preferences.activeInspectTab = parsed.activeInspectTab;
+        }
         return preferences;
     } catch {
         return {};
@@ -92,7 +110,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function copyAllowedString(
     source: Record<string, unknown>,
-    key: "themeId" | "colorwayId" | "pageBackdropId" | "canvasBackdropId",
+    key: "themeId" | "colorwayId" | "pageBackdropId" | "canvasBackdropId" | "selectedComponentName",
     allowed: readonly string[],
     target: LabPreferences,
 ): void {

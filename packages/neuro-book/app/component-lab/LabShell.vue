@@ -79,12 +79,25 @@ const LAB_MOBILE_BREAKPOINT = 700;
 const canvasBackdrop = ref(LAB_DEFAULT_BACKDROP);
 const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
+const fixtureLoading = ref(false);
 const fixtureLoadError = ref("");
 const sceneData = ref<unknown>(undefined);
 const fixtureData = ref<unknown>(undefined);
 const events = ref<LabEventEntry[]>([]);
 let fixtureLoadToken = 0;
 let eventCounter = 0;
+
+function ensureSelectedComponentExpanded(name: string): void {
+    if (!name) return;
+    const comp = findLabComponent(name);
+    if (!comp || !comp.groupPath.length) return;
+    const neededGroups: string[] = [];
+    for (let i = 0; i < comp.groupPath.length; i++) {
+        neededGroups.push(`group:${comp.groupPath.slice(0, i + 1).join("/")}`);
+    }
+    const set = new Set([...expandedGroups.value, ...neededGroups]);
+    expandedGroups.value = Array.from(set);
+}
 
 const matchedComponents = computed(() => {
     const query = treeQuery.value.trim().toLowerCase();
@@ -137,8 +150,10 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
         level.push({
             id: entry.name,
             title: entry.name,
-            // 挂不上的组件仍然在清单里，用锁图标标出来，点进去能看到原因
-            iconClass: entry.mountable ? KIND_ICONS[entry.kind] : "i-lucide-lock",
+            // 正在加载中的组件实时反馈旋转动画；否则挂不上的组件标锁，正常挂载标分类图标
+            iconClass: (fixtureLoading.value && selectedName.value === entry.name)
+                ? "i-lucide-loader-2 animate-spin text-[var(--accent-text)]"
+                : (entry.mountable ? KIND_ICONS[entry.kind] : "i-lucide-lock"),
         });
     }
     const sortLevel = (nodes: LabTreeNode[]): void => {
@@ -258,6 +273,7 @@ function collapseForMobile(event: MediaQueryList | MediaQueryListEvent): void {
 onMounted(async () => {
     setWallpaper(await loadLabWallpaper().catch(() => null));
     await restorePreferences();
+    ensureSelectedComponentExpanded(selectedName.value);
     applyLabTheme(labThemeId.value, labColorwayId.value);
     mobileQuery = window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`);
     collapseForMobile(mobileQuery);
@@ -324,6 +340,7 @@ const {
         canvasBackdropIds: labBackdrops.map((item) => item.id),
         pageBackdropIds: labPageBackdrops.map((item) => item.id),
         zooms: labZooms,
+        componentNames: labComponents.map((item) => item.name),
     },
     defaults: {
         themeId: LAB_DEFAULT_THEME,
@@ -333,6 +350,9 @@ const {
         canvasZoom: LAB_DEFAULT_ZOOM,
         leftPanelWidth: LAB_PANEL_DEFAULT_WIDTH.left,
         rightPanelWidth: LAB_PANEL_DEFAULT_WIDTH.right,
+        selectedComponentName: labComponents.find((entry) => entry.mountable)?.name ?? "",
+        selectedSceneId: "",
+        activeInspectTab: "doc",
     },
     state: {
         themeId: labThemeId,
@@ -348,6 +368,9 @@ const {
         preferredRightCollapsed,
         leftPanelWidth: leftWidth,
         rightPanelWidth: rightWidth,
+        selectedComponentName: selectedName,
+        selectedSceneId: selectedScene,
+        activeInspectTab: rightTab,
     },
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
 });
@@ -574,6 +597,7 @@ function selectComponent(id: string): void {
         return;
     }
     selectedName.value = id;
+    ensureSelectedComponentExpanded(id);
 }
 
 function recordEvent(name: string, payload?: unknown): void {
@@ -606,12 +630,20 @@ function resetScene(): void {
 
 watch(fixture, async (next) => {
     const token = ++fixtureLoadToken;
-    selectedScene.value = next?.scenes[0]?.id ?? "";
     fixtureLoadError.value = "";
     if (!next) {
         fixtureComponent.value = null;
+        fixtureLoading.value = false;
+        selectedScene.value = "";
         return;
     }
+
+    // 保留已选中的合法场景（例如从 storage 恢复或组件自有的有效场景），否则重置为该场景组首项
+    if (!selectedScene.value || !next.scenes.some((s) => s.id === selectedScene.value)) {
+        selectedScene.value = next.scenes[0]?.id ?? "";
+    }
+
+    fixtureLoading.value = true;
     try {
         const component = await next.load();
         // 组件切得快时先发的 loader 可能后到：只有仍是当前这次选择才允许写入。
@@ -624,6 +656,10 @@ watch(fixture, async (next) => {
             return;
         }
         fixtureLoadError.value = error instanceof Error ? error.message : String(error);
+    } finally {
+        if (token === fixtureLoadToken) {
+            fixtureLoading.value = false;
+        }
     }
 }, {immediate: true});
 
@@ -835,7 +871,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </button>
                 </div>
 
-                <div class="min-h-0 flex-1">
+                <div class="relative min-h-0 flex-1 overflow-hidden">
+                    <!-- 切换组件加载遮罩与动画 -->
+                    <div
+                        v-if="fixtureLoading"
+                        class="lab-fixture-loading absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-[var(--lab-surface)]/75 backdrop-blur-xs select-none transition-opacity duration-150"
+                    >
+                        <div class="flex items-center gap-2.5 rounded-full border border-[var(--divider)] bg-[var(--bg-panel)] px-4 py-2 shadow-md">
+                            <span class="i-lucide-loader-2 h-4 w-4 animate-spin text-[var(--accent-main)]" aria-hidden="true" />
+                            <span class="text-xs font-medium text-[var(--text-main)]">
+                                正在载入 {{ selected?.name }} 场景...
+                            </span>
+                        </div>
+                    </div>
+
                     <div v-if="!selected" class="lab-empty">左边选一个组件</div>
                     <div v-else-if="!selected.mountable" class="lab-empty lab-empty--stack">
                         <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
@@ -858,13 +907,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         :zoom="zoomValue"
                         :backdrop="canvasBackdrop"
                     >
-                        <component
-                            :is="fixtureComponent"
-                            v-if="fixtureComponent"
-                            :key="`${selectedName}:${selectedScene}`"
-                            :scene="selectedScene"
-                            :data="fixtureData"
-                        />
+                        <Transition name="lab-stage-fade" mode="out-in">
+                            <component
+                                :is="fixtureComponent"
+                                v-if="fixtureComponent"
+                                :key="`${selectedName}:${selectedScene}`"
+                                :scene="selectedScene"
+                                :data="fixtureData"
+                            />
+                        </Transition>
                     </ViewportCanvas>
                 </div>
 
@@ -1518,5 +1569,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     border-radius: var(--radius-control);
     background: var(--bg-subtle);
     font-family: var(--font-mono);
+}
+
+.lab-stage-fade-enter-active,
+.lab-stage-fade-leave-active {
+    transition: opacity 0.16s cubic-bezier(0.2, 0, 0, 1), transform 0.16s cubic-bezier(0.2, 0, 0, 1);
+}
+
+.lab-stage-fade-enter-from {
+    opacity: 0;
+    transform: scale(0.99);
+}
+
+.lab-stage-fade-leave-to {
+    opacity: 0;
+    transform: scale(0.99);
 }
 </style>

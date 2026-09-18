@@ -13,6 +13,7 @@ const catalog: LabPreferenceCatalog = {
     canvasBackdropIds: ["panel", "checker"],
     pageBackdropIds: ["theme", "custom"],
     zooms: [0.5, 1, 2],
+    componentNames: ["EditorWorkbench", "ViewportCanvas", "MarkdownView"],
 };
 
 const preferences: LabPreferences = {
@@ -28,6 +29,9 @@ const preferences: LabPreferences = {
     rightCollapsed: false,
     leftPanelWidth: 320,
     rightPanelWidth: 420,
+    selectedComponentName: "EditorWorkbench",
+    selectedSceneId: "mixed",
+    activeInspectTab: "data",
 };
 
 describe("Lab preferences store", () => {
@@ -54,6 +58,9 @@ describe("Lab preferences store", () => {
             // 越界、非整数与其它类型的宽度都要丢掉：它们是上次拖动留下的，不能静默变成另一个值
             leftPanelWidth: 9_999,
             rightPanelWidth: 300.5,
+            selectedComponentName: "NonExistentComponent",
+            selectedSceneId: "invalid scene with spaces!",
+            activeInspectTab: "unsupported-tab",
             fixtureData: {secret: "must not enter the preference model"},
         }));
 

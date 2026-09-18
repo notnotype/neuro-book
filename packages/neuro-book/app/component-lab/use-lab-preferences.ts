@@ -17,6 +17,9 @@ type LabPreferenceState = {
     preferredRightCollapsed: Ref<boolean>;
     leftPanelWidth: Ref<number>;
     rightPanelWidth: Ref<number>;
+    selectedComponentName?: Ref<string>;
+    selectedSceneId?: Ref<string>;
+    activeInspectTab?: Ref<string>;
 };
 
 type LabPreferenceDefaults = {
@@ -27,6 +30,9 @@ type LabPreferenceDefaults = {
     canvasZoom: number;
     leftPanelWidth: number;
     rightPanelWidth: number;
+    selectedComponentName?: string;
+    selectedSceneId?: string;
+    activeInspectTab?: string;
 };
 
 type UseLabPreferencesOptions = {
@@ -43,7 +49,7 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
 
     function current(): LabPreferences {
         const state = options.state;
-        return {
+        const res: LabPreferences = {
             schema: 1,
             themeId: state.themeId.value,
             colorwayId: state.colorwayId.value,
@@ -57,6 +63,16 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
             leftPanelWidth: state.leftPanelWidth.value,
             rightPanelWidth: state.rightPanelWidth.value,
         };
+        if (state.selectedComponentName?.value) {
+            res.selectedComponentName = state.selectedComponentName.value;
+        }
+        if (state.selectedSceneId?.value) {
+            res.selectedSceneId = state.selectedSceneId.value;
+        }
+        if (state.activeInspectTab?.value) {
+            res.activeInspectTab = state.activeInspectTab.value;
+        }
+        return res;
     }
 
     async function restore(): Promise<void> {
@@ -80,6 +96,15 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.rightCollapsed.value = state.preferredRightCollapsed.value;
         state.leftPanelWidth.value = saved.leftPanelWidth ?? defaults.leftPanelWidth;
         state.rightPanelWidth.value = saved.rightPanelWidth ?? defaults.rightPanelWidth;
+        if (state.selectedComponentName && saved.selectedComponentName) {
+            state.selectedComponentName.value = saved.selectedComponentName;
+        }
+        if (state.selectedSceneId && saved.selectedSceneId) {
+            state.selectedSceneId.value = saved.selectedSceneId;
+        }
+        if (state.activeInspectTab && saved.activeInspectTab) {
+            state.activeInspectTab.value = saved.activeInspectTab;
+        }
         await nextTick();
         hydrating.value = false;
         ready = true;
@@ -107,6 +132,15 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         state.rightCollapsed.value = false;
         state.leftPanelWidth.value = defaults.leftPanelWidth;
         state.rightPanelWidth.value = defaults.rightPanelWidth;
+        if (state.selectedComponentName) {
+            state.selectedComponentName.value = defaults.selectedComponentName ?? "";
+        }
+        if (state.selectedSceneId) {
+            state.selectedSceneId.value = defaults.selectedSceneId ?? "";
+        }
+        if (state.activeInspectTab) {
+            state.activeInspectTab.value = defaults.activeInspectTab ?? "doc";
+        }
         applyResponsiveLayout();
         await nextTick();
         hydrating.value = false;
@@ -123,7 +157,7 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         options.state.preferredRightCollapsed.value = value;
     }
 
-    watch([
+    const watchedRefs = [
         options.state.themeId,
         options.state.colorwayId,
         options.state.pageBackdropId,
@@ -135,7 +169,12 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
         options.state.preferredRightCollapsed,
         options.state.leftPanelWidth,
         options.state.rightPanelWidth,
-    ], () => {
+        ...(options.state.selectedComponentName ? [options.state.selectedComponentName] : []),
+        ...(options.state.selectedSceneId ? [options.state.selectedSceneId] : []),
+        ...(options.state.activeInspectTab ? [options.state.activeInspectTab] : []),
+    ];
+
+    watch(watchedRefs, () => {
         const storage = getStorage();
         if (ready && storage !== null) {
             saveLabPreferences(storage, current());
