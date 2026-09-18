@@ -4,12 +4,15 @@ import {Dropdown, IconButton, type DropdownItem, type MenubarItemData, type Menu
 
 const props = withDefaults(defineProps<{
     menus?: MenubarMenuData[];
+    showSplit?: boolean;
 }>(), {
     menus: () => [],
+    showSplit: true,
 });
 
 const emit = defineEmits<{
     (e: "select", item: MenubarItemData): void;
+    (e: "split"): void;
 }>();
 
 const {t} = useI18n();
@@ -70,9 +73,19 @@ function handleSelect(value: string): void {
 
 <template>
     <nav
-        class="editor-toolbar flex shrink-0 items-center select-none"
+        class="editor-toolbar flex shrink-0 items-center gap-0.5 select-none"
         aria-label="Editor Workbench Actions"
     >
+        <IconButton
+            v-if="showSplit && dropdownItems.length > 0"
+            icon-class="i-lucide-columns-2"
+            size="sm"
+            variant="default"
+            :title="t('editorWorkbench.splitRight') || '向右拆分编辑器'"
+            :aria-label="t('editorWorkbench.splitRight') || '向右拆分编辑器'"
+            class="editor-toolbar-split-btn cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-main)]"
+            @click="emit('split')"
+        />
         <Dropdown
             v-if="dropdownItems.length > 0"
             :items="dropdownItems"
@@ -88,7 +101,7 @@ function handleSelect(value: string): void {
                 variant="default"
                 :title="t('editorWorkbench.moreActions')"
                 :aria-label="t('editorWorkbench.moreActions')"
-                class="editor-toolbar-more-btn cursor-pointer"
+                class="editor-toolbar-more-btn cursor-pointer text-[var(--text-secondary)] hover:text-[var(--text-main)]"
             />
         </Dropdown>
     </nav>

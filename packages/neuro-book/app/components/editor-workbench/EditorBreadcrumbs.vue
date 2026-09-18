@@ -97,9 +97,9 @@ function handleItemClick(item: BreadcrumbItem): void {
 <template>
     <nav
         aria-label="文件路径大纲导航"
-        class="editor-breadcrumbs flex h-[22px] shrink-0 items-center overflow-x-auto overflow-y-hidden border-b border-[var(--divider)] bg-[var(--panel-surface)] px-2.5 text-[11px] text-[var(--text-secondary)] select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        class="editor-breadcrumbs flex h-[22px] w-full min-w-0 shrink-0 items-center justify-between border-b border-[var(--divider)] bg-[var(--panel-surface)] px-3 text-[11px] text-[var(--text-secondary)] select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
     >
-        <ol class="flex items-center gap-0.5 min-w-0">
+        <ol class="flex items-center gap-0.5 min-w-0 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
             <template v-for="(item, index) in resolvedSegments" :key="item.id">
                 <li
                     v-if="index > 0"
@@ -123,5 +123,10 @@ function handleItemClick(item: BreadcrumbItem): void {
                 </li>
             </template>
         </ol>
+
+        <!-- 面包屑尾部插槽 (如 VS Code 右侧“文本编辑器 ⌵”) -->
+        <div v-if="$slots.trailing" class="editor-breadcrumbs-trailing flex shrink-0 items-center pl-2">
+            <slot name="trailing" />
+        </div>
     </nav>
 </template>

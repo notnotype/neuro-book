@@ -2352,6 +2352,7 @@ const enUS = {
         },
     },
     editorWorkbench: {
+        textEditor: "Text Editor",
         title: "Editor Workbench",
         tabs: "Tabs",
         pinnedTabs: "Pinned Tabs",

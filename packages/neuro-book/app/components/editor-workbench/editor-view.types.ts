@@ -65,6 +65,7 @@ export type EditorTabPresentation = Readonly<{
     dirty: boolean;
     iconClass: string;
     statusText?: string;
+    description?: string;
 }>;
 export type EditorTabDropPosition = "before" | "after";
 export type EditorSplitDirection = "left" | "right" | "top" | "bottom";

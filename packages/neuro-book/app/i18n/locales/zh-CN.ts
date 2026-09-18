@@ -2350,6 +2350,7 @@ const zhCN = {
         },
     },
     editorWorkbench: {
+        textEditor: "文本编辑器",
         title: "编辑器工作区",
         tabs: "标签",
         pinnedTabs: "固定标签",

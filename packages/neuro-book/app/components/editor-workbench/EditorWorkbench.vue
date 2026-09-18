@@ -128,7 +128,7 @@ function handleContentDrop(event: DragEvent): void {
         <!-- 顶部外壳区：标签栏与面包屑（对齐 VS Code，仅在有打开标签时显示） -->
         <header
             v-if="hasTabs"
-            class="editor-workbench-header flex shrink-0 flex-col border-b border-[var(--divider)] bg-[var(--bg-panel)] select-none"
+            class="editor-workbench-header flex w-full min-w-0 shrink-0 flex-col bg-[var(--bg-panel)] select-none"
         >
             <EditorTabBar
                 :tabs="props.tabs"
@@ -147,6 +147,7 @@ function handleContentDrop(event: DragEvent): void {
                             v-if="props.menus && props.menus.length > 0"
                             :menus="props.menus"
                             @select="(item) => emit('select-menu', item)"
+                            @split="emit('split-tab', props.activePath, 'right')"
                         />
                     </div>
                 </template>
@@ -158,7 +159,14 @@ function handleContentDrop(event: DragEvent): void {
                 :path="props.activePath"
                 :symbols="props.breadcrumbsSymbols"
                 @navigate="(item) => emit('navigate-breadcrumb', item)"
-            />
+            >
+                <template #trailing>
+                    <div class="flex items-center gap-1 text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-main)] cursor-pointer select-none">
+                        <span>{{ t("editorWorkbench.textEditor") || "文本编辑器" }}</span>
+                        <span class="i-lucide-chevron-down h-3 w-3" aria-hidden="true" />
+                    </div>
+                </template>
+            </EditorBreadcrumbs>
         </header>
 
         <!-- 诊断/错误提示条：错误可见但绝不卸载正文 -->

@@ -252,9 +252,13 @@ const SCENE_TABS: Record<string, EditorTabPresentation[]> = {
     empty: [],
     mixed: [
         {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-        {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
+        {path: ".env", title: ".env", pinned: false, preview: false, dirty: false, description: "...\\tim-completion-spike", iconClass: "i-lucide-key-round"},
+        {path: "AGENTS.md", title: "AGENTS.md", pinned: false, preview: false, dirty: false, statusText: "M", iconClass: "i-lucide-file-text"},
+        {path: "docs/002-product-decision-brief.md", title: "002-product-decision-brief.md", pinned: false, preview: false, dirty: false, statusText: "U", iconClass: "i-lucide-file-text"},
         {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, statusText: "U", iconClass: "i-lucide-file-text"},
         {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, statusText: "M", iconClass: "i-lucide-file-text"},
+        {path: "package.json", title: "package.json", pinned: false, preview: false, dirty: false, statusText: "M", iconClass: "i-lucide-braces"},
+        {path: ".agents/skills/doc-review/SKILL.md", title: "SKILL.md", pinned: false, preview: false, dirty: false, description: "...\\doc-review", iconClass: "i-lucide-file-text"},
         {path: "src/notes/quick-draft.txt", title: "quick-draft.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
     ],
     "long-titles": [
@@ -273,6 +277,11 @@ const SCENE_TABS: Record<string, EditorTabPresentation[]> = {
 };
 
 const DEFAULT_CONTENTS: Record<string, string> = {
+    ".env": "# Application Environment\nPORT=3001\nNODE_ENV=development\nWORKSPACE_ROOT=/workspace/novel-drafts\n",
+    "AGENTS.md": "# NeuroBook Agent 入口\n\nNeuroBook 是本地优先的长篇写作工作区。\n\n## 核心规则\n- 结论先行，以可观察行为解释判断。\n",
+    "docs/002-product-decision-brief.md": "# 决策简报：VS Code 标签栏与面板对齐\n\n- 移除孤岛浮动药丸，还原无边框紧凑矩形。\n- Git 状态颜色同步文件名。\n",
+    "package.json": '{\n  "name": "neuro-book",\n  "version": "0.1.0",\n  "private": true\n}',
+    ".agents/skills/doc-review/SKILL.md": "---\nname: doc-review\ndescription: 文档审查规范\n---\n\n# 文档审查 Skill\n",
     "src/story/chapter-01.md": "# 第一章：雨夜的信件\n\n雨水拍打着窗棂。文本由三重视图共享。",
     "src/story/chapter-02.md": "# 第二章：钟表匠的密室\n\n这段正文有未保存的修改，用于演示脏标记与关闭保护。",
     "docs/architecture.md": "# 系统架构概览\n\nEditorWorkbench 受控组合件与 EditorTabBar、EditorToolbar。",
@@ -314,12 +323,14 @@ function initScene(sceneId: string, customData?: unknown): void {
             preview: Boolean(t.preview),
             dirty: Boolean(t.dirty),
             iconClass: String(t.iconClass || "i-lucide-file-text"),
+            statusText: t.statusText,
+            description: t.description,
         }));
         activePath.value = typeof rawData.activePath === "string" ? rawData.activePath : (tabs.value[0]?.path ?? "");
     } else {
         const initialTabs = SCENE_TABS[sceneId] ?? [];
         tabs.value = initialTabs.map((t) => ({...t}));
-        activePath.value = initialTabs[0]?.path ?? "";
+        activePath.value = initialTabs.find((t) => t.path === "src/story/chapter-02.md")?.path ?? initialTabs[0]?.path ?? "";
     }
 
     const rawEditorId = typeof rawData.editorId === "string"
@@ -637,7 +648,7 @@ watch(activePath, (p) => {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)]">
+    <div class="flex h-full min-h-[560px] w-full max-w-[960px] flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)]">
         <!-- Fixture 场景交互控制：挂载到底部抽屉面板 -->
         <LabFixtureControls>
             <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 text-xs select-none">

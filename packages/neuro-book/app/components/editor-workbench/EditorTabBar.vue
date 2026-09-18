@@ -425,49 +425,51 @@ function getDropIndicator(tab: EditorTabPresentation, pinned: boolean): "before"
 </script>
 
 <template>
-    <div class="editor-tab-bar flex flex-col shrink-0 select-none bg-[var(--bg-panel)] text-[var(--text-main)]">
-        <!-- 固定标签行 -->
-        <div
-            v-if="pinnedTabs.length > 0 || (draggedTabPath && dropTargetPinned)"
-            role="tablist"
-            :aria-label="t('editorWorkbench.pinnedTabs')"
-            class="editor-tab-group editor-pinned-tabs flex h-8 shrink-0 items-center overflow-x-auto overflow-y-hidden border-b border-[var(--divider)] px-1 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
-            @wheel="handleTabWheel"
-            @dragover="updateGroupDrop(true, $event)"
-            @drop="commitTabDrop"
-        >
-            <EditorTabItem
-                v-for="tab in pinnedTabs"
-                :key="tab.path"
-                :ref="(el) => setTabItemRef(tab.path, el)"
-                :tab="tab"
-                :active="tab.path === props.activePath"
-                :focused="tab.path === focusedPath"
-                :pinned="true"
-                :drop-indicator="getDropIndicator(tab, true)"
-                :tab-id="tabDomId(tab.path)"
-                :aria-controls="panelDomId(tab.path)"
-                @select="handleTabClick"
-                @close="handleCloseTab"
-                @keep="emit('keep-tab', $event)"
-                @contextmenu="openTabContextMenu(tab, $event)"
-                @dragstart="startTabDrag(tab, $event)"
-                @dragover="updateTabDrop(tab, true, $event)"
-                @drop="commitTabDrop"
-                @dragend="clearTabDrag"
-                @keydown="handleTabKeydown(tab, true, $event)"
-            />
-        </div>
-
-        <!-- 普通标签行与尾部工具插槽 -->
+    <div class="editor-tab-bar flex h-[35px] w-full min-w-0 shrink-0 select-none bg-[var(--bg-panel)] text-[var(--text-main)]">
+        <!-- 标签滚动行：包含固定标签与普通标签，整行 35px 高度对齐 VS Code 原生 -->
         <div
             ref="activeRowContainerRef"
-            class="flex h-[34px] shrink-0 items-center justify-between gap-1 overflow-hidden px-2"
+            class="flex h-full min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+            @wheel="handleTabWheel"
         >
+            <!-- 固定标签组 -->
+            <div
+                v-if="pinnedTabs.length > 0 || (draggedTabPath && dropTargetPinned)"
+                role="tablist"
+                :aria-label="t('editorWorkbench.pinnedTabs')"
+                class="editor-tab-group editor-pinned-tabs flex h-full shrink-0 items-stretch"
+                @wheel="handleTabWheel"
+                @dragover="updateGroupDrop(true, $event)"
+                @drop="commitTabDrop"
+            >
+                <EditorTabItem
+                    v-for="tab in pinnedTabs"
+                    :key="tab.path"
+                    :ref="(el) => setTabItemRef(tab.path, el)"
+                    :tab="tab"
+                    :active="tab.path === props.activePath"
+                    :focused="tab.path === focusedPath"
+                    :pinned="true"
+                    :drop-indicator="getDropIndicator(tab, true)"
+                    :tab-id="tabDomId(tab.path)"
+                    :aria-controls="panelDomId(tab.path)"
+                    @select="handleTabClick"
+                    @close="handleCloseTab"
+                    @keep="emit('keep-tab', $event)"
+                    @contextmenu="openTabContextMenu(tab, $event)"
+                    @dragstart="startTabDrag(tab, $event)"
+                    @dragover="updateTabDrop(tab, true, $event)"
+                    @drop="commitTabDrop"
+                    @dragend="clearTabDrag"
+                    @keydown="handleTabKeydown(tab, true, $event)"
+                />
+            </div>
+
+            <!-- 普通标签组 -->
             <div
                 role="tablist"
                 :aria-label="t('editorWorkbench.regularTabs')"
-                class="editor-tab-group editor-regular-tabs flex h-full min-w-0 flex-1 items-center overflow-x-auto overflow-y-hidden [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden gap-0.5"
+                class="editor-tab-group editor-regular-tabs flex h-full min-w-0 flex-1 items-stretch"
                 @wheel="handleTabWheel"
                 @dragover="updateGroupDrop(false, $event)"
                 @drop="commitTabDrop"
@@ -494,11 +496,11 @@ function getDropIndicator(tab: EditorTabPresentation, pinned: boolean): "before"
                     @keydown="handleTabKeydown(tab, false, $event)"
                 />
             </div>
+        </div>
 
-            <!-- 尾部插槽 (用于放置 EditorToolbar / status) -->
-            <div v-if="$slots.trailing" class="editor-tab-bar-trailing flex shrink-0 items-center gap-1.5 pl-1">
-                <slot name="trailing" />
-            </div>
+        <!-- 尾部插槽 (用于放置 EditorToolbar / status) -->
+        <div v-if="$slots.trailing" class="editor-tab-bar-trailing flex h-full shrink-0 items-center gap-1 border-b border-[var(--divider)] bg-[var(--bg-panel)] px-2">
+            <slot name="trailing" />
         </div>
 
         <ContextMenu

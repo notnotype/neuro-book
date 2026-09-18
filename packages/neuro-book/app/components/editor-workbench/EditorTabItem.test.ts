@@ -55,7 +55,7 @@ describe("EditorTabItem 组件", () => {
         expect(button.attributes("aria-controls")).toBe("panel-1");
         expect(button.attributes("tabindex")).toBe("0");
 
-        const closeBtn = wrapper.get(".editor-tab-close");
+        const closeBtn = wrapper.find(".editor-tab-close");
         expect(closeBtn.exists()).toBe(true);
     });
 
