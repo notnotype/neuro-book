@@ -97,6 +97,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | World Engine | [Reference: World Engine](../../packages/neuro-book/assets/reference/world-engine/README.md) | 时间线、slice、subject、schema、calendar 与写作协作 |
 | Plot | [Reference: Plot](../../packages/neuro-book/assets/reference/plot/README.md) | Story、Thread、Scene、Writer Brief、Agent 与前端合同 |
 | Theme | [`theme/system.md`](theme/system.md) | 主题变量和消费规则 |
+| UI 设计系统与组件规范 | [nb-ui 设计与组件规范](../../packages/nb-ui/docs/README.md) | 设计语言（[`design-language.md`](../../packages/nb-ui/docs/design-language.md)）、组件开发与滚动槽位规范（[`ui-development-spec.md`](../../packages/nb-ui/docs/ui-development-spec.md)）与主题指南 |
 | Media | [`media/image-variants.md`](media/image-variants.md) | 图片原图、变体、缓存和 Project 封面 |
 | Character | [模块需求](https://github.com/notnotype/neuro-book/blob/master/docs/modules/character/requirements.md) | 当前需求与界面字段；尚待补齐状态和失败语义 |
 | Monorepo / Module | [Monorepo 边界](https://github.com/notnotype/neuro-book/blob/master/docs/modules/monorepo-boundaries.md) | Monorepo 当前包布局、唯一文档真相源、包级继承/覆盖、依赖方向和 worktree 根边界 |
@@ -105,6 +106,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 数据迁移 | [`../packages/neuro-book/docs/migrations/README.md`](../../packages/neuro-book/docs/migrations/README.md) | 有状态升级、备份和回滚入口 |
 | 贡献与交付 | [CONTRIBUTING](https://github.com/notnotype/neuro-book/blob/master/CONTRIBUTING.md) | Issue、开发、Git、PR 与维护者交付流程 |
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片 |
+| Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合 |
+| Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批 |
 
 ## 待实现规范
 以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。
@@ -112,10 +115,10 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 功能域 | 当前规范 | 缺口 |
 |---|---|---|
 | Agent Profile 设置视图 | [`ui/agent-profile-settings.md`](ui/agent-profile-settings.md) | 常用设置优先的受控 Profile 设置视图；实现与 Lab 验证闭合后晋升 implemented |
-| Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | 主应用外壳按已批准的 Workbench 分区模型渲染，并保留现有固定槽位与入口；实现与真实 surface 验收闭合后晋升 implemented |
+| Workbench 外壳接入 | [`ui/workbench-shell.md`](ui/workbench-shell.md) | Part/ViewContainer/Switcher/View、单轴分栏、动作上提、整组并入与唯一保存；实现及真实surface证据闭合后晋升implemented |
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
 | Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
-| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 最小横纵嵌套、分支尺寸吸收、鼠标/键盘提交与安全恢复；原语修复和真实 fixture 待实现 |
+| 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
 
 ## 冻结过渡规范
 

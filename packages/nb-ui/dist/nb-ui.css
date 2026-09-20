@@ -78,6 +78,9 @@
 .inset-y-0 {
   inset-block: 0px;
 }
+.-top-px {
+  top: -1px;
+}
 .top-0 {
   top: 0px;
 }
@@ -99,6 +102,9 @@
 .top-full {
   top: 100%;
 }
+.-right-px {
+  right: -1px;
+}
 .right-0 {
   right: 0px;
 }
@@ -111,6 +117,9 @@
 .right-\[3px\] {
   right: 3px;
 }
+.-bottom-px {
+  bottom: -1px;
+}
 .bottom-0 {
   bottom: 0px;
 }
@@ -122,6 +131,9 @@
 }
 .bottom-\[2px\] {
   bottom: 2px;
+}
+.-left-px {
+  left: -1px;
 }
 .left-0 {
   left: 0px;
@@ -137,6 +149,9 @@
 }
 .z-20 {
   z-index: 20;
+}
+.z-\[1\] {
+  z-index: 1;
 }
 .container {
   width: 100%;
@@ -155,6 +170,9 @@
   @media (width >= 96rem) {
     max-width: 96rem;
   }
+}
+.m-0 {
+  margin: 0px;
 }
 .mx-1 {
   margin-inline: var(--spacing);
@@ -794,9 +812,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.overflow-auto {
-  overflow: auto;
-}
 .overflow-hidden {
   overflow: hidden;
 }
@@ -1294,6 +1309,9 @@
 .p-\[2px\] {
   padding: 2px;
 }
+.p-\[var\(--space-3\)\] {
+  padding: var(--space-3);
+}
 .p-px {
   padding: 1px;
 }
@@ -1347,6 +1365,9 @@
 }
 .px-\[var\(--space-1\)\] {
   padding-inline: var(--space-1);
+}
+.px-\[var\(--space-2\)\] {
+  padding-inline: var(--space-2);
 }
 .px-\[var\(--space-3\)\] {
   padding-inline: var(--space-3);
@@ -1609,13 +1630,6 @@
 }
 .shadow-\[0_0_3px_currentColor\] {
   --tw-shadow: 0 0 3px var(--tw-shadow-color, currentColor);
-  box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-}
-.shadow-\[0_0_6px_color-mix\(in_srgb\,var\(--accent-main\)_50\%\,transparent\)\] {
-  --tw-shadow: 0 0 6px var(--tw-shadow-color, var(--accent-main));
-  @supports (color: color-mix(in lab, red, red)) {
-    --tw-shadow: 0 0 6px var(--tw-shadow-color, color-mix(in srgb,var(--accent-main) 50%,transparent));
-  }
   box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
 }
 .shadow-\[0_0_8px_color-mix\(in_srgb\,var\(--accent-main\)_35\%\,transparent\)\] {
@@ -1976,9 +1990,12 @@
   .group-hover\:text-\[var\(--accent-main\)\]:is(:where(.group):hover *) {
     color: var(--accent-main);
   }
-  .group-hover\:opacity-100:is(:where(.group):hover *) {
-    opacity: 100%;
-  }
+}
+.group-focus-visible\:opacity-100:is(:where(.group):focus-visible *) {
+  opacity: 100%;
+}
+.group-focus-visible\:transition-none:is(:where(.group):focus-visible *) {
+  transition-property: none;
 }
 .not-disabled\:group-active\:scale-\[0\.92\]:not(:disabled):is(:where(.group):active *) {
   scale: 0.92;
@@ -1989,6 +2006,15 @@
 }
 .group-data-\[highlighted\]\:text-\[var\(--accent-main\)\]:is(:where(.group)[data-highlighted] *) {
   color: var(--accent-main);
+}
+.group-data-\[sash-active\=true\]\:opacity-100:is(:where(.group)[data-sash-active="true"] *) {
+  opacity: 100%;
+}
+.group-data-\[sash-active\=true\]\:transition-none:is(:where(.group)[data-sash-active="true"] *) {
+  transition-property: none;
+}
+.group-data-\[sash-revealed\=true\]\:opacity-100:is(:where(.group)[data-sash-revealed="true"] *) {
+  opacity: 100%;
 }
 .group-data-\[state\=active\]\:border-\[var\(--accent-main\)\]:is(:where(.group)[data-state="active"] *) {
   border-color: var(--accent-main);
@@ -2055,9 +2081,6 @@
 .group-data-\[state\=completed\]\:text-\[var\(--text-inverse\)\]:is(:where(.group)[data-state="completed"] *) {
   color: var(--text-inverse);
 }
-.group-data-\[state\=drag\]\:opacity-100:is(:where(.group)[data-state="drag"] *) {
-  opacity: 100%;
-}
 .group-data-\[state\=highlighted\]\:text-\[var\(--status-warning\)\]:is(:where(.group)[data-state="highlighted"] *) {
   color: var(--status-warning);
 }
@@ -2084,10 +2107,6 @@
 .placeholder\:text-\[var\(--text-muted\)\]::placeholder {
   color: var(--text-muted);
 }
-.after\:pointer-events-none::after {
-  content: var(--tw-content);
-  pointer-events: none;
-}
 .after\:absolute::after {
   content: var(--tw-content);
   position: absolute;
@@ -2096,51 +2115,13 @@
   content: var(--tw-content);
   inset-inline: 0px;
 }
-.after\:top-0::after {
-  content: var(--tw-content);
-  top: 0px;
-}
-.after\:top-1\/2::after {
-  content: var(--tw-content);
-  top: calc(1 / 2 * 100%);
-}
-.after\:right-0::after {
-  content: var(--tw-content);
-  right: 0px;
-}
 .after\:bottom-0::after {
   content: var(--tw-content);
   bottom: 0px;
 }
-.after\:left-0::after {
-  content: var(--tw-content);
-  left: 0px;
-}
-.after\:left-1\/2::after {
-  content: var(--tw-content);
-  left: calc(1 / 2 * 100%);
-}
 .after\:h-0\.5::after {
   content: var(--tw-content);
   height: calc(var(--spacing) * 0.5);
-}
-.after\:h-2\.5::after {
-  content: var(--tw-content);
-  height: calc(var(--spacing) * 2.5);
-}
-.after\:w-2\.5::after {
-  content: var(--tw-content);
-  width: calc(var(--spacing) * 2.5);
-}
-.after\:-translate-x-1\/2::after {
-  content: var(--tw-content);
-  --tw-translate-x: calc(calc(1 / 2 * 100%) * -1);
-  translate: var(--tw-translate-x) var(--tw-translate-y);
-}
-.after\:-translate-y-1\/2::after {
-  content: var(--tw-content);
-  --tw-translate-y: calc(calc(1 / 2 * 100%) * -1);
-  translate: var(--tw-translate-x) var(--tw-translate-y);
 }
 .after\:bg-\[var\(--accent-main\)\]::after {
   content: var(--tw-content);
@@ -2335,9 +2316,6 @@
       background-color: color-mix(in srgb,var(--text-main) 70%,transparent);
     }
   }
-  .hover\:bg-\[var\(--accent-main\)\]:hover {
-    background-color: var(--accent-main);
-  }
   .hover\:bg-\[var\(--bg-hover\)\]:hover {
     background-color: var(--bg-hover);
   }
@@ -2413,9 +2391,6 @@
 }
 .focus\:text-\[var\(--text-inverse\)\]:focus {
   color: var(--text-inverse);
-}
-.focus-visible\:bg-\[var\(--accent-main\)\]:focus-visible {
-  background-color: var(--accent-main);
 }
 .focus-visible\:shadow-\[var\(--focus-ring\)\]:focus-visible {
   --tw-shadow: var(--focus-ring);
@@ -2706,9 +2681,6 @@
 .data-\[state\=closed\]\:opacity-0[data-state="closed"] {
   opacity: 0%;
 }
-.data-\[state\=drag\]\:bg-\[var\(--accent-main\)\][data-state="drag"] {
-  background-color: var(--accent-main);
-}
 .data-\[state\=on\]\:bg-\[var\(--bg-panel\)\][data-state="on"] {
   background-color: var(--bg-panel);
 }
@@ -2721,6 +2693,12 @@
 }
 .data-\[state\=open\]\:rotate-180[data-state="open"] {
   rotate: 180deg;
+}
+.data-\[state\=open\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_8\%\,transparent\)\][data-state="open"] {
+  background-color: var(--text-main);
+  @supports (color: color-mix(in lab, red, red)) {
+    background-color: color-mix(in srgb,var(--text-main) 8%,transparent);
+  }
 }
 .data-\[state\=open\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_10\%\,transparent\)\][data-state="open"] {
   background-color: var(--text-main);
@@ -2792,9 +2770,9 @@
   --radius-menu: var(--radius-panel);
   --radius-pill: 999px;
   --elevation-flat: none;
-  --elevation-popover: var(--shadow-panel, 0 4px 12px var(--shadow-color, #000));
+  --elevation-popover: 0 0 0 1px var(--text-main, #000), 0 6px 16px -2px var(--shadow-color, #000), 0 20px 48px -4px var(--shadow-color, #000), 0 36px 80px -8px var(--shadow-color, #000);
   @supports (color: color-mix(in lab, red, red)) {
-    --elevation-popover: var(--shadow-panel, 0 4px 12px color-mix(in srgb, var(--shadow-color, #000) 8%, transparent));
+    --elevation-popover: 0 0 0 1px color-mix(in srgb, var(--text-main, #000) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color, #000) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color, #000) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color, #000) 20%, transparent);
   }
   --elevation-dialog: 0 16px 40px var(--shadow-color, #000);
   @supports (color: color-mix(in lab, red, red)) {
@@ -2851,6 +2829,15 @@
     --motion-base: 0ms !important;
     --motion-enter: 0ms !important;
   }
+}
+html {
+  scrollbar-gutter: stable;
+}
+.nb-ui-scrollbar-stable {
+  scrollbar-gutter: stable;
+}
+.nb-ui-scrollbar-center {
+  scrollbar-gutter: stable both-edges;
 }
 .nb-ui-colorway {
   color-scheme: var(--color-scheme, light dark);
@@ -2978,6 +2965,7 @@ input.nb-ui-native-input[type="number"] {
   @supports (color: color-mix(in lab, red, red)) {
     scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
   }
+  scrollbar-gutter: stable;
 }
 .nb-ui-popover-scroll-fade-top {
   --nb-scroll-fade: 8px;

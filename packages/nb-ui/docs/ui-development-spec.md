@@ -114,10 +114,15 @@
 - **数值微调**：步进按钮支持滚轮、键盘上下键与 clamp 边界保护。
 
 #### 7. `Dropdown`（下拉菜单与动作浮层规范）
-- **浮层材质与四面对称**：对齐 `FormSelect` 磨砂浮层标准（`.nb-ui-popover-surface.nb-ui-menu-surface`，65% 半透底色 + 8px 高斯模糊 + 130% 饱和度 + 1.0 亮度），四周统一 6px 内边距（`p-1.5`），视口常态零非对称 padding，外间距 `mt-1.5`（6~7px）避免遮挡触发器发光圈。
-- **长列表截断与滚动条**：单项槽总高 `28px + 4px = 32px`，默认最大高度设为 **`210px`**（6 个完整项 + 64% 截断露出），内置自适应双向微渐隐（`.nb-ui-popover-scroll-fade-*`）与 4px 悬浮 macOS 胶囊滑块。
-- **菜单项与破坏性动作**：普通项 hover/active 消费 `var(--overlay-item-active)` 8% 柔光叠加；危险项（`tone: "danger"`）消费 `.nb-ui-menu-item-danger`；分隔线采用 `border-[color:var(--divider)]`。
-- **无障碍与焦点管理**：完整的键盘导航（ArrowDown/Up 循环、Home/End、Tab/Esc 关闭），关闭后焦点自动平滑归还给触发器。
+- **浮层材质单一真相源（强制对齐 FormSelect 黄金标准）**：所有 Dropdown 及其派生菜单（包括动作下拉、选择菜单、工作区工具栏下拉）**唯一保留并严格继承 `FormSelect.vue` 已经调好的 Surface 体系**，严禁在组件内写死 `10px` 圆角、`65%` 面色或独立描边。
+- **底层 Composables 架构规范**：
+  1. `useDropdownSurfaceStyle`：统一输出 4 层微反光立体环境投影（`0 0 0 1px ... + 3 阶环境柔影`）、130% 饱和度多阶微滤波（`blur(8px) saturate(130%) brightness(1.0)`）、四周对称 6px 内边距（`p-1.5`）、同心内圆角（`--nb-popover-inner-radius`）与 `:side-offset="7"`；
+  2. `useDropdownTruncatedHeight`：统一输出 N.5 项（默认 6.5 项，紧凑 5.5 项）齐腰截半露底高度计算（默认 `238px` / `233px`，紧凑 `168px`），精准横截文字躯干提供可滚动潜意识线索；
+  3. `useFloatingScrollbar` 与 `useDropdownFloating`：挂载即时感知尺寸与滚动溢出，仅在溢出时长显 4px macOS 悬浮胶囊滑块并给视口动态补偿 `pr-1.5` 避让。
+- **菜单项与破坏性动作**：普通项 hover/active 消费 `var(--overlay-item-active)` 8% 柔光叠加；项级圆角严格跟随 `.nb-ui-popover-item` 派生同心圆角；危险项（`tone: "danger"`）消费 `.nb-ui-menu-item-danger`；分隔线采用 `border-[color:var(--divider)]`。
+- **菜单结构契约**：平面项、分隔线与**一层子菜单**（`children`：父项只展开、不执行 select；子项里再写 children 不再展开，按普通项渲染并给开发诊断）；`type: "radio" | "checkbox"` 用对应原语渲染勾选态，`checked` 是**受控**值——组件只发 select，勾选永远由宿主改；radio 的同组互斥用 `group` 声明，同组连排合成一个 RadioGroup，缺 group 的贡献按单项独立成组并给开发诊断。`active` 保持旧的视觉字段语义，不复用为勾选态。
+- **受控展开**：`open` 传入即受控（宿主不改就不变），不传则由原语自管；两种用法都会发 `update:open`，宿主据此在活动对象切换时关掉旧菜单。
+- **无障碍与焦点管理**：完整的键盘导航（ArrowDown/Up 循环、Home/End、Right/Left 进出子菜单、Enter/Space 选择、Tab/Esc 关闭），关闭后焦点由 Reka 原语归还给触发器；外部点击关闭时焦点随用户落点，不被抢回。
 
 #### 8. `Badge`（状态徽章 · 方案 2-B 现代工作区超椭圆实心规范）
 - **形态与圆角准则**：统一采用**现代超椭圆（Squircle，消费 `var(--radius-control)` / 紧凑档 `calc(var(--radius-control)-2px)`）**；用户明确裁决**后续所有相关组件统一继承这种饱满超椭圆形态**，与输入框、复选框、按钮的几何律动严格对齐。
@@ -140,14 +145,15 @@
 - **长文写作场景**：`HoverCard` 预设 250ms 打开延迟与 200ms 关闭平滑过渡，为设定集词条、人名档案与外部链接提供即时轻量预览。
 
 #### 12. `Splitter`（多栏可调节工作区规范）
-- **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏可折叠面板分配（`SplitterGroup` / `SplitterPanel` / `SplitterResizeHandle`）；`Enter` 通过 Panel 公开 API 折叠或恢复并保持 `layout` 与手势一致。
-- **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，非法值诊断后回退，主轴守恒不依赖 CSS 隐藏。
-- **拖拽触感**：精细分隔线 + 悬浮与拖拽时点亮品牌色胶囊指示器，扩大命中热区（10px），拖拽过程绝不产生盒模型卡顿。
-- **手势边界**：`layout` 只描述几何；用户调整另发四段 `gesture-start` / `gesture-update` / `gesture-end` / `gesture-cancel`，
-  `gesture-end` 携带 `{source, sash, active, compensated, sizes}`；`sizes` 是百分比，宿主按实际 `active` 字段合成偏好，不整份覆盖补偿变化。
+- **双向分割**：支持水平（`horizontal`）与垂直（`vertical`）多栏分配；`Splitter` 内部不再使用 reka-ui 的分割原语，拖动、命中、键盘与收起全部走 nb-ui 自己的纯函数（`grid-geometry` / `sash-drag`）与 `useSashGesture` 输入层，`Enter` 折叠/恢复与拖动共用同一份收起策略。
+- **受控尺寸**：几何只有 CSS px 一种口径。`Splitter` 的 `sizesPx` 是受控呈现（合计 = 面板空间，不含 sash），`panels` 用 `defaultSizePx` / `minSizePx` / `maxSizePx` / `sizing` / `collapse`；没有百分比往返，也没有 `autoSaveId`（原语不写存储）。等值发布被忽略，程序发布只改呈现、不产生用户提交。
+- **sash 几何**：默认每条占主轴 1px；`sashSizes` 按边界提供实际像素。零值不占布局且不可交互，非法值诊断后回退，主轴守恒不依赖 CSS 隐藏；设备像素对齐只做在内部装饰胶囊的 `transform` 上，**不移动 separator 的命中盒**，也不改子节点布局。
+- **拖拽触感**：精细分隔线 + 悬浮/拖动时点亮品牌色胶囊指示器；命中边距 fine 5px / coarse 15px，且 hover、光标、按下与高亮读同一份命中结果——T/十字处两条线会一起点亮。
+- **手势边界**：一个公开 `GridRenderer` 独占一份会话，一次按下命中的最多两根轴（一根 width + 一根 height）属于同一场手势：`gesture-update` 携带预览布局让整棵子树按父盒实时变化，松手只发一次 `gesture-end(commit)`，`commit.changes` 里每项是该分支全部直接子节点沿主轴的 px（`baseline`/`target`/`active`/`compensated`/`collapsed`），宿主用 `grid.resizeBranches(changes)` 一次原子落账。独立 `Splitter` 仍用单分支 `SplitterGestureState`（`sizesPx` + `collapsed`）。
 - **边界规则**：基线在用户开始时捕获，一次指针操作或一次键盘连发只结束一次；`keyup` 或失焦结束键盘手势；
   Escape、pointercancel、窗口失焦、卸载与 panel 身份/约束/方向/禁用变化取消且不产生保存意图，并同时复位上游拖动状态；挂载、约束变化与视口重算仍只发 `layout`。
 - **主动与补偿**：`active` 只含 sash 两侧相对基线实际改变的面板；相邻候选触界未变化时不冒充主动字段，被推着让出空间的远端兄弟记为 `compensated`。
+- **收起与恢复**：指针按**按下基线 + 累计位移**的绝对边界求解，吸附只改约束、不用记忆尺寸重锚，展开跟随指针坐标——同一个鼠标位置永远对应同一个状态；低于 `minimum − 24` 吸附到 `collapsedSize`，回到 `max(minimum, collapsedSize + 24)` 且容量允许时展开。记忆尺寸只服务按钮 / `Enter` 的显式恢复（恢复空间不足时保持收起并给诊断）。会话提交的就是最后发布的那份几何，`finish` 不拿最后一次位移重解。
 
 #### 13. `Drawer`、`DialogWindow` & `AlertDialog`（浮动窗口与反馈规范）
 - **Drawer**：支持 `top` / `bottom` / `left` / `right` 四向滑出，背景采用 80% Scrim + 4px 模糊，右侧默认 380px 大纲与设定抽屉。
@@ -176,6 +182,16 @@
      - 适用于侧边栏（如 `/lab` 的 `LabNav`）、代码块、长表格与抽屉面板；
      - WebKit 滚动条（`::-webkit-scrollbar`）：宽度 6px，轨道透明，滑块圆角 `var(--radius-pill)`，消费 `--motion-fast` 渐变；
      - 标准属性：`scrollbar-width: thin`，`scrollbar-color: color-mix(in srgb, var(--text-main) 18%, transparent) transparent`。
+  3. **滚动槽位预留与防抖动（`scrollbar-gutter` 规约）**：
+     - 全局根视口（`html`）：默认注入 `scrollbar-gutter: stable;`，防止内容高度动态改变（如异步消息加载、区段折叠展开）触发滚动条出现时，页面或面板可用宽度骤减导致内容横向跳变（Layout Shift）；
+     - 对称居中容器：模态弹窗、居中卡片或对称表单若需保持视觉绝对对称居中，应使用 `scrollbar-gutter: stable both-edges;`（工具类 `.nb-ui-scrollbar-center`），避免单侧预留槽位破坏居中对齐；
+     - 内部长视口：对话流（如 `agent-chat-flow`）与长列表容器显式声明 `scrollbar-gutter: stable;`。
+  4. **单层滚动权与外框贴边原则（Single Scroll Responsibility）**：
+     - 滚动权归拥有完整视图高度的最外层容器所有，内部子组件与空状态（如 `AgentChatEmptyState`）严禁重复声明 `overflow-y: auto` 与 `h-full`，杜绝产生双层嵌套滚动与陷在内部的孤立滚动条；
+     - 内部子组件不堆叠外层宿主已有的内边距（例如宿主已有 `p-4`，内部通过 `w-full my-auto` 自适应居中与延展），保证滚动条始终完整贴合最外层物理面板边缘；
+  5. **FormSelect 防抖与避让范式**：
+     - 下拉弹出层明确声明 `:body-lock="false"`，杜绝打开下拉组件时锁死页面滚动条导致的全局布局跳跃；
+     - 视口右侧预留 8px 物理避让（`pr-2 pl-0.5`），配合独立绝对定位的 4px macOS 悬浮滑块与黄金截半露底线索，在无原生滚动条占位干扰的前提下提供清晰的交互指示。
 
 #### 16. `Listbox`（高级列表选择框与实体卡片规范）
 - **设计定位**：就地常驻展开（Inline）的多选/单选容器，与下拉弹层式 `Select` 形成互补；专用于长篇写作大纲分卷多选、世界观词条/人物档案实体选择与标签池。
@@ -188,24 +204,50 @@
   - 顶部内嵌 `ListboxFilter` 即时搜索栏，支持跨标题、描述、徽标与分组多字段模糊匹配；
   - 底部提供 `showActionBar` 状态操作栏（`已选 N / M 项`、全选、反选、清空）。
 
-#### 17. `Tooltip` 与 Surface 浮层层级模型规范
-- **两级 Surface 浮层分工模型**：
-  1. **大浮层与导航面板（`.nb-ui-popover-surface`）**：针对 `Popover`、`Dropdown`、`FormSelect`、`Dialog` 等复杂容器，提供主题自适应半透背景（`var(--overlay-surface)`）、磨砂模糊（`var(--overlay-blur)`）、双层立体环境投影（`var(--elevation-popover)`）以及由外圈推导的同心几何内圈；
-  2. **微型说明性浮层（`.nb-ui-tooltip-surface`）**：针对纯说明性紧凑气泡，明确**不采用**大浮层的半透明玻璃配方（杜绝小气泡压在浅色或复杂背景上时产生文字发灰、半透明隐形或对比度不足的缺陷），统一采用**实心面板底（`var(--bg-panel)`）** 与 **正文主字色（`var(--text-main)`）**。
-- **全主题明暗自适应与高对比度对称性**：
-  - **浅色 / 昼模式**：自动呈现温润象牙白实心底（`#fffcf5`）+ 优雅深黑褐文字（`#1f1c17`），达到 WCAG AAA 级的可读性；
-  - **深色 / 夜模式**：自动呈现暖灰暗色面板底（`#2d2925`）+ 暖白主文字（`#efe9df`），彻底杜绝黑底黑字；
-  - **边框与阴影**：统一使用细实线边框 `var(--border-w) solid var(--panel-outline)` 与 `var(--elevation-popover)`，与所在主题的控件与面板保持完全同源的材质呼吸感；
-  - **色彩红线**：严禁硬编码纯黑/纯白背景，严禁将 Tooltip 文字绑定至反转色 `--text-inverse`（其在暗色主题下定义为暗色，会引发黑底黑字灾难）。
-- **平滑无尖角胶囊设计（No-Arrow Principle）**：
-  - 彻底摒弃伪元素旋转方块或 SVG 三角箭头，彻底解决三角尖锐边缘与主体边框、多重环境阴影之间的对齐失真、重叠瑕疵与几何断裂；
-  - 空间位置关系由精确的 6px 间隙（`:side-offset="6"`）与 Reka Popper 碰撞自适应翻转来清晰表达；
-  - 外观采用控件圆角（`var(--radius-control)`）超椭圆胶囊，字体为标准 12px（`var(--text-xs)`），行高紧凑自然（`var(--leading-tight)`），内边距为适度的 `5px 9px`（`padding: 5px 9px;`）。
-- **行为、可访问性与边界合同**：
-  - **非阻塞交互**：Tooltip 统一配置 `pointer-events: none` 与 `user-select: none`，鼠标移动穿透，左键点击不打断已触发的操作（`disable-closing-trigger="true"`）；
-  - **杜绝浏览器原生提示**：使用 Tooltip 的触发元素必须清理掉原生的 HTML `title` 属性，严禁产生「原生黄色系统框 + nb-ui 卡片」的双重冒出事故；
-  - **A11y 准则**：Tooltip 是增强性视觉说明，绝对不可作为唯一可访问名称（Accessible Name），所有图标类触发器必须保留自身完备的 `aria-label`；
-  - **状态全面覆盖**：同组状态图标（如 `AgentProfileNavList` 中的 7 种状态）必须提供对称覆盖的 Tooltip 入口，不留理解盲区。
+#### 17. 浮层体系分级架构（Surface Tier Architecture）与黄金基座规范
+
+全库浮层彻底告别分散硬编码，统一划分为 4 档标准分层模型（Tier 1 ~ Tier 4），由全局基座与专用 Composables 严格约束：
+
+- **Tier 1: 紧凑说明浮层（Tooltip · 气泡说明）**：
+  - **材质策略**：专用于极简说明性紧凑气泡，明确**不采用**半透明玻璃（杜绝浅色背景或文字下发灰浑浊），统一采用**实心面板底（`var(--bg-panel)`）** 与 **正文主字色（`var(--text-main)`）**；
+  - **几何与尺寸**：消费控件圆角（`var(--radius-control)`）超椭圆胶囊，字号 12px，内边距 `5px 9px`，`:side-offset="6"`；
+  - **无尖角原则（No-Arrow Principle）**：不使用 SVG/伪元素三角形尖角，依靠间隙与 Reka Popper 翻转表达空间关系；
+  - **A11y 与交互**：配置 `pointer-events: none` 穿透，严禁与浏览器原生 `title` 双重冒出。
+
+- **Tier 2: 交互菜单与下拉选择（Dropdown / FormSelect / Menubar · 黄金标准）**：
+  - **单一真相源**：所有下拉与弹出菜单统一接入 `useDropdownFloating`，严禁在组件内写死内联 `backgroundColor: 65%`、`backdropFilter`、`boxShadow` 或 `borderRadius: 10px`；
+  - **同心几何律（Concentric Geometry）**：
+    - 外框圆角精确锁定 **12px**（`--nb-popover-radius: 12px`）；
+    - 列表项圆角精确推导为 **5px**（`--nb-popover-inner-radius: 5px`，满足 $R_{inner} = R_{outer} - Padding$ 的严密视觉同心律）；
+  - **齐腰截半露底视口（N.5 Truncated Viewport）**：
+    - 视口高度由 `useDropdownTruncatedHeight` 动态计算：单行第 6.5 项截断（标准 238px，紧凑 168px）、双行第 3.5 项截断，向用户传递清晰可感知的可滚动线索；
+  - **macOS 极简悬浮滚动条**：4px 悬浮微胶囊滑块，常态半透明、悬停加深，内容溢出时自动挂载，视口右侧保留 8px 避让间距。
+
+- **Tier 3: 悬浮命令面板与快速输入（QuickInput / WorkbenchCommandPalette · 全局输入）**：
+  - **几何重构**：外框圆角明确锁定为 **14px**（`--nb-popover-radius: 14px`），彻底移除对 20px 巨角 `--radius-panel` 的盲目继承；与内部 8px 输入框（`rounded-lg`）达成黄金同心比例；
+  - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
+
+- **Tier 4: 模态对话框与大窗体（Dialog / DialogWindow / AlertDialog · 独立窗口）**：
+  - **几何与层级**：外框圆角 16px ~ 20px（`var(--radius-panel)`），消费 `NB_Z_INDEX.dialog`（9300）及以上层级；
+  - **模态保护**：配合全屏半透明遮罩与严格焦点锁定（FocusScope），支持外点阻断与键盘 Escape。
+
+- **全局 Surface 基座升级（Elevation & Blur Upgrade）**：
+  1. **立体微反光 4 阶柔影（`--elevation-popover`）**：
+     - **白昼模式**：`0 0 0 1px rgb(0 0 0 / 0.08), 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 16px 36px -8px rgb(0 0 0 / 0.16), 0 2px 6px -1px rgb(0 0 0 / 0.06)`；
+     - **暗夜模式**：`0 0 0 1px rgb(255 255 255 / 0.10), 0 12px 28px -4px rgb(0 0 0 / 0.50), 0 20px 48px -8px rgb(0 0 0 / 0.65), 0 2px 6px -1px rgb(0 0 0 / 0.35)`；
+     - 彻底废除老旧 `inset 0 2px ...` 生硬塑料反光条；
+  2. **纯净自然滤镜（`--overlay-blur`）**：
+     - 统一为 **`blur(8px) saturate(130%) brightness(1.0)`**；
+     - 彻底纠正 `brightness(0.72)` 压暗 28% 导致的发脏浑浊，实现通透晶莹的现代玻璃质感。
+
+#### 18. `QuickInput`（全局快速输入浮层 · S4 规范）
+- **定位**：全局命令面板 / 快速输入的受控浮层原语；候选项、查询、活动项与执行语义全由宿主提供，组件不持有命令注册表、不做匹配与执行决策——`>` 命令、`:` 行号等前缀解析属宿主。props/emits 之外无自定义 slot、无 expose。
+- **层级与 role（S4）**：消费 `NB_Z_INDEX.commandPalette`（9200，S4 全局命令面板角色）；模态 Dialog 语义（`DialogRoot` modal + `disableOutsidePointerEvents`），透明遮罩与 Content 同为 9200、Content 在后；外点被遮罩消费，不穿透底层。
+- **几何**：视口顶部居中，宽 `min(640px, calc(100vw - 24px))`，`top: clamp(16px, 8vh, 72px)`，`max-height: min(560px, calc(100dvh - 48px))`；圆角为 **14px**（`rounded-[14px]`），输入区与底部提示固定、列表 `flex:1; min-height:0` 自滚动；390px 宽仍留左右 12px。
+- **材质**：消费 `.nb-ui-popover-surface` 基座（4 阶立体微反光投影 + 130% 饱和滤波）与 `--nb-popover-pad`，选中项用 `--overlay-item-active`；不叠第二层磨砂、不新开材质档。
+- **键盘与焦点**：输入框 `role=combobox` + `aria-activedescendant`；ArrowUp/Down 走 `moveHighlight`（跳过禁用、首尾回绕）并 `scrollIntoView(block:nearest)`；Enter 在组合输入态（`isComposing`）不提交；Escape 只关闭本层并 `stopPropagation`；Tab 交给 Reka FocusScope 后阻止冒泡——下层 document/window 监听不得收到这些按键。打开时记录触发前焦点，关闭后归还仍连接的元素。
+- **关闭交接（`closed`）**：关闭不加退场动画；`closed` 在内容真实卸载、Reka 焦点栈/滚动锁/指针锁全部释放后按打开周期发一次，供宿主在关闭完成后再执行命令或激活下一个交互层。`AlertDialog` 的同名事件复用同一时序；宿主不得用固定等待毫秒数替代。
+- **打开动效**：挂载时消费 `.nb-ui-popover-motion`（见设计语言 §七浮层入场配方）。
 
 ### 4.3 受控视图的数据层契约（状态、请求与惰性加载）
 
@@ -345,5 +387,21 @@
 5. **Component Lab 5 方案多态体系（5-Scheme Lab Matrix）**：
    - 全库 47 个组件 Fixture 均配备完整的 5 方案推演矩阵（macOS 经典、现代极简、悬浮微晶发光、精工工控刻度、实底高反差），并在页面顶部集成 `SegmentedControl` 即时切换与 `.scheme-banner` 设计解析胶囊；
    - 严格绑定真实长篇小说写作与 NeuroBook 领域数据，保证组件在真实界面场景下的层级与材质一致性。
+
+## 9. Dropdown 与 Popover 浮层 Surface 黄金标准规范（FormSelect 唯一样式源）
+
+全库所有下拉菜单（`Dropdown`）、选择器（`FormSelect`）、命令面板（`QuickInput` / `WorkbenchCommandPalette`）与弹出浮层必须严格以 `FormSelect` 的黄金调优标准为唯一样式规范：
+
+1. **底色与对比度（65% 温润白底 / 75% 烟熏深底）**：
+   - 亮色模式：`--overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);`，提供一层温润半透明白底，保证浮层内文字具有充分对比度与可读性，杜绝过薄透明（如 14%）导致的底层正文透光干扰与眩光；
+   - 暗色模式：`--overlay-surface: color-mix(in srgb, var(--bg-panel) 75%, transparent);`，采用 75% 烟熏深底，既稳稳托住文字层级，又能透出背景微弱折射光感；
+   - 高对比度 / 降低透明度模式：`--overlay-surface: var(--bg-panel);` 彻底回退实心面板底。
+2. **高阶微滤波（8px 模糊 + 130% 饱和度）**：
+   - 统一消费 `backdrop-filter: blur(8px) saturate(130%) brightness(1.0);`，避免大半径模糊与复杂 SVG 折射引发的边缘文字走样或错位。
+3. **4 阶立体微反光环境柔影**：
+   - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
+4. **单一样式源与组合子（`useDropdownFloating` / `useDropdownSurfaceStyle`）**：
+   - 任何涉及下拉与浮层的组件，严禁在模板中重复书写内联样式，统一调用 `useDropdownFloating` 或 `useDropdownSurfaceStyle`，自动注入标准 `popoverClasses`、`popoverStyle`、同心圆角视口与避让 Trigger 发光圈的 `side-offset: 7`。
+
 
 

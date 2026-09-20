@@ -1,3 +1,20 @@
+/*
+ * 全局滚动条槽位（scrollbar-gutter 规范）。
+ * 预留滚动条空间，防止内容溢出时造成视口与卡片宽度跳变。
+ * 针对需要内容居中的容器，可使用 .nb-ui-scrollbar-center (scrollbar-gutter: stable both-edges)。
+ */
+html {
+    scrollbar-gutter: stable;
+}
+
+.nb-ui-scrollbar-stable {
+    scrollbar-gutter: stable;
+}
+
+.nb-ui-scrollbar-center {
+    scrollbar-gutter: stable both-edges;
+}
+
 .nb-ui-colorway {
     color-scheme: var(--color-scheme, light dark);
 }
@@ -308,6 +325,7 @@ input.nb-ui-native-input[type="number"] {
     overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
+    scrollbar-gutter: stable;
 }
 
 /*

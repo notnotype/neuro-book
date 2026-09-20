@@ -10,6 +10,10 @@
  * 1. 选区底色（`--selection-bg` 是配色契约里的变量）；
  * 2. World Engine 工作台的 `--we-*` 局部别名层（它自己的一套语义名 → 配色变量）。
  */
+html {
+    scrollbar-gutter: stable;
+}
+
 .novel-ide-theme ::selection {
     background: var(--selection-bg);
 }
