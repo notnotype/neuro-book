@@ -1,0 +1,20 @@
+export * from "./bubbles";
+export * from "./flow";
+export * from "./composer";
+export * from "./panels";
+export * from "./dialogs";
+export * from "./composables";
+
+export {default as AgentSidebarView} from "./AgentSidebarView.vue";
+export * from "./AgentSidebarView.types";
+export {default as AgentChatSurface} from "./AgentChatSurface.vue";
+export {default as AgentModeSessionSidebar} from "./AgentModeSessionSidebar.vue";
+export * from "./agent-message";
+export * from "./agent-attachment";
+export * from "./agent-chat-surface-state";
+export * from "./session-tree";
+export * from "./trigger-menu";
+export * from "./client-variables";
+export * from "./agent-pending-resolution";
+export * from "./useAgentSession";
+export * from "./useAgentSessionStream";

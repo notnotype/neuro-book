@@ -14,6 +14,14 @@ export type AgentAttachmentDisplay = {
 
 export type AgentAttachmentPreset = "attachment-chat" | "attachment-grid";
 
+export type AgentAttachmentUrlResolver = (input: {
+    sessionId: number | null;
+    entryId: string | null;
+    contentIndex: number;
+    preset?: AgentAttachmentPreset;
+    retry: number;
+}) => string | null;
+
 /** 将 durable entry 的附件 locator 转成受 session/entry/content index 约束的读取地址。 */
 export const agentAttachmentUrl = (
     sessionId: number | null | undefined,

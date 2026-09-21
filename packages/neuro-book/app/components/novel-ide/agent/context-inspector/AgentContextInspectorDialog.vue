@@ -10,7 +10,8 @@
  * 隐私边界：面板刻意不提供导出 / 复制全部 / 分享——traces 保留完整 prompt 正文且
  * 被排除在可分享日志包之外，加导出等于开一个绕过该边界的口子。
  */
-import {DialogWindow} from "@notnotype/nb-ui/components";
+import {computed, ref, watch} from "vue";
+import {Button, DialogWindow, SegmentedControl} from "@notnotype/nb-ui/components";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import AgentContextCacheTimeline from "nbook/app/components/novel-ide/agent/context-inspector/AgentContextCacheTimeline.vue";
@@ -19,28 +20,47 @@ import {groupDiagnostics} from "nbook/app/components/novel-ide/agent/context-ins
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {AgentContextInspectionDto} from "nbook/shared/dto/agent-context-inspection.dto";
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: boolean;
     /** 当前会话；为空时面板不取数。 */
     sessionId: number | null;
-}>();
+    /** 外部受控检查数据；如果提供则跳过内部 fetch。 */
+    inspection?: AgentContextInspectionDto | null;
+    loading?: boolean;
+    error?: string;
+    selectedTraceId?: string | null;
+    teleportTarget?: string | boolean;
+}>(), {
+    inspection: undefined,
+    loading: false,
+    error: "",
+    selectedTraceId: null,
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
+    (e: "select-trace", traceId: string): void;
+    (e: "refresh"): void;
 }>();
 
 const {t} = useI18n();
 
-const inspection = ref<AgentContextInspectionDto | null>(null);
-const loading = ref(false);
-const error = ref("");
+const internalInspection = ref<AgentContextInspectionDto | null>(null);
+const internalLoading = ref(false);
+const internalError = ref("");
+const internalSelectedTraceId = ref<string | null>(null);
 const activeTab = ref<"composition" | "cache">("composition");
-/** 用户显式选择的请求；null 表示跟随「最近一次」。 */
-const selectedTraceId = ref<string | null>(null);
 
-const grouped = computed(() => groupDiagnostics(inspection.value?.diagnostics ?? []));
+const isControlled = computed(() => props.inspection !== undefined);
+const activeInspection = computed(() => isControlled.value ? props.inspection : internalInspection.value);
+const activeLoading = computed(() => isControlled.value ? props.loading : internalLoading.value);
+const activeError = computed(() => isControlled.value ? props.error : internalError.value);
+const currentSelectedTraceId = computed(() => isControlled.value ? props.selectedTraceId : internalSelectedTraceId.value);
 
-const requestOptions = computed<SelectOption[]>(() => (inspection.value?.requests ?? [])
+const grouped = computed(() => groupDiagnostics(activeInspection.value?.diagnostics ?? []));
+
+const requestOptions = computed<SelectOption[]>(() => (activeInspection.value?.requests ?? [])
     .slice()
     .reverse()
     .map((request) => ({
@@ -53,36 +73,55 @@ function formatTime(ts: string): string {
     return Number.isNaN(date.getTime()) ? ts : date.toLocaleTimeString();
 }
 
-/** 拉取面板数据。traceId 为空时后端取最近一次 turn。 */
+/** 拉取面板数据（仅在非受控模式下调用）。 */
 async function load(traceId?: string): Promise<void> {
+    if (isControlled.value) {
+        if (traceId) {
+            emit("select-trace", traceId);
+        } else {
+            emit("refresh");
+        }
+        return;
+    }
     if (props.sessionId === null) {
         return;
     }
-    loading.value = true;
-    error.value = "";
+    internalLoading.value = true;
+    internalError.value = "";
     try {
-        inspection.value = await $fetch<AgentContextInspectionDto>(
+        internalInspection.value = await $fetch<AgentContextInspectionDto>(
             `/api/agent/sessions/${String(props.sessionId)}/context-inspection`,
             traceId ? {query: {traceId}} : undefined,
         );
-        selectedTraceId.value = inspection.value.selected?.traceId ?? null;
+        internalSelectedTraceId.value = internalInspection.value.selected?.traceId ?? null;
     } catch (cause) {
-        // 面板自身的加载错误留在面板内，不打扰其他入口。
-        error.value = resolveApiErrorMessage(cause, t("agent.contextInspector.loadFailed"));
+        internalError.value = resolveApiErrorMessage(cause, t("agent.contextInspector.loadFailed"));
     } finally {
-        loading.value = false;
+        internalLoading.value = false;
     }
 }
 
 watch(() => [props.modelValue, props.sessionId] as const, ([open]) => {
-    if (open) {
+    if (open && !isControlled.value) {
         void load();
     }
 }, {immediate: true});
 
 function onSelectRequest(value: string): void {
-    if (value && value !== selectedTraceId.value) {
-        void load(value);
+    if (value && value !== currentSelectedTraceId.value) {
+        if (isControlled.value) {
+            emit("select-trace", value);
+        } else {
+            void load(value);
+        }
+    }
+}
+
+function handleRefresh(): void {
+    if (isControlled.value) {
+        emit("refresh");
+    } else {
+        void load(currentSelectedTraceId.value ?? undefined);
     }
 }
 </script>
@@ -92,66 +131,65 @@ function onSelectRequest(value: string): void {
         :model-value="props.modelValue"
         :title="t('agent.contextInspector.title')"
         :width="900"
-        teleport-target=".novel-ide-theme"
+        :teleport-target="props.teleportTarget"
         max-height="calc(100vh - 96px)"
         body-class="overflow-y-auto px-4 py-3"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <!-- 工具行：Tab 切换 + 请求选择器 + 刷新 -->
         <div class="mb-3 flex flex-wrap items-center gap-2">
-            <div class="inline-flex overflow-hidden rounded border border-[var(--border-color)]">
-                <button
-                    v-for="tab in (['composition', 'cache'] as const)"
-                    :key="tab"
-                    class="px-2.5 py-1 text-xs transition-colors"
-                    :class="activeTab === tab
-                        ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                    @click="activeTab = tab"
-                >
-                    {{ tab === "composition" ? t("agent.contextInspector.tabComposition") : t("agent.contextInspector.tabCache") }}
-                </button>
-            </div>
+            <SegmentedControl
+                :model-value="activeTab"
+                :options="[
+                    { value: 'composition', label: t('agent.contextInspector.tabComposition') },
+                    { value: 'cache', label: t('agent.contextInspector.tabCache') },
+                ]"
+                size="xs"
+                @update:model-value="activeTab = ($event as 'composition' | 'cache')"
+            />
             <div v-if="requestOptions.length > 1" class="min-w-56">
                 <FormSelect
-                    :model-value="selectedTraceId ?? ''"
+                    :model-value="currentSelectedTraceId ?? ''"
                     :options="requestOptions"
                     @update:model-value="onSelectRequest($event)"
                 />
             </div>
-            <button
-                class="ml-auto inline-flex items-center gap-1 rounded border border-[var(--border-color)] px-2 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]"
-                :disabled="loading"
-                @click="load(selectedTraceId ?? undefined)"
+            <Button
+                size="sm"
+                variant="subtle"
+                class="ml-auto"
+                :disabled="activeLoading"
+                :loading="activeLoading"
+                icon-class="i-lucide-refresh-cw"
+                @click="handleRefresh"
             >
-                <span class="i-lucide-refresh-cw h-3 w-3"></span>
-                <span>{{ t("agent.contextInspector.refresh") }}</span>
-            </button>
+                {{ t("agent.contextInspector.refresh") }}
+            </Button>
         </div>
 
-        <p v-if="error" class="rounded border border-[var(--status-danger)] px-2 py-1.5 text-xs text-[var(--status-danger)]">{{ error }}</p>
+        <p v-if="activeError" class="rounded border border-[var(--status-danger)] px-2 py-1.5 text-xs text-[var(--status-danger)]">{{ activeError }}</p>
 
         <!-- 降级态：trace 关闭 / 尚无请求。都给明确说明而不是空白 -->
-        <p v-else-if="inspection?.state === 'disabled'" class="text-xs text-[var(--text-secondary)]">
+        <p v-else-if="activeInspection?.state === 'disabled'" class="text-xs text-[var(--text-secondary)]">
             {{ t("agent.contextInspector.disabled") }}
         </p>
-        <p v-else-if="inspection?.state === 'empty'" class="text-xs text-[var(--text-secondary)]">
+        <p v-else-if="activeInspection?.state === 'empty'" class="text-xs text-[var(--text-secondary)]">
             {{ t("agent.contextInspector.empty") }}
         </p>
 
-        <template v-else-if="inspection">
+        <template v-else-if="activeInspection">
             <AgentContextComposition
-                v-if="activeTab === 'composition' && inspection.selected"
-                :selected="inspection.selected"
-                :facts="inspection.facts"
+                v-if="activeTab === 'composition' && activeInspection.selected"
+                :selected="activeInspection.selected"
+                :facts="activeInspection.facts"
                 :diagnostics="grouped.composition"
             />
             <AgentContextCacheTimeline
                 v-else-if="activeTab === 'cache'"
-                :timeline="inspection.timeline"
-                :facts="inspection.facts"
-                :diagnostics="inspection.diagnostics"
-                :provider="inspection.selected?.provider ?? ''"
+                :timeline="activeInspection.timeline"
+                :facts="activeInspection.facts"
+                :diagnostics="activeInspection.diagnostics"
+                :provider="activeInspection.selected?.provider ?? ''"
             />
         </template>
     </DialogWindow>

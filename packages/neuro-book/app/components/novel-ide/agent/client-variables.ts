@@ -3,6 +3,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
+import {revealWorkbenchToolPanel, workbenchToolRevealPort} from "nbook/app/utils/workbench/tool-reveal-port";
 import {productThemeIds} from "nbook/shared/theme/theme-axes";
 
 type RuntimeI18n = {
@@ -79,6 +80,27 @@ export function buildAgentClientState(input: NovelIdeClientVariablesInput): Clie
 export const buildNovelIdeClientVariables = buildAgentClientState;
 
 /**
+ * `client.ide.activePanel` 的真实写入：交给页面登记的揭示端口。
+ *
+ * 未登记、工具未接入、首读未就绪、来源代次过期都以**抛出带原因**的 Error 结束（ack 里读到的是
+ * 具体原因，而不是"应用失败"）；落盘为 pending 时端口回执里带 `persisted: "pending"`——
+ * UI 状态确实应用了、保存还没确认，因此这里按既有 patch ack 协议确认已应用的值，但不谎报 saved。
+ */
+export async function applyActivePanelPatch(value: NovelIdeTab | null): Promise<boolean> {
+    const outcome = await revealWorkbenchToolPanel(value);
+    if (outcome.status === "unregistered") {
+        throw new Error(translate(
+            "agent.clientVariables.activePanelUnavailable",
+            "client.ide.activePanel 写入失败：当前页面没有登记工具揭示端口。",
+        ));
+    }
+    if (outcome.status === "rejected") {
+        throw new Error(outcome.diagnosis);
+    }
+    return true;
+}
+
+/**
  * 应用 Agent 请求的 client.* patch。返回应用后的变量值；调用方可传入安全 setter
  * 把允许写的 browser state 同步到实际 UI store。
  */
@@ -96,6 +118,22 @@ async function applyKnownClientState(path: string, value: JsonValue, options: Cl
         if (value !== null && (typeof value !== "string" || !isNovelIdeTab(value))) {
             const values = NOVEL_IDE_TABS.join("/");
             throw new Error(translate("agent.clientVariables.activePanelInvalid", `client.ide.activePanel 只能写入 ${values} 或 null。`, {values}));
+        }
+        // 词表只表达**传输口径**（服务端 schema 是 string|null）；"这个工具真的能揭示"由页面登记的
+        // 揭示端口回答：静态词表不替工作台承诺能力，没接入的页签与没有宿主的窗口都显式失败。
+        const port = workbenchToolRevealPort();
+        if (port === null) {
+            throw new Error(translate(
+                "agent.clientVariables.activePanelUnavailable",
+                "client.ide.activePanel 写入失败：当前页面没有登记工具揭示端口。",
+            ));
+        }
+        if (value !== null && !port.capability().includes(value)) {
+            throw new Error(translate(
+                "agent.clientVariables.activePanelNotWired",
+                `client.ide.activePanel 写入 ${value} 被拒绝：当前工作台未接入该工具视图。`,
+                {panel: value},
+            ));
         }
         await assertClientSetterApplied(options.setActivePanel?.(value), "client.ide.activePanel");
         return;

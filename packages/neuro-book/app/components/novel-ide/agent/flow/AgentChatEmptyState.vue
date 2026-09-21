@@ -161,11 +161,11 @@ const displayRecentSessions = computed(() => {
                             :key="item.id"
                             :text="item.prompt"
                             placement="top"
-                            :delay="150"
+                            :delay="300"
                         >
                             <button
                                 type="button"
-                                class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--bg-hover)]"
+                                class="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-150 hover:bg-[var(--bg-hover)] cursor-pointer"
                                 @click="emit('select-starter', item.prompt)"
                             >
                                 <span :class="[item.icon, item.iconColorClass || 'text-[var(--accent-text)]']" class="h-4 w-4 shrink-0" />

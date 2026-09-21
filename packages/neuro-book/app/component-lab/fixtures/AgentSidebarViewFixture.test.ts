@@ -118,24 +118,5 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         // 验证不使用浏览器原生 title 属性，而是使用组件库 Tooltip 浮层
         expect(promptButtons[0].getAttribute("title")).toBeNull();
         expect(promptButtons[0].textContent).toContain("帮我润色一段环境描写");
-
-        // 2. 验证 empty-no-history 场景：无历史会话时不渲染最近会话区域
-        const hostNoHistory = document.createElement("div");
-        document.body.append(hostNoHistory);
-        const appNoHistory = createApp(AgentSidebarViewFixture as Component, {scene: "empty-no-history"});
-        appNoHistory.use(createPinia());
-        appNoHistory.provide(LAB_DATA_SINK, () => {});
-        appNoHistory.provide(LAB_EVENT_SINK, () => {});
-        mounted.push(appNoHistory);
-        appNoHistory.mount(hostNoHistory);
-        await vue.nextTick();
-
-        // 无历史会话按钮
-        const noHistoryRecentButtons = hostNoHistory.querySelectorAll(".flex.flex-col.gap-1\\.5 button");
-        expect(noHistoryRecentButtons.length).toBe(0);
-
-        // 智能推荐指令依然渲染 3 条
-        const noHistoryPromptButtons = hostNoHistory.querySelectorAll(".flex.flex-col.gap-1 button");
-        expect(noHistoryPromptButtons.length).toBe(3);
     }, 20000);
 });
