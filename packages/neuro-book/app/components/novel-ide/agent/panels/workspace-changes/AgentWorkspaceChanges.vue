@@ -131,7 +131,7 @@ function availableDiff(group: WorkspaceHistoryInboxGroupDto): Extract<WorkspaceH
                 <!-- 折叠外壳只负责裁切动画，内部滚动视口保持稳定高度与 gutter。 -->
                 <div v-if="props.expanded" class="workspace-body-shell">
                     <div class="workspace-body-clip">
-                        <div class="workspace-scroll custom-scrollbar max-h-[14rem] overflow-y-auto border-t border-[var(--border-color)]">
+                        <div class="workspace-scroll custom-scrollbar max-h-[26rem] overflow-y-auto border-t border-[var(--border-color)]">
                             <p v-if="props.error" class="m-1.5 rounded border border-[var(--status-danger)] px-2 py-1 text-[10px] text-[var(--status-danger)]">{{ props.error }}</p>
                             <TransitionGroup v-else name="workspace-row" tag="div" class="relative">
                                 <article v-for="group in visibleGroups" :key="`${group.path}:${group.revision}`" class="border-b border-[var(--border-color)] last:border-b-0">
@@ -157,7 +157,7 @@ function availableDiff(group: WorkspaceHistoryInboxGroupDto): Extract<WorkspaceH
                                             <p v-if="props.diffStateFor(group).loading" class="text-[10px] text-[var(--text-muted)]">{{ t("agent.workspaceChanges.loadingDiff") }}</p>
                                             <p v-else-if="props.diffStateFor(group).error" class="text-[10px] text-[var(--status-danger)]">{{ props.diffStateFor(group).error }}</p>
                                             <template v-else-if="diffFor(group)?.status === 'available'">
-                                                <div class="workspace-diff-scroll custom-scrollbar max-h-36 overflow-auto rounded border border-[var(--border-color)] bg-[var(--panel-surface)] font-mono text-[10px] leading-4">
+                                                <div class="workspace-diff-scroll custom-scrollbar max-h-60 overflow-auto rounded border border-[var(--border-color)] bg-[var(--panel-surface)] font-mono text-[10px] leading-4">
                                                     <div v-for="(line, index) in previewLines(availableDiff(group)?.changes ?? [])" :key="index" class="flex min-w-max px-1.5" :class="line.kind === 'added' ? 'bg-[var(--status-success-bg)] text-[var(--status-success)]' : line.kind === 'removed' ? 'bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'text-[var(--text-muted)]'">
                                                         <span class="mr-1.5 select-none">{{ line.kind === "added" ? "+" : line.kind === "removed" ? "-" : " " }}</span>
                                                         <span class="whitespace-pre">{{ line.text }}</span>

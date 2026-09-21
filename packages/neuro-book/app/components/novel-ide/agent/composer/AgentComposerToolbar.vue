@@ -39,8 +39,8 @@ const expandButtonIcon = computed(() => props.composerExpanded ? "i-lucide-minim
                 size="sm"
                 variant="default"
                 :disabled="!props.canRegisterImages"
-                title="选择图片（可多选，也可拖拽或粘贴）"
-                aria-label="选择图片"
+                :title="t('agent.composer.selectImagesTitle')"
+                :aria-label="t('agent.composer.selectImages')"
                 @click="emit('select-images')"
             >
                 <span class="i-lucide-image-plus h-3.5 w-3.5" />

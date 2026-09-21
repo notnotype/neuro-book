@@ -126,11 +126,11 @@ const availabilityView = computed<ComposerAvailabilityView | null>(() => {
         case "unselected":
             return {
                 icon: "i-lucide-messages-square",
-                message: "请选择一个对话后继续。",
+                message: t("agent.composer.unselected"),
                 tone: "warning",
                 action: "choose-session",
                 actionIcon: "i-lucide-list",
-                actionLabel: "选择对话",
+                actionLabel: t("agent.composer.chooseSession"),
             };
         case "empty":
             return {

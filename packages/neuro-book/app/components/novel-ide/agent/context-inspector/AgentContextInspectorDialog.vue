@@ -151,6 +151,7 @@ function handleRefresh(): void {
                 <FormSelect
                     :model-value="currentSelectedTraceId ?? ''"
                     :options="requestOptions"
+                    size="sm"
                     @update:model-value="onSelectRequest($event)"
                 />
             </div>

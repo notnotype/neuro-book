@@ -124,8 +124,8 @@ const {t} = useI18n();
                     size="sm"
                     :variant="props.attachmentPanelOpen ? 'secondary' : 'default'"
                     :class="props.attachmentPanelOpen ? 'text-[var(--accent-text)]' : ''"
-                    title="查看当前 Session 的全部附件"
-                    aria-label="查看当前 Session 的全部附件"
+                    :title="t('agent.attachments.title')"
+                    :aria-label="t('agent.attachments.title')"
                     :disabled="!props.activeSessionId"
                     @click="emit('toggle-attachment-panel')"
                 />

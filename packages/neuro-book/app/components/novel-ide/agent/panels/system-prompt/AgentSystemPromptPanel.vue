@@ -31,6 +31,39 @@ watch(() => props.modelValue, (open) => {
         emit("load");
     }
 }, {immediate: true});
+
+const copied = ref(false);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+const copyPrompt = async (): Promise<void> => {
+    if (!props.value) return;
+    try {
+        await navigator.clipboard.writeText(props.value);
+        copied.value = true;
+        if (copiedTimer) clearTimeout(copiedTimer);
+        copiedTimer = setTimeout(() => {
+            copied.value = false;
+        }, 2000);
+    } catch {
+        // 剪贴板不可用时静默降级
+    }
+};
+
+function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && props.modelValue) {
+        event.stopPropagation();
+        emit("update:modelValue", false);
+    }
+}
+
+onMounted(() => {
+    window.addEventListener("keydown", handleKeydown, true);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("keydown", handleKeydown, true);
+    if (copiedTimer) clearTimeout(copiedTimer);
+});
 </script>
 
 <template>
@@ -42,6 +75,16 @@ watch(() => props.modelValue, (open) => {
                 <span>{{ t("agent.systemPrompt.title") }}</span>
             </div>
             <div class="flex shrink-0 items-center gap-1">
+                <IconButton
+                    size="sm"
+                    variant="default"
+                    :title="copied ? t('agent.systemPrompt.copied') : t('agent.systemPrompt.copy')"
+                    :aria-label="t('agent.systemPrompt.copy')"
+                    :disabled="props.loading || !props.value"
+                    @click="copyPrompt"
+                >
+                    <span :class="copied ? 'i-lucide-check text-[var(--status-success)]' : 'i-lucide-copy'" class="h-3.5 w-3.5" />
+                </IconButton>
                 <IconButton
                     size="sm"
                     variant="default"

@@ -47,8 +47,30 @@ const statusFilter = ref<AgentSessionStatusFilter>("active");
 const relationFilter = ref<AgentSessionRelationFilter>("all");
 const filterPanelOpen = ref(false);
 const filterPanelRef = ref<HTMLElement | null>(null);
-const filterButtonRef = ref<HTMLButtonElement | null>(null);
+const filterButtonRef = ref<any>(null);
 const {t} = useI18n();
+
+onClickOutside(filterPanelRef, () => {
+    filterPanelOpen.value = false;
+}, {
+    ignore: ['[aria-label*="筛选"]', '[title*="筛选"]'],
+});
+
+const onFilterKeydown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && filterPanelOpen.value) {
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        filterPanelOpen.value = false;
+    }
+};
+
+onMounted(() => {
+    window.addEventListener("keydown", onFilterKeydown, true);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("keydown", onFilterKeydown, true);
+});
 
 const profileItems = computed<Array<{value: SessionProfileFilter; label: string}>>(() => [
     {value: "leader", label: t("agent.session.leader")},

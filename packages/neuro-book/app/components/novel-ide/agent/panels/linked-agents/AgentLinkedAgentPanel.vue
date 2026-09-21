@@ -60,6 +60,21 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
         ? `${session.profileKey}: ${session.profileIssueMessage}`
         : session.profileKey;
 };
+
+function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape") {
+        event.stopPropagation();
+        emit("close");
+    }
+}
+
+onMounted(() => {
+    window.addEventListener("keydown", handleKeydown, true);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("keydown", handleKeydown, true);
+});
 </script>
 
 <template>

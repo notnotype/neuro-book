@@ -55,11 +55,37 @@ function bytesLabel(bytes: number): string {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
+
+const panelRef = ref<HTMLElement | null>(null);
+
+onClickOutside(panelRef, () => {
+    // 仅在原图预览 Dialog 没有打开时关闭附件面板
+    if (!originalPreviewOpen.value) {
+        emit("close");
+    }
+}, {
+    ignore: ['[aria-label*="附件"]', '[title*="附件"]', '[data-attachment-toggle]'],
+});
+
+const onKeydown = (event: KeyboardEvent) => {
+    if (event.key === "Escape" && !originalPreviewOpen.value) {
+        event.stopPropagation();
+        emit("close");
+    }
+};
+
+onMounted(() => {
+    window.addEventListener("keydown", onKeydown);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("keydown", onKeydown);
+});
 </script>
 
 <template>
     <!-- Session 全分支附件目录 -->
-    <section class="nb-ui-popover-surface absolute inset-x-2 top-12 z-30 flex max-h-[28rem] flex-col overflow-hidden rounded-xl">
+    <section ref="panelRef" class="nb-ui-popover-surface absolute inset-x-2 top-12 z-30 flex max-h-[28rem] flex-col overflow-hidden rounded-xl">
         <header class="flex items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
             <span class="i-lucide-paperclip h-4 w-4 text-[var(--accent-text)]"></span>
             <div class="min-w-0 flex-1">

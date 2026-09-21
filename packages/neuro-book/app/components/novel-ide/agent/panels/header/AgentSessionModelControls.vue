@@ -59,6 +59,21 @@ onClickOutside(controlsRef, () => {
     emit("update:sessionModelPopoverOpen", false);
 }, {ignore: [".nb-ui-popover-surface"]});
 
+function handleKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && props.sessionModelPopoverOpen) {
+        event.stopPropagation();
+        emit("update:sessionModelPopoverOpen", false);
+    }
+}
+
+onMounted(() => {
+    window.addEventListener("keydown", handleKeydown, true);
+});
+
+onUnmounted(() => {
+    window.removeEventListener("keydown", handleKeydown, true);
+});
+
 /**
  * 更新当前 session 模型参数草稿。
  */
@@ -130,11 +145,11 @@ function updateSessionModelDraft(patch: Partial<AgentSessionModelDraft>): void {
                         <span class="truncate text-[10px] text-[var(--text-muted)]">{{ t("agent.composer.current", {value: props.sessionThinkingResolvedLabel}) }}</span>
                     </div>
                     <FormSelect
-                        :model-value="props.sessionModelDraft.reasoningEffort ?? ''"
-                        :options="thinkingLevelOptions.map(opt => ({ label: opt.label, value: opt.value ?? '' }))"
+                        :model-value="props.sessionModelDraft.reasoningEffort ?? 'inherit'"
+                        :options="thinkingLevelOptions.map(opt => ({ label: opt.label, value: opt.value ?? 'inherit' }))"
                         size="sm"
                         :disabled="actionDisabled"
-                        @update:model-value="updateSessionModelDraft({reasoningEffort: ($event || null) as AgentSessionModelDraft['reasoningEffort']})"
+                        @update:model-value="updateSessionModelDraft({reasoningEffort: ($event === 'inherit' ? null : $event) as AgentSessionModelDraft['reasoningEffort']})"
                     />
                 </div>
             </div>
