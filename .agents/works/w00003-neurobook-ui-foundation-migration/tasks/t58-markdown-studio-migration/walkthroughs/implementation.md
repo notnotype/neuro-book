@@ -76,3 +76,38 @@
 - 两名独立审查者完成复核：EditorDataReview 的恢复P1关闭；EditorViewReview 的两项输入丢失风险关闭，无剩余阻断。原始会话审查为只读，不冒充额外测试执行。
 - `bun run docs:check`：5935文件，failures=[]；`bun run governance:check`：failures=[]、warnings=[]。
 - 最终验收结束已停止本次 `editor-workbench-acceptance`，停止时exit1为dev进程终止结果，不是测试失败；独立Chrome随后释放。验收根、截图与历史原件保留，无仓库内临时脚本残留。
+
+## 2026-09-22 拖放反馈与分屏丢签修复
+
+- 范围：EditorWorkbench 分屏事务与草稿身份、Workbench 单轴边缘插入/中央保持反馈、源几何稳定与唯一 Custom DragOverlay。WorkbenchShellLayout 仍只负责布局；未加入新容器、复制 View 或四向分屏。
+- 工作树：`.worktree/w00003-neurobook-ui-foundation-migration`，分支 `refactor/w00003-nb-ui-adoption`；本轮最后读取 HEAD 为 `ba220d31`。验证覆盖未提交工作树，没有独立提交 revision；保留其它在途修改。
+- Editor：三草稿将 `note-02.md` 拖到右缘后，真实结果为 `primary=[note-01,note-03]`、`group-2=[note-02]`；中央释放和 Escape 保持集合，新建草稿为 `note-04.md`。分屏先验证候选 Grid 再发布；非法活动路径或非法场景 split 不写入正文。
+- Workbench：侧栏沿 y、Panel 沿 x，以可见叶前后 20% 为插入带、中央 60% 为整叶保持反馈；中央释放不提交。切换器复用 `resolveListInsertion({edgeGap:4})`，插入锚点与插线同源，内容区域不叠线。
+- 源稳定：活动栏容器按钮的按压缩放已取消；真实拖动前后均为 40×40、opacity=1，唯一拖影=1、placeholder=0。Editor 标签真实起拖前后矩形也一致。
+- 键盘：移除 `useWorkbenchDrag` 逐源仅含 PointerSensor 的覆盖，沿用 Provider 整套传感器；真实 Space 起拖后 `aria-grabbed=true`、拖影=1，Escape 后拖影=0。已将键盘取消不提交加入 `workbench-containers.ts` 冒烟。
+- 取消：Editor 与 Workbench 的 `pointercancel`、窗口 blur 探针均在鼠标释放前清除拖影及反馈。Editor 在 NeuroBook、macOS、Editorial、Aurora 的 390px 画布下保留 3 个标签、每组宽 193.5px、实测横向溢出 0。
+- 聚焦门禁：应用 9 文件 / 139 例通过；nb-ui 全量测试、typecheck、`build:css` 通过且保留 `dist/nb-ui.css`；Splitter 浏览器测试 14 例通过。最终 `bun run nuxt:build:raw` 在键盘与场景校验修复后通过，96.29s，日志 `artifact://8164`。
+- 全量限制：应用 `bun run test` 在 600s 超时，已观察到 `project-image-experience.contract.test.ts` 与 `novel-ide-settings-current-project.contract.test.ts` 两个测试失败；两者不在本轮改动范围，不能声称全量通过。应用 typecheck 为 113 条 / 12 文件诊断，本轮修改文件无诊断；`scripts:typecheck` 在 `product-agent-state-root-smoke.ts:318` 报缺少 `colorwayId` / `userColorways`。额外执行的 `bun run build` 未通过，不能以 raw build 通过替代它的结果。
+- 独立审查：`DragParityReview` 复核最新文件后撤回已修复的正文事务 finding，无剩余已确认 Required/Critical；审查为只读，未重复运行验证。
+- 本轮证据根：`C:/Users/NOTNOT~1/AppData/Local/Temp/neuro-book/acceptance/product-runtime/drag-parity-1790011684506`；包含 `editor-browser-proof.json`、`editor-cancel-themes.json`、`activity-final.json`、`workbench-center.json`、`workbench-keyboard.json`、`workbench-cancel.json` 和四主题截图。
+- 最终完整 Workbench 冒烟通过：`node --import tsx scripts/smoke/component-lab.ts --url http://127.0.0.1:3001 --browser-executable "C:\Program Files\Google\Chrome\Application\chrome.exe" --suite workbench-shell`，275.08s，日志 `artifact://8166`，包含新增键盘起拖/取消不提交回归。此前源码热更新期间的一轮出现夹具空白，失败日志 `artifact://8158` 与 `workbench-interrupted.png` 保留；重启 3001 并保持源码静止后的完整复跑未再出现。空白与 HMR 的因果关系未单独验证。
+- 用户授权的 3001 重启已完成并保留服务；未执行 commit、push、合并、部署、数据库迁移或删除存储锁。本轮临时 `dev.mjs` / `format.cjs` 已移除，证据保留。
+
+## 2026-09-22 拖拽需求访谈文档落盘
+
+- 开发者要求把 EditorWorkbench 与 Workbench 的容器定义、讨论结论和行为表写入相关文档；最后明确多 View 并入保留来源比例。本次仅文档，不实现新行为、不运行浏览器、不变更服务。
+- 行为正文归现有 [ui.workbench-shell](../../../../../../docs/specs/ui/workbench-shell.md#editor-与-workbench-的容器层级)，避免新增重叠 capability。正文包含 Editor 与 Workbench 分表、区域方向表、反馈表、1:1／3:1 比例例子、空态入口、成员归零清理与验收场景；成熟度仍为 planned。
+- 已确认的 Workbench 中央禁投取代访谈早期的“中央并入”猜测；Editor 正文中央仍为保持布局，不自动创建文档 Tab。“整个目标容器”表示并入后的归属，尺寸变化范围由 D/E/F 例子确定为命中窗格。
+- 已同步 Spec 注册表，以及 EditorWorkbench、WorkbenchShellLayout、WorkbenchContainerTab、WorkbenchPartHost、WorkbenchViewHost、WorkbenchViewSection 的文档入口；组件页明确区分当前代码描述与待实现目标，不把文档写入当成代码已完成。
+- 本次执行身份：Work w00003、Task t58、role tasker，分支 refactor/w00003-nb-ui-adoption，HEAD ba220d31；`bun run governance:context -- --work w00003-neurobook-ui-foundation-migration --task t58-markdown-studio-migration --role tasker` 返回 failures=[]。文档覆盖未提交工作树。
+- 后续实现设计仍需明确：来源含 hidden/collapsed 成员时比例基准、尺寸约束无法满足严格半区时的可观察结果、同容器挪动时腾出空间的回收、整容器跨轴搬移的尺寸意图恢复，以及动态容器身份／保存格式。这些边界未在访谈中另行拍板，不用均分、删除隐藏成员或新建嵌套容器等默认值代替决定。
+- 文档结构检查：仓库根 `bun run docs:check`，6230 文件，failures=[]。本轮没有代码变化，未重跑单元测试、应用构建或浏览器验收；前一节的测试仅证明此前实现，不覆盖新目标。
+
+## 2026-09-22 Workbench 半区并入验收收口
+
+- 实现保持批准合同：View 投 Switcher 插入位创建 `custom:` 容器；容器源整体移动；非空内容中央禁投且无反馈；边缘命中带 20%，预览与分配使用命中叶 50%；跨轴保留来源比例。
+- 两个独立只读审查最终均无 findings。隐藏成员不进入 `sourceSizes` 是合同语义；window 自建容器进入可移动目标也是合同允许，两条均撤回。
+- 浏览器冒烟脚本修正两处过期断言：纵向目标的非等比并入改为命中叶前缘 10%；连续拖走 Panel 容器时按当前顺序取目标的直接前驱。产品判定未放宽。
+- 最终独立冒烟：`node --import tsx C:/Users/notnotype/AppData/Local/Temp/neuro-book/acceptance/workbench-drop-v2-1790048794054/smoke.ts`，172.97s；结果文件 `smoke-result.json` 为 `{"version":1,"failures":[]}`。截图 `smoke-final.png` 同目录保留。
+- 最终聚焦测试：`bun run test` 指定 14 个 Workbench/Editor 拖放相关文件，实际 13 files / 341 tests passed，Vitest v4.1.10，28.86s。
+- 未把应用全量 test、全量 typecheck、`scripts:typecheck` 或完整 `bun run build` 记为通过；此前已知失败与诊断仍在范围外。3001 未停止、未重启、未用于验收。

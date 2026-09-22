@@ -93,6 +93,8 @@ schemaVersion、默认值、校验与迁移规则、单条容量上限。允许�
 |---|---|---|
 | 主题、字体、模型等用户设置和策略 | Global/Project Config | 按各字段既有覆盖与生效规则 |
 | 主工作台左右侧栏尺寸、World Engine 内部尺寸 | project/local | 对应 Project 的有效上下文就绪后恢复；主动调整结束保存，切项目保留旧记录 |
+| 底部面板高度 | project/local（Project 内）与显式 user/local（未开项目、用户资产工作面） | 与左右尺寸同 owner 分键：只记录主动结束的高度意图，短视口夹取与拖动期间临时状态不落盘 |
+| 编辑工作台会话（分组拓扑 + 逐组标签 + 活动组） | project/local（`workbench.editor/session`）与显式 user/local（`user-assets-session`） | 一条记录原子保存；组拓扑、活动组选择与每组的活动标签一起恢复，正文不属于它 |
 | 未开项目、用户资产工作面的尺寸 | 显式 user/local 记录 | 进入相应工作面恢复；与 Project 尺寸独立，不能作为读取失败的 fallback |
 | 书架显示模式、普通设置窗口尺寸 | user/local | 同一客户端跨 Project 恢复 |
 | 视图排序、位置、显式隐藏偏好 | user/local | 与尺寸拆键、分别版本化；临时条件不满足不改变用户偏好 |

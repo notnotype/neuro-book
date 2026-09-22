@@ -265,3 +265,24 @@ store / 路由的那一层（例如 `DesktopTitleBar.vue`），它的验收面�
   横向溢出皆为 0、头部动作按钮仍在卡片内、长标题走省略号（clientWidth 40 / scrollWidth 252）；
   控制台 0 条 error。
 - 已知未修：标题栏下拉被外壳叶裁掉（待办 ③.3，与本批无关，需独立 Task）。
+
+## 执行记录（2026-09-21 受控零件入口收敛）
+
+- **背景**：Lab 里 `WorkbenchShellLayout` / `WorkbenchPartHost` / `WorkbenchContainerInstances` / `WorkbenchContainerTab` /
+  `WorkbenchViewSection` / `WorkbenchViewHost` 六个条目点开后是同一个整壳（前四个共用 `WorkbenchShellLayoutFixture`，
+  后两个共用 `WorkbenchViewHostFixture`）。开发者裁定：受控零件不再提供独立入口，改为「需要完整工作台才能验证」并指向整壳入口。
+- **索引与文档**：5 个零件（PartHost / ContainerInstances / ContainerTab / ViewSection / ViewHost）的组件文档 frontmatter
+  新增可选键 `验证入口: WorkbenchShellLayout`；`component-index.ts` 解析该键后把条目判为不可独立挂载，并把入口名带进索引
+  （`verifyEntry`）；入口指向不存在的组件时给开发诊断并降级为「只在宿主场景里观察」。
+- **Lab 界面**：中栏不可挂载分支新增「打开入口：WorkbenchShellLayout」按钮（实测点击后选中切到整壳并加载其默认场景）；
+  右栏「确定性验证」对这类条目显示「在 WorkbenchShellLayout 的集成场景里」。
+- **fixture 收敛**：`fixtures/index.ts` 删除上述 5 条复用登记；`WorkbenchViewHostFixture.vue`（523 行）删除，其中两个
+  独特场景迁进整壳 fixture —— `unknown-factory`（未知 factoryKey 失败可见，resolver 按场景声明返回结构化失败）与
+  `view-hidden`（`when` 受限视图不出现，容器空态给出求值原因，新增 `lab.gated` 视图承载）。
+- **实测**：`/lab`（3001）逐项验证：`WorkbenchContainerTab` 中栏显示「不能在 Lab 里验证 / 需要宿主链上下文（state:inject），
+  在 WorkbenchShellLayout 的集成场景里观察」与入口按钮；点击入口后选中 `WorkbenchShellLayout`、画布主体为整壳；
+  `unknown-factory` 场景 panel-b 位置显示「Lab 骨架没有登记这个 factoryKey：lab.view.panel-b」；
+  `view-hidden` 场景容器空态显示「只在用户资产工作区可见」，默认场景下 `lab.gated` 不渲染。
+- **测试**：`app/component-lab` 全量 13 文件 / 65 例通过（新增整壳 fixture 两例、索引验证入口一例、登记唯一性一例）。
+- **未覆盖**：`WorkbenchViewHostFixture` 的 `actions` / `moving` / `default` 场景未逐条迁移——整壳 fixture 的
+  `empty-panel` / `containers` / `container-moved` / `view-reordered` 场景覆盖同一条产品路径；本轮不做逐场景对照清单。

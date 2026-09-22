@@ -60,3 +60,16 @@ Implemented Spec 至少链接：
 - 实现合同、测试入口和 smoke 证据可由 Leader 独立恢复。
 - t09 延期、C 未开始、渐进组件迁移未完成等 Work 边界明确记录。
 - 未运行的生产构建、完整 nb-ui E2E 和人工视觉验收保持如实披露。
+
+## 后续增量（2026-09-21 验证入口条款）
+
+- 规范正文在「输入与前置条件」新增一类不可独立挂载的判据：组件文档 frontmatter 声明 `验证入口:` 的受控零件
+  （props 全部来自宿主链，`state:inject` / `env:portal`）不可独立挂载，中栏给出原因与一条直达宿主场景的入口，
+  Lab 不为它们另造宿主。「输出与可观察行为」「失败与恢复」「验收与 Smoke」第 3 条与「实现合同 · 索引边界」同步
+  写入 `verifyEntry` 的派生与降级规则。
+- [`组件规范`](../../../../../docs/standards/code/components.md) 的组件文档一节新增 frontmatter 可选键 `验证入口`，
+  与既有 `别名` 并列，明确它不改写能力标签。
+- 实现同步：`component-index.ts` 解析并派生；`LabShell.vue` 中栏入口与右栏文案；workbench 链 5 个零件文档声明该键；
+  fixture 与场景迁移记录见 [t20 执行记录](../t20-workbench-shell-adoption/README.md)。
+- 本轮证据：`app/component-lab` 13 文件 / 65 例通过；`/lab` 实测入口跳转与两个迁移场景；`docs:check` 与
+  `governance:check` 均 `failures: []`。
