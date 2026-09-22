@@ -1,0 +1,21 @@
+{
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
+        "lib": ["ES2022"],
+        "types": ["bun", "node"],
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "jsx": "react-jsx",
+        "jsxImportSource": "@notnotype/nb-profile",
+        "paths": {
+            "@notnotype/nb-profile": ["./src/index.ts"],
+            "@notnotype/nb-profile/jsx-runtime": ["./src/jsx-runtime.ts"],
+            "@notnotype/nb-profile/jsx-dev-runtime": ["./src/jsx-dev-runtime.ts"]
+        }
+    },
+    "include": ["src", "tests"]
+}

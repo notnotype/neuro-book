@@ -35,6 +35,21 @@ export const WORKSPACE_PACKAGE_CHECKS: readonly WorkspacePackageCheck[] = [
         commands: "bun run verify\nbun run pack:smoke",
     },
     {
+        name: "nb-harness",
+        directory: "packages/nb-harness",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
+        name: "nb-profile",
+        directory: "packages/nb-profile",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
+        name: "nb-session",
+        directory: "packages/nb-session",
+        commands: "bun run typecheck\nbun run test",
+    },
+    {
         name: "llmlint",
         directory: "packages/llmlint",
         commands: "bun run verify",

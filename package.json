@@ -17,6 +17,9 @@
     "packages/nb-memory",
     "packages/nb-ui",
     "packages/neuro-agent-harness",
+    "packages/nb-harness",
+    "packages/nb-profile",
+    "packages/nb-session",
     "packages/llmlint",
     "packages/neuro-book"
   ],
