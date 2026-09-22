@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t05-runtime-lifecycle
-role: tasker
 ---
 
 # 资源生命周期与独立验证入口
@@ -10,13 +9,13 @@ role: tasker
 
 实现第一切片的首个独立单元：[runtime.lifecycle](../../../../../docs/specs/runtime/lifecycle.md)。调用方能够创建作用域、登记资源和在途获取、执行操作、关闭或显式恢复失败收口；scope/owner/代次与结果可查询。不是仅有类型，也不代表环境适配、小内核全部或正式产品已完成。
 
-[整体实施路径](../../implementation-plan.md) 拥有切片顺序；[Work](../../README.md) 拥有授权与checkout。正式 role tasker，执行前加载相应角色合同。本文是准备好的实施计划，本轮文档交付没有执行它。
+[整体实施路径](../../implementation-plan.md) 拥有切片顺序；[Work](../../README.md) 拥有授权与 checkout。执行者直接按当前 Task 和合同实现，不加载正式角色。本文是准备好的实施计划，本轮文档交付没有执行它。
 
 ## 进入条件与开发者参与
 
-1. **等待 w00003 完成并合并到 master。**这是开发者的明确进入条件，当前不得提前实现纯内核、在w00003继续开发或从其中途检查点分叉。合并后核实所需实现/Spec与完整master OID，并满足Work登记共同祖先要求，再落实从master创建w00017 worktree。
-2. 执行 `bun run governance:context -- --work w00017-application-runtime-architecture --task t05-runtime-lifecycle --role tasker`，确认真正checkout/branch/Spec。主树不得切分支；不stash/reset/覆盖他人改动。
-3. 本Task不需要产品数据库迁移、真实Provider或浏览器；只操作自身测试临时资源。提交、push、远端登记、合并仍分别授权。发现须改变Spec行为/数据策略或扩大文件owner时回Leader，不自行弱化验收。
+1. **等待 w00003 完成并合并到 master。**这是开发者的明确进入条件，当前不得提前实现纯内核、在 w00003 继续开发或从其中途检查点分叉。合并后核实所需实现／Spec 与完整 master OID，再按 [编号合同](../../../README.md#编号分配与记录位置) 从 master 创建 w00017 worktree，不要求登记共同祖先。
+2. 执行 `bun run governance:context -- --work w00017-application-runtime-architecture --task t05-runtime-lifecycle`，确认真正 checkout／branch／Spec。主树不得切分支；不 stash/reset/覆盖他人改动。
+3. 本 Task 不需要产品数据库迁移、真实 Provider 或浏览器；只操作自身测试临时资源。提交、push、合并仍分别授权。发现须改变 Spec 行为／数据策略或扩大文件 owner 时报告所需取舍，不自行弱化验收。
 
 ## 文件边界
 
@@ -61,4 +60,4 @@ bun run typecheck:runtime-foundation
 
 ## 交付与继续
 
-walkthrough写公开接口、实际文件/提交基线、测试与smoke结果、未运行项、失败资源处理和偏差；原始输出进evidences。Leader/Reviewer确认合同闭合后才按实际API创建下一服务装配Task。第一片总验收仍需services、plugins、后端/浏览器适配和真实宿主smoke，不因本Task完成宣称底座全部完成。
+Task 快照记录公开接口、实际文件／提交基线、测试与 smoke 结果、未运行项和失败资源处理；必要历程与原始证据按需链接。确认合同闭合后按实际 API 创建下一服务装配 Task，不等待形式化角色交接。第一片总验收仍需 services、plugins、后端／浏览器适配和真实宿主 smoke，不因本 Task 完成宣称底座全部完成。

@@ -142,9 +142,9 @@
 
 进入实施的顺序：
 
-1. w00003 的 owner 完成交付与获授权的合并；Leader 核实 master 确实包含所需 UI/Storage/命令实现与同一 capability 的 Spec，记录完整合并/基线 OID 和相关验证，不复用旧370测试结果为最新绿灯。
-2. w00017 登记按 [Work编号合同](../README.md#编号分配与记录位置) 经单独授权进入远端 master，成为实现分支共同祖先；本 Work 尚未提交，不因已写文档跳过。
-3. 在两项前提都满足后再落实 worktree 创建。目标默认 `.worktree/w00017-application-runtime-architecture` / `refactor/w00017-runtime-foundation`，起点为包含两项结果的 master；冲突即报告，不覆盖、不自动改名。主工作区保持 master，不因同步强行丢弃未提交文档。
+1. w00003 的 owner 完成交付与获授权的合并；主 Agent 核实 master 确实包含所需 UI/Storage/命令实现与同一 capability 的 Spec，记录完整合并／基线 OID 和相关验证，不复用旧 370 测试结果为最新绿灯。
+2. w00017 按 [Work 编号合同](../README.md#编号分配与记录位置) 核对本地占号与唯一执行位置；不要求先进入远端 master 或成为登记共同祖先，登记随实现集成。
+3. w00003 合并条件满足、占号无冲突后再落实 worktree 创建。目标默认 `.worktree/w00017-application-runtime-architecture` / `refactor/w00017-runtime-foundation`，起点为包含 w00003 合并结果的 master；冲突即报告，不覆盖、不自动改名。主工作区保持 master，不因同步丢弃未提交文档。
 4. 对照合并后源码复核本计划文件/接口与测试入口，沿新事实修正机械路径，不重建已经存在的能力。此后 Work/Task 进度随实现分支维护，不在主树复制另一份。
 
 等待基线只阻止产品实现/worktree 创建，不阻止当前规范规划。没有授权本轮提交、push、合并或帮助完成 w00003；不得自动轮询/推进他人工作。

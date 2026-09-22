@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-command-runtime
-role: tasker
 ---
 
 # 命令运行时：共享上下文、注册表与最小键位

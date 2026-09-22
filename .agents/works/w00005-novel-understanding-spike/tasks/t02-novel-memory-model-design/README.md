@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-novel-memory-model-design
-role: tasker
 ---
 
 # 小说记忆模型设计与数据结构 spike

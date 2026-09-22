@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-generic-package-first-slice
-role: tasker
 ---
 
 # 通用包首个切片：agent-file-tools 与 agent-sse

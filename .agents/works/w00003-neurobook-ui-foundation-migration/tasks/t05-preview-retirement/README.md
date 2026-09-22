@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t05-preview-retirement
-role: tasker
 ---
 
 # 保留 preview 场景数据并删除 preview 页面

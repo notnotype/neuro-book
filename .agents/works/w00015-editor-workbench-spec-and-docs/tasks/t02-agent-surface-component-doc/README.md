@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-agent-surface-component-doc
-role: tasker
 ---
 
 # AgentChatSurface 组件文档与能力标签

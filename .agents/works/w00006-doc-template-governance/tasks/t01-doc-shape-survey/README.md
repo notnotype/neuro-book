@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-doc-shape-survey
-role: tasker
 ---
 
 # 文档结构现状调查与分档方案

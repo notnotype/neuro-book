@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t04-nb-ui-adoption
-role: tasker
 ---
 
 # 接入 nb-ui 与第一个消费者

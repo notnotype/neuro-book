@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-preserved-form-corrections
-role: tasker
 ---
 
 # 保全表单控件修复

@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-architecture-proposal
-role: leader
 ---
 
 # 架构提案与规范归属

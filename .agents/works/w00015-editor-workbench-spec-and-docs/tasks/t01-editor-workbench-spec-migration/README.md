@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-editor-workbench-spec-migration
-role: tasker
 ---
 
 # 编辑工作台域规范迁移（含 Inline AI Prompt Bar 行为合同）

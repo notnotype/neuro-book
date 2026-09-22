@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-runtime-contract-review
-role: reviewer
 ---
 
 # 运行时合同独立审查

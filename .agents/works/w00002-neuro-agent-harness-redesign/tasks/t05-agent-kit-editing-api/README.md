@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t05-agent-kit-editing-api
-role: tasker
 ---
 
 # agent-kit 四模式编辑与资源组件

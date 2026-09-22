@@ -25,6 +25,7 @@
     "include": [
         "ci/agent-governance-contract.ts",
         "ci/agent-governance.ts",
+        "cli/agent-context.ts",
         "ci/baseline-change-scope.ts",
         "ci/validate-proper-lockfile-patch.ts",
         "types/proper-lockfile.d.ts",

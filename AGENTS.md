@@ -15,6 +15,8 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 
 - 仅问答、审查、诊断默认只读；用户明确要求修复或修改后，完成授权范围内的改动与验证。缺少运行证据时标明“从代码推断”或“未验证”。
 - 不为可逆、影响小的改动强制写测试；涉及核心逻辑、边界或无把握时仍应补充测试。
+- 主 Agent 对当前目标负责，可直接调查、实现和验证；只有独立且值得委派的切片才交给子代理。高风险变更按需独立审查，不设正式角色或强制交接。
+- 按当前问题选择能补足缺失知识的最具体 Skill；已加载且未变化的材料不重读，多技能检查按目的去重。验证与停止条件统一见 [`docs/testing/README.md#验证门禁`](docs/testing/README.md#验证门禁)，不叠加通用生命周期门禁。
 
 ## 了解开发者
 
@@ -60,7 +62,6 @@ neuro-book/
 │   └── testing/                   # 测试、临时根和验收证据合同
 ├── vitepress/                      # 用户文档站投影与 changelog，非内部真相源
 ├── .agents/                        # 开发 Agent 治理，区别于产品 Agent Runtime
-│   ├── roles/                     # PM、Leader、Tasker、Reviewer 合同
 │   ├── works/                     # current Work 及其直接 Task
 │   ├── tasks/                     # legacy Task archive 与历史 provenance
 │   └── skills/                    # 开发 Agent Skill，非产品运行时资产
@@ -77,11 +78,11 @@ neuro-book/
 
 | 任务范围 | 追加读取 |
 |---|---|
-| Leader、Tasker；按需 PM、Reviewer | [`.agents/roles/<role>/AGENTS.md`](.agents/roles/)、[`.agents/works/AGENTS.md`](.agents/works/AGENTS.md)、具体 Work 与 Task；修复历史 provenance 时追加读 [`.agents/tasks/AGENTS.md`](.agents/tasks/AGENTS.md) |
+| 创建、推进或恢复 current 工作 | [`.agents/works/AGENTS.md`](.agents/works/AGENTS.md)、具体 Work 与 Task；修复历史 provenance 时追加读 [`.agents/tasks/AGENTS.md`](.agents/tasks/AGENTS.md)；只读问答不新建 Work |
 | 测试、fixture、验收、缓存、临时数据 | [`docs/testing/README.md`](docs/testing/README.md) |
 | 新功能、bug 期望不明确或长期行为变化 | [`docs/proposals/README.md`](docs/proposals/README.md)、[`docs/specs/AGENTS.md`](docs/specs/AGENTS.md)、相关 Spec 与 ADR |
 | 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
-| Git、Issue、Work、Task、PR、合并或发布 | [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)；公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Git 分支、worktree、提交、PR、合并或发布操作 | [`.agents/skills/repository-workflow/SKILL.md`](.agents/skills/repository-workflow/SKILL.md)；Issue 元数据维护读 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)，公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | 前端、服务端、桌面、数据库、脚本、发布、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`packages/neuro-book/server/AGENTS.md`](packages/neuro-book/server/AGENTS.md)、[`packages/neuro-book/prisma/AGENTS.md`](packages/neuro-book/prisma/AGENTS.md)、[`desktop/AGENTS.md`](desktop/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | Agent 消费的规则、Skill、AGENTS.md 或 CLAUDE.md | [`.agents/skills/writing-for-agents/SKILL.md`](.agents/skills/writing-for-agents/SKILL.md)；修改 Skill 时再读同目录 `SKILL-MECHANICS.md` |
 
@@ -89,12 +90,12 @@ neuro-book/
 
 - Git 完整流程见 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)。主工作区保持 `master`，保护用户已有改动和未跟踪文件。
 - 代码改动在 worktree 完成；治理文档和用户明确指定的主工作区改动可以直接在当前工作区完成。只暂存 Task 范围文件，不使用 `git add -A`。
-- 统一评审通过后，获远端元数据授权的 Leader 或 PM 才能把 Issue 项目条目标为 Done。
+- 统一评审通过后，获对应远端元数据授权的执行者才能把 Issue 项目条目标为 Done。
 - 命令从相应 `package.json` 查询。Bun 的 `--cwd` 必须放在 `run` 之后；`bun --cwd <dir> run <script>` 可能只打印用法并以 0 退出。
 
 ## 文档真相源
 
-行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 ADR 为准；迁移步骤以 `packages/neuro-book/docs/migrations/` 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围与 role 以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文。
+行为、状态、数据、接口、失败语义和验收依据以 [`docs/specs/`](docs/specs/) 为准；架构取舍以 ADR 为准；迁移步骤以 `packages/neuro-book/docs/migrations/` 为准；测试、临时根和证据以 [`docs/testing/`](docs/testing/) 为准；一次实现的 current 范围、授权与快照以 [`.agents/works/`](.agents/works/) 为准，历史 provenance 以 [`.agents/tasks/`](.agents/tasks/) 为准。入口文件只写职责、触发条件和链接，不复制下级正文。
 
 当前仓库状态以 [`PROJECT-STATUS.md`](PROJECT-STATUS.md) 为准；运行期 Reference 以 [`packages/neuro-book/assets/reference/`](packages/neuro-book/assets/reference/) 为准。`RELEASE.md` 和 `WATCHDOG.md` 是机器与审查入口，不属于普通产品规范。
 

@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t03-code-editor-commands
-role: tasker
 ---
 
 # CodeEditorView 行导航能力与编辑命令

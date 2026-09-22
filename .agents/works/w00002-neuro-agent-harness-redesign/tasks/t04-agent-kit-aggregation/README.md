@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t04-agent-kit-aggregation
-role: tasker
 ---
 
 # 聚合为 `@notnotype/agent-kit`

@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-work-task-model
-role: tasker
 ---
 
 # Work Task Model

@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t05-command-palette-lab
-role: tasker
 ---
 
 # Lab 全局命令面板、查询与确认闭环

@@ -27,13 +27,13 @@ issueId: null
 
 ## 当前 Task 与继续条件
 
-| Task | role | 当前范围 |
-|---|---|---|
-| [t01](tasks/t01-architecture-proposal/README.md) | leader | 已完成架构提案与B/S追加设计的历史交付 |
-| [t02](tasks/t02-runtime-contract-review/README.md) | reviewer | 独立运行时/资源合同复核；各轮报告分开 |
-| [t03](tasks/t03-document-governance-review/README.md) | reviewer | 独立读者/治理与计划可执行性复核 |
-| [t04](tasks/t04-foundation-spec-plan/README.md) | leader | 当前规范、整体实施方案与治理集成 |
-| [t05](tasks/t05-runtime-lifecycle/README.md) | tasker | 已制定的首个实现单元：资源生命周期及独立验证入口；**等待w00003合并master，尚未执行** |
+| Task | 当前范围 |
+|---|---|
+| [t01](tasks/t01-architecture-proposal/README.md) | 已完成架构提案与 B/S 追加设计的历史交付 |
+| [t02](tasks/t02-runtime-contract-review/README.md) | 独立运行时／资源合同复核；各轮报告分开 |
+| [t03](tasks/t03-document-governance-review/README.md) | 独立读者／治理与计划可执行性复核 |
+| [t04](tasks/t04-foundation-spec-plan/README.md) | 当前规范、整体实施方案与治理集成 |
+| [t05](tasks/t05-runtime-lifecycle/README.md) | 已制定的首个实现单元：资源生命周期及独立验证入口；**等待 w00003 合并 master，尚未执行** |
 
 后续单元在整体路径中规划，但不预建依赖未知实现结果的Task链。t05闭合后按实际API与证据创建services单元；再推进plugins、环境适配与首片验收。第二片可在公共合同稳定、文件owner独立后并行。Task completed不等于整个切片或产品完成。
 
@@ -43,7 +43,7 @@ issueId: null
 
 w00003只作调查参考：`.worktree/w00003-neurobook-ui-foundation-migration` / `refactor/w00003-nb-ui-adoption` / HEAD `26479d48604d3882b8d42b9f4447c6e3f4ac69c4`。本轮status观察为7 staged、196 unstaged、166 untracked，是快照而非未来基线。实施等待该Work完成合并，不接管它的收尾。
 
-未来默认路径 `.worktree/w00017-application-runtime-architecture`，分支 `refactor/w00017-runtime-foundation`，起点只能是包含w00003合并结果及w00017登记共同祖先的master。登记提交与进入远端master按[编号合同](../README.md#编号分配与记录位置)另获授权；当前不创建实现worktree。基线完成后重新核对代码/Spec入口，Work进度随实现分支维护，不双份回填。
+未来默认路径 `.worktree/w00017-application-runtime-architecture`，分支 `refactor/w00017-runtime-foundation`，起点只能是包含 w00003 合并结果的 master。登记按 [编号合同](../README.md#编号分配与记录位置) 本地协调，不要求登记共同祖先或先进入远端 master；**等待 w00003 合并的开发者条件不变**，当前不创建实现 worktree。基线完成后核对代码／Spec，进度随实现分支维护，不双份回填。
 
 ## 不变的产品边界
 

@@ -10,4 +10,4 @@
 - legacy root 拒收 `schema: nbook.task/v2`。新 Task 必须位于 `.agents/works/<work>/tasks/<task>/README.md`。
 - 无 frontmatter 的导入记录继续只读；旧 walkthrough 与 evidence 不回填。
 
-current schema、Work 容器、Task role 与 CLI 用法见 [`../works/README.md`](../works/README.md)。
+current schema、Work 容器、Task 快照与 CLI 用法见 [`../works/README.md`](../works/README.md)。

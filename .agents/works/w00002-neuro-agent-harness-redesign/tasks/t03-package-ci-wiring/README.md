@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t03-package-ci-wiring
-role: tasker
 ---
 
 # 新包 CI 接线：agent-file-tools 与 agent-sse

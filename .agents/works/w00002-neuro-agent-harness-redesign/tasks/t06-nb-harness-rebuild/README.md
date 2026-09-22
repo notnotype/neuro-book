@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t06-nb-harness-rebuild
-role: tasker
 ---
 
 # nb-harness 三包重建（基于 OMP）

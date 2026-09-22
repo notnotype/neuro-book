@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-novel-understanding-spike
-role: tasker
 ---
 
 # 小说理解 Brief 与图谱 Spike

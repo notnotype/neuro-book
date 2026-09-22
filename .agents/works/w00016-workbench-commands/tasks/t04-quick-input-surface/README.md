@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t04-quick-input-surface
-role: tasker
 ---
 
 # S4 QuickInput 原语与 nb-ui 双展示入口

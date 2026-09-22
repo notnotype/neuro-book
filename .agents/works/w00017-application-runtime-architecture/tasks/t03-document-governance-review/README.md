@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t03-document-governance-review
-role: reviewer
 ---
 
 # 文档治理与读者审查

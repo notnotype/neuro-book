@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-command-contracts
-role: leader
 ---
 
 # 命令系统规范收窄与任务重排

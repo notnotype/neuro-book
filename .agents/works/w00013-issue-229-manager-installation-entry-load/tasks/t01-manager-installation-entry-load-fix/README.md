@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-manager-installation-entry-load-fix
-role: tasker
 ---
 
 # 修复 Manager installation entry clean build 加载失败

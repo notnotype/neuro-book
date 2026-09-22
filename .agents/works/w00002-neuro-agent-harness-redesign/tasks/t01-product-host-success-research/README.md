@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-product-host-success-research
-role: tasker
 ---
 
 # 通用包测试治理与两领域试点（SSE、write/edit）

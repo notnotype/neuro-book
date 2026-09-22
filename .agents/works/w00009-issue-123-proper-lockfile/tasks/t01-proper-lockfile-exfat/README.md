@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-proper-lockfile-exfat
-role: tasker
 ---
 
 # 修复 proper-lockfile Windows exFAT 租约误失效

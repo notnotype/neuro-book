@@ -229,7 +229,7 @@ function isActiveMarkdown(path: string): boolean {
         && !path.startsWith("vitepress/locales/en-US/changelog/");
     if (path.startsWith("vitepress/")) return !path.startsWith("vitepress/public/");
     if (path === ".agents/README.md" || path === ".agents/AGENTS.md") return true;
-    return path.startsWith(".agents/roles/") || path.startsWith(".agents/skills/");
+    return path.startsWith(".agents/skills/");
 }
 
 function isCurrentTaskContract(repoRoot: string, path: string): boolean {

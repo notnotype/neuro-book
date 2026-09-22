@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t06-command-acceptance
-role: reviewer
 ---
 
 # 命令系统行为验收与独立审查

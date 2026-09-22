@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t03-ui-planned-specs
-role: leader
 ---
 
 # UI 组件合同与 Component Lab 计划规范

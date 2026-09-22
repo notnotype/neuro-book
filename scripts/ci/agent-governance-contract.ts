@@ -4,17 +4,9 @@ import {existsSync, lstatSync, readFileSync, readdirSync} from "node:fs";
 import {dirname, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {resolveAgentAcceptanceRoot, resolveAgentCacheRoot, resolveAgentTempRoot, resolveAgentTestRoot, resolveAgentWorktreeRoot} from "@notnotype/neuro-book-test-support/paths";
-import ts from "typescript";
 import {parse as parseYaml} from "yaml";
 
 
-export const CANONICAL_ROLES = ["pm", "leader", "tasker", "reviewer"] as const;
-export type CanonicalRole = typeof CANONICAL_ROLES[number];
-
-const AGENT_SKILLS_ADAPTATION_PROPOSAL = "packages/neuro-book/docs/proposals/agent-skills-adaptation.md";
-const REPORT_SKILL = ".agents/skills/report/SKILL.md";
-const LOAD_ROLE_SKILL = ".agents/skills/load_role/SKILL.md";
-const LEGACY_AGENT_WORKFLOW_ROUTER = ".agents/skills/agent-workflow-router/SKILL.md";
 const AGENT_WORKFLOW_PROFILE = "nbook.agent-skills/v1";
 const AGENT_WORKFLOW_KINDS: Record<string, true> = {
     feedback: true,
@@ -375,10 +367,6 @@ function legacyTaskReadmePaths(repoRoot: string, ownerRoot: string): string[] {
     return paths.sort();
 }
 
-function isCanonicalRole(value: unknown): value is CanonicalRole {
-    return typeof value === "string" && CANONICAL_ROLES.includes(value as CanonicalRole);
-}
-
 function validateWorkReadme(repoRoot: string, workId: string, relativePath: string, failures: string[]): boolean {
     const failureCount = failures.length;
     const metadata = readTaskFrontmatter(readRepoText(repoRoot, relativePath), relativePath, failures);
@@ -426,21 +414,17 @@ function readWorkTaskIds(repoRoot: string, workRoot: string, failures: string[])
     return taskIds;
 }
 
-function validateWorkTask(repoRoot: string, taskId: string, relativePath: string, failures: string[]): CanonicalRole | null {
-    const failureCount = failures.length;
+function validateWorkTask(repoRoot: string, taskId: string, relativePath: string, failures: string[]): void {
     const metadata = readTaskFrontmatter(readRepoText(repoRoot, relativePath), relativePath, failures);
     if (!metadata) {
         failures.push(`Work Task 缺少有效 frontmatter：${relativePath}`);
-        return null;
+        return;
     }
     if (metadata.schema !== "nbook.task/v2") failures.push(`Work Task schema 无效：${relativePath}`);
     if (metadata.taskId !== taskId) failures.push(`Work Task taskId 与目录不一致：${relativePath}`);
-    const role = isCanonicalRole(metadata.role) ? metadata.role : null;
-    if (!role) failures.push(`Work Task role 无效：${relativePath}`);
-    for (const legacyField of ["actionIssueId", "agentWorkflow", "kind", "worktreeId", "branchId"] as const) {
+    for (const legacyField of ["actionIssueId", "agentWorkflow", "kind", "worktreeId", "branchId", "role"] as const) {
         if (Object.hasOwn(metadata, legacyField)) failures.push(`Work Task 禁止旧字段 ${legacyField}：${relativePath}`);
     }
-    return role && failures.length === failureCount ? role : null;
 }
 
 /** 校验当前 Work 容器；Task 正文只作执行参考，不作为机器门禁。 */
@@ -502,7 +486,6 @@ export function expectedGovernanceFiles(): readonly string[] {
         ".agents/tasks/.migration-complete",
         ".agents/tasks/legacy-index.json",
         ".agents/tasks/ownership.json",
-        ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
         ".agents/skills/README.md",
         "packages/neuro-book/AGENTS.md",
         "scripts/AGENTS.md",
@@ -520,51 +503,6 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
             .filter((line) => line.trim().length > 0)
             .length;
         if (actual > limit) failures.push(`治理入口超过非空行上限：${relativePath} ${String(actual)} > ${String(limit)}`);
-    }
-    return failures;
-}
-
-/** 防止角色合同退回 PM、Task 人工批准或预建任务链，并保留统一评审门禁。 */
-export function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] {
-    const failures: string[] = [];
-    const contracts = [
-        ["AGENTS.md", ["开发者批准一个目标、范围和关键取舍后", "本地可逆开发动作", "远端Issue/Project/PR写入", "统一评审通过后"]],
-        [".omp/RULES.md", ["Leader可自主执行范围内本地可逆开发动作", "远端Issue/Project/PR写入"]],
-        ["docs/proposals/p-005-development-workflow-governance.md", ["Work 作为 current Task 的强制容器", "Task 指定正式 role", "Agent主导执行", "开发者参与", "任务产物", "PM和Reviewer都是按需角色"]],
-        [".agents/works/README.md", ["Work", "Task", "role"]],
-        [".agents/works/AGENTS.md", ["Work", "Task", "role"]],
-        ["docs/standards/repository-workflow.md", ["Work", "Task", "不等待PM或远端状态同步", "Agent主导执行", "开发者针对当前merge revision集合明确确认统一评审通过"]],
-        ["docs/specs/AGENTS.md", ["Task只能按开发者明确接受的决定", "不能自行批准取舍", "晋升`implemented`"]],
-        [".agents/roles/pm/AGENTS.md", ["可选的 GitHub Project", "不成为Leader或Tasker的等待条件", "当前merge revision集合", "覆盖范围的PR已全部合并"]],
-        [".agents/roles/leader/AGENTS.md", ["Work", "Task", "role", "开发者参与", "任务产物", "Task `completed` 不能触发 Project `Done`"]],
-        [".agents/roles/tasker/AGENTS.md", ["Tasker", "Agent主导执行", "开发者参与点", "不得自行代替开发者决定", "verifying"]],
-        [".agents/roles/reviewer/AGENTS.md", ["不是每个Task的前置状态", "不能触发Project `Done`"]],
-        [".agents/tasks/README.md", ["legacy", "agentWorkflow"]],
-        [".agents/tasks/AGENTS.md", ["legacy", "agentWorkflow"]],
-    ] as const;
-    for (const [relativePath, markers] of contracts) {
-        if (!hasTextMarkers(repoRoot, relativePath, markers)) failures.push(`Leader 主导顺序开发合同缺少必需标记：${relativePath}`);
-    }
-    const normalizedForbiddenPatterns = [
-        /(?:leader必须等待(?:pm|claimed|statusclaimed)|(?:pm|claimed|statusclaimed)(?:批准|确认|分配)?后leader(?:才)?(?:能|可)?开始)/u,
-        /planned(?:task)?(?:允许|授权|可以)(?:直接|自动)?(?:远端写入|push|pr|合并|发布|部署|数据库迁移|真实provider|浏览器人工验收|数据删除)/u,
-        /(?:tasker(?:可以|可)执行drafttask|draft(?:task)?(?:可以|可)?由?tasker执行)/u,
-        /(?:taskcompleted|pr合并|reviewer建议合并|ci通过)(?:可以|可)?(?:直接|自动|单独)*(?:触发|进入)(?:project)?done/u,
-        /开发者(?:逐个|逐项)(?:接受|批准|审阅)(?:task|任务合同)/u,
-        /(?:应用owner|根owner)(?:当前task)?(?:固定|才允许|必须)(?:关联issue|正整数issue|null|无issue)/u,
-        /(?:一次|提前|预先)(?:创建|建立|预建)(?:完整|全部|整条)?(?:后续|未来)?task(?:链|列表)?/u,
-        /tasker(?:可以|可)自行决定(?:产品|方案|取舍|结果)?/u,
-        /未获(?:浏览器)?(?:人工验收)?授权(?:可以|可)?(?:记录|写入|放入)notrun/u,
-    ] as const;
-    for (const [relativePath] of contracts) {
-        if (!hasFile(repoRoot, relativePath)) continue;
-        const normalized = readRepoText(repoRoot, relativePath)
-            .toLowerCase()
-            .replace(/[`*_#\s，。,:：；;()（）/\\-]+/gu, "");
-        for (const pattern of normalizedForbiddenPatterns) {
-            const match = pattern.exec(normalized)?.[0];
-            if (match) failures.push(`Leader 主导顺序开发合同出现禁用语义：${relativePath} -> ${match}`);
-        }
     }
     return failures;
 }
@@ -772,28 +710,28 @@ export function resolveWorkReadmePath(repoRoot: string, workId: string): {path: 
     return {path, failures};
 }
 
-export function resolveWorkTaskReadmePath(repoRoot: string, workId: string, taskId: string): {workPath: string | null; taskPath: string | null; taskRole: CanonicalRole | null; failures: string[]} {
+export function resolveWorkTaskReadmePath(repoRoot: string, workId: string, taskId: string): {workPath: string | null; taskPath: string | null; failures: string[]} {
     const work = resolveWorkReadmePath(repoRoot, workId);
     const failures = [...work.failures];
-    if (!work.path || failures.length > 0) return {workPath: work.path, taskPath: null, taskRole: null, failures};
+    if (!work.path || failures.length > 0) return {workPath: work.path, taskPath: null, failures};
     if (!WORK_TASK_ID_PATTERN.test(taskId)) {
         failures.push(`Task 标识格式无效：${taskId}`);
-        return {workPath: work.path, taskPath: null, taskRole: null, failures};
+        return {workPath: work.path, taskPath: null, failures};
     }
     const taskRoot = `${WORKS_ROOT}/${workId}/tasks/${taskId}`;
     const nonPhysicalPath = firstNonPhysicalDirectory(repoRoot, [taskRoot]);
     if (nonPhysicalPath) {
         failures.push(physicalDirectoryFailure(nonPhysicalPath));
-        return {workPath: work.path, taskPath: null, taskRole: null, failures};
+        return {workPath: work.path, taskPath: null, failures};
     }
     const relativePath = `${taskRoot}/README.md`;
     const taskPath = hasFile(repoRoot, relativePath) ? resolve(repoRoot, relativePath) : null;
     if (!taskPath) {
         failures.push(`Task README 不存在：${workId}/${taskId}`);
-        return {workPath: work.path, taskPath: null, taskRole: null, failures};
+        return {workPath: work.path, taskPath: null, failures};
     }
-    const taskRole = validateWorkTask(repoRoot, taskId, relativePath, failures);
-    return {workPath: work.path, taskPath, taskRole, failures};
+    validateWorkTask(repoRoot, taskId, relativePath, failures);
+    return {workPath: work.path, taskPath, failures};
 }
 
 export function resolveLegacyTaskReadmePath(repoRoot: string, taskId: string): {path: string | null; checkedRoots: string[]; failures: string[]} {
@@ -842,159 +780,6 @@ function hasTaskAgentWorkflowProfile(repoRoot: string): boolean {
         if (metadata?.schema === "nbook.task/v1" && Object.hasOwn(metadata, "agentWorkflow")) return true;
     }
     return false;
-}
-
-
-function hasTextMarkers(repoRoot: string, relativePath: string, markers: readonly string[]): boolean {
-    if (!hasFile(repoRoot, relativePath)) return false;
-    const text = readRepoText(repoRoot, relativePath);
-    return markers.every((marker) => text.includes(marker));
-}
-
-function readSkillFrontmatter(repoRoot: string, relativePath: string): Record<string, unknown> | null {
-    if (!hasFile(repoRoot, relativePath)) return null;
-    const text = readRepoText(repoRoot, relativePath);
-    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
-    if (!match) return null;
-    try {
-        const metadata = parseYaml(match[1]) as unknown;
-        return isRecord(metadata) ? metadata : null;
-    } catch {
-        return null;
-    }
-}
-
-function hasReportSkillFrontmatter(repoRoot: string): boolean {
-    const metadata = readSkillFrontmatter(repoRoot, REPORT_SKILL);
-    if (metadata?.name !== "report"
-        || typeof metadata.description !== "string"
-        || metadata.description.trim().length === 0
-        || typeof metadata["argument-hint"] !== "string"
-        || metadata["disable-model-invocation"] === true) return false;
-    const text = readRepoText(repoRoot, REPORT_SKILL);
-    return text.includes("$ARGUMENTS") && text.includes("当前状态") && text.includes("下一步");
-}
-
-function hasLoadRoleSkillFrontmatter(repoRoot: string): boolean {
-    const metadata = readSkillFrontmatter(repoRoot, LOAD_ROLE_SKILL);
-    if (metadata?.name !== "load_role"
-        || typeof metadata.description !== "string"
-        || metadata.description.trim().length === 0
-        || typeof metadata["argument-hint"] !== "string"
-        || metadata["disable-model-invocation"] !== true) return false;
-    const text = readRepoText(repoRoot, LOAD_ROLE_SKILL);
-    return text.includes("$ARGUMENTS")
-        && CANONICAL_ROLES.every((role) => text.includes(role))
-        && text.includes(".agents/roles/<role>/AGENTS.md");
-}
-
-function agentSkillsImplementationPresent(repoRoot: string): boolean {
-    return [
-        hasReportSkillFrontmatter(repoRoot),
-        hasLoadRoleSkillFrontmatter(repoRoot),
-        hasFile(repoRoot, LEGACY_AGENT_WORKFLOW_ROUTER),
-        hasFile(repoRoot, ".agents/works/README.md"),
-        hasFile(repoRoot, ".agents/works/AGENTS.md"),
-        hasTextMarkers(repoRoot, ".agents/skills/README.md", ["report/SKILL.md", "load_role/SKILL.md"]),
-        hasTextMarkers(repoRoot, "scripts/ci/agent-governance-contract.ts", ["verifyWorkContracts", "verifyLegacyTaskProvenance"]),
-        hasTextMarkers(repoRoot, "scripts/ci/agent-governance.ts", ["verifyWorkContracts", "verifyLegacyTaskProvenance"]),
-    ].some(Boolean);
-}
-
-function hasGovernanceContractExports(repoRoot: string): boolean {
-    if (!hasFile(repoRoot, "scripts/ci/agent-governance-contract.ts")) return false;
-    const source = readRepoText(repoRoot, "scripts/ci/agent-governance-contract.ts");
-    const sourceFile = ts.createSourceFile("agent-governance-contract.ts", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const exports = new Set<string>();
-    for (const statement of sourceFile.statements) {
-        if (!ts.isFunctionDeclaration(statement) || !statement.name || !(ts.getCombinedModifierFlags(statement) & ts.ModifierFlags.Export)) continue;
-        exports.add(statement.name.text);
-    }
-    return ["verifyAgentSkillsAdaptation", "verifyWorkContracts", "verifyLegacyTaskProvenance", "verifyLeaderDrivenDevelopmentContract"].every((name) => exports.has(name));
-}
-
-
-
-
-function hasGovernanceCliCalls(repoRoot: string): boolean {
-    if (!hasFile(repoRoot, "scripts/ci/agent-governance.ts")) return false;
-    const source = readRepoText(repoRoot, "scripts/ci/agent-governance.ts");
-    const fileName = "agent-governance.ts";
-    const sourceFile = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const compilerOptions: ts.CompilerOptions = {
-        target: ts.ScriptTarget.Latest,
-        module: ts.ModuleKind.ESNext,
-        noLib: true,
-        noResolve: true,
-    };
-    const compilerHost = ts.createCompilerHost(compilerOptions);
-    const originalGetSourceFile = compilerHost.getSourceFile;
-    compilerHost.getSourceFile = (name, languageVersion, onError, shouldCreateNewSourceFile) => name === fileName
-        ? sourceFile
-        : originalGetSourceFile(name, languageVersion, onError, shouldCreateNewSourceFile);
-    const checker = ts.createProgram([fileName], compilerOptions, compilerHost).getTypeChecker();
-    const importedBindings = new Map<string, {importedName: string; specifier: ts.ImportSpecifier}>();
-    for (const statement of sourceFile.statements) {
-        if (!ts.isImportDeclaration(statement)
-            || !ts.isStringLiteral(statement.moduleSpecifier)
-            || statement.moduleSpecifier.text !== "#scripts/ci/agent-governance-contract") continue;
-        const importClause = statement.importClause;
-        if (!importClause || importClause.isTypeOnly || !importClause.namedBindings || !ts.isNamedImports(importClause.namedBindings)) continue;
-        for (const element of importClause.namedBindings.elements) {
-            if (element.isTypeOnly) continue;
-            const importedName = element.propertyName?.text ?? element.name.text;
-            if (["verifyAgentSkillsAdaptation", "verifyWorkContracts", "verifyLegacyTaskProvenance", "verifyLeaderDrivenDevelopmentContract"].includes(importedName)) {
-                importedBindings.set(element.name.text, {importedName, specifier: element});
-            }
-        }
-    }
-    const calls = new Set<string>();
-    function visit(node: ts.Node): void {
-        if (ts.isFunctionLike(node)) return;
-        if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)) {
-            const push = node.expression;
-            if (ts.isPropertyAccessExpression(push.expression)
-                && ts.isIdentifier(push.expression.expression)
-                && push.expression.expression.text === "failures"
-                && push.expression.name.text === "push"
-                && push.arguments.length === 1) {
-                const spread = push.arguments[0];
-                if (ts.isSpreadElement(spread)
-                    && ts.isCallExpression(spread.expression)
-                    && ts.isIdentifier(spread.expression.expression)
-                    && spread.expression.arguments.length === 1
-                    && ts.isIdentifier(spread.expression.arguments[0])
-                    && spread.expression.arguments[0].text === "repoRoot") {
-                    const binding = importedBindings.get(spread.expression.expression.text);
-                    const symbol = checker.getSymbolAtLocation(spread.expression.expression);
-                    if (binding && symbol?.declarations?.some((declaration) => declaration === binding.specifier)) {
-                        calls.add(binding.importedName);
-                    }
-                }
-            }
-        }
-        ts.forEachChild(node, visit);
-    }
-    ts.forEachChild(sourceFile, visit);
-    return ["verifyAgentSkillsAdaptation", "verifyWorkContracts", "verifyLegacyTaskProvenance", "verifyLeaderDrivenDevelopmentContract"].every((name) => calls.has(name));
-}
-
-type AgentSkillsMarker = {
-    failure: string;
-    present: boolean;
-};
-
-function agentSkillsImplementationMarkers(repoRoot: string): AgentSkillsMarker[] {
-    return [
-        {failure: "report Skill 缺少有效 frontmatter", present: hasReportSkillFrontmatter(repoRoot)},
-        {failure: "load_role Skill 缺少有效 frontmatter", present: hasLoadRoleSkillFrontmatter(repoRoot)},
-        {failure: "旧 agent-workflow-router 未完成删除", present: !hasFile(repoRoot, LEGACY_AGENT_WORKFLOW_ROUTER)},
-        {failure: "Skill 索引缺少 report/load_role", present: hasTextMarkers(repoRoot, ".agents/skills/README.md", ["report/SKILL.md", "load_role/SKILL.md"])},
-        {failure: "编码路由缺少 .agents/skills/**/*.md 或 Agent 文档规范", present: hasTextMarkers(repoRoot, "docs/standards/code/README.md", [".agents/skills/**/*.md", "writing-for-agents/SKILL.md", "SKILL-MECHANICS.md"])},
-        {failure: "Work 入口缺失", present: hasFile(repoRoot, ".agents/works/README.md") && hasFile(repoRoot, ".agents/works/AGENTS.md")},
-        {failure: "治理合同缺少完整 Agent Skills 校验", present: hasGovernanceContractExports(repoRoot)},
-        {failure: "治理入口缺少 Agent Skills 校验调用", present: hasGovernanceCliCalls(repoRoot)},
-    ];
 }
 
 function rootTaskSequence(taskId: string): {value: number; width: number} | null {
@@ -1272,51 +1057,6 @@ function validateAgentWorkflow(repoRoot: string, relativePath: string, readme: s
             if (requiredValues.has(check)) failures.push(`Task verification.required 与 verification.notRun 重叠：${relativePath}`);
         }
     });
-}
-
-/** 校验 Agent Skills Proposal 的生效状态和适配入口是否一致。 */
-export function verifyAgentSkillsAdaptation(repoRoot: string): string[] {
-    const failures: string[] = [];
-    if (!hasFile(repoRoot, AGENT_SKILLS_ADAPTATION_PROPOSAL)) {
-        failures.push(`缺少 Agent Skills 适配 Proposal：${AGENT_SKILLS_ADAPTATION_PROPOSAL}`);
-        return failures;
-    }
-    const proposal = readRepoText(repoRoot, AGENT_SKILLS_ADAPTATION_PROPOSAL);
-    const status = /^状态：\s*(\S.*?)\s*$/mu.exec(proposal)?.[1]?.trim();
-    if (!status) {
-        failures.push(`Agent Skills 适配 Proposal 缺少状态：${AGENT_SKILLS_ADAPTATION_PROPOSAL}`);
-        return failures;
-    }
-    const markers = agentSkillsImplementationMarkers(repoRoot);
-    const implementationPresent = agentSkillsImplementationPresent(repoRoot);
-    if (status === "draft") {
-        if (implementationPresent) failures.push("Agent Skills Proposal 仍为 draft，但适配实现已出现");
-        return failures;
-    }
-    if (status !== "accepted") {
-        if (implementationPresent) failures.push(`Agent Skills Proposal 状态为 ${status}，但适配实现已出现`);
-        return failures;
-    }
-
-    for (const marker of markers) if (!marker.present) failures.push(marker.failure);
-
-    const adaptedPaths = [
-        REPORT_SKILL,
-        LOAD_ROLE_SKILL,
-        ".agents/skills/README.md",
-        ".agents/works/README.md",
-        ".agents/works/AGENTS.md",
-        ...CANONICAL_ROLES.map((role) => `.agents/roles/${role}/AGENTS.md`),
-        "scripts/ci/agent-governance-contract.ts",
-        "scripts/ci/agent-governance.ts",
-    ];
-    const missingDefinitionOfDonePath = ["..", "..", "references", "definition-of-done.md"].join("/");
-    for (const path of adaptedPaths) {
-        if (hasFile(repoRoot, path) && readRepoText(repoRoot, path).includes(missingDefinitionOfDonePath)) {
-            failures.push(`适配文件不得引用缺失的通用 DoD：${path}`);
-        }
-    }
-    return failures;
 }
 
 function isTaskMigrationMapping(value: unknown): value is TaskMigrationMapping {
