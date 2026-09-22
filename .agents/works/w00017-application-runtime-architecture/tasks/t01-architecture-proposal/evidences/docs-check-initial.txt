@@ -1,0 +1,7 @@
+$ bun run docs:check
+$ bun scripts/ci/check-documentation.ts
+{
+  "failures": [],
+  "checkedFiles": 5530
+}
+exit code: 0

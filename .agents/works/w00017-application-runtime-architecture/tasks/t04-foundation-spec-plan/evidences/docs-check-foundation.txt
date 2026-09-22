@@ -1,0 +1,20 @@
+2026-09-20 基础两切片规范规划最终文档门禁
+执行位置：主工作区 master，HEAD 45906272915ff43e83318653af62afa9ce668206 + 未提交文档，无独立revision。
+执行时机：七Spec、Proposal/索引、Work/Task、整体计划、两份独立审查及定向复核、Leader处理记录写完后。
+
+命令：bun run docs:check
+退出码：0
+实际输出：
+$ bun scripts/ci/check-documentation.ts
+{
+  "failures": [],
+  "checkedFiles": 5557
+}
+Wall time: 2.33 seconds
+
+checkedFiles是候选文件数（含源文件），不是Markdown文档数。本证据文本在命令完成后归档，未将自身纳入上述计数。
+
+覆盖结构/元数据/登记/链接确定性门禁；语义审查见t02/t03 walkthroughs/foundation-review.md及t04 walkthroughs/foundation-resolution.md，不代表产品已实现或smoke通过。
+
+治理上下文四项检查均exit0（context-checks.txt）；governance:check已知两项基线失败本轮未重跑/修复，不声明全仓治理通过。未执行产品测试/typecheck/build/browser/migration/Provider，未提交/push/合并/创建worktree。
+当前等待w00003完成并合入master，再考虑从master创建w00017 worktree和执行t05。

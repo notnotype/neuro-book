@@ -1,0 +1,12 @@
+$ bun run docs:check
+$ bun scripts/ci/check-documentation.ts
+{
+  "failures": [],
+  "checkedFiles": 5535
+}
+exit code: 0
+
+$ sha256sum packages/neuro-book/docs/proposals/application-runtime-and-plugins.md
+2c91e533accc78ad2c58504161791b522e6368bc7d257fee78921f7f309cd2d1  packages/neuro-book/docs/proposals/application-runtime-and-plugins.md
+
+验证覆盖：master HEAD 45906272915ff43e83318653af62afa9ce668206 加本轮未提交文档；包含提案最终修订、根 Proposal/Spec 索引、Work/Task、两份独立审查报告及审查处理记录。无独立提交 revision。

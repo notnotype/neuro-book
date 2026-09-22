@@ -1,0 +1,22 @@
+本轮追加设计最终文档门禁，2026-09-20
+命令：bun run docs:check
+退出码：0
+
+$ bun scripts/ci/check-documentation.ts
+{
+  "failures": [],
+  "checkedFiles": 5541
+}
+Wall time: 2.22 seconds
+
+检查对象为候选文件，含源码；5541 不等于 Markdown 文档数量。
+在本轮提案、索引、Work/Task、两份独立审查报告及定向复核、Leader 处理记录完成后执行。
+提案：packages/neuro-book/docs/proposals/application-runtime-and-plugins.md
+SHA-256：32ce39ea62810801893434d798df9d12b9ee906e41f4bcbcfcf81cf296f12270
+主工作区：master / HEAD 45906272915ff43e83318653af62afa9ce668206，加本轮未提交文档；没有独立 revision。
+
+governance:context：t01/leader、t02/reviewer、t03/reviewer 本轮均 exit 0、failures: []。
+governance:check：exit 1，仍为首轮相同两项既有失败；详见 governance-check-tracer.txt，不宣称全仓治理通过。
+
+未运行产品测试、typecheck、build、浏览器、迁移或真实 Provider/Model；没有产品代码修改。没有提交、push、合并或远端写入。没有临时脚本、服务、浏览器实例或测试数据根需要清理。
+Proposal 仍 reviewing；独立审查与文档检查不等于用户接受全部新增机制，也不授权实施。
