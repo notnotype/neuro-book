@@ -33,3 +33,11 @@ role: tasker
 ## 边界
 
 不新增锁协议、不改变锁目录格式、不手工删除锁、不延长 stale、不忽略 `ECOMPROMISED`，不运行真实 Provider/Model，不写远端 Issue/PR，不 push、合并、发布或部署。
+
+## 当前收尾状态（2026-09-08）
+
+- 本地 Product/Portable、NTFS 120 秒租约、Product stage 竞争 `ELOCKED`、lease release/reacquire 和 Workbench World Engine API 回归已完成；结构化证据见 `evidences/review-2026-09-07-final.json`。
+- 公开载荷为 `0.10.2-canary.20260908.091411Z.2e86c254`；本地 Product stage 和历史 acceptance stage 已通过 `scripts/deploy/product-runtime.mjs cleanup` 清理。
+- 真实 exFAT 卷仍不可用，不能把 Issue 标记为已完成；Spec 保持 `planned`。
+- Issue #123 已在 GitHub 留言请求报告者使用 `0.10.2-canary` 在真实 exFAT 机器上复测；当前等待提出者提供 120 秒租约、竞争和 release/reacquire 结果。不要手工删除 lock 文件。
+- Product Runtime stdout/stderr 断管问题已另开 Issue #228，不并入本 Task。

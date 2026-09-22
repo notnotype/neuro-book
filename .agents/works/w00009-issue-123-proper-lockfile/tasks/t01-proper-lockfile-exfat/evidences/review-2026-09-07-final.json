@@ -4,8 +4,8 @@
     "taskId": "t01-proper-lockfile-exfat",
     "worktree": "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book",
     "branch": "master",
-    "head": "83f231344bcfe85ee2111cb8d96b8569da62598f",
-    "verdict": "未完成验证",
+    "head": "34210f891357c1c316d0868397a133c5d9eb70ec",
+    "verdict": "部分完成；真实 exFAT 验收仍未完成",
     "reviewRemediation": {
         "lockfileSyncAccepted": true,
         "acceptanceEvidence": "evidences/lockfile-sync-acceptance.json",
@@ -94,6 +94,70 @@
         {
             "command": "bun run docs:check（master）",
             "result": "通过；failures: []；checkedFiles: 5417"
+        },
+        {
+            "command": "bun run --cwd packages/neuro-book nuxt:build",
+            "result": "通过；Product Runtime Image version 0.10.2-canary.20260908.091411Z.2e86c254、revision 34210f891357c1c316d0868397a133c5d9eb70ec、platform windows-x64、imageId sha256:3b2091a5035d2abe27761a94d18aaeec7053ce2001d51af5d5c7f3d865f21d55"
+        },
+        {
+            "command": "env NBOOK_AGENT_TEMP_ROOT=... NEURO_BOOK_PRODUCT_OPERATION_ID=issue123-225-226-final-v0102-correct bun run product:stage",
+            "result": "通过；受控系统 Temp stage 完成，Builder 重新校验 copied Runtime Image"
+        },
+        {
+            "command": "bun --no-install --no-env-file .output/server/commands/product-command.mjs command migrate-application-state --apply（最终隔离 Product）",
+            "result": "通过；catalogVersion 3；app-sqlite、agent-attachment-v1、agent-session-v2 applied；review-repair skipped"
+        },
+        {
+            "command": "bun run product:start（最终隔离 Product，43124）",
+            "result": "通过；NeuroBook migration check: ready；prepared system profiles: 14；Listening on http://127.0.0.1:43124"
+        },
+        {
+            "command": "node --import tsx scripts/deploy/product-browser-smoke.ts --url http://127.0.0.1:43124/ --expected-version 0.10.2-canary.20260908.091411Z.2e86c254 --browser-executable C:/Program Files/Google/Chrome/Application/chrome.exe",
+            "result": "通过；首页 Vue mount、关键资源、/api/app/version 与版本身份通过；截图为 omp-sshots-15777a2ed3284dd5.webp"
+        },
+        {
+            "command": "bun --no-install --no-env-file .output/server/commands/product-command.mjs check profile-compile（最终隔离 Product）",
+            "result": "通过；ok true；typeboxVersion 1.3.6；artifactBytes 125680；typeBytes 382"
+        },
+        {
+            "command": "Product NTFS runtime lease 采样 9 次、间隔 15 秒",
+            "result": "通过；耗时 120.0 秒；runtime.lease.lock mtimeMs 9 个样本均不同，distinctMtimeCount=9；未观察到 ECOMPROMISED"
+        },
+        {
+            "command": "bun run manager:verify-public",
+            "result": "通过；Manager 0.1.0-canary.60 的 npm gitHead d0b93d2c5f7c8d6dd0bd5331e439e3ac3971e0b3 与当前构建输入一致"
+        },
+        {
+            "command": "gh run view 34208897904 --repo notnotype/neuro-book；gh release view v0.10.2-canary.20260908.091411Z.2e86c254 --repo notnotype/neuro-book",
+            "result": "通过；workflow conclusion success；Release isDraft false、isPrerelease true；全部 12 个公开资产已上传"
+        },
+        {
+            "command": "bun run --cwd packages/neuro-book test -- server/world-engine/world-engine.facade.test.ts server/world-engine/single-file-typescript-config-import.test.ts server/api/projects/world-engine/[...segments].test.ts server/world-engine/codeact.test.ts",
+            "result": "通过；4 files passed；69 tests passed；fixture libsql warning 未导致测试失败"
+        },
+        {
+            "command": "旧 Product World Engine API 复现（2026-09-08T11:55:39Z）",
+            "result": "schema/slices 返回 HTTP 400，真实错误为 The service is no longer running: EPIPE: broken pipe, write；此前日志先记录 process.uncaughtException，栈位于 .output/server/index.mjs:80:907 的 _log，归因于失效继承 stdout/stderr 管道，不是 schema、esbuild binary 或 World Engine 业务逻辑"
+        },
+        {
+            "command": "正确 NBOOK_AGENT_TEMP_ROOT + 绝对 Product stage State/Cache 重启（受管服务）",
+            "result": "通过；127.0.0.1:43124 监听；重启后日志没有新的 EPIPE 或 Product Cache Root containment 错误"
+        },
+        {
+            "command": "受管 Product：POST /api/projects/open + /api/app/version + World Engine schema/subjects/slices",
+            "result": "通过；open、version、schema、subjects、slices 全部 HTTP 200；schema 返回 5 个 subject types；slices 返回 []"
+        },
+        {
+            "command": "Node/Chrome Workbench 交互（点击 data-activity-id=world）",
+            "result": "通过；页面显示 World Engine Workbench、已同步、5 个类型和 schema/calendar 文件入口；浏览器实际请求 schema、subjects、slices，页面无控制台错误；截图 C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp"
+        },
+        {
+            "command": "本地 Product stage 第二个 product-runtime start 竞争运行实例",
+            "result": "通过负向断言；第二进程返回 ELOCKED，目标为 .nbook-product-acceptance-lease"
+        },
+        {
+            "command": "本地 Product stage SIGINT 停止、lease release/reacquire 和重启 API 重放",
+            "result": "通过；SIGINT 后 43124 无监听且 lease lock 不再存在；同一绝对路径环境重新启动成功，version/schema/slices 再次 HTTP 200；hub wrapper 以 exit code 1 结束是信号转发语义，不是 Product 子进程残留"
         }
     ],
     "verifiedBoundaries": {
@@ -102,21 +166,80 @@
             "node_modules/proper-lockfile/lib/mtime-precision.js",
             "node_modules/proper-lockfile/lib/lockfile.js"
         ],
-        "productStage": "阻塞；既有入口报 ReferenceError: ProductRuntimeImageBuilder is not defined，已记录为 GitHub #226",
-        "portableProduct": "未完成",
-        "realNtfs120SecondSmoke": "未完成",
+        "productStage": "已完成；最终 Product Runtime Image 0.10.2-canary 在受控系统 Temp 完成 stage/start/browser/profile-compile smoke，并在绝对 State/Cache 路径下完成干净重启",
+        "worldEngineProduct": "已完成；打开 xin-xiao-shuo 后 schema、subjects、slices 均 HTTP 200，schema 返回 5 个 subject types，slices 返回空数组",
+        "worldEngineEpipe": "历史旧服务复现了输出管道关闭导致的 bundle _log EPIPE；正确受管长驻服务重启后未复现新的 EPIPE，无需修改 World Engine 或 esbuild 代码",
+        "worldEngineBrowser": "已完成；Chrome Workbench 显示已同步、5 个类型和 schema/calendar，实际触发 schema/subjects/slices 请求，页面无控制台错误",
+        "productStageCompetition": "已完成；同一 stage 的第二个启动进程获得 ELOCKED",
+        "productStageReleaseReacquire": "已完成；SIGINT 后端口和 lease lock 释放，同一 stage 随后重新启动并通过 API smoke",
+        "portableProduct": "已完成；公开 0.10.2-canary Portable 资产通过 verify-windows-portable 与 verify-windows-portable-restart，Manager 0.1.0-canary.60 冷启动、浏览器、鉴权、正常 shutdown 与 lease release/reacquire 通过",
+        "realNtfs120SecondSmoke": "已完成；最终隔离 Product 的 runtime.lease.lock 进行了 120.0 秒、9 次、15 秒间隔采样，9 个 mtime 均变化",
         "realExfat": "未完成；当前主机无 exFAT 卷",
         "specStatus": "planned"
     },
     "remainingRequiredEvidence": [
-        "Product/Portable 载荷重建与 product:start smoke",
-        "真实 Windows NTFS 120 秒 Product 观察",
-        "可用 exFAT 卷上的真实 120 秒观察"
+        "可用 exFAT 卷上的真实 120 秒观察、竞争和 release/reacquire"
     ],
+    "acceptanceEvidence": {
+        "releaseVersion": "0.10.2-canary.20260908.091411Z.2e86c254",
+        "releaseUrl": "https://github.com/notnotype/neuro-book/releases/tag/v0.10.2-canary.20260908.091411Z.2e86c254",
+        "portableRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/final-portable-0.10.2",
+        "productStageRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/issue123-225-226-final-v0102-correct",
+        "productServiceUrl": "http://127.0.0.1:43124/",
+        "portableRestartUrl": "http://127.0.0.1:39123/",
+        "buildId": "sha256:89b16b8841f255ecfa2c63f084ae42a08e1f2af8539b7a21c5199f7551909e1b",
+        "portableImageId": "sha256:50fd3d729e0d6e39615dac0fa8e42ae6623ed72e7864e2dca40c7417c3d877d1",
+        "localProductImageId": "sha256:3b2091a5035d2abe27761a94d18aaeec7053ce2001d51af5d5c7f3d865f21d55",
+        "worldEngineBrowserScreenshot": "C:/Users/NOTNOT~1/AppData/Local/Temp/omp-sshots-15779277f3d2dfa1.webp",
+        "worldEngineApiSmoke": "open/version/schema/subjects/slices all HTTP 200 after clean managed restart"
+    },
     "scopeBoundary": {
         "workIssueIdUnchanged": "i123",
-        "remoteWritesAfterIssue226": false,
+        "remoteWritesAfterIssue226": true,
+        "remoteWriteNotes": "Issue #228 创建、Issue #123 交接评论与 status: needs-info 标签更新均已记录在 handoff；不能再声称本轮没有远端写入",
         "reviewerDirectlyEditedImplementation": false,
         "remediationAppliedByMainAgent": true
-    }
+    },
+    "handoff": {
+        "issue123": {
+            "url": "https://github.com/notnotype/neuro-book/issues/123",
+            "state": "OPEN",
+            "statusLabel": "status: needs-info",
+            "commentUrl": "https://github.com/notnotype/neuro-book/issues/123#issuecomment-5586657010",
+            "nextOwner": "报告者",
+            "nextAction": "在真实 exFAT 机器上使用 0.10.2-canary 完成至少 120 秒租约、竞争和 release/reacquire 验证"
+        },
+        "issue228": {
+            "url": "https://github.com/notnotype/neuro-book/issues/228",
+            "state": "OPEN",
+            "scope": "Product Runtime stdout/stderr 断管 EPIPE；不并入 Issue 123"
+        },
+        "productService": "已停止；127.0.0.1:43124 无监听；无相关 Product 子进程",
+        "acceptanceCleanup": {
+            "command": "scripts/deploy/product-runtime.mjs cleanup",
+            "operationIds": [
+                "issue123-225-226-final-v0102-correct",
+                "issue123-225-226-final",
+                "issue123-225-226-stage"
+            ],
+            "result": "三个 operation 均返回 Product runtime cleanup: cleaned",
+            "acceptanceRoot": "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-225-226/acceptance/product-runtime/",
+            "remainingEntries": 0
+        },
+        "historicalWorktrees": {
+            "removedCleanTargets": [
+                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-clean-7176da61",
+                "C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/i226-product-runtime-builder-import"
+            ],
+            "preservedDirtyTargets": [
+                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-baseline",
+                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-canonical",
+                "C:/Users/notnotype/AppData/Local/Temp/neuro-book/issue-123-lock-generator"
+            ],
+            "reason": "dirty 或包含未提交 patch/test/lockfile/package 改动，未删除"
+        }
+    },
+    "exfatAcceptance": "blocked: 当前 Windows 主机无可用 exFAT 卷；不能将 NTFS 120 秒观察替代为 exFAT 证据",
+    "worldEngineEpipeBoundary": "已完成干净受管 Product 重启、API 回归和浏览器 Workbench 验收；未修改业务源码；历史 EPIPE 保留为旧输出管道故障证据",
+    "releaseGovernanceBoundary": "H3 独立审批记录仍不可用；workflow、GitHub Release、npm provenance 和 GHCR 可见性证据不能替代 H3 批准"
 }
