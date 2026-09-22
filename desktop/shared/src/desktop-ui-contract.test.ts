@@ -7,13 +7,18 @@ const applicationRoot = resolve("packages/neuro-book");
 describe("Desktop UI shell contract", () => {
     it("keeps the custom title bar in document flow so it cannot cover the page", async () => {
         const titleBar = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBar.vue"), "utf8");
+        const chrome = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBarChrome.vue"), "utf8");
         const appShell = await readFile(resolve(applicationRoot, "app/app.vue"), "utf8");
 
-        expect(titleBar).not.toMatch(/position:\s*fixed/u);
-        expect(titleBar).toMatch(/position:\s*relative/u);
-        expect(titleBar).toContain("data-tauri-drag-region");
+        // 自绘标题栏的实际画布是 DesktopTitleBarChrome；DesktopTitleBar 只做投影与派发。
+        // 根元素必须留在文档流里，改成 fixed 才会盖住页面。
+        expect(chrome).toMatch(/\.desktop-title-bar\s*\{[^}]*position:\s*relative;/us);
+        expect(chrome).not.toMatch(/\.desktop-title-bar\s*\{[^}]*position:\s*fixed;/us);
+        expect(chrome).toContain("data-tauri-drag-region");
+        expect(titleBar).not.toContain("position: fixed");
         expect(appShell).not.toContain("padding-top: 36px");
-        expect(appShell).toContain("height: calc(100dvh - 36px)");
+        // 标题栏已作为外壳的 titlebar 叶随页面渲染：页面承接整窗高度，不再从 100dvh 里扣 36px。
+        expect(appShell).toContain("height: 100dvh");
         expect(appShell).toContain("min-height: 0");
         expect(appShell).toContain(".desktop-page-shell > *");
         expect(appShell).toContain("height: 100%");
@@ -82,11 +87,14 @@ describe("Desktop UI shell contract", () => {
         expect(indexPage).not.toContain("NovelIdeHeader");
         expect(picker).not.toContain("<header");
         expect(picker).not.toContain("header-actions");
+        const workbenchActivityBar = await readFile(resolve(applicationRoot, "app/components/workbench/WorkbenchActivityBar.vue"), "utf8");
+
         expect(activityBar).toContain("createWorkbenchActivityItems");
-        expect(activityBar).toContain("resolveActivityBarSecondaryItems");
+        // 次级条目解析下沉到工作台活动栏（容器 / 工具 / 底部命令共用一套），产品活动栏只喂数据。
+        expect(workbenchActivityBar).toContain("resolveActivityBarSecondaryItems");
         expect(activityBar).not.toContain("useAgentJobsFeed");
         expect(activityBar).toContain("NovelIdeAccountMenu");
-        expect(activityBar).toContain("ide.activityBar.moreActions");
+        expect(activityBar).toContain("ide.activityBar.more");
         expect(activityBar).not.toContain('"user-assets"');
         expect(activityBar).not.toContain('"jobs"');
     });
@@ -94,27 +102,29 @@ describe("Desktop UI shell contract", () => {
     it("keeps title-bar menus responsive and exposes project, search, and Agent panel controls", async () => {
         const titleBar = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBar.vue"), "utf8");
         const indexPage = await readFile(resolve(applicationRoot, "app/pages/index.vue"), "utf8");
-        const welcome = await readFile(resolve(applicationRoot, "app/components/markdown-studio/MarkdownStudioWelcome.vue"), "utf8");
+        const chrome = await readFile(resolve(applicationRoot, "app/components/common/DesktopTitleBarChrome.vue"), "utf8");
+        const welcome = await readFile(resolve(applicationRoot, "app/components/editor-workbench/EditorWelcome.vue"), "utf8");
 
         expect(titleBar).toContain("useWorkbenchChrome");
-        expect(titleBar).toContain("resolveTitleBarMenuPresentation");
-        expect(titleBar).toContain("ResizeObserver");
-        expect(titleBar).toContain("titlebar-area-width");
-        expect(titleBar).toContain('data-titlebar-action="project-switcher"');
-        expect(titleBar).toContain("data-titlebar-search");
-        expect(titleBar).toContain('data-titlebar-action="toggle-agent-panel"');
-        expect(titleBar).toContain(':data-project-root="item.projectRoot ?? \'\'"');
+        expect(chrome).toContain("resolveTitleBarMenuPresentation");
+        expect(chrome).toContain("ResizeObserver");
+        expect(chrome).toContain("titlebar-area-width");
+        expect(chrome).toContain('data-titlebar-action="project-switcher"');
+        expect(chrome).toContain("data-titlebar-search");
+        expect(chrome).toContain('data-titlebar-action="toggle-agent-panel"');
+        expect(chrome).toContain(':data-project-root="item.projectRoot ?? \'\'"');
         expect(titleBar).toContain("openBookshelf");
         expect(titleBar).toContain("switchProject");
         expect(titleBar).toContain("toggleAgentPanel");
-        expect(titleBar).not.toContain("toggleLayoutMode");
-        expect(titleBar).not.toContain("toggleStudioPanel");
-        expect(titleBar).toContain("grid-template-columns: auto minmax(120px, 1fr) auto auto");
-        expect(titleBar).toContain("compactMenuItemKeydown");
-        expect(titleBar).not.toContain("color-mix(in srgb, var(--bg-main) 92%, transparent)");
-        expect(indexPage).toContain("agentPanelMaxWidth");
+        expect(chrome).not.toContain("toggleLayoutMode");
+        expect(chrome).not.toContain("toggleStudioPanel");
+        expect(chrome).toContain("grid-template-columns: auto minmax(120px, 1fr) auto auto");
+        expect(chrome).toContain("compactMenuButtonKeydown");
+        expect(chrome).not.toContain("color-mix(in srgb, var(--bg-main) 92%, transparent)");
+        // 智能体面板已并入工作台的 Part 宿主：尺寸由 Part 状态管理，页面只决定开关与窄屏覆盖形态。
+        expect(indexPage).toContain("WorkbenchPartHost");
         expect(indexPage).toContain("agentPanelOverlay");
-        expect(indexPage).toContain("data-agent-panel");
+        expect(indexPage).toContain("agentSurfaceActive");
         expect(welcome).toContain("welcome-action-grid");
         expect(welcome).not.toContain("studio-agent-modes-grid");
         expect(welcome).not.toContain("welcome-agent-card");
