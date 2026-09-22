@@ -16,6 +16,8 @@ export const NB_Z_INDEX = {
     notification: 9001,
     /** 右键菜单；子菜单用 contextMenu + 1 */
     contextMenu: 9100,
+    /** S4 全局命令面板角色：QuickInput 的遮罩与面板同档，面板在后绘制 */
+    commandPalette: 9200,
 } as const;
 
 /** DialogWindow 内容树中的局部浮层层级；未提供时回退到普通页面浮层层级。 */

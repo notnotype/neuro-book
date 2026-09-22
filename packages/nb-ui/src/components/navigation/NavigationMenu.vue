@@ -109,12 +109,8 @@ const emit = defineEmits<{
             <NavigationMenuViewport
                 :style="{
                     zIndex: NB_Z_INDEX.popover,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 90%, transparent)',
-                    backdropFilter: 'blur(20px) saturate(140%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(140%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 12px 32px -4px color-mix(in srgb, var(--shadow-color) 26%, transparent)',
                 }"
-                class="relative mt-2 h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-hidden rounded-[var(--radius-panel)] transition-[width,height] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] md:w-[var(--reka-navigation-menu-viewport-width)]"
+                class="nb-ui-popover-surface nb-ui-menu-surface relative mt-2 h-[var(--reka-navigation-menu-viewport-height)] w-full origin-[top_center] overflow-hidden transition-[width,height] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] md:w-[var(--reka-navigation-menu-viewport-width)]"
             />
         </div>
     </NavigationMenuRoot>

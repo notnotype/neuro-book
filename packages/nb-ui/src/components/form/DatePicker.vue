@@ -81,10 +81,6 @@ function handleClear(): void {
                 :side-offset="6"
                 :style="{
                     zIndex: popoverZIndex,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 90%, transparent)',
-                    backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 24%, transparent)',
                 }"
                 class="nb-ui-popover-surface nb-ui-popover-motion rounded-[var(--radius-panel)] p-2 text-[var(--text-main)] outline-none select-none"
                 @close-auto-focus="(e) => e.preventDefault()"

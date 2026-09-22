@@ -93,6 +93,11 @@ const RULES: Rule[] = [
         pattern: /\btransition-all\b|transition\s*:\s*all\b/,
         reason: "transition 属性列表必须显式（design-language.md 动效节）",
     },
+    {
+        name: "浮层材质统一走 token 与 composable，禁内联写死 backdropFilter/boxShadow/surface",
+        pattern: /\b(?:backdropFilter|WebkitBackdropFilter)\s*:|\bbackgroundColor\s*:\s*['"]color-mix\(in srgb, var\(--bg-panel\)/,
+        reason: "浮层材质必须统一消费 --overlay-surface / --overlay-blur / --elevation-popover 或 useDropdownSurfaceStyle / useDropdownFloating（ui-development-spec §9）",
+    },
 ];
 
 function violationsFor(rule: Rule, files: string[]): string[] {

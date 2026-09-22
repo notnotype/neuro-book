@@ -15,13 +15,17 @@ import type {
     GridRefEncoder,
     GridRefResolver,
     GridRestoreResult,
+    GridSizing,
     GridSnapshot,
     GridSnapshotNode,
+    SashCollapseState,
 } from "./grid-types";
 import {GRID_LEGACY_SNAPSHOT_VERSION, GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION} from "./grid-types";
-import {UNBOUNDED_EXTENT, ZERO_EXTENT, axisOf, normExtent, readExtent} from "./grid-geometry";
+import {UNBOUNDED_EXTENT, ZERO_EXTENT, axisOf, normCollapse, normExtent, readExtent} from "./grid-geometry";
 
-type ConstraintIndex = Map<string, {minimumSize: GridExtent; maximumSize: GridExtent}>;
+type RuntimeRecord = {minimumSize: GridExtent; maximumSize: GridExtent; sizing?: GridSizing; collapse?: SashCollapseState};
+
+type ConstraintIndex = Map<string, RuntimeRecord>;
 
 export function serializeTree<T>(root: GridNode<T> | null, encodeRef?: GridRefEncoder<T>): GridSnapshot {
     const toSnapshot = (node: GridNode<T>): GridSnapshotNode => {
@@ -43,8 +47,8 @@ export function serializeTree<T>(root: GridNode<T> | null, encodeRef?: GridRefEn
 }
 
 /**
- * 当前树里各节点的约束：快照不带运行期约束，恢复必须回落到**当前宿主**（分支按 id、叶按 id；
- * 叶优先用解析器给出的当前约束）。意图不在这里回填——意图来自快照，夹取只发生在呈现层。
+ * 当前树里各节点的运行期信息：快照不带约束、`sizing` 与收起策略，恢复必须回落到**当前宿主**
+ * （分支按 id、叶按 id；叶优先用解析器给出的当前值）。意图不在这里回填——来自快照，夹取只发生在呈现层。
  */
 function currentConstraints<T>(current: GridNode<T> | null): {branches: ConstraintIndex; leaves: ConstraintIndex} {
     const branches: ConstraintIndex = new Map();
@@ -53,12 +57,17 @@ function currentConstraints<T>(current: GridNode<T> | null): {branches: Constrai
         if (!node) {
             return;
         }
-        const bounds = {minimumSize: {...node.minimumSize}, maximumSize: {...node.maximumSize}};
+        const record: RuntimeRecord = {
+            minimumSize: {...node.minimumSize},
+            maximumSize: {...node.maximumSize},
+            sizing: node.sizing,
+            ...(node.collapse === undefined ? {} : {collapse: {...node.collapse}}),
+        };
         if (node.kind === "leaf") {
-            leaves.set(node.id, bounds);
+            leaves.set(node.id, record);
             return;
         }
-        branches.set(node.id, bounds);
+        branches.set(node.id, record);
         node.children.forEach(walk);
     };
     walk(current);
@@ -134,10 +143,21 @@ export function parseSnapshot<T>(
             }
             const minimumSize = normExtent(resolved.minimumSize, constraints.leaves.get(candidate.id)?.minimumSize ?? ZERO_EXTENT);
             const maximumSize = normExtent(resolved.maximumSize, constraints.leaves.get(candidate.id)?.maximumSize ?? UNBOUNDED_EXTENT);
+            const sizing = resolved.sizing ?? constraints.leaves.get(candidate.id)?.sizing ?? "weight";
+            const collapse = normCollapse(resolved.collapse ?? constraints.leaves.get(candidate.id)?.collapse);
             if (parentAxis && (size[parentAxis] < minimumSize[parentAxis] || size[parentAxis] > maximumSize[parentAxis])) {
                 clamped.push(candidate.id);
             }
-            return {kind: "leaf", id: candidate.id, ref: resolved.ref, size, minimumSize, maximumSize};
+            return {
+                kind: "leaf",
+                id: candidate.id,
+                ref: resolved.ref,
+                size,
+                minimumSize,
+                maximumSize,
+                sizing,
+                ...(collapse === undefined ? {} : {collapse}),
+            };
         }
         if (candidate.kind === "branch") {
             if (candidate.orientation !== "horizontal" && candidate.orientation !== "vertical") {
@@ -172,6 +192,8 @@ export function parseSnapshot<T>(
                 size,
                 minimumSize: declared?.minimumSize ?? {...ZERO_EXTENT},
                 maximumSize: declared?.maximumSize ?? {...UNBOUNDED_EXTENT},
+                sizing: declared?.sizing ?? "weight",
+                ...(declared?.collapse === undefined ? {} : {collapse: {...declared.collapse}}),
                 children,
             };
         }

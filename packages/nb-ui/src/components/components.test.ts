@@ -45,6 +45,7 @@ import Panel from "./layout/Panel.vue";
 import ScrollArea from "./layout/ScrollArea.vue";
 import Separator from "./layout/Separator.vue";
 import Splitter from "./layout/Splitter.vue";
+import type {SplitterGestureState} from "./layout/splitter-gesture";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
 import NavigationMenu from "./navigation/NavigationMenu.vue";
 import Tree from "./navigation/Tree.vue";
@@ -1323,13 +1324,13 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders splitter panels and resize handle", () => {
+    it("renders splitter panels in px with separator semantics", async () => {
         const wrapper = mount(Splitter, {
             props: {
                 direction: "horizontal",
                 panels: [
-                    {id: "sidebar", defaultSize: 25},
-                    {id: "editor", defaultSize: 75},
+                    {id: "sidebar", defaultSizePx: 240},
+                    {id: "editor", defaultSizePx: 760},
                 ],
             },
             slots: {
@@ -1337,9 +1338,38 @@ describe("nb-ui dialog anatomy", () => {
                 "panel-editor": "<div>正文内容</div>",
             },
         });
+        await nextTick();
 
         expect(wrapper.text()).toContain("侧边栏内容");
         expect(wrapper.text()).toContain("正文内容");
+
+        // 容器测不到尺寸（happy-dom 没有布局引擎）：按声明的 px 分配，1px sash 之外的面板空间是 999px
+        const panels = wrapper.findAll("[data-panel-id]");
+        expect(wrapper.attributes("data-splitter")).toBe("panels");
+        expect(panels.map((panel) => panel.attributes("data-panel-id"))).toEqual(["sidebar", "editor"]);
+        expect(panels.map((panel) => panel.attributes("data-state"))).toEqual(["expanded", "expanded"]);
+        const widths = panels.map((panel) => Number.parseFloat((panel.element as HTMLElement).style.width));
+        expect(widths[0]!).toBeCloseTo(239.76, 2);
+        expect(widths[1]!).toBeCloseTo(759.24, 2);
+
+        // 分隔线用 px 发布可访问范围，且 aria-controls 指向前侧面板
+        const sash = wrapper.get("[data-sash='panels:0']");
+        expect(sash.attributes("role")).toBe("separator");
+        expect(sash.attributes("aria-orientation")).toBe("vertical");
+        expect(sash.attributes("aria-controls")).toBe(panels[0]!.attributes("id"));
+        expect(sash.attributes("aria-valuenow")).toBe("240");
+        expect(sash.attributes("aria-valuemax")).toBe("1000");
+        expect(sash.attributes("aria-valuetext")).toBe("240 像素");
+
+        // 键盘调整走同一 px 口径：一次 ArrowRight 提交 10px
+        await sash.trigger("keydown", {key: "ArrowRight"});
+        await sash.trigger("keyup", {key: "ArrowRight"});
+        await nextTick();
+        const gesture = wrapper.emitted("gesture-end")?.at(-1)?.[0] as SplitterGestureState;
+        expect(gesture.source).toBe("keyboard");
+        expect(gesture.active).toEqual(["sidebar", "editor"]);
+        expect(gesture.sizesPx[0]! - 239.76).toBeCloseTo(10, 5);
+        expect(Number.parseFloat((panels[0]!.element as HTMLElement).style.width)).toBeCloseTo(249.76, 2);
         wrapper.unmount();
     });
 
@@ -1523,6 +1553,51 @@ describe("nb-ui dialog anatomy", () => {
         }
     });
 
+
+    it("emits closed once after the alert dialog content is gone and focus is back", async () => {
+        const wrapper = mount(AlertDialog, {
+            attachTo: document.body,
+            props: {
+                title: "删除章节确认",
+                description: "此操作无法恢复",
+                confirmText: "确认删除",
+            },
+            slots: {
+                trigger: "<button>删除章节</button>",
+            },
+        });
+        vi.useFakeTimers();
+        try {
+            const trigger = document.body.querySelector<HTMLButtonElement>("[aria-haspopup='dialog']");
+            expect(trigger).not.toBeNull();
+            trigger?.focus();
+            trigger?.click();
+            await nextTick();
+            await nextTick();
+            expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull();
+
+            const cancel = [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+                .find((button) => button.textContent?.trim() === "取消");
+            expect(cancel).not.toBeUndefined();
+            cancel?.click();
+            // 关闭交接是「微任务 → 下一宏任务」：排在 Reka FocusScope 卸载清理之后
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            await nextTick();
+
+            expect(wrapper.emitted("closed")).toHaveLength(1);
+            expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+            expect(document.activeElement).toBe(trigger);
+
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(wrapper.emitted("closed")).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
+    });
 
     it("renders pin input with specified number of cells", () => {
         const wrapper = mount(PinInput, {

@@ -19,13 +19,13 @@ export default defineConfig({
     workers: 1,
     reporter: [["list"]],
     use: {
-        baseURL: `http://localhost:${port}`,
+        baseURL: `http://127.0.0.1:${port}`,
         trace: "retain-on-failure",
     },
     projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
     webServer: {
         command: `node ../../node_modules/nuxt/bin/nuxt.mjs dev playground --port ${port}`,
-        url: `http://localhost:${port}/`,
+        url: `http://127.0.0.1:${port}/`,
         reuseExistingServer,
         timeout: 120_000,
     },

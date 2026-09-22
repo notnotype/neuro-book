@@ -20,6 +20,7 @@ import DateRangePickerFixture from "./fixtures/DateRangePickerFixture.vue";
 import DialogWindowFixture from "./fixtures/DialogWindowFixture.vue";
 import DropdownFixture from "./fixtures/DropdownFixture.vue";
 import DrawerFixture from "./fixtures/DrawerFixture.vue";
+import DropIndicatorFixture from "./fixtures/DropIndicatorFixture.vue";
 import EditableFixture from "./fixtures/EditableFixture.vue";
 import FormCheckboxFixture from "./fixtures/FormCheckboxFixture.vue";
 import FormInputFixture from "./fixtures/FormInputFixture.vue";
@@ -35,6 +36,7 @@ import PaginationFixture from "./fixtures/PaginationFixture.vue";
 import PinInputFixture from "./fixtures/PinInputFixture.vue";
 import PopoverFixture from "./fixtures/PopoverFixture.vue";
 import ProgressFixture from "./fixtures/ProgressFixture.vue";
+import QuickInputFixture from "./fixtures/QuickInputFixture.vue";
 import RadioGroupFixture from "./fixtures/RadioGroupFixture.vue";
 import RangeCalendarFixture from "./fixtures/RangeCalendarFixture.vue";
 import RatingFixture from "./fixtures/RatingFixture.vue";
@@ -78,6 +80,7 @@ const theme = useTheme();
 const colorway = useColorway();
 
 const fixtures: Record<LabComponentId, any> = {
+    "drop-indicator": DropIndicatorFixture,
     "form-input": FormInputFixture,
     "form-number-input": FormNumberInputFixture,
     "form-select": FormSelectFixture,
@@ -127,6 +130,7 @@ const fixtures: Record<LabComponentId, any> = {
     "dialog-window": DialogWindowFixture,
     "popover": PopoverFixture,
     "alert-dialog": AlertDialogFixture,
+    "quick-input": QuickInputFixture,
     "drawer": DrawerFixture,
 };
 

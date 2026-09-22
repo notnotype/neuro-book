@@ -1,4 +1,4 @@
-import {computed, onBeforeUnmount, ref} from "vue";
+import {computed, getCurrentInstance, onBeforeUnmount, ref} from "vue";
 
 /**
  * 悬浮 macOS 胶囊滚动条与智能双向渐隐感知 composable。
@@ -61,6 +61,11 @@ export function useFloatingScrollbar(options: FloatingScrollbarOptions = {}) {
         viewportEl.value = domEl;
         if (domEl) {
             syncScrollbar(domEl);
+            if (typeof requestAnimationFrame !== "undefined") {
+                requestAnimationFrame(() => {
+                    if (viewportEl.value) syncScrollbar(viewportEl.value);
+                });
+            }
             if (typeof ResizeObserver !== "undefined") {
                 resizeObserver = new ResizeObserver(() => {
                     syncScrollbar(domEl);
@@ -109,14 +114,16 @@ export function useFloatingScrollbar(options: FloatingScrollbarOptions = {}) {
         window.removeEventListener("mouseup", handleThumbMouseUp);
     }
 
-    onBeforeUnmount(() => {
-        if (resizeObserver) {
-            resizeObserver.disconnect();
-            resizeObserver = null;
-        }
-        window.removeEventListener("mousemove", handleThumbMouseMove);
-        window.removeEventListener("mouseup", handleThumbMouseUp);
-    });
+    if (getCurrentInstance()) {
+        onBeforeUnmount(() => {
+            if (resizeObserver) {
+                resizeObserver.disconnect();
+                resizeObserver = null;
+            }
+            window.removeEventListener("mousemove", handleThumbMouseMove);
+            window.removeEventListener("mouseup", handleThumbMouseUp);
+        });
+    }
 
     const scrollFadeClass = computed(() => {
         if (!isScrollable.value) return "";

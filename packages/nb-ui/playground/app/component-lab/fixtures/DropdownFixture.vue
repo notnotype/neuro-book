@@ -69,10 +69,90 @@ const longItems: DropdownItem[] = [
 
 const controls = ref<Record<string, string | boolean>>({});
 
+// 一层子菜单：父项只展开不执行，子项里受控 radio 的勾选完全来自下面这两个 ref
+const panelPosition = ref("bottom");
+const panelAlignment = ref("align-center");
+
+const submenuItems = computed<DropdownItem[]>(() => [
+    {
+        label: "面板位置",
+        value: "panel-position",
+        iconClass: "i-lucide-panel-bottom",
+        children: [
+            {label: "底部", value: "bottom", type: "radio", group: "panel-position", checked: panelPosition.value === "bottom"},
+            {label: "顶部", value: "top", type: "radio", group: "panel-position", checked: panelPosition.value === "top"},
+            {label: "左侧", value: "left", type: "radio", group: "panel-position", checked: panelPosition.value === "left"},
+            {label: "右侧", value: "right", type: "radio", group: "panel-position", checked: panelPosition.value === "right"},
+        ],
+    },
+    {
+        label: "面板对齐",
+        value: "panel-alignment",
+        iconClass: "i-lucide-align-start-vertical",
+        children: [
+            {label: "居中", value: "align-center", type: "radio", group: "panel-alignment", checked: panelAlignment.value === "align-center"},
+            {label: "左对齐", value: "align-left", type: "radio", group: "panel-alignment", checked: panelAlignment.value === "align-left"},
+            {label: "右对齐", value: "align-right", type: "radio", group: "panel-alignment", checked: panelAlignment.value === "align-right"},
+            {label: "两端对齐", value: "justify", type: "radio", group: "panel-alignment", checked: panelAlignment.value === "justify"},
+        ],
+    },
+    {label: "", value: "sep-submenu", separator: true},
+    {label: "隐藏面板", value: "hide-panel", iconClass: "i-lucide-eye-off"},
+]);
+
+// 受控勾选：勾选态由下面两个 ref 持有，组件只把选中的 value 发回来
+const gridSnap = ref(true);
+const rulerVisible = ref(false);
+
+const checkedItems = computed<DropdownItem[]>(() => [
+    {label: "网格吸附", value: "grid-snap", type: "checkbox", checked: gridSnap.value},
+    {label: "显示标尺", value: "ruler", type: "checkbox", checked: rulerVisible.value},
+    {label: "", value: "sep-checked", separator: true},
+    {label: "居中", value: "align-center", type: "radio", group: "alignment", checked: panelAlignment.value === "align-center"},
+    {label: "左对齐", value: "align-left", type: "radio", group: "alignment", checked: panelAlignment.value === "align-left"},
+    {label: "右对齐（不可用）", value: "align-right", type: "radio", group: "alignment", checked: panelAlignment.value === "align-right", disabled: true},
+]);
+
+/** 子菜单与受控场景的 value 归属：菜单只发 value，写回哪个 ref 由宿主查表。 */
+const panelValueTargets: Record<string, "position" | "alignment"> = {
+    bottom: "position",
+    top: "position",
+    left: "position",
+    right: "position",
+    "align-center": "alignment",
+    "align-left": "alignment",
+    "align-right": "alignment",
+    justify: "alignment",
+};
+
+// 受控展开：菜单开没开由宿主说了算，触发器只上报 update:open
+const controlledOpen = ref(false);
+
+const controlledItems: DropdownItem[] = [
+    {label: "重命名章节", value: "rename", iconClass: "i-lucide-pencil"},
+    {label: "导出为纯文本", value: "export", iconClass: "i-lucide-file-down"},
+    {label: "", value: "sep-controlled", separator: true},
+    {label: "删除章节", value: "delete", iconClass: "i-lucide-trash-2", tone: "danger"},
+];
+
 function handleSelect(val: string): void {
     lastAction.value = val;
     actionCount.value++;
     report("select", {value: val, count: actionCount.value});
+}
+
+function selectPanelValue(value: string): void {
+    const target = panelValueTargets[value];
+    if (target === "position") panelPosition.value = value;
+    if (target === "alignment") panelAlignment.value = value;
+    handleSelect(value);
+}
+
+function selectCheckedValue(value: string): void {
+    if (value === "grid-snap") gridSnap.value = !gridSnap.value;
+    if (value === "ruler") rulerVisible.value = !rulerVisible.value;
+    if (panelValueTargets[value] === "alignment") panelAlignment.value = value;
+    handleSelect(value);
 }
 
 function resetState(): void {
@@ -81,6 +161,11 @@ function resetState(): void {
     controls.value = defaults;
     lastAction.value = "";
     actionCount.value = 0;
+    panelPosition.value = "bottom";
+    panelAlignment.value = "align-center";
+    gridSnap.value = true;
+    rulerVisible.value = false;
+    controlledOpen.value = false;
 }
 
 function report(name: string, payload?: unknown): void {
@@ -195,60 +280,148 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
             <!-- 下拉菜单展示区 -->
             <div class="stage-box flex flex-col gap-6">
-                <!-- 第一组：标准操作菜单（触发器使用 Secondary 按钮） -->
-                <div class="flex flex-col gap-2">
-                    <span class="text-xs font-semibold text-[var(--text-muted)]">标准操作菜单 (带图标、分隔线与危险项):</span>
-                    <div class="flex items-center gap-3">
-                        <Dropdown
-                            id="nb-lab-target"
-                            :items="standardItems"
-                            :compact="Boolean(controls.compact)"
-                            :popover-style="dynamicPopoverStyle"
-                            menu-class="min-w-[200px]"
-                            @select="handleSelect"
-                        >
-                            <Button variant="secondary" size="md">
-                                <span class="i-lucide-more-horizontal" aria-hidden="true"></span>
-                                操作菜单
-                                <span class="i-lucide-chevron-down text-xs opacity-60" aria-hidden="true"></span>
-                            </Button>
-                        </Dropdown>
+                <!-- 场景一：平面项（标准动作 / 长列表滚动） -->
+                <template v-if="sceneId === 'default'">
+                    <!-- 第一组：标准操作菜单（触发器使用 Secondary 按钮） -->
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-semibold text-[var(--text-muted)]">标准操作菜单 (带图标、分隔线与危险项):</span>
+                        <div class="flex items-center gap-3">
+                            <Dropdown
+                                id="nb-lab-target"
+                                :items="standardItems"
+                                :compact="Boolean(controls.compact)"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[200px]"
+                                @select="handleSelect"
+                            >
+                                <Button variant="secondary" size="md">
+                                    <span class="i-lucide-more-horizontal" aria-hidden="true"></span>
+                                    操作菜单
+                                    <span class="i-lucide-chevron-down text-xs opacity-60" aria-hidden="true"></span>
+                                </Button>
+                            </Dropdown>
 
-                        <!-- 图标按钮触发器 -->
-                        <Dropdown
-                            :items="standardItems"
-                            :compact="Boolean(controls.compact)"
-                            :popover-style="dynamicPopoverStyle"
-                            menu-class="min-w-[200px]"
-                            @select="handleSelect"
-                        >
-                            <IconButton title="更多选项" variant="default" size="md">
-                                <span class="i-lucide-more-vertical" aria-hidden="true"></span>
-                            </IconButton>
-                        </Dropdown>
+                            <!-- 图标按钮触发器 -->
+                            <Dropdown
+                                :items="standardItems"
+                                :compact="Boolean(controls.compact)"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[200px]"
+                                @select="handleSelect"
+                            >
+                                <IconButton title="更多选项" variant="default" size="md">
+                                    <span class="i-lucide-more-vertical" aria-hidden="true"></span>
+                                </IconButton>
+                            </Dropdown>
+                        </div>
                     </div>
-                </div>
 
-                <!-- 第二组：长列表滚动菜单（展示齐腰截半与 4px 悬浮 macOS 滚动条） -->
-                <div class="flex flex-col gap-2">
-                    <span class="text-xs font-semibold text-[var(--text-muted)]">长列表格式菜单 (自适应双向渐隐 + 4px 悬浮滚动条):</span>
-                    <div>
-                        <Dropdown
-                            :items="longItems"
-                            :compact="Boolean(controls.compact)"
-                            :popover-style="dynamicPopoverStyle"
-                            menu-max-height="210px"
-                            menu-class="min-w-[220px]"
-                            @select="handleSelect"
-                        >
-                            <Button variant="primary" size="md">
-                                <span class="i-lucide-type" aria-hidden="true"></span>
-                                插入格式块...
-                                <span class="i-lucide-chevron-down text-xs opacity-75" aria-hidden="true"></span>
-                            </Button>
-                        </Dropdown>
+                    <!-- 第二组：长列表滚动菜单（展示齐腰截半与 4px 悬浮 macOS 滚动条） -->
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-semibold text-[var(--text-muted)]">长列表格式菜单 (自适应双向渐隐 + 4px 悬浮滚动条):</span>
+                        <div>
+                            <Dropdown
+                                :items="longItems"
+                                :compact="Boolean(controls.compact)"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[220px]"
+                                @select="handleSelect"
+                            >
+                                <Button variant="primary" size="md">
+                                    <span class="i-lucide-type" aria-hidden="true"></span>
+                                    插入格式块...
+                                    <span class="i-lucide-chevron-down text-xs opacity-75" aria-hidden="true"></span>
+                                </Button>
+                            </Dropdown>
+                        </div>
                     </div>
-                </div>
+                </template>
+
+                <!-- 场景二：一层子菜单（父项只展开不执行，子项 radio 受控） -->
+                <template v-else-if="sceneId === 'submenu'">
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-semibold text-[var(--text-muted)]">子菜单菜单 (父项只展开、子项 radio 勾选来自宿主):</span>
+                        <div>
+                            <Dropdown
+                                id="nb-lab-target"
+                                :items="submenuItems"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[200px]"
+                                @select="selectPanelValue"
+                            >
+                                <Button variant="secondary" size="md">
+                                    <span class="i-lucide-panel-bottom" aria-hidden="true"></span>
+                                    面板操作
+                                    <span class="i-lucide-chevron-down text-xs opacity-60" aria-hidden="true"></span>
+                                </Button>
+                            </Dropdown>
+                        </div>
+                        <p class="text-xs text-[var(--text-muted)]">
+                            当前面板位置：<strong class="text-[var(--text-main)]">{{ panelPosition }}</strong>
+                            · 对齐：<strong class="text-[var(--text-main)]">{{ panelAlignment }}</strong>
+                            （父项不产生 select，只有子项值会改这里）
+                        </p>
+                    </div>
+                </template>
+
+                <!-- 场景三：受控 radio / checkbox（勾选态只读宿主状态） -->
+                <template v-else-if="sceneId === 'checked'">
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-semibold text-[var(--text-muted)]">受控勾选菜单 (组件只发 value，勾选由宿主改):</span>
+                        <div>
+                            <Dropdown
+                                id="nb-lab-target"
+                                :items="checkedItems"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[200px]"
+                                @select="selectCheckedValue"
+                            >
+                                <Button variant="secondary" size="md">
+                                    <span class="i-lucide-settings-2" aria-hidden="true"></span>
+                                    视图选项
+                                    <span class="i-lucide-chevron-down text-xs opacity-60" aria-hidden="true"></span>
+                                </Button>
+                            </Dropdown>
+                        </div>
+                        <p class="text-xs text-[var(--text-muted)]">
+                            网格吸附：<strong class="text-[var(--text-main)]">{{ gridSnap ? "开" : "关" }}</strong>
+                            · 标尺：<strong class="text-[var(--text-main)]">{{ rulerVisible ? "开" : "关" }}</strong>
+                            · 对齐：<strong class="text-[var(--text-main)]">{{ panelAlignment }}</strong>
+                            （右对齐项禁用，点了不会有任何变化）
+                        </p>
+                    </div>
+                </template>
+
+                <!-- 场景四：受控 open（宿主决定开与关） -->
+                <template v-else-if="sceneId === 'controlled-open'">
+                    <div class="flex flex-col gap-2">
+                        <span class="text-xs font-semibold text-[var(--text-muted)]">受控展开菜单 (open 由宿主给，触发器只上报 update:open):</span>
+                        <div class="flex items-center gap-3">
+                            <Dropdown
+                                id="nb-lab-target"
+                                :items="controlledItems"
+                                :open="controlledOpen"
+                                :popover-style="dynamicPopoverStyle"
+                                menu-class="min-w-[200px]"
+                                @update:open="controlledOpen = $event"
+                                @select="handleSelect"
+                            >
+                                <Button variant="secondary" size="md">
+                                    <span class="i-lucide-list" aria-hidden="true"></span>
+                                    章节操作
+                                    <span class="i-lucide-chevron-down text-xs opacity-60" aria-hidden="true"></span>
+                                </Button>
+                            </Dropdown>
+                            <Button variant="ghost" size="md" @click="controlledOpen = !controlledOpen">
+                                外部{{ controlledOpen ? "关闭" : "打开" }}
+                            </Button>
+                        </div>
+                        <p class="text-xs text-[var(--text-muted)]">
+                            菜单状态：<strong class="text-[var(--text-main)]">{{ controlledOpen ? "展开" : "收起" }}</strong>
+                            （左边按钮的点击只会发 update:open，真正改变状态的始终是宿主）
+                        </p>
+                    </div>
+                </template>
 
                 <!-- 交互状态反馈区 -->
                 <div v-if="lastAction" class="flex items-center justify-between p-2.5 rounded-lg bg-[color-mix(in_srgb,var(--accent-main)_8%,transparent)] border border-[color-mix(in_srgb,var(--accent-main)_20%,transparent)]">

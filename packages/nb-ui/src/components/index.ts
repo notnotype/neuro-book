@@ -29,17 +29,23 @@ export {default as HoverCard} from "./feedback/HoverCard.vue";
 export {default as Notification} from "./feedback/Notification.vue";
 export {default as NotificationViewport} from "./feedback/NotificationViewport.vue";
 export {default as Popover} from "./feedback/Popover.vue";
+export {default as QuickInput} from "./feedback/QuickInput.vue";
 export {default as Tooltip} from "./feedback/Tooltip.vue";
 export {default as Accordion} from "./layout/Accordion.vue";
 export {default as AspectRatio} from "./layout/AspectRatio.vue";
 export {default as Collapsible} from "./layout/Collapsible.vue";
 export {default as CollapsibleSection} from "./layout/CollapsibleSection.vue";
+export {default as DropFeedbackOverlay} from "./layout/DropFeedbackOverlay.vue";
+export {default as DropIndicator} from "./layout/DropIndicator.vue";
+export {default as DropIndicatorLabel} from "./layout/DropIndicatorLabel.vue";
 export {default as Panel} from "./layout/Panel.vue";
 export {default as ScrollArea} from "./layout/ScrollArea.vue";
 export {default as Separator} from "./layout/Separator.vue";
 export {default as Splitter} from "./layout/Splitter.vue";
-// 可序列化拆分树：领域无关的布局原语（Workbench 外壳与将来的 EditorPart 共用）
+export {default as GridRenderer} from "./layout/GridRenderer.vue";
+// 可序列化拆分树：领域无关的布局原语（Workbench 外壳与编辑器工作区共用）
 export * from "./layout/grid";
+export * from "./layout/grid-splitter";
 export {default as Breadcrumb} from "./navigation/Breadcrumb.vue";
 export {default as FileTree} from "./navigation/FileTree.vue";
 export {default as NavigationMenu} from "./navigation/NavigationMenu.vue";
@@ -75,7 +81,7 @@ export {default as YearPicker} from "./form/YearPicker.vue";
 export {default as YearRangePicker} from "./form/YearRangePicker.vue";
 
 export type {ButtonSize, ButtonVariant} from "./controls/Button.vue";
-export type {DropdownItem} from "./controls/dropdown.types";
+export type {DropdownItem, DropdownItemType} from "./controls/dropdown.types";
 export type {EditableSize} from "./controls/Editable.vue";
 export type {IconButtonSize, IconButtonVariant} from "./controls/IconButton.vue";
 export type {MenubarItemData, MenubarMenuData} from "./controls/Menubar.vue";
@@ -98,12 +104,23 @@ export type {AlertDialogTone} from "./feedback/AlertDialog.vue";
 export type {ContextMenuItem} from "./feedback/context-menu.types";
 export type {DrawerDirection} from "./feedback/Drawer.vue";
 export type {NotificationTone} from "./feedback/Notification.vue";
+export type {QuickInputCloseReason, QuickInputItem, QuickInputProps} from "./feedback/QuickInput.vue";
 export type {NotificationPosition} from "./feedback/NotificationViewport.vue";
 export type {TooltipPlacement} from "./feedback/Tooltip.vue";
 export type {AccordionItemData} from "./layout/Accordion.vue";
+export type {DropFeedbackPreview} from "./layout/DropFeedbackOverlay.vue";
+export type {DropIndicatorVariant} from "./layout/DropIndicator.vue";
 export type {PanelPadding, PanelTone} from "./layout/Panel.vue";
 export type {ScrollAreaOrientation, ScrollAreaType} from "./layout/ScrollArea.vue";
 export type {SplitterPanelConfig} from "./layout/Splitter.vue";
+export type {
+    GridBranchChange,
+    GridGestureCommit,
+    GridGesturePreview,
+} from "./layout/grid-gesture";
+export {
+    createGridGestureSession,
+} from "./layout/grid-gesture";
 export type {
     SplitterGestureCancellation,
     SplitterGestureCancelReason,

@@ -616,6 +616,10 @@ editorial 同裸基线。这些数值是**目测决定，没有可引的规范**
    挂在浮层基座（`.nb-ui-popover-surface`）之上。已有自己过渡的浮层
    （Combobox / ContextMenu / Tooltip / DialogWindow / TimePicker / Dialog）不挂它，
    避免两层动画叠加；它们的配方同样服从本节第 1–3 条。
+6. **模态命令浮层（S4）关闭不带走动画。** 退场动画会把「下一层什么时候拿到焦点/按键」
+   押在 `animationend` 上，交接时刻由动画时长决定而不是状态本身。`QuickInput` 与
+   `AlertDialog` 关闭时立即卸载，把「关闭完成」交给原语的真实卸载事件（`closed`）表达；
+   宿主在收到该事件后才执行命令或激活下一个交互层。入场仍走第 1 条配方。
 
 ### 禁条
 

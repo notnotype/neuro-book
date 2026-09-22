@@ -9,6 +9,7 @@
         ".": "./src/index.ts",
         "./nuxt": "./src/module.ts",
         "./components": "./src/components/index.ts",
+        "./layout": "./src/components/layout/index.ts",
         "./composables": "./src/composables/index.ts",
         "./colorway": "./src/colorway/index.ts",
         "./theme": "./src/theme/index.ts",

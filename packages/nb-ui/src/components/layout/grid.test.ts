@@ -509,6 +509,96 @@ describe("拆分树原语：结构", () => {
     });
 });
 
+describe("拆分树原语：拆分叶", () => {
+    it("目标在新轴没有分配时两端取同一权重均分", () => {
+        const grid = createGrid<string>(leaf("only", "width", 0), {sashSize: SASH});
+
+        expect(grid.splitLeaf("only", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}})).toEqual({ok: true});
+        const root = grid.root();
+        expect(root?.kind === "branch" ? root.children.map((child) => child.id) : []).toEqual(["only", "added"]);
+        const sizes = grid.layout({width: 1001, height: 600}).sizes;
+
+        expect(extent(sizes, "only").width).toBeCloseTo(500);
+        expect(extent(sizes, "added").width).toBeCloseTo(500);
+    });
+
+    it("side=before 把新叶放在前，两半按 ratio 分掉目标原本的分配", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("left", "width", 300), leaf("editor", "width", 700),
+        ]), {sashSize: SASH});
+
+        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "before", ratio: 0.25, leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
+        const pair = grid.find("pair");
+        expect(pair?.kind === "branch" ? pair.children.map((child) => child.id) : []).toEqual(["added", "editor"]);
+        const sizes = grid.layout({width: 1001, height: 600}).sizes;
+
+        expect(extent(sizes, "left").width).toBe(300);
+        // pair 拿到 700，扣掉内层 1px sash 后按 175:525 权重分
+        expect(extent(sizes, "added").width).toBeCloseTo(174.75);
+        expect(extent(sizes, "editor").width).toBeCloseTo(524.25);
+    });
+
+    it("垂直拆分只分掉目标列的高度，外层另一列宽度不变", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("left", "width", 300), leaf("editor", "width", 700),
+        ]), {sashSize: SASH});
+
+        expect(grid.splitLeaf("editor", {branchId: "stack", orientation: "vertical", side: "after", leaf: {kind: "leaf", id: "below", ref: "below"}}).ok).toBe(true);
+        const sizes = grid.layout({width: 1001, height: 601}).sizes;
+
+        expect(extent(sizes, "left").width).toBe(300);
+        expect(extent(sizes, "editor").width).toBe(700);
+        expect(extent(sizes, "editor").height).toBe(300);
+        expect(extent(sizes, "below").height).toBe(300);
+    });
+
+    it("重复身份、非叶目标、非法比例与未知目标都失败且不改树", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const before = grid.serialize();
+        const added = {kind: "leaf", id: "added", ref: "added"} as const;
+        const split = {branchId: "pair", orientation: "horizontal", side: "after"} as const;
+
+        expect(grid.splitLeaf("nope", {...split, leaf: added}).ok).toBe(false);
+        expect(grid.splitLeaf("root", {...split, leaf: added}).ok).toBe(false);
+        expect(grid.splitLeaf("left", {...split, leaf: {kind: "leaf", id: "left", ref: "left"}}).ok).toBe(false);
+        expect(grid.splitLeaf("left", {...split, branchId: "left", leaf: added}).ok).toBe(false);
+        expect(grid.splitLeaf("left", {...split, ratio: 0, leaf: added}).ok).toBe(false);
+        expect(grid.splitLeaf("left", {...split, ratio: 1, leaf: added}).ok).toBe(false);
+        expect(grid.splitLeaf("left", {...split, ratio: Number.NaN, leaf: added}).ok).toBe(false);
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("拆分后的树可按快照往返，新边界继续参与原子调整", () => {
+        const grid = createGrid(branch("root", "width", "horizontal", 0, [
+            leaf("left", "width", 300), leaf("editor", "width", 700),
+        ]), {sashSize: SASH});
+        expect(grid.splitLeaf("editor", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}}).ok).toBe(true);
+
+        const restored = createGrid<string>(null, {sashSize: SASH});
+        expect(restored.restore(grid.serialize(), (ref) => ({ref})).ok).toBe(true);
+        expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(349.5);
+        expect(restored.resizeBranch("pair", "width", {editor: 349.5, added: 349.5}, {editor: 300, added: 399}).ok).toBe(true);
+        expect(extent(restored.layout({width: 1001, height: 600}).sizes, "added").width).toBeCloseTo(399);
+    });
+
+    it("节点数与深度上限在结构操作阶段就拒绝", () => {
+        const many = createGrid(branch("root", "width", "horizontal", 0, Array.from({length: GRID_MAX_NODES - 2}, (_, index) => leaf(`n${index}`, "width", 1))));
+        expect(many.addLeaf("root", 0, leaf("extra", "width", 1)).ok).toBe(true);
+        expect(many.addLeaf("root", 0, leaf("extra2", "width", 1)).ok).toBe(false);
+        const crowded = many.splitLeaf("n0", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
+        expect(crowded.ok).toBe(false);
+        expect(crowded.ok === false && crowded.reason).toContain("节点数");
+
+        let deep: GridNodeInput<string> = leaf("deep-end", "width", 1);
+        for (let index = GRID_MAX_DEPTH - 1; index >= 1; index -= 1) {
+            deep = branch(`d${index}`, "width", "horizontal", 0, [deep]);
+        }
+        const nested = createGrid(deep).splitLeaf("deep-end", {branchId: "pair", orientation: "horizontal", side: "after", leaf: {kind: "leaf", id: "added", ref: "added"}});
+        expect(nested.ok).toBe(false);
+        expect(nested.ok === false && nested.reason).toContain("嵌套深度");
+    });
+});
+
 describe("拆分树原语：快照", () => {
     const resolvable = (ref: string) => ({ref});
 
@@ -696,5 +786,137 @@ describe("拆分树原语：快照", () => {
         walk(serialized);
         expect([...keys].sort()).toEqual(["children", "height", "id", "kind", "orientation", "ref", "root", "size", "version", "width"]);
         expect(JSON.stringify(serialized)).not.toContain("maximumSize");
+    });
+});
+
+/** 可收起侧栏 + 编辑区：外壳主行的形状（fixed 侧栏保留像素，编辑区吸收余量）。 */
+function shellRow(): GridBranchInput<string> {
+    return {
+        kind: "branch",
+        id: "body",
+        orientation: "horizontal",
+        size: {width: 0, height: 0},
+        children: [
+            {
+                kind: "leaf",
+                id: "left",
+                ref: "left",
+                size: {width: 340, height: 0},
+                minimumSize: {width: 280, height: 0},
+                maximumSize: {width: 560, height: UNBOUNDED},
+                sizing: "fixed",
+                collapse: {collapsedSize: 0, restoreSize: 340, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
+            },
+            {kind: "leaf", id: "editor", ref: "editor", size: {width: 700, height: 0}, minimumSize: {width: 120, height: 0}},
+        ],
+    };
+}
+
+describe("拆分树原语：批量原子调整与收起", () => {
+    it("fixed 侧栏保留像素宽度，编辑区吸收容器变化", () => {
+        const grid = createGrid(shellRow(), {sashSize: SASH});
+        const wide = grid.layout({width: 1480, height: 600}).sizes;
+        expect(extent(wide, "left").width).toBe(340);
+        expect(extent(wide, "editor").width).toBe(1139);
+
+        const narrow = grid.layout({width: 900, height: 600}).sizes;
+        expect(extent(narrow, "left").width).toBe(340);
+        expect(extent(narrow, "editor").width).toBe(559);
+    });
+
+    it("批量提交：父分支与子分支在同一场手势里一起成功", () => {
+        const grid = createGrid({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            size: {width: 0, height: 0},
+            children: [leaf("left", "width", 300), branch("side", "width", "vertical", 699, [leaf("top", "height", 400), leaf("bottom", "height", 299)])],
+        }, {sashSize: SASH});
+        const before = grid.layout(CONTAINER).sizes;
+        const sideBaseline = {top: extent(before, "top").height, bottom: extent(before, "bottom").height};
+
+        const result = grid.resizeBranches([
+            {branchId: "root", axis: "width", baseline: {left: 300, side: 699}, target: {left: 250, side: 749}},
+            {
+                branchId: "side",
+                axis: "height",
+                baseline: sideBaseline,
+                target: {top: sideBaseline.top + 60, bottom: sideBaseline.bottom - 60},
+            },
+        ]);
+
+        expect(result.ok).toBe(true);
+        const sizes = grid.layout(CONTAINER).sizes;
+        expect(extent(sizes, "left").width).toBe(250);
+        expect(extent(sizes, "top").height).toBeCloseTo(sideBaseline.top + 60, 6);
+        expect(extent(sizes, "bottom").height).toBeCloseTo(sideBaseline.bottom - 60, 6);
+        expect(extent(sizes, "root").width).toBe(1000);
+    });
+
+    it("任一项不通过时整批不落账", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const before = grid.serialize();
+        const result = grid.resizeBranches([
+            {branchId: "root", axis: "width", baseline: {left: 300, right: 699}, target: {left: 250, right: 749}},
+            {branchId: "right", axis: "height", baseline: {top: 400, bottom: 199}, target: {top: 500, bottom: 199}},
+        ]);
+
+        expect(result.ok).toBe(false);
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("基线失效或目标不守恒都拒绝，不改树", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const before = grid.serialize();
+        expect(grid.resizeBranches([{branchId: "root", axis: "width", baseline: {left: 1, right: 1}, target: {left: 2, right: 0}}]).ok).toBe(false);
+        expect(grid.resizeBranches([{branchId: "root", axis: "width", baseline: {left: 300, right: 699}, target: {left: 400, right: 699}}]).ok).toBe(false);
+        expect(grid.resizeBranches([{branchId: "ghost", axis: "width", baseline: {}, target: {}}]).ok).toBe(false);
+        expect(grid.serialize()).toEqual(before);
+    });
+
+    it("收起随批量一起落账，呈现为 0 占用而意图仍是展开尺寸", () => {
+        const grid = createGrid(shellRow(), {sashSize: SASH});
+        const baseline = grid.layout({width: 1480, height: 600}).sizes;
+        const result = grid.resizeBranches([{
+            branchId: "body",
+            axis: "width",
+            baseline: {left: extent(baseline, "left").width, editor: extent(baseline, "editor").width},
+            target: {left: 0, editor: 1139 + 340},
+            collapsed: {left: true},
+        }]);
+
+        expect(result.ok).toBe(true);
+        if (result.ok) {
+            expect(result.collapsed).toEqual({left: true});
+            // 意图保留展开宽度，绝不写 0
+            expect(extent(result.intents, "left").width).toBe(340);
+        }
+        const sizes = grid.layout({width: 1480, height: 600}).sizes;
+        expect(extent(sizes, "left").width).toBe(0);
+        expect(extent(sizes, "editor").width).toBe(1479);
+    });
+
+    it("收起清掉后收起节点的最小尺寸不再撑开分配", () => {
+        const grid = createGrid(shellRow(), {sashSize: SASH});
+        const baseline = grid.layout({width: 1480, height: 600}).sizes;
+        grid.resizeBranches([{
+            branchId: "body",
+            axis: "width",
+            baseline: {left: extent(baseline, "left").width, editor: extent(baseline, "editor").width},
+            target: {left: 0, editor: 1479},
+            collapsed: {left: true},
+        }]);
+
+        // 容器缩到 400：收起的 left 不占位，editor 拿到全部宽度
+        const sizes = grid.layout({width: 400, height: 600}).sizes;
+        expect(extent(sizes, "left").width).toBe(0);
+        expect(extent(sizes, "editor").width).toBe(399);
+    });
+
+    it("不可收起的节点不能被标记收起", () => {
+        const grid = createGrid(fixture(), {sashSize: SASH});
+        const result = grid.resizeBranches([{branchId: "root", axis: "width", baseline: {left: 300, right: 699}, target: {left: 250, right: 749}, collapsed: {left: true}}]);
+        expect(result.ok).toBe(false);
+        expect(extent(grid.layout(CONTAINER).sizes, "left").width).toBe(300);
     });
 });

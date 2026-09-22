@@ -325,7 +325,6 @@ input.nb-ui-native-input[type="number"] {
     overscroll-behavior: contain;
     scrollbar-width: thin;
     scrollbar-color: color-mix(in srgb, var(--text-main) 24%, transparent) transparent;
-    scrollbar-gutter: stable;
 }
 
 /*
@@ -342,51 +341,59 @@ input.nb-ui-native-input[type="number"] {
  * 库只把三个时长归零，不会替你关掉这个。
  */
 .nb-ui-popover-scroll-fade-top {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 100%
     );
 }
 
 .nb-ui-popover-scroll-fade-bottom {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         #000 0,
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         #000 0,
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
 }
 
 .nb-ui-popover-scroll-fade-both {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
 }
@@ -588,5 +595,76 @@ input.nb-ui-native-input[type="number"] {
     .nb-ui-switch-enter-from,
     .nb-ui-switch-leave-to {
         transform: none;
+    }
+}
+
+/* 仅负责皮肤；落点坐标、尺寸与层级由 Editor/Workbench 等宿主适配。 */
+.nb-ui-drop-indicator,
+.nb-ui-drop-indicator-label {
+    box-sizing: border-box;
+    pointer-events: none;
+    user-select: none;
+}
+
+.nb-ui-drop-indicator[data-drop-indicator="area"],
+.nb-ui-drop-indicator[data-drop-indicator="entry"] {
+    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    box-shadow: var(--elevation-raised);
+    transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.nb-ui-drop-indicator[data-drop-indicator="line"] {
+    border-radius: var(--radius-pill);
+    background: var(--accent-main);
+    box-shadow: 0 0 4px var(--accent-main);
+}
+
+.nb-ui-drop-indicator-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent-main) 40%, transparent);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--panel-surface) 90%, transparent);
+    color: var(--accent-text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    line-height: var(--leading-tight);
+    box-shadow: var(--elevation-raised);
+    backdrop-filter: var(--overlay-blur);
+    -webkit-backdrop-filter: var(--overlay-blur);
+}
+
+.nb-ui-drop-indicator-label__icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+}
+
+.nb-ui-drop-indicator-label__text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-drop-indicator {
+        transition: none !important;
+    }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .nb-ui-drop-indicator-label {
+        background: var(--panel-surface);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
     }
 }

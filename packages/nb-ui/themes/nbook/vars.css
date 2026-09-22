@@ -188,16 +188,15 @@
      */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 26%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 30%, transparent);
-    /* tint 只负责压住对比、保证浮层里的字读得清，层级交给模糊 + 外阴影。
-       38% → 28% → 20% → 14%，四轮都是同一个方向。前三轮的理由是「模糊每收薄一档，tint 就得跟着薄」；
-       这一轮反过来——模糊放厚了，tint 还得再薄一次。因为**这两样东西补的从来不是同一件事**：
-       模糊管背后的字读不读得出，tint 管这块面有多不透明。真正让浮层像塑料板的是后者。 */
-    --overlay-surface: color-mix(in srgb, var(--bg-sidebar) 14%, transparent);
+    /* 浮层 Surface 黄金标准（FormSelect 调优规范）：
+       必须提供一层半透明温润白底（65% --bg-panel）压住对比并保证文字可读性，
+       搭配 8px 高斯模糊 + 130% 饱和度滤波与 4 阶立体柔影，杜绝过薄透明导致的透光干扰与眩光。 */
+    --overlay-surface: color-mix(in srgb, var(--bg-panel) 65%, transparent);
     /* 库的浮层基座（.nb-ui-popover-surface）从这里取磨砂。
        小浮层明确消费 8px 纯 blur，不接完整 SVG 折射：`feDisplacementMap` 会移动边缘的
        backdrop sample，造成用户所说的背景纹理错位。大容器仍可消费 `--glass-lens-strong`。
        镜面角色（--overlay-sheen）显式保持 none：小浮层的面上不画渐变。 */
-    --overlay-blur: blur(8px) saturate(190%) brightness(1.14);
+    --overlay-blur: blur(8px) saturate(130%) brightness(1.0);
     --overlay-sheen: none;
     /*
      * 浮层里「当前项」的填充。库的默认值是配色表里那个**不透明**的 --bg-hover，
@@ -267,11 +266,10 @@
         inset 0 1px 0 rgb(255 255 255 / 0.28),
         0 1px 2px color-mix(in srgb, var(--shadow-color) 20%, transparent);
     --elevation-popover:
-        0 0 0.5px 0.5px color-mix(in srgb, var(--shadow-color) 20%, transparent),
-        inset 0 2px 0.25px -1.5px rgb(255 255 255 / 0.9),
-        inset 0 1px 1.5px -0.5px color-mix(in srgb, var(--shadow-color) 14%, transparent),
-        inset 0 -1px 1.5px -0.5px color-mix(in srgb, var(--shadow-color) 14%, transparent),
-        0 18px 48px color-mix(in srgb, var(--shadow-color) 25%, transparent);
+        0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent),
+        0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent),
+        0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent),
+        0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent);
     /*
      * 对话框那一档的环境投影用 `0 36px 100px / .4`——这是上一轮从同一份文件的 Save Dialog
      * 读到的原值（`0 0 1px rgb(0 0 0/.8), 0 36px 100px rgb(0 0 0/.4)`）。
@@ -345,7 +343,7 @@
     --glass-blur-strong: blur(14px) saturate(190%) brightness(0.72);
     --glass-lens: blur(8px) saturate(160%) brightness(0.62) url("#nbook-lens-sm");
     --glass-lens-strong: blur(14px) saturate(190%) brightness(0.72) url("#nbook-lens");
-    --overlay-blur: blur(8px) saturate(190%) brightness(0.72);
+    --overlay-blur: blur(8px) saturate(130%) brightness(1.0);
 
     --glass-rim:
         radial-gradient(120% 80% at 16% -10%, rgb(255 255 255 / 0.22), transparent 42%),
@@ -358,21 +356,8 @@
        --glass-rim 只画整块窗口的轮廓，不接到浮层上。 */
     --sidebar-surface: color-mix(in srgb, var(--bg-sidebar) 52%, transparent);
     --toolbar-surface: color-mix(in srgb, var(--bg-sidebar) 56%, transparent);
-    /*
-     * 浮层的 tint：66% → 52% → 34% → 24% → 14%。前四轮都在撤上一轮为「模糊不够」打的补丁。
-     *
-     * 66% 是链子顺序还错着、模糊根本没画出来时定的，只能靠厚 tint 把浮层与背景分开。
-     * 52% 是链子修好但半径还有 50px 时定的——背景被抹平成一片均匀的灰，压在灰上仍是实心板。
-     * 34% 是半径收到 18px 时定的，仍然偏厚：背后只剩一点行带的影子。
-     * 24% 配 10px 的模糊与 brightness(0.56)，仍然被看出是「一个深灰盒子」。
-     * 14% 配 14px 的模糊与 brightness(0.72)：这一档背后的**颜色**第一次留住了。
-     *
-     * 上一轮在这里记了一条「每次把模糊收薄，tint 就得跟着再薄一档」——那条是错的，
-     * 它把相关当成了因果。真正的分工是：**模糊决定背后的字读不读得出，tint 与压暗决定这块面
-     * 有多不透明。** 玻璃感丢在后者，跟半径没关系。所以这一轮模糊放厚、tint 反而更薄，
-     * 两件事各归各位之后才同时成立。
-     */
-    --overlay-surface: color-mix(in srgb, var(--bg-sidebar) 14%, transparent);
+    /* 暗色下 75% 烟熏深底压住对比，提供稳定面板感与文字高可读性 */
+    --overlay-surface: color-mix(in srgb, var(--bg-panel) 75%, transparent);
     --strip-surface: color-mix(in srgb, var(--bg-subtle) 60%, transparent);
 
     --surface-raise: linear-gradient(180deg, rgb(255 255 255 / 0.07), rgb(255 255 255 / 0.01) 55%, rgb(0 0 0 / 0.1));
@@ -389,11 +374,10 @@
      *    投影的远近说的是「这块面浮多高」，那件事跟明暗无关。
      */
     --elevation-popover:
-        0 0 0.5px 0.5px rgb(255 255 255 / 0.16),
-        inset 0 2px 0.25px -1.5px rgb(255 255 255 / 0.2),
-        inset 0 1px 1.5px -0.5px rgb(255 255 255 / 0.1),
-        inset 0 -1px 1.5px -0.5px rgb(255 255 255 / 0.1),
-        0 18px 48px color-mix(in srgb, var(--shadow-color) 45%, transparent);
+        0 0 0 1px color-mix(in srgb, var(--text-main) 10%, transparent),
+        0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 20%, transparent),
+        0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 35%, transparent),
+        0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 28%, transparent);
     --elevation-dialog:
         0 0 0.5px 0.5px rgb(255 255 255 / 0.18),
         inset 0 2px 0.25px -1.5px rgb(255 255 255 / 0.22),
@@ -484,7 +468,7 @@
         --window-backdrop: none;
         --sidebar-surface: var(--bg-sidebar);
         --toolbar-surface: var(--bg-sidebar);
-        --overlay-surface: var(--bg-sidebar);
+        --overlay-surface: var(--bg-panel);
         --overlay-blur: none;
         --overlay-sheen: none;
         /* 高亮那一层也得实心：面已经不透了，再叠一层 12% 的前景色只会得到一块灰糊的行 */
@@ -505,7 +489,7 @@
         --glass-rim-inset: none;
         --sidebar-surface: var(--bg-sidebar);
         --toolbar-surface: var(--bg-sidebar);
-        --overlay-surface: var(--bg-sidebar);
+        --overlay-surface: var(--bg-panel);
         --overlay-blur: none;
         --overlay-sheen: none;
         --overlay-item-active: var(--bg-hover);

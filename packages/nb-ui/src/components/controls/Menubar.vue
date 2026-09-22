@@ -87,14 +87,8 @@ function handleItemClick(item: MenubarItemData): void {
                 <MenubarContent
                     :side-offset="6"
                     :align-offset="-4"
-                    :style="{
-                        zIndex: popoverZIndex,
-                        backgroundColor: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-                        backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                        WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 24%, transparent)',
-                    }"
-                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[200px] rounded-[var(--radius-panel)] p-1 text-[var(--text-main)] outline-none select-none"
+                    :style="{zIndex: popoverZIndex}"
+                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[200px] p-1.5 text-[var(--text-main)] outline-none select-none"
                     @close-auto-focus="(e) => e.preventDefault()"
                 >
                     <template v-for="item in menu.items" :key="item.value">
@@ -120,14 +114,8 @@ function handleItemClick(item: MenubarItemData): void {
                             <MenubarPortal>
                                 <MenubarSubContent
                                     :side-offset="4"
-                                    :style="{
-                                        zIndex: popoverZIndex + 1,
-                                        backgroundColor: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-                                        backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                                        WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                                        boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 24%, transparent)',
-                                    }"
-                                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[180px] rounded-[var(--radius-panel)] p-1 text-[var(--text-main)] outline-none select-none"
+                                    :style="{zIndex: popoverZIndex + 1}"
+                                    class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[180px] p-1.5 text-[var(--text-main)] outline-none select-none"
                                 >
                                     <template v-for="child in item.children" :key="child.value">
                                         <MenubarSeparator v-if="child.separator" class="my-1 h-[1px] bg-[var(--divider)]" />

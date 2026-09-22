@@ -62,10 +62,6 @@ const emit = defineEmits<{
                 :avoid-collisions="props.avoidCollisions"
                 :style="{
                     zIndex: popoverZIndex,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 75%, transparent)',
-                    backdropFilter: 'blur(14px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(14px) saturate(130%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 20%, transparent)',
                 }"
                 class="nb-ui-popover-surface nb-ui-popover-motion relative rounded-[var(--radius-panel)] p-3 text-[var(--text-main)] outline-none select-none max-w-[360px]"
                 :class="props.contentClass"

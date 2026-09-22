@@ -2,6 +2,7 @@
 import {computed, nextTick, onMounted, ref, watch} from "vue";
 import SegmentedControl from "../../../../src/components/controls/SegmentedControl.vue";
 import Splitter, {type SplitterPanelConfig} from "../../../../src/components/layout/Splitter.vue";
+import type {SashCollapsePolicy} from "../../../../src/components/layout/grid-types";
 import type {
     SplitterGestureCancellation,
     SplitterGestureState,
@@ -36,11 +37,48 @@ const direction = computed(() => (controls.value.direction as "horizontal" | "ve
 const disabled = computed(() => controls.value.disabled === true);
 const zeroSecondSash = computed(() => controls.value.zeroSecondSash === true);
 
-const panels: SplitterPanelConfig[] = [
-    {id: "outline", defaultSize: 28, minSize: 18, maxSize: 45, collapsible: true},
-    {id: "editor", defaultSize: 52, minSize: 30},
-    {id: "inspector", defaultSize: 20, minSize: 15, maxSize: 35, collapsible: true},
+// 几何一律 CSS px：defaultSizePx 是未受控时的初始主轴意图（容器测量为 0 时按声明合计分配）。
+// 收起状态属于宿主意图（`collapse.collapsed`），因此最近一次提交的尺寸与收起都由本 fixture 回发布。
+type PanelPreset = {
+    id: string;
+    defaultSizePx: number;
+    minSizePx?: number;
+    maxSizePx?: number;
+    collapse?: SashCollapsePolicy;
+};
+
+// 最小尺寸只约束「还能不能继续缩」：窄画布（1280×720 下 target 约 604px、390×844 下约 314px）
+// 三栏全贴住最小值时，任何方向的拖动都会被判成 no-change（几何上确实无处可让），演示与验收都失去意义。
+// 因此下界按最窄画布留出余量：合计 270px + 8px 接缝 < 314px。默认尺寸与上限不变。
+const PANEL_PRESETS: PanelPreset[] = [
+    {
+        id: "outline",
+        defaultSizePx: 240,
+        minSizePx: 80,
+        maxSizePx: 380,
+        collapse: {collapsedSize: 0, restoreSize: 240, collapseThreshold: 24, expandThreshold: 24},
+    },
+    {id: "editor", defaultSizePx: 450, minSizePx: 110},
+    {
+        id: "inspector",
+        defaultSizePx: 180,
+        minSizePx: 80,
+        maxSizePx: 300,
+        collapse: {collapsedSize: 0, restoreSize: 180, collapseThreshold: 24, expandThreshold: 24},
+    },
 ];
+
+// 静态声明只当初始值；提交后以用户调整过的 px 为下界意图，避免再分配把几何打回声明比例。
+const panelPose = ref<{sizes: number[] | null; collapsed: Record<string, boolean>}>({sizes: null, collapsed: {}});
+
+const panels = computed<SplitterPanelConfig[]>(() => PANEL_PRESETS.map((panel, index) => ({
+    ...panel,
+    defaultSizePx: panelPose.value.sizes?.[index] ?? panel.defaultSizePx,
+    collapse: panel.collapse === undefined
+        ? undefined
+        : {...panel.collapse, collapsed: panelPose.value.collapsed[panel.id] === true},
+})));
+
 const sashSizes = computed(() => zeroSecondSash.value ? [7, 0] as const : [7, 1] as const);
 
 const treeData: FileTreeNode[] = [
@@ -89,7 +127,12 @@ function onGestureEnd(state: SplitterGestureState): void {
     emit("lab-event", "gesture-end", state);
     gestureState.value = "commit";
     lastGesturePayload.value = JSON.stringify(state);
-    lastGesture.value = `提交 · ${state.source} · ${state.sash} · 主动 ${formatList(state.active)} · 补偿 ${formatList(state.compensated)} · 尺寸 ${formatList(state.sizes)}`;
+    lastGesture.value = `提交 · ${state.source} · ${state.sash} · 主动 ${formatList(state.active)} · 补偿 ${formatList(state.compensated)} · 尺寸 ${formatList(state.sizesPx)}`;
+    // 宿主回发布：提交后的 px 成为下一次分配的下界意图，收起位交给面板策略（组件不持有第二份记忆）。
+    panelPose.value = {
+        sizes: [...state.sizesPx],
+        collapsed: {...panelPose.value.collapsed, ...state.collapsed},
+    };
 }
 
 function onGestureCancel(info: SplitterGestureCancellation): void {
@@ -103,6 +146,7 @@ function resetState(): void {
     const defaults: Record<string, string | boolean> = {};
     for (const control of props.definition.controls) defaults[control.id] = controlDefaultValue(control);
     controls.value = defaults;
+    panelPose.value = {sizes: null, collapsed: {}};
 }
 
 watch(() => [props.definition.id, props.sceneId], () => {

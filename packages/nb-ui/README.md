@@ -85,7 +85,10 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ### 工作区布局与导航 (Layout & Navigation)
 - `Panel`：标准面板容器，支持 `subtle` / `solid` / `glass` 质感与 `none` / `sm` / `md` / `lg` 内边距。
-- `Splitter`：多栏可调节分割面板（SplitterGroup / SplitterPanel / SplitterResizeHandle），支持水平/垂直方向与拖拽吸附。
+- `Splitter`：多栏可调节分割面板（受控 `sizesPx` / 独立自分配两种用法），支持水平/垂直方向、收起策略与拖拽吸附；常驻 1px `--divider` 接缝与悬停/拖动高亮分层，零宽接缝不画线。几何一律 CSS px，拖动/命中/键盘由 nb-ui 自己的 `useSashGesture` 输入层与 `sash-drag` 求解器承担。
+- `createGrid`（`grid` / `grid-splitter`）：领域无关的可序列化拆分树——两轴几何、增删/移动/拆分叶、批量手势原子提交（`resizeBranches`）与快照 v2；`buildGridBranchPanels` / `gridBranchSizesPx` 只是把布局投影成面板配置，数值算法只有 `grid-geometry` / `sash-drag` 一份。
+- `GridRenderer`：把布局树递归渲染成 `Splitter`（分支一层一个、叶走插槽），独占一份手势会话：拖动中发布预览布局，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit` 同步接纳。
+- `DropIndicator` / `DropIndicatorLabel` / `DropFeedbackOverlay`：从 `@notnotype/nb-ui/components` 导入的拖放反馈层。前两个是纯视觉原语：`DropIndicator` 接收 `variant: "area" | "entry" | "line"` 与默认插槽，`DropIndicatorLabel` 接收 `label` / 可选 `iconClass`。`DropFeedbackOverlay` 是共享覆盖层：吃宿主给的 `preview`（边缘带 / 中央整片叶 / 条目 / 插入线 + 轴），自己负责 body Teleport、fixed 定位、6px（区域）与 2px（线）比例内缩、提示药丸的测量与视口夹紧、`aria-live` 播报和观察器生命周期；业务种类与数量由调用方以 `data-*` 透传到覆盖层根（`<Teleport>` 下手动 `useAttrs`）。纯几何入口 `@notnotype/nb-ui/layout` 另有 `resolveGridInsertion`（边缘插入带 / 中央保持布局 + 插入线）与 `resolveListInsertion`（列表插入位：同一插入位只有一条线）。Lab 的 `drop-indicator` 提供五种静态演示，并可在同一场景里打开共享覆盖层对照。
 - `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
 - `Accordion`：手风琴折叠面板（支持单选/多选展开，平滑高度动效与旋转角标）。
 - `Collapsible`：受控折叠展开容器。
@@ -106,6 +109,7 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
 - `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
+- `QuickInput`：全局快速输入浮层（S4 命令面板基座）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
 - `Notification` / `NotificationViewport`：全局 Toast 通知。
 
 ### 数据展示 (Display)

@@ -128,6 +128,15 @@ installTheme(myTheme);
 }
 ```
 
+### 浮层 Surface（`--overlay-surface`）透明度规范
+
+浮层（`Dropdown` / `Popover` / `CommandPalette`）必须承担清晰的内容承载与文字阅读职责，严禁追求极致透明度而损害可读性：
+- **亮色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 65%, transparent)`（65% 温润半透明白底，与 FormSelect 黄金标准一致）；
+- **暗色模式**：基准为 `color-mix(in srgb, var(--bg-panel) 75%, transparent)`（75% 烟熏深底，保证文字高对比度）；
+- **严禁降低到 14% 等过低不透明度**：过薄透明会导致底层正文、按钮严重透光穿透，彻底破坏实体面板感；
+- **机械守门**：全库由 `token-consumption.test.ts` 静态扫描守门，禁止任何组件在模板中内联硬编码 `backgroundColor: color-mix(...)` 或 `backdropFilter`。
+
+
 **新增变量**——主题层没有的东西，在 manifest 的 `declares` 里声明。每一项**必须自带 fallback**：
 
 ```ts

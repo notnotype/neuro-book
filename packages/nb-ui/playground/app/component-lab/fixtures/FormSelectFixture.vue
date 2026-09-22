@@ -51,23 +51,24 @@ const presetOptions = [
     {label: "常用文档格式 (7 项)", value: "format"},
 ];
 
-// 截断高度方案切换
-const heightScheme = ref<"h6_base" | "h5_base" | "h6_mid" | "h5_mid" | "custom">("h6_base");
+// 截断高度方案切换：以 50% 齐腰横截为黄金标准，确保底部永远只露出严格半个 item
+const heightScheme = ref<"h5_mid" | "h6_mid" | "h5_base" | "h6_base" | "custom">("h5_mid");
 const heightSchemeOptions = [
-    {label: "6.5项基线横截(233px·推荐)", value: "h6_base"},
-    {label: "5.5项基线横截(198px·轻巧)", value: "h5_base"},
-    {label: "6.5项正中截半(231px)", value: "h6_mid"},
-    {label: "5.5项正中截半(196px)", value: "h5_mid"},
+    {label: "5.5项严格截半(194px·推荐)", value: "h5_mid"},
+    {label: "6.5项严格截半(228px)", value: "h6_mid"},
+    {label: "5.5项基线横截(196px)", value: "h5_base"},
+    {label: "6.5项基线横截(230px)", value: "h6_base"},
     {label: "自定义高度", value: "custom"},
 ];
-const customViewportHeight = ref(233);
+const customViewportHeight = ref(194);
 
 const activeViewportHeight = computed(() => {
-    if (dataPreset.value !== "long") return "auto";
-    if (heightScheme.value === "h6_base") return "233px";
-    if (heightScheme.value === "h5_base") return "198px";
-    if (heightScheme.value === "h6_mid") return "231px";
-    if (heightScheme.value === "h5_mid") return "196px";
+    // 选项不足以产生截半溢出时自然展开；超出 5 项时长列表一律锁定黄金截半高度
+    if (currentOptions.value.length <= 5) return "auto";
+    if (heightScheme.value === "h5_mid") return "194px";
+    if (heightScheme.value === "h6_mid") return "228px";
+    if (heightScheme.value === "h5_base") return "196px";
+    if (heightScheme.value === "h6_base") return "230px";
     return `${customViewportHeight.value}px`;
 });
 
@@ -169,7 +170,8 @@ const {
 
 // 智能双向感知渐隐：刚打开时顶部 100% 实体纯净；向下滚动后顶部自动消隐；到底后底部自动转为实体
 const dynamicMaskStyle = computed(() => {
-    if (dataPreset.value !== "long") {
+    // 只有在内容未填满且无需滚动时才不加遮罩
+    if (!isScrollable.value && currentOptions.value.length <= 5) {
         return {};
     }
     const topFade = isScrolledFromTop.value;
@@ -180,8 +182,9 @@ const dynamicMaskStyle = computed(() => {
     }
 
     if (fadeMode.value === "alpha" || fadeMode.value === "depth") {
-        const fadePx = fadeMode.value === "alpha" ? 8 : 14;
-        const midPx = Math.round(fadePx * 0.35);
+        // 遮罩宽度必须达到 22px，确保能够完全覆盖露出 15~16px 的半个 item，文字在半项处柔润消散
+        const fadePx = fadeMode.value === "alpha" ? 22 : 36;
+        const midPx = Math.round(fadePx * 0.4);
 
         const topStops = topFade
             ? `transparent 0%, rgba(0, 0, 0, 0.35) ${midPx}px, #000000 ${fadePx}px`
@@ -397,7 +400,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
 
                             <!-- 100% 绝对可见、100% 鼠标完全可按住拖拽的 macOS 4px 悬浮胶囊滑块 -->
                             <div
-                                v-if="dataPreset === 'long'"
+                                v-if="isScrollable"
                                 class="absolute right-[3px] top-1.5 bottom-1.5 w-1 z-20 flex flex-col justify-start"
                             >
                                 <div
