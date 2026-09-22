@@ -12,7 +12,7 @@
 ## 2. 执行流程
 
 2. **准备环境**：隔离 State Root（`NEURO_BOOK_STATE_ROOT` 指向系统 Temp 下的 NeuroBook Agent 受控目录），Source Dev 用独立端口、创建临时 Project（Task 141 惯例：先执行 `bun run migrate:application-state -- --apply`，再起实例）。记录环境信息，填入报告「环境」节。
-3. **逐旅程走查**：按 `journeys/<旅程>.md` 逐检查项操作（操作 / 预期 / 通过判据 / 失败形态），用 playwright-cli 与真实页面交互。
+3. **逐旅程走查**：按 `journeys/<旅程>.md` 逐检查项操作（操作 / 预期 / 通过判据 / 失败形态），按 [浏览器工具选择](../README.md#浏览器工具) 与真实页面交互。
 4. **收集证据**：快照、截图（含窄屏 390×844）、console、requests、video、文件系统旁证；具体命令与用途见 criteria.md 第 5 节。临时证据放系统 Temp，current 正式脱敏证据放 `.agents/works/<work>/tasks/<task>/evidences/`；legacy Task 继续写原 evidence 目录。
 5. **初判**：按 criteria.md 判定类别（通过 / 部分通过 / 未验证 / 环境阻塞 / 发现问题）与严重度（P0 / P1 / P2 / 观察项）；每条问题按条目格式（场景 → 影响 → 证据 → 原因 → 位置 → 置信度）。
 6. **出报告**：按 report-template.md 产出；满足 README 的收尾标准（P0 澄清、P1 清单、未验证注明原因）。

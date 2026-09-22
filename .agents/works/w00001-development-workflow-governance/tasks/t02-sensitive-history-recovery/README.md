@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t02-sensitive-history-recovery
-role: tasker
 ---
 
 # 敏感历史恢复（已取消）

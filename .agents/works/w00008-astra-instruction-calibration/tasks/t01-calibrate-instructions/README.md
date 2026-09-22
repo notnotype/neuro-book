@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-calibrate-instructions
-role: leader
 ---
 
 # 指令校准

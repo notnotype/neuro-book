@@ -5,9 +5,10 @@
 当前活跃提案：
 
 - [`../packages/neuro-book/docs/proposals/character-workbench.md`](../../packages/neuro-book/docs/proposals/character-workbench.md)：Character 导航、搜索、编辑与 Low-code Form 合同，状态为 `reviewing`。
-- [`../packages/neuro-book/docs/proposals/agent-skills-adaptation.md`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：Agent Skills 项目化适配，状态为 `accepted`。
+- [`Agent Skills 项目化适配`](../../packages/neuro-book/docs/proposals/agent-skills-adaptation.md)：状态为 `accepted`；旧适配流程作为历史保留，当前专项技能与验证分工由 P-005 最新决策取代。
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
-- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，current Work 是 Task 的强制容器，Task 指定唯一 canonical role；Issue 由 Work 可选引用，Proposal 独立且可被多个 Work 引用，Agent主导执行，开发者在明示节点参与，PM/Reviewer按需，状态为`accepted`。
+- [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，Work 本地登记、无正式角色的 Task 当前快照、主 Agent 直接执行与按需协调、专项技能和最小充分验证，状态为 `accepted`。
+- [`应用运行时与内置插件架构`](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：状态为 `accepted`，接受基础架构及“环境/小内核 → 最小服务插件 → Lab → Files → Settings → World/Plot”分段方向；前两片七项 `planned` Spec 已登记。本轮交付规范与实施规划，未实施产品；任意热卸载/升级仍仅为后续评估。
 
 已完成沉淀的信息架构提案见 [`../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md`](../../packages/neuro-book/docs/archived/proposals/documentation-information-architecture.md)。
 
@@ -38,7 +39,7 @@
 ## 生效规则
 
 - `draft`和`reviewing`只供讨论，不能被代码、测试或Agent当作当前行为依据。
-- `accepted`表示长期取舍已决定，允许Leader更新`planned` Spec，并按当前已知结果创建或复用根 `.agents/works/` 的 Work，再创建指定唯一 canonical role 的 Task；Proposal本身不自动成为规范或执行授权。
+- `accepted` 表示长期取舍已决定，可更新 `planned` Spec，并按当前已知结果创建或复用根 `.agents/works/` 的 Work 与 Task；Proposal 本身不自动成为规范或执行授权。
 - 实施前把已批准行为写入[`../specs/README.md`](../specs/README.md)注册的当前规范。Task可引用Proposal并协作准备指定Spec，但只有开发者明确接受的决定可进入`planned`合同。
-- `.agents/works/`记录current一次设计或实现的范围、role、交接和证据；Work/Task引用Proposal与Spec，不复制正文。`.agents/tasks/`只保存legacy provenance。
+- `.agents/works/` 记录 current 一次设计或实现的范围、授权、当前快照和证据链接；Work/Task 引用 Proposal 与 Spec，不复制正文。`.agents/tasks/` 只保存 legacy provenance。
 `rejected`、`superseded` 和已经完成沉淀的 Proposal 移入 [`../packages/neuro-book/docs/archived/`](../../packages/neuro-book/docs/archived/) 下的 proposals 分类；当前规范不依赖归档内容才能被理解。

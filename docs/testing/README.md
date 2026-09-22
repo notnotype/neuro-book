@@ -69,11 +69,20 @@
 
 ## 验证门禁
 
-- 纯文档或治理修改检查链接、结构和规则语义；不运行产品测试、typecheck、产品构建或浏览器。修改 VitePress 投影时仍按 [`docs/AGENTS.md`](../AGENTS.md) 的目录合同运行 `bun run docs:build`。
-- 实现变化运行受影响测试；类型表面受影响才运行对应 typecheck。UI、迁移、集成和发布继续遵守各自合同及授权。
-- 长期测试覆盖可观察行为与可能回归，不为措辞或实现镜像增加测试。Bug 有合适切入点时保留复现为回归测试，否则用聚焦 smoke 并说明缺口。
-- 所需检查通过后，仅因后续改动使证据失效、出现失败或具体未解风险才重跑或扩大。仅叙事文档形成新 revision 不自动使代码测试证据失效。
+- 实施前确定当前目标的可观察行为、直接受影响边界与完成证据；有 Task 时写入快照，否则使用会话计划，不强制创建额外文件。
+- 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。VitePress 投影仍按 [文档目录合同](../AGENTS.md) 运行 `bun run docs:build`。
+- 实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck。工具只支持全应用检查时运行一次，区分本次诊断与已有基线，不借失败扩大修复范围。CSS 生成物按包合同构建。
+- 局部 UI 默认检查实际交互路径与一个代表状态；涉及响应式或主题 token 才增加对应尺寸／主题。共享基础组件或具体未解风险影响更广时，说明要消除的不确定性再扩大；不因“最后验证”默认跑全主题、全库测试或生产构建。UI、迁移、集成和发布的既有授权边界不变。
+- 长期测试保护可观察合同、真实回归、边界或时序，不匹配措辞、源码镜像或无意义转发。用户报告的现象作为事实处理；有合适切入点时用能捕获缺陷的最小复现形成回归，否则以聚焦 smoke 说明缺口。低风险可逆改动不为“有测试”而新建测试。
+- 失败先区分产品、测试模型和环境，修直接根因后只重跑失效项。后续代码／环境变化使证据失效、真实失败或新增具体风险才重跑或扩大；叙事更新与新 revision 本身不使有效证据失效。
+- 当前目标的所需证据齐全且无范围内未解决缺陷即交付，不为更多截图、报告格式或各 Skill 清单继续检查。命令结果与覆盖边界记录一次；截图／JSON 按复现、交接或用户要求保留，必要但不可恢复的工具输出保留最小持久副本，不默认新建证据包。
 - 提交前运行 `git diff --cached --check`。既有失败与本次失败分开报告，不能把“focused 通过”写成“全量通过”；远端登记 Issue 仍需授权。
+
+## 浏览器工具
+
+- OMP 默认使用内置 `browser.open`、`tab.observe` 与 `tab.run`。只有内置能力不可用、存在具体能力缺口或用户指定 CLI 时，才使用 `playwright-cli`；无内置浏览器的宿主可以直接使用 CLI。
+- 页面业务失败不构成换工具的理由；先区分产品、环境和工具问题。备用工具不自动授权安装依赖、修改全局配置、连接用户登录态或迁移数据。
+- 普通 UI 运行验证不自动升级为完整人工评测。人工评测的触发、授权、真实数据与证据合同见 [人工评测](manual-eval/README.md)，不得用 focused 测试冒充未执行的浏览器场景。
 
 ## 应用包真实模型 smoke（`test:real-model`）
 
@@ -86,3 +95,23 @@ Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.c
 - **外部前置**：HTTP 与写作 workflow 用例需要已启动的 dev server（`AGENT_HTTP_BASE_URL`，默认 `http://localhost:3000`），仅网络层不可达时 skip，已监听但接口失败按测试失败暴露；workflow 用例还需 `REAL_MODEL_SMOKE_PROJECT` 与 `REAL_MODEL_SMOKE_CHAPTERS`（缺一即 skip），写盘场景仅在显式设置 `REAL_MODEL_SMOKE_WRITE_CHAPTER` 时执行。
 - **与 smoke CLI 的关系**：`smoke:agent`、`smoke:agent-http`、`smoke:writing-workflow` 面向手工单次执行、失败即退出；测试命令提供统一入口与 skip 语义。两者共用 `packages/neuro-book/scripts/smoke/` 的装配与运行函数。
 - **CI**：默认工作流不运行该命令（无外部凭据）；发布或人工验收需要时手动执行。
+
+## 通用包测试合同（2026-09-11）
+
+适用于 `packages/agent-*` 这类领域无关通用包；由 Issue #193 的 `D-TEST-01` 决定（记录见 `.agents/works/w00002-neuro-agent-harness-redesign/tasks/t01-product-host-success-research/walkthroughs/006-decision-record.md`）。与本文其余规则叠加，冲突时以本节为准。
+
+- **TDD**：新行为先写失败测试（RED）→ 最小实现（GREEN）→ 重构；bug 修复先写复现测试。
+- **只测关键**：覆盖公共合同、边界与上限、失败与恢复、并发与顺序、资源释放；不写镜像实现、措辞或框架行为的测试；不为可逆小改动强制测试。
+- **Smoke 必测**：每个包至少一条 smoke（包入口可导入 + 一条最小真实路径）。
+- **分层**：L1 纯函数单元 / L2 公共合同 / L3 组件集成（内存假件）/ L4 真实进程与 IO——包内必须有 L1–L3，L4 至少覆盖一条真实边界；L5 宿主验收不属于包。
+- **放置与运行**：测试与被测源码同目录（`src/**/*.test.ts`）；每个包一份 `vitest.config.ts`（显式 `root` 与 `include`，`setupFiles`/`globalSetup` 指向 `@notnotype/neuro-book-test-support/vitest`）；包脚本 `test`/`typecheck` 可独立执行（`bun run --cwd packages/<pkg> test`）；导入使用包内相对路径或包名，禁止 `nbook/*` 等产品别名；不得依赖产品 workspace、Prisma 或 `@earendil-works/pi-*`。
+- **真实 LLM 不 mock**：需要 LLM响应的测试直接调用真实 DeepSeek（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；不要伪造 LLM API 数据。凭据只放仓库根 `.env`（已被忽略）或 CI secret，不落盘、不打印、不进用例名。缺凭据时 skip 并在证据中记为“未验证”，不得写成通过；断言结构化结果（状态、字段形状、finish 原因），不断言措辞。
+- **测试支持**：`@notnotype/neuro-book-test-support` 仅作 devDependency；包若离开本仓需自带等价物。
+
+## Component Lab 夹具规范
+
+1. **舞台画布（Stage Box）纯净性准则**：
+   - 夹具在画布区使用 `data-lab-subject` 标记被测零件，Lab 据此画高亮描边。
+   - **画布区严禁拼接非本组件自有的辅助 Chrome**：例如切换语言、外部更新、触发重做/撤销等测试辅助按钮，必须统一部署到 `<LabFixtureControls>` 中，由 Lab 底部抽屉面板通过 Teleport 承载，保持舞台画布（`data-lab-subject` 所在区域）仅呈现目标组件自身真实像素。
+   - **单零件检视原则**：单个原子零件夹具（如 `EditorTabItem`）画布内仅呈现单一被测原子，严禁在原子夹具内私自拼接多项列表；细分状态一律通过数据属性、场景切换及 `<LabFixtureControls>` 交互开关表达。
+

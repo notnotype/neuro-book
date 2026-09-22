@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-agent-abort-mutation-contract
-role: tasker
 ---
 
 # Agent abort mutation 合同闭合

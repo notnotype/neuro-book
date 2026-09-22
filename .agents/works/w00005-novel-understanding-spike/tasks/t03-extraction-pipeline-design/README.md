@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t03-extraction-pipeline-design
-role: tasker
 ---
 
 # 抽取管线设计

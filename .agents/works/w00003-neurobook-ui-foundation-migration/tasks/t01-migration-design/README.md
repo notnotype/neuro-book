@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-migration-design
-role: tasker
 ---
 
 # NeuroBook UI 底座迁移设计

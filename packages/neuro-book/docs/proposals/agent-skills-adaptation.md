@@ -2,6 +2,8 @@
 
 状态：accepted
 
+> 2026-09-21 当前适配已由 [P-005 最新决策](../../../../docs/proposals/p-005-development-workflow-governance.md#2026-09-21-当前决策)、[Work 入口](../../../../.agents/works/README.md)、[技能索引](../../../../.agents/skills/README.md) 和 [测试规范](../../../../docs/testing/README.md#验证门禁) 取代。以下旧生命周期、角色、字段和当时验证结果仅保留为历史，不再作为当前合同或机器门禁；当前入口不依赖缺失的通用 DoD。
+
 ## 问题
 
 NeuroBook 已有 PM、Leader、Tasker、Reviewer、Proposal、Spec、Task、walkthrough、evidence 和治理命令。通用 Agent Skills 可以补充需求澄清、增量实现、测试驱动、诊断、浏览器验收和代码审查等执行方法，但它的默认文件落点、完成定义和授权假设与本项目不完全一致。

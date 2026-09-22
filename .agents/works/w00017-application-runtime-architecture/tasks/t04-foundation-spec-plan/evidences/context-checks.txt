@@ -1,0 +1,21 @@
+2026-09-20 本轮治理上下文检查摘要（不是完整原始stdout）
+
+运行位置：主工作区 master
+revision：45906272915ff43e83318653af62afa9ce668206
+覆盖：该HEAD + 本轮未提交治理文档，没有独立提交revision
+
+实际命令与结果：
+1. bun run governance:context -- --work w00017-application-runtime-architecture --task t04-foundation-spec-plan --role leader
+   exit 0；failures: []；taskRole leader；wall time 1.45 seconds（更新后的再次检查）
+2. bun run governance:context -- --work w00017-application-runtime-architecture --task t05-runtime-lifecycle --role tasker
+   exit 0；failures: []；taskRole tasker；wall time 1.45 seconds
+3. bun run governance:context -- --work w00017-application-runtime-architecture --task t02-runtime-contract-review --role reviewer
+   exit 0；failures: []；taskRole reviewer；wall time 1.00 seconds
+4. bun run governance:context -- --work w00017-application-runtime-architecture --task t03-document-governance-review --role reviewer
+   exit 0；failures: []；taskRole reviewer；wall time 1.00 seconds
+
+这些命令验证Work/Task/role与实际checkout身份，不授权执行t05，不改变Main本轮正式role（leader）。当前产品实现仍等待w00003完成并合并master。
+
+governance:check本轮未重跑：最近一轮已经发现w00003/t14缺README、根AGENTS固定标记不匹配；相关文件本轮未修改。不为确认已知失败重复运行，也不声明全仓治理通过。历史原始输出：../../t01-architecture-proposal/evidences/governance-check-tracer.txt。
+
+未运行产品test、typecheck、build、浏览器、数据迁移、Provider；未提交/push/合并/创建worktree。文档门禁另单独记录。

@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-inline-ai-send-owner-fix
-role: tasker
 ---
 
 # 修复 Inline AI 发送 owner 与打开 Session 聊天

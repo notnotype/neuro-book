@@ -2,16 +2,13 @@
 import {existsSync, readFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {
-    CANONICAL_ROLES,
     defaultRepoRoot,
     expectedGovernanceFiles,
     git,
     hasFile,
-    verifyAgentSkillsAdaptation,
     verifyGovernanceDocumentLimits,
     verifyApplicationScriptBoundary,
     verifyMonorepoCutover,
-    verifyLeaderDrivenDevelopmentContract,
     verifySiblingResyncResolution,
     verifyLegacyTaskProvenance,
     verifyTaskOwnership,
@@ -25,10 +22,8 @@ const repoRoot = resolve(repoArgument >= 0 ? args[repoArgument + 1] ?? "" : defa
 const failures: string[] = [];
 const warnings: string[] = [];
 
-failures.push(...verifyAgentSkillsAdaptation(repoRoot));
 failures.push(...verifyWorkContracts(repoRoot));
 failures.push(...verifyLegacyTaskProvenance(repoRoot));
-failures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));
 
 function requireFile(relativePath: string): void {
     if (!hasFile(repoRoot, relativePath)) failures.push(`缺少治理文件：${relativePath}`);
@@ -111,10 +106,6 @@ for (const relativePath of [".agents/skills/README.md", ".agents/tasks/README.md
     for (const stale of staleGovernanceRefs) {
         if (text.includes(stale) && !relativePath.startsWith(".agents/tasks/")) failures.push(`治理文件仍引用旧入口 ${stale}：${relativePath}`);
     }
-}
-for (const role of CANONICAL_ROLES) {
-    const text = readFileSync(resolve(repoRoot, `.agents/roles/${role}/AGENTS.md`), "utf8");
-    if (!text.trim()) failures.push(`角色合同为空：${role}`);
 }
 
 console.log(JSON.stringify({schema: "nbook.governance-report/v1", repoRoot, failures, warnings}, null, 2));

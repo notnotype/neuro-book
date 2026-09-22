@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-product-runtime-stdio-epipe
-role: tasker
 ---
 
 # 修复 Product Runtime stdio 断管

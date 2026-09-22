@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-product-runtime-builder-import
-role: tasker
 ---
 
 # 修复 Product Runtime stage 的 Builder 导入

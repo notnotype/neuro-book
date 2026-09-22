@@ -113,6 +113,13 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 |---|---|---|
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、响应式检视和 Product 排除合同；当前尚未实现 |
 | Agent Session Store 租约 | [`agent/session-store-lease.md`](agent/session-store-lease.md) | proper-lockfile 租约互斥、mtime 心跳、失效与 Windows 文件系统兼容目标；修复验证闭合前保持 `planned` |
+| 资源生命周期 | [`runtime/lifecycle.md`](runtime/lifecycle.md) | `runtime.lifecycle`；作用域、资源owner、取消与关闭失败；第一切片目标，尚未实现 |
+| 显式服务装配 | [`runtime/services.md`](runtime/services.md) | `runtime.services`；唯一provider、依赖与寿命检查、并发初始化与失败稳定；第一切片目标 |
+| 插件描述与激活 | [`runtime/plugins.md`](runtime/plugins.md) | `runtime.plugins`；描述目录、入口/代次、贡献事务、局部失败与普通关闭；不含热卸载 |
+| 环境适配与应用门禁 | [`runtime/application.md`](runtime/application.md) | `runtime.application`；浏览器/后端入口、接纳与停止合同；首片受控装配，不代表完整产品已迁移 |
+| 运行时诊断 | [`runtime/diagnostics.md`](runtime/diagnostics.md) | `runtime.diagnostics`；紧急输出与诊断插件分离、脱敏、降级与关闭；第二切片真实服务 |
+| 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束I/O、watch/锁与owner；不是业务文件树服务；第二切片真实服务 |
+| SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务与关闭；不自动迁移；第二切片真实服务 |
 
 ## 冻结过渡规范
 
@@ -131,6 +138,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 
 | 优先级 | 功能域 | 现有证据 | 缺口 |
 |---|---|---|---|
+| P0 | 应用运行时与功能插件接入 | [总体架构提案与能力地图](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md#能力地图与规范归属)（基础方向 `accepted`） | 前两片七项 `planned` 已登记，尚未实现。后续按 Lab → Files → Settings → World/Plot 在既有能力正文接入；各领域门禁/贡献/权限/恢复细节在首次消费前补齐。等待 w00003 合并 master 后再开始实现。Desktop/安装域仍拥有安装、UAC、升级、卸载与发布；热卸载只评估 |
 | P0 | Desktop、安装与 Product Runtime | `packages/neuro-book/docs/adr/0010-*`、`0013-*`、`0014-*`、`0016-*`，`desktop/`、`scripts/install/`、`scripts/deploy/` | 安装状态机、UAC、启动/关闭、升级、卸载和失败恢复未汇成当前规范 |
 | P0 | 应用状态、备份与数据迁移 | `packages/neuro-book/docs/adr/0005-*`、`0008-*`、`0012-*`，`packages/neuro-book/server/backup/`、`packages/neuro-book/server/database/` | 数据所有权、备份恢复、catalog 演进和 release activation 未形成端到端规范 |
 | P0 | Agent Session 持久化与历史 | `packages/neuro-book/docs/adr/0003-*`、`0014-agent-job-*`，`packages/neuro-book/server/agent/session/`、`packages/neuro-book/server/workspace-history/` | durable event、Job 历史、附件、租约和文件历史缺少统一状态与恢复规范 |

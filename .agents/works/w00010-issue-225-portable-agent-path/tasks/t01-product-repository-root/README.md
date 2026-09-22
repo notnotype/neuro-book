@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-product-repository-root
-role: tasker
 ---
 
 # 修复 Product Agent Import Repository Root

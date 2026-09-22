@@ -1,0 +1,12 @@
+$ bun run governance:check
+$ bun scripts/ci/agent-governance.ts
+{
+  "schema": "nbook.governance-report/v1",
+  "repoRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book",
+  "failures": [
+    "Work Task 缺少 README.md：.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t14-agent-profile-nav-lab-migration/README.md",
+    "Leader 主导顺序开发合同缺少必需标记：AGENTS.md"
+  ],
+  "warnings": []
+}
+error: script "governance:check" exited with code 1

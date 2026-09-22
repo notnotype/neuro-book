@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveLegacyTaskReadmePath, verifyAgentSkillsAdaptation, verifyApplicationScriptBoundary, verifyLeaderDrivenDevelopmentContract, verifyLegacyTaskProvenance, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyTaskOwnership, verifyWorkContracts, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveLegacyTaskReadmePath, verifyApplicationScriptBoundary, verifyLegacyTaskProvenance, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyTaskOwnership, verifyWorkContracts, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -100,11 +100,11 @@ describe("Task ownership 当前树门禁", () => {
     });
 });
 describe("Work 与 Task 当前容器门禁", () => {
-    it("合法 Work 内 Task 通过，且不需要旧 agentWorkflow 或 actionIssueId", async () => {
+    it("合法 Work 内 Task 通过，且不需要旧 agentWorkflow、actionIssueId 或 role", async () => {
         const repoRoot = await createTestTmpRoot("governance-work", "governance-work-test");
         fixtureRoots.push(repoRoot);
         await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-development-workflow-governance\nissueId: null\n---\n\n# Work\n");
-        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\nrole: tasker\n---\n\n# Task\n\n目标、协作与产物。\n");
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\n---\n\n# Task\n\n目标、协作与产物。\n");
 
         expect(verifyWorkContracts(repoRoot)).toEqual([]);
     });
@@ -121,7 +121,7 @@ describe("Work 与 Task 当前容器门禁", () => {
         const repoRoot = await createTestTmpRoot("governance-work-identity", "governance-work-identity-test");
         fixtureRoots.push(repoRoot);
         await writeText(repoRoot, ".agents/works/w00001-identity/README.md", "---\nschema: nbook.work/v1\nworkId: w00002-other\nissueId: null\n---\n\n# Work\n");
-        await writeText(repoRoot, ".agents/works/w00001-identity/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t02-other\nrole: tasker\n---\n\n# Task\n");
+        await writeText(repoRoot, ".agents/works/w00001-identity/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t02-other\n---\n\n# Task\n");
 
         expect(verifyWorkContracts(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("Work workId 与目录不一致"),
@@ -129,13 +129,13 @@ describe("Work 与 Task 当前容器门禁", () => {
         ]));
     });
 
-    it("Work Task 拒绝未知 role", async () => {
+    it("Work Task 拒绝已退役 role 字段", async () => {
         const repoRoot = await createTestTmpRoot("governance-work-role", "governance-work-role-test");
         fixtureRoots.push(repoRoot);
         await writeText(repoRoot, ".agents/works/w00001-role/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-role\nissueId: null\n---\n\n# Work\n");
-        await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: developer\n---\n\n# Task\n");
+        await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: tasker\n---\n\n# Task\n");
 
-        expect(verifyWorkContracts(repoRoot)).toContain("Work Task role 无效：.agents/works/w00001-role/tasks/t01-task/README.md");
+        expect(verifyWorkContracts(repoRoot)).toContain("Work Task 禁止旧字段 role：.agents/works/w00001-role/tasks/t01-task/README.md");
     });
 
     it.each(["agent-root", "works-root", "work", "tasks-root", "task"] as const)("治理检查拒绝 current 路径 symlink 或 junction：%s", async (kind) => {
@@ -147,20 +147,19 @@ describe("Work 与 Task 当前容器门禁", () => {
     it.each(["agent-root", "works-root", "work", "tasks-root", "task"] as const)("agent-context 拒绝 current 路径 symlink 或 junction：%s", async (kind) => {
         const fixture = await createLinkedWorkFixture(kind);
 
-        const result = await runAgentContextCli(fixture.taskId, fixture.root, fixture.workId);
+        const result = await runAgentContextCli(["--task", fixture.taskId, "--work", fixture.workId], fixture.root);
         expect(result.status).not.toBe(0);
         expect(result.failures).toEqual([fixture.failure]);
         expect(result.report?.workReadme).toBe(fixture.workReadme);
         expect(result.report?.taskReadme).toBeNull();
-        expect(result.report?.role).toBeNull();
-        expect(result.report?.taskRole).toBeNull();
-        expect(result.report?.roleContract).toBeNull();
+        expect(result.report).not.toHaveProperty("role");
+        expect(result.report).not.toHaveProperty("taskRole");
     });
 
     it("旧根中的 v2 Task 由 legacy 校验拒收", async () => {
         const repoRoot = await createTestTmpRoot("governance-work-orphan", "governance-work-orphan-test");
         fixtureRoots.push(repoRoot);
-        await writeText(repoRoot, ".agents/tasks/t01-orphan/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-orphan\nrole: tasker\n---\n\n# Orphan\n");
+        await writeText(repoRoot, ".agents/tasks/t01-orphan/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-orphan\n---\n\n# Orphan\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining("旧归档根拒收 v2"),
@@ -170,7 +169,7 @@ describe("Work 与 Task 当前容器门禁", () => {
         const repoRoot = await createTestTmpRoot("governance-root-archive-v2", "governance-root-archive-v2-test");
         fixtureRoots.push(repoRoot);
         const relativePath = ".agents/tasks/archived/nested-v2/README.md";
-        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\nrole: tasker\n---\n\n# Nested\n");
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\n---\n\n# Nested\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
     });
@@ -179,7 +178,7 @@ describe("Work 与 Task 当前容器门禁", () => {
         const repoRoot = await createTestTmpRoot("governance-package-archive-v2", "governance-package-archive-v2-test");
         fixtureRoots.push(repoRoot);
         const relativePath = "packages/neuro-agent-harness/.agents/tasks/archived/nested-v2/README.md";
-        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\nrole: tasker\n---\n\n# Nested\n");
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-nested\n---\n\n# Nested\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
     });
@@ -187,7 +186,7 @@ describe("Work 与 Task 当前容器门禁", () => {
         const repoRoot = await createTestTmpRoot("governance-root-nested-v2", "governance-root-nested-v2-test");
         fixtureRoots.push(repoRoot);
         const relativePath = ".agents/tasks/group/t01-hidden/README.md";
-        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\nrole: tasker\n---\n\n# Hidden\n");
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\n---\n\n# Hidden\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
     });
@@ -196,117 +195,90 @@ describe("Work 与 Task 当前容器门禁", () => {
         const repoRoot = await createTestTmpRoot("governance-package-nested-v2", "governance-package-nested-v2-test");
         fixtureRoots.push(repoRoot);
         const relativePath = "packages/neuro-agent-harness/.agents/tasks/group/t01-hidden/README.md";
-        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\nrole: tasker\n---\n\n# Hidden\n");
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-hidden\n---\n\n# Hidden\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toContain(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`);
     });
 });
-describe("Agent Skills 适配治理门禁", () => {
-    it("draft Proposal 出现 Skill 实现时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "complete");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
-    });
-    it("draft Proposal 出现真实 Work 实现时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("draft", "complete");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
-    });
-
-
-    it("accepted Proposal 与完整适配入口同时存在时通过", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "complete");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toEqual([]);
-    });
-    it("accepted fixture 缺少 report Skill 合同内容时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-report");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("report Skill 缺少有效 frontmatter");
-    });
-    it("accepted fixture 缺少 load_role Skill 合同内容时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "invalid-load_role");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("load_role Skill 缺少有效 frontmatter");
-    });
-    it("accepted fixture 缺少 Work 入口时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-task-fields");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("Work 入口缺失");
-    });
-    it("accepted fixture 缺少治理函数真实导出时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-contract-export");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理合同缺少完整 Agent Skills 校验");
-    });
-
-    it("accepted fixture 缺少治理 CLI 真实调用时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-cli-call");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理入口缺少 Agent Skills 校验调用");
-    });
-    it("accepted fixture 缺少治理合同 import 时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "missing-cli-import");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理入口缺少 Agent Skills 校验调用");
-    });
-
-    it("accepted fixture 使用局部同名 stub 时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "shadowed-cli-call");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理入口缺少 Agent Skills 校验调用");
-    });
-    it("accepted fixture 使用 import type 时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "type-only-cli-import");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理入口缺少 Agent Skills 校验调用");
-    });
-    it("accepted fixture 在嵌套作用域使用合法 import 时通过", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "nested-valid-cli-call");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toEqual([]);
-    });
-    it("accepted fixture 仅在未调用函数中使用治理调用时失败", async () => {
-        const repoRoot = await createAgentSkillsAdaptationFixture("accepted", "dead-function-cli-call");
-
-        expect(verifyAgentSkillsAdaptation(repoRoot)).toContain("治理入口缺少 Agent Skills 校验调用");
-    });
-
-
-
-
-    it("治理 CLI 聚合 accepted、draft 和无效 Work Task role 结果", async () => {
+describe("Task 治理上下文与 legacy 门禁", () => {
+    it("治理 CLI 聚合合法 Work 与非法 Task 结果", async () => {
         const repoRoot = await createGovernanceCliFixture();
-        const proposalPath = "packages/neuro-book/docs/proposals/agent-skills-adaptation.md";
         const taskPath = ".agents/works/w00001-governance/tasks/t01-model/README.md";
-        const accepted = await runGovernanceCli(repoRoot);
+        const valid = await runGovernanceCli(repoRoot);
 
-        expect(accepted.report.failures).toEqual([]);
-        expect(accepted.status, JSON.stringify(accepted.report)).toBe(0);
+        expect(valid.report.failures).toEqual([]);
+        expect(valid.status, JSON.stringify(valid.report)).toBe(0);
 
-        await writeText(repoRoot, proposalPath, "# Proposal\n\n状态：draft\n");
-        const draft = await runGovernanceCli(repoRoot);
-        expect(draft.status).not.toBe(0);
-        expect(draft.report.failures).toContain("Agent Skills Proposal 仍为 draft，但适配实现已出现");
+        await writeText(repoRoot, taskPath, "---\nschema: nbook.task/v2\ntaskId: t02-other\n---\n\n# Invalid taskId\n");
+        const invalidTaskId = await runGovernanceCli(repoRoot);
+        expect(invalidTaskId.status).not.toBe(0);
+        expect(invalidTaskId.report.failures).toContain(`Work Task taskId 与目录不一致：${taskPath}`);
 
-        await writeText(repoRoot, proposalPath, "# Proposal\n\n状态：accepted\n");
-        await writeText(repoRoot, taskPath, "---\nschema: nbook.task/v2\ntaskId: t01-model\nrole: developer\n---\n\n# Invalid role\n");
-        const invalidRole = await runGovernanceCli(repoRoot);
-        expect(invalidRole.status).not.toBe(0);
-        expect(invalidRole.report.failures).toContain(`Work Task role 无效：${taskPath}`);
+        await writeText(repoRoot, taskPath, "---\nschema: nbook.task/v2\ntaskId: t01-model\nrole: tasker\n---\n\n# Retired role field\n");
+        const retiredRole = await runGovernanceCli(repoRoot);
+        expect(retiredRole.status).not.toBe(0);
+        expect(retiredRole.report.failures).toContain(`Work Task 禁止旧字段 role：${taskPath}`);
     }, 30_000);
 
-    it("agent-context 解析 Work 内 Task 并返回 role", async () => {
+    it("agent-context 解析 Work 内 Task 并返回 v2 context", async () => {
         const repoRoot = await createTestTmpRoot("governance-context-work", "governance-context-work-test");
         fixtureRoots.push(repoRoot);
         await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-development-workflow-governance\nissueId: null\n---\n\n# Work\n");
-        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\nrole: tasker\n---\n\n# Task\n");
+        await writeText(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-work-task-model\n---\n\n# Task\n");
         await initializeGitFixture(repoRoot);
-        const result = await runAgentContextCli("t01-work-task-model", repoRoot, "w00001-development-workflow-governance", "tasker");
+        const result = await runAgentContextCli(["--task", "t01-work-task-model", "--work", "w00001-development-workflow-governance"], repoRoot);
 
         expect(result.status).toBe(0);
+        expect(result.failures).toEqual([]);
+        expect(result.report?.schema).toBe("nbook.governance-context/v2");
         expect(result.report?.work).toBe("w00001-development-workflow-governance");
-        expect(result.report?.taskRole).toBe("tasker");
+        expect(result.report?.workReadme).toBe(join(repoRoot, ".agents/works/w00001-development-workflow-governance/README.md"));
+        expect(result.report?.taskReadme).toBe(join(repoRoot, ".agents/works/w00001-development-workflow-governance/tasks/t01-work-task-model/README.md"));
+        expect(result.report).not.toHaveProperty("role");
+        expect(result.report).not.toHaveProperty("requestedRole");
+        expect(result.report).not.toHaveProperty("taskRole");
+        expect(result.report).not.toHaveProperty("roleContract");
+    });
+
+    it("agent-context 裸调用和只指定 Work 时可用", async () => {
+        const bare = await runAgentContextCli([], repositoryRoot);
+        expect(bare.status).toBe(0);
+        expect(bare.failures).toEqual([]);
+        expect(bare.report?.schema).toBe("nbook.governance-context/v2");
+        expect(bare.report?.work).toBeNull();
+        expect(bare.report?.workReadme).toBeNull();
+        expect(bare.report?.task).toBeNull();
+        expect(bare.report?.taskReadme).toBeNull();
+
+        const workOnly = await runAgentContextCli(["--work", "w00001-development-workflow-governance"], repositoryRoot);
+        expect(workOnly.status).toBe(0);
+        expect(workOnly.failures).toEqual([]);
+        expect(workOnly.report?.workReadme).toBe(join(repositoryRoot, ".agents/works/w00001-development-workflow-governance/README.md"));
+        expect(workOnly.report?.taskReadme).toBeNull();
+    });
+
+    it.each([
+        {name: "retired-role", flags: ["--task", "t01-work-task-model", "--role", "tasker"], failure: "未知参数：--role"},
+        {name: "unknown-flag", flags: ["--engine", "bun"], failure: "未知参数：--engine"},
+        {name: "missing-value", flags: ["--work"], failure: "参数缺少值：--work"},
+        {name: "duplicate-flag", flags: ["--work", "w00001-development-workflow-governance", "--work", "w00002-other"], failure: "参数重复：--work"},
+        {name: "value-not-consumed", flags: ["--task", "--work"], failure: "参数缺少值：--task"},
+    ])("agent-context 拒绝非法参数：$name", async ({flags, failure}) => {
+        const result = await runAgentContextCli(flags, repositoryRoot);
+
+        expect(result.status).not.toBe(0);
+        expect(result.failures).toContain(failure);
+        expect(result.report).toBeDefined();
+        expect(result.report?.workReadme).toBeNull();
+        expect(result.report?.taskReadme).toBeNull();
+    });
+
+    it("agent-context 接受 package runner 的单独 -- 分隔符", async () => {
+        const result = await runAgentContextCli(["--", "--work", "w00001-development-workflow-governance"], repositoryRoot);
+
+        expect(result.status).toBe(0);
+        expect(result.failures).toEqual([]);
+        expect(result.report?.workReadme).toBe(join(repositoryRoot, ".agents/works/w00001-development-workflow-governance/README.md"));
     });
     it("agent-context 拒绝非法 Work 合同", async () => {
         const workId = "w00001-invalid-work";
@@ -323,16 +295,14 @@ describe("Agent Skills 适配治理门禁", () => {
             const repoRoot = await createTestTmpRoot(`governance-context-invalid-work-${String(index)}`, `governance-context-invalid-work-${testCase.name}-test`);
             fixtureRoots.push(repoRoot);
             await writeText(repoRoot, workPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Work\n`);
-            await writeText(repoRoot, taskPath, `---\nschema: nbook.task/v2\ntaskId: ${taskId}\nrole: tasker\n---\n\n# Task\n`);
+            await writeText(repoRoot, taskPath, `---\nschema: nbook.task/v2\ntaskId: ${taskId}\n---\n\n# Task\n`);
             await initializeGitFixture(repoRoot);
 
-            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            const result = await runAgentContextCli(["--task", taskId, "--work", workId], repoRoot);
             expect(result.status).not.toBe(0);
             expect(result.failures).toContain(testCase.failure);
             expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
             expect(result.report?.taskReadme).toBeNull();
-            expect(result.report?.role).toBeNull();
-            expect(result.report?.taskRole).toBeNull();
         }
     });
 
@@ -342,11 +312,11 @@ describe("Agent Skills 适配治理门禁", () => {
         const workPath = `.agents/works/${workId}/README.md`;
         const taskPath = `.agents/works/${workId}/tasks/${taskId}/README.md`;
         const cases = [
-            {name: "schema", frontmatter: `schema: nbook.task/v1\ntaskId: ${taskId}\nrole: tasker`, failure: `Work Task schema 无效：${taskPath}`},
-            {name: "task-id", frontmatter: "schema: nbook.task/v2\ntaskId: t02-other\nrole: tasker", failure: `Work Task taskId 与目录不一致：${taskPath}`},
-            ...["actionIssueId", "agentWorkflow", "kind", "worktreeId", "branchId"].map((field) => ({
+            {name: "schema", frontmatter: `schema: nbook.task/v1\ntaskId: ${taskId}`, failure: `Work Task schema 无效：${taskPath}`},
+            {name: "task-id", frontmatter: "schema: nbook.task/v2\ntaskId: t02-other", failure: `Work Task taskId 与目录不一致：${taskPath}`},
+            ...["actionIssueId", "agentWorkflow", "kind", "worktreeId", "branchId", "role"].map((field) => ({
                 name: field,
-                frontmatter: `schema: nbook.task/v2\ntaskId: ${taskId}\nrole: tasker\n${field}: null`,
+                frontmatter: `schema: nbook.task/v2\ntaskId: ${taskId}\n${field}: null`,
                 failure: `Work Task 禁止旧字段 ${field}：${taskPath}`,
             })),
         ];
@@ -358,13 +328,11 @@ describe("Agent Skills 适配治理门禁", () => {
             await writeText(repoRoot, taskPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Task\n`);
             await initializeGitFixture(repoRoot);
 
-            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            const result = await runAgentContextCli(["--task", taskId, "--work", workId], repoRoot);
             expect(result.status).not.toBe(0);
             expect(result.failures).toContain(testCase.failure);
             expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
             expect(result.report?.taskReadme).toBe(join(repoRoot, taskPath));
-            expect(result.report?.role).toBeNull();
-            expect(result.report?.taskRole).toBeNull();
         }
     }, 30_000);
 
@@ -374,7 +342,7 @@ describe("Agent Skills 适配治理门禁", () => {
         const workPath = `.agents/works/${workId}/README.md`;
         const taskPath = `.agents/works/${workId}/tasks/${taskId}/README.md`;
         const cases = [
-            {name: "malformed", frontmatter: "role: [", failure: `Task frontmatter 无法解析：${taskPath}`},
+            {name: "malformed", frontmatter: "taskId: [", failure: `Task frontmatter 无法解析：${taskPath}`},
             {name: "non-object", frontmatter: "null", failure: `Task frontmatter 必须是对象：${taskPath}`},
         ];
 
@@ -385,47 +353,34 @@ describe("Agent Skills 适配治理门禁", () => {
             await writeText(repoRoot, taskPath, `---\n${testCase.frontmatter}\n---\n\n# Invalid Task\n`);
             await initializeGitFixture(repoRoot);
 
-            const result = await runAgentContextCli(taskId, repoRoot, workId);
+            const result = await runAgentContextCli(["--task", taskId, "--work", workId], repoRoot);
             expect(result.status).not.toBe(0);
             expect(result.failures.some((failure) => failure.startsWith(testCase.failure))).toBe(true);
             expect(result.failures).toContain(`Work Task 缺少有效 frontmatter：${taskPath}`);
             expect(result.report?.workReadme).toBe(join(repoRoot, workPath));
             expect(result.report?.taskReadme).toBe(join(repoRoot, taskPath));
-            expect(result.report?.role).toBeNull();
-            expect(result.report?.taskRole).toBeNull();
         }
     });
     it("agent-context 没有 Work 时拒绝 Task", async () => {
-        const result = await runAgentContextCli("t01-work-task-model", repositoryRoot);
+        const result = await runAgentContextCli(["--task", "t01-work-task-model"], repositoryRoot);
 
         expect(result.status).not.toBe(0);
         expect(result.failures).toContain("Task 必须同时指定 Work：t01-work-task-model");
+        expect(result.report?.workReadme).toBeNull();
+        expect(result.report?.taskReadme).toBeNull();
     });
     it("agent-context 对不存在的 Work 只报告一次失败", async () => {
-        const result = await runAgentContextCli("t01-task", repositoryRoot, "w99999-missing");
+        const result = await runAgentContextCli(["--task", "t01-task", "--work", "w99999-missing"], repositoryRoot);
 
         expect(result.status).not.toBe(0);
         expect(result.failures).toEqual(["Work README 不存在：w99999-missing"]);
     });
-    it("agent-context 拒绝与 Task 不一致的 role", async () => {
-        const repoRoot = await createTestTmpRoot("governance-context-role", "governance-context-role-test");
-        fixtureRoots.push(repoRoot);
-        await writeText(repoRoot, ".agents/works/w00001-role/tasks/t01-task/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-task\nrole: tasker\n---\n\n# Task\n");
-        await writeText(repoRoot, ".agents/works/w00001-role/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-role\nissueId: null\n---\n\n# Work\n");
-        await initializeGitFixture(repoRoot);
-        const result = await runAgentContextCli("t01-task", repoRoot, "w00001-role", "reviewer");
-
-        expect(result.status).not.toBe(0);
-        expect(result.failures).toContain("指定 role 与 Task role 不一致：reviewer != tasker");
-        expect(result.report?.role).toBe("tasker");
-        expect(result.report?.requestedRole).toBe("reviewer");
-    });
     it("agent-context 拒绝旧根 Task fallback", async () => {
         const repoRoot = await createTestTmpRoot("governance-context-legacy", "governance-context-legacy-test");
         fixtureRoots.push(repoRoot);
-        await writeText(repoRoot, ".agents/tasks/t01-legacy/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-legacy\nrole: tasker\n---\n\n# Legacy\n");
+        await writeText(repoRoot, ".agents/tasks/t01-legacy/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-legacy\n---\n\n# Legacy\n");
         await initializeGitFixture(repoRoot);
-        const result = await runAgentContextCli("t01-legacy", repoRoot);
+        const result = await runAgentContextCli(["--task", "t01-legacy"], repoRoot);
 
         expect(result.status).not.toBe(0);
         expect(result.failures).toContain("Task 必须同时指定 Work：t01-legacy");
@@ -926,7 +881,7 @@ taskId: ${taskId}
         const repoRoot = await createTestTmpRoot("governance-package-v2", "governance-package-v2-test");
         fixtureRoots.push(repoRoot);
         const relativePath = "packages/neuro-agent-harness/.agents/tasks/02-v2/README.md";
-        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-package\nrole: tasker\n---\n\n# Package v2\n");
+        await writeText(repoRoot, relativePath, "---\nschema: nbook.task/v2\ntaskId: t01-package\n---\n\n# Package v2\n");
 
         expect(verifyLegacyTaskProvenance(repoRoot)).toEqual(expect.arrayContaining([
             expect.stringContaining(`旧归档根拒收 v2，请移入 .agents/works/<work>/tasks/<task>/：${relativePath}`),
@@ -1379,76 +1334,6 @@ agentWorkflow:
     });
 });
 
-describe("Leader 主导顺序开发治理门禁", () => {
-    it("当前角色与文件交互合同闭合", () => {
-        expect(verifyLeaderDrivenDevelopmentContract(repositoryRoot)).toEqual([]);
-    });
-
-    it("任一顺序流程合同丢失时失败", async () => {
-        const repoRoot = await createTestTmpRoot("leader-driven-contract", "leader-driven-contract-test");
-        fixtureRoots.push(repoRoot);
-        const contractPaths = [
-            "AGENTS.md",
-            ".omp/RULES.md",
-            "docs/proposals/p-005-development-workflow-governance.md",
-            ".agents/works/README.md",
-            ".agents/works/AGENTS.md",
-            "docs/standards/repository-workflow.md",
-            "docs/specs/AGENTS.md",
-            ".agents/roles/pm/AGENTS.md",
-            ".agents/roles/leader/AGENTS.md",
-            ".agents/roles/tasker/AGENTS.md",
-            ".agents/roles/reviewer/AGENTS.md",
-            ".agents/tasks/README.md",
-            ".agents/tasks/AGENTS.md",
-        ] as const;
-        for (const relativePath of contractPaths) {
-            await writeText(repoRoot, relativePath, await readFile(join(repositoryRoot, relativePath), "utf8"));
-        }
-
-        for (const relativePath of contractPaths) {
-            const original = await readFile(join(repoRoot, relativePath), "utf8");
-            await writeText(repoRoot, relativePath, `# Missing contract: ${relativePath}\n`);
-            expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([
-                `Leader 主导顺序开发合同缺少必需标记：${relativePath}`,
-            ]);
-            await writeText(repoRoot, relativePath, original);
-        }
-
-        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
-
-        const leaderPath = ".agents/roles/leader/AGENTS.md";
-        const leader = await readFile(join(repoRoot, leaderPath), "utf8");
-        const forbiddenMutations = [
-            "Leader 必须等待 PM 确认后开始。",
-            "status: claimed 批准后 Leader 才能开始编排。",
-            "planned Task 可以直接 push。",
-            "draft 可由 Tasker 执行。",
-            "Task completed 可以自动触发 Project Done。",
-            "PR 合并可以直接触发 Done。",
-            "Reviewer 建议合并可以触发 Done。",
-            "CI 通过可以自动进入 Done。",
-            "开发者逐个批准 Task 合同。",
-            "应用 owner 当前 Task 固定关联 Issue。",
-            "一次预建完整后续 Task 链。",
-            "Tasker 可以自行决定产品取舍。",
-            "未获浏览器人工验收授权可以放入 notRun。",
-        ] as const;
-        for (const mutation of forbiddenMutations) {
-            await writeText(repoRoot, leaderPath, `${leader}\n${mutation}\n`);
-            expect(verifyLeaderDrivenDevelopmentContract(repoRoot).some((failure) => failure.startsWith(`Leader 主导顺序开发合同出现禁用语义：${leaderPath}`)), mutation).toBe(true);
-        }
-        await writeText(repoRoot, leaderPath, leader);
-        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
-        const pmPath = ".agents/roles/pm/AGENTS.md";
-        const pm = await readFile(join(repoRoot, pmPath), "utf8");
-        await writeText(repoRoot, pmPath, pm.replace("覆盖范围的PR已全部合并", "覆盖范围的PR已合并"));
-        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toContain(`Leader 主导顺序开发合同缺少必需标记：${pmPath}`);
-        await writeText(repoRoot, pmPath, pm);
-        expect(verifyLeaderDrivenDevelopmentContract(repoRoot)).toEqual([]);
-    });
-});
-
 describe("workspace 包级治理门禁", () => {
     it("允许带根继承链接的可选包治理资产", async () => {
         const repoRoot = await createPackageFixture({runtime: null, autonomous: false});
@@ -1582,50 +1467,6 @@ describe("monorepo worktree 根门禁", () => {
         }
     });
 });
-
-async function createAgentSkillsAdaptationFixture(status: "draft" | "accepted", implementation: "invalid-report" | "invalid-load_role" | "missing-task-fields" | "missing-contract-export" | "missing-cli-call" | "missing-cli-import" | "shadowed-cli-call" | "type-only-cli-import" | "nested-valid-cli-call" | "dead-function-cli-call" | "complete"): Promise<string> {
-    const root = await createTestTmpRoot("governance-agent-skills", "governance-agent-skills-test");
-    fixtureRoots.push(root);
-    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", `# Proposal\n\n状态：${status}\n`);
-    const validReport = implementation !== "invalid-report";
-    const validLoadRole = implementation !== "invalid-load_role";
-    await writeText(root, ".agents/skills/report/SKILL.md", validReport
-        ? "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"
-        : "name: report\n");
-    await writeText(root, ".agents/skills/load_role/SKILL.md", validLoadRole
-        ? "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"
-        : "name: load_role\n");
-    if (!validReport || !validLoadRole) return root;
-
-    await writeText(root, ".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n");
-    await writeText(root, "docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md SKILL-MECHANICS.md\n");
-    if (implementation !== "missing-task-fields") {
-        await writeText(root, ".agents/works/README.md", "# Work\n\nWork 是 Task 的容器。\n");
-        await writeText(root, ".agents/works/AGENTS.md", "# Work rules\n\nWork、Task、role。\n");
-        await writeText(root, ".agents/works/w00001-agent-skills/tasks/t01-adaptation/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-adaptation\nrole: tasker\n---\n\n# Task\n");
-    }
-    const exportedContract = "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyWorkContracts(repoRoot: string): string[] { return []; }\nexport function verifyLegacyTaskProvenance(repoRoot: string): string[] { return []; }\nexport function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] { return []; }\n";
-    await writeText(root, "scripts/ci/agent-governance-contract.ts", implementation === "missing-contract-export"
-        ? exportedContract.replace("export function verifyWorkContracts(repoRoot: string): string[] { return []; }\n", "")
-        : exportedContract);
-    const imported = "verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance, verifyLeaderDrivenDevelopmentContract";
-    const calls = "failures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\nfailures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));\n";
-    const cliSource = implementation === "missing-cli-call"
-        ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\n`
-        : implementation === "missing-cli-import"
-            ? `import {verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance} from "#scripts/ci/agent-governance-contract";\n${calls}`
-            : implementation === "shadowed-cli-call"
-                ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\n{\n    const verifyWorkContracts = (_repoRoot: string): string[] => [];\n    ${calls.replace("failures.push(...verifyWorkContracts(repoRoot));\n", "failures.push(...verifyWorkContracts(repoRoot));\n")}\n}\n`
-                : implementation === "dead-function-cli-call"
-                    ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\nfunction deadGovernanceChecks(): void {\n${calls}}\n`
-                    : implementation === "type-only-cli-import"
-                        ? `import type {${imported}} from "#scripts/ci/agent-governance-contract";\n${calls}`
-                        : implementation === "nested-valid-cli-call"
-                            ? `import {${imported}} from "#scripts/ci/agent-governance-contract";\n{\n${calls}}\n`
-                            : `import {${imported}} from "#scripts/ci/agent-governance-contract";\n${calls}`;
-    await writeText(root, "scripts/ci/agent-governance.ts", cliSource);
-    return root;
-}
 
 type TaskFixtureOptions = {
     appendSections?: boolean;
@@ -2256,12 +2097,8 @@ async function createGovernanceCliFixture(): Promise<string> {
         [".agents/README.md", "fixture agents readme\n"],
         [".agents/tasks/.migration-complete", "{}\n"],
         [".agents/tasks/legacy-index.json", "{}\n"],
-        [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n- [load_role/SKILL.md](load_role/SKILL.md)\n"],
+        [".agents/skills/README.md", "- [report/SKILL.md](report/SKILL.md)\n"],
         [".agents/skills/report/SKILL.md", "---\nname: report\ndescription: Report current state and next action.\nargument-hint: 'Request, file, or decision to report'\n---\n$ARGUMENTS\n当前状态\n下一步\n"],
-        [".agents/skills/load_role/SKILL.md", "---\nname: load_role\ndescription: Load one canonical project role contract.\nargument-hint: 'Role: pm | leader | tasker | reviewer'\ndisable-model-invocation: true\n---\n$ARGUMENTS\npm\nleader\ntasker\nreviewer\n.agents/roles/<role>/AGENTS.md\n"],
-        ["docs/standards/code/README.md", ".agents/skills/**/*.md writing-for-agents/SKILL.md writing-for-agents/SKILL-MECHANICS.md\n"],
-        ["scripts/ci/agent-governance-contract.ts", "export function verifyAgentSkillsAdaptation(repoRoot: string): string[] { return []; }\nexport function verifyWorkContracts(repoRoot: string): string[] { return []; }\nexport function verifyLegacyTaskProvenance(repoRoot: string): string[] { return []; }\nexport function verifyLeaderDrivenDevelopmentContract(repoRoot: string): string[] { return []; }\n\"notRun\" in verification\n"],
-        ["scripts/ci/agent-governance.ts", "import {verifyAgentSkillsAdaptation, verifyWorkContracts, verifyLegacyTaskProvenance, verifyLeaderDrivenDevelopmentContract} from \"#scripts/ci/agent-governance-contract\";\nfailures.push(...verifyAgentSkillsAdaptation(repoRoot));\nfailures.push(...verifyWorkContracts(repoRoot));\nfailures.push(...verifyLegacyTaskProvenance(repoRoot));\nfailures.push(...verifyLeaderDrivenDevelopmentContract(repoRoot));\n"],
         ["scripts/AGENTS.md", "fixture scripts rules\n"],
         ["scripts/release/AGENTS.md", "fixture release rules\n"],
         ["packages/AGENTS.md", "fixture packages rules\n"],
@@ -2287,10 +2124,6 @@ async function createGovernanceCliFixture(): Promise<string> {
         ".agents/works/AGENTS.md",
         "docs/standards/repository-workflow.md",
         "docs/specs/AGENTS.md",
-        ".agents/roles/pm/AGENTS.md",
-        ".agents/roles/leader/AGENTS.md",
-        ".agents/roles/tasker/AGENTS.md",
-        ".agents/roles/reviewer/AGENTS.md",
         ".agents/tasks/README.md",
         ".agents/tasks/AGENTS.md",
         ".agents/tasks/00160-leader-driven-development-workflow/README.md",
@@ -2302,9 +2135,8 @@ async function createGovernanceCliFixture(): Promise<string> {
             : content;
         await writeText(root, relativePath, normalized);
     }
-    await writeText(root, "packages/neuro-book/docs/proposals/agent-skills-adaptation.md", "# Proposal\n\n状态：accepted\n");
     await writeText(root, ".agents/works/w00001-governance/README.md", "---\nschema: nbook.work/v1\nworkId: w00001-governance\nissueId: null\n---\n\n# Governance\n");
-    await writeText(root, ".agents/works/w00001-governance/tasks/t01-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-model\nrole: tasker\n---\n\n# Model\n");
+    await writeText(root, ".agents/works/w00001-governance/tasks/t01-model/README.md", "---\nschema: nbook.task/v2\ntaskId: t01-model\n---\n\n# Model\n");
     await writeText(root, ".agents/tasks/ownership.json", JSON.stringify({
         schema: "nbook.task-ownership/v1",
         ownerRoot: "packages/neuro-book/.agents/tasks",
@@ -2344,22 +2176,17 @@ async function runGovernanceCli(repoRoot: string): Promise<GovernanceCliResult> 
 }
 
 type AgentContextReport = {
+    schema?: string;
     failures: string[];
-    work?: string;
+    work?: string | null;
     workReadme?: string | null;
+    task?: string | null;
     taskReadme?: string | null;
-    role?: string | null;
-    requestedRole?: string | null;
-    taskRole?: string | null;
-    roleContract?: string | null;
 };
 
-async function runAgentContextCli(taskId: string, repoRoot = repositoryRoot, workId?: string, role?: string): Promise<{status: number; failures: string[]; report?: AgentContextReport}> {
+async function runAgentContextCli(args: readonly string[], repoRoot = repositoryRoot): Promise<{status: number; failures: string[]; report?: AgentContextReport}> {
     try {
-        const cliArgs = [join(repositoryRoot, "scripts/cli/agent-context.ts"), "--repo-root", repoRoot, "--task", taskId];
-        if (workId) cliArgs.push("--work", workId);
-        if (role) cliArgs.push("--role", role);
-        const result = await execFile("bun", cliArgs, {cwd: repositoryRoot, encoding: "utf8"});
+        const result = await execFile("bun", [join(repositoryRoot, "scripts/cli/agent-context.ts"), "--repo-root", repoRoot, ...args], {cwd: repositoryRoot, encoding: "utf8"});
         const report = JSON.parse(result.stdout) as AgentContextReport;
         return {status: 0, failures: report.failures, report};
     } catch (error) {
@@ -2497,8 +2324,8 @@ async function createLinkedWorkFixture(kind: LinkedWorkKind): Promise<{
     const workRoot = `.agents/works/${workId}`;
     const externalWorkRoot = join(externalRoot, workRoot);
     const workReadme = `---\nschema: nbook.work/v1\nworkId: ${workId}\nissueId: null\n---\n\n# Linked Work\n`;
-    const linkedTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${linkedTaskId}\nrole: tasker\n---\n\n# Linked Task\n`;
-    const realTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${realTaskId}\nrole: tasker\n---\n\n# Real Task\n`;
+    const linkedTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${linkedTaskId}\n---\n\n# Linked Task\n`;
+    const realTaskReadme = `---\nschema: nbook.task/v2\ntaskId: ${realTaskId}\n---\n\n# Real Task\n`;
     await writeText(externalRoot, `${workRoot}/README.md`, workReadme);
     await writeText(externalRoot, `${workRoot}/tasks/${linkedTaskId}/README.md`, linkedTaskReadme);
     await writeText(externalRoot, `${workRoot}/tasks/${realTaskId}/README.md`, realTaskReadme);

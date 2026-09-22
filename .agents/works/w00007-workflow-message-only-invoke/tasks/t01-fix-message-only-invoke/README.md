@@ -1,7 +1,6 @@
 ---
 schema: nbook.task/v2
 taskId: t01-fix-message-only-invoke
-role: tasker
 ---
 
 # 修复 Workflow message-only invoke

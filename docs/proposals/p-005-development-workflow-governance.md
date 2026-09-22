@@ -9,16 +9,17 @@ NeuroBook 的开发治理曾把 PM、Leader、Tasker、Reviewer、Issue状态、
 另一个问题是Leader与Tasker的合同同时存在于聊天、Issue、Task和角色提示中。Tasker需要等待Leader实时解释，跨session恢复时又无法确定哪份计划有效。
 
 本提案不改变NeuroBook产品功能或用户数据，只调整开发角色和文件工作流。
-## 2026-08-27 当前决策
+## 2026-09-21 当前决策
 
-本节取代下方历史正文中与 `actionIssueId`、`agentWorkflow`、`kind`、Task status、task级worktree/branch身份和旧Task root相关的现行规则；历史文字保留为决策演进记录。
+开发者批准协作规则与技能精简。本节及其链接取代下方历史角色流程、旧 Task 字段与远端登记前置；下方从“目标与非目标”起保留为历史演进，不作为当前执行门禁。
 
-- Work 作为 current Task 的强制容器，一个Work直接包含`1..N`个Task；Work通过`issueId: i<编号> | null`可选引用一个GitHub Issue。
-- Task 指定正式 role，且只允许`pm`、`leader`、`tasker`或`reviewer`中的一个；Task正文是协作参考，不作机器状态或权限门禁。
-- Proposal独立于Work，可被多个Work引用，不建立反向索引；Spec继续承载可观察产品合同。
-- `.agents/works/`是current唯一入口；根、主应用和自治包`.agents/tasks/`只保留legacy provenance并拒收`nbook.task/v2`。
-- Agent主导执行，开发者参与产品决定、实际观察、风险接受和受限动作授权；PM和Reviewer都是按需角色。
-- 历史Task、worktree、branch、PR、walkthrough、ownership和密封迁移hash不迁移、不重编号、不重算。
+- [Work](../../.agents/works/README.md) 继续是 current Task 的容器，Issue 由 Work 可选引用；Task 使用无正式 role 的当前快照。主 Agent 可以直接实现，也可按独立边界委派，高风险按需独立审查。
+- 新 Work 协调查重后本地登记即可隔离开发，登记随实现集成；不要求先提交、推送或进入远端 master。保护用户工作树，碰撞暂停冲突身份的集成。
+- [专项 Skills](../../.agents/skills/README.md) 只补缺失方法；不建立总流程 Skill 或叠加完成门禁。验证以 [测试规范](../testing/README.md#验证门禁) 为唯一来源，所需证据充分即停止。
+- 长期行为归 Spec／组件文档，Work 归范围与授权，Task 首页归当前状态与证据链接，历史与原始输出按需保存，不重复记账。
+- 删除正式角色字段、CLI 参数和专用文案／源码镜像门禁；context JSON 切换为 `nbook.governance-context/v2`。保留 Work 身份、物理目录隔离、legacy provenance、ownership 和密封校验。
+- Proposal 仍决定长期取舍，不自动授权执行或受限动作；用户决定产品取舍、风险接受、远端与不可逆操作。Task、CI、PR 完成不自动推进 Project Done。
+- 历史 Task、worktree、branch、PR、walkthrough、ownership 和密封迁移 hash 不迁移、不重编号、不重算。
 
 ## 目标与非目标
 
