@@ -127,8 +127,18 @@ describe("Desktop UI shell contract", () => {
         expect(dialog).toContain('overlayType: "opaque"');
         expect(dialog).not.toContain('"blur"');
         expect(dialog).not.toContain("backdrop-blur");
-        expect(dialog).toContain('width: "min(1120px, calc(100vw - 48px))"');
-        expect(dialog).toContain('height: "min(640px, calc(100dvh - 80px))"');
+        /*
+         * full 只锁「带内缩、带上限的大工作台」这个几何合同，不锁具体像素：
+         * 宽高都必须写成 min(上限, 视口 - 内缩)，改成贴边 100vw / 100dvh 才是回归。
+         * 纵向内缩下限取桌面壳 36px 标题栏——小于它，对话框会钻到标题栏底下。
+         */
+        const fullPreset = /full: \{\s*width: "min\((\d+)px, calc\(100vw - (\d+)px\)\)",\s*height: "min\((\d+)px, calc\(100dvh - (\d+)px\)\)",\s*maxHeight: "calc\(100dvh - \d+px\)",\s*\}/u.exec(dialog);
+        expect(fullPreset, "full 预设必须保持 min(上限, 视口 - 内缩) 的嵌入几何").not.toBeNull();
+        const [fullWidthCap, fullWidthInset, fullHeightCap, fullHeightInset] = fullPreset!.slice(1).map(Number);
+        expect(fullWidthInset).toBeGreaterThanOrEqual(16);
+        expect(fullHeightInset).toBeGreaterThanOrEqual(36);
+        expect(fullWidthCap).toBeGreaterThanOrEqual(1120);
+        expect(fullHeightCap).toBeGreaterThanOrEqual(640);
         expect(dialog).toContain("data-dialog-size");
         expect(dialogWindow).toContain("data-dialog-window");
         expect(dialog).toContain("0 18px 44px");

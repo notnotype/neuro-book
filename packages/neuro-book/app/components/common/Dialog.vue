@@ -38,14 +38,21 @@ const DIALOG_SIZE_PRESETS: Record<DialogSize, DialogSizePreset> = {
         height: "auto",
         maxHeight: "calc(100vh - 32px)",
     },
+    /*
+     * xl / full 是「大工作台」两档。几何必须同时带像素上限与视口内缩：
+     * - 上限防止超宽屏把对话框拉成整片墙；
+     * - 内缩留出页头 / 窗口圆角，尤其桌面壳顶部有 36px 标题栏，纵向内缩不得小于它。
+     * 数值按真实工作台的最小可用面积定：full 要撑开三栏（侧栏 + 主区 + 检查器），
+     * xl 要撑开双栏 + 详情。
+     */
     xl: {
-        width: "min(960px, calc(100vw - 48px))",
-        height: "min(600px, calc(100dvh - 80px))",
+        width: "min(1200px, calc(100vw - 48px))",
+        height: "min(840px, calc(100dvh - 80px))",
         maxHeight: "calc(100dvh - 80px)",
     },
     full: {
-        width: "min(1120px, calc(100vw - 48px))",
-        height: "min(640px, calc(100dvh - 80px))",
+        width: "min(1600px, calc(100vw - 48px))",
+        height: "min(1080px, calc(100dvh - 80px))",
         maxHeight: "calc(100dvh - 80px)",
     },
 };
