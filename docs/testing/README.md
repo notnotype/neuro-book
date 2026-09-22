@@ -100,11 +100,13 @@ Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.c
 
 适用于 `packages/agent-*` 这类领域无关通用包；由 Issue #193 的 `D-TEST-01` 决定（记录见 `.agents/works/w00002-neuro-agent-harness-redesign/tasks/t01-product-host-success-research/walkthroughs/006-decision-record.md`）。与本文其余规则叠加，冲突时以本节为准。
 
+2026-09-22 修订：运行器统一为 Bun 自带测试器，原“每包一份 `vitest.config.ts`、`setupFiles` 指向测试支持包”的要求作废；`nb-session`/`nb-profile`/`nb-harness` 已按 `bun test` 实现并发运。
+
 - **TDD**：新行为先写失败测试（RED）→ 最小实现（GREEN）→ 重构；bug 修复先写复现测试。
 - **只测关键**：覆盖公共合同、边界与上限、失败与恢复、并发与顺序、资源释放；不写镜像实现、措辞或框架行为的测试；不为可逆小改动强制测试。
 - **Smoke 必测**：每个包至少一条 smoke（包入口可导入 + 一条最小真实路径）。
 - **分层**：L1 纯函数单元 / L2 公共合同 / L3 组件集成（内存假件）/ L4 真实进程与 IO——包内必须有 L1–L3，L4 至少覆盖一条真实边界；L5 宿主验收不属于包。
-- **放置与运行**：测试与被测源码同目录（`src/**/*.test.ts`）；每个包一份 `vitest.config.ts`（显式 `root` 与 `include`，`setupFiles`/`globalSetup` 指向 `@notnotype/neuro-book-test-support/vitest`）；包脚本 `test`/`typecheck` 可独立执行（`bun run --cwd packages/<pkg> test`）；导入使用包内相对路径或包名，禁止 `nbook/*` 等产品别名；不得依赖产品 workspace、Prisma 或 `@earendil-works/pi-*`。
+- **放置与运行**：测试放在包内（`src/**` 或 `tests/**`，与被测源码同包）；运行器用 Bun 自带测试器 `bun test`，不引入 vitest 配置；包脚本 `test`/`typecheck` 可独立执行（`bun run --cwd packages/<pkg> test`）；导入使用包内相对路径或包名，禁止 `nbook/*` 等产品别名；不得依赖产品 workspace、Prisma 或 `@earendil-works/pi-*`。
 - **真实 LLM 不 mock**：需要 LLM响应的测试直接调用真实 DeepSeek（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；不要伪造 LLM API 数据。凭据只放仓库根 `.env`（已被忽略）或 CI secret，不落盘、不打印、不进用例名。缺凭据时 skip 并在证据中记为“未验证”，不得写成通过；断言结构化结果（状态、字段形状、finish 原因），不断言措辞。
 - **测试支持**：`@notnotype/neuro-book-test-support` 仅作 devDependency；包若离开本仓需自带等价物。
 
