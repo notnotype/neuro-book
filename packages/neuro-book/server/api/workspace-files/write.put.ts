@@ -5,6 +5,7 @@ import {readWorkspaceTextFile, statWorkspacePath, type WorkspaceFileNode} from "
 import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
 import {resolveWorkspaceFileTarget} from "nbook/server/workspace-files/novel-workspace";
 import {withProjectTargetMutation} from "nbook/server/workspace-files/project-open-guard";
+import {assertWorkspaceStorageBoundary} from "nbook/server/workspace-files/workspace-storage-boundary";
 import {USER_LOCAL_ACTOR, writeWorkspaceTextFileTracked} from "nbook/server/workspace-history/tracked-workspace-files";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
@@ -80,6 +81,7 @@ export default defineEventHandler(async (event) => {
     const body = WriteWorkspaceFileBodySchema.parse(await readBody(event));
     const target = await resolveWorkspaceFileTarget(runtimePathsFromEnv(), body);
     return withProjectTargetMutation(target, async (projectHandles) => {
+        await assertWorkspaceStorageBoundary(target, body.path, "mutation");
         // 冲突检测已读到的写前内容，直接作为记账 before 复用（省一次读盘）。
         let knownBefore: string | null | undefined = undefined;
         if (!body.force && body.expectedMtimeMs !== undefined) {

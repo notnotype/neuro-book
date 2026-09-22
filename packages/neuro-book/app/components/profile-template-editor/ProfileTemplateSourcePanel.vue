@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import MonacoCodeEditor from "nbook/app/components/editor-workbench/MonacoCodeEditor.vue";
 import type {MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 const props = defineProps<{
@@ -8,7 +7,6 @@ const props = defineProps<{
     sourceLineCount: number;
     parsingSource: boolean;
     selectedTemplateFileName: string;
-    theme: IdeTheme;
     monacoPreferences: MonacoEditorPreferences;
     embedded?: boolean;
 }>();
@@ -29,14 +27,13 @@ const emit = defineEmits<{
                 <span class="text-[11px] text-[var(--text-muted)]">{{ props.sourceLineCount }} 行</span>
             </div>
         </div>
-        <MarkdownSourceEditor
+        <MonacoCodeEditor
             class="source-preview min-h-0 flex-1 overflow-hidden rounded-md"
             :class="props.embedded ? 'border-0' : 'border border-[var(--border-color)]'"
             :initial-value="props.sourceText"
             visible
             language="typescript"
             :model-path="props.selectedTemplateFileName"
-            :theme="props.theme"
             :monaco-preferences="props.monacoPreferences"
             @change="emit('change', $event)"
             @save-request="emit('save-request')"
@@ -60,6 +57,6 @@ const emit = defineEmits<{
 }
 
 .source-preview {
-    background: var(--source-bg);
+    background: var(--panel-surface);
 }
 </style>

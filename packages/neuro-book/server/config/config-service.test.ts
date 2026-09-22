@@ -110,6 +110,40 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join(workspaceRoot(), "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("关联更新保留偏好，偏好局部更新保留关联和其它字段", async () => {
+        const query = {workspaceKind: "user-assets"} as const;
+        await saveGlobalConfig({editor: {markdown: {fontSize: 23, lineHeight: 2.2}, monaco: {fontSize: 19}}}, query, catalog);
+        await saveGlobalConfig({editor: {associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"}}}, query, catalog);
+        const saved = await saveGlobalConfig({editor: {markdown: {fontSize: 24}}}, query, catalog);
+        expect(saved.effective.editor).toMatchObject({
+            markdown: {fontSize: 24, lineHeight: 2.2}, monaco: {fontSize: 19},
+            associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"},
+        });
+        const bootstrap = await readConfigBootstrap(query);
+        expect(bootstrap.editor).toEqual({associations: {".md": "code", ".note": "markdown"}, languageAssociations: {".note": "markdown"}});
+    });
+
+    it("清空项目关联重新继承全局，保存文件不固化有效默认", async () => {
+        const query = {workspaceKind: "novel", projectRoot: CONFIG_TEST_PROJECT_ROOT} as const;
+        await saveGlobalConfig({editor: {associations: {".md": "code"}, markdown: {fontSize: 23, lineHeight: 2.2}}}, query, catalog);
+        await saveProjectConfig({editor: {associations: {".md": "markdown"}, markdown: {fontSize: 25}}}, query, catalog);
+        expect((await readConfigBootstrap(query)).editor.associations[".md"]).toBe("markdown");
+        const saved = await saveProjectConfig({editor: {associations: {}}}, query, catalog);
+        expect(saved.effective.editor).toMatchObject({associations: {".md": "code"}, markdown: {fontSize: 25, lineHeight: 2.2}});
+        const raw = JSON.parse(await fs.readFile(path.join(workspaceRoot(), CONFIG_TEST_PROJECT_ROOT, ".nbook", "config.json"), "utf8"));
+        expect(raw.editor).toEqual({associations: {}, markdown: {fontSize: 25}});
+    });
+
+    it("手写关联非法时读取失败且写入不能覆盖原件", async () => {
+        const file = path.join(workspaceRoot(), ".nbook", "config.json");
+        await fs.mkdir(path.dirname(file), {recursive: true});
+        const invalid = JSON.stringify({editor: {associations: {"*.md": "code"}}});
+        await fs.writeFile(file, invalid, "utf8");
+        await expect(readConfigBootstrap({workspaceKind: "user-assets"})).rejects.toThrow();
+        await expect(saveGlobalConfig({editor: {associations: {}}}, {workspaceKind: "user-assets"}, catalog)).rejects.toThrow();
+        expect(await fs.readFile(file, "utf8")).toBe(invalid);
+    });
+
     it("Config target 复用 ready Project 的已解析 workspace", async () => {
         const target = await resolveConfigTarget({
             workspaceKind: "novel",
@@ -186,8 +220,8 @@ describe("config service", {timeout: 30_000}, () => {
             },
         }, null, 4), "utf8");
 
-        const snapshot = await saveGlobalConfig({ui: {theme: "sepia", customThemes: [], costCurrency: "USD"}}, {workspaceKind: "user-assets"});
-        expect(snapshot.global.ui?.theme).toBe("sepia");
+        const snapshot = await saveGlobalConfig({ui: {themeId: "nbook", appearance: "light", costCurrency: "USD"}}, {workspaceKind: "user-assets"});
+        expect(snapshot.global.ui?.themeId).toBe("nbook");
         expect(snapshot.modelSettings.validationIssues.some((issue) => issue.code === "missing_api")).toBe(true);
     });
 
@@ -473,34 +507,26 @@ describe("config service", {timeout: 30_000}, () => {
     it("Global UI 费用显示币种可以保存并被 bootstrap 读回", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {
-                theme: "custom-editor",
-                customThemes: [{
-                    id: "custom-editor",
-                    name: "Editor Custom",
-                    appearance: "dark",
-                    vars: {
-                        "bg-main": "#101014",
-                        "accent-main": "#88ccff",
-                    },
-                }],
+                themeId: "macos",
+                appearance: "dark",
                 costCurrency: "CNY",
             },
         }, {workspaceKind: "user-assets"});
         const bootstrap = await readConfigBootstrap({workspaceKind: "user-assets"}, catalog);
 
-        expect(snapshot.global.ui?.theme).toBe("custom-editor");
-        expect(snapshot.global.ui?.customThemes).toHaveLength(1);
+        expect(snapshot.global.ui?.themeId).toBe("macos");
+        expect(snapshot.global.ui?.appearance).toBe("dark");
         expect(snapshot.global.ui?.costCurrency).toBe("CNY");
-        expect(snapshot.effective.ui).toMatchObject({theme: "custom-editor", costCurrency: "CNY"});
-        expect(bootstrap.ui.theme).toBe("custom-editor");
-        expect(bootstrap.ui.customThemes).toHaveLength(1);
+        expect(snapshot.effective.ui).toMatchObject({themeId: "macos", appearance: "dark", costCurrency: "CNY"});
+        expect(bootstrap.ui.themeId).toBe("macos");
+        expect(bootstrap.ui.appearance).toBe("dark");
         expect(bootstrap.ui.costCurrency).toBe("CNY");
     });
 
     it("非法 UI 费用显示币种会回退为 USD", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {
-                theme: "sepia",
+                themeId: "nbook",
                 costCurrency: "EUR",
             },
         } as never, {workspaceKind: "user-assets"});
@@ -540,12 +566,12 @@ describe("config service", {timeout: 30_000}, () => {
     it("Project 未 open 时 Global Config 仍可独立保存", async () => {
         await closeProjectForTest(CONFIG_TEST_PROJECT_ROOT);
 
-        const snapshot = await saveGlobalConfig({ui: {theme: "dark", customThemes: [], costCurrency: "USD"}}, {
+        const snapshot = await saveGlobalConfig({ui: {themeId: "macos", appearance: "dark", costCurrency: "USD"}}, {
             workspaceKind: "user-assets",
         });
 
         expect(snapshot.workspaceKind).toBe("user-assets");
-        expect(snapshot.global.ui?.theme).toBe("dark");
+        expect(snapshot.global.ui?.themeId).toBe("macos");
     });
 
     it("Project 未 open 时拒绝重置 Project Profile Home", async () => {
@@ -801,7 +827,7 @@ describe("config service", {timeout: 30_000}, () => {
         await fs.writeFile(configPath, `${JSON.stringify(withOldAuth, null, 4)}\n`, "utf-8");
 
         const snapshot = await saveGlobalConfig({
-            ui: {theme: "sepia", customThemes: [], costCurrency: "USD"},
+            ui: {themeId: "nbook", appearance: "light", costCurrency: "USD"},
         }, {workspaceKind: "user-assets"});
 
         expect(snapshot.modelSettings.defaultModelKey).toBe("deepseek/deepseek-v4-flash");

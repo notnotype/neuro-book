@@ -96,8 +96,8 @@ onMounted(() => void nextTick(() => emit("rendered")));
         <!-- 顶层设计风格切换栏 -->
         <div class="mb-6 flex flex-col gap-3">
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-semibold text-[var(--text-secondary)]">方案 2 细分:</span>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold text-[var(--text-secondary)] shrink-0">方案 2 细分:</span>
                     <SegmentedControl
                         v-model="designStyle"
                         :options="designOptions"
@@ -145,7 +145,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                 <!-- 第一组：主标签分段（带 300ms 舒缓平滑滑块动画） -->
                 <div class="flex flex-col gap-2">
                     <span class="text-xs font-semibold text-[var(--text-muted)]">主要视图切换 (300ms 舒缓平滑滑动):</span>
-                    <div class="relative seg-slider-track p-1 inline-flex rounded-[9px] w-full select-none">
+                    <div id="nb-lab-target" class="relative seg-slider-track p-1 inline-flex rounded-[9px] w-full select-none">
                         <!-- 连续平滑滑动的背景指示器 -->
                         <div
                             class="absolute top-1 bottom-1 seg-sliding-indicator rounded-[6.5px] pointer-events-none"

@@ -10,8 +10,10 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "reka-ui";
+import {useSlots} from "vue";
 import {NB_Z_INDEX} from "../../theme/z-index";
 import Button from "../controls/Button.vue";
+import {useCloseHandoff} from "./close-handoff";
 
 export type AlertDialogTone = "danger" | "warning" | "accent";
 
@@ -37,7 +39,24 @@ const emit = defineEmits<{
     (e: "update:open", value: boolean): void;
     (e: "confirm"): void;
     (e: "cancel"): void;
+    (e: "closed"): void;
 }>();
+
+const slots = useSlots();
+const handoff = useCloseHandoff(() => props.open === true);
+
+function preventTriggerlessCloseFocus(event: Event): void {
+    if (!slots.trigger) event.preventDefault();
+}
+
+/**
+ * `closed` 是「关闭真的做完了」：内容已卸载、Reka 的焦点栈与指针锁已释放，
+ * 有触发器时焦点也已归还。宿主用它在关闭后再激活下一个交互层，不要改用固定毫秒数。
+ */
+function onCloseAutoFocus(event: Event): void {
+    preventTriggerlessCloseFocus(event);
+    handoff.schedule(() => emit("closed"));
+}
 </script>
 
 <template>
@@ -46,25 +65,20 @@ const emit = defineEmits<{
         :default-open="props.defaultOpen"
         @update:open="(val) => emit('update:open', val)"
     >
-        <AlertDialogTrigger as-child>
+        <AlertDialogTrigger v-if="$slots.trigger" as-child>
             <slot name="trigger" />
         </AlertDialogTrigger>
-
         <AlertDialogPortal>
             <AlertDialogOverlay
                 :style="{zIndex: NB_Z_INDEX.dialog - 1}"
                 class="fixed inset-0 bg-[color-mix(in_srgb,var(--overlay-scrim)_80%,transparent)] backdrop-blur-[4px] transition-opacity [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
             />
-
             <AlertDialogContent
+                @close-auto-focus="onCloseAutoFocus"
                 :style="{
                     zIndex: NB_Z_INDEX.dialog,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-                    backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 10%, transparent), 0 12px 32px -4px color-mix(in srgb, var(--shadow-color) 30%, transparent)',
                 }"
-                class="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] rounded-[var(--radius-panel)] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
+                class="nb-ui-popover-surface nb-ui-dialog-surface fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-[420px] p-6 text-[var(--text-main)] outline-none select-none transition-[transform,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)]"
             >
                 <div class="flex flex-col gap-2">
                     <AlertDialogTitle class="text-[var(--text-md)] font-semibold text-[var(--text-main)]">

@@ -9,6 +9,7 @@
     },
     "include": [
         "./**/*.ts",
+        "../.nuxt/types/nitro-imports.d.ts",
         "../server/agent/tools/web-extraction-modules.d.ts"
     ],
     "exclude": [

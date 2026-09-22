@@ -1,0 +1,9 @@
+$ vitest run "app/utils/workbench/t42-review-probe.test.ts" "app/utils/workbench/t42-leader-probe.test.ts"
+
+ RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+
+ Test Files  2 passed (2)
+      Tests  8 passed (8)
+   Start at  11:50:06
+   Duration  2.14s (transform 221ms, setup 167ms, import 290ms, tests 15ms, environment 0ms)

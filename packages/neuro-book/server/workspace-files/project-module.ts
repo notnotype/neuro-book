@@ -4,7 +4,7 @@ import type {RuntimeArtifactCompilerContext} from "nbook/server/utils/runtime-ar
 declare const projectModuleTokenBrand: unique symbol;
 
 /** 内置Project Module的稳定名称；required顺序同时定义失败回滚的逆序依赖。 */
-export type ProjectModuleName = "database" | "history" | "file-index" | "plot-world" | "agent-sql";
+export type ProjectModuleName = "database" | "history" | "file-index" | "plot-world" | "agent-sql" | "storage";
 
 /** Project Module启动上下文；signal由当前ProjectSession generation独占。 */
 export type ProjectModuleContext = {
@@ -56,7 +56,7 @@ export type ProjectModuleRegistrySnapshot = {
 };
 
 const REQUIRED_MODULE_ORDER: readonly ProjectModuleName[] = ["database", "history", "file-index"];
-const LAZY_MODULE_ORDER: readonly ProjectModuleName[] = ["plot-world", "agent-sql"];
+const LAZY_MODULE_ORDER: readonly ProjectModuleName[] = ["plot-world", "agent-sql", "storage"];
 
 type ProjectModuleRegistryState = {
     readonly modules: Map<ProjectModuleName, ProjectModule>;

@@ -227,9 +227,11 @@
 }
 
 .lab-canvas-scroll {
+    min-width: 0;
     min-height: 100%;
     overflow-x: auto;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     justify-items: center;
 }
 
@@ -237,6 +239,7 @@
 .lab-canvas {
     position: relative;
     display: flex;
+    min-width: 0;
     min-height: 100%;
     width: 100%;
     flex-direction: column;
@@ -306,6 +309,7 @@
 /* 测量台卡片窗体：透明容器让被测组件直接呈现在壁纸之上 */
 .lab-canvas-window {
     width: 100%;
+    min-width: 0;
     max-width: min(100%, 1040px);
     padding: var(--space-2);
     display: flex;

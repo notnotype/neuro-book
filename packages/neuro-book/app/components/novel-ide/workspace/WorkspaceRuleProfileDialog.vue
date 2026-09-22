@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import TagInput from "nbook/app/components/common/form/TagInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {getWorkspaceLorebookStatusIndicatorClass} from "nbook/app/components/novel-ide/workspace/workspace-entry-meta";
@@ -199,6 +199,7 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
         width="min(1160px, calc(100vw - 160px))"
         height="min(740px, calc(100vh - 96px))"
         overlay-type="opaque"
+        teleport-target=".novel-ide-theme"
         :show-footer="false"
         :busy="savingFile"
         @update:model-value="emit('update:modelValue', $event)"

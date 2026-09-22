@@ -10,6 +10,8 @@ import WorldEngineWorkbenchPreviewMutationEditor from "nbook/app/components/nove
 import WorldEngineWorkbenchPreviewSidebar from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSidebar.vue";
 import WorldEngineWorkbenchPreviewSliceList from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSliceList.vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {useWorldEnginePanelSizes} from "nbook/app/utils/workbench/world-engine-session";
+import type {WorkbenchLayoutSurface} from "nbook/app/utils/workbench/layout-session";
 import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 import {
     formatWorldEngineConflictMessage,
@@ -90,6 +92,8 @@ const props = defineProps<{
     modelValue: boolean;
     projectRoot: string;
     projectTitle: string;
+    /** 工作台工作面：内部尺寸的 project/local 记录只在 project 工作面可用（与外壳同一份事实）。 */
+    surface: WorkbenchLayoutSurface;
 }>();
 
 const emit = defineEmits<{
@@ -99,13 +103,9 @@ const emit = defineEmits<{
     (e: "savingChange", value: boolean): void;
 }>();
 
-const router = useRouter();
 const {t} = useI18n();
 const {confirm: confirmDialog} = useDialog();
 
-const defaultSidebarWidth = 320;
-const defaultInspectorWidth = 420;
-const defaultMutationEditorHeight = 292;
 const sliceLimit = 200;
 const queryListLimit = 40;
 const pendingSubjectTimelineNoticePrefix = "待接入 subject 暂无 World Engine 时间线";
@@ -160,9 +160,29 @@ const sliceComposerEditorKey = ref(0);
 const sliceComposerLoadKey = ref(0);
 const sliceComposerNewKey = ref(0);
 const sliceComposerInsertContext = ref<SliceComposerInsertContext | null>(null);
-const sidebarWidth = ref(defaultSidebarWidth);
-const inspectorWidth = ref(defaultInspectorWidth);
-const mutationEditorHeight = ref(defaultMutationEditorHeight);
+/**
+ * 内部三栏尺寸：project/local 记录（`workbench.layout`/`world-engine-sizes`）是唯一来源，
+ * 组件不再自持 ref，也不写裸存储。默认值在记录定义里（320/420/292），显示在读取就绪前用它回落。
+ */
+const panelSizes = useWorldEnginePanelSizes({surface: () => props.surface});
+const panelSizesLoading = panelSizes.loading;
+const panelSizesNotice = panelSizes.notice;
+const sidebarWidth = computed(() => panelSizes.sizes.value.sidebarWidth);
+const inspectorWidth = computed(() => panelSizes.sizes.value.inspectorWidth);
+const mutationEditorHeight = computed(() => panelSizes.sizes.value.mutationEditorHeight);
+
+/** 拖拽结束才提交一次（面板自身只做本地预览），因此这里每个面板只有一条写路径。 */
+function updateSidebarWidth(width: number): void {
+    void panelSizes.commit({sidebarWidth: width});
+}
+
+function updateInspectorWidth(width: number): void {
+    void panelSizes.commit({inspectorWidth: width});
+}
+
+function updateMutationEditorHeight(height: number): void {
+    void panelSizes.commit({mutationEditorHeight: height});
+}
 const resetVersion = ref(0);
 const metadataDraftSummaries = ref<WorldWorkbenchPreviewMetadataDraftSummary[]>([]);
 const valueDraftSummaries = ref<WorldWorkbenchPreviewValueDraftSummary[]>([]);
@@ -229,7 +249,6 @@ const selectedSlice = computed(() => slices.value.find((slice) => slice.id === s
 const selectedSliceIndex = computed(() => selectedSlice.value ? slices.value.findIndex((slice) => slice.id === selectedSlice.value?.id) : -1);
 const subjectNameMap = computed(() => new Map(subjects.value.map((subject) => [subject.id, subject.name || subject.id])));
 const worldSubjectIdSet = computed(() => new Set(worldSubjects.value.map((subject) => subject.id)));
-const previewHref = computed(() => router.resolve(`/world-engine.preview?${new URLSearchParams({projectRoot: props.projectRoot}).toString()}`).href);
 const issueTriageMap = computed(() => {
     const map = new Map<string, WorldWorkbenchPreviewIssueStatus>();
     for (const item of issueTriageStates.value) {
@@ -1752,14 +1771,6 @@ function sliceSubjectFilterQuery(): {subjectIds?: string; subjectMode?: WorldWor
     };
 }
 
-function openPreview(): void {
-    if (blockWorkbenchActionBusy("World Engine 工作台正在同步，请稍候再打开 Preview。")) {
-        return;
-    }
-    if (import.meta.client) {
-        window.open(previewHref.value, "_blank", "noopener,noreferrer");
-    }
-}
 
 function sliceHealthFilterLabel(filter: WorldWorkbenchPreviewSliceHealthFilter): string {
     if (filter === "open") {
@@ -1834,6 +1845,9 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
     <Dialog
         :model-value="props.modelValue"
         size="full"
+        width="calc(100vw - 8px)"
+        height="calc(100vh - 8px)"
+        max-height="calc(100vh - 8px)"
         overlay-type="opaque"
         :show-footer="false"
         :close-on-overlay="false"
@@ -1900,10 +1914,6 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         {{ t("worldEngine.workbenchPreview.inspector") }}
                         <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
                     </button>
-                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openPreview">
-                        <span class="i-lucide-external-link h-3.5 w-3.5"></span>
-                        Preview
-                    </button>
                     <button type="button" data-testid="world-workbench-close" aria-label="关闭 World Engine Workbench" title="关闭 World Engine Workbench" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="void requestWorkbenchClose()">
                         <span class="i-lucide-x h-4 w-4"></span>
                     </button>
@@ -1915,6 +1925,17 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
         <div class="world-engine-workbench-dialog world-engine-workbench-theme relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--we-bg-canvas)] text-[var(--we-text-main)]">
             <!-- 工作台级加载错误 banner（操作级错误已迁移到 notification） -->
             <div v-if="error" class="border-b border-[var(--we-danger-border)] bg-[var(--we-danger-soft)] px-4 py-2 text-[13px] text-[var(--we-danger)]">{{ error }}</div>
+
+            <!-- 内部尺寸记录不可读 / 未保存：不静默（拖动结束的提交失败会显示在这里），可重试或放弃 -->
+            <div
+                v-if="panelSizesNotice"
+                data-testid="world-workbench-panel-sizes-notice"
+                class="flex shrink-0 items-start gap-2 border-b border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-4 py-2 text-[11px] leading-4 text-[var(--we-warning)]"
+            >
+                <span class="min-w-0 flex-1">面板尺寸记录未就绪：{{ panelSizesNotice.diagnosis }}</span>
+                <button v-if="panelSizesNotice.retryable" type="button" class="shrink-0 underline" @click="void panelSizes.retry()">重试</button>
+                <button v-if="panelSizesNotice.retryable" type="button" class="shrink-0 underline" @click="panelSizes.abandon()">放弃</button>
+            </div>
 
             <div v-if="sliceComposerVisible" data-testid="world-slice-composer" class="absolute inset-3 z-30 flex min-h-0 flex-col overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] shadow-2xl" @input.capture="markSliceComposerDirtyFromInput" @change.capture="markSliceComposerDirtyFromInput">
                 <div class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--we-border)] px-4">
@@ -1955,6 +1976,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                     :busy="workbenchActionBusy"
                     :selected-subject-ids="selectedSubjectIds"
                     :collapsed="sidebarCollapsed"
+                    :resize-disabled="panelSizesLoading"
                     :focused-subject-id="focusedSubjectId"
                     :reset-key="resetVersion"
                     :schema="workbenchSchema"
@@ -1964,7 +1986,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                     :subjects="subjects"
                     :value-draft-summaries="valueDraftSummaries"
                     @update:selected-subject-ids="void updateSelectedSubjectIdsForTimeline($event)"
-                    @update:width="sidebarWidth = $event"
+                    @update:width="updateSidebarWidth"
                     @clear-subject-context="clearSubjectContext"
                     @focus-subject-context="focusSubjectContext"
                     @open-workspace-path="void openWorkspacePathFromWorkbench($event)"
@@ -2048,6 +2070,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         v-if="selectedSlice"
                         :busy="workbenchActionBusy"
                         :collapsed="mutationEditorCollapsed"
+                        :resize-disabled="panelSizesLoading"
                         :discard-draft-slice-id="draftDiscardSliceId"
                         :discard-draft-version="draftDiscardVersion"
                         :height="mutationEditorHeight"
@@ -2079,7 +2102,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         @update-issue-triage="updateIssueTriage"
                         @update-value-drafts="valueDraftSummaries = $event"
                         @update-review-queue-mode="reviewQueueMode = $event"
-                        @update:height="mutationEditorHeight = $event"
+                        @update:height="updateMutationEditorHeight"
                         @toggle-collapsed="mutationEditorCollapsed = !mutationEditorCollapsed"
                         @select-slice="selectSlice"
                     />
@@ -2147,6 +2170,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         v-show="inspectorVisible"
                         :apply-button-label="'保存到世界'"
                         :busy="workbenchActionBusy"
+                        :resize-disabled="panelSizesLoading"
                         :committed-subject-event-keys="committedSubjectEventKeys"
                         :discard-draft-slice-id="draftDiscardSliceId"
                         :discard-draft-version="draftDiscardVersion"
@@ -2172,7 +2196,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         @open-workspace-path="void openWorkspacePathFromWorkbench($event)"
                         @request-full-snapshot="void loadFullSnapshot()"
                         @update-metadata-drafts="metadataDraftSummaries = $event"
-                        @update:width="inspectorWidth = $event"
+                        @update:width="updateInspectorWidth"
                         @apply-patch="void saveMetadataPatch($event)"
                     />
                 </Transition>

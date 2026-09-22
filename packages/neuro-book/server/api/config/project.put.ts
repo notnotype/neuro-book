@@ -719,122 +719,88 @@ defineRouteMeta({
                             "type": "object",
                             "properties": {
                                 "markdown": {
-                                    "default": {
-                                        "fontFamily": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
-                                        "fontSize": 16,
-                                        "lineHeight": 1.85,
-                                        "contentWidth": 860,
-                                        "paragraphIndentEnabled": false,
-                                        "paragraphIndentEm": 2
-                                    },
                                     "type": "object",
                                     "properties": {
                                         "fontFamily": {
-                                            "default": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
                                             "type": "string"
                                         },
                                         "fontSize": {
-                                            "default": 16,
                                             "type": "number",
                                             "minimum": 0,
                                             "exclusiveMinimum": true
                                         },
                                         "lineHeight": {
-                                            "default": 1.85,
                                             "type": "number",
                                             "minimum": 0,
                                             "exclusiveMinimum": true
                                         },
                                         "contentWidth": {
-                                            "default": 860,
                                             "type": "number",
                                             "minimum": 0,
                                             "exclusiveMinimum": true
                                         },
                                         "paragraphIndentEnabled": {
-                                            "default": false,
                                             "type": "boolean"
                                         },
                                         "paragraphIndentEm": {
-                                            "default": 2,
                                             "type": "number",
                                             "minimum": 0
                                         }
                                     },
-                                    "required": [
-                                        "fontFamily",
-                                        "fontSize",
-                                        "lineHeight",
-                                        "contentWidth",
-                                        "paragraphIndentEnabled",
-                                        "paragraphIndentEm"
-                                    ],
                                     "additionalProperties": false
                                 },
                                 "monaco": {
-                                    "default": {
-                                        "fontFamily": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
-                                        "fontSize": 15,
-                                        "lineHeight": 30,
-                                        "tabSize": 4,
-                                        "wordWrap": true,
-                                        "minimapEnabled": false,
-                                        "lineNumbers": true,
-                                        "renderWhitespace": false
-                                    },
                                     "type": "object",
                                     "properties": {
                                         "fontFamily": {
-                                            "default": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
                                             "type": "string"
                                         },
                                         "fontSize": {
-                                            "default": 15,
                                             "type": "number",
                                             "minimum": 0,
                                             "exclusiveMinimum": true
                                         },
                                         "lineHeight": {
-                                            "default": 30,
                                             "type": "number",
                                             "minimum": 0,
                                             "exclusiveMinimum": true
                                         },
                                         "tabSize": {
-                                            "default": 4,
                                             "type": "integer",
                                             "minimum": 0,
                                             "exclusiveMinimum": true,
                                             "maximum": 9007199254740991
                                         },
                                         "wordWrap": {
-                                            "default": true,
                                             "type": "boolean"
                                         },
                                         "minimapEnabled": {
-                                            "default": false,
                                             "type": "boolean"
                                         },
                                         "lineNumbers": {
-                                            "default": true,
                                             "type": "boolean"
                                         },
                                         "renderWhitespace": {
-                                            "default": false,
                                             "type": "boolean"
                                         }
                                     },
-                                    "required": [
-                                        "fontFamily",
-                                        "fontSize",
-                                        "lineHeight",
-                                        "tabSize",
-                                        "wordWrap",
-                                        "minimapEnabled",
-                                        "lineNumbers",
-                                        "renderWhitespace"
-                                    ],
                                     "additionalProperties": false
+                                },
+                                "associations": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "pattern": "^\\S+$"
+                                    }
+                                },
+                                "languageAssociations": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "pattern": "^\\S+$"
+                                    }
                                 }
                             },
                             "additionalProperties": false
@@ -2070,32 +2036,51 @@ defineRouteMeta({
                                     },
                                     "ui": {
                                         "default": {
-                                            "theme": "sepia",
-                                            "customThemes": [],
+                                            "themeId": "nbook",
+                                            "appearance": "light",
+                                            "colorwayId": "",
+                                            "userColorways": [],
                                             "costCurrency": "USD"
                                         },
                                         "type": "object",
                                         "properties": {
-                                            "theme": {
-                                                "default": "sepia",
+                                            "themeId": {
+                                                "default": "nbook",
                                                 "type": "string",
-                                                "minLength": 1
+                                                "enum": [
+                                                    "nbook",
+                                                    "macos"
+                                                ]
                                             },
-                                            "customThemes": {
+                                            "appearance": {
+                                                "default": "light",
+                                                "type": "string",
+                                                "enum": [
+                                                    "light",
+                                                    "dark"
+                                                ]
+                                            },
+                                            "colorwayId": {
+                                                "default": "",
+                                                "type": "string",
+                                                "maxLength": 64
+                                            },
+                                            "userColorways": {
                                                 "default": [],
-                                                "maxItems": 50,
+                                                "maxItems": 20,
                                                 "type": "array",
                                                 "items": {
                                                     "type": "object",
                                                     "properties": {
                                                         "id": {
                                                             "type": "string",
-                                                            "pattern": "^custom-[a-z0-9-]+$"
+                                                            "maxLength": 64,
+                                                            "pattern": "^custom-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
                                                         },
-                                                        "name": {
+                                                        "label": {
                                                             "type": "string",
                                                             "minLength": 1,
-                                                            "maxLength": 50
+                                                            "maxLength": 40
                                                         },
                                                         "appearance": {
                                                             "type": "string",
@@ -2107,13 +2092,15 @@ defineRouteMeta({
                                                         "vars": {
                                                             "type": "object",
                                                             "additionalProperties": {
-                                                                "type": "string"
+                                                                "type": "string",
+                                                                "minLength": 1,
+                                                                "maxLength": 120
                                                             }
                                                         }
                                                     },
                                                     "required": [
                                                         "id",
-                                                        "name",
+                                                        "label",
                                                         "appearance",
                                                         "vars"
                                                     ],
@@ -2130,8 +2117,10 @@ defineRouteMeta({
                                             }
                                         },
                                         "required": [
-                                            "theme",
-                                            "customThemes",
+                                            "themeId",
+                                            "appearance",
+                                            "colorwayId",
+                                            "userColorways",
                                             "costCurrency"
                                         ],
                                         "additionalProperties": false
@@ -2155,7 +2144,9 @@ defineRouteMeta({
                                                 "minimapEnabled": false,
                                                 "lineNumbers": true,
                                                 "renderWhitespace": false
-                                            }
+                                            },
+                                            "associations": {},
+                                            "languageAssociations": {}
                                         },
                                         "type": "object",
                                         "properties": {
@@ -2276,11 +2267,31 @@ defineRouteMeta({
                                                     "renderWhitespace"
                                                 ],
                                                 "additionalProperties": false
+                                            },
+                                            "associations": {
+                                                "default": {},
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "pattern": "^\\S+$"
+                                                }
+                                            },
+                                            "languageAssociations": {
+                                                "default": {},
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "pattern": "^\\S+$"
+                                                }
                                             }
                                         },
                                         "required": [
                                             "markdown",
-                                            "monaco"
+                                            "monaco",
+                                            "associations",
+                                            "languageAssociations"
                                         ],
                                         "additionalProperties": false
                                     },
@@ -3214,122 +3225,88 @@ defineRouteMeta({
                                         "type": "object",
                                         "properties": {
                                             "markdown": {
-                                                "default": {
-                                                    "fontFamily": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
-                                                    "fontSize": 16,
-                                                    "lineHeight": 1.85,
-                                                    "contentWidth": 860,
-                                                    "paragraphIndentEnabled": false,
-                                                    "paragraphIndentEm": 2
-                                                },
                                                 "type": "object",
                                                 "properties": {
                                                     "fontFamily": {
-                                                        "default": "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
                                                         "type": "string"
                                                     },
                                                     "fontSize": {
-                                                        "default": 16,
                                                         "type": "number",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true
                                                     },
                                                     "lineHeight": {
-                                                        "default": 1.85,
                                                         "type": "number",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true
                                                     },
                                                     "contentWidth": {
-                                                        "default": 860,
                                                         "type": "number",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true
                                                     },
                                                     "paragraphIndentEnabled": {
-                                                        "default": false,
                                                         "type": "boolean"
                                                     },
                                                     "paragraphIndentEm": {
-                                                        "default": 2,
                                                         "type": "number",
                                                         "minimum": 0
                                                     }
                                                 },
-                                                "required": [
-                                                    "fontFamily",
-                                                    "fontSize",
-                                                    "lineHeight",
-                                                    "contentWidth",
-                                                    "paragraphIndentEnabled",
-                                                    "paragraphIndentEm"
-                                                ],
                                                 "additionalProperties": false
                                             },
                                             "monaco": {
-                                                "default": {
-                                                    "fontFamily": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
-                                                    "fontSize": 15,
-                                                    "lineHeight": 30,
-                                                    "tabSize": 4,
-                                                    "wordWrap": true,
-                                                    "minimapEnabled": false,
-                                                    "lineNumbers": true,
-                                                    "renderWhitespace": false
-                                                },
                                                 "type": "object",
                                                 "properties": {
                                                     "fontFamily": {
-                                                        "default": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
                                                         "type": "string"
                                                     },
                                                     "fontSize": {
-                                                        "default": 15,
                                                         "type": "number",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true
                                                     },
                                                     "lineHeight": {
-                                                        "default": 30,
                                                         "type": "number",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true
                                                     },
                                                     "tabSize": {
-                                                        "default": 4,
                                                         "type": "integer",
                                                         "minimum": 0,
                                                         "exclusiveMinimum": true,
                                                         "maximum": 9007199254740991
                                                     },
                                                     "wordWrap": {
-                                                        "default": true,
                                                         "type": "boolean"
                                                     },
                                                     "minimapEnabled": {
-                                                        "default": false,
                                                         "type": "boolean"
                                                     },
                                                     "lineNumbers": {
-                                                        "default": true,
                                                         "type": "boolean"
                                                     },
                                                     "renderWhitespace": {
-                                                        "default": false,
                                                         "type": "boolean"
                                                     }
                                                 },
-                                                "required": [
-                                                    "fontFamily",
-                                                    "fontSize",
-                                                    "lineHeight",
-                                                    "tabSize",
-                                                    "wordWrap",
-                                                    "minimapEnabled",
-                                                    "lineNumbers",
-                                                    "renderWhitespace"
-                                                ],
                                                 "additionalProperties": false
+                                            },
+                                            "associations": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "pattern": "^\\S+$"
+                                                }
+                                            },
+                                            "languageAssociations": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                    "pattern": "^\\S+$"
+                                                }
                                             }
                                         },
                                         "additionalProperties": false
@@ -4346,6 +4323,10 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
+
+
 
 
 

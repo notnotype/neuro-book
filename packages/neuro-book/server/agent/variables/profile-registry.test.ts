@@ -66,6 +66,7 @@ describe("Session Variable Registry路径", () => {
                     createProjectWorkspaceKey(workspaceRoot, ref),
                 ),
                 generation: 1,
+                publicId: "test-ready:1",
             },
             runtimePaths,
             projectDefinitionRootLabel: "workspace/project-a/.nbook/agent/variables",

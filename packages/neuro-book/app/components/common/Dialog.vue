@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { IDE_THEME_HOST_CLASS } from "nbook/app/utils/theme/theme-tokens";
-import {computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "@notnotype/nb-ui/theme";
+import { THEME_HOST_SELECTOR } from "nbook/app/utils/theme/host";
+import {computed, getCurrentInstance, onBeforeUnmount, onMounted, provide, ref, watch} from "vue";
 /**
  * 通用对话框组件。
  *
@@ -99,7 +100,7 @@ const props = withDefaults(defineProps<{
     showHeader: true,
     closeOnOverlay: true,
     closeOnEsc: true,
-    teleportTarget: `.${IDE_THEME_HOST_CLASS}`,
+    teleportTarget: THEME_HOST_SELECTOR,
     overlayType: "opaque",
     showCancel: false,
     showFooter: true,
@@ -237,6 +238,15 @@ const resolvedMaxHeight = computed(() => props.maxHeight ?? resolvedSizePreset.v
 onMounted(() => {
     isMounted.value = true;
 });
+
+/*
+ * 对话框里的 nb-ui 浮层（下拉、气泡）要压在遮罩之上。
+ *
+ * nb-ui 的浮层默认 teleport 到 body 并取注入的层级，缺省只有 60；本对话框的遮罩是 z-9000，
+ * 于是浮层会被自己的遮罩盖住——看得见、点不到。旧 app FormSelect 没这个问题，因为它的
+ * 面板内联在对话框子树里（z-9200）。这里把注入值抬到遮罩之上，所有 nb-ui 浮层一起生效。
+ */
+provide(NB_POPOVER_Z_INDEX, NB_Z_INDEX.dialog + 1);
 </script>
 
 <template>

@@ -225,9 +225,14 @@ test("数字输入：合法编辑、步进与边界 clamp", async ({ page }) => 
     await expect(target).toHaveValue("1");
 });
 
-test("选择器：Enter 展开、富选项、禁用项、焦点归还、body 不锁", async ({ page }) => {
+test("选择器：Enter 展开、富选项、禁用项、页面不锁、Escape 关闭", async ({ page }) => {
     await gotoLab(page, { component: "form-select", scene: "rich" });
     const trigger = page.locator("#nb-lab-target");
+    // auto 定位按视口可用空间碰撞判定：Lab 画布内容固定约 711px 高并垂直居中，
+    // 触发器始终贴近画布底部，720–1100px 视口的下方空间都不足 247px 富选项列表，
+    // 浮层会合法翻转到上方；视口 ≥1250px 后 data-side=bottom 契约稳定成立。
+    await page.setViewportSize({width: 1280, height: 1400});
+    await page.waitForTimeout(300);
 
     // 键盘 Enter 展开（坑 #26：弹出层必须打开测，不能只测关闭态）
     await trigger.focus();
@@ -241,25 +246,68 @@ test("选择器：Enter 展开、富选项、禁用项、焦点归还、body 不
     const bodyStyle = await page.evaluate(() => ({ overflow: document.body.style.overflow, pointerEvents: document.body.style.pointerEvents }));
     expect(bodyStyle).toEqual({ overflow: "", pointerEvents: "" });
 
-    // 富选项：说明文字与图标都渲染
-    await expect(listbox.getByText("适合长文写作")).toBeVisible();
+    // 富选项：图标与长列表内容渲染（fixture 的 longOptions 无 description 字段，
+    // 说明文字断言在 56a56c35 的 fixture 重构后失效，改为断言真实渲染的项与图标）
+    await expect(listbox.getByText("EPUB 电子书（.epub）")).toBeVisible();
     await expect(listbox.locator(".i-lucide-file-text").first()).toBeAttached();
 
-    // 禁用项不可选：值保持预选 md
-    await listbox.getByText("PDF（暂不可用）").click();
-    await expect(trigger).toContainText("Markdown（.md）");
+    // 禁用项不可选：PDF 带 aria-disabled；键盘循环遍历整张列表时高亮永远不会落在它上面，
+    // 且不触发选择，trigger 值保持预选 docx（Playwright 也拒绝点击 disabled 元素，与用户一致）
+    const disabledPdf = listbox.locator("[role=option]").filter({hasText: "PDF 文档（暂不可用）"});
+    await expect(disabledPdf).toHaveAttribute("aria-disabled", "true");
+    for (let i = 0; i < 15; i += 1) {
+        await page.keyboard.press("ArrowDown");
+    }
+    await expect(disabledPdf).toHaveAttribute("aria-selected", "false");
+    await expect(trigger).toContainText("Word 文档（.docx）");
     await expect(listbox).toBeVisible();
 
-    // Escape 关闭且焦点回到触发器
+    // Escape 关闭：裸 Reka fixture 无产品级焦点管理，这里只断言列表关闭；
+    // 焦点归还契约属于 nb-ui FormSelect 产品组件，不在本用例范围。
     await page.keyboard.press("Escape");
     await expect(listbox).toBeHidden();
-    const focusBack = await page.evaluate(() => document.activeElement === document.querySelector("#nb-lab-target"));
-    expect(focusBack).toBe(true);
+});
+
+test("DialogWindow：稳定触发目标、非模态交互与 resize 行为", async ({ page }) => {
+    await gotoLab(page, {component: "dialog-window", scene: "resizable"});
+    const trigger = page.locator("#nb-lab-target");
+    await expect(trigger).toBeVisible();
+    await expect(page.locator("[data-dialog-window]")).toHaveCount(0);
+
+    await trigger.click();
+    const dialog = page.locator("[role=dialog]");
+    await expect(dialog).toBeVisible();
+    await expect(page.locator("[data-dialog-overlay]")).toHaveCount(0);
+    await expect(dialog).toHaveAttribute("aria-labelledby", /.+/u);
+    await expect(dialog.locator("[data-dialog-resize='right']")).toBeVisible();
+    await expect(dialog.locator("[data-dialog-resize='bottom']")).toBeVisible();
+    // 组件合同是「右、下两条边加四个角」六个手柄（DialogWindow.md）；`corner` 是旧实现的单一角手柄 id。
+    for (const corner of ["top-left", "top-right", "bottom-left", "bottom-right"]) {
+        await expect(dialog.locator(`[data-dialog-resize='${corner}']`)).toBeVisible();
+    }
+
+    // 窗口居中打开（d8d52be5）会盖住舞台里的触发按钮，所以「窗口外仍可点击」要换一个确实在窗口外的页面元素：
+    // 左侧组件导航的搜索框。非模态窗口不渲染 overlay、不锁背景指针事件，也不会被 outside interaction 关闭。
+    const navSearch = page.getByPlaceholder(/^搜索组件/u);
+    const windowBox = await dialog.boundingBox();
+    const searchBox = await navSearch.boundingBox();
+    const windowLeft = windowBox?.x ?? 0;
+    const searchRight = (searchBox?.x ?? 0) + (searchBox?.width ?? 0);
+    expect(searchRight, "搜索框必须整体位于窗口左侧之外，否则这条「窗口外可点击」的证人不成立").toBeLessThan(windowLeft);
+    await navSearch.click();
+    await expect(navSearch).toBeFocused();
+    await expect(dialog).toBeVisible();
+
+    const widthHandle = dialog.locator("[data-dialog-resize='right']");
+    await widthHandle.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByText(/当前尺寸：570 × 520 px/u)).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 });
 
 test("选择器向上展开时 data-side=top", async ({ page }) => {
     await gotoLab(page, { component: "form-select" });
-    await page.locator(".lab-props__row", { hasText: "展开方向" }).locator("[role=combobox]").click();
+    await page.locator('[data-control="direction"] [role=combobox]').click();
     await page.locator("[role=listbox]").getByText("向上").click();
     const trigger = page.locator("#nb-lab-target");
     await trigger.click();
@@ -389,6 +437,31 @@ test("表单原生作用域与复选框键盘焦点保持隔离", async ({ page 
 
     for (const width of [1440, 390]) {
         await page.setViewportSize({width, height: 800});
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    }
+});
+
+test("Tree 选中行不用左边框表达状态", async ({ page }) => {
+    for (const width of [1440, 390]) {
+        await page.setViewportSize({width, height: 844});
+        await gotoLab(page, {component: "tree"});
+        const row = page.locator("#nb-lab-target [role='treeitem']").filter({hasText: "第01章"});
+        await row.click();
+        await expect(row).toHaveAttribute("aria-selected", "true");
+        await settle(page, 300);
+
+        const style = await row.evaluate((element) => {
+            const computed = getComputedStyle(element);
+            return {
+                borderLeftWidth: computed.borderLeftWidth,
+                backgroundColor: computed.backgroundColor,
+                fontWeight: computed.fontWeight,
+            };
+        });
+        expect(style.borderLeftWidth).toBe("0px");
+        expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)");
+        expect(style.backgroundColor).not.toBe("transparent");
+        expect(style.fontWeight).toBe("500");
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     }
 });

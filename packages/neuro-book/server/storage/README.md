@@ -1,0 +1,104 @@
+# Storage 本地服务与宿主身份
+
+本目录实现 [storage.persistence](../../../../docs/specs/storage/persistence.md) 的宿主无关服务核心。
+公开入口为 `nbook/server/storage`；浏览器可消费的定义、DTO、状态投影与错误码在 `nbook/shared/storage`。
+数据选址与生命周期以 [storage.boundaries](../../../../docs/specs/storage/boundaries.md) 为准。
+
+## 消费顺序
+
+1. owner 用 `defineStorageState` 声明 key、scope、locality、寻址方式、schemaVersion、默认值、校验与可选迁移函数。
+   默认 locality 为 local；逻辑标识使用小写安全单段。定义和默认 JSON 深冻结，同一实例可重复注册。
+2. 将定义登记到 `StorageStateRegistry`，创建有宿主生命周期的 `StorageService`。
+   同一 owner/scope/locality 共用分区容量；冲突定义拒绝注册。修改定义时重建 registry/service。
+3. 宿主核验主体、客户端与 user/Project 上下文后调用 `openHandle({owner, context, guard})`。
+   `context.storageRoot` 必须显式来自 Workspace/Project 路径服务；HTTP body、页面状态不能直接构造受信上下文。
+   `guard` 是受信边界注入的授权检查（`StorageMutationGuard`），核心在取得锁之后、每个真实文件副作用之前调用它并等待，
+   因此等锁、替换重试或保存原件期间发生的撤销不会继续写盘。它可以是异步的宿主物理复核：
+   核心只负责 await，不解析 Project 或 HTTP；文件层不导入 H3、鉴权或宿主会话。
+4. `read` 或 `subscribe` 返回分类快照。只有缺失/删除可使用默认显示并继续条件写；默认显示不产生值文件。
+   `save/remove` 使用读到的凭据；旧版本使用 `migrate`，损坏或高版本的显式重置使用 `repair`。
+5. 组件停止消费时关闭订阅；owner 上下文结束时 `await handle.release()`，宿主结束时 `await service.close()`。
+   重复关闭共同等待已接纳操作收口。只有完成的保存才是磁盘确认，内存中的未提交意图由前端适配器拥有。
+
+取得句柄会捕获根目录身份与可访问分区代次，但不创建默认记录。回收墓碑后所有旧句柄和凭据失效，
+包括尚未读取记录的句柄与发起回收的句柄；需要重新打开。回收请求一次最多列出该分区容量上限数量的明确资源。
+本地命名空间隔离不是任意可执行插件代码的安全沙箱。
+
+## 内部职责
+
+| 模块 | 职责 |
+| --- | --- |
+| `storage-service.ts` | 受信上下文、定义解析、接纳顺序、句柄和服务收口 |
+| `storage-subscription.ts` | 有生命周期的连续观察、初始快照顺序、读取串行与错误隔离 |
+| `partition-store.ts` | 分区代次、条件提交、容量、迁移/修复/回收 |
+| `storage-address.ts` | 逻辑寻址、真实目录身份、拒绝符号链接和目录联接 |
+| `partition-lock.ts` | 实际分区的跨进程锁、心跳失效与释放结果 |
+| `record-file.ts` / `record-codec.ts` | 有界读取、文件格式、原子替换、诊断原件和临时文件 |
+| `identity-domain.ts` | data 身份域的受锁初始化 |
+| `access-context.ts` | 独立访问标识、绑定声明、空闲到期、容量、存活检查与 session 撤销 |
+| `handle-pool.ts` | 值操作的共享句柄：按代次绑定收敛、上限、释放与关闭排空 |
+| `storage-actions.ts` | 动作与 project 访问参数的有界读取与解析、逻辑地址解析、核心调用 |
+| `project-storage-module.ts` | Project generation 的 lazy Storage 接入与作用域失效 |
+| `host.ts` / `http-error.ts` | 浏览器请求身份核验、值动作接线、初始化排空与公开错误投影 |
+
+订阅对本服务提交立即调度观察，同时以默认 500ms 间隔观察外部提交；每个订阅读取串行，
+实际轮询间隔从上次读取完成起算。它可以合并中间值，不能用作审计事件流。
+监听器应提供 `onError`，由宿主展示读取故障或重新建立失效上下文。
+
+记录文件使用同目录唯一临时文件、文件同步与原子替换；替换占用重试有界，每次副作用前检查锁和目标归属。
+读取使用同一个文件句柄和有限长度；原地改写检测为读取失败，不能伪装缺失。
+诊断区保留原始字节，独立上限为 1024 份、16 MiB；单份不超过 1 MiB 加 4 KiB 封装预算。
+超限或无法可靠保存原件时拒绝修复，保留原地址的保护状态；不会清理旧诊断原件换空间。
+持锁维护只回收可识别的本模块临时文件，不删任意同后缀文件。
+
+## 当前边界与验证
+
+user 身份入口为 `POST/DELETE /api/storage/user/context`，请求头使用 shared 的 host 合同。
+浏览器用同一 IndexedDB readwrite 事务持久保存随机定位凭证；同源标签页共享凭证但各自签发独立访问。
+auth-on 先核验 active/sessionVersion，访问绑定 session 标识；成功登录与退出撤销旧 session 的访问。
+auth-off 使用跟随 data 身份域的本地主体。签发还绑定真实目录身份，复制身份文件不能恢复旧访问。
+上下文全宿主默认最多 256 个，每个主体与客户端最多 32 个，30 分钟未核验即到期；满额只回收已到期项，仍满则拒绝新签发。
+后续 adapter 须在失效后重新初始化；不能因重签发丢弃当前界面的未提交意图。
+
+user 值动作入口为 `POST /api/storage/user/action`，请求体使用 shared 的 action DTO：只提交动作名、owner/key、
+可选资源标识、本次消费的定义版本与该操作的值或条件凭据。scope、locality、主体、客户端、存储根与注册定义
+都由服务端拥有，未知字段一律拒绝，请求体在解析前按字节上限有界读取。
+服务端取回注册定义后核对定义版本，不等即拒绝：旧客户端不能按自己那一版解释或覆盖当前值语义。
+除 `bind` 外的每个动作都必须携带 `bind` 返回的分区代次绑定。
+同一访问、同一 owner 与同一代次绑定的并发请求收敛到同一个句柄，最后一名使用者结束时释放；
+`bind` 独立打开句柄，以便读到分区当前代次，而不是别的请求当时捕获的那一个。
+释放访问、撤销 session、空闲到期与产品关闭都让句柄停止接纳，并按提交分界收口：
+授权失效或根替换在真实文件副作用前停写；已签发访问的根缺失时普通动作不会重新创建它。
+已实际提交后的领域失败保留 `committed: true`，锁失败另会明确报告是否提交。
+定义只由受信模块登记（`registerStorageStateDefinitions`），请求不能注册定义、换掉已登记实例或改写 locality。
+
+project 访问入口为 `POST/DELETE /api/storage/project/context`，参数只有 `projectRoot + publicId`：
+publicId 是 Project 发布的精确 ready 代次标识，只用于定位，不构成授权。签发顺序固定为
+精确 ready → Occupancy 与真实 Project 目录复核 → 激活 lazy storage Module → data 身份域
+→ 首次建立 `ProjectRoot/.nbook/storage` → 再复核一次 ready → 签发。
+Project 根不签发 `identity.json`：身份域只来自 `WorkspaceRoot/.nbook/storage/identity.json`，
+复制来的 Project 原记录不会自动改归当前主体。project 声明另绑定该 data 根的物理身份摘要，
+因此同路径重建 data 根并复制同一份 `identity.json` 也不能让旧 Project 访问继续可用。
+project 值动作入口为 `POST /api/storage/project/action`，DTO 与 user 相同；
+每个动作与释放都重新核验当前 data 身份、主体、客户端与最初绑定，句柄用签发时捕获的存储根身份摘要打开，
+所以根被删除或替换后不会递归重建目录，闭后重开与同路径新建也拿不到旧代次。
+Project 关闭、删除或根替换时 lazy Module 主动失效本 scope 的访问上下文并释放容量；
+已接纳的动作经 `runReadyProjectOperation` 在 Module close 之前收口，并在每个真实文件副作用前
+重新核验写入目标：同步检查访问存活与 Project 世代终止标记，异步复核 Project 物理根（Lifecycle
+rootIdentity，不依赖 watcher 的 replacement 通知）与 data 物理根，异步复核排在同步撤销检查之前。
+锁失效或根替换立即停写；用户关闭、宽限到期、删除与关停仍允许已接纳操作排空。
+签发顺序里的建根步骤在真实 `mkdir` 之前再次核验精确 ready 与 Occupancy，
+因此鉴权、身份域与惰性 Module 的 await 期间被关闭或替换的 Project 不会在旧路径上递归重建目录。
+两个释放入口按 scope 拒绝对方上下文：同主体、同客户端的 project 访问不能被 user 释放端点撤销。
+Project Facade 与 Storage host 本轮均升级为 V4 owner。热更新先排空 V2/V3 owner及其尚未完成的交接，
+再接纳新版访问；旧 ready 与上下文不能沿用，宿主需要重新打开 Project并签发上下文。
+同版热更新复用 owner；新增生命周期能力或改变 lazy Module 快照时必须重新评估 owner 版本，不能原地复用旧 Service。
+普通文件、CLI、资产同步及归档路径策略已接入；尚未接入产品 UI与旧键迁移，跨独立 data 同步不在本期范围。
+迁移原件专用预留、在线同步与领域数据 Store 不属于普通记录实现。
+
+聚焦验证命令：`bun run --cwd packages/neuro-book test shared/storage server/storage server/api/storage`。
+服务入口已纳入主应用 typecheck；测试包含真实 HTTP 宿主、真实跨进程 revision 竞争、Windows 目录联接和注入的磁盘/锁故障。
+核心证据见 [t22 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t22-storage-core/walkthroughs/leader-review.md)，
+宿主身份增量见 [t23](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t23-storage-host-identity/README.md)，
+值动作与句柄生命周期见 [t24 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t24-storage-user-http/walkthroughs/implementation.md)，
+浏览器适配器与代次绑定见 [t26 walkthrough](../../../../.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t26-storage-browser-adapter/walkthroughs/implementation.md)。

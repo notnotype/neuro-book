@@ -1,4 +1,5 @@
 import {z} from "zod";
+import {EditorAssociationMapSchema, EditorAssociationSettingsSchema} from "nbook/shared/editor-associations";
 import {
     AgentProfileModelConfigDtoSchema,
     ConfiguredModelDtoSchema,
@@ -15,7 +16,13 @@ import {
     LowCodeJsonObjectSchema,
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
-import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+import {DEFAULT_PRODUCT_APPEARANCE, DEFAULT_PRODUCT_THEME_ID, productAppearances, productThemeIds} from "nbook/shared/theme/theme-axes";
+import {
+    MAX_COLORWAY_VAR_VALUE_LENGTH,
+    MAX_USER_COLORWAY_LABEL_LENGTH,
+    MAX_USER_COLORWAYS,
+    USER_COLORWAY_ID_PATTERN,
+} from "nbook/shared/theme/user-colorway";
 import {
     CompactionKeepRecentSchema,
     CompactionTriggerSchema,
@@ -27,8 +34,6 @@ import {
 } from "nbook/shared/agent/profile-runtime-settings";
 import {MAX_AGENT_DIFF_MAX_CHARS} from "nbook/shared/agent/file-change-policy";
 import {PiSimpleRequestOptionsSchema} from "nbook/shared/dto/pi-request-options.dto";
-
-const themeVarNameSet = new Set<string>(themeVarNames);
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
@@ -256,52 +261,79 @@ export const ConfigAgentProfileBuildStatusDtoSchema = z.object({
     })).default([]),
 });
 
+const MarkdownEditorFields = {
+    fontFamily: z.string(),
+    fontSize: z.number().positive(),
+    lineHeight: z.number().positive(),
+    contentWidth: z.number().positive(),
+    paragraphIndentEnabled: z.boolean(),
+    paragraphIndentEm: z.number().nonnegative(),
+};
+const MonacoEditorFields = {
+    fontFamily: z.string(),
+    fontSize: z.number().positive(),
+    lineHeight: z.number().positive(),
+    tabSize: z.number().int().positive(),
+    wordWrap: z.boolean(),
+    minimapEnabled: z.boolean(),
+    lineNumbers: z.boolean(),
+    renderWhitespace: z.boolean(),
+};
+
 export const MarkdownEditorConfigDtoSchema = z.object({
-    fontFamily: z.string().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.fontFamily),
-    fontSize: z.number().positive().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.fontSize),
-    lineHeight: z.number().positive().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.lineHeight),
-    contentWidth: z.number().positive().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.contentWidth),
-    paragraphIndentEnabled: z.boolean().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.paragraphIndentEnabled),
-    paragraphIndentEm: z.number().nonnegative().default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.paragraphIndentEm),
+    fontFamily: MarkdownEditorFields.fontFamily.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.fontFamily),
+    fontSize: MarkdownEditorFields.fontSize.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.fontSize),
+    lineHeight: MarkdownEditorFields.lineHeight.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.lineHeight),
+    contentWidth: MarkdownEditorFields.contentWidth.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.contentWidth),
+    paragraphIndentEnabled: MarkdownEditorFields.paragraphIndentEnabled.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.paragraphIndentEnabled),
+    paragraphIndentEm: MarkdownEditorFields.paragraphIndentEm.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES.paragraphIndentEm),
 });
 
 export const MonacoEditorConfigDtoSchema = z.object({
-    fontFamily: z.string().default(DEFAULT_MONACO_EDITOR_PREFERENCES.fontFamily),
-    fontSize: z.number().positive().default(DEFAULT_MONACO_EDITOR_PREFERENCES.fontSize),
-    lineHeight: z.number().positive().default(DEFAULT_MONACO_EDITOR_PREFERENCES.lineHeight),
-    tabSize: z.number().int().positive().default(DEFAULT_MONACO_EDITOR_PREFERENCES.tabSize),
-    wordWrap: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.wordWrap),
-    minimapEnabled: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.minimapEnabled),
-    lineNumbers: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.lineNumbers),
-    renderWhitespace: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
+    fontFamily: MonacoEditorFields.fontFamily.default(DEFAULT_MONACO_EDITOR_PREFERENCES.fontFamily),
+    fontSize: MonacoEditorFields.fontSize.default(DEFAULT_MONACO_EDITOR_PREFERENCES.fontSize),
+    lineHeight: MonacoEditorFields.lineHeight.default(DEFAULT_MONACO_EDITOR_PREFERENCES.lineHeight),
+    tabSize: MonacoEditorFields.tabSize.default(DEFAULT_MONACO_EDITOR_PREFERENCES.tabSize),
+    wordWrap: MonacoEditorFields.wordWrap.default(DEFAULT_MONACO_EDITOR_PREFERENCES.wordWrap),
+    minimapEnabled: MonacoEditorFields.minimapEnabled.default(DEFAULT_MONACO_EDITOR_PREFERENCES.minimapEnabled),
+    lineNumbers: MonacoEditorFields.lineNumbers.default(DEFAULT_MONACO_EDITOR_PREFERENCES.lineNumbers),
+    renderWhitespace: MonacoEditorFields.renderWhitespace.default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
 });
 
-export const CustomThemeDtoSchema = z.object({
-    id: z.string().trim().regex(/^custom-[a-z0-9-]+$/u),
-    name: z.string().trim().min(1).max(50),
-    appearance: z.enum(themeAppearanceValues),
-    vars: z.record(z.string(), z.string()).superRefine((vars, ctx) => {
-        for (const key of Object.keys(vars)) {
-            if (!themeVarNameSet.has(key)) {
-                ctx.addIssue({
-                    code: "custom",
-                    path: [key],
-                    message: `未知主题变量：${key}`,
-                });
-            }
-        }
-    }),
-}).strict();
+/**
+ * 用户自定义配色。变量键的形状是 `--kebab-case`，取值只做长度与「不是别的 CSS 语句」的底线检查——
+ * 「这个值是不是合法颜色」要求助浏览器，见 shared/theme/user-colorway.ts 里的分工说明。
+ */
+export const UserColorwayDtoSchema = z.object({
+    id: z.string().trim().regex(USER_COLORWAY_ID_PATTERN).max(64),
+    label: z.string().trim().min(1).max(MAX_USER_COLORWAY_LABEL_LENGTH),
+    appearance: z.enum(productAppearances),
+    vars: z.record(z.string().regex(/^--[a-z0-9-]+$/), z.string().trim().min(1).max(MAX_COLORWAY_VAR_VALUE_LENGTH)),
+});
 
 export const UiConfigDtoSchema = z.object({
-    theme: z.string().trim().min(1).default("sepia"),
-    customThemes: z.array(CustomThemeDtoSchema).max(50).default([]),
+    themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
+    appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
+    /** 当前配色 id；空串 = 跟随主题包按明暗给出的默认配色。主题自带配色 id 与 `custom-*` 都在这里出现。 */
+    colorwayId: z.string().trim().max(64).default(""),
+    /** 用户自定义配色库。条数有上限：这是配置写入的一部分，不该被刷成无界列表。 */
+    userColorways: z.array(UserColorwayDtoSchema).max(MAX_USER_COLORWAYS).default([]),
     costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
 export const EditorConfigDtoSchema = z.object({
     markdown: MarkdownEditorConfigDtoSchema.default(DEFAULT_MARKDOWN_EDITOR_PREFERENCES),
     monaco: MonacoEditorConfigDtoSchema.default(DEFAULT_MONACO_EDITOR_PREFERENCES),
+    associations: EditorAssociationMapSchema.default({}),
+    languageAssociations: EditorAssociationMapSchema.default({}),
+});
+
+/** 不从含 default 的读取 schema partial：Zod 的 default 会填回未提交字段。 */
+export const EditorConfigPatchDtoSchema = z.object({
+    markdown: z.object(MarkdownEditorFields).partial().optional(),
+    monaco: z.object(MonacoEditorFields).partial().optional(),
+    associations: EditorAssociationMapSchema.optional(),
+    languageAssociations: EditorAssociationMapSchema.optional(),
 });
 
 export const SummarizerIntervalDtoSchema = SummarizerIntervalSchema;
@@ -413,10 +445,18 @@ export const GlobalConfigDtoSchema = z.object({
         profiles: ConfigAgentProfileMapDtoSchema,
         visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profileRuntimeDefaults: {}, profiles: {}, visibleModels: []}),
-    ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
+    ui: UiConfigDtoSchema.default({
+        themeId: DEFAULT_PRODUCT_THEME_ID,
+        appearance: DEFAULT_PRODUCT_APPEARANCE,
+        colorwayId: "",
+        userColorways: [],
+        costCurrency: "USD",
+    }),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
+        associations: {},
+        languageAssociations: {},
     }),
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
@@ -440,7 +480,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
         visibleModels: z.array(AgentVisibleModelConfigDtoSchema).default([]),
     }).optional(),
     ui: UiConfigDtoSchema.optional(),
-    editor: EditorConfigDtoSchema.optional(),
+    editor: EditorConfigPatchDtoSchema.optional(),
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
     history: WorkspaceHistoryConfigDtoSchema.optional(),
@@ -457,7 +497,7 @@ export const ProjectConfigDtoSchema = z.object({
         profileRuntimeDefaults: ProfileRuntimeSettingsPatchDtoSchema.optional(),
         profiles: ConfigAgentProfileMapDtoSchema.optional(),
     }).partial().optional(),
-    editor: EditorConfigDtoSchema.partial().optional(),
+    editor: EditorConfigPatchDtoSchema.optional(),
     history: ProjectWorkspaceHistoryConfigDtoSchema.optional(),
 }).partial().passthrough();
 
@@ -481,12 +521,12 @@ export const ConfigEditorSnapshotDtoSchema = z.object({
 
 export type SecretConfigValueDto = z.infer<typeof SecretConfigValueDtoSchema>;
 export type ConfigItemMetaDto = z.infer<typeof ConfigItemMetaDtoSchema>;
+export type UserColorwayDto = z.infer<typeof UserColorwayDtoSchema>;
 export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSchema>;
 export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQueryDtoSchema>;
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
-export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
@@ -524,10 +564,13 @@ export const ConfigBootstrapDtoSchema = z.object({
         effectiveProfileKey: ProfileKeySchema.nullable(),
     }),
     ui: z.object({
-        theme: z.string().trim().min(1).default("sepia"),
-        customThemes: z.array(CustomThemeDtoSchema).default([]),
+        themeId: z.enum(productThemeIds).default(DEFAULT_PRODUCT_THEME_ID),
+        appearance: z.enum(productAppearances).default(DEFAULT_PRODUCT_APPEARANCE),
+        colorwayId: z.string().trim().max(64).default(""),
+        userColorways: z.array(UserColorwayDtoSchema).max(MAX_USER_COLORWAYS).default([]),
         costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
+    editor: EditorAssociationSettingsSchema,
 });
 
 export type ConfigBootstrapDto = z.infer<typeof ConfigBootstrapDtoSchema>;

@@ -3,49 +3,65 @@ import {normalizeGlobalConfig, resolveEffectiveConfig} from "nbook/server/config
 import type {StoredProjectConfig} from "nbook/server/config/types";
 
 describe("config normalizer theme", () => {
-    it("允许内置 8 主题并保留自定义主题选择", () => {
+    it("接受 nbook / macos 两套主题包与两种明暗", () => {
         const global = normalizeGlobalConfig({
-            ui: {
-                theme: "custom-night",
-                customThemes: [{
-                    id: "custom-night",
-                    name: "Night",
-                    appearance: "dark",
-                    vars: {
-                        "bg-main": "#111111",
-                        "accent-main": "#88ccff",
-                        unknown: "#ffffff",
-                    },
-                } as never, {
-                    id: "custom-night",
-                    name: "Duplicate",
-                    appearance: "light",
-                    vars: {"bg-main": "#ffffff"},
-                }],
-            },
+            ui: {themeId: "macos", appearance: "dark"},
         });
         const effective = resolveEffectiveConfig(global, null);
 
-        expect(effective.ui.theme).toBe("custom-night");
-        expect(effective.ui.customThemes).toEqual([{
-            id: "custom-night",
-            name: "Night",
-            appearance: "dark",
-            vars: {
-                "bg-main": "#111111",
-                "accent-main": "#88ccff",
-            },
-        }]);
+        expect(effective.ui).toMatchObject({themeId: "macos", appearance: "dark"});
     });
 
-    it("未知主题回退 sepia，但 tokyo-night 等内置主题保持有效", () => {
-        expect(resolveEffectiveConfig(normalizeGlobalConfig({
-            ui: {theme: "tokyo-night"},
-        }), null).ui.theme).toBe("tokyo-night");
+    it("老体系 id 与未知取值一律忽略并重置默认，不做映射", () => {
+        for (const legacy of ["sepia", "light", "dark", "catppuccin", "dracula", "monokai", "one-dark-pro", "tokyo-night", "custom-night", "missing-theme"]) {
+            const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+                // 老字段名 + 老取值：schema 里已经没有这两个键，读到就当没有
+                ui: {theme: legacy, customThemes: [{id: "custom-night"}]} as never,
+            }), null);
 
-        expect(resolveEffectiveConfig(normalizeGlobalConfig({
-            ui: {theme: "missing-theme"},
-        }), null).ui.theme).toBe("sepia");
+            expect(effective.ui).toMatchObject({themeId: "nbook", appearance: "light"});
+        }
+    });
+
+    it("明暗轴上的非法取值回落默认", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            ui: {themeId: "nbook", appearance: "sepia"} as never,
+        }), null);
+
+        expect(effective.ui).toMatchObject({themeId: "nbook", appearance: "light"});
+    });
+
+    it("用户配色：坏条目丢掉、同 id 首见优先、契约外的键保留（客户端才过滤）", () => {
+        const effective = resolveEffectiveConfig(normalizeGlobalConfig({
+            ui: {
+                colorwayId: "custom-night",
+                userColorways: [
+                    {id: "custom-night", label: "夜航", appearance: "dark", vars: {"--bg-main": "#010203", "--bg-unknown": "#ffffff"}},
+                    {id: "custom-night", label: "重复", appearance: "light", vars: {"--bg-main": "#ffffff"}},
+                    {id: "not-custom", label: "老体系 id", appearance: "dark", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-nolabel", label: "   ", appearance: "dark", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-badappearance", label: "坏明暗", appearance: "sepia", vars: {"--bg-main": "#010203"}},
+                    {id: "custom-badvars", label: "坏变量", appearance: "dark", vars: {"--bg-main": "red;url(x)", "bg-main": "#010203"}},
+                ],
+            },
+        } as never), null);
+
+        expect(effective.ui.colorwayId).toBe("custom-night");
+        expect(effective.ui.userColorways.map((colorway) => colorway.id)).toEqual(["custom-night", "custom-badvars"]);
+        // 形状合法的键都留着：33 个变量的白名单要求浏览器，服务端只守住形状（见 shared/theme/user-colorway.ts）
+        expect(effective.ui.userColorways[0]?.vars).toEqual({"--bg-main": "#010203", "--bg-unknown": "#ffffff"});
+        // 取值不合结构底线的键被丢掉，条目本身留着
+        expect(effective.ui.userColorways[1]?.vars).toEqual({});
+    });
+
+    it("配色 id 只认形状：写坏的值读作空串（回落主题默认），老体系 id 不做映射", () => {
+        for (const colorwayId of ["有 空格", "custom-", ";", "x".repeat(80), 42]) {
+            const effective = resolveEffectiveConfig(normalizeGlobalConfig({ui: {colorwayId}} as never), null);
+            expect(effective.ui.colorwayId).toBe("");
+        }
+
+        // 主题自带配色的 id 是合法形状，存在性由客户端回答（服务端装不进主题包）
+        expect(resolveEffectiveConfig(normalizeGlobalConfig({ui: {colorwayId: "macos-dark"}} as never), null).ui.colorwayId).toBe("macos-dark");
     });
 });
 

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
+import {useI18n} from "vue-i18n";
 import {storeToRefs} from "pinia";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import WorkspaceCreateFileDialog, {
@@ -11,6 +13,9 @@ import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/worksp
 import WorkspaceLorebookDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useWorkbenchFileTreeExpandedPaths} from "nbook/app/utils/workbench/files-view-session";
+import type {CommandResult} from "nbook/app/utils/workbench/commands";
+import type {ViewTitleActionState, WorkbenchViewActionHandle} from "nbook/app/utils/workbench/view-title-actions";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {buildDefaultWorkspaceCreatePath} from "nbook/app/utils/workspace-create-path";
 import {buildWorkspacePathCopyText, type WorkspacePathCopyMode} from "nbook/app/utils/workspace-path-copy";
@@ -41,7 +46,24 @@ const {
 } = storeToRefs(store);
 
 const searchQuery = ref("");
-const expandedPaths = ref<string[]>([]);
+/**
+ * 展开项归 `workbench.files`/`expanded-paths` 的 user/local 记录（`persistence.md:98`）：
+ * 本组件不再直接读写 `localStorage`（`boundaries.md:103`），旧裸键由会话一次性迁入。
+ */
+const expandedPathsRecord = useWorkbenchFileTreeExpandedPaths();
+const expandedPaths = computed({
+    get: () => [...expandedPathsRecord.expandedPaths.value],
+    set: (paths: string[]) => void expandedPathsRecord.commit(paths),
+});
+const expandedPathsNotice = computed(() => expandedPathsRecord.notice.value);
+/**
+ * 读取就绪前不渲染树（`persistence.md`：「调整控件在读取就绪前不可用」）。
+ *
+ * 这条门禁是必须的，不是保险：树在挂载与节点变化时会把**整份** `expandedPaths` 当作意图 emit
+ * （`WorkspaceFileTree` 的 `sanitizeExpandedPaths` 看护），而读取完成前这份值是产品默认——
+ * 让它提交就是用默认值覆盖记录里已确认的展开项。读取中这里渲染加载态，树根本不挂载。
+ */
+const expandedPathsLoading = computed(() => expandedPathsRecord.loading.value);
 const detailHeight = ref(260);
 const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
@@ -51,7 +73,6 @@ const createDialogVisible = ref(false);
 const createDialogKind = ref<WorkspaceCreateKind>("file");
 const createDialogDefaultPath = ref("");
 const creatingWorkspaceNode = ref(false);
-const WORKSPACE_EXPANDED_PATHS_STORAGE_KEY = "nbook.workspaceFilePanel.expandedPaths";
 const LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "note"] as const;
 
 type LorebookEntryType = typeof LOREBOOK_ENTRY_TYPES[number];
@@ -94,19 +115,74 @@ async function selectNode(node: WorkspaceFileNode): Promise<void> {
     await store.openWorkspaceNode(node, "preview");
 }
 
-/**
- * 双击打开节点并保留标签。
- */
+/** 双击打开节点并保留标签；正文与失败反馈由编辑器宿主呈现。 */
 async function openNode(node: WorkspaceFileNode): Promise<void> {
     await store.openWorkspaceNode(node, "permanent");
 }
 
+/** 重试未确认的展开项提交（旧键迁移失败也走这里重试）。 */
+function retryExpandedPathsRecord(): void {
+    void expandedPathsRecord.retry();
+}
+
+/** 放弃未确认的展开项调整，回到已确认值。 */
+function abandonExpandedPathsRecord(): void {
+    expandedPathsRecord.abandon();
+}
+
 /**
  * 刷新文件树。
+ *
+ * 它同时是**标题动作** `refresh` 的实现：动作的声明在 `SHELL_FILES_VIEW.titleActions`（descriptor），
+ * 这里只把状态与句柄报给宿主（`WorkbenchViewInstances` 转发，`useWorkbenchViewActions` 收）。
+ * 内容头不再有第二个刷新入口——同一个动作只有一条路径。
  */
 async function refreshTree(): Promise<void> {
     await store.loadWorkspaceTree();
 }
+
+/** 本视图在 descriptor 里声明的标题动作 id（`SHELL_FILES_VIEW.titleActions[].id`）。 */
+const TITLE_ACTION_REFRESH = "refresh";
+
+const emitViewAction = defineEmits<{
+    (e: "actions-change", states: readonly ViewTitleActionState[]): void;
+    (e: "action-handle-ready", handle: WorkbenchViewActionHandle | null): void;
+}>();
+
+/** 运行时状态：加载中就是 busy，同时也给出禁用原因（按钮照常渲染，看得见但不能点）。 */
+const titleActionStates = computed<readonly ViewTitleActionState[]>(() => [{
+    id: TITLE_ACTION_REFRESH,
+    enabled: !loadingWorkspaceTree.value,
+    ...(loadingWorkspaceTree.value ? {reason: "文件树正在加载"} : {}),
+    busy: loadingWorkspaceTree.value,
+}]);
+
+/**
+ * 执行句柄：宿主点击标题按钮时经命令路由到这里。
+ * 结果一律结构化——失败不是抛出去，而是带回原因（宿主只负责展示一次）。
+ */
+async function runTitleAction(actionId: string): Promise<CommandResult<unknown>> {
+    if (actionId !== TITLE_ACTION_REFRESH) {
+        return {ok: false, code: "unknown-command", reason: `未登记的视图动作：${actionId}`};
+    }
+    if (loadingWorkspaceTree.value) {
+        return {ok: false, code: "unavailable", reason: "文件树正在加载"};
+    }
+    try {
+        await refreshTree();
+        return {ok: true, value: null};
+    } catch (error) {
+        return {
+            ok: false,
+            code: "execution-error",
+            reason: resolveApiErrorMessage(error, t("ide.workspace.filePanel.refreshFailedFallback")),
+        };
+    }
+}
+
+const titleActionHandle: WorkbenchViewActionHandle = {runAction: runTitleAction};
+
+watch(titleActionStates, (states) => emitViewAction("actions-change", states), {immediate: true});
 
 /**
  * 复制当前文件路径或引用。
@@ -590,45 +666,17 @@ function formatCreateError(error: unknown): string {
     return t("ide.workspace.filePanel.createFailedFallback");
 }
 
-function loadExpandedPaths(): string[] {
-    if (!import.meta.client) {
-        return [];
-    }
-
-    const rawValue = localStorage.getItem(WORKSPACE_EXPANDED_PATHS_STORAGE_KEY);
-    if (!rawValue) {
-        return [];
-    }
-
-    try {
-        const parsedValue = JSON.parse(rawValue) as unknown;
-        if (!Array.isArray(parsedValue)) {
-            return [];
-        }
-        return [...new Set(parsedValue.filter((path): path is string => typeof path === "string" && path.length > 0))];
-    } catch {
-        return [];
-    }
-}
-
-function saveExpandedPaths(paths: string[]): void {
-    if (!import.meta.client) {
-        return;
-    }
-
-    localStorage.setItem(WORKSPACE_EXPANDED_PATHS_STORAGE_KEY, JSON.stringify([...new Set(paths)]));
-}
-
 onMounted(() => {
-    expandedPaths.value = loadExpandedPaths();
+    // 实例就绪：把句柄交给宿主（代际由实例层给），标题动作从此可执行。
+    emitViewAction("action-handle-ready", titleActionHandle);
     if (canAccessWorkspace.value && workspaceTree.value.length === 0) {
         void store.loadWorkspaceTree();
     }
 });
 
-watch(expandedPaths, (paths) => {
-    saveExpandedPaths(paths);
-}, {deep: true});
+onBeforeUnmount(() => {
+    emitViewAction("action-handle-ready", null);
+});
 
 watch(canAccessWorkspace, (canAccess) => {
     if (canAccess && workspaceTree.value.length === 0) {
@@ -639,20 +687,36 @@ watch(canAccessWorkspace, (canAccess) => {
 
 <template>
     <div class="flex h-full min-h-0 flex-col">
-        <!-- 工作区文件面板头部 -->
+        <!-- 工作区文件面板头部：只有搜索。刷新是标题动作（`SHELL_FILES_VIEW.titleActions`），
+             不再在这里留第二个入口。 -->
         <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
             <div class="relative min-w-0 flex-1">
                 <span class="i-lucide-search absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
                 <input v-model="searchQuery" type="text" :placeholder="t('ide.workspace.filePanel.searchPlaceholder')" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
             </div>
-            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="void refreshTree()">
-                <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
+        </div>
+
+        <!-- 展开记录诊断：未保存 / 不可写 / 旧键迁移未完成都不静默 -->
+        <div
+            v-if="expandedPathsNotice"
+            class="flex shrink-0 items-start gap-2 border-b border-[var(--border-color)] bg-[var(--status-warning-bg)] px-3 py-2 text-[11px] leading-4 text-[var(--status-warning)]"
+            role="status"
+            aria-live="polite"
+            data-file-panel-record-notice
+        >
+            <span class="min-w-0 flex-1">{{ t("ide.workspace.filePanel.recordNotice", {diagnosis: expandedPathsNotice.diagnosis}) }}</span>
+            <button v-if="expandedPathsNotice.retryable" type="button" class="shrink-0 underline" @click="retryExpandedPathsRecord()">
+                {{ t("ide.workspace.filePanel.recordRetry") }}
+            </button>
+            <button v-if="expandedPathsNotice.abandonable" type="button" class="shrink-0 underline" @click="abandonExpandedPathsRecord()">
+                {{ t("ide.workspace.filePanel.recordAbandon") }}
             </button>
         </div>
 
+
         <!-- 工作区文件树容器 -->
         <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">
-            <div v-if="loadingWorkspaceTree && workspaceTree.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
+            <div v-if="expandedPathsLoading || (loadingWorkspaceTree && workspaceTree.length === 0)" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]">
                 {{ t("ide.workspace.filePanel.loadingTree") }}
             </div>
             <div v-else-if="filteredNodes.length === 0" class="flex h-full min-h-[180px] items-center justify-center rounded-md border border-dashed border-[var(--border-color)] text-xs text-[var(--text-muted)]" @contextmenu.prevent.stop="openRootMenu">

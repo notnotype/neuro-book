@@ -5,7 +5,9 @@ import {
     pathExists,
     resolveWorkspacePath,
 } from "nbook/server/workspace-files/workspace-files";
-import {assertRealParentContained, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
+import {assertRealParentContained} from "nbook/server/runtime/paths/file-path";
+import type {WorkspaceFileTarget} from "nbook/server/workspace-files/workspace-file-target";
+import {assertWorkspaceStorageBoundary} from "nbook/server/workspace-files/workspace-storage-boundary";
 
 export const SINGLE_FILE_UPLOAD_LIMIT_BYTES = 50 * 1024 * 1024;
 export const PROJECT_UPLOAD_LIMIT_BYTES = 500 * 1024 * 1024;
@@ -39,10 +41,10 @@ export class WorkspaceUploadError extends Error {
 /**
  * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
  */
-export async function uploadWorkspaceFile(root: AbsoluteFsPath, file: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceFile(target: WorkspaceFileTarget, file: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
     const size = byteLength(file.data);
     assertByteLimit(size, SINGLE_FILE_UPLOAD_LIMIT_BYTES, "单文件上传");
-    return writeWorkspaceUploads(root, [{
+    return writeWorkspaceUploads(target, [{
         relativePath: path.posix.join("upload", sanitizeFileName(file.fileName)),
         data: file.data,
     }], PROJECT_UPLOAD_LIMIT_BYTES);
@@ -51,18 +53,18 @@ export async function uploadWorkspaceFile(root: AbsoluteFsPath, file: WorkspaceU
 /**
  * 上传 Project 文件集合，路径由浏览器目录上传的相对路径提供。
  */
-export async function uploadWorkspaceProjectFiles(root: AbsoluteFsPath, files: WorkspaceUploadFile[]): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceProjectFiles(target: WorkspaceFileTarget, files: WorkspaceUploadFile[]): Promise<WorkspaceUploadResult> {
     const entries = files.map((file) => ({
         relativePath: file.relativePath?.trim() || file.fileName,
         data: file.data,
     }));
-    return writeWorkspaceUploads(root, entries, PROJECT_UPLOAD_LIMIT_BYTES);
+    return writeWorkspaceUploads(target, entries, PROJECT_UPLOAD_LIMIT_BYTES);
 }
 
 /**
  * 解包 zip 并上传到当前挂载根。zip 内路径原样保留，已有文件跳过。
  */
-export async function uploadWorkspaceProjectZip(root: AbsoluteFsPath, zipFile: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
+export async function uploadWorkspaceProjectZip(target: WorkspaceFileTarget, zipFile: WorkspaceUploadFile): Promise<WorkspaceUploadResult> {
     const zipSize = byteLength(zipFile.data);
     assertByteLimit(zipSize, PROJECT_UPLOAD_LIMIT_BYTES, "Project 压缩包上传");
 
@@ -76,33 +78,38 @@ export async function uploadWorkspaceProjectZip(root: AbsoluteFsPath, zipFile: W
     const entries = Object.entries(unzipped)
         .filter(([entryPath]) => !isDirectoryEntry(entryPath))
         .map(([relativePath, data]) => ({relativePath, data}));
-    return writeWorkspaceUploads(root, entries, PROJECT_UPLOAD_LIMIT_BYTES);
+    return writeWorkspaceUploads(target, entries, PROJECT_UPLOAD_LIMIT_BYTES);
 }
 
 async function writeWorkspaceUploads(
-    root: AbsoluteFsPath,
+    target: WorkspaceFileTarget,
     entries: Array<{relativePath: string; data: Buffer | Uint8Array}>,
     limitBytes: number,
 ): Promise<WorkspaceUploadResult> {
     let totalBytes = 0;
-    const normalizedEntries = entries.map((entry) => {
+    const normalizedEntries: Array<{relativePath: string; data: Buffer | Uint8Array; size: number}> = [];
+    for (const entry of entries) {
         const size = byteLength(entry.data);
         totalBytes += size;
-        return {
+        normalizedEntries.push({
             relativePath: normalizeUploadPath(entry.relativePath),
             data: entry.data,
             size,
-        };
-    });
+        });
+    }
     assertByteLimit(totalBytes, limitBytes, "Project 上传");
+    // Storage 边界在写盘前整批校验：命中 Storage 的一次上传不留下半批普通文件。
+    for (const entry of normalizedEntries) {
+        await assertWorkspaceStorageBoundary(target, entry.relativePath, "mutation");
+    }
 
     const files: WorkspaceUploadedFileResult[] = [];
     let written = 0;
     let skipped = 0;
 
     for (const entry of normalizedEntries) {
-        const absolutePath = resolveWorkspacePath(root, entry.relativePath);
-        await assertRealParentContained(root, absolutePath);
+        const absolutePath = resolveWorkspacePath(target.root, entry.relativePath);
+        await assertRealParentContained(target.root, absolutePath);
         if (await pathExists(absolutePath)) {
             skipped += 1;
             files.push({path: entry.relativePath, size: entry.size, action: "skipped"});

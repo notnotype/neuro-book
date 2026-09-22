@@ -3,7 +3,7 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import {createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/model-cost-draft";
+import {createModelCostDraft, parseModelCostDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-model-cost-draft";
 import {
     buildAgentVisibleModels,
     buildModelsSection,
@@ -26,7 +26,7 @@ import {
     type ModelSettingsDraft,
     type ModelSettingsModelDraft,
     type ModelSettingsProviderDraft,
-} from "nbook/app/components/novel-ide/settings/model-settings-draft";
+} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {CheckProviderReferencesResponseDto, ConfiguredModelDto, EnabledModelOptionDto, ModelLibraryDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigUpdateDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 import {selectModelApi, type ModelReferenceInput} from "@notnotype/neuro-book-contracts/provider-config";
@@ -369,8 +369,8 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         return {models: {default: cleanModelKey(draft.value.defaultModelKey, modelKeys)}, ...(agentChanged && cleanedAgent ? {agent: cleanedAgent} : {})};
     }
 
-    /** 保存模型设置并返回是否成功。 */
-    async function saveResult(successMessage?: string): Promise<boolean> {
+    /** 保存模型设置并返回是否成功。`successMessage` 传 null 表示不弹成功提示（自动保存路径）。 */
+    async function saveResult(successMessage?: string | null): Promise<boolean> {
         if (!dirty.value || saving.value) {
             return false;
         }
@@ -382,10 +382,14 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
             editorSnapshot.value = snapshot;
             if (isProjectScope.value) {
                 applyProject(snapshot);
-                notification.success(successMessage ?? t("settings.panels.models.projectSaveSuccess"));
+                if (successMessage !== null) {
+                    notification.success(successMessage ?? t("settings.panels.models.projectSaveSuccess"));
+                }
             } else {
                 applyGlobal(snapshot, true);
-                notification.success(successMessage ?? t("settings.panels.models.globalSaveSuccess"));
+                if (successMessage !== null) {
+                    notification.success(successMessage ?? t("settings.panels.models.globalSaveSuccess"));
+                }
             }
             return true;
         } catch (error) {
@@ -661,6 +665,6 @@ export function useModelSettingsDraftSession(options: DraftSessionOptions) {
         isProjectScope, dirty, validationState, validationIssues, validationIssueDetails, defaultModelOptions, enabledModelGroups, disabledModels,
         activeProviderEnabledModelCount, createProviderKey, cloneModel, buildProviderRequest, buildModelDraft, credentialSource, ensureDefaultModel,
         clearActiveProviderApiKey, toggleActiveProviderEnabled, renameActiveProviderId, cloneActiveProviderConnection, requestDeleteActiveProvider, confirmDeleteActiveProvider,
-        enableModel, disableModel, deleteModel, savedModelIssues, displayedContextWindow, repair, load, save, restore,
+        enableModel, disableModel, deleteModel, savedModelIssues, displayedContextWindow, repair, load, save, saveResult, restore,
     };
 }

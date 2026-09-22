@@ -24,6 +24,7 @@ import {
     validateVariableDefinitionArtifact,
     type VariableDefinitionManifestItem,
 } from "nbook/server/agent/variables/definition-artifact";
+import {isUserAssetsStoragePath} from "nbook/server/workspace-files/workspace-storage-boundary";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath, assertRealPathContained, relativeFilePathInside, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
@@ -543,6 +544,9 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
     const invalidatedSkills = new Set<string>();
     let stateChanged = false;
     for (const item of assets) {
+        if (isUserAssetsStoragePath(item.assetPath)) {
+            continue;
+        }
         const systemPath = resolveInsideRoot(roots.sourceNbookRoot, item.assetPath);
         const userPath = resolveInsideRoot(roots.targetNbookRoot, item.assetPath);
         const stateItem = findUserAssetSyncState(syncState, item.assetPath);
@@ -703,6 +707,9 @@ async function invalidateSkillDependencies(skillKeys: ReadonlySet<string>, targe
 async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncState, activeAssetPaths: Set<string>, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>, targetNbookRoot = userNbookAbsoluteRoot(), excludeAgentPackages = false): Promise<boolean> {
     let changed = false;
     for (const item of [...syncState.assets ?? []]) {
+        if (isUserAssetsStoragePath(item.assetPath)) {
+            continue;
+        }
         if ((excludeAgentPackages && isAgentPackageAssetPath(item.assetPath)) || activeAssetPaths.has(item.assetPath) || !isDeletedManagedSystemAssetPath(item.assetPath)) {
             continue;
         }
@@ -738,6 +745,9 @@ async function removeStaleManagedSystemAssets(
 ): Promise<boolean> {
     let changed = false;
     for (const item of [...syncState.assets ?? []]) {
+        if (isUserAssetsStoragePath(item.assetPath)) {
+            continue;
+        }
         if ((excludeAgentPackages && isAgentPackageAssetPath(item.assetPath)) || activeAssetPaths.has(item.assetPath) || !STALE_MANAGED_SYSTEM_ASSET_PREFIXES.some((prefix) => item.assetPath.startsWith(prefix))) {
             continue;
         }
@@ -782,6 +792,9 @@ async function removeStaleManagedSystemAssets(
 async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>, targetNbookRoot = userNbookAbsoluteRoot(), excludeAgentPackages = false): Promise<boolean> {
     let changed = false;
     for (const assetPath of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS) {
+        if (isUserAssetsStoragePath(assetPath)) {
+            continue;
+        }
         if (excludeAgentPackages && isAgentPackageAssetPath(assetPath)) {
             continue;
         }
@@ -1186,6 +1199,9 @@ function isManagedAssetBlacklisted(assetPath: string, options: {excludeAgentPack
     const parts = normalized.split("/");
     const isAgentPackage = parts[0] === "agent"
         && (parts[1] === "skills" || parts[1] === "workflows" || parts[1] === "profiles");
+    if (isUserAssetsStoragePath(normalized)) {
+        return true;
+    }
     return normalized === "config.json"
         || normalized === "neuro-book.sqlite"
         || normalized === ".system-assets-sync-state.json"

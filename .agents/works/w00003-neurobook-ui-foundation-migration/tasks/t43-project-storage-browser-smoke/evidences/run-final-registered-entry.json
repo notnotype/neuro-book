@@ -1,0 +1,127 @@
+{
+  "schema": "nbook.storage-project-adapter-smoke/v1",
+  "status": "passed",
+  "isolated": {
+    "root": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f",
+    "scratchRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book",
+    "httpOrigin": "http://storage.test:18358/",
+    "profileDirectories": [
+      "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\main",
+      "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\other"
+    ],
+    "profileArtifacts": [
+      {
+        "label": "main",
+        "directory": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\main",
+        "localState": true,
+        "indexedDbEntries": [
+          "http_storage.test_18358.indexeddb.leveldb"
+        ]
+      },
+      {
+        "label": "other",
+        "directory": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\other",
+        "localState": true,
+        "indexedDbEntries": [
+          "http_storage.test_18358.indexeddb.leveldb"
+        ]
+      }
+    ],
+    "dataStorageRoot": "C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\.nbook\\storage",
+    "projectStorageRoots": [
+      {
+        "projectRoot": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\alpha",
+        "storageRoot": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\alpha\\.nbook\\storage"
+      },
+      {
+        "projectRoot": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\beta",
+        "storageRoot": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\beta\\.nbook\\storage"
+      }
+    ]
+  },
+  "records": [
+    {
+      "label": "Project A local 记录",
+      "path": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\alpha\\.nbook\\storage\\0f942cfe-6630-467a-97e8-6c38c0dcf2de\\450c354fcbe4b178127ee3cc0e6dddfa\\local\\eb99941af37d95cd575d3381c4a11533\\smoke.project-layout\\records\\layout.json",
+      "wrapper": 1,
+      "state": "value",
+      "schemaVersion": 1,
+      "value": {
+        "width": 730
+      }
+    },
+    {
+      "label": "Project B local 记录",
+      "path": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\beta\\.nbook\\storage\\0f942cfe-6630-467a-97e8-6c38c0dcf2de\\450c354fcbe4b178127ee3cc0e6dddfa\\local\\eb99941af37d95cd575d3381c4a11533\\smoke.project-layout\\records\\layout.json",
+      "wrapper": 1,
+      "state": "value",
+      "schemaVersion": 1,
+      "value": {
+        "width": 900
+      }
+    },
+    {
+      "label": "Project A shared 记录",
+      "path": "C:\\Users\\notnotype\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\state\\workspace\\alpha\\.nbook\\storage\\0f942cfe-6630-467a-97e8-6c38c0dcf2de\\450c354fcbe4b178127ee3cc0e6dddfa\\shared\\smoke.project-layout\\records\\board.json",
+      "wrapper": 1,
+      "state": "value",
+      "schemaVersion": 1,
+      "value": {
+        "title": "shared-board"
+      }
+    }
+  ],
+  "cleanup": [
+    {
+      "resource": "page:main#1",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "page:main#2",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "page:other#1",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "profile:C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\main",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "profile:C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f\\profiles\\other",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "http:http://storage.test:18358/",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "project-session",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "storage-host",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "environment",
+      "ok": true,
+      "message": null
+    },
+    {
+      "resource": "isolation-root:C:\\Users\\NOTNOT~1\\AppData\\Local\\Temp\\neuro-book\\nb-t43\\0a0bd68f",
+      "ok": true,
+      "message": null
+    }
+  ],
+  "findings": []
+}

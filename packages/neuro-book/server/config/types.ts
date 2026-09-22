@@ -2,7 +2,8 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
-import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
+import type {ProductAppearance, ProductThemeId} from "nbook/shared/theme/theme-axes";
+import type {UserColorwayDto} from "nbook/shared/dto/config.dto";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 import type {AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
@@ -189,13 +190,19 @@ export type EffectiveConfig = {
         visibleModels: AgentVisibleModelConfig[];
     };
     ui: {
-        theme: string;
-        customThemes: CustomThemeDto[];
+        themeId: ProductThemeId;
+        appearance: ProductAppearance;
+        /** 当前配色 id；空串 = 跟随主题包按明暗给出的默认配色。 */
+        colorwayId: string;
+        /** 用户自定义配色库（配色契约变量取值 + 展示名 + 明暗）。 */
+        userColorways: UserColorwayDto[];
         costCurrency: "USD" | "CNY";
     };
     editor: {
         markdown: MarkdownEditorPreferences;
         monaco: MonacoEditorPreferences;
+        associations: Record<string, string>;
+        languageAssociations: Record<string, string>;
     };
     web: WebSettingsConfig;
     observability: ObservabilityConfig;
@@ -258,6 +265,8 @@ export type StoredGlobalConfig = {
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
+        associations?: Record<string, string>;
+        languageAssociations?: Record<string, string>;
     };
     web?: StoredWebSettingsConfig;
     observability?: {
@@ -280,6 +289,8 @@ export type StoredProjectConfig = {
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
+        associations?: Record<string, string>;
+        languageAssociations?: Record<string, string>;
     };
     /** Project 侧只允许覆盖 retention / auto-accept 四项；enabled 是 Global 独有。 */
     history?: Partial<Omit<WorkspaceHistorySettingsConfig, "enabled">>;

@@ -1,11 +1,18 @@
 {
-    "extends": "./playground/.nuxt/tsconfig.json",
+    // 不继承 playground/.nuxt/tsconfig.json：那是 gitignore 的生成物，而消费方的 Vite 会为本包每个
+    // 源文件查找最近的 tsconfig，未跑过 playground 的 nuxt prepare 时会直接解析失败。playground 自身
+    // 的 Nuxt 类型在 playground/tsconfig.json 里。
     "compilerOptions": {
         "target": "ESNext",
         "module": "ESNext",
         "moduleResolution": "Bundler",
+        "lib": ["ESNext", "DOM", "DOM.Iterable"],
         "strict": true,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "isolatedModules": true,
         "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
         "types": ["node", "vitest/globals"]
     },
     "include": [
@@ -13,8 +20,6 @@
         "src/**/*.vue",
         "themes/**/*.ts",
         "themes/**/*.vue",
-        "playground/**/*.ts",
-        "playground/**/*.vue",
         "vitest.config.ts"
     ]
 }

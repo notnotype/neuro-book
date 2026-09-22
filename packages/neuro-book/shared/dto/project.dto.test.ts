@@ -9,6 +9,8 @@ import {
     ProjectListResponseDtoSchema,
     ProjectMetadataDtoSchema,
     ProjectOpenResponseDtoSchema,
+    ProjectPresenceHeartbeatEventDtoSchema,
+    ProjectPresenceReadyEventDtoSchema,
     ProjectUpdateRequestDtoSchema,
 } from "nbook/shared/dto/project.dto";
 
@@ -62,7 +64,7 @@ describe("Project DTO", () => {
         expect(ProjectUpdateRequestDtoSchema.safeParse({projectRoot: "alpha", title: "Alpha"}).success).toBe(false);
     });
 
-    it("open 只在 manifest 被修复时接受 recoveryPath", () => {
+    it("open 带回本次发布的精确 ready 标识，并只在 manifest 被修复时接受 recoveryPath", () => {
         const base = {
             revision: 4,
             project: {
@@ -71,24 +73,41 @@ describe("Project DTO", () => {
                 title: "Alpha",
                 summary: "",
             },
+            publicId: "runtime-1:3",
         };
-        expect(ProjectOpenResponseDtoSchema.safeParse({...base, change: "none"}).success).toBe(true);
-        expect(ProjectOpenResponseDtoSchema.safeParse({
+        expect(ProjectOpenResponseDtoSchema.parse({...base, change: "none"})).toEqual({...base, change: "none"});
+        expect(ProjectOpenResponseDtoSchema.parse({
             ...base,
             change: "recovered",
             recoveryPath: "alpha/.nbook/recovery/project-manifest-2026-07-24T01-02-03.000Z-550e8400-e29b-41d4-a716-446655440000.yaml",
-        }).success).toBe(true);
-        expect(ProjectOpenResponseDtoSchema.safeParse({
-            ...base,
-            change: "normalized",
-            recoveryPath: "alpha/.nbook/recovery/project-manifest-2026-07-24T01-02-03.000Z-550e8400-e29b-41d4-a716-446655440000.yaml",
-        }).success).toBe(true);
+        })).toMatchObject({change: "recovered"});
+        expect(ProjectOpenResponseDtoSchema.safeParse({revision: 4, project: base.project, change: "none"}).success).toBe(false);
+        expect(ProjectOpenResponseDtoSchema.safeParse({...base, publicId: "", change: "none"}).success).toBe(false);
         expect(ProjectOpenResponseDtoSchema.safeParse({...base, change: "recovered"}).success).toBe(false);
         expect(ProjectOpenResponseDtoSchema.safeParse({
             ...base,
             change: "none",
             recoveryPath: "unexpected",
         }).success).toBe(false);
+    });
+
+    it("presence 事件必须回报 open 发布的同一 ready 标识", () => {
+        expect(ProjectPresenceReadyEventDtoSchema.parse({
+            type: "presence_ready",
+            projectRoot: "alpha",
+            publicId: "runtime-1:3",
+        })).toEqual({type: "presence_ready", projectRoot: "alpha", publicId: "runtime-1:3"});
+        expect(ProjectPresenceReadyEventDtoSchema.safeParse({
+            type: "presence_ready",
+            projectRoot: "alpha",
+        }).success).toBe(false);
+        expect(ProjectPresenceReadyEventDtoSchema.safeParse({
+            type: "presence_ready",
+            projectRoot: "alpha",
+            publicId: "runtime-1:3",
+            generation: 3,
+        }).success).toBe(false);
+        expect(ProjectPresenceHeartbeatEventDtoSchema.parse({type: "heartbeat"})).toEqual({type: "heartbeat"});
     });
 
     it("open recoveryPath 必须属于响应中的同一 Project", () => {
@@ -100,6 +119,7 @@ describe("Project DTO", () => {
                 title: "Alpha",
                 summary: "",
             },
+            publicId: "runtime-1:3",
             change: "recovered" as const,
         };
         const fileName = "project-manifest-2026-07-24T01-02-03.000Z-550e8400-e29b-41d4-a716-446655440000.yaml";

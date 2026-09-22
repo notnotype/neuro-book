@@ -43,12 +43,12 @@ function resolveNodeGarbageCollector(runtime: RuntimeWithGarbageCollector): (() 
         };
         return nodeGarbageCollector;
     }
-    if (runtime.__sqliteHandleReleaseGcExposed) {
-        return undefined;
-    }
-    runtime.__sqliteHandleReleaseGcExposed = true;
     try {
-        v8.setFlagsFromString("--expose_gc");
+        if (!runtime.__sqliteHandleReleaseGcExposed) {
+            v8.setFlagsFromString("--expose_gc");
+            runtime.__sqliteHandleReleaseGcExposed = true;
+        }
+        // HMR 会丢掉本模块的函数缓存，进程标记只证明已启用，不能代替重新取得 collector。
         const exposed = vm.runInNewContext("gc") as unknown;
         if (typeof exposed !== "function") {
             return undefined;

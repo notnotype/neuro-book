@@ -203,9 +203,9 @@ function handleKeydown(event: KeyboardEvent): void {
     resize: vertical;
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 8px;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 12px;
     line-height: 1.6;

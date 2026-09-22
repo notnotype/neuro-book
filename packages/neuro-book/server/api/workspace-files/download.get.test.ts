@@ -107,7 +107,7 @@ describe("GET /api/workspace-files/download", () => {
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
         await handler({} as never);
 
-        expect(createWorkspaceZipStream).toHaveBeenCalledWith(target.root);
+        expect(createWorkspaceZipStream).toHaveBeenCalledWith(target);
         expect(createProjectWorkspaceZipStream).not.toHaveBeenCalled();
     });
 

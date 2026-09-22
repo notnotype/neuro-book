@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type {MarkdownInlineCommentItem} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownInlineCommentItem} from "nbook/app/components/markdown-studio/markdown-editor.types";
 
 const props = defineProps<{
     comments: MarkdownInlineCommentItem[];
@@ -41,7 +41,7 @@ function snippet(comment: MarkdownInlineCommentItem): string {
 </script>
 
 <template>
-    <aside class="comment-flow-panel flex h-full w-[360px] shrink-0 flex-col border-l border-[var(--border-color)] bg-[var(--editor-bg)]">
+    <aside class="comment-flow-panel flex h-full w-[360px] shrink-0 flex-col border-l border-[var(--border-color)] bg-[var(--page-surface)]">
         <header class="flex h-11 shrink-0 items-center justify-between border-b border-[var(--border-color)] px-4">
             <div class="flex min-w-0 items-center gap-2">
                 <span class="i-lucide-message-square-text h-4 w-4 text-[var(--accent-main)]"></span>
@@ -72,7 +72,7 @@ function snippet(comment: MarkdownInlineCommentItem): string {
                             <div class="flex min-w-0 items-start gap-2">
                                 <span
                                     class="mt-0.5 flex h-5 min-w-5 items-center justify-center rounded-full border px-1 text-[11px] font-semibold leading-none"
-                                    :class="comment.index === props.activeIndex ? 'border-[var(--accent-main)] bg-[var(--accent-main)] text-[var(--text-inverse)]' : 'border-[var(--border-accent)] bg-[var(--editor-bg)] text-[var(--accent-text)]'"
+                                    :class="comment.index === props.activeIndex ? 'border-[var(--accent-main)] bg-[var(--accent-main)] text-[var(--text-inverse)]' : 'border-[var(--border-accent)] bg-[var(--page-surface)] text-[var(--accent-text)]'"
                                 >{{ comment.index }}</span>
                                 <div class="min-w-0">
                                     <div class="truncate text-xs font-medium text-[var(--text-main)]">{{ t("markdownStudio.comments.original", {text: snippet(comment)}) }}</div>

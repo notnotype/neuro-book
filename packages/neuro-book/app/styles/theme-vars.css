@@ -1,47 +1,17 @@
 /*
- * IDE/SSR fallback only.
+ * 产品侧的变量别名层。
  *
- * 主题真实来源仍然是 app/utils/theme/theme-tokens.ts。
- * useIdeTheme 会在运行时把当前主题变量写入 .novel-ide-theme。
+ * 主题与配色本身由 nb-ui 承担，且都落在 `<html>` 上（见 `app/utils/theme/theme-session.ts`）：
+ * 主题包写在 `:root[data-nb-theme="…"]`，配色变量由 `applyColorway` 写在 `<html>`/`<body>`。
+ * 因此这里**不再声明任何颜色、也不再镜像 nb-ui 的角色变量**——变量在 `:root` 上就地代换，
+ * 浮层（Dialog / Tooltip / ContextMenu）与页面共享同一份取值。
+ *
+ * 只剩下两件产品自己的事：
+ * 1. 选区底色（`--selection-bg` 是配色契约里的变量）；
+ * 2. World Engine 工作台的 `--we-*` 局部别名层（它自己的一套语义名 → 配色变量）。
  */
-:root,
-.novel-ide-theme {
-    --bg-main: #f4ecd8;
-    --bg-panel: #fdf6e3;
-    --bg-sidebar: #ebe0c8;
-    --bg-subtle: color-mix(in srgb, #ebe0c8 78%, #fdf6e3);
-    --bg-input: #ebe0c8;
-    --bg-hover: #e3d5b8;
-    --text-main: #433422;
-    --text-secondary: #786450;
-    --text-muted: #b8a896;
-    --text-inverse: #ffffff;
-    --border-color: #d6c7a9;
-    --border-strong: #cfbc96;
-    --border-accent: color-mix(in srgb, #d97743 46%, #d6c7a9);
-    --accent-main: #d97743;
-    --accent-bg: rgba(217, 119, 67, 0.15);
-    --accent-text: #b85a2a;
-    --status-info: #4f6f73;
-    --status-info-bg: rgba(79, 111, 115, 0.14);
-    --status-info-border: rgba(79, 111, 115, 0.35);
-    --status-success: #6f7f35;
-    --status-success-bg: rgba(111, 127, 53, 0.16);
-    --status-success-border: rgba(111, 127, 53, 0.38);
-    --status-warning: #b86b00;
-    --status-warning-bg: rgba(184, 107, 0, 0.15);
-    --status-warning-border: rgba(184, 107, 0, 0.34);
-    --status-danger: #a34d3f;
-    --status-danger-bg: rgba(163, 77, 63, 0.13);
-    --status-danger-border: rgba(163, 77, 63, 0.34);
-    --editor-bg: #fbf5e7;
-    --source-bg: #fdf6e3;
-    --source-text: #586e75;
-    --source-muted: #93a1a1;
-    --shadow-color: #0f172a;
-    --selection-bg: rgba(217, 119, 67, 0.28);
-    --toolbar-bg: rgba(253, 246, 227, 0.92);
-    --chat-ai-bg: #f8efdc;
+html {
+    scrollbar-gutter: stable;
 }
 
 .novel-ide-theme ::selection {
@@ -49,7 +19,7 @@
 }
 
 .world-engine-workbench-theme {
-    /* World Engine 语义色从 IDE 当前主题派生，保留 --we-* 作为局部别名层。 */
+    /* World Engine 语义色从当前配色派生，保留 --we-* 作为局部别名层。 */
     --we-bg-canvas: var(--bg-main);
     --we-bg-panel: var(--bg-panel);
     --we-bg-subtle: var(--bg-sidebar);
@@ -78,6 +48,7 @@
     --we-danger: var(--status-danger);
     --we-danger-border: var(--status-danger-border);
     --we-danger-soft: var(--status-danger-bg);
-    --we-code-bg: var(--source-bg);
-    --we-code-text: var(--source-text);
+    /* 代码面没有专门角色，取 nb-ui 的面板面与主文本色。 */
+    --we-code-bg: var(--panel-surface);
+    --we-code-text: var(--text-main);
 }

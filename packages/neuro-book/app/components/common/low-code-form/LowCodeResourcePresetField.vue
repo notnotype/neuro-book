@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
-import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
+import {Button, Dialog, FormInput, FormSelect, FormTextarea, IconButton, type FormSelectOption} from "@notnotype/nb-ui/components";
 import type {
     LowCodeFieldDto,
     LowCodeJsonValue,
     LowCodeResourceMutationDto,
     LowCodeResourcePresetOptionDto,
 } from "nbook/shared/dto/low-code-form.dto";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 
 type LowCodeResourcePresetScope = "global" | "project";
 
@@ -29,6 +29,16 @@ const emit = defineEmits<{
 
 const draftLabel = ref("");
 const renameLabel = ref("");
+const rootRef = ref<HTMLElement | null>(null);
+
+/**
+ * 浮层宿主。两个确认框落在主题宿主内才会跟着主题换面色；宿主不存在时（Lab 场景）退回 body，
+ * 而不是硬编码 selector——硬编码会让 Teleport 找不到目标，对话框整个不出现，且只在 Lab 里报。
+ * 跟随产品既有浮层范式（`common/Tooltip.vue` 同一写法），不把 target 顺着
+ * 视图 → 详情面板 → 区段 → 低代码表单 一路当 prop 传下来：那是通用表单不该背的事。
+ */
+const teleportTarget = computed<string>(() =>
+    rootRef.value?.closest(THEME_HOST_SELECTOR) ? THEME_HOST_SELECTOR : "body");
 const managerOpen = ref(false);
 const resourceDialogOpen = ref(false);
 const resourceDialogMode = ref<"create" | "rename">("create");
@@ -72,7 +82,7 @@ const visibleOptions = computed(() => {
 const selectedKey = computed(() => normalizeSelectedKey(rawSelectedKey.value));
 const selectedOption = computed(() => visibleOptions.value.find((option) => option.key === selectedKey.value) ?? null);
 const selectedIsGlobalReadonly = computed(() => props.scope === "project" && selectedOption.value?.origin === "global");
-const selectOptions = computed<SelectOption[]>(() => visibleOptions.value.map((option) => ({
+const selectOptions = computed<FormSelectOption[]>(() => visibleOptions.value.map((option) => ({
     value: option.key,
     label: option.label,
     ...(option.description ? {description: option.description} : {}),
@@ -120,13 +130,13 @@ function selectKey(key: string): void {
     emit("update:modelValue", key);
 }
 
-function updateContent(event: Event): void {
+function updateContent(content: string): void {
     if (props.disabled || !selectedKey.value) return;
     upsertMutation({
         type: "update",
         fieldPath: props.field.path,
         key: selectedKey.value,
-        content: (event.target as HTMLTextAreaElement).value,
+        content,
     });
 }
 
@@ -293,35 +303,35 @@ function normalizeSelectedKey(key: string): string {
 </script>
 
 <template>
-    <div class="grid gap-2">
-        <div v-if="!resource" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-muted)]">
+    <div ref="rootRef" class="grid gap-2">
+        <div v-if="!resource" class="rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--text-muted)]">
             Resource preset is unavailable.
         </div>
-        <div v-else-if="shouldShowDisabledEmpty" class="rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/40 px-3 py-2 text-[11px] text-[var(--text-muted)]">
+        <div v-else-if="shouldShowDisabledEmpty" class="rounded-[var(--radius-control)] border border-dashed border-[var(--panel-outline)] bg-[var(--bg-subtle)]/40 px-3 py-2 text-[11px] text-[var(--text-muted)]">
             没有可用资源。
         </div>
         <template v-else>
             <!-- 资源管理器 -->
-            <div class="overflow-visible rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/25">
+            <div class="overflow-visible rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)]/25">
                 <div class="flex min-w-0 items-center gap-2 px-2 py-2">
                     <FormSelect class="min-w-0 flex-1" :class="props.disabled ? 'pointer-events-none opacity-60' : ''" :model-value="selectedKey" :options="selectOptions" placeholder="选择资源" @update:model-value="selectKey" />
-                    <button v-if="canManage || selectedKey" type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!selectedKey && !canManage" :title="managerLabel" @click="managerOpen = !managerOpen">
+                    <Button v-if="canManage || selectedKey" class="shrink-0" size="sm" variant="secondary" :icon-class="managerOpen ? 'i-lucide-chevron-up' : 'i-lucide-panel-bottom-open'" :disabled="!selectedKey && !canManage" :title="managerLabel" @click="managerOpen = !managerOpen">
                         <span :class="managerOpen ? 'i-lucide-chevron-up' : 'i-lucide-panel-bottom-open'" class="h-3.5 w-3.5"></span>
                         {{ managerOpen ? "收起" : "管理" }}
                     </button>
                 </div>
 
-                <div v-if="managerOpen" class="border-t border-[var(--border-color)]">
-                    <div v-if="canManage" class="flex flex-wrap items-center gap-1.5 border-b border-[var(--border-color)] px-2 py-1.5">
-                        <button v-if="canCreate" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)]" title="新建资源" @click="openCreateDialog">
+                <div v-if="managerOpen" class="border-t border-[var(--panel-outline)]">
+                    <div v-if="canManage" class="flex flex-wrap items-center gap-1.5 border-b border-[var(--panel-outline)] px-2 py-1.5">
+                        <Button v-if="canCreate" size="sm" variant="secondary" icon-class="i-lucide-plus" title="新建资源" @click="openCreateDialog">
                             <span class="i-lucide-plus h-3.5 w-3.5"></span>
                             新建
                         </button>
-                        <button v-if="resource.capabilities.rename" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!canRename" title="重命名当前资源" @click="openRenameDialog">
+                        <Button v-if="resource.capabilities.rename" size="sm" variant="secondary" icon-class="i-lucide-pencil" :disabled="!canRename" title="重命名当前资源" @click="openRenameDialog">
                             <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                             重命名当前
                         </button>
-                        <button v-if="canCopyGlobalToProject" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--accent-main)]/40 bg-[var(--accent-bg)] px-2 text-[11px] text-[var(--accent-text)] hover:opacity-90" title="复制全局资源到项目并选中" @click="copyGlobalToProject">
+                        <Button v-if="canCopyGlobalToProject" size="sm" variant="secondary" icon-class="i-lucide-copy-plus" title="复制全局资源到项目并选中" @click="copyGlobalToProject">
                             <span class="i-lucide-copy-plus h-3.5 w-3.5"></span>
                             复制到项目并选中
                         </button>
@@ -329,11 +339,11 @@ function normalizeSelectedKey(key: string): string {
 
                     <div class="grid min-h-[166px] items-stretch gap-0 md:grid-cols-[minmax(11rem,0.34fr)_minmax(0,1fr)]">
                     <!-- 资源列表 -->
-                    <div class="h-full overflow-y-auto border-b border-[var(--border-color)] p-1.5 md:border-b-0 md:border-r md:border-[var(--border-color)]">
+                    <div class="h-full overflow-y-auto border-b border-[var(--panel-outline)] p-1.5 md:border-b-0 md:border-r md:border-[var(--panel-outline)]">
                         <div
                             v-for="option in visibleOptions"
                             :key="option.key"
-                            class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                            class="group flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-[var(--radius-control)] px-2 py-1 text-left transition-colors hover:bg-[var(--bg-hover)]"
                             :class="option.key === selectedKey ? 'bg-[var(--bg-panel)] text-[var(--text-main)] shadow-sm' : 'text-[var(--text-secondary)]'"
                             @click="selectKey(option.key)"
                         >
@@ -342,20 +352,20 @@ function normalizeSelectedKey(key: string): string {
                                 <span class="block truncate text-xs">{{ option.label }}</span>
                                 <span v-if="option.description" class="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">{{ option.description }}</span>
                             </span>
-                            <span v-if="option.origin" class="rounded px-1.5 py-0.5 text-[10px]" :class="option.origin === 'global' ? 'bg-[var(--bg-input)] text-[var(--text-muted)]' : 'bg-[var(--accent-bg)] text-[var(--accent-text)]'">
+                            <span v-if="option.origin" class="rounded px-1.5 py-0.5 text-[10px]" :class="option.origin === 'global' ? 'bg-[var(--bg-subtle)] text-[var(--text-muted)]' : 'bg-[var(--accent-bg)] text-[var(--accent-text)]'">
                                 {{ option.origin === "global" ? "全局" : "项目" }}
                             </span>
                             <span v-if="option.key === selectedKey" class="rounded bg-[var(--accent-bg)] px-1.5 py-0.5 text-[10px] text-[var(--accent-text)]">当前</span>
-                            <button
+                            <IconButton
                                 v-if="resource.capabilities.remove"
-                                type="button"
-                                class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] opacity-0 transition-opacity hover:bg-[var(--danger-soft)] hover:text-[var(--danger)] disabled:pointer-events-none disabled:opacity-25 group-hover:opacity-100"
+                                class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                                size="sm"
+                                variant="danger"
+                                icon-class="i-lucide-trash-2"
                                 :disabled="!canRemoveOption(option.key)"
                                 title="删除资源"
                                 @click.stop="openDeleteDialog(option.key)"
-                            >
-                                <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                            </button>
+                            />
                         </div>
                     </div>
 
@@ -365,19 +375,20 @@ function normalizeSelectedKey(key: string): string {
                             请选择一个资源。
                         </div>
                         <div v-if="selectedKey" class="flex h-full flex-col gap-2 p-2">
-                            <div v-if="selectedIsGlobalReadonly" class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/50 px-2.5 py-2 text-[11px] text-[var(--text-secondary)]">
+                            <div v-if="selectedIsGlobalReadonly" class="flex items-center justify-between gap-2 rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)]/50 px-2.5 py-2 text-[11px] text-[var(--text-secondary)]">
                                 <span class="min-w-0">这个资源来自全局库，在项目配置中只读。</span>
-                                <button v-if="canCopyGlobalToProject" type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--accent-main)]/40 bg-[var(--accent-bg)] px-2 text-[11px] text-[var(--accent-text)] hover:opacity-90" @click="copyGlobalToProject">
+                                <Button v-if="canCopyGlobalToProject" class="shrink-0" size="sm" variant="secondary" icon-class="i-lucide-copy-plus" @click="copyGlobalToProject">
                                     <span class="i-lucide-copy-plus h-3.5 w-3.5"></span>
                                     复制到项目
                                 </button>
                             </div>
-                            <textarea
-                                class="min-h-[150px] w-full flex-1 resize-y overflow-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 font-mono text-xs leading-relaxed text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20 disabled:cursor-default disabled:opacity-80"
-                                :value="selectedContent"
+                            <FormTextarea
+                                class="min-h-[150px] w-full flex-1 font-mono text-xs leading-relaxed"
+                                :model-value="selectedContent"
+                                :rows="8"
                                 :disabled="!canEdit"
                                 spellcheck="false"
-                                @input="updateContent"
+                                @update:model-value="updateContent"
                             />
                         </div>
                     </div>
@@ -385,46 +396,34 @@ function normalizeSelectedKey(key: string): string {
                 </div>
             </div>
 
-            <Dialog v-model="resourceDialogOpen" :title="resourceDialogTitle" width="420px" show-cancel @confirm="confirmResourceDialog">
+            <Dialog v-model="resourceDialogOpen" :title="resourceDialogTitle" width="420px" :show-cancel="false" :teleport-target="teleportTarget">
                 <label class="grid gap-1.5">
                     <span class="text-xs font-medium text-[var(--text-secondary)]">资源名称</span>
-                    <input
-                        v-if="resourceDialogMode === 'create'"
-                        v-model="draftLabel"
-                        class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]"
-                        placeholder="输入新资源名称"
-                    >
-                    <input
-                        v-else
-                        v-model="renameLabel"
-                        class="h-9 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]"
-                        placeholder="输入新的资源名称"
-                    >
+                    <FormInput v-if="resourceDialogMode === 'create'" v-model="draftLabel" placeholder="输入新资源名称" />
+                    <FormInput v-else v-model="renameLabel" placeholder="输入新的资源名称" />
                 </label>
                 <template #footer="{ cancel }">
-                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-[13px] font-medium text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="cancel">
-                        取消
-                    </button>
-                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-4 text-[13px] font-medium text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-50" :disabled="resourceDialogMode === 'create' ? !draftLabel.trim() : !renameLabel.trim()" @click="confirmResourceDialog">
+                    <Button class="flex-1" variant="secondary" @click="cancel">取消</Button>
+                    <Button
+                        class="flex-1"
+                        :disabled="resourceDialogMode === 'create' ? !draftLabel.trim() : !renameLabel.trim()"
+                        @click="confirmResourceDialog"
+                    >
                         {{ resourceDialogConfirmText }}
-                    </button>
+                    </Button>
                 </template>
             </Dialog>
 
-            <Dialog v-model="deleteConfirmOpen" title="删除资源" width="420px" show-cancel @confirm="removeResource">
+            <Dialog v-model="deleteConfirmOpen" title="删除资源" width="420px" :show-cancel="false" :teleport-target="teleportTarget">
                 <div class="space-y-2">
                     <p class="text-sm text-[var(--text-main)]">确定删除这个资源吗？</p>
-                    <p class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <p class="rounded-[var(--radius-control)] border border-[var(--panel-outline)] bg-[var(--bg-subtle)] px-3 py-2 text-xs text-[var(--text-secondary)]">
                         {{ deleteTargetOption?.label ?? deleteTargetKey }}
                     </p>
                 </div>
                 <template #footer="{ cancel }">
-                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-[13px] font-medium text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="cancel">
-                        取消
-                    </button>
-                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--danger)] px-4 text-[13px] font-medium text-[var(--danger)] hover:bg-[var(--danger-soft)]" @click="removeResource">
-                        确认删除
-                    </button>
+                    <Button class="flex-1" variant="secondary" @click="cancel">取消</Button>
+                    <Button class="flex-1" variant="danger" @click="removeResource">确认删除</Button>
                 </template>
             </Dialog>
         </template>

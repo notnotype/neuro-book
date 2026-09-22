@@ -2,8 +2,8 @@
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import ReferencePlainTextEditor from "nbook/app/components/common/form/ReferencePlainTextEditor.vue";
-import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
-import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/AgentSessionModelControls.vue";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/bubbles/base/AgentMarkdownContent.vue";
+import AgentSessionModelControls from "nbook/app/components/novel-ide/agent/panels/header/AgentSessionModelControls.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import {parseSelectionRefChip, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";

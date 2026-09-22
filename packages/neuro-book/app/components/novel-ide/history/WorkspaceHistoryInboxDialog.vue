@@ -11,14 +11,12 @@ import {useWorkspaceHistoryDiffRequests} from "nbook/app/composables/useWorkspac
 import {useWorkspaceHistoryInbox} from "nbook/app/composables/useWorkspaceHistoryInbox";
 import {resolveApiErrorMessage, resolveApiErrorStatus} from "nbook/app/utils/api-error";
 import type {WorkspaceHistoryDiffRequestIdentity} from "nbook/app/utils/workspace-history-diff-request";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {WorkspaceHistoryInboxGroupDto} from "nbook/shared/dto/workspace-history.dto";
 
 const props = defineProps<{
     modelValue: boolean;
     /** 当前 Project Path（workspace/<slug>）；为空（user-assets 模式）时不可用 */
     projectRoot: string | null;
-    theme?: IdeTheme;
 }>();
 
 const emit = defineEmits<{
@@ -205,7 +203,7 @@ watch(revision, () => {
                 <p v-else-if="selectedDiffState.error" class="m-4 text-sm text-[var(--status-danger)]">{{ selectedDiffState.error }}</p>
                 <p v-else-if="selectedDiff?.status === 'blocked'" class="m-4 rounded border border-[var(--status-warning)] px-3 py-2 text-sm text-[var(--status-warning)]">{{ t("ide.historyInbox.diffBlocked") }}</p>
                 <p v-else-if="selectedDiff && selectedDiff.status !== 'available'" class="m-4 text-sm text-[var(--text-muted)]">{{ t("ide.historyInbox.diffUnavailable") }}</p>
-                <SharedDiffEditor v-else-if="selectedDiff?.status === 'available'" class="min-h-0 flex-1" :model-key="`history-inbox:${selectedGroup.path}:${selectedGroup.revision}`" :original-content="selectedDiff.original" :modified-content="selectedDiff.modified" :original-label="t('ide.historyInbox.baseLabel')" :modified-label="t('ide.historyInbox.currentLabel')" :theme="props.theme" />
+                <SharedDiffEditor v-else-if="selectedDiff?.status === 'available'" class="min-h-0 flex-1" :model-key="`history-inbox:${selectedGroup.path}:${selectedGroup.revision}`" :original-content="selectedDiff.original" :modified-content="selectedDiff.modified" :original-label="t('ide.historyInbox.baseLabel')" :modified-label="t('ide.historyInbox.currentLabel')" />
             </section>
         </div>
     </Dialog>

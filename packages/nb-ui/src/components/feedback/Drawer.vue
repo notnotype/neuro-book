@@ -60,11 +60,8 @@ const emit = defineEmits<{
             <DrawerContent
                 :style="{
                     zIndex: NB_Z_INDEX.dialog,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 85%, transparent)',
-                    backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
                 }"
-                class="fixed flex flex-col bg-[var(--bg-panel)] text-[var(--text-main)] shadow-[var(--elevation-dialog)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none border-[color-mix(in_srgb,var(--text-main)_10%,transparent)]"
+                class="nb-ui-popover-surface nb-ui-dialog-surface fixed flex flex-col text-[var(--text-main)] shadow-[var(--elevation-dialog)] transition-transform [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] outline-none border-[color-mix(in_srgb,var(--text-main)_10%,transparent)]"
                 :class="[
                     props.direction === 'right' ? 'inset-y-0 right-0 h-full w-[380px] max-w-[90vw] border-l' : '',
                     props.direction === 'left' ? 'inset-y-0 left-0 h-full w-[380px] max-w-[90vw] border-r' : '',

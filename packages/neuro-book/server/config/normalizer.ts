@@ -1,3 +1,4 @@
+import {mergeEditorAssociations} from "nbook/shared/editor-associations";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
@@ -30,19 +31,28 @@ import type {
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import {
+    EditorConfigPatchDtoSchema,
     ProfileCompactionRuntimePatchDtoSchema,
     ProfileFileChangeNoticeRuntimePatchDtoSchema,
     ProfileSummarizerRuntimePatchDtoSchema,
 } from "nbook/shared/dto/config.dto";
-import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
+import {
+    DEFAULT_PRODUCT_APPEARANCE,
+    DEFAULT_PRODUCT_THEME_ID,
+    productAppearances,
+    productThemeIds,
+    type ProductAppearance,
+    type ProductThemeId,
+} from "nbook/shared/theme/theme-axes";
+import {COLORWAY_ID_PATTERN, MAX_COLORWAY_ID_LENGTH, MAX_USER_COLORWAY_LABEL_LENGTH, MAX_USER_COLORWAYS, sanitizeColorwayVars, USER_COLORWAY_ID_PATTERN} from "nbook/shared/theme/user-colorway";
+import type {UserColorwayDto} from "nbook/shared/dto/config.dto";
 import {mergeProfileRuntimePatches} from "nbook/server/agent/profiles/profile-runtime-settings";
 import type {ProfileRuntimeSettingsPatch} from "nbook/shared/agent/profile-runtime-settings";
 
-const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
-const builtInThemeIdSet = new Set<string>(builtInThemeIds);
-const themeAppearanceSet = new Set<string>(themeAppearanceValues);
-const themeVarNameSet = new Set<string>(themeVarNames);
+/** 白名单查表：清单外的取值（老体系 id / 打错的值）一律读作无效。 */
+const productThemeIdLookup: Record<string, true> = Object.fromEntries(productThemeIds.map((id) => [id, true]));
+const productAppearanceLookup: Record<string, true> = Object.fromEntries(productAppearances.map((appearance) => [appearance, true]));
 const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     modelKey: null,
     temperature: null,
@@ -178,13 +188,16 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             visibleModels: [],
         },
         ui: {
-            theme: DEFAULT_THEME,
-            customThemes: [],
+            themeId: DEFAULT_PRODUCT_THEME_ID,
+            appearance: DEFAULT_PRODUCT_APPEARANCE,
+            colorwayId: "",
+            userColorways: [],
             costCurrency: DEFAULT_COST_CURRENCY,
         },
         editor: {
             markdown: {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES},
             monaco: {...DEFAULT_MONACO_EDITOR_PREFERENCES},
+            ...mergeEditorAssociations(undefined),
         },
         web: normalizeWebSettings(undefined),
         observability: normalizeObservability(undefined),
@@ -197,7 +210,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
  */
 export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null | undefined): StoredGlobalConfig {
     const raw = input && typeof input === "object" ? input : {};
-    const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
+    const editor = EditorConfigPatchDtoSchema.parse(raw.editor === undefined ? {} : raw.editor);
     return {
         ...(raw.observability ? {observability: raw.observability} : {}),
         ...(raw.history ? {history: raw.history} : {}),
@@ -217,13 +230,17 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             visibleModels: normalizeAgentVisibleModels(raw.agent?.visibleModels),
         },
         ui: {
-            theme: normalizeTheme(raw.ui?.theme, customThemes),
-            customThemes,
+            themeId: normalizeProductThemeId(raw.ui?.themeId),
+            appearance: normalizeProductAppearance(raw.ui?.appearance),
+            colorwayId: normalizeColorwayId(raw.ui?.colorwayId),
+            userColorways: normalizeUserColorways(raw.ui?.userColorways),
             costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
-            markdown: normalizeMarkdownPreferences(raw.editor?.markdown),
-            monaco: normalizeMonacoPreferences(raw.editor?.monaco),
+            markdown: normalizeMarkdownPreferences(editor.markdown),
+            monaco: normalizeMonacoPreferences(editor.monaco),
+            associations: editor.associations ?? {},
+            languageAssociations: editor.languageAssociations ?? {},
         },
         web: normalizeStoredWebSettings(raw.web),
     };
@@ -234,6 +251,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
  */
 export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | null | undefined): StoredProjectConfig {
     const raw = input && typeof input === "object" ? input : {};
+    const editor = raw.editor === undefined ? undefined : EditorConfigPatchDtoSchema.parse(raw.editor);
     return {
         ...raw,
         ...(raw.models ? {
@@ -254,12 +272,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
                 profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
-        ...(raw.editor ? {
-            editor: {
-                markdown: raw.editor.markdown ? normalizeMarkdownPreferences(raw.editor.markdown) : undefined,
-                monaco: raw.editor.monaco ? normalizeMonacoPreferences(raw.editor.monaco) : undefined,
-            },
-        } : {}),
+        ...(editor ? {editor} : {}),
         ...(raw.history ? {
             history: normalizeWorkspaceHistoryPatch(raw.history),
         } : {}),
@@ -298,11 +311,14 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.agent.profileRuntimeDefaults = globalRuntimeDefaults;
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults, globalRuntimeDefaults);
     effective.agent.visibleModels = normalizeAgentVisibleModels(globalConfig.agent?.visibleModels);
-    effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
-    effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
+    effective.ui.themeId = normalizeProductThemeId(globalConfig.ui?.themeId);
+    effective.ui.appearance = normalizeProductAppearance(globalConfig.ui?.appearance);
+    effective.ui.colorwayId = normalizeColorwayId(globalConfig.ui?.colorwayId);
+    effective.ui.userColorways = normalizeUserColorways(globalConfig.ui?.userColorways);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
+    Object.assign(effective.editor, mergeEditorAssociations(globalConfig.editor, projectConfig?.editor));
     effective.web = normalizeWebSettings(globalConfig.web);
     effective.observability = normalizeObservability(globalConfig.observability);
     effective.history = normalizeWorkspaceHistory(globalConfig.history);
@@ -364,13 +380,13 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     if (projectConfig.editor?.markdown) {
         effective.editor.markdown = {
             ...effective.editor.markdown,
-            ...normalizeMarkdownPreferences(projectConfig.editor.markdown),
+            ...projectConfig.editor.markdown,
         };
     }
     if (projectConfig.editor?.monaco) {
         effective.editor.monaco = {
             ...effective.editor.monaco,
-            ...normalizeMonacoPreferences(projectConfig.editor.monaco),
+            ...projectConfig.editor.monaco,
         };
     }
     if (projectConfig.history) {
@@ -629,64 +645,68 @@ function normalizeMonacoPreferences(input: Partial<MonacoEditorPreferences> | un
     };
 }
 
-function normalizeTheme(input: unknown, customThemes: CustomThemeDto[] = []): EffectiveConfig["ui"]["theme"] {
+function normalizeProductThemeId(input: unknown): ProductThemeId {
     const themeId = normalizeText(input);
-    if (builtInThemeIdSet.has(themeId) || customThemes.some((theme) => theme.id === themeId)) {
-        return themeId;
-    }
-    return DEFAULT_THEME;
+    return Object.hasOwn(productThemeIdLookup, themeId) ? themeId as ProductThemeId : DEFAULT_PRODUCT_THEME_ID;
 }
 
-function normalizeCustomThemes(input: unknown): CustomThemeDto[] {
+function normalizeProductAppearance(input: unknown): ProductAppearance {
+    const appearance = normalizeText(input);
+    return Object.hasOwn(productAppearanceLookup, appearance) ? appearance as ProductAppearance : DEFAULT_PRODUCT_APPEARANCE;
+}
+
+/**
+ * 当前配色 id。
+ *
+ * 只校验**形状**，不校验存在性：主题自带配色由主题包给出，而主题包 `import "./vars.css"`，
+ * Node 侧装不进它们（同 `shared/theme/theme-axes.ts` 里把主题 id 放进 shared 的理由）。
+ * 于是不认识的 id 一律原样保留，由客户端在应用时回答「这套配色在不在」——
+ * 答不上来就回落主题默认配色，不报错、不清用户的配置（见 app/utils/theme/theme-session.ts）。
+ */
+function normalizeColorwayId(input: unknown): string {
+    const colorwayId = normalizeText(input);
+    if (colorwayId.length > MAX_COLORWAY_ID_LENGTH) {
+        return "";
+    }
+    return COLORWAY_ID_PATTERN.test(colorwayId) ? colorwayId : "";
+}
+
+/**
+ * 用户自定义配色库。
+ *
+ * 丢掉的只有「形状坏了」的项：id / 展示名 / 明暗不合法、变量名不在 `--kebab-case` 形状里、
+ * 取值过不了结构底线（长度 / 控制字符 / `;{}`）。同 id 首见优先，条数封顶。
+ * 具体变量白名单与颜色合法性是客户端的事，这里**不假装能判定**——服务端没有 CSS。
+ */
+function normalizeUserColorways(input: unknown): UserColorwayDto[] {
     if (!Array.isArray(input)) {
         return [];
     }
-    const result: CustomThemeDto[] = [];
-    const seenIds = new Set<string>();
-    for (const item of input) {
-        const theme = normalizeCustomTheme(item);
-        if (!theme || seenIds.has(theme.id)) {
-            continue;
-        }
-        seenIds.add(theme.id);
-        result.push(theme);
-        if (result.length >= 50) {
+    const seen = new Set<string>();
+    const out: UserColorwayDto[] = [];
+    for (const entry of input) {
+        if (out.length >= MAX_USER_COLORWAYS) {
             break;
         }
-    }
-    return result;
-}
-
-function normalizeCustomTheme(input: unknown): CustomThemeDto | null {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return null;
-    }
-    const record = input as Record<string, unknown>;
-    const id = normalizeText(record.id);
-    const name = normalizeText(record.name).slice(0, 50);
-    const appearance = normalizeThemeAppearance(record.appearance);
-    const vars = normalizeThemeVars(record.vars);
-    if (!/^custom-[a-z0-9-]+$/u.test(id) || !name || !appearance) {
-        return null;
-    }
-    return {id: id as CustomThemeDto["id"], name, appearance, vars};
-}
-
-function normalizeThemeAppearance(input: unknown): ThemeAppearance | null {
-    return typeof input === "string" && themeAppearanceSet.has(input) ? input as ThemeAppearance : null;
-}
-
-function normalizeThemeVars(input: unknown): Partial<Record<ThemeVarName, string>> {
-    if (!input || typeof input !== "object" || Array.isArray(input)) {
-        return {};
-    }
-    const result: Partial<Record<ThemeVarName, string>> = {};
-    for (const [key, value] of Object.entries(input)) {
-        if (themeVarNameSet.has(key) && typeof value === "string") {
-            result[key as ThemeVarName] = value.trim();
+        if (!entry || typeof entry !== "object") {
+            continue;
         }
+        const candidate = entry as Partial<UserColorwayDto>;
+        const id = normalizeText(candidate.id);
+        const label = normalizeText(candidate.label).slice(0, MAX_USER_COLORWAY_LABEL_LENGTH);
+        const appearance = normalizeText(candidate.appearance);
+        if (!USER_COLORWAY_ID_PATTERN.test(id) || !label || !Object.hasOwn(productAppearanceLookup, appearance) || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+        out.push({
+            id,
+            label,
+            appearance: appearance as ProductAppearance,
+            vars: sanitizeColorwayVars(candidate.vars),
+        });
     }
-    return result;
+    return out;
 }
 
 function normalizeCostCurrency(input: unknown): EffectiveConfig["ui"]["costCurrency"] {

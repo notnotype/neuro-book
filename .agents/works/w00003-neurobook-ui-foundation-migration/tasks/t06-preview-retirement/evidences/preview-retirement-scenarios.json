@@ -1,0 +1,205 @@
+{
+  "schema": "nbook.preview-retirement-evidence/v1",
+  "taskId": "t06-preview-retirement",
+  "capturedAt": "2026-09-03",
+  "sourceBaseline": "../../t01-migration-design/evidences/preview-scenario-baseline.json",
+  "coverage": {
+    "sourcePageCount": 14,
+    "scenarioCount": 31,
+    "productBehaviorCount": 5,
+    "deterministicDemoCount": 26
+  },
+  "formalSurfaces": [
+    {
+      "id": "model-settings",
+      "entry": "app/pages/index.vue -> NovelIdeSettingsDialog -> NovelIdeModelSettingsPanel",
+      "runtimeEvidence": "普通 Project 中活动栏设置按钮可打开设置 Dialog，模型页可见。",
+      "preserve": ["app/components/novel-ide/NovelIdeSettingsDialog.vue", "app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue"]
+    },
+    {
+      "id": "profile-workbench",
+      "entry": "app/pages/index.vue -> UserProfileWorkbenchDialog -> ProfileTemplateVisualEditor",
+      "runtimeEvidence": "用户资产入口 /?project=workspace/.nbook 中可打开 Profile 工作台。",
+      "preserve": ["app/components/profile-template-editor/UserProfileWorkbenchDialog.vue", "app/components/profile-template-editor/ProfileTemplateVisualEditor.vue"]
+    },
+    {
+      "id": "world-engine",
+      "entry": "app/pages/index.vue -> WorldEngineWorkbenchDialog",
+      "runtimeEvidence": "普通 Project 中活动栏 World Engine 按钮可打开正式 Dialog。",
+      "preserve": [
+        "app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue",
+        "app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSidebar.vue",
+        "app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSliceList.vue",
+        "app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewMutationEditor.vue",
+        "app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue",
+        "app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types.ts",
+        "app/utils/world-engine-preview.ts",
+        "app/utils/world-engine-workbench-preview-filter.ts",
+        "app/utils/world-engine-workbench-preview-state.ts",
+        "app/utils/world-engine-workbench-preview-value.ts",
+        "app/utils/world-engine-workbench-real.ts"
+      ],
+      "reason": "这些模块虽含 preview 命名，但由正式 WorldEngineWorkbenchDialog 直接或间接消费，不能随页面删除。"
+    },
+    {
+      "id": "agent-workflow",
+      "entry": "app/pages/index.vue -> Agent surface -> AgentWorkflowBubble / AgentWorkflowPendingPanel",
+      "runtimeEvidence": "普通 Project 中 Agent 面板入口可打开；正式 workflow 运行由 Agent 气泡和待处理面板承载。",
+      "preserve": [
+        "app/components/novel-ide/agent/AgentWorkflowBubble.vue",
+        "app/components/novel-ide/agent/AgentWorkflowPendingPanel.vue",
+        "app/components/workflow-preview/WorkflowRunVisuals.vue",
+        "app/components/workflow-preview/WorkflowMermaid.vue",
+        "app/components/workflow-preview/WorkflowTimeline.vue",
+        "app/components/workflow-preview/WorkflowAgentCards.vue",
+        "app/utils/workflow-preview/render-mermaid.ts"
+      ],
+      "reason": "共享可视化组件虽位于 workflow-preview 目录，但正式 AgentWorkflowBubble 仍在使用。"
+    }
+  ],
+  "fixtures": {
+    "diffDocuments": [
+      {
+        "id": "markdown",
+        "title": "Markdown 章节保存冲突",
+        "path": "silver-dragon-hime/manuscript/001-volume/013-chapter/index.md",
+        "language": "markdown",
+        "baseContent": "# 第十三章 退潮\n\n茶杯放在桌边。\n\n明日奈笑着说，老师今天也很忙呢。\n",
+        "currentContent": "# 第十三章 退潮\n\n茶杯放在桌边，水汽已经散了。\n\n明日奈笑着说，老师今天也很忙呢。\n\n她把手藏进袖口。\n",
+        "incomingContent": "# 第十三章 退潮\n\n茶杯放在桌边。\n\n明日奈停在茶几旁，声音轻了一点。\n\n老师把药膏放在桌上。\n",
+        "resultContent": "# 第十三章 退潮\n\n茶杯放在桌边，水汽已经散了。\n\n明日奈停在茶几旁，声音轻了一点。\n\n老师把药膏放在桌上。\n"
+      },
+      {
+        "id": "profile",
+        "title": "TSX Profile 用户覆盖",
+        "path": "workspace/.nbook/agent/profiles/builtin/writer.profile.tsx",
+        "language": "typescript",
+        "currentContent": "export const profileKey = \"writer\";\n\nconst prompt = `Use manuscript/... paths.`;\n",
+        "incomingContent": "export const profileKey = \"writer\";\n\nconst prompt = `Use project-slug/manuscript/... paths.`;\n",
+        "resultContent": "export const profileKey = \"writer\";\n\nconst prompt = `Use project-slug/manuscript/... paths.`;\n"
+      },
+      {
+        "id": "json",
+        "title": "JSON Config 冲突",
+        "path": "workspace/.nbook/config.json",
+        "language": "json",
+        "baseContent": "{\n  \"editor\": {\n    \"theme\": \"sepia\"\n  }\n}\n",
+        "currentContent": "{\n  \"editor\": {\n    \"theme\": \"dark\",\n    \"monaco\": {\n      \"fontSize\": 15\n    }\n  }\n}\n",
+        "incomingContent": "{\n  \"editor\": {\n    \"theme\": \"sepia\",\n    \"monaco\": {\n      \"wordWrap\": true\n    }\n  }\n}\n",
+        "resultContent": "{\n  \"editor\": {\n    \"theme\": \"dark\",\n    \"monaco\": {\n      \"fontSize\": 15,\n      \"wordWrap\": true\n    }\n  }\n}\n"
+      },
+      {
+        "id": "deleted",
+        "title": "真实文件已删除",
+        "path": "project/lorebook/character/foo/index.md",
+        "language": "markdown",
+        "currentContent": "---\ntitle: Foo\n---\n\n网页中仍有未保存内容。\n",
+        "incomingContent": "",
+        "resultContent": "---\ntitle: Foo\n---\n\n网页中仍有未保存内容。\n"
+      },
+      {
+        "id": "markers",
+        "title": "冲突 Marker",
+        "path": "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx",
+        "language": "typescript",
+        "currentContent": "export const prompt = `\n<<<<<<< current\nUse concise language.\n=======\nUse vivid language.\n>>>>>>> incoming\n`;\n",
+        "incomingContent": "export const prompt = `\nUse vivid language.\nRemember workspace rules.\n`;\n",
+        "resultContent": "export const prompt = `\nUse vivid but concise language.\nRemember workspace rules.\n`;\n"
+      },
+      {
+        "id": "long",
+        "title": "长文本 Diff",
+        "path": "project/manuscript/long/index.md",
+        "language": "markdown",
+        "generator": "current 为 120 行 '- line N: current text'；incoming 每逢 N-1 可被 9 整除时替换为 incoming changed text。"
+      },
+      {
+        "id": "binary",
+        "title": "不可 Diff 的二进制文件",
+        "path": "workspace/.nbook/agent/avatar.png",
+        "language": "plaintext",
+        "diffable": false,
+        "unavailableReason": "binary",
+        "metadata": {"currentBytes": 182044, "incomingBytes": 184012, "currentSha256": "0b4f28e83ef8a7d3f9a6a3a3f1ac7b1a", "incomingSha256": "a8400d2f1db377ba9f21cbb61c9a447d"}
+      }
+    ],
+    "dndVolumes": [
+      {"id": "volume-1", "title": "第一篇 雨城开局", "chapterIds": ["chapter-1", "chapter-2", "chapter-3", "chapter-4"]},
+      {"id": "volume-2", "title": "第二篇 镜厅回声", "chapterIds": ["chapter-5", "chapter-6", "chapter-7", "chapter-8", "chapter-9"]},
+      {"id": "volume-3", "title": "第三篇 北岸试航", "chapterIds": ["chapter-10", "chapter-11", "chapter-12"]},
+      {"id": "volume-4", "title": "第四篇 预留空篇", "chapterIds": []}
+    ],
+    "plotDataset": {
+      "story": {"id": "story-orphan-flame", "title": "灰烬孤港"},
+      "phases": [
+        {"id": "phase-arrival", "title": "第一幕 抵港与入笼", "chapterIds": ["chapter-01", "chapter-02"]},
+        {"id": "phase-unlock", "title": "第二幕 钥匙与反咬", "chapterIds": ["chapter-03"]},
+        {"id": "phase-burning", "title": "第三幕 焚港与改名", "chapterIds": ["chapter-04", "chapter-05"]}
+      ],
+      "threadIds": ["thread-main", "thread-key", "thread-emotion", "thread-harbor"],
+      "sceneIds": ["scene-auction", "scene-cage", "scene-key-first", "scene-ledger", "scene-vault-map", "scene-storm-confession", "scene-vault-open", "scene-harbor-balance"],
+      "coverage": "主线、三条支线、已挂章与未挂章 Scene、written/active/draft 状态、引用与 Inspector 聚焦。"
+    },
+    "plotTreeGraph": {
+      "storyId": "story-ash-harbor",
+      "threadIds": ["thread-main", "thread-blackmail", "thread-emotion"],
+      "sceneIds": ["scene-auction", "scene-cage", "scene-ledger", "scene-vault", "scene-escape", "scene-blackmail", "scene-contract", "scene-storm", "scene-kiss-knife", "scene-spy"],
+      "coverage": "主线单链、两个 fork 支线、跨线程 sourceId、无 thread/source 的游离 Scene、节点坐标和 Inspector 选择。"
+    },
+    "subjectState": {
+      "subject": {"id": "subject_elena_001", "name": "艾莉娜·晨曦", "type": "character"},
+      "attrs": {"hp": 85, "maxHp": 100, "level": 5, "location": "loc_library_01", "mentor": "subject_orlando_001", "skills": ["剑术", "初级火球术", "侦察"], "equipment": {"weapon": "精灵长剑", "armor": {"name": "学徒法袍", "def": 12}}, "memory": {"m1": {"text": "第一天来到了这里", "vector": []}, "m2": {"text": "打败了一只史莱姆", "vector": []}}, "events": ["2023-01-01: 离开新手村", "2023-01-02: 遇到奥兰多"]},
+      "nameMap": {"loc_library_01": "大图书馆", "subject_orlando_001": "导师奥兰多"},
+      "emptyCases": ["emptyAttr 有默认值提示", "anotherUndefinedAttr 无默认值"]
+    },
+    "structuredText": {
+      "markdown": "# 场景摘要\n\n苏雪在[旧书房](lorebook/location/旧书房.md)里发现线索，并与[暗线场景](scene://scene-preview-1)形成呼应。\n\n这是 **粗体**、*斜体*、`inline code` 和 <inline-comment id=\"preview:1\" body=\"确认伏笔是否过早暴露\">带评论的文本</inline-comment>。",
+      "menuInputs": {"reference": ["旧书房", "暗线场景", "伏笔场景"], "skill": ["plot-taxonomy"], "command": ["heading-2", "comment"]}
+    },
+    "workflow": {
+      "splitBook": {"bookPath": "manuscript/demo-book.md", "chapterCount": 4, "styleMode": "白描", "phases": ["brief", "plot", "pick", "style"]},
+      "writePipeline": {"defaultBrief": "第一章：玉佩现世", "maxCriticRounds": 4, "phases": ["draft", "loop", "settle"]},
+      "rpTurn": {"defaultInput": "我推开酒馆的门", "subjects": ["alice", "bob"], "phases": ["simulate", "actors", "settle"]},
+      "sidecarContext": {"defaultPacket": "酒馆的旧识", "phases": ["probe", "inject"]}
+    },
+    "worldWorkbench": {
+      "calendar": "C{chapter}:{minute}:{second}",
+      "subjectIds": ["world", "capital", "east-tower", "erina", "moran", "old-sword"],
+      "sliceIds": ["slice-world-init", "slice-erina-arrives", "slice-moran-tip", "slice-east-tower-opened", "slice-old-sword-backstory", "slice-erina-hands-sword"],
+      "coverage": "schema、subject stats、timeline、review queue、A/E issue、Inspector、mutation/value draft、local draft reset 与 snapshot reduce。"
+    }
+  },
+  "scenarios": [
+    {"id":"preview.workflow.formal-catalog","page":"workflow.preview.vue","kind":"product-behavior","component":"Agent workflow formal run","input":"真实 Project Workspace、Workflow Catalog、POST /api/agent/workflow/runs","initialState":"Project ready 且 Catalog 可读","actions":["从 Agent surface 启动 workflow","观察 Job 与 run"],"expected":["正式 Agent 气泡显示运行状态、ask、错误和历史"],"disposition":"formal-surface"},
+    {"id":"preview.workflow.demo.split-book","page":"workflow.preview.vue","kind":"demo-only","component":"Workflow visuals","input":"fixtures.workflow.splitBook","initialState":"四章书稿、空运行图","actions":["并发摘要","剧情分析","人工圈选","文风提取"],"expected":["phase、trace、session、缓存与动态状态图可观察"],"disposition":"evidence-only"},
+    {"id":"preview.workflow.demo.write-pipeline","page":"workflow.preview.vue","kind":"demo-only","component":"Workflow visuals","input":"fixtures.workflow.writePipeline","initialState":"writer/critic/worldUpdater 确定性 responder","actions":["生成初稿","最多四轮评审","必要时人工裁决","World Engine 收尾"],"expected":["驳回/通过/升级/完成状态确定"],"disposition":"evidence-only"},
+    {"id":"preview.workflow.demo.rp-turn","page":"workflow.preview.vue","kind":"demo-only","component":"Workflow visuals","input":"fixtures.workflow.rpTurn","initialState":"leader 与两个 actor 可按 tag 复用","actions":["leader 派发","actor 并发反应","leader 结算"],"expected":["参与者 session、并发和结算可观察"],"disposition":"evidence-only"},
+    {"id":"preview.workflow.demo.sidecar-context","page":"workflow.preview.vue","kind":"demo-only","component":"Workflow visuals","input":"fixtures.workflow.sidecarContext","initialState":"caller session 有主线","actions":["创建 excursion 探针","检索","append 结论"],"expected":["主线/旁支属于同一 session 且可追溯"],"disposition":"evidence-only"},
+    {"id":"preview.workflow.real-fanout","page":"workflow.preview.vue","kind":"product-behavior","component":"Agent workflow","input":"真实 profile、Provider/Model、NeuroBook session","initialState":"凭据和模型可用","actions":["运行真实并发问答","汇总 reduce"],"expected":["真实 session、usage、trace 或模型错误可观察"],"disposition":"formal-surface-no-fixture"},
+    {"id":"preview.world-engine-workbench.review-drafts","page":"world-engine.workbench-preview.vue","kind":"demo-only","component":"World Engine Workbench","input":"fixtures.worldWorkbench","initialState":"首个 slice 选中，mock snapshots 已 reduce","actions":["筛选 review queue","编辑 metadata/value","triage issue","reset"],"expected":["slice、snapshot、draft、issue 状态同步"],"disposition":"evidence-only"},
+    {"id":"preview.world-engine.project-mutation-query","page":"world-engine.preview.vue","kind":"product-behavior","component":"WorldEngineWorkbenchDialog","input":"真实 Project World Engine API","initialState":"Project ready","actions":["读取 schema/subjects/slices/state","创建、写入、编辑、删除和 query"],"expected":["正式 Workbench 显示结果、issue、冲突恢复"],"disposition":"formal-surface"},
+    {"id":"preview.profile-template.visual-edit","page":"tsx-profile-editor.preview.vue","kind":"product-behavior","component":"ProfileTemplateVisualEditor","input":"profile catalog、source draft、compile/save API","initialState":"用户资产工作区可用","actions":["打开 Profile 工作台","编辑、校验、编译、保存"],"expected":["画布、组件库、Inspector、源码、变量和错误反馈可观察"],"disposition":"formal-surface"},
+    {"id":"preview.subject-state.viewer","page":"subject-state-viewer.preview.vue","kind":"demo-only","component":"WorldEngineSubjectStateViewer","input":"fixtures.subjectState","initialState":"character schema 与 state 已给定","actions":["展开 object/list/collection","查看 ref 和空值"],"expected":["嵌套值、引用名称、默认值与 undefined 提示正确"],"disposition":"evidence-only"},
+    {"id":"preview.structured-text.modes-and-triggers","page":"structured-text-editor.preview.vue","kind":"demo-only","component":"StructuredTextEditor","input":"fixtures.structuredText","initialState":"rich 模式、格式工具开启","actions":["切 rich/source","触发 @/$// 菜单","编辑 inline comment"],"expected":["Markdown 双向同步、引用与命令可见"],"disposition":"evidence-only"},
+    {"id":"preview.plot.workspace.locator","page":"plot.preview.vue","kind":"demo-only","component":"PlotLocatorView","input":"fixtures.plotDataset","initialState":"locator view","actions":["切换 phase/thread","搜索","选择节点"],"expected":["导航、过滤、选中态与 Inspector 同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.workspace.thread","page":"plot.preview.vue","kind":"demo-only","component":"PlotThreadView","input":"fixtures.plotDataset","initialState":"thread view","actions":["选择 Thread/Scene","跳转 Chapter"],"expected":["排列与 Inspector 聚焦同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.workspace.chapter","page":"plot.preview.vue","kind":"demo-only","component":"PlotChapterView","input":"fixtures.plotDataset","initialState":"chapter view","actions":["选择章节","定位 Scene"],"expected":["章节结构和 Inspector 聚焦同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.workspace.tree","page":"plot.preview.vue","kind":"demo-only","component":"PlotTreeView","input":"fixtures.plotDataset 派生 graph","initialState":"editable=false","actions":["选择节点和边"],"expected":["Thread/Scene 图与 Inspector 同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.workbench-dialog","page":"plot-workbench.preview.vue","kind":"demo-only","component":"PlotWorkbenchDialog","input":"fixtures.plotDataset + extraThreads/extraScenes","initialState":"Dialog 打开，thread-main/scene-auction 选中","actions":["选择、创建、编辑、排序和菜单操作"],"expected":["sidebar、Dialog 与详情状态同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.tree-view","page":"plot-tree.preview.vue","kind":"demo-only","component":"PlotTreeView","input":"fixtures.plotTreeGraph","initialState":"scene-cage 选中","actions":["新增、删除、移动、布局、reset"],"expected":["主链、fork、游离节点和 Inspector 正确"],"disposition":"evidence-only"},
+    {"id":"preview.plot.timeline.phase-arrival","page":"plot-timeline.preview.vue","kind":"demo-only","component":"PlotTimelineView","input":"fixtures.plotDataset phase-arrival","initialState":"第一幕 抵港与入笼","actions":["选择泳道 Scene"],"expected":["抵港/入笼章节段、主线泳道和 Inspector 同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.timeline.phase-unlock","page":"plot-timeline.preview.vue","kind":"demo-only","component":"PlotTimelineView","input":"fixtures.plotDataset phase-unlock","initialState":"第二幕 钥匙与反咬","actions":["切换 phase","选择泳道 Scene"],"expected":["钥匙/反咬章节段、Thread 泳道和 Inspector 同步"],"disposition":"evidence-only"},
+    {"id":"preview.plot.timeline.phase-burning","page":"plot-timeline.preview.vue","kind":"demo-only","component":"PlotTimelineView","input":"fixtures.plotDataset phase-burning","initialState":"第三幕 焚港与改名","actions":["切换 phase","选择泳道 Scene"],"expected":["焚港/改名章节段、情感泳道和 Inspector 同步"],"disposition":"evidence-only"},
+    {"id":"preview.settings.model-provider","page":"model-settings.preview.vue","kind":"product-behavior","component":"NovelIdeModelSettingsPanel","input":"真实 config/provider discover/model check API","initialState":"设置 Dialog 可打开","actions":["编辑 Provider 和模型","发现、检查、保存、恢复或删除"],"expected":["校验和成功/失败反馈由正式设置面板呈现"],"disposition":"formal-surface"},
+    {"id":"preview.plot.thread-panel","page":"plot-thread.preview.vue","kind":"demo-only","component":"PlotThreadPanelShell","input":"fixtures.plotDataset","initialState":"thread-main/scene-auction 选中","actions":["单选、多选、编辑、创建、删除、重排"],"expected":["Scene 列表、详情、上下文菜单和顺序同步"],"disposition":"evidence-only"},
+    {"id":"preview.dnd.volume-reorder","page":"dnd.preview.vue","kind":"demo-only","component":"Dnd volume tree","input":"fixtures.dndVolumes","initialState":"前三篇展开，第四篇为空","actions":["拖动篇","取消并回滚","reset"],"expected":["篇级顺序、空篇落点和快照回滚正确"],"disposition":"evidence-only"},
+    {"id":"preview.dnd.chapter-batch-drag","page":"dnd.preview.vue","kind":"demo-only","component":"Dnd chapter tree","input":"fixtures.dndVolumes","initialState":"无选择","actions":["单选/多选/连选","跨篇拖动到空篇","取消并回滚"],"expected":["批量顺序、volumeId、提示与选择状态正确"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.markdown","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[markdown]","initialState":"side-by-side diff","actions":["编辑 merge result","切预览"],"expected":["Markdown diff 和结果保持可编辑"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.profile","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[profile]","initialState":"TypeScript diff","actions":["切 merge","编辑 result"],"expected":["TSX syntax diff 与结果正确"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.json","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[json]","initialState":"JSON diff","actions":["合并嵌套字段"],"expected":["fontSize 和 wordWrap 同时保留"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.deleted","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[deleted]","initialState":"incoming 为空","actions":["保留 current 内容"],"expected":["删除态和保留结果可辨认"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.markers","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[markers]","initialState":"current 含 conflict marker","actions":["手工整理 result"],"expected":["marker diff 与清理后结果可预览"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.long","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[long]","initialState":"120 行文本","actions":["滚动和切换差异"],"expected":["长文本高亮和滚动稳定"],"disposition":"evidence-only"},
+    {"id":"preview.diff-workbench.binary","page":"diff-workbench.preview.vue","kind":"demo-only","component":"DiffWorkbench","input":"fixtures.diffDocuments[binary]","initialState":"diffable=false","actions":["打开文档"],"expected":["显示 bytes/SHA 摘要且不初始化 Monaco"],"disposition":"evidence-only"}
+  ]
+}

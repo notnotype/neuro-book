@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {inject} from "vue";
 import {
     HoverCardArrow,
     HoverCardContent,
@@ -6,7 +7,11 @@ import {
     HoverCardRoot,
     HoverCardTrigger,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 const props = withDefaults(defineProps<{
     open?: boolean;
@@ -56,11 +61,7 @@ const emit = defineEmits<{
                 :align="props.align"
                 :avoid-collisions="props.avoidCollisions"
                 :style="{
-                    zIndex: NB_Z_INDEX.popover,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 75%, transparent)',
-                    backdropFilter: 'blur(14px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(14px) saturate(130%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 20%, transparent)',
+                    zIndex: popoverZIndex,
                 }"
                 class="nb-ui-popover-surface nb-ui-popover-motion relative rounded-[var(--radius-panel)] p-3 text-[var(--text-main)] outline-none select-none max-w-[360px]"
                 :class="props.contentClass"

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import {lucideIconOptions, normalizeLucideIconName, type LucideIconOption} from "nbook/app/utils/lucide-icons";
 
 const props = defineProps<{
@@ -46,6 +46,8 @@ function selectIcon(iconName: string): void {
         width="640px"
         height="min(720px, 82vh)"
         :show-footer="false"
+        closable
+        teleport-target=".novel-ide-theme"
         @update:model-value="emit('update:modelValue', $event)"
         @request-close="closeDialog"
     >

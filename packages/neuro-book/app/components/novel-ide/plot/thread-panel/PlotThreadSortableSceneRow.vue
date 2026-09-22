@@ -42,7 +42,6 @@ const {isDragging, isDropTarget} = useSortable({
     })),
     element: elementRef,
     handle: handleRef,
-    feedback: "default",
     disabled: computed(() => props.dragDisabled),
 });
 

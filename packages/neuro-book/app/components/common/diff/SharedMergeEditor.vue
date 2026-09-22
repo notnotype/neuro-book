@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {loadMonacoEditor, type MonacoEditorApi} from "nbook/app/components/markdown-studio/load-monaco-editor";
 import {applyMonacoDiffTheme} from "nbook/app/components/common/diff/monaco-diff-theme";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 const props = withDefaults(defineProps<{
@@ -11,7 +11,6 @@ const props = withDefaults(defineProps<{
     currentLabel?: string;
     incomingLabel?: string;
     language?: string;
-    theme?: IdeTheme;
     readonly?: boolean;
     modelKey?: string;
     showWhitespace?: boolean;
@@ -22,7 +21,6 @@ const props = withDefaults(defineProps<{
     currentLabel: "Current",
     incomingLabel: "Incoming",
     language: "markdown",
-    theme: "sepia",
     readonly: false,
     modelKey: "merge",
     showWhitespace: false,
@@ -34,6 +32,8 @@ const emit = defineEmits<{
     (e: "save-request"): void;
     (e: "ready"): void;
 }>();
+
+const {appearance} = useProductTheme();
 
 const rootRef = ref<HTMLDivElement | null>(null);
 const currentRef = ref<HTMLDivElement | null>(null);
@@ -103,9 +103,9 @@ async function ensureEditor(): Promise<void> {
         return;
     }
     monacoApi = monacoApi ?? await loadMonacoEditor();
-    applyMonacoDiffTheme(monacoApi, props.theme, rootRef.value);
-    applyMonacoDiffTheme(monacoApi, props.theme, currentRef.value);
-    applyMonacoDiffTheme(monacoApi, props.theme, incomingRef.value);
+    applyMonacoDiffTheme(monacoApi, rootRef.value);
+    applyMonacoDiffTheme(monacoApi, currentRef.value);
+    applyMonacoDiffTheme(monacoApi, incomingRef.value);
     if (!currentEditor) {
         currentEditor = monacoApi.editor.create(currentRef.value, {
             automaticLayout: true,
@@ -163,13 +163,16 @@ watch(() => [
     props.incomingContent,
 ], () => createModel());
 
-watch(() => [props.theme, props.readonly, props.showWhitespace], () => {
-    if (monacoApi) {
-        applyMonacoDiffTheme(monacoApi, props.theme, rootRef.value);
-        applyMonacoDiffTheme(monacoApi, props.theme, currentRef.value);
-        applyMonacoDiffTheme(monacoApi, props.theme, incomingRef.value);
-    }
+watch(() => [props.readonly, props.showWhitespace], () => {
     updateOptions();
+});
+
+watch(appearance, () => {
+    if (monacoApi) {
+        applyMonacoDiffTheme(monacoApi, rootRef.value);
+        applyMonacoDiffTheme(monacoApi, currentRef.value);
+        applyMonacoDiffTheme(monacoApi, incomingRef.value);
+    }
 });
 
 onBeforeUnmount(() => {

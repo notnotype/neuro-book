@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {resolveClientActivePanel} from "nbook/app/utils/workbench/tool-context";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {hasVisibleInvocationError, isContinuationPointMessage} from "nbook/app/components/novel-ide/agent/agent-message";
-import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
+import {
+    applyActivePanelPatch,
+    applyClientVariablePatch,
+    buildAgentClientState,
+} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -13,17 +17,27 @@ import {useAgentSessionStream, type AgentSessionStreamRecoveryReason} from "nboo
 import {applyAgentCommandResult} from "nbook/app/components/novel-ide/agent/agent-command-result";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
-import Dropdown from "nbook/app/components/common/Dropdown.vue";
-import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
-import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/AgentSystemPromptPanel.vue";
-import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
-import AgentWorkflowPendingPanel from "nbook/app/components/novel-ide/agent/AgentWorkflowPendingPanel.vue";
+import AgentSidebarView from "./AgentSidebarView.vue";
+import type {
+    AgentSidebarHeaderProps,
+    AgentSidebarFlowProps,
+    AgentSidebarComposerProps,
+    AgentSessionStatusBarProps,
+    AgentSidebarAttachmentsProps,
+    AgentSidebarLinkedAgentsProps,
+    AgentSidebarSystemPromptProps,
+    AgentSidebarWorkspaceChangesProps,
+    AgentSidebarWorkflowPendingProps,
+    AgentSidebarSessionsProps,
+    AgentSidebarSessionTreeProps,
+    AgentSidebarContextInspectorProps,
+} from "./AgentSidebarView.types";
+import {
+    useAgentWorkflowPending,
+    useAgentWorkspaceChanges,
+    useAgentContextInspection,
+} from "./composables";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
-import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
-import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
-import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
-import AgentContextInspectorDialog from "nbook/app/components/novel-ide/agent/context-inspector/AgentContextInspectorDialog.vue";
-import AgentSessionAttachmentPanel from "nbook/app/components/novel-ide/agent/AgentSessionAttachmentPanel.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
 import {
@@ -56,7 +70,9 @@ import {
 import {assertPublicToolCallId} from "nbook/shared/agent/public-tool-identity";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import type {ProductThemeId} from "nbook/shared/theme/theme-axes";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorCode, resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
@@ -65,7 +81,7 @@ import type {ConfigBootstrapDto, ConfigModelSettingsDto} from "nbook/shared/dto/
 import type {AgentQueuedMessageDto, AgentSessionAttachmentItemDto, AgentSessionAttachmentResolveResultDto, AgentSessionInteractionDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionRecoveryDto, AgentSessionSummaryDto, AgentMode, AgentSessionIdentity} from "nbook/shared/dto/agent-session.dto";
 import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/shared/dto/agent-session.dto";
-import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
+import type {DropdownItem} from "@notnotype/nb-ui/components";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import {
     AgentComposerDraftClientStore,
@@ -136,8 +152,7 @@ const emit = defineEmits<{
 }>();
 
 const inputText = ref("");
-const chatFlowRef = ref<InstanceType<typeof AgentChatFlow> | null>(null);
-const inputRef = ref<InstanceType<typeof AgentComposer> | null>(null);
+const sidebarViewRef = ref<InstanceType<typeof AgentSidebarView> | null>(null);
 
 const sessions = ref<AgentSessionSummaryDto[]>([]);
 const sessionListTotal = ref(0);
@@ -237,7 +252,8 @@ const session = useAgentSession();
 const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
-const themeManager = useThemeManager();
+const themeSettings = useThemeSettings();
+const {themeId} = useProductTheme();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
@@ -877,8 +893,8 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
 const buildClientState = () => {
     const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
     return buildAgentClientState({
-        activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
-        theme: ideStore.activeThemeId,
+        activePanel: resolveClientActivePanel(ideStore.activeToolView),
+        theme: themeId.value,
         novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
         workspace: ideStore.currentWorkspaceRoot || null,
         workspaceKind: ideStore.workspaceKind,
@@ -1377,7 +1393,7 @@ function insertSessionAttachment(item: AgentSessionAttachmentItemDto): void {
     if (editingMessageId.value) {
         historyAttachmentInsertRequest.value = {id: ++historyAttachmentInsertRequestId, item};
     } else {
-        inputRef.value?.insertAttachment(item);
+        sidebarViewRef.value?.insertAttachment(item);
     }
     attachmentPanelOpen.value = false;
 }
@@ -1899,7 +1915,7 @@ const handleInlineEditorInvokeResult = async (
  * 委托 AgentChatFlow 滚动到底部。
  */
 const scrollToBottom = (): void => {
-    chatFlowRef.value?.scrollToBottom();
+    sidebarViewRef.value?.scrollToBottom();
 };
 
 const acknowledgeClientPatch = async (
@@ -1915,15 +1931,15 @@ const acknowledgeClientPatch = async (
         const appliedValue = await applyClientVariablePatch(request, buildClientState(), {
             setActivePanel: (value) => {
                 if (!isCurrent()) return false;
-                ideStore.activeLeftTab = value;
-                return true;
+                // 揭示归页面登记的端口（选中生效容器、打开目标 Part、发布工具焦点）；
+                // 未登记 / 未接入 / 首读未就绪 / 来源过期都会抛出原因，ack 里读到的是具体原因。
+                return applyActivePanelPatch(value);
             },
             setTheme: async (value) => {
                 if (!isCurrent()) return false;
-                const applied = await themeManager.setTheme(value);
+                const applied = await themeSettings.saveAxes({themeId: value as ProductThemeId});
                 return isCurrent() && applied;
             },
-            customThemeIds: ideStore.customThemes.map((theme) => theme.id),
         });
         if (!isCurrent()) {
             return;
@@ -3089,7 +3105,7 @@ const sessionStream = useAgentSessionStream({
         if (result.historyWindowReset) {
             await nextTick();
             if (!owner.isCurrent()) return;
-            chatFlowRef.value?.scrollToBottom();
+            sidebarViewRef.value?.scrollToBottom();
         }
     },
     onEvent: async (event, owner) => {
@@ -3702,7 +3718,7 @@ watchAgentSurfaceActivation({
         }
         requestAnimationFrame(() => {
             if (acceptsActivation(focusAttempt)) {
-                inputRef.value?.focus();
+                sidebarViewRef.value?.focusComposer();
                 scrollToBottom();
             }
         });
@@ -4207,6 +4223,179 @@ function saveLastSession(sessionId: number, sessionIdentity: AgentSessionIdentit
     }
 }
 
+const workflowPending = useAgentWorkflowPending({
+    sessionId: activeSessionId,
+});
+
+const workspaceChanges = useAgentWorkspaceChanges({
+    projectRoot: computed(() => props.novelId || null),
+    active: computed(() => props.active),
+    refreshKey: computed(() => props.historyInboxRefreshKey ?? 0),
+});
+
+const contextInspection = useAgentContextInspection({
+    open: contextInspectorOpen,
+    sessionId: activeSessionId,
+});
+
+const sidebarHeaderProps = computed<AgentSidebarHeaderProps>(() => ({
+    drawerIconClass: drawerIconClass.value,
+    activeSessionTitle: activeSessionTitle.value,
+    activeDrawerTitle: activeDrawerTitle.value,
+    activeSessionSummaryText: activeSessionSummaryText.value,
+    summarizerStatus: summarizerStatus.value,
+    canChooseCreateProfile: canChooseCreateProfile.value,
+    createProfileDropdownItems: createProfileDropdownItems.value,
+    loadingSession: loadingSession.value,
+    activeSessionId: activeSessionId.value,
+    sessionAttachmentUniqueTotal: sessionAttachmentUniqueTotal.value,
+    linkedAgentCount: linkedAgentCount.value,
+    canMutateHistory: activeInteraction.value.canMutateHistory,
+}));
+
+const sidebarFlowProps = computed<AgentSidebarFlowProps>(() => ({
+    messages: renderNodes.value,
+    sessionId: activeSessionId.value,
+    unselected: surfaceActivation.state.value.status === "unselected",
+    mode: "main",
+    editingMessageId: editingMessageId.value,
+    editingMessageText: editingMessageText.value,
+    messageActionDisabled: messageActionsDisabled.value,
+    runActionDisabled: historyMutationDisabled.value,
+    savingEdit: Boolean(messageActionId.value),
+    sessionAttachments: knownSessionAttachments.value,
+    canRegisterAttachments: activeInteraction.value.canRegisterAttachment,
+    canInsertAttachments: activeInteraction.value.canInsertAttachment,
+    projectRoot: props.novelId || null,
+    modelSupportsImages: activeModelSupportsImages.value,
+    attachmentInsertRequest: historyAttachmentInsertRequest.value,
+    branchSwitcherStateByMessageId: branchSwitcherStateByMessageId.value,
+    menuRefreshKey: agentMenuRefreshKey.value,
+    resolveEditorMenu: resolveInputMenu,
+    onEditorSkillTriggerStart: refreshSkillCatalog,
+    openReference: openMessageReference,
+    costDisplayOptions: costDisplayOptions.value,
+    costExchangeRateSuffix: costExchangeRateSuffix.value,
+    historyHasPrevious: session.hasPrevious.value,
+    historyLoading: session.historyLoading.value,
+    historyError: session.historyError.value,
+}));
+
+const sidebarComposerProps = computed<AgentSidebarComposerProps>(() => ({
+    inputText: inputText.value,
+    pendingResolutionDraft: pendingResolutionDraft.value,
+    submittingUserInput: submittingCurrentUserInput.value,
+    canResolveUserInput: activeInteraction.value.canResolveUserInput,
+    canAbort: activeInteraction.value.canAbort,
+    pendingSubmissionIssue: pendingSubmissionIssue.value,
+    running: running.value,
+    availability: composerAvailability.value,
+    canRegisterAttachments: activeInteraction.value.canRegisterAttachment,
+    canInsertAttachments: activeInteraction.value.canInsertAttachment,
+    loadingSession: loadingSession.value,
+    sessionModelSaving: sessionModelSaving.value,
+    sessionModelPopoverOpen: sessionModelPopoverOpen.value,
+    sessionModelSelectionValue: sessionModelSelectionValue.value,
+    sessionThinkingResolvedLabel: sessionThinkingResolvedLabel.value,
+    sessionModelDraft: sessionModelDraft.value,
+    selectableModels: selectableModels.value,
+    agentMode: agentMode.value,
+    canContinueWithoutInput: canContinueWithoutInput.value,
+    queuedMessages: queuedMessages.value,
+    menuRefreshKey: agentMenuRefreshKey.value,
+    projectRoot: props.novelId || null,
+    sessionId: activeSessionId.value,
+    sessionAttachments: knownSessionAttachments.value,
+    modelSupportsImages: activeModelSupportsImages.value,
+    resolveMenu: resolveInputMenu,
+    onSkillTriggerStart: refreshSkillCatalog,
+}));
+
+const sidebarStatusBarProps = computed<AgentSessionStatusBarProps>(() => ({
+    contextUsageExactLabel: contextUsageExactLabel.value,
+    contextUsageCompactLabel: contextUsageCompactLabel.value,
+    contextPercentCompactLabel: contextPercentCompactLabel.value,
+    cumulativeUsageExactLabel: cumulativeUsageExactLabel.value,
+    cumulativeInputCompactLabel: cumulativeInputCompactLabel.value,
+    cumulativeOutputCompactLabel: cumulativeOutputCompactLabel.value,
+    cumulativeCacheCompactLabel: cumulativeCacheCompactLabel.value,
+    cumulativeCacheWriteCompactLabel: cumulativeCacheWriteCompactLabel.value,
+    cumulativeCacheHitRateLabel: cumulativeCacheHitRateLabel.value,
+    cumulativeCostCompactLabel: cumulativeCostCompactLabel.value,
+    connectionStatusLabel: connectionStatusLabel.value,
+    runPhaseLabel: runPhaseLabel.value,
+    connectionNeedsAction: connectionNeedsAction.value,
+    running: running.value,
+    agentMode: agentMode.value,
+}));
+
+const sidebarAttachmentsProps = computed<AgentSidebarAttachmentsProps>(() => ({
+    items: sessionAttachments.value,
+    total: sessionAttachmentPageTotal.value,
+    hasMore: sessionAttachmentHasMore.value,
+    loading: sessionAttachmentLoading.value,
+    search: sessionAttachmentSearch.value,
+    insertDisabled: !activeInteraction.value.canInsertAttachment,
+}));
+
+const sidebarLinkedAgentsProps = computed<AgentSidebarLinkedAgentsProps>(() => ({
+    sessionId: activeSessionId.value,
+    ownedAgents: linkedAgents.value,
+    linkedByAgents: linkedByAgents.value,
+    loading: linkedAgentsLoading.value,
+}));
+
+const sidebarSystemPromptProps = computed<AgentSidebarSystemPromptProps>(() => ({
+    value: session.systemPrompt.value,
+    loading: session.systemPromptLoading.value,
+    error: session.systemPromptError.value,
+    openReference: openMessageReference,
+}));
+
+const sidebarWorkspaceChangesProps = computed<AgentSidebarWorkspaceChangesProps>(() => ({
+    projectRoot: props.novelId || null,
+    groups: workspaceChanges.groups.value,
+    loading: workspaceChanges.loading.value,
+    error: workspaceChanges.error.value,
+    expanded: workspaceChanges.expanded.value,
+    selectedPath: workspaceChanges.selectedPath.value,
+    busyPath: workspaceChanges.busyPath.value,
+    acceptingAll: workspaceChanges.acceptingAll.value,
+    diffStateFor: workspaceChanges.diffStateFor,
+}));
+
+const sidebarWorkflowPendingProps = computed<AgentSidebarWorkflowPendingProps>(() => ({
+    runs: workflowPending.runs.value,
+    feedError: workflowPending.feedError.value,
+}));
+
+const sidebarSessionsProps = computed<AgentSidebarSessionsProps>(() => ({
+    sessions: sessions.value,
+    total: sessionListTotal.value,
+    hasMore: sessionListHasMore.value,
+    nextOffset: sessionListNextOffset.value,
+    activeSessionId: activeSessionId.value,
+    loading: loadingSession.value || sessionListLoading.value,
+    running: running.value,
+    actionId: sessionActionId.value,
+    createProfileOptions: createProfileOptions.value,
+    canChooseCreateProfile: canChooseCreateProfile.value,
+}));
+
+const sidebarSessionTreeProps = computed<AgentSidebarSessionTreeProps>(() => ({
+    tree: activeRecovery.value?.tree ?? [],
+    activeLeafId: activeRecovery.value?.activeLeafId ?? null,
+    running: running.value,
+    canActivate: activeInteraction.value.canMutateHistory,
+}));
+
+const sidebarContextInspectorProps = computed<AgentSidebarContextInspectorProps>(() => ({
+    sessionId: activeSessionId.value,
+    inspection: contextInspection.inspection.value,
+    loading: contextInspection.loading.value,
+    error: contextInspection.error.value,
+    selectedTraceId: contextInspection.selectedTraceId.value,
+}));
 </script>
 
 <template>
@@ -4216,239 +4405,89 @@ function saveLastSession(sessionId: number, sessionIdentity: AgentSessionIdentit
         :class="[props.layout === 'workbench' ? 'border-x border-[var(--border-color)]' : '', props.active ? '' : 'pointer-events-none opacity-0']"
         :aria-hidden="!props.active"
     >
-        <!-- 抽屉头部 -->
-            <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
-                <div class="min-w-0 flex items-center gap-2">
-                    <div class="flex h-6 w-6 items-center justify-center rounded border border-[var(--accent-main)] bg-[var(--accent-bg)]">
-                        <span class="h-3.5 w-3.5" :class="drawerIconClass"></span>
-                    </div>
-                    <div class="min-w-0">
-                        <div class="flex min-w-0 items-center gap-1.5">
-                            <div class="truncate text-sm font-medium tracking-wide text-[var(--text-main)]" :title="activeSessionTitle">{{ activeSessionTitle }}</div>
-                            <span class="inline-flex shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[9px] font-medium tracking-normal text-[var(--text-muted)]" :title="activeDrawerTitle">{{ activeDrawerTitle }}</span>
-                        </div>
-                        <div class="flex min-w-0 items-center gap-1.5">
-                            <div class="truncate text-[10px] leading-4 text-[var(--text-muted)]" :title="activeSessionSummaryText">{{ activeSessionSummaryText }}</div>
-                            <span v-if="summarizerStatus" class="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-normal" :class="summarizerStatus.className" :title="summarizerStatus.title">
-                                <span class="h-3 w-3" :class="[summarizerStatus.icon, summarizerStatus.spinning ? 'animate-spin' : '']"></span>
-                                {{ summarizerStatus.label }}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                <div class="flex shrink-0 items-center gap-1">
-                    <Dropdown v-if="canChooseCreateProfile" :items="createProfileDropdownItems" root-class="relative inline-block" menu-class="right-0 top-full mt-1.5 w-44" compact @select="void createSessionFromHeader($event)">
-                        <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession">
-                            <span class="i-lucide-plus h-4 w-4"></span>
-                        </button>
-                    </Dropdown>
-                    <button v-else class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.session.newChat')" :disabled="loadingSession" @click="void createSessionFromHeader()">
-                        <span class="i-lucide-plus h-4 w-4"></span>
-                    </button>
-                    <button class="flex items-center gap-1 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': attachmentPanelOpen}" title="查看当前 Session 的全部附件" :disabled="!activeSessionId" @click="toggleAttachmentPanel">
-                        <span class="i-lucide-paperclip h-4 w-4"></span>
-                        <span v-if="sessionAttachmentUniqueTotal" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ sessionAttachmentUniqueTotal }}</span>
-                    </button>
-                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
-                        <span class="i-lucide-users h-4 w-4"></span>
-                        <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId || !activeInteraction.canMutateHistory" @click="sessionTreeDialogOpen = true">
-                        <span class="i-lucide-git-branch h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': systemPromptPanelOpen}" :title="t('agent.systemPrompt.open')" :disabled="!activeSessionId" @click="systemPromptPanelOpen = !systemPromptPanelOpen">
-                        <span class="i-lucide-terminal-square h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.chatSurface.sessionListTitle')" @click="openSessionDialog()">
-                        <span class="i-lucide-messages-square h-4 w-4"></span>
-                    </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
-                        <span class="i-lucide-x h-4 w-4"></span>
-                    </button>
-                </div>
-            </div>
-
-            <AgentSessionAttachmentPanel
-                v-if="attachmentPanelOpen && activeSessionId"
-                :session-id="activeSessionId"
-                :items="sessionAttachments"
-                :total="sessionAttachmentPageTotal"
-                :has-more="sessionAttachmentHasMore"
-                :loading="sessionAttachmentLoading"
-                :search="sessionAttachmentSearch"
-                :insert-disabled="!activeInteraction.canInsertAttachment"
-                @update:search="updateAttachmentSearch"
-                @load-more="void loadSessionAttachments(false)"
-                @insert="insertSessionAttachment"
-                @close="attachmentPanelOpen = false"
-            />
-
-            <!-- Linked Agent 面板 -->
-            <AgentLinkedAgentPanel
-                v-if="linkedAgentPanelOpen"
-                :session-id="activeSessionId"
-                :owned-agents="linkedAgents"
-                :linked-by-agents="linkedByAgents"
-                :loading="linkedAgentsLoading"
-                @select="void selectLinkedAgentSession($event)"
-                @refresh="void refreshLinkedAgentRelations()"
-                @close="linkedAgentPanelOpen = false"
-            />
-
-            <AgentSystemPromptPanel
-                v-model="systemPromptPanelOpen"
-                :value="session.systemPrompt.value"
-                :loading="session.systemPromptLoading.value"
-                :error="session.systemPromptError.value"
-                :open-reference="openMessageReference"
-                @load="void loadActiveSystemPrompt()"
-                @refresh="void loadActiveSystemPrompt(true)"
-            />
-
-            <!-- 消息序列 -->
-            <AgentChatFlow
-                ref="chatFlowRef"
-                :messages="renderNodes"
-                :session-id="activeSessionId"
-                :unselected="surfaceActivation.state.value.status === 'unselected'"
-                :running="running"
-                mode="main"
-                :editing-message-id="editingMessageId"
-                :editing-message-text="editingMessageText"
-                :message-action-disabled="messageActionsDisabled"
-                :run-action-disabled="historyMutationDisabled"
-                :saving-edit="Boolean(messageActionId)"
-                :session-attachments="knownSessionAttachments"
-                :can-register-attachments="activeInteraction.canRegisterAttachment"
-                :can-insert-attachments="activeInteraction.canInsertAttachment"
-                :project-root="props.novelId || null"
-                :model-supports-images="activeModelSupportsImages"
-                :attachment-insert-request="historyAttachmentInsertRequest"
-                :branch-switcher-state-by-message-id="branchSwitcherStateByMessageId"
-                :menu-refresh-key="agentMenuRefreshKey"
-                :resolve-editor-menu="resolveInputMenu"
-                :on-editor-skill-trigger-start="refreshSkillCatalog"
-                :open-reference="openMessageReference"
-                :cost-display-options="costDisplayOptions"
-                :cost-exchange-rate-suffix="costExchangeRateSuffix"
-                :history-has-previous="session.hasPrevious.value"
-                :history-loading="session.historyLoading.value"
-                :history-error="session.historyError.value"
-                @copy="void copyMessage($event)"
-                @copy-tool="void copyToolCall($event)"
-                @start-edit="void startEditingMessage($event)"
-                @cancel-edit="cancelEditingMessage"
-                @save-edit="void saveEditedMessage($event)"
-                @retry="void refreshMessage($event)"
-                @branch-from-here="void branchFromMessage($event)"
-                @cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
-                @load-previous="void loadPreviousHistory()"
-                @attachment-registered="registerSessionAttachment"
-            />
-
-            <AgentWorkflowPendingPanel :session-id="activeSessionId" />
-
-            <AgentComposer
-                :key="composerContextGeneration"
-                ref="inputRef"
-                v-model:input-text="inputText"
-                v-model:pending-resolution-draft="pendingResolutionDraft"
-                v-model:session-model-popover-open="sessionModelPopoverOpen"
-                v-model:session-model-draft="sessionModelDraft"
-                :pending-sessions="pendingUserInputSessions"
-                :submitting-user-input="submittingCurrentUserInput"
-                :can-resolve-user-input="activeInteraction.canResolveUserInput"
-                :can-abort="activeInteraction.canAbort"
-                :pending-submission-issue="pendingSubmissionIssue"
-                :running="running"
-                :availability="composerAvailability"
-                :can-register-attachments="activeInteraction.canRegisterAttachment"
-                :can-insert-attachments="activeInteraction.canInsertAttachment"
-                :loading-session="loadingSession"
-                :session-model-saving="sessionModelSaving"
-                :session-model-selection-value="sessionModelSelectionValue"
-                :session-thinking-resolved-label="sessionThinkingResolvedLabel"
-                :selectable-models="selectableModels"
-                :agent-mode="agentMode"
-                :can-continue-without-input="canContinueWithoutInput"
-                :context-usage-exact-label="contextUsageExactLabel"
-                :context-usage-compact-label="contextUsageCompactLabel"
-                :context-percent-compact-label="contextPercentCompactLabel"
-                :cumulative-usage-exact-label="cumulativeUsageExactLabel"
-                :cumulative-input-compact-label="cumulativeInputCompactLabel"
-                :cumulative-output-compact-label="cumulativeOutputCompactLabel"
-                :cumulative-cache-compact-label="cumulativeCacheCompactLabel"
-                :cumulative-cache-write-compact-label="cumulativeCacheWriteCompactLabel"
-                :cumulative-cache-hit-rate-label="cumulativeCacheHitRateLabel"
-                :cumulative-cost-compact-label="cumulativeCostCompactLabel"
-                :connection-status-label="connectionStatusLabel"
-                :run-phase-label="runPhaseLabel"
-                :connection-needs-action="connectionNeedsAction"
-                :queued-messages="queuedMessages"
-                :menu-refresh-key="agentMenuRefreshKey"
-                :project-root="props.novelId || null"
-                :history-inbox-refresh-key="props.historyInboxRefreshKey ?? 0"
-                :history-inbox-active="props.active"
-                :session-id="activeSessionId"
-                :session-attachments="knownSessionAttachments"
-                :model-supports-images="activeModelSupportsImages"
-                :resolve-menu="resolveInputMenu"
-                :on-skill-trigger-start="refreshSkillCatalog"
-                @submit-user-input="void submitPendingUserInput()"
-                @cancel-user-input="void cancelPendingUserInput()"
-                @resync-user-input="void resyncPendingUserInput()"
-                @open-context-inspector="contextInspectorOpen = true"
-                @send="void send()"
-                @steer="void steer()"
-                @followup="void followup()"
-                @stop="void stopRun()"
-                @cycle-mode="void cycleAgentMode()"
-                @toggle-session-model-popover="toggleSessionModelPopover"
-                @update-session-model-selection="void updateSessionModelSelection($event)"
-                @apply-session-model-settings="void applySessionModelSettings()"
-                @reset-session-model-settings="void resetSessionModelSettings()"
-                @reconnect-events="void reconnectActiveSessionEvents()"
-                @refresh-history="void syncActiveSessionRecovery()"
-                @open-history-inbox="emit('open-history-inbox')"
-                @open-workspace-file="openMessageReference"
-                @attachment-registered="registerSessionAttachment"
-                @availability-action="handleComposerAvailabilityAction"
-                @resend-unknown="void resendUnknownMessage($event)"
-                @dismiss-unknown="dismissUnknownMessage($event)"
-            />
-
-            <!-- Session 管理弹窗 -->
-            <AgentSessionDialog
-                v-model="sessionDialogOpen"
-                :sessions="sessions"
-                :total="sessionListTotal"
-                :has-more="sessionListHasMore"
-                :next-offset="sessionListNextOffset"
-                :active-session-id="activeSessionId"
-                :loading="loadingSession || sessionListLoading"
-                :running="running"
-                :action-id="sessionActionId"
-                :create-profile-options="createProfileOptions"
-                :can-choose-create-profile="canChooseCreateProfile"
-                @select="void selectSession($event)"
-                @create="void createSessionFromDialog($event)"
-                @archive="void archiveSessionFromDialog($event)"
-                @restore="void restoreSessionFromDialog($event)"
-                @rename="void renameSessionFromDialog($event)"
-                @refresh="void refreshSessionsWithQuery($event)"
-                @load-more="void refreshSessionsWithQuery($event)"
-            />
-
-            <AgentSessionTreeDialog
-                v-model="sessionTreeDialogOpen"
-                :tree="activeRecovery?.tree ?? []"
-                :active-leaf-id="activeRecovery?.activeLeafId ?? null"
-                :running="running"
-                :can-activate="activeInteraction.canMutateHistory"
-                @select="void selectTreeNode($event)"
-            />
-
-            <!-- 上下文检查面板（Task 126）：非模态，可与聊天并存 -->
-            <AgentContextInspectorDialog v-model="contextInspectorOpen" :session-id="activeSessionId" />
+        <AgentSidebarView
+            ref="sidebarViewRef"
+            :layout="props.layout"
+            teleport-target=".novel-ide-theme"
+            :composer-context-generation="composerContextGeneration"
+            :pending-sessions="pendingUserInputSessions"
+            v-model:attachment-panel-open="attachmentPanelOpen"
+            v-model:linked-agent-panel-open="linkedAgentPanelOpen"
+            v-model:system-prompt-panel-open="systemPromptPanelOpen"
+            v-model:session-dialog-open="sessionDialogOpen"
+            v-model:session-tree-dialog-open="sessionTreeDialogOpen"
+            v-model:context-inspector-open="contextInspectorOpen"
+            :header="sidebarHeaderProps"
+            :flow="sidebarFlowProps"
+            :composer="sidebarComposerProps"
+            :status-bar="sidebarStatusBarProps"
+            :attachments="sidebarAttachmentsProps"
+            :linked-agents="sidebarLinkedAgentsProps"
+            :system-prompt="sidebarSystemPromptProps"
+            :workspace-changes="sidebarWorkspaceChangesProps"
+            :workflow-pending="sidebarWorkflowPendingProps"
+            :sessions="sidebarSessionsProps"
+            :session-tree="sidebarSessionTreeProps"
+            :context-inspector="sidebarContextInspectorProps"
+            @header-create-session="void createSessionFromHeader($event)"
+            @close="emit('close')"
+            @flow-copy="void copyMessage($event)"
+            @flow-copy-tool="void copyToolCall($event)"
+            @flow-start-edit="void startEditingMessage($event)"
+            @flow-cancel-edit="cancelEditingMessage"
+            @flow-save-edit="void saveEditedMessage($event)"
+            @flow-retry="void refreshMessage($event)"
+            @flow-branch-from-here="void branchFromMessage($event)"
+            @flow-cycle-branch="void cycleMessageBranch($event.messageId, $event.direction)"
+            @flow-load-previous="void loadPreviousHistory()"
+            @flow-resend-unknown="void resendUnknownMessage($event)"
+            @flow-dismiss-unknown="dismissUnknownMessage($event)"
+            @attachment-search="updateAttachmentSearch"
+            @attachment-load-more="void loadSessionAttachments(false)"
+            @attachment-insert="insertSessionAttachment"
+            @attachment-registered="registerSessionAttachment"
+            @linked-agent-select="void selectLinkedAgentSession($event)"
+            @linked-agent-refresh="void refreshLinkedAgentRelations()"
+            @system-prompt-load="void loadActiveSystemPrompt()"
+            @system-prompt-refresh="void loadActiveSystemPrompt(true)"
+            @workspace-update-expanded="workspaceChanges.expanded.value = $event"
+            @workspace-select-group="workspaceChanges.selectGroup($event)"
+            @workspace-accept-group="workspaceChanges.acceptGroup($event)"
+            @workspace-accept-all="workspaceChanges.acceptAll()"
+            @workspace-refresh="workspaceChanges.refreshInbox()"
+            @workspace-open-full="emit('open-history-inbox')"
+            @workspace-open-file="openMessageReference"
+            @workflow-update-answer="workflowPending.updateAnswer($event.runId, $event.key, $event.value)"
+            @workflow-submit-run="workflowPending.submitRun($event)"
+            @composer-update-input-text="inputText = $event"
+            @composer-update-pending-resolution-draft="pendingResolutionDraft = $event"
+            @composer-update-session-model-popover-open="sessionModelPopoverOpen = $event"
+            @composer-update-session-model-draft="sessionModelDraft = $event"
+            @composer-update-session-model-selection="void updateSessionModelSelection($event)"
+            @composer-submit-user-input="void submitPendingUserInput()"
+            @composer-cancel-user-input="void cancelPendingUserInput()"
+            @composer-resync-user-input="void resyncPendingUserInput()"
+            @composer-send="void send()"
+            @composer-steer="void steer()"
+            @composer-followup="void followup()"
+            @composer-stop="void stopRun()"
+            @composer-cycle-mode="void cycleAgentMode()"
+            @composer-toggle-session-model-popover="toggleSessionModelPopover"
+            @composer-apply-session-model-settings="void applySessionModelSettings()"
+            @composer-reset-session-model-settings="void resetSessionModelSettings()"
+            @composer-reconnect-events="void reconnectActiveSessionEvents()"
+            @composer-refresh-history="void syncActiveSessionRecovery()"
+            @composer-availability-action="handleComposerAvailabilityAction"
+            @session-select="void selectSession($event)"
+            @session-create="void createSessionFromDialog($event)"
+            @session-archive="void archiveSessionFromDialog($event)"
+            @session-restore="void restoreSessionFromDialog($event)"
+            @session-rename="void renameSessionFromDialog($event)"
+            @session-refresh="void refreshSessionsWithQuery($event)"
+            @session-load-more="void refreshSessionsWithQuery($event)"
+            @tree-select="void selectTreeNode($event)"
+            @context-select-trace="contextInspection.selectTrace($event)"
+            @context-refresh="contextInspection.refresh()"
+        />
     </section>
 </template>

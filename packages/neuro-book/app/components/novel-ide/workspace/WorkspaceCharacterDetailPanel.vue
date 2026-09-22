@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import YAML from "yaml";
 import {storeToRefs} from "pinia";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import SideDetailPanel from "nbook/app/components/common/SideDetailPanel.vue";
 import TagInput from "nbook/app/components/common/form/TagInput.vue";
 import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
@@ -443,6 +443,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         width="min(1280px, calc(100vw - 160px))"
         height="min(760px, calc(100vh - 96px))"
         overlay-type="opaque"
+        teleport-target=".novel-ide-theme"
         :show-footer="false"
         @update:model-value="updateDialogVisible"
     >

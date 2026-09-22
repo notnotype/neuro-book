@@ -10,5 +10,8 @@
         "defaultProfileKey": null,
         "profiles": {}
     },
-    "editor": {}
+    "editor": {
+        "associations": {},
+        "languageAssociations": {}
+    }
 }

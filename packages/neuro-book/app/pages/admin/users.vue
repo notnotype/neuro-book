@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import {storeToRefs} from "pinia";
-import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {Dialog} from "@notnotype/nb-ui/components";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {ensureThemeHost} from "nbook/app/utils/theme/host";
 import {generateComplexPassword} from "nbook/app/utils/password";
 import type {AdminUserListItemDto, AuthSessionDto} from "nbook/shared/dto/auth.dto";
 
@@ -31,9 +31,6 @@ const editForm = reactive({
     status: "active" as "active" | "disabled",
 });
 const resetPassword = ref("");
-const novelIdeStore = useNovelIdeStore();
-const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 const editOpen = computed({
     get: () => Boolean(editTarget.value),
@@ -203,7 +200,7 @@ watch([createOpen, editOpen, resetOpen], () => {
 });
 
 onMounted(() => {
-    mountThemeHost(themeHostRef.value);
+    ensureThemeHost(themeHostRef.value);
     void loadUsers();
 });
 </script>
@@ -275,7 +272,7 @@ onMounted(() => {
             </div>
         </div>
 
-        <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel :teleport-target="false" @confirm="void createUser()">
+        <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void createUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
@@ -305,7 +302,7 @@ onMounted(() => {
             </div>
         </Dialog>
 
-        <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel :teleport-target="false" @confirm="void saveUser()">
+        <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void saveUser()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
@@ -325,7 +322,7 @@ onMounted(() => {
             </div>
         </Dialog>
 
-        <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel :teleport-target="false" @confirm="void submitReset()">
+        <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel closable :confirm-label="t('common.confirm')" :teleport-target="false" @confirm="void submitReset()">
             <div class="space-y-4 text-sm">
                 <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
@@ -346,8 +343,3 @@ onMounted(() => {
     </div>
 </template>
 
-<style scoped>
-.admin-page {
-    --editor-bg: var(--bg-main);
-}
-</style>

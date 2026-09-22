@@ -2,7 +2,7 @@
 // 承诺节拍(StoryPromiseBeat)对话框:在某个 Scene 上打 埋设/推进/反挫/兑现 节拍。
 // PUT upsert 语义:同场同线仅一条,选中已有节拍的场景时保存即覆盖;kind=payoff 默认自动把承诺置为已兑现(autoFulfill)。
 import {computed, reactive, ref, watch} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
@@ -131,6 +131,8 @@ function submit(): void {
         width="560px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

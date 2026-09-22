@@ -117,6 +117,15 @@ const resolvedSizePreset = computed(() => DIALOG_SIZE_PRESETS[props.size]);
 const resolvedWidth = computed(() => props.width ?? resolvedSizePreset.value.width);
 const resolvedHeight = computed(() => props.height ?? resolvedSizePreset.value.height);
 const resolvedMaxHeight = computed(() => props.maxHeight ?? resolvedSizePreset.value.maxHeight);
+const resolvedTeleportTarget = computed(() => {
+    if (typeof props.teleportTarget === "string") {
+        if (typeof document !== "undefined" && !document.querySelector(props.teleportTarget)) {
+            return "body";
+        }
+        return props.teleportTarget;
+    }
+    return "body";
+});
 
 /*
  * 按钮平分整行还是右对齐——Apple 自己就是分两档的，本轮从官方 macOS 27 UI Kit 实测：
@@ -290,7 +299,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <Teleport v-if="isMounted" :to="typeof teleportTarget === 'string' ? teleportTarget : 'body'" :disabled="teleportTarget === false">
+    <Teleport v-if="isMounted" :to="resolvedTeleportTarget" :disabled="teleportTarget === false">
         <Transition name="nb-dialog">
             <div
                 v-if="modelValue"

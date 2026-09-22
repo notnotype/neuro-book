@@ -44,9 +44,27 @@ const runtimeWorkspaceWatchIgnore = [
         : []),
 ];
 
+// 组件 Lab 与 Workbench spike 只存在于源码开发环境。排除发生在路由生成阶段：路由被摘掉之后，
+// 只有它才引用的 app/component-lab/** 在构建图上不可达，产物里不会出现这些模块。
+// 用运行时守卫或环境变量隐藏一个已经打包进去的 Lab 不满足这条要求。
+const labEnabled = process.env.NODE_ENV !== "production";
+
 export default defineNuxtConfig({
     ssr: false,
     buildId: productBuildId,
+    hooks: {
+        "pages:extend"(pages) {
+            if (labEnabled) {
+                return;
+            }
+            for (let index = pages.length - 1; index >= 0; index -= 1) {
+                const file = pages[index]?.file ?? "";
+                if (file.endsWith("/pages/lab.vue") || file.endsWith("/pages/workbench-spike.vue") || file.includes("component-lab")) {
+                    pages.splice(index, 1);
+                }
+            }
+        },
+    },
     alias: {
         nbook: rootDir,
     },
@@ -65,23 +83,46 @@ export default defineNuxtConfig({
                 "./app/pages/index.vue",
             ],
             include: [
+                "@dnd-kit/abstract",
                 "@dnd-kit/dom",
                 "@dnd-kit/vue",
+                "@dnd-kit/vue/sortable",
                 "@milkdown/core",
                 "@milkdown/prose",
                 "@tiptap/core",
+                "@tiptap/extension-code",
+                "@tiptap/extension-hard-break",
+                "@tiptap/extension-image",
+                "@tiptap/extension-link",
+                "@tiptap/extension-paragraph",
                 "@tiptap/extension-placeholder",
+                "@tiptap/extension-table",
                 "@tiptap/markdown",
+                "@tiptap/pm/state",
+                "@tiptap/pm/view",
                 "@tiptap/starter-kit",
                 "@tiptap/suggestion",
                 "@tiptap/vue-3",
+                "@tiptap/vue-3/menus",
                 "@vue-flow/background",
                 "@vue-flow/controls",
                 "@vue-flow/core",
                 "@vue-flow/minimap",
+                "clsx",
                 "dayjs",
                 "dompurify",
+                "fuse.js",
                 "json-editor-vue",
+                "marked",
+                "mdast-util-from-markdown",
+                "mdast-util-to-markdown",
+                "partial-json",
+                "pinyin-pro",
+                "reka-ui",
+                "tailwind-merge",
+                "vanilla-jsoneditor",
+                "yaml",
+                "zod",
             ],
             exclude: [
                 "monaco-editor",
@@ -102,6 +143,11 @@ export default defineNuxtConfig({
         },
         {
             path: "~/components/markdown-studio",
+            pathPrefix: false,
+            extensions: ["vue"],
+        },
+        {
+            path: "~/components/novel-ide/agent",
             pathPrefix: false,
             extensions: ["vue"],
         },
@@ -162,6 +208,7 @@ export default defineNuxtConfig({
     },
     css: [
         "the-new-css-reset/css/reset.css",
+        "@notnotype/nb-ui/styles.css",
         "nbook/app/styles/theme-vars.css",
         "nbook/app/styles/reference-chips.css",
         "@vue-flow/core/dist/style.css",
@@ -169,6 +216,10 @@ export default defineNuxtConfig({
         "@vue-flow/controls/dist/style.css",
         "@vue-flow/minimap/dist/style.css",
     ],
+    build: {
+        // nb-ui 的 exports 指向未编译的 .ts 源码，必须由本应用的构建管线处理。
+        transpile: ["@notnotype/nb-ui"],
+    },
     modules: [
         "nuxt-auth-utils",
         "@pinia/nuxt",

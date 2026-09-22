@@ -1,6 +1,6 @@
 import {mount} from "@vue/test-utils";
 import {describe, expect, it, vi} from "vitest";
-import {nextTick} from "vue";
+import {defineComponent, h, nextTick, ref} from "vue";
 import Button from "./controls/Button.vue";
 import IconButton from "./controls/IconButton.vue";
 import Pagination from "./controls/Pagination.vue";
@@ -18,11 +18,13 @@ import Progress from "./display/Progress.vue";
 import Table from "./display/Table.vue";
 import AlertDialog from "./feedback/AlertDialog.vue";
 import Dialog from "./feedback/Dialog.vue";
+import DialogWindow from "./feedback/DialogWindow.vue";
 import Drawer from "./feedback/Drawer.vue";
 import HoverCard from "./feedback/HoverCard.vue";
 import Notification from "./feedback/Notification.vue";
 import NotificationViewport from "./feedback/NotificationViewport.vue";
 import Popover from "./feedback/Popover.vue";
+import Tooltip from "./feedback/Tooltip.vue";
 import {clampMenuPosition, computeSubmenuPosition} from "./feedback/context-menu-position";
 import Calendar from "./form/Calendar.vue";
 import Combobox from "./form/Combobox.vue";
@@ -43,6 +45,7 @@ import Panel from "./layout/Panel.vue";
 import ScrollArea from "./layout/ScrollArea.vue";
 import Separator from "./layout/Separator.vue";
 import Splitter from "./layout/Splitter.vue";
+import type {SplitterGestureState} from "./layout/splitter-gesture";
 import Breadcrumb from "./navigation/Breadcrumb.vue";
 import NavigationMenu from "./navigation/NavigationMenu.vue";
 import Tree from "./navigation/Tree.vue";
@@ -517,6 +520,19 @@ describe("nb-ui new primitives", () => {
         wrapper.unmount();
     });
 
+    it("keeps the tabs indicator inside the scroll box", () => {
+        // tablist 是 overflow-x-auto，而 CSS 规定另一轴的 visible 会跟着计算成 auto。
+        // 指示线只要有 1px 落在 padding box 外，26px 高的标签栏就会多出一条竖向滚动条。
+        const wrapper = mount(Tabs, {
+            props: {modelValue: "a", items: [{value: "a", label: "A"}]},
+        });
+        const indicatorClasses = wrapper.get("[role='tab']").classes()
+            .filter((name) => name.startsWith("after:bottom"));
+
+        expect(indicatorClasses).toEqual(["after:bottom-0"]);
+        wrapper.unmount();
+    });
+
     it("renders badge tones and variants", () => {
         const wrapper = mount(Badge, {
             props: {tone: "success", variant: "outline", dot: true},
@@ -724,6 +740,269 @@ describe("nb-ui notification clearAll", () => {
     });
 });
 
+describe("nb-ui dialog window", () => {
+    function mountWindow(props: Record<string, unknown> = {}, header?: string) {
+        return mount(DialogWindow, {
+            props: {
+                modelValue: true,
+                title: "浮动窗口",
+                teleportTarget: false,
+                ...props,
+            },
+            slots: {
+                ...(header === undefined ? {} : {header}),
+                default: "<button>窗口内容</button>",
+            },
+            attachTo: document.body,
+        });
+    }
+
+    it("renders as a non-modal dialog without an overlay and labels the default title", async () => {
+        const wrapper = mountWindow();
+        try {
+            await nextTick();
+
+            const dialog = wrapper.get("[role='dialog']");
+            const titleId = dialog.attributes("aria-labelledby");
+            expect(titleId).toBeTruthy();
+            expect(wrapper.find("[data-dialog-overlay]").exists()).toBe(false);
+            expect(wrapper.find(".i-lucide-grip-vertical").exists()).toBe(false);
+            expect(dialog.text()).toContain("窗口内容");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("keeps the title left aligned with no centering placeholder", async () => {
+        const wrapper = mountWindow({}, "<span>Agent Profile 设置</span>");
+        try {
+            await nextTick();
+            const titleWrapper = wrapper.get("[role='dialog']").element.querySelector(".cursor-move");
+            expect(titleWrapper?.className).not.toContain("text-center");
+            // 左对齐不再为居中放占位块：标题栏第一个子元素就是可拖动区
+            const titleBar = titleWrapper?.parentElement;
+            expect(titleBar?.firstElementChild).toBe(titleWrapper);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("keeps a custom header accessible through DialogTitle", async () => {
+        const wrapper = mountWindow({}, "<span>自定义标题</span>");
+        try {
+            await nextTick();
+
+            const dialog = wrapper.get("[role='dialog']");
+            const titleId = dialog.attributes("aria-labelledby");
+            expect(document.getElementById(titleId ?? "")?.textContent).toContain("自定义标题");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("applies the size presets and lets explicit width / height win", async () => {
+        const pick = async (props: Record<string, unknown>) => {
+            const wrapper = mountWindow(props);
+            await nextTick();
+            const style = (wrapper.get("[data-dialog-window]").element as HTMLElement).style;
+            const size = {width: style.width, height: style.height};
+            wrapper.unmount();
+            return size;
+        };
+
+        // 默认 md；显式 width / height 覆盖对应维度
+        expect(await pick({})).toEqual({width: "720px", height: "640px"});
+        expect(await pick({size: "sm"})).toEqual({width: "420px", height: "420px"});
+        expect(await pick({size: "lg", width: 480, height: "auto"})).toEqual({width: "480px", height: "auto"});
+    });
+
+    it("does not close from outside interaction in non-modal mode", async () => {
+        const wrapper = mountWindow();
+        try {
+            await nextTick();
+
+            document.body.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true}));
+            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("exposes edge and corner resize handles and updates width from keyboard", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, minWidth: 320});
+        try {
+            await nextTick();
+
+            expect(wrapper.findAll("[data-dialog-resize]").map((handle) => handle.attributes("data-dialog-resize"))).toEqual([
+                "right",
+                "bottom",
+                "bottom-right",
+                "bottom-left",
+                "top-right",
+                "top-left",
+            ]);
+            const handle = wrapper.get("[data-dialog-resize='right']");
+            await handle.trigger("keydown", {key: "ArrowRight"});
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([570]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+    it("updates height from the bottom handle keyboard and respects the minimum", async () => {
+        const wrapper = mountWindow({resizable: true, height: "240px", minHeight: 240});
+        try {
+            await nextTick();
+
+            const handle = wrapper.get("[data-dialog-resize='bottom']");
+            await handle.trigger("keydown", {key: "ArrowUp"});
+            expect(wrapper.emitted("update:height")).toBeUndefined();
+            await handle.trigger("keydown", {key: "ArrowDown"});
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([250]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("updates width and height from pointer resize and commits on pointerup", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, height: "400px"});
+        try {
+            await nextTick();
+
+            const handle = wrapper.get("[data-dialog-resize='bottom-right']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 100, clientY: 100, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 140, clientY: 130, pointerId: 1}));
+
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([600]);
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([430]);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("grows upwards and leftwards when dragging the top-left corner", async () => {
+        const wrapper = mountWindow({resizable: true, width: 560, height: "400px", minWidth: 320, minHeight: 240});
+        try {
+            await nextTick();
+            const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+            const startLeft = Number.parseFloat(windowElement.style.left);
+            const startTop = Number.parseFloat(windowElement.style.top);
+
+            const handle = wrapper.get("[data-dialog-resize='top-left']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 300, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 260, clientY: 270, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 260, clientY: 270, pointerId: 1}));
+
+            // 左上角拖动：尺寸变大，同时窗口的 left / top 跟着边界走
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([600]);
+            expect(wrapper.emitted("update:height")?.at(-1)).toEqual([430]);
+            await nextTick();
+            expect(Number.parseFloat(windowElement.style.left)).toBeLessThan(startLeft);
+            expect(Number.parseFloat(windowElement.style.top)).toBeLessThan(startTop);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("clamps a top-left drag at the minimum size without drifting the position", async () => {
+        const wrapper = mountWindow({resizable: true, width: 360, height: "300px", minWidth: 320, minHeight: 240});
+        try {
+            await nextTick();
+            const windowElement = wrapper.get("[data-dialog-window]").element as HTMLElement;
+            const startLeft = Number.parseFloat(windowElement.style.left);
+            const startTop = Number.parseFloat(windowElement.style.top);
+
+            const handle = wrapper.get("[data-dialog-resize='top-left']").element;
+            handle.dispatchEvent(new PointerEvent("pointerdown", {bubbles: true, clientX: 300, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointermove", {bubbles: true, clientX: 900, clientY: 300, pointerId: 1}));
+            handle.dispatchEvent(new PointerEvent("pointerup", {bubbles: true, clientX: 900, clientY: 300, pointerId: 1}));
+
+            // 远超出最小尺寸的拖动停在 minWidth，不会继续变小，位置也只走这一段
+            expect(wrapper.emitted("update:width")?.at(-1)).toEqual([320]);
+            await nextTick();
+            expect(Number.parseFloat(windowElement.style.left)).toBe(startLeft + 40);
+            expect(Number.parseFloat(windowElement.style.top)).toBe(startTop);
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("does not resize or close while busy", async () => {
+        const wrapper = mountWindow({busy: true, resizable: true});
+        try {
+            await nextTick();
+
+            await wrapper.get("[data-dialog-resize='right']").trigger("keydown", {key: "ArrowRight"});
+            await wrapper.get("[aria-label='关闭']").trigger("click");
+            expect(wrapper.emitted("update:width")).toBeUndefined();
+            expect(wrapper.emitted("request-close")).toBeUndefined();
+            expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+        } finally {
+            wrapper.unmount();
+        }
+    });
+    it("raises FormSelect popovers above the DialogWindow surface", async () => {
+        const wrapper = mount(DialogWindow, {
+            props: {modelValue: true, title: "设置", teleportTarget: false},
+            slots: {
+                default: () => h(FormSelect, {
+                    modelValue: "one",
+                    options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                }),
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await nextTick();
+            await nextTick();
+
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8991");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+    it("stacks a window opened from a window above it, popovers included", async () => {
+        const wrapper = mount(DialogWindow, {
+            props: {modelValue: true, title: "设置", teleportTarget: false},
+            slots: {
+                default: () => h(DialogWindow, {
+                    modelValue: true,
+                    title: "编辑模型",
+                    teleportTarget: false,
+                    width: 600,
+                }, {
+                    default: () => h(FormSelect, {
+                        modelValue: "one",
+                        options: [{label: "第一项", value: "one"}, {label: "第二项", value: "two"}],
+                    }),
+                }),
+            },
+            attachTo: document.body,
+        });
+        try {
+            await nextTick();
+
+            const surfaces = wrapper.findAll("[data-dialog-surface]").map((node) => node.attributes("style") ?? "");
+            expect(surfaces).toHaveLength(2);
+            expect(surfaces[0]).toContain("z-index: 8990");
+            expect(surfaces[1]).toContain("z-index: 8992");
+
+            // 内层窗口自己的下拉必须压过内层窗口本体，否则下拉会被同层的下拉遮住
+            await wrapper.get("[role='combobox']").trigger("keydown", {key: "Enter"});
+            await nextTick();
+            await nextTick();
+
+            expect(document.querySelector(".nb-ui-menu-surface")?.getAttribute("style")).toContain("z-index: 8993");
+        } finally {
+            wrapper.unmount();
+        }
+    });
+
+});
+
 /*
  * 对话框的头尾分隔线。上一版是两条常驻的通栏细线，把面板切成三段——那是后台管理面板的读法，
  * Apple 的 sheet 平时一条都不画，滚起来才浮出一条，那条线说的是「上面还有内容」。
@@ -929,6 +1208,52 @@ describe("nb-ui dialog anatomy", () => {
         hoverCardWrapper.unmount();
     });
 
+    it("renders tooltip trigger and shows content on hover after delay", async () => {
+        vi.useFakeTimers();
+        try {
+            const wrapper = mount(Tooltip, {
+                props: {text: "悬停提示内容", delay: 100},
+                slots: {default: "<button type='button'>提示触发器</button>"},
+                attachTo: document.body,
+            });
+
+            expect(wrapper.text()).toContain("提示触发器");
+            expect(document.body.textContent).not.toContain("悬停提示内容");
+            await wrapper.get("button").trigger("pointermove");
+            expect(document.body.textContent).not.toContain("悬停提示内容");
+
+            await vi.advanceTimersByTimeAsync(150);
+            await nextTick();
+            expect(document.body.textContent).toContain("悬停提示内容");
+            const content = document.querySelector(".nb-ui-tooltip-surface");
+            expect(content).toBeDefined();
+            expect(content?.querySelector("svg")).toBeNull();
+            expect(content?.getAttribute("data-side")).toBeTruthy();
+
+            // disableClosingTrigger：说明性提示不被左键点击打断
+            await wrapper.get("button").trigger("click");
+            await nextTick();
+            expect(document.body.textContent).toContain("悬停提示内容");
+            wrapper.unmount();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("shows tooltip immediately on keyboard focus without hover", async () => {
+        const wrapper = mount(Tooltip, {
+            props: {text: "聚焦提示内容"},
+            slots: {default: "<button type='button'>聚焦触发器</button>"},
+            attachTo: document.body,
+        });
+
+        await wrapper.get("button").trigger("focus");
+        await nextTick();
+        await nextTick();
+        expect(document.body.textContent).toContain("聚焦提示内容");
+        wrapper.unmount();
+    });
+
     it("renders switch and handles state", async () => {
         const wrapper = mount(Switch, {
             props: {
@@ -999,13 +1324,13 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders splitter panels and resize handle", () => {
+    it("renders splitter panels in px with separator semantics", async () => {
         const wrapper = mount(Splitter, {
             props: {
                 direction: "horizontal",
                 panels: [
-                    {id: "sidebar", defaultSize: 25},
-                    {id: "editor", defaultSize: 75},
+                    {id: "sidebar", defaultSizePx: 240},
+                    {id: "editor", defaultSizePx: 760},
                 ],
             },
             slots: {
@@ -1013,9 +1338,38 @@ describe("nb-ui dialog anatomy", () => {
                 "panel-editor": "<div>正文内容</div>",
             },
         });
+        await nextTick();
 
         expect(wrapper.text()).toContain("侧边栏内容");
         expect(wrapper.text()).toContain("正文内容");
+
+        // 容器测不到尺寸（happy-dom 没有布局引擎）：按声明的 px 分配，1px sash 之外的面板空间是 999px
+        const panels = wrapper.findAll("[data-panel-id]");
+        expect(wrapper.attributes("data-splitter")).toBe("panels");
+        expect(panels.map((panel) => panel.attributes("data-panel-id"))).toEqual(["sidebar", "editor"]);
+        expect(panels.map((panel) => panel.attributes("data-state"))).toEqual(["expanded", "expanded"]);
+        const widths = panels.map((panel) => Number.parseFloat((panel.element as HTMLElement).style.width));
+        expect(widths[0]!).toBeCloseTo(239.76, 2);
+        expect(widths[1]!).toBeCloseTo(759.24, 2);
+
+        // 分隔线用 px 发布可访问范围，且 aria-controls 指向前侧面板
+        const sash = wrapper.get("[data-sash='panels:0']");
+        expect(sash.attributes("role")).toBe("separator");
+        expect(sash.attributes("aria-orientation")).toBe("vertical");
+        expect(sash.attributes("aria-controls")).toBe(panels[0]!.attributes("id"));
+        expect(sash.attributes("aria-valuenow")).toBe("240");
+        expect(sash.attributes("aria-valuemax")).toBe("1000");
+        expect(sash.attributes("aria-valuetext")).toBe("240 像素");
+
+        // 键盘调整走同一 px 口径：一次 ArrowRight 提交 10px
+        await sash.trigger("keydown", {key: "ArrowRight"});
+        await sash.trigger("keyup", {key: "ArrowRight"});
+        await nextTick();
+        const gesture = wrapper.emitted("gesture-end")?.at(-1)?.[0] as SplitterGestureState;
+        expect(gesture.source).toBe("keyboard");
+        expect(gesture.active).toEqual(["sidebar", "editor"]);
+        expect(gesture.sizesPx[0]! - 239.76).toBeCloseTo(10, 5);
+        expect(Number.parseFloat((panels[0]!.element as HTMLElement).style.width)).toBeCloseTo(249.76, 2);
         wrapper.unmount();
     });
 
@@ -1127,8 +1481,9 @@ describe("nb-ui dialog anatomy", () => {
         wrapper.unmount();
     });
 
-    it("renders alert dialog trigger cleanly", () => {
+    it("renders and opens an alert dialog trigger slot", async () => {
         const wrapper = mount(AlertDialog, {
+            attachTo: document.body,
             props: {
                 title: "删除章节确认",
                 description: "此操作无法恢复",
@@ -1139,8 +1494,109 @@ describe("nb-ui dialog anatomy", () => {
             },
         });
 
-        expect(wrapper.text()).toContain("删除章节");
-        wrapper.unmount();
+        try {
+            const trigger = document.body.querySelector<HTMLButtonElement>("[aria-haspopup='dialog']");
+            expect(trigger).not.toBeNull();
+            trigger?.click();
+            await nextTick();
+            await nextTick();
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).not.toBeNull();
+
+            const cancel = [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+                .find((button) => button.textContent?.trim() === "取消");
+            expect(cancel).not.toBeUndefined();
+            cancel?.click();
+            await nextTick();
+            expect(wrapper.emitted("cancel")).toHaveLength(1);
+            expect(wrapper.emitted("update:open")).toContainEqual([false]);
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).toBeNull();
+        } finally {
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
+    });
+
+    it("supports a controlled alert dialog without a trigger slot", async () => {
+        const open = ref(true);
+        const Harness = defineComponent({
+            setup() {
+                return () => h(AlertDialog, {
+                    open: open.value,
+                    title: "受控确认",
+                    description: "请确认",
+                    confirmText: "确认",
+                    "onUpdate:open": (value: boolean) => { open.value = value; },
+                });
+            },
+        });
+        const wrapper = mount(Harness, {attachTo: document.body});
+
+        try {
+            await nextTick();
+            await nextTick();
+
+            const dialog = document.body.querySelector('[role="alertdialog"]');
+            expect(dialog).not.toBeNull();
+            expect(dialog?.querySelectorAll("button")).toHaveLength(2);
+            expect(document.body.querySelector('[aria-haspopup="dialog"]')).toBeNull();
+            const confirm = [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])]
+                .find((button) => button.textContent?.trim() === "确认");
+            expect(confirm).not.toBeUndefined();
+            confirm?.click();
+            await nextTick();
+            await nextTick();
+            expect(open.value).toBe(false);
+            expect(document.body.querySelector('[role="alertdialog"][data-state="open"]')).toBeNull();
+        } finally {
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
+    });
+
+
+    it("emits closed once after the alert dialog content is gone and focus is back", async () => {
+        const wrapper = mount(AlertDialog, {
+            attachTo: document.body,
+            props: {
+                title: "删除章节确认",
+                description: "此操作无法恢复",
+                confirmText: "确认删除",
+            },
+            slots: {
+                trigger: "<button>删除章节</button>",
+            },
+        });
+        vi.useFakeTimers();
+        try {
+            const trigger = document.body.querySelector<HTMLButtonElement>("[aria-haspopup='dialog']");
+            expect(trigger).not.toBeNull();
+            trigger?.focus();
+            trigger?.click();
+            await nextTick();
+            await nextTick();
+            expect(document.body.querySelector('[role="alertdialog"]')).not.toBeNull();
+
+            const cancel = [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')]
+                .find((button) => button.textContent?.trim() === "取消");
+            expect(cancel).not.toBeUndefined();
+            cancel?.click();
+            // 关闭交接是「微任务 → 下一宏任务」：排在 Reka FocusScope 卸载清理之后
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            await nextTick();
+
+            expect(wrapper.emitted("closed")).toHaveLength(1);
+            expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+            expect(document.activeElement).toBe(trigger);
+
+            await nextTick();
+            await vi.advanceTimersByTimeAsync(0);
+            expect(wrapper.emitted("closed")).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
+            wrapper.unmount();
+            document.body.replaceChildren();
+        }
     });
 
     it("renders pin input with specified number of cells", () => {
@@ -1340,6 +1796,97 @@ describe("nb-ui dialog anatomy", () => {
         });
 
         expect(wrapper.text()).toContain("第一卷");
+        wrapper.unmount();
+    });
+
+    it("uses the row surface instead of a left border for tree selection", async () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
+                modelValue: "chapter-1",
+            },
+        });
+
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("data-selected")).toBe("");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[0]?.classes()).toContain("data-[selected]:bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)]");
+        expect(rows[0]?.classes()).toContain("data-[selected]:font-[var(--weight-medium)]");
+        expect(rows[0]?.classes().some((name) => name.startsWith("border-l") || name.includes(":border-l"))).toBe(false);
+
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual(["chapter-2"]);
+        wrapper.unmount();
+    });
+
+    it("keeps multiple tree selection values as node ids", async () => {
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "chapter-1", title: "第01章"},
+                    {id: "chapter-2", title: "第02章"},
+                ],
+                multiple: true,
+                modelValue: ["chapter-1"],
+            },
+        });
+
+        const rows = wrapper.findAll("[role='treeitem']");
+        expect(rows[0]?.attributes("aria-selected")).toBe("true");
+        expect(rows[1]?.attributes("aria-selected")).toBe("false");
+        await rows[1]?.trigger("click");
+        expect(wrapper.emitted("update:modelValue")?.at(-1)).toEqual([["chapter-1", "chapter-2"]]);
+        wrapper.unmount();
+    });
+
+    it("drops the tree card surface when the caller puts it inside a panel", () => {
+        const items = [{id: "v1", title: "第一卷"}];
+        // 默认仍是卡片：已有调用方靠这层面色与描边把树从空白里收住
+        const card = mount(Tree, {props: {items}});
+        const plain = mount(Tree, {props: {items, surface: "plain"}});
+
+        const cardRoot = card.get("ul, [role='tree']");
+        const plainRoot = plain.get("ul, [role='tree']");
+        expect(cardRoot.classes()).toContain("shadow-sm");
+        expect(cardRoot.classes()).toContain("bg-[var(--panel-surface)]");
+        expect(plainRoot.classes()).not.toContain("shadow-sm");
+        expect(plainRoot.classes().some((name) => name.startsWith("bg-"))).toBe(false);
+        expect(plainRoot.classes().some((name) => name.startsWith("border"))).toBe(false);
+        // 内边距两档都留：去掉的是「卡片」，不是行与容器边缘之间的呼吸
+        expect(plainRoot.classes()).toContain("p-2");
+
+        card.unmount();
+        plain.unmount();
+    });
+
+    it("leaves node semantics to the caller instead of drawing folder icons", async () => {
+        // 泛型树不认文件系统：有子节点不等于文件夹，叶子不等于文件。
+        // 要文件语义的调用方用 FileTree。
+        const wrapper = mount(Tree, {
+            props: {
+                items: [
+                    {id: "v1", title: "第一卷", children: [{id: "c1", title: "第01章"}]},
+                    {id: "solo", title: "带图标的叶子", iconClass: "i-lucide-box"},
+                ],
+                expanded: ["v1"],
+            },
+        });
+        // 用选择器查而不是搜 wrapper.html()：模板注释会原样渲染进 DOM，
+        // 而这个组件的注释里恰好写着这两个图标名，搜字符串会被自己的注释绊倒。
+        expect(wrapper.find(".i-lucide-folder").exists()).toBe(false);
+        expect(wrapper.find(".i-lucide-file-text").exists()).toBe(false);
+        // 调用方自己给的图标照旧渲染
+        expect(wrapper.find(".i-lucide-box").exists()).toBe(true);
+        // 有子节点的行才有箭头；展开与收起是两个图标，不是把同一个转 90°
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(0);
+
+        await wrapper.setProps({expanded: []});
+        expect(wrapper.findAll(".i-lucide-chevron-right")).toHaveLength(1);
+        expect(wrapper.findAll(".i-lucide-chevron-down")).toHaveLength(0);
         wrapper.unmount();
     });
 

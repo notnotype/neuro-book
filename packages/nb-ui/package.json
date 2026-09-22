@@ -4,11 +4,12 @@
     "private": true,
     "type": "module",
     "description": "Shared Vue/Nuxt UI primitives for NeuroBook-derived projects.",
-    "license": "PolyForm-Noncommercial-1.0.0",
+    "license": "AGPL-3.0-only",
     "exports": {
         ".": "./src/index.ts",
         "./nuxt": "./src/module.ts",
         "./components": "./src/components/index.ts",
+        "./layout": "./src/components/layout/index.ts",
         "./composables": "./src/composables/index.ts",
         "./colorway": "./src/colorway/index.ts",
         "./theme": "./src/theme/index.ts",
@@ -21,7 +22,7 @@
         "dev": "nuxt dev playground",
         "build": "bun run build:css && nuxt build playground",
         "build:css": "tailwindcss -i ./src/tailwind.css -o ./dist/nb-ui.css",
-        "typecheck": "nuxt prepare playground && vue-tsc --noEmit",
+        "typecheck": "nuxt prepare playground && vue-tsc --noEmit && vue-tsc --noEmit -p playground",
         "test": "nuxt prepare playground && vitest run",
         "test:e2e": "playwright test"
     },
@@ -38,6 +39,7 @@
         "tailwind-merge": "^3.6.0"
     },
     "devDependencies": {
+        "@notnotype/neuro-book-test-support": "workspace:*",
         "@iconify-json/lucide": "^1.2.95",
         "@playwright/test": "^1.62.1",
         "@iconify/tailwind4": "^1.2.3",

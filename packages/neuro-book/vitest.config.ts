@@ -1,13 +1,15 @@
 import {fileURLToPath} from "node:url";
 import {configDefaults, defineConfig} from "vitest/config";
+import vue from "@vitejs/plugin-vue";
 
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 
 /**
- * 当前测试先聚焦后端 Agent 与 Agent 前端纯逻辑投影。
- * 统一使用 Node 环境，避免前端测试依赖和 Nuxt 浏览器运行时混进来。
+ * 当前测试以 Node 环境为默认值，前端纯逻辑测试不引入 Nuxt 浏览器运行时。
+ * 真实 Vue SFC 由现有 Vue 插件转换；需要 DOM 的组件测试按文件显式声明 jsdom。
  */
 export default defineConfig({
+    plugins: [vue()],
     root: rootDir,
     resolve: {
         alias: {
@@ -36,12 +38,27 @@ export default defineConfig({
         ],
         include: [
             "app/composables/**/*.test.ts",
+            "app/component-lab/**/*.test.ts",
             "app/components/novel-ide/**/*.test.ts",
+            "app/components/common/**/*.test.ts",
+            "app/components/workbench/**/*.test.ts",
+            "app/components/workbench-spike/**/*.test.ts",
             "app/components/markdown-studio/**/*.test.ts",
+            "app/components/editor-workbench/**/*.test.ts",
             "app/components/profile-template-editor/**/*.test.ts",
             "app/utils/theme/**/*.test.ts",
+            "app/utils/storage/**/*.test.ts",
+            "app/utils/workbench/**/*.test.ts",
+            "app/utils/editor-workbench/**/*.test.ts",
             "app/stores/**/*.test.ts",
             "app/utils/novel-ide-settings-responsive.contract.test.ts",
+            "app/utils/novel-ide-settings-current-project.contract.test.ts",
+            "app/utils/project-picker-recovery.contract.test.ts",
+            "app/utils/project-route-progress.test.ts",
+            "app/utils/project-route-transition.contract.test.ts",
+            "app/utils/world-engine-ide-entry.test.ts",
+            "app/utils/world-engine-workbench-preview.test.ts",
+            "app/utils/workbench-chrome.test.ts",
             "server/**/*.test.ts",
             "server/**/*.test.tsx",
             "shared/**/*.test.ts",

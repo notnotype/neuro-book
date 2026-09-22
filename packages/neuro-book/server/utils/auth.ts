@@ -1,5 +1,6 @@
 import type {H3Event} from "h3";
 import {getRequestProtocol} from "h3";
+import {revokeStorageAuthSession} from "nbook/server/storage/host";
 import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
 import {loadBootAuthEnabledSync} from "nbook/server/config/boot-config";
 import {lockDatabaseKey} from "nbook/server/database/locks";
@@ -34,6 +35,8 @@ export function isAuthEnabled(): boolean {
  * 写入当前用户 session。
  */
 export async function setAuthSession(event: H3Event, user: AuthUserDto): Promise<void> {
+    // setUserSession 合并旧数据且保留 session ID；成功登录必须撤销旧访问并轮换会话。
+    await clearAuthSession(event);
     await setUserSession(event, {user}, authSessionConfig(event));
 }
 
@@ -41,6 +44,8 @@ export async function setAuthSession(event: H3Event, user: AuthUserDto): Promise
  * 清理当前用户 session。
  */
 export async function clearAuthSession(event: H3Event): Promise<void> {
+    const session = await getUserSession(event);
+    if (session.user?.id && session.id) revokeStorageAuthSession(session.id);
     await clearUserSession(event, authSessionConfig(event));
 }
 
@@ -157,6 +162,24 @@ export async function requireCurrentUser(event: H3Event): Promise<User> {
     }
 
     return user;
+}
+
+/**
+ * 当前请求的 session 标识摘要来源，仅用于定位撤销；它不代替 requireCurrentUser 的主体核验。
+ *
+ * 登出再登录会换 session，因此同一用户编号不会让旧访问上下文继续有效。
+ * h3 可能为匿名请求新建 session；宿主仍须核验用户，鉴权关闭时使用本地代次，不调用本函数。
+ */
+export async function requireCurrentAuthSessionId(event: H3Event): Promise<string> {
+    const session = await getUserSession(event);
+    if (!session.id) {
+        throw createError({
+            statusCode: 401,
+            message: "请先登录",
+        });
+    }
+
+    return session.id;
 }
 
 /**

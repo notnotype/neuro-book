@@ -82,6 +82,7 @@ function createTestReadyProject(workspaceRoot: AbsoluteFsPath, projectRoot: stri
             absoluteFsPath(resolve(workspaceRoot, projectRoot)),
             createProjectWorkspaceKey(workspaceRoot, ref),
         ),
+        publicId: `test-runtime:${projectRoot}`,
         generation: 1,
     });
 }

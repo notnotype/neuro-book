@@ -6,7 +6,7 @@
 
 - `@notnotype/nb-ui` 已作为自治包收编到 `packages/nb-ui`。
 - 包保留源 package name、版本、scripts、exports、依赖语义，并设置 `private: true`。
-- 许可证边界保持 `PolyForm-Noncommercial-1.0.0`；未将仓库根许可证套用于本包。
+- 许可证为 `AGPL-3.0-only`，与仓库根和 `packages/neuro-book` 一致。收编时保留的 `PolyForm-Noncommercial-1.0.0` 与 AGPL 产品的分发条件冲突，已在主应用开始消费本包时切换。
 - 组件、主题、配色、token、playground、README 和项目文档均按 S0 import manifest 迁入。
 - `dist/nb-ui.css` 是项目约定的提交型构建产物；本轮由 `packages/nb-ui` 源码执行 `bun run build:css` 重建，产物 SHA-256 为 `176968c47a8b9c19c2e884348af52c0b7b221d02b5c0c488af258ac16a99f8c6`。
 

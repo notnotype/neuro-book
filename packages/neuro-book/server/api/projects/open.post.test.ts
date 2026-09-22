@@ -16,7 +16,7 @@ describe("POST /api/projects/open", () => {
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
     });
 
-    it("返回 Lifecycle 发布结果而不是临时 success 响应", async () => {
+    it("返回 Lifecycle 发布结果与本次 ready 标识，而不是临时 success 响应", async () => {
         const publication = {
             revision: 7,
             project: {
@@ -28,14 +28,14 @@ describe("POST /api/projects/open", () => {
             change: "none",
         } as const;
         openProjectControl.mockResolvedValue({
-            ready: {generation: 3},
+            ready: {generation: 3, publicId: "runtime-1:3"},
             publication,
         });
         const handler = (await import("nbook/server/api/projects/open.post")).default as (
             event: never,
         ) => Promise<unknown>;
 
-        await expect(handler({} as never)).resolves.toEqual(publication);
+        await expect(handler({} as never)).resolves.toEqual({...publication, publicId: "runtime-1:3"});
         expect(openProjectControl).toHaveBeenCalledWith({projectRoot: "novel-a"}, {kind: "user"});
     });
 });

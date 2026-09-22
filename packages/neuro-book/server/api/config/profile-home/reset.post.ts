@@ -1224,32 +1224,51 @@ defineRouteMeta({
                                     },
                                     "ui": {
                                         "default": {
-                                            "theme": "sepia",
-                                            "customThemes": [],
+                                            "themeId": "nbook",
+                                            "appearance": "light",
+                                            "colorwayId": "",
+                                            "userColorways": [],
                                             "costCurrency": "USD"
                                         },
                                         "type": "object",
                                         "properties": {
-                                            "theme": {
-                                                "default": "sepia",
+                                            "themeId": {
+                                                "default": "nbook",
                                                 "type": "string",
-                                                "minLength": 1
+                                                "enum": [
+                                                    "nbook",
+                                                    "macos"
+                                                ]
                                             },
-                                            "customThemes": {
+                                            "appearance": {
+                                                "default": "light",
+                                                "type": "string",
+                                                "enum": [
+                                                    "light",
+                                                    "dark"
+                                                ]
+                                            },
+                                            "colorwayId": {
+                                                "default": "",
+                                                "type": "string",
+                                                "maxLength": 64
+                                            },
+                                            "userColorways": {
                                                 "default": [],
-                                                "maxItems": 50,
+                                                "maxItems": 20,
                                                 "type": "array",
                                                 "items": {
                                                     "type": "object",
                                                     "properties": {
                                                         "id": {
                                                             "type": "string",
-                                                            "pattern": "^custom-[a-z0-9-]+$"
+                                                            "maxLength": 64,
+                                                            "pattern": "^custom-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$"
                                                         },
-                                                        "name": {
+                                                        "label": {
                                                             "type": "string",
                                                             "minLength": 1,
-                                                            "maxLength": 50
+                                                            "maxLength": 40
                                                         },
                                                         "appearance": {
                                                             "type": "string",
@@ -1261,13 +1280,15 @@ defineRouteMeta({
                                                         "vars": {
                                                             "type": "object",
                                                             "additionalProperties": {
-                                                                "type": "string"
+                                                                "type": "string",
+                                                                "minLength": 1,
+                                                                "maxLength": 120
                                                             }
                                                         }
                                                     },
                                                     "required": [
                                                         "id",
-                                                        "name",
+                                                        "label",
                                                         "appearance",
                                                         "vars"
                                                     ],
@@ -1284,8 +1305,10 @@ defineRouteMeta({
                                             }
                                         },
                                         "required": [
-                                            "theme",
-                                            "customThemes",
+                                            "themeId",
+                                            "appearance",
+                                            "colorwayId",
+                                            "userColorways",
                                             "costCurrency"
                                         ],
                                         "additionalProperties": false
@@ -3500,6 +3523,8 @@ defineRouteMeta({
     }
 } as never,
 });
+
+
 
 
 

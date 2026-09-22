@@ -1,30 +1,3282 @@
 {
-  "schema": "nbook.t14-product-exclusion-evidence/v1",
+  "schema": "nbook.t14-product-exclusion-evidence/v5",
   "taskId": "t14-agent-profile-nav-lab-migration",
-  "buildCommand": "bun run --cwd packages/neuro-book nuxt:build:raw",
-  "buildOutputRoot": "C:\\Users\\notnotype\\Documents\\CodeRepository\\GithubProjects\\neuro-book\\packages\\neuro-book\\.nuxt\\product-raw",
+  "capturedAt": "2026-09-04T10:13:23.463Z",
   "sourceRevision": "b5da5000784ae6ee29fabbe3cc459bb49d731d08",
   "sourceDirty": true,
-  "sourceIdentity": "HEAD + current worktree changes; raw build does not use a clean revision",
-  "scannedFiles": 0,
-  "scannedBytes": 0,
-  "forbiddenLiterals": [
-    "component-lab",
-    "AgentProfileNavListFixture",
-    "LabShell",
-    "data-lab-subject"
-  ],
-  "forbiddenRoutePattern": "/\\/lab(?:\\/|[\\\"'`] |$)/u",
-  "absolutePathPatterns": [
-    "C:\\\\\\\\Users\\\\\\\\notnotype\\\\\\\\Documents\\\\\\\\CodeRepository\\\\\\\\GithubProjects\\\\\\\\neuro-book",
-    "C:\\/Users\\/notnotype\\/Documents\\/CodeRepository\\/GithubProjects\\/neuro-book",
-    "file:\\/\\/\\/C:\\/Users\\/notnotype\\/Documents\\/CodeRepository\\/GithubProjects\\/neuro-book"
-  ],
-  "hits": [],
-  "routeFilesCount": 0,
-  "formalRoute": "server/chunks/routes/api/app/version.get.mjs",
-  "formalRoutePresent": false,
-  "labRouteFiles": [],
-  "routeFilesSample": [],
-  "scanResult": "failed"
+  "sourceIdentity": "Current dirty worktree; raw Nuxt output is Developer Build State and is not Product Runtime Image.",
+  "scanner": {
+    "method": "Recursive regular-file walk. UTF-8 text assets are decoded and counted; non-UTF-8 assets are checked without rewriting. Each matcher counts its own non-overlapping occurrences; absolutePathOccurrences uses the canonical repo-root-forward needle once per occurrence, while per-spelling counts are coverage diagnostics and MUST NOT be summed.",
+    "binaryAssetPolicy": "Non-UTF-8 regular files are scanned as bytes and never rewritten; current Product public contains one .ttf and it has no forbidden marker.",
+    "forbiddenLiterals": [
+      "component-lab",
+      "AgentProfileNavListFixture",
+      "LabShell",
+      "data-lab-subject"
+    ],
+    "absolutePathPatterns": [
+      {
+        "id": "repo-root-forward",
+        "description": "repo root using forward slashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-forward-slashes>"
+      },
+      {
+        "id": "repo-root-backslash",
+        "description": "repo root using literal backslashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-backslashes>"
+      },
+      {
+        "id": "repo-root-escaped-backslash",
+        "description": "repo root using JavaScript-escaped backslashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-escaped-backslashes>"
+      },
+      {
+        "id": "repo-root-file-url-two-slashes",
+        "description": "file:// followed directly by Windows drive",
+        "kind": "file-url-absolute-path",
+        "needle": "file://<repository-root-forward-slashes>"
+      },
+      {
+        "id": "repo-root-file-url-three-slashes",
+        "description": "file:/// followed by Windows drive",
+        "kind": "file-url-absolute-path",
+        "needle": "file:///<repository-root-forward-slashes>"
+      },
+      {
+        "id": "worktree-forward",
+        "description": "worktree descendant using forward slashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-forward-slashes>/.worktree/"
+      },
+      {
+        "id": "worktree-backslash",
+        "description": "worktree descendant using literal backslashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-backslashes>\\.worktree\\"
+      },
+      {
+        "id": "worktree-escaped-backslash",
+        "description": "worktree descendant using JavaScript-escaped backslashes",
+        "kind": "absolute-path",
+        "needle": "<repository-root-escaped-backslashes>\\.worktree\\"
+      },
+      {
+        "id": "worktree-file-url-two-slashes",
+        "description": "file:// URL pointing into worktree",
+        "kind": "file-url-absolute-path",
+        "needle": "file://<repository-root-forward-slashes>/.worktree/"
+      },
+      {
+        "id": "worktree-file-url-three-slashes",
+        "description": "file:/// URL pointing into worktree",
+        "kind": "file-url-absolute-path",
+        "needle": "file:///<repository-root-forward-slashes>/.worktree/"
+      }
+    ],
+    "packageManagerPatterns": [
+      {
+        "id": "package-manager-bun",
+        "needle": "node_modules/.bun/"
+      },
+      {
+        "id": "package-manager-pnpm",
+        "needle": "node_modules/.pnpm/"
+      }
+    ],
+    "routePattern": "(?:^|/)lab(?:/|$) applied to server/chunks/routes/*.mjs relative paths",
+    "absoluteNodeModuleFileUrlPattern": {
+      "description": "absolute Windows/POSIX file:// URL whose path reaches node_modules",
+      "pattern": "file://[optional slash][drive-or-POSIX-absolute-path]/node_modules/",
+      "counting": "count each regex occurrence; do not add to canonical repo-root occurrence totals"
+    }
+  },
+  "rawDeveloperBuild": {
+    "source": "packages/neuro-book/.nuxt/product-raw",
+    "classification": "developer-build-state-not-product",
+    "buildCommand": "bun run --cwd packages/neuro-book nuxt:build:raw",
+    "scannedFiles": 491,
+    "scannedBytes": 20580597,
+    "forbiddenLiteralCounts": {
+      "component-lab": 0,
+      "AgentProfileNavListFixture": 0,
+      "LabShell": 0,
+      "data-lab-subject": 0
+    },
+    "absolutePathCounts": {
+      "repo-root-forward": 3728,
+      "repo-root-backslash": 0,
+      "repo-root-escaped-backslash": 0,
+      "repo-root-file-url-two-slashes": 3728,
+      "repo-root-file-url-three-slashes": 0,
+      "worktree-forward": 3728,
+      "worktree-backslash": 0,
+      "worktree-escaped-backslash": 0,
+      "worktree-file-url-two-slashes": 3728,
+      "worktree-file-url-three-slashes": 0
+    },
+    "absolutePathHitFileCount": 173,
+    "absolutePathOccurrences": 3728,
+    "absolutePathHitFiles": [
+      {
+        "file": "server/chunks/_/agent-composer-draft.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/agent-profile.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/ai-form-annotation.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/auth.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/backup-job-manager.mjs",
+        "occurrences": 3,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/backup-keyring-service.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/error-500.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/image-variant-runtime.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/nitro.mjs",
+        "occurrences": 39,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/passport.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/plot.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/project-rag.dto.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/project-root-reparse-windows.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/single-file-multipart.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/tracked-workspace-files.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/workflow-demo-service.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/_/workspace-upload.mjs",
+        "occurrences": 1,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/__nbook/control/shutdown.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/_openapi.json.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/index.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/users/_userId_.patch.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/users/_userId/password.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/_removed.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/composer-drafts/migrate.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index2.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index3.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index4.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index5.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/_jobId/cancel.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/clear-finished.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/events.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/_name_.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/_name_.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/preview.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/validate.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/build-status.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/catalog.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/compile-all.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/compile.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/create.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/delete.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/detail.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/files.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/preview-prepare.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/save.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/settings.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/source-draft.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/source.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/templates.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/abort.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments.post.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments/resolve.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments/snapshot.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/client-variable-patch-acks.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/commands.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/context-inspection.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/current-project.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/entries/_entryId/attachments/_contentIndex_.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/entries/_entryId/user-content.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/events.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/invocations.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/relations.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/tree.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/_bucket/_id_.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/index.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/recent.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/create.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/read.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/restore.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/save.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/schema.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/catalog.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs/_runId/resume.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/ai/form-annotation.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/desktop-capability.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/logs/download.get.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/logs/status.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/version.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/login.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/logout.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/me.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/bootstrap.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/editor-snapshot.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/exchange-rate.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/global.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/library.get.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/model-check.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-check.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-discover.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-references.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-templates.get.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/profile-home/reset.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/project.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/snapshot.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/hello.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/index.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/confirm.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/export.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/import.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/prepare.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/_id_.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/_id/restore.post.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/jobs/_id_.get.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index.post.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index2.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/link/poll.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/link/start.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/status.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/unlink.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/close.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.put.mjs",
+        "occurrences": 25,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.patch.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/open.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/plot/_...segments_.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/presence.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/project-control-plane.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/project-http-error.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/debug.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.patch.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events/reorder.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/inspector.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.patch.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/overview.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/project-rag-http-target.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/rebuild.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/search.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/subject.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/world-engine/_...segments_.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/convert-file-to-directory.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/create-directory.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/create-file.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/delete.delete.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/download.get.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/events.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/read.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/rename.patch.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/stat.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/sync-user-assets.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/tree.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/upload-file.post.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/upload-project.post.mjs",
+        "occurrences": 24,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/user-assets-sync-conflict.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/write.put.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/accept-all.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/accept.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/diff.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/inbox.get.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/revert.post.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/renderer.mjs",
+        "occurrences": 27,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      },
+      {
+        "file": "server/index.mjs",
+        "occurrences": 23,
+        "variants": [
+          "repo-root-forward",
+          "repo-root-file-url-two-slashes",
+          "worktree-forward",
+          "worktree-file-url-two-slashes"
+        ]
+      }
+    ],
+    "packageManagerCounts": {
+      "package-manager-bun": 0,
+      "package-manager-pnpm": 45
+    },
+    "packageManagerHitFiles": [
+      {
+        "file": "public/_nuxt/DG_LCqrT.js",
+        "hits": [
+          {
+            "id": "package-manager-pnpm",
+            "count": 45
+          }
+        ]
+      }
+    ],
+    "genericFileUrlOccurrences": 3737,
+    "routeFilesCount": 155,
+    "formalRouteChunkPresent": true,
+    "labRouteFiles": [],
+    "result": "failed-not-product-input",
+    "reason": "Raw entry and chunks retain file:// checkout node_modules imports; this failure is recorded and excluded from the Product Runtime Image gate.",
+    "absoluteNodeModuleFileUrlOccurrences": 3728,
+    "absoluteNodeModuleFileUrlHitFileCount": 173,
+    "absoluteNodeModuleFileUrlHitFiles": [
+      {
+        "file": "server/chunks/_/agent-composer-draft.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<repository-root>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/agent-profile.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/ai-form-annotation.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/auth.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/backup-job-manager.mjs",
+        "count": 3,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/backup-keyring-service.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/error-500.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/image-variant-runtime.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/nitro.mjs",
+        "count": 39,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/passport.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/plot.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/project-rag.dto.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/project-root-reparse-windows.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/single-file-multipart.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/tracked-workspace-files.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/workflow-demo-service.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/_/workspace-upload.mjs",
+        "count": 1,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/__nbook/control/shutdown.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/_openapi.json.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/index.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/users/_userId/password.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/admin/users/_userId_.patch.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/_removed.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/composer-drafts/migrate.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index2.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index3.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index4.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/index5.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/_jobId/cancel.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/clear-finished.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/events.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/jobs/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/_name_.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/_name_.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/preview.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates/validate.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profile-templates.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/build-status.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/catalog.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/compile-all.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/compile.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/create.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/delete.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/detail.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/files.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/preview-prepare.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/save.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/settings.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/source-draft.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/source.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/profiles/templates.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/abort.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments/resolve.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments/snapshot.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/attachments.post.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/client-variable-patch-acks.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/commands.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/context-inspection.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/current-project.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/entries/_entryId/attachments/_contentIndex_.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/entries/_entryId/user-content.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/events.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/invocations.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/relations.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/_sessionId/tree.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/sessions/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/_bucket/_id_.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/index.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/traces/recent.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/create.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/read.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/restore.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/save.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates/schema.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/user-profile-templates.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/catalog.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs/_runId/resume.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/agent/workflow/runs.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/ai/form-annotation.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/desktop-capability.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/logs/download.get.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/logs/status.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/app/version.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/login.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/logout.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/auth/me.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/bootstrap.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/editor-snapshot.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/exchange-rate.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/global.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/library.get.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/model-check.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-check.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-discover.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-references.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/models/provider-templates.get.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/profile-home/reset.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/project.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/config/snapshot.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/hello.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/index.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/confirm.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/export.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/import.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backup-keys/prepare.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/_id/restore.post.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/_id_.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/backups/jobs/_id_.get.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index.post.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/index2.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/link/poll.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/link/start.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/status.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/passport/unlink.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/close.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/cover.put.mjs",
+        "count": 25,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/item.patch.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/open.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/plot/_...segments_.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/presence.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/project-control-plane.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/project-http-error.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/debug.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events/reorder.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.patch.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/events.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/inspector.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.patch.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/memories.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/overview.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/project-rag-http-target.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/rebuild.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/search.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/rag/subject.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/projects/world-engine/_...segments_.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/convert-file-to-directory.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/create-directory.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/create-file.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/delete.delete.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/download.get.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/events.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/read.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/rename.patch.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/stat.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/sync-user-assets.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/tree.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/upload-file.post.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/upload-project.post.mjs",
+        "count": 24,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/user-assets-sync-conflict.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-files/write.put.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/accept-all.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/accept.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/diff.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/inbox.get.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/api/workspace-history/revert.post.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/chunks/routes/renderer.mjs",
+        "count": 27,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      },
+      {
+        "file": "server/index.mjs",
+        "count": 23,
+        "samples": [
+          "file://<worktree>/node_modules/"
+        ]
+      }
+    ]
+  },
+  "productRuntimeImage": {
+    "source": "worktree/.output produced by bun run --cwd packages/neuro-book nuxt:build after Product public asset normalization",
+    "classification": "verified-product-runtime-image",
+    "imageId": "sha256:a9feff633d22bf723cc51acfc7d6618cf3c63dac197ac99266406b70c52690fd",
+    "manifest": {
+      "files": 3298,
+      "bytes": 137325651,
+      "platform": "windows-x64",
+      "dirty": true,
+      "sourceDigest": "sha256:137693ff846df0a58228abd3a2c7167244a641ffed001cd42b838a80ccdfc180",
+      "createdAt": "2026-09-04T09:58:34.092Z"
+    },
+    "payloadScan": {
+      "scannedFiles": 3298,
+      "scannedBytes": 137325651,
+      "forbiddenLiteralCounts": {
+        "component-lab": 0,
+        "AgentProfileNavListFixture": 0,
+        "LabShell": 0,
+        "data-lab-subject": 0
+      },
+      "absolutePathCounts": {
+        "repo-root-forward": 0,
+        "repo-root-backslash": 0,
+        "repo-root-escaped-backslash": 0,
+        "repo-root-file-url-two-slashes": 0,
+        "repo-root-file-url-three-slashes": 0,
+        "worktree-forward": 0,
+        "worktree-backslash": 0,
+        "worktree-escaped-backslash": 0,
+        "worktree-file-url-two-slashes": 0,
+        "worktree-file-url-three-slashes": 0,
+        "package-manager-bun": 0,
+        "package-manager-pnpm": 0
+      },
+      "absolutePathHitFileCount": 0,
+      "absolutePathOccurrences": 0,
+      "absolutePathHitFiles": [],
+      "packageManagerCounts": {
+        "package-manager-bun": 0,
+        "package-manager-pnpm": 0
+      },
+      "packageManagerHitFiles": [],
+      "genericFileUrlOccurrences": 0,
+      "absoluteNodeModuleFileUrlOccurrences": 0,
+      "absoluteNodeModuleFileUrlHitFileCount": 0,
+      "absoluteNodeModuleFileUrlHitFiles": [],
+      "routeSemanticScan": {
+        "pattern": "(?:^|[\"'`=\\s(,:])/lab(?:[\\/\"'`?#)\\s]|$)",
+        "occurrences": 0,
+        "files": []
+      }
+    },
+    "fullScan": {
+      "scannedFiles": 3300,
+      "scannedBytes": 137325651,
+      "controlFilesExcludedFromPayloadScan": [
+        "runtime-image.json",
+        "runtime-image.ready"
+      ],
+      "forbiddenLiteralCounts": {
+        "component-lab": 0,
+        "AgentProfileNavListFixture": 0,
+        "LabShell": 0,
+        "data-lab-subject": 0
+      },
+      "absolutePathCounts": {
+        "repo-root-forward": 0,
+        "repo-root-backslash": 0,
+        "repo-root-escaped-backslash": 0,
+        "repo-root-file-url-two-slashes": 0,
+        "repo-root-file-url-three-slashes": 0,
+        "worktree-forward": 0,
+        "worktree-backslash": 0,
+        "worktree-escaped-backslash": 0,
+        "worktree-file-url-two-slashes": 0,
+        "worktree-file-url-three-slashes": 0,
+        "package-manager-bun": 0,
+        "package-manager-pnpm": 0
+      },
+      "absolutePathHitFileCount": 0,
+      "absolutePathOccurrences": 0,
+      "packageManagerCounts": {
+        "package-manager-bun": 0,
+        "package-manager-pnpm": 0
+      },
+      "genericFileUrlOccurrences": 0,
+      "absoluteNodeModuleFileUrlOccurrences": 0,
+      "absoluteNodeModuleFileUrlHitFileCount": 0,
+      "absoluteNodeModuleFileUrlHitFiles": []
+    },
+    "routeChunks": {
+      "count": 0,
+      "formalRouteChunkPresent": false,
+      "labRouteFiles": [],
+      "note": "Final Product bundle prunes raw route chunks into server/index.mjs; HTTP probe is the formal route proof."
+    }
+  },
+  "routeHttpProbe": {
+    "target": "isolated copy of rebuilt worktree/.output under system Temp",
+    "baseUrl": "http://127.0.0.1:3017",
+    "stateRoot": "<system-temp>/neuro-book/t14-product-route-rebuilt/state",
+    "preparation": {
+      "database": [
+        "20260524120000_init",
+        "20260524121000_add_database_locks",
+        "20260722020000_add_passport_credential",
+        "20260727210000_fix_official_passport_origin"
+      ],
+      "applicationState": {
+        "version": 1,
+        "catalogVersion": 3,
+        "runId": "t14-product-route-rebuilt",
+        "action": "apply",
+        "status": "complete",
+        "steps": [
+          {
+            "id": "app-sqlite",
+            "status": "skipped",
+            "changedItems": 0,
+            "reviewItems": 0
+          },
+          {
+            "id": "agent-attachment-v1",
+            "status": "applied",
+            "changedItems": 0,
+            "reviewItems": 0
+          },
+          {
+            "id": "agent-session-v2",
+            "status": "applied",
+            "changedItems": 0,
+            "reviewItems": 0
+          },
+          {
+            "id": "agent-session-v2-review-repair",
+            "status": "skipped",
+            "changedItems": 0,
+            "reviewItems": 0
+          }
+        ]
+      }
+    },
+    "requests": [
+      {
+        "path": "/api/app/version",
+        "status": 200,
+        "ok": true,
+        "contentType": "application/json",
+        "body": {
+          "versionLabel": "v0.9.7-canary.20260825.150859Z.9095d2b2",
+          "versionKind": "package",
+          "githubUrl": "https://github.com/notnotype/neuro-book"
+        },
+        "classification": "formal-route-success"
+      },
+      {
+        "path": "/lab",
+        "status": 302,
+        "ok": true,
+        "contentType": "text/html",
+        "location": "/login?redirect=%2Flab",
+        "classification": "authentication redirect; no Lab surface served"
+      }
+    ],
+    "shutdown": {
+      "path": "/__nbook/control/shutdown",
+      "status": 202,
+      "ok": true,
+      "authorization": "<redacted; valid Bearer token supplied>",
+      "classification": "controlled loopback shutdown"
+    },
+    "process": {
+      "name": "neuro-book-t14-product-rebuilt-retry",
+      "exitCode": 0,
+      "log": "Listening on http://127.0.0.1:3017; controlled shutdown completed",
+      "serverLog": "process exited normally after 202 shutdown"
+    }
+  },
+  "result": {
+    "productRuntimeImageAbsolutePathScan": "passed",
+    "productRuntimeImageForbiddenLiteralScan": "passed",
+    "formalRouteHttpProbe": "passed",
+    "labRouteExclusion": "passed",
+    "rawDeveloperBuildAbsolutePathScan": "failed-not-product-input",
+    "productExclusionGate": "passed",
+    "rawDeveloperBuildAbsoluteNodeModuleFileUrlScan": "failed-not-product-input",
+    "productRuntimeAbsoluteNodeModuleFileUrlScan": "passed",
+    "productRuntimePackageManagerMetadataScan": "passed"
+  },
+  "sourceDigest": "sha256:137693ff846df0a58228abd3a2c7167244a641ffed001cd42b838a80ccdfc180"
 }

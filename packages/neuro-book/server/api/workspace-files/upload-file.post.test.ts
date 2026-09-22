@@ -47,7 +47,7 @@ describe("POST /api/workspace-files/upload-file", () => {
             projectRoot: undefined,
             workspaceKind: "user-assets",
         });
-        expect(uploadWorkspaceFile).toHaveBeenCalledWith(root, {
+        expect(uploadWorkspaceFile).toHaveBeenCalledWith({kind: "user-assets", root}, {
             fileName: "cover.jpg",
             data: Buffer.from([1, 2, 3]),
         });

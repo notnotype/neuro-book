@@ -17,8 +17,10 @@ import ColorPickerFixture from "./fixtures/ColorPickerFixture.vue";
 import DateFieldFixture from "./fixtures/DateFieldFixture.vue";
 import DatePickerFixture from "./fixtures/DatePickerFixture.vue";
 import DateRangePickerFixture from "./fixtures/DateRangePickerFixture.vue";
-import DrawerFixture from "./fixtures/DrawerFixture.vue";
+import DialogWindowFixture from "./fixtures/DialogWindowFixture.vue";
 import DropdownFixture from "./fixtures/DropdownFixture.vue";
+import DrawerFixture from "./fixtures/DrawerFixture.vue";
+import DropIndicatorFixture from "./fixtures/DropIndicatorFixture.vue";
 import EditableFixture from "./fixtures/EditableFixture.vue";
 import FormCheckboxFixture from "./fixtures/FormCheckboxFixture.vue";
 import FormInputFixture from "./fixtures/FormInputFixture.vue";
@@ -34,6 +36,7 @@ import PaginationFixture from "./fixtures/PaginationFixture.vue";
 import PinInputFixture from "./fixtures/PinInputFixture.vue";
 import PopoverFixture from "./fixtures/PopoverFixture.vue";
 import ProgressFixture from "./fixtures/ProgressFixture.vue";
+import QuickInputFixture from "./fixtures/QuickInputFixture.vue";
 import RadioGroupFixture from "./fixtures/RadioGroupFixture.vue";
 import RangeCalendarFixture from "./fixtures/RangeCalendarFixture.vue";
 import RatingFixture from "./fixtures/RatingFixture.vue";
@@ -42,6 +45,7 @@ import SegmentedControlFixture from "./fixtures/SegmentedControlFixture.vue";
 import SliderFixture from "./fixtures/SliderFixture.vue";
 import SpinnerFixture from "./fixtures/SpinnerFixture.vue";
 import SplitterFixture from "./fixtures/SplitterFixture.vue";
+import NestedGridFixture from "./fixtures/NestedGridFixture.vue";
 import StepperFixture from "./fixtures/StepperFixture.vue";
 import SwitchFieldFixture from "./fixtures/SwitchFieldFixture.vue";
 import SwitchFixture from "./fixtures/SwitchFixture.vue";
@@ -76,6 +80,7 @@ const theme = useTheme();
 const colorway = useColorway();
 
 const fixtures: Record<LabComponentId, any> = {
+    "drop-indicator": DropIndicatorFixture,
     "form-input": FormInputFixture,
     "form-number-input": FormNumberInputFixture,
     "form-select": FormSelectFixture,
@@ -119,11 +124,14 @@ const fixtures: Record<LabComponentId, any> = {
     "navigation-menu": NavigationMenuFixture,
     "tree": TreeFixture,
     "splitter": SplitterFixture,
+    "nested-grid": NestedGridFixture,
     "accordion": AccordionFixture,
     "scroll-area": ScrollAreaFixture,
-    "drawer": DrawerFixture,
+    "dialog-window": DialogWindowFixture,
     "popover": PopoverFixture,
     "alert-dialog": AlertDialogFixture,
+    "quick-input": QuickInputFixture,
+    "drawer": DrawerFixture,
 };
 
 const activeFixture = computed(() => fixtures[props.definition.id]);
@@ -138,21 +146,15 @@ const themeOptions = computed(() => [
 const colorwayOptions = computed(() => colorway.colorwayIds.map((id) => ({label: colorway.colorwayMeta[id]?.label ?? id, value: id})));
 
 const backdropOptions = labWallpapers.map((w) => ({label: w.label, value: w.id}));
-const stageBackdrop = ref<string>("fuxuan");
-
-const selectedWallpaper = computed(() => labWallpapers.find((w) => w.id === stageBackdrop.value));
+const stageBackdrop = ref<string>("mesh");
 
 const viewport = computed(() => labViewports.find((candidate) => candidate.id === props.viewportId) ?? labViewports[0]!);
+// 画布底全部由 .lab-canvas--<id> 那组 CSS 给，这里只剩宽度。
+// 原来还有一支从壁纸 url 拼 background-image 的分支，图片撤掉后不再需要（见 wallpapers.ts）。
 const canvasStyle = computed(() => {
     const style: Record<string, string> = {};
     if (viewport.value.width !== null) {
         style.width = `${viewport.value.width}px`;
-    }
-    if (selectedWallpaper.value?.url) {
-        style.backgroundImage = `url("${selectedWallpaper.value.url}")`;
-        style.backgroundSize = "cover";
-        style.backgroundPosition = "center";
-        style.backgroundRepeat = "no-repeat";
     }
     return style;
 });

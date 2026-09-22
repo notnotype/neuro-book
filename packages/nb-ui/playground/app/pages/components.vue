@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import {ref} from "vue";
+import {computed, ref} from "vue";
 import {useNotification} from "../../../src/composables";
 import type {ContextMenuItem} from "../../../src/components/feedback/context-menu.types";
+import type {QuickInputItem} from "../../../src/components/feedback/QuickInput.vue";
 import type {TabsItem} from "../../../src/components/controls/Tabs.vue";
 import type {TableColumn} from "../../../src/components/display/Table.vue";
 import type {BadgeTone} from "../../../src/components/display/Badge.vue";
@@ -11,6 +12,8 @@ import type {BadgeTone} from "../../../src/components/display/Badge.vue";
 const notification = useNotification();
 const dialogOpen = ref(false);
 const windowOpen = ref(false);
+const windowWidth = ref(420);
+const windowHeight = ref(320);
 const mode = ref("source");
 const enabled = ref(true);
 const name = ref("nb-ui");
@@ -25,6 +28,42 @@ const formatOptions = [
 const tags = ref<string[]>(["vue", "nuxt"]);
 const activeTab = ref("controls");
 const page = ref(3);
+
+// QuickInput 受控演示：候选、查询与活动项都由宿主决定，原语只报告请求
+const quickInputOpen = ref(false);
+const quickInputQuery = ref(">");
+const quickInputActiveId = ref<string | null>(null);
+const quickInputItems: readonly QuickInputItem[] = [
+    {id: "chapter.new", label: "新建章节文档", category: "章节", shortcut: "Ctrl+N"},
+    {id: "world.entity", label: "打开世界观词条", category: "设定集", description: "检索人物、势力与地点"},
+    {id: "export.mobi", label: "导出 MOBI（转换器未安装）", category: "导出", disabled: true},
+];
+const quickInputVisibleItems = computed(() => {
+    const text = quickInputQuery.value.replace(/^>/u, "").trim().toLowerCase();
+    return text === "" ? quickInputItems : quickInputItems.filter((item) => item.label.toLowerCase().includes(text));
+});
+
+function syncQuickInputActive(): void {
+    const current = quickInputActiveId.value;
+    if (current !== null && quickInputVisibleItems.value.some((item) => item.id === current && !item.disabled)) return;
+    quickInputActiveId.value = quickInputVisibleItems.value.find((item) => !item.disabled)?.id ?? null;
+}
+
+function openQuickInput(): void {
+    quickInputQuery.value = ">";
+    syncQuickInputActive();
+    quickInputOpen.value = true;
+}
+
+function setQuickInputQuery(value: string): void {
+    quickInputQuery.value = value;
+    syncQuickInputActive();
+}
+
+function acceptQuickInput(id: string): void {
+    quickInputOpen.value = false;
+    notification.success(`执行命令 ${id}`);
+}
 
 const menuItems = [
     {label: "复制", value: "copy", iconClass: "i-lucide-copy"},
@@ -159,6 +198,7 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
                     <div class="flex gap-2">
                         <Button @click="dialogOpen = true">打开 Dialog</Button>
                         <Button variant="secondary" @click="windowOpen = true">打开浮动窗口</Button>
+                        <Button variant="secondary" @click="openQuickInput">快速输入</Button>
                     </div>
                 </Panel>
             </div>
@@ -207,9 +247,39 @@ const statusTone: Record<string, BadgeTone> = {synced: "success", draft: "warnin
             </FormField>
         </Dialog>
 
-        <DialogWindow v-model="windowOpen" title="非模态浮动窗口" :width="420">
-            <p>标题栏可拖动，页面其余部分保持可交互；窗口至少保留一角在视口内。</p>
+        <DialogWindow
+            v-model="windowOpen"
+            title="非模态浮动窗口"
+            :width="windowWidth"
+            :height="`${windowHeight}px`"
+            :resizable="true"
+            body-class="overflow-y-auto px-4 py-3"
+            @update:width="windowWidth = $event"
+            @update:height="windowHeight = $event"
+        >
+            <div class="space-y-3">
+                <p>标题栏可拖动，页面其余部分保持可交互；窗口至少保留一角在视口内。</p>
+                <p>右侧、底部和右下角手柄支持鼠标拖动；聚焦手柄后可用方向键调整尺寸。</p>
+                <div class="h-72 rounded-[var(--radius-control)] border border-dashed border-[var(--divider)] p-3 text-xs text-[var(--text-muted)]">长内容滚动区域</div>
+            </div>
+            <template #footer>
+                <Button size="sm" variant="secondary" @click="windowOpen = false">关闭浮动窗口</Button>
+            </template>
         </DialogWindow>
+
+        <QuickInput
+            :open="quickInputOpen"
+            :query="quickInputQuery"
+            :items="quickInputVisibleItems"
+            :active-id="quickInputActiveId"
+            title="组件画廊命令"
+            placeholder="输入命令名称"
+            empty-text="没有匹配的命令"
+            @update:open="quickInputOpen = $event"
+            @update:query="setQuickInputQuery"
+            @update:active-id="quickInputActiveId = $event"
+            @accept="acceptQuickInput"
+        />
 
         <ContextMenu :visible="contextMenuVisible" :x="contextMenuX" :y="contextMenuY" :items="contextItems" @close="contextMenuVisible = false" />
     </main>

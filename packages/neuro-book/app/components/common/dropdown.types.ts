@@ -1,10 +1,6 @@
+import type {DropdownItem as NbDropdownItem} from "@notnotype/nb-ui/components";
+
 /**
- * 下拉菜单项。
+ * 下拉菜单项（与 @notnotype/nb-ui 规范对齐）。
  */
-export interface DropdownItem {
-    label: string;
-    value: string;
-    active?: boolean;
-    iconClass?: string;
-    rightIconClass?: string;
-}
+export type DropdownItem = NbDropdownItem;

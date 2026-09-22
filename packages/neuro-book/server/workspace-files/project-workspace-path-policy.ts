@@ -3,9 +3,17 @@ import {
     relativeFilePathInside,
     resolveContainedFilePath,
 } from "nbook/server/runtime/paths/file-path";
+import {
+    STORAGE_DIRECTORY_NAME,
+    STORAGE_LOCK_DIRECTORY_NAME,
+} from "nbook/server/storage/storage-address";
+import {isStorageTempFileName} from "nbook/server/storage/record-codec";
 import type {ResolvedProjectWorkspace} from "nbook/server/workspace-files/project-identity";
 import {isProjectLifecycleTempName} from "nbook/server/workspace-files/project-lifecycle-manifest";
 import {isRuntimeGeneratedWorkspacePath} from "nbook/server/workspace-files/runtime-generated-path";
+
+/** Project 控制目录名；Storage 根固定位于其下。 */
+const NBOOK_DIRECTORY_NAME = ".nbook";
 
 /** Project Workspace 路径策略的三个数据面消费者。 */
 export type ProjectWorkspacePathConsumer = "file-index" | "history" | "archive";
@@ -15,7 +23,9 @@ export type ProjectWorkspacePathCategory =
     | "content"
     | "recovery"
     | "rebuildable-runtime"
-    | "lifecycle-temp";
+    | "lifecycle-temp"
+    | "storage"
+    | "storage-runtime";
 
 /** 消费者对当前路径采取的明确动作。 */
 export type ProjectWorkspacePathDisposition = "consume" | "ignore" | "preserve";
@@ -56,8 +66,20 @@ export function projectWorkspacePathPolicy(
     if (!normalized || normalized === ".") {
         throw new Error("Project-relative path 不能为空");
     }
-    const segments = normalized.split("/");
+    const comparable = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+    const segments = comparable.split("/");
     const fileName = segments[segments.length - 1] ?? "";
+    if (segments[0] === NBOOK_DIRECTORY_NAME && segments[1] === STORAGE_DIRECTORY_NAME) {
+        // Storage 分区锁与同目录临时文件是可重建的运行期产物；正式记录、墓碑、原件与身份域元数据不是。
+        const isStorageRuntime = segments[2] === STORAGE_LOCK_DIRECTORY_NAME || isStorageTempFileName(fileName);
+        if (isStorageRuntime) {
+            return Object.freeze({category: "storage-runtime", disposition: "ignore"});
+        }
+        return Object.freeze({
+            category: "storage",
+            disposition: input.consumer === "archive" ? "preserve" : "ignore",
+        });
+    }
     const lifecycleTempLocation = segments.length === 1
         || (segments.length === 3 && segments[0] === ".nbook" && segments[1] === "recovery");
     if (lifecycleTempLocation && isProjectLifecycleTempName(fileName)) {

@@ -5,7 +5,7 @@
 // 但状态转换(拍板/作废/重开)不在此对话框做,走账本 tab 的专门动作。
 // anchor 写入是 {kind,id?,path?} 整体替换:story 不带载体,content 只带 path,其余 kind 只带 id(D12)。
 import {computed, reactive, ref, watch} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
@@ -325,6 +325,8 @@ function submit(): void {
         width="720px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

@@ -26,6 +26,21 @@ describe("备份排除规则", () => {
         expect(isSqliteFile("workspace/a/data.sqlite3")).toBe(false);
         expect(isSqliteFile("workspace/a/notes.md")).toBe(false);
     });
+
+    it("只排除两个正式 Storage 根的锁目录，保留身份、墓碑和诊断原件", () => {
+        for (const root of ["workspace/.nbook/storage", "workspace/project-a/.nbook/storage"]) {
+            expect(shouldExcludeFromBackup(`${root}/.locks`)).toBe(true);
+            expect(shouldExcludeFromBackup(`${root}/.locks/owner.lock/owner.json`)).toBe(true);
+            for (const file of ["identity.json", "records/deleted.json", "quarantine/broken.corrupt", "quarantine/manual.tmp"]) {
+                expect(shouldExcludeFromBackup(`${root}/${file}`)).toBe(false);
+            }
+            expect(shouldExcludeFromBackup(`${root}/records/layout.json.12345678-1234-1234-1234-123456789abc.tmp`)).toBe(true);
+        }
+        expect(shouldExcludeFromBackup("workspace\\project-a\\.nbook\\storage\\.locks\\owner")).toBe(true);
+        expect(shouldExcludeFromBackup("workspace/project-a/notes/storage/.locks/notes.md")).toBe(false);
+        expect(shouldExcludeFromBackup("workspace/Project-A/.NBOOK/Storage/.LOCKS/owner"))
+            .toBe(process.platform === "win32");
+    });
 });
 
 describe("zip 条目名安全化（zip-slip 防护）", () => {

@@ -1,6 +1,7 @@
 # 12 Workbench View 宿主重构：从固定槽位到描述驱动
 
-> 本章是研究建议，不是产品 Spec、Proposal 或 ADR。`docs/specs/README.md` 当前待实现规范为空，因此 `workbench-view-host` 不是已登记的 `planned` capability。
+> 本章保存研究时的源码映射与建议，不是产品合同。当前已登记 [ui.workbench-shell](../../../../../docs/specs/ui/workbench-shell.md)、
+> [storage.persistence](../../../../../docs/specs/storage/persistence.md) 与 [ui.nested-grid](../../../../../docs/specs/ui/nested-grid.md)；后续实现按这些 Spec，不按本章历史切片直接开工。
 > 证据状态：**已验证当前实现** = 当前包内源码与已读测试直接确认；**研究建议** = 对下一阶段宿主抽象的映射；**未验证/候选** = 没有 View Registry、真实 UI 或组合行为证据。
 
 ## 结论先行
@@ -54,7 +55,7 @@ View descriptor（稳定身份/元数据/容器意图）
 持久化分为两条已验证链：
 
 - `novel.ide.local`：localStorage 中的用户级 Activity/宽度/主题/编辑器偏好等；
-- `novel.ide.session`：sessionStorage 中按 `user-assets` 或 `novel:<projectRoot>` 分区的 Workspace editor tabs/buffers/session 状态。
+- `novel.ide.session`：当前仍由 sessionStorage 承载、按 `user-assets` 或 `novel:<projectRoot>` 分区的 Workspace editor tabs/buffers/session 状态。2026-09-15 作用域取舍见 [ADR 0020](../../adr/0020-user-project-storage-boundaries.md)：项目界面记忆与用户资产界面记忆分别归 Project/User，未保存正文继续由编辑器恢复合同负责；不能把整个桶都迁入 Project Storage。
 
 `layoutMode` 和 `plotWorkbenchOpen` 当前不是同一套“布局快照”中的持久化字段；`AgentModeSessionSidebar` 还有组件私有的 pinned session localStorage。这是现状，不应在研究文档中假设已拥有统一作用域。
 
@@ -78,7 +79,7 @@ View descriptor（稳定身份/元数据/容器意图）
 | 可见条件 | 当前 workspace/project/context 是否可用 | 把可见条件当权限凭证 |
 | 移动/尺寸约束 | 能否移动、最小/最大宽度、是否允许隐藏 | 私有 localStorage 或自建 resize handler |
 | 所需 authority 标签 | 需要 Session、Project、Workspace 或纯 UI context | secret、raw filesystem path、Harness 实例 |
-| state scope | user、Project、Session/page 的恢复范围 | 把所有状态塞进一个 view state blob |
+| state scope | user、Project 的恢复范围；页面瞬时态留内存 | 把所有状态塞进一个 view state blob |
 
 View factory、service、数据 authority 和 storage 由宿主内部绑定。descriptor 不应暴露 Vue component、render function、HTML/CSS、绝对文件路径或可执行模块路径。第一阶段只登记仓库内第一方组件，扩展系统尚不能贡献第三方组件。
 
@@ -124,7 +125,10 @@ described
 
 ## 3. 状态作用域与迁移顺序
 
-### 3.1 三种布局/业务 scope
+### 3.1 历史状态映射与当前归属
+
+下表是研究时的实现归类；当前 Storage 只有 user/project，Session/page 指内存生命周期。
+2026-09-16 已决定主工作台和 World Engine 尺寸为 project/local，用户资产/未开项目尺寸为显式 user/local，详见 storage.persistence。
 
 | scope | 应保存什么 | 当前对应 owner | 研究边界 |
 | --- | --- | --- | --- |

@@ -68,8 +68,8 @@ onMounted(() => void nextTick(() => emit("rendered")));
         <!-- 顶层设计风格切换栏 -->
         <div class="mb-6 flex flex-col gap-3">
             <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-2.5 bg-[color-mix(in_srgb,var(--bg-panel)_75%,transparent)] backdrop-blur-xl border border-[color-mix(in_srgb,var(--border-color)_70%,transparent)] shadow-sm">
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-semibold text-[var(--text-secondary)]">BH1 细分方案:</span>
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-semibold text-[var(--text-secondary)] shrink-0">BH1 细分方案:</span>
                     <SegmentedControl
                         v-model="designStyle"
                         :options="designOptions"
@@ -119,6 +119,7 @@ onMounted(() => void nextTick(() => emit("rendered")));
                     <span class="text-xs font-semibold text-[var(--text-muted)]">标准尺寸 (Medium - 32px):</span>
                     <div class="flex flex-wrap items-center gap-2.5">
                         <button
+                            id="nb-lab-target"
                             type="button"
                             class="btn-base btn-primary"
                             @click="handleClick('主要操作')"

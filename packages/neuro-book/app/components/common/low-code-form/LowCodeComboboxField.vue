@@ -42,8 +42,9 @@ function selectOption(value: LowCodeJsonValue): void {
 <template>
     <div ref="rootRef" class="relative">
         <div
-            class="flex h-7 items-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]/20"
-            :class="props.disabled ? 'opacity-75' : 'hover:bg-[var(--bg-hover)]'"
+            class="nb-ui-control nb-ui-control-h-sm flex w-full items-center gap-[var(--space-2)] rounded-[var(--radius-control)] border bg-[var(--control-surface)] text-[var(--text-main)]"
+            :class="props.disabled ? 'cursor-not-allowed opacity-60' : ''"
+            :data-state="open ? 'open' : 'closed'"
         >
             <input
                 :value="open ? query : displayValue"
@@ -64,7 +65,7 @@ function selectOption(value: LowCodeJsonValue): void {
             <div
                 v-if="open && !props.disabled"
                 ref="panelRef"
-                class="absolute left-0 right-0 z-[9200] overflow-y-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1.5 shadow-xl custom-scrollbar"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion absolute left-0 right-0 overflow-y-auto p-1.5 custom-scrollbar"
                 :class="resolvedDirection === 'up' ? 'bottom-full mb-1' : 'top-full mt-1'"
                 :style="panelStyle"
             >
@@ -72,8 +73,8 @@ function selectOption(value: LowCodeJsonValue): void {
                     v-for="option in filteredOptions"
                     :key="`${typeof option.value}:${String(option.value)}`"
                     type="button"
-                    class="flex min-h-8 w-full items-center gap-2 rounded-md px-2.5 py-1 text-left text-xs transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
-                    :class="option.value === props.modelValue ? 'bg-[var(--bg-input)] font-medium text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
+                    class="nb-ui-popover-item flex min-h-8 w-full items-center gap-2 px-2.5 py-1 text-left text-xs transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                    :class="option.value === props.modelValue ? 'bg-[var(--bg-subtle)] font-medium text-[var(--text-main)]' : 'text-[var(--text-secondary)]'"
                     :disabled="option.disabled"
                     @click="selectOption(option.value)"
                 >

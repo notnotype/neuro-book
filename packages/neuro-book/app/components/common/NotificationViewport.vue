@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import {storeToRefs} from "pinia";
-import {useNotification, type NotificationItem, type NotificationPosition} from "nbook/app/composables/useNotification";
-import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import {themeTokens, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import {resolveNotificationToneColor, sanitizeNotificationVars} from "nbook/app/utils/theme/notification-tone";
+import {computed} from "vue";
+import {useNotification, type NotificationItem, type NotificationPosition, type NotificationTone} from "nbook/app/composables/useNotification";
+import {SHELL_TITLEBAR_HEIGHT} from "nbook/app/utils/workbench/layout";
 
-const props = withDefaults(defineProps<{desktop?: boolean}>(), {
-    desktop: false,
+const props = withDefaults(defineProps<{
+    /** 标题栏是否真的在场（切片 5 起浏览器也有）：在场就让出它那 36px，不按 bridge 判。 */
+    titlebar?: boolean;
+}>(), {
+    titlebar: false,
 });
+
+/**
+ * 让位量取标题栏高度的同一来源（`SHELL_TITLEBAR_HEIGHT`），并且只在标题栏真在场时让。
+ * 写死在 CSS 类里的 36 在浏览器档会失效（toast 会从 y=16 起画并压住标题栏右侧控件）。
+ */
+const viewportOffset = computed<Record<string, string> | undefined>(() =>
+    props.titlebar ? {top: `${String(SHELL_TITLEBAR_HEIGHT)}px`} : undefined);
 
 type NotificationGroup = {
     key: string;
@@ -18,41 +26,13 @@ type NotificationGroup = {
 };
 
 const {notifications, remove} = useNotification();
-const novelIdeStore = useNovelIdeStore();
-const {activeThemeAppearance, themeVarsSnapshot} = storeToRefs(novelIdeStore);
 
-// 通知视口挂在 .novel-ide-theme 宿主外：CSS 变量只会命中 :root 的 sepia fallback，
-// 因此消费 store 已解析快照的具体色。快照未就绪回退 sepia；自定义主题的非法颜色值
-// 由 sanitizeNotificationVars 逐字段回退 sepia，避免垃圾色进入配对与对比度计算。
-const FALLBACK_VARS: ThemeVars = themeTokens.sepia;
-
-const safeThemeVars = computed<ThemeVars>(() => sanitizeNotificationVars(themeVarsSnapshot.value ?? FALLBACK_VARS, activeThemeAppearance.value));
-
-// 嵌套元素消费的 var(--bg-hover/--text-muted/--text-main) 在宿主外同样命中 :root 的
-// sepia fallback；把净化后的快照值以同名自定义属性发布到卡片根，跟随当前主题。
-const cardSurfaceVars = computed<Record<string, string>>(() => ({
-    "--bg-hover": safeThemeVars.value["--bg-hover"],
-    "--text-muted": safeThemeVars.value["--text-muted"],
-    "--text-main": safeThemeVars.value["--text-main"],
-}));
-
-function toneColor(item: NotificationItem) {
-    return resolveNotificationToneColor(item.tone, safeThemeVars.value);
-}
-
-function cardToneStyle(item: NotificationItem): Record<string, string> {
-    const color = toneColor(item);
-    return {
-        backgroundColor: color.background,
-        borderColor: color.border,
-        color: color.foreground,
-    };
-}
-
-function badgeToneStyle(item: NotificationItem): Record<string, string> {
-    return {
-        backgroundColor: toneColor(item).badge,
-    };
+/**
+ * 通知视口挂在页面根节点之外（`app.vue`），但配色变量写在 `<html>` 上，
+ * 所以卡片直接消费 nb-ui 的配色变量即可跟随当前主题，不需要 JS 侧混色。
+ */
+function toneClass(tone: NotificationTone): string {
+    return `notification-tone--${tone}`;
 }
 
 const groupedNotifications = computed<NotificationGroup[]>(() => {
@@ -119,7 +99,7 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
 
 <template>
     <ClientOnly>
-        <div class="pointer-events-none fixed inset-0 z-[9800]" :class="{'notification-viewport--desktop': props.desktop}">
+        <div class="pointer-events-none fixed inset-0 z-[9800]" :style="viewportOffset">
             <div
                 v-for="group in groupedNotifications"
                 :key="group.key"
@@ -131,11 +111,11 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
                     <div
                         v-for="item in group.items"
                         :key="item.id"
-                        class="pointer-events-auto overflow-hidden rounded-2xl border shadow-[0_14px_40px_rgba(0,0,0,0.22)] backdrop-blur-sm"
-                        :style="[cardSurfaceVars, cardToneStyle(item)]"
+                        class="notification-card pointer-events-auto overflow-hidden rounded-2xl border backdrop-blur-sm"
+                        :class="toneClass(item.tone)"
                     >
                         <div class="flex items-center gap-3 px-4 py-3">
-                            <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="badgeToneStyle(item)"></span>
+                            <span class="notification-tone-badge h-2.5 w-2.5 shrink-0 rounded-full"></span>
                             <div class="min-w-0 flex-1">
                                 <div v-if="item.title" class="text-sm font-semibold leading-5">
                                     {{ item.title }}
@@ -172,6 +152,37 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
 </template>
 
 <style scoped>
+/*
+ * 卡片配色 = nb-ui `Notification.vue` 的同一套配方：状态主色 10% 混面板底、描边 28% 状态主色。
+ * 不写具体颜色：`--notification-tone-*` 由 tone class 指到配色的状态三件套，切主题自动跟随。
+ */
+.notification-card {
+    background: color-mix(in srgb, var(--notification-tone) 10%, var(--bg-panel));
+    border-color: color-mix(in srgb, var(--notification-tone) 28%, transparent);
+    color: var(--text-main);
+    box-shadow: var(--elevation-popover, 0 14px 40px rgba(0, 0, 0, 0.22));
+}
+
+.notification-tone-badge {
+    background: var(--notification-tone);
+}
+
+.notification-tone--info {
+    --notification-tone: var(--status-info);
+}
+
+.notification-tone--success {
+    --notification-tone: var(--status-success);
+}
+
+.notification-tone--warning {
+    --notification-tone: var(--status-warning);
+}
+
+.notification-tone--error {
+    --notification-tone: var(--status-danger);
+}
+
 .nb-notification-enter-active,
 .nb-notification-leave-active {
     transition: all 0.22s ease;
@@ -189,7 +200,5 @@ function groupStyle(group: NotificationGroup): Record<string, string> {
 </style>
 
 <style>
-.notification-viewport--desktop {
-    top: 36px;
-}
+/* 让位量由脚本按「标题栏真在场 + SHELL_TITLEBAR_HEIGHT」写在容器行内样式上，这里不再留一份数字。 */
 </style>

@@ -174,12 +174,12 @@ describe("project-session production facade", () => {
     });
 
     it("用户presence归零进入grace，重连恢复且release幂等", async () => {
-        expect(() => acquireUserPresence(projectWorkspaceRef("never-open"))).toThrow(ProjectNotOpenError);
+        expect(() => acquireUserPresence(projectWorkspaceRef("never-open"), "stale")).toThrow(ProjectNotOpenError);
         const ref = await createTempProject("presence-book");
-        await openProject(ref, {kind: "user"}, workspaceRoot);
+        const ready = await openProject(ref, {kind: "user"}, workspaceRoot);
 
-        const releaseFirst = acquireUserPresence(ref);
-        const releaseSecond = acquireUserPresence(ref);
+        const releaseFirst = acquireUserPresence(ref, ready.publicId).release;
+        const releaseSecond = acquireUserPresence(ref, ready.publicId).release;
         expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 2,
@@ -193,7 +193,7 @@ describe("project-session production facade", () => {
         expect(projectOccupancy(ref)?.state).toBe("grace");
         expect(() => assertProjectOpen(ref)).not.toThrow();
 
-        const releaseReconnected = acquireUserPresence(ref);
+        const releaseReconnected = acquireUserPresence(ref, ready.publicId).release;
         expect(projectOccupancy(ref)).toEqual({
             state: "open",
             userConnections: 1,
@@ -202,13 +202,31 @@ describe("project-session production facade", () => {
         releaseReconnected();
     });
 
+    it("close/reopen 后旧 ready 标识不能取得新 generation 的presence", async () => {
+        const ref = await createTempProject("presence-generation-book");
+        const first = await openProject(ref, {kind: "user"}, workspaceRoot);
+        acquireUserPresence(ref, first.publicId).release();
+
+        await closeProject(ref, "shutdown");
+        const second = await openProject(ref, {kind: "user"}, workspaceRoot);
+
+        expect(second.publicId).not.toBe(first.publicId);
+        expect(() => acquireUserPresence(ref, first.publicId)).toThrow(ProjectNotOpenError);
+        // 另一个 Project 的标识同样不能解析成本 Project 的当前代次。
+        expect(() => acquireUserPresence(ref, "unknown-ready-id")).toThrow(ProjectNotOpenError);
+        const releaseSecond = acquireUserPresence(ref, second.publicId).release;
+        expect(projectOccupancy(ref)?.userConnections).toBe(1);
+        releaseSecond();
+        expect(projectOccupancy(ref)?.state).toBe("grace");
+    });
+
     it("Agent在场阻止grace，离场后到期关闭当前generation", async () => {
         const ref = await createTempProject("agent-book");
         const ready = await openProject(ref, {kind: "agent", sessionId: 7}, workspaceRoot);
         let agentRunning = true;
         registerAgentPresenceProbe((candidate) => candidate === ready && agentRunning);
 
-        acquireUserPresence(ref)();
+        acquireUserPresence(ref, ready.publicId).release();
         const base = Date.now();
         await expect(sweepProjectSessions(base)).resolves.toEqual([]);
         expect(projectOccupancy(ref)).toEqual({
@@ -239,12 +257,12 @@ describe("project-session production facade", () => {
 
     it("旧generation迟到release不会扣减重开后的presence", async () => {
         const ref = await createTempProject("generation-book");
-        await openProject(ref, {kind: "user"}, workspaceRoot);
-        const staleRelease = acquireUserPresence(ref);
+        const first = await openProject(ref, {kind: "user"}, workspaceRoot);
+        const staleRelease = acquireUserPresence(ref, first.publicId).release;
 
         await closeProject(ref, "shutdown");
-        await openProject(ref, {kind: "user"}, workspaceRoot);
-        const currentRelease = acquireUserPresence(ref);
+        const second = await openProject(ref, {kind: "user"}, workspaceRoot);
+        const currentRelease = acquireUserPresence(ref, second.publicId).release;
         staleRelease();
 
         expect(projectOccupancy(ref)).toEqual({

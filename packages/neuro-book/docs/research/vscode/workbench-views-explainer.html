@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VS Code 的 Workbench / View 模型 —— 讲解与 NeuroBook 映射</title>
+<style>
+    :root {
+        --bg: #f7f5f0; --panel: #fffdf9; --ink: #2b2723; --muted: #6f6862;
+        --line: #ded6c8; --accent: #a4552a; --accent-soft: #f0e3d8;
+        --ok: #2f6b45; --ok-soft: #e3f0e7;
+        --warn: #8a6a12; --warn-soft: #f6eed6;
+        --info: #2f5670; --info-soft: #e2ecf3;
+        --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+        font: 15px/1.7 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; }
+    .wrap { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 32px;
+        max-width: 1240px; margin: 0 auto; padding: 32px 24px 120px; }
+    nav { position: sticky; top: 24px; align-self: start; font-size: 13px; }
+    nav ol { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+    nav li { margin: 0 0 6px; }
+    nav a { color: var(--muted); text-decoration: none; display: block; padding: 3px 8px; border-radius: 6px; }
+    nav a:hover { background: var(--accent-soft); color: var(--accent); }
+    nav .tag { color: var(--accent); font-weight: 600; }
+    h1 { font-size: 26px; margin: 0 0 6px; }
+    h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+    h3 { font-size: 16px; margin: 24px 0 8px; }
+    p, li { color: var(--ink); }
+    .lead { color: var(--muted); margin: 0 0 24px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 14px; }
+    th, td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--accent-soft); font-weight: 600; }
+    code, pre { font-family: var(--mono); font-size: 13px; }
+    code { background: #efe9df; padding: 1px 5px; border-radius: 4px; }
+    pre { background: #2b2723; color: #f4efe7; padding: 14px 16px; border-radius: 10px; overflow: auto; line-height: 1.6; }
+    pre code { background: none; color: inherit; padding: 0; }
+    .badge { display: inline-block; font-size: 11.5px; padding: 1px 8px; border-radius: 999px; vertical-align: 1px; white-space: nowrap; }
+    .b-ok { background: var(--ok-soft); color: var(--ok); }
+    .b-warn { background: var(--warn-soft); color: var(--warn); }
+    .b-info { background: var(--info-soft); color: var(--info); }
+    .note { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; color: var(--muted); margin: 12px 0; }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    /* 模拟 VS Code 窗口 */
+    .vsc { display: grid; gap: 4px; background: #d8d0c2; border: 1px solid var(--line); border-radius: 10px; padding: 4px;
+        grid-template-columns: 46px 210px minmax(0, 1fr) 200px; grid-template-rows: 26px 200px 90px 22px;
+        grid-template-areas: "title title title title" "act side ed aux" "act side panel aux" "act side status aux"; font-size: 11px; }
+    .vsc > div { background: var(--panel); border-radius: 6px; display: flex; align-items: center; justify-content: center;
+        text-align: center; color: var(--muted); padding: 4px; cursor: default; transition: .15s; }
+    .vsc > div:hover { background: var(--accent-soft); color: var(--accent); }
+    .vsc .t-title { grid-area: title; } .vsc .t-act { grid-area: act; } .vsc .t-side { grid-area: side; }
+    .vsc .t-ed { grid-area: ed; } .vsc .t-aux { grid-area: aux; } .vsc .t-panel { grid-area: panel; } .vsc .t-status { grid-area: status; }
+    /* 树图 */
+    .tree { font-family: var(--mono); font-size: 13px; line-height: 1.9; white-space: pre; overflow-x: auto;
+        background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+    .tree .leaf { color: var(--accent); }
+    .tree .branch { color: var(--info); }
+    .tree .muted { color: var(--muted); }
+    /* 流程 */
+    .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+    .flow span { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+    .flow i { color: var(--muted); font-style: normal; }
+    /* 层图 */
+    .layers { display: grid; gap: 10px; }
+    .layer { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+    .layer b { display: block; font-size: 13px; color: var(--accent); margin-bottom: 6px; }
+    .layer .row { display: flex; flex-wrap: wrap; gap: 6px; }
+    .layer .row span { background: var(--accent-soft); border-radius: 6px; padding: 2px 8px; font-size: 12.5px; }
+    .arrow { text-align: center; color: var(--muted); }
+    footer { color: var(--muted); font-size: 13px; margin-top: 48px; border-top: 1px solid var(--line); padding-top: 16px; }
+    @media print { nav { display: none; } .wrap { grid-template-columns: 1fr; } pre { background: #f2efe9; color: #2b2723; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+    <p class="tag">目录</p>
+    <ol>
+        <li><a href="#s1">1. 一句话模型</a></li>
+        <li><a href="#s2">2. grid 到底是不是树</a></li>
+        <li><a href="#s3">3. 概念清单</a></li>
+        <li><a href="#s4">4. 它们之间的关系</a></li>
+        <li><a href="#s5">5. 屏幕区域对照</a></li>
+        <li><a href="#s6">6. 三种拖动 = 三种意图</a></li>
+        <li><a href="#s7">7. 生命周期</a></li>
+        <li><a href="#s8">8. 声明长什么样</a></li>
+        <li><a href="#s9">9. 映射到 NeuroBook</a></li>
+        <li><a href="#s10">10. 证据与未验证</a></li>
+        <li><a href="#s11">11. 一页速查</a></li>
+    </ol>
+</nav>
+
+<main>
+<h1>VS Code 的 Workbench / View 模型</h1>
+<p class="lead">讲解「Part / View Container / View / Grid」这一套是怎么划分与渲染的，以及 NeuroBook 那张页面该怎么用它。
+证据标注：<span class="badge b-ok">文档已验证</span> 出自仓库先行调查 <code>docs/research/vscode/03-workbench-layout-views.md</code>（固定 commit 核对）；
+<span class="badge b-info">源码记忆</span> 是我的补充，未在该文档核对；<span class="badge b-warn">未验证</span> 指调研明确列为未验证的部分。</p>
+
+<h2 id="s1">1. 一句话模型</h2>
+<div class="card">
+    <p><strong>VS Code 的界面不是一棵「谁都能往里塞组件」的 DOM 树，而是四层各管一段的状态：</strong></p>
+    <p style="font-size:17px"><b>Part 管区域</b> → <b>View Container 管一组视图</b> → <b>View 管自己可见性与内容</b> → <b>Editor Part 管编辑器的二维分屏</b>。</p>
+    <p>四层的<strong>合法目标、持久化键和恢复边界都不同</strong>。所以你拖一个视图、移动整个面板、拆分编辑器，是三件事，走三条不同的路径。</p>
+</div>
+
+<h2 id="s2">2. grid 到底是不是树</h2>
+<p><strong>是树，而且「grid」这个名字只表示「方向可以嵌套」。</strong>上一轮我说「二维网格、每个格子放一个 Part」是简化过头了，容易让人以为是平铺表。</p>
+<div class="tree">
+<span class="branch">GridRoot（分支：horizontal）</span>
+├── <span class="leaf">ActivityBar</span>            <span class="muted">← 叶子：一个 Part</span>
+├── <span class="leaf">Sidebar</span>                <span class="muted">← 叶子：一个 Part</span>
+├── <span class="branch">Branch（vertical）</span>      <span class="muted">← 分支：再切一刀，方向不同</span>
+│   ├── <span class="leaf">EditorPart</span>          <span class="muted">← 叶子；它内部还有一棵自己的树</span>
+│   └── <span class="leaf">Panel</span>               <span class="muted">← 叶子</span>
+├── <span class="leaf">AuxiliaryBar</span>            <span class="muted">← 叶子（右侧辅助栏）</span>
+└── <span class="leaf">StatusBar</span>               <span class="muted">← 叶子</span>
+
+<span class="muted">兄弟之间自动插入 Sash（可拖分隔条）；拖动改的是「分支节点的尺寸分配」，不是组件内部状态。</span>
+</div>
+<h3>它装什么、不装什么</h3>
+<table>
+    <tr><th>在 grid 里</th><th>不在 grid 里</th></tr>
+    <tr>
+        <td>宿主能识别的节点：<strong>Part</strong>、<strong>Editor Group</strong>、<strong>占位（Placeholder）</strong> <span class="badge b-ok">文档已验证</span></td>
+        <td>任意 Vue/React 组件实例、视图内容、第三方 DOM <span class="badge b-ok">文档已验证</span>：<code>SerializableGrid</code> 只保存宿主能识别的节点</td>
+    </tr>
+</table>
+<h3>两棵树 + 一个一维容器</h3>
+<ul>
+    <li><strong>外部一棵树</strong>：Workbench 的 grid 装 8 个 Part 里的可见者。</li>
+    <li><strong>里面还有一棵树</strong>：<code>EDITOR_PART</code> 自己维护 <code>SerializableGrid&lt;IEditorGroupView&gt;</code> 装编辑器分组 <span class="badge b-ok">文档已验证</span>。</li>
+    <li><strong>容器内部不是 grid</strong>：侧栏/面板里多个视图是<strong>一维 split view</strong> 排列（同一容器只需要一个方向）。这也是为什么「同容器排序」和「跨容器移动」是两套状态。</li>
+</ul>
+
+<h2 id="s3">3. 概念清单</h2>
+<table>
+    <tr><th>概念</th><th>是什么</th><th>声明 / 运行时</th><th>它拥有什么</th><th>状态存哪</th></tr>
+    <tr><td><b>Contribution</b></td><td>贡献声明（扩展 <code>package.json</code> 或内置注册）</td><td>声明</td><td>容器、视图、命令、菜单项的来源</td><td>—</td></tr>
+    <tr><td><b>ViewContainerDescriptor</b></td><td>一组视图的容器：<code>id / title / icon / order / 默认位置</code></td><td>声明</td><td>容器的身份与默认归属</td><td>—</td></tr>
+    <tr><td><b>ViewDescriptor</b></td><td>单个视图的能力：<code>id / name / icon / when / order / canMoveView / canToggleVisibility / factory</code></td><td>声明</td><td>身份、可见条件、可动性、工厂</td><td>—</td></tr>
+    <tr><td><b>ViewsRegistry / ViewContainerRegistry</b></td><td>登记上面两者的注册表</td><td>声明层单例</td><td>可枚举、可校验、可被追加</td><td>—</td></tr>
+    <tr><td><b>Part</b></td><td>Workbench 的大区域，共 8 个枚举值（下方区域图）</td><td>运行时</td><td>区域几何、可见性、位置</td><td><code>LayoutSettings</code> / storage <span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td><b>ViewContainer（运行时）</b></td><td>Part 里被打开的那一组视图（活动栏图标点开的那个）</td><td>运行时</td><td>容器级状态、标题与工具栏</td><td>容器级状态</td></tr>
+    <tr><td><b>ViewContainerModel</b></td><td><b>每个容器一个</b>，管同容器内的事</td><td>运行时</td><td>视图的<strong>可见 / 顺序 / 折叠 / 尺寸</strong></td><td>容器 model <span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td><b>ViewDescriptorService</b></td><td><strong>跨容器位置</strong>的权威</td><td>运行时</td><td>用户挪过之后的<strong>实际位置</strong>（与默认位置分开）</td><td><code>views.customizations</code> <span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td><b>PaneView</b></td><td>单个视图在一维 split view 里的可布局实现</td><td>运行时</td><td>自己的最小/最大尺寸、折叠、可见性</td><td>容器 model</td></tr>
+    <tr><td><b>EditorPart + Editor Group/Grid</b></td><td>编辑器的二维分屏</td><td>运行时</td><td>文件、分组、标签、脏状态</td><td><code>editorpart.state</code> <span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td><b>Command / MenuRegistry</b></td><td>动作与其出现位置</td><td>声明 + 运行时</td><td>菜单、工具栏、上下文菜单项（配 <code>when</code>）</td><td>—</td></tr>
+    <tr><td><b>ContextKeyService + when</b></td><td>可见性/启用条件的求值器</td><td>运行时</td><td>上下文键 → 表达式结果</td><td>—</td></tr>
+</table>
+<div class="note">最容易搞混的一条：<strong>View 不是 Part</strong>。View 是被容器装载的一项描述；Part 是区域，自己拥有几何。把 View 当成「一个可以随便塞的插槽」，后面所有设计都会歪。</div>
+
+<h2 id="s4">4. 它们之间的关系</h2>
+<div class="layers">
+    <div class="layer"><b>① 声明层（可枚举、可校验、可被追加）</b>
+        <div class="row"><span>Contribution</span><span>→</span><span>ViewContainerDescriptor</span><span>→</span><span>ViewDescriptor（when / factory / 可动性）</span></div>
+        <div class="row" style="margin-top:8px"><span>ViewContainerRegistry</span><span>ViewsRegistry</span></div>
+    </div>
+    <div class="arrow">▼ 合并 + 用 <code>when</code> 求值（谁能出现、谁该隐藏）</div>
+    <div class="layer"><b>② 运行时（宿主拥有，可恢复）</b>
+        <div class="row"><span>Layout</span><span>→</span><span>SerializableGrid { Part, EditorGroup, 占位 }</span></div>
+        <div class="row" style="margin-top:8px"><span>Part（SIDEBAR / PANEL / AUXILIARYBAR）</span><span>→</span><span>ViewContainer</span><span>→</span><span>ViewContainerModel</span><span>→</span><span>PaneView（每个可见视图一个）</span></div>
+        <div class="row" style="margin-top:8px"><span>跨容器位置 →</span><span>ViewDescriptorService</span><span>｜编辑器 →</span><span>EditorPart → SerializableGrid&lt;EditorGroup&gt;</span></div>
+    </div>
+    <div class="arrow">▼ 动作与显示</div>
+    <div class="layer"><b>③ 状态（各存各的键）</b>
+        <div class="row"><span>Part 可见性/位置/尺寸 → LayoutSettings</span><span>视图自定义位置 → views.customizations</span><span>编辑器分组 → editorpart.state</span><span>视图自身 UI → 每个视图的 memento</span><span>领域数据 → 各自 authority</span></div>
+    </div>
+</div>
+
+<h3>四条分界规则</h3>
+<ol>
+    <li><strong>三种拖动 = 三种意图</strong> <span class="badge b-ok">文档已验证</span>：拖 View 回 View model；移动整个 Panel 回 Layout/Part；拆分编辑器回 EditorPart。</li>
+    <li><strong>默认位置 ≠ 实际位置</strong>：descriptor/容器写的是默认，用户挪过之后实际位置由 <code>ViewDescriptorService</code> 记录，两者分开存、分开迁移。</li>
+    <li><strong>可见性 ≠ 权限</strong>：<code>when</code> 只管显示，执行仍走命令与原 authority。</li>
+    <li><strong>grid 与注册表都只认宿主认识的节点/描述符</strong>：组件实例永远不进去——这就是「能声明 View，但不能改主布局」的实现方式。</li>
+</ol>
+
+<h2 id="s5">5. 屏幕区域对照</h2>
+<div class="vsc">
+    <div class="t-title"><b>TITLEBAR_PART</b> 标题栏 / 命令中心（自绘时是它，原生时由系统画）</div>
+    <div class="t-act"><b>ACTIVITYBAR</b><br>图标栏</div>
+    <div class="t-side"><b>SIDEBAR_PART</b><br>主侧栏<br><small>承载 View Container<br>（文件 / 大纲 / 世界书…）</small></div>
+    <div class="t-ed"><b>EDITOR_PART</b><br>编辑器区域<br><small>内部是自己的 Editor Group 树，<b>不是 View</b></small></div>
+    <div class="t-aux"><b>AUXILIARYBAR_PART</b><br>辅助侧栏<br><small>同一个 Part 类、不同位置</small></div>
+    <div class="t-panel"><b>PANEL_PART</b> 底部面板（问题 / 输出 / 终端 / 调试控制台）</div>
+    <div class="t-status"><b>STATUSBAR_PART</b> 状态栏</div>
+</div>
+<p class="note"><code>BANNER_PART</code>（顶部通知横幅）在标题栏之下、内容之上，区域图里常被省略。Panel 的位置（bottom/top/left/right）与对齐方式（left/center/right/justify）是 <strong>Part 级</strong>设置，和它里面装哪个 View 是两回事。 <span class="badge b-ok">文档已验证</span></p>
+
+<h2 id="s6">6. 三种拖动 = 三种意图</h2>
+<table>
+    <tr><th>你做的动作</th><th>宿主收到的意图</th><th>谁处理</th><th>存到哪</th></tr>
+    <tr><td>把一个视图拖到另一个容器 / 另一侧</td><td>viewId + 目标容器 + 目标位置</td><td><code>ViewDescriptorService</code>（跨容器）与容器 model（同容器顺序）</td><td><code>views.customizations</code></td></tr>
+    <tr><td>把整个 Panel 移到右侧 / 隐藏侧栏</td><td>Part 位置 / 可见性</td><td>Layout / Part 服务</td><td><code>LayoutSettings</code></td></tr>
+    <tr><td>把编辑器拆成两栏</td><td>新建 Editor Group</td><td>EditorPart</td><td><code>editorpart.state</code></td></tr>
+</table>
+<p>所以「拖了一个面板，结果整个编辑器重排了」在正确分层下不会发生——三个动作碰的是三份互不相干的状态。</p>
+
+<h2 id="s7">7. 生命周期</h2>
+<div class="flow">
+    <span>注册 descriptor</span><i>→</i>
+    <span>when 求值</span><i>→</i>
+    <span>首次可见才实例化（懒）</span><i>→</i>
+    <span>隐藏不销毁（保活）</span><i>→</i>
+    <span>跨容器移动（descriptor 不变，只改归属）</span><i>→</i>
+    <span>dispose（自身 UI 状态经 memento 留下）</span>
+</div>
+<p><span class="badge b-info">源码记忆</span>「首次可见才实例化、隐藏不销毁」这一条不在你们的调研文档里；还有一条相关机制：<code>onView:</code> <strong>激活事件</strong>——某个视图第一次被打开可以触发扩展激活，扩展再把视图注册进来，所以<strong>注册允许迟到、允许异步</strong>，第一方与第三方走同一条路。</p>
+
+<h2 id="s8">8. 声明长什么样</h2>
+<div class="grid2">
+    <div>
+        <h3>扩展侧：<code>package.json</code> 贡献</h3>
+<pre><code>{
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{
+        "id": "my-container",
+        "title": "我的容器",
+        "icon": "media/icon.svg"
+      }]
+    },
+    "views": {
+      "my-container": [{
+        "id": "my-view",
+        "name": "我的视图",
+        "when": "workspaceHasPackageJSON"
+      }]
+    }
+  }
+}</code></pre>
+        <p class="note">注意：<strong>容器没有 <code>when</code></strong>（不能按上下文整条隐藏），<strong>视图才有</strong>。<br>官方文档：<a href="https://code.visualstudio.com/api/references/contribution-points">contribution points</a>、<a href="https://code.visualstudio.com/api/ux-guidelines/views">UX guidelines: views</a>。</p>
+    </div>
+    <div>
+        <h3>内部侧：描述符注册（等价字段）</h3>
+<pre><code>viewsRegistry.registerViews([{
+    id: "workbench.view.explorer",
+    name: "资源管理器",
+    containerTitle: "资源管理器",
+    icon: Codicon.files,
+    when: ContextKeyExpr.equals("workbenchState", "folder"),
+    canToggleVisibility: true,   // 用户能否隐藏
+    canMoveView: false,          // 能否拖到别的容器（默认关）
+    order: 1,
+    ctorDescriptor: new SyncDescriptor(FileExplorerView),
+}], container)</code></pre>
+        <p class="note"><strong>第一方与第三方最终走同一张注册表</strong>——这正是 #192 想学的核心：宿主渲染的是数据，不是写死的槽位。</p>
+    </div>
+</div>
+
+<h2 id="s9">9. 映射到 NeuroBook</h2>
+<table>
+    <tr><th>你那张页面上的东西</th><th>在这套模型里</th><th>现状</th></tr>
+    <tr><td>左侧图标栏（文件 / 角色 / 情节 / 世界 / 记录 / 历史 / Agent）</td><td><code>ACTIVITYBAR_PART</code>：图标 = 容器的入口</td><td>写死的 capability 列表（<code>app/utils/workbench-chrome.ts:12-26</code>），不是注册表派生</td></tr>
+    <tr><td>文件树 / 大纲 / 世界书区</td><td><code>SIDEBAR_PART</code> → View Container → View（每张可折叠面板）</td><td>固定槽位</td></tr>
+    <tr><td>中间 Markdown Studio</td><td><code>EDITOR_PART</code>（<strong>不是 View</strong>）</td><td>固定槽位，单编辑器</td></tr>
+    <tr><td>右侧 Agent 面板 + 底部输入</td><td><code>AUXILIARYBAR_PART</code>：<strong>同一个 Part 类、不同位置</strong></td><td><strong>独立实现</strong>——最值得改的一点</td></tr>
+    <tr><td>底部（目前没有）</td><td><code>PANEL_PART</code></td><td>无</td></tr>
+    <tr><td>顶部自绘 36px chrome</td><td><code>TITLEBAR_PART</code>（+ <code>BANNER_PART</code> 通知横幅）</td><td>已有</td></tr>
+    <tr><td>设置窗口里的左栏 + 区段</td><td>一个容器 + 手写 descriptor 列表</td><td><strong>最接近这套模型的现有实现</strong>：元数据驱动 + 受控插槽 + 宿主持有 I/O + <code>fill/scroll</code> 布局合同</td></tr>
+</table>
+
+<h3>从零渲染那张页面的七步</h3>
+<ol>
+    <li><strong>建静态骨架</strong>：一个树形布局，先放 6 个区域 + sash，尺寸写死；</li>
+    <li><strong>建注册表</strong>：第一方 descriptor 表（<code>id / title / icon / container / layout / when / order / canMoveView / canToggleVisibility / factoryKey</code>）——<strong>这就是「从写死到数据驱动」的分界</strong>；</li>
+    <li><strong>建 context 求值器</strong>：结构化谓词 + 依赖跟踪（可见性 ≠ 权限）；</li>
+    <li><strong>造容器 UI</strong>：活动栏图标 + 容器内容区；</li>
+    <li><strong>懒造视图</strong>：只为首次可见的 descriptor 造组件（现有 Vue 组件直接当内容，不用改）；</li>
+    <li><strong>接命令/菜单</strong>：「打开视图」「隐藏视图」「移到辅助侧栏」都是命令，改的是位置服务的状态；</li>
+    <li><strong>接状态与迁移</strong>：布局分用户级 / Project 级；视图自身 UI 按视图 id 存；<strong>领域数据仍走 Project 文件 / Session / Job 的现有 authority</strong>。</li>
+</ol>
+<div class="note"><strong>现状差距（决定工作量）</strong>：活动栏不是注册表派生的；侧栏/右栏/编辑器是固定槽位；布局状态三层混着（<code>novel.ide.local</code> 用户级、<code>novel.ide.session</code> 按 Project 分区、组件内 ref）；没有 <code>when</code> 求值器，也没有懒实例化 / 保活 / 失败隔离。</div>
+
+<h2 id="s10">10. 证据与未验证</h2>
+<table>
+    <tr><th>结论</th><th>状态</th></tr>
+    <tr><td>8 个 Part 的词表、<code>Position</code>、<code>PanelAlignment</code>、四层各有持久化键</td><td><span class="badge b-ok">文档已验证</span>（固定 commit 核对）</td></tr>
+    <tr><td><code>SerializableGrid</code> 只保存宿主认识的 Part/Editor 节点；编辑器自己一棵 <code>SerializableGrid&lt;IEditorGroupView&gt;</code></td><td><span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td>三种拖动分别回到 View model / Layout-Part / EditorPart</td><td><span class="badge b-ok">文档已验证</span></td></tr>
+    <tr><td>懒实例化与保活、<code>onView:</code> 激活事件、<code>canMoveView</code> 默认为假</td><td><span class="badge b-info">源码记忆</span>（未在调研文档核对）</td></tr>
+    <tr><td>真实拖拽手感、重启后恢复</td><td><span class="badge b-warn">未验证</span>（调研文档明确列为未执行）</td></tr>
+</table>
+<p>要用进 Proposal 之前，建议按调研文档同一方法（固定 commit 读源码）把「源码记忆」那三条核对一遍；#192 的探针则应该优先验证「未验证」那一行。</p>
+
+<h2 id="s11">11. 一页速查</h2>
+<div class="card">
+    <ul>
+        <li><strong>grid = 嵌套树</strong>，叶子是 Part / Editor Group / 占位；不装组件实例。</li>
+        <li><strong>Part 管区域</strong>（几何、可见性、位置）；<strong>容器管一组视图</strong>；<strong>View 管自己</strong>；<strong>编辑器自己一套分屏</strong>。</li>
+        <li><strong>同容器顺序</strong>归容器 model；<strong>跨容器位置</strong>归位置服务；两者分开存。</li>
+        <li><strong>默认位置（声明）≠ 实际位置（用户移动的结果）</strong>。</li>
+        <li><strong>容器没有 when，视图才有</strong>；可见性不是权限。</li>
+        <li><strong>懒建 + 保活 + 失败隔离</strong>：注册允许迟到，一个视图坏了不拖垮工作台。</li>
+        <li>状态三层：布局（Profile/Workspace）/ 视图自身 UI（per-view memento）/ 领域数据（原 authority）。</li>
+    </ul>
+</div>
+
+<footer>
+    生成于本轮讨论；术语与已验证结论取自 <code>packages/neuro-book/docs/research/vscode/03-workbench-layout-views.md</code>、<code>12-workbench-view-host-refactor.md</code>、<code>15-refactor-sequence-and-decision-gates.md</code>，
+    官方文档链接见第 8 节。本页是学习材料，不是已批准规范。
+</footer>
+</main>
+</div>
+</body>
+</html>

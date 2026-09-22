@@ -2,6 +2,7 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {
+    ProjectLifecycleError,
     createProjectWorkspaceKey,
     projectWorkspaceRef,
     resolvedProjectWorkspace,
@@ -58,7 +59,7 @@ describe("ProjectSessionService", () => {
         expect(first).toBe(second);
         expect(lifecycle.prepareOpen).toHaveBeenCalledTimes(1);
 
-        runtime.acquireUserPresence(first)();
+        runtime.acquireUserPresence(first).release();
         expect(runtime.projectPresence(first).state).toBe("grace");
         const reused = await service.openProject(ref, {kind: "user"});
 
@@ -525,15 +526,92 @@ describe("ProjectSessionService", () => {
         const ref = projectWorkspaceRef("close-entry");
         const ready = await service.openProject(ref, {kind: "user"});
 
-        const release = service.acquireUserPresence(ref);
+        const release = service.acquireUserPresence(ref, ready.publicId).release;
         expect(service.projectPresence(ref)).toMatchObject({state: "open", userConnections: 1});
         release();
         expect(service.projectPresence(ref).state).toBe("grace");
 
+        // 已关闭代次的标识不能再解析；只凭路径也不行。
         await service.closeProject(ref, "shutdown");
+        expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
         expect(() => service.requireReadyProject(ref)).toThrow();
         expect(() => runtime.requireReadyProject(ready.workspace.key)).toThrow();
         expect(prepared.occupancy.release).toHaveBeenCalledTimes(1);
+    });
+
+    it("ready标识只在签发它的运行期与Project上解析", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
+        const preparedA = preparedProject(workspaceRoot, "identity-a");
+        const preparedB = preparedProject(workspaceRoot, "identity-b");
+        const lifecycle = controlLifecycle(preparedA, {
+            prepareOpen: vi.fn(async (ref) => (ref.projectRoot === "identity-b" ? preparedB : preparedA)),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const refA = projectWorkspaceRef("identity-a");
+        const refB = projectWorkspaceRef("identity-b");
+        const readyA = await service.openProject(refA, {kind: "user"});
+        const readyB = await service.openProject(refB, {kind: "user"});
+
+        expect(readyA.publicId).not.toBe(readyB.publicId);
+        expect(service.requireReadyProjectByPublicId(refA, readyA.publicId)).toBe(readyA);
+        // 另一个 Project 的标识不能解析成本 Project 的 ready。
+        expect(() => service.requireReadyProjectByPublicId(refB, readyA.publicId)).toThrow(ProjectNotOpenError);
+        expect(() => service.requireReadyProjectByPublicId(refA, readyB.publicId)).toThrow(ProjectNotOpenError);
+
+        // 另一个运行期即使 generation 从 1 重新开始，也不能解析旧运行期签发的标识，反之亦然。
+        const otherService = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const otherReady = await otherService.openProject(refA, {kind: "user"});
+        expect(otherReady.generation).toBe(readyA.generation);
+        expect(otherReady.publicId).not.toBe(readyA.publicId);
+        expect(() => service.requireReadyProjectByPublicId(refA, otherReady.publicId)).toThrow(ProjectNotOpenError);
+        expect(() => otherService.requireReadyProjectByPublicId(refA, readyA.publicId)).toThrow(ProjectNotOpenError);
+        await otherService.closeAll();
+        await service.closeAll();
+    });
+
+    it("根替换与terminal gate后旧ready标识不再解析", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "workspace-root");
+        const prepared = preparedProject(workspaceRoot, "replaced-identity");
+        let notifyReplaced: (() => void) | null = null;
+        const lifecycle = controlLifecycle(prepared, {
+            observeWorkspace: vi.fn((_workspace, listener) => {
+                notifyReplaced = listener;
+                return () => undefined;
+            }),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("replaced-identity");
+        const ready = await service.openProject(ref, {kind: "user"});
+
+        notifyReplaced?.();
+        await vi.waitFor(() => {
+            expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
+        });
+
+        // exact close 完成后同一路径可以重新 open，但拿到的是新的 ready 对象与标识。
+        const reopened = await vi.waitFor(async () => await service.openProject(ref, {kind: "user"}));
+        expect(reopened.publicId).not.toBe(ready.publicId);
+        expect(service.requireReadyProjectByPublicId(ref, reopened.publicId)).toBe(reopened);
+        expect(() => service.requireReadyProjectByPublicId(ref, ready.publicId)).toThrow(ProjectNotOpenError);
     });
 
     it("root replacement先封门并等待已登记数据面operation后关闭同一generation", async () => {
@@ -587,6 +665,99 @@ describe("ProjectSessionService", () => {
         });
         expect(closeOrder).toEqual(["operation", "file-index", "history", "database"]);
         expect(stopObservation).toHaveBeenCalledTimes(1);
+    });
+
+    it("物理复核在watcher通知前停写，普通关闭仍允许已接纳操作收口", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "revalidated-target");
+        const prepared = preparedProject(workspaceRoot, "revalidated-target");
+        // 受控 Lifecycle 物理身份：watcher 尚未回调，Facade entry 也没有终止标记，
+        // 因此只有 `revalidateTarget` 的物理复核能发现根已被同路径替换。
+        const replacement = new ProjectLifecycleError("PROJECT_ROOT_REPLACED", "Project Workspace已被同路径替换");
+        let rootReplaced = false;
+        const lifecycle = controlLifecycle(prepared, {
+            revalidateWorkspace: vi.fn(async () => {
+                if (rootReplaced) throw replacement;
+            }),
+            observeWorkspace: vi.fn(() => () => undefined),
+        });
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("revalidated-target");
+        const ready = await service.openProject(ref, {kind: "user"});
+        const physicalCheck = async (
+            _signal: AbortSignal,
+            assertTarget: () => void,
+            revalidateTarget: () => Promise<void>,
+        ): Promise<void> => {
+            assertTarget();
+            await revalidateTarget();
+        };
+
+        rootReplaced = true;
+        await expect(service.runReadyProjectOperation(ready, physicalCheck)).rejects.toBe(replacement);
+
+        rootReplaced = false;
+        await expect(service.runReadyProjectOperation(ready, physicalCheck)).resolves.toBeUndefined();
+
+        // 普通关闭先封住新登记；已经在排空中的操作仍能复核通过后收口，不被「要求 open」的旧核验破坏。
+        let release: () => void = () => undefined;
+        const pause = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const drained = vi.fn();
+        const operation = service.runReadyProjectOperation(ready, async (_signal, assertTarget, revalidateTarget) => {
+            await pause;
+            assertTarget();
+            await revalidateTarget();
+            drained();
+        });
+        const closing = service.closeProject(ref, "user");
+        release();
+        await operation;
+        await closing;
+        expect(drained).toHaveBeenCalledOnce();
+        expect(() => service.requireReadyProject(ref)).toThrow(ProjectNotOpenError);
+    });
+
+    it("整体shutdown仍允许已接纳操作在gate与物理复核之后收口", async () => {
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database"),
+            immediateModule("history"),
+            immediateModule("file-index"),
+        ]));
+        const workspaceRoot = testAbsoluteFsPath("project-session-service", "shutdown-drain");
+        const prepared = preparedProject(workspaceRoot, "shutdown-drain");
+        const lifecycle = controlLifecycle(prepared);
+        const service = new ProjectSessionService(workspaceRoot, {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("shutdown-drain");
+        const ready = await service.openProject(ref, {kind: "user"});
+        let release: () => void = () => undefined;
+        const pause = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const drained = vi.fn();
+        const operation = service.runReadyProjectOperation(ready, async (_signal, assertTarget, revalidateTarget) => {
+            await pause;
+            assertTarget();
+            await revalidateTarget();
+            drained();
+        });
+        const closing = service.closeAll();
+        release();
+        await operation;
+        await closing;
+        expect(drained).toHaveBeenCalledOnce();
+        expect(lifecycle.revalidateWorkspace).toHaveBeenCalled();
     });
 
     it("close失败保留Facade entry并阻止重开，重试命中原handle", async () => {
@@ -925,6 +1096,7 @@ function controlLifecycle(
         })),
         delete: vi.fn(async (ref) => ({revision: prepared.revision + 1, projectRoot: ref.projectRoot})),
         prepareOpen: vi.fn(async () => prepared),
+        revalidateWorkspace: vi.fn(async () => undefined),
         observeWorkspace: vi.fn(() => () => undefined),
         close: vi.fn(async () => undefined),
         ...overrides,

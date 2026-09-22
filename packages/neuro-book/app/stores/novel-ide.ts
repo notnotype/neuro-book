@@ -1,3 +1,23 @@
+import {matchesEditorDocument, type EditorChangeRequest, type EditorDocumentTarget, type EditorFlushResult} from "nbook/app/components/editor-workbench/editor-view.types";
+import type {Grid, GridExtent, GridGestureCommit, GridLayoutResult, GridNode, GridSnapshot} from "@notnotype/nb-ui/layout";
+import {applyEditorGesture, createEditorGrid} from "nbook/app/utils/editor-workbench/editor-groups";
+import {
+    createEditorSession,
+    findEditorSessionGroup,
+    findEditorSessionTab,
+    openTabInGroup,
+    removeTab,
+    reorderTab,
+    selectActiveGroup,
+    serializeEditorSession,
+    splitTabToNewGroup,
+    transferTab,
+    updateTabInstance,
+    type EditorSessionOutcome,
+    type EditorSessionState,
+    type EditorSessionTab,
+} from "nbook/app/utils/editor-workbench/editor-session";
+import type {EditorSplitDirection} from "nbook/app/components/editor-workbench/editor-view.types";
 import type {
     ProjectCreateResponseDto,
     ProjectDeleteResponseDto,
@@ -6,21 +26,14 @@ import type {
     ProjectMutationResponseDto,
 } from "nbook/shared/dto/project.dto";
 import {ProjectCatalogRefreshError} from "nbook/app/utils/project-mutation-error";
-import type {ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
-import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
-import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
+import type { WorkbenchToolViewFocus } from "nbook/app/utils/workbench/tool-context";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     DEFAULT_MONACO_EDITOR_PREFERENCES,
-    resolveDefaultWorkspaceViewMode,
-    resolveWorkspaceEditorKind,
     resolveWorkspaceFileExtension,
     type MarkdownEditorPreferences,
     type MonacoEditorPreferences,
-    type WorkspaceEditorKind,
-    type WorkspaceEditorViewMode,
 } from "nbook/shared/editor-workbench";
 import type {WorkspaceFileChangeEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {
@@ -37,12 +50,30 @@ import type {
     UserAssetsSyncResultDto,
 } from "nbook/shared/dto/user-assets-sync.dto";
 
-export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
+import {
+    legacyBucketSerializer,
+    legacyBucketStorage,
+} from "nbook/app/utils/workbench/storage-migration-legacy-bucket";
 
 type ProjectCatalogSnapshot = Readonly<{
     revision: number;
     projects: readonly Readonly<ProjectMetadataDto>[];
 }>;
+
+/** 默认编辑组 id：布局树叶 id 与组集合一一对应（分屏出的新组 id 由宿主分配）。 */
+export const PRIMARY_EDITOR_GROUP_ID = "main";
+
+/**
+ * 视图实例提交的内容回执（Store 侧形状）。
+ *
+ * 不含 `languageId`/`readonly`：那是视图层根据注册表与加载状态补的事实，由页面适配层
+ * 在转交贡献之前合成为完整的 `EditorChangeResult`。
+ */
+export type EditorContentSnapshot = Readonly<{target: EditorDocumentTarget; content: string; contentRevision: number}>;
+export type EditorContentChangeResult =
+    | {status: "accepted"; snapshot: EditorContentSnapshot}
+    | {status: "conflict"; snapshot: EditorContentSnapshot}
+    | {status: "stale"};
 
 export type WorkspaceFileNode = {
     mode: string;
@@ -86,8 +117,9 @@ export type WorkspaceFileIssue = {
 export type WorkspaceEditorTab = {
     path: string;
     title: string;
-    editorKind: WorkspaceEditorKind;
-    viewMode: WorkspaceEditorViewMode;
+    /** 标签实例所属编辑组；同路径可以在不同组各有一个实例。 */
+    editorGroupId: string;
+    editorId: string | null;
     pinned: boolean;
     preview: boolean;
     dirty: boolean;
@@ -96,11 +128,19 @@ export type WorkspaceEditorTab = {
 export type WorkspaceOpenMode = "preview" | "permanent";
 export type NovelIdeLayoutMode = "ide" | "agent";
 
+/**
+ * 一条路径的**唯一**正文权威：内容、磁盘基线与单调修订都在这里。
+ *
+ * 视图侧（Monaco/TipTap）不持有权威副本：它们提交 `baseRevision`，由 Store 判定接受/冲突；
+ * 活动文件与标签 dirty 都从这份缓冲投影，因此不再有"活动副本 + 缓冲副本"两个写者。
+ */
 type WorkspaceFileBuffer = {
     node: WorkspaceFileNode;
     content: string;
     lastSyncedContent: string;
     lastSyncedMtimeMs: number | null;
+    /** 每次受理过内容写入后 +1；视图用它判断自己的基线是否仍然有效。 */
+    contentRevision: number;
 };
 
 type WorkspaceActiveFile = WorkspaceFileBuffer;
@@ -201,13 +241,45 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const selectedCharacterId = ref<string | null>(null);
     const plotRefreshVersion = ref(0);
     const workspaceTree = ref<WorkspaceFileNode[]>([]);
-    const workspaceTabs = ref<WorkspaceEditorTab[]>([]);
-    const activeWorkspaceTabPath = ref("");
     const workspaceBuffers = ref<Record<string, WorkspaceFileBuffer>>({});
     const workspaceSessions = ref<Record<string, WorkspaceSessionState>>({});
     const workspaceKind = ref<WorkspaceKind>("novel");
     const configRevision = ref(0);
-    const activeWorkspaceFile = ref<WorkspaceActiveFile | null>(null);
+    const workspaceGeneration = ref(0);
+    let documentSequence = 0;
+    const documentIds = new Map<string, string>();
+    /** 在途保存按路径登记：同一文档合并在途保存，不同文档的确认互不覆盖。 */
+    const savingPaths = ref<string[]>([]);
+    const inflightSaves = new Map<string, Promise<WorkspaceFileNode | null>>();
+
+    /**
+     * 编辑会话（组集合、标签实例、活动组）与布局树：**唯一 authority**。
+     *
+     * 树是不可变的对话实例（nb-ui 原语的合同），结构操作只经 `editor-session` 的事务；
+     * 会话 ref 与树同步发布（一次事务 = 一次 ref 写入），因此不存在"组已发布、树还没变"的中间态。
+     */
+    let editorGrid = createEditorGrid(PRIMARY_EDITOR_GROUP_ID);
+    const editorSession = ref<EditorSessionState>(createEditorSession(editorGrid));
+    const editorExtent = ref<GridExtent>({width: 0, height: 0});
+    /**
+     * 会话修订：**每一次**会话内容或拓扑提交 +1。
+     *
+     * 它是"该保存编辑会话了"的唯一信号——尺寸测量（`setEditorExtent`）与内容输入都不推进它，
+     * 因此存储会话不会因为窗口 resize 或打字而写记录。
+     */
+    const editorSessionRevision = ref(0);
+    const editorTree = ref<GridNode<string> | null>(editorGrid.root());
+    const editorLayout = ref<GridLayoutResult>(editorGrid.layout(editorExtent.value));
+
+    /** 逐组激活状态：一个组的读取/失败不影响另一个组。 */
+    const editorGroupLoading = ref<Record<string, boolean>>({});
+    const editorGroupErrors = ref<Record<string, string | null>>({});
+    const activationSequences = new Map<string, number>();
+
+    /** 未解决输入：视图候选与权威正文冲突，保存/关闭/重挂/切工作面都必须先处理它。 */
+    const unresolvedEditorChanges = ref<EditorChangeRequest[]>([]);
+    /** 写入冲突归属的文档身份：多组下不能再假设"冲突就是当前活动文件"。 */
+    const workspaceConflictTarget = ref<EditorDocumentTarget | null>(null);
     const workspaceIssues = ref<WorkspaceFileIssue[]>([]);
     const workspaceWriteConflict = ref<WorkspaceWriteConflictDto | null>(null);
     const workspaceConflictDialogOpen = ref(false);
@@ -216,17 +288,23 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const loadingWorkspace = ref(false);
     const loadingWorkspaceTree = ref(false);
     const restoringWorkspaceFile = ref(false);
-    const savingFile = ref(false);
 
-    const activeLeftTab = ref<NovelIdeTab | null>("files");
+    /** 有任何文档在途保存即"保存中"；逐文档的确认互不覆盖（不再有单例 saveOwner）。 */
+    const savingFile = computed(() => savingPaths.value.length > 0);
+
+    /**
+     * 工具视图焦点（**非持久**）：对 Agent 说明"当前哪个 Part 的哪个工具 View 真实可见"。
+     *
+     * 只有页面能回答这个问题，因此由页面按真实呈现发布（`resolveActiveToolView`），
+     * 卸载或切工作面时清空。它不进 `pick`：这不是用户偏好，也不承载旧的「活动左侧页签」。
+     */
+    const activeToolView = ref<WorkbenchToolViewFocus>(null);
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
-    const agentPanelWidth = ref(400);
     const agentSessionPanelOpen = ref(true);
     const agentSessionPanelWidth = ref(280);
     const agentStudioPanelOpen = ref(true);
     const agentStudioPanelWidth = ref(460);
     const agentStudioFileTreeWidth = ref(200);
-    const leftPanelWidth = ref(340);
     const plotWorkbenchOpen = ref(false);
     // 剧本工作台当前 tab:线程规划 / 承诺账本 / 决策记录;侧栏计数入口与账本跳转联动直接写它。
     const plotWorkbenchTab = ref<"thread" | "promises" | "decisions">("thread");
@@ -234,12 +312,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const plotPlanningFocusId = ref<string | null>(null);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
-    const activeThemeId = ref<string>("sepia");
-    const customThemes = ref<CustomThemeDto[]>([]);
-    const activeThemeAppearance = ref<ThemeAppearance>("light");
-    const themeVarsSnapshot = ref<ThemeVars | null>(null);
-    const theme = activeThemeId;
-    const viewMode = ref<WorkspaceEditorViewMode>("rich");
     const markdownEditorPreferences = ref<MarkdownEditorPreferences>({
         ...DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
     });
@@ -260,41 +332,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceTreeRevision = ref(0);
 
     const reasoningOptions = [...REASONING_OPTIONS];
-
-    /**
-     * 按当前主题 ID 与自定义主题列表刷新首屏主题快照。
-     */
-    const rememberThemeSnapshot = (): void => {
-        const resolved = resolveTheme(activeThemeId.value, customThemes.value);
-        activeThemeId.value = resolved.id;
-        activeThemeAppearance.value = resolved.appearance;
-        themeVarsSnapshot.value = {...resolved.vars};
-    };
-
-    /**
-     * 应用后端返回的全局主题配置。
-     */
-    const applyThemeConfig = (themeId: string, nextCustomThemes: CustomThemeDto[]): void => {
-        customThemes.value = [...nextCustomThemes];
-        activeThemeId.value = themeId;
-        rememberThemeSnapshot();
-    };
-
-    /**
-     * 只切换当前活动主题，并同步首屏快照。
-     */
-    const applyThemeSelection = (themeId: string): void => {
-        activeThemeId.value = themeId;
-        rememberThemeSnapshot();
-    };
-
-    /**
-     * 更新自定义主题列表，并保证当前主题仍可解析。
-     */
-    const applyCustomThemes = (nextCustomThemes: CustomThemeDto[]): void => {
-        customThemes.value = [...nextCustomThemes];
-        rememberThemeSnapshot();
-    };
 
     /**
      * 同步当前默认模型展示名。
@@ -325,56 +362,117 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
     const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentProjectRoot.value));
 
-    /**
-     * 当前活动文件路径。对外保留 selected 命名，内部只从 activeWorkspaceFile 投影。
-     */
+    const documentTarget = (path: string): EditorDocumentTarget => {
+        let documentId = documentIds.get(path);
+        if (!documentId) {
+            documentId = String(++documentSequence);
+            documentIds.set(path, documentId);
+        }
+        return {workspaceKey: workspaceSessionKey.value, generation: workspaceGeneration.value, documentId, path};
+    };
+    const acceptsDocument = (target: EditorDocumentTarget): boolean => target.workspaceKey === workspaceSessionKey.value
+        && target.generation === workspaceGeneration.value && documentIds.get(target.path) === target.documentId;
+
+    /** 一次编辑组事务的发布口：会话与呈现树一起落账，失败不改任何一方。 */
+    const publishEditorSession = (state: EditorSessionState): void => {
+        editorSession.value = state;
+        editorSessionRevision.value += 1;
+        editorTree.value = editorGrid.root();
+        editorLayout.value = editorGrid.layout(editorExtent.value);
+    };
+    const publishEditorLayout = (): void => {
+        editorTree.value = editorGrid.root();
+        editorLayout.value = editorGrid.layout(editorExtent.value);
+    };
+
+    const resetDocumentLifecycle = (): void => {
+        workspaceGeneration.value += 1;
+        activationSequences.clear();
+        documentIds.clear();
+        editorFlushRegistrations.clear();
+        restoringWorkspaceFile.value = false;
+        editorGroupLoading.value = {};
+        editorGroupErrors.value = {};
+        editorGrid = createEditorGrid(PRIMARY_EDITOR_GROUP_ID);
+        editorSession.value = createEditorSession(editorGrid);
+        editorGroupLoading.value = {};
+        editorGroupErrors.value = {};
+        savingPaths.value = [];
+        inflightSaves.clear();
+        unresolvedEditorChanges.value = [];
+        workspaceConflictTarget.value = null;
+        workspaceTreeRequest = null;
+        publishEditorLayout();
+    };
+
+    /** 活动组的 id；没有组时为空串（未进入 workspace）。 */
+    const activeEditorGroupId = computed(() => editorSession.value.activeGroupId);
+
+    const activeEditorGroup = computed(() => findEditorSessionGroup(editorSession.value, editorSession.value.activeGroupId));
+
+    /** 活动组当前活动的文档路径。 */
+    const activeWorkspaceTabPath = computed(() => activeEditorGroup.value?.activePath ?? "");
+
+    /** 投影的标签列表：dirty 从共用缓冲算出，不在标签实例里另存一份。 */
+    const workspaceTabs = computed<WorkspaceEditorTab[]>(() => editorSession.value.groups.flatMap((group) => group.tabs.map((tab) => {
+        const buffer = workspaceBuffers.value[tab.path];
+        return {
+            path: tab.path,
+            title: buffer?.node.title?.trim() || tab.title,
+            editorGroupId: group.id,
+            editorId: tab.editorId,
+            pinned: tab.pinned,
+            preview: tab.preview,
+            dirty: Boolean(buffer && buffer.content !== buffer.lastSyncedContent),
+        };
+    })));
+
+    const activeWorkspaceFile = computed<WorkspaceActiveFile | null>(() => {
+        const path = activeWorkspaceTabPath.value;
+        return path ? workspaceBuffers.value[path] ?? null : null;
+    });
+
+    const activeWorkspaceDocumentTarget = computed(() => {
+        const path = activeWorkspaceTabPath.value;
+        return path && workspaceBuffers.value[path] ? documentTarget(path) : null;
+    });
+
+    /** 当前活动文件路径。对外保留 selected 命名，内部是活动组的投影。 */
     const selectedFilePath = computed(() => activeWorkspaceFile.value?.node.path ?? "");
 
-    /**
-     * 当前活动文件节点。目录或不可编辑文件也通过同一个活动文件模型表达。
-     */
+    /** 当前活动文件节点。目录或不可编辑文件也通过同一个活动文件模型表达。 */
     const selectedFileNode = computed(() => activeWorkspaceFile.value?.node ?? null);
 
-    /**
-     * 当前活动文件正文。写入时只更新 activeWorkspaceFile，避免多状态并行漂移。
-     */
+    /** 当前活动文件正文；写入直接落到该路径的唯一缓冲（不再有活动副本）。 */
     const selectedFileContent = computed({
         get: () => activeWorkspaceFile.value?.content ?? "",
         set: (content: string) => {
-            if (!activeWorkspaceFile.value) {
+            const path = activeWorkspaceTabPath.value;
+            if (!path || !workspaceBuffers.value[path]) {
                 return;
             }
-            activeWorkspaceFile.value = {
-                ...activeWorkspaceFile.value,
-                content,
-            };
+            writeBufferContent(path, content);
         },
     });
 
-    /**
-     * 当前活动文件最近一次同步到磁盘的正文。
-     */
     const lastSyncedFileContent = computed(() => activeWorkspaceFile.value?.lastSyncedContent ?? "");
 
-    /**
-     * 工作区文件是否已完成初始化恢复，可用于页面首帧渲染 gating。
-     */
+    /** 工作区文件是否已完成初始化恢复，可用于页面首帧渲染 gating。 */
     const workspaceReady = computed(() => !loadingWorkspace.value && !restoringWorkspaceFile.value);
 
-    /**
-     * 当前正文是否仍有未保存改动。
-     */
-    /**
-     * 当前文件是否有未保存改动。
-     */
+    /** 当前文件是否有未保存改动。 */
     const hasUnsavedFileChanges = computed(() => selectedFileContent.value !== lastSyncedFileContent.value);
 
-    /**
-     * 任意 workspace 标签是否有未保存改动。
-     */
-    const hasUnsavedWorkspaceChanges = computed(() => {
-        return hasUnsavedFileChanges.value || workspaceTabs.value.some((tab) => tab.dirty);
-    });
+    /** 任意已打开文档是否有未保存改动。 */
+    const hasUnsavedWorkspaceChanges = computed(() => Object.values(workspaceBuffers.value)
+        .some((buffer) => buffer.content !== buffer.lastSyncedContent));
+
+    /** 活动组是否正在读取文档 / 有诊断；组相关只影响该组的呈现。 */
+    const loadingWorkspaceDocument = computed(() => Boolean(editorGroupLoading.value[editorSession.value.activeGroupId]));
+    const workspaceDocumentError = computed(() => editorGroupErrors.value[editorSession.value.activeGroupId] ?? null);
+
+    /** 有未解决输入时保存/关闭/拓扑调整都必须先处理它。 */
+    const hasUnresolvedEditorChanges = computed(() => unresolvedEditorChanges.value.length > 0);
 
     /**
      * 是否已经选中了一个可编辑章节。
@@ -390,45 +488,58 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 清空当前文件选择。
+     * 清空活动组的活动标签（缓冲留在原地，由工作会话的持久化决定去留）。
      */
     const clearActiveFile = (): void => {
-        persistActiveWorkspaceBuffer();
-        activeWorkspaceTabPath.value = "";
-        activeWorkspaceFile.value = null;
+        const groupId = editorSession.value.activeGroupId;
+        publishEditorSession({
+            groups: editorSession.value.groups.map((group) => group.id === groupId ? {...group, activePath: ""} : group),
+            activeGroupId: groupId,
+        });
     };
 
     /**
      * 清空当前小说的文件工作区状态，避免跨 novel 复用标签页和缓存。
+     * 编辑会话本身由 `resetDocumentLifecycle` 收口，这里只清与文件树/缓冲共生的状态。
      */
     const clearWorkspaceState = (): void => {
-        activeWorkspaceTabPath.value = "";
-        activeWorkspaceFile.value = null;
         workspaceTree.value = [];
-        workspaceTabs.value = [];
         workspaceBuffers.value = {};
         workspaceIssues.value = [];
         workspaceTreeRevision.value = 0;
         workspaceWriteConflict.value = null;
         workspaceConflictDialogOpen.value = false;
         monacoFontSizeOverridesByPath.value = {};
+        unresolvedEditorChanges.value = [];
+        workspaceConflictTarget.value = null;
     };
 
     /**
-     * 持久化当前 workspace 会话。
+     * 持久化当前 workspace 会话（sessionStorage 的刷新草稿记忆）。
+     *
+     * 这里只记**单组**的标签与缓冲：分组拓扑属于编辑会话记录（`workbench.editor`），
+     * 由 `editor-session-storage` 负责；两条通道各自完整，不互相兜底。
      */
     const persistWorkspaceSession = (): void => {
-        persistActiveWorkspaceBuffer();
         const key = workspaceSessionKey.value;
         if (!key || key === "novel:") {
             return;
+        }
+        const tabs = workspaceTabs.value.filter((tab) => tab.editorGroupId === PRIMARY_EDITOR_GROUP_ID)
+            .map(({path, title, editorId, pinned, preview}) => ({path, title, editorId, pinned, preview}));
+        const buffers: Record<string, WorkspaceFileBuffer> = {};
+        for (const tab of tabs) {
+            const buffer = workspaceBuffers.value[tab.path];
+            if (buffer) {
+                buffers[tab.path] = buffer;
+            }
         }
         workspaceSessions.value = {
             ...workspaceSessions.value,
             [key]: {
                 activeWorkspaceTabPath: activeWorkspaceTabPath.value,
-                workspaceTabs: workspaceTabs.value,
-                workspaceBuffers: workspaceBuffers.value,
+                workspaceTabs: tabs.map((tab) => ({...tab, editorGroupId: PRIMARY_EDITOR_GROUP_ID, dirty: false})),
+                workspaceBuffers: buffers,
                 monacoFontSizeOverridesByPath: monacoFontSizeOverridesByPath.value,
             },
         };
@@ -436,19 +547,41 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     /**
      * 恢复指定 workspace 会话的编辑状态。
+     *
+     * 旧快照只有扁平标签：全部迁进 main 组（单组是合法默认）；多组拓扑由编辑会话记录恢复。
      */
     const restoreWorkspaceSession = (): void => {
+        resetDocumentLifecycle();
         const snapshot = workspaceSessions.value[workspaceSessionKey.value];
-        activeWorkspaceTabPath.value = snapshot?.activeWorkspaceTabPath ?? "";
-        workspaceTabs.value = snapshot?.workspaceTabs ?? [];
-        workspaceBuffers.value = snapshot?.workspaceBuffers ?? {};
+        const buffers: Record<string, WorkspaceFileBuffer> = {};
+        for (const [path, buffer] of Object.entries(snapshot?.workspaceBuffers ?? {})) {
+            buffers[path] = {...buffer, contentRevision: buffer.contentRevision ?? 0};
+        }
+        workspaceBuffers.value = buffers;
+        const tabs: EditorSessionTab[] = (snapshot?.workspaceTabs ?? [])
+            .filter((tab) => Boolean(buffers[tab.path]))
+            .map((tab) => {
+                const legacy = tab as WorkspaceEditorTab & {viewMode?: string; editorKind?: string};
+                const markdown = [".md", ".markdown"].includes(resolveWorkspaceFileExtension(tab.path));
+                const editorId = "editorId" in tab ? tab.editorId
+                    : markdown && legacy.viewMode === "source" ? "code"
+                    : markdown && ["rich", "split", "mixed"].includes(legacy.viewMode ?? "") ? "markdown"
+                    : legacy.editorKind === "monaco" ? "code" : null;
+                return {path: tab.path, title: tab.title, editorId, pinned: Boolean(tab.pinned), preview: Boolean(tab.preview)};
+            });
+        const preferred = snapshot?.activeWorkspaceTabPath ?? "";
+        const activePath = tabs.some((tab) => tab.path === preferred) ? preferred : tabs[0]?.path ?? "";
+        editorSession.value = {
+            groups: [{id: PRIMARY_EDITOR_GROUP_ID, activePath, tabs}],
+            activeGroupId: PRIMARY_EDITOR_GROUP_ID,
+        };
         monacoFontSizeOverridesByPath.value = snapshot?.monacoFontSizeOverridesByPath ?? {};
-        activeWorkspaceFile.value = null;
         workspaceTree.value = [];
         workspaceIssues.value = [];
         workspaceTreeRevision.value = 0;
         workspaceWriteConflict.value = null;
         workspaceConflictDialogOpen.value = false;
+        publishEditorLayout();
     };
 
     /**
@@ -480,256 +613,244 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 当前 tree 请求的去重键。Project Workspace 与 user-assets 必须隔离。
      */
-    const workspaceTreeRequestKey = (): string => {
-        const query = workspaceQuery();
-        return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectRoot}`;
-    };
-
-    /** 活动编辑器防抖结算钩子，见 registerActiveEditorFlush */
-    let activeEditorFlush: (() => void) | null = null;
+    const workspaceTreeRequestKey = (): string => workspaceSessionKey.value;
 
     /**
-     * 注册活动编辑器的防抖结算钩子（由 index.vue 在 studio controller 就绪后注入）。
-     * 编辑器输入走 300ms 防抖上报，store 在读取 activeWorkspaceFile.content 做
-     * dirty 判定 / buffer 持久化 / 保存之前必须先触发一次 flush，否则防抖窗口内
-     * 的输入会被误判为「无修改」——切文件丢字、外部同步覆盖导致的文本回退都源于此。
+     * 视图实例的 flush 登记表：同文档可以在两个组各有一个实例，不能只有一条记录。
+     * 键是 `documentId:token`；清理只撤销"自己这次"登记，旧实例卸载不能抹掉新实例的输入结算入口。
      */
-    const registerActiveEditorFlush = (fn: (() => void) | null): void => {
-        activeEditorFlush = fn;
-    };
-
-    /**
-     * 结算活动编辑器的未上报输入（未注册钩子时 no-op）。
-     * 调用后 activeWorkspaceFile.content 即为编辑器最新内容。
-     */
-    const flushActiveEditorPending = (): void => {
-        activeEditorFlush?.();
+    const editorFlushRegistrations = new Map<string, {target: EditorDocumentTarget; flush: () => EditorFlushResult}>();
+    const registerEditorFlush = (target: EditorDocumentTarget, token: string, flush: () => EditorFlushResult): (() => void) => {
+        const key = `${target.documentId}:${token}`;
+        const registration = {target, flush};
+        editorFlushRegistrations.set(key, registration);
+        return () => {
+            if (editorFlushRegistrations.get(key) === registration) {
+                editorFlushRegistrations.delete(key);
+            }
+        };
     };
 
     /**
-     * 当前文件内容写入 tab buffer，用于多标签切换。
+     * flush 指定组（不传即全部）实例的待结算输入。任一实例报 conflict 时整体返回 conflict——
+     * 调用方（切标签、关闭、拓扑调整、切工作面）必须据此停手，不能把"timer 已清"当输入已入 Store。
      */
-    const persistActiveWorkspaceBuffer = (): void => {
-        flushActiveEditorPending();
-        if (!activeWorkspaceFile.value) {
+    const flushEditorPending = (groupId?: string): EditorFlushResult => {
+        let result: EditorFlushResult = "settled";
+        const paths = groupId === undefined ? null : new Set(findEditorSessionGroup(editorSession.value, groupId)?.tabs.map((tab) => tab.path) ?? []);
+        for (const [key, registration] of [...editorFlushRegistrations]) {
+            if (!acceptsDocument(registration.target)) {
+                editorFlushRegistrations.delete(key);
+                continue;
+            }
+            if (paths && !paths.has(registration.target.path)) {
+                continue;
+            }
+            if (registration.flush() === "conflict") {
+                result = "conflict";
+            }
+        }
+        return result;
+    };
+
+    /** 未解决输入的登记与查询：保存/关闭/重挂/切工作面都要先看待它。 */
+    const registerUnresolvedEditorChange = (request: EditorChangeRequest): void => {
+        unresolvedEditorChanges.value = [...unresolvedEditorChanges.value.filter((item) => item.token !== request.token), request];
+    };
+    const clearUnresolvedEditorChange = (token: string): void => {
+        unresolvedEditorChanges.value = unresolvedEditorChanges.value.filter((item) => item.token !== token);
+    };
+    const hasUnresolvedEditorChangeForPath = (path: string): boolean =>
+        unresolvedEditorChanges.value.some((item) => item.target.path === path);
+    const readUnresolvedEditorChange = (token: string): EditorChangeRequest | null =>
+        unresolvedEditorChanges.value.find((item) => item.token === token) ?? null;
+
+    /** **唯一**正文写入口：写入即推进单调修订，视图据此判断自己的基线是否仍有效。 */
+    const writeBufferContent = (path: string, content: string): void => {
+        const buffer = workspaceBuffers.value[path];
+        if (!buffer) {
             return;
         }
-
-        const activePath = activeWorkspaceFile.value.node.path;
         workspaceBuffers.value = {
             ...workspaceBuffers.value,
-            [activePath]: {
-                node: activeWorkspaceFile.value.node,
-                content: activeWorkspaceFile.value.content,
-                lastSyncedContent: activeWorkspaceFile.value.lastSyncedContent,
-                lastSyncedMtimeMs: activeWorkspaceFile.value.lastSyncedMtimeMs,
-            },
+            [path]: {...buffer, content, contentRevision: buffer.contentRevision + 1},
         };
-        syncWorkspaceTabDirty(activePath);
     };
 
-    /**
-     * 根据文件路径推断编辑器类型。
-     */
-    const inferWorkspaceEditorKind = (node: WorkspaceFileNode): WorkspaceEditorKind => {
-        return resolveWorkspaceEditorKind(node.path, node.editable);
-    };
-
-    /**
-     * 兼容旧持久化中的 split/mixed 模式，并约束标签视图模式。
-     */
-    const normalizeWorkspaceViewMode = (mode: string | undefined): WorkspaceEditorViewMode => {
-        if (mode === "source" || mode === "rich") {
-            return mode;
+    /** 程序化写入（夹具、测试、非视图来源）：文档身份有效即接受，同样推进修订。 */
+    const updateWorkspaceDocument = (target: EditorDocumentTarget, content: string): boolean => {
+        if (!acceptsDocument(target) || !workspaceBuffers.value[target.path]) {
+            return false;
         }
-        if (mode === "split" || mode === "mixed") {
-            return "rich";
-        }
-        return "rich";
+        writeBufferContent(target.path, content);
+        return true;
+    };
+
+    const editorContentSnapshot = (target: EditorDocumentTarget): EditorContentSnapshot | null => {
+        const buffer = workspaceBuffers.value[target.path];
+        return buffer ? {target, content: buffer.content, contentRevision: buffer.contentRevision} : null;
     };
 
     /**
-     * 打开或更新一个工作区标签页。
+     * 视图实例的内容提交（有回执，不再是 fire-and-forget）：
+     * - 基线一致、或内容与权威相同（自己的回声）⇒ 受理，并清除该 token 的未解决登记；
+     * - 基线落后且内容不同 ⇒ 冲突：保留候选、登记未解决输入，权威正文不动。
      */
-    const upsertWorkspaceTab = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode): void => {
+    const commitEditorChange = (request: EditorChangeRequest): EditorContentChangeResult => {
+        if (!acceptsDocument(request.target)) {
+            return {status: "stale"};
+        }
+        const buffer = workspaceBuffers.value[request.target.path];
+        if (!buffer) {
+            return {status: "stale"};
+        }
+        if (request.baseRevision === buffer.contentRevision) {
+            if (request.content !== buffer.content) {
+                writeBufferContent(request.target.path, request.content);
+            }
+            clearUnresolvedEditorChange(request.token);
+            return {status: "accepted", snapshot: editorContentSnapshot(request.target)!};
+        }
+        if (request.content === buffer.content) {
+            clearUnresolvedEditorChange(request.token);
+            return {status: "accepted", snapshot: editorContentSnapshot(request.target)!};
+        }
+        registerUnresolvedEditorChange(request);
+        return {status: "conflict", snapshot: editorContentSnapshot(request.target)!};
+    };
+
+    /** 用户选择"采用当前正文"：丢弃候选登记。保留候选的重提走实例的 commitChange，受理时自动清登记。 */
+    const discardUnresolvedEditorChange = (token: string): void => clearUnresolvedEditorChange(token);
+
+    /** 标签实例已无任何引用：文档身份、缓冲与临时字号一起释放；未解决输入随身份作废。 */
+    const releaseEditorDocument = (path: string): void => {
+        documentIds.delete(path);
+        const nextBuffers = {...workspaceBuffers.value};
+        delete nextBuffers[path];
+        workspaceBuffers.value = nextBuffers;
+        const nextOverrides = {...monacoFontSizeOverridesByPath.value};
+        delete nextOverrides[path];
+        monacoFontSizeOverridesByPath.value = nextOverrides;
+        unresolvedEditorChanges.value = unresolvedEditorChanges.value.filter((item) => item.target.path !== path);
+    };
+
+    /** 会话事务的统一落账口：发布新会话/树，并释放本次不再被引用的文档。返回是否落账。 */
+    const applyEditorSessionOutcome = (outcome: EditorSessionOutcome): boolean => {
+        if (!outcome.ok) {
+            return false;
+        }
+        publishEditorSession(outcome.state);
+        for (const path of outcome.evicted) {
+            releaseEditorDocument(path);
+        }
+        return true;
+    };
+
+    /**
+     * 在某组打开（或激活）标签。缓冲存在性是调用方的职责：这里只维护标签实例与活动选择。
+     */
+    const openEditorTabInGroup = (groupId: string, node: WorkspaceFileNode, openMode: WorkspaceOpenMode): boolean => {
         const path = node.path;
-        const existingTab = workspaceTabs.value.find((tab) => tab.path === path);
-        const activeDirty = activeWorkspaceFile.value?.node.path === path
-            ? activeWorkspaceFile.value.content !== activeWorkspaceFile.value.lastSyncedContent
-            : false;
-        const preview = openMode === "preview"
-            ? existingTab?.preview ?? true
-            : false;
-        const nextTab: WorkspaceEditorTab = {
+        const existing = findEditorSessionTab(editorSession.value, groupId, path);
+        return applyEditorSessionOutcome(openTabInGroup(editorSession.value, {
+            groupId,
             path,
             title: node.title?.trim() || path,
-            editorKind: inferWorkspaceEditorKind(node),
-            viewMode: normalizeWorkspaceViewMode(existingTab?.viewMode ?? resolveDefaultWorkspaceViewMode(path)),
-            pinned: existingTab?.pinned ?? false,
-            preview: existingTab?.pinned ? false : preview,
-            dirty: activeDirty,
-        };
-        if (nextTab.preview) {
-            const nextBuffers = {...workspaceBuffers.value};
-            for (const tab of workspaceTabs.value) {
-                if (tab.preview && !tab.dirty && tab.path !== path) {
-                    delete nextBuffers[tab.path];
-                }
-            }
-            workspaceBuffers.value = nextBuffers;
-            workspaceTabs.value = workspaceTabs.value.filter((tab) => !tab.preview || tab.dirty || tab.path === path);
-        }
-
-        workspaceTabs.value = existingTab
-            ? workspaceTabs.value.map((tab) => tab.path === path ? {...tab, ...nextTab} : tab)
-            : [...workspaceTabs.value, nextTab];
-        activeWorkspaceTabPath.value = path;
+            editorId: existing?.editorId ?? null,
+            mode: openMode,
+        }, {
+            // 脏文档与有未解决输入的文档不能被 preview 静默顶替（转为常驻）。
+            canEvictPreview: (candidate) => {
+                const buffer = workspaceBuffers.value[candidate];
+                return buffer !== undefined && buffer.content === buffer.lastSyncedContent
+                    && !hasUnresolvedEditorChangeForPath(candidate);
+            },
+        }));
     };
 
-    /**
-     * 同步指定标签的 dirty 标记。
-     */
-    const syncWorkspaceTabDirty = (filePath: string): void => {
-        const buffer = workspaceBuffers.value[filePath];
-        const isActivePath = activeWorkspaceFile.value?.node.path === filePath;
-        const activeFile = activeWorkspaceFile.value;
-        const dirty = isActivePath && activeFile
-            ? activeFile.content !== activeFile.lastSyncedContent
-            : Boolean(buffer && buffer.content !== buffer.lastSyncedContent);
-        const node = isActivePath ? activeFile?.node : buffer?.node;
+    const selectEditorGroup = (groupId: string): boolean =>
+        applyEditorSessionOutcome(selectActiveGroup(editorSession.value, groupId));
 
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {
-            ...tab,
-            dirty,
-            preview: dirty ? false : Boolean(tab.preview),
-            title: node?.title?.trim() || tab.title,
-            editorKind: node ? inferWorkspaceEditorKind(node) : tab.editorKind,
-        } : tab);
+    /** 只记录本实例的显式编辑器选择；null 表示下次恢复按配置选择。 */
+    const setWorkspaceTabEditor = (groupId: string, filePath: string, editorId: string | null): void => {
+        applyEditorSessionOutcome(updateTabInstance(editorSession.value, groupId, filePath, {editorId}));
     };
 
-    /**
-     * 设置当前 Markdown 标签的显示模式。
-     */
-    const setWorkspaceTabViewMode = (filePath: string, mode: WorkspaceEditorViewMode): void => {
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {
-            ...tab,
-            viewMode: normalizeWorkspaceViewMode(mode),
-        } : tab);
+    const setWorkspaceTabPinned = (groupId: string, filePath: string, pinned: boolean): void => {
+        applyEditorSessionOutcome(updateTabInstance(editorSession.value, groupId, filePath, {pinned, preview: pinned ? false : undefined}));
     };
 
-    /**
-     * 切换工作区标签固定状态。
-     */
-    const toggleWorkspaceTabPinned = (filePath: string): void => {
-        const currentTab = workspaceTabs.value.find((tab) => tab.path === filePath);
-        setWorkspaceTabPinned(filePath, !currentTab?.pinned);
+    const toggleWorkspaceTabPinned = (groupId: string, filePath: string): void => {
+        const current = findEditorSessionTab(editorSession.value, groupId, filePath);
+        setWorkspaceTabPinned(groupId, filePath, !current?.pinned);
     };
 
-    /**
-     * 设置工作区标签固定状态。
-     */
-    const setWorkspaceTabPinned = (filePath: string, pinned: boolean): void => {
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {
-            ...tab,
-            pinned,
-            preview: pinned ? false : Boolean(tab.preview),
-        } : {
-            ...tab,
-            pinned: Boolean(tab.pinned),
-            preview: Boolean(tab.preview),
-        });
+    /** 将预览标签转为常驻标签。 */
+    const keepWorkspaceTab = (groupId: string, filePath: string): void => {
+        applyEditorSessionOutcome(updateTabInstance(editorSession.value, groupId, filePath, {preview: false}));
     };
 
-    /**
-     * 将预览标签转为常驻标签。
-     */
-    const keepWorkspaceTab = (filePath: string): void => {
-        workspaceTabs.value = workspaceTabs.value.map((tab) => tab.path === filePath ? {
-            ...tab,
-            preview: false,
-        } : {
-            ...tab,
-            preview: Boolean(tab.preview),
-        });
-    };
-
-    /**
-     * 拖拽移动工作区标签页，可跨 pinned 与普通分组。
-     */
+    /** 组内重排（拖拽落位）；跨组移动走 `transferEditorTab`。 */
     const moveWorkspaceTab = (
+        groupId: string,
         filePath: string,
         targetPath: string | null,
         targetPinned: boolean,
         position: "before" | "after",
     ): void => {
-        const movingTab = workspaceTabs.value.find((tab) => tab.path === filePath);
-        if (!movingTab) {
-            return;
-        }
-
-        const restTabs = workspaceTabs.value
-            .filter((tab) => tab.path !== filePath)
-            .map((tab) => ({...tab, preview: Boolean(tab.preview)}));
-        const nextMovingTab = {
-            ...movingTab,
-            pinned: targetPinned,
-            preview: targetPinned ? false : Boolean(movingTab.preview),
-        };
-        const targetIndex = targetPath
-            ? restTabs.findIndex((tab) => tab.path === targetPath)
-            : -1;
-        if (targetIndex >= 0) {
-            const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
-            restTabs.splice(insertIndex, 0, nextMovingTab);
-        } else {
-            const lastGroupIndex = restTabs.reduce((lastIndex, tab, index) => tab.pinned === targetPinned ? index : lastIndex, -1);
-            restTabs.splice(lastGroupIndex + 1, 0, nextMovingTab);
-        }
-
-        workspaceTabs.value = restTabs;
+        applyEditorSessionOutcome(reorderTab(editorSession.value, groupId, filePath, targetPath, targetPinned, position));
     };
 
-    /**
-     * 移除一个无法恢复的工作区标签和对应缓存。
-     */
+    /** 移除一个无法恢复的文档：清掉**所有组**对它的引用与缓存。 */
     const removeWorkspaceTabState = (filePath: string): void => {
-        const nextBuffers = {...workspaceBuffers.value};
-        delete nextBuffers[filePath];
-        workspaceBuffers.value = nextBuffers;
-        workspaceTabs.value = workspaceTabs.value.filter((tab) => tab.path !== filePath);
-        if (activeWorkspaceTabPath.value === filePath) {
-            activeWorkspaceTabPath.value = "";
+        if (editorSession.value.groups.some((group) => group.tabs.some((tab) => tab.path === filePath))) {
+            const groups = editorSession.value.groups
+                .map((group) => group.tabs.some((tab) => tab.path === filePath)
+                    ? {
+                        id: group.id,
+                        activePath: group.activePath === filePath ? "" : group.activePath,
+                        tabs: group.tabs.filter((tab) => tab.path !== filePath),
+                    }
+                    : group);
+            publishEditorSession({groups, activeGroupId: editorSession.value.activeGroupId});
         }
-        if (activeWorkspaceFile.value?.node.path === filePath) {
-            activeWorkspaceFile.value = null;
-        }
+        releaseEditorDocument(filePath);
     };
 
     /**
      * 从持久化的标签状态中恢复当前活动文件。
+     *
+     * 门禁只覆盖恢复动作本身：同一组的用户在恢复期间打开文档会推进激活序号，恢复随即让位。
      */
     const restoreWorkspaceTabFromPersistedState = async (): Promise<void> => {
+        const groupId = editorSession.value.activeGroupId;
+        const operation = beginDocumentActivation(groupId);
         restoringWorkspaceFile.value = true;
         try {
-            const candidatePaths = [
-                activeWorkspaceTabPath.value,
-                selectedFilePath.value,
-                ...workspaceTabs.value.map((tab) => tab.path),
-            ].filter((path, index, paths) => Boolean(path) && paths.indexOf(path) === index);
-
-            for (const path of candidatePaths) {
-                const tab = workspaceTabs.value.find((item) => item.path === path);
+            const paths = [...new Set([activeWorkspaceTabPath.value, ...(findEditorSessionGroup(editorSession.value, groupId)?.tabs.map((tab) => tab.path) ?? [])])].filter(Boolean);
+            for (const path of paths) {
+                if (!acceptsActivation(operation)) return;
+                const tab = findEditorSessionTab(editorSession.value, groupId, path);
                 try {
-                    await selectWorkspacePath(path, tab?.preview ? "preview" : "permanent", {forceDisk: true});
+                    await activateWorkspaceFile(groupId, path, tab?.preview ? "preview" : "permanent", {forceDisk: true}, operation);
                     return;
-                } catch {
-                    removeWorkspaceTabState(path);
+                } catch (error) {
+                    if (!acceptsActivation(operation)) return;
+                    const buffer = workspaceBuffers.value[path];
+                    const dirty = Boolean(buffer && buffer.content !== buffer.lastSyncedContent);
+                    if (isMissingWorkspaceFile(error) && !dirty) removeWorkspaceTabState(path);
+                    else {
+                        editorGroupErrors.value = {...editorGroupErrors.value, [groupId]: error instanceof Error ? error.message : "文件读取失败"};
+                        return;
+                    }
                 }
             }
-
-            clearActiveFile();
+            if (acceptsActivation(operation)) clearActiveFile();
         } finally {
-            restoringWorkspaceFile.value = false;
+            if (operation.generation === workspaceGeneration.value && operation.workspaceKey === workspaceSessionKey.value) {
+                restoringWorkspaceFile.value = false;
+                finishGroupActivation(groupId, operation.sequence);
+            }
         }
     };
 
@@ -738,6 +859,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const loadWorkspaceTree = async (options: WorkspaceTreeLoadOptions = {}): Promise<WorkspaceFileNode[]> => {
         const requestKey = workspaceTreeRequestKey();
+        const generation = workspaceGeneration.value;
         if (!options.bypassPendingRequest && workspaceTreeRequest?.key === requestKey) {
             return await workspaceTreeRequest.promise;
         }
@@ -746,36 +868,24 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             const snapshot = await $fetch<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>("/api/workspace-files/tree", {
                 query: workspaceQuery(),
             });
-            if (workspaceTreeRequestKey() !== requestKey) {
+            if (generation !== workspaceGeneration.value || workspaceSessionKey.value !== requestKey) {
                 return snapshot.nodes;
             }
             workspaceTree.value = snapshot.nodes;
             workspaceIssues.value = snapshot.issues;
             workspaceTreeRevision.value = snapshot.revision;
-            if (activeWorkspaceFile.value) {
-                const nextActiveNode = snapshot.nodes.find((node) => node.path === activeWorkspaceFile.value?.node.path);
-                if (nextActiveNode) {
-                    activeWorkspaceFile.value = {
-                        ...activeWorkspaceFile.value,
-                        node: nextActiveNode,
-                    };
-                }
-            }
-            for (const tab of workspaceTabs.value) {
-                const nextNode = snapshot.nodes.find((node) => node.path === tab.path);
+            for (const [path, buffer] of Object.entries(workspaceBuffers.value)) {
+                const nextNode = snapshot.nodes.find((node) => node.path === path);
                 if (!nextNode) {
                     continue;
                 }
-                const buffer = workspaceBuffers.value[tab.path];
-                if (buffer) {
-                    workspaceBuffers.value = {
-                        ...workspaceBuffers.value,
-                        [tab.path]: {
-                            ...buffer,
-                            node: nextNode,
-                        },
-                    };
-                }
+                workspaceBuffers.value = {
+                    ...workspaceBuffers.value,
+                    [path]: {
+                        ...buffer,
+                        node: nextNode,
+                    },
+                };
             }
             return snapshot.nodes;
         })();
@@ -783,7 +893,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         try {
             return await promise;
         } finally {
-            if (workspaceTreeRequest?.key === requestKey) {
+            if (workspaceTreeRequest?.promise === promise) {
                 workspaceTreeRequest = null;
                 loadingWorkspaceTree.value = false;
             }
@@ -808,119 +918,150 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 激活一个可编辑文件，并按需从缓存或磁盘读取正文。
+     * 一次文档激活的身份：工作面 + 代次 + **组** + 该组自己的激活序号。
+     * 序号按组持有，因此组 A 打开文档不会取消组 B 的在途读取。
      */
-    const activateEditableWorkspaceFile = async (
-        filePath: string,
-        knownDetail: WorkspaceFileNode | undefined,
-        openMode: WorkspaceOpenMode,
-        options: WorkspaceLoadOptions,
-    ): Promise<WorkspaceFileNode | null> => {
-        const [detail, file] = await Promise.all([
-            knownDetail ? Promise.resolve(knownDetail) : statWorkspacePath(filePath),
-            $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {
-                query: {...workspaceQuery(), path: filePath},
-            }),
-        ]);
-        const existingBuffer = options.forceDisk ? undefined : workspaceBuffers.value[detail.path];
-        const content = existingBuffer?.content ?? file.content;
-        const lastSyncedContent = existingBuffer?.lastSyncedContent ?? file.content;
-
-        activeWorkspaceFile.value = {
-            node: detail,
-            content,
-            lastSyncedContent,
-            lastSyncedMtimeMs: existingBuffer?.lastSyncedMtimeMs ?? file.mtimeMs,
+    type DocumentActivation = {generation: number; workspaceKey: string; groupId: string; sequence: number; query: WorkspaceQueryInput};
+    const beginDocumentActivation = (groupId: string): DocumentActivation => {
+        const operation = {
+            generation: workspaceGeneration.value,
+            workspaceKey: workspaceSessionKey.value,
+            groupId,
+            sequence: (activationSequences.get(groupId) ?? 0) + 1,
+            query: workspaceQuery(),
         };
-        upsertWorkspaceTab(detail, openMode);
+        activationSequences.set(groupId, operation.sequence);
+        editorGroupLoading.value = {...editorGroupLoading.value, [groupId]: true};
+        editorGroupErrors.value = {...editorGroupErrors.value, [groupId]: null};
+        return operation;
+    };
+    const acceptsActivation = (operation: DocumentActivation): boolean => operation.generation === workspaceGeneration.value
+        && operation.workspaceKey === workspaceSessionKey.value
+        && (activationSequences.get(operation.groupId) ?? 0) === operation.sequence;
+    const finishGroupActivation = (groupId: string, sequence: number): void => {
+        if ((activationSequences.get(groupId) ?? 0) !== sequence) {
+            return;
+        }
+        editorGroupLoading.value = {...editorGroupLoading.value, [groupId]: false};
+    };
+    const isMissingWorkspaceFile = (error: unknown): boolean => typeof error === "object" && error !== null
+        && (("statusCode" in error && error.statusCode === 404) || ("status" in error && error.status === 404));
+
+    /**
+     * 写入或刷新一条缓冲。修订号单调递增：重新读盘（forceDisk 或磁盘事件）也会推进它，
+     * 让仍在显示的旧实例知道自己的基线已失效。
+     */
+    const setBuffer = (path: string, node: WorkspaceFileNode, content: string, lastSyncedContent: string, lastSyncedMtimeMs: number | null): void => {
+        const previous = workspaceBuffers.value[path];
+        workspaceBuffers.value = {
+            ...workspaceBuffers.value,
+            [path]: {node, content, lastSyncedContent, lastSyncedMtimeMs, contentRevision: (previous?.contentRevision ?? 0) + 1},
+        };
+    };
+
+    const activateEditableWorkspaceFile = async (
+        groupId: string, filePath: string, knownDetail: WorkspaceFileNode | undefined, openMode: WorkspaceOpenMode,
+        options: WorkspaceLoadOptions, operation: DocumentActivation,
+    ): Promise<WorkspaceFileNode | null> => {
+        const cached = workspaceBuffers.value[filePath];
+        if (cached && (!options.forceDisk || cached.content !== cached.lastSyncedContent)) {
+            if (!acceptsActivation(operation)) return null;
+            openEditorTabInGroup(groupId, cached.node, openMode);
+            return cached.node;
+        }
+        const detail = knownDetail ?? await $fetch<WorkspaceFileNode>("/api/workspace-files/stat", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
+        if (!detail.editable) {
+            setBuffer(detail.path, detail, "", "", detail.mtimeMs);
+            openEditorTabInGroup(groupId, detail, openMode);
+            return detail;
+        }
+        const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
+        setBuffer(detail.path, detail, file.content, file.content, file.mtimeMs);
+        openEditorTabInGroup(groupId, detail, openMode);
         return detail;
     };
 
-    /**
-     * 激活工作区文件或目录，是文件树、标签页和刷新恢复共用的唯一入口。
-     */
-    const activateWorkspaceFile = async (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        const detail = findWorkspaceNode(filePath) ?? await statWorkspacePath(filePath);
+    const activateWorkspaceFile = async (
+        groupId: string, filePath: string, openMode: WorkspaceOpenMode, options: WorkspaceLoadOptions, operation: DocumentActivation,
+        knownDetail?: WorkspaceFileNode,
+    ): Promise<WorkspaceFileNode | null> => {
+        const cached = workspaceBuffers.value[filePath];
+        if (cached && (!options.forceDisk || cached.content !== cached.lastSyncedContent)) {
+            return activateEditableWorkspaceFile(groupId, filePath, cached.node, openMode, options, operation);
+        }
+        const detail = knownDetail ?? findWorkspaceNode(filePath)
+            ?? await $fetch<WorkspaceFileNode>("/api/workspace-files/stat", {query: {...operation.query, path: filePath}});
+        if (!acceptsActivation(operation)) return null;
         if (detail.isDirectory && detail.contentNode) {
-            const normalizedDir = detail.path.replace(/\/$/, "");
-            const indexPath = `${normalizedDir}/index.md`;
-            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
+            const indexPath = `${detail.path.replace(/\/$/, "")}/index.md`;
+            return activateEditableWorkspaceFile(groupId, indexPath, findWorkspaceNode(indexPath), openMode, options, operation);
         }
+        return activateEditableWorkspaceFile(groupId, detail.path, detail, openMode, options, operation);
+    };
 
-        if (!detail.editable) {
-            activeWorkspaceFile.value = {
-                node: detail,
-                content: "",
-                lastSyncedContent: "",
-                lastSyncedMtimeMs: detail.mtimeMs,
-            };
-            upsertWorkspaceTab(detail, openMode);
-            return detail;
+    const requestWorkspaceActivation = async (groupId: string, filePath: string, openMode: WorkspaceOpenMode, options: WorkspaceLoadOptions, detail?: WorkspaceFileNode): Promise<WorkspaceFileNode | null> => {
+        const operation = beginDocumentActivation(groupId);
+        try {
+            return await activateWorkspaceFile(groupId, filePath, openMode, options, operation, detail);
+        } catch (error) {
+            if (!acceptsActivation(operation)) return null;
+            editorGroupErrors.value = {...editorGroupErrors.value, [groupId]: error instanceof Error ? error.message : "文件读取失败"};
+            throw error;
+        } finally {
+            finishGroupActivation(groupId, operation.sequence);
         }
-
-        return await activateEditableWorkspaceFile(detail.path, detail, openMode, options);
     };
 
-    /**
-     * 加载可编辑文本文件。
-     */
-    const loadWorkspaceFile = async (filePath: string, knownDetail?: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        return await activateEditableWorkspaceFile(filePath, knownDetail, openMode, options);
-    };
+    /** 组相关 API 一律显式带 groupId；只有"在当前组打开"的领域入口默认用活动组。 */
+    const loadWorkspaceFile = (filePath: string, knownDetail?: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(editorSession.value.activeGroupId, filePath, openMode, options, knownDetail);
+    const selectWorkspacePathInGroup = (groupId: string, filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(groupId, filePath, openMode, options);
+    const selectWorkspacePath = (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        selectWorkspacePathInGroup(editorSession.value.activeGroupId, filePath, openMode, options);
+    const openWorkspacePath = (filePath: string, openMode: WorkspaceOpenMode): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(editorSession.value.activeGroupId, filePath, openMode, {});
+    const openWorkspaceNode = (node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(editorSession.value.activeGroupId, node.path, openMode, options, node);
+    const openWorkspaceNodeInGroup = (groupId: string, node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> =>
+        requestWorkspaceActivation(groupId, node.path, openMode, options, node);
 
     /**
-     * 选择工作区文件或目录。
+     * 按**文档身份**保存。不依赖活动组、不借选择标签驱动保存；同一文档合并在途保存。
      */
-    const selectWorkspacePath = async (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        return await activateWorkspaceFile(filePath, openMode, options);
-    };
-
-    /**
-     * 以预览或常驻方式打开工作区路径。
-     */
-    const openWorkspacePath = async (filePath: string, openMode: WorkspaceOpenMode): Promise<WorkspaceFileNode | null> => {
-        return await selectWorkspacePath(filePath, openMode);
-    };
-
-    /**
-     * 从文件树节点打开路径。调用方已经持有节点元信息时走这个入口，避免额外 stat 请求。
-     */
-    const openWorkspaceNode = async (node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
-        persistActiveWorkspaceBuffer();
-        if (node.isDirectory && node.contentNode) {
-            const normalizedDir = node.path.replace(/\/$/, "");
-            const indexPath = `${normalizedDir}/index.md`;
-            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
+    const saveDocumentByTarget = async (target: EditorDocumentTarget, options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
+        const previous = inflightSaves.get(target.path);
+        if (previous) {
+            await previous.catch(() => undefined);
         }
-        if (!node.editable) {
-            activeWorkspaceFile.value = {
-                node,
-                content: "",
-                lastSyncedContent: "",
-                lastSyncedMtimeMs: node.mtimeMs,
-            };
-            upsertWorkspaceTab(node, openMode);
-            return node;
-        }
-        return await activateEditableWorkspaceFile(node.path, node, openMode, options);
-    };
-
-    /**
-     * 保存当前工作区文件。
-     */
-    const saveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
-        // 先结算防抖输入，保证保存的是编辑器最新内容（flush 会替换 activeWorkspaceFile 对象，必须在取快照前）
-        flushActiveEditorPending();
-        const activeFile = activeWorkspaceFile.value;
-        if (!activeFile?.node.editable || savingFile.value) {
+        if (!acceptsDocument(target) || !workspaceBuffers.value[target.path]) {
             return null;
         }
+        const operation = writeDocument(target, options);
+        inflightSaves.set(target.path, operation);
+        savingPaths.value = [...new Set([...savingPaths.value, target.path])];
+        try {
+            return await operation;
+        } finally {
+            if (inflightSaves.get(target.path) === operation) {
+                inflightSaves.delete(target.path);
+            }
+            savingPaths.value = savingPaths.value.filter((path) => path !== target.path);
+        }
+    };
 
-        const pathToSave = activeFile.node.path;
-        const contentToSave = options.content ?? activeFile.content;
-        savingFile.value = true;
+    /**
+     * 一次写入请求。确认只推进"已提交内容"的磁盘基线：提交之后用户继续输入的内容仍是 dirty。
+     */
+    const writeDocument = async (target: EditorDocumentTarget, options: WorkspaceSaveOptions): Promise<WorkspaceFileNode | null> => {
+        const buffer = workspaceBuffers.value[target.path];
+        if (!buffer?.node.editable) {
+            return null;
+        }
+        const pathToSave = buffer.node.path;
+        const contentToSave = options.content ?? buffer.content;
         try {
             const nextNode = await $fetch<WorkspaceFileNode>("/api/workspace-files/write", {
                 method: "PUT",
@@ -928,65 +1069,70 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                     ...workspaceQuery(),
                     path: pathToSave,
                     content: contentToSave,
-                    baseContent: activeFile.lastSyncedContent,
-                    expectedMtimeMs: options.expectedMtimeMs ?? activeFile.lastSyncedMtimeMs,
+                    baseContent: buffer.lastSyncedContent,
+                    expectedMtimeMs: options.expectedMtimeMs ?? buffer.lastSyncedMtimeMs,
                     force: options.force ?? false,
                 },
             });
-            const isStillActiveFile = activeWorkspaceFile.value?.node.path === pathToSave;
-            const nextActiveContent = options.content !== undefined
-                ? contentToSave
-                : activeWorkspaceFile.value?.content ?? contentToSave;
-            if (isStillActiveFile) {
-                activeWorkspaceFile.value = {
-                    node: nextNode,
-                    content: nextActiveContent,
-                    lastSyncedContent: contentToSave,
-                    lastSyncedMtimeMs: nextNode.mtimeMs,
-                };
-            }
-            const currentBuffer = workspaceBuffers.value[nextNode.path];
+            if (!acceptsDocument(target)) return null;
+            const latest = workspaceBuffers.value[nextNode.path];
+            if (!latest) return null;
             workspaceBuffers.value = {
                 ...workspaceBuffers.value,
                 [nextNode.path]: {
                     node: nextNode,
-                    content: isStillActiveFile ? nextActiveContent : currentBuffer?.content ?? contentToSave,
+                    // 显式传入 content 的保存（合并结果）在缓冲未被改动时把该内容也落到缓冲。
+                    content: options.content === undefined || latest.content !== buffer.content ? latest.content : contentToSave,
                     lastSyncedContent: contentToSave,
                     lastSyncedMtimeMs: nextNode.mtimeMs,
+                    contentRevision: latest.contentRevision,
                 },
             };
-            if (isStillActiveFile) {
-                const currentTab = workspaceTabs.value.find((tab) => tab.path === nextNode.path);
-                upsertWorkspaceTab(nextNode, currentTab?.preview ? "preview" : "permanent");
-            }
-            syncWorkspaceTabDirty(nextNode.path);
             await loadWorkspaceTree();
             return nextNode;
         } catch (error) {
+            if (!acceptsDocument(target)) return null;
             const conflict = readWorkspaceWriteConflict(error);
             if (conflict) {
                 workspaceWriteConflict.value = conflict;
+                workspaceConflictTarget.value = target;
                 workspaceConflictDialogOpen.value = true;
                 return null;
             }
             throw error;
-        } finally {
-            savingFile.value = false;
         }
     };
 
     /**
-     * 保存全部带未保存改动的 workspace 标签。
+     * 保存活动组的活动文档。有未解决输入时停手：不能把"timer 已清"当输入已入 Store，
+     * 也不能在该文档还有待用户裁决的候选时把它写盘。
+     */
+    const saveCurrentFile = async (options: WorkspaceSaveOptions = {}): Promise<WorkspaceFileNode | null> => {
+        const target = activeWorkspaceDocumentTarget.value;
+        if (!target || flushEditorPending() === "conflict" || hasUnresolvedEditorChangeForPath(target.path)) {
+            return null;
+        }
+        return await saveDocumentByTarget(target, options);
+    };
+
+    /**
+     * 保存全部带未保存改动的文档：按缓冲去重，不切换活动组、不借标签驱动。
      */
     const saveDirtyWorkspaceFiles = async (): Promise<void> => {
-        persistActiveWorkspaceBuffer();
-        const dirtyPaths = workspaceTabs.value
-            .filter((tab) => tab.dirty)
-            .map((tab) => tab.path);
+        if (flushEditorPending() === "conflict" || unresolvedEditorChanges.value.length > 0) {
+            return;
+        }
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
+        const dirtyPaths = Object.entries(workspaceBuffers.value)
+            .filter(([, buffer]) => buffer.content !== buffer.lastSyncedContent)
+            .map(([path]) => path);
 
         for (const filePath of dirtyPaths) {
-            await selectWorkspaceTab(filePath);
-            await saveCurrentFile();
+            if (generation !== workspaceGeneration.value || key !== workspaceSessionKey.value) return;
+            const buffer = workspaceBuffers.value[filePath];
+            if (!buffer || buffer.content === buffer.lastSyncedContent) continue;
+            await saveDocumentByTarget(documentTarget(filePath), {});
         }
     };
 
@@ -1171,32 +1317,54 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 立即在本地树中应用一次路径移动。
+     * 路径移动（重命名/移动）后迁移**所有引用**：组标签实例、活动标签、缓冲与文档身份、临时字号。
+     *
+     * `documentId` 跟着路径走：同一份打开实例在移动后仍是同一个身份（内容与 dirty 不变），
+     * 但旧目标里的 `path` 不再匹配，旧视图回调因此失效——这正是移动该有的语义。
+     */
+    const migrateWorkspacePaths = (sourcePath: string, targetPath: string, isDirectory: boolean): void => {
+        const groups = editorSession.value.groups.map((group) => ({
+            id: group.id,
+            activePath: rewriteWorkspaceMovedPath(group.activePath, sourcePath, targetPath, isDirectory) ?? group.activePath,
+            tabs: group.tabs.map((tab) => {
+                const nextPath = rewriteWorkspaceMovedPath(tab.path, sourcePath, targetPath, isDirectory);
+                return nextPath ? {...tab, path: nextPath} : tab;
+            }),
+        }));
+        publishEditorSession({groups, activeGroupId: editorSession.value.activeGroupId});
+
+        const nextBuffers: Record<string, WorkspaceFileBuffer> = {};
+        const nextIds = new Map<string, string>();
+        for (const [path, buffer] of Object.entries(workspaceBuffers.value)) {
+            const nextPath = rewriteWorkspaceMovedPath(path, sourcePath, targetPath, isDirectory) ?? path;
+            nextBuffers[nextPath] = buffer;
+            const id = documentIds.get(path);
+            if (id) {
+                nextIds.set(nextPath, id);
+            }
+        }
+        workspaceBuffers.value = nextBuffers;
+        documentIds.clear();
+        for (const [path, id] of nextIds) {
+            documentIds.set(path, id);
+        }
+
+        const nextOverrides: Record<string, number> = {};
+        for (const [path, size] of Object.entries(monacoFontSizeOverridesByPath.value)) {
+            nextOverrides[rewriteWorkspaceMovedPath(path, sourcePath, targetPath, isDirectory) ?? path] = size;
+        }
+        monacoFontSizeOverridesByPath.value = nextOverrides;
+    };
+
+    /**
+     * 立即在本地树中应用一次路径移动（文件树与全部打开引用一起改）。
      */
     const applyOptimisticWorkspaceMove = (sourceNode: WorkspaceFileNode, targetPath: string): void => {
-        const nextTree = workspaceTree.value.map((node) => {
+        workspaceTree.value = workspaceTree.value.map((node) => {
             const nextPath = rewriteWorkspaceMovedPath(node.path, sourceNode.path, targetPath, sourceNode.isDirectory);
-            if (!nextPath) {
-                return node;
-            }
-            return {
-                ...node,
-                path: nextPath,
-            };
+            return nextPath ? {...node, path: nextPath} : node;
         });
-        workspaceTree.value = nextTree;
-
-        const nextSelectedPath = selectedFilePath.value
-            ? rewriteWorkspaceMovedPath(selectedFilePath.value, sourceNode.path, targetPath, sourceNode.isDirectory) ?? selectedFilePath.value
-            : "";
-        if (!activeWorkspaceFile.value || !nextSelectedPath) {
-            activeWorkspaceFile.value = null;
-            return;
-        }
-        activeWorkspaceFile.value = {
-            ...activeWorkspaceFile.value,
-            node: nextTree.find((node) => node.path === nextSelectedPath) ?? activeWorkspaceFile.value.node,
-        };
+        migrateWorkspacePaths(sourceNode.path, targetPath, sourceNode.isDirectory);
     };
 
     /**
@@ -1210,10 +1378,12 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
         const snapshot = {
             workspaceTree: workspaceTree.value,
-            activeWorkspaceFile: activeWorkspaceFile.value,
+            workspaceBuffers: workspaceBuffers.value,
+            editorSession: editorSession.value,
+            documentIds: new Map(documentIds),
+            monacoOverrides: monacoFontSizeOverridesByPath.value,
         };
-        const optimisticPath = normalizeWorkspaceMovedPath(to, sourceNode.isDirectory);
-        applyOptimisticWorkspaceMove(sourceNode, optimisticPath);
+        applyOptimisticWorkspaceMove(sourceNode, normalizeWorkspaceMovedPath(to, sourceNode.isDirectory));
 
         try {
             const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/rename", {
@@ -1224,13 +1394,20 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             return node;
         } catch (error) {
             workspaceTree.value = snapshot.workspaceTree;
-            activeWorkspaceFile.value = snapshot.activeWorkspaceFile;
+            workspaceBuffers.value = snapshot.workspaceBuffers;
+            editorSession.value = snapshot.editorSession;
+            documentIds.clear();
+            for (const [path, id] of snapshot.documentIds) {
+                documentIds.set(path, id);
+            }
+            monacoFontSizeOverridesByPath.value = snapshot.monacoOverrides;
+            publishEditorLayout();
             throw error;
         }
     };
 
     /**
-     * 删除工作区路径。
+     * 删除工作区路径：所有组里指向它的标签实例与缓冲一起摘掉。
      */
     const deleteWorkspacePath = async (filePath: string, recursive = false): Promise<void> => {
         await $fetch("/api/workspace-files/delete", {
@@ -1241,73 +1418,140 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                 recursive,
             },
         });
-        if (activeWorkspaceFile.value?.node.path === filePath) {
-            clearActiveFile();
-        }
         const normalizedPath = normalizeWorkspaceFilePath(filePath);
-        const nextBuffers = {...workspaceBuffers.value};
-        for (const path of Object.keys(nextBuffers)) {
-            if (normalizeWorkspaceFilePath(path) === normalizedPath || normalizeWorkspaceFilePath(path).startsWith(`${normalizedPath}/`)) {
-                delete nextBuffers[path];
+        const touches = (path: string): boolean => {
+            const normalized = normalizeWorkspaceFilePath(path);
+            return normalized === normalizedPath || normalized.startsWith(`${normalizedPath}/`);
+        };
+        publishEditorSession({
+            groups: editorSession.value.groups.map((group) => ({
+                id: group.id,
+                activePath: touches(group.activePath) ? "" : group.activePath,
+                tabs: group.tabs.filter((tab) => !touches(tab.path)),
+            })),
+            activeGroupId: editorSession.value.activeGroupId,
+        });
+        for (const path of Object.keys(workspaceBuffers.value)) {
+            if (touches(path)) {
+                releaseEditorDocument(path);
             }
         }
-        workspaceBuffers.value = nextBuffers;
-        const nextMonacoOverrides = {...monacoFontSizeOverridesByPath.value};
-        for (const path of Object.keys(nextMonacoOverrides)) {
-            if (normalizeWorkspaceFilePath(path) === normalizedPath || normalizeWorkspaceFilePath(path).startsWith(`${normalizedPath}/`)) {
-                delete nextMonacoOverrides[path];
+        const nextMonacoOverrides: Record<string, number> = {};
+        for (const [path, size] of Object.entries(monacoFontSizeOverridesByPath.value)) {
+            if (!touches(path)) {
+                nextMonacoOverrides[path] = size;
             }
         }
         monacoFontSizeOverridesByPath.value = nextMonacoOverrides;
-        workspaceTabs.value = workspaceTabs.value.filter((tab) => {
-            const tabPath = normalizeWorkspaceFilePath(tab.path);
-            return tabPath !== normalizedPath && !tabPath.startsWith(`${normalizedPath}/`);
-        });
         await loadWorkspaceTree();
     };
 
     /**
-     * 切换到已打开的标签页。
+     * 切换到已打开的标签页（默认活动组；组相关调用走 `selectWorkspaceTabInGroup`）。
      */
-    const selectWorkspaceTab = async (filePath: string): Promise<WorkspaceFileNode | null> => {
-        const tab = workspaceTabs.value.find((item) => item.path === filePath);
-        return await selectWorkspacePath(filePath, tab?.preview ? "preview" : "permanent");
+    const selectWorkspaceTabInGroup = async (groupId: string, filePath: string): Promise<WorkspaceFileNode | null> => {
+        const tab = findEditorSessionTab(editorSession.value, groupId, filePath);
+        return await selectWorkspacePathInGroup(groupId, filePath, tab?.preview ? "preview" : "permanent");
+    };
+    const selectWorkspaceTab = async (filePath: string): Promise<WorkspaceFileNode | null> =>
+        await selectWorkspaceTabInGroup(editorSession.value.activeGroupId, filePath);
+
+    /**
+     * 关闭指定组的标签实例。调用方负责在**最后引用**的脏文档上先确认。
+     *
+     * 未解决输入先结算：conflict 时停手，不关闭。
+     */
+    const closeWorkspaceTab = async (groupId: string, filePath: string, discardChanges = false): Promise<void> => {
+        if (flushEditorPending(groupId) === "conflict" && !discardChanges) {
+            return;
+        }
+        const tab = findEditorSessionTab(editorSession.value, groupId, filePath);
+        if (!tab) {
+            return;
+        }
+        const buffer = workspaceBuffers.value[filePath];
+        const dirty = Boolean(buffer && buffer.content !== buffer.lastSyncedContent);
+        if (dirty && !discardChanges) {
+            return;
+        }
+        const removed = removeTab(editorGrid, editorSession.value, groupId, filePath);
+        if (!removed.ok || !applyEditorSessionOutcome(removed)) {
+            return;
+        }
+        // 该组的活动标签换成下一个（若有）时按需读取尚未加载的文档。
+        const activeGroupId = editorSession.value.activeGroupId;
+        const nextPath = findEditorSessionGroup(editorSession.value, activeGroupId)?.activePath ?? "";
+        if (nextPath && !workspaceBuffers.value[nextPath]) {
+            try {
+                await selectWorkspacePathInGroup(activeGroupId, nextPath, "permanent");
+            } catch {
+                // 读取失败已在组的诊断里呈现，这里不再抛给关闭流程。
+            }
+        }
     };
 
     /**
-     * 关闭指定标签页。调用方负责在脏文件时先确认。
+     * 内容区实测尺寸：程序布局的输入，不产生保存意图。
      */
-    const closeWorkspaceTab = async (filePath: string, discardChanges = false): Promise<void> => {
-        const tabIndex = workspaceTabs.value.findIndex((tab) => tab.path === filePath);
-        if (tabIndex < 0) {
-            return;
+    const setEditorExtent = (extent: GridExtent): void => {
+        editorExtent.value = extent;
+        publishEditorLayout();
+    };
+
+    /**
+     * 一场分栏手势的落账：提交里的整批分支变化（含交汇处两根轴）由公共助手一次交给树，
+     * 任一项不通过就整批不落账，也不推进修订；成功时只推进**一次**会话修订，
+     * 让存储会话记录下结束的手势意图。
+     */
+    const commitEditorGesture = (commit: Readonly<GridGestureCommit>): {ok: true} | {ok: false; reason: string} => {
+        if (commit.contextKey !== currentWorkspaceRoot.value) {
+            return {ok: false, reason: "工作面已切换，本次调整没有落账"};
         }
-
-        if (!discardChanges && workspaceTabs.value[tabIndex]?.dirty) {
-            return;
+        const applied = applyEditorGesture(editorGrid, commit);
+        if (!applied.ok) {
+            return applied;
         }
+        editorSessionRevision.value += 1;
+        publishEditorLayout();
+        return {ok: true};
+    };
 
-        const nextBuffers = {...workspaceBuffers.value};
-        delete nextBuffers[filePath];
-        workspaceBuffers.value = nextBuffers;
-        const nextMonacoOverrides = {...monacoFontSizeOverridesByPath.value};
-        delete nextMonacoOverrides[filePath];
-        monacoFontSizeOverridesByPath.value = nextMonacoOverrides;
-        const nextTabs = workspaceTabs.value.filter((tab) => tab.path !== filePath);
-        workspaceTabs.value = nextTabs;
+    /**
+     * 把标签以 copy/move 放到目标组旁的新组。工具栏分屏是 copy（共用正文，不复制缓冲）；
+     * 拖到组边缘是 move（源组因此为空时塌陷）。
+     */
+    const splitEditorTab = (input: Readonly<{
+        sourceGroupId: string;
+        targetGroupId: string;
+        newGroupId: string;
+        path: string;
+        direction: EditorSplitDirection;
+        mode: "copy" | "move";
+    }>): boolean => applyEditorSessionOutcome(splitTabToNewGroup(editorGrid, editorSession.value, input));
 
-        if (activeWorkspaceTabPath.value !== filePath) {
-            return;
-        }
+    /** 跨组移动：目标组已有同路径时激活该标签并删除来源引用，不创建重复实例。 */
+    const transferEditorTab = (input: Readonly<{
+        sourceGroupId: string;
+        targetGroupId: string;
+        path: string;
+        targetPath?: string | null;
+        targetPinned?: boolean;
+        position?: "before" | "after";
+    }>): boolean => applyEditorSessionOutcome(transferTab(editorGrid, editorSession.value, input));
 
-        const nextTab = nextTabs[Math.max(0, tabIndex - 1)] ?? nextTabs[0] ?? null;
-        if (!nextTab) {
-            activeWorkspaceTabPath.value = "";
-            activeWorkspaceFile.value = null;
-            return;
-        }
+    /** 已分组（深度优先，与渲染顺序一致）。 */
+    const editorGroups = computed(() => editorSession.value.groups);
 
-        await selectWorkspacePath(nextTab.path, "permanent");
+    /** 存储会话读取的候选快照：会话状态 + 树快照（不暴露可变树实例）。 */
+    const readEditorSessionSnapshot = (): {state: EditorSessionState; grid: GridSnapshot} => ({
+        state: editorSession.value,
+        grid: serializeEditorSession(editorSession.value, editorGrid).grid,
+    });
+
+    /** 存储会话恢复：整体替换会话与树（恢复结果已由 `editor-session` 校验过）。 */
+    const replaceEditorSession = (restored: Readonly<{state: EditorSessionState; grid: Grid<string>}>): void => {
+        editorGrid = restored.grid;
+        publishEditorSession(restored.state);
     };
 
     /**
@@ -1325,198 +1569,130 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 把一条文档级诊断写到引用它**所有**组上（多组显示同一文档时诊断要一致）。
+     */
+    const setDocumentErrorForPath = (path: string, message: string): void => {
+        const groups = editorSession.value.groups.filter((group) => group.tabs.some((tab) => tab.path === path));
+        if (groups.length === 0) {
+            return;
+        }
+        const next = {...editorGroupErrors.value};
+        for (const group of groups) {
+            next[group.id] = message;
+        }
+        editorGroupErrors.value = next;
+    };
+
+    /**
      * 从磁盘同步外部文件变化。dirty 文件只标记冲突，不自动覆盖用户输入。
+     *
+     * 遍历的是**缓冲**（打开文档的唯一 authority），不再借标签列表：同文档两组只处理一次。
      */
     const syncWorkspaceFromDisk = async (events: WorkspaceFileChangeEventDto[]): Promise<WorkspaceDiskSyncResult> => {
-        if ((workspaceKind.value !== "user-assets" && !currentProjectRoot.value) || events.length === 0) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths: [],
-                deletedPaths: [],
-            };
-        }
-
-        // 先结算防抖输入再取 dirty 快照：防抖窗口内的输入若不计入判定，
-        // 活动文件会被误判为「无修改」而走 forceDisk 重载，本地输入被磁盘内容覆盖（文本回退）
-        flushActiveEditorPending();
-        const previousActivePath = activeWorkspaceFile.value?.node.path ?? "";
-        const previousActiveDirty = Boolean(
-            activeWorkspaceFile.value
-            && activeWorkspaceFile.value.content !== activeWorkspaceFile.value.lastSyncedContent,
-        );
-        const previousActiveTab = workspaceTabs.value.find((tab) => tab.path === previousActivePath);
+        const unchanged: WorkspaceDiskSyncResult = {activeFile: "unchanged", dirtyPaths: [], deletedPaths: []};
+        if (!canAccessWorkspace.value || events.length === 0) return unchanged;
+        flushEditorPending();
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
+        const query = workspaceQuery();
+        const previousTarget = activeWorkspaceDocumentTarget.value;
+        const previousPath = previousTarget?.path ?? "";
         const dirtyPaths: string[] = [];
         const deletedPaths: string[] = [];
-
+        const current = () => generation === workspaceGeneration.value && key === workspaceSessionKey.value;
         await loadWorkspaceTree({bypassPendingRequest: true});
-
-        const syncInactiveTabBuffer = async (tab: WorkspaceEditorTab): Promise<void> => {
-            if (tab.path === previousActivePath || !workspacePathTouchedByEvents(tab.path, events)) {
-                return;
+        if (!current()) return unchanged;
+        for (const [path, buffer] of Object.entries(workspaceBuffers.value)) {
+            if (!current()) return unchanged;
+            if (path === previousPath || !workspacePathTouchedByEvents(path, events)) continue;
+            const target = documentTarget(path);
+            if (buffer.content !== buffer.lastSyncedContent) {
+                dirtyPaths.push(path);
+                continue;
             }
-            const buffer = workspaceBuffers.value[tab.path];
-            if (buffer && buffer.content !== buffer.lastSyncedContent) {
-                dirtyPaths.push(tab.path);
-                return;
+            const node = findWorkspaceNode(path);
+            if (!node) {
+                removeWorkspaceTabState(path);
+                deletedPaths.push(path);
+                continue;
             }
-
-            const nextNode = workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(tab.path));
-            if (!nextNode) {
-                removeWorkspaceTabState(tab.path);
-                deletedPaths.push(tab.path);
-                return;
-            }
-            if (!nextNode.editable) {
-                return;
-            }
-
+            if (!node.editable) continue;
             try {
-                const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {
-                    query: {...workspaceQuery(), path: tab.path},
-                });
-                workspaceBuffers.value = {
-                    ...workspaceBuffers.value,
-                    [tab.path]: {
-                        node: nextNode,
-                        content: file.content,
-                        lastSyncedContent: file.content,
-                        lastSyncedMtimeMs: file.mtimeMs,
-                    },
-                };
-                syncWorkspaceTabDirty(tab.path);
-            } catch {
-                removeWorkspaceTabState(tab.path);
-                deletedPaths.push(tab.path);
+                const file = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {query: {...query, path}});
+                if (!current() || !acceptsDocument(target)) return unchanged;
+                const latest = workspaceBuffers.value[path];
+                if (latest && latest.content !== latest.lastSyncedContent) {
+                    dirtyPaths.push(path);
+                    continue;
+                }
+                setBuffer(path, node, file.content, file.content, file.mtimeMs);
+            } catch (error) {
+                if (!current() || !acceptsDocument(target)) return unchanged;
+                if (isMissingWorkspaceFile(error)) {
+                    removeWorkspaceTabState(path);
+                    deletedPaths.push(path);
+                } else setDocumentErrorForPath(path, error instanceof Error ? error.message : "文件同步失败");
             }
+        }
+        if (!current() || !previousTarget || !matchesEditorDocument(previousTarget, activeWorkspaceDocumentTarget.value)
+            || !workspacePathTouchedByEvents(previousPath, events)) return {activeFile: "unchanged", dirtyPaths, deletedPaths};
+        flushEditorPending();
+        const active = activeWorkspaceFile.value;
+        if (!active) return {activeFile: "unchanged", dirtyPaths, deletedPaths};
+        const node = findWorkspaceNode(previousPath);
+        if (node?.mtimeMs === active.lastSyncedMtimeMs) return {activeFile: "unchanged", dirtyPaths, deletedPaths};
+        if (active.content !== active.lastSyncedContent) return {
+            activeFile: "dirty", dirtyPaths: [...dirtyPaths, previousPath], deletedPaths: node ? deletedPaths : [...deletedPaths, previousPath],
         };
-
-        for (const tab of [...workspaceTabs.value]) {
-            await syncInactiveTabBuffer(tab);
+        if (!node) {
+            removeWorkspaceTabState(previousPath);
+            return {activeFile: "deleted", dirtyPaths, deletedPaths: [...deletedPaths, previousPath]};
         }
-
-        if (!previousActivePath || !workspacePathTouchedByEvents(previousActivePath, events)) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths,
-                deletedPaths,
-            };
-        }
-
-        // 保存回声抑制：磁盘 mtime 与本地最后同步 mtime 一致，说明这次事件是
-        // 自己 save 落盘后的 watcher 回声。此时既不该报冲突（保存后继续打字是
-        // 正常 dirty，不是外部改动），也不该 forceDisk 重载（会白跑一次读取并
-        // 重置光标）。外部工具写入必然产生新 mtime，不会命中该分支。
-        const activeNodeOnDisk = workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
-        if (
-            activeNodeOnDisk
-            && activeWorkspaceFile.value?.node.path === previousActivePath
-            && activeNodeOnDisk.mtimeMs === activeWorkspaceFile.value.lastSyncedMtimeMs
-        ) {
-            return {
-                activeFile: "unchanged",
-                dirtyPaths,
-                deletedPaths,
-            };
-        }
-
-        const activeStillExists = workspaceTree.value.some((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
-        if (previousActiveDirty) {
-            return {
-                activeFile: "dirty",
-                dirtyPaths: [...dirtyPaths, previousActivePath],
-                deletedPaths: activeStillExists ? deletedPaths : [...deletedPaths, previousActivePath],
-            };
-        }
-
-        if (!activeStillExists) {
-            removeWorkspaceTabState(previousActivePath);
-            return {
-                activeFile: "deleted",
-                dirtyPaths,
-                deletedPaths: [...deletedPaths, previousActivePath],
-            };
-        }
-
         try {
-            await selectWorkspacePath(previousActivePath, previousActiveTab?.preview ? "preview" : "permanent", {forceDisk: true});
-            return {
-                activeFile: "reloaded",
-                dirtyPaths,
-                deletedPaths,
-            };
+            const groupId = editorSession.value.activeGroupId;
+            const tab = findEditorSessionTab(editorSession.value, groupId, previousPath);
+            const result = await selectWorkspacePathInGroup(groupId, previousPath, tab?.preview ? "preview" : "permanent", {forceDisk: true});
+            return {activeFile: result ? "reloaded" : "unchanged", dirtyPaths, deletedPaths};
         } catch {
-            removeWorkspaceTabState(previousActivePath);
-            return {
-                activeFile: "deleted",
-                dirtyPaths,
-                deletedPaths: [...deletedPaths, previousActivePath],
-            };
+            return {activeFile: "unchanged", dirtyPaths, deletedPaths};
         }
     };
 
     /**
-     * 使用冲突中的真实文件内容覆盖当前编辑器状态。
+     * 用冲突里的真实文件内容覆盖该文档的权威正文（不看活动组：冲突可能发生在后台组的文档上）。
      */
     const applyWorkspaceConflictRemote = (conflict: WorkspaceWriteConflictDto): void => {
-        if (!activeWorkspaceFile.value || activeWorkspaceFile.value.node.path !== conflict.path) {
+        const buffer = workspaceBuffers.value[conflict.path];
+        if (!buffer) {
             return;
         }
         if (!conflict.remoteExists || !conflict.node) {
             removeWorkspaceTabState(conflict.path);
             return;
         }
-
-        const nextNode = conflict.node as WorkspaceFileNode;
-        activeWorkspaceFile.value = {
-            node: nextNode,
-            content: conflict.remoteContent,
-            lastSyncedContent: conflict.remoteContent,
-            lastSyncedMtimeMs: conflict.actualMtimeMs,
-        };
-        workspaceBuffers.value = {
-            ...workspaceBuffers.value,
-            [conflict.path]: {
-                node: nextNode,
-                content: conflict.remoteContent,
-                lastSyncedContent: conflict.remoteContent,
-                lastSyncedMtimeMs: conflict.actualMtimeMs,
-            },
-        };
-        syncWorkspaceTabDirty(conflict.path);
+        setBuffer(conflict.path, conflict.node as WorkspaceFileNode, conflict.remoteContent, conflict.remoteContent, conflict.actualMtimeMs);
     };
 
     /**
-     * 把手动合并结果写入当前编辑器，并把真实文件版本作为新的保存基线。
+     * 把手动合并结果写入该文档，并把真实文件版本作为新的保存基线。
      */
     const applyWorkspaceConflictMergedContent = (conflict: WorkspaceWriteConflictDto, content: string): void => {
-        if (!activeWorkspaceFile.value || activeWorkspaceFile.value.node.path !== conflict.path) {
+        const buffer = workspaceBuffers.value[conflict.path];
+        if (!buffer) {
             return;
         }
-        const nextNode = (conflict.node as WorkspaceFileNode | null) ?? activeWorkspaceFile.value.node;
-        activeWorkspaceFile.value = {
-            node: nextNode,
-            content,
-            lastSyncedContent: conflict.remoteContent,
-            lastSyncedMtimeMs: conflict.actualMtimeMs,
-        };
-        workspaceBuffers.value = {
-            ...workspaceBuffers.value,
-            [conflict.path]: {
-                node: nextNode,
-                content,
-                lastSyncedContent: conflict.remoteContent,
-                lastSyncedMtimeMs: conflict.actualMtimeMs,
-            },
-        };
-        syncWorkspaceTabDirty(conflict.path);
+        const nextNode = (conflict.node as WorkspaceFileNode | null) ?? buffer.node;
+        setBuffer(conflict.path, nextNode, content, conflict.remoteContent, conflict.actualMtimeMs);
     };
 
     /**
-     * 处理当前 workspace 写入冲突。
+     * 处理 workspace 写入冲突。保存目标取自冲突登记的身份（不再假设"冲突就是当前活动文件"）。
      */
     const resolveWorkspaceWriteConflict = async (resolution: WorkspaceFileConflictResolution): Promise<WorkspaceFileNode | null> => {
         const conflict = workspaceWriteConflict.value;
+        const target = workspaceConflictTarget.value;
         workspaceWriteConflict.value = null;
+        workspaceConflictTarget.value = null;
         if (!conflict || resolution.action === "cancel") {
             return null;
         }
@@ -1525,12 +1701,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             applyWorkspaceConflictRemote(conflict);
             return null;
         }
+        const saveTarget = target && acceptsDocument(target)
+            ? target
+            : documentTarget(conflict.path);
         if (resolution.action === "overwrite-local") {
-            return await saveCurrentFile({force: true});
+            return await saveDocumentByTarget(saveTarget, {force: true});
         }
 
         applyWorkspaceConflictMergedContent(conflict, resolution.content);
-        return await saveCurrentFile({
+        return await saveDocumentByTarget(saveTarget, {
             content: resolution.content,
             expectedMtimeMs: conflict.actualMtimeMs,
         });
@@ -1743,6 +1922,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const closeProjectWorkspace = (): void => {
         persistWorkspaceSession();
+        resetDocumentLifecycle();
         workspaceKind.value = "novel";
         currentProjectRoot.value = "";
         clearWorkspaceSelection();
@@ -1765,24 +1945,13 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         persistWorkspaceSession();
         workspaceKind.value = "user-assets";
         restoreWorkspaceSession();
-        loadingWorkspace.value = true;
-        try {
-            await loadWorkspaceTree();
-            await restoreWorkspaceTabFromPersistedState();
-        } finally {
-            loadingWorkspace.value = false;
-        }
+        await initializeWorkspace();
     };
 
     /**
      * 提交已经通过 Project 激活事务的目标，并初始化其文件树与标签。
      */
     const switchToNovelWorkspace = async (projectRoot: string): Promise<void> => {
-        if (workspaceKind.value === "novel" && projectRoot === currentProjectRoot.value) {
-            await initializeWorkspace();
-            return;
-        }
-
         persistWorkspaceSession();
         workspaceKind.value = "novel";
         currentProjectRoot.value = projectRoot;
@@ -1839,58 +2008,59 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 初始化已激活的 Project Workspace；缺失目标进入未选择状态，绝不自动挑选其它 Project。
      */
     const initializeWorkspace = async (): Promise<void> => {
-        if (workspaceKind.value === "user-assets") {
-            loadingWorkspace.value = true;
-            try {
-                await loadWorkspaceTree();
-                await restoreWorkspaceTabFromPersistedState();
-            } finally {
-                loadingWorkspace.value = false;
-            }
-            return;
-        }
-
+        const generation = workspaceGeneration.value;
+        const key = workspaceSessionKey.value;
         loadingWorkspace.value = true;
-
         try {
-            if (!currentProjectRoot.value) {
+            if (!canAccessWorkspace.value) {
                 clearWorkspaceSelection();
                 clearActiveFile();
                 clearWorkspaceState();
                 return;
             }
-
-            if (workspaceKind.value !== "novel") {
-                workspaceKind.value = "novel";
-            }
-
             await loadWorkspaceTree();
-
+            if (generation !== workspaceGeneration.value || key !== workspaceSessionKey.value) return;
             await restoreWorkspaceTabFromPersistedState();
         } finally {
-            loadingWorkspace.value = false;
+            if (generation === workspaceGeneration.value && key === workspaceSessionKey.value) loadingWorkspace.value = false;
         }
     };
 
-    watch(selectedFileContent, () => {
-        if (!activeWorkspaceFile.value) {
-            return;
-        }
-        syncWorkspaceTabDirty(activeWorkspaceFile.value.node.path);
-    });
-
     return {
-        activeLeftTab,
-        activeThemeAppearance,
-        activeThemeId,
+        activeEditorGroupId,
+        activeWorkspaceDocumentTarget,
         activeWorkspaceTabPath,
-        applyCustomThemes,
-        applyThemeConfig,
-        applyThemeSelection,
+        workspaceGeneration,
+        loadingWorkspaceDocument,
+        workspaceDocumentError,
+        updateWorkspaceDocument,
+        commitEditorChange,
+        unresolvedEditorChanges,
+        hasUnresolvedEditorChanges,
+        discardUnresolvedEditorChange,
+        readUnresolvedEditorChange,
+        registerEditorFlush,
+        flushEditorPending,
+        activeToolView,
         applyWorkspaceConflictMergedContent,
         applyWorkspaceConflictRemote,
         clearActiveFile,
         closeWorkspaceTab,
+        commitEditorGesture,
+        editorGroups,
+        editorLayout,
+        editorSession,
+        editorSessionRevision,
+        editorTree,
+        editorDocumentTarget: documentTarget,
+        editorGroupErrors,
+        editorGroupLoading,
+        readEditorSessionSnapshot,
+        replaceEditorSession,
+        selectEditorGroup,
+        setEditorExtent,
+        splitEditorTab,
+        transferEditorTab,
         convertWorkspaceFileToDirectory,
         createWorkspaceDirectory,
         createWorkspaceFile,
@@ -1898,7 +2068,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         currentNovel,
         currentProjectRoot,
         currentWorkspaceRoot,
-        customThemes,
         canAccessWorkspace,
         deleteProject,
         deleteWorkspacePath,
@@ -1909,18 +2078,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         initializeWorkspace,
         lastSyncedFileContent,
         layoutMode,
-        agentPanelWidth,
         agentSessionPanelOpen,
         agentSessionPanelWidth,
         agentStudioPanelOpen,
         agentStudioPanelWidth,
         agentStudioFileTreeWidth,
-        leftPanelWidth,
         loadingWorkspace,
         loadProjects,
         loadWorkspaceFile,
         loadWorkspaceTree,
-        registerActiveEditorFlush,
         syncWorkspaceFromDisk,
         persistWorkspaceSession,
         resolveWorkspaceWriteConflict,
@@ -1929,6 +2095,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         novels,
         openWorkspacePath,
         openWorkspaceNode,
+        openWorkspaceNodeInGroup,
         optimisticRenameWorkspacePath,
         plotWorkbenchOpen,
         plotWorkbenchTab,
@@ -1942,6 +2109,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         bumpConfigRevision,
         reasoningOptions,
         saveCurrentFile,
+        saveDocumentByTarget,
         saveDirtyWorkspaceFiles,
         selectedStoryThreadId,
         selectedStorySceneId,
@@ -1953,13 +2121,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         selectedFileNode,
         selectedFilePath,
         selectWorkspaceTab,
+        selectWorkspaceTabInGroup,
         setSelectedModelLabel,
         showEditorWorkspace,
         isUserAssetsWorkspace,
         selectWorkspacePath,
+        selectWorkspacePathInGroup,
         setMonacoFontSizeOverride,
         setWorkspaceTabPinned,
-        setWorkspaceTabViewMode,
+        setWorkspaceTabEditor,
         toggleWorkspaceTabPinned,
         switchToNovelWorkspace,
         closeProjectWorkspace,
@@ -1970,12 +2140,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         uploadFileToUploadFolder,
         uploadProjectFiles,
         uploadProjectZip,
-        theme,
-        themeVarsSnapshot,
         markdownEditorPreferences,
         monacoEditorPreferences,
         monacoFontSizeOverridesByPath,
-        viewMode,
         plotRefreshVersion,
         loadingWorkspaceTree,
         renameWorkspacePath,
@@ -2008,22 +2175,28 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     },
     {
             key: "novel.ide.local",
+            // 三个已迁移字段（左右栏尺寸与书架模式）已退出 `pick`：读写都在工作台 Storage 会话里
+            // （`app/utils/workbench/layout-session.ts`），本桶不再承载它们的运行期值。
+            //
+            // 旧「活动左侧页签」字段也已退出 `pick`，且**没有**运行期状态：工具上下文由
+            // 非持久的 `activeToolView` 承载（页面按真实可见性发布）。序列化器只负责把原件里的原值
+            // 原样留在桶里（见 `storage-migration-legacy-bucket.ts` 的退役字段），不把它迁成新选择、
+            // 也不制造缺省值。
+            //
+            // storage/serializer 门禁**暂时保留**：原件未安全保留（暂存失败、data 备份未落盘）时，
+            // 三个源值只存在于这个桶里，序列化器必须继续从捕获原件补齐它们，免得其它字段的整键重写
+            // 把它们抹掉（迁移合同「启动顺序」第 2/5 步）。退役判据与调用点在启动接线
+            // `app/plugins/storage-migration.client.ts`：原件已暂存且 data 备份落盘（或迁移 phase 已 complete）。
+            storage: legacyBucketStorage(),
+            serializer: legacyBucketSerializer,
             pick: [
-            "activeLeftTab",
-            "agentPanelWidth",
             "agentSessionPanelOpen",
             "agentSessionPanelWidth",
             "agentStudioPanelOpen",
             "agentStudioPanelWidth",
             "agentStudioFileTreeWidth",
-            "leftPanelWidth",
             "selectedModel",
             "selectedReasoning",
-            "activeThemeId",
-            "activeThemeAppearance",
-            "customThemes",
-            "themeVarsSnapshot",
-            "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",
         ],

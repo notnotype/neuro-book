@@ -2,7 +2,6 @@ import {afterEach, describe, expect, it, vi} from "vitest";
 import {
     createProjectSessionController,
     isProjectSessionSupersededError,
-    type ProjectPresenceEventDto,
     type ProjectSessionNotificationAdapter,
     type ProjectSessionTransport,
 } from "nbook/app/composables/useProjectSession";
@@ -31,9 +30,24 @@ describe("Project Session Controller", () => {
         });
 
         transport.ready("project-a");
-        await expect(opening).resolves.toEqual({projectRoot: "project-a", revision: 1});
-        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", revision: 1}});
+        await expect(opening).resolves.toEqual({projectRoot: "project-a", publicId: READY_ID, revision: 1});
+        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", publicId: READY_ID, revision: 1}});
         await controller.release();
+    });
+
+    it("presence_ready 携带不同 ready 标识时不发布 ready", async () => {
+        const transport = controlledTransport();
+        const notification = notifications();
+        const controller = createProjectSessionController(transport, notification);
+
+        const opening = controller.open("project-a");
+        await flushPromises();
+        // open 到 presence 之间服务端被 close/reopen 时，presence 会回报另一个代次的标识。
+        transport.ready("project-a", "runtime-2:1");
+
+        await expect(opening).rejects.toThrow("presence_ready");
+        expect(controller.state.value).toEqual({status: "failed", projectRoot: "project-a", ready: null});
+        expect(notification.openFailed).toHaveBeenCalledOnce();
     });
 
     it("同 root opening 复用一个 Promise 与一次 open", async () => {
@@ -46,9 +60,77 @@ describe("Project Session Controller", () => {
         await flushPromises();
         transport.ready("project-a");
 
-        await expect(first).resolves.toEqual({projectRoot: "project-a", revision: 1});
+        await expect(first).resolves.toEqual({projectRoot: "project-a", publicId: READY_ID, revision: 1});
         expect(transport.open).toHaveBeenCalledOnce();
         await controller.release();
+    });
+
+    it.each([undefined, "", 123])("open 缺少有效标识 %s 时不连接 presence", async (publicId) => {
+        const transport = controlledTransport();
+        vi.mocked(transport.open).mockResolvedValueOnce({...openResponse("project-a"), publicId});
+        const notification = notifications();
+        const controller = createProjectSessionController(transport, notification);
+
+        await expect(controller.open("project-a")).rejects.toThrow();
+        expect(controller.state.value).toEqual({status: "failed", projectRoot: "project-a", ready: null});
+        expect(transport.stream).not.toHaveBeenCalled();
+        expect(notification.openFailed).toHaveBeenCalledOnce();
+        await controller.release();
+    });
+
+    it("open 回报另一个 Project 时不能用该标识连接请求的 Project", async () => {
+        const transport = controlledTransport();
+        vi.mocked(transport.open).mockResolvedValueOnce(openResponse("project-b"));
+        const controller = createProjectSessionController(transport, notifications());
+
+        await expect(controller.open("project-a")).rejects.toThrow("open 响应与请求的项目不匹配");
+        expect(transport.stream).not.toHaveBeenCalled();
+        expect(controller.state.value.status).toBe("failed");
+        await controller.release();
+    });
+
+    it.each([undefined, "", 123])("presence 缺少有效标识 %s 时撤销 opening", async (publicId) => {
+        const transport = controlledTransport();
+        const controller = createProjectSessionController(transport, notifications());
+        const opening = controller.open("project-a");
+        await flushPromises();
+
+        transport.emit("project-a", {type: "presence_ready", projectRoot: "project-a", publicId});
+
+        await expect(opening).rejects.toThrow("presence_ready 响应不符合项目连接合同");
+        expect(controller.state.value).toEqual({status: "failed", projectRoot: "project-a", ready: null});
+        expect(transport.aborted).toContain("project-a");
+        await controller.release();
+    });
+
+    it.each(["open", "stream"] as const)("%s 同步抛错也进入 failed，下一次打开可以成功", async (method) => {
+        const transport = controlledTransport();
+        const failure = new Error("同步连接异常");
+        vi.mocked(transport[method]).mockImplementationOnce(() => { throw failure; });
+        const notification = notifications();
+        const controller = createProjectSessionController(transport, notification);
+
+        await expect(controller.open("project-a")).rejects.toBe(failure);
+        expect(controller.state.value).toEqual({status: "failed", projectRoot: "project-a", ready: null});
+        expect(notification.openFailed).toHaveBeenCalledWith("project-a", failure);
+
+        const retry = controller.open("project-a");
+        await flushPromises();
+        transport.ready("project-a");
+        await expect(retry).resolves.toMatchObject({projectRoot: "project-a", publicId: READY_ID});
+        await controller.release();
+    });
+
+    it("open 同一轮立即 release 不再启动已取消的传输", async () => {
+        const transport = controlledTransport();
+        const controller = createProjectSessionController(transport, notifications());
+        const opening = controller.open("project-a");
+        const rejected = expect(opening).rejects.toSatisfy(isProjectSessionSupersededError);
+
+        await controller.release();
+        await rejected;
+        expect(transport.open).not.toHaveBeenCalled();
+        expect(controller.state.value).toEqual({status: "idle", ready: null});
     });
 
     it("manifest 修复只在 winning generation ready 后提示一次", async () => {
@@ -88,8 +170,8 @@ describe("Project Session Controller", () => {
 
         await expect(first).rejects.toSatisfy(isProjectSessionSupersededError);
         await expect(second).rejects.toSatisfy(isProjectSessionSupersededError);
-        await expect(third).resolves.toEqual({projectRoot: "project-c", revision: 1});
-        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-c", revision: 1}});
+        await expect(third).resolves.toEqual({projectRoot: "project-c", publicId: READY_ID, revision: 1});
+        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-c", publicId: READY_ID, revision: 1}});
         expect(transport.aborted).toEqual(expect.arrayContaining(["project-a", "project-b"]));
         await controller.release();
     });
@@ -116,6 +198,35 @@ describe("Project Session Controller", () => {
         await expect(controller.open("project-a")).rejects.toThrow("open failed");
         expect(controller.state.value).toEqual({status: "failed", projectRoot: "project-a", ready: null});
         expect(notification.openFailed).toHaveBeenCalledOnce();
+    });
+
+    it("ready 首帧与 release 同轮到达时，release 仍等待底层流退出", async () => {
+        const transport = controlledTransport();
+        const streamExit = Promise.withResolvers<void>();
+        let publishReady: () => void = () => { throw new Error("stream 尚未启动"); };
+        let streamAborted = false;
+        vi.mocked(transport.stream).mockImplementationOnce((projectRoot, publicId, signal, onEvent) => {
+            publishReady = () => onEvent({type: "presence_ready", projectRoot, publicId});
+            signal.addEventListener("abort", () => { streamAborted = true; }, {once: true});
+            return streamExit.promise;
+        });
+        const controller = createProjectSessionController(transport, notifications());
+        const opening = controller.open("project-a");
+        const rejected = expect(opening).rejects.toSatisfy(isProjectSessionSupersededError);
+        await flushPromises();
+        publishReady();
+
+        let released = false;
+        const releasing = controller.release().then(() => { released = true; });
+        await flushPromises();
+        expect(streamAborted).toBe(true);
+        expect(released).toBe(false);
+        expect(controller.state.value).toEqual({status: "idle", ready: null});
+
+        streamExit.resolve();
+        await releasing;
+        await rejected;
+        expect(released).toBe(true);
     });
 
     it("presence 断开立即撤销 ready；重连必须再次 open + presence_ready 并递增 revision", async () => {
@@ -158,7 +269,7 @@ describe("Project Session Controller", () => {
         });
         transport.ready("project-a");
         await flushPromises();
-        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", revision: 2}});
+        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", publicId: READY_ID, revision: 2}});
         await controller.release();
     });
 
@@ -190,7 +301,7 @@ describe("Project Session Controller", () => {
         expect(transport.open).toHaveBeenCalledTimes(3);
         transport.ready("project-a");
         await flushPromises();
-        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", revision: 2}});
+        expect(controller.state.value).toEqual({status: "ready", ready: {projectRoot: "project-a", publicId: READY_ID, revision: 2}});
         await controller.release();
     });
 
@@ -222,7 +333,7 @@ describe("Project Session Controller", () => {
 /** 逐帧控制 transport，使测试覆盖真实 open/Abort/presence 时序。 */
 function controlledTransport() {
     type Stream = {
-        onEvent: (event: ProjectPresenceEventDto) => void;
+        onEvent: (event: unknown) => void;
         resolve: () => void;
         reject: (error: unknown) => void;
     };
@@ -230,11 +341,12 @@ function controlledTransport() {
     const aborted: string[] = [];
     const transport: ProjectSessionTransport & {
         readonly aborted: string[];
-        ready(projectRoot: string): void;
+        ready(projectRoot: string, publicId?: string): void;
+        emit(projectRoot: string, event: unknown): void;
         end(projectRoot: string): void;
     } = {
         open: vi.fn(async (projectRoot: string) => openResponse(projectRoot)),
-        stream: vi.fn(async (projectRoot, signal, onEvent) => await new Promise<void>((resolve, reject) => {
+        stream: vi.fn(async (projectRoot, publicId, signal, onEvent) => await new Promise<void>((resolve, reject) => {
             streams.set(projectRoot, {onEvent, resolve, reject});
             signal.addEventListener("abort", () => {
                 aborted.push(projectRoot);
@@ -244,8 +356,11 @@ function controlledTransport() {
             }, {once: true});
         })),
         aborted,
-        ready(projectRoot) {
-            streams.get(projectRoot)?.onEvent({type: "presence_ready", projectRoot});
+        ready(projectRoot, publicId = READY_ID) {
+            streams.get(projectRoot)?.onEvent({type: "presence_ready", projectRoot, publicId});
+        },
+        emit(projectRoot, event) {
+            streams.get(projectRoot)?.onEvent(event);
         },
         end(projectRoot) {
             streams.get(projectRoot)?.resolve();
@@ -254,6 +369,9 @@ function controlledTransport() {
     };
     return transport;
 }
+
+/** open 响应与 presence_ready 共享的 ready 标识；预设值便于断言不匹配路径。 */
+const READY_ID = "runtime-1:1";
 
 function notifications() {
     return {
@@ -276,6 +394,7 @@ function openResponse(
             title: projectRoot,
             summary: "",
         },
+        publicId: READY_ID,
         ...change,
     };
 }

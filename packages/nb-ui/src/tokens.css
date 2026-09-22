@@ -78,7 +78,7 @@
      * 而是下面这条兜底。这是本轮刻意换的，不是漏的。
      */
     --elevation-flat: none;
-    --elevation-popover: var(--shadow-panel, 0 4px 12px color-mix(in srgb, var(--shadow-color, #000) 8%, transparent));
+    --elevation-popover: 0 0 0 1px color-mix(in srgb, var(--text-main, #000) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color, #000) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color, #000) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color, #000) 20%, transparent);
     --elevation-dialog: 0 16px 40px color-mix(in srgb, var(--shadow-color, #000) 14%, transparent);
 
     /* ---- 4.5 动效：只用于解释空间关系，不做装饰 ---------------------------- */

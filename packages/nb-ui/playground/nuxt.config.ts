@@ -11,6 +11,16 @@ export default defineNuxtConfig({
     css: ["~/assets/css/main.css"],
     vite: {
         plugins: [tailwindcss()],
+        optimizeDeps: {
+            include: [
+                "@vueuse/core",
+                "errx",
+                "reka-ui",
+                "clsx",
+                "tailwind-merge",
+                "class-variance-authority",
+            ],
+        },
     },
     compatibilityDate: "2026-07-03",
     devtools: {

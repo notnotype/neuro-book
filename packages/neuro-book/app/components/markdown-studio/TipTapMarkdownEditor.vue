@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {EditorContent, useEditor} from "@tiptap/vue-3";
+import {PluginKey} from "@tiptap/pm/state";
 import {getTextBetween, getTextSerializersFromSchema, type Editor} from "@tiptap/core";
 import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
@@ -7,12 +8,13 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
 import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/MarkdownSelectionMenu.vue";
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
-import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownEditorHandle} from "nbook/app/components/markdown-studio/markdown-editor.types";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {COMMENT_PLUGIN_KEY, type CommentItem} from "nbook/app/components/markdown-studio/tiptap/Comment";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useEditorChangeDebounce} from "nbook/app/composables/useEditorChangeDebounce";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {refreshWorkspaceReferenceNodes, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {applyInlineAiReferenceHighlight, countMarkdownLines, InlineAiReferenceHighlight, locateInlineAiSelectionTextRange, serializeEditorPrefix} from "nbook/app/components/markdown-studio/tiptap/InlineAiReferenceHighlight";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences} from "nbook/shared/editor-workbench";
@@ -69,6 +71,7 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
+    (e: "ready"): void;
     (e: "change", value: string): void;
     (e: "focus"): void;
     (e: "blur"): void;
@@ -99,7 +102,7 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 const skillTriggerStarted = ref(false);
-const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
+const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(THEME_HOST_SELECTOR) as HTMLElement | null);
 const editorPlaceholder = computed(() => props.placeholder || t("markdownStudio.editor.placeholder"));
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
@@ -296,8 +299,10 @@ const editor = useEditor({
         },
     },
     onCreate: ({editor: currentEditor}) => {
+        currentEditor.setEditable(!props.readonly);
         emit("inline-comments-change", COMMENT_PLUGIN_KEY.getState(currentEditor.state)?.comments ?? []);
         refreshInlineAiReferenceHighlight(currentEditor);
+        emit("ready");
     },
     onUpdate: () => {
         if (syncingFromOutside.value || props.readonly || !props.visible || !focused.value) {
@@ -371,6 +376,32 @@ watch(skillTriggerActive, (active) => {
     }
 });
 
+/** prosemirror-history 的插件 key 不对外导出；同名 key 指向同一插件槽位，故按名字重建即可复用其 meta 通道。 */
+const historyPluginKey = new PluginKey("history");
+type HistoryBranchLike = {constructor: {empty: HistoryBranchLike}};
+type HistoryStateLike = {
+    done: HistoryBranchLike;
+    constructor: new (done: HistoryBranchLike, undone: HistoryBranchLike, prevRanges: null, prevTime: number, prevComposition: number) => unknown;
+};
+
+/**
+ * 重设富文本的撤销基线。
+ *
+ * 带 historyState 的事务会把历史状态整体换成这里给出的空栈。外部权威正文不是本视图的
+ * 用户输入：它既不能成为可撤销项，也不能让 Ctrl+Z 把同步前的旧历史重放到新正文上。
+ * 本视图自己的输入仍照常入栈，撤销只回溯各自最近一次外部同步之后的编辑。
+ */
+function resetHistoryBaseline(currentEditor: Editor): void {
+    const history = historyPluginKey.getState(currentEditor.state) as HistoryStateLike | undefined;
+    if (!history) {
+        return;
+    }
+    const empty = history.done.constructor.empty;
+    currentEditor.view.dispatch(currentEditor.state.tr.setMeta(historyPluginKey, {
+        historyState: new history.constructor(empty, empty, null, 0, -1),
+    }));
+}
+
 /**
  * 显式更新编辑器内容。
  */
@@ -386,11 +417,19 @@ function update(markdown: string): void {
     hasFrontmatter.value = split.hasFrontmatter;
     editorSnapshot.value = markdown;
     syncingFromOutside.value = true;
-    // 读时规范化宽容形态（快照仍存原始串：改写在用户下次编辑时才随防抖上报实化为 dirty）
-    editor.value?.commands.setContent(normalizeMarkdownDialectBlocks(split.body), {
-        contentType: "markdown",
-        emitUpdate: false,
-    });
+    const currentEditor = editor.value;
+    // 读时规范化宽容形态（快照仍存原始串：改写在用户下次编辑时才随防抖上报实化为 dirty）；
+    // addToHistory:false 让这次整篇替换不作为撤销项进入历史。
+    currentEditor?.chain()
+        .setMeta("addToHistory", false)
+        .setContent(normalizeMarkdownDialectBlocks(split.body), {
+            contentType: "markdown",
+            emitUpdate: false,
+        })
+        .run();
+    if (currentEditor) {
+        resetHistoryBaseline(currentEditor);
+    }
     nextTick(() => {
         refreshInlineAiReferenceHighlight();
     });
@@ -1033,7 +1072,7 @@ onBeforeUnmount(() => {
     changeDebounce.cancel();
 });
 
-defineExpose<MarkdownStudioEditorHandle>({
+defineExpose<MarkdownEditorHandle>({
     update,
     focus,
     scrollToTop,
@@ -1287,7 +1326,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     height: 100%;
     min-height: 100%;
     overflow-y: auto;
-    background: var(--editor-bg);
+    background: var(--page-surface);
 }
 
 .tiptap-markdown-content {
@@ -1410,7 +1449,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-collapse: collapse;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     table-layout: fixed;
     white-space: normal;
 }
@@ -1426,7 +1465,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 }
 
 :deep(.nb-markdown-editor th) {
-    background: var(--source-bg);
+    background: var(--panel-surface);
     color: var(--text-secondary);
     font-weight: 700;
 }
@@ -1450,7 +1489,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow-x: auto;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.9rem 1rem;
     white-space: pre;
 }
@@ -1459,7 +1498,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border: 0;
     background: transparent;
     padding: 0;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.9em;
 }
@@ -1467,9 +1506,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(.nb-markdown-editor :not(pre) > code) {
     border: 1px solid var(--border-color);
     border-radius: 6px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.04rem 0.34rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: inherit;
     font-size: 0.95em;
     line-height: 1.25;
@@ -1484,7 +1523,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     margin: 0.25rem 0 1rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: color-mix(in srgb, var(--source-bg) 88%, var(--shadow-color) 12%);
+    background: color-mix(in srgb, var(--panel-surface) 88%, var(--shadow-color) 12%);
     object-fit: contain;
 }
 
@@ -1541,7 +1580,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     justify-content: center;
     border: 1px solid var(--status-warning);
     border-radius: 999px;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     color: var(--status-warning);
     font-size: 0.52em;
     font-weight: 700;
@@ -1624,7 +1663,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
 }
 
 :deep(.nb-html-embed__header) {
@@ -1696,7 +1735,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     max-height: 280px;
     min-height: 1.6em;
     padding: 0.6rem 0.75rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.5;
@@ -1708,7 +1747,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     width: 100%;
     min-height: 40px;
     border: 0;
-    background: var(--editor-bg);
+    background: var(--page-surface);
     opacity: 0;
     transition: opacity 0.16s ease;
 }
@@ -1727,9 +1766,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     overflow-x: auto;
     border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.55rem 0.75rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.5;
@@ -1744,9 +1783,9 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(.nb-raw-inline-html) {
     border: 1px dashed color-mix(in srgb, var(--border-color) 85%, transparent);
     border-radius: 6px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 0.02rem 0.3rem;
-    color: var(--source-text);
+    color: var(--text-main);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     font-size: 0.82em;
     line-height: 1.3;

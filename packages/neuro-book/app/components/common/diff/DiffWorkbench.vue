@@ -2,11 +2,9 @@
 import SharedDiffEditor from "nbook/app/components/common/diff/SharedDiffEditor.vue";
 import SharedMergeEditor from "nbook/app/components/common/diff/SharedMergeEditor.vue";
 import type {DiffWorkbenchDocument, DiffWorkbenchMode} from "nbook/app/components/common/diff/diff-workbench.types";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 
 const props = withDefaults(defineProps<{
     document: DiffWorkbenchDocument;
-    theme?: IdeTheme;
     mode?: DiffWorkbenchMode;
     availableModes?: DiffWorkbenchMode[];
     initialMode?: DiffWorkbenchMode;
@@ -14,7 +12,6 @@ const props = withDefaults(defineProps<{
     renderSideBySide?: boolean;
     showWhitespace?: boolean;
 }>(), {
-    theme: "sepia",
     mergeReadonly: false,
     renderSideBySide: true,
     showWhitespace: false,
@@ -156,7 +153,6 @@ watch(() => [
                 :original-label="currentLabel"
                 :modified-label="incomingLabel"
                 :language="language"
-                :theme="theme"
                 :render-side-by-side="renderSideBySide"
                 :show-whitespace="showWhitespace"
             />
@@ -169,7 +165,6 @@ watch(() => [
                 :incoming-content="document.incomingContent"
                 :incoming-label="incomingLabel"
                 :language="language"
-                :theme="theme"
                 :readonly="mergeReadonly"
                 :show-whitespace="showWhitespace"
                 :result-label="resultLabel"
@@ -183,7 +178,6 @@ watch(() => [
                 :original-label="baseLabel"
                 :modified-label="currentLabel"
                 :language="language"
-                :theme="theme"
                 :render-side-by-side="renderSideBySide"
                 :show-whitespace="showWhitespace"
             />
@@ -195,7 +189,6 @@ watch(() => [
                 :original-label="baseLabel"
                 :modified-label="incomingLabel"
                 :language="language"
-                :theme="theme"
                 :render-side-by-side="renderSideBySide"
                 :show-whitespace="showWhitespace"
             />
@@ -256,7 +249,7 @@ watch(() => [
     overflow: hidden;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--source-bg);
+    background: var(--panel-surface);
     padding: 8px;
 }
 

@@ -206,9 +206,15 @@ export async function readConfigBootstrap(
                 effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
             },
             ui: {
-                theme: effective.ui.theme,
-                customThemes: effective.ui.customThemes,
+                themeId: effective.ui.themeId,
+                appearance: effective.ui.appearance,
+                colorwayId: effective.ui.colorwayId,
+                userColorways: effective.ui.userColorways,
                 costCurrency: effective.ui.costCurrency,
+            },
+            editor: {
+                associations: effective.editor.associations,
+                languageAssociations: effective.editor.languageAssociations,
             },
         };
     });
@@ -233,7 +239,7 @@ export async function saveGlobalConfig(
             ...current,
             ...(input.agent !== undefined ? {agent: input.agent} : {}),
             ...(input.ui !== undefined ? {ui: input.ui} : {}),
-            ...(input.editor !== undefined ? {editor: input.editor} : {}),
+            ...(input.editor !== undefined ? {editor: mergeEditorConfig(current.editor, input.editor)} : {}),
             ...(input.observability !== undefined ? {observability: input.observability} : {}),
             ...(input.history !== undefined ? {history: input.history} : {}),
             ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
@@ -747,7 +753,7 @@ function assertProjectModelReferences(global: StoredGlobalConfig, project: Store
             code: "missing_default_model",
             path: ["models", "default"],
             modelKey: null,
-            message: "存在可运行模型时，Project 必须能解析到默认模型。",
+            message: "Project 还没有可用的默认模型：请在设置的「Provider」里指定一个默认模型，或停用这些 Provider。",
         });
     }
     if (issues.length === 0) {
@@ -758,6 +764,20 @@ function assertProjectModelReferences(global: StoredGlobalConfig, project: Store
         message: issues[0]?.message ?? "Project 模型引用校验失败。",
         data: {issues},
     });
+}
+
+/** 映射表提交 {} 表示清除本层；偏好只覆盖明确提交的字段。 */
+function mergeEditorConfig(
+    current: StoredGlobalConfig["editor"],
+    patch: NonNullable<StoredGlobalConfig["editor"]>,
+): NonNullable<StoredGlobalConfig["editor"]> {
+    return {
+        ...current,
+        ...(patch.markdown !== undefined ? {markdown: {...current?.markdown, ...patch.markdown}} : {}),
+        ...(patch.monaco !== undefined ? {monaco: {...current?.monaco, ...patch.monaco}} : {}),
+        ...(Object.hasOwn(patch, "associations") ? {associations: patch.associations} : {}),
+        ...(Object.hasOwn(patch, "languageAssociations") ? {languageAssociations: patch.languageAssociations} : {}),
+    };
 }
 
 /**
@@ -773,12 +793,7 @@ function mergeProjectConfig(current: StoredProjectConfig, patch: StoredProjectCo
         next.embedding = {...current.embedding, ...patch.embedding};
     }
     if (patch.editor) {
-        next.editor = {
-            ...current.editor,
-            ...patch.editor,
-            ...(patch.editor.markdown ? {markdown: {...current.editor?.markdown, ...patch.editor.markdown}} : {}),
-            ...(patch.editor.monaco ? {monaco: {...current.editor?.monaco, ...patch.editor.monaco}} : {}),
-        };
+        next.editor = mergeEditorConfig(current.editor, patch.editor);
     }
     if (patch.history) {
         next.history = {...current.history, ...patch.history};

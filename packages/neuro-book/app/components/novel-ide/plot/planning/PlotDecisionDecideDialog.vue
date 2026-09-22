@@ -4,7 +4,7 @@
 // 选中候选传 chosenOption(与候选原文匹配),未选中的候选由服务层自动转为否决记录骨架(whyRejected=null);
 // 选「全新方案」不传 chosenOption,全部候选转骨架。三段客户端必填校验,服务层还有一道不变式校验。
 import {computed, reactive, ref, watch} from "vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
+import {Dialog} from "@notnotype/nb-ui/components";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import type {StoryDecisionDto} from "nbook/shared/dto/plot.dto";
 
@@ -101,6 +101,8 @@ function submit(): void {
         width="640px"
         show-cancel
         overlay-type="opaque"
+        closable
+        teleport-target=".novel-ide-theme"
         :busy="props.saving"
         @request-close="closeDialog"
         @update:model-value="emit('update:visible', $event)"

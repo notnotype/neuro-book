@@ -13,7 +13,7 @@ import {
 import {assertProductSystemArtifactContract} from "#scripts/build/product-system-artifact-contract";
 import {buildProductAuthoringKit} from "#scripts/build/product-authoring-kit";
 import {buildProductCommands} from "#scripts/build/product-command-bundle";
-import {bundleProductRuntime} from "#scripts/build/product-runtime-bundle";
+import {bundleProductRuntime, normalizePackageManagerMetadata} from "#scripts/build/product-runtime-bundle";
 import {assertProductRuntimeModuleClosure} from "#scripts/build/product-runtime-module-closure.mjs";
 import {PRODUCT_RUNTIME_CONTRACT_PATH} from "@notnotype/neuro-book-contracts/product-runtime";
 import {
@@ -120,6 +120,9 @@ await measure("write Product Runtime Contract", async () => {
 const runtime = await measure("bundle Nitro and native islands", async () => {
     return await bundleProductRuntime(outputRoot, scratchRoot);
 });
+await measure("normalize Product public assets", async () => {
+    await normalizeProductPublicAssets();
+});
 await measure("clean Product build scratch", async () => {
     await rm(scratchRoot, {recursive: true, force: true});
 });
@@ -127,6 +130,7 @@ await measure("prune raw Product build state", async () => {
     await pruneRawServerState();
     await assertFinalRuntimeShape();
 });
+
 
 console.log(`Product commands: ${commands.commands.join(", ")} (${commands.files} files / ${commands.bytes} bytes)`);
 console.log(`Product bundle: inputs=${runtime.bundledInputs}, entry=${runtime.entryBytes} bytes`);
@@ -152,6 +156,64 @@ function assertRawOutput() {
         throw new Error(`缺少 Nuxt raw output：${outputRoot}`);
     }
 }
+/** 最终 public 资源不得携带 Bun/pnpm store 的物理 module id。 */
+async function normalizeProductPublicAssets() {
+    const publicRoot = resolve(outputRoot, "public");
+    for (const filePath of await listRegularFiles(publicRoot)) {
+        const bytes = await readFile(filePath);
+        if (!isUtf8(bytes)) {
+            if (hasPackageManagerBytes(bytes)) {
+                throw new Error(`Product public 二进制资产仍含包管理器物理路径：${filePath}`);
+            }
+            continue;
+        }
+        if (!isTextAsset(filePath)) {
+            if (hasPackageManagerBytes(bytes)) {
+                throw new Error(`Product public 非文本资产仍含包管理器物理路径：${filePath}`);
+            }
+            continue;
+        }
+        const source = bytes.toString("utf8");
+        if (!hasPackageManagerMetadata(source)) continue;
+        const normalized = normalizePackageManagerMetadata(source);
+        if (normalized !== source) await writeFile(filePath, normalized, "utf8");
+        if (hasPackageManagerMetadata(normalized)) {
+            throw new Error(`Product public 资产仍含包管理器物理路径：${filePath}`);
+        }
+    }
+}
+
+function isUtf8(bytes) {
+    return Buffer.from(bytes.toString("utf8"), "utf8").equals(bytes);
+}
+
+function isTextAsset(filePath) {
+    const extension = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+    return [".css", ".js", ".json", ".map", ".txt", ".xml", ".svg", ".html", ".htm"].includes(extension);
+}
+
+function hasPackageManagerBytes(bytes) {
+    return ["node_modules/.bun/", "node_modules/.pnpm/"].some((marker) => bytes.includes(Buffer.from(marker, "utf8")));
+}
+
+async function listRegularFiles(root) {
+    const files = [];
+    async function walk(directory) {
+        for (const entry of await readdir(directory, {withFileTypes: true})) {
+            const filePath = resolve(directory, entry.name);
+            if (entry.isDirectory()) await walk(filePath);
+            else if (entry.isFile()) files.push(filePath);
+        }
+    }
+    await walk(root);
+    return files.sort();
+}
+
+function hasPackageManagerMetadata(source) {
+    const normalized = source.replaceAll("\\\\", "\\").replaceAll("\\", "/");
+    return normalized.includes("node_modules/.bun/") || normalized.includes("node_modules/.pnpm/");
+}
+
 
 /** Product 内所有可执行命令只指向预编译入口。 */
 async function writeProductPackageJson() {

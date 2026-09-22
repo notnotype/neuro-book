@@ -17,7 +17,10 @@ export type LabComponentId =
     | "badge" | "avatar" | "progress" | "kbd" | "spinner" | "rating"
     | "pagination" | "breadcrumb" | "navigation-menu" | "tree"
     | "splitter" | "accordion" | "scroll-area"
-    | "drawer" | "popover" | "alert-dialog";
+    | "drop-indicator"
+    | "dialog-window" | "drawer" | "popover" | "alert-dialog"
+    | "quick-input"
+    | "nested-grid";
 export type LabViewportId = "responsive" | "phone" | "tablet";
 export type LabControlType = "boolean" | "text" | "select";
 
@@ -272,9 +275,12 @@ export const labComponents: LabComponentDefinition[] = [
         label: "Dropdown",
         labelZh: "下拉菜单",
         group: "控件",
-        description: "触发器+菜单原语；含子菜单、分隔线与危险项，键盘可全程操作。",
+        description: "触发器+菜单原语；含一层子菜单、受控 radio / checkbox、分隔线与危险项，键盘可全程操作。",
         scenes: [
-            {id: "default", label: "默认"},
+            {id: "default", label: "平面项与长列表"},
+            {id: "submenu", label: "一层子菜单（父项不执行）"},
+            {id: "checked", label: "受控 radio / checkbox"},
+            {id: "controlled-open", label: "受控 open"},
         ],
         controls: [
             {id: "compact", label: "紧凑触发器", type: "boolean"},
@@ -581,6 +587,23 @@ export const labComponents: LabComponentDefinition[] = [
         events: ["click"],
     },
     {
+        id: "drop-indicator",
+        label: "DropIndicator",
+        labelZh: "拖放反馈",
+        group: "布局",
+        description: "区域、条目与插入线共用视觉皮肤；宿主提供尺寸、坐标和落点语义。",
+        scenes: [
+            {id: "area", label: "区域"},
+            {id: "entry", label: "条目"},
+            {id: "line", label: "插入线"},
+            {id: "compact", label: "小目标"},
+            {id: "long-label", label: "长提示"},
+        ],
+        controls: [],
+        targetSelector: "#nb-lab-target",
+        events: [],
+    },
+    {
         id: "splitter",
         label: "Splitter",
         labelZh: "多栏分割",
@@ -594,9 +617,31 @@ export const labComponents: LabComponentDefinition[] = [
                 {label: "水平", value: "horizontal"},
                 {label: "垂直", value: "vertical"},
             ]},
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "zeroSecondSash", label: "第二条分隔条零宽", type: "boolean"},
         ],
         targetSelector: "#nb-lab-target",
-        events: ["layout"],
+        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
+    },
+    {
+        id: "nested-grid",
+        label: "NestedGrid",
+        labelZh: "嵌套分栏",
+        group: "布局",
+        description: "两轴嵌套分栏工作区（外层左右 + 内层上下）；两轴几何独立、手势单次提交与快照恢复保障。",
+        scenes: [
+            {id: "default", label: "默认两轴嵌套"},
+            {id: "unknown-ref", label: "未知引用恢复"},
+            {id: "malformed", label: "畸形重复身份拒绝"},
+            {id: "high-version", label: "高版本快照拒绝"},
+        ],
+        controls: [
+            {id: "disabled", label: "禁用", type: "boolean"},
+            {id: "forceOverConstrained", label: "模拟过约束降级", type: "boolean"},
+            {id: "zeroInnerSash", label: "内层分隔条零高", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "restore"],
     },
     {
         id: "accordion",
@@ -630,6 +675,23 @@ export const labComponents: LabComponentDefinition[] = [
         controls: [],
         targetSelector: "#nb-lab-target",
         events: [],
+    },
+    {
+        id: "dialog-window",
+        label: "DialogWindow",
+        labelZh: "非模态浮动窗口",
+        group: "浮层",
+        description: "无遮罩、页面仍可交互的非模态浮动窗口；标题栏可拖动，支持可选窗口缩放与内部滚动。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "resizable", label: "可调整大小"},
+        ],
+        controls: [
+            {id: "resizable", label: "允许调整大小", type: "boolean"},
+            {id: "closable", label: "显示关闭按钮", type: "boolean", defaultValue: true},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:modelValue", "request-close", "update:width", "update:height"],
     },
     {
         id: "drawer",
@@ -1024,6 +1086,26 @@ export const labComponents: LabComponentDefinition[] = [
         ],
         targetSelector: "#nb-lab-target",
         events: ["update:modelValue"],
+    },
+    {
+        id: "quick-input",
+        label: "QuickInput",
+        labelZh: "快速输入",
+        group: "反馈",
+        description: "全局快速输入浮层（S4 命令面板基座）：候选项、查询与活动项全由宿主控制，前缀语义不在这里。",
+        scenes: [
+            {id: "default", label: "默认"},
+            {id: "empty", label: "空结果"},
+            {id: "disabled", label: "含禁用项", disabled: true},
+            {id: "loading", label: "加载中"},
+            {id: "long-list", label: "长列表"},
+            {id: "dialog-stack", label: "嵌套对话框"},
+        ],
+        controls: [
+            {id: "open", label: "打开浮层", type: "boolean"},
+        ],
+        targetSelector: "#nb-lab-target",
+        events: ["update:open", "close", "closed", "accept", "update:query", "update:activeId"],
     },
 ];
 

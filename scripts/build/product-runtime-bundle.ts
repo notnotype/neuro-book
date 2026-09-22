@@ -139,7 +139,7 @@ export async function bundleProductRuntime(outputRoot: string, scratchRoot: stri
  * Vite/Nitro 的前端资源 manifest 会保留 Bun/pnpm store module id。
  * 这些值不是 import，但属于构建机身份；统一改成逻辑 package 路径并保持键和值一致。
  */
-function normalizePackageManagerMetadata(source: string): string {
+export function normalizePackageManagerMetadata(source: string): string {
     return source.replace(
         /(?:\.\.\/)*node_modules\/(?:\.bun\/[^/"']+\/node_modules\/|\.pnpm\/[^/"']+\/node_modules\/)(@[^/"']+\/[^/"']+|[^/"']+)\//gu,
         (_match, packageName: string) => `node_modules/${packageName}/`,

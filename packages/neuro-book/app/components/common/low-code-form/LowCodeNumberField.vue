@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import FormInput from "nbook/app/components/common/form/FormInput.vue";
+import {FormInput} from "@notnotype/nb-ui/components";
 import type {LowCodeFieldDto, LowCodeJsonValue} from "nbook/shared/dto/low-code-form.dto";
 
 const props = withDefaults(defineProps<{

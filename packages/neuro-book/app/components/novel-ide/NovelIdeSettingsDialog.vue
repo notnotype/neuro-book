@@ -1,32 +1,61 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
+import {DialogWindow} from "@notnotype/nb-ui/components";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
-import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
-import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeCostSettingsPanel.vue";
-import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
-import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
-import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
-import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
-import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
+import NovelIdeSettingsView from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
+import type {SettingsScopeId, SettingsScopeOption, SettingsSectionOption} from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.types";
+import AgentProfileSettingsView from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue";
+import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.types";
+import {
+    buildAgentProfileContext,
+    buildAgentProfileGlobalPayload,
+    buildAgentProfileProjectPayload,
+    createAgentProfilePageDraft,
+    shouldPollAgentProfileBuildStatus,
+    validateAgentProfileRuntimeDrafts,
+} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-page-draft";
+import CostSettingsView from "nbook/app/components/novel-ide/settings/sections/cost/CostSettingsView.vue";
+import {buildCostPayload, readCostCurrency} from "nbook/app/components/novel-ide/settings/sections/cost/cost-settings-draft";
+import DesktopSettingsView from "nbook/app/components/novel-ide/settings/sections/desktop/DesktopSettingsView.vue";
+import EditorSettingsView from "nbook/app/components/novel-ide/settings/sections/editor/EditorSettingsView.vue";
+import EmbeddingSettingsView from "nbook/app/components/novel-ide/settings/sections/embedding/EmbeddingSettingsView.vue";
+import {buildGlobalEmbeddingPayload, buildProjectEmbeddingPayload, createEmbeddingSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/embedding/embedding-settings-draft";
+import ObservabilitySettingsView from "nbook/app/components/novel-ide/settings/sections/observability/ObservabilitySettingsView.vue";
+import {buildObservabilityPayload, createObservabilityDraft} from "nbook/app/components/novel-ide/settings/sections/observability/observability-settings-draft";
+import ProviderSettingsView from "nbook/app/components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
+import SecuritySettingsView from "nbook/app/components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
+import FrontendSettingsView from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.vue";
+import WebSettingsView from "nbook/app/components/novel-ide/settings/sections/web/WebSettingsView.vue";
+import {buildWebPayload, createWebSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/web/web-settings-draft";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
+import {useProviderSettingsBinding} from "nbook/app/composables/useProviderSettingsBinding";
+import {useSectionDraft} from "nbook/app/composables/useSectionDraft";
+import {useSettingsWindowSize} from "nbook/app/utils/workbench/window-size-session";
+import {WORKBENCH_SETTINGS_WINDOW_MIN_SIZE} from "nbook/shared/storage/workbench-window-sizes";
+import {useDelayedFlag, useSettingsSnapshot} from "nbook/app/composables/useSettingsSnapshot";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {cloneModelDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
+import {createProfileRuntimeSettingsDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
+import type {AgentProfilePageSource} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-page-draft";
+import {createEmbeddingSettingsDraft} from "nbook/app/components/novel-ide/settings/sections/embedding/embedding-settings-draft";
+import type {CostDisplayCurrency} from "nbook/app/utils/cost-format";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
-import {ideThemeIds, themeMeta, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
-import {resolveTheme, isBuiltInThemeId} from "nbook/app/utils/theme/resolve-theme";
-import {createCustomThemeId, themeVarsToCustomVars} from "nbook/app/utils/theme/theme-editor";
-import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io";
-import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
-import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
+import {filterColorwayContractVars} from "nbook/app/utils/theme/colorway-vars";
+import {buildColorwayFileJson, colorwayFileName} from "nbook/app/utils/theme/colorway-io";
+import type {ColorwayDraft} from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
+import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, WebConfigDto} from "nbook/shared/dto/config.dto";
 import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "security" | "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
-type SettingsScope = "boot" | "global" | "project" | "browser";
+type SettingsSection = "security" | "frontend" | "editor" | "providers" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
-type ThemeEditorMode = "create" | "edit" | "copy";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -34,13 +63,6 @@ interface AppVersionDto {
     githubUrl: string;
 }
 
-type SettingsSavePanelExpose = {
-    readonly dirty: boolean;
-    readonly loading: boolean;
-    readonly saving: boolean;
-    saveSettings: () => Promise<void>;
-    restoreSettings: () => Promise<void>;
-};
 
 const props = defineProps<{
     modelValue: boolean;
@@ -53,242 +75,475 @@ const emit = defineEmits<{
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
 const authSessionState = useAuthSessionState();
-const themeManager = useThemeManager();
+const theme = useProductTheme();
+const themeSettings = useThemeSettings();
 const {locale, setLocale, t} = useI18n();
 const {
     selectedReasoning,
-    activeThemeId,
-    customThemes,
-    viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
 } = storeToRefs(novelIdeStore);
 
-const activeSection = ref<SettingsSection>("models");
-const activeScope = ref<SettingsScope>("global");
+const activeSection = ref<SettingsSection>("providers");
+const activeScope = ref<SettingsScopeId>("global");
 const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
-const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
-const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const desktopSettings = ref<DesktopSettings>({...DEFAULT_DESKTOP_SETTINGS});
 const desktopStatus = ref<DesktopStatus | null>(null);
-const themeEditorOpen = ref(false);
-const themeEditorMode = ref<ThemeEditorMode>("create");
-const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
-const themeDeleteTarget = ref<CustomThemeDto | null>(null);
-const themeImportInputRef = ref<HTMLInputElement | null>(null);
 
-const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
+const sectionItems = computed<SettingsSectionOption[]>(() => [
     {
-        value: "security",
-        label: t("settings.section.security.label"),
-        description: t("settings.section.security.description"),
-        iconClass: "i-lucide-shield-check",
-    },
-    {
-        value: "frontend",
-        label: t("settings.section.frontend.label"),
-        description: t("settings.section.frontend.description"),
-        iconClass: "i-lucide-monitor-cog",
-    },
-    {
-        value: "editor",
-        label: t("settings.section.editor.label"),
-        description: t("settings.section.editor.description"),
-        iconClass: "i-lucide-type",
-    },
-    {
-        value: "models",
-        label: t("settings.section.models.label"),
-        description: t("settings.section.models.description"),
+        value: "providers",
+        label: t("settings.section.providers.label"),
+        description: t("settings.section.providers.description"),
         iconClass: "i-lucide-cpu",
+        scopes: ["global"],
+        // 两栏型：外壳不给内边距、也不再套一层滚动，服务商列表与连接设置各自滚动。
+        layout: "fill",
     },
     {
         value: "embedding",
         label: "Embedding",
         description: t("settings.section.embedding.description"),
         iconClass: "i-lucide-binary",
+        scopes: ["global"],
     },
     {
         value: "cost",
         label: t("settings.section.cost.label"),
         description: t("settings.section.cost.description"),
         iconClass: "i-lucide-circle-dollar-sign",
+        scopes: ["global"],
     },
     {
         value: "web-tools",
         label: t("settings.section.webTools.label"),
         description: t("settings.section.webTools.description"),
         iconClass: "i-lucide-search-code",
+        scopes: ["global"],
     },
     {
         value: "agent-profile-models",
         label: t("settings.section.agentProfileModels.label"),
         description: t("settings.section.agentProfileModels.description"),
         iconClass: "i-lucide-bot-message-square",
+        scopes: ["global", "project"],
+        // 两栏型：外壳不给内边距、也不再套一层滚动，由视图自己管左右两栏各自的滚动。
+        layout: "fill",
     },
     {
         value: "observability",
         label: t("settings.section.observability.label"),
         description: t("settings.section.observability.description"),
         iconClass: "i-lucide-activity",
+        scopes: ["global"],
+    },
+    {
+        value: "security",
+        label: t("settings.section.security.label"),
+        description: t("settings.section.security.description"),
+        iconClass: "i-lucide-shield-check",
+        scopes: ["boot"],
+    },
+    {
+        value: "frontend",
+        label: t("settings.section.frontend.label"),
+        description: t("settings.section.frontend.description"),
+        iconClass: "i-lucide-monitor-cog",
+        scopes: ["browser"],
+    },
+    {
+        value: "editor",
+        label: t("settings.section.editor.label"),
+        description: t("settings.section.editor.description"),
+        iconClass: "i-lucide-type",
+        scopes: ["browser"],
     },
     {
         value: "desktop",
         label: t("settings.section.desktop.label"),
         description: t("settings.section.desktop.description"),
         iconClass: "i-lucide-panels-top-left",
+        scopes: ["browser"],
     },
 ]);
 
-const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
+const scopeOptions = computed<SettingsScopeOption[]>(() => [
     {
         value: "boot",
-        label: t("settings.scope.boot.label"),
+        label: t("settings.scope.boot.shortLabel"),
         description: t("settings.scope.boot.description"),
-        iconClass: "i-lucide-server-cog",
     },
     {
         value: "global",
-        label: t("settings.scope.global.label"),
+        label: t("settings.scope.global.shortLabel"),
         description: t("settings.scope.global.description"),
-        iconClass: "i-lucide-globe-2",
     },
     {
         value: "project",
-        label: t("settings.scope.project.label"),
+        label: t("settings.scope.project.shortLabel"),
         description: t("settings.scope.project.description"),
-        iconClass: "i-lucide-folder-cog",
+        disabledReason: projectScopeAvailable.value ? undefined : t("settings.scope.project.unavailable"),
     },
     {
         value: "browser",
-        label: t("settings.scope.browser.label"),
+        label: t("settings.scope.browser.shortLabel"),
         description: t("settings.scope.browser.description"),
-        iconClass: "i-lucide-monitor",
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
-const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
-const browserSections: SettingsSection[] = ["frontend", "editor", "desktop"];
-const bootConfigSections: SettingsSection[] = ["security"];
 const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
 const desktopAvailable = computed(() => Boolean(desktopBridge.value));
 const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"
     && Boolean(novelIdeStore.currentProjectRoot));
 
-/** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
-type ThemeCard = {
-    id: string;
-    name: string;
-    appearance: ThemeAppearance;
-    vars: ThemeVars;
-    /** 非空表示自定义主题，携带可编辑的原始 DTO */
-    custom: CustomThemeDto | null;
-};
-
-const builtInThemeCards = computed<ThemeCard[]>(() => ideThemeIds.map((themeId) => ({
-    id: themeId,
-    name: themeMeta[themeId].label,
-    appearance: themeMeta[themeId].appearance,
-    vars: resolveTheme(themeId, customThemes.value).vars,
-    custom: null,
-})));
-const customThemeCards = computed<ThemeCard[]>(() => customThemes.value.map((customTheme) => ({
-    id: customTheme.id,
-    name: customTheme.name,
-    appearance: customTheme.appearance,
-    vars: resolveTheme(customTheme.id, customThemes.value).vars,
-    custom: customTheme,
-})));
-const activeResolvedTheme = computed(() => resolveTheme(activeThemeId.value, customThemes.value));
-const activeThemeIsBuiltIn = computed(() => isBuiltInThemeId(activeResolvedTheme.value.id));
 const bootAuthEnabled = computed(() => authSessionState.session.value?.authEnabled ?? null);
-const bootAuthExample = computed(() => `auth:\n    enabled: ${bootAuthEnabled.value === null ? "<true|false>" : String(bootAuthEnabled.value)}`);
 
-const viewModeOptions = computed<SelectOption[]>(() => [
-    {value: "rich", label: t("settings.frontend.viewModeRich")},
-    {value: "source", label: t("settings.frontend.viewModeSource")},
-]);
 
-const localeOptions = computed<SelectOption[]>(() => [
-    {
-        value: "zh-CN",
-        label: t("settings.frontend.simplifiedChinese"),
-        description: t("settings.frontend.simplifiedChineseDescription"),
-        iconClass: "i-lucide-languages",
-    },
-    {
-        value: "en-US",
-        label: t("settings.frontend.english"),
-        description: t("settings.frontend.englishDescription"),
-        iconClass: "i-lucide-languages",
-    },
-]);
 
-const editorFontOptions = computed<SelectOption[]>(() => [
-    {
-        value: "\"Source Han Serif SC\", \"Noto Serif SC\", \"Songti SC\", serif",
-        label: t("settings.editor.fontChineseSerif"),
-    },
-    {
-        value: "\"Microsoft YaHei\", \"Noto Sans SC\", sans-serif",
-        label: t("settings.editor.fontChineseSans"),
-    },
-    {
-        value: "\"LXGW WenKai\", \"KaiTi\", \"STKaiti\", serif",
-        label: t("settings.editor.fontChineseKai"),
-    },
-    {
-        value: "ui-sans-serif, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
-        label: t("settings.editor.fontSystemSans"),
-    },
-    {
-        value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        label: t("settings.editor.fontMonospace"),
-    },
-]);
-
-const monacoFontOptions = computed<SelectOption[]>(() => [
-    {
-        value: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
-        label: t("settings.editor.fontSystemMonospace"),
-    },
-    {
-        value: "JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        label: "JetBrains Mono",
-    },
-    {
-        value: "Cascadia Code, Consolas, ui-monospace, monospace",
-        label: "Cascadia Code",
-    },
-    {
-        value: "Fira Code, ui-monospace, Menlo, Monaco, Consolas, monospace",
-        label: "Fira Code",
-    },
-]);
-
-const targetQuery = computed(() => activeScope.value === "project" && novelIdeStore.currentProjectRoot
+const targetQuery = computed(() => (activeScope.value === "project" || activeSection.value === "frontend") && novelIdeStore.workspaceKind === "novel" && novelIdeStore.currentProjectRoot
     ? {workspaceKind: "novel" as const, projectRoot: novelIdeStore.currentProjectRoot}
     : {workspaceKind: "user-assets" as const});
 const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
     ? novelIdeStore.currentNovel?.title || novelIdeStore.currentProjectRoot || "Project Workspace"
     : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
-const visibleSectionItems = computed(() => {
-    const allowed = activeScope.value === "boot"
-        ? bootConfigSections
-        : activeScope.value === "browser"
-        ? browserSections
-        : activeScope.value === "project"
-            ? projectConfigSections
-            : globalConfigSections;
-    return frontendSectionItems.value.filter((item) => allowed.includes(item.value) && (item.value !== "desktop" || desktopAvailable.value));
+
+const configApi = useConfigApi();
+const costDisplay = useCostDisplay();
+const costRefreshing = ref(false);
+const desktopSaving = ref(false);
+const desktopSaveError = ref("");
+
+/**
+ * 写回上下文：这份草稿是按哪个配置目标、以及当时未编辑的基准段构建的。
+ *
+ * 基准段必须一起捕获：写回体 = 基准段 + 本区段的字段，若基准段在写回时另取实时快照，
+ * 切了作用域就会「基准不同 → 写回体与基线不等 → 被判成脏」并把没改过的配置写回去。
+ */
+type SectionWriteContext = {scope: SettingsScopeId; query: ConfigWorkspaceQueryDto};
+const writeContext = (): SectionWriteContext => ({scope: activeScope.value, query: targetQuery.value});
+const notifySaveFailed = (message: string): void => {
+    notification.error(message);
+};
+
+/** 前端区段的默认打开方式来自Config；不能依赖先访问其它区段留下的快照。 */
+const snapshotEnabled = computed(() => props.modelValue && (activeScope.value === "global" || activeScope.value === "project" || activeSection.value === "frontend"));
+const settingsSnapshot = useSettingsSnapshot({
+    enabled: () => snapshotEnabled.value,
+    targetQuery: () => targetQuery.value,
+    fallbackErrorMessage: t("settings.feedback.loadFailed"),
 });
+const viewModeSaving = ref(false);
+const viewMode = computed(() => {
+    const id = settingsSnapshot.snapshot.value?.global.editor?.associations?.[".md"] ?? "markdown";
+    return id === "markdown" ? "rich" : id === "code" ? "source" : "custom";
+});
+const viewModeProjectOverride = computed(() => Boolean(settingsSnapshot.snapshot.value?.project?.editor?.associations?.[".md"]));
+
+/** Web 工具只有全局段。 */
+const webDraft = useSectionDraft({
+    source: () => settingsSnapshot.snapshot.value?.global.web ?? null,
+    create: (source) => createWebSettingsDraftFromConfig(source as WebConfigDto | undefined),
+    toPayload: (draft) => ({web: buildWebPayload(draft)}),
+    captureContext: writeContext,
+    write: (payload, context) => configApi.saveGlobal(payload, context.query),
+    notifyError: notifySaveFailed,
+    fallbackErrorMessage: t("settings.feedback.saveFailed"),
+});
+
+/** 向量嵌入：global 与 project 共用一份草稿，写回段由草稿构建时捕获的作用域决定。 */
+const embeddingDraft = useSectionDraft({
+    source: () => settingsSnapshot.snapshot.value,
+    create: (source) => source ? createEmbeddingSettingsDraftFromConfig(source as ConfigEditorSnapshotDto) : createEmbeddingSettingsDraft(),
+    toPayload: (draft, context) => context.scope === "project"
+        ? {embedding: buildProjectEmbeddingPayload(draft.project)}
+        : {embedding: buildGlobalEmbeddingPayload(draft.global)},
+    captureContext: writeContext,
+    write: (payload, context) => context.scope === "project"
+        ? configApi.saveProject(payload as ProjectConfigDto, context.query)
+        : configApi.saveGlobal(payload as GlobalConfigUpdateDto, context.query),
+    notifyError: notifySaveFailed,
+    fallbackErrorMessage: t("settings.feedback.saveFailed"),
+});
+
+/** 费用显示：币种进配置，汇率留在本机会话。 */
+const costDraft = useSectionDraft({
+    source: () => settingsSnapshot.snapshot.value?.global.ui ?? null,
+    create: (source) => readCostCurrency(source as GlobalConfigDto["ui"]),
+    toPayload: (currency, context) => buildCostPayload(context.baseUi, currency),
+    captureContext: () => ({...writeContext(), baseUi: settingsSnapshot.snapshot.value?.global.ui}),
+    write: (payload, context) => configApi.saveGlobal(payload, context.query),
+    notifyError: notifySaveFailed,
+    fallbackErrorMessage: t("settings.feedback.saveFailed"),
+});
+
+/** 快照里的币种（含写回回声）同步到本机展示状态。 */
+watch(() => readCostCurrency(settingsSnapshot.snapshot.value?.global.ui), (currency) => {
+    costDisplay.setCostCurrency(currency);
+    if (currency === "CNY") {
+        void costDisplay.ensureExchangeRate(configApi.exchangeRate);
+    }
+}, {immediate: true});
+
+const observabilityDraft = useSectionDraft({
+    source: () => settingsSnapshot.snapshot.value?.global ?? null,
+    create: (source) => createObservabilityDraft(source as GlobalConfigDto | undefined),
+    toPayload: (draft, context) => buildObservabilityPayload(context.baseGlobal, draft),
+    captureContext: () => ({...writeContext(), baseGlobal: settingsSnapshot.snapshot.value?.global}),
+    write: (payload, context) => configApi.saveGlobal(payload, context.query),
+    notifyError: notifySaveFailed,
+    fallbackErrorMessage: t("settings.feedback.saveFailed"),
+});
+
+/** Agent Profile 的草稿依赖两个来源：配置快照 + Profile meta（另一个端点）。 */
+const agentProfileMeta = shallowRef<ConfigAgentProfileSettingsDto | null>(null);
+/** meta 是按哪个配置目标取的。目标一换就等新数据，不能让上一个目标的表单先渲染一帧。 */
+const agentProfileMetaKey = ref("");
+const agentProfileMetaLoading = ref(false);
+const agentProfileLoadError = ref("");
+const agentProfileActive = computed(() => activeSection.value === "agent-profile-models");
+const agentProfileOptions = computed(() => ({
+    workspaceSlot: novelIdeStore.workspaceKind === "user-assets" ? "userAssets" as const : "novel" as const,
+}));
+
+/** 页面草稿的来源：快照 + Profile meta 都到位才有值。 */
+function agentProfileSourceValue(): AgentProfilePageSource | null {
+    const snapshot = settingsSnapshot.snapshot.value;
+    const settings = agentProfileMeta.value;
+    if (!snapshot || !settings) {
+        return null;
+    }
+    // 逐字段取，不把整份快照带进类型推断。
+    // \`ConfigEditorSnapshotDto\` 与 \`GlobalConfigDto\` 的推断类型深度超过 TS 的实例化上限
+    // （同样的值直接当参数传不会炸，一旦有显式目标类型就会），所以在装配点做一次显式断言；
+    // 字段本身的类型检查都在 agent-profile-page-draft.ts 里。
+    return {
+        snapshot: {
+            global: snapshot.global,
+            project: snapshot.project,
+            defaultProfileSettings: snapshot.defaultProfileSettings,
+        },
+        settings,
+        scope: activeScope.value === "project" ? "project" : "global",
+    } as unknown as AgentProfilePageSource;
+}
+
+const emptyAgentProfileDraft = (): AgentProfileSettingsPageDraft => ({
+    defaultProfileKey: "",
+    modelDefaults: cloneModelDraft(undefined),
+    runtimeDefaults: createProfileRuntimeSettingsDraft(undefined),
+    profiles: [],
+});
+
+/** 当前配置目标的标识：meta 与它不一致就说明数据还没跟上。 */
+const agentProfileMetaTargetKey = (): string => `${activeScope.value === "project" ? "project" : "global"}:${JSON.stringify(targetQuery.value)}`;
+
+async function loadAgentProfileMeta(): Promise<void> {
+    const requestKey = agentProfileMetaTargetKey();
+    agentProfileMetaLoading.value = true;
+    agentProfileLoadError.value = "";
+    try {
+        const loaded = await configApi.agentProfileSettings(targetQuery.value, activeScope.value === "project" ? "project" : "global");
+        agentProfileMeta.value = loaded;
+        agentProfileMetaKey.value = requestKey;
+    } catch (error) {
+        agentProfileLoadError.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.loadFailed"));
+        notification.error(agentProfileLoadError.value);
+    } finally {
+        agentProfileMetaLoading.value = false;
+    }
+}
+
+/** Profile meta 只在这个区段真的被打开时才取：没进过的区段不发请求，打开后换目标才重取。 */
+watch(
+    [agentProfileActive, snapshotEnabled, () => JSON.stringify(targetQuery.value)],
+    ([active, enabled]) => {
+        if (active && enabled) {
+            void loadAgentProfileMeta();
+        }
+    },
+    {immediate: true},
+);
+
+const agentProfileDraft = useSectionDraft({
+    source: () => agentProfileSourceValue(),
+    create: (source) => source ? createAgentProfilePageDraft(source as AgentProfilePageSource, agentProfileOptions.value) : emptyAgentProfileDraft(),
+    toPayload: (draft, context) => {
+        if (context.scope === "project") {
+            return buildAgentProfileProjectPayload(draft);
+        }
+        // meta 还没到时没有 Global 写回体可言：返回空体，与基线相等，因此不会被写出去。
+        return context.source ? buildAgentProfileGlobalPayload(context.source, draft, agentProfileOptions.value) : {};
+    },
+    captureContext: () => ({...writeContext(), source: agentProfileSourceValue()}),
+    write: async (payload, context) => {
+        const validation = validateAgentProfileRuntimeDrafts(agentProfileDraft.draft.value);
+        if (!validation.ok) {
+            throw new Error(t("settings.panels.profileModels.runtime.validationFailed"));
+        }
+        if (context.scope === "project") {
+            await configApi.saveProject(payload as ProjectConfigDto, context.query);
+        } else {
+            await configApi.saveGlobal(payload as GlobalConfigDto, context.query);
+        }
+        await loadAgentProfileMeta();
+    },
+    notifyError: notifySaveFailed,
+    fallbackErrorMessage: t("settings.feedback.saveFailed"),
+});
+
+const agentProfileReady = computed(() => agentProfileSourceValue() !== null
+    && agentProfileMetaKey.value === agentProfileMetaTargetKey()
+    && !agentProfileMetaLoading.value);
+
+/** 视图需要完整上下文；来源未就绪时返回 null，由宿主渲染加载/失败占位。 */
+function agentProfileContext(): AgentProfileSettingsContext | null {
+    const source = agentProfileSourceValue();
+    if (!source) {
+        return null;
+    }
+    return buildAgentProfileContext(source, {...agentProfileOptions.value, descriptions: {}});
+}
+
+/** 编译中的 profile 需要轮询编译状态；状态落定后由快照重取带回最新结果。 */
+let buildStatusTimer: ReturnType<typeof setTimeout> | null = null;
+async function pollAgentProfileBuildStatus(): Promise<void> {
+    buildStatusTimer = null;
+    if (!shouldPollAgentProfileBuildStatus(agentProfileDraft.draft.value)) {
+        return;
+    }
+    try {
+        const status = await configApi.agentProfileBuildStatus();
+        const byKey = new Map(status.profiles.map((profile) => [profile.profileKey, profile]));
+        for (const profile of agentProfileDraft.draft.value.profiles) {
+            const next = byKey.get(profile.profileKey);
+            if (!next) {
+                continue;
+            }
+            profile.loadStatus = next.loadStatus;
+            profile.issue = next.issue;
+            profile.buildState = next.buildState;
+        }
+    } catch {
+        // 状态轮询只是增量刷新，失败时保持当前表单，不打断编辑。
+    }
+    buildStatusTimer = setTimeout(() => void pollAgentProfileBuildStatus(), 1200);
+}
+watch([agentProfileActive, agentProfileDraft.draft], ([active, draft]) => {
+    if (buildStatusTimer !== null) {
+        return;
+    }
+    if (!active || !shouldPollAgentProfileBuildStatus(draft)) {
+        return;
+    }
+    buildStatusTimer = setTimeout(() => void pollAgentProfileBuildStatus(), 1200);
+}, {deep: true});
+
+/** 有没有区段正在写盘（含 Provider 会话）。 */
+const anySectionSaving = computed(() => webDraft.saving.value || embeddingDraft.saving.value || costDraft.saving.value
+    || observabilityDraft.saving.value || agentProfileDraft.saving.value || providerBinding.saving.value);
+
+/** 把各区段未落盘的改动一次写完；不阻塞调用方（上下文已随草稿捕获）。 */
+function flushSectionDrafts(): Promise<unknown> {
+    return Promise.all([
+        webDraft.flush(),
+        embeddingDraft.flush(),
+        costDraft.flush(),
+        observabilityDraft.flush(),
+        agentProfileDraft.flush(),
+        providerBinding.flushSave(),
+    ]);
+}
+
+/** 编辑器区段的重置按块分发（视图只发目标名）。 */
+function resetEditorSettings(target: "markdown" | "monaco"): void {
+    if (target === "markdown") {
+        resetEditorPreferences();
+        return;
+    }
+    resetMonacoPreferences();
+}
+
+/** 费用显示的汇率刷新：只在用户点击时访问后端。 */
+async function refreshCostExchangeRate(): Promise<void> {
+    if (costRefreshing.value) {
+        return;
+    }
+    costRefreshing.value = true;
+    try {
+        costDisplay.setExchangeRate(await configApi.exchangeRate());
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.panels.cost.refreshFailed")));
+    } finally {
+        costRefreshing.value = false;
+    }
+}
+
+/** 币种改动：先落本机会话状态，再交给草稿的防抖写回。 */
+function setCostCurrency(currency: CostDisplayCurrency): void {
+    costDraft.draft.value = currency;
+    costDisplay.setCostCurrency(currency);
+    if (currency === "CNY") {
+        void costDisplay.ensureExchangeRate(configApi.exchangeRate);
+    }
+}
+
+/** 设置窗口尺寸是本机偏好（user/local），唯一写者是记录会话：旧裸键 `nbook.settingsDialog.size` 已迁入并删除。 */
+const windowSizeRecord = useSettingsWindowSize();
+const settingsWindowSize = windowSizeRecord.size;
+const settingsWindowSizeNotice = windowSizeRecord.notice;
+
+function updateSettingsWindowWidth(width: number): void {
+    void windowSizeRecord.commit({...settingsWindowSize.value, width});
+}
+
+function updateSettingsWindowHeight(height: number): void {
+    void windowSizeRecord.commit({...settingsWindowSize.value, height});
+}
+
+const providerBinding = useProviderSettingsBinding({
+    scope: () => activeScope.value === "project" ? "project" : "global",
+    targetQuery: () => targetQuery.value,
+    targetLabel: () => targetLabel.value,
+    enabled: () => activeSection.value === "providers",
+});
+
+/**
+ * 当前区段有没有数据可渲染。重区段自带一次取数（Provider 会话 / Agent Profile 元数据），
+ * 这些取数折进外壳的同一块加载占位——一个区段在任何时刻只会有一个加载呈现。
+ */
+const activeSectionReady = computed(() => {
+    if (activeSection.value === "providers") {
+        // 重新读取期间也不算就绪：避免上一轮的数据先渲染一帧再被替换。
+        return providerBinding.loaded.value && !providerBinding.loading.value;
+    }
+    if (activeSection.value === "agent-profile-models") {
+        return agentProfileReady.value && !agentProfileMetaLoading.value;
+    }
+    return true;
+});
+/** 任一来源在读：交互统一按它禁用（视图不再各自维护 loading）。 */
+const settingsLoading = computed(() => settingsSnapshot.loading.value || !activeSectionReady.value);
+/** 加载占位只在读得慢时出现；呈现由外壳的共享状态组件负责。 */
+const settingsLoaderVisible = useDelayedFlag(() => settingsLoading.value, 200);
+/** 当前区段的失败原因：快照失败或该区段自带取数失败。 */
+const settingsLoadError = computed(() => settingsSnapshot.loadError.value
+    || (activeSection.value === "agent-profile-models" ? agentProfileLoadError.value : ""));
+
+/** 重试：快照 + 当前区段自带的取数。 */
+function reloadSettings(): void {
+    void settingsSnapshot.reload();
+    if (activeSection.value === "agent-profile-models") {
+        void loadAgentProfileMeta();
+    }
+    if (activeSection.value === "providers") {
+        void providerBinding.load();
+    }
+}
+
+/** 桌面应用区段只在 Desktop Envelope 里出现。 */
+const visibleSectionItems = computed<SettingsSectionOption[]>(() => sectionItems.value.filter((item) => item.value !== "desktop" || desktopAvailable.value));
 
 const versionLabel = computed(() => {
     if (appVersionPending.value && !appVersion.value) {
@@ -306,97 +561,26 @@ const versionLabel = computed(() => {
     return t("settings.version.generic", {version: appVersion.value.versionLabel});
 });
 
-const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
-    switch (activeSection.value) {
-        case "models":
-            return modelSettingsPanelRef.value;
-        case "embedding":
-            return embeddingSettingsPanelRef.value;
-        case "cost":
-            return costSettingsPanelRef.value;
-        case "web-tools":
-            return webSettingsPanelRef.value;
-        case "agent-profile-models":
-            return agentProfileModelSettingsPanelRef.value;
-        case "observability":
-            return observabilitySettingsPanelRef.value;
-        case "frontend":
-        case "editor":
-        case "security":
-        case "desktop":
-            return null;
-    }
-});
-const activeSaveDirty = computed(() => activeSavePanel.value?.dirty ?? false);
-const activeSaveLoading = computed(() => activeSavePanel.value?.loading ?? false);
-const activeSaveSaving = computed(() => activeSavePanel.value?.saving ?? false);
-const showHeaderSaveButton = computed(() => activeSavePanel.value !== null);
-const activeSaveDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
-const activeRestoreDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
+
+
+
 
 /**
- * 读取当前配置目标允许显示的设置分区。
- */
-function sectionsForScope(scope: SettingsScope): SettingsSection[] {
-    if (scope === "boot") {
-        return bootConfigSections;
-    }
-    if (scope === "browser") {
-        return browserSections;
-    }
-    if (scope === "project") {
-        return projectConfigSections;
-    }
-    return globalConfigSections;
-}
-
-/**
- * 保证右侧内容分区与左侧配置目标一致。
- */
-function alignActiveSectionToScope(): void {
-    const allowed = sectionsForScope(activeScope.value);
-    if (!allowed.includes(activeSection.value)) {
-        activeSection.value = allowed[0] ?? "frontend";
-    }
-}
-
-/**
- * 保存当前激活的配置面板。
- */
-async function saveActivePanel(): Promise<void> {
-    const panel = activeSavePanel.value;
-    if (!panel || panel.loading || panel.saving || !panel.dirty) {
-        return;
-    }
-    await panel.saveSettings();
-}
-
-/**
- * 从已保存配置重新读取当前面板，丢弃本地草稿。
- */
-async function restoreActivePanel(): Promise<void> {
-    const panel = activeSavePanel.value;
-    if (!panel || panel.loading || panel.saving || !panel.dirty) {
-        return;
-    }
-    await panel.restoreSettings();
-}
-
-/**
- * 设置页允许直接离开 dirty 草稿；只在加载或保存中阻止切换。
+ * 保存进行中不允许切换/关闭：写回体还没出去，换目标会把结果落到错误的地方。
  */
 function canLeaveCurrentPanel(): boolean {
-    if (activeSaveLoading.value || activeSaveSaving.value) {
-        notification.info(activeSaveSaving.value ? t("settings.feedback.saving") : t("settings.feedback.loading"));
+    if (anySectionSaving.value) {
+        notification.info(t("settings.feedback.saving"));
         return false;
     }
     return true;
 }
 
 /**
- * 选择设置页配置目标，不改变当前 IDE 打开的小说。
+ * 切换配置作用域：立刻切，写回在后台完成。
+ * 写回上下文随草稿一起捕获，因此晚到的写回仍落在原来那一档，不会写到新目标上。
  */
-function selectScope(scope: SettingsScope): void {
+function selectScope(scope: SettingsScopeId): void {
     if (scope === activeScope.value) {
         return;
     }
@@ -406,25 +590,21 @@ function selectScope(scope: SettingsScope): void {
     if (scope === "project" && !projectScopeAvailable.value) {
         notification.info(t("settings.scope.project.unavailable"));
         activeScope.value = "global";
-        activeSection.value = "models";
         return;
     }
     activeScope.value = scope;
-    activeSection.value = scope === "boot" ? "security" : scope === "browser" ? "frontend" : "models";
-    alignActiveSectionToScope();
+    void flushSectionDrafts();
 }
 
-/**
- * 选择配置分区；dirty 草稿会随面板切换自然丢弃。
- */
-function selectSection(section: SettingsSection): void {
+/** 选择配置分区；未落盘的改动会在防抖窗口里自己写完，不需要在切换时阻断。 */
+function selectSection(section: string): void {
     if (section === activeSection.value) {
         return;
     }
     if (!canLeaveCurrentPanel()) {
         return;
     }
-    activeSection.value = section;
+    activeSection.value = section as SettingsSection;
 }
 
 /**
@@ -500,181 +680,6 @@ function closeDialog(): void {
 }
 
 /**
- * 处理主题选择。
- */
-function updateTheme(value: string): void {
-    void themeManager.setTheme(value);
-}
-
-/**
- * 克隆自定义主题，避免 Dialog 草稿直接改写 store 引用。
- */
-function cloneCustomTheme(theme: CustomThemeDto): CustomThemeDto {
-    return {
-        id: theme.id,
-        name: theme.name,
-        appearance: theme.appearance,
-        vars: {...theme.vars},
-    };
-}
-
-/**
- * 基于指定主题创建编辑器初始草稿（新建/复制的起点）。
- */
-function createThemeDraftFrom(sourceThemeId: string, mode: Exclude<ThemeEditorMode, "edit">): CustomThemeDto {
-    const resolvedTheme = resolveTheme(sourceThemeId, customThemes.value);
-    const name = mode === "copy"
-        ? t("settings.frontend.themeCopyName", {name: resolvedTheme.label})
-        : t("settings.frontend.themeNewName", {name: resolvedTheme.label});
-    return {
-        id: createCustomThemeId(name, customThemes.value),
-        name,
-        appearance: resolvedTheme.appearance,
-        vars: themeVarsToCustomVars(resolvedTheme.vars),
-    };
-}
-
-/**
- * 打开新建主题编辑器（以当前主题为起点）。
- */
-function openThemeCreator(): void {
-    themeEditorMode.value = "create";
-    themeEditorInitialTheme.value = createThemeDraftFrom(activeThemeId.value, "create");
-    themeEditorOpen.value = true;
-}
-
-/**
- * 复制指定主题为自定义主题并打开编辑器。
- */
-function openThemeCopier(sourceThemeId: string): void {
-    themeEditorMode.value = "copy";
-    themeEditorInitialTheme.value = createThemeDraftFrom(sourceThemeId, "copy");
-    themeEditorOpen.value = true;
-}
-
-/**
- * 打开指定自定义主题的编辑器。
- */
-function openThemeEditor(theme: CustomThemeDto): void {
-    themeEditorMode.value = "edit";
-    themeEditorInitialTheme.value = cloneCustomTheme(theme);
-    themeEditorOpen.value = true;
-}
-
-/**
- * 主题编辑器保存成功后的反馈。
- */
-function handleThemeSaved(theme: CustomThemeDto): void {
-    notification.success(t("settings.frontend.themeSaved", {name: theme.name}));
-}
-
-/**
- * 主题编辑器是浮动窗口：打开时收起设置对话框让用户看到真实页面，
- * 关闭后恢复设置对话框继续操作。
- */
-const resumeSettingsAfterThemeEditor = ref(false);
-watch(themeEditorOpen, (open) => {
-    if (open) {
-        if (props.modelValue) {
-            resumeSettingsAfterThemeEditor.value = true;
-            emit("update:modelValue", false);
-        }
-        return;
-    }
-    if (resumeSettingsAfterThemeEditor.value) {
-        resumeSettingsAfterThemeEditor.value = false;
-        emit("update:modelValue", true);
-    }
-});
-
-/**
- * 请求删除指定自定义主题。
- */
-function requestDeleteTheme(theme: CustomThemeDto): void {
-    themeDeleteTarget.value = cloneCustomTheme(theme);
-}
-
-/**
- * 删除确认后保存新主题列表；若删掉当前主题则回退 Sepia。
- */
-async function confirmDeleteTheme(): Promise<void> {
-    const target = themeDeleteTarget.value;
-    if (!target) {
-        return;
-    }
-    const nextThemes = customThemes.value.filter((theme) => theme.id !== target.id);
-    const nextThemeId = activeThemeId.value === target.id ? "sepia" : activeThemeId.value;
-    const saved = await themeManager.saveThemeConfig(nextThemeId, nextThemes);
-    if (!saved) {
-        return;
-    }
-    themeDeleteTarget.value = null;
-    notification.success(t("settings.frontend.themeDeleted", {name: target.name}));
-}
-
-/**
- * 导出指定主题为 JSON 文件；内置主题会先转成具体变量。
- */
-function exportTheme(themeId: string): void {
-    const resolvedTheme = resolveTheme(themeId, customThemes.value);
-    downloadThemeJson({
-        name: resolvedTheme.label,
-        appearance: resolvedTheme.appearance,
-        vars: themeVarsToCustomVars(resolvedTheme.vars),
-    }, `${themeFileSlug(resolvedTheme.label)}.json`);
-    notification.success(t("settings.frontend.themeExported", {name: resolvedTheme.label}));
-}
-
-/**
- * 打开主题 JSON 文件选择器。
- */
-function triggerThemeImport(): void {
-    themeImportInputRef.value?.click();
-}
-
-/**
- * 导入主题 JSON 并保存为新的自定义主题。
- */
-async function importThemeFile(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0] ?? null;
-    input.value = "";
-    if (!file) {
-        return;
-    }
-
-    try {
-        const parsed = parseThemeJson(await file.text());
-        if (!parsed.ok) {
-            notification.error(parsed.message, {title: t("settings.frontend.themeImportFailed")});
-            return;
-        }
-        const importedTheme: CustomThemeDto = {
-            id: createCustomThemeId(parsed.theme.name, customThemes.value),
-            name: parsed.theme.name,
-            appearance: parsed.theme.appearance,
-            vars: parsed.theme.vars,
-        };
-        const saved = await themeManager.saveThemeConfig(importedTheme.id, [...customThemes.value, importedTheme]);
-        if (saved) {
-            notification.success(t("settings.frontend.themeImported", {name: importedTheme.name}));
-        }
-    } catch (error) {
-        notification.error(error instanceof Error ? error.message : t("settings.frontend.themeImportFailed"), {title: t("settings.frontend.themeImportFailed")});
-    }
-}
-
-/**
- * 把主题名转换为稳定文件名片段。
- */
-function themeFileSlug(name: string): string {
-    return name
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/gu, "-")
-        .replace(/^-+|-+$/gu, "") || "theme";
-}
-
-/**
  * 处理界面语言选择。
  */
 function updateLocale(value: string): void {
@@ -683,13 +688,61 @@ function updateLocale(value: string): void {
     }
 }
 
+/** 处理推理强度选择（本地 UI 偏好，进 store）。 */
+function updateReasoning(value: string): void {
+    selectedReasoning.value = value as typeof selectedReasoning.value;
+}
+
 /**
  * 处理默认视图模式选择。
  */
-function updateViewMode(value: string): void {
-    if (value === "rich" || value === "source") {
-        viewMode.value = value as MarkdownStudioViewMode;
+async function updateViewMode(value: string): Promise<void> {
+    if ((value !== "rich" && value !== "source") || viewModeSaving.value) return;
+    viewModeSaving.value = true;
+    try {
+        const query = configApi.currentQuery();
+        const snapshot = await configApi.editorSnapshot(query);
+        await configApi.saveGlobal({editor: {associations: {...snapshot.global.editor?.associations, ".md": value === "rich" ? "markdown" : "code"}}}, query);
+        await settingsSnapshot.reload();
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, t("settings.frontend.viewModeSaveFailed")));
+    } finally {
+        viewModeSaving.value = false;
     }
+}
+
+/**
+ * 保存 / 覆盖一套用户配色（含从主题自带配色另存为一份）。
+ *
+ * 视图已经拦掉了取值不合法的草稿，这里返回 null 只剩两种情况：名称空、或一套合法变量都没有。
+ * 两者都属于「没东西可存」，给一条提示比静默失败好。
+ */
+async function saveColorwayDraft(draft: ColorwayDraft): Promise<void> {
+    const savedId = await themeSettings.saveUserColorway({
+        id: draft.id,
+        label: draft.label,
+        appearance: draft.appearance,
+        vars: draft.vars,
+    });
+    if (savedId === null) {
+        notification.warning(t("settings.frontend.colorwaySaveEmptyMessage"), {title: t("settings.frontend.themeSaveFailed")});
+    }
+}
+
+/**
+ * 导出当前生效配色为 JSON 文件。
+ *
+ * 导出的是**当前这一套**（用户配色给存下来的取值，主题自带配色给契约内的全量取值），
+ * 不导出整库：一次导出多套会把「哪一套是我刚调好的」这件事丢掉，而导入方也只能一次收一套。
+ */
+function exportActiveColorway(): void {
+    const label = theme.colorwayLabel.value || t("settings.frontend.customColorwayLabel");
+    const activeUserColorway = theme.userColorways.value.find((colorway) => colorway.id === theme.colorwayId.value);
+    const vars = activeUserColorway === undefined
+        ? filterColorwayContractVars(theme.colorwayVars.value)
+        : {...activeUserColorway.vars};
+    const json = buildColorwayFileJson({label, appearance: theme.appearance.value, vars});
+    triggerBrowserDownload(new Blob([json], {type: "application/json"}), colorwayFileName(label));
 }
 
 /**
@@ -725,11 +778,10 @@ watch([
 ], ([workspaceKind, currentProjectRoot]) => {
     if ((workspaceKind === "user-assets" || !currentProjectRoot) && activeScope.value === "project") {
         activeScope.value = "global";
-        activeSection.value = "models";
+        activeSection.value = "providers";
     }
 }, {immediate: true});
 
-watch(activeScope, alignActiveSectionToScope, {immediate: true});
 
 /** 读取 Desktop Envelope 的设备设置；B/S 页面不会执行。 */
 async function loadDesktopSettings(): Promise<void> {
@@ -745,589 +797,173 @@ async function loadDesktopSettings(): Promise<void> {
 }
 
 /** 通过 Desktop Bridge 更新设备设置，不触碰 Product State Root。 */
+/** 通过 Desktop Bridge 更新设备设置，不触碰 Product State Root。 */
 async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>): Promise<void> {
     const bridge = desktopBridge.value;
     if (!bridge) return;
+    desktopSaving.value = true;
+    desktopSaveError.value = "";
     try {
         desktopSettings.value = await bridge.updateSettings(patch);
     } catch (error) {
-        notification.error(error instanceof Error ? error.message : t("settings.desktop.updateFailed"));
+        desktopSaveError.value = resolveApiErrorMessage(error, t("settings.desktop.updateFailed"));
+        notification.error(desktopSaveError.value);
+    } finally {
+        desktopSaving.value = false;
     }
 }
 
-const desktopCloseOptions = computed<SelectOption[]>(() => [
-    {value: "ask", label: t("settings.desktop.closeAsk")},
-    {value: "tray", label: t("settings.desktop.closeTray")},
-    {value: "quit", label: t("settings.desktop.closeQuit")},
-]);
 
-function updateDesktopCloseBehavior(value: string): void {
-    if (value === "ask" || value === "tray" || value === "quit") void updateDesktopSettings({closeBehavior: value as DesktopCloseBehavior});
-}
 
 </script>
 
 <template>
-    <Dialog
+    <DialogWindow
         :model-value="props.modelValue"
         :title="t('settings.title')"
-        size="full"
-        overlay-type="opaque"
-        :busy="false"
-        :show-footer="false"
+        :width="settingsWindowSize.width"
+        :height="settingsWindowSize.height"
+        resizable
+        :min-width="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.width"
+        :min-height="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.height"
+        body-class="min-h-0 overflow-hidden !p-0"
+        teleport-target=".novel-ide-theme"
         @request-close="closeDialog"
+        @update:width="updateSettingsWindowWidth"
+        @update:height="updateSettingsWindowHeight"
         @update:model-value="emit('update:modelValue', $event)"
     >
-        <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
-        <div class="flex h-full flex-col gap-4">
-            <!-- 配置目标栏 -->
-            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm">
-                <div class="flex flex-wrap items-start justify-between gap-3">
-                    <div class="min-w-0 space-y-3">
-                        <div class="flex min-w-0 flex-wrap items-center gap-2">
-                            <button
-                                v-for="scope in scopeOptions"
-                                :key="scope.value"
-                                type="button"
-                                class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
-                                :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                                :disabled="scope.value === 'project' && !projectScopeAvailable"
-                                :title="scope.value === 'project' && !projectScopeAvailable ? t('settings.scope.project.unavailable') : scope.description"
-                                @click="selectScope(scope.value)"
-                            >
-                                <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>
-                                <span>{{ scope.label }}</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-3 py-2">
-                            <span class="shrink-0 text-[11px] font-semibold text-[var(--text-muted)]">Project</span>
-                            <span class="min-w-0 flex-1 truncate text-xs font-medium text-[var(--text-main)]" :title="targetLabel">{{ targetLabel }}</span>
-                        </div>
-
-                        <button
-                            v-if="showHeaderSaveButton"
-                            type="button"
-                            class="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                            :disabled="activeRestoreDisabled"
-                            @click="void restoreActivePanel()"
-                        >
-                            <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                            <span>{{ t("common.restore") }}</span>
-                        </button>
-
-                        <button
-                            v-if="showHeaderSaveButton"
-                            type="button"
-                            class="group relative inline-flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-200 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                            :class="activeSaveDirty && !activeSaveLoading ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 text-[var(--text-muted)]'"
-                            :disabled="activeSaveDisabled"
-                            @click="void saveActivePanel()"
-                        >
-                            <span v-if="activeSaveDirty && !activeSaveLoading" class="absolute inset-0 translate-y-full bg-white/20 transition-transform duration-300 ease-out group-hover:translate-y-0"></span>
-                            <span class="relative flex items-center gap-1.5">
-                                <span v-if="activeSaveLoading || activeSaveSaving" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                                <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
-                                {{ activeSaveLoading ? t("common.loading") : activeSaveSaving ? t("common.saving") : t("common.saveSettings") }}
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <div class="flex min-h-0 flex-1 flex-col gap-4 md:flex-row md:gap-6">
-                <!-- 左侧导航栏 - 清爽无边框 -->
-            <aside class="flex w-full min-w-0 flex-col pb-2 md:w-[220px] md:shrink-0">
-                <div class="mb-3 mt-1 hidden px-3 md:block">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{{ activeScope === "browser" ? t("settings.scope.browserState") : t("settings.scope.configFile") }}</div>
-                </div>
-
-                <div class="flex min-w-0 gap-1.5 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0">
-                    <button
-                        v-for="item in visibleSectionItems"
-                        :key="item.value"
-                        class="group relative flex min-w-max shrink-0 items-center gap-2 rounded-xl px-2 py-1.5 text-left transition-all duration-200 md:w-full md:gap-3 md:px-2.5 md:py-2.5"
-                        :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_color-mix(in_srgb,var(--shadow-color)_4%,transparent)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
-                        @click="selectSection(item.value)"
-                    >
-                        <!-- 图标 -->
-                        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-300" :class="activeSection === item.value ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm font-semibold' : 'bg-transparent text-[var(--text-muted)] group-hover:text-[var(--text-main)]'">
-                            <span :class="item.iconClass" class="h-4 w-4"></span>
-                        </div>
-                        
-                        <div class="min-w-0 flex-1">
-                            <span class="block whitespace-nowrap text-xs font-medium md:text-[13px]">{{ item.label }}</span>
-                            <span class="mt-0.5 hidden truncate text-[10px] text-[var(--text-muted)] md:block">{{ item.description }}</span>
-                        </div>
-                    </button>
-                </div>
-
-                <!-- 底部版本信息 -->
-                <div class="mt-auto hidden pt-4 md:block">
-                    <div class="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-15 px-3.5 py-3 shadow-sm">
-                        <div class="min-w-0">
-                            <div class="truncate text-[11px] font-medium leading-relaxed text-[var(--text-secondary)]">{{ versionLabel }}</div>
-                            <div class="mt-0.5 text-[10px] leading-relaxed text-[var(--text-muted)]">Neuro Book</div>
-                        </div>
-                        <a
-                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] border-opacity-60 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                            :href="appVersion?.githubUrl || 'https://github.com/notnotype/neuro-book'"
-                            target="_blank"
-                            rel="noreferrer"
-                            :title="t('settings.version.openGithub')"
-                        >
-                            <span class="i-lucide-github h-4 w-4"></span>
-                        </a>
-                    </div>
-                </div>
-            </aside>
-
-            <!-- 右侧内容区 -->
-            <section class="min-w-0 flex-1 relative flex flex-col overflow-hidden">
-                <!-- 内部独立滚动 -->
-                <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 pb-6">
-                    <Transition name="fade-slide" mode="out-in">
-                        <!-- 启动期安全配置：只读说明，避免把安全边界误解为可热更新的 Global Config。 -->
-                        <div v-if="activeSection === 'security'" key="security" class="space-y-4 pt-1">
-                            <div class="rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-5 py-4 text-[var(--text-main)]">
-                                <div class="flex items-start gap-3">
-                                    <span class="i-lucide-shield-check mt-0.5 h-5 w-5 shrink-0 text-[var(--status-info)]"></span>
-                                    <div>
-                                        <h3 class="text-sm font-semibold">{{ t("settings.security.title") }}</h3>
-                                        <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.security.description") }}</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                <div class="flex flex-wrap items-center justify-between gap-3">
-                                    <div>
-                                        <div class="text-sm font-medium text-[var(--text-main)]">auth.enabled</div>
-                                        <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.security.runtimeStatusDescription") }}</div>
-                                    </div>
-                                    <div class="rounded-full border px-3 py-1 text-xs font-medium" :class="bootAuthEnabled === null ? 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]' : bootAuthEnabled ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
-                                        {{ bootAuthEnabled === null ? t("settings.security.statusUnknown") : bootAuthEnabled ? t("settings.security.statusEnabled") : t("settings.security.statusDisabled") }}
-                                    </div>
-                                </div>
-                                <div class="mt-4 text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.security.exampleTitle") }}</div>
-                                <pre class="mt-2 overflow-x-auto rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] p-4 text-xs text-[var(--text-secondary)]">{{ bootAuthExample }}</pre>
-                                <p class="mt-3 text-xs leading-5 text-[var(--status-warning)]">{{ t("settings.security.warning") }}</p>
-                            </div>
-                        </div>
-
-                        <!-- 前端设定 -->
-                        <div v-else-if="activeSection === 'frontend'" key="frontend" class="space-y-4 pt-1">
-                            <div class="grid gap-3">
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-languages h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.languageTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.languageDescription") }}</div>
-                                    </div>
-                                    <div class="w-48 shrink-0">
-                                        <FormSelect :model-value="locale" :options="localeOptions" @update:model-value="updateLocale" />
-                                    </div>
-                                </div>
-
-                                <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                    <!-- 主题管理入口 -->
-                                    <div class="flex flex-wrap items-start gap-4">
-                                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)]">
-                                            <span class="i-lucide-palette h-5 w-5"></span>
-                                        </div>
-                                        <div class="min-w-0 flex-1">
-                                            <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.themeTitle") }}</div>
-                                            <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</div>
-                                            <div class="mt-2 text-xs text-[var(--text-muted)]">{{ activeResolvedTheme.label }} · {{ activeThemeIsBuiltIn ? t("settings.frontend.themeBuiltInPreset") : t("settings.frontend.themeCustomPreset") }}</div>
-                                        </div>
-                                        <div class="flex shrink-0 items-center gap-2">
-                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90" @click="openThemeCreator">
-                                                <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                                                <span>{{ t("settings.frontend.themeCreate") }}</span>
-                                            </button>
-                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)]" @click="triggerThemeImport">
-                                                <span class="i-lucide-upload h-3.5 w-3.5"></span>
-                                                <span>{{ t("settings.frontend.themeImport") }}</span>
-                                            </button>
-                                            <input ref="themeImportInputRef" class="hidden" type="file" accept="application/json,.json" @change="void importThemeFile($event)">
-                                        </div>
-                                    </div>
-
-                                    <!-- 内置主题卡片网格 -->
-                                    <div class="mt-4">
-                                        <div class="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.frontend.themeBuiltInGroup") }}</div>
-                                        <div class="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
-                                            <div v-for="card in builtInThemeCards" :key="card.id" class="group relative cursor-pointer overflow-hidden rounded-lg border transition-all" :class="activeResolvedTheme.id === card.id ? 'border-[var(--accent-main)] shadow-[0_0_0_1px_var(--accent-main)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)] hover:shadow-sm'" @click="updateTheme(card.id)">
-                                                <!-- 迷你预览：使用该主题自己的变量绘制 -->
-                                                <div class="relative h-16" :style="{background: card.vars['--bg-main']}">
-                                                    <div class="absolute inset-y-1.5 left-1.5 w-6 rounded-sm" :style="{background: card.vars['--bg-sidebar']}"></div>
-                                                    <div class="absolute bottom-1.5 left-9 right-1.5 top-1.5 rounded-sm border px-1.5 py-1" :style="{background: card.vars['--bg-panel'], borderColor: card.vars['--border-color']}">
-                                                        <div class="text-[11px] font-semibold leading-none" :style="{color: card.vars['--text-main']}">Aa</div>
-                                                        <div class="mt-1 h-1 w-9 rounded-full" :style="{background: card.vars['--text-muted']}"></div>
-                                                        <div class="absolute bottom-1 left-1.5 flex items-center gap-1">
-                                                            <span class="h-1.5 w-3 rounded-full" :style="{background: card.vars['--accent-main']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-info']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-success']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-warning']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-danger']}"></span>
-                                                        </div>
-                                                    </div>
-                                                    <!-- 悬停操作：复制为自定义 / 导出 -->
-                                                    <div class="absolute right-1 top-1 flex items-center gap-0.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeCopy')" @click.stop="openThemeCopier(card.id)">
-                                                            <span class="i-lucide-copy h-3.5 w-3.5"></span>
-                                                        </button>
-                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeExport')" @click.stop="exportTheme(card.id)">
-                                                            <span class="i-lucide-download h-3.5 w-3.5"></span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <!-- 名称行：使用当前主题变量，保证列表底盘一致 -->
-                                                <div class="flex items-center gap-1.5 border-t border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
-                                                    <span class="h-3 w-3 shrink-0 text-[var(--text-muted)]" :class="card.appearance === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun'"></span>
-                                                    <span class="min-w-0 flex-1 truncate text-xs text-[var(--text-main)]">{{ card.name }}</span>
-                                                    <span v-if="activeResolvedTheme.id === card.id" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- 自定义主题卡片网格 -->
-                                    <div class="mt-4">
-                                        <div class="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.frontend.themeCustomGroup") }}</div>
-                                        <div v-if="customThemeCards.length" class="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
-                                            <div v-for="card in customThemeCards" :key="card.id" class="group relative cursor-pointer overflow-hidden rounded-lg border transition-all" :class="activeThemeId === card.id ? 'border-[var(--accent-main)] shadow-[0_0_0_1px_var(--accent-main)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)] hover:shadow-sm'" @click="updateTheme(card.id)">
-                                                <!-- 迷你预览：使用该主题自己的变量绘制 -->
-                                                <div class="relative h-16" :style="{background: card.vars['--bg-main']}">
-                                                    <div class="absolute inset-y-1.5 left-1.5 w-6 rounded-sm" :style="{background: card.vars['--bg-sidebar']}"></div>
-                                                    <div class="absolute bottom-1.5 left-9 right-1.5 top-1.5 rounded-sm border px-1.5 py-1" :style="{background: card.vars['--bg-panel'], borderColor: card.vars['--border-color']}">
-                                                        <div class="text-[11px] font-semibold leading-none" :style="{color: card.vars['--text-main']}">Aa</div>
-                                                        <div class="mt-1 h-1 w-9 rounded-full" :style="{background: card.vars['--text-muted']}"></div>
-                                                        <div class="absolute bottom-1 left-1.5 flex items-center gap-1">
-                                                            <span class="h-1.5 w-3 rounded-full" :style="{background: card.vars['--accent-main']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-info']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-success']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-warning']}"></span>
-                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-danger']}"></span>
-                                                        </div>
-                                                    </div>
-                                                    <!-- 悬停操作：编辑 / 复制 / 导出 / 删除 -->
-                                                    <div class="absolute right-1 top-1 flex items-center gap-0.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
-                                                        <button v-if="card.custom" type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeEdit')" @click.stop="openThemeEditor(card.custom)">
-                                                            <span class="i-lucide-pencil h-3.5 w-3.5"></span>
-                                                        </button>
-                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeCopy')" @click.stop="openThemeCopier(card.id)">
-                                                            <span class="i-lucide-copy h-3.5 w-3.5"></span>
-                                                        </button>
-                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeExport')" @click.stop="exportTheme(card.id)">
-                                                            <span class="i-lucide-download h-3.5 w-3.5"></span>
-                                                        </button>
-                                                        <button v-if="card.custom" type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)]" :title="t('settings.frontend.themeDelete')" @click.stop="requestDeleteTheme(card.custom)">
-                                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                                <!-- 名称行：使用当前主题变量，保证列表底盘一致 -->
-                                                <div class="flex items-center gap-1.5 border-t border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
-                                                    <span class="h-3 w-3 shrink-0 text-[var(--text-muted)]" :class="card.appearance === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun'"></span>
-                                                    <span class="min-w-0 flex-1 truncate text-xs text-[var(--text-main)]">{{ card.name }}</span>
-                                                    <span v-if="activeThemeId === card.id" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div v-else class="rounded-md bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-muted)]">{{ t("settings.frontend.themeNoCustom") }}</div>
-                                    </div>
-                                </div>
-
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-brain-circuit h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.reasoningTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.reasoningDescription") }}</div>
-                                    </div>
-                                    <div class="w-40 shrink-0">
-                                        <FormSelect :model-value="selectedReasoning" :options="novelIdeStore.reasoningOptions.map((item) => ({ value: item, label: item }))" @update:model-value="selectedReasoning = $event" />
-                                    </div>
-                                </div>
-
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-layout h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.viewModeTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.viewModeDescription") }}</div>
-                                    </div>
-                                    <div class="w-40 shrink-0">
-                                        <FormSelect :model-value="viewMode" :options="viewModeOptions" @update:model-value="updateViewMode" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 编辑器设定 -->
-                        <div v-else-if="activeSection === 'editor'" key="editor" class="space-y-4 pt-1">
-                            <div class="flex flex-wrap items-center justify-between gap-4">
-                                <div class="max-w-xl">
-                                    <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.editor.markdownTitle") }}</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.markdownDescription") }}</p>
-                                </div>
-                                <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetEditorPreferences">
-                                    <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                                    <span>{{ t("settings.editor.resetMarkdown") }}</span>
-                                </button>
-                            </div>
-
-                            <div class="grid gap-3">
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-type h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.bodyFontTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.bodyFontDescription") }}</div>
-                                    </div>
-                                    <div class="w-72 shrink-0">
-                                        <input
-                                            list="markdown-editor-font-options"
-                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
-                                            :value="markdownEditorPreferences.fontFamily"
-                                            :placeholder="t('settings.editor.fontFamilyPlaceholder')"
-                                            @input="updateEditorPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
-                                        >
-                                        <datalist id="markdown-editor-font-options">
-                                            <option v-for="option in editorFontOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                                        </datalist>
-                                    </div>
-                                </div>
-
-                                <div class="grid gap-3 md:grid-cols-2">
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.fontSizeTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.fontSizeDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.fontSize" min="12" max="28" step="1" @input="updateEditorNumber('fontSize', ($event.target as HTMLInputElement).value, 12, 28)">
-                                    </label>
-
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.lineHeightTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.lineHeightDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.lineHeight" min="1.2" max="2.6" step="0.05" @input="updateEditorNumber('lineHeight', ($event.target as HTMLInputElement).value, 1.2, 2.6)">
-                                    </label>
-
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.contentWidthTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.contentWidthDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.contentWidth" min="520" max="1280" step="20" @input="updateEditorNumber('contentWidth', ($event.target as HTMLInputElement).value, 520, 1280)">
-                                    </label>
-
-                                    <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <div class="flex items-center justify-between gap-4">
-                                            <div class="min-w-0">
-                                                <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.paragraphIndentTitle") }}</div>
-                                                <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.paragraphIndentDescription") }}</div>
-                                            </div>
-                                            <button type="button" class="relative h-6 w-11 rounded-full border transition-colors" :class="markdownEditorPreferences.paragraphIndentEnabled ? 'border-[var(--accent-main)] bg-[var(--accent-main)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'" @click="updateEditorPreferences({paragraphIndentEnabled: !markdownEditorPreferences.paragraphIndentEnabled})">
-                                                <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform" :class="markdownEditorPreferences.paragraphIndentEnabled ? 'translate-x-5' : 'translate-x-0.5'"></span>
-                                            </button>
-                                        </div>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20 disabled:opacity-50" :value="markdownEditorPreferences.paragraphIndentEm" min="0" max="4" step="0.25" :disabled="!markdownEditorPreferences.paragraphIndentEnabled" @input="updateEditorNumber('paragraphIndentEm', ($event.target as HTMLInputElement).value, 0, 4)">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="grid gap-3 border-t border-[var(--border-color)] pt-4">
-                                <div class="flex flex-wrap items-center justify-between gap-4">
-                                    <div class="max-w-xl">
-                                        <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.editor.monacoTitle") }}</h3>
-                                        <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoDescription") }}</p>
-                                    </div>
-                                    <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetMonacoPreferences">
-                                        <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                                        <span>{{ t("settings.editor.resetMonaco") }}</span>
-                                    </button>
-                                </div>
-
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-code-2 h-5 w-5"></span>
-                                    </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoFontTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoFontDescription") }}</div>
-                                    </div>
-                                    <div class="w-72 shrink-0">
-                                        <input
-                                            list="monaco-editor-font-options"
-                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
-                                            :value="monacoEditorPreferences.fontFamily"
-                                            :placeholder="t('settings.editor.fontFamilyPlaceholder')"
-                                            @input="updateMonacoPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
-                                        >
-                                        <datalist id="monaco-editor-font-options">
-                                            <option v-for="option in monacoFontOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                                        </datalist>
-                                    </div>
-                                </div>
-
-                                <div class="grid gap-3 md:grid-cols-3">
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoFontSizeTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoFontSizeDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.fontSize" min="10" max="32" step="1" @input="updateMonacoNumber('fontSize', ($event.target as HTMLInputElement).value, 10, 32)">
-                                    </label>
-
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.monacoLineHeightTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.monacoLineHeightDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.lineHeight" min="16" max="56" step="1" @input="updateMonacoNumber('lineHeight', ($event.target as HTMLInputElement).value, 16, 56)">
-                                    </label>
-
-                                    <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                        <span class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.tabSizeTitle") }}</span>
-                                        <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.tabSizeDescription") }}</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.tabSize" min="2" max="8" step="1" @input="updateMonacoNumber('tabSize', ($event.target as HTMLInputElement).value, 2, 8)">
-                                    </label>
-                                </div>
-
-                                <div class="grid gap-3 md:grid-cols-2">
-                                    <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({wordWrap: !monacoEditorPreferences.wordWrap})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.wordWrapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.wordWrapDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.wordWrap ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
-                                    </button>
-                                    <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({minimapEnabled: !monacoEditorPreferences.minimapEnabled})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.minimapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.minimapDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.minimapEnabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
-                                    </button>
-                                    <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({lineNumbers: !monacoEditorPreferences.lineNumbers})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.lineNumbersTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.lineNumbersDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.lineNumbers ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
-                                    </button>
-                                    <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({renderWhitespace: !monacoEditorPreferences.renderWhitespace})">
-                                        <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.whitespaceTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.whitespaceDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.renderWhitespace ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Desktop Envelope 设备设置；B/S 页面不会显示该分区。 -->
-                        <div v-else-if="activeSection === 'desktop' && desktopAvailable" key="desktop" class="space-y-4 pt-1">
-                            <div class="rounded-2xl border border-[var(--status-info-border)] bg-[var(--status-info-bg)] px-5 py-4 text-[var(--text-main)]">
-                                <div class="flex items-start gap-3">
-                                    <span class="i-lucide-panels-top-left mt-0.5 h-5 w-5 shrink-0 text-[var(--status-info)]"></span>
-                                    <div class="min-w-0">
-                                        <h3 class="text-sm font-semibold">{{ t("settings.desktop.title") }}</h3>
-                                        <p class="mt-1 text-xs leading-5 text-[var(--text-secondary)]">{{ t("settings.desktop.description") }}</p>
-                                        <p v-if="desktopStatus" class="mt-2 text-[11px] text-[var(--text-muted)]">{{ desktopStatus.connection === "local" ? t("settings.desktop.localStatus") : t("settings.desktop.remoteStatus") }} · {{ desktopStatus.version }}</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                <div class="flex items-center justify-between gap-4">
-                                    <div>
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.zoomTitle") }}</div>
-                                        <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.zoomDescription") }}</div>
-                                    </div>
-                                    <output class="text-sm font-semibold text-[var(--accent-main)]">{{ Math.round(desktopSettings.zoomFactor * 100) }}%</output>
-                                </div>
-                                <input class="mt-4 w-full accent-[var(--accent-main)]" type="range" min="0.75" max="2" step="0.05" :value="desktopSettings.zoomFactor" @change="updateDesktopSettings({zoomFactor: Number(($event.target as HTMLInputElement).value)})">
-                            </label>
-
-                            <button type="button" class="flex w-full items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="updateDesktopSettings({trayEnabled: !desktopSettings.trayEnabled})">
-                                <span>
-                                    <span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.trayTitle") }}</span>
-                                    <span class="mt-1 block text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.trayDescription") }}</span>
-                                </span>
-                                <span class="h-2.5 w-2.5 shrink-0 rounded-full" :class="desktopSettings.trayEnabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
-                            </button>
-
-                            <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
-                                <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.desktop.closeTitle") }}</div>
-                                <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.desktop.closeDescription") }}</div>
-                                <div class="mt-3 max-w-sm">
-                                    <FormSelect :model-value="desktopSettings.closeBehavior" :options="desktopCloseOptions" @update:model-value="updateDesktopCloseBehavior" />
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 模型设定 -->
-                        <div v-else-if="activeSection === 'models'" key="models">
-                            <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
-                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- Embedding 服务设定 -->
-                        <div v-else-if="activeSection === 'embedding'" key="embedding">
-                            <NovelIdeEmbeddingSettingsPanel ref="embeddingSettingsPanelRef" :key="`embedding:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- 费用显示设定 -->
-                        <div v-else-if="activeSection === 'cost'" key="cost">
-                            <NovelIdeCostSettingsPanel ref="costSettingsPanelRef" :key="`cost:${settingsPanelKey}`" :target-query="targetQuery" />
-                        </div>
-
-                        <!-- Web 工具设定 -->
-                        <div v-else-if="activeSection === 'web-tools'" key="web-tools">
-                            <NovelIdeWebSettingsPanel ref="webSettingsPanelRef" :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- Agent Profile 模型设定 -->
-                        <div v-else-if="activeSection === 'agent-profile-models'" key="agent-profile-models">
-                            <NovelIdeAgentProfileModelSettingsPanel ref="agentProfileModelSettingsPanelRef" :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
-                        </div>
-
-                        <!-- 可观测设定（Pi 请求 trace） -->
-                        <div v-else-if="activeSection === 'observability'" key="observability">
-                            <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
-                        </div>
-
-                    </Transition>
-                </div>
-            </section>
-            </div>
+        <div
+            v-if="settingsWindowSizeNotice"
+            data-testid="settings-window-size-notice"
+            class="flex shrink-0 items-start gap-2 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-2 text-[11px] leading-4 text-[var(--status-warning)]"
+        >
+            <span class="min-w-0 flex-1">窗口尺寸记录未就绪：{{ settingsWindowSizeNotice.diagnosis }}</span>
+            <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="void windowSizeRecord.retry()">重试</button>
+            <button v-if="settingsWindowSizeNotice.abandonable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
         </div>
-    </Dialog>
 
-    <ThemeEditorDialog
-        v-model="themeEditorOpen"
-        :mode="themeEditorMode"
-        :initial-theme="themeEditorInitialTheme"
-        :existing-themes="customThemes"
-        @saved="handleThemeSaved"
-    />
+        <NovelIdeSettingsView
+            :model-value="activeSection"
+            :scope="activeScope"
+            :scopes="scopeOptions"
+            :sections="visibleSectionItems"
+            :version-label="versionLabel"
+            :github-url="appVersion?.githubUrl ?? ''"
+            :loading="settingsLoaderVisible"
+            :load-error="settingsLoadError"
+            @update:model-value="selectSection"
+            @update:scope="selectScope"
+            @reload="reloadSettings"
+        >
+            <template #default="{section}">
+                <div :key="`${settingsPanelKey}:${section?.value ?? ''}`" class="flex h-full min-h-0 flex-col">
+                        <!-- 启动期安全配置：只读说明，安全边界不能热更新 -->
+                        <SecuritySettingsView v-if="section?.value === 'security'" :auth-enabled="bootAuthEnabled" />
 
-    <Dialog
-        :model-value="Boolean(themeDeleteTarget)"
-        :title="t('settings.frontend.themeDeleteTitle')"
-        width="420px"
-        overlay-type="opaque"
-        show-cancel
-        @confirm="void confirmDeleteTheme()"
-        @request-close="themeDeleteTarget = null"
-        @update:model-value="themeDeleteTarget = $event ? themeDeleteTarget : null"
-    >
-        <!-- 删除自定义主题确认 -->
-        <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.frontend.themeDeleteMessage", {name: themeDeleteTarget?.name ?? ""}) }}</p>
-    </Dialog>
+                        <!-- 前端设定：语言 / 主题两轴 / 用户配色 / 推理强度 / 视图模式，动作全部交回宿主 -->
+                        <FrontendSettingsView
+                            v-else-if="section?.value === 'frontend'"
+                            :locale="locale"
+                            :view-mode="viewMode"
+                            :view-mode-saving="viewModeSaving"
+                            :view-mode-project-override="viewModeProjectOverride"
+                            :reasoning="selectedReasoning"
+                            :reasoning-options="novelIdeStore.reasoningOptions"
+                            :theme-options="theme.themeOptions"
+                            :theme-id="theme.themeId.value"
+                            :appearance="theme.appearance.value"
+                            :colorway-id="theme.colorwayId.value"
+                            :colorway-label="theme.colorwayLabel.value"
+                            :colorway-vars="theme.colorwayVars.value ?? {}"
+                            :colorway-is-user="theme.colorwayIsUser.value"
+                            :user-colorways="theme.userColorways.value"
+                            :disabled="settingsLoading"
+                            @update:locale="updateLocale"
+                            @update:view-mode="updateViewMode"
+                            @update:reasoning="updateReasoning"
+                            @select-theme="(id) => void themeSettings.saveAxes({themeId: id})"
+                            @select-appearance="(appearance) => void themeSettings.saveAxes({appearance})"
+                            @select-colorway="(id) => void themeSettings.saveColorway(id)"
+                            @save-colorway="(draft) => void saveColorwayDraft(draft)"
+                            @delete-colorway="(id) => void themeSettings.deleteUserColorway(id)"
+                            @export-colorway="exportActiveColorway"
+                        />
+
+                        <!-- 编辑器显示偏好：走 store + localStorage，不写配置文件 -->
+                        <EditorSettingsView
+                            v-else-if="section?.value === 'editor'"
+                            :markdown="markdownEditorPreferences"
+                            :monaco="monacoEditorPreferences"
+                            @update:markdown="updateEditorPreferences"
+                            @update:monaco="updateMonacoPreferences"
+                            @reset="resetEditorSettings"
+                        />
+
+                        <!-- Desktop Envelope 设备设置；B/S 页面不会显示该分区 -->
+                        <DesktopSettingsView
+                            v-else-if="section?.value === 'desktop'"
+                            :settings="desktopSettings"
+                            :status="desktopStatus"
+                            :saving="desktopSaving"
+                            :save-error="desktopSaveError"
+                            @update:settings="updateDesktopSettings"
+                        />
+
+                        <!-- Provider 与模型清单：四个会话留在宿主，视图只消费绑定 -->
+                        <ProviderSettingsView v-else-if="section?.value === 'providers'" v-bind="providerBinding.viewBindings.value" />
+
+                        <!-- 向量嵌入 -->
+                        <EmbeddingSettingsView
+                            v-else-if="section?.value === 'embedding'"
+                            :model-value="embeddingDraft.draft.value"
+                            :scope="activeScope === 'project' ? 'project' : 'global'"
+                            :disabled="settingsLoading"
+                            @update:model-value="embeddingDraft.draft.value = $event"
+                        />
+
+                        <!-- 费用显示（币种进配置，汇率是本机会话状态） -->
+                        <CostSettingsView
+                            v-else-if="section?.value === 'cost'"
+                            :currency="costDraft.draft.value"
+                            :exchange-rate="costDisplay.usdToCnyRate.value"
+                            :exchange-rate-stale="costDisplay.exchangeRateStale.value"
+                            :exchange-rate-fetched-at="costDisplay.exchangeRateFetchedAt.value ?? ''"
+                            :refreshing="costRefreshing"
+                            :disabled="settingsLoading"
+                            @update:currency="setCostCurrency"
+                            @refresh-rate="refreshCostExchangeRate"
+                        />
+
+                        <!-- Web 工具 -->
+                        <WebSettingsView
+                            v-else-if="section?.value === 'web-tools'"
+                            :model-value="webDraft.draft.value"
+                            :disabled="settingsLoading"
+                            @update:model-value="webDraft.draft.value = $event"
+                        />
+
+                        <!-- Agent Profile：页面草稿 + 只读上下文都由宿主组装；读取期由外壳的加载占位交代 -->
+                        <AgentProfileSettingsView
+                            v-else-if="section?.value === 'agent-profile-models' && agentProfileReady && agentProfileContext()"
+                            :model-value="agentProfileDraft.draft.value"
+                            :context="agentProfileContext()!"
+                            :show-nav-heading="false"
+                            @update:model-value="agentProfileDraft.draft.value = $event"
+                        />
+
+                        <!-- 可观测（Pi 请求 trace） -->
+                        <ObservabilitySettingsView
+                            v-else-if="section?.value === 'observability'"
+                            :enabled="observabilityDraft.draft.value.enabled"
+                            :max-records="observabilityDraft.draft.value.maxRecords"
+                            :disabled="settingsLoading"
+                            @update:enabled="observabilityDraft.draft.value.enabled = $event"
+                            @update:max-records="observabilityDraft.draft.value.maxRecords = $event"
+                        />
+
+                </div>
+            </template>
+        </NovelIdeSettingsView>
+    </DialogWindow>
 </template>
-
-<style scoped>
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-    transition: all 0.2s cubic-bezier(0.34, 1.15, 0.64, 1);
-}
-.fade-slide-enter-from {
-    opacity: 0;
-    transform: translateX(10px) scale(0.98);
-}
-.fade-slide-leave-to {
-    opacity: 0;
-    transform: translateX(-10px) scale(0.98);
-}
-</style>

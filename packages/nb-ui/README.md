@@ -57,7 +57,7 @@ The module auto-registers Vue components and composables.
 Components can also be imported explicitly:
 
 ```ts
-import {Button, Dialog, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
+import {Button, Dialog, DialogWindow, IconButton, Notification, Panel, SegmentedControl} from "@notnotype/nb-ui/components";
 import {useNotification} from "@notnotype/nb-ui/composables";
 ```
 
@@ -85,10 +85,14 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 
 ### 工作区布局与导航 (Layout & Navigation)
 - `Panel`：标准面板容器，支持 `subtle` / `solid` / `glass` 质感与 `none` / `sm` / `md` / `lg` 内边距。
-- `Splitter`：多栏可调节分割面板（SplitterGroup / SplitterPanel / SplitterResizeHandle），支持水平/垂直方向与拖拽吸附。
+- `Splitter`：多栏可调节分割面板（受控 `sizesPx` / 独立自分配两种用法），支持水平/垂直方向、收起策略与拖拽吸附；常驻 1px `--divider` 接缝与悬停/拖动高亮分层，零宽接缝不画线。几何一律 CSS px，拖动/命中/键盘由 nb-ui 自己的 `useSashGesture` 输入层与 `sash-drag` 求解器承担。
+- `createGrid`（`grid` / `grid-splitter`）：领域无关的可序列化拆分树——两轴几何、增删/移动/拆分叶、批量手势原子提交（`resizeBranches`）与快照 v2；`buildGridBranchPanels` / `gridBranchSizesPx` 只是把布局投影成面板配置，数值算法只有 `grid-geometry` / `sash-drag` 一份。
+- `GridRenderer`：把布局树递归渲染成 `Splitter`（分支一层一个、叶走插槽），独占一份手势会话：拖动中发布预览布局，松手把一次 `GridGestureCommit` 交给宿主的 `onGestureCommit` 同步接纳。
+- `DropIndicator` / `DropIndicatorLabel` / `DropFeedbackOverlay`：从 `@notnotype/nb-ui/components` 导入的拖放反馈层。前两个是纯视觉原语：`DropIndicator` 接收 `variant: "area" | "entry" | "line"` 与默认插槽，`DropIndicatorLabel` 接收 `label` / 可选 `iconClass`。`DropFeedbackOverlay` 是共享覆盖层：吃宿主给的 `preview`（边缘带 / 中央整片叶 / 条目 / 插入线 + 轴），自己负责 body Teleport、fixed 定位、6px（区域）与 2px（线）比例内缩、提示药丸的测量与视口夹紧、`aria-live` 播报和观察器生命周期；业务种类与数量由调用方以 `data-*` 透传到覆盖层根（`<Teleport>` 下手动 `useAttrs`）。纯几何入口 `@notnotype/nb-ui/layout` 另有 `resolveGridInsertion`（边缘插入带 / 中央保持布局 + 插入线）与 `resolveListInsertion`（列表插入位：同一插入位只有一条线）。Lab 的 `drop-indicator` 提供五种静态演示，并可在同一场景里打开共享覆盖层对照。
 - `ScrollArea`：平滑滚动容器，内置自适应悬浮滚动条。
 - `Accordion`：手风琴折叠面板（支持单选/多选展开，平滑高度动效与旋转角标）。
 - `Collapsible`：受控折叠展开容器。
+- `CollapsibleSection`：折叠区段（标准标题行 + 可折叠内容），设置页区段用。
 - `AspectRatio`：固定宽高比容器（默认 16:9）。
 - `Separator`：水平 / 垂直语义分隔线。
 - `NavigationMenu`：多栏视口形变导航菜单（支持鼠标移动共享视口平滑位移与宽高渐变过渡）。
@@ -98,12 +102,14 @@ import {useNotification} from "@notnotype/nb-ui/composables";
 - `Tabs` / `Pagination`：选项卡栏与分页控制器。
 
 ### 弹层与反馈 (Feedback & Overlays)
-- `Dialog` / `DialogWindow`：模态对话框与非模态可拖拽浮动窗口。
+- `Dialog`：模态对话框（遮罩、焦点管理、背景滚动锁）。
+- `DialogWindow`：无遮罩、页面仍可交互的非模态浮动窗口；标题栏可拖动，`resizable` 开启后提供右/下/右下角 resize 手柄与键盘调整。公共默认 Portal 目标为 `body`；主题宿主必须由消费者显式传入 `teleport-target`。
 - `AlertDialog`：二次确认/破坏性操作警示弹窗（支持 `danger` / `warning` / `accent` 语调）。
 - `Drawer`：侧边抽屉面板（支持 `top` / `bottom` / `left` / `right` 四向弹出与遮罩模糊）。
 - `Popover`：通用气泡卡片，消费磨砂浮层材质基座。
 - `HoverCard`：划词/悬浮卡片（适用于设定集词条、人物资料与超链接预览）。
 - `Tooltip` / `ContextMenu`：延迟/即时提示框与右键上下文菜单。
+- `QuickInput`：全局快速输入浮层（S4 命令面板基座）；纯受控候选项/查询/活动项，`>` 命令与 `:` 行号等前缀解析归宿主。模态键盘与焦点合同、`closed` 真实关闭交接事件、`NB_Z_INDEX.commandPalette`（9200）层级。
 - `Notification` / `NotificationViewport`：全局 Toast 通知。
 
 ### 数据展示 (Display)
@@ -129,8 +135,8 @@ and generating that class is still your build's job.
 Shared style registries (register instead of copying values):
 
 - `NB_Z_INDEX` (`@notnotype/nb-ui/theme`) — overlay z-indexes; bind via `:style`.
-- `.nb-ui-control` / `.nb-ui-control-invalid` / `.nb-ui-control-h-{sm|md|lg}` / `.nb-ui-control-px` (`styles.css`) — form control border, focus glow, theme-controlled density, and horizontal padding.
 - `.nb-ui-popover-surface` (`styles.css`) — floating panel border/background/shadow/backdrop base (Dropdown, Combobox, ContextMenu, Tooltip, Dialog).
+- `.nb-ui-tooltip-surface` (`styles.css`) — compact paper Tooltip modifier: control-radius surface, short attached arrow, and theme-aware text/padding.
 - `.nb-ui-menu-surface` — menu/dropdown radius modifier; consumes `--radius-menu` and keeps nested items concentric.
 - `.nb-ui-surface-rim` — opt-in Liquid Glass edge sheen for complete Dialog/DialogWindow surfaces; nbook small popovers leave it off.
 - `.nb-ui-menu-item-danger` (`styles.css`) — destructive menu items (Dropdown, ContextMenu).

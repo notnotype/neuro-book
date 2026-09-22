@@ -13,7 +13,7 @@ const props = withDefaults(defineProps<{
     activeIndex: number;
     anchorElement?: HTMLElement | null;
     anchorRect?: FloatingAnchorRect | null;
-    teleportTarget?: HTMLElement | null;
+    teleportTarget?: HTMLElement | string | boolean | null;
     direction?: FloatingPanelDirection;
     density?: "normal" | "compact";
     matchAnchorWidth?: boolean;
@@ -66,21 +66,27 @@ const virtualPanelLayout = computed(() => {
     const maxPanelHeight = props.density === "compact" ? 280 : 288;
     const preferredWidth = props.density === "compact" ? 264 : 360;
     const minWidth = props.density === "compact" ? 220 : 260;
-    const anchorElWidth = props.matchAnchorWidth && props.anchorElement ? props.anchorElement.getBoundingClientRect().width : 0;
+    const anchorElRect = props.anchorElement ? props.anchorElement.getBoundingClientRect() : null;
+    const anchorElWidth = props.matchAnchorWidth && anchorElRect ? anchorElRect.width : 0;
     const basePanelWidth = anchorElWidth || Math.min(preferredWidth, Math.max(window.innerWidth - viewportGap * 2, minWidth));
     const panelWidth = Math.max(basePanelWidth, rect.width);
     const wantedHeight = Math.min(panelRef.value?.scrollHeight || maxPanelHeight, maxPanelHeight);
-    const bottomSpace = Math.max(window.innerHeight - rect.bottom - viewportGap - triggerGap, 0);
-    const topSpace = Math.max(rect.top - viewportGap - triggerGap, 0);
+
+    const targetLeft = (props.matchAnchorWidth && anchorElRect) ? anchorElRect.left : rect.left;
+    const topAnchor = (props.matchAnchorWidth && anchorElRect) ? anchorElRect.top : rect.top;
+    const bottomAnchor = (props.matchAnchorWidth && anchorElRect) ? anchorElRect.bottom : rect.bottom;
+
+    const bottomSpace = Math.max(window.innerHeight - bottomAnchor - viewportGap - triggerGap, 0);
+    const topSpace = Math.max(topAnchor - viewportGap - triggerGap, 0);
     const direction = props.direction === "down" || props.direction === "up"
         ? props.direction
         : bottomSpace >= wantedHeight || bottomSpace >= topSpace ? "down" : "up";
     const availableSpace = direction === "down" ? bottomSpace : topSpace;
     const maxHeight = Math.max(Math.min(availableSpace, maxPanelHeight), 96);
-    const left = Math.min(Math.max(rect.left, viewportGap), Math.max(window.innerWidth - panelWidth - viewportGap, viewportGap));
+    const left = Math.min(Math.max(targetLeft, viewportGap), Math.max(window.innerWidth - panelWidth - viewportGap, viewportGap));
     const top = direction === "down"
-        ? Math.min(rect.bottom + triggerGap, window.innerHeight - maxHeight - viewportGap)
-        : Math.max(rect.top - Math.min(wantedHeight, maxHeight) - triggerGap, viewportGap);
+        ? Math.min(bottomAnchor + triggerGap, window.innerHeight - maxHeight - viewportGap)
+        : Math.max(topAnchor - Math.min(wantedHeight, maxHeight) - triggerGap, viewportGap);
 
     return {
         direction,
@@ -95,6 +101,12 @@ const virtualPanelLayout = computed(() => {
 
 const effectiveDirection = computed(() => props.anchorRect ? virtualPanelLayout.value.direction : resolvedDirection.value);
 const effectivePanelStyle = computed(() => props.anchorRect ? virtualPanelLayout.value.style : panelStyle.value);
+
+/* Teleport 目标只在字符串或真实元素时直传；true / false / null 一律落到 body（`:disabled` 另行处理）。 */
+const teleportTargetResolved = computed(() => {
+    const target = props.teleportTarget;
+    return typeof target === "string" || target instanceof HTMLElement ? target : "body";
+});
 
 watch(() => props.anchorRect, async () => {
     await nextTick();
@@ -116,7 +128,10 @@ if (import.meta.client) {
 </script>
 
 <template>
-    <Teleport :disabled="!props.anchorRect || !props.teleportTarget" :to="props.teleportTarget ?? 'body'">
+    <Teleport
+        :disabled="!props.anchorRect || props.teleportTarget === false"
+        :to="teleportTargetResolved"
+    >
     <div
         ref="panelRef"
         class="z-[8500] flex flex-col overflow-hidden border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] shadow-2xl"

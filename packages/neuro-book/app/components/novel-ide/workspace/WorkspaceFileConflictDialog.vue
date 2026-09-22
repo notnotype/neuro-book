@@ -9,16 +9,12 @@ export type WorkspaceFileConflictResolution =
 <script setup lang="ts">
 import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
 import type {DiffWorkbenchActionPayload, DiffWorkbenchDocument} from "nbook/app/components/common/diff/diff-workbench.types";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {WorkspaceWriteConflictDto} from "nbook/shared/dto/workspace-file-conflict.dto";
 
-const props = withDefaults(defineProps<{
+const props = defineProps<{
     modelValue: boolean;
     conflict: WorkspaceWriteConflictDto | null;
-    theme?: IdeTheme;
-}>(), {
-    theme: "sepia",
-});
+}>();
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
@@ -85,7 +81,6 @@ function handleAction(payload: DiffWorkbenchActionPayload): void {
     <DiffWorkbenchDialog
         :model-value="modelValue"
         :document="document"
-        :theme="theme"
         :title="dialogTitle"
         :subtitle="subtitle"
         :available-modes="['diff', 'merge', 'current-base', 'incoming-base']"

@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workbench 与 View 模型 · 可视化讲解</title>
+<style>
+:root{
+  --paper:#faf8f4; --card:#fffefb; --ink:#20242a; --muted:#6b7280; --line:#e2ddd2;
+  --accent:#b4552d; --accent-soft:#f6e7de; --ok:#2f7d5d; --ok-soft:#e4f2ea;
+  --warn:#a4650f; --warn-soft:#fbf0dd; --blue:#2f5d8c; --blue-soft:#e6eef8;
+  --code:#f3efe7; --shadow:0 1px 2px rgba(32,36,42,.06),0 8px 24px rgba(32,36,42,.06);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.7 -apple-system,"Segoe UI","Noto Sans SC",system-ui,sans-serif}
+a{color:var(--accent)}
+code,kbd{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.92em;
+  background:var(--code);border:1px solid var(--line);border-radius:5px;padding:.05em .35em}
+h1{font-size:30px;line-height:1.35;margin:0 0 10px}
+h2{font-size:22px;margin:0 0 6px}
+h3{font-size:16px;margin:22px 0 8px}
+p{margin:8px 0}
+.wrap{max-width:1120px;margin:0 auto;padding:32px 24px 96px}
+.lede{font-size:17px;color:var(--muted)}
+.tag{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);
+  background:var(--card);color:var(--muted);margin-right:6px;vertical-align:2px}
+.tag.ok{color:var(--ok);border-color:#bcdccd;background:var(--ok-soft)}
+.tag.src{color:var(--blue);border-color:#c6d8ec;background:var(--blue-soft)}
+.tag.warn{color:var(--warn);border-color:#e8d5b0;background:var(--warn-soft)}
+section{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;margin:20px 0;box-shadow:var(--shadow)}
+section>.hint{color:var(--muted);font-size:13.5px;margin:2px 0 14px}
+.grid2{display:grid;grid-template-columns:1.25fr .95fr;gap:20px}
+@media (max-width:900px){.grid2{grid-template-columns:1fr}}
+nav.toc{position:sticky;top:0;z-index:20;background:rgba(250,248,244,.92);backdrop-filter:blur(6px);
+  border-bottom:1px solid var(--line);padding:10px 24px;display:flex;gap:14px;flex-wrap:wrap;font-size:13.5px}
+nav.toc a{color:var(--muted);text-decoration:none}
+nav.toc a:hover{color:var(--accent)}
+.btn{font:inherit;font-size:13.5px;border:1px solid var(--line);background:var(--card);color:var(--ink);
+  border-radius:9px;padding:6px 12px;cursor:pointer}
+.btn:hover{border-color:#cfc7b8;background:#fff}
+.btn.on{background:var(--accent-soft);border-color:#e6c6b4;color:var(--accent)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.panel{border:1px solid var(--line);border-radius:11px;background:#fdfcf9;padding:14px 16px;min-height:120px}
+.panel h4{margin:0 0 8px;font-size:14px}
+.panel dl{margin:0;display:grid;grid-template-columns:88px 1fr;gap:4px 10px;font-size:13.5px}
+.panel dt{color:var(--muted)}
+.panel dd{margin:0}
+.kv{font-size:13.5px;color:var(--muted)}
+/* 屏幕 mock */
+.mock{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#f4f0e6;user-select:none}
+.mock .titlebar{height:30px;background:#efe9dc;border-bottom:1px solid var(--line);display:flex;align-items:center;
+  padding:0 10px;font-size:12.5px;color:var(--muted);gap:8px}
+.mock .row{display:flex;min-height:250px}
+.mock .reg{border:1px solid transparent;position:relative;transition:.15s;cursor:pointer;padding:8px}
+.mock .reg:hover{border-color:var(--accent);background:#fff}
+.mock .reg.sel{border-color:var(--accent);background:#fff;box-shadow:inset 0 0 0 1px var(--accent)}
+.mock .reg .lbl{font-size:12px;font-weight:600}
+.mock .reg .sub{font-size:11.5px;color:var(--muted);margin-top:2px}
+.mock .activity{width:44px;background:#efe9dc;display:flex;flex-direction:column;gap:10px;align-items:center;padding-top:10px}
+.mock .activity i{width:18px;height:18px;border-radius:5px;background:#ded6c4;display:block}
+.mock .sidebar{width:190px;border-right:1px solid var(--line)}
+.mock .editor{flex:1;background:#fbf9f4}
+.mock .aux{width:190px;border-left:1px solid var(--line);background:#fbf9f4}
+.mock .panelbar{height:64px;border-top:1px solid var(--line);background:#fbf9f4;padding:8px 10px}
+.mock .statusbar{height:24px;background:#efe9dc;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted);
+  display:flex;align-items:center;padding:0 10px}
+.mock .fake{height:8px;border-radius:3px;background:#e6dfd0;margin:6px 0}
+.mock .fake.w70{width:70%}.mock .fake.w40{width:40%}.mock .fake.w55{width:55%}
+/* 树图 */
+.tree{display:flex;flex-direction:column;gap:0}
+.node{border:1px dashed #d8d0c0;border-radius:9px;padding:8px 10px;margin:6px 0 6px 0;background:#fdfcf9}
+.node.branch{border-style:solid;border-color:#cdc4b2;background:#f7f3ea}
+.node.leaf{border-color:#bcdccd;background:var(--ok-soft)}
+.node.ghost{border-color:#e0d8c8;background:#f6f2e9;color:var(--muted)}
+.node .n{font-size:13px;font-weight:600}
+.node .t{font-size:12px;color:var(--muted)}
+.indent{margin-left:22px;border-left:2px solid #eae3d5;padding-left:12px}
+.chip{display:inline-block;font-size:11.5px;border-radius:999px;padding:1px 7px;border:1px solid var(--line);
+  background:#fff;color:var(--muted);margin-left:6px}
+.chip.leaf{color:var(--ok);border-color:#bcdccd}
+.chip.branch{color:var(--accent);border-color:#e6c6b4;background:var(--accent-soft)}
+/* 概念卡 */
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:10px}
+.card{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;cursor:pointer;transition:.15s}
+.card:hover{border-color:#cfc7b8;transform:translateY(-1px)}
+.card.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+.card .name{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:600}
+.card .desc{font-size:12.5px;color:var(--muted);margin-top:4px}
+.card .layer{font-size:11px;margin-top:6px}
+.card[data-layer="decl"] .layer{color:var(--blue)}
+.card[data-layer="rt"] .layer{color:var(--accent)}
+.card[data-layer="state"] .layer{color:var(--ok)}
+/* stepper */
+.pipeline{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin:6px 0 12px}
+.step{flex:1 1 130px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;font-size:12.5px;position:relative}
+.step.act{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 2px #f3e2d8}
+.step .s{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted);display:block}
+.step.done{border-color:#bcdccd;background:var(--ok-soft)}
+.bar{height:8px;border-radius:999px;background:#eee7da;overflow:hidden;margin-top:8px}
+.bar>i{display:block;height:100%;background:var(--accent);width:0;transition:width .35s}
+/* 拖动意图 */
+.intent{border:1px solid var(--line);border-radius:10px;padding:12px;background:#fff}
+.intent h4{margin:0 0 6px;font-size:14px}
+.pill{display:inline-block;font-size:12px;border-radius:999px;padding:2px 9px;border:1px solid var(--line);margin:2px 6px 2px 0;background:#fdfcf9}
+.pill.owner{color:var(--accent);border-color:#e6c6b4;background:var(--accent-soft)}
+.pill.untouched{color:var(--ok);border-color:#bcdccd;background:var(--ok-soft)}
+/* 两层位置 */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:700px){.two{grid-template-columns:1fr}}
+.list{list-style:none;margin:0;padding:0;font-size:13.5px}
+.list li{border:1px solid var(--line);border-radius:8px;background:#fff;padding:7px 10px;margin:6px 0;display:flex;justify-content:space-between;gap:8px}
+.list li.dim{opacity:.45}
+.vs{border-left:3px solid var(--accent);padding-left:10px;margin:10px 0}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top}
+th{background:#f7f3ea;font-weight:600}
+.foot{color:var(--muted);font-size:13px}
+ul.tight{margin:6px 0;padding-left:20px}ul.tight li{margin:3px 0}
+</style>
+</head>
+<body>
+
+<nav class="toc">
+  <strong>Workbench 与 View 模型</strong>
+  <a href="#parts">① 屏幕区域 = Part</a>
+  <a href="#grid">② grid 是树</a>
+  <a href="#concepts">③ 概念清单</a>
+  <a href="#life">④ 生命周期</a>
+  <a href="#intents">⑤ 三种拖动</a>
+  <a href="#state">⑥ 状态存哪</a>
+  <a href="#neuro">⑦ 映射到 NeuroBook</a>
+</nav>
+
+<div class="wrap">
+  <h1>一个 UI 不是一棵 DOM 树</h1>
+  <p class="lede">
+    它是**四层不同 owner 的对象**：区域（Part）、容器（View Container）、视图（View）、编辑器分屏（Editor Group/Grid）。
+    拖动 View、移动整个 Panel、拆分编辑器，是三种不同意图，回到三个不同的 owner。
+    这一页把 VS Code 的这套模型拆开画给你看——同时也说明我们自己的页面该怎么落进去。
+  </p>
+  <p>
+    <span class="tag ok">文档已验证</span>取自本仓库 <code>docs/research/vscode/03-workbench-layout-views.md</code>（固定 commit 核对）
+    <span class="tag src">源码记忆</span>运行时细节，尚未在本地核对
+    <span class="tag warn">未验证</span>真实拖拽手感与重启恢复
+  </p>
+
+  <!-- ① PARTS -->
+  <section id="parts">
+    <h2>① 屏幕上的每一块，先归到一个 Part</h2>
+    <p class="hint">点任意区域：右边显示它是哪个 Part、是否直接装 View、状态存在哪。切换下面两个标签可对比「VS Code」与「NeuroBook 现在」。</p>
+    <div class="btnrow">
+      <button class="btn on" data-mode="vscode">VS Code</button>
+      <button class="btn" data-mode="neuro">NeuroBook 现状</button>
+    </div>
+    <div class="grid2">
+      <div class="mock" id="mock-holder"></div>
+      <div class="panel" id="part-panel">
+        <h4>点一个区域</h4>
+        <p class="kv">左侧每个色块都是一个 Part（或 Part 里的一层）。Part 拥有**区域几何与可见性**，它本身不是 View。</p>
+      </div>
+    </div>
+    <h3>八个 Part（VS Code 的固定词表）</h3>
+    <table>
+      <tr><th>Part</th><th>人话</th><th>直接装 View？</th><th>典型模型</th></tr>
+      <tr><td><code>TITLEBAR_PART</code></td><td>标题栏 / 命令中心</td><td>否</td><td>原生或自绘 chrome</td></tr>
+      <tr><td><code>BANNER_PART</code></td><td>顶部通知横幅</td><td>否</td><td>Workbench Part</td></tr>
+      <tr><td><code>ACTIVITYBAR_PART</code></td><td>左/右侧图标栏</td><td>间接</td><td>打开 Composite / Container</td></tr>
+      <tr><td><code>SIDEBAR_PART</code></td><td>主侧栏</td><td>是，承载 View Container</td><td>Part + Pane 容器</td></tr>
+      <tr><td><code>PANEL_PART</code></td><td>底部（可移动）面板</td><td>是</td><td>Part + Pane 容器</td></tr>
+      <tr><td><code>AUXILIARYBAR_PART</code></td><td>次级侧栏 / 右侧辅助区</td><td>是</td><td>与 SIDEBAR 同型、不同位置</td></tr>
+      <tr><td><code>EDITOR_PART</code></td><td>编辑器区域</td><td>否，内部是 Editor Group</td><td>EditorPart + Grid</td></tr>
+      <tr><td><code>STATUSBAR_PART</code></td><td>底部状态栏</td><td>否</td><td>左右两条 item 注册表</td></tr>
+    </table>
+    <div class="vs">
+      <strong>对 NeuroBook 的直接结论</strong>：右侧那个 Agent 面板属于 <code>AUXILIARYBAR_PART</code>——
+      <em>它不该是第二套实现</em>；底部若要加终端/输出，是 <code>PANEL_PART</code>，与侧栏同型。
+    </div>
+  </section>
+
+  <!-- ② GRID -->
+  <section id="grid">
+    <h2>② grid 是<em>树</em>，不是表格</h2>
+    <p class="hint">
+      点节点看类型；按「换方向」看父子如何嵌套。叶子是宿主认识的节点，分支只有方向。拖动 sash 改的是**分支上的尺寸**，不是组件内部。
+    </p>
+    <div class="btnrow">
+      <button class="btn" id="tree-toggle-editor">展开 EDITOR_PART 内部</button>
+      <button class="btn" id="tree-rotate">换方向（模拟 Panel 移到右侧）</button>
+    </div>
+    <div class="grid2">
+      <div class="tree" id="tree-holder"></div>
+      <div class="panel" id="node-panel">
+        <h4>grid 里装什么</h4>
+        <dl>
+          <dt>装</dt><dd>宿主能识别的节点：<b>Part</b>、<b>Editor Group</b>、<b>占位</b>（拖拽时的落点）</dd>
+          <dt>不装</dt><dd>任意组件实例。视图内容永远不在 grid 里——这是「插件能声明 View、但不能改主布局」的实现方式</dd>
+          <dt>两棵树</dt><dd>Workbench 外层一棵装 Part；<code>EDITOR_PART</code> 内部<em>再一棵</em>装 Editor Group，同一套抽象用在两层</dd>
+          <dt>容器内部</dt><dd>不是 grid：侧栏/面板里多个视图是一维 split view（同方向不需要树）</dd>
+        </dl>
+        <div class="bar"><i style="width:100%"></i></div>
+      </div>
+    </div>
+    <div class="vs">
+      <strong>我上一版说错的地方</strong>：我曾说「二维网格、每格放一个 Part」——那是过度简化。
+      真实结构是嵌套的分割树：<code>grid</code> 这个名字指的是「方向可以嵌套」，不是一张二维数组。
+    </div>
+  </section>
+
+  <!-- ③ CONCEPTS -->
+  <section id="concepts">
+    <h2>③ 概念清单：谁声明、谁在运行时拥有</h2>
+    <p class="hint">点卡片看它属于哪一层、拥有什么、状态落在哪。左边是声明层（可枚举、可校验、可被追加），右边是运行时（宿主拥有、可恢复）。</p>
+    <div class="cards" id="cards-holder"></div>
+    <div class="panel" id="concept-panel" style="margin-top:14px">
+      <h4>点一张卡片</h4>
+      <p class="kv">声明层与运行时的分工是这套模型的地基：<b>descriptor 描述能力</b>，<b>运行时对象持有状态</b>。两者之间隔着注册表与 <code>when</code> 求值。</p>
+    </div>
+    <h3>它们的关系</h3>
+    <pre style="overflow:auto;background:#f7f3ea;border:1px solid var(--line);border-radius:10px;padding:14px;font-size:12.5px">
+声明层（可枚举 / 可校验 / 可被追加）
+  Contribution ──▶ ViewContainerDescriptor ──▶ ViewDescriptor(when / order / canMove / canToggle / factory)
+                        │                              │
+                 ViewContainerRegistry            ViewsRegistry
+                        └────────────┬─────────────────┘
+                                     ▼ 合并 + when 求值
+运行时（宿主拥有，可恢复）
+  Layout ──▶ SerializableGrid{ Part, EditorGroup, 占位 }        ← 只认宿主认识的节点
+    Part(SIDEBAR | PANEL | AUXILIARYBAR)
+        └──▶ ViewContainer ──▶ ViewContainerModel（同容器：可见 / 顺序 / 折叠 / 尺寸）
+                                     └──▶ PaneView（每个可见视图一个；懒建、隐藏不销毁）
+    跨容器位置 ──▶ ViewDescriptorService（用户移动的结果，与默认位置分开存）
+    编辑器      ──▶ EditorPart ──▶ SerializableGrid&lt;IEditorGroupView&gt;（另一棵树）
+
+状态层（各有各的键）
+  Part 可见性/位置/尺寸 → LayoutSettings/storage ；视图自定义位置 → views.customizations ；
+  Editor Group → editorpart.state ；视图自身 UI → 每个视图的 memento ；领域数据 → 各自 authority</pre>
+    <div class="vs">
+      <strong>两条最容易搞混的区分</strong>
+      <ul class="tight">
+        <li><b>descriptor（声明）</b> vs <b>PaneView（运行时）</b>：描述符可以枚举、可以在没被打开时也存在；PaneView 只在第一次可见时创建。</li>
+        <li><b>默认位置</b>（写在 descriptor / 容器上）vs <b>实际位置</b>（用户挪过之后记在 <code>ViewDescriptorService</code> 里）。两者分开存、分开迁移。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ④ LIFECYCLE -->
+  <section id="life">
+    <h2>④ 一个视图的一生</h2>
+    <p class="hint">按「下一步」走一遍：注册 → 求值 → 懒建 → 保活 → 移动 → 释放。打开「错误注入」看失败隔离。</p>
+    <div class="btnrow">
+      <button class="btn on" id="life-next">下一步 ▸</button>
+      <button class="btn" id="life-reset">重来</button>
+      <button class="btn" id="life-error">错误注入：让一个 factory 抛错</button>
+    </div>
+    <div class="pipeline" id="life-holder"></div>
+    <div class="panel" id="life-panel"><h4>① 注册</h4><p class="kv">descriptor 进注册表。此刻没有任何组件被创建——包括那些最终会显示出来的。</p></div>
+    <p class="kv" id="life-note">【源码记忆】懒建与保活、<code>onView:</code> 激活事件、<code>canMoveView</code> 默认假——这三条要用进 Proposal 前需按固定 commit 核对。</p>
+  </section>
+
+  <!-- ⑤ INTENTS -->
+  <section id="intents">
+    <h2>⑤ 三种拖动 = 三种意图 = 三个 owner</h2>
+    <p class="hint">点一个意图，看它改变谁的状态、又不碰谁。</p>
+    <div class="btnrow">
+      <button class="btn on" data-intent="view">拖动一个 View</button>
+      <button class="btn" data-intent="panel">移动整个 Panel</button>
+      <button class="btn" data-intent="editor">拆分编辑器</button>
+    </div>
+    <div class="panel" id="intent-panel"></div>
+    <div class="vs">
+      混在一起的代价：把「拖 View」当「移动 Panel」处理，就会出现「拖个面板，整个编辑器跟着重排」。
+      Panel 的位置与对齐还有自己的两个词表：<code>Position</code>（left/right/bottom/top）与 <code>PanelAlignment</code>（left/center/right/justify）。
+    </div>
+  </section>
+
+  <!-- ⑥ STATE -->
+  <section id="state">
+    <h2>⑥ 状态存在五个不同的地方</h2>
+    <p class="hint">点一条看它的作用域与恢复合同。</p>
+    <table id="state-table">
+      <tr><th>状态</th><th>归谁</th><th>落在哪</th><th>恢复合同</th></tr>
+      <tr class="st" data-k="part"><td>Part 可见性 / 位置 / 尺寸</td><td>Layout / Part service</td><td>storage（profile / workspace 分层）+ LayoutSettings</td><td>启动时先恢复外壳，再恢复内容</td></tr>
+      <tr class="st" data-k="custom"><td>视图与容器的自定义位置</td><td>ViewDescriptorService</td><td><code>views.customizations</code></td><td>与默认位置分开；删除自定义即回落默认</td></tr>
+      <tr class="st" data-k="editor"><td>编辑器分组与分屏</td><td>EditorPart</td><td><code>editorpart.state</code></td><td>只恢复分组结构；文件内容走编辑器自己的 dirty/flush</td></tr>
+      <tr class="st" data-k="view"><td>单个视图自身 UI（展开项、筛选）</td><td>该视图</td><td>每个视图的 memento</td><td>按视图 id + 作用域；视图被释放后仍在</td></tr>
+      <tr class="st" data-k="domain"><td>领域数据（文件、会话、任务）</td><td>原 authority</td><td>各自真相源</td><td><b>不进布局状态</b>；视图只是投影</td></tr>
+    </table>
+    <div class="panel" id="state-panel" style="margin-top:12px"><h4>点一条状态</h4><p class="kv">把布局状态和领域数据混在一起，就会出现「重开窗口后布局对了、数据串了」这类问题。</p></div>
+  </section>
+
+  <!-- ⑦ NEUROBOOK -->
+  <section id="neuro">
+    <h2>⑦ 映射到我们自己的页面</h2>
+    <p class="hint">直观对照：现在哪些是「固定槽位」，套上模型后应该变成什么。</p>
+    <div class="grid2">
+      <div class="mock" id="neuro-mock"></div>
+      <div class="panel">
+        <h4>差距清单</h4>
+        <ul class="tight">
+          <li>活动栏是**写死的 capability 列表**（<code>app/utils/workbench-chrome.ts:12-26</code>），不是注册表派生</li>
+          <li>侧栏 / 右栏 / 编辑器是**固定槽位**；右栏 Agent 面板独立实现（应属 <code>AUXILIARYBAR_PART</code>）</li>
+          <li>布局状态三层混着：<code>novel.ide.local</code>（用户级）、<code>novel.ide.session</code>（按 Project 分区）、组件内 ref（session）</li>
+          <li>没有 <code>when</code> 求值器，也没有「懒实例化 + 保持存活 + 失败隔离」</li>
+        </ul>
+        <h4 style="margin-top:14px">已有的参照物</h4>
+        <p class="kv">
+          刚完成的设置外壳就是这套模型在**单容器、手写注册表**下的特例：元数据驱动 + 受控插槽 + 宿主持有 I/O +
+          <code>fill/scroll</code> 布局合同 + 单一加载态。它缺的正是 <code>location/container</code>、factory 绑定与
+          descriptor 级错误——也就是「一个外壳」到「一个 View Registry」之间的距离。
+        </p>
+        <h4 style="margin-top:14px">探针该先证什么</h4>
+        <p class="kv">不是「能不能拖动」，而是：注册表 + when 求值器 + 懒实例化能不能在不碰现有 authority 的前提下接上去。
+        上一版探针没做到这一点，所以它只是个手写的容器列表。</p>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    证据：本仓库 <code>packages/neuro-book/docs/research/vscode/03-workbench-layout-views.md</code>（Part 词表、四层分层、持久化键为固定 commit 已验证；
+    真实拖拽与重启恢复未验证）、<code>12-workbench-view-host-refactor.md</code>（当前为固定槽位、生命周期与失败恢复建议）、
+    <code>15-refactor-sequence-and-decision-gates.md</code>（Proposal → Spec → Task 门禁）。
+    运行时细节（懒建/保活、<code>onView:</code> 激活、<code>canMoveView</code> 默认值）为源码记忆，未在本地核对。
+  </p>
+</div>
+
+<script>
+const PARTS = {
+  titlebar:{name:"TITLEBAR_PART", plain:"标题栏 / 命令中心", hosts:"否", owner:"Workbench chrome", state:"LayoutSettings（原生 or 自绘）",
+    note:"自绘时才由 Workbench 画；菜单内容来自 MenuRegistry，不是 View。"},
+  activity:{name:"ACTIVITYBAR_PART", plain:"图标栏", hosts:"间接", owner:"Layout + PaneCompositeBar",
+    state:"storage：哪些容器可见、活动容器、图标顺序", note:"图标 = View Container；容器本身没有 when，可见性只作用在 View 层。"},
+  sidebar:{name:"SIDEBAR_PART", plain:"主侧栏", hosts:"是（承载 View Container）", owner:"Layout + ViewContainerModel",
+    state:"容器活动项 + 容器内视图的可见/顺序/折叠/尺寸", note:"容器内部是一维 split view，不是 grid。"},
+  editor:{name:"EDITOR_PART", plain:"编辑器区域", hosts:"否（内部是 Editor Group）", owner:"EditorPart",
+    state:"editorpart.state（分组与分屏）", note:"自己维护 SerializableGrid<IEditorGroupView>；与 View 容器不是同一个抽象。"},
+  aux:{name:"AUXILIARYBAR_PART", plain:"次级侧栏 / 右侧辅助区", hosts:"是", owner:"与 SIDEBAR 同型、不同位置",
+    state:"同侧栏 + 位置记录", note:"把视图移到辅助侧栏是「位置变更」，不是另一套实现。"},
+  panel:{name:"PANEL_PART", plain:"底部（可移动）面板", hosts:"是", owner:"Layout + ViewContainerModel",
+    state:"面板位置、对齐、容器活动项", note:"Position(left/right/bottom/top) 与 PanelAlignment(left/center/right/justify) 只描述面板自身。"},
+  statusbar:{name:"STATUSBAR_PART", plain:"状态栏", hosts:"否", owner:"左右两条 item 注册表",
+    state:"可见性与 item 顺序", note:"同理不是 View。"},
+};
+
+const MOCKS = {
+  vscode:[
+    {k:"titlebar",cls:"titlebar",html:`<span>文件</span><span>编辑</span><span>选择</span><span>查看</span><span style="margin-left:auto">命令中心</span>`},
+    {k:"row",row:[
+      {k:"activity",cls:"activity",html:`<i></i><i></i><i></i><i></i>`},
+      {k:"sidebar",cls:"sidebar",html:`<div class="lbl">资源管理器</div><div class="fake w70"></div><div class="fake w55"></div><div class="fake w70"></div><div class="fake w40"></div>`},
+      {k:"editor",cls:"editor",html:`<div class="lbl">编辑器组 1</div><div class="fake w55"></div><div class="fake w70"></div><div class="fake w40"></div>`},
+      {k:"aux",cls:"aux",html:`<div class="lbl">辅助侧栏</div><div class="fake w70"></div><div class="fake w40"></div>`},
+    ]},
+    {k:"panel",cls:"panelbar",html:`<div class="lbl">面板：问题 / 输出 / 终端</div>`},
+    {k:"statusbar",cls:"statusbar",html:`<span>分支 · 状态 · 语言</span>`},
+  ],
+  neuro:[
+    {k:"titlebar",cls:"titlebar",html:`<span>NeuroBook</span><span style="margin-left:auto">窗口控制</span>`},
+    {k:"row",row:[
+      {k:"activity",cls:"activity",html:`<i></i><i></i><i></i><i></i><i></i>`},
+      {k:"sidebar",cls:"sidebar",html:`<div class="lbl">项目文件树（固定槽位）</div><div class="fake w70"></div><div class="fake w55"></div><div class="fake w70"></div>`},
+      {k:"editor",cls:"editor",html:`<div class="lbl">Markdown Studio（固定槽位）</div><div class="fake w55"></div><div class="fake w70"></div>`},
+      {k:"aux",cls:"aux",html:`<div class="lbl">Agent 面板（独立实现）</div><div class="fake w70"></div><div class="fake w40"></div>`},
+    ]},
+    {k:"statusbar",cls:"statusbar",html:`<span>版本 · 状态</span>`},
+  ],
+};
+
+function bindRegion(el){
+  el.onclick = () => {
+    document.querySelectorAll(".mock .reg").forEach(x=>x.classList.remove("sel"));
+    el.classList.add("sel");
+    const p = PARTS[el.dataset.k];
+    document.getElementById("part-panel").innerHTML =
+      `<h4><code>${p.name}</code></h4><dl>
+         <dt>人话</dt><dd>${p.plain}</dd>
+         <dt>装 View</dt><dd>${p.hosts}</dd>
+         <dt>拥有</dt><dd>${p.owner}</dd>
+         <dt>状态存哪</dt><dd>${p.state}</dd>
+       </dl><p class="kv" style="margin-top:10px">${p.note}</p>`;
+  };
+}
+
+function renderMock(target, entry){
+  const host = document.getElementById(target);
+  let html = "";
+  for(const block of entry){
+    if(block.k === "row"){
+      html += `<div class="row">`;
+      for(const cell of block.row){
+        const label = PARTS[cell.k] ? PARTS[cell.k].plain : "";
+        html += `<div class="reg ${cell.cls}" data-k="${cell.k}"><div class="sub">${label}</div>${cell.html}</div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div class="reg ${block.cls}" data-k="${block.k}">${block.html}</div>`;
+    }
+  }
+  host.innerHTML = html;
+  host.querySelectorAll(".reg").forEach(bindRegion);
+}
+renderMock("mock-holder", MOCKS.vscode);
+renderMock("neuro-mock", MOCKS.neuro);
+document.querySelectorAll("[data-mode]").forEach(btn => btn.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on");
+  renderMock("mock-holder", MOCKS[btn.dataset.mode]);
+});
+
+/* ② grid 树 */
+let editorOpen = false, rotated = false;
+const NODE_INFO = {
+  root:{t:"分支 · 垂直", d:"根节点只有方向：它横向排列子节点。"},
+  left:{t:"分支 · 水平", d:"活动栏 + 侧栏 + 编辑器 + 辅助栏横着排；拖动 sash 改的是这一级的尺寸。"},
+  activity:{t:"叶子 · Part", d:"ACTIVITYBAR_PART：间接承载容器，不直接装 View。"},
+  sidebar:{t:"叶子 · Part（承载容器）", d:"SIDEBAR_PART 里是 ViewContainer → ViewContainerModel → PaneView。"},
+  editor:{t:"叶子 · Part（内含另一棵树）", d:"EDITOR_PART 自己维护 SerializableGrid<IEditorGroupView>。"},
+  aux:{t:"叶子 · Part（承载容器）", d:"AUXILIARYBAR_PART：与侧栏同型、不同位置。"},
+  panel:{t:"叶子 · Part（承载容器）", d:"PANEL_PART：位置与对齐是它自己的两层状态。"},
+  statusbar:{t:"叶子 · Part", d:"STATUSBAR_PART：左右两条 item 注册表，不是 View。"},
+  placeholder:{t:"叶子 · 占位", d:"拖拽时的落点也在这棵树里——但同样只是宿主认识的节点。"},
+  group1:{t:"叶子 · Editor Group", d:"编辑器分组：一个二维分屏里的格子。"},
+  group2:{t:"叶子 · Editor Group", d:"再拆一个就是它的兄弟节点。"},
+};
+function node(k, label, type, children){
+  const chip = type === "branch" ? `<span class="chip branch">分支</span>` : (type==="ghost"?`<span class="chip">占位</span>`:`<span class="chip leaf">叶子</span>`);
+  const body = `<div class="n">${label}${chip}<span class="chip">${NODE_INFO[k] ? k : ""}</span></div>`;
+  const inner = children ? `<div class="indent">${children}</div>` : "";
+  return `<div class="node ${type}" data-node="${k}">${body}${inner}</div>`;
+}
+function renderTree(){
+  const editorChildren = editorOpen
+    ? node("group1","Editor Group 1","leaf") + node("group2","Editor Group 2","leaf") + node("placeholder","拖拽落点","ghost")
+    : "";
+  const editorBlock = editorOpen
+    ? `<div class="node branch" data-node="editor"><div class="n">EDITOR_PART<span class="chip branch">含子树</span></div><div class="indent">${editorChildren}</div></div>`
+    : node("editor","EDITOR_PART（内含另一棵 SerializableGrid）","leaf");
+  const leftOrder = rotated
+    ? [node("activity","ACTIVITYBAR_PART","leaf"), node("sidebar","SIDEBAR_PART → 容器 → 视图","leaf"), editorBlock, node("aux","AUXILIARYBAR_PART","leaf")]
+    : [node("activity","ACTIVITYBAR_PART","leaf"), node("sidebar","SIDEBAR_PART → 容器 → 视图","leaf"), editorBlock, node("aux","AUXILIARYBAR_PART","leaf")];
+  const inner = node("left", rotated ? "分支 · 垂直（Panel 移到右侧）" : "分支 · 水平", "branch", leftOrder.join(""))
+    + node("panel","PANEL_PART","leaf")
+    + node("statusbar","STATUSBAR_PART","leaf");
+  document.getElementById("tree-holder").innerHTML = node("root","Workbench Grid","branch", inner);
+  document.querySelectorAll("[data-node]").forEach(el => el.onclick = (ev) => {
+    ev.stopPropagation();
+    const k = el.dataset.node, info = NODE_INFO[k] || {t:"节点",d:""};
+    document.getElementById("node-panel").innerHTML =
+      `<h4>${info.t}</h4><p class="kv">${info.d}</p>
+       <p class="kv" style="margin-top:10px">键：<code>${k}</code></p>`;
+  });
+}
+renderTree();
+document.getElementById("tree-toggle-editor").onclick = (e) => { editorOpen = !editorOpen; e.target.classList.toggle("on", editorOpen); renderTree(); };
+document.getElementById("tree-rotate").onclick = (e) => { rotated = !rotated; e.target.classList.toggle("on", rotated); renderTree(); };
+
+/* ③ 概念卡 */
+const CONCEPTS = [
+  {n:"Contribution",l:"decl",d:"贡献声明（扩展 package.json 或内置）：容器、视图、命令、菜单项的来源。"},
+  {n:"ViewContainerDescriptor",l:"decl",d:"一组视图的容器：id / title / icon / order / 默认位置。"},
+  {n:"ViewDescriptor",l:"decl",d:"单个视图的能力：id / name / icon / when / order / canMoveView / canToggleVisibility / factory。"},
+  {n:"ViewsRegistry",l:"decl",d:"把描述符登记起来的注册表：可枚举、可校验（重复 id 在这里拦）、可被追加。"},
+  {n:"ViewDescriptorService",l:"rt",d:"跨容器位置的权威：用户把视图挪到别处后的实际位置；与默认位置分开存。"},
+  {n:"ViewContainerModel",l:"rt",d:"每个容器一个：同容器内视图的可见 / 顺序 / 折叠 / 尺寸。"},
+  {n:"Part",l:"rt",d:"Workbench 的八个大区域：拥有区域几何、可见性与位置。"},
+  {n:"ViewContainer",l:"rt",d:"Part 里承载一组视图的容器（活动栏图标点开的那个 Composite）。"},
+  {n:"PaneView",l:"rt",d:"单个视图在 split view 里的可布局实现：自己的最小/最大尺寸、折叠、可见性。"},
+  {n:"EditorPart + Grid",l:"rt",d:"编辑器二维分屏：文件、分组、标签、脏状态，独立状态键，不是 View。"},
+  {n:"Command / MenuRegistry",l:"rt",d:"动作与其出现位置（菜单、工具栏、上下文菜单），配 when 控制启用与显示。"},
+  {n:"ContextKeyService + when",l:"rt",d:"可见性/启用条件的求值器：上下文键 → 表达式结果。显示条件不是权限。"},
+  {n:"SerializableGrid",l:"rt",d:"只保存宿主认识的节点（Part / EditorGroup / 占位），不保存任意组件实例。"},
+  {n:"Storage（profile / workspace）",l:"state",d:"布局与状态的持久化：应用级、用户级、工作区级分开。"},
+  {n:"views.customizations",l:"state",d:"视图与容器的自定义位置；删除即回落默认位置。"},
+  {n:"editorpart.state",l:"state",d:"编辑器分组与分屏结构的恢复来源。"},
+];
+const LAYER_TEXT = {decl:"声明层",rt:"运行时",state:"状态层"};
+document.getElementById("cards-holder").innerHTML = CONCEPTS.map((c,i)=>
+  `<div class="card" data-layer="${c.l}" data-i="${i}"><div class="name">${c.n}</div><div class="desc">${c.d}</div>
+   <div class="layer">${LAYER_TEXT[c.l]}</div></div>`).join("");
+document.querySelectorAll(".card").forEach(card => card.onclick = () => {
+  document.querySelectorAll(".card").forEach(c=>c.classList.remove("sel"));
+  card.classList.add("sel");
+  const c = CONCEPTS[+card.dataset.i];
+  document.getElementById("concept-panel").innerHTML =
+    `<h4><code>${c.n}</code><span class="tag" style="margin-left:8px">${LAYER_TEXT[c.l]}</span></h4>
+     <p style="margin:6px 0 0">${c.d}</p>`;
+});
+
+/* ④ 生命周期 */
+const STEPS = [
+  {s:"① 注册",t:"descriptor 进注册表",d:"此刻没有任何组件被创建——包括那些最终会显示出来的。重复 id 在这一步就能被拦下。"},
+  {s:"② 求值",t:"when 求值",d:"ContextKeyService 用当前上下文键求值：这个视图该不该出现？上下文变化时只重算受影响的视图，不整页重渲染。"},
+  {s:"③ 懒建",t:"首次可见才创建 PaneView",d:"factory（ctorDescriptor）此时才被调用，造出真正的内容组件。从未被打开的视图永远不创建。"},
+  {s:"④ 保活",t:"隐藏 ≠ 销毁",d:"切到别的容器、把视图折叠起来，实例都留着——这是「切回来瞬时可用」的原因。"},
+  {s:"⑤ 移动",t:"跨容器移动",d:"位置变了：descriptor 不变，改的是 ViewDescriptorService 记录的「实际位置」。容器内的顺序由目标容器的 ViewContainerModel 决定。"},
+  {s:"⑥ 释放",t:"dispose",d:"只有真正释放时才拆实例；它自己的 UI 状态（memento）留下，下次还能恢复。"},
+];
+let lifeIdx = 0, lifeErr = false;
+function renderLife(){
+  document.getElementById("life-holder").innerHTML = STEPS.map((st,i)=>
+    `<div class="step ${i<lifeIdx?"done":""} ${i===lifeIdx?"act":""}"><span class="s">${st.s}</span>${st.t}</div>`).join("");
+  const cur = STEPS[Math.min(lifeIdx, STEPS.length-1)];
+  const errLine = lifeErr
+    ? `<p class="kv" style="color:var(--warn)">错误注入：某个 factory 抛错 → 注册表保留该 descriptor 与结构化 issue，<b>只坏这一个视图</b>，同一个容器里其他视图照常工作。</p>`
+    : "";
+  document.getElementById("life-panel").innerHTML = `<h4>${cur.s} · ${cur.t}</h4><p class="kv">${cur.d}</p>${errLine}`;
+}
+document.getElementById("life-next").onclick = () => { lifeIdx = Math.min(lifeIdx+1, STEPS.length-1); renderLife(); };
+document.getElementById("life-reset").onclick = () => { lifeIdx = 0; renderLife(); };
+document.getElementById("life-error").onclick = (e) => { lifeErr = !lifeErr; e.target.classList.toggle("on", lifeErr); renderLife(); };
+renderLife();
+
+/* ⑤ 意图 */
+const INTENTS = {
+  view:{title:"拖动一个 View",owner:["ViewContainerModel（同容器顺序/可见）","ViewDescriptorService（跨容器位置）"],
+    change:["该视图所在容器与顺序","它的可见性 / 折叠状态"],
+    keep:["Part 几何与尺寸","编辑器分组","其他容器的视图实例"],
+    note:"这是唯一会改「视图在哪」的意图。移动后位置记在 ViewDescriptorService，descriptor 本身不变——所以删掉自定义就能回默认布局。"},
+  panel:{title:"移动整个 Panel",owner:["Layout / Part（几何与位置）"],
+    change:["Panel 的 Position（left/right/bottom/top）","Panel 的对齐（PanelAlignment）"],
+    keep:["容器里的视图实例与顺序","编辑器分组与分屏","视图的自定义位置"],
+    note:"Panel 的位置和它内部承载的 View Container 是两层状态：把 View 拖进 Panel ≠ 移动 Panel。"},
+  editor:{title:"拆分编辑器",owner:["EditorPart（它自己的 SerializableGrid）"],
+    change:["Editor Group 的树与分屏方向","每个分组里的标签"],
+    keep:["所有 View 容器与视图位置","Panel / 侧栏几何"],
+    note:"编辑器分屏是另一套模型。这也是为什么 #192 明确把 Editor Group/Split 列为非目标——它不该被 View 抽象吞掉。"},
+};
+function renderIntent(k){
+  const it = INTENTS[k];
+  document.getElementById("intent-panel").innerHTML =
+    `<h4>${it.title}</h4>
+     <div><span class="kv">改变的 owner：</span>${it.owner.map(o=>`<span class="pill owner">${o}</span>`).join("")}</div>
+     <div style="margin-top:10px"><span class="kv">会变：</span>${it.change.map(o=>`<span class="pill">${o}</span>`).join("")}</div>
+     <div style="margin-top:10px"><span class="kv">不该被碰：</span>${it.keep.map(o=>`<span class="pill untouched">${o}</span>`).join("")}</div>
+     <p class="kv" style="margin-top:12px">${it.note}</p>`;
+}
+document.querySelectorAll("[data-intent]").forEach(btn => btn.onclick = () => {
+  document.querySelectorAll("[data-intent]").forEach(b=>b.classList.remove("on"));
+  btn.classList.add("on"); renderIntent(btn.dataset.intent);
+});
+renderIntent("view");
+
+/* ⑥ 状态 */
+const STATE_INFO = {
+  part:{t:"Part 可见性 / 位置 / 尺寸",d:"归 Layout / Part service。落在 storage（profile 与 workspace 分层）+ LayoutSettings。启动时**先恢复外壳，再恢复内容**——这就是「布局恢复快于视图数据」的原因。"},
+  custom:{t:"视图与容器的自定义位置",d:"归 ViewDescriptorService，落在 views.customizations。与默认位置分开：删掉自定义就回落默认，不会丢数据。"},
+  editor:{t:"编辑器分组与分屏",d:"归 EditorPart，落在 editorpart.state。只恢复分组结构；文件内容走编辑器自己的 dirty/flush 与保存路径。"},
+  view:{t:"单个视图自身 UI",d:"归该视图，落在它自己的 memento（按视图 id + 作用域）。视图被释放后状态仍在——所以重开还能回到上次的展开项。"},
+  domain:{t:"领域数据",d:"归原 authority（文件系统、会话、任务队列）。**绝不进布局状态**：视图只是投影，布局恢复不代表数据恢复。"},
+};
+document.querySelectorAll(".st").forEach(row => row.onclick = () => {
+  const info = STATE_INFO[row.dataset.k];
+  document.getElementById("state-panel").innerHTML = `<h4>${info.t}</h4><p class="kv">${info.d}</p>`;
+});
+</script>
+</body>
+</html>

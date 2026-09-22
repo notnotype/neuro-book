@@ -1,6 +1,6 @@
 import type {MaybeRefOrGetter} from "vue";
 import {computed, getCurrentScope, onScopeDispose, ref, toValue, watch} from "vue";
-import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {resolveClientActivePanel} from "nbook/app/utils/workbench/tool-context";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import {
@@ -8,14 +8,20 @@ import {
     type AgentSurfaceActivationAttempt,
     type AgentSurfaceOperationResult,
 } from "nbook/app/components/novel-ide/agent/agent-chat-surface-state";
-import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
+import {
+    applyActivePanelPatch,
+    applyClientVariablePatch,
+    buildAgentClientState,
+} from "nbook/app/components/novel-ide/agent/client-variables";
 import {reconcileInvocationReceipt} from "nbook/app/components/novel-ide/agent/agent-invocation-reconciliation";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
-import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
+import {useProductTheme} from "nbook/app/utils/theme/theme-session";
+import type {ProductThemeId} from "nbook/shared/theme/theme-axes";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {agentSessionScopeKey} from "nbook/app/utils/agent-session-scope-key";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
@@ -90,6 +96,7 @@ export function useInlineEditorAgentController(
     providedServices?: InlineEditorAgentControllerServices,
 ) {
     const ideStore = useNovelIdeStore();
+    const {themeId} = useProductTheme();
     const previousSelectedFilePath = ref<string | null>(toValue(options.selectedFilePath) || null);
     const fileChangedSinceLastSend = ref(false);
     const selectionVersion = ref(0);
@@ -114,8 +121,8 @@ export function useInlineEditorAgentController(
     const buildCurrentClientState = (): ClientStateSnapshotDto => {
         const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
         return buildAgentClientState({
-            activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
-            theme: ideStore.activeThemeId,
+            activePanel: resolveClientActivePanel(ideStore.activeToolView),
+            theme: themeId.value,
             novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
             workspace: ideStore.currentWorkspaceRoot || null,
             workspaceKind: ideStore.workspaceKind,
@@ -726,7 +733,7 @@ function createDefaultServices(
 ): InlineEditorAgentControllerServices {
     const api = useAgentSessionApi();
     const configApi = useConfigApi();
-    const themeManager = useThemeManager();
+    const themeSettings = useThemeSettings();
     const notification = useNotification();
     const {t} = useI18n();
     const storage: Pick<Storage, "getItem" | "setItem"> = import.meta.client
@@ -748,15 +755,15 @@ function createDefaultServices(
                 const appliedValue = await applyClientVariablePatch(request, buildClientState(), {
                     setActivePanel: (value) => {
                         if (!isCurrent()) return false;
-                        ideStore.activeLeftTab = value;
-                        return true;
+                        // 揭示归页面登记的端口；未登记 / 未接入 / 首读未就绪 / 来源过期都以抛出原因的方式
+                        // 进入 ack，不在这一层改任何"活动页签"状态。
+                        return applyActivePanelPatch(value);
                     },
                     setTheme: async (value) => {
                         if (!isCurrent()) return false;
-                        const applied = await themeManager.setTheme(value);
+                        const applied = await themeSettings.saveAxes({themeId: value as ProductThemeId});
                         return isCurrent() && applied;
                     },
-                    customThemeIds: ideStore.customThemes.map((theme) => theme.id),
                 });
                 if (!isCurrent()) return;
                 await api.acknowledgeClientVariablePatch(sessionId, {

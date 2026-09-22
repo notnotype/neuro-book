@@ -14,6 +14,9 @@ describe("Workbench Chrome registry", () => {
             openBookshelf: () => undefined,
             switchProject: () => undefined,
             toggleAgentPanel: () => undefined,
+            invokeMenuCommand: () => undefined,
+            editTarget: () => "none" as const,
+            projectUrl: () => "/",
         };
         const workspace = {
             ...bookshelf,

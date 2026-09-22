@@ -2517,4 +2517,39 @@ describe("workspace-files", {timeout: 60_000}, () => {
             }
         }
     }
+
+    it("受管资产同步与旧 sync state 清理都不安装、覆盖或删除 Storage 记录", async () => {
+        const sourceRoot = path.join(root, "source-nbook");
+        const targetRoot = path.join(assets.userNbookRoot);
+        const storageRecordPath = path.join(targetRoot, "storage", "records", "shelf.json");
+        await fs.mkdir(path.join(sourceRoot, "storage", "records"), {recursive: true});
+        await fs.writeFile(path.join(sourceRoot, "storage", "records", "installed.json"), "{\"revision\":\"upstream\"}\n", "utf-8");
+        await fs.mkdir(path.join(sourceRoot, "reference"), {recursive: true});
+        await fs.writeFile(path.join(sourceRoot, "reference", "kept.md"), "受管资产\n", "utf-8");
+        await fs.mkdir(path.dirname(storageRecordPath), {recursive: true});
+        await fs.writeFile(storageRecordPath, "{\"revision\":\"original\"}\n", "utf-8");
+        // 旧 manifest/state 声称同一条 Storage 记录受管：同步既不能把它当受管资产覆盖，也不能在清理时删除。
+        await fs.writeFile(path.join(targetRoot, ".system-assets-sync-state.json"), JSON.stringify({
+            profiles: [],
+            assets: [{
+                assetPath: "storage/records/shelf.json",
+                upstreamHash: "stale-upstream",
+                lastSyncedUserHash: "stale-user",
+                syncedAt: "2020-01-01T00:00:00.000Z",
+            }],
+        }, null, 2), "utf-8");
+
+        const result = await syncSystemAssetsToUserAssets({
+            sourceNbookRoot: sourceRoot,
+            targetNbookRoot: targetRoot,
+            syncProfiles: false,
+            syncVariableDefinitions: false,
+            syncVariableCompiledArtifacts: false,
+        });
+
+        await expect(fs.readFile(storageRecordPath, "utf-8")).resolves.toBe("{\"revision\":\"original\"}\n");
+        await expect(fs.access(path.join(targetRoot, "storage", "records", "installed.json"))).rejects.toMatchObject({code: "ENOENT"});
+        await expect(fs.readFile(path.join(targetRoot, "reference", "kept.md"), "utf-8")).resolves.toBe("受管资产\n");
+        expect(result.assetWarnings ?? []).toEqual([]);
+    });
 });

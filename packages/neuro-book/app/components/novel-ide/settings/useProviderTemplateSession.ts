@@ -1,8 +1,9 @@
 import {computed, ref, type Ref} from "vue";
+import {SUPPORTED_PI_APIS} from "@notnotype/neuro-book-contracts/provider-config";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
-import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/model-settings-draft";
+import type {ModelSettingsDraft, ModelSettingsModelDraft} from "nbook/app/components/novel-ide/settings/sections/providers/provider-settings-draft";
 import type {ConfiguredModelDto, ModelLibraryDto, ModelLibraryEntryDto, ProviderTemplateDto, ProviderTemplateLibraryDto} from "nbook/shared/dto/app-settings.dto";
 
 type ProviderTemplateSessionOptions = {
@@ -89,7 +90,9 @@ export function useProviderTemplateSession(options: ProviderTemplateSessionOptio
             id: providerId,
             name: template.name,
             enabled: true,
-            modelApi: template.defaultModelApi ?? "",
+            // 契约要求 Provider 必须有默认 Pi API：新增的 Provider 必须天然合法，
+            // 否则「添加 Provider」会立刻产出一条非法配置（用户在设置里改不回来）。
+            modelApi: template.defaultModelApi ?? SUPPORTED_PI_APIS[0],
             options: {
                 apiKey: "",
                 baseURL: template.baseUrl,

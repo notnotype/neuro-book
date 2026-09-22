@@ -1,0 +1,9 @@
+$ vitest run app/utils/workbench/storage-context.test.ts app/utils/workbench/storage-plugin-sample.test.ts app/utils/storage
+
+ RUN  v4.1.10 C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+
+ Test Files  6 passed (6)
+      Tests  89 passed (89)
+   Start at  11:50:17
+   Duration  2.70s (transform 322ms, setup 274ms, import 736ms, tests 82ms, environment 1ms)

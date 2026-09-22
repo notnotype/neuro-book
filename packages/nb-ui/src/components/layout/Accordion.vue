@@ -72,7 +72,7 @@ const emit = defineEmits<{
                 </AccordionHeader>
 
                 <AccordionContent
-                    class="overflow-hidden text-[var(--text-sm)] text-[var(--text-secondary)] transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
+                    class="overflow-hidden text-[var(--text-sm)] text-[var(--text-secondary)] transition-[height,opacity] [transition-duration:var(--motion-base)] [transition-timing-function:var(--ease-standard)] nb-accordion-content"
                 >
                     <div class="px-4 pb-3.5 pt-1">
                         <slot :name="`content-${item.value}`" :item="item">

@@ -53,7 +53,10 @@
     "ui": {
         "theme": "sepia"
     },
-    "editor": {},
+    "editor": {
+        "associations": {".md": "markdown"},
+        "languageAssociations": {}
+    },
     "web": {
         "search": {
             "order": [

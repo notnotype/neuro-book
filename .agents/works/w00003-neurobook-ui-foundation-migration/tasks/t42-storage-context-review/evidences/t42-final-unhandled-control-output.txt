@@ -1,0 +1,12 @@
+# 未处理拒绝对照（证明探针7能检出未处理拒绝）
+
+命令：node -e "process.on('unhandledRejection', (r) => { console.log('CONTROL-CAUGHT:', r.message); }); Promise.reject(new Error('control-rejection'));"
+cwd ：C:/Users/notnotype/Documents/CodeRepository/GithubProjects/neuro-book/.worktree/w00003-neurobook-ui-foundation-migration/packages/neuro-book
+
+```
+CONTROL-CAUGHT: control-rejection
+EXIT:0
+```
+
+阳性对照成立：同一 `process.on("unhandledRejection")` 钩子在存在未处理拒绝时会收到回调，
+因此探针7在失效信号 + 释放失败路径上观察到空数组是有效结论，而非探针失灵。

@@ -1,360 +1,158 @@
 <script setup lang="ts">
-import {onClickOutside} from "@vueuse/core";
+import type {ToolPartId, ToolPartLocation} from "nbook/app/utils/workbench/view-placements";
+import {computed} from "vue";
 import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
-import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import NovelIdeAccountMenu from "nbook/app/components/novel-ide/NovelIdeAccountMenu.vue";
-import Tooltip from "nbook/app/components/common/Tooltip.vue";
+import WorkbenchActivityBar, {type ActivityItem} from "nbook/app/components/workbench/WorkbenchActivityBar.vue";
+import type {WorkbenchTitleActionItems} from "nbook/app/utils/workbench/view-title-actions";
 import {
     createWorkbenchActivityItems,
-    resolveActivityBarSecondaryItems,
     type WorkbenchActivityItem,
     type WorkbenchActivityItemId,
 } from "nbook/app/utils/workbench-chrome";
 
+/**
+ * 产品活动栏：**上半是主侧栏容器的单选**，下半是非容器命令（工具组 + 账户 / 设置）。
+ *
+ * 分工与接入前一致——这一层只做图标表、译文表与条目到事件的路由，测量与溢出在通用组件里：
+ * - **容器**由页面按生效落位求值后传入（`containers` / `activeContainerId`），选择只回传 `open-container`，
+ *   「重复点击当前项」的语义（保持选择并显式打开被隐藏 / 拖收起的主侧栏）归页面；
+ * - **非容器命令**来自 `createWorkbenchActivityItems` 的能力表，禁用与原因按原有 Project / user-assets 门禁；
+ * - `files` / `characters` 这类工具视图与 `agent-panel` 不再是活动项：它们分别归主侧栏容器里的视图
+ *   与 Agent 面板自己的入口，这里不画第二个开关。
+ */
+
+/** 一个可选的容器项：标题与图标已由页面解析（组件不读 descriptor、不做 i18n）。 */
+export type WorkbenchActivityContainer = Readonly<{
+    containerId: string;
+    title: string;
+    icon: string;
+    /** 生效落位与所属 Part：容器条目要能作为拖动源与落点，判定按它们复核来源。 */
+    location: ToolPartLocation;
+    partId: ToolPartId;
+    /** 全部已登记生效成员的有序快照（整组并入按它搬）。 */
+    viewIds: readonly string[];
+    /** 明确 false 的容器不提供容器拖动源。 */
+    canMoveContainer: boolean;
+}>;
+
 const props = defineProps<{
-    activeTab: NovelIdeTab | null;
+    /** 当前实际位于主侧栏的容器；顺序就是活动栏顺序。 */
+    containers: readonly WorkbenchActivityContainer[];
+    /** 主侧栏的活动容器；`null` = 主侧栏里一个容器都没有。 */
+    activeContainerId: string | null;
     desktopAvailable: boolean;
     surfaceActive: boolean;
     userAssetsMode: boolean;
-    agentPanelOpen: boolean;
     currentUser: AuthUserDto | null;
+    /** 容器条目是否可作为拖动源 / 落点（主侧栏的容器切换就在这条活动栏上）。 */
+    allowContainerMove?: boolean;
+    allowViewMove?: boolean;
+    /** 会话上下文代际：容器拖动载荷冻结它。 */
+    contextKey?: string;
+    containerActions?: WorkbenchTitleActionItems;
 }>();
 
 const emit = defineEmits<{
     (event: "open-home"): void;
-    (event: "open-tab", value: NovelIdeTab): void;
+    (event: "open-container", containerId: string): void;
     (event: "open-world-engine"): void;
     (event: "open-trace-viewer"): void;
     (event: "open-history-inbox"): void;
-    (event: "toggle-agent-panel"): void;
+    (event: "open-plot-workbench"): void;
     (event: "open-settings"): void;
     (event: "open-profile"): void;
     (event: "open-admin"): void;
     (event: "logout"): void;
+    (event: "container-action", containerId: string, actionId: string): void;
 }>();
 
 const {t} = useI18n();
+
 const activityItems = computed(() => createWorkbenchActivityItems({
     desktopAvailable: props.desktopAvailable,
     surfaceActive: props.surfaceActive,
     userAssetsMode: props.userAssetsMode,
 }));
-const activityBarRef = ref<HTMLElement | null>(null);
-const primaryGroupRef = ref<HTMLElement | null>(null);
-const footerRef = ref<HTMLElement | null>(null);
-const agentPanelRef = ref<HTMLElement | null>(null);
-const moreRootRef = ref<HTMLElement | null>(null);
-const moreButtonRef = ref<HTMLButtonElement | null>(null);
-const moreItemRefs = ref<HTMLButtonElement[]>([]);
-const visibleSecondaryCount = ref(activityItems.value.secondary.length);
-const moreOpen = ref(false);
-let resizeObserver: ResizeObserver | null = null;
-
-const secondaryItems = computed(() => {
-    const resolved = resolveActivityBarSecondaryItems(activityItems.value.secondary, {
-        availableHeight: activityBarRef.value?.clientHeight ?? Number.POSITIVE_INFINITY,
-        fixedHeight: resolveFixedActivityHeight(),
-        itemHeight: 44,
-        moreButtonHeight: 44,
-    });
-    return {
-        visible: resolved.visible.slice(0, visibleSecondaryCount.value),
-        overflow: resolved.overflow,
-    };
-});
 
 const iconClasses: Record<WorkbenchActivityItemId, string> = {
     home: "i-lucide-library",
-    files: "i-lucide-files",
-    characters: "i-lucide-users-round",
     plot: "i-lucide-git-branch",
     world: "i-lucide-globe-2",
     trace: "i-lucide-activity",
     history: "i-lucide-inbox",
-    "agent-panel": "i-lucide-bot",
     account: "i-lucide-user-round",
     settings: "i-lucide-settings",
 };
 
 const labels = computed<Record<WorkbenchActivityItemId, string>>(() => ({
     home: t("ide.header.bookshelfTitle"),
-    files: t("ide.toolPanel.files"),
-    characters: t("ide.toolPanel.characters"),
     plot: t("ide.header.plotWorkbench"),
     world: t("ide.header.worldEngine"),
     trace: t("ide.header.traceViewerTitle"),
     history: t("ide.header.historyInboxTitle"),
-    "agent-panel": props.agentPanelOpen ? t("ide.header.closeAgentPanel") : t("ide.header.openAgentPanel"),
     account: t("ide.header.accountMenu"),
     settings: t("settings.title"),
 }));
 
-function active(item: WorkbenchActivityItem): boolean {
-    switch (item.id) {
-        case "home": return !props.surfaceActive;
-        case "files":
-        case "characters":
-        case "plot":
-            return props.activeTab === item.id;
-        case "agent-panel": return props.agentPanelOpen;
-        default: return false;
+/** 产品条目 → 通用条目：图标、译文与禁用原因都在这层解析，通用组件不认识它们。 */
+function toActivityItem(item: WorkbenchActivityItem): ActivityItem {
+    return {
+        id: item.id,
+        label: labels.value[item.id],
+        icon: iconClasses[item.id],
+        disabled: item.disabled,
+        reason: item.disabled ? t("ide.activityBar.needOpenProject") : undefined,
+    };
+}
+
+/**
+ * 上半：容器条目——标题与图标都来自页面求值的容器切片，选中态只跟活动容器走。
+ * 容器清单为空时整组不画（活动栏不留一个假的"展开入口"）。
+ */
+const containerItems = computed<ActivityItem[]>(() => props.containers.map((container) => ({
+    id: container.containerId,
+    label: container.title,
+    icon: container.icon,
+    active: container.containerId === props.activeContainerId,
+})));
+
+const toolItems = computed<ActivityItem[]>(() => activityItems.value.tools.map(toActivityItem));
+const footerItems = computed<ActivityItem[]>(() => activityItems.value.footer.map(toActivityItem));
+
+function invoke(id: string): void {
+    if (props.containers.some((container) => container.containerId === id)) {
+        emit("open-container", id);
+        return;
     }
-}
-
-function actionTitle(item: WorkbenchActivityItem): string {
-    return item.disabled ? `${labels.value[item.id]} · ${t("ide.activityBar.needOpenProject")}` : labels.value[item.id];
-}
-
-function invoke(item: WorkbenchActivityItem): void {
-    if (item.disabled) return;
-    switch (item.id) {
+    switch (id) {
         case "home": emit("open-home"); return;
-        case "files":
-        case "characters":
-        case "plot": emit("open-tab", item.id); return;
+        case "plot": emit("open-plot-workbench"); return;
         case "world": emit("open-world-engine"); return;
         case "trace": emit("open-trace-viewer"); return;
         case "history": emit("open-history-inbox"); return;
-        case "agent-panel": emit("toggle-agent-panel"); return;
         case "settings": emit("open-settings"); return;
         case "account": return;
     }
 }
-
-function resolveFixedActivityHeight(): number {
-    const activityBar = activityBarRef.value;
-    if (!activityBar) return 0;
-    const style = getComputedStyle(activityBar);
-    const paddingBlock = Number.parseFloat(style.paddingTop || "0")
-        + Number.parseFloat(style.paddingBottom || "0");
-    return paddingBlock
-        + (primaryGroupRef.value?.offsetHeight ?? 0)
-        + (footerRef.value?.offsetHeight ?? 0)
-        + (agentPanelRef.value ? 44 : 0);
-}
-
-function measureSecondaryItems(): void {
-    const activityBar = activityBarRef.value;
-    if (!activityBar) return;
-    const resolved = resolveActivityBarSecondaryItems(activityItems.value.secondary, {
-        availableHeight: activityBar.clientHeight,
-        fixedHeight: resolveFixedActivityHeight(),
-        itemHeight: 44,
-        moreButtonHeight: 44,
-    });
-    visibleSecondaryCount.value = resolved.visible.length;
-    if (resolved.overflow.length === 0) {
-        closeMore(false);
-    }
-}
-
-function closeMore(restoreFocus: boolean): void {
-    moreOpen.value = false;
-    if (restoreFocus) {
-        nextTick(() => moreButtonRef.value?.focus());
-    }
-}
-
-function focusMoreItem(startIndex: number, direction: 1 | -1): void {
-    const items = secondaryItems.value.overflow;
-    if (items.length === 0) return;
-    let index = startIndex;
-    for (let attempts = 0; attempts < items.length; attempts += 1) {
-        index = (index + direction + items.length) % items.length;
-        if (!items[index]?.disabled) {
-            moreItemRefs.value[index]?.focus();
-            return;
-        }
-    }
-}
-
-function openMore(focusLast = false): void {
-    if (secondaryItems.value.overflow.length === 0) return;
-    moreOpen.value = true;
-    nextTick(() => {
-        const startIndex = focusLast ? 0 : -1;
-        focusMoreItem(startIndex, focusLast ? -1 : 1);
-    });
-}
-
-function toggleMore(): void {
-    if (moreOpen.value) {
-        closeMore(false);
-        return;
-    }
-    openMore();
-}
-
-function handleMoreButtonKeydown(event: KeyboardEvent): void {
-    if (event.key === "ArrowDown") {
-        event.preventDefault();
-        openMore();
-        return;
-    }
-    if (event.key === "ArrowUp") {
-        event.preventDefault();
-        openMore(true);
-    }
-}
-
-function handleMoreMenuKeydown(event: KeyboardEvent, index: number): void {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        event.preventDefault();
-        focusMoreItem(index, event.key === "ArrowDown" ? 1 : -1);
-        return;
-    }
-    if (event.key === "Escape") {
-        event.preventDefault();
-        closeMore(true);
-    }
-}
-
-function invokeOverflow(item: WorkbenchActivityItem): void {
-    if (item.disabled) return;
-    invoke(item);
-    closeMore(true);
-}
-
-onMounted(() => {
-    resizeObserver = new ResizeObserver(() => measureSecondaryItems());
-    for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentPanelRef.value]) {
-        if (target) resizeObserver.observe(target);
-    }
-    measureSecondaryItems();
-});
-
-watch(
-    () => [
-        props.desktopAvailable,
-        props.surfaceActive,
-        props.userAssetsMode,
-        activityItems.value.secondary.map((item) => `${item.id}:${String(item.disabled)}`).join("|"),
-    ],
-    () => nextTick(() => {
-        resizeObserver?.disconnect();
-        for (const target of [activityBarRef.value, primaryGroupRef.value, footerRef.value, agentPanelRef.value]) {
-            if (target) resizeObserver?.observe(target);
-        }
-        measureSecondaryItems();
-    }),
-);
-
-onClickOutside(moreRootRef, () => closeMore(false));
-
-onBeforeUnmount(() => {
-    resizeObserver?.disconnect();
-    resizeObserver = null;
-});
 </script>
 
 <template>
-    <aside ref="activityBarRef" class="workbench-activity-bar flex w-12 shrink-0 flex-col items-center border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] py-2" aria-label="Workbench navigation">
-        <div class="flex min-h-0 w-full flex-1 flex-col items-center">
-            <div ref="primaryGroupRef" class="flex w-full shrink-0 flex-col items-center">
-                <Tooltip
-                    v-for="item in activityItems.primary"
-                    :key="item.id"
-                    :text="actionTitle(item)"
-                    placement="right"
-                >
-                    <button
-                        type="button"
-                        class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
-                        :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                        :disabled="item.disabled"
-                        :aria-pressed="active(item)"
-                        :data-activity-id="item.id"
-                        @click="invoke(item)"
-                    >
-                        <span v-if="active(item)" class="absolute inset-y-1 left-0 w-0.5 rounded-r bg-[var(--accent-main)]"></span>
-                        <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
-                    </button>
-                </Tooltip>
-
-                <div class="my-1 h-px w-7 bg-[var(--border-color)]"></div>
-            </div>
-
-            <Tooltip
-                v-for="item in secondaryItems.visible"
-                :key="item.id"
-                :text="actionTitle(item)"
-                placement="right"
-            >
-                <button
-                    type="button"
-                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    :class="active(item) ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : ''"
-                    :disabled="item.disabled"
-                    :aria-pressed="active(item)"
-                    :data-activity-id="item.id"
-                    @click="invoke(item)"
-                >
-                    <span :class="iconClasses[item.id]" class="h-[18px] w-[18px]"></span>
-                </button>
-            </Tooltip>
-
-            <div v-if="secondaryItems.overflow.length > 0" ref="moreRootRef" class="relative mb-1 h-10 w-10 shrink-0">
-                <Tooltip :text="moreOpen ? '' : t('ide.activityBar.more')" placement="right">
-                    <button
-                        ref="moreButtonRef"
-                        type="button"
-                        class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md border border-transparent text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                        aria-haspopup="menu"
-                        :aria-expanded="moreOpen"
-                        aria-controls="workbench-activity-more-menu"
-                        @click="toggleMore"
-                        @keydown="handleMoreButtonKeydown"
-                    >
-                        <span class="i-lucide-ellipsis h-[18px] w-[18px]"></span>
-                    </button>
-                </Tooltip>
-                <div
-                    v-if="moreOpen"
-                    id="workbench-activity-more-menu"
-                    class="absolute left-full top-0 z-[70] ml-2 w-52 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-1 shadow-xl"
-                    role="menu"
-                    :aria-label="t('ide.activityBar.moreActions')"
-                >
-                    <button
-                        v-for="(item, index) in secondaryItems.overflow"
-                        :key="item.id"
-                        ref="moreItemRefs"
-                        type="button"
-                        role="menuitem"
-                        class="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40"
-                        :disabled="item.disabled"
-                        :title="actionTitle(item)"
-                        :data-activity-id="item.id"
-                        @click="invokeOverflow(item)"
-                        @keydown="handleMoreMenuKeydown($event, index)"
-                    >
-                        <span :class="iconClasses[item.id]" class="h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                        <span class="min-w-0 flex-1 truncate">{{ labels[item.id] }}</span>
-                    </button>
-                </div>
-            </div>
-
-            <Tooltip
-                v-if="activityItems.agentPanel"
-                :text="actionTitle(activityItems.agentPanel)"
-                placement="right"
-            >
-                <button
-                    ref="agentPanelRef"
-                    type="button"
-                    class="workbench-activity-bar__item relative mb-1 flex h-10 w-10 items-center justify-center rounded-md border border-transparent transition-colors"
-                    :class="props.agentPanelOpen ? 'bg-[var(--bg-hover)] text-[var(--accent-text)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                    :disabled="activityItems.agentPanel.disabled"
-                    :aria-pressed="props.agentPanelOpen"
-                    data-activity-id="agent-panel"
-                    @click="invoke(activityItems.agentPanel)"
-                >
-                    <span :class="iconClasses['agent-panel']" class="h-[18px] w-[18px]"></span>
-                </button>
-            </Tooltip>
-        </div>
-
-        <div ref="footerRef" class="mt-auto flex w-full shrink-0 flex-col items-center gap-1">
+    <WorkbenchActivityBar
+        :containers="props.containers"
+        :allow-container-move="props.allowContainerMove === true"
+        :allow-view-move="props.allowViewMove === true"
+        :context-key="props.contextKey ?? ''"
+        :primary="containerItems"
+        :secondary="toolItems"
+        :footer="footerItems"
+        label="Workbench navigation"
+        :more-label="t('ide.activityBar.more')"
+        :container-actions="props.containerActions"
+        @invoke="invoke"
+        @container-action="(containerId: string, actionId: string) => emit('container-action', containerId, actionId)"
+    >
+        <template #item-account>
             <div data-activity-id="account">
                 <NovelIdeAccountMenu
                     :current-user="props.currentUser"
@@ -365,23 +163,6 @@ onBeforeUnmount(() => {
                     @logout="emit('logout')"
                 />
             </div>
-            <Tooltip :text="labels.settings" placement="right">
-                <button
-                    type="button"
-                    class="workbench-activity-bar__item flex h-10 w-10 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                    data-activity-id="settings"
-                    @click="emit('open-settings')"
-                >
-                    <span :class="iconClasses.settings" class="h-[18px] w-[18px]"></span>
-                </button>
-            </Tooltip>
-        </div>
-    </aside>
+        </template>
+    </WorkbenchActivityBar>
 </template>
-
-<style scoped>
-.workbench-activity-bar__item:disabled {
-    cursor: not-allowed;
-    opacity: 0.34;
-}
-</style>

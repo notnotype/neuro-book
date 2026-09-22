@@ -606,14 +606,14 @@ describe("ProjectSessionRuntime", () => {
         const prepared = preparedProject("presence-grace", occupancy.handle);
         const ready = await runtime.adoptPreparedProject(prepared, {kind: "user"});
 
-        const releaseFirst = runtime.acquireUserPresence(ready);
+        const releaseFirst = runtime.acquireUserPresence(ready).release;
         expect(runtime.projectPresence(ready)).toMatchObject({state: "open", userConnections: 1});
         releaseFirst();
         expect(runtime.projectPresence(ready)).toMatchObject({state: "grace", userConnections: 0});
         expect(runtime.requireReadyProject(prepared.workspace.key)).toBe(ready);
 
         now = 1_050;
-        const releaseSecond = runtime.acquireUserPresence(ready);
+        const releaseSecond = runtime.acquireUserPresence(ready).release;
         expect(runtime.projectPresence(ready)).toMatchObject({state: "open", userConnections: 1});
         releaseSecond();
 
@@ -661,13 +661,35 @@ describe("ProjectSessionRuntime", () => {
         const runtime = new ProjectSessionRuntime();
         const prepared = preparedProject("reuse-ready", occupancyHandle(() => closeOrder.push("occupancy")).handle);
         const ready = await runtime.adoptPreparedProject(prepared, {kind: "user"});
-        runtime.acquireUserPresence(ready)();
+        runtime.acquireUserPresence(ready).release();
         expect(runtime.projectPresence(ready).state).toBe("grace");
 
         expect(runtime.resumeReadyProject(prepared.workspace.key)).toBe(ready);
         expect(runtime.projectPresence(ready)).toMatchObject({state: "open", userConnections: 0});
         expect(ready.generation).toBe(1);
         expect(closeOrder).toEqual([]);
+    });
+
+    it("presence 租约在精确generation终止时abort，终止后不能复活同一代次", async () => {
+        const closeOrder: string[] = [];
+        restores.push(replaceProjectModulesForTest([
+            immediateModule("database", closeOrder),
+            immediateModule("history", closeOrder),
+            immediateModule("file-index", closeOrder),
+        ]));
+        const runtime = new ProjectSessionRuntime();
+        const prepared = preparedProject("presence-terminal", occupancyHandle(() => closeOrder.push("occupancy")).handle);
+        const ready = await runtime.adoptPreparedProject(prepared, {kind: "user"});
+        const presence = runtime.acquireUserPresence(ready);
+        expect(presence.signal.aborted).toBe(false);
+
+        await runtime.closeProject(ready, "shutdown");
+
+        // presence长连接必须与Module数据面看到同一终止边界，否则会继续心跳一个已关闭的ready。
+        expect(presence.signal.aborted).toBe(true);
+        presence.release();
+        expect(() => runtime.acquireUserPresence(ready)).toThrow(ProjectNotReadyError);
+        expect(closeOrder).toEqual(["file-index", "history", "database", "occupancy"]);
     });
 });
 

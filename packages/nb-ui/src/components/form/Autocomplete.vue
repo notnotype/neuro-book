@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {inject} from "vue";
 import {
     AutocompleteAnchor,
     AutocompleteContent,
@@ -10,7 +11,11 @@ import {
     AutocompleteRoot,
     AutocompleteViewport,
 } from "reka-ui";
-import {NB_Z_INDEX} from "../../theme/z-index";
+import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../../theme/z-index";
+
+/** 窗口内的浮层跟随窗口层级（由 DialogWindow 注入）；未被窗口承载时回退到普通页面层级。 */
+const popoverZIndex = inject(NB_POPOVER_Z_INDEX, NB_Z_INDEX.popover);
+
 
 export interface AutocompleteOption {
     value: string;
@@ -66,13 +71,9 @@ const emit = defineEmits<{
             <AutocompleteContent
                 :side-offset="4"
                 :style="{
-                    zIndex: NB_Z_INDEX.popover,
-                    backgroundColor: 'color-mix(in srgb, var(--bg-panel) 90%, transparent)',
-                    backdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    WebkitBackdropFilter: 'blur(16px) saturate(130%) brightness(1.0)',
-                    boxShadow: '0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 8px 24px -4px color-mix(in srgb, var(--shadow-color) 24%, transparent)',
+                    zIndex: popoverZIndex,
                 }"
-                class="nb-ui-popover-surface nb-ui-popover-motion min-w-[220px] rounded-[var(--radius-panel)] p-1 text-[var(--text-main)] outline-none select-none"
+                class="nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion min-w-[220px] p-1.5 text-[var(--text-main)] outline-none select-none"
             >
                 <AutocompleteViewport class="max-h-60 overflow-y-auto p-1 space-y-0.5">
                     <AutocompleteEmpty class="py-4 text-center text-xs text-[var(--text-muted)]">

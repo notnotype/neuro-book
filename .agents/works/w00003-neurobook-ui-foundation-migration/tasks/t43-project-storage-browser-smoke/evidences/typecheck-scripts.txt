@@ -1,0 +1,9 @@
+# scripts 类型检查（cwd = worktree/packages/neuro-book）
+
+```text
+$ bunx tsc --noEmit --pretty false -p scripts/tsconfig.json
+scripts/deploy/product-agent-state-root-smoke.ts(318,9): error TS2739: Type '{ themeId: "nbook"; appearance: "light"; costCurrency: "USD" | "CNY"; }' is missing the following properties from type '{ themeId: "nbook" | "macos"; appearance: "light" | "dark"; colorwayId: string; userColorways: { id: string; label: string; appearance: "light" | "dark"; vars: Record<string, string>; }[]; costCurrency: "USD" | "CNY"; }': colorwayId, userColorways
+退出码：2
+```
+
+说明：唯一报错是基线已登记的 scripts/deploy/product-agent-state-root-smoke.ts:318；本 Task 的 storage-project-adapter.ts 零报错。

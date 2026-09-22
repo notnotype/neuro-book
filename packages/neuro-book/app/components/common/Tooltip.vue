@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {useEventListener} from "@vueuse/core";
 import {cloneVNode, computed, isVNode, nextTick, onBeforeUnmount, onMounted, ref, useId, useSlots, type VNode} from "vue";
-import {IDE_THEME_HOST_CLASS} from "nbook/app/utils/theme/theme-tokens";
+import {THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {
     computeTooltipPosition,
     type TooltipEffectivePlacement,
@@ -33,7 +33,7 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** 跟随现有浮层范式：Teleport 到主题宿主内，保证主题变量可解析。 */
 const teleportTarget = computed<HTMLElement | string>(() => {
-    return rootRef.value?.closest(`.${IDE_THEME_HOST_CLASS}`) as HTMLElement | null ?? "body";
+    return rootRef.value?.closest(THEME_HOST_SELECTOR) as HTMLElement | null ?? "body";
 });
 
 const hasContent = computed(() => props.text.trim().length > 0);

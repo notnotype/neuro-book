@@ -1,3 +1,20 @@
+/*
+ * 全局滚动条槽位（scrollbar-gutter 规范）。
+ * 预留滚动条空间，防止内容溢出时造成视口与卡片宽度跳变。
+ * 针对需要内容居中的容器，可使用 .nb-ui-scrollbar-center (scrollbar-gutter: stable both-edges)。
+ */
+html {
+    scrollbar-gutter: stable;
+}
+
+.nb-ui-scrollbar-stable {
+    scrollbar-gutter: stable;
+}
+
+.nb-ui-scrollbar-center {
+    scrollbar-gutter: stable both-edges;
+}
+
 .nb-ui-colorway {
     color-scheme: var(--color-scheme, light dark);
 }
@@ -131,8 +148,7 @@ input.nb-ui-native-input[type="number"] {
  * 两条都别写回 background 简写：简写会把没写出来的那条重置掉。
  *
  * 这一层排在 utilities 之后且同为单类选择器，所以它会压过组件模板上的 rounded-* 之类原子类。
- * 组件要另给圆角只能走 inline style（Tooltip 就是这么做的），别再往模板里加原子类——
- * 那会写出一个永远不生效的类，看代码的人以为改了其实没改。
+ * Tooltip 的紧凑纸面与箭头统一走 `.nb-ui-tooltip-surface` modifier，不要在组件模板复制 surface 属性。
  */
 .nb-ui-popover-surface {
     border: var(--border-w) solid var(--panel-outline);
@@ -156,6 +172,30 @@ input.nb-ui-native-input[type="number"] {
      */
     --nb-popover-pad: var(--space-3);
     --nb-popover-inner-radius: max(2px, calc(var(--nb-popover-radius, var(--radius-panel)) - var(--border-w) - var(--nb-popover-pad)));
+}
+
+/*
+ * Tooltip surface：轻量说明性浮层。
+ * - 采用与主题完全同源的实心面板底（--bg-panel）与正文色（--text-main），在亮色与暗色模式下均完美适配
+ * - 实线描边（--border-w solid var(--panel-outline)）与浮层阴影（--elevation-popover）
+ * - 控件圆角（--radius-control）、12px 字号（--text-xs）与适度的微边距
+ * - 无三角箭头，干净清晰，避免投影与描边瑕疵
+ */
+.nb-ui-tooltip-surface {
+    border: var(--border-w) solid var(--panel-outline);
+    border-radius: var(--radius-control);
+    background-color: var(--bg-panel);
+    background-image: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    color: var(--text-main);
+    font-size: var(--text-xs);
+    line-height: var(--leading-tight);
+    padding: 5px 9px;
+    box-shadow: var(--elevation-popover);
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* 菜单 / 下拉的几何 modifier。外圈 12px 时，默认 6px 内边距与 1px 描边推出约 5px 内圈。 */
@@ -301,51 +341,59 @@ input.nb-ui-native-input[type="number"] {
  * 库只把三个时长归零，不会替你关掉这个。
  */
 .nb-ui-popover-scroll-fade-top {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 100%
     );
 }
 
 .nb-ui-popover-scroll-fade-bottom {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         #000 0,
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         #000 0,
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
 }
 
 .nb-ui-popover-scroll-fade-both {
-    --nb-scroll-fade: 8px;
+    --nb-scroll-fade: var(--nb-popover-scroll-fade, 22px);
     mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
     -webkit-mask-image: linear-gradient(
         to bottom,
         transparent 0,
+        rgba(0, 0, 0, 0.35) 8px,
         #000 var(--nb-scroll-fade),
         #000 calc(100% - var(--nb-scroll-fade)),
+        rgba(0, 0, 0, 0.35) calc(100% - 8px),
         transparent 100%
     );
 }
@@ -406,6 +454,29 @@ input.nb-ui-native-input[type="number"] {
 
 .animate-accordion-up,
 .animate-collapsible-up {
+    animation: nb-accordion-up var(--motion-base) var(--ease-standard);
+}
+
+/*
+ * 折叠内容的编排由状态属性驱动，不用 `data-[state=open]:animate-*` 变体：
+ * `animate-*` 的主题键不在 presetUno 里，变体类不会生成，组件会静默失去动画。
+ *
+ * padding + 等量负 margin：内容盒与子元素位置不变，裁切盒向外放 6px——
+ * 折叠容器里的输入控件聚焦时的光环（box-shadow）压在内容盒之上，不这样会被动画裁切剪掉。
+ */
+.nb-collapsible-content,
+.nb-accordion-content {
+    padding: 6px;
+    margin: -6px;
+}
+
+.nb-collapsible-content[data-state="open"],
+.nb-accordion-content[data-state="open"] {
+    animation: nb-accordion-down var(--motion-base) var(--ease-standard);
+}
+
+.nb-collapsible-content[data-state="closed"],
+.nb-accordion-content[data-state="closed"] {
     animation: nb-accordion-up var(--motion-base) var(--ease-standard);
 }
 
@@ -485,4 +556,115 @@ input.nb-ui-native-input[type="number"] {
 .scheme-fade-leave-to {
     opacity: 0;
     transform: translateY(-6px) scale(0.985);
+}
+
+/*
+ * 装饰性关键帧动画同样服从降级偏好：`tokens.css` 只把三个时长 token 归零，
+ * 覆盖不到 `animation`。骨架脉冲与微光是纯粹的氛围，降级时直接停掉。
+ * 转圈类的加载指示不在此列——它承担状态表达，旁边还有一句能独立读懂的说明。
+ */
+@media (prefers-reduced-motion: reduce) {
+    .nb-shimmer::after,
+    .animate-pulse {
+        animation: none !important;
+    }
+}
+
+/*
+ * 内容切换：一次只动一块内容（配合 <Transition mode="out-in">），两段各取 --motion-fast，
+ * 合计正好是浮层入场档 --motion-enter 的量级——「眼睛追踪一层新内容出现」的上限。
+ * 用同一个类名的地方必须同一配方：设置外壳的区段、Provider 导轨→详情、Agent Profile 的 Profile 切换。
+ */
+.nb-ui-switch-enter-active,
+.nb-ui-switch-leave-active {
+    transition: opacity var(--motion-fast) var(--ease-standard), transform var(--motion-fast) var(--ease-standard);
+}
+
+.nb-ui-switch-enter-from {
+    opacity: 0;
+    transform: translateX(6px);
+}
+
+.nb-ui-switch-leave-to {
+    opacity: 0;
+    transform: translateX(-6px);
+}
+
+/* 装饰性位移服从减少动效偏好：保留淡入淡出，去掉位移。 */
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-switch-enter-from,
+    .nb-ui-switch-leave-to {
+        transform: none;
+    }
+}
+
+/* 仅负责皮肤；落点坐标、尺寸与层级由 Editor/Workbench 等宿主适配。 */
+.nb-ui-drop-indicator,
+.nb-ui-drop-indicator-label {
+    box-sizing: border-box;
+    pointer-events: none;
+    user-select: none;
+}
+
+.nb-ui-drop-indicator[data-drop-indicator="area"],
+.nb-ui-drop-indicator[data-drop-indicator="entry"] {
+    border: 1px solid color-mix(in srgb, var(--accent-main) 70%, transparent);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    box-shadow: var(--elevation-raised);
+    transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.nb-ui-drop-indicator[data-drop-indicator="line"] {
+    border-radius: var(--radius-pill);
+    background: var(--accent-main);
+    box-shadow: 0 0 4px var(--accent-main);
+}
+
+.nb-ui-drop-indicator-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 4px 12px;
+    border: 1px solid color-mix(in srgb, var(--accent-main) 40%, transparent);
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--panel-surface) 90%, transparent);
+    color: var(--accent-text);
+    font-family: var(--font-ui);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    line-height: var(--leading-tight);
+    box-shadow: var(--elevation-raised);
+    backdrop-filter: var(--overlay-blur);
+    -webkit-backdrop-filter: var(--overlay-blur);
+}
+
+.nb-ui-drop-indicator-label__icon {
+    flex: none;
+    width: 14px;
+    height: 14px;
+}
+
+.nb-ui-drop-indicator-label__text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .nb-ui-drop-indicator {
+        transition: none !important;
+    }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    .nb-ui-drop-indicator-label {
+        background: var(--panel-surface);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+    }
 }
