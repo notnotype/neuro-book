@@ -258,7 +258,7 @@ onClickOutside(filterPanelRef, () => {
                     <input v-model="sessionSearch" type="text" :placeholder="t('agent.session.dialogSearchPlaceholder')" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]">
                     <IconButton
                         ref="filterButtonRef"
-                        size="xs"
+                        size="sm"
                         :variant="filterPanelOpen ? 'accent' : 'default'"
                         :title="t('agent.session.filter')"
                         :aria-label="t('agent.session.filter')"
@@ -293,7 +293,7 @@ onClickOutside(filterPanelRef, () => {
                         <div class="flex items-center justify-between">
                             <div class="text-[12px] font-semibold text-[var(--text-main)]">{{ t("agent.session.filter") }}</div>
                             <IconButton
-                                size="xs"
+                                size="sm"
                                 variant="default"
                                 :title="t('common.close')"
                                 :aria-label="t('common.close')"

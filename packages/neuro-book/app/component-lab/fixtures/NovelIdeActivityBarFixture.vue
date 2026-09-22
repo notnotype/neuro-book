@@ -25,9 +25,8 @@ const emitLabEvent = useLabEventSink();
 const labUser: AuthUserDto = {
     id: "lab-user",
     username: "lab-author",
-    nickname: "写作实验员",
+    displayName: "写作实验员",
     role: "admin",
-    status: "active",
     sessionVersion: 1,
 };
 

@@ -117,7 +117,7 @@ function updateSessionModelDraft(patch: Partial<AgentSessionModelDraft>): void {
                     <div class="mt-1 text-[11px] text-[var(--text-muted)]">{{ t("agent.composer.sessionModelDescription") }}</div>
                 </div>
                 <IconButton
-                    size="xs"
+                    size="sm"
                     variant="default"
                     :title="t('common.close')"
                     :aria-label="t('common.close')"

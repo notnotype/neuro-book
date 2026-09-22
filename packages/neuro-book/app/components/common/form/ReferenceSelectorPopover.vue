@@ -102,6 +102,12 @@ const virtualPanelLayout = computed(() => {
 const effectiveDirection = computed(() => props.anchorRect ? virtualPanelLayout.value.direction : resolvedDirection.value);
 const effectivePanelStyle = computed(() => props.anchorRect ? virtualPanelLayout.value.style : panelStyle.value);
 
+/* Teleport 目标只在字符串或真实元素时直传；true / false / null 一律落到 body（`:disabled` 另行处理）。 */
+const teleportTargetResolved = computed(() => {
+    const target = props.teleportTarget;
+    return typeof target === "string" || target instanceof HTMLElement ? target : "body";
+});
+
 watch(() => props.anchorRect, async () => {
     await nextTick();
     viewportVersion.value += 1;
@@ -124,7 +130,7 @@ if (import.meta.client) {
 <template>
     <Teleport
         :disabled="!props.anchorRect || props.teleportTarget === false"
-        :to="(props.teleportTarget && props.teleportTarget !== false) ? props.teleportTarget : 'body'"
+        :to="teleportTargetResolved"
     >
     <div
         ref="panelRef"

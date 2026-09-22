@@ -475,7 +475,7 @@ function collapsedRemainderOf(slice: WorkbenchDropContainer, geometry: ContentGe
     return isGridDropRect(area) ? area : null;
 }
 /** 边缘并入的命中：命中叶、插到它哪一侧、以及它对应那一半的反馈范围。三者同出一次 `resolveGridInsertion`。 */
-type EdgeHit = Readonly<{readonly targetViewId: string; readonly side: "before" | "after"; readonly halfRect: GridDropRect}>;
+type EdgeHit = Readonly<{readonly kind: "edge"; readonly targetViewId: string; readonly side: "before" | "after"; readonly halfRect: GridDropRect}>;
 
 /**
  * 命中叶与半区：内容区前后各 50%（叶间空隙归后一叶，中点归后半）。非法方向在上游拒绝。
@@ -488,7 +488,7 @@ function edgeHitOf(insertion: Exclude<GridInsertion, {kind: "keep"}>): EdgeHit |
     if (targetId === null || halfRect === null) {
         return null;
     }
-    return {targetViewId: targetId, side: beforeId === targetId ? "before" : "after", halfRect};
+    return {kind: "edge", targetViewId: targetId, side: beforeId === targetId ? "before" : "after", halfRect};
 }
 
 /**
@@ -699,7 +699,7 @@ function viewOntoContent(
     if (hit === null && (insertion === null || insertion.kind === "keep")) {
         return noop();
     }
-    const resolved = hit ?? edgeHitOf(insertion!);
+    const resolved = hit ?? (insertion !== null && insertion.kind !== "keep" ? edgeHitOf(insertion) : null);
     if (resolved === null) {
         return noop();
     }
@@ -759,7 +759,7 @@ function containerOntoContent(
     if (hit === null && (insertion === null || insertion.kind === "keep")) {
         return noop();
     }
-    const resolved = hit ?? edgeHitOf(insertion!);
+    const resolved = hit ?? (insertion !== null && insertion.kind !== "keep" ? edgeHitOf(insertion) : null);
     if (resolved === null) {
         return noop();
     }

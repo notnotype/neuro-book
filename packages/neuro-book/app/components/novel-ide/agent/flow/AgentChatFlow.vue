@@ -6,7 +6,7 @@ import AgentToolBubble from "../bubbles/tools/AgentToolBubble.vue";
 import AgentChatEmptyState from "./AgentChatEmptyState.vue";
 import AgentChatHistoryLoader from "./AgentChatHistoryLoader.vue";
 import type {CostDisplayOptions} from "nbook/app/utils/cost-format";
-import type {AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionAttachmentItemDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,

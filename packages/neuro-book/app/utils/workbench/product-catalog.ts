@@ -171,6 +171,8 @@ export type ContainerViewPresentation = {
     readonly memberViewIds: readonly string[];
     /** 该容器里可见的视图，已按 (order, id) 排好。 */
     readonly views: readonly WorkbenchViewEntry[];
+    /** 折叠成员（尺寸意图 `collapsed`，仍计入模板与顺序）：落点求剩余区域与合并比例时用它。 */
+    readonly collapsedViewIds: readonly string[];
     /**
      * 可见成员在**当前轴**上的展开尺寸意图（CSS px），键是 viewId。
      *

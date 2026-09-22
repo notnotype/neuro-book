@@ -149,6 +149,7 @@ function invoke(id: string): void {
         label="Workbench navigation"
         :more-label="t('ide.activityBar.more')"
         :container-actions="props.containerActions"
+        @invoke="invoke"
         @container-action="(containerId: string, actionId: string) => emit('container-action', containerId, actionId)"
     >
         <template #item-account>

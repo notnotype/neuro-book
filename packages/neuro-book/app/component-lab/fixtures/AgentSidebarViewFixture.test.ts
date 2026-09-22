@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
-import type {App, Component} from "vue";
+import {createApp, type App, type Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 
 beforeAll(() => {
@@ -116,7 +116,7 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         expect(hostEmpty.querySelector(".i-lucide-shield-check")).not.toBeNull();
 
         // 验证不使用浏览器原生 title 属性，而是使用组件库 Tooltip 浮层
-        expect(promptButtons[0].getAttribute("title")).toBeNull();
-        expect(promptButtons[0].textContent).toContain("帮我润色一段环境描写");
+        expect(promptButtons[0]?.getAttribute("title")).toBeNull();
+        expect(promptButtons[0]?.textContent).toContain("帮我润色一段环境描写");
     }, 20000);
 });

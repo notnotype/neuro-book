@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {createPinia, setActivePinia} from "pinia";
 import * as vue from "vue";
-import type {App, Component} from "vue";
+import {createApp, type App, type Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
 
 beforeAll(() => {

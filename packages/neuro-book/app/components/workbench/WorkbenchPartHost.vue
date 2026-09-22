@@ -40,6 +40,7 @@ import {
 import {useWorkbenchDropGeometry} from "nbook/app/composables/useWorkbenchDrop";
 import type {WorkbenchDropSwitcherRects} from "nbook/app/utils/workbench/workbench-drop";
 import {readWorkbenchDropRect, workbenchPointerCollision} from "nbook/app/utils/workbench/workbench-drop-dom";
+import type {WorkbenchTitleActionItem} from "nbook/app/utils/workbench/view-title-actions";
 import type {
     ContainerViewPresentation,
     PartContainerPresentation,

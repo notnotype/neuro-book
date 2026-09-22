@@ -16,6 +16,7 @@ import type {AgentSessionModelDraft} from "../../components/novel-ide/agent/agen
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "../../components/novel-ide/agent/trigger-menu";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
+import type {PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
 import {useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
@@ -25,6 +26,30 @@ const props = defineProps<{
 }>();
 
 const emitLabEvent = useLabEventSink();
+
+/** Lab 附件条目：按当前 DTO 合成，`attachmentId` 与 `target` 用 sha256 形状的稳定标识，不接真实存储。 */
+function labAttachmentItem(input: {suffix: string; mimeType: string; bytes: number; name?: string; seenAt: number}): AgentSessionAttachmentItemDto {
+    const attachmentId: `sha256:${string}` = `sha256:${input.suffix.padEnd(64, "0").slice(0, 64)}`;
+    return {
+        attachment: {
+            attachmentId,
+            mimeType: input.mimeType,
+            bytes: input.bytes,
+            ...(input.name === undefined ? {} : {name: input.name}),
+            dataOmitted: true,
+        },
+        target: attachmentId,
+        locator: {entryId: attachmentId, contentIndex: 0},
+        firstSeenAt: input.seenAt,
+        lastSeenAt: input.seenAt,
+        referenceCount: 1,
+    };
+}
+
+/** Lab 文本预览：按当前 DTO 给出字节数与截断标记。 */
+function labTextPreview(preview: string): PublicTextPreviewDto {
+    return {preview, bytes: new TextEncoder().encode(preview).length, omitted: false};
+}
 
 // 基础受控响应式状态
 const inputText = ref("");
@@ -42,46 +67,34 @@ const submittingUserInput = ref(false);
 const pendingSubmissionIssue = ref<AgentPendingSubmissionIssue | null>(null);
 
 const sessionModelDraft = ref<AgentSessionModelDraft>({
-    model: "claude-3-7-sonnet",
-    temperature: 0.7,
-    topP: 0.9,
-    maxTokens: 4096,
+    modelKey: "claude-3-7-sonnet",
     reasoningEffort: "high",
 });
 
 const selectableModels: EnabledModelOptionDto[] = [
     {
-        model: "claude-3-7-sonnet",
+        key: "claude-3-7-sonnet",
         label: "Claude 3.7 Sonnet (Hybrid)",
-        provider: "anthropic",
-        contextWindow: 200000,
-        maxOutputTokens: 64000,
-        supportsStreaming: true,
-        supportsVision: true,
-        supportsToolCalls: true,
-        supportsReasoningEffort: true,
+        providerId: "anthropic",
+        modelId: "claude-3-7-sonnet",
+        input: ["text", "image"],
+        contextWindowTokens: 200000,
     },
     {
-        model: "gpt-4o",
+        key: "gpt-4o",
         label: "GPT-4o Omnimodal",
-        provider: "openai",
-        contextWindow: 128000,
-        maxOutputTokens: 16384,
-        supportsStreaming: true,
-        supportsVision: true,
-        supportsToolCalls: true,
-        supportsReasoningEffort: false,
+        providerId: "openai",
+        modelId: "gpt-4o",
+        input: ["text", "image"],
+        contextWindowTokens: 128000,
     },
     {
-        model: "deepseek-reasoner",
+        key: "deepseek-reasoner",
         label: "DeepSeek R1 (Reasoning)",
-        provider: "deepseek",
-        contextWindow: 64000,
-        maxOutputTokens: 8192,
-        supportsStreaming: true,
-        supportsVision: false,
-        supportsToolCalls: true,
-        supportsReasoningEffort: false,
+        providerId: "deepseek",
+        modelId: "deepseek-reasoner",
+        input: ["text"],
+        contextWindowTokens: 64000,
     },
 ];
 
@@ -106,30 +119,23 @@ watch(() => props.scene, (scene) => {
     if (scene === "with-text") {
         inputText.value = "请根据第三幕大纲推演钟楼决战的心理细节，强调暴雨和钟摆声的隐喻。";
     } else if (scene === "with-images") {
-        inputText.value = "请参考图中的钟楼建筑构造与夜景氛围，为决战描写提供场景细节。\n\n![钟楼平面图](session-attachment://att-clocktower-01)";
-        sessionAttachments.value = [
-            {
-                attachment: {
-                    attachmentId: "att-clocktower-01",
-                    fileName: "clocktower_blueprint.png",
-                    mimeType: "image/png",
-                    byteSize: 1024 * 640,
-                    sha256: "0000000000000000000000000000000000000000000000000000000000000001",
-                    createdAt: Date.now() - 3600000,
-                },
-                source: "user_upload",
-                label: "钟楼平面图.png",
-                target: "session-attachment://att-clocktower-01",
-                lastSeenAt: Date.now() - 3600000,
-            },
-        ];
+        const clocktower = labAttachmentItem({
+            suffix: "att-clocktower-01",
+            mimeType: "image/png",
+            bytes: 1024 * 640,
+            name: "clocktower_blueprint.png",
+            seenAt: Date.now() - 3600000,
+        });
+        // 正文里的 destination 必须与条目 target 一致，Composer 才认得出这张图。
+        inputText.value = `请参考图中的钟楼建筑构造与夜景氛围，为决战描写提供场景细节。\n\n![钟楼平面图](${clocktower.target})`;
+        sessionAttachments.value = [clocktower];
     } else if (scene === "queued") {
         queuedMessages.value = [
             {
                 id: "queue-1",
                 clientMessageId: "cm-1",
                 kind: "steer",
-                text: {preview: "注意钟摆撞击声在此处作为心跳节拍，需要重复三次渲染紧张感。"},
+                text: labTextPreview("注意钟摆撞击声在此处作为心跳节拍，需要重复三次渲染紧张感。"),
                 images: [],
                 omittedImages: 0,
                 createdAt: Date.now() - 60000,
@@ -138,7 +144,7 @@ watch(() => props.scene, (scene) => {
                 id: "queue-2",
                 clientMessageId: "cm-2",
                 kind: "followup",
-                text: {preview: "同时检查配角艾德温的手枪子弹数量，避免出现前文描述的 5 发与此处连续射击 6 次的矛盾。"},
+                text: labTextPreview("同时检查配角艾德温的手枪子弹数量，避免出现前文描述的 5 发与此处连续射击 6 次的矛盾。"),
                 images: [],
                 omittedImages: 0,
                 createdAt: Date.now() - 30000,
@@ -203,39 +209,23 @@ const mockImageApi: ComposerImageTransactionApi = {
         emitLabEvent("image-upload-mock", {sessionId, name: file.name, size: file.size});
         // 模拟 200ms 延时
         await new Promise((resolve) => setTimeout(resolve, 200));
-        const id = `mock-att-${Date.now()}`;
-        return {
-            attachment: {
-                attachmentId: id,
-                fileName: file.name,
-                mimeType: file.type || "image/png",
-                byteSize: file.size,
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-                createdAt: Date.now(),
-            },
-            source: "user_upload",
-            label: file.name,
-            target: `session-attachment://${id}`,
-            lastSeenAt: Date.now(),
-        };
+        return labAttachmentItem({
+            suffix: `mock-att-${String(Date.now())}`,
+            mimeType: file.type || "image/png",
+            bytes: file.size,
+            name: file.name,
+            seenAt: Date.now(),
+        });
     },
     async snapshotSessionAttachment(sessionId: number, input: {sourcePath: string; name?: string}) {
         emitLabEvent("image-snapshot-mock", {sessionId, input});
-        const id = `mock-snap-${Date.now()}`;
-        return {
-            attachment: {
-                attachmentId: id,
-                fileName: input.name || "snapshot.png",
-                mimeType: "image/png",
-                byteSize: 1024 * 100,
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-                createdAt: Date.now(),
-            },
-            source: "project_snapshot",
-            label: input.name || "snapshot.png",
-            target: `session-attachment://${id}`,
-            lastSeenAt: Date.now(),
-        };
+        return labAttachmentItem({
+            suffix: `mock-snap-${String(Date.now())}`,
+            mimeType: "image/png",
+            bytes: 1024 * 100,
+            name: input.name || "snapshot.png",
+            seenAt: Date.now(),
+        });
     },
     async resolveSessionAttachments(_sessionId: number, attachmentIds: string[]) {
         return {
@@ -254,7 +244,7 @@ const mockImageApi: ComposerImageTransactionApi = {
 };
 
 const resolveMenu = (context: AgentTriggerMenuContext): AgentTriggerMenuState => {
-    if (context.triggerChar === "/") {
+    if (context.kind === "skill") {
         return {
             title: "写作技能指令",
             prefix: "/",
@@ -313,7 +303,7 @@ function handleAddQueue() {
         id: `queue-${String(Date.now())}`,
         clientMessageId: `cm-${String(Date.now())}`,
         kind: "followup",
-        text: {preview: `新增排队指令 #${String(nextIdx)}：补充场景雨声渲染`},
+        text: labTextPreview(`新增排队指令 #${String(nextIdx)}：补充场景雨声渲染`),
         images: [],
         omittedImages: 0,
         createdAt: Date.now(),

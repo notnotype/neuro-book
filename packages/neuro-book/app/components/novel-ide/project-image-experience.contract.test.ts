@@ -4,11 +4,11 @@ import {describe, expect, it} from "vitest";
 
 const pickerPath = fileURLToPath(new URL("./ProjectPickerScreen.vue", import.meta.url));
 const previewPath = fileURLToPath(new URL("../common/OriginalImagePreviewDialog.vue", import.meta.url));
-const chatAttachmentPath = fileURLToPath(new URL("./agent/AgentAttachmentCard.vue", import.meta.url));
-const chatGalleryPath = fileURLToPath(new URL("./agent/AgentAttachmentGallery.vue", import.meta.url));
-const chatBubblePath = fileURLToPath(new URL("./agent/AgentTextBubble.vue", import.meta.url));
-const toolBubblePath = fileURLToPath(new URL("./agent/AgentToolBubble.vue", import.meta.url));
-const attachmentPanelPath = fileURLToPath(new URL("./agent/AgentSessionAttachmentPanel.vue", import.meta.url));
+const chatAttachmentPath = fileURLToPath(new URL("./agent/bubbles/base/AgentAttachmentCard.vue", import.meta.url));
+const chatGalleryPath = fileURLToPath(new URL("./agent/bubbles/base/AgentAttachmentGallery.vue", import.meta.url));
+const chatBubblePath = fileURLToPath(new URL("./agent/bubbles/text/AgentUserBubble.vue", import.meta.url));
+const toolBubblePath = fileURLToPath(new URL("./agent/bubbles/tools/AgentToolBubble.vue", import.meta.url));
+const attachmentPanelPath = fileURLToPath(new URL("./agent/panels/attachments/AgentSessionAttachmentPanel.vue", import.meta.url));
 
 describe("Project 与 Attachment 图片体验合同", () => {
     it("书架懒加载固定封面 preset，并由 Store 统一发布 Project mutation", async () => {

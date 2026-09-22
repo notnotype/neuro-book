@@ -110,7 +110,7 @@ const viewProps = computed<AgentSidebarViewProps>(() => {
             pendingSubmissionIssue: null,
             running: running.value,
             availability: availabilityStatus.value === "ready"
-                ? {status: "ready", readonly: false, canStop: running.value}
+                ? {status: "ready", readonly: false, canStop: false}
                 : availabilityStatus.value === "restoring"
                     ? {status: "restoring", readonly: true, canStop: false}
                     : availabilityStatus.value === "unselected"

@@ -113,7 +113,7 @@ const parsedResult = computed<unknown | null>(() => {
                 </div>
                 <div class="mt-2 flex items-center justify-start gap-1 text-[var(--text-muted)]">
                     <IconButton
-                        size="xs"
+                        size="sm"
                         variant="default"
                         :title="t('agent.textBubble.copy')"
                         :aria-label="t('agent.textBubble.copy')"
