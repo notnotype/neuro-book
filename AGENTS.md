@@ -90,6 +90,7 @@ neuro-book/
 
 - Git 完整流程见 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)。主工作区保持 `master`，保护用户已有改动和未跟踪文件。
 - 代码改动在 worktree 完成；治理文档和用户明确指定的主工作区改动可以直接在当前工作区完成。只暂存 Task 范围文件，不使用 `git add -A`。
+- 远端只读访问（Issue、PR、CI 状态、仓库元数据与日志）不需要单独授权，按最小必要字段与最新结果读取；远端写入、push、合并、Issue/Project 状态变更仍需明确授权。
 - 统一评审通过后，获对应远端元数据授权的执行者才能把 Issue 项目条目标为 Done。
 - 命令从相应 `package.json` 查询。Bun 的 `--cwd` 必须放在 `run` 之后；`bun --cwd <dir> run <script>` 可能只打印用法并以 0 退出。
 
