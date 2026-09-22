@@ -37,3 +37,7 @@ issueId: i192
 - `tasks/t04-quick-input-surface/`（tasker）：nb-ui `QuickInput` 原语、`AlertDialog.closed`、双展示入口。
 - `tasks/t05-command-palette-lab/`（tasker）：全局面板、查询/匹配、命令 tab、确认闭环、叠层 ESC 修复。
 - `tasks/t06-command-acceptance/`（reviewer）：行为验收与独立审查。
+
+## 2026-09-22 主线接手提交
+
+治理文档提交为 `b048b226`；实现（命令运行时、`QuickInput`、命令面板与 Lab 夹具）位于 w00003 分支的 `39e50767` / `565f792d`，**尚未合并 master**——该分支主应用 typecheck 有 123 条错误（见 w00003 的 `merge-readiness-2026-09-22.md`），按红分支规则未合并。

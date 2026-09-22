@@ -14,3 +14,5 @@ issueId: i123
 - Issue #123 保持 OPEN，当前等待报告者在真实 exFAT 机器上验证至少 120 秒租约、锁竞争和 release/reacquire；本机没有可用 exFAT 卷，不能以 NTFS 结果替代。
 - Product acceptance stage 已通过项目 cleanup 命令清理，服务已停止；Product Runtime stdout/stderr 断管 EPIPE 单独跟踪于 Issue #228。
 - 当前工作区只保留本 Work 的验收记录未提交改动；未清理含未提交实验资料的历史 Temp worktree。
+
+2026-09-22 主线接手：验收记录与交接文档已提交为 `e3b3e936`；本 Work 的 4 个 `issue-123-lock-*` Temp worktree 已按开发者授权移除，补丁与未跟踪文件备份在 `%TEMP%/neuro-book/cleanup-20260922/worktrees/`。

@@ -23,3 +23,7 @@ issueId: i193
 - [`research/2026-09-11-assembly-cordis-vs-harness.md`](research/2026-09-11-assembly-cordis-vs-harness.md)：装配方式讨论（Cordis/dsh 与自组装）。
 - [`research/2026-09-11-package-map.md`](research/2026-09-11-package-map.md)：通用包候选蓝图（拆什么、什么结构、各包介绍）。
 - [`research/2026-09-18-upstream-reuse-and-event-domain.md`](research/2026-09-18-upstream-reuse-and-event-domain.md)：上游复用取证与事件域讨论。
+
+## 2026-09-22 主线接手提交
+
+并发 Agent 停止后，t06 交付的三包与工作区/CI 接线由主线提交为 `0ba63939`（`packages/nb-session`、`packages/nb-profile`、`packages/nb-harness`，workspaces、三条 CI 路径过滤与 workspace-package-matrix 检查）。复跑 `bun run --cwd packages/<pkg> typecheck` 与 `test` → 45 用例全部通过。本 Work 无独立 worktree，Linux CI 上的 OMP 原生依赖安装成本尚未实测。

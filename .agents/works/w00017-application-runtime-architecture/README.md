@@ -67,3 +67,5 @@ w00003只作调查参考：`.worktree/w00003-neurobook-ui-foundation-migration` 
 本轮新审查分别写 t02/t03 的 `walkthroughs/foundation-review.md`；t04 记录处理与最终质量证据，不用旧报告为新Spec背书。
 
 本轮规范规划的处理与验证入口：[t04交付记录](tasks/t04-foundation-spec-plan/walkthroughs/foundation-resolution.md)、[身份检查](tasks/t04-foundation-spec-plan/evidences/context-checks.txt)。t05未执行，当前等待w00003合并master的条件不变。
+
+2026-09-22 主线接手：七项 Spec、提案、两片实施规划与 Work/Task 证据已提交为 `bc144b2d` 并推送 origin/master；主工作区随之清空，未创建实现 worktree。w00003 分支本轮**未**合并（typecheck 未通过），进入条件继续等待。
