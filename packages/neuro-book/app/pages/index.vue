@@ -725,7 +725,7 @@ const workbenchDrop = useWorkbenchDrop({
 /** 预览文案：动作种类 + 并入的视图数（拖动中显示在插入线旁）；`noop` 带预览时只承诺保持布局。 */
 const dropPreviewLabel = computed(() => {
     const preview = workbenchDrop.preview.value;
-    if (preview === null) {
+    if (preview === null || preview.indicator !== null) {
         return "";
     }
     if (workbenchDrop.decision.value === "noop") {

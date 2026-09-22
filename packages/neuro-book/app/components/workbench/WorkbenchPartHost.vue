@@ -181,12 +181,13 @@ let unregisterEmpty: (() => void) | null = null;
 const switcherScope = computed(() => workbenchSwitcherScope(partId.value, "head"));
 let unregisterSwitcher: (() => void) | null = null;
 
-/** 几何只读取实际标签带，排除标题与动作区域。空标签带保留同一入口。 */
+/** 判定覆盖整条标题行；标签矩形仍只取实际条目，空白落在最后一个条目标记之后。 */
 const switcherGeometryRead = (): WorkbenchDropSwitcherRects | null => {
-    const host = selectorRef.value;
-    if (host === null || !showTabs.value) return null;
+
+    const host = headRef.value;
+    if (host === null || !showTabs.value || selectorRef.value === null) return null;
     const tabs = new Map<string, Element>();
-    for (const element of host.querySelectorAll("[data-container-tab]")) {
+    for (const element of selectorRef.value.querySelectorAll("[data-container-tab]")) {
         const containerId = element.getAttribute("data-container-tab");
         if (containerId !== null && !tabs.has(containerId)) {
             tabs.set(containerId, element);
@@ -244,7 +245,7 @@ useDroppable<WorkbenchSwitcherDropData>({
     collisionDetector: () => workbenchPointerCollision,
     /** 条目带是最粗的一档：精确条目（容器标签 / 活动栏条目）优先于它。 */
     collisionPriority: CollisionPriority.Low,
-    element: selectorRef,
+    element: headRef,
     disabled: computed(() => headAccept.value.length === 0),
 });
 

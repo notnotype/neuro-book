@@ -1170,7 +1170,7 @@ const workbenchDrop = useWorkbenchDrop({
 /** 预览文案：动作种类 + 并入的视图数（与产品用同一句话术来源）；`noop` 带预览时只承诺保持布局。 */
 const dropPreviewLabel = computed(() => {
     const preview = workbenchDrop.preview.value;
-    if (preview === null) {
+    if (preview === null || preview.indicator !== null) {
         return "";
     }
     if (workbenchDrop.decision.value === "noop") {
