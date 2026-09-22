@@ -4,11 +4,17 @@
  * 分工（合同见 `docs/specs/storage/persistence.md`「布局投影与保存反馈」、
  * `docs/specs/ui/workbench-shell.md`、`packages/neuro-book/docs/migrations/storage-state.md`）：
  *
- * - **两条记录路径**：Project 内左右栏尺寸是 grid 布局记录（t44 宿主负责恢复、原件合成与手势结算）；
- *   未开项目/用户资产尺寸是 `workbench.layout` 的 user/local 记录（本模块的通用记录会话）。
- *   两条路径共用同一套可见行为：首读门禁、只提交主动字段、冲突重读重放一次、失败保留意图与重试/放弃。
- * - **工作面**：`idle` / `user-assets` / `project` 各用明确记录，不互相 fallback；切工作面先结束手势、
- *   提交已形成的旧目标意图并等待收口，再释放旧上下文。旧工作面已失效（Project 删除/断线）时不延迟切换。
+ * - **记录路径**：Project 内左右栏尺寸是 grid 布局记录（t44 宿主负责恢复、原件合成与字段提交）；
+ *   未开项目/用户资产尺寸是 `workbench.layout` 的 user/local 记录（本模块的通用记录会话）；
+ *   面板尺寸（高度轴 + 宽度轴）是同一 owner 的独立记录（Project → `panel-size`，
+ *   user 面 → `surface-panel-size`）。
+ *   各路径共用同一套可见行为：首读门禁、只提交主动字段、冲突重读重放一次、失败保留意图与重试/放弃。
+ * - **尺寸路由**：纯布局组件在自己的 renderGrid 上结算完整手势，只把落点 px 补丁交回来；本会话按
+ *   字段拆路由——侧栏两个宽度进 Project grid（`commitFields`，落点是记录原件里的 `left`/`right` 叶）
+ *   或 user 面的尺寸记录，面板两个轴进面板尺寸记录。一次补丁跨记录 owner 时拒绝，
+ *   不实现未需求的多记录事务；补丁排队串行执行，同字段的后到意图覆盖先到意图。
+ * - **工作面**：`idle` / `user-assets` / `project` 各用明确记录，不互相 fallback；切工作面先提交已接纳的
+ *   尺寸意图并等待收口，再释放旧上下文。旧工作面已失效（Project 删除/断线）时不延迟切换。
  * - **迟到失败归属**：未保存意图与诊断都带工作面归属；旧工作面的迟到结果不会显示成新工作面的未保存状态。
  * - **迁移衔接**：迁移未完成时仍然只写新 authority（旧 writer 已在本增量退役），迁移自身的阻断
  *   用同一处反馈出口呈现，并给出 `retry()`（绑定 t47 的控制器）。
@@ -17,15 +23,10 @@
  */
 import {computed, onScopeDispose, readonly, ref, shallowRef, type ComputedRef, type Ref} from "vue";
 import {
-    axisOf,
     type Grid,
     type GridAxis,
-    type GridExtent,
-    type GridLayoutResult,
-    type GridNode,
     type GridRefResolver,
-} from "@notnotype/nb-ui/components";
-import {workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
+} from "@notnotype/nb-ui/layout";
 import {isStorageAdapterError} from "nbook/app/utils/storage/value-transport";
 import type {StorageProjectContextTarget} from "nbook/app/utils/storage/host-context-client";
 import {
@@ -37,6 +38,14 @@ import {
 import {createGridLayoutHost, type GridLayoutHost} from "nbook/app/utils/workbench/storage-grid-host";
 import {readShellPreferences, shellLayoutDefinition} from "nbook/app/utils/workbench/shell-layout";
 import {
+    clampPanelHeight,
+    clampPanelWidth,
+    SHELL_PANEL_DEFAULT_HEIGHT,
+    SHELL_PANEL_DEFAULT_WIDTH,
+    type ShellSizePatch,
+    type ShellSizePreferences,
+} from "nbook/app/utils/workbench/layout";
+import {
     storageMigrationController,
     storageMigrationSnapshot,
     subscribeStorageMigration,
@@ -46,6 +55,12 @@ import {
 } from "nbook/app/utils/workbench/storage-migration";
 import type {StorageCredential, StorageReadResult, StorageScope} from "nbook/shared/storage/contract";
 import {isSafeStorageIdentifier, type DefinedStorageState} from "nbook/shared/storage/definition";
+import {
+    defineWorkbenchPanelSizeState,
+    defineWorkbenchSurfacePanelSizeState,
+    isWorkbenchPanelSizeValue,
+    type WorkbenchPanelSize,
+} from "nbook/shared/storage/workbench-panel-size";
 import {projectStorageState, type StorageProjectedState} from "nbook/shared/storage/projection";
 import {
     defineWorkbenchShelfModeState,
@@ -633,6 +648,62 @@ function composeShelfMode(base: WorkbenchShelfMode | null, mode: WorkbenchShelfM
         : {value: mode, changed: true, diagnosis: ""};
 }
 
+/** 主动尺寸字段：面板高度与宽度是两条独立的轴，一次只写本次真正改变的轴。 */
+export type WorkbenchPanelSizePatch = {readonly height?: number; readonly width?: number};
+
+/**
+ * 面板尺寸意图合成到读取时的原件（含未知字段）：只写补丁里出现的轴，另一轴与未知字段原样保留。
+ *
+ * 值先按产品区间夹取再落盘（高度 80..600、宽度 160..600）——记录里的值就是**呈现的尺寸意图**，
+ * 不让越界值在下次恢复时又变成"夹取诊断"。
+ */
+function composePanelSize(base: WorkbenchPanelSize | null, patch: WorkbenchPanelSizePatch): LayoutRecordIntent<WorkbenchPanelSize> {
+    const value: {height?: number; width?: number} = base === null ? {} : {...base};
+    let changed = false;
+    let invalid = false;
+    for (const field of ["height", "width"] as const) {
+        const next = patch[field];
+        if (next === undefined) {
+            continue;
+        }
+        const clamped = field === "height" ? clampPanelHeight(next) : clampPanelWidth(next);
+        if (!isWorkbenchPanelSizeValue(clamped)) {
+            invalid = true;
+            continue;
+        }
+        if (base !== null && base[field] === clamped) {
+            continue;
+        }
+        value[field] = clamped;
+        changed = true;
+    }
+    if (changed) {
+        return {value, changed: true, diagnosis: ""};
+    }
+    return {
+        value,
+        changed: false,
+        diagnosis: invalid
+            ? `面板尺寸不是合法值（正有限数）：${String(patch.height ?? patch.width)}，未写盘`
+            : "面板尺寸与已确认值相同，未写盘",
+    };
+}
+
+/**
+ * 提示与收口只关心这几件事：会话阶段、未确认意图、重试、放弃。
+ *
+ * 一个工作面可能同时有两条记录（Project 是 grid + 底部高度，user 面是尺寸 + 底部高度），
+ * 这里的结构类型让两条记录能在同一处归档，不必为它们造共同基类。
+ */
+type WorkbenchRecordSessions = {
+    readonly state: () => {
+        readonly phase: LayoutRecordPhase;
+        readonly pending: {readonly diagnosis: string; readonly retryable: boolean} | null;
+    };
+    readonly retry: () => Promise<{readonly status: string}>;
+    readonly abandon: () => void;
+};
+
 export type WorkbenchShelfModeConsumer = {
     readonly mode: Readonly<Ref<WorkbenchShelfMode>>;
     readonly loading: Readonly<Ref<boolean>>;
@@ -766,52 +837,62 @@ export type WorkbenchLayoutSessionState = {
     readonly issues: readonly string[];
 };
 
-export type WorkbenchLayoutGesture = {
-    /** 该 Splitter 对应的分支 id。 */
-    readonly branchId: string;
-    /** 手势开始时的完整面板百分比。 */
-    readonly sizes: readonly number[];
-};
-
-export type WorkbenchLayoutGestureEnd = {
-    readonly branchId: string;
-    /** 主动改变尺寸的直接子节点 id（`SplitterGestureState.active`）。 */
-    readonly active: readonly string[];
-    /** 手势结束时的完整面板百分比。 */
-    readonly sizes: readonly number[];
-};
-
-export type WorkbenchLayoutCommitStatus = "started" | "saved" | "unchanged" | "unsaved" | "rejected";
+/**
+ * 一次尺寸提交的结果。
+ *
+ * 没有 `started`：外壳不再有"开始手势"这一步——纯布局组件在 renderGrid 上结算完整手势，
+ * 只把落点 px 的补丁交回来，因此这里只有提交结果（含被拒绝）。
+ */
+export type WorkbenchLayoutCommitStatus = "saved" | "unchanged" | "unsaved" | "rejected";
 
 export type WorkbenchLayoutSessionOptions = {
-    /** 外壳的布局树：宿主与记录会话都借用它，恢复与手势结算都发布到同一棵树。 */
+    /** 外壳的布局树：宿主与记录会话都借用它，恢复与已确认尺寸都发布到同一棵树。 */
     readonly grid: Grid<string>;
     /** 记录里的叶引用 → 当前约束。 */
     readonly resolveRef: GridRefResolver<string>;
-    /** 已收起的叶；隐藏只改呈现，不产生保存。 */
-    readonly hidden: () => readonly string[];
     /** 现有通知出口；`undefined` 时诊断只留在会话状态里。 */
     notify?: (notice: WorkbenchLayoutNotice) => void;
     /** 测试注入的 Storage 适配器。 */
-    adapters?: WorkbenchStorageAdapters;
+    readonly adapters?: WorkbenchStorageAdapters;
 };
 
 export type WorkbenchLayoutSession = {
     readonly state: Readonly<Ref<WorkbenchLayoutSessionState>>;
-    /** 当前工作面的左右栏偏好（图上意图 + 未确认意图），外壳据此重算几何模型。 */
+    /**
+     * 当前工作面的**代际键**（Project 根 / 用户工作面 id）。
+     *
+     * 纯布局组件把它随 `resize` 回传，`commitSizes` 只接受当前代际的补丁：切面期间与切面之后
+     * 到达的旧工作面尺寸都不落账。
+     */
+    readonly contextKey: ComputedRef<string>;
+    /**
+     * 当前工作面的左右栏偏好：记录基线（Project 读树上意图，user 面读尺寸记录）+ 本窗口已接纳的
+     * 本地呈现。已接纳的意图立刻生效，不等回执，也不因失败回退。
+     */
     readonly preferences: ComputedRef<{leftPanelWidth: number; agentPanelWidth: number}>;
     /**
-     * 树上意图/显示被会话**重新发布**的次数（进入工作面恢复、放弃未确认调整）。
+     * 当前工作面的面板尺寸意图（高度轴与宽度轴各自独立记忆）。
      *
-     * 只在会话主动改写呈现时前进：自己的手势不在这里（手势已把呈现写进树，壳层要保持它）。
-     * 壳层据此决定是否按产品模型重建，而不用猜"这次偏好变化是谁写的"。
+     * 这是**未夹取**的意图：收起呈 32、位置不适用、短视口降级与 80..600（高）/160..600（宽）的
+     * 夹取都发生在 `projectShell` 的投影里，本值只回答"用户希望多大"。
+     */
+    readonly panelSize: ComputedRef<{height: number; width: number}>;
+    /**
+     * 树上意图/显示被会话**重新发布**的次数（进入工作面、放弃未确认调整）。
+     *
+     * 只在会话主动改写呈现时前进（自己的提交不在这里：提交已把呈现写进本地覆盖，壳层要保持它）。
      */
     readonly publication: Readonly<Ref<number>>;
     enterSurface(surface: WorkbenchLayoutSurface): Promise<void>;
-    setContainer(extent: GridExtent): void;
-    gestureStart(gesture: WorkbenchLayoutGesture): WorkbenchLayoutCommitStatus;
-    gestureEnd(gesture: WorkbenchLayoutGestureEnd): Promise<WorkbenchLayoutCommitStatus>;
-    gestureCancel(): void;
+    /**
+     * 一次已经结算好的尺寸补丁：只含真正变化的轴，px 语义（手势落点）。
+     *
+     * 同一份补丁可以同时含侧栏宽度与面板两轴（交汇处一次手势同时改两根轴）：**先整份校验**，
+     * 通过后一次性进入本窗口偏好（呈现立刻生效），再在同一个串行任务里按记录分项写入。
+     * 这是明确的多记录**非原子持久化**取舍：任何一项校验失败整份不接纳，已接纳后某条记录
+     * I/O 失败不回滚另一条成功记录——回执按记录分项返回，上层据此只重试未确认的 owner。
+     */
+    commitSizes(input: {readonly contextKey: string; readonly patch: ShellSizePatch}): Promise<WorkbenchLayoutCommitReceipt>;
     retry(): Promise<void>;
     abandon(): void;
     retryMigration(): Promise<void>;
@@ -820,14 +901,43 @@ export type WorkbenchLayoutSession = {
 
 type SurfaceSizesSession = LayoutRecordSession<WorkbenchSurfaceSizes, WorkbenchSurfaceSizesPatch>;
 
-/** user 工作面的手势基线：外壳的树由壳层按偏好重建，这里只记分支与当时的呈现。 */
-type UserGestureCapture = {
-    readonly branchId: string;
-    readonly axis: GridAxis;
-    readonly children: readonly GridNode<string>[];
-    readonly layout: GridLayoutResult;
-    readonly container: GridExtent;
-};
+type PanelSizeSession = LayoutRecordSession<WorkbenchPanelSize, WorkbenchPanelSizePatch>;
+
+/** 尺寸字段的固定读取顺序（不依赖对象键顺序，诊断与提交都按它走）。 */
+const SHELL_SIZE_FIELDS = ["leftPanelWidth", "agentPanelWidth", "panelHeight", "panelWidth"] as const;
+
+/** 侧栏宽度字段 → 记录里的叶 id（`commitFields` 的落点）。 */
+const SHELL_WIDTH_LEAF_ID: Record<string, string> = {leftPanelWidth: "left", agentPanelWidth: "right"};
+
+/** 一次补丁属于哪条记录：侧栏两条宽度共用一条，面板两轴共用另一条。 */
+function sizeFieldOwner(field: keyof ShellSizePreferences): "widths" | "panel" {
+    return field === "panelHeight" || field === "panelWidth" ? "panel" : "widths";
+}
+
+/** 一次补丁里的合法字段与值；未知键、非有限/非正值都返回结构化诊断。 */
+function sizePatchEntries(patch: ShellSizePatch): {readonly entries: readonly {field: keyof ShellSizePreferences; value: number}[]} | {readonly problem: string} {
+    for (const key of Object.keys(patch)) {
+        if (key === "dragCollapsed") {
+            // 拖收起属于定制记录（`setPartVisibility`），不能从这里悄悄写进尺寸记录。
+            return {problem: "拖收起偏好必须经定制会话写入，尺寸提交不处理 dragCollapsed"};
+        }
+        if (!SHELL_SIZE_FIELDS.includes(key as keyof ShellSizePreferences)) {
+            return {problem: `尺寸补丁含未知字段：${key}`};
+        }
+    }
+    const entries: {field: keyof ShellSizePreferences; value: number}[] = [];
+    for (const field of SHELL_SIZE_FIELDS) {
+        const value = patch[field];
+        if (value === undefined) {
+            continue;
+        }
+        if (!Number.isFinite(value) || value <= 0) {
+            return {problem: `尺寸不是有限正数：${field}=${String(value)}`};
+        }
+        entries.push({field, value});
+    }
+    return {entries};
+}
 
 function surfaceKey(surface: WorkbenchLayoutSurface): string {
     return surface.kind === "project" ? `project:${surface.ready.projectRoot}` : surface.kind;
@@ -837,75 +947,32 @@ function userSurfaceId(kind: WorkbenchLayoutSurfaceKind): WorkbenchSurfaceId | n
     return kind === "idle" || kind === "user-assets" ? kind : null;
 }
 
-function findBranch(grid: Grid<string>, branchId: string): {children: readonly GridNode<string>[]; axis: GridAxis} | null {
-    const root = grid.root();
-    if (root === null || root.kind === "leaf") {
-        return null;
-    }
-    const branch = root.children.find((child) => child.id === branchId);
-    if (!branch || branch.kind !== "branch") {
-        return null;
-    }
-    return {children: branch.children, axis: axisOf(branch.orientation)};
-}
-
-/** 手势开始：只接受当前容器里可结算的分支（外壳只保存横向偏好）。 */
-function captureUserGesture(grid: Grid<string>, container: GridExtent | null, gesture: WorkbenchLayoutGesture): UserGestureCapture | null {
-    if (container === null) {
-        return null;
-    }
-    const branch = findBranch(grid, gesture.branchId);
-    if (branch === null || branch.axis !== "width" || gesture.sizes.length !== branch.children.length) {
-        return null;
-    }
-    return {
-        branchId: gesture.branchId,
-        axis: branch.axis,
-        children: branch.children,
-        layout: grid.layout(container),
-        container: {width: container.width, height: container.height},
+/**
+ * 一次尺寸提交的分项回执：`status` 是聚合结论，`records` 说明具体是哪个 owner 没确认。
+ *
+ * 聚合只用于既有 UI 文案；重试与诊断读 `records`，不把「宽度已保存、面板待保存」压成一句
+ * 「未保存」。
+ */
+export type WorkbenchLayoutCommitReceipt = {
+    readonly status: WorkbenchLayoutCommitStatus;
+    readonly records: {
+        readonly widths?: WorkbenchLayoutCommitStatus;
+        readonly panel?: WorkbenchLayoutCommitStatus;
     };
-}
+};
 
-/** 手势结束：结算主动字段为尺寸补丁；程序布局与未主动改变的兄弟都不进补丁。 */
-function userGesturePatch(
-    grid: Grid<string>,
-    container: GridExtent | null,
-    captured: UserGestureCapture,
-    gesture: WorkbenchLayoutGestureEnd,
-): WorkbenchSurfaceSizesPatch | null {
-    if (container === null
-        || gesture.branchId !== captured.branchId
-        || container.width !== captured.container.width
-        || container.height !== captured.container.height) {
-        return null;
+const unchangedReceipt: WorkbenchLayoutCommitReceipt = {status: "unchanged", records: {widths: "unchanged", panel: "unchanged"}};
+const rejectedReceipt: WorkbenchLayoutCommitReceipt = {status: "rejected", records: {widths: "rejected", panel: "rejected"}};
+
+/** 收口语义：任一条记录没确认或拒绝，就以它为准；两条都干净才算收口完成。 */
+function mergeCommitStatus(left: WorkbenchLayoutCommitStatus, right: WorkbenchLayoutCommitStatus): WorkbenchLayoutCommitStatus {
+    if (left === "unsaved" || left === "rejected") {
+        return left;
     }
-    const conversion = workbenchBranchGesture(captured.children, captured.layout, captured.axis, gesture.sizes);
-    if (conversion === null) {
-        return null;
+    if (right === "unsaved" || right === "rejected") {
+        return right;
     }
-    const resized = grid.resizeBranch(captured.branchId, captured.axis, conversion.baseline, conversion.target);
-    if (!resized.ok) {
-        return null;
-    }
-    const known: Record<string, true> = Object.fromEntries(captured.children.map((child) => [child.id, true]));
-    const patch: {leftPanelWidth?: number; agentPanelWidth?: number} = {};
-    for (const id of gesture.active) {
-        if (known[id] !== true) {
-            return null;
-        }
-        const value = resized.sizes[id];
-        if (value === undefined) {
-            return null;
-        }
-        // 主动改变的叶必须是侧栏才有可保存的偏好；编辑器吸收余量，不进记录。
-        if (id === "left") {
-            patch.leftPanelWidth = value;
-        } else if (id === "right") {
-            patch.agentPanelWidth = value;
-        }
-    }
-    return Object.keys(patch).length === 0 ? null : patch;
+    return left === "saved" || right === "saved" ? "saved" : "unchanged";
 }
 
 export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOptions): WorkbenchLayoutSession {
@@ -927,9 +994,18 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
 
     let host: GridLayoutHost<string> | null = null;
     let sizes: SurfaceSizesSession | null = null;
+    let panelSize: PanelSizeSession | null = null;
     let currentKey = "";
-    let container: GridExtent | null = null;
-    let gestureCapture: UserGestureCapture | null = null;
+    /**
+     * 本地呈现覆盖：本工作面内**已接纳**的尺寸意图（含未确认的），进入工作面与放弃时清除。
+     *
+     * 已接纳的意图不等回执就生效（拖动结束后不闪回旧尺寸），失败也不回退——记录基线仍在下面，
+     * 远端订阅只更新基线，不抢当前呈现。
+     */
+    let presentation: ShellSizePatch = {};
+    /** 本地意图序号：同字段的后到意图覆盖先到意图，旧回执不越过新意图改回呈现。 */
+    let intentSeq = 0;
+    let latestSeq: Record<string, number> = {};
     let transition: Promise<void> = Promise.resolve();
     let releasePromise: Promise<void> | null = null;
     let archived: string[] = [];
@@ -946,27 +1022,58 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
         retryable: snapshot.retryable,
     });
 
+    /**
+     * 当前工作面的普通记录会话（底部高度总是其中之一）。
+     *
+     * Project 面的 grid 走 t44 宿主，没有 record session；`host` 之外的未确认意图与重试/放弃
+     * 都由这张表兜住，两条记录不会各写一套收口逻辑。
+     */
+    function currentRecordSessions(): WorkbenchRecordSessions[] {
+        const records: WorkbenchRecordSessions[] = [];
+        if (sizes !== null) {
+            records.push(sizes);
+        }
+        if (panelSize !== null) {
+            records.push(panelSize);
+        }
+        return records;
+    }
+
     /** 当前工作面的未确认意图（宿主或记录会话）；没有工作面记录时为 null。 */
     function currentPending(): {readonly diagnosis: string; readonly retryable: boolean} | null {
         if (host !== null) {
             const pending = host.state.pending;
-            return pending === null ? null : {diagnosis: pending.diagnosis, retryable: pending.retryable};
+            if (pending !== null) {
+                return {diagnosis: pending.diagnosis, retryable: pending.retryable};
+            }
         }
-        const recordPending = sizes?.state().pending ?? null;
-        return recordPending === null ? null : {diagnosis: recordPending.diagnosis, retryable: recordPending.retryable};
+        for (const record of currentRecordSessions()) {
+            const pending = record.state().pending;
+            if (pending !== null) {
+                return {diagnosis: pending.diagnosis, retryable: pending.retryable};
+            }
+        }
+        return null;
     }
 
-    /** 当前工作面是否还能提交：上下文失效（Project 删除/断线）后不再等待，也不补写。 */
+    /**
+     * 当前工作面是否还能提交：只有**持有未确认意图**的记录才算数。
+     *
+     * 它已经失效（Project 删除/断线、授权撤销）就不再等待，而是归档后放行——否则切换会被
+     * 一条再也写不动的记录永久挡住；反过来，只要持有意图的那条还能写，就值得先重试一次。
+     */
     function currentAccepting(): boolean {
-        if (host !== null) {
-            const phase = host.state.phase;
-            return phase === "ready" || phase === "loading";
+        const owners: (string | null)[] = [];
+        if (host !== null && host.state.pending !== null) {
+            owners.push(host.state.phase);
         }
-        if (sizes !== null) {
-            const phase = sizes.state().phase;
-            return phase === "ready" || phase === "loading";
+        for (const record of currentRecordSessions()) {
+            const state = record.state();
+            if (state.pending !== null) {
+                owners.push(state.phase ?? null);
+            }
         }
-        return false;
+        return owners.length === 0 || owners.some((phase) => phase === "ready" || phase === "loading");
     }
 
     /**
@@ -1029,27 +1136,26 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
         return next;
     };
 
-    /** 重试当前工作面的未确认意图；返回值决定切换能否继续。 */
+    /** 重试当前工作面的未确认意图（grid 宿主与普通记录一起）；返回值决定切换能否继续。 */
     const retryCurrent = async (): Promise<WorkbenchLayoutCommitStatus> => {
+        let status: WorkbenchLayoutCommitStatus = "unchanged";
         if (host !== null) {
             const result = await host.retry();
-            return result.status === "saved" ? "saved" : result.status;
+            status = mergeCommitStatus(status, result.status === "saved" ? "saved" : result.status);
         }
-        if (sizes !== null) {
-            const result = await sizes.retry();
-            return result.status === "saved" ? "saved" : result.status;
+        for (const record of currentRecordSessions()) {
+            const result = await record.retry();
+            status = mergeCommitStatus(status, result.status === "saved" ? "saved" : result.status as WorkbenchLayoutCommitStatus);
         }
-        return "unchanged";
+        return status;
     };
 
     /**
-     * 切换前的收口：结束手势 → 提交已形成的旧目标意图并等待 → 才能释放旧上下文。
+     * 切换前的收口：提交已接纳的尺寸意图并等待 → 才能释放旧上下文。
      *
      * 旧工作面已失效（Project 删除/断线、上下文撤销）时不重试也不延迟：诊断归档后立刻放行。
      */
     const settleCurrentSurface = async (): Promise<{readonly ok: true} | {readonly ok: false; readonly diagnosis: string}> => {
-        gestureCapture = null;
-        host?.gestureCancel();
         const pending = currentPending();
         if (pending === null) {
             return {ok: true};
@@ -1072,21 +1178,43 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
     const releaseCurrentRecords = async (): Promise<void> => {
         const currentHost = host;
         const currentSizes = sizes;
+        const currentPanel = panelSize;
         host = null;
         sizes = null;
+        panelSize = null;
         currentKey = "";
-        gestureCapture = null;
         if (currentHost !== null) {
             await currentHost.release();
         }
         if (currentSizes !== null) {
             await currentSizes.release();
         }
+        if (currentPanel !== null) {
+            await currentPanel.release();
+        }
     };
+
+    /**
+     * 面板尺寸记录会话：Project 面写 `panel-size`（project/local 单例），user 面写
+     * `surface-panel-size`（user/local，资源是工作面 id）。两条定义分属两个工作面，互不 fallback——
+     * 用户资产不会继承 Project 的面板尺寸，Project 也不会拿用户资产记录当失败回退。
+     */
+    function createPanelSizeSession(handle: WorkbenchStorageOwnerHandle, surfaceId: WorkbenchSurfaceId | undefined): PanelSizeSession {
+        return createLayoutRecordSession<WorkbenchPanelSize, WorkbenchPanelSizePatch>({
+            handle,
+            definition: surfaceId === undefined ? defineWorkbenchPanelSizeState() : defineWorkbenchSurfacePanelSizeState(),
+            ...(surfaceId === undefined ? {} : {resource: surfaceId}),
+            compose: composePanelSize,
+            onChange: publishNotice,
+        });
+    }
 
     const openSurface = async (surface: WorkbenchLayoutSurface): Promise<void> => {
         kind.value = surface.kind;
         currentKey = surfaceKey(surface);
+        // 新工作面按自己的记录呈现：不继承上一个工作面的本地覆盖（旧意图的序号也不再参与结算）。
+        presentation = {};
+        latestSeq = {};
         loading.value = true;
         if (surface.kind === "project") {
             // Project 句柄绑定精确 ready 代次；上下文自身负责旧代次释放与失效。
@@ -1105,10 +1233,6 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
                 resolveRef: options.resolveRef,
             });
             host = created;
-            // 宿主接手前测得的容器不能丢：手势基线要求宿主先知道当前容器（壳层在挂载时就测量过一次）。
-            if (container !== null) {
-                created.setContainer(container);
-            }
             const hostState = await created.open();
             if (hostState.projection?.status === "default") {
                 // 记录缺失或已被重置：把**产品默认布局**发布进树。树上意图是"当前工作面的显示"，
@@ -1118,7 +1242,11 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
                     archive(`产品默认外壳布局无法发布：${restored.reason ?? "未知结构"}`);
                 }
             }
-            loading.value = hostState.phase === "loading";
+            // 面板尺寸是独立记录（`workbench.layout/panel-size`）：同 owner 同分区，与 grid 各自一个写者。
+            const createdPanel = createPanelSizeSession(owned.handle, undefined);
+            panelSize = createdPanel;
+            const panelState = await createdPanel.open();
+            loading.value = hostState.phase === "loading" || panelState.phase === "loading";
             publication.value += 1;
             publishNotice();
             return;
@@ -1146,7 +1274,10 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
         });
         sizes = created;
         const recordState = await created.open();
-        loading.value = recordState.phase === "loading";
+        const createdPanel = createPanelSizeSession(owned.handle, surfaceId);
+        panelSize = createdPanel;
+        const panelState = await createdPanel.open();
+        loading.value = recordState.phase === "loading" || panelState.phase === "loading";
         publication.value += 1;
         publishNotice();
     };
@@ -1169,6 +1300,152 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
     });
     migration.value = migrationState(storageMigrationSnapshot());
 
+    /** 记录基线里的左右栏宽度（Project 读树上意图，user 面读尺寸记录显示值）。 */
+    function baseWidths(): {leftPanelWidth: number; agentPanelWidth: number} {
+        const display = sizes?.display() ?? null;
+        if (kind.value === "project" || display === null) {
+            return readShellPreferences(grid);
+        }
+        return {
+            leftPanelWidth: display.leftPanelWidth ?? WORKBENCH_LEFT_PANEL_DEFAULT_WIDTH,
+            agentPanelWidth: display.agentPanelWidth ?? WORKBENCH_AGENT_PANEL_DEFAULT_WIDTH,
+        };
+    }
+
+    /**
+     * 把一次已结算的补丁写进它所属的记录。
+     *
+     * - Project 的左右宽度 → grid 记录（`commitFields`，落点是记录原件里的 `left`/`right` 叶）；
+     * - user 面的左右宽度 → `surface-sizes` 会话；
+     * - 面板两个轴 → `panel-size` 会话。
+     *
+     * 记录不可用时归档诊断并返回 rejected —— 不把尺寸悄悄丢掉，也不退回另一条记录。
+     */
+    async function writeSizeFields(
+        owner: "widths" | "panel",
+        fields: readonly {readonly field: keyof ShellSizePreferences; readonly value: number}[],
+    ): Promise<WorkbenchLayoutCommitStatus> {
+        if (owner === "panel") {
+            const current = panelSize;
+            if (current === null) {
+                archive("面板尺寸记录不可用，本次尺寸调整没有落账");
+                return "rejected";
+            }
+            const patch: {height?: number; width?: number} = {};
+            for (const entry of fields) {
+                if (entry.field === "panelHeight") {
+                    patch.height = entry.value;
+                } else if (entry.field === "panelWidth") {
+                    patch.width = entry.value;
+                }
+            }
+            const result = await current.commit(patch);
+            publishNotice();
+            return result.status;
+        }
+        if (kind.value === "project") {
+            const current = host;
+            if (current === null) {
+                archive("Project 布局记录不可用，本次尺寸调整没有落账");
+                return "rejected";
+            }
+            const result = await current.commitFields(fields.map((entry) => ({
+                id: SHELL_WIDTH_LEAF_ID[entry.field] ?? entry.field,
+                axis: "width" as GridAxis,
+                value: entry.value,
+            })));
+            publishNotice();
+            if (result.status === "unsaved" || result.status === "rejected") {
+                archive(`Project 宽度未保存（${result.status}）：${result.diagnosis}`);
+            }
+            return result.status;
+        }
+        const current = sizes;
+        if (current === null) {
+            archive("工作面尺寸记录不可用，本次宽度调整没有落账");
+            return "rejected";
+        }
+        const patch: {leftPanelWidth?: number; agentPanelWidth?: number} = {};
+        for (const entry of fields) {
+            if (entry.field === "leftPanelWidth") {
+                patch.leftPanelWidth = entry.value;
+            } else if (entry.field === "agentPanelWidth") {
+                patch.agentPanelWidth = entry.value;
+            }
+        }
+        const result = await current.commit(patch);
+        publishNotice();
+        return result.status;
+    }
+
+    /**
+     * 一次尺寸补丁的完整提交路径：校验代际与形状 → 记录归属 → 串行写。
+     *
+     * 补丁在**接受时**就进入本地呈现（拖动结束不闪回旧尺寸），执行时再按序号过滤：同一字段上
+     * 已经有更新的意图时，旧调用不再写盘，也不会把呈现改回去。
+     */
+    async function commitSizes(input: {readonly contextKey: string; readonly patch: ShellSizePatch}): Promise<WorkbenchLayoutCommitReceipt> {
+        const parsed = sizePatchEntries(input.patch);
+        if ("problem" in parsed) {
+            archive(`尺寸补丁被拒绝：${parsed.problem}`);
+            return rejectedReceipt;
+        }
+        const entries = parsed.entries;
+        if (entries.length === 0) {
+            return unchangedReceipt;
+        }
+        if (input.contextKey !== currentKey) {
+            archive(`尺寸提交的工作面代际已过期（${input.contextKey || "空"} ≠ ${currentKey || "空"}）：本次调整没有落账`);
+            return rejectedReceipt;
+        }
+        if (loading.value) {
+            archive("布局记录尚未完成首次读取，本次尺寸调整没有落账");
+            return rejectedReceipt;
+        }
+        const seq = ++intentSeq;
+        const accepted: {leftPanelWidth?: number; agentPanelWidth?: number; panelHeight?: number; panelWidth?: number} = {};
+        for (const entry of entries) {
+            latestSeq[entry.field] = seq;
+            if (entry.field === "leftPanelWidth") {
+                accepted.leftPanelWidth = entry.value;
+            } else if (entry.field === "agentPanelWidth") {
+                accepted.agentPanelWidth = entry.value;
+            } else if (entry.field === "panelHeight") {
+                accepted.panelHeight = entry.value;
+            } else {
+                accepted.panelWidth = entry.value;
+            }
+        }
+        presentation = {...presentation, ...accepted};
+        bump();
+        const records: {widths?: WorkbenchLayoutCommitStatus; panel?: WorkbenchLayoutCommitStatus} = {};
+        await queue(async () => {
+            // 执行时再核一次代际：排队期间工作面可能已经切换（那时补丁属于旧工作面，不能写进新记录）。
+            if (input.contextKey !== currentKey || loading.value) {
+                archive(`尺寸提交的工作面代际已过期（${input.contextKey || "空"} ≠ ${currentKey || "空"}）：本次调整没有落账`);
+                records.widths = "rejected";
+                records.panel = "rejected";
+                return;
+            }
+            const fresh = entries.filter((entry) => latestSeq[entry.field] === seq);
+            if (fresh.length === 0) {
+                records.widths = "unchanged";
+                records.panel = "unchanged";
+                return;
+            }
+            // 分项写入：任一 owner 失败不回滚另一个已成功写入的记录（非原子持久化，回执按项说明）。
+            const widthEntries = fresh.filter((entry) => sizeFieldOwner(entry.field) === "widths");
+            const panelEntries = fresh.filter((entry) => sizeFieldOwner(entry.field) === "panel");
+            if (widthEntries.length > 0) {
+                records.widths = await writeSizeFields("widths", widthEntries);
+            }
+            if (panelEntries.length > 0) {
+                records.panel = await writeSizeFields("panel", panelEntries);
+            }
+        });
+        return {status: mergeCommitStatus(records.widths ?? "unchanged", records.panel ?? "unchanged"), records};
+    }
+
     const session: WorkbenchLayoutSession = {
         state: readonly(computed<WorkbenchLayoutSessionState>(() => ({
             surface: kind.value,
@@ -1179,15 +1456,30 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
             issues: issues.value,
         }))),
 
+        contextKey: computed(() => {
+            revision.value;
+            return currentKey;
+        }),
+
         preferences: computed(() => {
             revision.value;
-            const display = sizes?.display() ?? null;
-            if (kind.value === "project" || display === null) {
-                return readShellPreferences(grid);
-            }
+            const base = baseWidths();
             return {
-                leftPanelWidth: display.leftPanelWidth ?? WORKBENCH_LEFT_PANEL_DEFAULT_WIDTH,
-                agentPanelWidth: display.agentPanelWidth ?? WORKBENCH_AGENT_PANEL_DEFAULT_WIDTH,
+                leftPanelWidth: presentation.leftPanelWidth ?? base.leftPanelWidth,
+                agentPanelWidth: presentation.agentPanelWidth ?? base.agentPanelWidth,
+            };
+        }),
+
+        panelSize: computed(() => {
+            revision.value;
+            const record = panelSize?.display();
+            const height = record?.height;
+            const width = record?.width;
+            return {
+                height: presentation.panelHeight
+                    ?? (height !== undefined && isWorkbenchPanelSizeValue(height) ? height : SHELL_PANEL_DEFAULT_HEIGHT),
+                width: presentation.panelWidth
+                    ?? (width !== undefined && isWorkbenchPanelSizeValue(width) ? width : SHELL_PANEL_DEFAULT_WIDTH),
             };
         }),
 
@@ -1221,57 +1513,7 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
             });
         },
 
-        setContainer(extent: GridExtent): void {
-            // 容器变化取消进行中的手势（与 t44 宿主同一口径）：基线已经失去意义。
-            if (gestureCapture !== null && (extent.width !== gestureCapture.container.width || extent.height !== gestureCapture.container.height)) {
-                gestureCapture = null;
-            }
-            container = extent;
-            host?.setContainer(extent);
-        },
-
-        gestureStart(gesture: WorkbenchLayoutGesture): WorkbenchLayoutCommitStatus {
-            if (host !== null) {
-                const ack = host.gestureStart(gesture);
-                if (!ack.ok) {
-                    archive(`手势未被接纳：${ack.diagnosis}`);
-                }
-                return ack.ok ? "started" : "rejected";
-            }
-            const captured = captureUserGesture(grid, container, gesture);
-            gestureCapture = captured;
-            return captured === null ? "rejected" : "started";
-        },
-
-        async gestureEnd(gesture: WorkbenchLayoutGestureEnd): Promise<WorkbenchLayoutCommitStatus> {
-            if (host !== null) {
-                const result = await host.gestureEnd(gesture);
-                if (result.status !== "saved") {
-                    // 手势没落盘的原因必须可见：宿主返回的 unchanged/rejected/unsaved 都带诊断。
-                    archive(`布局手势未保存（${result.status}）：${result.diagnosis}`);
-                }
-                publishNotice();
-                return result.status === "saved" ? "saved" : result.status;
-            }
-            const captured = gestureCapture;
-            gestureCapture = null;
-            const current = sizes;
-            if (captured === null || current === null) {
-                return "rejected";
-            }
-            const patch = userGesturePatch(grid, container, captured, gesture);
-            if (patch === null) {
-                return "rejected";
-            }
-            const result = await current.commit(patch);
-            publishNotice();
-            return result.status === "saved" ? "saved" : result.status;
-        },
-
-        gestureCancel(): void {
-            gestureCapture = null;
-            host?.gestureCancel();
-        },
+        commitSizes,
 
         async retry(): Promise<void> {
             const blocked = blockedSwitch.value;
@@ -1284,21 +1526,19 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
                 }
                 return;
             }
-            if (host !== null) {
-                await host.retry();
-            } else {
-                await sizes?.retry();
-            }
+            // 当前工作面的每一条记录都要重试：只重试一条会把另一条的未确认意图留在无人收口的状态。
+            await retryCurrent();
             publishNotice();
         },
 
         abandon(): void {
-            if (host !== null) {
-                host.abandon();
-            } else {
-                sizes?.abandon();
+            host?.abandon();
+            for (const record of currentRecordSessions()) {
+                record.abandon();
             }
-            // 放弃采用当前已确认值：呈现要跟着回到已确认布局；挡路的未保存调整也不再存在。
+            // 放弃采用当前已确认值：本地覆盖一并清掉，呈现跟着回到已确认布局；挡路的未保存调整也不再存在。
+            presentation = {};
+            latestSeq = {};
             publication.value += 1;
             const blocked = blockedSwitch.value;
             blockedSwitch.value = null;
@@ -1316,8 +1556,6 @@ export function createWorkbenchLayoutSession(options: WorkbenchLayoutSessionOpti
         release(): Promise<void> {
             releasePromise ??= (async () => {
                 stopMigrationFeed();
-                gestureCapture = null;
-                host?.gestureCancel();
                 await queue(releaseCurrentRecords);
                 await transition;
                 await context.release();

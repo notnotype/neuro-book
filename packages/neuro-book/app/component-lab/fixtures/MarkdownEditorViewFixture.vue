@@ -12,7 +12,7 @@
  */
 import {computed, ref, watch} from "vue";
 import MarkdownEditorView from "nbook/app/components/editor-workbench/MarkdownEditorView.vue";
-import type {EditorAction, EditorDocumentSnapshot, EditorDocumentTarget, EditorViewHandle} from "nbook/app/components/editor-workbench/editor-view.types";
+import type {EditorAction, EditorChangeResult, EditorDocumentSnapshot, EditorDocumentTarget, EditorViewHandle} from "nbook/app/components/editor-workbench/editor-view.types";
 import type {WorkspaceReferencePreviewMeta, WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES} from "nbook/shared/editor-workbench";
 import {useLabEventSink} from "../lab-event-sink";
@@ -94,9 +94,13 @@ const path = ref("");
 const content = ref("");
 const readonly = ref(false);
 const showFrontmatterPanel = ref(false);
+/** 夹具扮演的权威缓冲修订：基线不符的提交如实回 conflict，实例必须保留候选。 */
+const revision = ref(0);
 const baseline = ref("");
 const identity = ref("");
 const mountKey = ref(0);
+/** 交给视图的实例 token：同文档换实例时不复用内核实例。 */
+const viewInstanceId = computed(() => `lab-markdown-view:${mountKey.value}`);
 const viewHandle = ref<EditorViewHandle | null>(null);
 /** 组件自己上报的动作，不是夹具手写的第二份清单。 */
 const viewActions = ref<readonly EditorAction[]>([]);
@@ -110,6 +114,7 @@ const target = computed<EditorDocumentTarget>(() => ({
 const documentSnapshot = computed<EditorDocumentSnapshot>(() => ({
     target: target.value,
     content: content.value,
+    contentRevision: revision.value,
     languageId: "markdown",
     readonly: readonly.value,
 }));
@@ -145,16 +150,26 @@ watch(() => [props.scene, props.data] as const, () => {
     if (nextIdentity !== identity.value) {
         identity.value = nextIdentity;
         content.value = next.content;
+        revision.value = 0;
         baseline.value = next.content;
         mountKey.value += 1;
         return;
     }
-    content.value = next.content;
+    if (content.value !== next.content) {
+        externalContent(next.content);
+    }
 }, {immediate: true});
 
-function onChange(nextTarget: EditorDocumentTarget, next: string): void {
+/** 夹具扮演的权威缓冲：基线过期回 conflict，目标已换代回 stale，都不是 accepted。 */
+function onCommitChange(nextTarget: EditorDocumentTarget, baseRevision: number, next: string): EditorChangeResult {
+    if (baseRevision !== revision.value) {
+        emitLabEvent("change-rejected", {path: nextTarget.path, baseRevision, revision: revision.value});
+        return {status: "conflict", snapshot: documentSnapshot.value};
+    }
     content.value = next;
+    revision.value += 1;
     emitLabEvent("change", {path: nextTarget.path, chars: next.length});
+    return {status: "accepted", snapshot: documentSnapshot.value};
 }
 
 function onReady(handle: EditorViewHandle | null): void {
@@ -176,13 +191,19 @@ function runAction(action: EditorAction): void {
     emitLabEvent("run-action", action.id);
 }
 
+/** 外部正文更新走权威缓冲：修订推进，实例按最新快照回灌内核。 */
+function externalContent(next: string): void {
+    content.value = next;
+    revision.value += 1;
+}
+
 function externalUpdate(): void {
-    content.value = `${content.value}\n\n（外部更新：这段文字不经过视图输入，走内核 update。）`;
+    externalContent(`${content.value}\n\n（外部更新：这段文字不经过视图输入，走内核 update。）`);
     emitLabEvent("external-update", content.value.length);
 }
 
 function resetToBaseline(): void {
-    content.value = baseline.value;
+    externalContent(baseline.value);
     emitLabEvent("reset", baseline.value.length);
 }
 </script>
@@ -239,12 +260,13 @@ function resetToBaseline(): void {
                 :key="mountKey"
                 :document="documentSnapshot"
                 :visible="true"
+                :view-instance-id="viewInstanceId"
+                :commit-change="onCommitChange"
                 :editor-preferences="DEFAULT_MARKDOWN_EDITOR_PREFERENCES"
                 :show-frontmatter-panel="showFrontmatterPanel"
                 :resolve-reference="resolveReference"
                 :open-reference="(reference: string) => emitLabEvent('open-reference', reference)"
                 :enable-quick-triggers="false"
-                @change="onChange"
                 @save="(nextTarget: EditorDocumentTarget) => emitLabEvent('save', nextTarget.path)"
                 @focus="(nextTarget: EditorDocumentTarget, focused: boolean) => emitLabEvent('focus', {path: nextTarget.path, focused})"
                 @ready="onReady"

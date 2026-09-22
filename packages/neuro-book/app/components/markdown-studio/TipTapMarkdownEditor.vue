@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {EditorContent, useEditor} from "@tiptap/vue-3";
+import {PluginKey} from "@tiptap/pm/state";
 import {getTextBetween, getTextSerializersFromSchema, type Editor} from "@tiptap/core";
 import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
@@ -375,6 +376,32 @@ watch(skillTriggerActive, (active) => {
     }
 });
 
+/** prosemirror-history 的插件 key 不对外导出；同名 key 指向同一插件槽位，故按名字重建即可复用其 meta 通道。 */
+const historyPluginKey = new PluginKey("history");
+type HistoryBranchLike = {constructor: {empty: HistoryBranchLike}};
+type HistoryStateLike = {
+    done: HistoryBranchLike;
+    constructor: new (done: HistoryBranchLike, undone: HistoryBranchLike, prevRanges: null, prevTime: number, prevComposition: number) => unknown;
+};
+
+/**
+ * 重设富文本的撤销基线。
+ *
+ * 带 historyState 的事务会把历史状态整体换成这里给出的空栈。外部权威正文不是本视图的
+ * 用户输入：它既不能成为可撤销项，也不能让 Ctrl+Z 把同步前的旧历史重放到新正文上。
+ * 本视图自己的输入仍照常入栈，撤销只回溯各自最近一次外部同步之后的编辑。
+ */
+function resetHistoryBaseline(currentEditor: Editor): void {
+    const history = historyPluginKey.getState(currentEditor.state) as HistoryStateLike | undefined;
+    if (!history) {
+        return;
+    }
+    const empty = history.done.constructor.empty;
+    currentEditor.view.dispatch(currentEditor.state.tr.setMeta(historyPluginKey, {
+        historyState: new history.constructor(empty, empty, null, 0, -1),
+    }));
+}
+
 /**
  * 显式更新编辑器内容。
  */
@@ -390,11 +417,19 @@ function update(markdown: string): void {
     hasFrontmatter.value = split.hasFrontmatter;
     editorSnapshot.value = markdown;
     syncingFromOutside.value = true;
-    // 读时规范化宽容形态（快照仍存原始串：改写在用户下次编辑时才随防抖上报实化为 dirty）
-    editor.value?.commands.setContent(normalizeMarkdownDialectBlocks(split.body), {
-        contentType: "markdown",
-        emitUpdate: false,
-    });
+    const currentEditor = editor.value;
+    // 读时规范化宽容形态（快照仍存原始串：改写在用户下次编辑时才随防抖上报实化为 dirty）；
+    // addToHistory:false 让这次整篇替换不作为撤销项进入历史。
+    currentEditor?.chain()
+        .setMeta("addToHistory", false)
+        .setContent(normalizeMarkdownDialectBlocks(split.body), {
+            contentType: "markdown",
+            emitUpdate: false,
+        })
+        .run();
+    if (currentEditor) {
+        resetHistoryBaseline(currentEditor);
+    }
     nextTick(() => {
         refreshInlineAiReferenceHighlight();
     });

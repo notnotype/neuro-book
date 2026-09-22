@@ -2,7 +2,7 @@
 import {CollisionPriority} from "@dnd-kit/abstract";
 import {useDroppable} from "@dnd-kit/vue";
 import {useSortable} from "@dnd-kit/vue/sortable";
-import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/bubbles/base/AgentMarkdownContent.vue";
 import type {ProfileTemplateNodeDto, ProfileTemplateNodeType, ProfileTemplatePropValue} from "nbook/shared/dto/profile-template.dto";
 
 const props = defineProps<{
@@ -46,7 +46,6 @@ const {isDragging} = useSortable({
     element: elementRef,
     handle: handleRef,
     target: targetRef,
-    feedback: "default",
     transition: null,
     disabled: computed(() => props.node.type === "ProfilePrompt"),
 });

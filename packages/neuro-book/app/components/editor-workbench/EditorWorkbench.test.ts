@@ -3,8 +3,15 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {flushPromises, mount, type VueWrapper} from "@vue/test-utils";
 import {defineComponent, h, nextTick, ref, type Ref} from "vue";
 import type {MenubarMenuData} from "@notnotype/nb-ui/components";
+import {GridRenderer} from "@notnotype/nb-ui/layout";
+import type {GridBranchChange, GridGestureCommit} from "@notnotype/nb-ui/layout";
 import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
-import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
+import type {EditorGroupState, EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
+import {applyEditorGesture, createEditorGrid, splitEditorGroup} from "nbook/app/utils/editor-workbench/editor-groups";
+
+vi.hoisted(() => {
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+});
 
 /**
  * 编辑器工作区外壳的组合边界：受控 props 决定画什么，用户操作只往宿主发意图；
@@ -15,6 +22,26 @@ import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/
  */
 
 const mounted: VueWrapper[] = [];
+
+/** 布局夹具：与产品同源的树（公共助手搭出来），单组 / 左右两组 / 主区上下三组。 */
+function editorFixture(kind: "single" | "split" | "triple") {
+    const grid = createEditorGrid("main");
+    if (kind !== "single") {
+        expect(splitEditorGroup(grid, "main", "side", "right").ok).toBe(true);
+    }
+    if (kind === "triple") {
+        expect(splitEditorGroup(grid, "side", "bottom", "bottom").ok).toBe(true);
+    }
+    return {grid, tree: grid.root(), layout: grid.layout({width: 800, height: 600})};
+}
+
+/** 真实 Splitter 需要布局引擎；多组用例只验渲染与事件接线，用面板插槽桩替代。 */
+const SplitterStub = defineComponent({
+    name: "Splitter",
+    props: ["branchId", "direction", "panels", "sashSizes", "sizesPx", "disabled"],
+    emits: ["layout", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel"],
+    template: "<div><slot v-for='panel in panels' :name='`panel-${panel.id}`'/></div>",
+});
 
 // jsdom 不实现滚动；标签栏用它把活动标签滚入可见。
 Element.prototype.scrollIntoView = vi.fn();
@@ -41,6 +68,7 @@ afterEach(() => {
     vi.unstubAllGlobals();
 });
 
+
 function tab(path: string, overrides: Partial<Omit<EditorTabPresentation, "path">> = {}): EditorTabPresentation {
     return {path, title: path, pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text", ...overrides};
 }
@@ -65,6 +93,7 @@ function mountShell(options: {
     busy?: boolean;
     diagnosis?: string | null;
     deferClose?: boolean;
+    allowSplit?: boolean;
 } = {}): ShellState {
     const tabs = ref<EditorTabPresentation[]>(options.tabs ?? []);
     const activePath = ref(options.activePath ?? "");
@@ -85,16 +114,25 @@ function mountShell(options: {
         pendingClose = null;
         closeNow(path);
     }
+    const {tree, layout} = editorFixture("single");
     const wrapper = mount(defineComponent({
         name: "EditorWorkbenchHost",
         setup() {
-            return () => h(EditorWorkbench, {
+            const groups = (): EditorGroupState[] => [{
+                id: "main",
                 tabs: tabs.value,
                 activePath: activePath.value,
                 menus: options.menus ?? [],
                 busy: busy.value,
                 diagnosis: diagnosis.value,
-                onCloseTab: (path: string) => {
+            }];
+            return () => h(EditorWorkbench, {
+                groups: groups(),
+                tree,
+                layout,
+                activeGroupId: "main",
+                allowSplit: options.allowSplit ?? false,
+                onCloseTab: (_groupId: string, path: string) => {
                     if (options.deferClose === true) {
                         pendingClose = path;
                         return;
@@ -151,8 +189,9 @@ describe("EditorWorkbench 受控外壳", () => {
     });
 
     it("单根 section 承载外壳，外部 attrs 由它原样透传", () => {
+        const {tree, layout} = editorFixture("single");
         const wrapper = mount(EditorWorkbench, {
-            props: {tabs: [], activePath: ""},
+            props: {groups: [{id: "main", tabs: [], activePath: ""}], tree, layout, activeGroupId: "main"},
             attrs: {"data-shell": "editor"},
             attachTo: document.body,
         });
@@ -211,7 +250,7 @@ describe("EditorWorkbench 受控外壳", () => {
         await flushPromises();
         await nextTick();
 
-        expect(emitted("close-tab")).toEqual([["only.md"]]);
+        expect(emitted("close-tab")).toEqual([["main", "only.md"]]);
         expect(wrapper.find('[role="tabpanel"]').exists()).toBe(false);
         const welcome = wrapper.get("[data-welcome]").element;
         expect(document.activeElement).toBe(welcome);
@@ -230,7 +269,7 @@ describe("EditorWorkbench 受控外壳", () => {
 
         wrapper.get<HTMLButtonElement>(".editor-tab-close").element.click();
         await nextTick();
-        expect(emitted("close-tab")).toEqual([["only.md"]]);
+        expect(emitted("close-tab")).toEqual([["main", "only.md"]]);
         // 还没裁决：标签与正文都必须在位，空白页不能提前顶掉正文。
         expect(wrapper.find('[role="tabpanel"]').exists()).toBe(true);
         expect(wrapper.find("[data-welcome]").exists()).toBe(false);
@@ -258,7 +297,7 @@ describe("EditorWorkbench 受控外壳", () => {
         save.click();
         await flushPromises();
 
-        expect(emitted("select-menu")).toEqual([[{value: "save", label: "保存", shortcut: "Ctrl+S"}]]);
+        expect(emitted("select-menu")).toEqual([["main", {value: "save", label: "保存", shortcut: "Ctrl+S"}]]);
         // 外壳把命令原样交给宿主：没有替它关标签，也没有换活动标签。
         expect(emitted("close-tab")).toBeUndefined();
         expect(wrapper.get('[role="tab"][aria-selected="true"]').element.textContent?.trim()).toBe("a.md");
@@ -272,43 +311,122 @@ describe("EditorWorkbench 受控外壳", () => {
         expect(breadcrumbs.text()).toContain("note-01.md");
     });
 
-    it("拖拽 tab 到编辑区边缘显示分屏遮罩并在 drop 时发出 split-tab 事件", async () => {
-        const {wrapper, emitted} = mountShell({tabs: [tab("a.md")], activePath: "a.md"});
-        const content = wrapper.get('[role="tabpanel"]');
 
-        // 模拟 bounding rect
-        content.element.getBoundingClientRect = vi.fn().mockReturnValue({
-            left: 0,
-            top: 0,
-            width: 800,
-            height: 600,
-            right: 800,
-            bottom: 600,
-        });
-
-        // 拖到右侧边缘 (clientX = 700 / 800 = 87.5% > 75%)
-        const dragOverEvent = new MouseEvent("dragover", {clientX: 700, clientY: 300, bubbles: true}) as DragEvent;
-        Object.defineProperty(dragOverEvent, "dataTransfer", {
-            value: {dropEffect: "none", types: ["application/x-editor-tab"]},
-        });
-        content.element.dispatchEvent(dragOverEvent);
-        await nextTick();
-
-        const overlay = wrapper.find('[data-role="editor-split-overlay"]');
-        expect(overlay.exists()).toBe(true);
-        expect(overlay.text()).toContain("分屏打开到右侧");
-
-        // 模拟 drop
-        const dropEvent = new MouseEvent("drop", {clientX: 700, clientY: 300, bubbles: true}) as DragEvent;
-        Object.defineProperty(dropEvent, "dataTransfer", {
-            value: {
-                getData: (type: string) => (type === "application/x-editor-tab" ? "other.md" : ""),
+    it("分屏模式下两个组各自渲染标签栏与面包屑，选择标签带自己的组 id", async () => {
+        const {tree, layout} = editorFixture("split");
+        const wrapper = mount(EditorWorkbench, {
+            props: {
+                groups: [
+                    {id: "main", tabs: [tab("doc1.md")], activePath: "doc1.md"},
+                    {id: "side", tabs: [tab("doc2.md")], activePath: "doc2.md"},
+                ],
+                tree,
+                layout,
+                activeGroupId: "main",
             },
+            attachTo: document.body,
+            global: {stubs: {Splitter: SplitterStub}},
         });
-        content.element.dispatchEvent(dropEvent);
-        await nextTick();
+        mounted.push(wrapper);
 
-        expect(emitted("split-tab")).toEqual([["other.md", "right"]]);
-        expect(wrapper.find('[data-role="editor-split-overlay"]').exists()).toBe(false);
+        const tabBars = wrapper.findAllComponents({name: "EditorTabBar"});
+        expect(tabBars).toHaveLength(2);
+        expect(tabBars[0]!.text()).toContain("doc1.md");
+        expect(tabBars[1]!.text()).toContain("doc2.md");
+        expect(wrapper.findAllComponents({name: "EditorBreadcrumbs"})).toHaveLength(2);
+
+        // 同一个外壳事件协变：组 id 在前，宿主据此路由
+        await tabBars[1]!.find('[role="tab"]').trigger("click");
+        expect(wrapper.emitted("select-tab")).toEqual([["side", "doc2.md"]]);
+    });
+
+
+    it("二次分屏：三个组按树的顺序渲染，split-tab 带来源组 id", async () => {
+        const {tree, layout} = editorFixture("triple");
+        const wrapper = mount(EditorWorkbench, {
+            props: {
+                groups: [
+                    {id: "main", tabs: [tab("doc1.md")], activePath: "doc1.md"},
+                    {id: "side", tabs: [tab("doc2.md")], activePath: "doc2.md"},
+                    {id: "bottom", tabs: [tab("doc3.md")], activePath: "doc3.md"},
+                ],
+                tree,
+                layout,
+                activeGroupId: "side",
+            },
+            attachTo: document.body,
+            global: {stubs: {Splitter: SplitterStub}},
+        });
+        mounted.push(wrapper);
+
+        const groups = wrapper.findAllComponents({name: "EditorGroup"});
+        expect(groups.map((group) => group.props("group").id)).toEqual(["main", "side", "bottom"]);
+        // 分屏入口按能力开关，宿主关闭时组内不出现分屏项。
+        expect(groups.every((group) => group.props("allowSplit") === false)).toBe(true);
+
+        groups[2]!.vm.$emit("split-tab", {sourceGroupId: "bottom", targetGroupId: "bottom", path: "doc3.md", direction: "bottom", mode: "copy"});
+        await nextTick();
+        expect(wrapper.emitted("split-tab")).toEqual([[{
+            sourceGroupId: "bottom", targetGroupId: "bottom", path: "doc3.md", direction: "bottom", mode: "copy",
+        }]]);
     });
 });
+
+describe("EditorWorkbench 的分栏手势口径", () => {
+    it("一场手势一次落账：提交原样交给宿主接纳回调，结束事件只作观察", async () => {
+        const {grid, tree, layout} = editorFixture("triple");
+        /** 宿主侧接纳：整批变化一次落账，返回回收据就是渲染层用来决定回滚与否的那份。 */
+        const accept = vi.fn((commit: GridGestureCommit) => applyEditorGesture(grid, commit));
+        const wrapper = mount(EditorWorkbench, {
+            props: {
+                groups: [
+                    {id: "main", tabs: [tab("doc1.md")], activePath: "doc1.md"},
+                    {id: "side", tabs: [tab("doc2.md")], activePath: "doc2.md"},
+                    {id: "bottom", tabs: [tab("doc3.md")], activePath: "doc3.md"},
+                ],
+                tree,
+                layout,
+                activeGroupId: "main",
+                contextKey: "workspace:A",
+                revision: 7,
+                onGestureCommit: accept,
+            },
+            attachTo: document.body,
+            global: {stubs: {Splitter: SplitterStub}},
+        });
+        mounted.push(wrapper);
+
+        // 外部事实原样透传给渲染层：跨上下文的手势由渲染层作废，宿主不另存基线。
+        const renderer = wrapper.findComponent(GridRenderer);
+        expect(renderer.props("contextKey")).toBe("workspace:A");
+        expect(renderer.props("revision")).toBe(7);
+        const acceptViaShell = renderer.props("onGestureCommit") as unknown as (commit: GridGestureCommit) => {ok: true} | {ok: false; reason: string};
+        expect(acceptViaShell).toBeTypeOf("function");
+
+        const changes: GridBranchChange[] = [
+            {branchId: "branch-side", axis: "width", baseline: {main: 399.5, "branch-bottom": 399.5}, target: {main: 300, "branch-bottom": 499}, extent: {width: 800, height: 600}, active: ["main"], compensated: [], collapsed: {}},
+            {branchId: "branch-bottom", axis: "height", baseline: {side: 299.5, bottom: 299.5}, target: {side: 200, bottom: 399}, extent: {width: 399.5, height: 600}, active: ["side"], compensated: [], collapsed: {}},
+        ];
+        const commit: GridGestureCommit = {sessionId: "session-1", contextKey: "workspace:A", source: "pointer", revision: 7, extent: {width: 800, height: 600}, changes};
+
+        // 预览与结束事件都原样上抛（观察用），但事件路径不落账：一次提交不会既发事件又调回调。
+        renderer.vm.$emit("gesture-update", {layout, tree, changes, issues: []});
+        renderer.vm.$emit("gesture-end", commit);
+        await nextTick();
+        expect(wrapper.emitted("gesture-update")?.length).toBe(1);
+        expect(wrapper.emitted("gesture-end")).toEqual([[commit]]);
+        expect(accept).not.toHaveBeenCalled();
+
+        // 渲染层在会话结束时就地调用同一个回调：两根轴一起落账，只调用一次。
+        expect(acceptViaShell(commit)).toEqual({ok: true});
+        expect(accept).toHaveBeenCalledTimes(1);
+        expect(accept.mock.calls[0]?.[0]).toBe(commit);
+        const sizes = grid.layout({width: 800, height: 600}).sizes;
+        expect(sizes.main?.width).toBeCloseTo(300);
+        expect(sizes.side?.height).toBeCloseTo(200);
+        expect(sizes.bottom?.height).toBeCloseTo(399);
+    });
+});
+
+
+

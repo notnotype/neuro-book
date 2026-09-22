@@ -1,5 +1,6 @@
 ---
 标签: []
+别名: ["面板", "Panel"]
 ---
 
 # WorkbenchPanelSurface

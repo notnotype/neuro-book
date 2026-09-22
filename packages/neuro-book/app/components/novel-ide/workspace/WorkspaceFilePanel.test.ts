@@ -159,8 +159,23 @@ function storeMock() {
     return fake.store as {
         selectedFileNode: Ref<WorkspaceFileNode | null>;
         workspaceTree: Ref<WorkspaceFileNode[]>;
+        loadingWorkspaceTree: Ref<boolean>;
         openWorkspaceNode: ReturnType<typeof vi.fn>;
+        loadWorkspaceTree: ReturnType<typeof vi.fn>;
     };
+}
+
+/** 标题动作的句柄从 `action-handle-ready` 事件里取（宿主就是这么拿的）。 */
+function handleOf(wrapper: VueWrapper) {
+    const events = wrapper.emitted("action-handle-ready") ?? [];
+    const last = events.at(-1)?.[0] as {runAction: (actionId: string) => Promise<unknown>} | null | undefined;
+    return last ?? null;
+}
+
+/** 最后一次上报的动作状态。 */
+function statesOf(wrapper: VueWrapper) {
+    const events = wrapper.emitted("actions-change") ?? [];
+    return events.at(-1)?.[0] as readonly {id: string; enabled: boolean; reason?: string; busy?: boolean}[] | undefined;
 }
 
 function mountPanel() {
@@ -193,6 +208,9 @@ beforeEach(() => {
     storeMock().selectedFileNode.value = null;
     storeMock().workspaceTree.value = [manuscriptFile, lorebookCharacter, lorebookLocation];
     storeMock().openWorkspaceNode.mockClear();
+    storeMock().loadingWorkspaceTree.value = false;
+    storeMock().loadWorkspaceTree.mockClear();
+    storeMock().loadWorkspaceTree.mockImplementation(async () => []);
     setItemSpy = vi.spyOn(Storage.prototype, "setItem");
     getItemSpy = vi.spyOn(Storage.prototype, "getItem");
 });
@@ -311,5 +329,58 @@ describe("WorkspaceFilePanel", () => {
     it("没有诊断时不显示记录提示条", () => {
         const wrapper = mountPanel();
         expect(wrapper.find("[data-file-panel-record-notice]").exists()).toBe(false);
+    });
+
+    it("标题动作：句柄走的是原加载入口，成功后返回结构化结果", async () => {
+        const wrapper = mountPanel();
+        const handle = handleOf(wrapper);
+        expect(handle).not.toBeNull();
+
+        const result = await handle!.runAction("refresh");
+
+        expect(storeMock().loadWorkspaceTree).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ok: true, value: null});
+    });
+
+    it("标题动作状态：加载中就是 busy 且禁用，说明原因", async () => {
+        const wrapper = mountPanel();
+        storeMock().loadingWorkspaceTree.value = true;
+        await nextTick();
+
+        expect(statesOf(wrapper)).toEqual([{id: "refresh", enabled: false, reason: "文件树正在加载", busy: true}]);
+
+        const result = await handleOf(wrapper)!.runAction("refresh");
+        expect(result).toEqual({ok: false, code: "unavailable", reason: "文件树正在加载"});
+        expect(storeMock().loadWorkspaceTree).not.toHaveBeenCalled();
+    });
+
+    it("标题动作：未登记的 actionId 与加载失败都返回结构化失败", async () => {
+        const wrapper = mountPanel();
+        const handle = handleOf(wrapper)!;
+
+        expect(await handle.runAction("nope")).toMatchObject({ok: false, code: "unknown-command"});
+
+        storeMock().loadWorkspaceTree.mockImplementation(async () => {
+            throw new Error("工作区暂时不可达");
+        });
+        const failed = await handle.runAction("refresh");
+        expect(failed).toEqual({ok: false, code: "execution-error", reason: "工作区暂时不可达"});
+    });
+
+    it("内容头不再有第二个刷新入口（刷新只剩标题动作这一条路径）", () => {
+        const wrapper = mountPanel();
+
+        expect(wrapper.find(".i-lucide-refresh-cw").exists()).toBe(false);
+        expect(wrapper.find("input[type=\"text\"]").exists()).toBe(true);
+    });
+
+    it("实例卸载时交回句柄（null），宿主不会继续拿着旧句柄", () => {
+        const wrapper = mountPanel();
+        expect(handleOf(wrapper)).not.toBeNull();
+
+        wrapper.unmount();
+
+        const events = wrapper.emitted("action-handle-ready") ?? [];
+        expect(events.at(-1)?.[0]).toBeNull();
     });
 });

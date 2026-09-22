@@ -1,7 +1,7 @@
 import {createPinia, defineStore, setActivePinia} from "pinia";
 import {createPersistedState} from "pinia-plugin-persistedstate";
 import {computed, createApp, nextTick, ref, watch} from "vue";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
     LEGACY_BUCKET_KEY,
     installLegacyBucketWriterPolicy,
@@ -17,6 +17,10 @@ import {
  * 但**保留侧仍在服役**：原件未安全保留（暂存失败、data 备份未落盘）时，序列化器继续替旧 writer
  * 补齐这三个键，否则其它字段的整键重写会把只存在于旧桶里的源值抹掉。退役（解除 serializer 与门禁）
  * 由启动接线在原件已暂存且 data 备份落盘之后触发，不在模块求值时发生。
+ *
+ * `activeLeftTab`（旧的活动左侧页签）是**第三种**情形：它既不在三个源字段里，也没有运行期状态——
+ * store 不暴露它、`pick` 不写它、没有任何"新记录 → 旧可写 ref"的镜像。序列化器只把原件里的原值
+ * 原样合成回桶里（原件没有这个键就不制造），所以它保留的是**原件**，运行时没有任何选择权威。
  *
  * 这里用**真实**的 `pinia-plugin-persistedstate` 与**真实**的 store 定义：水合与写回订阅都发生在
  * store 首次实例化时，时序本身就是要验证的边界。
@@ -59,12 +63,14 @@ function fakeLocalStorage(): FakeWebStorage {
     };
 }
 
-/** 迁移前的旧桶：三个源字段与未迁字段混在一起。 */
+/** 迁移前的旧桶：三个源字段、退役的活动页签与未迁字段混在一起。 */
 const BUCKET = JSON.stringify({
     leftPanelWidth: 427,
     agentPanelWidth: 488,
     projectPickerLayoutMode: "compact",
     activeLeftTab: "outline",
+    // 未迁的已选字段与一个没人认识的键：水合只看 `pick`，未知键不参与。
+    agentSessionPanelWidth: 300,
     viewMode: "content",
 });
 
@@ -110,6 +116,11 @@ async function flushPersist(): Promise<void> {
     await nextTick();
 }
 
+/** 触发一次整键写回的运行期改动：挑一个仍在 `pick` 里的字段（不是本迁移的三个源字段）。 */
+function touchPickedField(store: StoreSurface): void {
+    store.agentSessionPanelOpen = false;
+}
+
 function lastWrittenBucket(storage: FakeWebStorage): Record<string, unknown> {
     const raw = storage.writes.at(-1);
     if (raw === undefined) throw new Error("旧 writer 没有写回");
@@ -127,7 +138,7 @@ afterEach(() => {
 });
 
 describe("旧 novel.ide.local writer 的退役", () => {
-    it("store 不再暴露三个已退役字段，未迁字段照旧水合", async () => {
+    it("store 不再暴露三个已退役字段与旧活动页签，未迁字段照旧水合", async () => {
         const storage = fakeLocalStorage();
         storage.setItem(LEGACY_BUCKET_KEY, BUCKET);
         installLocalStorage(storage);
@@ -137,10 +148,13 @@ describe("旧 novel.ide.local writer 的退役", () => {
         for (const field of RETIRED_FIELDS) {
             expect(Object.hasOwn(store, field)).toBe(false);
         }
-        expect(store.activeLeftTab).toBe("outline");
+        // 旧活动页签既不水合成状态，也没有替代它的可写字段：工具上下文是另一个（非持久的）状态。
+        expect(Object.hasOwn(store, "activeLeftTab")).toBe(false);
+        expect(store.activeToolView).toBeNull();
+        expect(store.agentSessionPanelWidth).toBe(300);
     });
 
-    it("门禁为 pinned（原件已暂存、备份未落盘）时，未迁字段的写回仍保留三个源字段", async () => {
+    it("门禁为 pinned 时，未迁字段的写回仍保留三个源字段与退役页签的原值", async () => {
         const storage = fakeLocalStorage();
         storage.setItem(LEGACY_BUCKET_KEY, BUCKET);
         storage.clearWrites();
@@ -153,15 +167,61 @@ describe("旧 novel.ide.local writer 的退役", () => {
         const store = await instantiateStore();
         expect(storage.writes).toHaveLength(0);
 
-        store.activeLeftTab = "search";
+        touchPickedField(store);
         await flushPersist();
 
-        // 运行期值不再写旧桶（pick 已移除），但原件里的三个值必须原样保留：此刻它们只存在于这里。
+        // 运行期自己的字段照写，捕获取值照补；退役页签是**原件**里的那一个，不是任何运行期值。
         const written = lastWrittenBucket(storage);
-        expect(written.activeLeftTab).toBe("search");
+        expect(written.agentSessionPanelOpen).toBe(false);
+        expect(written.activeLeftTab).toBe("outline");
         expect(written.leftPanelWidth).toBe(427);
         expect(written.agentPanelWidth).toBe(488);
         expect(written.projectPickerLayoutMode).toBe("compact");
+    });
+
+    it("退役页签不再是选择权威：运行期的工具焦点写不进旧桶", async () => {
+        const storage = fakeLocalStorage();
+        storage.setItem(LEGACY_BUCKET_KEY, BUCKET);
+        storage.clearWrites();
+        installLocalStorage(storage);
+
+        const store = await instantiateStore();
+        store.activeToolView = {partId: "left", viewId: "nbook.files"};
+        touchPickedField(store);
+        await flushPersist();
+
+        const written = lastWrittenBucket(storage);
+        expect(written.activeLeftTab).toBe("outline");
+        expect(JSON.stringify(written)).not.toContain("nbook.files");
+    });
+
+    it("原件里的未知页签值也原样保留，不改成缺省值", async () => {
+        const storage = fakeLocalStorage();
+        storage.setItem(LEGACY_BUCKET_KEY, JSON.stringify({activeLeftTab: "rag", viewMode: "content"}));
+        storage.clearWrites();
+        installLocalStorage(storage);
+
+        const store = await instantiateStore();
+        touchPickedField(store);
+        await flushPersist();
+
+        expect(lastWrittenBucket(storage).activeLeftTab).toBe("rag");
+    });
+
+    it("原件里没有退役页签时不制造这个键", async () => {
+        const storage = fakeLocalStorage();
+        storage.setItem(LEGACY_BUCKET_KEY, JSON.stringify({leftPanelWidth: 427, viewMode: "content"}));
+        storage.clearWrites();
+        installLocalStorage(storage);
+        installLegacyBucketWriterPolicy({mode: "pinned", fields: {leftPanelWidth: 427}});
+
+        const store = await instantiateStore();
+        touchPickedField(store);
+        await flushPersist();
+
+        const written = lastWrittenBucket(storage);
+        expect(Object.hasOwn(written, "activeLeftTab")).toBe(false);
+        expect(written.leftPanelWidth).toBe(427);
     });
 
     it("门禁为 locked（原件暂存失败）时整桶冻结：其它字段也不写回，旧值仍在", async () => {
@@ -172,11 +232,13 @@ describe("旧 novel.ide.local writer 的退役", () => {
         installLegacyBucketWriterPolicy({mode: "locked", reason: "浏览器暂存失败"});
 
         const store = await instantiateStore();
-        store.activeLeftTab = "search";
+        touchPickedField(store);
         await flushPersist();
 
         expect(storage.writes).toHaveLength(0);
-        expect(JSON.parse(storage.raw() ?? "{}").leftPanelWidth).toBe(427);
+        const raw = JSON.parse(storage.raw() ?? "{}") as Record<string, unknown>;
+        expect(raw.leftPanelWidth).toBe(427);
+        expect(raw.activeLeftTab).toBe("outline");
     });
 
     it("门禁退役后（原件已安全保留），写回不再含三个已退役字段", async () => {
@@ -187,11 +249,13 @@ describe("旧 novel.ide.local writer 的退役", () => {
 
         const store = await instantiateStore();
         retireLegacyBucketWriterPolicy();
-        store.activeLeftTab = "search";
+        touchPickedField(store);
         await flushPersist();
 
         const written = lastWrittenBucket(storage);
-        expect(written.activeLeftTab).toBe("search");
+        expect(written.agentSessionPanelOpen).toBe(false);
+        // 退役页签仍按原件保留：它没有决定过处置方式，任何一次整键重写都不许顺手删掉。
+        expect(written.activeLeftTab).toBe("outline");
         for (const field of RETIRED_FIELDS) {
             expect(Object.hasOwn(written, field)).toBe(false);
         }
@@ -202,7 +266,7 @@ describe("旧 novel.ide.local writer 的退役", () => {
         installLegacyBucketWriterPolicy({mode: "pinned", fields: {leftPanelWidth: 427}});
 
         const store = await instantiateStore();
-        store.activeLeftTab = "search";
+        touchPickedField(store);
 
         // 暂停（原件未暂存成功 / 备份未落盘）时门禁保持不变，保留侧继续生效。
         expect(legacyBucketWriterPolicy()).toEqual({mode: "pinned", fields: {leftPanelWidth: 427}});

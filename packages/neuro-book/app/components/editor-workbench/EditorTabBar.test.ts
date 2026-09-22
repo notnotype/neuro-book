@@ -5,6 +5,10 @@ import {nextTick} from "vue";
 import EditorTabBar from "nbook/app/components/editor-workbench/EditorTabBar.vue";
 import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
 
+vi.hoisted(() => {
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+});
+
 /**
  * 标签栏的交互边界：受控展示（只发意图、不自行摘标签）、roving 焦点与手动激活、
  * 固定/普通分组，以及 Shift+F10 右键菜单这条不依赖拖拽的键盘路径。
@@ -145,6 +149,22 @@ describe("EditorTabBar 漫游焦点与手动激活", () => {
         await nextTick();
         expect(scrollIntoView.mock.contexts).toContain(tabButton(wrapper, "page.html"));
     });
+    it("多行上下键按实际行寻找同列邻项，切回单行后不抢上下键", async () => {
+        const wrapper = mountBar([tab("a"), tab("b"), tab("c"), tab("d")], "b");
+        await wrapper.setProps({wrap: true});
+        for (const [path, x, y, height] of [["a", 0, 5, 26], ["b", 110, 4, 28], ["c", 0, 40, 28], ["d", 110, 41, 26]] as const) {
+            vi.spyOn(tabButton(wrapper, path), "getBoundingClientRect").mockReturnValue(new DOMRect(x, y, 100, height));
+        }
+        tabButton(wrapper, "b").focus();
+        await pressKey(tabButton(wrapper, "b"), "ArrowDown");
+        expect(document.activeElement).toBe(tabButton(wrapper, "d"));
+        await pressKey(tabButton(wrapper, "d"), "ArrowUp");
+        expect(document.activeElement).toBe(tabButton(wrapper, "b"));
+        expect(wrapper.emitted("select-tab")).toBeUndefined();
+        await wrapper.setProps({wrap: false});
+        await pressKey(tabButton(wrapper, "b"), "ArrowDown");
+        expect(document.activeElement).toBe(tabButton(wrapper, "b"));
+    });
 });
 
 describe("EditorTabBar 关闭与固定", () => {
@@ -252,6 +272,22 @@ describe("EditorTabBar 关闭与固定", () => {
         expect(wrapper.find('[role="tablist"][aria-label="editorWorkbench.pinnedTabs"]').exists()).toBe(false);
     });
 
+    it("图钉取消固定不选中或关闭标签，宿主接受后焦点随标签进入普通区", async () => {
+        const wrapper = mountBar([tab("p.md", {pinned: true}), tab("r.md")], "r.md");
+        const pin = wrapper.get<HTMLButtonElement>('[aria-label="editorWorkbench.unpin p.md"]');
+        pin.element.focus();
+        await pin.trigger("click");
+        expect(wrapper.emitted("set-pin")).toEqual([["p.md", false]]);
+        expect(wrapper.emitted("select-tab")).toBeUndefined();
+        expect(wrapper.emitted("close-tab")).toBeUndefined();
+        expect(rowPaths(wrapper.get('.editor-pinned-tabs').element)).toEqual(["p.md"]);
+        await wrapper.setProps({tabs: [tab("p.md"), tab("r.md")]});
+        await nextTick();
+        expect(wrapper.find('.editor-pinned-tabs').exists()).toBe(false);
+        expect(rowPaths(wrapper.get('.editor-regular-tabs').element)).toEqual(["p.md", "r.md"]);
+        expect(document.activeElement).toBe(tabButton(wrapper, "p.md"));
+    });
+
     it("Shift+F10 展开标签菜单，Escape 关闭并把焦点还给触发标签", async () => {
         const wrapper = mountBar([tab("a.md"), tab("b.md")], "b.md");
 
@@ -284,16 +320,24 @@ describe("EditorTabBar 关闭与固定", () => {
 
     it("鼠标滚轮在溢出的标签栏滚动时转化为横向 scrollLeft", async () => {
         const wrapper = mountBar([tab("a.md"), tab("b.md"), tab("c.md")], "a.md");
+        await wrapper.setProps({wrap: false});
         const regularTablist = wrapper.get<HTMLDivElement>(".editor-regular-tabs").element;
+        const scrollRow = regularTablist.parentElement!;
 
-        Object.defineProperty(regularTablist, "scrollWidth", {value: 1000, configurable: true});
-        Object.defineProperty(regularTablist, "clientWidth", {value: 300, configurable: true});
-        regularTablist.scrollLeft = 0;
+        Object.defineProperty(scrollRow, "scrollWidth", {value: 1000, configurable: true});
+        Object.defineProperty(scrollRow, "clientWidth", {value: 300, configurable: true});
 
         const wheelEvent = new WheelEvent("wheel", {deltaY: 100, bubbles: true, cancelable: true});
         regularTablist.dispatchEvent(wheelEvent);
         await nextTick();
 
-        expect(regularTablist.scrollLeft).toBe(100);
+        expect(scrollRow.scrollLeft).toBe(100);
+        expect(wheelEvent.defaultPrevented).toBe(true);
+        await wrapper.setProps({wrap: true});
+        const verticalWheel = new WheelEvent("wheel", {deltaY: 100, bubbles: true, cancelable: true});
+        regularTablist.dispatchEvent(verticalWheel);
+        expect(scrollRow.scrollLeft).toBe(100);
+        expect(verticalWheel.defaultPrevented).toBe(false);
     });
 });
+

@@ -1,7 +1,6 @@
 export {default as AgentComposer} from "./AgentComposer.vue";
 export {default as AgentComposerInput} from "./AgentComposerInput.vue";
 export {default as AgentComposerToolbar} from "./AgentComposerToolbar.vue";
-export {default as AgentComposerStatusBar} from "./AgentComposerStatusBar.vue";
 export {default as AgentComposerImageBar} from "./AgentComposerImageBar.vue";
 export {default as AgentComposerAvailabilityBanner} from "./AgentComposerAvailabilityBanner.vue";
 export {default as AgentQueuedMessageList} from "./AgentQueuedMessageList.vue";

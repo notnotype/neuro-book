@@ -29,6 +29,7 @@ describe("useLabPreferences", () => {
             themeId: "macos",
             colorwayId: "nbook-light",
             canvasZoom: 2,
+            activeInspectTab: "commands",
         }));
         const state = createState();
         const preferences = useLabPreferences({
@@ -44,9 +45,11 @@ describe("useLabPreferences", () => {
         expect(state.themeId.value).toBe("macos");
         expect(state.colorwayId.value).toBe("nbook-light");
         expect(state.canvasZoom.value).toBe("2");
+        expect(state.activeInspectTab.value).toBe("commands");
         expect(JSON.parse(storage.getItem(LAB_PREFERENCES_STORAGE_KEY) ?? "{}")).toMatchObject({
             themeId: "macos",
             colorwayId: "nbook-light",
+            activeInspectTab: "commands",
         });
     });
 
@@ -119,6 +122,7 @@ function createState() {
         preferredRightCollapsed: ref(false),
         leftPanelWidth: ref(300),
         rightPanelWidth: ref(380),
+        activeInspectTab: ref("doc"),
     };
 }
 

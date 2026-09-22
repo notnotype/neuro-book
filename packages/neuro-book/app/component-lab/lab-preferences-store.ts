@@ -77,7 +77,7 @@ export function loadLabPreferences(storage: Storage, catalog: LabPreferenceCatal
         if (typeof parsed.selectedSceneId === "string" && /^[a-zA-Z0-9_.-]+$/.test(parsed.selectedSceneId) && parsed.selectedSceneId.length <= 100) {
             preferences.selectedSceneId = parsed.selectedSceneId;
         }
-        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element"].includes(parsed.activeInspectTab)) {
+        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element", "commands"].includes(parsed.activeInspectTab)) {
             preferences.activeInspectTab = parsed.activeInspectTab;
         }
         return preferences;

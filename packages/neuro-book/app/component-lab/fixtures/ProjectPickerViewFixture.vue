@@ -252,7 +252,6 @@ function handleRetryLoad(): void {
 <template>
     <div
         class="h-full w-full overflow-hidden"
-        :class="currentScene === 'phone' ? 'max-w-[390px] mx-auto border-x border-[var(--border-color)]' : ''"
         data-lab-subject
     >
         <ProjectPickerView

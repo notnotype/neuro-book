@@ -38,24 +38,20 @@ describe("Workbench Chrome", () => {
         })).toBe("compact");
     });
 
-    it("keeps the desktop activity bar focused on project tools and moves global navigation into the title bar", () => {
+    it("非容器命令按 Project / user-assets 门禁分组：上部容器由调用方给，这里只答工具与底部入口", () => {
         const bookshelf = createWorkbenchActivityItems({
             desktopAvailable: true,
             surfaceActive: false,
             userAssetsMode: false,
         });
 
-        expect(bookshelf.primary.map((item) => [item.id, item.disabled])).toEqual([
-            ["files", true],
-            ["characters", true],
+        // 没有 Project：工具组里的视图命令全部禁用，home 归标题栏（桌面宿主不重复画一个书架入口）。
+        expect(bookshelf.tools.map((item) => [item.id, item.disabled])).toEqual([
             ["plot", true],
             ["world", true],
-        ]);
-        expect(bookshelf.secondary.map((item) => [item.id, item.disabled])).toEqual([
             ["trace", true],
             ["history", true],
         ]);
-        expect(bookshelf.agentPanel).toBeNull();
         expect(bookshelf.footer.map((item) => item.id)).toEqual(["account", "settings"]);
 
         const browserWorkspace = createWorkbenchActivityItems({
@@ -63,14 +59,21 @@ describe("Workbench Chrome", () => {
             surfaceActive: true,
             userAssetsMode: false,
         });
-        expect(browserWorkspace.primary[0]).toEqual({
-            id: "home",
-            disabled: false,
+        expect(browserWorkspace.tools[0]).toEqual({id: "home", disabled: false});
+        expect(browserWorkspace.tools.every((item) => item.disabled === false)).toBe(true);
+
+        // 用户资产工作面：只有 novel-only 的三条禁用，trace（按 Project 判）仍可用。
+        const userAssets = createWorkbenchActivityItems({
+            desktopAvailable: true,
+            surfaceActive: true,
+            userAssetsMode: true,
         });
-        expect(browserWorkspace.agentPanel).toEqual({
-            id: "agent-panel",
-            disabled: false,
-        });
+        expect(userAssets.tools.map((item) => [item.id, item.disabled])).toEqual([
+            ["plot", true],
+            ["world", true],
+            ["trace", false],
+            ["history", true],
+        ]);
     });
 
     it("折叠次要入口时为 More 保留完整按钮位", () => {
@@ -78,7 +81,7 @@ describe("Workbench Chrome", () => {
             desktopAvailable: true,
             surfaceActive: true,
             userAssetsMode: false,
-        }).secondary;
+        }).tools;
 
         expect(resolveActivityBarSecondaryItems(items, {
             availableHeight: 176,

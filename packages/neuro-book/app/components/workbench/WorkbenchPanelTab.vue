@@ -110,7 +110,7 @@ function onClose(e: MouseEvent): void {
     white-space: nowrap;
     background: transparent;
     border: none;
-    border-bottom: 2px solid transparent;
+
     cursor: pointer;
     user-select: none;
     transition:
@@ -132,7 +132,7 @@ function onClose(e: MouseEvent): void {
 .workbench-panel-tab--active {
     color: var(--text-main);
     font-weight: var(--weight-strong);
-    border-bottom-color: var(--accent-main);
+
 }
 
 .workbench-panel-tab--disabled {

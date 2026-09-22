@@ -6,10 +6,11 @@
  * 不在调用方各写一份 `find` / 字面量。
  *
  * 呈现求值（`resolveViewPresentation`）是**位置 + 可见性 + 动作可用性**的统一出口：
- * 容器与视图的位置都来自 `view-placements.ts`（覆盖 + 默认回落），可见性来自 descriptor 的 `when`，
- * 动作可用性来自 `requiredAuthority`。宿主拿 `part(partId)` 的切片渲染——一个 Part 的容器清单、
- * 每个容器里的可见 / 不可见视图、活动容器与两份落点清单（View 落点、容器落点）都在里面，
- * 不需要再碰注册表或位置记录，也不各自建一份位置会话（会话归页面，见 `view-placements-session.ts`）。
+ * 容器与视图的位置都来自 `view-placements.ts`（覆盖 + 默认回落，含记录里的自建容器），可见性来自
+ * descriptor 的 `when`，动作可用性来自 `requiredAuthority`。宿主拿 `part(partId)` 的切片渲染——
+ * 一个 Part 的容器清单、每个容器里的可见 / 不可见视图、活动容器、当前轴的尺寸意图与两份落点清单
+ * （View 落点、容器落点）都在里面，不需要再碰注册表或位置记录，也不各自建一份位置会话
+ * （会话归页面，见 `view-placements-session.ts`）。
  */
 
 import {
@@ -33,6 +34,7 @@ import {
 import {
     containerOrientation,
     viewContainerModeOf,
+    viewSizeIntentOf,
     type ViewContainerMode,
 } from "nbook/app/utils/workbench/view-container-layout";
 import type {GridOrientation} from "@notnotype/nb-ui/layout";
@@ -42,6 +44,7 @@ import {
     containersOfPart,
     isToolPartId,
     placementCatalogOf,
+    placementCatalogWithContainers,
     readContainerPlacements,
     readEffectiveContainerPlacements,
     readViewPlacements,
@@ -55,6 +58,7 @@ import {
 } from "nbook/app/utils/workbench/view-placements";
 import type {
     ContainerPlacementRecord,
+    WorkbenchViewCustomizationsRecord,
     WorkbenchViewPlacementRecord,
 } from "nbook/shared/storage/workbench-views";
 
@@ -162,13 +166,19 @@ export type ContainerViewPresentation = {
     readonly mode: ViewContainerMode;
     /** `single` 时动作上提到容器右上角的那个 View；`empty` / `multiple` 是 `null`。 */
     readonly singleViewId: string | null;
-    /**
-     * 全部已登记生效成员的完整顺序快照（含 hidden 与 collapsed）：拖动源与合并请求用它，
-     * 不要用 `views` + `hidden` 现场拼一份出来。
-     */
+    /** 全部已登记生效成员的完整顺序快照（含 hidden 与 collapsed）：拖动源与合并请求用它，
+     * 不要用 `views` + `hidden` 现场拼一份出来。实际成员数为 0 的容器不进导航，但切片本身照旧可查。 */
     readonly memberViewIds: readonly string[];
     /** 该容器里可见的视图，已按 (order, id) 排好。 */
     readonly views: readonly WorkbenchViewEntry[];
+    /**
+     * 可见成员在**当前轴**上的展开尺寸意图（CSS px），键是 viewId。
+     *
+     * 与建树用的是同一把尺子（记录里那一轴优先、缺省 `240 * weight`，再夹进该轴的有效范围）：
+     * 落点在**量不出几何**时按它取来源/目标的相对份额（停车的容器没有可测矩形，但仍可并入）。
+     * 只含可见成员；隐藏成员没有当前几何，也不写尺寸。
+     */
+    readonly sizeIntents: Readonly<Record<string, number>>;
     /** 不可见视图（含原因；有可见视图时不占内容区，无可见视图时作为空态说明）。 */
     readonly hidden: readonly WorkbenchViewEntry[];
     readonly moveTargets: readonly ViewMoveTarget[];
@@ -183,7 +193,8 @@ export type PartContainerPresentation = {
     /**
      * 这个 Part 里的容器，按 (order, id) 排好。
      *
-     * 每个 Part 只显示一个活动容器；**不**自动删除容器，也没有可接收容器的空态落点之外的语义。
+     * 实际成员数为 0 的容器不在这里（它的入口已经被移除；静态容器只退出呈现，定义与记录原件保留）。
+     * 每个 Part 只显示一个活动容器；**不**自动删除容器。
      */
     readonly containers: readonly ContainerViewPresentation[];
     /**
@@ -207,6 +218,15 @@ export type ViewPresentationOptions = {
     readonly suppressedContainers?: Readonly<Record<string, boolean>>;
     /** 每个 Part 的活动容器（同一记录的 `activeContainerByPart`）。 */
     readonly activeContainerByPart?: Readonly<Record<string, string>>;
+    /**
+     * 拖放里自建的容器（同一记录的 `customContainers`）：缺省即"没有自建容器"。
+     *
+     * 它们没有 descriptor，事实就在这条记录里；呈现与静态容器同一口径（成员归零同样退出导航），
+     * 标题/图标在容器里没有可见成员时按 `originViewId` 的那个 View 回落。
+     */
+    readonly customContainers?: WorkbenchViewCustomizationsRecord["customContainers"];
+    /** View 的尺寸意图（同一记录的 `viewSizes`）：落点在几何量不出时按 `sizeIntents` 取来源份额。 */
+    readonly viewSizes?: WorkbenchViewCustomizationsRecord["viewSizes"];
 
     /** 标题解析（i18n 归页面）；缺省用 `titleKey`（Lab 与测试可以另给一份）。 */
     readonly titleOf?: (descriptor: {readonly titleKey: string}) => string;
@@ -217,12 +237,18 @@ export type ViewPresentationOptions = {
 export type WorkbenchViewPresentation = {
     readonly entries: readonly WorkbenchViewEntry[];
     readonly issues: readonly string[];
-    /** 指定容器的切片；未登记或被抑制的容器没有呈现，返回 `null`（调用方必须显式处理）。 */
+    /**
+     * 指定容器的切片；未登记、不是自建容器、或被抑制的容器没有呈现，返回 `null`（调用方必须显式处理）。
+     *
+     * 实际成员数为 0 的容器**仍**返回切片（定义还活着、记录原件还在），只是不进导航与 resident——
+     * 它是"查得到但没入口"，不是"不存在"。
+     */
     container(containerId: string): ContainerViewPresentation | null;
     /**
-     * 全部**已登记且可落位**容器的切片，包含当前被抑制（不进导航）的那些。
+     * 全部**已登记且可落位、且还有成员**的容器切片。
      *
-     * 实例层按它泊车与挂载：导航过滤只决定「能不能选到」，绝不驱动实例销毁。
+     * 实例层按它泊车与挂载：导航过滤只决定「能不能选到」，绝不驱动实例销毁。实际成员数为 0 的容器
+     * （含被合并掉的那些）没有视图实例要泊车，因此不在这里。
      */
     readonly residentContainers: readonly ContainerViewPresentation[];
     /** 指定 Part 的切片；未登记的 Part 返回只有诊断的空切片（宿主照画，不静默空白）。 */
@@ -240,7 +266,8 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
     const {registry, context} = options;
     const titleOf = options.titleOf ?? ((descriptor: {readonly titleKey: string}) => descriptor.titleKey);
     const partTitleOf = options.partTitleOf ?? ((partId: ToolPartId) => partId);
-    const catalog = placementCatalogOf(registry);
+    // 自建容器没有 descriptor，它的事实与静态目录合成一次：位置读取、落点清单与抑制求值都用同一份。
+    const catalog = placementCatalogWithContainers(placementCatalogOf(registry), options.customContainers);
     const reading = readViewPlacements(catalog, options.overrides);
     const allContainers = readContainerPlacements(catalog, options.containerOverrides);
     const effectiveContainers = readEffectiveContainerPlacements(catalog, {
@@ -249,6 +276,9 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
         suppressedContainers: options.suppressedContainers,
     });
     const containersById = new Map(registry.containers().map((container) => [container.id, container] as const));
+    const viewsById = new Map(registry.views().map((view) => [view.id, view] as const));
+    const customContainers = options.customContainers ?? {};
+    const viewSizes = options.viewSizes ?? {};
 
     const placementByView: Record<string, EffectiveViewPlacement> = {};
     for (const placement of reading.placements) {
@@ -295,10 +325,20 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
         });
     }
 
-    /** View 落点：其它当前参与呈现的容器（不含自己）。 */
+    /**
+     * View 落点：其它当前参与呈现的容器（不含自己）。
+     *
+     * 实际成员数为 0 的容器**仍然**在清单里：入口没了，但"把 View 搬回去让它重新出现"这条路要留着。
+     * 标题按与切片同一口径回落（静态容器用 descriptor，自建容器用创建它的那个 View）。
+     */
     const viewTargetsOf = (selfId: string): ViewMoveTarget[] => effectiveContainers.placements
         .filter((placement) => placement.containerId !== selfId)
-        .map((placement) => ({containerId: placement.containerId, title: titleOf(containersById.get(placement.containerId)!)}));
+        .map((placement) => ({
+            containerId: placement.containerId,
+            title: titleOf(containersById.get(placement.containerId)
+                ?? viewsById.get(customContainers[placement.containerId]?.originViewId ?? "")
+                ?? {titleKey: placement.containerId}),
+        }));
 
     /** 容器落点：位置字面量，不是某个容器（容器移动换的是整个容器的落位）。 */
     const containerTargetsOf = (selfLocation: ToolPartLocation): ContainerMoveTarget[] => TOOL_PART_LOCATIONS
@@ -308,7 +348,9 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
     const sliceOf = (containerId: string, source: ContainerPlacementReading): ContainerViewPresentation | null => {
         const placement = source.placements.find((entry) => entry.containerId === containerId);
         const descriptor = containersById.get(containerId);
-        if (placement === undefined || descriptor === undefined) {
+        const custom = customContainers[containerId];
+        // 既没有 descriptor 也不是记录里的自建容器：不是本层认识的容器（调用方必须显式处理）。
+        if (placement === undefined || (descriptor === undefined && custom === undefined)) {
             return null;
         }
         const partId = toolPartOfLocation(placement.location);
@@ -319,19 +361,32 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
         const visible = own.filter((entry) => entry.visible);
         const mode = viewContainerModeOf(visible.length);
         const leader = visible[0];
+        // 没有可见成员时的回落：静态容器用自己的 descriptor；自建容器没有 descriptor，
+        // 按创建它的那个 View 回落（成员还没回来时也认得出来它是谁）。
+        const fallback = descriptor ?? viewsById.get(custom?.originViewId ?? "");
+        const sizeIntents: Record<string, number> = {};
+        const collapsedViewIds: string[] = [];
+        for (const entry of visible) {
+            sizeIntents[entry.view.id] = viewSizeIntentOf({view: entry.view, size: viewSizes[entry.view.id]}, partId);
+            if (viewSizes[entry.view.id]?.collapsed === true) {
+                collapsedViewIds.push(entry.view.id);
+            }
+        }
         return {
             containerId,
-            title: leader === undefined ? titleOf(descriptor) : titleOf(leader.view),
-            icon: leader === undefined ? descriptor.icon : leader.view.icon,
+            title: leader === undefined ? titleOf(fallback ?? {titleKey: containerId}) : titleOf(leader.view),
+            icon: leader === undefined ? fallback?.icon ?? "" : leader.view.icon,
             location: placement.location as ToolPartLocation,
             partId,
             order: placement.order,
-            canMoveContainer: descriptor.canMoveContainer !== false,
+            canMoveContainer: descriptor === undefined || descriptor.canMoveContainer !== false,
             orientation: containerOrientation(partId),
             mode,
             singleViewId: mode === "single" ? visible[0]!.view.id : null,
             memberViewIds: own.map((entry) => entry.view.id),
             views: visible,
+            sizeIntents,
+            collapsedViewIds,
             hidden: own.filter((entry) => !entry.visible),
             moveTargets: viewTargetsOf(containerId),
             containerMoveTargets: containerTargetsOf(placement.location as ToolPartLocation),
@@ -339,11 +394,16 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
         };
     };
 
-    /** 全部已登记且可落位的容器（含当前不参与导航的那些）：实例层按它泊车。 */
+    /**
+     * 全部已登记且可落位的容器（含当前不参与导航的那些）：实例层按它泊车。
+     *
+     * 实际成员数为 0 的容器不进这里（`memberViewIds` 含 hidden 与 collapsed，因此"成员只是不可见"
+     * 不算空容器）：它没有导航入口可挂，也没有实例要泊车；定义与记录原件都保留，成员回来时自动出现。
+     */
     const residentContainers: ContainerViewPresentation[] = [];
     for (const placement of allContainers.placements) {
         const slice = sliceOf(placement.containerId, allContainers);
-        if (slice !== null) {
+        if (slice !== null && slice.memberViewIds.length > 0) {
             residentContainers.push(slice);
         }
     }
@@ -364,7 +424,9 @@ export function resolveViewPresentation(options: ViewPresentationOptions): Workb
             }
             const slices = containersOfPart(effectiveContainers, partId)
                 .map((placement) => sliceOf(placement.containerId, effectiveContainers))
-                .filter((slice): slice is ContainerViewPresentation => slice !== null);
+                // 实际成员数为 0 的容器没有导航入口（成员只是不可见不算空容器）：这个 Part 里
+                // 一个入口都没有时就是"空 Switcher"，由外壳给出整区接收态。
+                .filter((slice): slice is ContainerViewPresentation => slice !== null && slice.memberViewIds.length > 0);
             const chosen = options.activeContainerByPart?.[partId];
             const activeContainerId = slices.some((slice) => slice.containerId === chosen)
                 ? chosen!

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 import {LAB_DEFAULT_BACKDROP, LAB_DEFAULT_ZOOM} from "./stage-backdrops";
 
 type ResizeAxis = "width" | "height" | "both";
@@ -14,11 +14,13 @@ const props = withDefaults(defineProps<{
     showSize?: boolean;
     zoom?: number;
     backdrop?: string;
+    displayMode?: "tight" | "fill";
 }>(), {
     minSize: 200,
     showSize: true,
     zoom: LAB_DEFAULT_ZOOM,
     backdrop: LAB_DEFAULT_BACKDROP,
+    displayMode: "tight",
 });
 
 const emit = defineEmits<{
@@ -36,10 +38,9 @@ const dragging = ref(false);
 const shownWidth = computed(() => draftWidth.value ?? props.width);
 const shownHeight = computed(() => draftHeight.value ?? props.height);
 
-// 两维的「不限尺寸」不是同一件事，因为舞台横向铺满、纵向顶对齐：
-//   宽 —— 撑满舞台。一个缩成内容宽的盒子看不出「不限宽度」是什么状态。
-//   高 —— 就是组件自己的高度。这里原来也写了 alignSelf: stretch，但纵向的轨道按内容定高，
-//         那一行从来没有生效过；顶对齐之后更不该生效——组件本来就该露出它的自然高度。
+const minWidth = computed(() => (props.displayMode === "tight" ? 120 : props.minSize));
+const minHeight = computed(() => (props.displayMode === "tight" ? 32 : props.minSize));
+
 const boxStyle = computed(() => {
     const style: Record<string, string> = {
         // 缩放用 CSS zoom 而不是 transform: scale。scale 只改绘制不改布局，被缩小的盒子
@@ -50,62 +51,68 @@ const boxStyle = computed(() => {
         // 所以按倍率的倒数把它补回来。
         "--lab-inv-zoom": String(1 / props.zoom),
     };
+
     if (shownWidth.value > 0) {
         style.width = `${shownWidth.value}px`;
-    } else {
+    } else if (props.displayMode === "fill") {
+        style.width = "100%";
         style.justifySelf = "stretch";
+    } else {
+        // tight 模式：小部件在未指定宽度时，默认给予 640px 舒适操作宽度（不超过视区）
+        style.width = "640px";
+        style.maxWidth = "calc(100% - 2 * var(--space-7))";
     }
+
     if (shownHeight.value > 0) {
         style.height = `${shownHeight.value}px`;
+    } else if (props.displayMode === "fill") {
+        style.height = "100%";
+        style.alignSelf = "stretch";
+        style.minHeight = "min(640px, 100%)";
+    } else {
+        // tight 模式：完全自适应组件实际内容高度，绝不强制撑开假大空白
+        style.height = "auto";
     }
+
     return style;
 });
 
-const sizeLabel = computed(() => {
-    const w = shownWidth.value > 0 ? `${Math.round(shownWidth.value)}` : "自动";
-    const h = shownHeight.value > 0 ? `${Math.round(shownHeight.value)}` : "自动";
-    const zoom = props.zoom === 1 ? "" : `　·　${Math.round(props.zoom * 100)}%`;
-    return `${w} × ${h}${zoom}`;
+const measuredWidth = ref(0);
+const measuredHeight = ref(0);
+
+let resizeObserver: ResizeObserver | null = null;
+onMounted(() => {
+    if (boxRef.value && typeof ResizeObserver !== "undefined") {
+        resizeObserver = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                const rect = entry.target.getBoundingClientRect();
+                measuredWidth.value = Math.round(rect.width / props.zoom);
+                measuredHeight.value = Math.round(rect.height / props.zoom);
+            }
+        });
+        resizeObserver.observe(boxRef.value);
+    }
+});
+onBeforeUnmount(() => {
+    resizeObserver?.disconnect();
 });
 
-/**
- * 从光标的**绝对位置**反推尺寸，而不是「起始尺寸 + 位移」。
- *
- * 两个轴的式子不一样，因为盒子在舞台里**横向居中、纵向顶对齐**：
- *
- * - 宽：居中的盒子加宽 W 会左右各外扩 W/2，按位移累加的话右手柄只走光标的一半，就是之前
- *   那个不跟手。居中时被拖的那条边到中心的距离是宽度的一半，于是 宽 = 2 ×（光标 − 中心）；
- *   盒子长到比舞台还宽之后它不再居中、左边缘钉死，换成 宽 = 光标 − 左边缘。
- *   两条式子在「刚好填满」那一点取值相同，切换处不会跳。
- * - 高：上边缘顶死在舞台顶部、不随高度移动，所以直接是 高 = 光标 − 上边缘。
- *   顶对齐之前这一轴也走上面那条居中式子，改成顶对齐就必须跟着换，否则下手柄走一半。
- *
- * 每一帧都重新量，所以中途改缩放、拖出滚动条都自动跟上。
- */
-function sizeFromPointer(axis: "width" | "height", pointer: number): number {
-    if (axis === "height") {
-        const box = boxRef.value;
-        if (box === null) {
-            return props.minSize;
-        }
-        // rect 是屏幕像素，zoom 已经乘进去了，除回来才是声明尺寸
-        return Math.max(props.minSize, (pointer - box.getBoundingClientRect().top) / props.zoom);
-    }
+const sizeLabel = computed(() => {
+    const w = shownWidth.value > 0
+        ? `${Math.round(shownWidth.value)}`
+        : (measuredWidth.value > 0 ? `${measuredWidth.value}` : "自适应");
+    const h = shownHeight.value > 0
+        ? `${Math.round(shownHeight.value)}`
+        : (measuredHeight.value > 0 ? `${measuredHeight.value}` : "自适应");
+    const isAuto = shownWidth.value <= 0 && shownHeight.value <= 0;
+    const autoTag = isAuto ? " (自适应)" : (shownHeight.value <= 0 ? " (高自适应)" : "");
+    const zoom = props.zoom === 1 ? "" : `　·　${Math.round(props.zoom * 100)}%`;
+    return `${w} × ${h}${autoTag}${zoom}`;
+});
 
-    const inner = innerRef.value;
-    if (inner === null) {
-        return props.minSize;
-    }
-    const rect = inner.getBoundingClientRect();
-    const style = getComputedStyle(inner);
-    const padStart = Number.parseFloat(style.paddingLeft);
-    const padEnd = Number.parseFloat(style.paddingRight);
-    const avail = inner.clientWidth - padStart - padEnd;
-    const contentStart = rect.left + padStart;
-
-    const centered = 2 * (pointer - (contentStart + avail / 2));
-    const onScreen = centered <= avail ? centered : pointer - contentStart;
-    return Math.max(props.minSize, onScreen / props.zoom);
+function resetSize(): void {
+    emit("update:width", 0);
+    emit("update:height", 0);
 }
 
 /** 不限制的那一维没有数值可拖，取当前实测尺寸作为拖动起点。 */
@@ -116,11 +123,11 @@ function currentSize(axis: "width" | "height"): number {
     }
     const box = boxRef.value;
     if (!box) {
-        return props.minSize;
+        return axis === "width" ? minWidth.value : minHeight.value;
     }
     // getBoundingClientRect 给的是屏幕像素，zoom 已经乘进去了，除回来才是声明尺寸
     const rect = box.getBoundingClientRect();
-    return (axis === "width" ? rect.width : rect.height) / props.zoom;
+    return Math.round((axis === "width" ? rect.width : rect.height) / props.zoom);
 }
 
 function startDrag(axis: ResizeAxis, event: PointerEvent): void {
@@ -128,12 +135,29 @@ function startDrag(axis: ResizeAxis, event: PointerEvent): void {
     handle.setPointerCapture(event.pointerId);
     dragging.value = true;
 
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const startW = currentSize("width");
+    const startH = currentSize("height");
+    // 起拖下限：取当前尺寸与最小限制的较小值，杜绝瞬间由 79px 跃迁至 200px 的跳动
+    const safeMinWidth = Math.min(minWidth.value, startW);
+    const safeMinHeight = Math.min(minHeight.value, startH);
+
     const move = (moveEvent: PointerEvent): void => {
         if (axis === "width" || axis === "both") {
-            draftWidth.value = sizeFromPointer("width", moveEvent.clientX);
+            const deltaX = (moveEvent.clientX - startX) / props.zoom;
+            // 居中扩展：由于盒子居中对齐，左右两边对称扩缩，因此拖动右手柄时宽度增量为 2 * deltaX
+            draftWidth.value = Math.max(safeMinWidth, Math.round(startW + 2 * deltaX));
         }
         if (axis === "height" || axis === "both") {
-            draftHeight.value = sizeFromPointer("height", moveEvent.clientY);
+            const deltaY = (moveEvent.clientY - startY) / props.zoom;
+            if (props.displayMode === "tight") {
+                // tight 模式下盒子垂直居中，双向扩缩
+                draftHeight.value = Math.max(safeMinHeight, Math.round(startH + 2 * deltaY));
+            } else {
+                // fill 模式下单向向下扩缩
+                draftHeight.value = Math.max(safeMinHeight, Math.round(startH + deltaY));
+            }
         }
     };
 
@@ -182,10 +206,10 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 
     event.preventDefault();
     if (deltaX !== 0) {
-        emit("update:width", Math.max(props.minSize, currentSize("width") + deltaX));
+        emit("update:width", Math.max(minWidth.value, Math.round(currentSize("width") + deltaX)));
     }
     if (deltaY !== 0) {
-        emit("update:height", Math.max(props.minSize, currentSize("height") + deltaY));
+        emit("update:height", Math.max(minHeight.value, Math.round(currentSize("height") + deltaY)));
     }
 }
 </script>
@@ -198,10 +222,12 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
             两者在「内容比容器大」时不一样：flex 居中会把溢出的那一半推到 scroll 起点之外，
             向左滚也看不到；grid 的轨道在这种情况下退化成 max-content，起点仍在 padding 处。
         -->
-        <div ref="innerRef" class="nb-lab-stage-inner">
+        <div ref="innerRef" class="nb-lab-stage-inner" :class="`nb-lab-stage-inner--${props.displayMode}`">
             <div
                 v-if="props.showSize"
-                class="nb-lab-stage-size tabular-nums"
+                class="nb-lab-stage-size tabular-nums cursor-pointer select-none transition-colors hover:text-[var(--text-main)]"
+                title="双击恢复自适应尺寸"
+                @dblclick="resetSize"
             >
                 {{ sizeLabel }}
             </div>
@@ -222,7 +248,7 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
                     aria-orientation="vertical"
                     aria-label="调整宽度"
                     :aria-valuenow="Math.round(shownWidth)"
-                    :aria-valuemin="props.minSize"
+                    :aria-valuemin="minWidth"
                     tabindex="0"
                     @pointerdown.prevent="startDrag('width', $event)"
                     @keydown="handleKeydown('width', $event)"
@@ -234,7 +260,7 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
                     aria-orientation="horizontal"
                     aria-label="调整高度"
                     :aria-valuenow="Math.round(shownHeight)"
-                    :aria-valuemin="props.minSize"
+                    :aria-valuemin="minHeight"
                     tabindex="0"
                     @pointerdown.prevent="startDrag('height', $event)"
                     @keydown="handleKeydown('height', $event)"
@@ -266,15 +292,23 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
 .nb-lab-stage-inner {
     display: grid;
     min-height: 100%;
-    min-width: max-content;
-    /* 顶对齐而不是居中：组件比舞台矮的时候，居中会在它上下各留一大片空，
-       盒子读起来像浮在中间不知道钉在哪。顶对齐之后空白全归到下面一块，
-       那块空白就是中栏这扇窗透出来的桌面本身，正好是它该有的样子。
-       下手柄的算法跟这一条绑死，见 sizeFromPointer。 */
-    align-content: start;
+    width: 100%;
+    box-sizing: border-box;
     justify-items: center;
     gap: var(--space-4);
     padding: var(--space-7);
+}
+
+/* tight 模式：小部件在舞台中央垂直+水平居中，行高自适应包裹内容 */
+.nb-lab-stage-inner--tight {
+    grid-template-rows: auto auto;
+    place-content: safe center;
+}
+
+/* fill 模式：全景工作区视图纵向撑满舞台 */
+.nb-lab-stage-inner--fill {
+    grid-template-rows: auto 1fr;
+    align-content: stretch;
 }
 
 .nb-lab-stage-size {
@@ -287,6 +321,8 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
    底可以换（见 stage-backdrops.ts），换的是这一层的 background。
    要一块完全不受桌面影响的底来判读组件自己的颜色，把画布底切到「纯白」或「纯黑」。 */
 .nb-lab-stage-box {
+    /* 自适应画布不能以标签整排的 min-content 宽度反撑 grid 轨道。显式尺寸仍由 width 控制。 */
+    min-width: 0;
     border: var(--border-w) solid var(--divider);
     border-radius: var(--radius-panel);
     box-shadow: var(--elevation-raised, none);

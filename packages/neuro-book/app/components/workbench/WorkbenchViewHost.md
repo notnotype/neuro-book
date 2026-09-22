@@ -1,85 +1,130 @@
 ---
-标签: [state:local]
+标签: [state:local, state:inject]
+别名: ["容器内部宿主", "View Host"]
+验证入口: WorkbenchShellLayout
 ---
 
 # WorkbenchViewHost
 
-视图宿主：把**容器的声明**渲染成界面。容器里有哪些视图、哪个看得见、看见的那个由哪个组件画，全部由注册表求值得到——页面上不为视图写 `v-if`，descriptor 里也不放组件。它是 L1 内置注册路径的渲染端，输入只有三样：容器 descriptor、已解析的容器标题、环境事实（`WorkbenchContext`）。
+> 半区分配及来源比例以[规格](../../../../../docs/specs/ui/workbench-shell.md#半区分配与来源比例)为准。展开窗格前后各 50%，中点归后半；全部收起时剩余区域接收。
 
-它和「一个画视图的容器」的区别是**视图不是它的**：声明、可见性求值、factoryKey 到组件的映射分别在 `product-catalog.ts` 与 `view-factories.ts` 里，宿主只是那条链的末端。给它一条声明和一份环境事实就能渲染，不需要 store 桩，也不需要真实 Project——这也是它能被 Lab 完整摆出来的原因。
+容器的**内部**宿主：把一份**已求值**的容器切片渲染成一条**单轴** Grid——每个可见 View 一个 Section，Section 之间用与外壳、编辑器同一套 Grid/Splitter 拖动分界。
 
-## 分工：谁声明、谁求值、谁解析
+内部方向由容器切片的 `orientation` 给：左侧栏 / 右侧栏是 `vertical`（上下排、按 `height` 分），Panel 是 `horizontal`（左右排、按 `width` 分，与 Panel 外壳停靠在顶部还是底部无关）。容器**换 Part 就换轴**，但保存的两轴意图不换算数值。
 
-- **声明**在 `product-catalog.ts`（容器在 `containers.ts`）：进程里唯一的容器 / 视图清单，注册表按它构建一次。本组件不组装清单，它拿到的 `container` 就是声明里的那一条，`context` 由页面填。
-- **求值**也在 `product-catalog.ts`：`resolveContainerViews(registry, container.id, context)` 把容器内视图分成三类——可见的（`views`）、求值失败的（`problems`）、不可见的（`hidden`，各带 `when` 的原因）；`layoutContractOfViews(views)` 给出内容区合同。三类都参与渲染，但方式不同：可见的画出内容；两类失败各成一条提示行（都不吞）；不可见的原因**只在没有可见视图时**作为空态文案出现——有可见视图时它不进 DOM（否则会拿"看不见的原因"挤占真正的内容）。
-- **解析**在 `view-factories.ts`：`factoryKey` → 组件的第一方白名单。descriptor 里没有组件、没有模块路径、没有 HTML/CSS，「哪个视图用哪个组件」只有那一处映射；宿主只在视图**可见**时才去解析。
-- `requiredAuthority`（动作可用性）与 `stateScope`（memento 归属）不在本组件的求值范围内：可见性不是权限，动作能不能点由拥有该动作的宿主判断。
+呈现模板由切片的 `mode` 给（按**可见**成员数求值）：
 
-## `when` 求值语义
+| `mode` | 呈现 |
+|---|---|
+| `empty` | 空态（说明来自 `hidden` 的 `when` 原因），不建树 |
+| `single` | 一个叶填满内容区、不装收起策略；Section **不渲染标题**，该 View 的动作由 `WorkbenchPartHost` 投射到容器右上角 |
+| `multiple` | 每个 View 一条 32px 标题（多条时才有缝）；横向容器里收起是 32px 宽的竖条，纵向仍是横标题 |
 
-- `when.requires` 是**封闭枚举**（`project` / `selection` / `user-assets` / `desktop`），不是表达式；全部满足才可见，缺哪条就记下哪条的原因，因此一个视图可能带多条原因。
-- 可见性**只决定看不看得见**，不是权限：不可见不等于不可用，可见也不代表动作可执行。
-- 原因文案来自 `descriptors.ts` 的取值域（例如「需要打开 Project」），视图自己不带文案；宿主把它们去重后以「；」连接，作为空态说明。
-- 未登记的 `when` 取值、未登记的容器 id 都是**失败**而不是「不可见」：它们走 `problems`，与不可见分开显示。
+它替代了旧的「Panel 标签页 / 侧栏 Section」两套模板：位置无关，左栏、右栏、底部都由它渲染；容器自己的标题、选择与框架动作归 `WorkbenchPartHost`。视图实例不在这里——落点登记给 `WorkbenchViewInstances`，业务实例由那一层 Teleport 进来。
+
+组件**不做**位置求值、不读存储、不认识命令：尺寸与折叠意图只经 emits 交回页面（唯一写者是位置会话），页面把补丁交给 `setViewSizes`。
+
+## 分工：谁求值、谁解析、谁实例化
+
+| 角色 | 归属 |
+|---|---|
+| 容器落位、View 位置、可见性、动作可用性、落点清单、内部方向与模板 | 页面调用 `resolveViewPresentation`，把 `ContainerViewPresentation` 传进来 |
+| 单轴树（叶 id、主轴意图与约束、收起策略） | 纯投影 `view-container-layout.ts`（`viewContainerGridInput`） |
+| View 标题解析（i18n） | 页面（切片里的 `title` 已解析） |
+| 承载盒测量与布局/版本发布 | nb-ui `useLayoutExtent` + `useGridLayout`（本组件只装配） |
+| 尺寸与折叠意图 | 本组件按切片建树；意图存 `viewSizes`（页面传入，两轴独立），改动经 `view-sizes` 回传 |
+| 标题动作 | 页面求值（`useWorkbenchViewActions().actionsByView`）后传入；点击经 `title-action` 回传 |
+| 内容组件实例 | `WorkbenchViewInstances`（本组件只画 `[data-view]` 落点） |
+| 容器挂载位置 | `WorkbenchPartHost` + `WorkbenchContainerInstances`（本组件被 Teleport 进去） |
+
+## 布局
+
+- 根元素 `[data-container-id]` 是容器内容区：诊断行（`problems`、实例通道缺失）在上，Grid 吃满剩余高度。整个内容区统一登记一个落点，插入位由可见叶几何求得。根元素带 `[data-container-mode]` 与 `[data-container-orientation]`（都来自切片，供 Lab 与冒烟定位）。
+- 每个 Grid 叶是一条 `WorkbenchViewSection`：`multiple` 时是 32px 标题（图标 + 标题 + 折叠按钮 + 动作组），`single` 时**没有标题**、内容直接吃满叶；内容区按 View 的 `layout` 合同滚动或留白。
+- 叶与分支 id 带前缀：叶 `view:<viewId>`、分支 `container:<containerId>`，与外壳的七个叶 id 不混用；叶包装同时带 `[data-leaf="view:<viewId>"]`。
+- 容器内**全部可见 View 同屏排列**（左/右栏上下排、Panel 左右排），没有「单活动 View」的替代页签模式；容器里没有可见 View 时显示空态（原因来自 `when` 的求值）。
+- 尺寸由外层 Part 决定；本组件不设最小宽度，`390×844` 下由外壳切紧凑呈现。内容自己的最小/最大尺寸由 descriptor 的 `minimumSize` / `maximumSize` 声明，主轴有效下限是 `max(33, 声明值 ?? 64)`。
+
+## 交互
+
+- **折叠**：点标题上的折叠按钮（`aria-expanded` 跟着受控收起位）→ 一条 `view-sizes` 补丁（只改这一个 View 的收起位，主轴尺寸意图不动，展开回到上次尺寸）。键盘 Tab 到按钮 + Enter/Space 即可。`single` 没有折叠入口：已有的 `collapsed` 意图保留在记录里但不应用，呈现为展开；回到 `multiple` 才再次生效。
+- **横向竖条**：`horizontal` 且收起时标题是一条 32px 宽的竖条（展开按钮 + 图标 + `sr-only` 的完整名称 + 「更多」菜单），`primary` 动作折进菜单；点展开按钮回传 `{collapsed: false}`。
+- **拖动**：整条标题是 View 的拖动面（`[data-workbench-drag-kind="view"]`），鼠标 / 笔移动 6px、触摸按住 200ms 起拖；拖动激活后同一次手势末尾的 click 被抑制，所以拖动不会顺带折叠。Escape 取消拖动不产生任何改变。`single` 不注册这个拖动源（没有标题，也避免一个元素注册两个源）。拖动中标题保持原位与不透明度：跟指针走的是页面唯一的 `WorkbenchDragOverlay`，源不隐藏、不改矩形，也不生成 placeholder。
+- **键盘拖动**：聚焦可拖标题外层，Space 起拖、方向键移动、Escape 取消。逐源复用宿主传感器，不覆盖宿主的 KeyboardSensor；标题内部折叠按钮保留自己的 Space/Enter 行为。
+- **拖动分界**：Section 之间的 1px 分界线属于本组件的 Grid 会话；一次手势（含收吸附）只结算一批，收吸附只改收起位、不把 0 / 32 写进尺寸记录。
+- **移动**：`multiple` 的 View 标题提供移动菜单和拖动手柄，`single` 的菜单上提到 Part 宿主。拖到内容边缘会并入容器并分配命中叶半区；拖到 Switcher 插入位会创建容器。Section 不登记独立落点。
 
 ## 数据
 
 ```ts
 type Props = {
-    /** 容器的 descriptor：`id` 用于按容器求值视图；`icon` / `titleKey` 之外的字段归容器部件。 */
-    container: ContainerDescriptor;
-    /** **已解析**的容器标题；注册表只存 `titleKey`，解析（i18n）归页面。 */
-    containerTitle: string;
-    /** 环境事实：`when` 求值的唯一输入。本组件不 import store、不读 window。 */
-    context: WorkbenchContext;
-    /** 测试注入的注册表；缺省用产品注册表（`productWorkbenchRegistry()`）。 */
-    registry?: WorkbenchRegistry;
-    /** 测试注入的 factory 解析器；缺省用产品白名单（`resolveWorkbenchViewFactory`）。 */
-    viewFactoryResolver?: (factoryKey: string) => DescriptorResult<Component>;
+    /** 本容器的求值切片（位置 + 可见性 + 动作可用性 + 落点 + 方向 + 模板）；必填。 */
+    presentation: ContainerViewPresentation;
+    /**
+     * 全部 View 的尺寸与收起意图（user/local 共用，按 viewId 索引）；缺省空。
+     *
+     * 两轴独立：只写当前主轴（左/右栏是 `height`，Panel 是 `width`），另一轴与未知字段原样保留。
+     */
+    viewSizes?: Readonly<Record<string, {readonly width?: number; readonly height?: number; readonly collapsed?: boolean}>>;
+    /** 会话与几何键：手势跨代不结算，随补丁交给位置会话；缺省空串。 */
+    contextKey?: string;
+    /** 标题动作菜单的失效指纹（面板状态 / 首 View / 代际）；与 `contextKey` 分开传，缺省空串。 */
+    actionsContextKey?: string;
+    /** 已求值的 View 标题动作，按 viewId 索引；缺省空。 */
+    actionsByView?: WorkbenchTitleActionsByView;
+    /** 是否允许移动 View（拖动与菜单共用）；缺省 false。 */
+    allowViewMove?: boolean;
+    /** 「移动到」子菜单的可达名称；缺省空。 */
+    moveLabel?: string;
+    /** View 动作组的无障碍名称；缺省空。 */
+    viewActionsLabel?: string;
+};
+
+type Emits = {
+    /** 选中「移动到」的某个落点；参数形状就是 `ViewMoveRequest`（不含 `beforeViewId`，追加到末尾）。 */
+    (e: "move-view", request: ViewMoveRequest): void;
+    /**
+     * 一批尺寸/折叠意图；与位置会话的 `setViewSizes` 入参同形，可原样转发。
+     *
+     * `payload` 就是本组件导出的 `WorkbenchViewSizesEvent`：容器 id + **发起时容器的生效落位**
+     * （容器换 Part 会换轴，迟到的批整批拒绝）+ 会话键 `contextKey` + 只带本次真正变化字段的补丁。
+     * 一次手势只发一次；没有任何主动变化时不发。
+     */
+    (e: "view-sizes", payload: WorkbenchViewSizesEvent): void;
+    /** View 标题动作点击；`target` 是渲染时捕获的世代。 */
+    (e: "title-action", payload: {scope: "view"; target: ViewActionTarget; actionId: string}): void;
 };
 ```
 
-**扩展面**：没有 emits、没有 slots、没有 `expose`；`attrs` 透传到根上——根就是容器部件 `WorkbenchContainerSurface` 的单根 `<section class="workbench-container">`，`data-lab-subject` 这类属性落在它上面。
+- **slots**：没有可用插槽（内容由实例层 Teleport 进落点）。
+- **attrs 透传**：不承诺（内层结构由 Grid 决定）。
+- **expose**：没有。
 
-可核对的事实属性：根带 `data-container` / `data-container-location` / `data-container-part` / `data-container-layout`（都来自容器部件）；内容区一层带 `data-view-host`；每个视图一个 `data-view="<视图 id>"` 锚点，锚点里要么是该视图的组件，要么是它失败的诊断。
+## 状态与失败可见
 
-## 布局
-
-卡片（头部 + 内容区）归容器部件，本组件只填内容区：一列纵向排布，高度吃满，`min-height: 0` 一路传下去。
-
-- 每个视图锚点 `flex: 1 1 auto`——视图自己占满内容区（`layout: fill` 的合同：容器不给留白、不代管滚动，视图自己接内部滚动）；`scroll` 档的留白与滚动归容器部件。
-- 内容区合同取**第一个可见视图**的 `layout`；一个可见视图都没有时用默认合同（`scroll`）。多个可见视图共用这一份合同——内容区只有一块。
-- 提示行的顺序固定：先是注册表级问题（容器求值失败一类），再按视图顺序排视图级诊断，最后才是空态说明。提示行是 `role="status"`（实时播报）；空态是一段静态说明，不带 live region。颜色取 `--status-warning` / `--text-muted`。
-- 宿主不给视图加任何装饰（不套卡片、不加 margin）；视图之间也不插分隔线——本版内容区一次只承载一件东西。
-
-## 交互
-
-宿主自己不接受任何用户输入：没有按钮、没有键盘处理、没有浮层，交互全在被渲染的视图里。
-
-`context` 变化不是「刷新」而是重算：已经解析过的视图按 id 复用同一份组件引用（不会因为重算被换身份重建），判为不可见或从容器里消失的视图直接出 DOM（`hidden` 只留原因，不留实例），再次可见时重新解析——白名单是静态映射，拿回同一个组件，但挂载状态不保留。
-
-## 状态
-
-- 有可见视图：渲染它们，内容区按第一个的合同呈现。
-- 没有可见视图：显示空态说明，文案来自各不可见视图的 `when` 原因（去重、以「；」连接）。一条原因都没有（容器里本来就没有视图）时它是空的——组件不做 i18n，不自己编文案。
-- 容器 id 不在注册表里：容器照画（标题还在位），问题作为提示行显示，不静默变成空白。
-- `factoryKey` 不在白名单里：视图锚点保留，锚点里显示诊断（例如「未登记的内置 factoryKey：…」）——失败可见是这条链的硬要求，宁可显示诊断也不显示空白。
-- 产品注册表构造失败（清单非法）：显示那一条原因，视图一个都不渲染。
-- 注入的注册表（`registry`）优先于产品注册表；注入后产品单例不再被读取。
+- `presentation.problems` 与手势/落点诊断（`issues`）按行显示在容器内，不静默。
+- 容器里没有可见 View：显示 `when` 的求值原因（去重后以「；」连接）；没有任何原因时说明「还没有可见的视图」。
+- 页面忘了把本组件放进 `WorkbenchViewInstances` 的子树：显示 `[data-view-instance-channel="missing"]` 诊断（容器照画，只是没有实例来接）。
+- 手势提交被拒绝（结构失效、工作面已切换、跨代）：就地回滚到受控布局，并把原因显示出来。
+- 宿主接纳了手势却没有发布匹配布局：Grid 在下一个 tick 回到受控布局并给出诊断（原语合同）。
 
 ## 不支持
 
-- 不读 store、不读 Storage（`localStorage` / `sessionStorage` / IndexedDB）、不发请求、不注册全局监听：环境事实只从 `context` 进来；展开项一类 memento 归视图自己的会话层（例如 `files-view-session.ts`）。
-- 不做 i18n：容器标题与视图标题的解析归页面，`when` 原因与诊断文案来自声明层。
-- 不做拖动、移动与隐藏落账：`canToggleVisibility` / `canMoveView` 在本版没有消费者，宿主只渲染声明说可见的那些视图。
-- 不判权限、不求值 `requiredAuthority`。
-- 不认插件声明：L1 只有内置白名单；安装账本、权限与沙箱属 L3。
-- 不做几何：卡片落在哪个叶、多宽、四周留白多少，全归外壳。
+- 不做位置/可见性求值、不读存储、不执行命令。
+- 空 Part 的接收由 `WorkbenchPartHost` 提供，不在本组件制造容器。
+- 不支持递归容器（容器里只有 View，没有子容器）。
+- 不渲染容器标题与容器级框架动作（归 Part 宿主）。
 
 ## 注意事项
 
-- **必须待在确定高度里**：根卡片是 `height: 100%`，放进自动高度的父级里，`fill` 与 `scroll` 都无从判断。
-- `containerTitle` 要传**已解析**的标题（`t(container.titleKey)`），不是 key。
-- 两处注入是测试缝隙：注入 `registry` 后产品单例不再被读取；注入 `viewFactoryResolver` 后产品白名单不再是唯一解析路径（Lab fixture 用它替掉需要 store 的叶）。产品页面两个都不传。
-- 诊断文案是给开发者的（中文、来自声明层），不是终端用户文案；要面向用户就得在页面另做一层。
-- `fill` 档的视图要**自己**给内容留白并接内部滚动，否则内容会贴卡片边缘、溢出部分被裁掉。
+- `viewSizes[viewId]` 是**意图**（px，当前主轴参与分配），不是降级后的实际尺寸；窗口太小导致的夹取只影响呈现，不写回意图。补丁只带**主动改变且真正变化**的字段：被补偿出来的邻居、降级夹取与 `single` 填满宿主的测量值都不写。
+- 树按切片重建：结构、模式或轴一变就换一棵 Grid 并显式 `invalidate()`，进行中的手势随即失效。承载盒测量走 `clientWidth/clientHeight`（`useLayoutExtent`），不吃祖先 `transform`；命中仍用 client 坐标 rect。
+- 拖动源 id 由 `useId()` 生成，**不能**拿 `viewId` 拼：dnd-kit 的注册表按注册时的 id 建 key、卸载时按当前 id 反注册，id 一变就会留下指向旧实例的死条目，`dragstart` 会报出别处的源（见 `WorkbenchViewSection.md`）。
+- 每个容器登记一个 `workbench-container-content-target:<containerId>`，几何为内容盒与可见叶 client rect。展开窗格前后各 50% 都可接收，中点归后半；预览覆盖对应半区。可见成员全部收成细条时，细条不再提供半区，预览覆盖细条后的剩余内容区，拖入成员按自己的展开尺寸进入。非法方向无反馈无提交。同容器边缘移动只换序、不改尺寸。源叶不剔除，保持真实屏幕布局；隐藏、零尺寸、裁剪和遮挡由共享 DOM reader 校验。收起细条故意留下的未吸收空间不显示为容器故障。
+- `WorkbenchDropOverlay` 复用 nb-ui `DropFeedbackOverlay`，区域内缩 `min(6, size/4)`，不叠插线；Switcher 只有插入线，长轴两端内缩 `min(2, span/4)`、短轴 2px。原位容器插入可带 render-only 线，非空内容中央不显示保持布局提示。
+- 文字提示独立 fixed 定位：有合法反馈且文案非空就显示图标药丸，空间不足时放到锚点外并夹紧到视口，视觉截断不影响独立 live region 的完整文案。坐标变化复用尺寸缓存，文字、字体或视口变化由观察器重测，反馈消失后解除观察。
+- 身份不用 `mode` / `orientation` 作 key：模式与轴变化不重建宿主，`WorkbenchViewSection` 的拖动面与业务实例都不重挂（模式只改标题与树）。
+
+## 上游边界
+
+内容区的拖动/命中/会话来自 nb-ui 的 Grid 原语（`@notnotype/nb-ui/layout`），承载盒测量与宿主装配来自 `@notnotype/nb-ui/composables`：`GridRenderer` 独占一份手势会话，本组件只提供树（`useGridLayout` 发布 node / layout / revision）与同步接纳回调。一次手势的原子提交、`revision` / `contextKey` / 承载盒尺寸的三重校验与 `onIssues` 收口都在 `useGridLayout` 里，本组件只在 `onApplied` 里折补丁。阈值的默认值（`SASH_COLLAPSE_THRESHOLD`）与收起吸附行为以该原语为准，升级可能变化。

@@ -1,5 +1,6 @@
 ---
 标签: []
+别名: ["状态栏", "Status Bar"]
 ---
 
 # WorkbenchStatusBar

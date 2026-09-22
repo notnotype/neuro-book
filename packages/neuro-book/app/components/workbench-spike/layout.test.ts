@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 import {createGrid, type GridNode, type GridSnapshotNode} from "@notnotype/nb-ui/components";
-import {createDefaultLayout, createSpikeGrid, liveLeafIds, resizeSpikeBranch, restoreLayout, serializeLayout, visibleGridTree, type SpikeCatalog} from "nbook/app/components/workbench-spike/layout";
+import {createDefaultLayout, createSpikeGrid, liveLeafIds, resizeSpikeBranches, restoreLayout, serializeLayout, visibleGridTree, type SpikeCatalog} from "nbook/app/components/workbench-spike/layout";
 
 const catalog: SpikeCatalog = {views: [], containers: []};
 
@@ -87,12 +87,55 @@ describe("验证台布局快照", () => {
         const layout = visible.layout(container);
         const baseline = Object.fromEntries(["activity", "center", "sidebar-right"].map((id) => [id, layout.sizes[id]!.width]));
         const target = {...baseline, center: baseline.center! - 20, "sidebar-right": baseline["sidebar-right"]! + 20};
-        expect(resizeSpikeBranch(grid, hidden, "main", "width", baseline, target).ok).toBe(true);
+        expect(resizeSpikeBranches(grid, hidden, [{branchId: "main", axis: "width", baseline, target}]).ok).toBe(true);
         const after = grid.serialize();
         expect(findNode(after.root, "sidebar-left")).toEqual(findNode(before.root, "sidebar-left"));
         expect(findNode(after.root, "editor")).toEqual(findNode(before.root, "editor"));
         const presented = createGrid(visibleGridTree(grid.root(), hidden), {sashSize: 1}).layout(container);
         expect(presented.sizes.center?.width).toBeCloseTo(target.center);
         expect(presented.sizes["sidebar-right"]?.width).toBeCloseTo(target["sidebar-right"]);
+    });
+
+    it("一场手势的多分支批量落账：任一项不通过整批不改", () => {
+        const grid = createSpikeGrid(createDefaultLayout(catalog).grid);
+        const hidden = ["sidebar-left"];
+        const container = {width: 1200, height: 900};
+        const layout = createGrid(visibleGridTree(grid.root(), hidden), {sashSize: 1}).layout(container);
+        const widthBaseline = Object.fromEntries(["activity", "center", "sidebar-right"].map((id) => [id, layout.sizes[id]!.width]));
+        const heightBaseline = Object.fromEntries(["editor", "panel"].map((id) => [id, layout.sizes[id]!.height]));
+        // 交汇处两根轴：外层宽度只挪侧栏与 center，内层高度只挪 editor 与 panel。
+        const widthChange = {
+            branchId: "main",
+            axis: "width" as const,
+            baseline: widthBaseline,
+            target: {...widthBaseline, "sidebar-right": widthBaseline["sidebar-right"]! - 30, center: widthBaseline.center! + 30},
+        };
+        const heightChange = {
+            branchId: "center",
+            axis: "height" as const,
+            baseline: heightBaseline,
+            target: {...heightBaseline, editor: heightBaseline.editor! - 40, panel: heightBaseline.panel! + 40},
+        };
+
+        expect(resizeSpikeBranches(grid, hidden, [widthChange, heightChange]).ok).toBe(true);
+        const presented = createGrid(visibleGridTree(grid.root(), hidden), {sashSize: 1}).layout(container);
+        expect(presented.sizes.center?.width).toBeCloseTo(widthChange.target.center);
+        expect(presented.sizes["sidebar-right"]?.width).toBeCloseTo(widthChange.target["sidebar-right"]);
+        expect(presented.sizes.panel?.height).toBeCloseTo(heightChange.target.panel);
+
+        // 第二项不守恒：整批不改，前一项也不落账。
+        const before = grid.serialize();
+        const rejected = resizeSpikeBranches(grid, hidden, [
+            {
+                branchId: "main",
+                axis: "width",
+                baseline: widthChange.target,
+                target: {...widthChange.target, "sidebar-right": widthChange.target["sidebar-right"]! - 30, center: widthChange.target.center! + 30},
+            },
+            {...heightChange, target: {...heightBaseline, editor: heightBaseline.editor! - 40}},
+        ]);
+
+        expect(rejected.ok).toBe(false);
+        expect(grid.serialize()).toEqual(before);
     });
 });

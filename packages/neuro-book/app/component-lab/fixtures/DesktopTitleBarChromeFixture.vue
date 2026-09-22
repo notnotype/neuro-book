@@ -8,6 +8,7 @@ import type {
 import type {DesktopMenuCommandId} from "@notnotype/neuro-book-contracts/desktop";
 import type {TitleBarEditTarget, TitleBarHostCapabilities} from "nbook/app/utils/workbench-chrome";
 import {useLabEventSink} from "../lab-event-sink";
+import LabFixtureControls from "../LabFixtureControls.vue";
 
 const props = defineProps<{scene: string; data?: unknown}>();
 
@@ -96,10 +97,18 @@ function onSelectProject(projectRoot: string | null): void {
 
 <template>
     <div class="flex h-full min-h-0 w-full flex-col bg-[var(--bg-main)]">
-        <div :class="narrow ? 'w-[560px] max-w-full' : 'w-full'" class="shrink-0">
+        <LabFixtureControls>
+            <div class="flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
+                <div>桌面标题栏（36px 标准高度）：支持项目切换、命令菜单、展开收起。</div>
+                <div>可通过 Lab 顶栏预设或拖动手柄观察收缩至 compact 菜单与搜索框自适应折叠。</div>
+            </div>
+        </LabFixtureControls>
+
+        <div class="w-full shrink-0">
             <DesktopTitleBarChrome
                 v-model:open-menu="openMenu"
                 data-lab-subject
+                class="w-full"
                 :title="knobs.title"
                 :projects="knobs.projects"
                 :current-project-root="knobs.currentProjectRoot"
@@ -117,13 +126,8 @@ function onSelectProject(projectRoot: string | null): void {
             />
         </div>
 
-        <div class="min-h-0 flex-1 overflow-auto p-4 text-[var(--text-muted)] text-xs">
-            <p>这条横条下面就是主区。标题栏自己只占 36px，底部那条缝取自主题的 <code>--divider</code>。</p>
-            <p class="mt-2">
-                菜单选择由实测宽度决定：把画布拉窄（或用「窄栏」场景）到放不下四个菜单时，它会换成一条
-                <code>compact</code> 按钮；再窄下去品牌名先让位，然后收 Project 标题与搜索框，最后隐去搜索。
-            </p>
-            <p class="mt-2">点菜单按钮、Project 按钮、Agent 按钮与窗口按钮都会在右侧「事件」tab 里留一条记录。</p>
+        <div class="flex min-h-0 flex-1 items-center justify-center bg-[var(--panel-surface)] text-xs text-[var(--text-muted)] select-none">
+            <span>主工作区内容（标题栏吸附于视口顶部）</span>
         </div>
     </div>
 </template>

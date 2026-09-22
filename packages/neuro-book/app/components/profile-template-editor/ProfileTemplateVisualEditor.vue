@@ -74,6 +74,7 @@ import {
     removeNodeById,
 } from "nbook/app/components/profile-template-editor/profile-template-tree-utils";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
+import {resolveClientActivePanel} from "nbook/app/utils/workbench/tool-context";
 import {ensureThemeHost, THEME_HOST_SELECTOR} from "nbook/app/utils/theme/host";
 import {useProductTheme} from "nbook/app/utils/theme/theme-session";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
@@ -399,7 +400,7 @@ function createDefaultProfileForm(): NewProfileForm {
  */
 function buildClientVariables() {
     return buildNovelIdeClientVariables({
-        activePanel: novelIdeStore.activeLeftTab,
+        activePanel: resolveClientActivePanel(novelIdeStore.activeToolView),
         theme: themeId.value,
         novelId: novelIdeStore.currentProjectRoot,
         workspace: novelIdeStore.currentWorkspaceRoot || null,

@@ -15,7 +15,7 @@
  */
 
 import {onScopeDispose, readonly, ref, shallowRef, type Ref} from "vue";
-import {createLayoutRecordSession, type LayoutRecordIntent, type LayoutRecordSession} from "nbook/app/utils/workbench/layout-session";
+import {createLayoutRecordSession, type LayoutRecordCommitResult, type LayoutRecordIntent, type LayoutRecordSession} from "nbook/app/utils/workbench/layout-session";
 import {
     createWorkbenchStorageContext,
     type WorkbenchStorageAdapters,
@@ -43,12 +43,25 @@ export type UserRecordSessionNotice = {
 export type UserRecordSession<T, I> = {
     /** 当前显示：未确认意图优先，其次已确认值，再次定义里的默认值。 */
     readonly display: Readonly<Ref<T>>;
+    /**
+     * 最近一次**已确认**的记录（含外来订阅推进的值）：未确认意图不在里面。
+     *
+     * 与 `display` 分开是因为两者回答不同的问题：`display` 是"现在画什么"，
+     * `confirmed` 是"本地意图该合成到什么底本上"——按补丁顺序重放的会话（例如工具位置）
+     * 必须把补丁合成到最新底本，而不能合成到已经含过这些补丁的值上。
+     */
+    readonly confirmed: Readonly<Ref<T>>;
     /** 首读门禁：记录还没读到分类。 */
     readonly loading: Readonly<Ref<boolean>>;
     /** 未保存 / 不可写 / 旧键迁移未完成的诊断；`null` 表示当前没有要展示的问题。 */
     readonly notice: Readonly<Ref<UserRecordSessionNotice | null>>;
-    commit(intent: I): Promise<void>;
-    retry(): Promise<void>;
+    commit(intent: I): Promise<LayoutRecordCommitResult>;
+    /**
+     * 重试未确认的意图，**返回真实回执**（`current.retry()` 的结果原样转交）。
+     *
+     * 调用方不能再用"没有可放弃的意图"推断成功：开会话失败、已释放或二次冲突都各有自己的回执。
+     */
+    retry(): Promise<LayoutRecordCommitResult>;
     abandon(): void;
     release(): Promise<void>;
 };
@@ -87,6 +100,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         ...(options.adapters === undefined ? {} : {adapters: options.adapters}),
     });
     const display = shallowRef<T>(definition.defaultValue);
+    const confirmed = shallowRef<T>(definition.defaultValue);
     const loading = ref(true);
     const notice = ref<UserRecordSessionNotice | null>(null);
     const session = shallowRef<LayoutRecordSession<T, I> | null>(null);
@@ -103,6 +117,7 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         }
         const state = current.state();
         display.value = current.display();
+        confirmed.value = state.confirmed;
         loading.value = state.phase === "loading" || state.phase === "idle";
         if (!loading.value) {
             // 读取已就绪：门禁诊断不再成立（此刻显示的就是已确认值，用户看到的是真实状态）。
@@ -179,10 +194,11 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
         // `readonly()` 会把泛型 T 投影成 `DeepReadonly<T>`（对任意 T 不成立）；对外契约是只读引用，
         // 运行时仍然只读，因此在这里把类型收成 `Readonly<Ref<T>>`。
         display: readonly(display) as Readonly<Ref<T>>,
+        confirmed: readonly(confirmed) as Readonly<Ref<T>>,
         loading: readonly(loading),
         notice: readonly(notice),
 
-        async commit(intent: I): Promise<void> {
+        async commit(intent: I): Promise<LayoutRecordCommitResult> {
             const current = session.value;
             if (current === null) {
                 if (loading.value) {
@@ -196,13 +212,13 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
                     };
                     // 会话还没建起来：publish() 此刻什么都不刷新，直接把这条诊断放上条。
                     notice.value = gateNotice;
-                    return;
+                    return {status: "rejected", diagnosis: gateNotice.diagnosis};
                 }
                 // 已经失败过（句柄不可用一类）：`open()` 留下的诊断比门禁文案准确，**保留它**（含它的重试入口），
                 // 并顺手再试一次连接——后端恢复后用户的手势不该被吞掉，也不该只剩刷新一条路。
                 // 本次意图仍然不写盘：它基于产品默认显示算出来，重放就是首读门禁要挡的那种覆盖。
                 void open();
-                return;
+                return {status: "rejected", diagnosis: notice.value?.diagnosis ?? "Storage 记录不可用"};
             }
             if (loading.value) {
                 // 会话已建但首读未分类：同上，拒绝且可见。
@@ -212,21 +228,24 @@ export function useUserRecordSession<T, I>(options: UserRecordSessionOptions<T, 
                     abandonable: false,
                 };
                 publish();
-                return;
+                return {status: "rejected", diagnosis: gateNotice.diagnosis};
             }
-            await current.commit(intent);
+            const result = await current.commit(intent);
             publish();
+            return result;
         },
 
-        async retry(): Promise<void> {
+        async retry(): Promise<LayoutRecordCommitResult> {
             await open();
             const current = session.value;
             if (current === null) {
-                return;
+                // 开会话失败（句柄不可用一类）：如实交出失败回执，别让调用方按"没得放弃"当成成功。
+                return {status: "rejected", diagnosis: notice.value?.diagnosis ?? "Storage 记录不可用，重试没有开始"};
             }
-            await current.retry();
+            const result = await current.retry();
             publish();
             await migrateLegacy();
+            return result;
         },
 
         abandon(): void {

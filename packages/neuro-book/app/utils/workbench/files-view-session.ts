@@ -11,7 +11,7 @@
  */
 
 import {computed, type Ref} from "vue";
-import type {LayoutRecordIntent} from "nbook/app/utils/workbench/layout-session";
+import type {LayoutRecordCommitResult, LayoutRecordIntent} from "nbook/app/utils/workbench/layout-session";
 import {
     createBrowserLegacyValueStore,
     type LegacyValueParse,
@@ -102,8 +102,10 @@ export type WorkbenchFileTreeExpandedPathsConsumer = {
     readonly loading: Readonly<Ref<boolean>>;
     /** 未保存 / 不可写 / 旧键迁移未完成的诊断；`null` 表示当前没有要展示的问题。 */
     readonly notice: Readonly<Ref<WorkbenchFileTreeExpandedPathsNotice | null>>;
-    commit(paths: readonly string[]): Promise<void>;
-    retry(): Promise<void>;
+    /** 提交一份展开项；回执交回调用方（`saved` / `unchanged` / `unsaved` / `rejected`），不吞结果。 */
+    commit(paths: readonly string[]): Promise<LayoutRecordCommitResult>;
+    /** 与 `commit` 同一条回执通道：重试也要把真实结果交回调用方，不能只看「还挂着未确认」就当成功。 */
+    retry(): Promise<LayoutRecordCommitResult>;
     abandon(): void;
     release(): Promise<void>;
 };

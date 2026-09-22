@@ -300,21 +300,47 @@ describe("迁移期写回门禁", () => {
             leftPanelWidth: 999,
             agentPanelWidth: 488,
             projectPickerLayoutMode: "editorial",
-            activeLeftTab: "search",
+            agentSessionPanelWidth: 300,
         });
 
         expect(JSON.parse(raw)).toEqual({
-            activeLeftTab: "search",
+            agentSessionPanelWidth: 300,
             leftPanelWidth: 427,
             projectPickerLayoutMode: "compact",
         });
         expect(raw).not.toContain("agentPanelWidth");
     });
 
+    it("退役的 activeLeftTab 按原件保留：读到什么就原样合成什么，原件没有就不制造", () => {
+        installLegacyBucketWriterPolicy({mode: "pinned", fields: {leftPanelWidth: 427}});
+
+        // 原件里有这个键（值不在运行期词表里也照样保留）。
+        legacyBucketSerializer.deserialize(JSON.stringify({activeLeftTab: "rag", agentSessionPanelWidth: 300}));
+        expect(JSON.parse(legacyBucketSerializer.serialize({agentSessionPanelWidth: 300}))).toEqual({
+            activeLeftTab: "rag",
+            agentSessionPanelWidth: 300,
+            leftPanelWidth: 427,
+        });
+
+        // 原件里没有这个键：整键重写也不会多出一个缺省值。
+        legacyBucketSerializer.deserialize(JSON.stringify({agentSessionPanelWidth: 300}));
+        expect(JSON.parse(legacyBucketSerializer.serialize({agentSessionPanelWidth: 300}))).toEqual({
+            agentSessionPanelWidth: 300,
+            leftPanelWidth: 427,
+        });
+        legacyBucketSerializer.deserialize("{}");
+    });
+
+    it("水合结果里不再带退役字段：它只被序列化器留在桶里", () => {
+        expect(legacyBucketSerializer.deserialize(JSON.stringify({activeLeftTab: "outline", agentSessionPanelWidth: 300})))
+            .toEqual({agentSessionPanelWidth: 300});
+        legacyBucketSerializer.deserialize("{}");
+    });
+
     it("未安装门禁时保持旧 writer 原行为", () => {
         expect(legacyBucketWriterPolicy()).toEqual({mode: "inactive"});
-        const raw = legacyBucketSerializer.serialize({leftPanelWidth: 999, activeLeftTab: "search"});
-        expect(JSON.parse(raw)).toEqual({leftPanelWidth: 999, activeLeftTab: "search"});
+        const raw = legacyBucketSerializer.serialize({leftPanelWidth: 999, agentSessionPanelWidth: 300});
+        expect(JSON.parse(raw)).toEqual({leftPanelWidth: 999, agentSessionPanelWidth: 300});
     });
 
     it("整桶冻结时拒绝写回但继续可读", () => {

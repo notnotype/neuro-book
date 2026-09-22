@@ -13,6 +13,7 @@ import {computed, ref} from "vue";
 import WorkbenchStatusBar from "nbook/app/components/workbench/WorkbenchStatusBar.vue";
 import WorkbenchStatusBarItem from "nbook/app/components/workbench/WorkbenchStatusBarItem.vue";
 import {useLabEventSink} from "../lab-event-sink";
+import LabFixtureControls from "../LabFixtureControls.vue";
 
 const props = defineProps<{
     scene: string;
@@ -55,25 +56,18 @@ function onItemClick(id: string): void {
 </script>
 
 <template>
-    <div class="flex h-full w-full flex-col justify-center items-center bg-[var(--bg-main)] p-4 box-sizing: border-box;">
-        <div class="mb-4 text-center text-xs text-[var(--text-muted)]">
-            <p class="font-medium text-[var(--text-main)]">Workbench 状态栏（极窄 ~22px 契约）</p>
-            <p class="mt-1">左侧项目状态与诊断计数 · 右侧编辑器上下文与通知</p>
+    <div class="flex h-full w-full flex-col justify-end">
+        <LabFixtureControls>
+            <div class="text-xs text-[var(--text-secondary)]">
+                Workbench 状态栏（极窄 ~22px 契约）：左侧项目状态与诊断计数 · 右侧编辑器上下文与通知。可通过 Lab 顶栏切换「手机 (390px)」测试窄视口。
+            </div>
+        </LabFixtureControls>
+
+        <div class="flex flex-1 items-center justify-center bg-[var(--panel-surface)] text-xs text-[var(--text-muted)] select-none">
+            <span>工作台主视区（状态栏吸附于视口底部）</span>
         </div>
 
-        <!-- 状态栏演示卡槽（支持普通宽度或窄容器模式） -->
-        <div
-            class="w-full overflow-hidden rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--bg-panel)] shadow-[var(--elevation-raised)] transition-all [transition-duration:var(--motion-base)]"
-            :class="config.narrow ? 'max-w-[360px]' : 'max-w-[880px]'"
-            data-testid="status-bar-container"
-        >
-            <!-- 模拟上方的工作区面 -->
-            <div class="flex h-32 items-center justify-center bg-[var(--panel-surface)] text-xs text-[var(--text-muted)]">
-                <span>编辑器主体内容区域（状态栏吸附于其底部）</span>
-            </div>
-
-            <!-- 状态栏主体：与上方保持 1px 分隔线 -->
-            <WorkbenchStatusBar data-lab-subject="statusbar">
+        <WorkbenchStatusBar data-lab-subject="statusbar" class="w-full shrink-0">
                 <template #left>
                     <!-- 远程/主入口 -->
                     <WorkbenchStatusBarItem
@@ -168,6 +162,5 @@ function onItemClick(id: string): void {
                     />
                 </template>
             </WorkbenchStatusBar>
-        </div>
     </div>
 </template>

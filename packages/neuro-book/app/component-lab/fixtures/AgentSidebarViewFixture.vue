@@ -154,6 +154,16 @@ const viewProps = computed<AgentSidebarViewProps>(() => {
             ],
             agentMode: agentMode.value,
             canContinueWithoutInput: true,
+            queuedMessages: s.queuedMessages ?? [],
+            menuRefreshKey: 0,
+            projectRoot: "workspace/projects/novel",
+            sessionId: s.activeSessionId,
+            sessionAttachments: s.attachments ?? [],
+            modelSupportsImages: true,
+            resolveMenu: () => ({title: "命令", prefix: "/", sections: []}),
+        },
+
+        statusBar: {
             contextUsageExactLabel: "1,590 / 64,000 tokens",
             contextUsageCompactLabel: "1.6k",
             contextPercentCompactLabel: "2%",
@@ -167,13 +177,8 @@ const viewProps = computed<AgentSidebarViewProps>(() => {
             connectionStatusLabel: "就绪",
             runPhaseLabel: "空闲",
             connectionNeedsAction: false,
-            queuedMessages: s.queuedMessages ?? [],
-            menuRefreshKey: 0,
-            projectRoot: "workspace/projects/novel",
-            sessionId: s.activeSessionId,
-            sessionAttachments: s.attachments ?? [],
-            modelSupportsImages: true,
-            resolveMenu: () => ({title: "命令", prefix: "/", sections: []}),
+            running: running.value,
+            agentMode: agentMode.value,
         },
 
         attachments: {

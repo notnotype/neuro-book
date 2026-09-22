@@ -90,6 +90,17 @@ export interface AgentSidebarComposerProps {
     selectableModels: EnabledModelOptionDto[];
     agentMode: AgentMode;
     canContinueWithoutInput: boolean;
+    queuedMessages: AgentQueuedMessageDto[];
+    menuRefreshKey: string | number;
+    projectRoot: string | null;
+    sessionId: number | null;
+    sessionAttachments: AgentSessionAttachmentItemDto[];
+    modelSupportsImages: boolean;
+    resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
+    onSkillTriggerStart?: () => void;
+}
+
+export interface AgentSessionStatusBarProps {
     contextUsageExactLabel: string;
     contextUsageCompactLabel: string;
     contextPercentCompactLabel: string;
@@ -101,16 +112,10 @@ export interface AgentSidebarComposerProps {
     cumulativeCacheHitRateLabel: string;
     cumulativeCostCompactLabel: string;
     connectionStatusLabel: string;
-    runPhaseLabel: string;
     connectionNeedsAction: boolean;
-    queuedMessages: AgentQueuedMessageDto[];
-    menuRefreshKey: string | number;
-    projectRoot: string | null;
-    sessionId: number | null;
-    sessionAttachments: AgentSessionAttachmentItemDto[];
-    modelSupportsImages: boolean;
-    resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
-    onSkillTriggerStart?: () => void;
+    running: boolean;
+    runPhaseLabel: string;
+    agentMode: AgentMode;
 }
 
 export interface AgentSidebarAttachmentsProps {
@@ -202,6 +207,7 @@ export interface AgentSidebarViewProps {
     header: AgentSidebarHeaderProps;
     flow: AgentSidebarFlowProps;
     composer: AgentSidebarComposerProps;
+    statusBar: AgentSessionStatusBarProps;
     attachments: AgentSidebarAttachmentsProps;
     linkedAgents: AgentSidebarLinkedAgentsProps;
     systemPrompt: AgentSidebarSystemPromptProps;

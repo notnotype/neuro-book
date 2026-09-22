@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed, onMounted, ref, watch} from "vue";
+import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import {useI18n} from "vue-i18n";
 import {storeToRefs} from "pinia";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
@@ -14,6 +14,8 @@ import WorkspaceLorebookDetailPanel from "nbook/app/components/novel-ide/workspa
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useWorkbenchFileTreeExpandedPaths} from "nbook/app/utils/workbench/files-view-session";
+import type {CommandResult} from "nbook/app/utils/workbench/commands";
+import type {ViewTitleActionState, WorkbenchViewActionHandle} from "nbook/app/utils/workbench/view-title-actions";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {buildDefaultWorkspaceCreatePath} from "nbook/app/utils/workspace-create-path";
 import {buildWorkspacePathCopyText, type WorkspacePathCopyMode} from "nbook/app/utils/workspace-path-copy";
@@ -130,10 +132,57 @@ function abandonExpandedPathsRecord(): void {
 
 /**
  * 刷新文件树。
+ *
+ * 它同时是**标题动作** `refresh` 的实现：动作的声明在 `SHELL_FILES_VIEW.titleActions`（descriptor），
+ * 这里只把状态与句柄报给宿主（`WorkbenchViewInstances` 转发，`useWorkbenchViewActions` 收）。
+ * 内容头不再有第二个刷新入口——同一个动作只有一条路径。
  */
 async function refreshTree(): Promise<void> {
     await store.loadWorkspaceTree();
 }
+
+/** 本视图在 descriptor 里声明的标题动作 id（`SHELL_FILES_VIEW.titleActions[].id`）。 */
+const TITLE_ACTION_REFRESH = "refresh";
+
+const emitViewAction = defineEmits<{
+    (e: "actions-change", states: readonly ViewTitleActionState[]): void;
+    (e: "action-handle-ready", handle: WorkbenchViewActionHandle | null): void;
+}>();
+
+/** 运行时状态：加载中就是 busy，同时也给出禁用原因（按钮照常渲染，看得见但不能点）。 */
+const titleActionStates = computed<readonly ViewTitleActionState[]>(() => [{
+    id: TITLE_ACTION_REFRESH,
+    enabled: !loadingWorkspaceTree.value,
+    ...(loadingWorkspaceTree.value ? {reason: "文件树正在加载"} : {}),
+    busy: loadingWorkspaceTree.value,
+}]);
+
+/**
+ * 执行句柄：宿主点击标题按钮时经命令路由到这里。
+ * 结果一律结构化——失败不是抛出去，而是带回原因（宿主只负责展示一次）。
+ */
+async function runTitleAction(actionId: string): Promise<CommandResult<unknown>> {
+    if (actionId !== TITLE_ACTION_REFRESH) {
+        return {ok: false, code: "unknown-command", reason: `未登记的视图动作：${actionId}`};
+    }
+    if (loadingWorkspaceTree.value) {
+        return {ok: false, code: "unavailable", reason: "文件树正在加载"};
+    }
+    try {
+        await refreshTree();
+        return {ok: true, value: null};
+    } catch (error) {
+        return {
+            ok: false,
+            code: "execution-error",
+            reason: resolveApiErrorMessage(error, t("ide.workspace.filePanel.refreshFailedFallback")),
+        };
+    }
+}
+
+const titleActionHandle: WorkbenchViewActionHandle = {runAction: runTitleAction};
+
+watch(titleActionStates, (states) => emitViewAction("actions-change", states), {immediate: true});
 
 /**
  * 复制当前文件路径或引用。
@@ -618,9 +667,15 @@ function formatCreateError(error: unknown): string {
 }
 
 onMounted(() => {
+    // 实例就绪：把句柄交给宿主（代际由实例层给），标题动作从此可执行。
+    emitViewAction("action-handle-ready", titleActionHandle);
     if (canAccessWorkspace.value && workspaceTree.value.length === 0) {
         void store.loadWorkspaceTree();
     }
+});
+
+onBeforeUnmount(() => {
+    emitViewAction("action-handle-ready", null);
 });
 
 watch(canAccessWorkspace, (canAccess) => {
@@ -632,15 +687,13 @@ watch(canAccessWorkspace, (canAccess) => {
 
 <template>
     <div class="flex h-full min-h-0 flex-col">
-        <!-- 工作区文件面板头部 -->
+        <!-- 工作区文件面板头部：只有搜索。刷新是标题动作（`SHELL_FILES_VIEW.titleActions`），
+             不再在这里留第二个入口。 -->
         <div class="flex shrink-0 items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2">
             <div class="relative min-w-0 flex-1">
                 <span class="i-lucide-search absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
                 <input v-model="searchQuery" type="text" :placeholder="t('ide.workspace.filePanel.searchPlaceholder')" class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)]">
             </div>
-            <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="void refreshTree()">
-                <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
-            </button>
         </div>
 
         <!-- 展开记录诊断：未保存 / 不可写 / 旧键迁移未完成都不静默 -->

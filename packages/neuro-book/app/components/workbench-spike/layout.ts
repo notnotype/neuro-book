@@ -10,7 +10,7 @@
  * 本文件不认识注册表：可用视图与容器由调用方按 `SpikeCatalog` 注入（组装根见 WorkbenchSpike.vue）。
  * 快照版本与恢复规则（版本不符 / 未知 ref / 非法根 / 覆盖失效 / 收起失效 / 活动容器回落的 issue）都收敛在本文件。
  */
-import {createGrid, type Grid, type GridAxis, type GridBranchInput, type GridBranchResizeResult, type GridLeafInput, type GridNode, type GridNodeInput, type GridRestoreResult, type GridSnapshot, type GridSnapshotNode} from "@notnotype/nb-ui/components";
+import {createGrid, type Grid, type GridAxis, type GridBranchesResizeResult, type GridBranchInput, type GridBranchResize, type GridLeafInput, type GridNode, type GridNodeInput, type GridRestoreResult, type GridSnapshot, type GridSnapshotNode} from "@notnotype/nb-ui/components";
 import type {SpikeContainerDescriptor, SpikeViewDescriptor} from "./descriptors";
 
 export type SpikeLocation = "sidebar-left" | "sidebar-right" | "panel";
@@ -113,22 +113,39 @@ export function createSpikeGrid(snapshot: GridSnapshot): Grid<string> {
     return grid;
 }
 
-/** 可见分支独立结算；只合入该分支可见子节点的意图，隐藏叶与另一轴保持原件。 */
-export function resizeSpikeBranch(
-    grid: Grid<string>, hidden: readonly string[], branchId: string, axis: GridAxis,
-    baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>,
-): GridBranchResizeResult {
+/**
+ * 一场手势的批量落账：收起叶是渲染层从可见树里过滤掉的，所以整批先在**同构的可见树**上求解
+ * （原语要求每个分支的基线/目标覆盖它的全部直接子节点），成功后只把结算出的尺寸**意图**
+ * 写回完整树——隐藏叶与另一轴保持原件。任一项不通过就整批不改，树与收起状态都不动。
+ */
+export function resizeSpikeBranches(
+    grid: Grid<string>, hidden: readonly string[], changes: readonly GridBranchResize[],
+): GridBranchesResizeResult {
     const visible = createGrid(visibleGridTree(grid.root(), hidden), {sashSize: 1});
-    const result = visible.resizeBranch(branchId, axis, baseline, target);
+    const result = visible.resizeBranches(changes);
     if (!result.ok) {
         return result;
     }
-    const apply = (node: GridNode<string> | null): void => {
-        if (!node) return;
-        if (Object.hasOwn(result.sizes, node.id)) node.size[axis] = result.sizes[node.id]!;
-        if (node.kind === "branch") node.children.forEach(apply);
+    const axisByNode: Record<string, GridAxis> = {};
+    for (const change of changes) {
+        for (const id of Object.keys(change.target)) {
+            axisByNode[id] = change.axis;
+        }
+    }
+    const writeBack = (node: GridNode<string> | null): void => {
+        if (node === null) {
+            return;
+        }
+        const axis = axisByNode[node.id];
+        const intent = result.intents[node.id];
+        if (axis !== undefined && intent !== undefined) {
+            node.size[axis] = intent[axis];
+        }
+        if (node.kind === "branch") {
+            node.children.forEach(writeBack);
+        }
     };
-    apply(grid.root());
+    writeBack(grid.root());
     return result;
 }
 

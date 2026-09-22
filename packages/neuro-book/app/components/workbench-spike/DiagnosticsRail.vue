@@ -7,6 +7,8 @@ defineProps<{
     snapshotJson: string;
     issues: string[];
     notices: string[];
+    /** 手势进行中的实时预览摘要（null = 没有进行中的手势）。 */
+    gesture: string | null;
     context: SpikeContextValues;
     panelInFullRow: boolean;
 }>();
@@ -56,6 +58,11 @@ const emit = defineEmits<{
                 <Button size="sm" variant="secondary" @click="emit('reset-view-placements')">重置视图位置</Button>
                 <Button size="sm" variant="secondary" @click="emit('reset')">重置布局</Button>
             </div>
+        </section>
+
+        <section class="flex flex-col gap-[var(--space-2)]">
+            <h2 class="text-[length:var(--text-xs)] [font-weight:var(--weight-strong)] text-[var(--text-main)]">手势（实时预览）</h2>
+            <p class="text-[length:var(--text-2xs)] text-[var(--text-secondary)]" data-spike-gesture>{{ gesture ?? "没有进行中的手势" }}</p>
         </section>
 
         <!-- 两栏并排：notice（做了什么）与 issue（哪里不对）各自成列，不互相挤走 -->

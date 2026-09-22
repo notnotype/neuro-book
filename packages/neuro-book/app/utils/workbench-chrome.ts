@@ -13,13 +13,10 @@ export const MINIMUM_TITLE_BAR_DRAG_WIDTH = 120;
 
 export type WorkbenchActivityItemId =
     | "home"
-    | "files"
-    | "characters"
-    | "plot"
     | "world"
     | "trace"
     | "history"
-    | "agent-panel"
+    | "plot"
     | "account"
     | "settings";
 
@@ -34,10 +31,18 @@ export type WorkbenchActivityContext = Readonly<{
     userAssetsMode: boolean;
 }>;
 
+/**
+ * 非容器命令的能力表。
+ *
+ * **上半只列容器**（那由调用方按生效落位求值后传入，不属于这里）：本函数只回答
+ * 「除容器以外还有哪些真实命令、此刻能不能执行」。`tools` 是工具命令组（放不下从尾部进 More），
+ * `footer` 是账户 / 设置这类全局入口——两者都不参与容器的单选。
+ *
+ * 原来的 `files` / `characters` 伪侧栏页与 `agent-panel` 伪开关已退役：前者是主侧栏容器的视图，
+ * 归容器宿主；后者从来不是活动栏语义（Agent 面板有自己的入口）。这里不画"看着能用"的替代项。
+ */
 export type WorkbenchActivityItems = Readonly<{
-    primary: WorkbenchActivityItem[];
-    secondary: WorkbenchActivityItem[];
-    agentPanel: WorkbenchActivityItem | null;
+    tools: WorkbenchActivityItem[];
     footer: WorkbenchActivityItem[];
 }>;
 
@@ -66,20 +71,13 @@ export function createWorkbenchActivityItems(
     const projectDisabled = !context.surfaceActive;
     const novelOnlyDisabled = projectDisabled || context.userAssetsMode;
     return {
-        primary: [
+        tools: [
             ...(!context.desktopAvailable ? [{id: "home" as const, disabled: false}] : []),
-            {id: "files", disabled: projectDisabled},
-            {id: "characters", disabled: novelOnlyDisabled},
             {id: "plot", disabled: novelOnlyDisabled},
             {id: "world", disabled: novelOnlyDisabled},
-        ],
-        secondary: [
             {id: "trace", disabled: projectDisabled},
             {id: "history", disabled: novelOnlyDisabled},
         ],
-        agentPanel: context.desktopAvailable
-            ? null
-            : {id: "agent-panel", disabled: projectDisabled},
         footer: [
             {id: "account", disabled: false},
             {id: "settings", disabled: false},

@@ -7,9 +7,11 @@ const emit = defineEmits<{
 </script>
 
 <template>
-    <div class="flex h-full w-full items-center justify-center p-6 sm:p-12" data-lab-subject>
-        <div class="w-full max-w-[540px]">
-            <ProjectPickerEmptyState @create-book="emit('event', 'create-book')" />
-        </div>
+    <div class="flex h-full w-full items-center justify-center p-6">
+        <ProjectPickerEmptyState
+            data-lab-subject
+            class="w-full"
+            @create-book="emit('event', 'create-book')"
+        />
     </div>
 </template>

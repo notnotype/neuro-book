@@ -70,27 +70,77 @@ function selectorPart(element: Element): string {
 }
 
 /**
+ * Reka UI 等无头组件库的内部包装原语。
+ * 检查器在查找「拥有这个节点的 Vue 组件」时，应当穿透这些无头包装，
+ * 向上定位到维护者真正关心的业务组件（如 FormSelect、Dropdown、Button 等）。
+ */
+const TRANSPARENT_PRIMITIVE_NAMES = new Set([
+    "Primitive",
+    "PrimitiveSlot",
+    "Slot",
+    "PopperAnchor",
+    "PopperRoot",
+    "PopperPortal",
+    "PopperContent",
+    "SelectRoot",
+    "SelectTrigger",
+    "SelectPortal",
+    "SelectContent",
+    "SelectViewport",
+    "SelectItem",
+    "SelectItemText",
+    "SelectItemIndicator",
+    "PopoverRoot",
+    "PopoverTrigger",
+    "PopoverPortal",
+    "PopoverContent",
+    "DropdownMenuRoot",
+    "DropdownMenuTrigger",
+    "DropdownMenuPortal",
+    "DropdownMenuContent",
+    "DropdownMenuItem",
+    "DialogRoot",
+    "DialogTrigger",
+    "DialogPortal",
+    "DialogOverlay",
+    "DialogContent",
+    "TooltipRoot",
+    "TooltipTrigger",
+    "TooltipPortal",
+    "TooltipContent",
+]);
+
+/**
  * 找到拥有这个 DOM 节点的 Vue 组件。
  *
  * `__vueParentComponent` 与 `type.__file` 都只在开发构建里存在——Lab 本身就是开发工具，
  * 但这里仍然逐层判空：生产构建下拿不到就当没有，不能让检查功能整个失效。
  */
-function vueOwner(element: Element): {name: string; file: string} {
+export function vueOwner(element: Element): {name: string; file: string} {
     let node: Element | null = element;
+    let fallbackOwner = {name: "", file: ""};
+
     while (node !== null) {
         let instance = (node as unknown as {__vueParentComponent?: unknown}).__vueParentComponent as
             {type?: {__name?: string; name?: string; __file?: string}; parent?: unknown} | undefined;
         while (instance !== undefined && instance !== null) {
             const type = instance.type ?? {};
             const name = type.__name ?? type.name ?? "";
+            const file = type.__file ?? "";
             if (name !== "") {
-                return {name, file: type.__file ?? ""};
+                if (TRANSPARENT_PRIMITIVE_NAMES.has(name) && file === "") {
+                    if (fallbackOwner.name === "") {
+                        fallbackOwner = {name, file};
+                    }
+                } else {
+                    return {name, file};
+                }
             }
             instance = instance.parent as typeof instance;
         }
         node = node.parentElement;
     }
-    return {name: "", file: ""};
+    return fallbackOwner;
 }
 
 /** 源文件路径裁到包内相对位置：绝对路径贴进对话里没人读得动。 */

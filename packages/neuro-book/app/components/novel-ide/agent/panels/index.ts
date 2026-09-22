@@ -5,3 +5,4 @@ export {default as AgentLinkedAgentPanel} from "./linked-agents/AgentLinkedAgent
 export {default as AgentSystemPromptPanel} from "./system-prompt/AgentSystemPromptPanel.vue";
 export {default as AgentWorkspaceChanges} from "./workspace-changes/AgentWorkspaceChanges.vue";
 export {default as AgentWorkflowPendingPanel} from "./workflow-pending/AgentWorkflowPendingPanel.vue";
+export {default as AgentSessionStatusBar} from "./status/AgentSessionStatusBar.vue";

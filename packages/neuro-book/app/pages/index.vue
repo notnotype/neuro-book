@@ -1,12 +1,13 @@
 <script setup lang="ts">
+import {DragDropProvider} from "@dnd-kit/vue";
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
-import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
 import EditorViewHost from "nbook/app/components/editor-workbench/EditorViewHost.vue";
 import EditorWelcome from "nbook/app/components/editor-workbench/EditorWelcome.vue";
 import {useEditorWorkbench} from "nbook/app/composables/useEditorWorkbench";
+import type {EditorGroupState} from "nbook/app/components/editor-workbench/editor-view.types";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
 import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import NovelIdeActivityBar from "nbook/app/components/novel-ide/NovelIdeActivityBar.vue";
@@ -18,11 +19,66 @@ import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/
 import ProjectPickerScreen from "nbook/app/components/novel-ide/ProjectPickerScreen.vue";
 import DesktopTitleBar from "nbook/app/components/common/DesktopTitleBar.vue";
 import WorkbenchShell from "nbook/app/components/workbench/WorkbenchShell.vue";
-import WorkbenchContainerSurface from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
-import WorkbenchViewHost from "nbook/app/components/workbench/WorkbenchViewHost.vue";
-import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
+import WorkbenchContainerInstances from "nbook/app/components/workbench/WorkbenchContainerInstances.vue";
+import WorkbenchPartHost from "nbook/app/components/workbench/WorkbenchPartHost.vue";
+import WorkbenchDropOverlay from "nbook/app/components/workbench/WorkbenchDropOverlay.vue";
+import WorkbenchDragOverlay from "nbook/app/components/workbench/WorkbenchDragOverlay.vue";
+import WorkbenchViewInstances from "nbook/app/components/workbench/WorkbenchViewInstances.vue";
+import WorkbenchStatusBar from "nbook/app/components/workbench/WorkbenchStatusBar.vue";
+import WorkbenchStatusBarItem from "nbook/app/components/workbench/WorkbenchStatusBarItem.vue";
+import {useWorkbenchDrop} from "nbook/app/composables/useWorkbenchDrop";
+import {
+    productWorkbenchRegistry,
+    resolveViewPresentation,
+    SHELL_FILES_VIEW,
+    type ContainerViewPresentation,
+    type PartContainerPresentation,
+    type WorkbenchViewPresentation,
+} from "nbook/app/utils/workbench/product-catalog";
+import {
+    useWorkbenchViewPlacements,
+    type ViewPlacementsOutcome,
+    type ViewSizesInput,
+} from "nbook/app/utils/workbench/view-placements-session";
+import {
+    clientToolPanels,
+    clientToolViewIdOf,
+    resolveActiveToolView,
+    sameToolFocus,
+    type WorkbenchToolViewFocus,
+} from "nbook/app/utils/workbench/tool-context";
+import {
+    registerWorkbenchToolRevealPort,
+    type WorkbenchToolRevealPort,
+} from "nbook/app/utils/workbench/tool-reveal-port";
+import {useEditorSessionStorage} from "nbook/app/utils/editor-workbench/editor-session-storage";
+import type {ShellDragCollapseMap} from "nbook/app/utils/workbench/layout";
 import type {WorkbenchLayoutSurface} from "nbook/app/utils/workbench/layout-session";
 import type {WorkbenchContext} from "nbook/app/utils/workbench/descriptors";
+import type {WorkbenchPanelPreferences} from "nbook/app/utils/workbench/panel-state";
+import {
+    isToolPartId,
+    toolPartOfLocation,
+    TOOL_PART_IDS,
+    type ContainerMoveRequest,
+    type ToolPartId,
+    type ToolPartLocation,
+    type ViewMoveRequest,
+} from "nbook/app/utils/workbench/view-placements";
+import {provideWorkbenchCommands} from "nbook/app/composables/useWorkbenchCommands";
+import {useWorkbenchViewActions} from "nbook/app/composables/useWorkbenchViewActions";
+import type {CommandResult, Release} from "nbook/app/utils/workbench/commands";
+import {
+    executePanelActionItem,
+    registerViewTitleCommands,
+    registerWorkbenchShellCommands,
+    resolvePanelTitleActions,
+    SHELL_CONTAINER_COMMAND_IDS,
+    SHELL_FILES_REFRESH_COMMAND,
+    type WorkbenchShellCommandPort,
+} from "nbook/app/utils/workbench/workbench-shell-commands";
+import type {WorkbenchTitleActionEvent, WorkbenchTitleActionItems} from "nbook/app/utils/workbench/view-title-actions";
+import {resolveWorkbenchViewFactory} from "nbook/app/utils/workbench/view-factories";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
@@ -77,6 +133,9 @@ const WELCOME_LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "
 
 type WelcomeLorebookEntryType = typeof WELCOME_LOREBOOK_ENTRY_TYPES[number];
 
+// TEMP-MODULE-MARKER
+console.info("[PAGE-MODULE] fresh-build-marker-1");
+
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
@@ -120,7 +179,6 @@ const novelIdeStore = useNovelIdeStore();
 const route = useRoute();
 const router = useRouter();
 const {
-    activeLeftTab,
     activeWorkspaceTabPath,
     currentProjectRoot,
     currentNovel,
@@ -247,6 +305,47 @@ function acceptsInlinePromptOwner(owner: InlinePromptOwner): boolean {
 const {alert, choose, chooseCards, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
+/**
+ * 主页的编辑器分组：由编排层逐组呈现（组 id 与布局树上的叶 id 同源），页面只叠加
+ * 首帧就绪门禁（未完成 workspace 引导前不显示标签与诊断，避免闪一下旧内容）。
+ */
+const editorGroups = computed<EditorGroupState[]>(() => editorWorkbench.groups.value.map((group) => ({
+    id: group.id,
+    tabs: workspaceDisplayReady.value ? [...group.tabs] : [],
+    activePath: workspaceDisplayReady.value ? group.activePath : "",
+    menus: group.menus,
+    // 视图贡献的动作词汇（EditorAction）与工具条动作（EditorToolbarAction）不是同一套：这里只做字段映射。
+    toolbarActions: group.actions.map((action) => ({
+        id: action.id,
+        label: action.label,
+        iconClass: action.iconClass ?? "i-lucide-zap",
+        disabled: action.disabled,
+        active: action.checked,
+    })),
+    busy: !workspaceDisplayReady.value || group.busy,
+    diagnosis: group.diagnosis,
+})));
+/** 逐组拿编排层的正式呈现（document/editorId/actions 不在 EditorGroupState 里）。 */
+function groupPresentation(groupId: string) {
+    return editorWorkbench.groups.value.find((group) => group.id === groupId) ?? null;
+}
+
+/** 状态栏事实：全部来自真实状态，没有假终端 / 假 Git / 假行列号。 */
+const statusBarSaveState = computed<{label: string; variant: "default" | "warning" | "info"}>(() => {
+    if (savingFile.value) {
+        return {label: t("editorWorkbench.saving"), variant: "info"};
+    }
+    if (novelIdeStore.hasUnsavedFileChanges) {
+        return {label: t("editorWorkbench.unsaved"), variant: "warning"};
+    }
+    return {label: selectedFileNode.value?.editable ? t("editorWorkbench.saved") : t("ide.workbench.noDocument"), variant: "default"};
+});
+const statusBarEditorLabel = computed(() => editorWorkbench.editorLabelOf(editorWorkbench.activeGroupId.value) ?? t("ide.workbench.noDocument"));
+const statusBarGroupCount = computed(() => editorWorkbench.groupIds.value.length);
+const statusBarGroupIndex = computed(() => Math.max(1, editorWorkbench.groupIds.value.indexOf(editorWorkbench.activeGroupId.value) + 1));
+const statusBarVisibleViews = computed(() => viewPresentation.value?.entries.filter((entry) => entry.visible).length ?? 0);
+const statusBarContainers = computed(() => workbenchRegistryResult.value.ok ? workbenchRegistryResult.value.value.containers().length : 0);
+
 const editorWorkbench = useEditorWorkbench({
     bindings: {
         code: {
@@ -306,6 +405,361 @@ const workbenchViewContext = computed<WorkbenchContext>(() => {
         projectRoot: surface.kind === "project" ? surface.ready.projectRoot : null,
     };
 });
+
+/**
+ * 工具 View 的位置会话（`workbench.views/customizations`，user/local）：跨 Project 的界面定制。
+ *
+ * 呈现与记录分离：`placements.record` 是本窗口呈现据以建立的底本（**不跟随外来订阅刷新**），
+ * 三个容器的切片都从这一份统一求值里取，不各自解释位置。
+ */
+const viewPlacements = useWorkbenchViewPlacements({context: () => workbenchViewContext.value});
+/**
+ * 编辑会话的存储会话（`workbench.editor/session` 与 `user-assets-session`）：分组拓扑 + 逐组标签
+ * 一条记录原子落盘，恢复顺序与冲突出口都在这一层。工作面标识变化时自动重读并重订阅。
+ */
+const editorSessionStorage = useEditorSessionStorage({surface: workbenchLayoutSurface});
+const workbenchRegistryResult = computed(() => productWorkbenchRegistry());
+
+/** Part 标题：容器移动菜单里的落点文案（i18n 归页面，`resolveViewPresentation` 不发明 key）。 */
+const PART_TITLE_KEYS: Record<ToolPartId, string> = {
+    left: "ide.workbench.part.left",
+    right: "ide.workbench.part.right",
+    panel: "ide.workbench.part.panel",
+};
+
+/**
+ * 统一呈现求值：容器落位、View 位置、可见性、动作可用性与活动容器都从这一份取。
+ *
+ * 记录、覆盖与活动容器都来自唯一的位置会话（`workbench.views/customizations` 的唯一写者）。
+ */
+const viewPresentation = computed<WorkbenchViewPresentation | null>(() => {
+    const registry = workbenchRegistryResult.value;
+    if (!registry.ok) {
+        return null;
+    }
+    const record = viewPlacements.record.value;
+    return resolveViewPresentation({
+        registry: registry.value,
+        context: workbenchViewContext.value,
+        overrides: record.placements,
+        customContainers: record.customContainers,
+        viewSizes: record.viewSizes,
+        containerOverrides: record.containerPlacements,
+        suppressedContainers: record.suppressedContainers,
+        activeContainerByPart: record.activeContainerByPart,
+        titleOf: (descriptor) => t(descriptor.titleKey),
+        partTitleOf: (partId) => t(PART_TITLE_KEYS[partId]),
+    });
+});
+
+/** 注册表不可用时的诊断：Part 宿主照画，把原因显示出来，不静默空白。 */
+const viewPresentationProblem = computed<readonly string[]>(() => {
+    const registry = workbenchRegistryResult.value;
+    if (!registry.ok) {
+        return [`产品 Workbench 声明不可用：${registry.reason}`];
+    }
+    return viewPresentation.value?.issues ?? [];
+});
+
+/** 某个 Part 的容器切片；注册表不可用时返回只有诊断的空切片（宿主不自己解析记录）。 */
+function partPresentation(partId: ToolPartId): PartContainerPresentation {
+    return viewPresentation.value?.part(partId) ?? {partId, containers: [], activeContainerId: null, problems: [...viewPresentationProblem.value]};
+}
+
+/** 容器实例层要的是**全部常驻**容器的切片（被抑制的也在，停在它自己的 parking）。 */
+const containerSlices = computed<readonly ContainerViewPresentation[]>(() => viewPresentation.value?.residentContainers ?? []);
+
+/** 主侧栏当前的容器清单：活动栏上半只列它们（标题与图标已解析）。 */
+const activityContainers = computed(() => partPresentation("left").containers.map((container) => ({
+    containerId: container.containerId,
+    title: container.title,
+    icon: container.icon,
+    location: container.location,
+    partId: container.partId,
+    viewIds: container.memberViewIds,
+    canMoveContainer: container.canMoveContainer,
+})));
+
+/** 一次位置命令的回执 → 用户可见诊断：`saved` / `unchanged` 不打扰，`pending` 与 `rejected` 都要说。 */
+function reportPlacementOutcome(outcome: ViewPlacementsOutcome, titleKey: string): void {
+    if (outcome.status === "rejected" || outcome.status === "pending") {
+        notification.warning(outcome.diagnosis, {title: t(titleKey)});
+    }
+}
+
+/** 移动一个工具 View：来源与锚点原样交给唯一写者，命令边界会重新校验（陈旧来源会被拒）。 */
+async function handleMoveView(request: ViewMoveRequest): Promise<void> {
+    reportPlacementOutcome(await viewPlacements.moveView(request), "ide.workbench.view.moveRejected");
+}
+
+/** 移动一个容器：整体换落位，视图归属与顺序不变。 */
+async function handleMoveContainer(request: ContainerMoveRequest): Promise<void> {
+    reportPlacementOutcome(await viewPlacements.moveContainer(request), "ide.workbench.container.moveRejected");
+}
+
+/**
+ * 选择一个 Part 的活动容器（活动栏 / 标签 / 落点三条入口共用）。
+ *
+ * 重复点当前项**保持选择**并显式打开该 Part：`select-container` 意图在同一次合成里清掉
+ * 显式隐藏与拖收起，页面不切换成 null 来表达「当前项」。
+ */
+async function handleSelectContainer(partId: ToolPartId, containerId: string): Promise<void> {
+    reportPlacementOutcome(await viewPlacements.selectContainer(partId, containerId), "ide.workbench.container.selectRejected");
+}
+
+/** 活动栏回传容器 id → 它此刻生效的 Part（容器可能已被搬到别的落位）。 */
+function handleOpenContainer(containerId: string): void {
+    const partId = containerPart(containerId) ?? "left";
+    void handleSelectContainer(partId, containerId);
+}
+
+/** 某个容器此刻生效的 Part；未登记 / 不可落位返回 `null`。 */
+function containerPart(containerId: string): ToolPartId | null {
+    return viewPresentation.value?.container(containerId)?.partId ?? null;
+}
+
+/** 一场 View 尺寸手势：整批交给唯一写者（批内失败整批不落账），来源容器与上下文由会话复验。 */
+async function handleViewSizes(payload: ViewSizesInput): Promise<void> {
+    reportPlacementOutcome(await viewPlacements.setViewSizes(payload), "ide.workbench.view.sizeRejected");
+}
+
+/**
+ * 外壳拖到零的变化：一次手势可能同时收起多个 Part，逐个写进同一条定制记录（同一个写者、串行队列）。
+ * 拉回 / 选容器 / 揭示视图都会把这位置回 false，所以这里只写「本场真正改变的位」。
+ */
+async function handleDragCollapse(payload: {contextKey: string; parts: ShellDragCollapseMap}): Promise<void> {
+    for (const [partId, collapsed] of Object.entries(payload.parts)) {
+        if (!isToolPartId(partId) || collapsed === undefined) {
+            continue;
+        }
+        const outcome = await viewPlacements.setPartVisibility({partId, dragCollapsed: collapsed});
+        reportPlacementOutcome(outcome, "ide.workbench.container.visibilityRejected");
+    }
+}
+
+/** 拖到零的偏好位（外壳据此把相应叶的内容压到 0px，保留 1px 恢复边界）。 */
+const dragCollapsedParts = computed(() => viewPlacements.record.value.dragCollapsedParts ?? {});
+/** 面板状态（user 级定制）：位置 / 对齐 / 隐藏 / 收起走同一条记录、同一个写者。 */
+const panelPreferences = computed(() => viewPlacements.panelState.value);
+/** 瞬时最大化只在页面内存：换位置/对齐/隐藏/收起或进入紧凑呈现时由外壳回传清除。 */
+const panelMaximized = ref(false);
+async function handlePanelState(patch: Partial<WorkbenchPanelPreferences>): Promise<void> {
+    const outcome = await viewPlacements.setPanelState(patch);
+    if (outcome.status === "rejected") {
+        notification.warning(outcome.diagnosis, {title: t("ide.workbench.panel.stateRejected")});
+    }
+}
+/** 状态栏的面板显隐：隐藏是零占用；再点一次同时清 hidden 与 collapsed，按原尺寸恢复。 */
+async function togglePanelVisibility(): Promise<void> {
+    if (panelPreferences.value.hidden) {
+        await handlePanelState({hidden: false, collapsed: false});
+        return;
+    }
+    await handlePanelState({hidden: true});
+}
+
+/**
+ * 工具视图焦点（Agent 客户端上下文的工具上下文来源，**非持久**）。
+ *
+ * 它只按**真实可见**的事实发布：某个 Part 的活动容器里第一个可见、且已登记到客户端上下文的 View。
+ * 书架遮罩、显式隐藏与拖收起的 Part 内容根本不在屏幕上，因此不算可见；真实可见性一变就重发，
+ * 没有真实工具时是 `null`——不拿旧页签词表谎报 characters/plot（映射见 `tool-context.ts`）。
+ */
+const unavailableToolParts = computed<readonly ToolPartId[]>(() => {
+    const parts = new Set<ToolPartId>();
+    if (projectPickerActive.value) {
+        parts.add("left");
+        parts.add("right");
+    }
+    if (panelPreferences.value.hidden || panelPreferences.value.collapsed) {
+        // 显式隐藏与菜单 32px 收起都只剩（或没有）标签头，容器内容不在屏幕上。
+        parts.add("panel");
+    }
+    for (const partId of TOOL_PART_IDS) {
+        if (dragCollapsedParts.value[partId] === true) {
+            parts.add(partId);
+        }
+    }
+    return [...parts];
+});
+const resolvedToolView = computed<WorkbenchToolViewFocus>(() => resolveActiveToolView({
+    presentation: viewPresentation.value,
+    unavailableParts: unavailableToolParts.value,
+}));
+/**
+ * Agent 清了焦点（`ide.activePanel = null`）之后，要等真实可见焦点**变了**才重新发布：
+ * 记住被清掉的焦点，派生出同一条事实时保持为空，"清空"才不是一句空话（也不隐藏任何 Part）。
+ */
+const clearedToolView = ref<WorkbenchToolViewFocus>(null);
+function publishToolView(): void {
+    const resolved = resolvedToolView.value;
+    const next: WorkbenchToolViewFocus = resolved !== null && sameToolFocus(clearedToolView.value, resolved) ? null : resolved;
+    if (sameToolFocus(next, novelIdeStore.activeToolView)) {
+        return;
+    }
+    novelIdeStore.activeToolView = next;
+}
+watch(resolvedToolView, (next) => {
+    if (!sameToolFocus(next, clearedToolView.value)) {
+        clearedToolView.value = null;
+    }
+    publishToolView();
+}, {immediate: true});
+/**
+ * 切工作面（换 Project / 进出用户资产）：上一个工作面的焦点与"被清空"的抑制都不属于新工作面，
+ * 先松开抑制并按新呈现重发；同一份真实事实不会因为切了工作面就变成 null。
+ */
+const workbenchSurfaceKey = computed(() => {
+    const surface = workbenchLayoutSurface.value;
+    return surface.kind === "project" ? `project:${surface.ready.projectRoot}` : surface.kind;
+});
+watch(workbenchSurfaceKey, () => {
+    clearedToolView.value = null;
+    publishToolView();
+});
+
+/**
+ * 揭示完成后重发工具焦点：松开"被清空"的抑制，并按新的真实可见性发布一次
+ * （揭示可能没有改变派生事实——例如工具本来就可见——所以不能只等派生变化）。
+ */
+function republishToolViewAfterReveal(outcome: ViewPlacementsOutcome): void {
+    if (outcome.status === "rejected") {
+        return;
+    }
+    clearedToolView.value = null;
+    publishToolView();
+}
+
+/**
+ * 揭示一个 View（欢迎页与 Agent 的 `ide.activePanel` 共用）：走唯一 `reveal-view` 命令
+ * （选中它生效的容器、打开目标 Part、清掉内容收起），再重发工具焦点；
+ * `rejected` / `pending` 的诊断照旧走落位回执提示。
+ */
+async function revealToolView(viewId: string): Promise<ViewPlacementsOutcome> {
+    const outcome = await viewPlacements.revealView(viewId);
+    reportPlacementOutcome(outcome, "ide.workbench.view.revealRejected");
+    republishToolViewAfterReveal(outcome);
+    return outcome;
+}
+
+/**
+ * 工具揭示端口（页面登记、按生命周期释放）：Agent 的 `client.ide.activePanel` 写入的唯一落点。
+ *
+ * 能力与动作都交给真实工作台：`capability()` 只报已登记的 View 对应的页签，
+ * `reveal()` 走 `reveal-view` 命令，回执里带落盘状态（`pending` 就是"UI 已应用、保存未确认"）。
+ */
+const toolRevealPort: WorkbenchToolRevealPort = {
+    capability: () => {
+        const registry = workbenchRegistryResult.value;
+        if (!registry.ok) {
+            return [];
+        }
+        const registered = new Set(registry.value.views().map((view) => view.id));
+        return clientToolPanels().filter((panel) => {
+            const viewId = clientToolViewIdOf(panel);
+            return viewId !== null && registered.has(viewId);
+        });
+    },
+    reveal: async (panel) => {
+        if (panel === null) {
+            // 只清工具焦点上下文：不动任何 Part 的显隐，也不改用户的容器选择。
+            clearedToolView.value = resolvedToolView.value;
+            publishToolView();
+            return {status: "cleared"};
+        }
+        const viewId = clientToolViewIdOf(panel);
+        if (viewId === null || !toolRevealPort.capability().includes(panel)) {
+            return {status: "rejected", diagnosis: t("agent.clientVariables.activePanelNotWired", {panel})};
+        }
+        const outcome = await revealToolView(viewId);
+        if (outcome.status === "rejected") {
+            return {status: "rejected", diagnosis: outcome.diagnosis};
+        }
+        const containerId = viewPresentation.value?.entries.find((entry) => entry.view.id === viewId)?.containerId ?? null;
+        const partId = containerId === null ? null : viewPresentation.value?.container(containerId)?.partId ?? null;
+        if (partId === null) {
+            return {status: "rejected", diagnosis: t("ide.workbench.view.revealUnmounted", {viewId})};
+        }
+        return {status: "revealed", partId, viewId, persisted: outcome.status};
+    },
+};
+/**
+ * 端口只在客户端登记：SSR 没有真实工作台，也没有工具上下文要发布；登记按生命周期释放，
+ * 卸载时顺带清空工具焦点，不把本页的上下文留给下一个工作面。
+ */
+if (import.meta.client) {
+    const releaseToolRevealPort = registerWorkbenchToolRevealPort(toolRevealPort);
+    onBeforeUnmount(() => {
+        releaseToolRevealPort();
+        novelIdeStore.activeToolView = null;
+    });
+}
+
+/**
+ * 工具拖放（`@dnd-kit/vue`）：提供者必须在页面（一次拖动可能跨外壳三处），拖动结束与菜单、
+ * 「移动到」子菜单共用同一条命令门禁，页面只按**落点载荷**路由到 `moveView` / `moveContainer`。
+ *
+ * 激活元素写成 `handle ?? element`（dnd-kit 自己的默认就是这个）：只写 `source.handle` 时，
+ * 任何没给 `handle` 的拖动源都会被**静默跳过**（`bind` 里 `if (!target) continue`，一个监听器都不挂），
+ * 表现是"按下去毫无反应"，而不是报错。
+ */
+/**
+ * 拖放的判定、预览与提交都在 `useWorkbenchDrop` 里（同一份几何、同一个 resolver）：
+ * 页面只把唯一写者的三条方法交出去，并按回执提示；落点载荷与几何由渲染层登记。
+ */
+const workbenchDrop = useWorkbenchDrop({
+    presentation: () => viewPresentation.value,
+    contextKey: () => viewPlacements.contextKey(),
+    ports: {
+        moveView: (request) => viewPlacements.moveView(request),
+        detachView: (request) => viewPlacements.detachView(request),
+        moveContainer: (request) => viewPlacements.moveContainer(request),
+        mergeContainer: (request) => viewPlacements.mergeContainer(request),
+    },
+    onOutcome: (outcome) => {
+        // `saved` / `unchanged` 不打扰用户；拒绝与未确认的原始诊断都显示出来，不静默吞掉。
+        if (outcome.status === "saved" || outcome.status === "unchanged") {
+            return;
+        }
+        notification.warning(outcome.diagnosis, {title: t("ide.workbench.view.moveFailed")});
+    },
+});
+
+/** 预览文案：动作种类 + 并入的视图数（拖动中显示在插入线旁）；`noop` 带预览时只承诺保持布局。 */
+const dropPreviewLabel = computed(() => {
+    const preview = workbenchDrop.preview.value;
+    if (preview === null) {
+        return "";
+    }
+    if (workbenchDrop.decision.value === "noop") {
+        return t("ide.workbench.drop.keepLayout");
+    }
+    if (workbenchDrop.decision.value === "merge-container") {
+        return t("ide.workbench.container.command.merge", {count: preview.count});
+    }
+    return workbenchDrop.decision.value === "move-container"
+        ? t("ide.workbench.container.command.moveTo")
+        : t("ide.workbench.view.moveTo");
+});
+
+/**
+ * 跟随指针的唯一 Overlay 的文案：按 `useWorkbenchDrop` 冻结的源载荷，从**当前呈现**里取标题与图标。
+ *
+ * 取不到（视图 / 容器这一刻已不在呈现里）时回落到 id：拖动期间结构变化本来就整场取消，
+ * 这里只保证「拖着的标签不会是空的」。
+ */
+const dropOverlay = computed<{label: string; iconClass: string | undefined} | null>(() => {
+    const source = workbenchDrop.source.value;
+    if (source === null) {
+        return null;
+    }
+    if (source.kind === "workbench-view") {
+        const entry = viewPresentation.value?.entries.find((item) => item.view.id === source.viewId) ?? null;
+        return {label: entry?.title ?? source.viewId, iconClass: entry?.view.icon};
+    }
+    const container = viewPresentation.value?.container(source.containerId) ?? null;
+    return {label: container?.title ?? source.containerId, iconClass: container?.icon};
+});
 const workbenchShellRef = ref<InstanceType<typeof WorkbenchShell> | null>(null);
 /**
  * 叶的显隐都由页面事实驱动，走外壳暴露的 `setLeafVisible`：
@@ -317,6 +771,134 @@ watch([workbenchShellRef, projectPickerActive], ([shell, pickerActive]) => {
     shell.setLeafVisible("left", !pickerActive);
     shell.setLeafVisible("right", !pickerActive);
 });
+
+/**
+ * 工作台命令宿主：与 Lab 同形的 provide/inject host。
+ *
+ * 本任务只注册**外壳与 View 标题**两域的具名命令（面板位置/对齐/隐藏/收起/最大化/移动视图，以及
+ * 打开视图贡献的刷新），不迁移全部编辑器命令、不加全局快捷键、不新建命令面板 UI——那些仍属后续切片。
+ */
+const workbenchCommands = provideWorkbenchCommands({
+    development: import.meta.dev,
+    report: (error: Error): void => {
+        notification.error(error.message);
+    },
+});
+
+/** 命令上下文与视图可见性求值同源：谁都不许各记一份环境事实。 */
+watch(workbenchViewContext, (context) => {
+    workbenchCommands.context.value = context;
+}, {immediate: true});
+
+/** View 标题动作：句柄与状态存在宿主，点击经 canonical 命令命中**精确实例**。 */
+const viewActions = useWorkbenchViewActions({
+    registry: workbenchCommands.registry,
+    entries: () => viewPresentation.value?.entries ?? [],
+    titleOf: (metadata) => t(metadata.titleKey),
+    context: () => workbenchCommands.context.value,
+    onFailure: (diagnosis) => notification.warning(diagnosis, {title: t("ide.workbench.view.actionFailed")}),
+});
+
+/** 框架命令的宿主端口：面板状态与位置类命令都写唯一 placement 会话，最大化只改页面内存。 */
+const shellCommandPort: WorkbenchShellCommandPort = {
+    state: () => ({
+        panel: {...panelPreferences.value, maximized: panelMaximized.value},
+        mode: workbenchShellRef.value?.facts?.mode ?? "split",
+        ready: !viewPlacements.loading.value,
+    }),
+    setPanelState: (patch) => viewPlacements.setPanelState(patch),
+    setMaximized: (maximized) => {
+        panelMaximized.value = maximized;
+    },
+    moveView: (request) => viewPlacements.moveView(request),
+    moveContainer: (request) => viewPlacements.moveContainer(request),
+    mergeContainer: (request) => viewPlacements.mergeContainer(request),
+    reopenContainer: (containerId) => viewPlacements.reopenContainer(containerId),
+    selectContainer: (partId, containerId) => viewPlacements.selectContainer(partId, containerId),
+    restoreContainerPlacement: (containerId) => viewPlacements.restoreContainerPlacement(containerId),
+    restoreViewPlacement: (viewId) => viewPlacements.restoreViewPlacement(viewId),
+    setPartVisibility: (input) => viewPlacements.setPartVisibility(input),
+    revealView: async (viewId) => {
+        // 命令 / 菜单路径与欢迎页、Agent 共用同一条 reveal-view 命令；这里只额外重发工具焦点，
+        // 诊断仍由命令结果的既有报告通道给出（不在这一层重复提示）。
+        const outcome = await viewPlacements.revealView(viewId);
+        republishToolViewAfterReveal(outcome);
+        return outcome;
+    },
+};
+
+/** 容器动作组（标签 / 标题右侧的菜单）：本产品只给「恢复默认落点」，选中后经真实容器命令执行。 */
+const containerActions = computed<WorkbenchTitleActionItems>(() => ({
+    primary: [],
+    secondary: [{
+        id: SHELL_CONTAINER_COMMAND_IDS.restore,
+        label: t("ide.workbench.container.command.restore"),
+        icon: "i-lucide-rotate-ccw",
+    }],
+}));
+
+const commandReleases: Release[] = [];
+function registerCommands(label: string, result: CommandResult<Release>): void {
+    if (!result.ok) {
+        notification.error(`${label}：${result.reason}`);
+        return;
+    }
+    commandReleases.push(result.value);
+}
+registerCommands("外壳命令注册失败", registerWorkbenchShellCommands(workbenchCommands.registry, shellCommandPort));
+// View 标题命令按宿主的白名单注册：View 贡献只声明 commandId，元数据由这里给定。
+registerCommands("View 标题命令注册失败", registerViewTitleCommands(workbenchCommands.registry, [SHELL_FILES_REFRESH_COMMAND], {runAction: viewActions.runAction}));
+onBeforeUnmount(() => {
+    for (const release of commandReleases.splice(0)) {
+        release();
+    }
+});
+
+/**
+ * 位置会话的上下文签名：容器几何、手势基线与尺寸批的上下文键。
+ *
+ * 与 `titleActionsContextKey`（面板呈现串，只用于关旧菜单）**不是同一个值**：
+ * 尺寸批按会话签名校验，把呈现串传下去会让每次尺寸提交都被判为过期。
+ */
+const placementContextKey = computed(() => viewPlacements.contextKey());
+
+/** 标题动作的上下文键：面板状态或活动 View 的代际变化都会让旧菜单关闭、旧目标作废。 */
+const titleActionsContextKey = computed(() => [
+    workbenchLayoutSurface.value.kind,
+    panelPreferences.value.position,
+    panelPreferences.value.alignment,
+    panelPreferences.value.hidden ? "hidden" : "visible",
+    panelPreferences.value.collapsed ? "collapsed" : "expanded",
+    panelMaximized.value ? "maximized" : "normal",
+].join("|"));
+
+/** Panel 框架操作：菜单里看到的禁用与原因，与命令 `run` 判的是同一条规则。 */
+const panelTitleActions = computed<WorkbenchTitleActionItems>(() => resolvePanelTitleActions({
+    state: {...panelPreferences.value, maximized: panelMaximized.value},
+    mode: workbenchShellRef.value?.facts?.mode ?? "split",
+    ready: !viewPlacements.loading.value,
+    titleOf: (titleKey) => t(titleKey),
+}));
+
+/** 标题操作的三层落点：框架项经命令目录执行，容器项经容器命令执行，View 项经实例句柄执行。 */
+async function handleTitleAction(payload: WorkbenchTitleActionEvent): Promise<void> {
+    if (payload.scope === "panel") {
+        const result = await executePanelActionItem(workbenchCommands.registry, payload.actionId);
+        if (!result.ok) {
+            notification.warning(result.reason, {title: t("ide.workbench.panel.stateRejected")});
+        }
+        return;
+    }
+    if (payload.scope === "container") {
+        // 容器动作组里的每一条都是容器命令（当前只有「恢复默认落点」）：点击重新求值后再执行。
+        const result = await workbenchCommands.registry.executeCommand(payload.actionId, {containerId: payload.target.containerId});
+        if (!result.ok) {
+            notification.warning(result.reason, {title: t("ide.workbench.container.actionRejected")});
+        }
+        return;
+    }
+    await viewActions.run(payload.target, payload.actionId);
+}
 let removeDesktopMenuListener: (() => void) | null = null;
 let desktopZoomQueue: Promise<void> = Promise.resolve();
 
@@ -530,19 +1112,12 @@ const agentStudioStyle = computed(() => {
     }
     return agentStudioPanelOpen.value ? agentStudioPanelStyle.value : {width: "0px"};
 });
-const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
-    if (!workspaceBootstrapped.value) {
-        return "files";
-    }
-    if (isUserAssetsWorkspace.value) {
-        return "files";
-    }
-    if (activeLeftTab.value === null) {
-        return null;
-    }
-    return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
-});
-const displaySidebarActiveTab = computed<NovelIdeTab | null>(() => displayActiveLeftTab.value);
+
+/**
+ * 主侧栏当前的容器由位置记录与容器切片决定（`partPresentation("left")`）。页面不再有并行的
+ * 「活动左侧页签」状态：工具上下文由非持久的 `activeToolView` 承载（见下面的工具焦点发布），
+ * 活动栏与工具视图的呈现都不从它推导选择。
+ */
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value
     ? t("ide.header.userAssets")
     : currentNovel.value?.title ?? currentProjectRoot.value);
@@ -558,8 +1133,6 @@ const currentFileExtension = computed(() => {
 });
 
 const workspaceDisplayReady = computed(() => workspaceBootstrapped.value && workspaceReady.value);
-const displayWorkspaceTabs = computed(() => workspaceDisplayReady.value ? editorWorkbench.tabs.value : []);
-const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value ? activeWorkspaceTabPath.value : "");
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
 const characterProfileVisible = computed({
     get: () => frontmatterProfileKind.value === "character",
@@ -1269,21 +1842,57 @@ watch(selectedFilePath, () => {
 });
 
 /**
- * 关闭标签页，脏文件先确认。
- */
-const closeEditorTab = editorWorkbench.closeTab;
-
-/**
  * 处理切换前的未保存文件修改。
  */
 type WorkspaceSwitchDecision = "save" | "discard" | "cancel";
 
 /**
- * 处理切换前的未保存文件修改。
+ * 排空编辑会话已形成的意图（分组/标签/活动组/尺寸手势）。未确认时停住切换：
+ * 布局改动不能因为切工作面被静默丢掉，用户可在编辑区顶部按提示选择重试 / 采用已保存 / 覆盖。
  */
+async function flushEditorSessionBeforeSwitch(): Promise<boolean> {
+    if (await editorSessionStorage.flush()) {
+        return true;
+    }
+    notification.warning("编辑布局还有未确认的保存，请先在编辑区顶部处理，或放弃本窗口的布局改动。", {title: "编辑布局待确认"});
+    return false;
+}
+
+/**
+ * 编辑会话记录的提示与出口：首读失败/未确认/冲突/受保护各有明确动作，
+ * 「以本窗口布局覆盖」按计划先向用户确认要替换其它窗口已保存的布局。
+ */
+const editorSessionNotice = computed(() => editorSessionStorage.notice.value);
+const editorSessionNoticeActions = computed(() => {
+    const notice = editorSessionNotice.value;
+    if (!notice) return {retry: false, adopt: false, overwrite: false, abandon: false};
+    return {
+        retry: notice.retryable,
+        adopt: notice.kind === "conflict",
+        overwrite: notice.kind === "conflict" && notice.overwritable,
+        abandon: notice.kind === "unsaved" || notice.kind === "conflict",
+    };
+});
+async function adoptSavedEditorLayout(): Promise<void> {
+    await editorSessionStorage.adoptSaved();
+}
+async function overwriteSavedEditorLayout(): Promise<void> {
+    const confirmed = await choose("以本窗口布局覆盖会替换其它窗口已保存的分组与标签。继续？", [
+        {label: "覆盖", value: "overwrite", tone: "danger"},
+        {label: t("common.cancel"), value: "cancel"},
+    ], "覆盖已保存布局");
+    if (confirmed !== "overwrite") return;
+    await editorSessionStorage.overwriteWithSaved();
+}
+
 const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision> => {
+    // 未解决输入必须先裁决：不把"防抖已清"当已入 Store，也不在有候选待裁决时切工作面。
+    if (editorWorkbench.flush() === "conflict" || novelIdeStore.hasUnresolvedEditorChanges) {
+        notification.warning("有编辑内容与最新正文冲突，请先在编辑区顶部选择「采用当前正文」或「保留此视图内容」再切换。", {title: "有待裁决的编辑内容"});
+        return "cancel";
+    }
     if (!hasUnsavedWorkspaceChanges.value) {
-        return "save";
+        return await flushEditorSessionBeforeSwitch() ? "save" : "cancel";
     }
 
     const action = await choose(t("ide.shell.unsavedWorkspaceMessage"), [
@@ -1297,7 +1906,13 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
     }
     if (action === "save") {
         await saveDirtyWorkspaceFiles();
+        if (!await flushEditorSessionBeforeSwitch()) {
+            return "cancel";
+        }
         return "save";
+    }
+    if (!await flushEditorSessionBeforeSwitch()) {
+        return "cancel";
     }
 
     return "discard";
@@ -1686,21 +2301,6 @@ const toggleAgentModeStudio = (): void => {
 };
 
 /**
- * 处理左侧窄 sidebar 的模式入口。
- */
-const handleSidebarToggle = (tab: NovelIdeTab): void => {
-    if (isAgentMode.value) {
-        void runLayoutModeTransition(() => {
-            layoutMode.value = "ide";
-            agentPanelOpen.value = false;
-            activeLeftTab.value = tab;
-        });
-        return;
-    }
-    toggleLeftTab(tab);
-};
-
-/**
  * 合并并应用 workspace 文件系统事件。
  */
 const flushWorkspaceFileEvents = async (): Promise<void> => {
@@ -1840,13 +2440,6 @@ const openAdmin = async (): Promise<void> => {
 };
 
 /**
- * 切换左侧标签；若重复点击则收起。
- */
-const toggleLeftTab = (tab: NovelIdeTab): void => {
-    activeLeftTab.value = activeLeftTab.value === tab ? null : tab;
-};
-
-/**
  * 从主 IDE 打开当前 Project 的 World Engine 工作台。
  */
 const openWorldEngineWorkbench = (): void => {
@@ -1858,6 +2451,9 @@ const openWorldEngineWorkbench = (): void => {
 
 /**
  * 从主 IDE 打开当前 Project 的 Plot 工作台。
+ *
+ * 只切模式与打开对话框：它不再写「活动左侧页签」——主侧栏显示哪个容器由位置记录决定，
+ * 一个对话框的开关不该顺手改用户的容器选择。
  */
 const openPlotWorkbench = async (): Promise<void> => {
     if (isUserAssetsWorkspace.value) {
@@ -1867,10 +2463,7 @@ const openPlotWorkbench = async (): Promise<void> => {
     if (isAgentMode.value) {
         await runLayoutModeTransition(() => {
             layoutMode.value = "ide";
-            activeLeftTab.value = "plot";
         });
-    } else {
-        activeLeftTab.value = "plot";
     }
 
     plotWorkbenchOpen.value = true;
@@ -1932,7 +2525,12 @@ const initializeWorkspaceFromRoute = async (target: ProjectRouteTarget, revision
         if (!ownsProjectRouteIntent(revision)) return;
         await switchToUserAssetsWorkspace();
         if (!ownsProjectRouteIntent(revision)) return;
-        activeLeftTab.value = "files";
+        // 分组拓扑与逐组标签的真相在编辑会话记录里：领域会话（sessionStorage 的正文草稿）先恢复，
+        // 记录随后按"组集合"覆盖呈现；两边都完成才允许拓扑调整。
+        await editorSessionStorage.initialize();
+        if (!ownsProjectRouteIntent(revision)) return;
+        // 用户资产工作面的容器选择归位置记录（`workbench.views/customizations`），
+        // 路由就绪不再强写一个"活动左侧页签"覆盖用户选择。
         return;
     }
 
@@ -1955,6 +2553,11 @@ const initializeWorkspaceFromRoute = async (target: ProjectRouteTarget, revision
             return;
         }
         setProjectRouteProgress(revision, "restoring-content");
+        await editorSessionStorage.initialize();
+        if (!ownsProjectRouteIntent(revision)) {
+            await releaseProjectSurface();
+            return;
+        }
         return;
     }
 
@@ -2143,6 +2746,10 @@ function openFrontmatterProfile(kind: FrontmatterProfileKind): void {
 
 /**
  * 从欢迎页打开文件树；Agent Mode 下展开 Studio 内部文件树。
+ *
+ * 主侧栏那一支与 Agent 的 `ide.activePanel = files` 走**同一条**揭示命令：选中文件工具当前生效的
+ * 容器、打开目标 Part、清掉 View 与面板的内容收起——同一条记录、同一次提交，并按真实可见性重发
+ * 工具焦点；这里不写任何「活动页签」。
  */
 function openWelcomeFiles(): void {
     if (isAgentMode.value) {
@@ -2150,26 +2757,40 @@ function openWelcomeFiles(): void {
         agentStudioFileTreeOpen.value = true;
         return;
     }
-    activeLeftTab.value = "files";
+    void revealToolView(SHELL_FILES_VIEW.id);
 }
 
 /**
  * 从欢迎页打开 Project Workspace 路径。
  */
-async function openWelcomeWorkspacePath(filePath: string): Promise<void> {
+async function openWelcomeWorkspacePath(filePath: string, groupId?: string): Promise<void> {
     openWelcomeFiles();
+    const openIn = groupId ?? novelIdeStore.activeEditorGroupId;
     try {
         if (filePath === "world-engine/calendar.ts") {
             const created = await ensureWorldEngineCalendarFile();
-            await novelIdeStore.selectWorkspacePath(filePath, "permanent");
+            await novelIdeStore.selectWorkspacePathInGroup(openIn, filePath, "permanent");
             if (created) {
                 notification.success("已创建 world-engine/calendar.ts", {title: "Calendar 配置已就绪"});
             }
             return;
         }
-        await novelIdeStore.selectWorkspacePath(filePath, "permanent");
+        await novelIdeStore.selectWorkspacePathInGroup(openIn, filePath, "permanent");
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, t("ide.shell.openPathFailed", {path: filePath})), {title: t("ide.shell.openPathFailedTitle")});
+    }
+}
+
+/**
+ * 处理编辑器面包屑路径节点点击导航；`groupId` 决定在哪个组打开（点击发生在该组里）。
+ */
+async function handleBreadcrumbNavigate(groupId: string, item: {id: string; path?: string}): Promise<void> {
+    if (item.path) {
+        if (item.path === groupPresentation(groupId)?.activePath) {
+            void editorWorkbench.focusGroup(groupId);
+            return;
+        }
+        await openWelcomeWorkspacePath(item.path, groupId);
     }
 }
 
@@ -2566,28 +3187,60 @@ onBeforeUnmount(() => {
              未选择 Project 时书架视图落在 editor 叶，标题栏与图标条照常在位。
              占位块的面/描边/字号只走 nb-ui 主题变量（见下面 .workbench-demo-leaf）：
              写死一个色，主题换掉后外壳就会是唯一没跟上的一块。 -->
-        <WorkbenchShell ref="workbenchShellRef" :surface="workbenchLayoutSurface">
+        <DragDropProvider
+            :sensors="workbenchDrop.sensors"
+            @drag-start="workbenchDrop.handlers.onDragStart"
+            @drag-move="workbenchDrop.handlers.onDragMove"
+            @drag-over="workbenchDrop.handlers.onDragOver"
+            @drag-end="workbenchDrop.handlers.onDragEnd">
+        <WorkbenchViewInstances :views="viewPresentation?.entries ?? []" :view-factory-resolver="resolveWorkbenchViewFactory"
+            @view-actions="(target, states) => viewActions.setStates(target, states)"
+            @view-handle-ready="(target, handle) => viewActions.bindHandle(target, handle)">
+        <!-- 容器实例层：每个容器一个 ViewHost，按 Part 宿主登记的挂载目标搬进去；活动容器一换只搬 DOM。 -->
+        <WorkbenchContainerInstances :containers="containerSlices"
+            :view-sizes="viewPlacements.record.value.viewSizes ?? {}"
+            :context-key="viewPlacements.contextKey()"
+            :allow-container-move="true"
+            :actions-context-key="titleActionsContextKey"
+            :actions-by-view="viewActions.actionsByView.value"
+            :allow-view-move="true"
+            :move-label="t('ide.workbench.view.moveTo')"
+            :view-actions-label="t('ide.workbench.view.actions')"
+            @move-view="(request) => void handleMoveView(request)"
+            @view-sizes="(payload) => void handleViewSizes(payload)"
+            @title-action="(payload) => void handleTitleAction(payload)">
+        <WorkbenchShell ref="workbenchShellRef" :surface="workbenchLayoutSurface"
+            :panel="panelPreferences" :maximized="panelMaximized"
+            :drag-collapsed-parts="dragCollapsedParts"
+            @update:maximized="panelMaximized = $event"
+            @drag-collapse="(payload) => void handleDragCollapse(payload)">
             <template #titlebar>
                 <!-- 自绘 header 纳入 titlebar 叶：平台边界（bridge 命令、安全区、菜单数据）仍在组件内。 -->
                 <DesktopTitleBar />
             </template>
             <template #activity>
                 <!-- 图标条宿主换成 activity 叶：叶宽是树上的刚性尺寸（卡片 + 两侧留白），
-                     卡片四周的留白由外壳加在叶上，组件只负责卡片自己长什么样。 -->
+                     卡片四周的留白由外壳加在叶上，组件只负责卡片自己长什么样。
+                     上半只列主侧栏容器（单选），工具与账户命令在底部两组。 -->
                 <NovelIdeActivityBar
                     class="h-full"
-                    :active-tab="displaySidebarActiveTab"
+                    :containers="activityContainers"
+                    :active-container-id="partPresentation('left').activeContainerId"
+                    :allow-container-move="true"
+                    :allow-view-move="true"
+                    :context-key="viewPlacements.contextKey()"
+                    :container-actions="containerActions"
+                    @container-action="(containerId: string, actionId: string) => void handleTitleAction({scope: 'container', target: {containerId}, actionId})"
                     :desktop-available="Boolean(desktopBridge)"
                     :surface-active="projectSurfaceActive"
                     :user-assets-mode="isUserAssetsWorkspace"
-                    :agent-panel-open="displayAgentPanelOpen"
                     :current-user="currentUser"
                     @open-home="void openProjectPicker()"
-                    @open-tab="handleSidebarToggle"
+                    @open-container="handleOpenContainer"
                     @open-world-engine="openWorldEngineWorkbench"
+                    @open-plot-workbench="void openPlotWorkbench()"
                     @open-trace-viewer="traceViewerOpen = true"
                     @open-history-inbox="historyInboxOpen = true"
-                    @toggle-agent-panel="void toggleAgentPanel()"
                     @open-settings="settingsDialogOpen = true"
                     @open-profile="accountProfileOpen = true"
                     @open-admin="void openAdmin()"
@@ -2595,53 +3248,200 @@ onBeforeUnmount(() => {
                 />
             </template>
             <template #left>
-                <!-- 左容器 + 视图宿主：容器声明走 descriptor（`containers.ts`），视图由注册表求值
-                     （`product-catalog.ts`）后经 factoryKey 白名单解析——左叶不再写死业务组件。
-                     内容区合同取可见视图的 layout（files 是 fill：面板自己占满并管内部滚动）；
-                     收起/展开仍由外壳几何决定，这里不改叶的显隐语义。 -->
-                <WorkbenchViewHost
-                    :container="SHELL_LEFT_CONTAINER"
-                    :container-title="t(SHELL_LEFT_CONTAINER.titleKey)"
-                    :context="workbenchViewContext"
+                <!-- 左 Part 宿主：容器选择器（Activity Bar 选中的容器在这里显示）+ 容器落点 + 挂载目标。
+                     容器里的 View 由 `WorkbenchContainerInstances` 把 ViewHost 搬进挂载目标渲染。 -->
+                <WorkbenchPartHost
+                    :presentation="partPresentation('left')"
+                    :context-key="viewPlacements.contextKey()"
+            :actions-context-key="titleActionsContextKey"
+                    :actions-by-view="viewActions.actionsByView.value"
+                    :view-actions-label="t('ide.workbench.view.actions')"
+                    :move-view-label="t('ide.workbench.view.moveTo')"
+                    :container-actions="containerActions"
+                    :container-actions-label="t('ide.workbench.container.actions')"
+                    :move-container-label="t('ide.workbench.container.command.moveTo')"
+                    :empty-text="t('ide.workbench.container.emptyPart')"
+                    :allow-container-move="true"
+                    :allow-view-move="true"
+                    @select-container="(containerId: string) => void handleSelectContainer(containerPart(containerId) ?? 'left', containerId)"
+                    @move-container="(request) => void handleMoveContainer(request)"
+                    @move-view="(request) => void handleMoveView(request)"
+                    @title-action="(payload) => void handleTitleAction(payload)"
                 />
             </template>
             <template #editor>
                 <!-- 未选择 Project：书架视图（原整页 picker）落在主区；left / right 叶由页面收起，主区整个归它。 -->
                 <ProjectPickerScreen v-if="projectPickerActive" @open="void openProjectFromPicker($event)" @open-user-assets="openUserAssets" />
-                <EditorWorkbench v-else
-                    :tabs="displayWorkspaceTabs" :active-path="displayActiveWorkspaceTabPath" :menus="editorWorkbench.menus.value"
-                    :busy="!workspaceDisplayReady || editorWorkbench.busy.value" :diagnosis="editorWorkbench.diagnosis.value"
-                    @select-tab="editorWorkbench.selectTab" @close-tab="editorWorkbench.closeTab" @set-pin="setWorkspaceTabPinned"
-                    @keep-tab="keepWorkspaceTab" @move-tab="moveWorkspaceTab" @select-menu="editorWorkbench.selectMenu"
-                    @retry="editorWorkbench.retry" @open-as-code="editorWorkbench.switchEditor('code')">
-                    <EditorViewHost v-if="editorWorkbench.document.value"
-                        :document="editorWorkbench.document.value" :editor-id="editorWorkbench.editorId.value" :registry="editorWorkbench.registry"
-                        @handle-ready="editorWorkbench.bindViewHandle" @change="novelIdeStore.updateWorkspaceDocument"
-                        @save-request="editorWorkbench.saveRequested" @focus-change="editorWorkbench.setFocus"
-                        @view-actions="editorWorkbench.setActions" @view-error="editorWorkbench.viewError" />
-                    <EditorWelcome v-else :node="displaySelectedFileNode" :tabs="displayWorkspaceTabs" :workspace-mode="workspaceKind"
-                        @select-tab="editorWorkbench.selectTab" @open-path="openWelcomeWorkspacePath" @open-files="openWelcomeFiles"
-                        @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile" @create-lorebook-entry="createWelcomeLorebookEntry"
-                        @open-agent-panel="openWelcomeAgentPanel" @open-profile-workbench="profileWorkbenchOpen = true" />
-                    <template #empty>
-                        <EditorWelcome :node="displaySelectedFileNode" :tabs="displayWorkspaceTabs" :workspace-mode="workspaceKind"
-                            @select-tab="editorWorkbench.selectTab" @open-path="openWelcomeWorkspacePath" @open-files="openWelcomeFiles"
-                            @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile" @create-lorebook-entry="createWelcomeLorebookEntry"
-                            @open-agent-panel="openWelcomeAgentPanel" @open-profile-workbench="profileWorkbenchOpen = true" />
-                    </template>
-                    <template #status><span role="status">{{ savingFile ? t('editorWorkbench.saving') : novelIdeStore.hasUnsavedFileChanges ? t('editorWorkbench.unsaved') : selectedFileNode?.editable ? t('editorWorkbench.saved') : '' }}</span></template>
-                </EditorWorkbench>
+                <div v-else class="flex h-full min-h-0 min-w-0 flex-col">
+                <!-- 编辑会话记录：未确认 / 冲突 / 受保护 / 首读失败都在这里给出明确动作。 -->
+                <div v-if="editorSessionNotice" role="status"
+                    class="flex shrink-0 items-center gap-2 border-b border-[var(--divider)] bg-[var(--status-info-bg)] px-3 py-1.5 text-xs text-[var(--text-main)]">
+                    <span class="i-lucide-layout-dashboard h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" aria-hidden="true" />
+                    <span class="min-w-0 flex-1 truncate">{{ editorSessionNotice.diagnosis }}</span>
+                    <button v-if="editorSessionNoticeActions.retry" type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                        @click="void editorSessionStorage.retry()">重试保存</button>
+                    <button v-if="editorSessionNoticeActions.adopt" type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                        @click="void adoptSavedEditorLayout()">采用已保存布局</button>
+                    <button v-if="editorSessionNoticeActions.overwrite" type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                        @click="void overwriteSavedEditorLayout()">以本窗口布局覆盖</button>
+                    <button v-if="editorSessionNoticeActions.abandon" type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                        @click="editorSessionStorage.abandon()">放弃</button>
+                </div>
+                <!-- 恢复期问题（过滤的失效标签、追加的未保存文档等）：只报告，不自动写回记录。 -->
+                <div v-if="editorSessionStorage.issues.value.length > 0" role="status"
+                    class="flex shrink-0 items-center gap-2 border-b border-[var(--divider)] px-3 py-1 text-[11px] text-[var(--text-muted)]">
+                    <span class="i-lucide-info h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span class="min-w-0 flex-1 truncate">{{ editorSessionStorage.issues.value.join("；") }}</span>
+                </div>
+                <!-- 未解决输入：视图候选与权威正文冲突，必须由用户显式裁决后才能保存/关闭/切换。 -->
+                <div v-if="editorWorkbench.unresolvedChanges.value.length > 0" role="alert"
+                    class="flex shrink-0 flex-col gap-1 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-1.5 text-xs text-[var(--text-main)]">
+                    <div v-for="item in editorWorkbench.unresolvedChanges.value" :key="item.token" class="flex items-center gap-2">
+                        <span class="i-lucide-git-compare-arrows h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]" aria-hidden="true" />
+                        <span class="min-w-0 flex-1 truncate">编辑内容与最新正文冲突：{{ item.path }}</span>
+                        <template v-if="item.groupId">
+                            <button type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                                @click="editorWorkbench.resolveConflict(item.groupId, item.token, 'adopt-current')">采用当前正文</button>
+                            <button type="button" class="cursor-pointer rounded px-1.5 py-0.5 hover:bg-[var(--bg-hover)]"
+                                @click="editorWorkbench.resolveConflict(item.groupId, item.token, 'keep-view')">保留此视图内容</button>
+                        </template>
+                        <span v-else class="text-[var(--text-muted)]">请回到该编辑组处理</span>
+                    </div>
+                </div>
+                <EditorWorkbench
+                    class="flex-1"
+                    :groups="editorGroups" :tree="editorWorkbench.editorTree.value" :layout="editorWorkbench.editorLayout.value"
+                    :active-group-id="editorWorkbench.activeGroupId.value" :allow-split="editorSessionStorage.ready.value"
+                    @container-extent="editorWorkbench.setContainer"
+                    :context-key="editorWorkbench.gestureContextKey.value" :revision="editorWorkbench.gestureRevision.value"
+                    :on-gesture-commit="editorWorkbench.acceptGesture"
+                    @select-tab="editorWorkbench.selectTab" @close-tab="editorWorkbench.closeTab"
+                    @set-pin="editorWorkbench.setPin" @keep-tab="editorWorkbench.keepTab"
+                    @move-tab="editorWorkbench.moveTab"
+                    @transfer-tab="(payload) => editorWorkbench.transfer(payload)"
+                    @split-tab="(payload) => editorWorkbench.splitToEdge(payload)"
+                    @toolbar-action="editorWorkbench.runViewAction"
+                    @select-menu="editorWorkbench.selectMenu"
+                    @retry="editorWorkbench.retry" @open-as-code="(groupId) => editorWorkbench.switchEditor(groupId, 'code')"
+                    @navigate-breadcrumb="(groupId, item) => handleBreadcrumbNavigate(groupId, item)"
+                    @empty-focus="editorWorkbench.selectGroup" @focus-group="editorWorkbench.selectGroup">
+                <!-- 每片叶挂自己的真实视图宿主：实例 token 与文档身份一起校验，后台组就绪不抢焦点。 -->
+                <template #content="{ groupId }">
+                    <EditorViewHost v-if="groupPresentation(groupId)?.document"
+                        :document="groupPresentation(groupId)!.document!"
+                        :editor-id="groupPresentation(groupId)?.editorId ?? null"
+                        :registry="editorWorkbench.registry"
+                        :commit-change="(request) => editorWorkbench.commitChange(groupId, request)"
+                        :conflict-resolution="editorWorkbench.conflictRequest.value?.groupId === groupId ? editorWorkbench.conflictRequest.value : null"
+                        @handle-ready="(target, token, handle) => editorWorkbench.bindViewHandle(groupId, target, token, handle)"
+                        @save-request="() => void editorWorkbench.save(groupId)"
+                        @focus-change="(target, token, focused) => editorWorkbench.setFocus(groupId, target, token, focused)"
+                        @view-actions="(target, token, actions) => editorWorkbench.setActions(groupId, target, token, actions)"
+                        @view-error="(target, token, message) => editorWorkbench.viewError(groupId, target, token, message)"
+                        @conflict-resolved="editorWorkbench.acknowledgeConflict" />
+                    <EditorWelcome v-else :node="groupId === editorWorkbench.activeGroupId.value ? displaySelectedFileNode : null"
+                        :tabs="editorGroups.find((item) => item.id === groupId)?.tabs ?? []" :workspace-mode="workspaceKind"
+                        @select-tab="(path) => editorWorkbench.selectTab(groupId, path)" @open-path="(path) => openWelcomeWorkspacePath(path, groupId)"
+                        @open-files="openWelcomeFiles" @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile"
+                        @create-lorebook-entry="createWelcomeLorebookEntry" @open-agent-panel="openWelcomeAgentPanel"
+                        @open-profile-workbench="profileWorkbenchOpen = true" />
+                </template>
+                <template #empty="{ groupId }">
+                    <EditorWelcome :node="null" :tabs="editorGroups.find((item) => item.id === groupId)?.tabs ?? []" :workspace-mode="workspaceKind"
+                        @select-tab="(path) => editorWorkbench.selectTab(groupId, path)" @open-path="(path) => openWelcomeWorkspacePath(path, groupId)"
+                        @open-files="openWelcomeFiles" @create-chapter="createWelcomeChapter" @create-markdown-file="createWelcomeMarkdownFile"
+                        @create-lorebook-entry="createWelcomeLorebookEntry" @open-agent-panel="openWelcomeAgentPanel"
+                        @open-profile-workbench="profileWorkbenchOpen = true" />
+                </template>
+            </EditorWorkbench>
+                </div>
             </template>
             <template #right>
-                <!-- 右容器：内容区按 `fill` 呈现（视图自己占满、自管内部滚动）——Agent 对话面就是这一档。
-                     本批仍只有演示文案，真视图（Agent 会话 / 对话面）在后续阶段迁入。 -->
-                <WorkbenchContainerSurface :container="SHELL_RIGHT_CONTAINER" :title="t(SHELL_RIGHT_CONTAINER.titleKey)" layout="fill">
-                    <div class="workbench-leaf-placeholder workbench-leaf-placeholder--fill">
-                        <span>右栏容器：Agent Chat Surface（后续阶段迁入）</span>
-                    </div>
-                </WorkbenchContainerSurface>
+                <!-- 右 Part 宿主：与左栏、底部共用同一份容器切片；容器可以被用户搬到这里。 -->
+                <WorkbenchPartHost
+                    :presentation="partPresentation('right')"
+                    :context-key="viewPlacements.contextKey()"
+            :actions-context-key="titleActionsContextKey"
+                    :actions-by-view="viewActions.actionsByView.value"
+                    :view-actions-label="t('ide.workbench.view.actions')"
+                    :move-view-label="t('ide.workbench.view.moveTo')"
+                    :container-actions="containerActions"
+                    :container-actions-label="t('ide.workbench.container.actions')"
+                    :move-container-label="t('ide.workbench.container.command.moveTo')"
+                    :empty-text="t('ide.workbench.container.emptyPart')"
+                    :allow-container-move="true"
+                    :allow-view-move="true"
+                    @select-container="(containerId: string) => void handleSelectContainer(containerPart(containerId) ?? 'right', containerId)"
+                    @move-container="(request) => void handleMoveContainer(request)"
+                    @move-view="(request) => void handleMoveView(request)"
+                    @title-action="(payload) => void handleTitleAction(payload)"
+                />
+            </template>
+            <template #panel="{ collapsed }">
+                <!-- 底部 Part 宿主：收起时只留 32px 标题头（叶仍在树里，容器里的实例不重挂）。 -->
+                <WorkbenchPartHost
+                    :presentation="partPresentation('panel')"
+                    :panel-collapsed="collapsed"
+                    :context-key="viewPlacements.contextKey()"
+            :actions-context-key="titleActionsContextKey"
+                    :actions-by-view="viewActions.actionsByView.value"
+                    :view-actions-label="t('ide.workbench.view.actions')"
+                    :move-view-label="t('ide.workbench.view.moveTo')"
+                    :panel-actions="panelTitleActions"
+                    :panel-actions-label="t('ide.workbench.panel.more')"
+                    :panel-collapse-label="t('ide.workbench.panel.command.collapse')"
+                    :container-actions="containerActions"
+                    :container-actions-label="t('ide.workbench.container.actions')"
+                    :move-container-label="t('ide.workbench.container.command.moveTo')"
+                    :empty-text="t('ide.workbench.container.emptyPart')"
+                    :allow-container-move="true"
+                    :allow-view-move="true"
+                    @select-container="(containerId: string) => void handleSelectContainer('panel', containerId)"
+                    @move-container="(request) => void handleMoveContainer(request)"
+                    @move-view="(request) => void handleMoveView(request)"
+                    @title-action="(payload) => void handleTitleAction(payload)"
+                    @panel-collapse="(payload) => void handlePanelState({collapsed: payload.collapsed})"
+                />
+            </template>
+            <template #statusbar>
+                <!-- 状态栏只显示真实事实：工作面/Project、活动文档保存态、活动组、活动编辑器、可见视图计数与底部显隐。 -->
+                <WorkbenchStatusBar :aria-label="t('ide.workbench.statusBar')">
+                    <template #left>
+                        <WorkbenchStatusBarItem id="workspace" :clickable="false"
+                            :icon="isUserAssetsWorkspace ? 'i-lucide-user-round' : 'i-lucide-book-marked'"
+                            :label="isUserAssetsWorkspace ? t('ide.workbench.userAssets') : displayNovelTitle" />
+                        <WorkbenchStatusBarItem id="save-state" :clickable="false" :variant="statusBarSaveState.variant" :label="statusBarSaveState.label" />
+                    </template>
+                    <template #right>
+                        <WorkbenchStatusBarItem id="active-editor" :clickable="false" :label="statusBarEditorLabel" />
+                        <WorkbenchStatusBarItem id="editor-group" :clickable="false" icon="i-lucide-columns-2"
+                            :label="`${statusBarGroupIndex}/${statusBarGroupCount}`" />
+                        <WorkbenchStatusBarItem id="workbench-views" :clickable="false" icon="i-lucide-panels-top-left"
+                            :label="`${statusBarVisibleViews}/${statusBarContainers}`" />
+                        <WorkbenchStatusBarItem id="panel-visibility" icon="i-lucide-panel-bottom"
+                            :active="!panelPreferences.hidden"
+                            :label="panelPreferences.hidden ? t('ide.workbench.panelShow') : t('ide.workbench.panelHide')"
+                            :aria-label="panelPreferences.hidden ? t('ide.workbench.panelShow') : t('ide.workbench.panelHide')"
+                            data-shell-focus-target="panel-toggle"
+                            @click="void togglePanelVisibility()" />
+                    </template>
+                </WorkbenchStatusBar>
             </template>
         </WorkbenchShell>
+        </WorkbenchContainerInstances>
+        </WorkbenchViewInstances>
+        <WorkbenchDropOverlay
+            :preview="workbenchDrop.preview.value"
+            :kind="workbenchDrop.decision.value ?? ''"
+            :label="dropPreviewLabel"
+        />
+        <!-- 唯一 Custom Overlay：跟指针走的是它，源条目原地不动、也不生成占位副本。 -->
+        <WorkbenchDragOverlay
+            :source="workbenchDrop.source.value"
+            :label="dropOverlay?.label ?? ''"
+            :icon-class="dropOverlay?.iconClass"
+        />
+        </DragDropProvider>
 
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <NovelIdeProfileDialog v-model="accountProfileOpen" />

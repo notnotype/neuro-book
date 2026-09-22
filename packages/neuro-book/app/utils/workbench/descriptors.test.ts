@@ -80,13 +80,13 @@ describe("createWorkbenchRegistry", () => {
 
         expect(registry.resolveView("nbook.ghost")).toEqual({ok: false, reason: "视图 id 未登记：nbook.ghost"});
         expect(registry.resolveContainer("nbook.ghost")).toEqual({ok: false, reason: "容器 id 未登记：nbook.ghost"});
-        expect(registry.resolvePart("statusbar")).toEqual({ok: false, reason: "Part id 未登记：statusbar"});
+        expect(registry.resolvePart("editor-zone")).toEqual({ok: false, reason: "Part id 未登记：editor-zone"});
         expect(registry.viewsOf("nbook.ghost")).toEqual({ok: false, reason: "容器 id 未登记：nbook.ghost"});
     });
 
     it("未登记取值与悬空引用让校验失败，且一次性给全所有问题", () => {
         const broken = {
-            parts: [{id: "statusbar", titleKey: "workbench.part.statusbar", canToggleVisibility: false}],
+            parts: [{id: "editor-zone", titleKey: "workbench.part.editorZone", canToggleVisibility: false}],
             containers: [
                 {id: "nbook.explorer", titleKey: "workbench.container.explorer", icon: "i-lucide-files", location: "sidebar-left", order: 10},
                 {id: "nbook.panel", titleKey: "workbench.container.panel", icon: "i-lucide-alert-triangle", location: "sidebar-top", order: 20},
@@ -108,34 +108,100 @@ describe("createWorkbenchRegistry", () => {
         expect(result.ok).toBe(false);
         const reason = result.ok ? "" : result.reason;
         for (const problem of [
-            "Part id 未登记：statusbar",
+            "Part id 未登记：editor-zone",
             "容器 nbook.panel：未登记的容器位置：sidebar-top",
             "视图 nbook.ghost 的 container 未求值：nbook.missing",
             "视图 nbook.fixed 的 layout 未登记：fixed",
             "视图 nbook.device 的 stateScope 未登记：device",
-            "视图 nbook.offline 的 when 取值未登记：offline",
             "视图 nbook.billing 的 requiredAuthority 未登记：billing",
             "视图 id 未命名空间化：NBook.Files",
             "视图 id 重复：nbook.files",
         ]) {
             expect(reason).toContain(problem);
         }
+        // 未登记 when 键的诊断要能定位到拥有者与键（文案本身不是合同）。
+        expect(reason).toContain("nbook.offline");
+        expect(reason).toContain("offline");
+    });
+});
+
+describe("View 的尺寸约束声明", () => {
+    it("合法声明进注册表：不改写声明值，也不补默认", () => {
+        const registry = registryOf({
+            ...catalog,
+            views: [view({id: "nbook.files", minimumSize: {height: 120}, maximumSize: {height: 900, width: 600}})],
+        });
+
+        expect(registry.resolveView("nbook.files")).toEqual({
+            ok: true,
+            value: expect.objectContaining({
+                minimumSize: {height: 120},
+                maximumSize: {height: 900, width: 600},
+            }),
+        });
+    });
+
+    it("声明值必须正有限：0 / 负 / NaN / Infinity 都不是「不限」，注册期逐一拒绝", () => {
+        const result = createWorkbenchRegistry({
+            ...catalog,
+            views: [view({
+                id: "nbook.files",
+                minimumSize: {height: 0} as never,
+                maximumSize: {width: Number.NaN, height: Number.POSITIVE_INFINITY} as never,
+            })],
+        });
+
+        expect(result.ok).toBe(false);
+        const reason = result.ok ? "" : result.reason;
+        expect(reason).toContain("minimumSize.height 不是正有限数");
+        expect(reason).toContain("maximumSize.width 不是正有限数");
+        expect(reason).toContain("maximumSize.height 不是正有限数");
+    });
+
+    it("声明的上限不得低于该轴的有效最小尺寸：低于 64 直接注册失败，而不是呈现时静默丢掉", () => {
+        const belowDefault = createWorkbenchRegistry({
+            ...catalog,
+            views: [view({id: "nbook.files", maximumSize: {height: 50}})],
+        });
+        const belowFloor = createWorkbenchRegistry({
+            ...catalog,
+            views: [view({id: "nbook.files", minimumSize: {height: 10}, maximumSize: {height: 32}})],
+        });
+        const legalFloor = createWorkbenchRegistry({
+            ...catalog,
+            views: [view({id: "nbook.files", minimumSize: {height: 10}, maximumSize: {height: 33}})],
+        });
+
+        expect(belowDefault.ok).toBe(false);
+        expect(belowDefault.ok ? "" : belowDefault.reason).toContain("maximumSize.height（50）低于有效最小尺寸 64");
+        expect(belowFloor.ok).toBe(false);
+        expect(belowFloor.ok ? "" : belowFloor.reason).toContain("maximumSize.height（32）低于有效最小尺寸 33");
+        // 33 = 收起标题 32 + 1：正好等于它的上限是合法的，不比它低就行。
+        expect(legalFloor.ok).toBe(true);
     });
 });
 
 describe("evaluateWhen", () => {
     it("缺一个需求即不可见，原因按缺失项给出", () => {
-        expect(evaluateWhen({requires: ["project", "selection"]}, context)).toEqual({
-            ok: true,
-            value: {visible: false, reasons: ["需要先选中一个条目"]},
-        });
+        const missing = evaluateWhen({requires: ["project", "selection"]}, context);
+
+        expect(missing.ok).toBe(true);
+        if (missing.ok) {
+            expect(missing.value.visible).toBe(false);
+            // 只钉「缺失项各产生一条原因」的行为，不钉具体中文措辞。
+            expect(missing.value.reasons).toHaveLength(1);
+        }
         expect(evaluateWhen({requires: ["desktop"]}, context)).toEqual({ok: true, value: {visible: true, reasons: []}});
     });
 
     it("未登记的 when 取值返回失败，而不是当作可见", () => {
         const when = {requires: ["offline"]} as unknown as ViewWhen;
+        const result = evaluateWhen(when, context);
 
-        expect(evaluateWhen(when, context)).toEqual({ok: false, reason: "未登记的 when 取值：offline"});
+        expect(result.ok).toBe(false);
+        if (!result.ok) {
+            expect(result.reason).toContain("offline");
+        }
     });
 });
 
@@ -178,5 +244,51 @@ describe("容器位置与 layout 合同", () => {
         expect(resolveViewLayout("scroll")).toEqual({ok: true, value: {mode: "scroll", shellPadsContent: true, shellOwnsScroll: true}});
         expect(resolveViewLayout("fill")).toEqual({ok: true, value: {mode: "fill", shellPadsContent: false, shellOwnsScroll: false}});
         expect(resolveViewLayout("fixed")).toEqual({ok: false, reason: "未登记的 layout 取值：fixed"});
+    });
+});
+
+describe("View 的标题动作声明", () => {
+    it("合法贡献进注册表：声明原样保留，不复制成第二份字段", () => {
+        const registry = registryOf({
+            ...catalog,
+            views: [view({
+                id: "nbook.files",
+                titleActions: [{id: "refresh", commandId: "nbook.view.refresh-files", placement: "primary", order: 10}],
+            })],
+        });
+
+        expect(registry.resolveView("nbook.files")).toEqual({
+            ok: true,
+            value: expect.objectContaining({
+                titleActions: [{id: "refresh", commandId: "nbook.view.refresh-files", placement: "primary", order: 10}],
+            }),
+        });
+    });
+
+    it("空 id / 重复 id / 非法 placement / 非有限 order / 未登记 when / 空 commandId 都在注册期拒绝", () => {
+        const result = createWorkbenchRegistry({
+            ...catalog,
+            views: [view({
+                id: "nbook.files",
+                titleActions: [
+                    {id: "  ", commandId: "nbook.view.refresh-files", placement: "primary", order: 10},
+                    {id: "dup", commandId: "nbook.view.refresh-files", placement: "primary", order: 10},
+                    {id: "dup", commandId: "", placement: "top", order: Number.NaN, when: {requires: ["nope"]}},
+                ] as never,
+            })],
+        });
+
+        expect(result.ok).toBe(false);
+        const reason = result.ok ? "" : result.reason;
+        for (const problem of [
+            "视图 nbook.files 的标题动作 id 不能为空",
+            "视图 nbook.files 的标题动作 id 重复：dup",
+            "placement 必须是 primary 或 secondary",
+            "order 不是有限数",
+            "when 取值未登记：nope",
+            "的 commandId 不能为空",
+        ]) {
+            expect(reason).toContain(problem);
+        }
     });
 });

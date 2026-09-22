@@ -213,7 +213,7 @@ describe("World Engine Workbench contract", () => {
         expect(realUtil).toContain("sliceId: input.slice.id");
         expect(formSelect).toContain("type SelectSize = \"default\" | \"sm\"");
         expect(formSelect).toContain("size?: SelectSize");
-        expect(formSelect).toContain(":style=\"panelStyle\"");
+        expect(formSelect).toContain("NbFormSelect");
         expect(formSelect).not.toContain("panelSizeClass");
         expect(combobox).toContain("type ComboboxSize = \"default\" | \"sm\"");
         expect(combobox).toContain("autocomplete=\"off\"");

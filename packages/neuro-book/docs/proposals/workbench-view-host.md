@@ -332,6 +332,7 @@ owner；不能因为都能保存 JSON 就互相替代。
 | 2026-09-13 | 提案整体 | 开发者批准，状态 `draft` → `accepted` |
 | 2026-09-15 | Storage scope 与 Config 边界 | 开发者确认 Config 为 Global/Project，Storage 为 user/project；不引入 session/window Storage scope，详见 ADR 0020。Storage 同步和消费者细分仍在讨论 |
 | 2026-09-16 | 本地持久化与嵌套验证 | 开发者确定 project/local 尺寸、user 定制与本地备份阶段，并同意计划审查补充；当前合同为 storage.persistence 与 ui.nested-grid，取舍见 ADR 0021 |
+| 2026-09-19 | 面板默认位置、跨度与「隐藏」形态 | 本提案 2026-09-13 开放问题 5 的 `justify` 默认被**新计划替代**（不改写当日结论，只追加替代）：默认改为 `bottom + center`，活动栏改为**主体左侧通高列**，面板永远落在主体内（不再与活动栏同级的整行叶）；`justify` 仍作为四种水平对齐之一保留。面板新增「隐藏（零占用）」与「瞬时最大化」两种形态，与 32px 标题头收起区分；面板的位置/对齐/隐藏/收起落 `workbench.views/customizations`，尺寸落 `workbench.layout` 的两条记录。依据：`local://workbench-shell-parts-lab-plan.md`（2026-09-19 开发者批准），Spec 同步见 `docs/specs/ui/workbench-shell.md` |
 
 决策者：开发者（经 #192 设计门复核）。
 
@@ -345,3 +346,42 @@ owner；不能因为都能保存 JSON 就互相替代。
   1. **作用域插槽不穿透递归**：分区渲染组件递归渲染子分支时，必须显式转发 `leaf` 插槽，否则嵌套层的叶子渲染为空（顶层正常，极易漏测）。
   2. **插槽 prop 不驼峰化**：`:leaf-id` 在子侧解构 `{leafId}` 恒为 `undefined`，两端必须同名（或改用子组件 + 显式 prop）。
   3. **百分比与逻辑尺寸是两个空间**：`Splitter` 按百分比夹取、原语按逻辑尺寸夹取，实测越界停在约 79px 而非逻辑上限 96px——原语不变量成立，但生产实现需要把百分比映射回逻辑尺寸，见开放问题 6。
+
+## 2026-09-20 改造记录（容器分层与通用 Grid/sash）
+
+本节记录本次落地后**取代**此前约定的实现事实；上面的历史决策保持原样，不再作为当前行为依据。
+
+- **几何口径统一为 CSS px**：`Splitter` 受控 props 是 `sizesPx`（合计 = 面板空间，不含 sash），面板配置是
+  `{defaultSizePx,minSizePx,maxSizePx,sizing,collapse}`；`GridLayoutResult` 仍是实测呈现。百分比往返、
+  `gridBranchGesture` 与「按百分比夹取」的换算全部退役——「百分比与逻辑尺寸是两个空间」这一条不再成立。
+- **拖动通道自研**：`reka-ui` 的分割原语（`SplitterGroup/Panel/ResizeHandle`）不再承担拖动、命中、键盘与收起；
+  改由 `useSashGesture`（scope 冒泡仲裁、rAF、Escape/blur/pointercancel/卸载/上下文取消）+ `sash-drag`
+  （事件级纯求解）+ `grid-gesture`（一场手势一份会话）承担。命中、光标、按下与高亮读同一份结果，
+  T/十字两条线一起点亮；设备像素对齐只作用于装饰胶囊，不移动命中盒。
+- **一次手势一次提交**：一个公开 `GridRenderer` 独占一份会话，一次按下命中的最多两根轴属于同一场手势；
+  拖动中发布预览布局（整棵子树按父盒实时变化），松手把一次 `GridGestureCommit` 交给宿主 `onGestureCommit`，
+  由宿主用 `grid.resizeBranches(changes)` **一次原子落账**。逐分支 `gesture-end` 与 `resizeBranch` 拼接已退役。
+- **容器模型**：活动栏只表示主侧栏当前打开的容器（单选、重复点击保持选择并打开被隐藏/拖收起的主侧栏）；
+  Panel 标签与右侧栏标题选择容器；容器内部多个 View 用同一套竖向 Grid 同屏排列。容器整体移动与
+  View 独立移动分开：前者只改容器落位与目标 Part 选择，后者只改归属/顺序。拖动入口是**整个标签或
+  Section 标题**（`data-workbench-drag-kind="view"|"container"`），独立小握把已退役。
+- **三种收起与两种隐藏互不替代**：环境隐藏（picker/紧凑，不落偏好）、显式隐藏（`panelHidden`/`hiddenSidebars`，
+  移出内容拓扑、不留边界）、拖到零（`dragCollapsedParts`，保留节点与**展开尺寸意图**、内容 0px、相邻保留 1px
+  可拖边界）、菜单 32px 标题头（`panelCollapsed`，只 top/bottom）。
+- **零值绝不进入尺寸记录**：拖收起那一刻只写布尔偏好位，尺寸意图保持展开值；从收起边界拉回得到记忆尺寸。
+- **多记录保存是非原子的**：一次交汇手势的补丁会同时含侧栏宽度与面板两轴，`layout-session.commitSizes`
+  先整份校验、再一次性进入本窗口呈现，然后按记录分项写入，回执是 `{status, records:{widths,panel}}`；
+  某项 I/O 失败不回滚另一项成功记录，重试只补未确认项。
+- **旧字段退役**：`activeViewByContainer`（单活动 View 模型）与 `activeLeftTab`（运行期活动页签）都不再是选择权威；
+  读者改用非持久 `activeToolView`，DTO `activePanel` 经同一张 `nbook.files → files` 映射（无真实工具为 null）。
+
+## 2026-09-20 批准增量：容器模式、拖放与分隔线体验
+
+开发者批准“工作台 ViewContainer 模式、分栏与拖放重构计划”。当前合同以 [Workbench外壳](../../../../docs/specs/ui/workbench-shell.md) 与 [嵌套Grid](../../../../docs/specs/ui/nested-grid.md) 为唯一规范，以下取代上节对应约定，不改写历史审批事实：
+
+- 侧栏vertical、Panel horizontal；single隐藏重复View标题并上提动作，multiple保留各View标题。容器标签名称/图标取首个可见View。
+- 容器标题拖到Switcher搬家，拖到内容原子并入全部成员、抑制源容器；恢复已合并容器保留原位置，不拉回Views。View标题只移动单View，驻留实例保持。
+- pointer展开跟随原始鼠标边界，不跳记忆；显式恢复才用记忆。共享3px覆盖线、250ms延迟显现、即时正确cursor，侧栏/侧向Panel下限160px、上下Panel高80px。
+- 双轴尺寸逐字段合成、实际CAS回执、失败诊断与retry/abandon由唯一会话负责；保留未知原件、不迁移、不增加产品任意二维树。
+
+本节记录批准的目标，不宣称实现或浏览器矩阵已通过；真实主页数据验收仍需单独授权。

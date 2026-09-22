@@ -8,8 +8,12 @@
  *   默认树且不写记录；`value` 经原语整体校验后**一次发布**；`legacy-value`/`unsupported-version`/
  *   `corrupt` 与结构非法一律回落默认布局、保留原件、禁止普通保存，并给出可区分诊断。
  *   未知引用只过滤**呈现**，原件仍是保存的合成底本。
- * - **手势**：一次用户手势只提交一次，只把 `gesture-end.active` 的字段合成进原件；程序布局、
- *   挂载、测量与视口重算只走 `setContainer`，不产生保存。取消与失败手势不提交新意图。
+ * - **手势**：一次用户手势只提交一次（px 批量，`GridRenderer` 的 `gesture-end` payload 原样传入）：
+ *   先在内存里整批原子落账（`resizeBranches`），再把**主动改变**的节点合成进原件；任何一项不通过就
+ *   整批不落账、也不写盘。程序布局、挂载、测量与视口重算只走 `setContainer`，不产生保存。
+ * - **直接字段提交**：`commitFields` 是外壳的纯几何投影使用的路径（不经过手势）；它复用
+ *   下面同一套提交与失败收口，但要求**整次提交**——任一字段在原件里没有落点就不保存，
+ *   也不新造节点。
  * - **订阅**：只更新已确认基线（记录 + credential），不重挂当前呈现；拖动期间外来确认不打断手势。
  * - **冲突与失败**：冲突后重读、只重放本次主动字段、再条件提交一次；二次冲突或明确拒绝保留当前显示
  *   与未确认意图，停止自动重试并暴露 `retry()` / `abandon()`。超时/断线这类**结果未确认**的失败既不
@@ -29,14 +33,14 @@ import {
     type GridAxis,
     type GridBranch,
     type GridExtent,
+    type GridGestureCommit,
     type GridLayoutResult,
     type GridNode,
     type GridRefResolver,
     type GridRestoreResult,
     type GridSnapshot,
     type GridSnapshotNode,
-} from "@notnotype/nb-ui/components";
-import {workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
+} from "@notnotype/nb-ui/layout";
 import {isStorageAdapterError} from "nbook/app/utils/storage/value-transport";
 import type {WorkbenchStorageOwnerHandle} from "nbook/app/utils/workbench/storage-context";
 import type {
@@ -112,6 +116,33 @@ function isGridLayoutRecord(value: unknown): value is GridLayoutRecord {
 
 /** 一次主动修改的字段：节点 id + 轴 + 新的**意图**值（不是呈现 px）。 */
 export type GridLayoutField = {readonly id: string; readonly axis: GridAxis; readonly value: number};
+
+/**
+ * 主动字段的形状校验：返回拒绝诊断，`null` 表示可以进入提交路径。
+ *
+ * 非法轴、非有限/负值、重复的 (id, axis) 与空 id 都在入口拒绝，不静默丢字段——调用方拿到的是
+ * "这次调用没有被接纳"，而不是一次内容不完整的保存。
+ */
+function fieldsProblem(fields: readonly GridLayoutField[]): string | null {
+    const seen: Record<string, true> = {};
+    for (const field of fields) {
+        if (typeof field.id !== "string" || field.id.length === 0) {
+            return "主动字段缺少节点 id";
+        }
+        if (field.axis !== "width" && field.axis !== "height") {
+            return `主动字段的轴不是 width/height：${String(field.axis)}`;
+        }
+        if (!Number.isFinite(field.value) || field.value < 0) {
+            return `主动字段的值不是有限非负数：${field.id}.${field.axis}=${String(field.value)}`;
+        }
+        const key = `${field.id}\u0000${field.axis}`;
+        if (seen[key] === true) {
+            return `主动字段重复：${field.id}.${field.axis}`;
+        }
+        seen[key] = true;
+    }
+    return null;
+}
 
 export type GridLayoutFieldSkip = {
     readonly field: GridLayoutField;
@@ -228,8 +259,12 @@ export type GridLayoutHostState = {
     readonly blocked: GridLayoutBlockReason | null;
     /** 当前已确认记录的凭据；阻断时保持 null，避免向原件补写。 */
     readonly credential: StorageCredential | null;
+    /**
+     * 外部版本：树、约束或容器尺寸变化时递增。宿主把它传给 `GridRenderer` 的 `revision`，
+     * 并在接纳手势提交前复核——进行中的手势不沿旧基线写新上下文。
+     */
+    readonly revision: number;
     readonly pending: GridLayoutPendingIntent | null;
-    readonly gesture: boolean;
     readonly issues: readonly GridLayoutIssue[];
 };
 
@@ -242,8 +277,6 @@ export type GridLayoutCommitResult =
     /** 调用没有被接纳（形状不符、基线失效、未测量、已释放或失效）。 */
     | {readonly status: "rejected"; readonly diagnosis: string};
 
-export type GridLayoutAck = {readonly ok: true} | {readonly ok: false; readonly diagnosis: string};
-
 export type GridLayoutRestoreResult = {
     readonly status: "published" | "blocked";
     readonly dropped: readonly {readonly ref: string; readonly reason: string}[];
@@ -251,22 +284,22 @@ export type GridLayoutRestoreResult = {
     readonly diagnosis: string | null;
 };
 
-/** 手势开始：宿主捕获基线（对应 `Splitter` 的 `gesture-start`）。 */
-export type GridGestureStart = {
-    /** 该 Splitter 对应的分支 id；面板顺序必须与该分支的直接子节点顺序一致。 */
-    readonly branchId: string;
-    /** 手势开始时的完整面板百分比（合计 100）。 */
-    readonly sizes: readonly number[];
-};
-
-/** 手势结束：只提交一次（对应 `Splitter` 的 `gesture-end`）。 */
-export type GridGestureEnd = {
-    readonly branchId: string;
-    /** 主动改变尺寸的直接子节点 id（`SplitterGestureState.active`）。 */
-    readonly active: readonly string[];
-    /** 手势结束时的完整面板百分比（`SplitterGestureState.sizes`，合计 100）。 */
-    readonly sizes: readonly number[];
-};
+/**
+ * 一次手势提交的接纳回执：几何先在内存里整批原子落账（`resizeBranches`），异步保存另走原队列。
+ *
+ * `GridRenderer` 的 `onGestureCommit` 必须**同步**回答，所以宿主不在这里等 I/O：`{ok:false}` 表示这次
+ * 调整连内存几何都没被接受（宿主未就绪、外部版本或根盒已变、形状不符、约束不通过），渲染层据此
+ * 就地回滚预览；`{ok:true}` 的 `saved` 是随后把主动字段合成进原件的分类结果
+ * （`saved`/`unchanged`/`unsaved`），未确认意图仍留在 `state.pending`，出口是 `retry()` / `abandon()`。
+ */
+export type GridGestureAcceptance =
+    | {
+        readonly ok: true;
+        /** 这一批变化发布的收起状态（运行期状态，不进布局记录）。 */
+        readonly collapsed: Readonly<Record<string, boolean>>;
+        readonly saved: Promise<GridLayoutCommitResult>;
+      }
+    | {readonly ok: false; readonly reason: string};
 
 export type GridLayoutHostOptions<T> = {
     /** 调用方的当前布局树：产品默认布局与运行期约束都在这里，宿主只发布与调整它。 */
@@ -285,14 +318,23 @@ export type GridLayoutHost<T> = {
     readonly state: GridLayoutHostState;
     /** 读取记录、一次发布、建立订阅；一次调用保证"已读取并已订阅"，没拿到分类或订阅没建立时可再调用重试。 */
     open(): Promise<GridLayoutHostState>;
-    /** 渲染器测量结果：只重算呈现，不改意图、不保存；容器变化会取消进行中的手势。 */
+    /** 渲染器测量结果：只重算呈现，不改意图、不保存；尺寸真的变了会递增 `state.revision`。 */
     setContainer(container: GridExtent): GridLayoutResult;
     /** 最近一次测量下的呈现；未测量时为 null。 */
     layout(): GridLayoutResult | null;
-    gestureStart(gesture: GridGestureStart): GridLayoutAck;
-    gestureEnd(gesture: GridGestureEnd): Promise<GridLayoutCommitResult>;
-    /** 取消：丢弃当前手势基线，不产生保存意图。 */
-    gestureCancel(): void;
+    /**
+     * 接纳一次手势提交（`GridRenderer` 的 `gesture-end` payload 原样传入）：先复核外部版本与根盒，
+     * 再整批原子落账（`resizeBranches`）并只把**主动改变**的节点合成进原件。取消的手势没有提交，
+     * 因此这里不需要配对的开始/取消入口。
+     */
+    gestureCommit(commit: GridGestureCommit): GridGestureAcceptance;
+    /**
+     * 直接提交主动字段（不经过手势）：入口校验形状，任一落点缺失就整次不保存。
+     *
+     * 外壳的纯几何投影用这条路径——投影只回答"哪个叶、哪根轴、落点 px"，树的落点由记录原件决定；
+     * 通用 grid 消费者走 `gestureCommit`，两条路径共用同一套提交与失败收口。
+     */
+    commitFields(fields: readonly GridLayoutField[]): Promise<GridLayoutCommitResult>;
     /** 显式重试未确认意图：重读后只重放本次主动字段，再条件提交一次。 */
     retry(): Promise<GridLayoutCommitResult>;
     /** 放弃未确认意图：采用当前已确认值，不删除或清空其它记录。 */
@@ -321,14 +363,11 @@ const TERMINAL_STORAGE_CODES: Record<string, true> = {
 const CONFLICT_CODE = "STORAGE_REVISION_CONFLICT";
 const MAX_ISSUES = 32;
 
-type GestureCapture<T> = {
-    readonly branchId: string;
-    readonly axis: GridAxis;
-    readonly children: readonly GridNode<T>[];
-    readonly layout: GridLayoutResult;
-    readonly container: GridExtent;
-    readonly revision: number;
-};
+/**
+ * 手势根盒与当前测量的容差（CSS px）：渲染器与宿主各自量同一个盒子，子像素圆整不算变化，
+ * 真正的窗口尺寸变化仍会落在容差之外。
+ */
+const EXTENT_TOLERANCE = 1;
 
 type FailureReading = {
     readonly terminal: boolean;
@@ -367,8 +406,9 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
     let pendingFields: Map<string, GridLayoutField> | null = null;
     let pendingDiagnosis = "";
     let pendingAutoReplayed = false;
+    /** 未确认意图是否要求"每个字段都有落点"：严格意图只来自 `commitFields`，重试时保持严格。 */
+    let pendingRequireAll = false;
     let container: GridExtent | null = null;
-    let gesture: GestureCapture<T> | null = null;
     let revision = 0;
     let issues: GridLayoutIssue[] = [];
     let subscription: {close(): Promise<void>} | null = null;
@@ -404,8 +444,8 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             writable: phase === "ready" && writable,
             blocked,
             credential,
+            revision,
             pending,
-            gesture: gesture !== null,
             issues: Object.freeze([...issues]),
         });
     };
@@ -481,7 +521,6 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
                         break;
                     }
                     revision += 1;
-                    gesture = null;
                     acceptBaseline(record, snapshot.credential);
                     break;
                 }
@@ -549,14 +588,13 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         }
         phase = "invalidated";
         accepting = false;
-        gesture = null;
         writable = false;
         credential = null;
         stopSubscription();
         pushIssue("record", diagnosis);
     };
 
-    const keepPending = (fields: readonly GridLayoutField[], diagnosis: string, autoReplayed: boolean): void => {
+    const keepPending = (fields: readonly GridLayoutField[], diagnosis: string, autoReplayed: boolean, requireAll: boolean): void => {
         if (phase === "released") {
             return;
         }
@@ -567,12 +605,15 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         pendingFields = merged;
         pendingDiagnosis = diagnosis;
         pendingAutoReplayed = autoReplayed;
+        // 严格意图（`commitFields`）在重试时保持严格：绝不把一次整次提交退化成部分保存。
+        pendingRequireAll = requireAll;
     };
 
     const clearPending = (): void => {
         pendingFields = null;
         pendingDiagnosis = "";
         pendingAutoReplayed = false;
+        pendingRequireAll = false;
     };
 
     const pendingList = (): readonly GridLayoutField[] => (pendingFields === null ? [] : [...pendingFields.values()]);
@@ -597,6 +638,7 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         applied: readonly GridLayoutField[],
         fields: readonly GridLayoutField[],
         autoReplay: boolean,
+        requireAll: boolean,
     ): Promise<GridLayoutCommitResult> => {
         try {
             const next = await track(handle.save(definition, {expected, value, ...address}));
@@ -610,16 +652,16 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             const failure = classifyFailure(error);
             if (failure.terminal) {
                 invalidate(failure.diagnosis);
-                keepPending(fields, failure.diagnosis, false);
+                keepPending(fields, failure.diagnosis, false, requireAll);
                 return unsaved(failure.diagnosis, pendingList());
             }
             if (failure.conflict && autoReplay) {
-                return await rereadAfterFailure(fields, "replay", "条件冲突后重读");
+                return await rereadAfterFailure(fields, "replay", "条件冲突后重读", requireAll);
             }
             if (failure.committed === null) {
-                return await rereadAfterFailure(fields, "reconcile", `保存结果未确认（${failure.diagnosis}）`);
+                return await rereadAfterFailure(fields, "reconcile", `保存结果未确认（${failure.diagnosis}）`, requireAll);
             }
-            keepPending(fields, failure.diagnosis, true);
+            keepPending(fields, failure.diagnosis, true, requireAll);
             return unsaved(failure.diagnosis, pendingList());
         }
     };
@@ -628,12 +670,14 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
      * 冲突重放、显式重试与未确认核对共用的重读路径。
      *
      * - `replay`：冲突后或显式重试时重读，只重放本次主动字段，再条件提交**一次**；
-     * - `reconcile`：结果未确认时重读核对是否已经落地，不自动再提交，也不谎报已保存/未写入。
+     * - `reconcile`：结果未确认时重读核对是否已经落地，不自动再提交，也不谎报已保存/未写入；
+     * - `requireAll`：整次提交语义——重读后的原件里任一字段没有落点就不保存（不退化成部分保存）。
      */
     const rereadAfterFailure = async (
         fields: readonly GridLayoutField[],
         mode: "replay" | "reconcile",
         diagnosis: string,
+        requireAll: boolean,
     ): Promise<GridLayoutCommitResult> => {
         let snapshot: StorageReadResult<GridLayoutRecord>;
         try {
@@ -644,22 +688,29 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
                 invalidate(failure.diagnosis);
             }
             const unresolved = `${diagnosis}；重读核对失败：${failure.diagnosis}`;
-            keepPending(fields, unresolved, true);
+            keepPending(fields, unresolved, true, requireAll);
             return unsaved(unresolved, pendingList());
         }
         applyRead(snapshot, false);
-        if (!writable || credential === null || baselineRecord === null) {
+        if (!writable || credential === null) {
             const unresolved = `${diagnosis}；重读发现记录不可用（${blocked ?? "unavailable"}），未确认调整不再自动重放`;
-            keepPending(fields, unresolved, true);
+            keepPending(fields, unresolved, true, requireAll);
             return unsaved(unresolved, pendingList());
         }
-        const composed = composeGridLayoutRecord(baselineRecord, fields);
+        // 记录缺失（首次保存从未成功）与 `commit` 同一口径：默认布局就是合成底本，
+        // 否则"失败后重试"在从未落过盘的 Project 上永远无法收口。
+        const composed = composeGridLayoutRecord(baselineRecord ?? definition.defaultValue, fields);
         reportSkips(composed.skipped);
+        if (requireAll && composed.skipped.length > 0) {
+            const unresolved = `${diagnosis}；重读后主动字段仍没有落点（${composed.skipped.map((skip) => `${skip.field.id}.${skip.field.axis}`).join("、")}），整次未写盘`;
+            keepPending(fields, unresolved, true, true);
+            return unsaved(unresolved, pendingList());
+        }
         if (composed.applied.length === 0) {
             if (composed.skipped.length > 0) {
                 // 主动字段在重读后的记录里没有落点：既没有落盘，也没有"当前值已满足意图"这回事。
                 const unresolved = `${diagnosis}；重读后主动字段没有落点（记录里已没有对应节点），未确认调整保留`;
-                keepPending(fields, unresolved, true);
+                keepPending(fields, unresolved, true, requireAll);
                 return unsaved(unresolved, pendingList());
             }
             // 每个字段都落点且值已相同：视为目标已达成，不伪造某次历史请求的回执（Spec「输出与可观察行为」）。
@@ -668,10 +719,10 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         }
         if (mode === "reconcile") {
             const unresolved = `${diagnosis}；重读核对显示记录尚未包含本次意图，等待显式重试或放弃`;
-            keepPending(fields, unresolved, true);
+            keepPending(fields, unresolved, true, requireAll);
             return unsaved(unresolved, pendingList());
         }
-        return await submit(credential, composed.value, composed.applied, fields, false);
+        return await submit(credential, composed.value, composed.applied, fields, false, requireAll);
     };
 
     const commit = async (fields: readonly GridLayoutField[]): Promise<GridLayoutCommitResult> => {
@@ -683,7 +734,7 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         }
         if (!writable || credential === null) {
             const diagnosis = `布局记录不可普通保存（${blocked ?? "unavailable"}）：当前调整只留在本窗口`;
-            keepPending(fields, diagnosis, false);
+            keepPending(fields, diagnosis, false, false);
             return unsaved(diagnosis, pendingList());
         }
         const composed = composeGridLayoutRecord(baselineRecord ?? definition.defaultValue, fields);
@@ -697,7 +748,49 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
                     : "本次手势没有产生与原件不同的字段，未写盘",
             };
         }
-        return await submit(credential, composed.value, composed.applied, fields, true);
+        return await submit(credential, composed.value, composed.applied, fields, true, false);
+    };
+
+    /**
+     * 直接提交主动字段（外壳的纯几何投影只交落点 px，不再经由百分比手势）。
+     *
+     * 与手势路径共用同一套私有机制（条件提交、冲突后只重放本次字段一次、结果未确认核对、
+     * 未确认意图与 `retry()`/`abandon()`），差别只有两条：
+     * - **入口形状校验**：非法轴、非有限/负值、重复 (id, axis) 与空 id 整次拒绝；
+     * - **整次语义**：任一字段在原件（含冲突重读后的原件）里没有落点就整次不保存，
+     *   绝不先部分保存再报成功；未知落点也不会新造节点。
+     */
+    const commitFields = async (fields: readonly GridLayoutField[]): Promise<GridLayoutCommitResult> => {
+        const problem = fieldsProblem(fields);
+        if (problem !== null) {
+            pushIssue("save", problem);
+            return {status: "rejected", diagnosis: problem};
+        }
+        if (fields.length === 0) {
+            return {status: "unchanged", diagnosis: "本次调用没有要保存的字段"};
+        }
+        if (phase === "released" || phase === "invalidated" || !accepting) {
+            return {status: "rejected", diagnosis: "布局宿主已释放或失效，不能接受新提交"};
+        }
+        if (phase !== "ready") {
+            return {status: "rejected", diagnosis: "布局宿主尚未完成读取，不能提交"};
+        }
+        if (!writable || credential === null) {
+            const diagnosis = `布局记录不可普通保存（${blocked ?? "unavailable"}）：当前调整只留在本窗口`;
+            keepPending(fields, diagnosis, false, true);
+            return unsaved(diagnosis, pendingList());
+        }
+        const composed = composeGridLayoutRecord(baselineRecord ?? definition.defaultValue, fields);
+        reportSkips(composed.skipped);
+        if (composed.skipped.length > 0) {
+            const diagnosis = `主动字段在原件里没有落点（${composed.skipped.map((skip) => `${skip.field.id}.${skip.field.axis}`).join("、")}），整次未写盘`;
+            keepPending(fields, diagnosis, true, true);
+            return unsaved(diagnosis, pendingList());
+        }
+        if (composed.applied.length === 0) {
+            return {status: "unchanged", diagnosis: "本次调用没有产生与原件不同的字段，未写盘"};
+        }
+        return await submit(credential, composed.value, composed.applied, fields, true, true);
     };
 
     const runOpen = async (): Promise<GridLayoutHostState> => {
@@ -810,9 +903,9 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
         setContainer(next) {
             const width = Math.max(0, Number.isFinite(next.width) ? next.width : 0);
             const height = Math.max(0, Number.isFinite(next.height) ? next.height : 0);
-            if (gesture !== null && (container === null || container.width !== width || container.height !== height)) {
-                gesture = null;
-                pushIssue("gesture", "容器尺寸变化已取消进行中的手势");
+            // 尺寸真的变了才递增外部版本：进行中的手势据此被判为旧基线，不沿旧根盒写新上下文。
+            if (container === null || container.width !== width || container.height !== height) {
+                revision += 1;
             }
             container = {width, height};
             return grid.layout(container);
@@ -822,92 +915,77 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             return container === null ? null : grid.layout(container);
         },
 
-        gestureStart(start) {
+        gestureCommit(payload) {
+            if (phase === "released" || phase === "invalidated" || !accepting) {
+                return {ok: false, reason: "布局宿主已释放或失效，不能接受新手势"};
+            }
             if (phase !== "ready") {
-                return {ok: false, diagnosis: "布局宿主尚未完成读取，不能开始手势"};
+                return {ok: false, reason: "布局宿主尚未完成读取，不能接受手势"};
             }
             if (container === null) {
-                return {ok: false, diagnosis: "容器尚未测量：先调用 setContainer 再开始手势"};
+                return {ok: false, reason: "容器尚未测量：先调用 setContainer 再提交手势"};
             }
-            const layout = grid.layout(container);
-            const branch = findBranch(start.branchId);
-            if (branch === null) {
-                return {ok: false, diagnosis: `未知分支 id：${start.branchId}`};
+            if (payload.revision !== revision) {
+                return {ok: false, reason: "外部布局版本已变化，手势基线已失效"};
             }
-            const axis = axisOf(branch.orientation);
-            // 百分比 → px 与 100% 校验复用产品唯一口径（`WorkbenchBranch` 消费的同一个 helper）。
-            if (workbenchBranchGesture(branch.children, layout, axis, start.sizes) === null) {
-                return {ok: false, diagnosis: "手势尺寸不是与子节点同序、合计 100 的有限非负百分比"};
+            if (Math.abs(payload.extent.width - container.width) > EXTENT_TOLERANCE
+                || Math.abs(payload.extent.height - container.height) > EXTENT_TOLERANCE) {
+                return {ok: false, reason: "手势的根盒与当前容器不一致，手势基线已失效"};
             }
-            gesture = {
-                branchId: start.branchId,
-                axis,
-                children: branch.children,
-                layout,
-                container: {width: container.width, height: container.height},
-                revision,
-            };
-            return {ok: true};
-        },
-
-        async gestureEnd(end) {
-            const captured = gesture;
-            gesture = null;
-            if (captured === null) {
-                return {status: "rejected", diagnosis: "没有进行中的手势：取消或失败的手势不产生保存意图"};
-            }
-            if (phase !== "ready" || !accepting) {
-                return {status: "rejected", diagnosis: "布局宿主已释放或失效，手势不再提交"};
-            }
-            if (end.branchId !== captured.branchId) {
-                return {status: "rejected", diagnosis: `手势分支不匹配：本次手势属于 ${captured.branchId}`};
-            }
-            if (container === null || revision !== captured.revision
-                || container.width !== captured.container.width || container.height !== captured.container.height) {
-                return {status: "rejected", diagnosis: "容器或布局已变化，手势基线已失效"};
-            }
-            const conversion = workbenchBranchGesture(captured.children, captured.layout, captured.axis, end.sizes);
-            if (conversion === null) {
-                return {status: "rejected", diagnosis: "手势尺寸不是与子节点同序、合计 100 的有限非负百分比"};
-            }
-            const children: Record<string, true> = {};
-            for (const child of captured.children) {
-                children[child.id] = true;
-            }
-            const active: string[] = [];
-            for (const id of end.active) {
-                if (children[id] !== true) {
-                    return {status: "rejected", diagnosis: `主动改变的节点不属于分支 ${captured.branchId}：${id}`};
+            for (const change of payload.changes) {
+                const branch = findBranch(change.branchId);
+                if (branch === null) {
+                    return {ok: false, reason: `未知分支 id：${change.branchId}`};
                 }
-                if (!active.includes(id)) {
-                    active.push(id);
+                if (axisOf(branch.orientation) !== change.axis) {
+                    return {ok: false, reason: `手势的轴不是分支 ${change.branchId} 的主轴：${change.axis}`};
+                }
+                const children: Record<string, true> = {};
+                for (const child of branch.children) {
+                    children[child.id] = true;
+                }
+                for (const id of change.active) {
+                    if (children[id] !== true) {
+                        return {ok: false, reason: `主动改变的节点不属于分支 ${change.branchId}：${id}`};
+                    }
                 }
             }
-            if (active.length === 0) {
-                return {status: "unchanged", diagnosis: "手势没有主动改变的面板，未写盘"};
+            if (payload.changes.length === 0) {
+                return {ok: true, collapsed: {}, saved: Promise.resolve({status: "unchanged", diagnosis: "本次手势没有产生变化，未写盘"})};
             }
-            const resized = grid.resizeBranch(captured.branchId, captured.axis, conversion.baseline, conversion.target);
+            // 整批在同一棵候选树上规划：任何一项不通过就整批不落账，失败路径不会留下半批修改。
+            const resized = grid.resizeBranches(payload.changes);
             if (!resized.ok) {
-                return {status: "rejected", diagnosis: `手势目标未通过当前布局约束，未提交：${resized.reason}`};
+                const reason = `手势目标未通过当前布局约束，整批未提交：${resized.reason}`;
+                pushIssue("gesture", reason);
+                return {ok: false, reason};
             }
             revision += 1;
             const fields: GridLayoutField[] = [];
-            for (const id of active) {
-                const value = resized.sizes[id];
-                if (value === undefined) {
-                    return {status: "rejected", diagnosis: `主动节点没有结算出新的尺寸意图：${id}`};
+            for (const change of payload.changes) {
+                for (const id of change.active) {
+                    const value = resized.intents[id]?.[change.axis];
+                    if (value === undefined) {
+                        const reason = `主动节点没有结算出新的尺寸意图：${id}`;
+                        pushIssue("gesture", reason);
+                        return {ok: false, reason};
+                    }
+                    if (!fields.some((field) => field.id === id && field.axis === change.axis)) {
+                        fields.push({id, axis: change.axis, value});
+                    }
                 }
-                fields.push({id, axis: captured.axis, value});
             }
-            return await commit(fields);
+            if (fields.length === 0) {
+                return {
+                    ok: true,
+                    collapsed: resized.collapsed,
+                    saved: Promise.resolve({status: "unchanged", diagnosis: "手势没有主动改变的节点，未写盘"}),
+                };
+            }
+            return {ok: true, collapsed: resized.collapsed, saved: commit(fields)};
         },
 
-        gestureCancel() {
-            if (gesture !== null) {
-                gesture = null;
-                pushIssue("gesture", "手势已取消，不产生保存意图");
-            }
-        },
+        commitFields,
 
         async retry() {
             if (phase === "released" || phase === "invalidated" || !accepting) {
@@ -919,7 +997,7 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             if (!writable) {
                 return {status: "rejected", diagnosis: `布局记录不可普通保存（${blocked ?? "unavailable"}）：只能放弃未确认调整`};
             }
-            return await rereadAfterFailure(pendingList(), "replay", "显式重试");
+            return await rereadAfterFailure(pendingList(), "replay", "显式重试", pendingRequireAll);
         },
 
         abandon() {
@@ -933,7 +1011,6 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
                 pushIssue("record", `放弃未确认调整时无法恢复已确认布局：${result.reason ?? "未知结构"}`);
             }
             revision += 1;
-            gesture = null;
         },
 
         restoreFromBaseline() {
@@ -949,7 +1026,6 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
                 return {status: "blocked", dropped: [], clamped: [], diagnosis: `已确认记录结构非法，未发布：${result.reason ?? "未知结构"}`};
             }
             revision += 1;
-            gesture = null;
             return {
                 status: "published",
                 dropped: result.dropped.map((item) => ({ref: item.ref, reason: item.reason})),
@@ -962,7 +1038,6 @@ export function createGridLayoutHost<T>(options: GridLayoutHostOptions<T>): Grid
             releasePromise ??= (async () => {
                 phase = "released";
                 accepting = false;
-                gesture = null;
                 clearPending();
                 const closing = subscription;
                 subscription = null;

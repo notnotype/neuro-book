@@ -9,8 +9,10 @@ import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
 import {assertAgentProfileSettingsDialogSmoke, assertAgentProfileSettingsNarrowSmoke} from "./agent-profile-settings-dialog";
 import {assertSettingsViewSmoke} from "./settings-view";
 import {assertProjectPickerViewSmoke} from "./project-picker-view";
+import {assertWorkbenchContainerSmoke} from "./workbench-containers";
+import {assertWorkbenchShellSmoke} from "./workbench-shell";
 
-type ComponentLabSmokeSuite = "all" | "core" | "agent-profile" | "project-picker";
+type ComponentLabSmokeSuite = "all" | "core" | "agent-profile" | "project-picker" | "workbench-shell";
 
 type ComponentLabSmokeOptions = {
     url: string;
@@ -45,16 +47,36 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await page.goto(new URL("/lab", input.url).href, {waitUntil: "domcontentloaded", timeout: 30_000});
         await page.locator(".lab-root").waitFor({state: "visible", timeout: 30_000});
         assert(await page.locator('[aria-label="主题"]').count() === 1, failures, "Lab 路由应提供主题选择器");
-        assert(await page.locator('[role="tab"]').count() === 4, failures, "右侧检查器应提供四个 tab");
+        assert(await page.locator('[role="tab"]').count() === 5, failures, "右侧检查器应提供五个 tab");
         assert(
             await page.locator('[role="tab"]').allTextContents().then((items) => items.map((item) => item.replace(/\s+/gu, "").replace(/\d+$/u, "")))
                 .then((items) => items.some((name) => name === "文档")
                     && items.some((name) => name === "元素")
                     && items.some((name) => name === "事件")
-                    && items.some((name) => name === "数据")),
+                    && items.some((name) => name === "数据")
+                    && items.some((name) => name === "命令")),
             failures,
-            "右侧检查器应包含文档、元素、事件、数据四个面板",
+            "右侧检查器应包含文档、元素、事件、数据、命令五个面板",
         );
+
+        // 五个 tab 要真能切：逐个切过去，只应留下该面板自己的容器（不只数标签个数）
+        const panelTabs: {panel: string; tab: string; label: string}[] = [
+            {panel: "doc", tab: "文档", label: "文档面板"},
+            {panel: "element", tab: "元素", label: "元素面板"},
+            {panel: "events", tab: "事件", label: "事件面板"},
+            {panel: "data", tab: "数据", label: "数据面板"},
+            {panel: "commands", tab: "命令", label: "命令面板"},
+        ];
+        for (const item of panelTabs) {
+            await page.locator('[role="tab"]').filter({hasText: item.tab}).click();
+            try {
+                await page.locator(`[data-lab-panel="${item.panel}"]`).first().waitFor({state: "visible", timeout: 10_000});
+                const rendered = await page.locator("[data-lab-panel]").count();
+                assert(rendered === 1, failures, `${item.label}切换后不该同时挂着别的面板（当前 ${rendered} 个）`);
+            } catch {
+                failures.push({kind: "assertion", message: `${item.label}切换后应显示自己`});
+            }
+        }
 
 
         await page.locator("button", {hasText: "检查"}).click();
@@ -95,6 +117,27 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             return;
         }
 
+        if (suite === "workbench-shell") {
+            /**
+             * 工作台骨架必须**整块**落在舞台可视区里：默认 1600×1000 时舞台可视高度只有约 730px，
+             * 骨架（约 720px + 标题栏/状态栏）底部会被裁掉——状态栏正好压在可视区边界外，
+             * 于是「点状态栏显示面板」「拖底部 Panel 的分隔线」都会落到 Lab 自己的控制面板上，
+             * 表现为断言以「命令没反应 / 尺寸没变」的形式失败。加高视口后状态栏与横向分隔线都在可视区内。
+             */
+            await page.setViewportSize({width: 1600, height: 1300});
+            await assertWorkbenchShellSmoke(page, failures);
+            // 容器分层与通用 Grid sash：与骨架八步同一套夹具、同一次浏览器会话。
+            await assertWorkbenchContainerSmoke(page, failures);
+            if (failures.length > 0) {
+                const screenshot = input.screenshot ?? resolveAgentScratchPath("browser", "component-lab-workbench-shell", randomBytes(4).toString("hex"), "failure.png");
+                await mkdir(dirname(screenshot), {recursive: true});
+                await page.screenshot({path: screenshot, fullPage: true});
+                throw new Error(formatFailures(failures, screenshot));
+            }
+            console.log(`Component Lab workbench shell smoke passed: ${input.url}`);
+            return;
+        }
+
         const viewportCanvasItem = page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^ViewportCanvas$/u});
         await viewportCanvasItem.click();
         await page.locator('[role="radio"]').filter({hasText: "不限尺寸"}).click();
@@ -116,6 +159,10 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await page.locator('[role="tab"]').filter({hasText: "数据"}).click();
         await expectText(page, "还原", failures, "数据面板应提供场景重置入口");
         if (suite === "all") {
+            // 工作台骨架会把画布切到手机宽度，排在它之后的窄容器检查必须从宽画布重新开始。
+            await page.locator('[aria-label="画布宽度"] button').filter({hasText: /^随窗口$/u}).first().click().catch(() => undefined);
+            await assertWorkbenchShellSmoke(page, failures);
+            await assertWorkbenchContainerSmoke(page, failures);
             await assertAgentProfileSettingsDialogSmoke(page, failures);
             await assertSettingsViewSmoke(page, failures);
             await assertProjectPickerViewSmoke(page, failures);
@@ -230,10 +277,10 @@ function parseOptions(args: string[]): ComponentLabSmokeOptions {
     const url = values["--url"];
     const browserExecutable = values["--browser-executable"];
     if (!url || !browserExecutable) {
-        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile|project-picker] [--screenshot <path>]");
+        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile|project-picker|workbench-shell] [--screenshot <path>]");
     }
     const suite = values["--suite"];
-    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile" && suite !== "project-picker") {
+    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile" && suite !== "project-picker" && suite !== "workbench-shell") {
         throw new Error(`无效 smoke 套件：${suite}`);
     }
     return {url: new URL(url).href, browserExecutable, screenshot: values["--screenshot"], suite: (suite ?? "all") as ComponentLabSmokeSuite};

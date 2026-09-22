@@ -244,6 +244,7 @@ export function builtinVariableDefinitions(): VariableDefinition[] {
         defineClientVariable({
             key: "ide.activePanel",
             title: "Active IDE panel",
+            summary: "Focused workbench tool view (published by the page from what is actually visible; null means no tool context). Writable only for tools the workbench really hosts: the frontend rejects an unhosted panel name instead of applying it, and a not-yet-loaded or stale tool record is rejected too.",
             schema: Type.Union([Type.String(), Type.Null()]),
             default: null,
             writableBy: ["frontend", "agent"],

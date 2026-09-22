@@ -10,6 +10,17 @@
  * 因为 L2 声明式 descriptor 里的字符串不受类型检查保护。
  */
 
+import {
+    evaluateContextWhen,
+    validateWhen,
+    type ContextValues,
+    type ContextKey,
+} from "nbook/app/utils/workbench/context-keys";
+// 声明层只消费 View 标题动作的纯合同：贡献类型与校验都在那一份里，descriptor 不复制一套字段规则。
+import {titleActionProblems, type ViewTitleActionContribution} from "nbook/app/utils/workbench/view-title-actions";
+// 尺寸约束的默认值与有效范围只有一份实现（在容器布局的纯映射里）；校验与呈现必须同一口径。
+import {effectiveViewMinimumSize} from "nbook/app/utils/workbench/view-container-layout";
+
 /** 统一结果合同：失败带原因，调用方据此产出 view 级 issue；本层不抛未捕获异常。 */
 export type DescriptorResult<T> = {ok: true; value: T} | {ok: false; reason: string};
 
@@ -29,7 +40,7 @@ function registered<T>(table: Readonly<Record<string, T>>, key: string): T | nul
 // ── Part ─────────────────────────────────────────────────────────────────────
 
 /** 工作台的大区域。它在布局树上的位置归布局层，不在 descriptor 里。 */
-export const WORKBENCH_PART_IDS = ["titlebar", "activity", "left", "editor", "right", "panel"] as const;
+export const WORKBENCH_PART_IDS = ["titlebar", "activity", "left", "editor", "right", "panel", "statusbar"] as const;
 
 export type WorkbenchPartId = (typeof WORKBENCH_PART_IDS)[number];
 
@@ -64,6 +75,11 @@ export type ContainerDescriptor = {
     location: ContainerLocation;
     /** 同一落位内容器清单的顺序；同值按 id 稳定排序。 */
     order: number;
+    /**
+     * 容器整体可否被用户搬到别的落位。**未声明按可移动处理**，只有明确 false 才不提供移动入口
+     * （也不作为别的容器移动的落点）；它不改变容器自己的容器内落位呈现。
+     */
+    canMoveContainer?: boolean;
 };
 
 /** 容器位置 → 承载它的 Part。`window` 是预留值：求值失败，不当作既有位置放行。 */
@@ -110,13 +126,11 @@ export function resolveViewLayout(layout: string): DescriptorResult<ViewLayoutCo
     return contract ? ok(contract) : fail(`未登记的 layout 取值：${layout}`);
 }
 
-/** `when.requires` 的取值域。可见性**只**决定看不看得见，永远不等于权限。 */
-export const VIEW_REQUIREMENT_KEYS = ["project", "selection", "user-assets", "desktop"] as const;
-
-export type ViewRequirementKey = (typeof VIEW_REQUIREMENT_KEYS)[number];
-
-/** 第一版谓词形态：枚举数组，不实现表达式 AST（提案开放问题 2 取值 a）。 */
-export type ViewWhen = {requires?: readonly ViewRequirementKey[]};
+/**
+ * `when.requires` 的取值域＝共享上下文键登记表。可见性**只**决定看不看得见，永远不等于权限。
+ * 未知键在注册期失败、求值期当失败处理，都不放行。
+ */
+export type ViewWhen = {requires?: readonly ContextKey[]};
 
 /** `requiredAuthority` 取值域；多个为 **allOf**，不可用时视图仍可见、只是动作不可执行。 */
 export const VIEW_AUTHORITIES = ["project", "session", "job", "files"] as const;
@@ -147,16 +161,9 @@ export type WorkbenchContext = Readonly<{
     authorities: Readonly<Record<ViewAuthority, boolean>>;
     /** 当前 Project 根；`stateScope=project` 的 memento 需要它。 */
     projectRoot: string | null;
-}>;
+}> & ContextValues;
 
 type ContextCheck = {available: (context: WorkbenchContext) => boolean; reason: string};
-
-const REQUIREMENT_CHECKS: Record<string, ContextCheck> = {
-    project: {available: (context) => context.project, reason: "需要打开 Project"},
-    selection: {available: (context) => context.selection, reason: "需要先选中一个条目"},
-    "user-assets": {available: (context) => context["user-assets"], reason: "只在用户资产工作区可见"},
-    desktop: {available: (context) => context.desktop, reason: "需要桌面外壳（bridge）"},
-} satisfies Record<ViewRequirementKey, ContextCheck>;
 
 const AUTHORITY_CHECKS: Record<string, ContextCheck> = {
     project: {available: (context) => context.authorities.project, reason: "需要打开 Project"},
@@ -178,17 +185,11 @@ const STATE_SCOPE_RESOLVERS: Record<string, (context: StateLayerContext) => Desc
 export type VisibilityEvaluation = {visible: boolean; reasons: string[]};
 
 export function evaluateWhen(when: ViewWhen | undefined, context: WorkbenchContext): DescriptorResult<VisibilityEvaluation> {
-    const reasons: string[] = [];
-    for (const requirement of (when?.requires ?? []) as readonly string[]) {
-        const check = registered(REQUIREMENT_CHECKS, requirement);
-        if (!check) {
-            return fail(`未登记的 when 取值：${requirement}`);
-        }
-        if (!check.available(context)) {
-            reasons.push(check.reason);
-        }
+    const evaluation = evaluateContextWhen(when, context);
+    if (!evaluation.ok) {
+        return fail(evaluation.reason);
     }
-    return ok({visible: reasons.length === 0, reasons});
+    return ok({visible: evaluation.value.matches, reasons: evaluation.value.reasons});
 }
 
 /** 可执行性求值结果：多个 authority 为 allOf，缺失的全部上报。 */
@@ -213,6 +214,15 @@ export function resolveViewStateLayer(scope: string, context: StateLayerContext)
     return resolver ? resolver(context) : fail(`未登记的 stateScope 取值：${scope}`);
 }
 
+/**
+ * 双轴尺寸约束声明（`{width, height}` 的 `Partial`）：与 Grid 的 `minimumSize` / `maximumSize` 同名同义。
+ *
+ * 只声明一根轴时另一轴按缺省走；声明值必须正有限（0 不是"不限"——不限就是不声明），
+ * 且上限的那个轴不得低于该轴的有效最小尺寸 `max(33, minimumSize ?? 64)`，否则注册失败：
+ * 静默丢掉一个装不下的上限会让"声明了上限"变成谎话。
+ */
+export type ViewSizeConstraint = Readonly<Partial<{width: number; height: number}>>;
+
 export type ViewDescriptor = {
     id: string;
     titleKey: string;
@@ -226,8 +236,22 @@ export type ViewDescriptor = {
     order: number;
     /** 同容器内归一化的初始尺寸比例；用户保存的绝对尺寸优先。 */
     weight?: number;
+    /**
+     * 展开时的双轴最小尺寸（CSS px）；缺省主轴 64、交叉轴不限制。
+     *
+     * 只有**当前主轴**的约束会交给容器分支（左右排看 `width`、上下排看 `height`），有效值不低于
+     * `max(33, 声明值)`（33 = 收起标题 32 + 1，Grid 的收起策略要求它严格小于展开最小）。
+     */
+    minimumSize?: ViewSizeConstraint;
+    /** 展开时的双轴最大尺寸（CSS px）；缺省该轴无界，声明值不得低于该轴的有效最小尺寸。 */
+    maximumSize?: ViewSizeConstraint;
     canToggleVisibility: boolean;
     canMoveView: boolean;
+    /**
+     * View 自己的标题动作（primary 直接成按钮、secondary 收进「更多」）。
+     * 只写 `id` + `commandId` + 位置与顺序：标题 / 图标取 canonical 命令元数据，不在这里重写文案。
+     */
+    titleActions?: readonly ViewTitleActionContribution[];
     /** 宿主白名单解析器的键：不存组件、不存模块路径与 HTML。 */
     factoryKey: string;
     stateScope: ViewStateScope;
@@ -275,7 +299,7 @@ function duplicateProblems(kind: string, ids: readonly string[]): string[] {
 function whenProblems(owner: string, when: ViewWhen | undefined): string[] {
     const problems: string[] = [];
     for (const requirement of (when?.requires ?? []) as readonly string[]) {
-        if (!registered(REQUIREMENT_CHECKS, requirement)) {
+        if (!validateWhen({requires: [requirement as ContextKey]}).ok) {
             problems.push(`${owner} 的 when 取值未登记：${requirement}`);
         }
     }
@@ -287,6 +311,36 @@ function authorityProblems(owner: string, required: readonly string[] | undefine
     for (const authority of required ?? []) {
         if (!registered(AUTHORITY_CHECKS, authority)) {
             problems.push(`${owner} 的 requiredAuthority 未登记：${authority}`);
+        }
+    }
+    return problems;
+}
+
+/** 声明的尺寸必须是正有限数：0 / 负 / NaN / Infinity 都不是"不限"，不限就是不声明。 */
+function isDeclaredSize(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+/**
+ * 双轴尺寸约束的注册校验：两轴各自独立。
+ *
+ * 有效最小尺寸是 `max(33, minimumSize[axis] ?? 64)`（33 = 收起标题 32 + 1）；声明的上限低于它时
+ * 注册失败，而不是在呈现时静默丢掉上限——那会让"声明了上限"变成谎话。
+ */
+function viewSizeProblems(view: ViewDescriptor): string[] {
+    const problems: string[] = [];
+    for (const axis of ["width", "height"] as const) {
+        const minimum = view.minimumSize?.[axis];
+        const maximum = view.maximumSize?.[axis];
+        if (minimum !== undefined && !isDeclaredSize(minimum)) {
+            problems.push(`视图 ${view.id} 的 minimumSize.${axis} 不是正有限数：${String(minimum)}`);
+        }
+        if (maximum !== undefined && !isDeclaredSize(maximum)) {
+            problems.push(`视图 ${view.id} 的 maximumSize.${axis} 不是正有限数：${String(maximum)}`);
+        }
+        const effectiveMinimum = effectiveViewMinimumSize(minimum);
+        if (maximum !== undefined && isDeclaredSize(maximum) && maximum < effectiveMinimum) {
+            problems.push(`视图 ${view.id} 的 maximumSize.${axis}（${maximum}）低于有效最小尺寸 ${effectiveMinimum}`);
         }
     }
     return problems;
@@ -340,6 +394,8 @@ function collectProblems(catalog: WorkbenchCatalog): string[] {
         }
         problems.push(...whenProblems(`视图 ${view.id}`, view.when));
         problems.push(...authorityProblems(`视图 ${view.id}`, view.requiredAuthority));
+        problems.push(...titleActionProblems(`视图 ${view.id}`, view.titleActions));
+        problems.push(...viewSizeProblems(view));
     }
     problems.push(...duplicateProblems("视图", catalog.views.map((view) => view.id)));
 

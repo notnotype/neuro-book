@@ -80,7 +80,11 @@ function onTabClose(tabId: string): void {
         :data-panel-layout="layout"
         :data-panel-active-tab="activeTab"
     >
-        <header class="workbench-panel-surface__head">
+        <header
+            class="workbench-panel-surface__head"
+            data-shell-focus-target="panel-title"
+            tabindex="-1"
+        >
             <div class="workbench-panel-surface__tabs" role="tablist">
                 <slot name="tabs">
                     <WorkbenchPanelTab
@@ -156,10 +160,19 @@ function onTabClose(tabId: string): void {
     border-bottom: var(--border-w) solid var(--divider);
 }
 
+/* 头部是可编程聚焦的落点（外壳在最大化时把焦点交给它）：自己不该有可见焦点环的负担。 */
+.workbench-panel-surface__head:focus {
+    outline: none;
+}
+
 /* 标签列表区：水平横向排列，允许横向滚动但不显示滚动条 */
 .workbench-panel-surface__tabs {
     display: flex;
-    flex: 1 1 auto;
+    /*
+     * 确定份额（basis 0）：内容宽会让整行变窄时把动作区挤成 0，而动作区必须是**确定的**盒子
+     * （见 `WorkbenchTitleActions.md` 的宿主合同）。放不下的标签在自己的盒子里横向滚动。
+     */
+    flex: 4 1 0;
     align-items: center;
     min-width: 0;
     height: 100%;
@@ -171,11 +184,17 @@ function onTabClose(tabId: string): void {
     display: none;
 }
 
-/* 动作区贴右，按 --space-2 间隙排列 */
+/* 动作区贴右，按 --space-2 间隙排列；可压缩：标题操作放不下的项自己折进「更多」。 */
 .workbench-panel-surface__actions {
     display: flex;
-    flex: 0 0 auto;
+    /*
+     * 确定的宽度盒：标签列表按内容宽（可缩可滚动），剩下的空间全给动作区，
+     * 这样标题操作部件量到的可用宽度不随折叠结果变化（见 `WorkbenchTitleActions.md`）。
+     */
+    flex: 1 1 0;
+    min-width: 0;
     align-items: center;
+    justify-content: flex-end;
     gap: var(--space-2);
     margin-left: auto;
 }

@@ -21,12 +21,14 @@ const props = withDefaults(defineProps<{
     defaultLabel?: string;
     placeholder?: string;
     disabled?: boolean;
+    size?: "default" | "sm";
     dropdownDirection?: "auto" | "down" | "up";
 }>(), {
     allowDefault: false,
     defaultLabel: "",
     placeholder: "",
     disabled: false,
+    size: "sm",
     dropdownDirection: "auto",
 });
 
@@ -78,6 +80,7 @@ function handleUpdate(value: string): void {
     <FormSelect
         :model-value="selectedValue"
         :options="selectOptions"
+        :size="props.size"
         :placeholder="props.placeholder || t('settings.panels.modelSelect.placeholder')"
         :dropdown-direction="props.dropdownDirection"
         :disabled="props.disabled"

@@ -163,9 +163,10 @@ function updateSearch(value: string): void {
 </script>
 
 <template>
-    <div class="h-[600px] w-[280px] min-w-0 overflow-hidden">
+    <div class="h-full w-full min-w-0 overflow-hidden">
         <AgentProfileNavList
             data-lab-subject
+            class="h-full w-full"
             :items="items"
             :active-key="activeKey"
             :search="search"

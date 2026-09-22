@@ -6,9 +6,7 @@
  * 这不是产品实现，只用于验证提案的公共契约（见 docs/proposals/workbench-view-host.md）。
  */
 import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
-import {createGrid, GRID_SNAPSHOT_VERSION, axisOf, type GridAxis, type GridBranch, type GridExtent, type GridLayoutResult, type GridNode, type GridSnapshotNode, type GridSnapshotBranch, type SplitterGestureState} from "@notnotype/nb-ui/components";
-import WorkbenchBranch from "nbook/app/components/workbench/WorkbenchBranch.vue";
-import {workbenchBranchGesture} from "nbook/app/components/workbench/workbench-branch-layout";
+import {createGrid, GRID_SNAPSHOT_VERSION, GridRenderer, type GridBranch, type GridExtent, type GridGestureCommit, type GridGesturePreview, type GridLayoutResult, type GridSnapshotNode, type GridSnapshotBranch} from "@notnotype/nb-ui/layout";
 import WorkbenchSurface from "./WorkbenchSurface.vue";
 import DiagnosticsRail from "./DiagnosticsRail.vue";
 import {canMoveView, labelOf, SPIKE_CONTAINERS, SPIKE_VIEWS} from "./descriptors";
@@ -21,7 +19,7 @@ import {
     placeView,
     placementOf,
     restoreLayout,
-    resizeSpikeBranch,
+    resizeSpikeBranches,
     serializeLayout,
     visibleGridTree,
     viewsOfContainer,
@@ -37,8 +35,11 @@ const state = ref<SpikeLayoutState>(createDefaultLayout(catalog));
 /** 持有完整意图；当前约束由宿主恢复，可见树单独用于呈现。 */
 const grid = ref(createSpikeGrid(state.value.grid));
 const visibleRoot = ref<GridBranch<string> | null>(null);
-/** 整棵树被换掉的次数（重置 / 恢复快照）：WorkbenchBranch 用它决定何时重挂 splitter。 */
-const epoch = ref(0);
+/**
+ * 外部版本：换树（重置 / 恢复快照）与渲染区尺寸变化时递增。渲染层把它冻结进手势会话，
+ * 提交时复核——进行中的手势不沿旧基线写新上下文。
+ */
+const revision = ref(0);
 /** 渲染区实测尺寸：原语的呈现与诊断要当前容器，挂载后由 ResizeObserver 更新。 */
 const container = ref<GridExtent>({width: 0, height: 0});
 const stageEl = ref<HTMLElement | null>(null);
@@ -46,6 +47,8 @@ let stageObserver: ResizeObserver | null = null;
 const issues = ref<string[]>([]);
 const layout = ref<GridLayoutResult>(grid.value.layout(container.value));
 const notices = ref<string[]>([]);
+/** 手势进行中的实时预览摘要（诊断用）：几何来自渲染层，宿主只在结束时落账。 */
+const gesturePreview = ref<string | null>(null);
 
 const context = createSpikeContext();
 
@@ -75,6 +78,14 @@ const contextValues = computed<SpikeContextValues>(() => ({
     job: context.job.value,
 }));
 
+/** 手势冻结的上下文键：诊断栏切换上下文键后进行中的手势不再属于同一上下文，渲染层随即取消它。 */
+const gestureContextKey = computed(() => JSON.stringify(contextValues.value));
+
+/**
+ * 手势根盒与当前测量的容差（CSS px）：渲染器与宿主各自量同一个盒子，子像素圆整不算变化。
+ */
+const EXTENT_TOLERANCE = 1;
+
 /** 改动后重新发布快照并刷新诊断：渲染读快照的意图，呈现尺寸只在拿到实测容器后算。 */
 function syncLayout() {
     const visibleTree = visibleGridTree(grid.value.root(), state.value.collapsed);
@@ -90,69 +101,62 @@ function syncLayout() {
     state.value = {...state.value, grid: snapshot, collapsed: state.value.collapsed.filter((id) => live.includes(id))};
 }
 
-function onResizeBranch(branchId: string, axis: GridAxis, baseline: Readonly<Record<string, number>>, target: Readonly<Record<string, number>>) {
-    const result = resizeSpikeBranch(grid.value, state.value.collapsed, branchId, axis, baseline, target);
+/**
+ * 一次手势的唯一落账入口：`GridRenderer` 的同步接纳回执。
+ *
+ * 落账走 ack 而不是 `@gesture-end`：只有 ack 才能让渲染层在拒绝时就地回滚预览，`gesture-end`
+ * 是不改变树、不承担落账的观察事件（诊断栏在这里只记录它收到的那批变化）。
+ * 交付的 px 变化按整批在**可见树**上求解（收起叶是渲染层过滤掉的，隐藏叶与另一轴保持原件）。
+ * 根盒已变的提交不落账：窗口在按下后被改尺寸时，旧基线不能写进新上下文。
+ */
+function acceptGesture(commit: GridGestureCommit): {ok: true} | {ok: false; reason: string} {
+    if (Math.abs(commit.extent.width - container.value.width) > EXTENT_TOLERANCE
+        || Math.abs(commit.extent.height - container.value.height) > EXTENT_TOLERANCE) {
+        const reason = "渲染区尺寸已变化，本次手势基线失效，未落账";
+        issues.value = [...issues.value, reason];
+        return {ok: false, reason};
+    }
+    const result = resizeSpikeBranches(grid.value, state.value.collapsed, commit.changes);
     if (!result.ok) {
         issues.value = [...issues.value, result.reason];
-        return;
+        return {ok: false, reason: result.reason};
     }
     syncLayout();
+    notices.value = commit.changes.length === 0
+        ? ["一次手势结束，没有需要落账的变化。"]
+        : [`一次手势落账：${commit.changes.map((change) => `${change.branchId}(${change.axis === "width" ? "宽" : "高"}：${change.active.join("、") || "无主动项"})`).join("；")}。`];
+    return {ok: true};
 }
 
-/** 手势开始时的呈现：百分比 → px 的换算要用当时那份（验证台没有持久化记录，换算留在本组件）。 */
-type SpikeGestureBaseline = {
-    readonly branchId: string;
-    readonly axis: GridAxis;
-    readonly children: readonly GridNode<string>[];
-    readonly layout: GridLayoutResult;
-};
-
-let gestureBaseline: SpikeGestureBaseline | null = null;
-
-function branchOf(branchId: string): {children: readonly GridNode<string>[]; axis: GridAxis} | null {
-    const root = visibleRoot.value;
-    if (root === null) {
-        return null;
+/** 手势进行中的几何由渲染层预览：诊断栏只显示这一帧改了哪些分支，不参与落账。 */
+function onGesturePreview(preview: GridGesturePreview<unknown>): void {
+    gesturePreview.value = preview.changes.length === 0
+        ? "手势中：尚无变化"
+        : `手势中：${preview.changes.map((change) => `${change.branchId}·${change.axis === "width" ? "宽" : "高"}`).join("、")}`;
+    if (preview.issues.length > 0) {
+        issues.value = [...issues.value, ...preview.issues.filter((issue) => !issues.value.includes(issue))];
     }
-    if (root.id === branchId) {
-        return {children: root.children, axis: axisOf(root.orientation)};
-    }
-    for (const child of root.children) {
-        if (child.kind === "branch" && child.id === branchId) {
-            return {children: child.children, axis: axisOf(child.orientation)};
-        }
-    }
-    return null;
 }
 
-function onGestureStart(branchId: string, gesture: SplitterGestureState): void {
-    const branch = branchOf(branchId);
-    gestureBaseline = branch === null
-        ? null
-        : {branchId, axis: branch.axis, children: branch.children, layout: layout.value};
-}
-
-function onGestureEnd(branchId: string, gesture: SplitterGestureState): void {
-    const captured = gestureBaseline;
-    gestureBaseline = null;
-    if (captured === null || captured.branchId !== branchId) {
-        return;
-    }
-    const conversion = workbenchBranchGesture(captured.children, captured.layout, captured.axis, gesture.sizes);
-    if (conversion === null) {
-        return;
-    }
-    onResizeBranch(branchId, captured.axis, conversion.baseline, conversion.target);
+/** `gesture-end` 只做观察：落账已经在 ack 里发生，这里只收尾预览显示。 */
+function onGestureEnd(): void {
+    gesturePreview.value = null;
 }
 
 function onGestureCancel(): void {
-    gestureBaseline = null;
+    gesturePreview.value = null;
+    notices.value = ["手势已取消，尺寸与收起状态保持开始时的值。"];
+}
+
+/** 会话诊断（容量不足、提交被拒绝等）：渲染层出口，宿主只登记不解释。 */
+function onGestureIssues(next: readonly string[]): void {
+    issues.value = [...issues.value, ...next.filter((issue) => !issues.value.includes(issue))];
 }
 
 function applyState(next: SpikeLayoutState) {
     state.value = next;
     grid.value = createSpikeGrid(next.grid);
-    epoch.value += 1;
+    revision.value += 1;
     syncLayout();
 }
 
@@ -327,7 +331,13 @@ function measureStage(): void {
     if (!element) {
         return;
     }
-    container.value = {width: element.clientWidth, height: element.clientHeight};
+    const width = element.clientWidth;
+    const height = element.clientHeight;
+    // 尺寸真的变了才递增外部版本：进行中的手势据此被判为旧基线（渲染层随即取消会话）。
+    if (width !== container.value.width || height !== container.value.height) {
+        revision.value += 1;
+    }
+    container.value = {width, height};
     syncLayout();
 }
 
@@ -351,10 +361,21 @@ syncLayout();
 <template>
     <div class="flex h-dvh min-h-0 w-screen max-w-full" data-lab-subject>
         <div ref="stageEl" class="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            <WorkbenchBranch v-if="visibleRoot" :node="visibleRoot" :layout="layout" :on-gesture-start="onGestureStart" :on-gesture-end="onGestureEnd" :on-gesture-cancel="onGestureCancel" :epoch="epoch">
-                <template #leaf="{leafId}">
+            <GridRenderer
+                v-if="visibleRoot"
+                :node="visibleRoot"
+                :layout="layout"
+                :context-key="gestureContextKey"
+                :revision="revision"
+                :on-gesture-commit="acceptGesture"
+                @gesture-update="onGesturePreview"
+                @gesture-end="onGestureEnd"
+                @gesture-cancel="onGestureCancel"
+                @issues="onGestureIssues"
+            >
+                <template #leaf="{node}">
                     <WorkbenchSurface
-                        :leaf-id="leafId"
+                        :leaf-id="node.id"
                         :state="state"
                         :catalog="catalog"
                         :factory-states="factoryStates"
@@ -365,12 +386,13 @@ syncLayout();
                         @drag-view="onDragView"
                     />
                 </template>
-            </WorkbenchBranch>
+            </GridRenderer>
         </div>
         <DiagnosticsRail
             :snapshot-json="serializeLayout(state)"
             :issues="issues"
             :notices="notices"
+            :gesture="gesturePreview"
             :context="contextValues"
             :panel-in-full-row="panelInFullRow"
             @toggle-context="(key) => (context[key].value = !context[key].value)"

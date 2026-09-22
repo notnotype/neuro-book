@@ -27,6 +27,7 @@ import {
     SHELL_RIGHT_PANEL_DEFAULT_WIDTH,
 } from "nbook/app/utils/workbench/layout";
 import {useLabEventSink} from "../lab-event-sink";
+import LabFixtureControls from "../LabFixtureControls.vue";
 
 const props = defineProps<{scene: string; data?: unknown}>();
 
@@ -51,13 +52,41 @@ function readRows(value: unknown): number {
 const knobs = computed(() => {
     const data = (props.data ?? {}) as Record<string, unknown>;
     return {
-        leftTitle: readString(data.leftTitle, "工具"),
-        rightTitle: readString(data.rightTitle, "Agent"),
+        leftTitle: readString(data.leftTitle, "主侧边栏 / Primary Side Bar"),
+        rightTitle: readString(data.rightTitle, "辅助侧边栏 / Secondary Side Bar"),
+        /** 单栏场景（`primary-sidebar` / `secondary-sidebar`）的标题与内容档。 */
+        title: readString(data.title, "主侧边栏 / Primary Side Bar"),
+        singleLayout: readLayout(data.layout, "scroll"),
         leftLayout: readLayout(data.leftLayout, "scroll"),
         rightLayout: readLayout(data.rightLayout, "fill"),
         rows: readRows(data.rows),
     };
 });
+
+/**
+ * 单栏场景摆哪一边：主侧边栏与辅助侧边栏是**同一个容器部件**的两个明确落位，
+ * 不是两份同构 wrapper——场景只换容器的落位与初值。
+ */
+const singleSide = computed<"left" | "right" | null>(() => {
+    if (props.scene === "primary-sidebar") {
+        return "left";
+    }
+    if (props.scene === "secondary-sidebar") {
+        return "right";
+    }
+    return null;
+});
+
+const SCENE_NOTES: Record<string, string> = {
+    product: "产品落位：左叶是主侧边栏（scroll 档）、右叶是辅助侧边栏（fill 档）；中间是编辑器叶（本场景不摆内容）。",
+    sections: "VS Code 式侧栏：支持多 Section 列表、折叠/展开、空态、1px 分隔线，以及右上角「···」可见性浮层菜单。",
+    scroll: "两栏都走 scroll 档：留白与滚动都归卡片，内容只负责铺开。",
+    fill: "两栏都走 fill 档：内容自己占满并管理滚动，卡片只负责裁切。",
+    "primary-sidebar": "只摆主侧边栏这一叶：workspace 视图容器落在左侧叶上，标题是它的语义名称。",
+    "secondary-sidebar": "只摆辅助侧边栏这一叶：对话面容器落在右侧叶上，fill 档（内容自己管留白与滚动）。",
+};
+
+const stageNote = computed(() => SCENE_NOTES[props.scene] ?? SCENE_NOTES.product!);
 
 /** 中性演示行：只用来量几何与滚动归属，不承载任何业务含义。 */
 const rows = computed(() => Array.from({length: knobs.value.rows}, (_, index) => index + 1));
@@ -157,16 +186,12 @@ const sampleTimeline = [
 </script>
 
 <template>
-    <div class="workbench-container-stage flex h-[520px] min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-main)]">
-        <!-- 这段是 fixture 自己的话，不是容器的一部分：容器里不写说明文字，说明归 Lab。 -->
-        <p class="shrink-0 px-[var(--space-6)] py-[var(--space-3)] text-[var(--text-xs)] text-[var(--text-muted)]">
-            <template v-if="props.scene === 'sections'">
-                VS Code 式侧栏：支持多 Section 列表、折叠/展开、空态、1px 分隔线，以及右上角「···」可见性浮层菜单。
-            </template>
-            <template v-else>
-                左右两叶各承载一个容器；中间是编辑器叶（本场景不摆内容）。
-            </template>
-        </p>
+    <div class="workbench-container-stage flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bg-main)]">
+        <LabFixtureControls>
+            <div class="text-xs text-[var(--text-secondary)]" data-lab-note>
+                {{ stageNote }}
+            </div>
+        </LabFixtureControls>
         <!-- sections 场景：VS Code 式多 Section 侧栏与窄栏溢出测试 -->
         <div v-if="props.scene === 'sections'" class="flex min-h-0 w-full flex-1 items-stretch">
             <!-- 左叶：标准多 Section 侧栏 -->
@@ -253,6 +278,57 @@ const sampleTimeline = [
                             </li>
                         </ul>
                     </template>
+                </WorkbenchContainerSurface>
+            </div>
+        </div>
+
+        <!-- 单栏场景：只摆主侧边栏或辅助侧边栏这一叶——同一个容器部件的两个明确落位。 -->
+        <div v-else-if="singleSide !== null" class="flex min-h-0 w-full flex-1 items-stretch justify-center">
+            <div
+                class="flex min-h-0 min-w-0 flex-col"
+                :style="leafStyle(singleSide === 'left' ? SHELL_LEFT_PANEL_DEFAULT_WIDTH : SHELL_RIGHT_PANEL_DEFAULT_WIDTH)"
+                :data-fixture-leaf="singleSide"
+            >
+                <WorkbenchContainerSurface
+                    data-lab-subject
+                    :container="singleSide === 'left' ? SHELL_LEFT_CONTAINER : SHELL_RIGHT_CONTAINER"
+                    :title="knobs.title"
+                    :layout="knobs.singleLayout"
+                >
+                    <template #actions>
+                        <IconButton size="sm" icon-class="i-lucide-plus" title="新建（宿主动作）" @click="onAction(singleSide === 'left' ? 'primary:new' : 'secondary:new')" />
+                        <IconButton size="sm" icon-class="i-lucide-ellipsis" title="更多（宿主动作）" @click="onAction(singleSide === 'left' ? 'primary:more' : 'secondary:more')" />
+                    </template>
+
+                    <!-- scroll 档：留白与滚动归卡片。 -->
+                    <ul v-if="knobs.singleLayout === 'scroll'" class="flex min-w-0 flex-col gap-[var(--space-1)]">
+                        <li
+                            v-for="row in rows"
+                            :key="row"
+                            class="flex min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                        >
+                            <span :class="singleSide === 'left' ? 'i-lucide-file-text' : 'i-lucide-message-square'" class="h-[14px] w-[14px] shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                            <span class="min-w-0 truncate">{{ singleSide === "left" ? `示例条目 ${row}` : `对话条目 ${row}` }}</span>
+                        </li>
+                    </ul>
+
+                    <!-- fill 档：留白与滚动归视图。 -->
+                    <div v-else class="flex h-full min-h-0 flex-col">
+                        <p class="flex shrink-0 items-center gap-[var(--space-2)] border-b border-[var(--divider)] px-[var(--panel-p)] py-[var(--space-3)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+                            视图自己的头部与留白
+                            <span class="ml-auto whitespace-nowrap text-[var(--text-2xs)] text-[var(--text-muted)] tabular-nums">{{ knobs.rows }} 条</span>
+                        </p>
+                        <ul class="flex min-h-0 flex-1 flex-col gap-[var(--space-1)] overflow-y-auto p-[var(--panel-p)]">
+                            <li
+                                v-for="row in rows"
+                                :key="row"
+                                class="flex min-w-0 items-center gap-[var(--space-2)] rounded-[var(--radius-control)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
+                            >
+                                <span class="i-lucide-message-square h-[14px] w-[14px] shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
+                                <span class="min-w-0 truncate">对话条目 {{ row }}</span>
+                            </li>
+                        </ul>
+                    </div>
                 </WorkbenchContainerSurface>
             </div>
         </div>

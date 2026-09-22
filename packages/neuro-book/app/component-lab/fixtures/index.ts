@@ -80,6 +80,60 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./HighlightBoxFixture.vue")).default,
     },
     {
+        component: "FixtureExample",
+        scenes: [
+            {
+                id: "default",
+                label: "默认受控卡片（居中与标准材质示范）",
+                data: {
+                    title: "章节大纲智能体编排",
+                    description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
+                    status: "ready",
+                    count: 12,
+                    active: false,
+                    disabled: false,
+                },
+            },
+            {
+                id: "active",
+                label: "激活态与高亮外框",
+                data: {
+                    title: "章节大纲智能体编排",
+                    description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
+                    status: "ready",
+                    count: 12,
+                    active: true,
+                    disabled: false,
+                },
+            },
+            {
+                id: "busy",
+                label: "忙碌呼吸状态",
+                data: {
+                    title: "正在生成第三卷剧情推演",
+                    description: "后台正在计算角色动机转移概率矩阵与未回收伏笔拓扑图...",
+                    status: "busy",
+                    count: 99,
+                    active: true,
+                    disabled: false,
+                },
+            },
+            {
+                id: "warning",
+                label: "警告冲突状态",
+                data: {
+                    title: "检测到人物性格设定冲突",
+                    description: "角色「沈屿」在第二章的对话用词与素材库口吻约定存在 2 处偏差。",
+                    status: "warning",
+                    count: 2,
+                    active: false,
+                    disabled: false,
+                },
+            },
+        ],
+        load: async () => (await import("./FixtureExampleFixture.vue")).default,
+    },
+    {
         component: "JsonViewer",
         scenes: [
             {
@@ -547,11 +601,11 @@ export const labFixtures: LabFixture[] = [
     {
         component: "WorkbenchContainerSurface",
         scenes: [
-            // 标题取产品译文的已解析值（`ide.workbench.container.tools` / `.agent`）：解析归宿主，fixture 扮演宿主。
+            // 标题是 Lab 的**教学名称**：主 / 辅助侧边栏是同一个容器部件的两个明确落位，不暗示产品布局变化。
             {
                 id: "product",
                 label: "产品落位（左 scroll / 右 fill）",
-                data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "scroll", rightLayout: "fill", rows: 30},
+                data: {leftTitle: "主侧边栏 / Primary Side Bar", rightTitle: "辅助侧边栏 / Secondary Side Bar", leftLayout: "scroll", rightLayout: "fill", rows: 30},
             },
             {
                 id: "sections",
@@ -567,6 +621,16 @@ export const labFixtures: LabFixture[] = [
                 id: "fill",
                 label: "两栏都 fill",
                 data: {leftTitle: "工具", rightTitle: "Agent", leftLayout: "fill", rightLayout: "fill", rows: 30},
+            },
+            {
+                id: "primary-sidebar",
+                label: "单栏：主侧边栏（scroll）",
+                data: {title: "主侧边栏 / Primary Side Bar", layout: "scroll", rows: 18},
+            },
+            {
+                id: "secondary-sidebar",
+                label: "单栏：辅助侧边栏（fill）",
+                data: {title: "辅助侧边栏 / Secondary Side Bar", layout: "fill", rows: 12},
             },
         ],
         load: async () => (await import("./WorkbenchContainerSurfaceFixture.vue")).default,
@@ -605,6 +669,16 @@ export const labFixtures: LabFixture[] = [
                 label: "滚动布局（scroll 呈现）",
                 data: {activeTab: "problems", collapsed: false, layout: "scroll"},
             },
+            {
+                id: "empty-actions",
+                label: "空面板：没有标签，只剩框架动作区",
+                data: {collapsed: false, layout: "fill"},
+            },
+            {
+                id: "view-actions",
+                label: "标题区：View 动作 + 框架动作（真实动作部件）",
+                data: {activeTab: "problems", collapsed: false, layout: "fill"},
+            },
         ],
         load: async () => (await import("./WorkbenchPanelSurfaceFixture.vue")).default,
     },
@@ -635,13 +709,23 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./WorkbenchStatusBarFixture.vue")).default,
     },
     {
-        component: "WorkbenchViewHost",
+        component: "WorkbenchActivityBar",
         scenes: [
-            {id: "default", label: "可见视图（fill 内容区）"},
-            {id: "hidden", label: "when 不可见（空态给原因）"},
-            {id: "unknown-factory", label: "未知 factoryKey（失败可见）"},
+            {id: "default", label: "默认（三组几何 620px）", data: {height: 620}},
+            {id: "overflow", label: "溢出（次要入口进 More）", data: {height: 320}},
+            {id: "disabled", label: "禁用（入口在但给原因）", data: {height: 620}},
+            {id: "short", label: "矮容器 220px（滚动兜底）", data: {height: 220}},
         ],
-        load: async () => (await import("./WorkbenchViewHostFixture.vue")).default,
+        load: async () => (await import("./WorkbenchActivityBarFixture.vue")).default,
+    },
+    {
+        component: "NovelIdeActivityBar",
+        scenes: [
+            {id: "default", label: "桌面（Project 已打开）", data: {height: 620}},
+            {id: "disabled", label: "书架态（未打开 Project）", data: {height: 620}},
+            {id: "account", label: "账户菜单（假 AuthUserDto）", data: {height: 620}},
+        ],
+        load: async () => (await import("./NovelIdeActivityBarFixture.vue")).default,
     },
     {
         component: "EditorWorkbench",
@@ -665,9 +749,13 @@ export const labFixtures: LabFixture[] = [
                     diagnosis: null,
                     tabs: [
                         {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-                        {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
-                        {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-                        {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
+                        {path: ".env", title: ".env", pinned: false, preview: false, dirty: false, description: "...\\tim-completion-spike", iconClass: "i-lucide-key-round"},
+                        {path: "AGENTS.md", title: "AGENTS.md", pinned: false, preview: false, dirty: false, statusText: "M", iconClass: "i-lucide-file-text"},
+                        {path: "docs/002-product-decision-brief.md", title: "002-product-decision-brief.md", pinned: false, preview: false, dirty: false, statusText: "U", iconClass: "i-lucide-file-text"},
+                        {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, statusText: "U", iconClass: "i-lucide-file-text"},
+                        {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, statusText: "M", iconClass: "i-lucide-file-text"},
+                        {path: "package.json", title: "package.json", pinned: false, preview: false, dirty: false, statusText: "M", iconClass: "i-lucide-braces"},
+                        {path: ".agents/skills/doc-review/SKILL.md", title: "SKILL.md", pinned: false, preview: false, dirty: false, description: "...\\doc-review", iconClass: "i-lucide-file-text"},
                         {path: "src/notes/quick-draft.txt", title: "quick-draft.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
                     ],
                 },
@@ -820,6 +908,21 @@ export const labFixtures: LabFixture[] = [
                 label: "空文档",
                 data: {path: "manuscript/未命名.md", languageId: "markdown", readonly: false, content: ""},
             },
+            {
+                id: "command-navigation",
+                label: "命令与行号导航",
+                data: {
+                    path: "lab/command-navigation.txt",
+                    languageId: "plaintext",
+                    readonly: false,
+                    content: Array.from({length: 60}, (_, index) => `第 ${index + 1} 行：命令导航验收`).join("\n"),
+                },
+            },
+            {
+                id: "commands-unavailable",
+                label: "无活动编辑器",
+                data: {path: "lab/commands-unavailable.txt", languageId: "plaintext", readonly: false, content: ""},
+            },
         ],
         load: async () => (await import("./CodeEditorViewFixture.vue")).default,
     },
@@ -941,7 +1044,7 @@ export const labFixtures: LabFixture[] = [
         scenes: [
             // 标签清单很长，登记初值只放在夹具里：两处各写一份 12 个长路径必然漂移。
             {id: "mixed", label: "固定 / 普通 / 预览 / 脏标记混排"},
-            {id: "overflow", label: "12 个长标题横向滚动（选中项滚入可见）"},
+            {id: "overflow", label: "12 个长标题：默认折行，切单行验证横向滚动"},
             {id: "pinned-only", label: "只有固定标签（固定行独立成行）"},
             {id: "single-preview", label: "预览标签与脏标记"},
         ],
@@ -996,6 +1099,417 @@ export const labFixtures: LabFixture[] = [
             {id: "readonly-node", label: "节点不可编辑"},
         ],
         load: async () => (await import("./EditorWelcomeFixture.vue")).default,
+    },
+    {
+        component: "AgentChatFlow",
+        scenes: [
+            {id: "empty-main", label: "主界面默认空状态"},
+            {id: "empty-unselected", label: "未选择会话提示"},
+            {id: "empty-compact", label: "紧凑侧栏等待态"},
+            {id: "conversation", label: "多轮交替对话"},
+            {id: "with-tools", label: "含工具调用会话"},
+            {id: "history-loading", label: "顶部历史拉取态"},
+            {id: "streaming-simulation", label: "流式吸底交互验证"},
+        ],
+        load: async () => (await import("./AgentChatFlowFixture.vue")).default,
+    },
+    {
+        component: "AgentChatEmptyState",
+        scenes: [
+            {id: "main", label: "主模式欢迎引导"},
+            {id: "unselected", label: "未选择对话提示"},
+            {id: "compact", label: "紧凑模式等待"},
+        ],
+        load: async () => (await import("./AgentChatEmptyStateFixture.vue")).default,
+    },
+    {
+        component: "AgentChatHistoryLoader",
+        scenes: [
+            {id: "idle", label: "空闲/可加载状态"},
+            {id: "loading", label: "加载中状态"},
+            {id: "error", label: "加载失败可重试状态"},
+        ],
+        load: async () => (await import("./AgentChatHistoryLoaderFixture.vue")).default,
+    },
+    {
+        component: "AgentUserBubble",
+        scenes: [
+            {id: "default", label: "常规用户提问"},
+            {id: "steer", label: "Steer 引导指令"},
+            {id: "with-attachments", label: "带多模态参考图"},
+            {id: "editing", label: "就地编辑态"},
+            {id: "unknown-delivery", label: "未知投递状态"},
+        ],
+        load: async () => (await import("./AgentUserBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentAssistantBubble",
+        scenes: [
+            {id: "default", label: "常规完成回答"},
+            {id: "streaming", label: "流式输出进行中"},
+            {id: "with-cost", label: "带 Token 与费用统计"},
+            {id: "interrupted", label: "用户主动取消态"},
+        ],
+        load: async () => (await import("./AgentAssistantBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentThinkingCollapsible",
+        scenes: [
+            {id: "default", label: "长思维链折叠"},
+            {id: "expanded", label: "展开完整思维链"},
+            {id: "short", label: "短思维链"},
+            {id: "streaming", label: "流式生成中思维链"},
+        ],
+        load: async () => (await import("./AgentThinkingCollapsibleFixture.vue")).default,
+    },
+    {
+        component: "AgentMessageActionBar",
+        scenes: [
+            {id: "all", label: "全部动作可用"},
+            {id: "user", label: "用户消息动作"},
+            {id: "assistant", label: "助手消息动作"},
+            {id: "with-branch", label: "含分支指示器"},
+            {id: "unknown", label: "未知投递操作"},
+            {id: "disabled", label: "禁用状态"},
+        ],
+        load: async () => (await import("./AgentMessageActionBarFixture.vue")).default,
+    },
+    {
+        component: "AgentSystemBubble",
+        scenes: [
+            {id: "prompt", label: "System Prompt 默认态"},
+            {id: "reminder", label: "轻量系统提醒"},
+            {id: "error", label: "运行时错误警示"},
+        ],
+        load: async () => (await import("./AgentSystemBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentTextBubble",
+        scenes: [
+            {id: "user", label: "分发用户消息"},
+            {id: "ai", label: "分发 AI 回复"},
+            {id: "system", label: "分发系统消息"},
+        ],
+        load: async () => (await import("./AgentTextBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentToolBubble",
+        scenes: [
+            {id: "default", label: "工具外壳分发展示"},
+        ],
+        load: async () => (await import("./AgentToolBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentToolNode",
+        scenes: [
+            {id: "success", label: "成功完成折叠态"},
+            {id: "expanded", label: "展开入参与结果"},
+            {id: "running", label: "正在执行中"},
+            {id: "error", label: "执行报错失败态"},
+        ],
+        load: async () => (await import("./AgentToolNodeFixture.vue")).default,
+    },
+    {
+        component: "AgentEditFileBubble",
+        scenes: [
+            {id: "success", label: "文件修改已应用"},
+            {id: "running", label: "流式修改进行中"},
+        ],
+        load: async () => (await import("./AgentEditFileBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentWriteFileBubble",
+        scenes: [
+            {id: "success", label: "新建写入成功"},
+            {id: "running", label: "正在写入文件"},
+        ],
+        load: async () => (await import("./AgentWriteFileBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentApplyPatchBubble",
+        scenes: [
+            {id: "success", label: "补丁成功打入"},
+            {id: "error", label: "补丁冲突报错"},
+        ],
+        load: async () => (await import("./AgentApplyPatchBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentSwitchModeBubble",
+        scenes: [
+            {id: "reviewer", label: "切换审校模式"},
+            {id: "writer", label: "切换创作模式"},
+        ],
+        load: async () => (await import("./AgentSwitchModeBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentTaskBubble",
+        scenes: [
+            {id: "success", label: "任务清单执行完毕"},
+            {id: "running", label: "任务正在推进中"},
+        ],
+        load: async () => (await import("./AgentTaskBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentRequestUserInputBubble",
+        scenes: [
+            {id: "default", label: "请求用户输入决策"},
+        ],
+        load: async () => (await import("./AgentRequestUserInputBubbleFixture.vue")).default,
+    },
+    {
+        component: "AgentQueuedMessageList",
+        scenes: [
+            {id: "mixed", label: "混合排队与转向"},
+            {id: "steer-only", label: "仅有转向消息"},
+            {id: "queue-only", label: "普通顺序排队"},
+        ],
+        load: async () => (await import("./AgentQueuedMessageListFixture.vue")).default,
+    },
+    {
+        component: "AgentComposer",
+        scenes: [
+            {id: "ready", label: "正常就绪空闲"},
+            {id: "with-text", label: "输入长提示词"},
+            {id: "with-images", label: "包含图片附件"},
+            {id: "queued", label: "带排队消息列表"},
+            {id: "user-input-prompt", label: "用户决策交互提问"},
+            {id: "running", label: "任务执行推进中"},
+            {id: "readonly-unselected", label: "未选择会话锁定"},
+            {id: "readonly-archived", label: "已归档会话只读"},
+            {id: "discuss-mode", label: "讨论模式"},
+            {id: "plan-mode", label: "规划模式"},
+        ],
+        load: async () => (await import("./AgentComposerFixture.vue")).default,
+    },
+    {
+        component: "AgentComposerAvailabilityBanner",
+        scenes: [
+            {id: "unselected", label: "未选择对话"},
+            {id: "empty", label: "空会话列表"},
+            {id: "archived", label: "已归档会话"},
+            {id: "load-error", label: "网络加载失败"},
+            {id: "waiting-blocked", label: "等待输入被阻塞"},
+        ],
+        load: async () => (await import("./AgentComposerAvailabilityBannerFixture.vue")).default,
+    },
+    {
+        component: "AgentComposerImageBar",
+        scenes: [
+            {id: "default", label: "多图正常预览"},
+            {id: "unsupported-model", label: "模型不支持图片警告"},
+            {id: "metadata-error", label: "元数据校验失败"},
+            {id: "readonly", label: "只读状态"},
+        ],
+        load: async () => (await import("./AgentComposerImageBarFixture.vue")).default,
+    },
+    {
+        component: "AgentComposerToolbar",
+        scenes: [
+            {id: "ready", label: "就绪普通模式"},
+            {id: "running", label: "执行中带停止按钮"},
+            {id: "discuss-mode", label: "讨论模式"},
+            {id: "plan-mode", label: "规划模式"},
+            {id: "disabled", label: "禁用/只读态"},
+        ],
+        load: async () => (await import("./AgentComposerToolbarFixture.vue")).default,
+    },
+    {
+        component: "AgentSessionStatusBar",
+        scenes: [
+            {id: "idle", label: "常规空闲态"},
+            {id: "running", label: "任务推进中"},
+            {id: "connection-issue", label: "网络断开待重连"},
+            {id: "discuss-mode", label: "讨论模式徽标"},
+        ],
+        load: async () => (await import("./AgentSessionStatusBarFixture.vue")).default,
+    },
+    {
+        component: "AgentComposerInput",
+        scenes: [
+            {id: "empty", label: "空白占位"},
+            {id: "with-text", label: "输入提示词"},
+            {id: "expanded", label: "多行展开"},
+            {id: "readonly", label: "只读锁定"},
+        ],
+        load: async () => (await import("./AgentComposerInputFixture.vue")).default,
+    },
+    {
+        component: "AgentSessionModelControls",
+        scenes: [
+            {id: "closed", label: "参数面板折叠"},
+            {id: "open", label: "展开参数调节面板"},
+            {id: "readonly", label: "只读锁定"},
+            {id: "saving", label: "保存中状态"},
+        ],
+        load: async () => (await import("./AgentSessionModelControlsFixture.vue")).default,
+    },
+    {
+        component: "AgentUserInputPrompt",
+        scenes: [
+            {id: "single-choice", label: "单选决策"},
+            {id: "open-ended", label: "开放式简答"},
+            {id: "multi-question", label: "多步问答导航"},
+            {id: "submitting", label: "提交处理中"},
+        ],
+        load: async () => (await import("./AgentUserInputPromptFixture.vue")).default,
+    },
+    {
+        component: "AgentSessionHeader",
+        scenes: [
+            {id: "default", label: "活跃会话标题栏"},
+            {id: "with-dropdown", label: "新建会话配置下拉"},
+            {id: "with-badges", label: "状态徽标与总结器"},
+        ],
+        load: async () => (await import("./AgentSessionHeaderFixture.vue")).default,
+    },
+    {
+        component: "AgentSystemPromptPanel",
+        scenes: [
+            {id: "expanded", label: "展开状态（Markdown 渲染）"},
+            {id: "loading", label: "加载中"},
+            {id: "error", label: "加载失败"},
+            {id: "empty", label: "Prompt 为空"},
+        ],
+        load: async () => (await import("./AgentSystemPromptPanelFixture.vue")).default,
+    },
+    {
+        component: "AgentLinkedAgentPanel",
+        scenes: [
+            {id: "populated", label: "有关联 Agent"},
+            {id: "empty", label: "无关联 Agent"},
+            {id: "loading", label: "加载中"},
+        ],
+        load: async () => (await import("./AgentLinkedAgentPanelFixture.vue")).default,
+    },
+    {
+        component: "AgentSidebarView",
+        scenes: [
+            {id: "empty", label: "创作入口（最近会话+推荐词）"},
+            {id: "conversation", label: "常规对话与工具"},
+            {id: "streaming", label: "实时生成流式态"},
+            {id: "history", label: "历史追溯与长对话"},
+            {id: "delivery-unknown", label: "未知投递重发忽略"},
+            {id: "images", label: "图文多模态创作"},
+            {id: "pending-input", label: "人机决策待决审批"},
+            {id: "workflow", label: "多Agent工作流"},
+            {id: "workspace-changes", label: "工作区历史变更"},
+            {id: "sessions", label: "多会话列表与管理"},
+            {id: "context-inspector", label: "Prompt上下文检查"},
+            {id: "unavailable", label: "不可用异常状态"},
+        ],
+        load: async () => (await import("./AgentSidebarViewFixture.vue")).default,
+    },
+    {
+        component: "EditorTabItem",
+        scenes: [
+            {id: "default", label: "常规标签"},
+            {id: "active", label: "激活状态"},
+            {id: "pinned", label: "固定标签"},
+            {id: "preview", label: "预览斜体"},
+            {id: "dirty", label: "未保存脏标记"},
+            {id: "git-modified", label: "Git 已修改 (M)"},
+            {id: "git-untracked", label: "Git 新建 (U)"},
+            {id: "with-description", label: "路径消歧义"},
+        ],
+        load: async () => (await import("./EditorTabItemFixture.vue")).default,
+    },
+    {
+        component: "EditorBreadcrumbs",
+        scenes: [
+            {id: "default", label: "常规路径与符号"},
+            {id: "long", label: "深层超长路径"},
+        ],
+        load: async () => (await import("./EditorBreadcrumbsFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchCommandPalette",
+        scenes: [
+            {
+                id: "command-navigation",
+                label: "命令与行号导航",
+                data: {
+                    path: "lab/command-navigation.txt",
+                    languageId: "plaintext",
+                    readonly: false,
+                    content: Array.from({length: 60}, (_, index) => `第 ${index + 1} 行：命令导航验收`).join("\n"),
+                },
+            },
+            {
+                id: "readonly",
+                label: "只读文档",
+                data: {
+                    path: "assets/导出的旧稿.txt",
+                    languageId: "plaintext",
+                    readonly: true,
+                    content: "这是一份只读文档：内核不允许输入，夹具也不伪造「保存成功」。\n",
+                },
+            },
+            {
+                id: "commands-unavailable",
+                label: "无活动编辑器",
+                data: {path: "lab/commands-unavailable.txt", languageId: "plaintext", readonly: false, content: ""},
+            },
+        ],
+        load: async () => (await import("./WorkbenchCommandPaletteFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchTitleActions",
+        scenes: [
+            {id: "default", label: "默认（主操作 + 更多）"},
+            {id: "overflow", label: "窄条折叠进更多"},
+            {id: "disabled", label: "禁用并给出原因"},
+            {id: "checked", label: "受控勾选/单选项"},
+        ],
+        load: async () => (await import("./WorkbenchTitleActionsFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchShellLayout",
+        scenes: [
+            {id: "default", label: "默认（底部 / 居中）"},
+            {id: "panel-positions", label: "Panel 在左侧"},
+            {id: "panel-alignments", label: "底部 / 两端对齐"},
+            {id: "panel-collapsed", label: "32px 标题头"},
+            {id: "panel-hidden", label: "隐藏（零占用）"},
+            {id: "panel-maximized", label: "最大化（瞬时）"},
+            {id: "empty-panel", label: "空 Panel"},
+            {id: "containers", label: "多容器单选（含空容器）"},
+            {id: "container-moved", label: "整容器搬到 Panel"},
+            {id: "view-reordered", label: "容器内换序"},
+            {id: "view-actions", label: "View 贡献的标题动作"},
+            {id: "narrow", label: "窄画布 390×844（紧凑）"},
+            {id: "short", label: "短容器（高 260）"},
+            {id: "lifetime", label: "实例生命周期探针"},
+            {id: "view-hidden", label: "视图不可见（空态给原因）"},
+            {id: "unknown-factory", label: "未知 factoryKey（失败可见）"},
+        ],
+        load: async () => (await import("./WorkbenchShellLayoutFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchPanelTab",
+        scenes: [
+            {id: "default", label: "多页签（其一激活，带图标与角标）"},
+            {id: "disabled", label: "禁用项 + 可关闭项"},
+            {id: "keyboard", label: "宿主 Tab 条的键盘漫游（方向键 / Home / End / Enter）"},
+        ],
+        load: async () => (await import("./WorkbenchPanelTabFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchStatusBarItem",
+        scenes: [
+            {id: "default", label: "图标 + 文本 + 角标（含激活态）"},
+            {id: "variants", label: "error / warning / info / success 四个变体"},
+            {id: "readonly", label: "只读（clickable=false，不发事件）"},
+        ],
+        load: async () => (await import("./WorkbenchStatusBarItemFixture.vue")).default,
+    },
+    {
+        component: "WorkbenchViewInstances",
+        scenes: [
+            {id: "default", label: "实例落在左栏（可搬容器、可设不可见）"},
+            {id: "moved", label: "搬到面板：同一实例不重挂"},
+            {id: "hidden", label: "不可见的视图不渲染实例"},
+        ],
+        load: async () => (await import("./WorkbenchViewInstancesFixture.vue")).default,
     },
 ];
 

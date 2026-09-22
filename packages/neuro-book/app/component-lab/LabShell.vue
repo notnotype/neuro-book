@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
+import {Type, type TSchema} from "typebox";
 import {
+    AlertDialog as NbAlertDialog,
     FormInput as NbFormInput,
     FormSelect as NbFormSelect,
     SegmentedControl as NbSegmentedControl,
@@ -8,7 +10,7 @@ import {
     ToggleGroup as NbToggleGroup,
     Tree as NbTree,
 } from "@notnotype/nb-ui/components";
-import type {FormSelectOption, SegmentedControlOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
+import type {FormSelectOption, TabsItem, ToggleGroupOption} from "@notnotype/nb-ui/components";
 import type {Component} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import CollapsibleSidePanel from "./CollapsibleSidePanel.vue";
@@ -16,8 +18,8 @@ import ViewportCanvas from "./ViewportCanvas.vue";
 import MarkdownView from "./MarkdownView.vue";
 import EventLogPanel from "./EventLogPanel.vue";
 import HighlightBox from "./HighlightBox.vue";
-import {labComponents, findLabComponent} from "./component-index";
-import type {LabComponentKind} from "./component-index";
+import {labComponents, findLabComponent, labComponentLabel, matchesLabQuery} from "./component-index";
+import type {LabComponentKind, LabDisplayMode} from "./component-index";
 import {findLabFixture} from "./fixtures";
 import {LAB_CONTROLS_REGISTER, LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
 import type {LabEventEntry} from "./event-log.types";
@@ -26,6 +28,19 @@ import type {InspectedNode} from "./inspect";
 import {INSPECT_CLASS_LIMIT, describeNode, nodeLabel, nodeReport} from "./inspect";
 import {clearLabWallpaper, loadLabWallpaper, saveLabWallpaper} from "./lab-wallpaper-store";
 import {useLabPreferences} from "./use-lab-preferences";
+import {provideWorkbenchCommands} from "nbook/app/composables/useWorkbenchCommands";
+import WorkbenchCommandPalette from "nbook/app/components/workbench/WorkbenchCommandPalette.vue";
+import {
+    effectiveAgentExposure,
+    type CommandConfirmationRequest,
+    type CommandDescriptor,
+    type CommandInvocation,
+    type CommandMetadata,
+    type CommandResult,
+    type Release,
+} from "nbook/app/utils/workbench/commands";
+import {evaluateContextWhen} from "nbook/app/utils/workbench/context-keys";
+import {createKeymapDispatcher} from "nbook/app/utils/workbench/keymap";
 import {LAB_PANEL_WIDTH_LIMITS} from "./lab-preferences-store";
 import type {LabPanelSide} from "./lab-preferences-store";
 import {
@@ -100,13 +115,13 @@ function ensureSelectedComponentExpanded(name: string): void {
 }
 
 const matchedComponents = computed(() => {
-    const query = treeQuery.value.trim().toLowerCase();
+    const query = treeQuery.value.trim();
     if (query === "") {
         return labComponents;
     }
-    // 只按组件名搜。搜文档正文会把「凡是提到 Tree 的组件」全捞出来，
-    // 而这一栏是导航，导航要的是「我知道它叫什么，带我过去」。
-    return labComponents.filter((entry) => entry.name.toLowerCase().includes(query));
+    // 搜组件名、文档显示名与部件别名：导航要的是「我知道它长什么样，带我过去」，
+    // 所以搜正文仍然不做（那会把「凡是提到 Tree 的组件」全捞出来）。
+    return labComponents.filter((entry) => matchesLabQuery(entry, query));
 });
 
 type LabTreeNode = {id: string; title: string; iconClass?: string; children?: LabTreeNode[]};
@@ -114,16 +129,48 @@ type LabTreeNode = {id: string; title: string; iconClass?: string; children?: La
 /**
  * 图形按组件分类给，不按「能不能挂载」给：分类回答「这是什么」，锁只回答「这里能不能跑」——
  * 后者仍然覆盖前者，因为它是一条约束，不是类型。
+ *
+ * 颜色跟图形一起给：一百多行里靠文字找组件时，色相是唯一不用读字就能扫出来的线索。
+ *
+ * 这里只认四根**能用的色相轴**（青 `--status-info`、绿 `--status-success`、
+ * 橙 `--status-warning`、红 `--status-danger`）加主题强调蓝，其余四档用 `color-mix` 在它们之间
+ * 取中间色相。之所以不直接拿 `--accent-text` 当第三档：它和 `--accent-main`、`--status-info`
+ * 都是蓝的（#0060df / #007aff / #0a7ea4，色相 214° / 211° / 195°），三档只差十几度，
+ * 在 14px 图标上等于一个颜色。下表括号里是两套配色下的实际色相，相邻档至少差 45°。
+ *
+ * 全部由主题 token 派生，不写死 hex；换配色时跟着走。
  */
 const KIND_ICONS: Record<LabComponentKind, string> = {
-    view: "i-lucide-layout-panel-top",
-    dialog: "i-lucide-app-window",
-    section: "i-lucide-list-tree",
-    field: "i-lucide-sliders-horizontal",
-    list: "i-lucide-list",
-    panel: "i-lucide-panel-left",
-    part: "i-lucide-box",
+    view: "i-lucide-layout-panel-top text-[var(--status-info)]",
+    // 蓝 + 红（1:3）= 玫红，与「面板」的紫分开约 70°
+    dialog: "i-lucide-app-window text-[color-mix(in_srgb,var(--accent-main)_25%,var(--status-danger))]",
+    // 绿 + 橙 = 黄绿，落在「字段」的橙与「列表」的绿之间
+    section: "i-lucide-list-tree text-[color-mix(in_srgb,var(--status-success)_55%,var(--status-warning))]",
+    field: "i-lucide-sliders-horizontal text-[var(--status-warning)]",
+    list: "i-lucide-list text-[var(--status-success)]",
+    // 蓝 + 红（约 1:1）= 紫
+    panel: "i-lucide-panel-left text-[color-mix(in_srgb,var(--accent-main)_45%,var(--status-danger))]",
+    // 青 → 绿 = 青绿（约 168°），落在 info 的 195° 与 success 的 130° 之间
+    agent: "i-lucide-message-square text-[color-mix(in_srgb,var(--status-info)_45%,var(--status-success))]",
+    // 蓝 → 红（偏蓝）= 蓝紫（约 236°），正好落在「视图青 195°」与「面板紫 264°」中间的空档
+    editor: "i-lucide-file-code text-[color-mix(in_srgb,var(--accent-main)_55%,var(--status-danger))]",
+    // 色相环剩下的空档都在 25° 以内，挤不下第四族；这一族靠形状（面板轮廓）分，颜色与零件同档
+    workbench: "i-lucide-panels-top-left text-[var(--text-secondary)]",
+    part: "i-lucide-box text-[var(--text-secondary)]",
 };
+
+/**
+ * 集成入口（被别的条目写成「验证入口」的那个组件）单独一个图形，取主题强调蓝。
+ *
+ * 它的特殊之处不在名字里：`WorkbenchShellLayout` 自己标签为空、耦合度为 0，按命名规则
+ * 会兜底成 `part`，于是和一百个普通零件长成同一个方盒子。它真正的身份在关系里——
+ * 容器宿主链上那几个零件都写着「验证入口: WorkbenchShellLayout」。所以这里用的是索引
+ * 派生出来的 `integrationEntry`，不是一张手写名单；将来第二条宿主链出现时自动生效。
+ *
+ * `lab-tree-entry-icon` 由本文件样式区接管（树组件给每个图标压了七成透明，工具类压不过它的静态类）：
+ * 它是全树唯一「从这里进整链」的入口，色相又和 `view` 的青色只差十几度，靠实心与更粗的描边拉开。
+ */
+const INTEGRATION_ICON = "i-lucide-layers lab-tree-entry-icon text-[var(--accent-main)]";
 
 /**
  * 按目录路径建多级树：每一级目录是一个分组节点，叶子是组件本身。
@@ -141,7 +188,7 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
             let node = nodesByPath.get(id);
             if (!node) {
                 // 目录行也给图标：不给的话，组名会从叶子的图标列起排，两级标题对不齐
-                node = {id, title: segment, iconClass: "i-lucide-folder", children: []};
+                node = {id, title: segment, iconClass: "i-lucide-folder text-[var(--text-muted)]", children: []};
                 nodesByPath.set(id, node);
                 level.push(node);
             }
@@ -149,11 +196,14 @@ function buildComponentTree(entries: typeof labComponents): LabTreeNode[] {
         }
         level.push({
             id: entry.name,
-            title: entry.name,
-            // 正在加载中的组件实时反馈旋转动画；否则挂不上的组件标锁，正常挂载标分类图标
+            // canonical 名在前、显示名在后（两者相同不重复）：导航 id 与偏好键仍是 canonical 名。
+            title: labComponentLabel(entry),
+            // 正在加载中的组件实时反馈旋转动画；集成入口用它自己的图形；挂不上的标锁；其余按分类
             iconClass: (fixtureLoading.value && selectedName.value === entry.name)
                 ? "i-lucide-loader-2 animate-spin text-[var(--accent-text)]"
-                : (entry.mountable ? KIND_ICONS[entry.kind] : "i-lucide-lock"),
+                : !entry.mountable
+                    ? "i-lucide-lock text-[var(--text-muted)]"
+                    : (entry.integrationEntry ? INTEGRATION_ICON : KIND_ICONS[entry.kind]),
         });
     }
     const sortLevel = (nodes: LabTreeNode[]): void => {
@@ -179,6 +229,28 @@ watch(treeQuery, (query) => {
 });
 
 const selected = computed(() => (selectedName.value ? findLabComponent(selectedName.value) : null));
+const selectedDisplayMode = computed<LabDisplayMode>(() => selected.value?.displayMode ?? "tight");
+
+/**
+ * 顶栏的补充说明：显示名与别名。
+ *
+ * 树的行只有一个文字位，且会被截断；「别名」这类只在检索时用得上的信息放在顶栏，
+ * 搜到之后能一眼确认「就是这个部件」，又不挤占导航。
+ */
+const selectedDetail = computed(() => {
+    const entry = selected.value;
+    if (!entry) {
+        return "";
+    }
+    const parts: string[] = [];
+    if (entry.displayName !== entry.name) {
+        parts.push(entry.displayName);
+    }
+    if (entry.aliases.length > 0) {
+        parts.push(`别名：${entry.aliases.join(" / ")}`);
+    }
+    return parts.join("　");
+});
 const fixture = computed(() => (selectedName.value ? findLabFixture(selectedName.value) : null));
 const scene = computed(() => fixture.value?.scenes.find((item) => item.id === selectedScene.value) ?? null);
 const sceneHasData = computed(() => scene.value?.data !== undefined);
@@ -194,7 +266,8 @@ const sceneHasData = computed(() => scene.value?.data !== undefined);
  * 场景正是后者：画布还是那块画布，只是换一组假数据。原来它是右栏的一个 tab，
  * 于是「换场景」这个动作离它作用的画布隔着半个屏幕。
  */
-const sceneOptions = computed<SegmentedControlOption[]>(() =>
+// 分段控件与下拉控件共用这一份：值一律是字符串 id，因此两种控件都能直接吃。
+const sceneOptions = computed<Array<{value: string; label: string}>>(() =>
     (fixture.value?.scenes ?? []).map((item) => ({value: item.id, label: item.label})));
 
 const tabItems = computed<TabsItem[]>(() => [
@@ -202,6 +275,7 @@ const tabItems = computed<TabsItem[]>(() => [
     {value: "element", label: "元素"},
     {value: "events", label: "事件", count: events.value.length},
     {value: "data", label: "数据"},
+    {value: "commands", label: "命令"},
 ]);
 
 const backdropOptions: FormSelectOption[] = labBackdrops.map((item) => ({value: item.id, label: item.label}));
@@ -621,6 +695,296 @@ provide(LAB_CONTROLS_REGISTER, (active: boolean) => {
     hasFixtureControls.value = active;
 });
 
+// ——— 命令宿主 ———
+//
+// Lab 是全局 S4 面板、键位与确认闸门的唯一挂载点：这里建立注册表、上下文键与键位分发，
+// 业务命令由各域（编辑器样板、面板入口）自己注册。执行记录只留内存，不写 Lab 偏好；
+// 失败在下面唯一的 role=alert 区域显示一次，宿主本身不弹 Toast。
+const {t} = useI18n();
+
+const workbenchCommands = provideWorkbenchCommands({
+    development: import.meta.dev,
+    report: (error) => recordEvent("command-error", error.message),
+    confirm: requestConfirmation,
+});
+
+/** 面板与命令 tab 共用的 i18n 解析；带 params 以支持「跳转到第 N 行」这类参数化文案。 */
+function titleOf(key: string, params?: Record<string, unknown>): string {
+    return params === undefined ? t(key) : t(key, params);
+}
+
+const COMMAND_LOG_LIMIT = EVENT_LIMIT;
+
+type CommandLogEntry = Readonly<{
+    seq: number;
+    requestedId: string;
+    id: string;
+    invocation: CommandInvocation;
+    args: unknown;
+    result: CommandResult<unknown>;
+    durationMs: number;
+}>;
+
+const commandLog = ref<CommandLogEntry[]>([]);
+const commandError = ref("");
+let commandLogSeq = 0;
+
+const releaseCommandAudit = workbenchCommands.registry.onDidExecuteCommand((event) => {
+    commandLogSeq += 1;
+    commandLog.value = [{seq: commandLogSeq, ...event}, ...commandLog.value].slice(0, COMMAND_LOG_LIMIT);
+    if (!event.result.ok) {
+        commandError.value = `${event.id}：${event.result.reason}`;
+    }
+});
+
+/**
+ * 两条面板入口命令：open-commands 是 S4 的键盘/按钮入口（human=false 不在候选里），
+ * open-line 只在有行导航能力时可用。注册失败不留半截注册表。
+ */
+function registerPaletteCommands(): Release | null {
+    const noArguments = Type.Object({}, {additionalProperties: false});
+    const descriptors: CommandDescriptor<TSchema, null>[] = [
+        {
+            id: "nbook.quick-open.open-commands",
+            titleKey: "workbenchCommands.openCommands",
+            description: "Open the command palette.",
+            argsSchema: noArguments,
+            effect: "read",
+            defaultKeybinding: "Mod+Shift+P",
+            expose: {human: false, agent: "never"},
+            run: () => {
+                workbenchCommands.openPalette("commands");
+                return {ok: true, value: null};
+            },
+        },
+        {
+            id: "nbook.quick-open.open-line",
+            titleKey: "workbenchCommands.openLine",
+            description: "Switch the open command palette to line navigation.",
+            argsSchema: noArguments,
+            effect: "read",
+            when: {requires: ["editor-line-navigation"]},
+            expose: {human: true, agent: "never"},
+            run: () => {
+                workbenchCommands.openPalette("line");
+                return {ok: true, value: null};
+            },
+        },
+    ];
+
+    const registered: Release[] = [];
+    for (const descriptor of descriptors) {
+        const result = workbenchCommands.registry.registerCommand(descriptor);
+        if (!result.ok) {
+            commandError.value = `面板命令注册失败：${descriptor.id}：${result.reason}`;
+            for (const release of registered) {
+                release();
+            }
+            return null;
+        }
+        registered.push(result.value);
+    }
+    return () => {
+        for (const release of registered.splice(0)) {
+            release();
+        }
+    };
+}
+
+const releasePaletteCommands = registerPaletteCommands();
+
+/** 面板打开时到达的确认请求要等它真正关闭再显示；这个队列在面板关闭或宿主卸载时清空。 */
+const paletteCloseWaiters: (() => void)[] = [];
+watch(workbenchCommands.palette.open, (open) => {
+    if (open) {
+        return;
+    }
+    for (const notify of paletteCloseWaiters.splice(0)) {
+        notify();
+    }
+}, {flush: "sync"});
+
+type PendingConfirmation = {
+    request: CommandConfirmationRequest;
+    decision: "pending" | "approved" | "denied";
+    resolve: (approved: boolean) => void;
+};
+
+const confirmationVisible = ref(false);
+const pendingConfirmation = shallowRef<PendingConfirmation | null>(null);
+
+function waitForPaletteClosed(): Promise<void> {
+    if (!workbenchCommands.palette.open.value) {
+        return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => paletteCloseWaiters.push(resolve));
+}
+
+/** 确认闸门：从收到请求到 AlertDialog 的 closed 结算前一直非 null。 */
+function requestConfirmation(request: CommandConfirmationRequest): Promise<boolean> {
+    if (pendingConfirmation.value !== null) {
+        return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+        const pending: PendingConfirmation = {request, decision: "pending", resolve};
+        pendingConfirmation.value = pending;
+        void (async () => {
+            await waitForPaletteClosed();
+            if (pendingConfirmation.value === pending) {
+                confirmationVisible.value = true;
+            }
+        })();
+    });
+}
+
+function settleConfirmation(approved: boolean): void {
+    const pending = pendingConfirmation.value;
+    if (pending === null || pending.decision !== "pending") {
+        return;
+    }
+    pending.decision = approved ? "approved" : "denied";
+    confirmationVisible.value = false;
+}
+
+/**
+ * Reka 的 Action 会先触发我们的 confirm 再发 update:open(false)。把「关闭即拒绝」推迟一个
+ * 微任务，显式批准才不会被同一次点击的关闭事件覆盖成拒绝。
+ */
+function onConfirmationOpenChange(open: boolean): void {
+    if (open) {
+        return;
+    }
+    queueMicrotask(() => settleConfirmation(false));
+}
+
+function onConfirmationClosed(): void {
+    const pending = pendingConfirmation.value;
+    if (pending === null) {
+        return;
+    }
+    pendingConfirmation.value = null;
+    pending.resolve(pending.decision === "approved");
+}
+
+const confirmationTitle = computed(() => pendingConfirmation.value === null
+    ? ""
+    : titleOf(pendingConfirmation.value.request.command.titleKey));
+const confirmationArgs = computed(() => pendingConfirmation.value === null
+    ? ""
+    : JSON.stringify(pendingConfirmation.value.request.args));
+const confirmationDestructive = computed(() =>
+    pendingConfirmation.value?.request.command.expose?.hints?.destructive === true);
+
+let keymapDispatcher: {handle: (event: KeyboardEvent) => void; dispose: () => void} | null = null;
+
+function handleWorkbenchKeydown(event: KeyboardEvent): void {
+    // 确认界面开着时不派发面板键：既不打开新面板，也不制造失败审计
+    if (pendingConfirmation.value !== null) {
+        return;
+    }
+    keymapDispatcher?.handle(event);
+}
+
+/** 快捷键的平台口径：macOS 上 Mod 是 Meta，其它平台是 Ctrl。 */
+function isMacPlatform(): boolean {
+    if (typeof navigator === "undefined") {
+        return false;
+    }
+    return /Mac|iPhone|iPad/u.test(navigator.platform || navigator.userAgent);
+}
+
+onMounted(() => {
+    keymapDispatcher = createKeymapDispatcher(
+        workbenchCommands.registry,
+        isMacPlatform() ? "mac" : "other",
+        (error) => recordEvent("command-error", error.message),
+    );
+    window.addEventListener("keydown", handleWorkbenchKeydown, true);
+});
+onBeforeUnmount(() => {
+    window.removeEventListener("keydown", handleWorkbenchKeydown, true);
+    keymapDispatcher?.dispose();
+    keymapDispatcher = null;
+    releaseCommandAudit();
+    releasePaletteCommands?.();
+    for (const notify of paletteCloseWaiters.splice(0)) {
+        notify();
+    }
+    const pending = pendingConfirmation.value;
+    pendingConfirmation.value = null;
+    // 卸载同时结算未决确认：registry 里等待的调用不能永远挂着
+    pending?.resolve(false);
+});
+
+// 换组件/换场景先收起面板、清掉活动编辑器：旧 identity 的命令注册由 fixture 自己释放，
+// 面板里未执行的选择也会因目标不再匹配而作废。
+watch([selectedName, selectedScene], () => {
+    workbenchCommands.closePalette();
+    workbenchCommands.activeEditor.value = null;
+});
+
+watch(selectedName, () => {
+    // 切换组件时将视口重置回自适应（free），避免上一组件的自定义拖拽尺寸残留影响新组件判读
+    canvasWidth.value = 0;
+    canvasHeight.value = 0;
+});
+
+type CommandRow = Readonly<{
+    command: CommandMetadata;
+    title: string;
+    whenText: string;
+    exposeText: string;
+}>;
+
+/** 命令 tab 只读展示：metadata + 共享 when 求值 + 有效 expose。这里不执行命令、不改 context。 */
+const commandRows = computed<readonly CommandRow[]>(() => {
+    void workbenchCommands.revision.value;
+    return workbenchCommands.registry.getAllCommands().map((command) => {
+        const requires = command.when?.requires ?? [];
+        const evaluation = evaluateContextWhen(command.when, workbenchCommands.context.value);
+        const verdict = evaluation.ok
+            ? (evaluation.value.matches ? "满足" : `缺少：${evaluation.value.reasons.join("；")}`)
+            : `求值失败：${evaluation.reason}`;
+        return {
+            command,
+            title: titleOf(command.titleKey),
+            whenText: requires.length === 0 ? "无 requires" : `${requires.join("、")} → ${verdict}`,
+            exposeText: exposeTextOf(command),
+        };
+    });
+});
+
+/** 按 id 的 domain 段分组；分组顺序＝首次出现的注册顺序。 */
+const commandGroups = computed(() => {
+    const groups = new Map<string, CommandRow[]>();
+    for (const row of commandRows.value) {
+        const domain = row.command.id.split(".")[1] ?? row.command.id;
+        const bucket = groups.get(domain);
+        if (bucket) {
+            bucket.push(row);
+        } else {
+            groups.set(domain, [row]);
+        }
+    }
+    return [...groups].map(([domain, rows]) => ({domain, rows}));
+});
+
+function exposeTextOf(command: CommandMetadata): string {
+    const hints = command.expose?.hints;
+    const flags = hints === undefined
+        ? []
+        : [
+            hints.readOnly === true ? "readOnly" : "",
+            hints.destructive === true ? "destructive" : "",
+            hints.idempotent === true ? "idempotent" : "",
+        ].filter((flag) => flag !== "");
+    return [
+        `human=${command.expose?.human === false ? "false" : "true"}`,
+        `agent=${effectiveAgentExposure(command.expose)}`,
+        ...flags,
+    ].join(" · ");
+}
+
 function resetScene(): void {
     const initialData = structuredClone(scene.value?.data);
     sceneData.value = initialData;
@@ -693,59 +1057,66 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     >
         <!-- 顶栏每一项都写 shrink-0：这是一条全宽 flex 行，只要有一项不肯收缩，
              其余项就会被压到 min-content，而中文可以逐字换行，会直接压成竖排。 -->
-        <header class="lab-bar flex shrink-0 items-center">
-            <span class="lab-title shrink-0">组件 Lab</span>
-            <span class="lab-note shrink-0">{{ labComponents.length }} 个组件</span>
-            <div class="flex-1"></div>
-            <NbFormSelect
-                v-model="labThemeId"
-                :options="themeOptions"
-                size="sm"
-                class="w-[170px] shrink-0"
-                aria-label="主题"
-            />
-            <NbFormSelect
-                v-model="labColorwayId"
-                :options="colorwayOptions"
-                size="sm"
-                class="w-[150px] shrink-0"
-                aria-label="配色"
-            />
-            <!-- 桌面与画布底是两层不同的东西，别合成一个控件：这个改的是整页最底下那一层，
-                 中栏工具条上的「画布底」改的是被测组件背后那一层。取值都在 stage-backdrops.ts。 -->
-            <NbFormSelect
-                v-model="pageBackdrop"
-                :options="pageBackdropOptions"
-                size="sm"
-                class="w-[150px] shrink-0"
-                aria-label="桌面"
-            />
-            <!-- 壁纸只在选了「自定义图片」时才有得换。文件选择框自己不显示，
-                 由旁边的按钮或上面那个 watch 触发。 -->
-            <input
-                ref="wallpaperInput"
-                type="file"
-                accept="image/*"
-                class="hidden"
-                @change="pickWallpaper"
-            />
-            <template v-if="pageBackdrop === 'custom'">
-                <button type="button" class="lab-btn shrink-0" @click="wallpaperInput?.click()">
-                    {{ wallpaperUrl ? "换图片" : "选图片" }}
+        <header class="lab-bar flex shrink-0 flex-wrap items-center">
+            <div class="lab-bar__lead flex min-w-0 flex-1 items-center gap-[var(--space-5)]">
+                <span class="lab-title min-w-0 truncate">组件 Lab</span>
+                <span class="lab-bar__count lab-note shrink-0">{{ labComponents.length }} 个组件</span>
+            </div>
+            <!--
+                整页的四个旋钮：主题、配色、桌面、恢复默认。它们与下面的画布旋钮一样不可替代，
+                所以同样 shrink-0；空间不够时先藏左边的计数、再收窄这三个下拉（见样式里的容器查询）。
+            -->
+            <div class="lab-bar__controls flex min-w-0 flex-wrap items-center gap-[var(--space-5)]">
+                <NbFormSelect
+                    v-model="labThemeId"
+                    :options="themeOptions"
+                    size="sm"
+                    class="lab-bar__theme shrink-0"
+                    aria-label="主题"
+                />
+                <NbFormSelect
+                    v-model="labColorwayId"
+                    :options="colorwayOptions"
+                    size="sm"
+                    class="lab-bar__colorway shrink-0"
+                    aria-label="配色"
+                />
+                <!-- 桌面与画布底是两层不同的东西，别合成一个控件：这个改的是整页最底下那一层，
+                     中栏工具条上的「画布底」改的是被测组件背后那一层。取值都在 stage-backdrops.ts。 -->
+                <NbFormSelect
+                    v-model="pageBackdrop"
+                    :options="pageBackdropOptions"
+                    size="sm"
+                    class="lab-bar__backdrop shrink-0"
+                    aria-label="桌面"
+                />
+                <!-- 壁纸只在选了「自定义图片」时才有得换。文件选择框自己不显示，
+                     由旁边的按钮或上面那个 watch 触发。 -->
+                <input
+                    ref="wallpaperInput"
+                    type="file"
+                    accept="image/*"
+                    class="hidden"
+                    @change="pickWallpaper"
+                />
+                <template v-if="pageBackdrop === 'custom'">
+                    <button type="button" class="lab-btn shrink-0" @click="wallpaperInput?.click()">
+                        {{ wallpaperUrl ? "换图片" : "选图片" }}
+                    </button>
+                    <button v-if="wallpaperUrl" type="button" class="lab-btn shrink-0" @click="dropWallpaper">
+                        清除
+                    </button>
+                </template>
+                <button
+                    type="button"
+                    class="lab-btn lab-btn--icon shrink-0"
+                    aria-label="恢复 Lab 默认配置"
+                    title="恢复 Lab 默认配置"
+                    @click="resetPreferences"
+                >
+                    <span class="i-lucide-rotate-ccw h-3.5 w-3.5" aria-hidden="true"></span>
                 </button>
-                <button v-if="wallpaperUrl" type="button" class="lab-btn shrink-0" @click="dropWallpaper">
-                    清除
-                </button>
-            </template>
-            <button
-                type="button"
-                class="lab-btn lab-btn--icon shrink-0"
-                aria-label="恢复 Lab 默认配置"
-                title="恢复 Lab 默认配置"
-                @click="resetPreferences"
-            >
-                <span class="i-lucide-rotate-ccw h-3.5 w-3.5" aria-hidden="true"></span>
-            </button>
+            </div>
         </header>
 
         <div class="lab-columns flex min-h-0 flex-1">
@@ -768,10 +1139,10 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         v-model="treeQuery"
                         size="sm"
                         type="search"
-                        placeholder="搜组件名"
+                        placeholder="搜组件名或部件名称"
                         icon-class="i-lucide-search"
                         clearable
-                        aria-label="搜组件名"
+                        aria-label="搜组件名或部件名称"
                     />
                 </div>
 
@@ -785,7 +1156,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     @select="selectComponent($event.id)"
                 />
                 <p v-if="matchedComponents.length === 0" class="lab-search-empty lab-note">
-                    没有名字含「{{ treeQuery }}」的组件
+                    没有名字含「{{ treeQuery }}」的组件：可以按组件名、中文部件名或别名搜
                 </p>
             </CollapsibleSidePanel>
 
@@ -804,19 +1175,33 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             ></div>
 
             <main class="lab-main flex min-w-0 flex-1 flex-col">
-                <div class="lab-bar lab-bar--tight flex shrink-0 items-center">
-                    <span class="lab-title shrink-0 truncate">{{ selected?.name ?? "未选择" }}</span>
-                    <NbSegmentedControl
-                        v-if="sceneOptions.length > 1"
-                        :model-value="selectedScene"
-                        :options="sceneOptions"
-                        size="xs"
-                        aria-label="场景"
-                        class="min-w-0"
-                        @update:model-value="selectedScene = String($event)"
-                    />
-                    <span v-else-if="scene" class="lab-note shrink-0 truncate">{{ scene.label }}</span>
-                    <div class="flex-1"></div>
+                <div class="lab-bar lab-bar--tight flex shrink-0 flex-wrap items-center">
+                    <!-- 左半边都是「当前在哪儿」：窄的时候先让它们截断，右边的旋钮一个都不许消失。 -->
+                    <div class="lab-bar__lead flex min-w-0 flex-1 items-center gap-[var(--space-4)]">
+                        <span class="lab-title min-w-0 truncate" :title="selected?.name">{{ selected?.name ?? "未选择" }}</span>
+                        <span v-if="selectedDetail" class="lab-bar__detail lab-note min-w-0 truncate" :title="selectedDetail">{{ selectedDetail }}</span>
+                        <label v-if="sceneOptions.length > 4" class="lab-field shrink-0">
+                            <span class="lab-bar__label lab-note">场景</span>
+                            <NbFormSelect
+                                v-model="selectedScene"
+                                :options="sceneOptions"
+                                size="sm"
+                                dropdown-direction="down"
+                                hide-checkmark
+                                class="lab-bar__scene"
+                                aria-label="场景"
+                            />
+                        </label>
+                        <NbSegmentedControl
+                            v-else-if="sceneOptions.length > 1"
+                            v-model="selectedScene"
+                            :options="sceneOptions"
+                            size="xs"
+                            aria-label="场景"
+                            class="shrink-0"
+                        />
+                        <span v-else-if="scene" class="lab-note shrink-0 truncate">{{ scene.label }}</span>
+                    </div>
                     <!--
                         两条栏的分工：顶栏放改**整页**的（主题、配色、桌面），这一条放只改
                         **画布里**的（宽度、画布底、缩放）。视口预设原来在顶栏，可它只改画布，
@@ -824,51 +1209,63 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
 
                         ToggleGroup 自带边框与内衬底，外面不能再套 Toolbar：那是第二层容器，
                         而一个只装一件东西的工具栏也不是工具栏。
+
+                        这几个是这条栏上唯一不可替代的东西，所以它们 shrink-0；空间不够时先牺牲
+                        左边的名字与别名、再收窄场景下拉（见样式里的容器查询），它们不参与让位。
                     -->
-                    <NbToggleGroup
-                        size="sm"
-                        :options="presetOptions"
-                        :model-value="activePreset"
-                        aria-label="画布宽度"
-                        class="shrink-0"
-                        @update:model-value="applyPreset"
-                    />
-                    <label class="lab-field shrink-0">
-                        <span class="lab-note">画布底</span>
-                        <NbFormSelect
-                            v-model="canvasBackdrop"
-                            :options="backdropOptions"
+                    <div class="lab-bar__controls flex min-w-0 flex-wrap items-center gap-2">
+                        <NbToggleGroup
                             size="sm"
-                            dropdown-direction="down"
-                            hide-checkmark
-                            class="w-[104px]"
-                            aria-label="画布底"
+                            :options="presetOptions"
+                            :model-value="activePreset"
+                            aria-label="画布宽度"
+                            class="shrink-0"
+                            @update:model-value="applyPreset"
                         />
-                    </label>
-                    <label class="lab-field shrink-0">
-                        <span class="lab-note">缩放</span>
-                        <NbFormSelect
-                            v-model="canvasZoom"
-                            :options="zoomOptions"
-                            size="sm"
-                            dropdown-direction="down"
-                            hide-checkmark
-                            class="w-[76px]"
-                            aria-label="画布缩放"
-                        />
-                    </label>
-                    <button
-                        type="button"
-                        class="lab-btn lab-btn--icon shrink-0"
-                        :class="inspectOn ? 'lab-btn--on' : ''"
-                        :aria-pressed="inspectOn"
-                        data-lab-inspect-exempt
-                        title="检查元素：点一下页面上任意位置，信息落到右边的「元素」（Esc 取消）"
-                        @click="inspectOn = !inspectOn"
-                    >
-                        <span class="i-lucide-mouse-pointer-square-dashed h-3.5 w-3.5" aria-hidden="true"></span>
-                        检查
-                    </button>
+                        <label class="lab-field shrink-0">
+                            <span class="lab-bar__label lab-note">画布底</span>
+                            <NbFormSelect
+                                v-model="canvasBackdrop"
+                                :options="backdropOptions"
+                                size="sm"
+                                dropdown-direction="down"
+                                hide-checkmark
+                                class="w-[96px]"
+                                aria-label="画布底"
+                            />
+                        </label>
+                        <label class="lab-field shrink-0">
+                            <span class="lab-bar__label lab-note">缩放</span>
+                            <NbFormSelect
+                                v-model="canvasZoom"
+                                :options="zoomOptions"
+                                size="sm"
+                                dropdown-direction="down"
+                                hide-checkmark
+                                class="w-[72px]"
+                                aria-label="画布缩放"
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            class="lab-btn lab-btn--icon shrink-0"
+                            :class="inspectOn ? 'lab-btn--on' : ''"
+                            :aria-pressed="inspectOn"
+                            data-lab-inspect-exempt
+                            title="检查元素：点一下页面上任意位置，信息落到右边的「元素」（Esc 取消）"
+                            @click="inspectOn = !inspectOn"
+                        >
+                            <span class="i-lucide-mouse-pointer-square-dashed h-3.5 w-3.5" aria-hidden="true"></span>
+                            检查
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 命令失败只有这一处可见出口：reason 原样显示，并可手动清掉 -->
+                <div v-if="commandError !== ''" role="alert" class="lab-strip shrink-0 text-[11px]">
+                    <span class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0 text-[var(--status-danger)]" aria-hidden="true"></span>
+                    <span class="min-w-0 flex-1 truncate" :title="commandError">{{ commandError }}</span>
+                    <button type="button" class="lab-btn shrink-0" @click="commandError = ''">关闭</button>
                 </div>
 
                 <div class="relative min-h-0 flex-1 overflow-hidden">
@@ -890,6 +1287,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         <span class="i-lucide-lock h-6 w-6 text-[var(--text-muted)]"></span>
                         <p class="lab-title">{{ selected.name }} 不能在 Lab 里验证</p>
                         <p class="lab-note max-w-md">{{ selected.blockedReason }}</p>
+                        <!-- 零件自己没有可挂载的状态，但它在宿主链上真的渲染着：给一条直达宿主的路径。 -->
+                        <button
+                            v-if="selected.verifyEntry"
+                            type="button"
+                            class="lab-btn"
+                            @click="selectComponent(selected.verifyEntry)"
+                        >
+                            打开入口：{{ selected.verifyEntry }}
+                        </button>
                     </div>
                     <div v-else-if="!fixture" class="lab-empty lab-empty--stack">
                         <p class="lab-title">{{ selected.name }} 还没有场景</p>
@@ -906,15 +1312,17 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         v-model:height="canvasHeight"
                         :zoom="zoomValue"
                         :backdrop="canvasBackdrop"
+                        :display-mode="selectedDisplayMode"
                     >
                         <Transition name="lab-stage-fade" mode="out-in">
-                            <component
-                                :is="fixtureComponent"
-                                v-if="fixtureComponent"
-                                :key="`${selectedName}:${selectedScene}`"
-                                :scene="selectedScene"
-                                :data="fixtureData"
-                            />
+                            <div :key="`${selectedName}:${selectedScene}`" :class="(selectedDisplayMode === 'tight' && canvasHeight <= 0) ? 'w-full' : 'h-full w-full'">
+                                <component
+                                    :is="fixtureComponent"
+                                    v-if="fixtureComponent"
+                                    :scene="selectedScene"
+                                    :data="fixtureData"
+                                />
+                            </div>
                         </Transition>
                     </ViewportCanvas>
                 </div>
@@ -993,7 +1401,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     </div>
 
                     <div class="min-h-0 flex-1 overflow-y-auto">
-                        <div v-if="rightTab === 'element'" class="lab-pad">
+                        <div v-if="rightTab === 'element'" class="lab-pad" data-lab-panel="element">
                             <template v-if="picked">
                                 <dl class="lab-meta lab-meta--flush">
                                     <div v-if="picked.componentName" class="lab-meta-row">
@@ -1048,7 +1456,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                             </p>
                         </div>
 
-                        <div v-else-if="rightTab === 'doc'" class="lab-pad">
+                        <div v-else-if="rightTab === 'doc'" class="lab-pad" data-lab-panel="doc">
                             <template v-if="selected">
                                 <!-- 能力标签与能不能挂都是文档 frontmatter 派生的，
                                      放在文档正文上方而不是单开一个 tab。 -->
@@ -1067,7 +1475,9 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                     <div class="lab-meta-row">
                                         <dt class="lab-meta-key">确定性验证</dt>
                                         <dd>
-                                            {{ selected.mountable ? (selected.needsSnapshot ? "需预置状态快照" : "可以") : "只能在正式界面" }}
+                                            {{ selected.mountable
+                                                ? (selected.needsSnapshot ? "需预置状态快照" : "可以")
+                                                : (selected.verifyEntry ? `在 ${selected.verifyEntry} 的集成场景里` : "只能在正式界面") }}
                                         </dd>
                                     </div>
                                 </dl>
@@ -1075,7 +1485,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                             </template>
                         </div>
 
-                        <div v-else-if="rightTab === 'events'" class="flex h-full flex-col">
+                        <div v-else-if="rightTab === 'events'" class="flex h-full flex-col" data-lab-panel="events">
                             <div class="lab-strip shrink-0">
                                 <span class="lab-note">最多留最近 {{ EVENT_LIMIT }} 条</span>
                                 <button type="button" class="lab-btn" @click="events = []">清空</button>
@@ -1083,7 +1493,52 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                             <EventLogPanel :entries="events" empty-text="操作一下组件，事件会记在这里" />
                         </div>
 
-                        <div v-else class="lab-pad lab-data">
+                        <div v-else-if="rightTab === 'commands'" class="lab-pad" data-lab-panel="commands">
+                            <!-- 只读检查器：看的是注册表与共享求值，不在这里执行命令、也不改 context -->
+                            <p class="lab-panel-label">当前 context</p>
+                            <JsonViewer :value="workbenchCommands.context.value" :read-only="true" :max-height="140" />
+
+                            <p class="lab-panel-label">命令 {{ commandRows.length }} 条</p>
+                            <p v-if="commandRows.length === 0" class="lab-note">当前场景没有注册命令。</p>
+                            <section v-for="group in commandGroups" :key="group.domain" class="mt-3">
+                                <p class="lab-panel-label">{{ group.domain }}</p>
+                                <div
+                                    v-for="row in group.rows"
+                                    :key="row.command.id"
+                                    class="mt-2 rounded-[var(--radius-control)] border border-[var(--divider)] p-2"
+                                >
+                                    <div class="flex items-baseline justify-between gap-2">
+                                        <code class="min-w-0 break-all font-mono text-[11px] text-[var(--text-main)]">{{ row.command.id }}</code>
+                                        <span class="shrink-0 text-[11px] text-[var(--text-secondary)]">{{ row.title }}</span>
+                                    </div>
+                                    <dl class="lab-meta lab-meta--flush">
+                                        <div class="lab-meta-row">
+                                            <dt class="lab-meta-key">effect</dt>
+                                            <dd>{{ row.command.effect }}</dd>
+                                        </div>
+                                        <div class="lab-meta-row">
+                                            <dt class="lab-meta-key">when</dt>
+                                            <dd class="min-w-0 break-words">{{ row.whenText }}</dd>
+                                        </div>
+                                        <div class="lab-meta-row">
+                                            <dt class="lab-meta-key">expose</dt>
+                                            <dd>{{ row.exposeText }}</dd>
+                                        </div>
+                                        <div class="lab-meta-row">
+                                            <dt class="lab-meta-key">键位</dt>
+                                            <dd class="font-mono">{{ row.command.defaultKeybinding ?? "—" }}</dd>
+                                        </div>
+                                    </dl>
+                                    <JsonViewer :value="row.command.argsSchema" :read-only="true" :max-height="200" />
+                                </div>
+                            </section>
+
+                            <p class="lab-panel-label">最近执行 {{ commandLog.length }} / {{ COMMAND_LOG_LIMIT }}</p>
+                            <p v-if="commandLog.length === 0" class="lab-note">这个场景里还没有命令执行记录。</p>
+                            <JsonViewer v-else :value="commandLog" :read-only="true" :max-height="320" />
+                        </div>
+
+                        <div v-else-if="rightTab === 'data'" class="lab-pad lab-data" data-lab-panel="data">
                             <template v-if="sceneHasData">
                                 <div class="flex shrink-0 items-center justify-between">
                                     <span class="lab-note">改完立刻生效</span>
@@ -1103,6 +1558,35 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 </div>
             </CollapsibleSidePanel>
         </div>
+
+        <!-- S4：全局面板挂在画布外并 portal 到 body，缩放画布不缩放也不裁切它。
+             检视 WorkbenchCommandPalette 时把打开中的面板标成受检零件（属性只在打开时存在）。 -->
+        <WorkbenchCommandPalette
+            :host="workbenchCommands"
+            :title-of="titleOf"
+            :data-lab-subject="selectedName === 'WorkbenchCommandPalette' ? '' : undefined"
+        />
+
+        <!-- 确认闸门：agent 调用的受控 AlertDialog。等面板 closed 后才显示，关闭并完成焦点释放后才结算 Promise -->
+        <NbAlertDialog
+            :open="confirmationVisible"
+            :title="confirmationTitle"
+            :tone="confirmationDestructive ? 'danger' : 'warning'"
+            confirm-text="批准执行"
+            cancel-text="取消"
+            @update:open="onConfirmationOpenChange"
+            @confirm="settleConfirmation(true)"
+            @cancel="settleConfirmation(false)"
+            @closed="onConfirmationClosed"
+        >
+            <template #description>
+                <template v-if="pendingConfirmation">
+                    <span class="block">{{ pendingConfirmation.request.callerId }} 请求执行「{{ confirmationTitle }}」。</span>
+                    <span class="mt-1 block break-all font-mono text-[11px]">{{ confirmationArgs }}</span>
+                    <span class="mt-1 block">仅操作当前 Lab 内存文档。</span>
+                </template>
+            </template>
+        </NbAlertDialog>
 
         <!-- 选中元素只留贴边标签，避免大块元素的常驻框退化成一条左竖线；虚线框仅在取色时跟随鼠标。 -->
         <HighlightBox class="lab-picked-marker" :rect="pickedRect" :label="selectionLabel" tone="subject" :show-box="false" />
@@ -1288,14 +1772,20 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  */
 .lab-bar {
     gap: var(--space-5);
-    /* 顶栏比下面一层高一档，是全页唯一的「应用条」；下面三列的第一条横线才是同一层 */
-    height: calc(var(--control-h-lg) + var(--space-4));
+    row-gap: var(--space-2);
+    /* 顶栏比下面一层高一档，是全页唯一的「应用条」；下面三列的第一条横线才是同一层。
+       用 min-height：空间不足时宁可这一条长高、换行，也不让控件滑出可视区（同 --tight）。 */
+    min-height: calc(var(--control-h-lg) + var(--space-4));
+    height: auto;
+    /* 换行时多行整体居中；单行时由 align-items 决定，不受影响。 */
+    align-content: center;
     padding: 0 var(--panel-p);
     border-bottom: var(--border-w) solid var(--divider);
     background: var(--lab-surface);
-    overflow-x: auto;
-    /* 窄屏下控件不被裁掉，顶栏自身水平滚动；不能把页面宽度撑出视口。 */
-    scrollbar-width: thin;
+    /* 与中栏那条一样：不横向滚动，控件不滑出可视区；空间不足由内容收缩与换行承担。 */
+    overflow: hidden;
+    /* 容器查询的锚点：窄到什么程度藏哪些东西，由这一条自己的宽度决定。 */
+    container-type: inline-size;
 }
 
 /*
@@ -1304,14 +1794,111 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
  * 单独看谁都不像错的，并排就是没对齐。两边现在都取 --control-h-lg。
  */
 .lab-bar--tight {
-    height: var(--control-h-lg);
+    /*
+     * 用 min-height 而不是 height：空间真的不够时（中栏被两侧栏挤到几百像素）宁可这一条长高、
+     * 换行，也不让控件滑到视口外面去。宽松时高度仍恒等于标题栏。
+     */
+    min-height: var(--control-h-lg);
+    height: auto;
     /* 比顶栏挤一档：这一条上摆的是画布的四个旋钮，它们是一组，
        用顶栏那档间距会把它们读成四件互不相干的东西 */
     gap: var(--space-4);
+    row-gap: var(--space-2);
     padding: 0 var(--panel-p);
-    overflow-x: auto;
-    scrollbar-width: thin;
+    /*
+     * 不横向滚动：这条栏上的四个旋钮是看组件时要一直摸的，滑出去就等于没有。
+     * 空间不足由内容自己收缩承担——先截断名字与别名、再收窄场景下拉（见下面的容器查询）。
+     */
+    overflow: hidden;
+    /* 容器查询的锚点：窄到什么程度藏哪些文字，由这一条自己的宽度决定，不由窗口决定。 */
+    container-type: inline-size;
 }
+
+/*
+ * ——— 收缩顺序 ———
+ *
+ * 两条栏共用同一套机制，断点各自生效：`@container` 查的是最近的容器祖先，而两条栏都设了
+ * `container-type: inline-size`，所以「1180px」对顶栏（全宽）与中栏工具条（半宽）是两把不同的尺子。
+ * 名字与说明文字先让位，然后才轮到下拉收窄；两栏的旋钮永远在场，实在放不下就换行。
+ *
+ * 三个下拉的宽度必须走 `:deep`：`NbFormSelect` 的根节点是它自己 `$attrs` 绑定出来的，
+ * 不带父组件的 scope id，普通 scoped 选择器落不到它身上；而组件自带的 `w-full` 会把宽度撑满容器。
+ */
+.lab-bar__lead :deep(.lab-bar__scene) {
+    width: 240px;
+}
+
+.lab-bar__controls :deep(.lab-bar__theme) {
+    width: 170px;
+}
+
+.lab-bar__controls :deep(.lab-bar__colorway),
+.lab-bar__controls :deep(.lab-bar__backdrop) {
+    width: 150px;
+}
+
+/* 顶栏：先藏「106 个组件」这类计数，再收窄三个整页下拉。 */
+@container (max-width: 1180px) {
+    .lab-bar__count {
+        display: none;
+    }
+}
+
+@container (max-width: 1020px) {
+    .lab-bar__controls :deep(.lab-bar__theme) {
+        width: 140px;
+    }
+
+    .lab-bar__controls :deep(.lab-bar__colorway),
+    .lab-bar__controls :deep(.lab-bar__backdrop) {
+        width: 124px;
+    }
+}
+
+@container (max-width: 880px) {
+    .lab-bar__controls :deep(.lab-bar__theme) {
+        width: 120px;
+    }
+
+    .lab-bar__controls :deep(.lab-bar__colorway),
+    .lab-bar__controls :deep(.lab-bar__backdrop) {
+        width: 108px;
+    }
+}
+
+/* 中栏工具条：先藏别名，再收窄场景下拉并藏掉「画布底 / 缩放」的文字标签。 */
+@container (max-width: 1160px) {
+    .lab-bar__detail {
+        display: none;
+    }
+}
+
+/*
+ * 导航树的集成入口图标：树组件给每个图标压了 `opacity-70`（整列不喧宾夺主），
+ * 工具类与它是同级声明、压不过它，所以在样式区按类提回实心；描边加粗一档，
+ * 让它在成列的青色 view 图标里也跳得出来。
+ */
+.lab-root :deep(.lab-tree-entry-icon) {
+    opacity: 1;
+    stroke-width: 2.5;
+}
+
+@container (max-width: 1000px) {
+    .lab-bar__lead :deep(.lab-bar__scene) {
+        width: 190px;
+    }
+
+    .lab-bar__label {
+        display: none;
+    }
+}
+
+@container (max-width: 820px) {
+    .lab-bar__lead :deep(.lab-bar__scene) {
+        width: 150px;
+    }
+}
+
 
 /*
  * ——— 浮起式三栏 ———

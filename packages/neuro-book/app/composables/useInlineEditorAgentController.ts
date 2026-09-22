@@ -1,6 +1,6 @@
 import type {MaybeRefOrGetter} from "vue";
 import {computed, getCurrentScope, onScopeDispose, ref, toValue, watch} from "vue";
-import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {resolveClientActivePanel} from "nbook/app/utils/workbench/tool-context";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import {
@@ -8,7 +8,11 @@ import {
     type AgentSurfaceActivationAttempt,
     type AgentSurfaceOperationResult,
 } from "nbook/app/components/novel-ide/agent/agent-chat-surface-state";
-import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
+import {
+    applyActivePanelPatch,
+    applyClientVariablePatch,
+    buildAgentClientState,
+} from "nbook/app/components/novel-ide/agent/client-variables";
 import {reconcileInvocationReceipt} from "nbook/app/components/novel-ide/agent/agent-invocation-reconciliation";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
@@ -117,7 +121,7 @@ export function useInlineEditorAgentController(
     const buildCurrentClientState = (): ClientStateSnapshotDto => {
         const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
         return buildAgentClientState({
-            activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
+            activePanel: resolveClientActivePanel(ideStore.activeToolView),
             theme: themeId.value,
             novelId: isUserAssetsWorkspace ? "" : ideStore.currentProjectRoot,
             workspace: ideStore.currentWorkspaceRoot || null,
@@ -755,8 +759,9 @@ function createDefaultServices(
                 const appliedValue = await applyClientVariablePatch(request, buildClientState(), {
                     setActivePanel: (value) => {
                         if (!isCurrent()) return false;
-                        ideStore.activeLeftTab = value;
-                        return true;
+                        // 揭示归页面登记的端口；未登记 / 未接入 / 首读未就绪 / 来源过期都以抛出原因的方式
+                        // 进入 ack，不在这一层改任何"活动页签"状态。
+                        return applyActivePanelPatch(value);
                     },
                     setTheme: async (value) => {
                         if (!isCurrent()) return false;

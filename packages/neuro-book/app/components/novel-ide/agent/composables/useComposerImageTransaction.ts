@@ -43,7 +43,18 @@ type PendingImageRequest = {
     result?: AgentSessionAttachmentItemDto;
 };
 
+export type ComposerImageTransactionApi = {
+    uploadSessionAttachment: (sessionId: number, file: File, signal?: AbortSignal) => Promise<AgentSessionAttachmentItemDto>;
+    snapshotSessionAttachment: (sessionId: number, input: {sourcePath: string; name?: string}, signal?: AbortSignal) => Promise<AgentSessionAttachmentItemDto>;
+    resolveSessionAttachments: (sessionId: number, attachmentIds: string[]) => Promise<{items: AgentSessionAttachmentItemDto[]}>;
+    getSessionAttachments: (sessionId: number, query: {search?: string; offset: number; limit: number}) => Promise<{items: AgentSessionAttachmentItemDto[]; total: number; offset: number; limit: number; hasMore: boolean}>;
+};
+
+export type ComposerImageTransactionNotification = Pick<ReturnType<typeof useNotification>, "error" | "warning">;
+
 export type ComposerImageTransactionOptions = {
+    api?: ComposerImageTransactionApi;
+    notification?: ComposerImageTransactionNotification;
     editor: () => ComposerImageEditorPort | null;
     sessionId: () => number | null;
     value: () => string;
@@ -63,8 +74,8 @@ export type ComposerImageTransactionOptions = {
  * 编辑器文档是图片存在性和顺序的唯一真相；registry 仅保存 File、请求、结果与失败状态。
  */
 export function useComposerImageTransaction(options: ComposerImageTransactionOptions) {
-    const agentApi = useAgentSessionApi();
-    const notification = useNotification();
+    const agentApi = options.api ?? useAgentSessionApi();
+    const notification = options.notification ?? useNotification();
     const transactions = ref<PendingImageRequest[]>([]);
     const imageDocument = ref<ComposerImageNode[]>(readStableImages(options.value()));
     const resolvedItems = ref<AgentSessionAttachmentItemDto[]>([]);

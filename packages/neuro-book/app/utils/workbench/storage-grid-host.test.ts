@@ -2,12 +2,15 @@ import {describe, expect, it, vi} from "vitest";
 import {
     createGrid,
     type Grid,
+    type GridAxis,
+    type GridBranchChange,
     type GridExtent,
+    type GridGestureCommit,
     type GridLeafInput,
     type GridNode,
     type GridRefResolver,
     type GridSnapshotNode,
-} from "@notnotype/nb-ui/components";
+} from "@notnotype/nb-ui/layout";
 import type {StorageActionRequest, StorageActionResponse} from "nbook/shared/storage/action";
 import type {StorageCredential, StorageReadResult} from "nbook/shared/storage/contract";
 import {defineStorageState} from "nbook/shared/storage/definition";
@@ -24,6 +27,7 @@ import {
     composeGridLayoutRecord,
     createGridLayoutHost,
     defineGridLayoutState,
+    type GridLayoutCommitResult,
     type GridLayoutHost,
     type GridLayoutRecord,
 } from "nbook/app/utils/workbench/storage-grid-host";
@@ -274,9 +278,81 @@ function sizeOf(host: GridLayoutHost<string>, id: string): GridExtent {
     return node.size;
 }
 
+/** 当前呈现里该分支直接子节点沿主轴的 px：宿主消费的手势 `baseline` 就是这一份。 */
+function baselinePx(host: GridLayoutHost<string>, branchId: string, axis: GridAxis = "width"): Record<string, number> {
+    const node = findNode(host.grid.root(), branchId);
+    const rendered = host.layout();
+    if (node === null || node.kind !== "branch" || rendered === null) {
+        throw new Error(`测试树里没有已测量的分支：${branchId}`);
+    }
+    return Object.fromEntries(node.children.map((child) => [child.id, rendered.sizes[child.id]?.[axis] ?? 0]));
+}
+
+/** 一次手势提交：显示层冻结的版本与根盒默认取宿主当前值，可显式覆盖以测失效路径。 */
+function gestureOf(
+    host: GridLayoutHost<string>,
+    changes: readonly GridBranchChange[],
+    overrides: {readonly revision?: number; readonly extent?: GridExtent} = {},
+): GridGestureCommit {
+    return {
+        sessionId: "session-1",
+        contextKey: "grid-test",
+        source: "pointer",
+        revision: overrides.revision ?? host.state.revision,
+        extent: overrides.extent ?? {width: 1200, height: 800},
+        changes,
+    };
+}
+
+/** 根分支的一次单轴拖动：基线取当前呈现，目标显式给出。 */
+function rootGesture(
+    host: GridLayoutHost<string>,
+    target: Record<string, number>,
+    active: readonly string[],
+    overrides: {readonly revision?: number; readonly extent?: GridExtent} = {},
+): GridGestureCommit {
+    return gestureOf(host, [{
+        branchId: "root",
+        axis: "width",
+        baseline: baselinePx(host, "root"),
+        target,
+        active,
+        compensated: [],
+        collapsed: {},
+        extent: overrides.extent ?? {width: 1200, height: 800},
+    }], overrides);
+}
+
+/** 提交一次手势并等待合成保存；`{ok:false}` 是断言失败（拒绝不是被测结果），直接抛出。 */
+async function commitGesture(host: GridLayoutHost<string>, commit: GridGestureCommit): Promise<GridLayoutCommitResult> {
+    const accepted = host.gestureCommit(commit);
+    if (!accepted.ok) {
+        throw new Error(`手势提交被拒绝：${accepted.reason}`);
+    }
+    return await accepted.saved;
+}
+
 function widthsOf(record: unknown): Array<[string, number]> {
     const root = (record as {root: {children: GridSnapshotNode[]}}).root;
     return root.children.map((child) => [child.id, child.kind === "leaf" ? child.size.width : 0]);
+}
+
+/** 记录原件里各节点的尺寸（断言保存内容用）；未知节点也在其中，便于确认原件位置未丢。 */
+function sizesInRecord(record: unknown): Record<string, GridExtent> {
+    const sizes: Record<string, GridExtent> = {};
+    if (typeof record !== "object" || record === null || !("root" in record)) {
+        return sizes;
+    }
+    // 运行时确认过 `root` 存在；这里断言的是宿主写回的快照形状（v2 记录），不是外部输入。
+    const root = record.root as GridSnapshotNode;
+    const walk = (node: GridSnapshotNode): void => {
+        sizes[node.id] = node.size;
+        if (node.kind === "branch") {
+            node.children.forEach(walk);
+        }
+    };
+    walk(root);
+    return sizes;
 }
 
 function idsOf(node: GridNode<string> | null): string[] {
@@ -367,8 +443,7 @@ describe("插件 grid 持久化宿主", () => {
         expect(harness.records.size).toBe(0);
 
         host.setContainer({width: 1200, height: 800});
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const saved = await host.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+        const saved = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
 
         expect(saved.status).toBe("saved");
         expect(widthsOf(harness.records.get(harness.userKey(RESOURCE))?.value)).toEqual([
@@ -424,8 +499,7 @@ describe("插件 grid 持久化宿主", () => {
             expect(sizeOf(host, "outline").width, testCase.name).toBe(240);
 
             host.setContainer({width: 1200, height: 800});
-            expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]}), testCase.name).toEqual({ok: true});
-            const outcome = await host.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+            const outcome = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
 
             expect(outcome.status, testCase.name).toBe("unsaved");
             expect(host.state.pending?.retryable, testCase.name).toBe(false);
@@ -467,28 +541,28 @@ describe("插件 grid 持久化宿主", () => {
         ]);
     });
 
-    it("一次手势只提交一次且只写 active 字段；程序布局、取消与 no-op 不保存", async () => {
+    it("一次手势只提交一次且只写 active 字段；程序布局、no-op 与失效提交都不保存", async () => {
         const harness = storageHarness();
         const {host, workbench} = await openedHost(harness);
         host.setContainer({width: 1200, height: 800});
         expect(host.layout()).not.toBeNull();
         expect(saves(harness.sent)).toBe(0);
 
-        // 取消：不产生保存意图。
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        host.gestureCancel();
-        expect(host.state.gesture).toBe(false);
-        expect(saves(harness.sent)).toBe(0);
-        expect((await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]})).status).toBe("rejected");
-
         // no-op 手势：目标与基线一致，不写盘。
-        expect(host.gestureStart({branchId: "root", sizes: [20, 55, 25]})).toEqual({ok: true});
-        expect((await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [20, 55, 25]})).status).toBe("unchanged");
+        expect((await commitGesture(host, rootGesture(host, {outline: 240, editor: 660, console: 300}, ["outline"]))).status).toBe("unchanged");
+        expect(saves(harness.sent)).toBe(0);
+
+        // 失效提交：显示层冻结的外部版本已经过期，整次拒绝且树不动。
+        const stale = host.gestureCommit(rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"], {revision: host.state.revision - 1}));
+        expect(stale).toMatchObject({ok: false, reason: expect.stringContaining("外部布局版本")});
+        // 主动节点不属于该分支：同样整次拒绝，不写盘也不改树。
+        const foreign = host.gestureCommit(rootGesture(host, {outline: 360, editor: 540, console: 300}, ["ghost"]));
+        expect(foreign).toMatchObject({ok: false, reason: expect.stringContaining("不属于分支")});
+        expect(sizeOf(host, "outline").width).toBe(240);
         expect(saves(harness.sent)).toBe(0);
 
         // 真实手势：只把 active 字段写进原件；未主动改变的节点保持原件值。
-        expect(host.gestureStart({branchId: "root", sizes: [20, 55, 25]})).toEqual({ok: true});
-        const saved = await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+        const saved = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline"]));
 
         expect(saved).toMatchObject({status: "saved", fields: [{id: "outline", axis: "width", value: 360}]});
         expect(saves(harness.sent)).toBe(1);
@@ -505,7 +579,98 @@ describe("插件 grid 持久化宿主", () => {
         await workbench.release();
     });
 
-    it("订阅只更新已确认基线：不重挂呈现、不打断手势、刷新后的凭据可直接续写", async () => {
+    it("一场手势的多分支提交整批落账：任一项不合法整批不改，根盒已变直接拒绝", async () => {
+        const nested = createGrid<string>({
+            kind: "branch",
+            id: "root",
+            orientation: "horizontal",
+            size: {width: 0, height: 800},
+            children: [
+                {kind: "leaf", id: "side", ref: "side", size: {width: 300, height: 0}, minimumSize: {width: 100, height: 0}, maximumSize: {width: 600, height: Number.MAX_SAFE_INTEGER}},
+                {
+                    kind: "branch",
+                    id: "body",
+                    orientation: "vertical",
+                    size: {width: 900, height: 0},
+                    children: [
+                        {kind: "leaf", id: "top", ref: "top", size: {width: 0, height: 500}, minimumSize: {width: 0, height: 200}, maximumSize: {width: Number.MAX_SAFE_INTEGER, height: 900}},
+                        {
+                            kind: "leaf",
+                            id: "bottom",
+                            ref: "bottom",
+                            size: {width: 0, height: 300},
+                            minimumSize: {width: 0, height: 100},
+                            maximumSize: {width: Number.MAX_SAFE_INTEGER, height: 700},
+                            collapse: {collapsedSize: 0, restoreSize: 300, collapseThreshold: 24, expandThreshold: 24, collapsed: false},
+                        },
+                    ],
+                },
+            ],
+        }, {sashSize: 0});
+        const harness = storageHarness();
+        harness.records.set(harness.userKey(RESOURCE), {value: nested.serialize(), revision: "seed-1", schemaVersion: 2});
+        const workbench = createWorkbenchStorageContext({adapters: harness.adapters});
+        const host = createGridLayoutHost({
+            grid: nested,
+            handle: await userHandle(workbench),
+            definition,
+            resource: RESOURCE,
+            resolveRef: (ref) => ({ref}),
+        });
+        await host.open();
+        host.setContainer({width: 1200, height: 800});
+
+        // 交汇处两根轴在同一次提交里落账：宽度轴与嵌套分支的高度轴各一项。
+        const saved = await commitGesture(host, gestureOf(host, [
+            {branchId: "root", axis: "width", baseline: {side: 300, body: 900}, target: {side: 200, body: 1000}, active: ["side", "body"], compensated: [], collapsed: {}, extent: {width: 1200, height: 800}},
+            {branchId: "body", axis: "height", baseline: {top: 500, bottom: 300}, target: {top: 400, bottom: 400}, active: ["top", "bottom"], compensated: [], collapsed: {}, extent: {width: 1200, height: 800}},
+        ]));
+
+        expect(saved).toMatchObject({status: "saved"});
+        expect(saves(harness.sent)).toBe(1);
+        const stored = sizesInRecord(harness.records.get(harness.userKey(RESOURCE))?.value);
+        expect(stored.side?.width).toBe(200);
+        expect(stored.body?.width).toBe(1000);
+        expect(stored.top?.height).toBe(400);
+        expect(stored.bottom?.height).toBe(400);
+
+        // 第二项不守恒：整批不落账，树与记录都保持上一批的结果。
+        const before = JSON.stringify(host.grid.serialize());
+        const atomic = host.gestureCommit(gestureOf(host, [
+            {branchId: "root", axis: "width", baseline: {side: 200, body: 1000}, target: {side: 150, body: 1050}, active: ["side", "body"], compensated: [], collapsed: {}, extent: {width: 1200, height: 800}},
+            {branchId: "body", axis: "height", baseline: {top: 400, bottom: 400}, target: {top: 450, bottom: 400}, active: ["top"], compensated: [], collapsed: {}, extent: {width: 1200, height: 800}},
+        ]));
+
+        expect(atomic).toMatchObject({ok: false, reason: expect.stringContaining("不守恒")});
+        expect(JSON.stringify(host.grid.serialize())).toBe(before);
+        expect(saves(harness.sent)).toBe(1);
+
+        // 根盒已变（窗口在按下后被改尺寸）：旧基线的手势整次拒绝。
+        const staleBox = host.gestureCommit(gestureOf(host, [
+            {branchId: "root", axis: "width", baseline: {side: 200, body: 1000}, target: {side: 150, body: 1050}, active: ["side", "body"], compensated: [], collapsed: {}, extent: {width: 900, height: 800}},
+        ], {extent: {width: 900, height: 800}}));
+
+        expect(staleBox).toMatchObject({ok: false, reason: expect.stringContaining("根盒")});
+        expect(JSON.stringify(host.grid.serialize())).toBe(before);
+
+        // 收起：只发布运行期收起状态，记录里保留展开意图（绝不把 0 写进尺寸记录）。
+        const accepted = host.gestureCommit(gestureOf(host, [
+            {branchId: "body", axis: "height", baseline: {top: 400, bottom: 400}, target: {top: 800, bottom: 0}, active: ["top", "bottom"], compensated: [], collapsed: {bottom: true}, extent: {width: 1200, height: 800}},
+        ]));
+
+        expect(accepted.ok).toBe(true);
+        expect(accepted.ok && accepted.collapsed).toEqual({bottom: true});
+        const collapseResult = accepted.ok ? await accepted.saved : null;
+        // `fields` 只存在于 saved/unsaved 两个分支：先按 status 收窄再读，别对联合类型直接取字段。
+        expect(collapseResult?.status === "saved" ? collapseResult.fields : null).toEqual([{id: "top", axis: "height", value: 800}]);
+        const collapsedRecord = sizesInRecord(harness.records.get(harness.userKey(RESOURCE))?.value);
+        expect(collapsedRecord.bottom?.height).toBe(400);
+        expect(collapsedRecord.top?.height).toBe(800);
+        await workbench.release();
+    });
+
+
+    it("订阅只更新已确认基线：不重挂当前呈现，刷新后的凭据可直接续写", async () => {
         vi.useFakeTimers();
         try {
             const harness = storageHarness();
@@ -519,19 +684,16 @@ describe("插件 grid 持久化宿主", () => {
             hostA.setContainer({width: 1200, height: 800});
             hostB.setContainer({width: 1200, height: 800});
 
-            expect(hostB.gestureStart({branchId: "root", sizes: [32, 43, 25]})).toEqual({ok: true});
-            expect(hostA.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-            const savedA = await hostA.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+            const savedA = await commitGesture(hostA, rootGesture(hostA, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
             expect(savedA.status).toBe("saved");
             const revisionA = savedA.status === "saved" ? savedA.credential.revision : null;
 
             await flushSubscription();
 
             expect(hostB.state.credential?.revision).toBe(revisionA);
-            expect(hostB.state.gesture).toBe(true);
             expect(sizeOf(hostB, "outline").width).toBe(240);
 
-            const savedB = await hostB.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [32, 43, 25]});
+            const savedB = await commitGesture(hostB, rootGesture(hostB, {outline: 384, editor: 516, console: 300}, ["outline", "editor"]));
 
             expect(savedB.status).toBe("saved");
             expect(widthsOf(harness.records.get(harness.userKey(RESOURCE))?.value)).toEqual([
@@ -544,8 +706,7 @@ describe("插件 grid 持久化宿主", () => {
             // 释放权各自持有：一个宿主释放后另一个继续提交，不互相牵连。
             await hostA.release();
             expect((await hostA.retry()).status).toBe("rejected");
-            expect(hostB.gestureStart({branchId: "root", sizes: [32, 43, 25]})).toEqual({ok: true});
-            expect((await hostB.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]})).status).toBe("saved");
+            expect((await commitGesture(hostB, rootGesture(hostB, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]))).status).toBe("saved");
             expect(widthsOf(harness.records.get(harness.userKey(RESOURCE))?.value)).toEqual([
                 ["outline", 360],
                 ["plugin", 180],
@@ -571,12 +732,10 @@ describe("插件 grid 持久化宿主", () => {
         hostB.setContainer({width: 1200, height: 800});
 
         // A 改编辑器与面板：outline 保持 240。
-        expect(hostA.gestureStart({branchId: "root", sizes: [20, 50, 30]})).toEqual({ok: true});
-        expect((await hostA.gestureEnd({branchId: "root", active: ["editor", "console"], sizes: [20, 50, 30]})).status).toBe("saved");
+        expect((await commitGesture(hostA, rootGesture(hostA, {outline: 240, editor: 600, console: 360}, ["editor", "console"]))).status).toBe("saved");
 
         // B 的基线仍是 seed-1：第一次提交冲突，重读后只重放它自己的主动字段。
-        expect(hostB.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const savedB = await hostB.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+        const savedB = await commitGesture(hostB, rootGesture(hostB, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
 
         expect(savedB.status).toBe("saved");
         expect(hostB.state.pending).toBeNull();
@@ -606,8 +765,7 @@ describe("插件 grid 持久化宿主", () => {
             }
         };
 
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const outcome = await host.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+        const outcome = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
 
         expect(outcome.status).toBe("unsaved");
         expect(host.state.pending).toMatchObject({
@@ -650,8 +808,7 @@ describe("插件 grid 持久化宿主", () => {
         const hostLanded = createHost(await userHandle(landedWorkbench));
         await hostLanded.open();
         hostLanded.setContainer({width: 1200, height: 800});
-        expect(hostLanded.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const landedOutcome = await hostLanded.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+        const landedOutcome = await commitGesture(hostLanded, rootGesture(hostLanded, {outline: 360, editor: 540, console: 300}, ["outline"]));
 
         expect(landedOutcome).toMatchObject({status: "saved", credential: credential("landed-1")});
         expect(hostLanded.state.pending).toBeNull();
@@ -671,8 +828,7 @@ describe("插件 grid 持久化宿主", () => {
         const hostMissing = createHost(await userHandle(missingWorkbench));
         await hostMissing.open();
         hostMissing.setContainer({width: 1200, height: 800});
-        expect(hostMissing.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const missingOutcome = await hostMissing.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+        const missingOutcome = await commitGesture(hostMissing, rootGesture(hostMissing, {outline: 360, editor: 540, console: 300}, ["outline"]));
 
         expect(missingOutcome).toMatchObject({status: "unsaved", diagnosis: expect.stringContaining("未确认")});
         expect(missingAttempts).toHaveLength(1);
@@ -692,8 +848,7 @@ describe("插件 grid 持久化宿主", () => {
             harness.write(RESOURCE, {...recordFixture(), note: "foreign"});
         };
 
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        expect((await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]})).status).toBe("unsaved");
+        expect((await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline"]))).status).toBe("unsaved");
         expect(sizeOf(host, "outline").width).toBe(360);
 
         host.abandon();
@@ -762,8 +917,7 @@ describe("插件 grid 持久化宿主", () => {
         harness.write(RESOURCE, renamedRecordFixture());
         const revision = harness.records.get(harness.userKey(RESOURCE))?.revision ?? "";
 
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const outcome = await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+        const outcome = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline"]));
 
         expect(outcome.status).toBe("unsaved");
         expect(host.state.pending).toMatchObject({retryable: true, fields: [{id: "outline", axis: "width", value: 360}]});
@@ -820,8 +974,7 @@ describe("插件 grid 持久化宿主", () => {
         left.setContainer({width: 1200, height: 800});
         right.setContainer({width: 1200, height: 800});
 
-        expect(left.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        expect((await left.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]})).status).toBe("saved");
+        expect((await commitGesture(left, rootGesture(left, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]))).status).toBe("saved");
 
         expect(harness.records.has(harness.userKey("right"))).toBe(false);
         expect(sizeOf(right, "outline").width).toBe(240);
@@ -836,8 +989,7 @@ describe("插件 grid 持久化宿主", () => {
         const host = createHost(await userHandle(first));
         await host.open();
         host.setContainer({width: 1200, height: 800});
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        expect((await host.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]})).status).toBe("saved");
+        expect((await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]))).status).toBe("saved");
         await first.release();
 
         // 重新打开：新工作台、新句柄；插件已回归（未知引用重新出现）。
@@ -884,9 +1036,10 @@ describe("插件 grid 持久化宿主", () => {
         harness.hook.beforeSave = () => {
             harness.write(RESOURCE, recordFixture());
         };
-        // 插件回归后根分支有四个叶：手势尺寸必须与该分支直接子节点同序。
-        expect(host.gestureStart({branchId: "root", sizes: [20, 15, 40, 25]})).toEqual({ok: true});
-        expect((await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [20, 15, 40, 25]})).status).toBe("unsaved");
+        // 插件回归后根分支有四个叶：手势的基线取当前呈现（意图之和超过容器时会按比例降级）。
+        const baseline = baselinePx(host, "root");
+        expect(Object.keys(baseline)).toEqual(["outline", "plugin", "editor", "console"]);
+        expect((await commitGesture(host, rootGesture(host, {...baseline, outline: baseline.outline! + 20, plugin: baseline.plugin! - 20}, ["outline", "plugin"]))).status).toBe("unsaved");
         expect(host.restoreFromBaseline()).toMatchObject({status: "blocked"});
         await workbench.release();
     });
@@ -904,8 +1057,8 @@ describe("插件 grid 持久化宿主", () => {
         const host = createHost(await userHandle(workbench));
         await host.open();
         host.setContainer({width: 1200, height: 800});
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const committing = host.gestureEnd({branchId: "root", active: ["outline", "editor"], sizes: [30, 45, 25]});
+        // 保存被门控挂住：release 必须先等它收口，且不能再接纳新提交。
+        const committing = commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline", "editor"]));
         const releasing = host.release();
         let settled = false;
         void releasing.then(() => {
@@ -1007,8 +1160,7 @@ describe("插件 grid 持久化宿主", () => {
         // 撤销工作台上下文：已借用句柄立即拒绝新动作，旧引用不复活。
         await workbench.release();
 
-        expect(host.gestureStart({branchId: "root", sizes: [30, 45, 25]})).toEqual({ok: true});
-        const outcome = await host.gestureEnd({branchId: "root", active: ["outline"], sizes: [30, 45, 25]});
+        const outcome = await commitGesture(host, rootGesture(host, {outline: 360, editor: 540, console: 300}, ["outline"]));
 
         expect(outcome.status).toBe("unsaved");
         expect(host.state.phase).toBe("invalidated");
@@ -1016,5 +1168,146 @@ describe("插件 grid 持久化宿主", () => {
         expect(host.state.pending).toMatchObject({retryable: false});
         expect((await host.retry()).status).toBe("rejected");
         expect(attempts).toHaveLength(0);
+    });
+});
+
+describe("commitFields（外壳的直接字段提交）", () => {
+    it("只提交主动字段：未主动节点、不可解析引用与未知顶层字段都留在原件里", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+
+        const saved = await host.commitFields([{id: "outline", axis: "width", value: 360}]);
+
+        expect(saved).toMatchObject({status: "saved", fields: [{id: "outline", axis: "width", value: 360}]});
+        expect(saves(harness.sent)).toBe(1);
+        const record = harness.records.get(harness.userKey(RESOURCE))?.value as {note?: unknown};
+        expect(record.note).toBe("unknown-field");
+        expect(widthsOf(record)).toEqual([
+            ["outline", 360],
+            ["plugin", 180],
+            ["editor", 660],
+            ["console", 300],
+        ]);
+        await workbench.release();
+    });
+
+    it("形状不合法的调用整次拒绝：非法轴、非有限/负值、重复 (id, axis)、空 id", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+
+        const outcomes = [
+            await host.commitFields([{id: "outline", axis: "depth" as never, value: 300}]),
+            await host.commitFields([{id: "outline", axis: "width", value: Number.POSITIVE_INFINITY}]),
+            await host.commitFields([{id: "outline", axis: "width", value: -1}]),
+            await host.commitFields([
+                {id: "outline", axis: "width", value: 300},
+                {id: "outline", axis: "width", value: 320},
+            ]),
+            await host.commitFields([{id: "", axis: "width", value: 300}]),
+        ];
+
+        expect(outcomes.map((outcome) => outcome.status)).toEqual(["rejected", "rejected", "rejected", "rejected", "rejected"]);
+        expect(saves(harness.sent)).toBe(0);
+        expect(host.state.pending).toBeNull();
+        // 入口拒绝不产生未确认意图，也不改当前呈现。
+        expect(sizeOf(host, "outline").width).toBe(240);
+        await workbench.release();
+    });
+
+    it("空字段与同值字段是 unchanged：不新增记录，也不产生保存", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+
+        expect((await host.commitFields([])).status).toBe("unchanged");
+        expect((await host.commitFields([{id: "outline", axis: "width", value: 240}])).status).toBe("unchanged");
+        expect(saves(harness.sent)).toBe(0);
+        await workbench.release();
+    });
+
+    it("任一落点缺失就整次不保存：保留未确认意图、不新造节点，重试时整次一起落地", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+
+        const outcome = await host.commitFields([
+            {id: "outline", axis: "width", value: 360},
+            {id: "ghost", axis: "width", value: 100},
+        ]);
+
+        expect(outcome.status).toBe("unsaved");
+        expect(saves(harness.sent)).toBe(0);
+        expect(host.state.pending).toMatchObject({
+            retryable: true,
+            fields: [
+                {id: "outline", axis: "width", value: 360},
+                {id: "ghost", axis: "width", value: 100},
+            ],
+        });
+        // 没有部分保存：原件里既没有 outline 的 360，也没有新造出 ghost 节点。
+        const untouched = harness.records.get(harness.userKey(RESOURCE))?.value as {root: {children: GridSnapshotNode[]}};
+        expect(untouched.root.children.map((child) => child.id)).toEqual(["outline", "plugin", "editor", "console"]);
+        expect(widthsOf(untouched)).toEqual([
+            ["outline", 240],
+            ["plugin", 180],
+            ["editor", 660],
+            ["console", 300],
+        ]);
+
+        // 外部把记录补成含 ghost 的结构后，显式重试整次落地（重试保持"每个字段都有落点"的语义）。
+        const fixture = recordFixture();
+        const fixtureRoot = fixture.root as {children: GridSnapshotNode[]};
+        harness.write(RESOURCE, {
+            ...fixture,
+            root: {
+                ...fixtureRoot,
+                children: [...fixtureRoot.children, {kind: "leaf", id: "ghost", ref: "ghost", size: {width: 0, height: 0}}],
+            },
+        } as unknown as GridLayoutRecord);
+
+        const retried = await host.retry();
+
+        expect(retried.status).toBe("saved");
+        expect(host.state.pending).toBeNull();
+        expect(widthsOf(harness.records.get(harness.userKey(RESOURCE))?.value)).toEqual([
+            ["outline", 360],
+            ["plugin", 180],
+            ["editor", 660],
+            ["console", 300],
+            ["ghost", 100],
+        ]);
+        await workbench.release();
+    });
+
+    it("冲突重读后落点消失：整次不保存，不先提交还存在的那些字段", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+        // 第一次提交前外部把 outline 改名：条件写冲突 → 重读后的原件里已经没有落点。
+        harness.hook.beforeSave = () => {
+            harness.write(RESOURCE, renamedRecordFixture());
+        };
+
+        const outcome = await host.commitFields([
+            {id: "outline", axis: "width", value: 360},
+            {id: "editor", axis: "width", value: 540},
+        ]);
+
+        expect(outcome.status).toBe("unsaved");
+        expect(saves(harness.sent)).toBe(1);
+        expect(host.state.pending?.fields).toEqual([
+            {id: "outline", axis: "width", value: 360},
+            {id: "editor", axis: "width", value: 540},
+        ]);
+        await workbench.release();
+    });
+
+    it("release 之后拒绝：不再接受字段提交，也不向失效句柄补写", async () => {
+        const harness = storageHarness();
+        const {host, workbench} = await openedHost(harness);
+        await host.release();
+
+        const outcome = await host.commitFields([{id: "outline", axis: "width", value: 360}]);
+
+        expect(outcome.status).toBe("rejected");
+        expect(saves(harness.sent)).toBe(0);
+        await workbench.release();
     });
 });

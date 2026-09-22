@@ -53,22 +53,18 @@ function handleRetryRecovery(): void {
 </script>
 
 <template>
-    <div
-        class="flex h-full w-full items-center justify-center p-4 sm:p-8"
-        :class="currentScene === 'phone' ? 'max-w-[390px] mx-auto' : 'max-w-[640px] mx-auto'"
-        data-lab-subject
-    >
-        <div class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 sm:p-6 shadow-sm">
-            <ProjectCreateForm
-                :is-creating="isCreating"
-                :recovery-notice="recoveryNotice"
-                :recovery-error="recoveryError"
-                :initial-title="initialTitle"
-                :initial-summary="initialSummary"
-                :initial-genre="initialGenre"
-                @submit="handleSubmit"
-                @retry-recovery="handleRetryRecovery"
-            />
-        </div>
+    <div class="w-full p-6">
+        <ProjectCreateForm
+            data-lab-subject
+            class="w-full"
+            :is-creating="isCreating"
+            :recovery-notice="recoveryNotice"
+            :recovery-error="recoveryError"
+            :initial-title="initialTitle"
+            :initial-summary="initialSummary"
+            :initial-genre="initialGenre"
+            @submit="handleSubmit"
+            @retry-recovery="handleRetryRecovery"
+        />
     </div>
 </template>

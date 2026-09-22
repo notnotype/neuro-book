@@ -191,7 +191,10 @@ const applyModelOptions = (): void => {
 };
 
 /**
- * 创建或复用当前文件的 Monaco model。
+ * 创建当前实例专有的 Monaco model。
+ *
+ * modelPath 已包含实例 token，因此同 URI 的模型只可能来自未释放的旧实例：
+ * 模型归实例所有、可独立 dispose，绝不按 URI 取用别人的模型后互相释放。
  */
 const createEditorModel = (): Monaco.editor.ITextModel | null => {
     if (!monacoApi) {
@@ -203,24 +206,7 @@ const createEditorModel = (): Monaco.editor.ITextModel | null => {
         return monacoApi.editor.createModel(props.initialValue, props.language);
     }
 
-    const existingModel = monacoApi.editor.getModel(modelUri);
-    if (existingModel) {
-        monacoApi.editor.setModelLanguage(existingModel, props.language);
-        if (existingModel.getValue() !== props.initialValue) {
-            runOutsideSync(() => {
-                existingModel.pushEditOperations(
-                    [],
-                    [{
-                        range: existingModel.getFullModelRange(),
-                        text: props.initialValue,
-                    }],
-                    () => null,
-                );
-            });
-        }
-        return existingModel;
-    }
-
+    monacoApi.editor.getModel(modelUri)?.dispose();
     return monacoApi.editor.createModel(props.initialValue, props.language, modelUri);
 };
 
@@ -237,25 +223,38 @@ const handleWheelZoom = (event: WheelEvent): void => {
 };
 
 /**
- * 显式更新编辑器内容。
+ * 显式更新编辑器内容（外部权威正文回灌）。
+ *
+ * `model.setValue` 整体重设缓冲区并清空该模型的撤销栈：回灌本身不成为可撤销项，
+ * 同步前的旧历史也不会被 Ctrl+Z 重放到新正文上（用户撤销只回溯本实例同步后的输入）。
+ * setValue 的 flush 会把视口与光标推走，因此前后自行保留选区与滚动位置。
  */
 const update = (markdown: string): void => {
-    if (!modelInstance || markdown === modelInstance.getValue()) {
+    const model = modelInstance;
+    if (!model || markdown === model.getValue()) {
         return;
     }
 
     // 外部权威内容覆盖本地状态，未结算的防抖输入作废
     changeDebounce.cancel();
-    runOutsideSync(() => {
-        modelInstance?.pushEditOperations(
-            [],
-            [{
-                range: modelInstance.getFullModelRange(),
-                text: markdown,
-            }],
-            () => null,
-        );
-    });
+    const editor = editorDisposed ? null : editorInstance;
+    const selection = editor?.getSelection() ?? null;
+    const scrollTop = editor?.getScrollTop() ?? 0;
+    const scrollLeft = editor?.getScrollLeft() ?? 0;
+    runOutsideSync(() => model.setValue(markdown));
+    if (!editor) {
+        return;
+    }
+    if (selection) {
+        editor.setSelection({
+            selectionStartLineNumber: clampLine(model, selection.selectionStartLineNumber),
+            selectionStartColumn: clampColumn(model, selection.selectionStartLineNumber, selection.selectionStartColumn),
+            positionLineNumber: clampLine(model, selection.positionLineNumber),
+            positionColumn: clampColumn(model, selection.positionLineNumber, selection.positionColumn),
+        });
+    }
+    editor.setScrollTop(scrollTop);
+    editor.setScrollLeft(scrollLeft);
 };
 
 /**
@@ -271,6 +270,30 @@ const focus = (): void => {
 const scrollToTop = (): void => {
     editorInstance?.setScrollTop(0);
     editorInstance?.setScrollLeft(0);
+};
+
+/**
+ * 行号导航：只有真实就绪的内核才回应。拒绝越界而不 clamp——静默挪到最近一行
+ * 会让「跳转到第 61 行」看起来成功了，实际落点是另一处。
+ */
+const revealLine = (line: number): {ok: true; value: {line: number}} | {ok: false; reason: string} => {
+    const editor = editorInstance;
+    const model = modelInstance;
+    if (!editor || !model || editorDisposed) {
+        return {ok: false, reason: "编辑器尚未就绪"};
+    }
+    const lineCount = model.getLineCount();
+    if (!Number.isSafeInteger(line) || line < 1 || line > lineCount) {
+        return {ok: false, reason: `行号超出范围：${line}（共 ${lineCount} 行）`};
+    }
+    editor.setPosition({lineNumber: line, column: 1});
+    editor.revealLineInCenter(line);
+    editor.focus();
+    return {ok: true, value: {line}};
+};
+
+const getLineCount = (): number | null => {
+    return editorInstance && modelInstance && !editorDisposed ? modelInstance.getLineCount() : null;
 };
 
 /**
@@ -544,6 +567,7 @@ defineExpose<TextEditorHandle>({
     appendText,
     getValue,
     flushPendingChange,
+    navigation: {getLineCount, revealLine},
 });
 
 /**
@@ -554,6 +578,15 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
         return fallback;
     }
     return Math.min(Math.max(value, min), max);
+}
+
+/** 回灌后原选区可能越过新正文边界：夹到最近的合法位置，而不是把非法坐标交给 Monaco。 */
+function clampLine(model: Monaco.editor.ITextModel, line: number): number {
+    return Math.min(Math.max(line, 1), model.getLineCount());
+}
+
+function clampColumn(model: Monaco.editor.ITextModel, line: number, column: number): number {
+    return Math.min(Math.max(column, 1), model.getLineMaxColumn(clampLine(model, line)));
 }
 </script>
 

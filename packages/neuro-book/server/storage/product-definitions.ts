@@ -17,10 +17,22 @@
  * 迁移原件与元数据是 `workbench.migration` 的 user/local 专用备份边界；
  * 未开项目/用户资产尺寸、书架模式与两个普通窗口尺寸是 `workbench.layout` 的 user/local 记录；
  * 主工作台的 Project 内 grid 布局记录与 World Engine 内部尺寸是同 owner 的 project/local 记录（各占一键）。
+ * 本轮追加：底部面板高度（`workbench.layout` 的 project/local 与 user/local 两键）、
+ * 编辑工作台会话（新 `workbench.editor` owner 的 project/local 与 user/local 两键）、
+ * 工具 View 位置（新 `workbench.views` owner 的 user/local 单例）。
  */
 
 import type {DefinedStorageState} from "nbook/shared/storage/definition";
 import {defineWorkbenchShellLayoutState} from "nbook/shared/storage/workbench-shell-layout";
+import {
+    defineWorkbenchEditorSessionState,
+    defineWorkbenchEditorUserAssetsSessionState,
+} from "nbook/shared/storage/workbench-editor";
+import {defineWorkbenchViewCustomizationsState} from "nbook/shared/storage/workbench-views";
+import {
+    defineWorkbenchPanelSizeState,
+    defineWorkbenchSurfacePanelSizeState,
+} from "nbook/shared/storage/workbench-panel-size";
 import {defineWorkbenchMigrationStates} from "nbook/shared/storage/workbench-migration";
 import {defineWorkbenchFileTreeExpandedPathsState} from "nbook/shared/storage/workbench-files";
 import {defineWorkbenchWorldEnginePanelSizesState} from "nbook/shared/storage/workbench-world-engine";
@@ -48,6 +60,15 @@ function buildProductStorageStates(): readonly DefinedStorageState<unknown>[] {
         defineWorkbenchSurfaceSizesState() as DefinedStorageState<unknown>,
         defineWorkbenchShelfModeState() as unknown as DefinedStorageState<unknown>,
         defineWorkbenchShellLayoutState() as unknown as DefinedStorageState<unknown>,
+        // 底部高度（project/local，`persistence.md` 的面板尺寸归属）：与外壳 grid 同 owner 同分区，
+        // 不声明额外 limits（同分区容量必须与既有定义一致）。
+        defineWorkbenchPanelSizeState() as unknown as DefinedStorageState<unknown>,
+        defineWorkbenchSurfacePanelSizeState() as unknown as DefinedStorageState<unknown>,
+        // 编辑工作台会话（project/local 与 user/local 各一条）：分组拓扑、标签实例与活动组一条记录。
+        defineWorkbenchEditorSessionState() as unknown as DefinedStorageState<unknown>,
+        defineWorkbenchEditorUserAssetsSessionState() as unknown as DefinedStorageState<unknown>,
+        // 工具 View 位置与底部收起偏好（user/local）：跨 Project 的界面定制。
+        defineWorkbenchViewCustomizationsState() as unknown as DefinedStorageState<unknown>,
         // `files` 视图的展开项（user/local）：旧裸键 `nbook.workspaceFilePanel.expandedPaths` 的正式归属。
         defineWorkbenchFileTreeExpandedPathsState() as unknown as DefinedStorageState<unknown>,
         // World Engine 内部尺寸（project/local，`persistence.md:95`）：组件自持 ref 的正式归属。

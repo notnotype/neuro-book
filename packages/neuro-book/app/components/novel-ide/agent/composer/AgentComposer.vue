@@ -8,7 +8,6 @@ import AgentQueuedMessageList from "./AgentQueuedMessageList.vue";
 import AgentComposerAvailabilityBanner from "./AgentComposerAvailabilityBanner.vue";
 import AgentComposerImageBar from "./AgentComposerImageBar.vue";
 import AgentComposerToolbar from "./AgentComposerToolbar.vue";
-import AgentComposerStatusBar from "./AgentComposerStatusBar.vue";
 import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import type {
     AgentTriggerMenuContext,
@@ -18,7 +17,11 @@ import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
 import type {ComposerImageNode} from "./composer-image-transaction";
-import {useComposerImageTransaction} from "../composables/useComposerImageTransaction";
+import {
+    useComposerImageTransaction,
+    type ComposerImageTransactionApi,
+    type ComposerImageTransactionNotification,
+} from "../composables/useComposerImageTransaction";
 import type {
     AgentComposerAvailability,
     AgentComposerAvailabilityAction,
@@ -45,25 +48,14 @@ const props = defineProps<{
     selectableModels: EnabledModelOptionDto[];
     agentMode: AgentMode;
     canContinueWithoutInput: boolean;
-    contextUsageExactLabel: string;
-    contextUsageCompactLabel: string;
-    contextPercentCompactLabel: string;
-    cumulativeUsageExactLabel: string;
-    cumulativeInputCompactLabel: string;
-    cumulativeOutputCompactLabel: string;
-    cumulativeCacheCompactLabel: string;
-    cumulativeCacheWriteCompactLabel: string;
-    cumulativeCacheHitRateLabel: string;
-    cumulativeCostCompactLabel: string;
-    connectionStatusLabel: string;
-    runPhaseLabel: string;
-    connectionNeedsAction: boolean;
     queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
     projectRoot: string | null;
     sessionId: number | null;
     sessionAttachments: AgentSessionAttachmentItemDto[];
     modelSupportsImages: boolean;
+    imageApi?: ComposerImageTransactionApi;
+    imageNotification?: ComposerImageTransactionNotification;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
 }>();
@@ -77,8 +69,6 @@ const emit = defineEmits<{
     (e: "submit-user-input"): void;
     (e: "cancel-user-input"): void;
     (e: "resync-user-input"): void;
-    /** 打开上下文检查面板（Task 126）；宿主持有开关状态。 */
-    (e: "open-context-inspector"): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -87,8 +77,6 @@ const emit = defineEmits<{
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
     (e: "reset-session-model-settings"): void;
-    (e: "reconnect-events"): void;
-    (e: "refresh-history"): void;
     (e: "attachment-registered", item: AgentSessionAttachmentItemDto): void;
     (e: "availability-action", action: AgentComposerAvailabilityAction): void;
 }>();
@@ -213,6 +201,8 @@ const pendingBlockedMessage = computed(() => props.canResolveUserInput
     : availabilityView.value?.message || t("agent.composer.waitingBlocked"));
 
 const images = useComposerImageTransaction({
+    api: props.imageApi,
+    notification: props.imageNotification,
     editor: () => inputRef.value,
     sessionId: () => props.sessionId,
     value: () => props.inputText,
@@ -598,27 +588,5 @@ defineExpose({focus, insertAttachment});
                 </template>
             </AgentComposerToolbar>
         </div>
-
-        <!-- token 与运行状态 -->
-        <AgentComposerStatusBar
-            :context-usage-exact-label="props.contextUsageExactLabel"
-            :context-usage-compact-label="props.contextUsageCompactLabel"
-            :context-percent-compact-label="props.contextPercentCompactLabel"
-            :cumulative-usage-exact-label="props.cumulativeUsageExactLabel"
-            :cumulative-input-compact-label="props.cumulativeInputCompactLabel"
-            :cumulative-output-compact-label="props.cumulativeOutputCompactLabel"
-            :cumulative-cache-compact-label="props.cumulativeCacheCompactLabel"
-            :cumulative-cache-write-compact-label="props.cumulativeCacheWriteCompactLabel"
-            :cumulative-cache-hit-rate-label="props.cumulativeCacheHitRateLabel"
-            :cumulative-cost-compact-label="props.cumulativeCostCompactLabel"
-            :connection-status-label="props.connectionStatusLabel"
-            :connection-needs-action="props.connectionNeedsAction"
-            :running="props.running"
-            :run-phase-label="props.runPhaseLabel"
-            :agent-mode="props.agentMode"
-            @open-context-inspector="emit('open-context-inspector')"
-            @reconnect-events="emit('reconnect-events')"
-            @refresh-history="emit('refresh-history')"
-        />
     </div>
 </template>

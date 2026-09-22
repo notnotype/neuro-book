@@ -910,7 +910,7 @@ const enUS = {
                 panel: "Panel",
                 actions: "Container actions",
                 notReady: "View placement record is not ready yet",
-                emptyPart: "No container here: drop a container onto the header above, or restore its default location from the menu.",
+                emptyPart: "Drag views here to display them",
                 selectRejected: "Container selection not saved",
                 moveRejected: "Container location unchanged",
                 visibilityRejected: "Part visibility not saved",
@@ -925,6 +925,10 @@ const enUS = {
                     moveTo: "Move to",
                     merge: "Merge {count} views",
                 },
+            },
+            /** Drag feedback: a `noop` with a preview only promises to keep the current layout (center / in-place anchor). */
+            drop: {
+                keepLayout: "Keep current layout",
             },
             part: {
                 left: "Primary sidebar",
@@ -2482,7 +2486,7 @@ const enUS = {
         dropRight: "Split to the right",
         dropTop: "Split above",
         dropBottom: "Split below",
-        dropCenter: "Move to this editor group",
+        dropKeepLayout: "Keep current layout",
         reloadConfiguration: "Reload Open With",
         loading: "Loading...",
         retry: "Retry",

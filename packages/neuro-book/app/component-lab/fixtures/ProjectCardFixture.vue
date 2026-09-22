@@ -76,19 +76,19 @@ function fakeResolveCoverUrl(): string {
 </script>
 
 <template>
-    <div class="flex h-full w-full items-center justify-center p-6 sm:p-12" data-lab-subject>
-        <div class="w-full max-w-[240px]">
-            <ProjectCard
-                :project="project"
-                :tags="tags"
-                :delete-busy="deleteBusy"
-                :delete-recovery="deleteRecovery"
-                :resolve-cover-url="currentScene === 'with-cover' ? fakeResolveCoverUrl : undefined"
-                @open="handleOpen"
-                @delete="handleDelete"
-                @retry-delete-recovery="handleRetryDeleteRecovery"
-                @open-cover-dialog="handleOpenCoverDialog"
-            />
-        </div>
+    <div class="p-6">
+        <ProjectCard
+            data-lab-subject
+            class="w-full"
+            :project="project"
+            :tags="tags"
+            :delete-busy="deleteBusy"
+            :delete-recovery="deleteRecovery"
+            :resolve-cover-url="currentScene === 'with-cover' ? fakeResolveCoverUrl : undefined"
+            @open="handleOpen"
+            @delete="handleDelete"
+            @retry-delete-recovery="handleRetryDeleteRecovery"
+            @open-cover-dialog="handleOpenCoverDialog"
+        />
     </div>
 </template>

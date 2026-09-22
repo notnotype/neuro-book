@@ -147,6 +147,11 @@ export default defineNuxtConfig({
             extensions: ["vue"],
         },
         {
+            path: "~/components/novel-ide/agent",
+            pathPrefix: false,
+            extensions: ["vue"],
+        },
+        {
             path: "~/components",
             extensions: ["vue"],
         },

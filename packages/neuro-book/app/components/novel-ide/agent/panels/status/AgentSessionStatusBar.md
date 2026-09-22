@@ -2,9 +2,9 @@
 标签: [state:local]
 ---
 
-# AgentComposerStatusBar
+# AgentSessionStatusBar
 
-Composer 底部状态与统计芯片条。集中展示上下文使用量（Token Gauge）、输入/输出/缓存/费用累积统计、网络连接状况与重连动作、运行中状态指示器以及非普通模式下的模式徽标。
+Agent 会话底部状态与用量指标芯片条。集中展示上下文使用量（Token Gauge）、输入/输出/缓存/费用累积统计、网络连接状况与重连动作、运行中状态指示器以及非普通模式下的模式徽标。
 
 ## 数据
 

@@ -170,7 +170,21 @@ export function readLegacyBucketFieldValues(raw: string | null): LegacyBucketFie
 }
 
 /**
- * 迁移期的序列化器：只重写三个源字段。
+ * 已退役的运行期 fields：`activeLeftTab`（旧的活动左侧页签）。
+ *
+ * 它不再有运行期的读者与写者（`pick` 里没有它，store 也不暴露同名状态），但它**不是**本迁移的三源
+ * 字段：本迁移没有决定怎么处置它，所以任何整键重写都不许顺手把它删掉。做法是"原件保留"——
+ * `deserialize` 捕获原件里的原值（原件没有这个键就不捕获），`serialize` 在输出缺这个键时原样合成：
+ * 不制造缺省值，也不改写它的值（未知值照原样留着）。
+ */
+export const LEGACY_BUCKET_RETIRED_FIELDS = ["activeLeftTab"] as const;
+export type LegacyBucketRetiredField = (typeof LEGACY_BUCKET_RETIRED_FIELDS)[number];
+
+/** 上一次读到的原件里退役字段的原值；与 `deserialize` 成对使用（读写同一份旧桶）。 */
+let retiredFieldSnapshot: Record<string, unknown> = {};
+
+/**
+ * 迁移期的序列化器：只重写三个源字段，并原样合成退役字段。
  *
  * 传入的是 `pick` 过滤后的状态；输出把三个源字段替换成捕获值，原本缺失的保持缺失，
  * 运行期的尺寸与书架意图不会成为旧桶里的新值。
@@ -181,18 +195,24 @@ export const legacyBucketSerializer = {
         const picked = typeof state === "object" && state !== null && !Array.isArray(state)
             ? state as Record<string, unknown>
             : {};
-        if (policy.mode !== "pinned") {
-            return JSON.stringify(picked);
-        }
         const output: Record<string, unknown> = {};
-        for (const [key, value] of Object.entries(picked)) {
-            if (!(LEGACY_BUCKET_FIELDS as readonly string[]).includes(key)) {
-                output[key] = value;
+        if (policy.mode !== "pinned") {
+            Object.assign(output, picked);
+        } else {
+            for (const [key, value] of Object.entries(picked)) {
+                if (!(LEGACY_BUCKET_FIELDS as readonly string[]).includes(key)) {
+                    output[key] = value;
+                }
+            }
+            for (const field of LEGACY_BUCKET_FIELDS) {
+                if (Object.hasOwn(policy.fields, field)) {
+                    output[field] = policy.fields[field];
+                }
             }
         }
-        for (const field of LEGACY_BUCKET_FIELDS) {
-            if (Object.hasOwn(policy.fields, field)) {
-                output[field] = policy.fields[field];
+        for (const [key, value] of Object.entries(retiredFieldSnapshot)) {
+            if (!Object.hasOwn(output, key)) {
+                output[key] = value;
             }
         }
         return JSON.stringify(output);
@@ -200,9 +220,19 @@ export const legacyBucketSerializer = {
     deserialize(raw: string): Record<string, unknown> {
         const parsed: unknown = JSON.parse(raw);
         // 非对象 JSON 与旧 writer 的默认行为等价：hydrate 之后 store 仍是各自默认值。
-        return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        const record = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
             ? parsed as Record<string, unknown>
             : {};
+        // 退役字段只做原件保留：捕获后从水合结果里摘掉——store 已经没有对应状态，
+        // 让它们进 pinia state 只会多出一个没人读的键。
+        retiredFieldSnapshot = {};
+        for (const field of LEGACY_BUCKET_RETIRED_FIELDS) {
+            if (Object.hasOwn(record, field)) {
+                retiredFieldSnapshot[field] = record[field];
+                delete record[field];
+            }
+        }
+        return record;
     },
 };
 

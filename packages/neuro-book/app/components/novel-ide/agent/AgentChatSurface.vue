@@ -22,6 +22,7 @@ import type {
     AgentSidebarHeaderProps,
     AgentSidebarFlowProps,
     AgentSidebarComposerProps,
+    AgentSessionStatusBarProps,
     AgentSidebarAttachmentsProps,
     AgentSidebarLinkedAgentsProps,
     AgentSidebarSystemPromptProps,
@@ -4301,6 +4302,17 @@ const sidebarComposerProps = computed<AgentSidebarComposerProps>(() => ({
     selectableModels: selectableModels.value,
     agentMode: agentMode.value,
     canContinueWithoutInput: canContinueWithoutInput.value,
+    queuedMessages: queuedMessages.value,
+    menuRefreshKey: agentMenuRefreshKey.value,
+    projectRoot: props.novelId || null,
+    sessionId: activeSessionId.value,
+    sessionAttachments: knownSessionAttachments.value,
+    modelSupportsImages: activeModelSupportsImages.value,
+    resolveMenu: resolveInputMenu,
+    onSkillTriggerStart: refreshSkillCatalog,
+}));
+
+const sidebarStatusBarProps = computed<AgentSessionStatusBarProps>(() => ({
     contextUsageExactLabel: contextUsageExactLabel.value,
     contextUsageCompactLabel: contextUsageCompactLabel.value,
     contextPercentCompactLabel: contextPercentCompactLabel.value,
@@ -4314,14 +4326,8 @@ const sidebarComposerProps = computed<AgentSidebarComposerProps>(() => ({
     connectionStatusLabel: connectionStatusLabel.value,
     runPhaseLabel: runPhaseLabel.value,
     connectionNeedsAction: connectionNeedsAction.value,
-    queuedMessages: queuedMessages.value,
-    menuRefreshKey: agentMenuRefreshKey.value,
-    projectRoot: props.novelId || null,
-    sessionId: activeSessionId.value,
-    sessionAttachments: knownSessionAttachments.value,
-    modelSupportsImages: activeModelSupportsImages.value,
-    resolveMenu: resolveInputMenu,
-    onSkillTriggerStart: refreshSkillCatalog,
+    running: running.value,
+    agentMode: agentMode.value,
 }));
 
 const sidebarAttachmentsProps = computed<AgentSidebarAttachmentsProps>(() => ({
@@ -4415,6 +4421,7 @@ const sidebarContextInspectorProps = computed<AgentSidebarContextInspectorProps>
             :header="sidebarHeaderProps"
             :flow="sidebarFlowProps"
             :composer="sidebarComposerProps"
+            :status-bar="sidebarStatusBarProps"
             :attachments="sidebarAttachmentsProps"
             :linked-agents="sidebarLinkedAgentsProps"
             :system-prompt="sidebarSystemPromptProps"

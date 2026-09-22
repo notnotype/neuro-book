@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {computed} from "vue";
 import {AGENT_MODE_META} from "nbook/app/components/novel-ide/agent/agent-composer-presentation";
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 
@@ -34,7 +35,7 @@ const modeButtonTitle = computed(() => t("agent.composer.cycleModeTitle", {mode:
 </script>
 
 <template>
-    <!-- token 与运行状态 -->
+    <!-- 会话 token 上下文与运行时状态栏 -->
     <div class="mt-1.5 flex flex-wrap items-center justify-center gap-1 text-[10px] text-[var(--text-muted)]">
         <!-- gauge 芯片：点击打开上下文检查面板（Task 126） -->
         <button
@@ -98,7 +99,8 @@ const modeButtonTitle = computed(() => t("agent.composer.cycleModeTitle", {mode:
             <button
                 class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :title="t('agent.composer.refreshHistoryTitle')"
-                @click="emit('refresh-history')">
+                @click="emit('refresh-history')"
+            >
                 <span class="i-lucide-history h-3 w-3"></span>
                 <span>{{ t("agent.composer.refreshHistory") }}</span>
             </button>

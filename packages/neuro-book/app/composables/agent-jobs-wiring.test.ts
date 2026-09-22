@@ -7,7 +7,7 @@ const activityBarPath = fileURLToPath(new URL("../components/novel-ide/NovelIdeA
 const indexPagePath = fileURLToPath(new URL("../pages/index.vue", import.meta.url));
 const packagePath = fileURLToPath(new URL("../../package.json", import.meta.url));
 const observerPath = fileURLToPath(new URL("./useAgentJob.ts", import.meta.url));
-const workflowBubblePath = fileURLToPath(new URL("../components/novel-ide/agent/AgentWorkflowBubble.vue", import.meta.url));
+const workflowBubblePath = fileURLToPath(new URL("../components/novel-ide/agent/bubbles/tools/AgentWorkflowBubble.vue", import.meta.url));
 
 describe("Jobs feed 页面接线合同", () => {
     it("Desktop Activity Bar 暂不挂载 Jobs，任务中心组件仍保留独立 feed 接口", async () => {

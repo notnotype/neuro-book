@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {mount, type VueWrapper} from "@vue/test-utils";
-import {nextTick} from "vue";
 import EditorTabItem from "./EditorTabItem.vue";
 import type {EditorTabPresentation} from "./editor-view.types";
+
+vi.hoisted(() => {
+    globalThis.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+});
 
 const mounted: VueWrapper[] = [];
 
@@ -99,22 +102,13 @@ describe("EditorTabItem 组件", () => {
         expect(wrapper.find('[aria-label="editorWorkbench.unsaved"]').exists()).toBe(true);
         expect(wrapper.text()).toContain("U");
     });
-
-    it("拖拽指示线能根据 dropIndicator 正确展示", async () => {
-        const tab = createTab("main.ts");
-        const wrapper = mount(EditorTabItem, {
-            props: {tab, dropIndicator: "before"},
-            attachTo: document.body,
-        });
+    it("宿主可通过公开句柄把焦点移到标签按钮", () => {
+        const wrapper = mount(EditorTabItem, {props: {tab: createTab("focus.md")}, attachTo: document.body});
         mounted.push(wrapper);
-
-        expect(wrapper.find(".left-0").exists()).toBe(true);
-
-        await wrapper.setProps({dropIndicator: "after"});
-        expect(wrapper.find(".right-0").exists()).toBe(true);
-
-        await wrapper.setProps({dropIndicator: null});
-        expect(wrapper.find(".left-0").exists()).toBe(false);
-        expect(wrapper.find(".right-0").exists()).toBe(false);
+        wrapper.vm.focus();
+        expect(document.activeElement).toBe(wrapper.get('[role="tab"]').element);
     });
+
+
 });
+

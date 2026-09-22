@@ -1,5 +1,6 @@
 ---
 标签: []
+别名: ["主侧边栏", "辅助侧边栏", "Primary Side Bar", "Secondary Side Bar"]
 ---
 
 # WorkbenchContainerSurface

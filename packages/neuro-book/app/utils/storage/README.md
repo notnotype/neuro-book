@@ -58,9 +58,11 @@ project/local 对象记忆；对象存在性由插件 owner 在读写前校验�
 
 `../workbench/storage-grid-host.ts` 是 grid 布局的持久化宿主。`defineGridLayoutState` 登记布局记录
 （`{version, root}` 加未知字段），宿主借用工作台句柄完成恢复、原件合成保存与订阅基线：
-保存只写 `Splitter` `gesture-end` 的 `active` 字段并合成进读取时保留的原件（不用过滤后的渲染树覆盖，
-未知引用与未知字段原样保留）；订阅只更新已确认基线，不重挂当前呈现；冲突重读后只重放本次字段并再
-条件提交一次，二次冲突保留未确认意图并由 `retry()` / `abandon()` 收口。
+保存以一次手势的 px 批量变化为单位（渲染层 `gesture-end` 的 `GridGestureCommit` 原样交给
+`gestureCommit`）：先在内存里整批原子落账（`resizeBranches`），再把**主动改变**的叶合成进读取时
+保留的原件（不用过滤后的渲染树覆盖，未知引用与未知字段原样保留）；任何一项不通过就整批不落账、
+也不写盘。订阅只更新已确认基线，不重挂当前呈现；冲突重读后只重放本次字段并再条件提交一次，
+二次冲突保留未确认意图并由 `retry()` / `abandon()` 收口。
 
 ## 验证
 

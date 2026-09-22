@@ -286,13 +286,13 @@ describe("迁移启动门禁", () => {
             leftPanelWidth: 999,
             agentPanelWidth: 1000,
             projectPickerLayoutMode: "editorial",
-            activeLeftTab: "search",
+            agentSessionPanelWidth: 300,
         });
         expect(JSON.parse(written)).toEqual({
             leftPanelWidth: 427,
             agentPanelWidth: 488,
             projectPickerLayoutMode: "compact",
-            activeLeftTab: "search",
+            agentSessionPanelWidth: 300,
         });
     });
 
@@ -389,7 +389,8 @@ describe("data 原件备份与逐项导入", () => {
         // 原始损坏串仍在浏览器暂存里（stagingStub 保留原文），data 备份也保存同一个原文。
         expect(backupText(harness)).toBe(raw);
         // 三字段按"原件不可解析 ⇒ 都缺失"固定：写回不会再产生这三个键。
-        expect(JSON.parse(legacyBucketSerializer.serialize({leftPanelWidth: 999, activeLeftTab: "search"}))).toEqual({activeLeftTab: "search"});
+        expect(JSON.parse(legacyBucketSerializer.serialize({leftPanelWidth: 999, agentSessionPanelWidth: 300})))
+            .toEqual({agentSessionPanelWidth: 300});
         expect(migration.snapshot().fields.every((field) => field.outcome === "source-missing")).toBe(true);
     });
 

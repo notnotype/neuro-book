@@ -205,7 +205,8 @@ function toggle(): void {
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    flex: 1 1 auto;
+    /* 确定份额（basis 0）：剩余空间按 4:1 分给标题与动作区，动作区因此不随内容变宽。 */
+    flex: 4 1 0;
     min-width: 0;
     height: 100%;
     padding: 0;
@@ -258,8 +259,16 @@ function toggle(): void {
 .workbench-container-section__actions {
     display: flex;
     align-items: center;
+    /*
+     * 动作区必须拿到**确定的**宽度盒：`flex: 1 1 auto` 让行里剩下的空间都归它。
+     * 若写成 `flex: 0 0 auto`（随内容收缩），标题操作部件量到的「可用宽度」就等于它自己的内容宽，
+     * 折叠结果反过来改宽度 → ResizeObserver 自激（实测 130 次/秒的重渲染）。改这里前先看
+     * `WorkbenchTitleActions.md` 的宿主合同。
+     */
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
     gap: var(--space-1);
-    flex: 0 0 auto;
 }
 
 .workbench-container-section__body {

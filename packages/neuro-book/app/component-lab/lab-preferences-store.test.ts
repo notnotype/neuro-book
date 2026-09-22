@@ -40,6 +40,11 @@ describe("Lab preferences store", () => {
 
         expect(saveLabPreferences(storage, preferences)).toBe(true);
         expect(loadLabPreferences(storage, catalog)).toEqual(preferences);
+
+        // 第五个检视 tab 也走同一份白名单往返
+        storage.clear();
+        expect(saveLabPreferences(storage, {...preferences, activeInspectTab: "commands"})).toBe(true);
+        expect(loadLabPreferences(storage, catalog)).toEqual({...preferences, activeInspectTab: "commands"});
     });
 
     it("keeps valid fields and drops untrusted values independently", () => {

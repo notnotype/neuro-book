@@ -908,7 +908,7 @@ const zhCN = {
                 panel: "面板",
                 actions: "容器操作",
                 notReady: "工具位置记录尚未就绪",
-                emptyPart: "这里没有容器：把容器拖到上方标题栏，或用菜单恢复默认落点。",
+                emptyPart: "将视图拖动到此处显示",
                 selectRejected: "容器选择未保存",
                 moveRejected: "容器位置未改变",
                 visibilityRejected: "区域显隐未保存",
@@ -923,6 +923,10 @@ const zhCN = {
                     moveTo: "移动到",
                     merge: "并入 {count} 个视图",
                 },
+            },
+            /** 拖放反馈：`noop` 带预览时只承诺「保持当前布局」（中央 / 原位锚点），与 Editor 同一句话。 */
+            drop: {
+                keepLayout: "保持当前布局",
             },
             part: {
                 left: "主侧边栏",
@@ -2480,7 +2484,7 @@ const zhCN = {
         dropRight: "在右侧分屏",
         dropTop: "在上方分屏",
         dropBottom: "在下方分屏",
-        dropCenter: "移动至当前视口",
+        dropKeepLayout: "保持当前布局",
         reloadConfiguration: "重新加载打开方式",
         loading: "加载中...",
         retry: "重试",

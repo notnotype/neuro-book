@@ -308,7 +308,7 @@ const hasVisibilityMenu = computed(() => {
  *
  * `overflow: hidden` 是**圆角的承载者**：头部与内容区各自都是矩形，只有根裁切才能保证它们
  * 不盖住卡片圆角，内容区的滚动条也始终落在卡片内。视图里的浮层本来就出不去所在的叶
- * （`WorkbenchBranch` 的叶包装已带 overflow-hidden），这里不新增限制。
+ * （`GridRenderer` 的叶包装已带 overflow-hidden），这里不新增限制。
  */
 .workbench-container {
     display: flex;
@@ -347,6 +347,8 @@ const hasVisibilityMenu = computed(() => {
 }
 
 .workbench-container__title {
+    /* 确定份额（basis 0）：和动作区按 4:1 分——动作区是标题操作的测量基准，必须与内容无关。 */
+    flex: 4 1 0;
     min-width: 0;
     overflow: hidden;
     color: var(--text-main);
@@ -361,6 +363,13 @@ const hasVisibilityMenu = computed(() => {
 .workbench-container__actions {
     display: flex;
     align-items: center;
+    /*
+     * 必须拿到**确定的**宽度盒（`flex: 1 1 auto` + `min-width: 0`），否则标题操作部件量到的可用宽度
+     * 等于自己的内容宽，折叠反过来改宽度 → ResizeObserver 自激。见 `WorkbenchTitleActions.md`。
+     */
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: flex-end;
     gap: var(--space-2);
     margin-left: auto;
 }

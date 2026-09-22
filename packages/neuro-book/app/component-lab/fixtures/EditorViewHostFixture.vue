@@ -12,9 +12,13 @@ import {computed, defineComponent, h, onBeforeUnmount, onMounted, ref, watch, ty
 import EditorViewHost from "nbook/app/components/editor-workbench/EditorViewHost.vue";
 import type {
     EditorAction,
+    EditorChangeRequest,
+    EditorChangeResult,
+    EditorConflictResolution,
     EditorContribution,
     EditorDocumentSnapshot,
     EditorDocumentTarget,
+    EditorFlushResult,
     EditorViewEvents,
     EditorViewHandle,
 } from "nbook/app/components/editor-workbench/editor-view.types";
@@ -27,7 +31,8 @@ const emitLabEvent = useLabEventSink();
 
 /**
  * 受检视的替身视图。它遵守真实合同：onMounted 交出句柄、onBeforeUnmount 撤回、
- * 自己产生的输入经 events.change 上报，外部正文更新覆盖本地草稿。
+ * 自己产生的输入经 events.change 提交并读回执，只有 accepted 才把草稿当成已确认内容；
+ * conflict 时草稿保留为「待裁决候选」，由 resolveConflict 决定丢弃还是重提。
  */
 const LabStubView = defineComponent({
     name: "LabEditorStubView",
@@ -48,20 +53,30 @@ const LabStubView = defineComponent({
         }
         const textareaRef = ref<HTMLTextAreaElement | null>(null);
         const draft = ref(viewProps.document.content);
-        let settled = viewProps.document.content;
+        const settled = ref(viewProps.document.content);
+        const candidate = ref("");
         let settleTimer: ReturnType<typeof setTimeout> | null = null;
         let readyTimer: ReturnType<typeof setTimeout> | null = null;
 
-        function settle(): void {
+        function submit(content: string): EditorFlushResult {
+            const result = viewProps.events.change(viewProps.document.target, viewProps.document.contentRevision, content);
+            if (result.status === "accepted") {
+                settled.value = content;
+                candidate.value = "";
+            } else if (result.status === "conflict") {
+                candidate.value = content;
+            }
+            return candidate.value ? "conflict" : "settled";
+        }
+        function settle(): EditorFlushResult {
             if (settleTimer !== null) {
                 clearTimeout(settleTimer);
                 settleTimer = null;
             }
-            if (draft.value === settled) {
-                return;
+            if (draft.value === settled.value) {
+                return candidate.value ? "conflict" : "settled";
             }
-            settled = draft.value;
-            viewProps.events.change(viewProps.document.target, draft.value);
+            return submit(draft.value);
         }
         function schedule(): void {
             if (settleTimer !== null) {
@@ -74,6 +89,15 @@ const LabStubView = defineComponent({
             focus: () => textareaRef.value?.focus(),
             undo: () => document.execCommand?.("undo"),
             redo: () => document.execCommand?.("redo"),
+            resolveConflict: (choice) => {
+                if (choice === "adopt-current") {
+                    candidate.value = "";
+                    draft.value = viewProps.document.content;
+                    settled.value = viewProps.document.content;
+                    return "settled";
+                }
+                return candidate.value ? submit(candidate.value) : "settled";
+            },
         };
         onMounted(() => {
             if (viewProps.readyDelayMs > 0) {
@@ -92,11 +116,11 @@ const LabStubView = defineComponent({
             viewProps.bindHandle(null);
         });
         watch(() => viewProps.document.content, (content) => {
-            // 自己刚结算出去的那份不当作外部更新，否则会把光标推回文末
-            if (content === settled) {
+            // 自己刚确认出去的那份不当作外部更新，否则会把光标推回文末；候选未裁决前也不覆盖它。
+            if (content === settled.value || candidate.value) {
                 return;
             }
-            settled = content;
+            settled.value = content;
             draft.value = content;
         });
         return () => h("div", {class: "flex h-full min-h-0 flex-col bg-[var(--panel-surface)]"}, [
@@ -105,6 +129,7 @@ const LabStubView = defineComponent({
                 h("span", {class: "rounded bg-[var(--bg-hover)] px-1.5 py-0.5"}, viewProps.badge),
                 h("span", viewProps.visible ? "可见" : "隐藏"),
                 h("span", `${viewProps.settleDelayMs}ms 后结算输入`),
+                candidate.value ? h("span", {class: "text-[var(--status-warning)]", "data-lab-candidate": candidate.value.length}, "候选待裁决") : null,
             ]),
             h("textarea", {
                 "aria-label": `${viewProps.label} 正文草稿`,
@@ -173,6 +198,7 @@ const sceneDefinitions: Record<string, {stubs: StubOptions[]; editorId: string}>
 
 const path = ref("manuscript/chapter-01.md");
 const content = ref("");
+const revision = ref(0);
 const baseline = ref("");
 const editorId = ref("code");
 const registry = ref<EditorRegistry>(buildRegistry([codeStub]));
@@ -180,6 +206,10 @@ const lastEvent = ref("");
 const failure = ref("");
 const activeEditorId = ref("");
 const mountKey = ref(0);
+/** 最近一次未解决冲突的实例与选择：裁决是显式的一次性请求，不由文档变更隐式触发。 */
+const conflictResolution = ref<EditorConflictResolution | null>(null);
+const unresolvedToken = ref("");
+const unresolvedChoice = ref<EditorConflictResolution["choice"]>("adopt-current");
 
 const target = computed<EditorDocumentTarget>(() => ({
     workspaceKey: "lab:editor-view-host",
@@ -190,6 +220,7 @@ const target = computed<EditorDocumentTarget>(() => ({
 const documentSnapshot = computed<EditorDocumentSnapshot>(() => ({
     target: target.value,
     content: content.value,
+    contentRevision: revision.value,
     languageId: "markdown",
     readonly: false,
 }));
@@ -221,11 +252,14 @@ watch(() => [props.scene, props.data] as const, () => {
     registry.value = buildRegistry(definition.stubs);
     path.value = next?.path ?? "manuscript/chapter-01.md";
     content.value = next?.content ?? "# 退潮\n\n礁石上留下了一层薄薄的盐。\n";
+    revision.value = 0;
     baseline.value = content.value;
     editorId.value = next?.editorId ?? definition.editorId;
     lastEvent.value = "";
     failure.value = "";
     activeEditorId.value = "";
+    conflictResolution.value = null;
+    unresolvedToken.value = "";
 }, {immediate: true});
 
 function switchEditor(nextEditorId: string): void {
@@ -241,20 +275,44 @@ function log(name: string, payload: string): void {
 
 function onHandleReady(_target: EditorDocumentTarget, token: string, handle: EditorViewHandle | null): void {
     activeEditorId.value = handle ? editorId.value : "";
-    log("handle-ready", handle ? `第 ${token} 个实例交出句柄` : `第 ${token} 个实例撤回首柄`);
+    log("handle-ready", handle ? `${token} 交出句柄` : `${token} 撤回首柄`);
 }
 
-function onChange(nextTarget: EditorDocumentTarget, next: string): void {
-    content.value = next;
-    log("change", `${nextTarget.path} → ${next.length} 字符`);
+/** 夹具扮演的权威缓冲：基线不符即回 conflict，实例必须保留候选等裁决。 */
+function onCommitChange(request: EditorChangeRequest): EditorChangeResult {
+    if (request.baseRevision !== revision.value) {
+        unresolvedToken.value = request.token;
+        log("commit", `${request.token} 基线过期 → conflict`);
+        return {status: "conflict", snapshot: documentSnapshot.value};
+    }
+    content.value = request.content;
+    revision.value += 1;
+    log("commit", `${request.token} accepted → 修订 ${revision.value}`);
+    return {status: "accepted", snapshot: documentSnapshot.value};
 }
 
-function onSaveRequest(nextTarget: EditorDocumentTarget): void {
-    log("save-request", nextTarget.path);
+function resolve(choice: EditorConflictResolution["choice"]): void {
+    if (!unresolvedToken.value) {
+        return;
+    }
+    unresolvedChoice.value = choice;
+    conflictResolution.value = {token: unresolvedToken.value, choice};
 }
 
-function onFocusChange(nextTarget: EditorDocumentTarget, focused: boolean): void {
-    log("focus-change", `${focused ? "进入" : "离开"} ${nextTarget.path}`);
+function onConflictResolved(token: string, result: EditorFlushResult): void {
+    conflictResolution.value = null;
+    if (result === "settled") {
+        unresolvedToken.value = "";
+    }
+    log("conflict-resolved", `${token} → ${result}`);
+}
+
+function onSaveRequest(nextTarget: EditorDocumentTarget, token: string): void {
+    log("save-request", `${nextTarget.path} ← ${token}`);
+}
+
+function onFocusChange(nextTarget: EditorDocumentTarget, token: string, focused: boolean): void {
+    log("focus-change", `${focused ? "进入" : "离开"} ${nextTarget.path}（${token}）`);
 }
 
 function onViewActions(nextTarget: EditorDocumentTarget, token: string, actions: readonly EditorAction[]): void {
@@ -262,9 +320,9 @@ function onViewActions(nextTarget: EditorDocumentTarget, token: string, actions:
     void nextTarget;
 }
 
-function onViewError(nextTarget: EditorDocumentTarget, message: string): void {
+function onViewError(nextTarget: EditorDocumentTarget, token: string, message: string): void {
     failure.value = message;
-    log("view-error", message);
+    log("view-error", `${message}（${token}）`);
 }
 </script>
 
@@ -293,6 +351,28 @@ function onViewError(nextTarget: EditorDocumentTarget, message: string): void {
             {{ `宿主收敛到的失败：${failure}` }}
         </div>
 
+        <div class="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-[var(--divider)] bg-[var(--bg-panel)] px-3 py-1.5 text-[11px] text-[var(--text-muted)]">
+            <span>权威修订：{{ revision }}</span>
+            <span :class="unresolvedToken ? 'text-[var(--status-warning)]' : ''">{{ unresolvedToken ? `待裁决实例：${unresolvedToken}` : "无待裁决候选" }}</span>
+            <span v-if="unresolvedChoice" class="font-mono">上次请求：{{ unresolvedChoice }}</span>
+            <button
+                type="button"
+                :disabled="!unresolvedToken"
+                class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
+                @click="resolve('adopt-current')"
+            >
+                采用当前正文
+            </button>
+            <button
+                type="button"
+                :disabled="!unresolvedToken"
+                class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
+                @click="resolve('keep-view')"
+            >
+                保留此视图内容
+            </button>
+        </div>
+
         <div class="min-h-0 flex-1">
             <EditorViewHost
                 data-lab-subject
@@ -300,12 +380,14 @@ function onViewError(nextTarget: EditorDocumentTarget, message: string): void {
                 :document="documentSnapshot"
                 :registry="registry"
                 :editor-id="editorId"
+                :commit-change="onCommitChange"
+                :conflict-resolution="conflictResolution"
                 @handle-ready="onHandleReady"
-                @change="onChange"
                 @save-request="onSaveRequest"
                 @focus-change="onFocusChange"
                 @view-actions="onViewActions"
                 @view-error="onViewError"
+                @conflict-resolved="onConflictResolved"
             />
         </div>
     </div>

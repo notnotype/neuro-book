@@ -165,7 +165,7 @@ describe("ProjectPickerViewFixture", () => {
         expect(firstCard?.querySelector(".project-cover-fallback")?.textContent).toContain("赛博霓虹：仿生纪元");
     });
 
-    it("phone 场景包含 390 移动视口约束", async () => {
+    it("phone 场景正确渲染", async () => {
         const host = document.createElement("div");
         document.body.append(host);
 
@@ -175,7 +175,8 @@ describe("ProjectPickerViewFixture", () => {
         await nextTick();
 
         const labSubject = host.querySelector("[data-lab-subject]");
-        expect(labSubject?.className).toContain("max-w-[390px]");
+        expect(labSubject).not.toBeNull();
+        expect(labSubject?.className).toContain("w-full");
     });
 
     it("支持切换至各个视图方案场景 (compact, editorial)", async () => {

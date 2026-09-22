@@ -34,19 +34,15 @@ watch(currentScene, (scene) => {
 </script>
 
 <template>
-    <div
-        class="flex h-full w-full items-center justify-center p-6"
-        :class="currentScene === 'phone' ? 'max-w-[390px] mx-auto border-x border-[var(--border-color)]' : 'max-w-[900px] mx-auto'"
-        data-lab-subject
-    >
-        <div class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-6 shadow-sm">
-            <ProjectPickerHeader
-                :is-loading="isLoading"
-                :has-load-error="hasLoadError"
-                :is-creating="isCreating"
-                @open-user-assets="emit('event', 'open-user-assets')"
-                @create-book="emit('event', 'create-book')"
-            />
-        </div>
+    <div class="w-full p-6">
+        <ProjectPickerHeader
+            data-lab-subject
+            class="w-full"
+            :is-loading="isLoading"
+            :has-load-error="hasLoadError"
+            :is-creating="isCreating"
+            @open-user-assets="emit('event', 'open-user-assets')"
+            @create-book="emit('event', 'create-book')"
+        />
     </div>
 </template>

@@ -3,15 +3,25 @@
  * EditorTabBar 的 Lab 场景。
  *
  * 演示重点：
- * 1. 分行几何：固定标签独立成一行，普通/预览标签在下一行，行内横向滚动且不制造页面级滚动；
+ * 1. 分区几何：单行固定区与普通区以底色/分隔区分，固定区不接收拖入；多行两区独立换行；
+ *    唯一外层滚动宿主，不在起拖时新增空固定落区或改变布局；
  * 2. 标签状态：固定、未保存脏点、预览斜体、图标与超长标题单行截断；
- * 3. 宿主视角：标签栏只表达意图，夹具扮演宿主把与本地列表直接相关的意图（选中 / 关闭 / 保留预览）
- *    就地应用，固定与拖拽换位只透传给 Lab 事件面板——那两项是否生效取决于宿主策略，夹具不替产品拍板；
- * 4. 边界摆法：只有固定标签、只有预览加脏标签，用来确认分组与选中态在极端组合下仍然成立。
+ * 3. 宿主视角：标签栏只表达意图，夹具扮演宿主把与本地列表直接相关的意图（选中 / 关闭 / 保留预览 /
+ *    固定 / 组内换位）就地应用——换位复用会话模块的纯排序函数，夹具不另写一套排序规则；
+ *    需要产品策略的部分（脏文件关闭确认、落库、跨组搬运）仍然只透传给 Lab 事件面板；
+ * 4. 拖动会话：`EditorDragProvider` 是真实宿主（它登记落点、解析命中共画公共反馈并把 move/transfer/split
+ *    意图发出来），标签栏自己不认识落点；夹具把 Provider 与标签栏发出的意图都转给同一个 handleMoveTab；
+ * 5. 边界摆法：只有固定标签、只有预览加脏标签，用来确认分组与选中态在极端组合下仍然成立；
+ * 6. 多行开关：默认多行，标签栏尾部的可见按钮（aria-pressed）与「标签布局」菜单共用同一个本地状态，
+ *    窄屏下不必先展开菜单就能验证换行。
  */
 import {ref, watch} from "vue";
+import {IconButton} from "@notnotype/nb-ui/components";
+import EditorDragProvider from "nbook/app/components/editor-workbench/EditorDragProvider.vue";
 import EditorTabBar from "nbook/app/components/editor-workbench/EditorTabBar.vue";
+import EditorToolbar from "nbook/app/components/editor-workbench/EditorToolbar.vue";
 import type {EditorTabDropPosition, EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
+import {reorderTab, type EditorSessionState, type EditorSessionTab} from "nbook/app/utils/editor-workbench/editor-session";
 import {useLabEventSink} from "../lab-event-sink";
 
 /** Lab 宿主会传场景数据；这四个场景不登记 data，夹具不消费它。 */
@@ -78,6 +88,8 @@ function resolveScene(scene: string): SceneKey {
 const tabs = ref<EditorTabPresentation[]>([]);
 const activePath = ref("");
 const lastEvent = ref("—");
+/** 与 EditorGroup 一致：默认多行，场景重置时回到多行而不是沿用上一次的手动切换。 */
+const wrapTabs = ref(true);
 
 function applyScene(): void {
     const seed = SCENE_SEEDS[resolveScene(props.scene)];
@@ -90,6 +102,8 @@ function applyScene(): void {
         ? seed.activePath
         : (tabs.value[0]?.path ?? "");
     lastEvent.value = "—";
+    // 换场景就是换一份初值：多行开关也回到默认，免得沿用上一次的比较结果。
+    wrapTabs.value = true;
 }
 
 watch(() => props.scene, applyScene, {immediate: true});
@@ -125,12 +139,52 @@ function handleKeepTab(path: string): void {
 }
 
 function handleSetPin(path: string, pinned: boolean): void {
+    if (!tabs.value.some((tab) => tab.path === path)) {
+        return;
+    }
+    // 固定是标签实例自己的字段：就地应用后固定区与普通区会各自重新分区，取消固定能直接看出来。
+    tabs.value = tabs.value.map((tab) => tab.path === path ? {...tab, pinned} : tab);
     lastEvent.value = `set-pin ${path} → ${pinned ? "固定" : "取消固定"}`;
     emitLabEvent("set-pin", {path, pinned});
 }
 
+/**
+ * 组内换位复用会话模块的纯排序函数：把要验证的那一步（顺序 + pin 分区归属）真跑一遍，
+ * 夹具不另写一套排序规则，也不接 Store。只在本组内重排——跨组搬运属于宿主策略，这里不做。
+ */
 function handleMoveTab(path: string, targetPath: string | null, targetPinned: boolean, position: EditorTabDropPosition): void {
-    lastEvent.value = `move-tab ${path} → ${targetPath ?? "所在组尾部"} (${position})`;
+    const sessionTabs: EditorSessionTab[] = tabs.value.map((tab) => ({
+        path: tab.path,
+        title: tab.title,
+        editorId: null,
+        pinned: tab.pinned,
+        preview: tab.preview,
+    }));
+    const session: EditorSessionState = {
+        groups: [{id: "primary", activePath: activePath.value, tabs: sessionTabs}],
+        activeGroupId: "primary",
+    };
+
+    const moved = reorderTab(session, "primary", path, targetPath, targetPinned, position);
+    if (!moved.ok) {
+        lastEvent.value = `move-tab 被拒绝：${moved.reason}`;
+        emitLabEvent("move-tab", {path, targetPath, targetPinned, position, rejected: moved.reason});
+        return;
+    }
+
+    // 呈现字段（图标 / 脏点 / 状态字）跟着路径走：排序只决定顺序，不重造标签。
+    const order = moved.state.groups[0]?.tabs;
+    if (!order || order.length === 0) {
+        return;
+    }
+    const next: EditorTabPresentation[] = [];
+    for (const tab of order) {
+        const presentation = tabs.value.find((item) => item.path === tab.path);
+        if (presentation) next.push({...presentation, pinned: tab.pinned, preview: tab.preview});
+    }
+    tabs.value = next;
+
+    lastEvent.value = `move-tab ${path} → ${targetPath ?? "分区尾部"} (${position})`;
     emitLabEvent("move-tab", {path, targetPath, targetPinned, position});
 }
 
@@ -141,25 +195,51 @@ function handleEmptyFocus(): void {
 </script>
 
 <template>
-    <div class="flex h-full min-h-0 min-w-0 flex-col bg-[var(--bg-main)] text-[var(--text-main)]">
-        <!-- 被检视零件：固定行 + 普通行的竖排根节点，高度由自己撑开，夹具不再包一层尺寸约束 -->
-        <EditorTabBar
-            data-lab-subject
-            :tabs="tabs"
-            :active-path="activePath"
-            @select-tab="handleSelectTab"
-            @close-tab="handleCloseTab"
-            @set-pin="handleSetPin"
-            @keep-tab="handleKeepTab"
-            @move-tab="handleMoveTab"
-            @empty-focus="handleEmptyFocus"
-        />
+    <div class="flex h-full min-h-0 min-w-0 flex-col bg-[var(--panel-surface)] text-[var(--text-main)]">
+        <!-- 真实标签栏支持单行滚动与多行换行（默认多行）；拖动由 Provider 求值，夹具把落点交给会话纯函数真排一次。 -->
+        <EditorDragProvider
+            :groups="[{id: 'primary', tabs}]"
+            :allow-split="false"
+            @move-tab="(_groupId, path, targetPath, targetPinned, position) => handleMoveTab(path, targetPath, targetPinned, position)"
+        >
+            <EditorTabBar
+                data-lab-subject
+                :tabs="tabs"
+                :active-path="activePath"
+                group-id="primary"
+                :wrap="wrapTabs"
+                @select-tab="handleSelectTab"
+                @close-tab="handleCloseTab"
+                @set-pin="handleSetPin"
+                @keep-tab="handleKeepTab"
+                @move-tab="handleMoveTab"
+                @empty-focus="handleEmptyFocus"
+            >
+                <template #trailing>
+                    <!-- 可见的多行开关：与「标签布局」菜单里的同一项共享本地状态，窄屏点一下就能切换 -->
+                    <IconButton
+                        icon-class="i-lucide-wrap-text"
+                        size="sm"
+                        :variant="wrapTabs ? 'accent' : 'default'"
+                        title="多行标签"
+                        aria-label="多行标签"
+                        :aria-pressed="wrapTabs"
+                        class="editor-tab-bar-fixture-wrap-tabs cursor-pointer"
+                        @click="wrapTabs = !wrapTabs"
+                    />
+                    <EditorToolbar
+                        :menus="[{id: 'layout', label: '标签布局', items: [{value: 'wrap', label: '多行标签', type: 'checkbox', checked: wrapTabs}]}]"
+                        @select="wrapTabs = !wrapTabs"
+                    />
+                </template>
+            </EditorTabBar>
+        </EditorDragProvider>
 
         <!-- 标签栏以下的区域在产品里属于宿主正文，这里只留白，免得把中立区域误当成标签栏的一部分 -->
         <div class="flex min-h-0 min-w-0 flex-1 flex-col items-center justify-center gap-1.5 p-4 text-center">
             <p class="text-xs text-[var(--text-muted)]">宿主正文区占位：这个夹具只摆标签栏，不渲染编辑器内容。</p>
             <p class="text-[11px] text-[var(--text-muted)]">
-                双击标签＝保留预览（preview 转普通） · 右键菜单＝固定 / 移动 / 关闭 · 拖拽换位不落库只透传事件
+                双击标签＝保留预览（preview 转普通） · 右键菜单＝固定 / 移动 / 关闭 · 拖动换位复用会话纯函数就地重排（不落库）
             </p>
         </div>
 

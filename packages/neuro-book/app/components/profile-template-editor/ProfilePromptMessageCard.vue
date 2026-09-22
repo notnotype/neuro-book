@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
-import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/bubbles/base/AgentMarkdownContent.vue";
 import type {ProfileTemplatePreviewMessageDto} from "nbook/shared/dto/profile-template.dto";
 
 type StructuredTextMode = "rich" | "source";

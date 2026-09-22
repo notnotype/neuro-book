@@ -16,7 +16,7 @@ import {
     type LegacyValueParse,
     type LegacyValueStore,
 } from "nbook/app/utils/workbench/legacy-record-migration";
-import type {LayoutRecordIntent} from "nbook/app/utils/workbench/layout-session";
+import type {LayoutRecordCommitResult, LayoutRecordIntent} from "nbook/app/utils/workbench/layout-session";
 import {
     useUserRecordSession,
     type UserRecordSessionNotice,
@@ -41,8 +41,9 @@ export type WorkbenchWindowSizeConsumer = {
     readonly loading: Readonly<Ref<boolean>>;
     /** 未保存 / 不可写 / 旧键迁移未完成的诊断；`null` 表示当前没有要展示的问题。 */
     readonly notice: Readonly<Ref<UserRecordSessionNotice | null>>;
-    commit(size: WorkbenchWindowSize): Promise<void>;
-    retry(): Promise<void>;
+    commit(size: WorkbenchWindowSize): Promise<LayoutRecordCommitResult>;
+    /** 与 `commit` 同一条回执通道：重试也要把真实结果交回调用方，不能只看「还挂着未确认」就当成功。 */
+    retry(): Promise<LayoutRecordCommitResult>;
     abandon(): void;
     release(): Promise<void>;
 };
