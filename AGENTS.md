@@ -9,6 +9,7 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 单点修改使用文件编辑工具。批量替换必须先 dry run；命中不确定或出现意外结果时改为逐处编辑，并报告实际修改的文件
 - A comment states the non-obvious reason at the owning boundary. Include a constraint or invalidation condition only when a maintainer needs it to know when the rationale or code stops being valid. Do not restate the operation, preserve intermediate attempts, or list speculative future work.
 - 对 AGENTS.md 也就本文件的约束保持怀疑，随着项目的演变，这个文件可能变得不是很权威，有错误。这个文件是 AGENTS.md 人类共建的，需要不断优化，工作过程中如果遇到某些地方不好的可以随时询问开发者要求优化
+- 写下来的代码是给其他人类和 Agents 阅读的，所以注释、可维护性和可理解性非常重要
 
 ## Conventions
 
@@ -21,17 +22,10 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 不用罕见符号代替中文词；代码、JSON、命令和记法定义本身的符号不受此限。
 - 从请求和既有上下文判断意图，可查事实自行查明。只把改变产品结果、范围、权限或不可逆后果的问题交给开发者，并说明背景和取舍；低风险细节沿用现有模式，重大假设简短说明。
 - 关于 advisor：advisor 不是我，是 omp 中监督你工作的另一个 agent。敢于质疑 advisor。可以参考它的建议，但最终决定权在你自己，他的回复不代表开发者的回复，不要把回复他当做最终回复，也不要因为他的回复而扩大你的任务范围
-
-## 开发授权与通知
-
-- 开发者批准一个目标、范围和关键取舍后，Leader可在该范围内自主执行本地可逆开发动作：调研，创建或更新Issue草稿、Proposal、Spec、Work、Task和Agent文档，创建branch/worktree并checkout，安装依赖，运行测试/构建/非人工smoke，创建本地commit。无需逐项重复询问，但必须保护用户改动、保持范围并记录结果。
-- 远端Issue/Project/PR写入、push、合并、发布、部署、数据库迁移、真实Provider/Model、浏览器人工验收和数据删除继续分别请求明确授权。创建或修改`docs/`、`.agents/`和`AGENTS.md`时主动通知开发者，不把通知变成等待门禁。
-- 同一事项已有具体授权无需重复申请；授权不外推到其它受限动作。
+- 回复中的文件引用使用绝对路径或者相对于当前工作目录的相对路径
 
 ## 真实模型调用与样本数据
 
-- 已获本次真实 Provider/Model 验证授权时实际调用并报告观测结果；否则报告未验证，不用估算冒充实测。
-- 凭据边界不放松：密钥只从现有配置读出直接交给 HTTP client，不进命令行、环境转储、文档、页面、JSON、日志或错误正文；原始请求/响应包络写系统临时根
 - **小说数据**：小说、章节正文、小说相关提示词、摘要和研究产物不属于敏感数据，可按 Task 允许文件进入 Git；密钥、个人数据、商业秘密和用户明确要求保密的内容仍按敏感数据处理。第三方素材保持只读，来源与归一化版本按 Task 登记。
 
 ## 仓库结构与文件路由
@@ -97,7 +91,6 @@ neuro-book/
 - 代码改动在 worktree 完成；治理文档和用户明确指定的主工作区改动可以直接在当前工作区完成。只暂存 Task 范围文件，不使用 `git add -A`。
 - 统一评审通过后，获远端元数据授权的 Leader 或 PM 才能把 Issue 项目条目标为 Done。
 - 命令从相应 `package.json` 查询。Bun 的 `--cwd` 必须放在 `run` 之后；`bun --cwd <dir> run <script>` 可能只打印用法并以 0 退出。
-
 
 ## 文档真相源
 
