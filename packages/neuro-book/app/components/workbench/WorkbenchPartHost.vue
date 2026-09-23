@@ -181,11 +181,10 @@ let unregisterEmpty: (() => void) | null = null;
 const switcherScope = computed(() => workbenchSwitcherScope(partId.value, "head"));
 let unregisterSwitcher: (() => void) | null = null;
 
-/** 判定覆盖整条标题行；标签矩形仍只取实际条目，空白落在最后一个条目标记之后。 */
+/** 判定只覆盖标签带；标签矩形仍只取实际条目，空白落在最后一个条目标记之后。 */
 const switcherGeometryRead = (): WorkbenchDropSwitcherRects | null => {
-
-    const host = headRef.value;
-    if (host === null || !showTabs.value || selectorRef.value === null) return null;
+    const host = selectorRef.value;
+    if (host === null || !showTabs.value) return null;
     const tabs = new Map<string, Element>();
     for (const element of selectorRef.value.querySelectorAll("[data-container-tab]")) {
         const containerId = element.getAttribute("data-container-tab");
@@ -242,7 +241,7 @@ useDroppable<WorkbenchSwitcherDropData>({
         switcherScope: switcherScope.value,
     })),
     /** 命中口径与几何读法同源：可见矩形 + 指针遮挡（被裁掉 / 被浮层盖住都不接收）。 */
-    collisionDetector: () => workbenchPointerCollision,
+    element: selectorRef,
     /** 条目带是最粗的一档：精确条目（容器标签 / 活动栏条目）优先于它。 */
     collisionPriority: CollisionPriority.Low,
     element: headRef,
@@ -442,7 +441,7 @@ const panelActionsKey = computed(() => [
         :data-part="partId"
     >
         <header
-            v-if="showTabs || elevatedViewActions || isPanel"
+            v-if="showTabs || activeContainer?.mode !== 'multiple'"
             ref="headRef"
             class="workbench-part__head"
             :data-shell-focus-target="isPanel ? 'panel-title' : undefined"
@@ -461,12 +460,21 @@ const panelActionsKey = computed(() => [
                     :allow-view-move="allowViewMove"
                     @select="(containerId: string) => emit('select-container', containerId)" />
             </div>
-
+            <WorkbenchContainerTab
+                v-else-if="activeContainer && activeContainer.mode !== 'multiple'"
+                :key="activeContainer.containerId"
+                class="workbench-part__title"
+                variant="title"
+                :container="activeContainer"
+                :context-key="contextKey"
+                :active="true"
+                :allow-container-move="allowContainerMove"
+                @contextmenu="openContainerMenu" />
 
             <div v-if="elevatedViewActions || isPanel" class="workbench-part__actions" data-no-drag>
                 <!--
                   single 的 View 动作上提：容器里只有一个可见 View 时，它的 Section 标题不渲染，
-                  贡献动作与「移动到」入口出现在容器右上角（排列：View → 容器 → Part 框架）。
+                  贡献动作与「移动到」入口出现在容器右上角（排列：View 贡献 → 容器 → Part 框架）。
                   标记只声明这是 View 的动作组，不冒充内容的 `data-view-id`。
                 -->
                 <div
@@ -511,7 +519,7 @@ const panelActionsKey = computed(() => [
             </div>
         </header>
         <WorkbenchContainerTab
-            v-if="!showTabs && activeContainer"
+            v-if="!showTabs && activeContainer?.mode === 'multiple'"
             :key="activeContainer.containerId"
             class="workbench-part__drag-source"
             variant="title"
@@ -577,6 +585,10 @@ const panelActionsKey = computed(() => [
     height: var(--space-8);
     padding-inline: 0 var(--space-2);
 }
+.workbench-part__title {
+    flex: 1 1 auto;
+    min-width: 0;
+}
 .workbench-part__drag-source {
     position: absolute;
     width: 1px;
@@ -584,8 +596,6 @@ const panelActionsKey = computed(() => [
     overflow: hidden;
     clip-path: inset(50%);
 }
-
-/* 头部是可编程聚焦的落点（外壳在最大化时把焦点交给它）：自己不该有可见焦点环的负担。 */
 .workbench-part__head:focus {
     outline: none;
 }

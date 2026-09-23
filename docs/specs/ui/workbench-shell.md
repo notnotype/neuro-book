@@ -80,7 +80,7 @@ WorkbenchShellLayout：外层 Part 布局
 - 图标栏：上半只列**当前实际位于主侧栏的容器**，最多一项选中；点击非活动项切换该位置显示的容器并使其可见；重复点击当前项保持选择并显式打开被隐藏或拖收起的主侧栏（不切换成 null）。底部账号/设置等命令保留且不参与容器选中；未接入的视图命令禁用并给出原因（不渲染假业务）。
 - 侧栏与面板：主侧栏、右侧栏与面板可收起；收起后图标栏仍在，重新点击可展开；图标栏、编辑器区与状态栏不可收起。
 - 拖到零保留1px恢复边界与展开尺寸意图。pointer展开使用原始按下边界加累计位移，在合法展开区跟随鼠标；按钮、菜单与Enter恢复记忆尺寸。Escape取消整场，无变化不提交。
-- 容器可见成员为0/1/多时分别为empty/single/multiple；hidden不计数，collapsed仍计数。single隐藏重复View标题，动作上提容器右上角，不单独收起View；已有collapsed意图保留到multiple重新应用。multiple每个View保留标题和动作，主/右侧栏vertical、Panel horizontal，与Panel外壳位置无关；全部可见成员同屏。horizontal收起为32px竖条，vertical为32px横标题，展开控件与名称始终可达。
+- 容器可见成员为0/1/多时分别为empty/single/multiple；hidden不计数，collapsed仍计数。single隐藏重复View标题，动作上提容器右上角，不单独收起View；已有collapsed意图保留到multiple重新应用。multiple每个View保留标题和动作，主/右侧栏vertical、Panel horizontal，与Panel外壳位置无关；全部可见成员同屏。horizontal收起为32px竖条，vertical为32px横标题，展开控件与名称始终可达。主侧栏single时，32px标题行左侧显示当前容器名，整行除动作区外可拖走该容器；multiple不渲染容器标题行。Panel与右栏继续用标签。
 - 编辑器区：**逐组**标签条 + 内容区；多组（分屏）由同一棵布局树渲染，组可分裂、移动、关闭，同文档可在两个组各有一个视图实例（共用一份正文权威）。
 - 活动栏与主体：活动栏是主体左侧的**通高列**；主体（左右侧栏、编辑区、面板）永远在它右侧，任何面板位置/对齐都不得跨过活动栏。
 - 状态栏固定22px、不可收起。Panel支持四位置与四水平跨度，默认bottom+center；justify不跨Activity Bar。Panel高80..600（默认200）、侧向宽160..600（默认320）；左右侧栏最小宽160，Editor最小120。两轴记忆独立，默认值、max、800px紧凑阈值不因新下限改变。
@@ -124,7 +124,7 @@ WorkbenchShellLayout：外层 Part 布局
 | 整个容器 | 空 Switcher 内容区或空 Tab 栏 | 搬入并选中该容器 | 不额外套一层容器，按目标轴排列 |
 | 任意内部拖动源 | 容器标题文字、工具按钮区或外部遮挡区域 | 不接收投递 | 不显示有效落点反馈 |
 
-View 标题只说明起拖手柄，表中所有“单个 View”都指同一种移动对象。只有一个可见 View 时沿用省略重复 View 标题的呈现，可从容器 Tab 搬动这个单成员容器。ActivityBar 的账号、设置等命令项不属于容器 Switcher，不参与上述插入位计算。
+View 标题只说明起拖手柄，表中所有“单个 View”都指同一种移动对象。只有一个可见 View 时沿用省略重复 View 标题的呈现；主侧栏从显示容器名的标题行搬动这个单成员容器，Panel 与右栏从容器 Tab 搬动。ActivityBar 的账号、设置等命令项不属于容器 Switcher，不参与上述插入位计算。
 
 ### 方向、命中与反馈范围
 
