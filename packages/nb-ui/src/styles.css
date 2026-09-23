@@ -228,7 +228,7 @@ input.nb-ui-native-input[type="number"] {
 
 /*
  * 浮层入退场 modifier（合同见 design-language.md 动效节）：
- * 入场 = opacity + scale(0.96 → 1)，--motion-enter；退场同配方，--motion-fast。
+ * 菜单入场 = opacity + scale(0.96 → 1)，--motion-fast；退场同配方。
  *
  * 两条挂载通道共用这个登记处：
  * 1. Reka 原语（FormSelect 等）——内容树由原语的 Presence 持有，挂 [data-state]，
@@ -260,12 +260,33 @@ input.nb-ui-native-input[type="number"] {
 
 .nb-ui-popover-motion[data-state="open"],
 .nb-ui-popover-motion.nb-popover-enter-active {
-    animation: nb-popover-in var(--motion-enter) var(--ease-standard);
+    animation: nb-popover-in var(--motion-fast) var(--ease-standard);
 }
 
 .nb-ui-popover-motion[data-state="closed"],
 .nb-ui-popover-motion.nb-popover-leave-active {
     animation: nb-popover-out var(--motion-fast) var(--ease-standard);
+}
+
+.nb-menu-level {
+    overflow: hidden;
+    transition-property: top, left, width, height !important;
+    transition-duration: var(--motion-fast) !important;
+    transition-timing-function: var(--ease-standard) !important;
+}
+
+.nb-menu-level-content {
+    width: max-content;
+    min-width: 100%;
+}
+
+.nb-menu-level[data-switching="true"] .nb-menu-level-content {
+    animation: nb-menu-content-in var(--motion-fast) var(--ease-standard);
+}
+
+@keyframes nb-menu-content-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
 /*

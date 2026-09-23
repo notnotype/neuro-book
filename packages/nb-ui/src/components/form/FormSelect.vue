@@ -162,8 +162,10 @@ const {
             @focus="emit('focus', $event)"
         >
             <span class="flex min-w-0 items-center gap-1.5 pr-1">
-                <span v-if="selectedOption?.indicatorClass" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="selectedOption.indicatorClass" aria-hidden="true"></span>
-                <span v-else-if="selectedOption?.iconClass" class="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" :class="selectedOption.iconClass" aria-hidden="true"></span>
+                <slot name="leading" :selected="selectedOption">
+                    <span v-if="selectedOption?.indicatorClass" class="h-1.5 w-1.5 shrink-0 rounded-full shadow-sm" :class="selectedOption.indicatorClass" aria-hidden="true"></span>
+                    <span v-else-if="selectedOption?.iconClass" class="h-3.5 w-3.5 shrink-0 text-[var(--text-secondary)]" :class="selectedOption.iconClass" aria-hidden="true"></span>
+                </slot>
                 <SelectValue class="min-w-0 truncate text-left" :placeholder="props.placeholder">{{ selectedLabel || props.placeholder }}</SelectValue>
             </span>
             <span

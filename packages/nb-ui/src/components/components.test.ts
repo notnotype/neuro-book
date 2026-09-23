@@ -25,8 +25,8 @@ import Notification from "./feedback/Notification.vue";
 import NotificationViewport from "./feedback/NotificationViewport.vue";
 import Popover from "./feedback/Popover.vue";
 import Tooltip from "./feedback/Tooltip.vue";
-import {clampMenuPosition, computeSubmenuPosition} from "./feedback/context-menu-position";
-import Calendar from "./form/Calendar.vue";
+import ContextMenu from "./feedback/ContextMenu.vue";
+import {clampMenuPosition, computeCascadePosition} from "./feedback/menu-cascade";
 import Combobox from "./form/Combobox.vue";
 import {moveHighlight} from "./form/option-highlight";
 import FormCheckbox from "./form/FormCheckbox.vue";
@@ -63,6 +63,7 @@ import DateRangePicker from "./form/DateRangePicker.vue";
 import Listbox from "./form/Listbox.vue";
 import MonthPicker from "./form/MonthPicker.vue";
 import MonthRangePicker from "./form/MonthRangePicker.vue";
+import Calendar from "./form/Calendar.vue";
 import RangeCalendar from "./form/RangeCalendar.vue";
 import TimeField from "./form/TimeField.vue";
 import TimeRangeField from "./form/TimeRangeField.vue";
@@ -594,19 +595,46 @@ describe("nb-ui context menu position", () => {
         expect(clampMenuPosition(0, 0, {width: 2000, height: 2000}, viewport)).toEqual({x: 8, y: 8});
     });
 
-    it("anchors the submenu to the item's right edge", () => {
-        const anchor = {top: 100, left: 300, right: 480};
-        expect(computeSubmenuPosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 479, y: 96});
+    it("aligns the first child with its parent and leaves a gap", () => {
+        const anchor = {top: 100, left: 300, right: 480, bottom: 132};
+        expect(computeCascadePosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 486, y: 100});
     });
 
     it("flips the submenu to the left on right overflow", () => {
-        const anchor = {top: 100, left: 700, right: 880};
-        expect(computeSubmenuPosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 521, y: 96});
+        const anchor = {top: 100, left: 700, right: 880, bottom: 132};
+        expect(computeCascadePosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 514, y: 100});
     });
 
-    it("sticks the submenu to the bottom on vertical overflow", () => {
-        const anchor = {top: 700, left: 300, right: 480};
-        expect(computeSubmenuPosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 479, y: 592});
+    it("clamps the submenu when neither side fits", () => {
+        const anchor = {top: 700, left: 300, right: 480, bottom: 732};
+        expect(computeCascadePosition(anchor, {width: 180, height: 200}, viewport)).toEqual({x: 486, y: 592});
+    });
+    it("opens a third-level context menu and runs its action", async () => {
+        const action = vi.fn();
+        const wrapper = mount(ContextMenu, {
+            attachTo: document.body,
+            props: {
+                visible: true,
+                x: 20,
+                y: 20,
+                items: [{label: "一级", children: [{label: "二级", children: [{label: "三级", action}]}]}],
+            },
+        });
+        await nextTick();
+        vi.useFakeTimers();
+        document.querySelector<HTMLElement>("[role=menuitem]")!.dispatchEvent(new MouseEvent("mouseenter", {bubbles: true}));
+        await vi.advanceTimersByTimeAsync(300);
+        await nextTick();
+        [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) => item.textContent?.includes("二级"))!.dispatchEvent(new MouseEvent("mouseenter", {bubbles: true}));
+        await vi.advanceTimersByTimeAsync(300);
+        await nextTick();
+        vi.useRealTimers();
+        const leaf = [...document.querySelectorAll<HTMLElement>("[role=menuitem]")].find((item) => item.textContent?.includes("三级"));
+        expect(leaf).toBeTruthy();
+        leaf!.click();
+        expect(action).toHaveBeenCalledOnce();
+        expect(wrapper.emitted("close")).toHaveLength(1);
+        wrapper.unmount();
     });
 });
 

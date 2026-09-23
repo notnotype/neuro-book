@@ -201,6 +201,9 @@
 .mr-1 {
   margin-right: var(--spacing);
 }
+.mb-0\.5 {
+  margin-bottom: calc(var(--spacing) * 0.5);
+}
 .mb-1 {
   margin-bottom: var(--spacing);
 }
@@ -320,6 +323,9 @@
 }
 .h-\[18px\] {
   height: 18px;
+}
+.h-\[24px\] {
+  height: 24px;
 }
 .h-\[26px\] {
   height: 26px;
@@ -561,14 +567,11 @@
 .min-w-\[80px\] {
   min-width: 80px;
 }
+.min-w-\[160px\] {
+  min-width: 160px;
+}
 .min-w-\[170px\] {
   min-width: 170px;
-}
-.min-w-\[180px\] {
-  min-width: 180px;
-}
-.min-w-\[190px\] {
-  min-width: 190px;
 }
 .min-w-\[200px\] {
   min-width: 200px;
@@ -581,6 +584,9 @@
 }
 .flex-1 {
   flex: 1;
+}
+.shrink {
+  flex-shrink: 1;
 }
 .shrink-0 {
   flex-shrink: 0;
@@ -2539,12 +2545,6 @@
     background-color: color-mix(in srgb,var(--status-danger) 12%,transparent);
   }
 }
-.data-\[highlighted\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_8\%\,transparent\)\][data-highlighted] {
-  background-color: var(--text-main);
-  @supports (color: color-mix(in lab, red, red)) {
-    background-color: color-mix(in srgb,var(--text-main) 8%,transparent);
-  }
-}
 .data-\[highlighted\]\:bg-\[var\(--overlay-item-active\)\][data-highlighted] {
   background-color: var(--overlay-item-active);
 }
@@ -2670,18 +2670,6 @@
 .data-\[state\=open\]\:rotate-180[data-state="open"] {
   rotate: 180deg;
 }
-.data-\[state\=open\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_8\%\,transparent\)\][data-state="open"] {
-  background-color: var(--text-main);
-  @supports (color: color-mix(in lab, red, red)) {
-    background-color: color-mix(in srgb,var(--text-main) 8%,transparent);
-  }
-}
-.data-\[state\=open\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_10\%\,transparent\)\][data-state="open"] {
-  background-color: var(--text-main);
-  @supports (color: color-mix(in lab, red, red)) {
-    background-color: color-mix(in srgb,var(--text-main) 10%,transparent);
-  }
-}
 .data-\[state\=open\]\:bg-\[color-mix\(in_srgb\,var\(--text-main\)_12\%\,transparent\)\][data-state="open"] {
   background-color: var(--text-main);
   @supports (color: color-mix(in lab, red, red)) {
@@ -2694,12 +2682,20 @@
     background-color: color-mix(in srgb,var(--text-main) 14%,transparent);
   }
 }
+.data-\[state\=open\]\:bg-\[var\(--overlay-item-active\)\][data-state="open"] {
+  background-color: var(--overlay-item-active);
+}
 .data-\[today\]\:font-bold[data-today] {
   --tw-font-weight: var(--font-weight-bold);
   font-weight: var(--font-weight-bold);
 }
 .data-\[today\]\:text-\[var\(--accent-main\)\][data-today] {
   color: var(--accent-main);
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-reduce\:transition-none {
+    transition-property: none;
+  }
 }
 @media (width >= 48rem) {
   .md\:w-\[var\(--reka-navigation-menu-viewport-width\)\] {
@@ -2927,10 +2923,31 @@ input.nb-ui-native-input[type="number"] {
   transform-origin: var(--reka-popover-content-transform-origin, var(--reka-hover-card-content-transform-origin, var(--reka-menubar-content-transform-origin, var(--reka-select-content-transform-origin, var(--reka-dropdown-menu-content-transform-origin, top center)))));
 }
 .nb-ui-popover-motion[data-state="open"], .nb-ui-popover-motion.nb-popover-enter-active {
-  animation: nb-popover-in var(--motion-enter) var(--ease-standard);
+  animation: nb-popover-in var(--motion-fast) var(--ease-standard);
 }
 .nb-ui-popover-motion[data-state="closed"], .nb-ui-popover-motion.nb-popover-leave-active {
   animation: nb-popover-out var(--motion-fast) var(--ease-standard);
+}
+.nb-menu-level {
+  overflow: hidden;
+  transition-property: top, left, width, height !important;
+  transition-duration: var(--motion-fast) !important;
+  transition-timing-function: var(--ease-standard) !important;
+}
+.nb-menu-level-content {
+  width: max-content;
+  min-width: 100%;
+}
+.nb-menu-level[data-switching="true"] .nb-menu-level-content {
+  animation: nb-menu-content-in var(--motion-fast) var(--ease-standard);
+}
+@keyframes nb-menu-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 .nb-ui-dialog-surface {
   border-radius: var(--radius-dialog);

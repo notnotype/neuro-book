@@ -13,6 +13,8 @@ import {NB_POPOVER_Z_INDEX, NB_Z_INDEX} from "../theme/z-index";
  */
 
 export interface DropdownSurfaceOptions {
+    /** 浮层尺寸档位（'sm' 时内边距紧凑化为 p-1） */
+    size?: MaybeRefOrGetter<"sm" | "default" | undefined>;
     /** 外部自定义的补充样式（将合并至 Popover 浮层） */
     popoverStyle?: MaybeRefOrGetter<Record<string, string | number> | undefined>;
     /** 浮层距离触发器的偏移（像素，默认 7px，防止遮挡聚焦发光环） */
@@ -94,10 +96,13 @@ export function useDropdownSurfaceStyle(options: DropdownSurfaceOptions = {}): D
         event.preventDefault();
     };
 
+    const isSm = toValue(options.size) === "sm";
+    const popoverClasses = `nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative overflow-hidden ${isSm ? "p-1" : "p-1.5"}`;
+
     return {
         popoverZIndex,
         popoverStyle,
-        popoverClasses: "nb-ui-popover-surface nb-ui-menu-surface nb-ui-popover-motion relative overflow-hidden p-1.5",
+        popoverClasses,
         viewportClasses: "nb-ui-popover-scroll w-full",
         viewportBaseStyle: {
             borderRadius: "var(--nb-popover-inner-radius)",
