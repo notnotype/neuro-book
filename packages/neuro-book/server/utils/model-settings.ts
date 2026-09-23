@@ -16,6 +16,7 @@ import type {
 import {resolvePiModelsFromConfig} from "nbook/server/agent/harness/pi-runtime-resolver";
 import {mergePiRequestHeaders, parsePiSimpleRequestOptions, piRequestAuthOptions} from "nbook/server/agent/harness/pi-request-options";
 import {tracedStreamSimple} from "nbook/server/agent/observability/traced-provider";
+import {assertProviderContextWithinWindow} from "nbook/server/agent/harness/context-admission";
 import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import {providerErrorText, sanitizeProviderErrorMessage} from "nbook/server/agent/observability/provider-error-sanitizer";
 import {resolvePiModelMetadata} from "nbook/server/agent/harness/pi-model-metadata";
@@ -226,11 +227,17 @@ async function runPiModelSmokeCheck(
         const models = options.runtimeResolver?.(providerDraft, modelDraft, model) ?? resolvePiModelsFromConfig(config, model);
         const requestOptions = parsePiSimpleRequestOptions(providerDraft.options.requestOptions);
         const apiKey = providerDraft.options.apiKey.trim() || undefined;
-        const stream = tracedStreamSimple(models, model, {
+        const context = {
             systemPrompt: "You are a concise connectivity smoke test assistant.",
             messages: [createUserMessage({text: pickModelSmokeCheckPrompt()})],
             tools: [],
-        }, {
+        };
+        assertProviderContextWithinWindow({
+            ...context,
+            contextWindow: model.contextWindow,
+            modelId: model.id,
+        });
+        const stream = tracedStreamSimple(models, model, context, {
             ...requestOptions,
             ...piRequestAuthOptions({
                 api: model.api,

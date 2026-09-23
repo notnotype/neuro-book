@@ -124,6 +124,28 @@ describe("provider/model Pi checks", () => {
         expect(result.message).toContain("Pi 检查通过");
     });
 
+    it("model check 上下文超窗时不进入 Pi stream", async () => {
+        const faux = createFauxModels({
+            provider: "faux-overflow-check",
+            api: "openai-completions",
+            models: [{id: "faux-fast"}],
+        });
+        const streamSimple = vi.spyOn(faux.runtime, "streamSimple");
+        const result = await checkModelHealth(createProviderDraft({
+            id: "faux-overflow-check",
+            name: "Faux Overflow",
+            modelApi: "openai-completions",
+        }), createModelDraft({
+            id: "faux-fast",
+            contextWindowTokens: 2,
+            maxTokens: 1,
+        }), {runtimeResolver: () => faux.runtime});
+
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("Provider 请求上下文");
+        expect(streamSimple).not.toHaveBeenCalled();
+    });
+
     it("model check 收到已取消 signal 时不进入 Pi stream", async () => {
         const controller = new AbortController();
         controller.abort();

@@ -2935,6 +2935,74 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("OLD CONTEXT");
     });
 
+    it("自动 compaction 后注入本轮成功 read 的已验证恢复材料", async () => {
+        await closeAllProjects();
+        resetProjectSessionsForTest();
+        const projectRootName = "compaction-recovery-materials";
+        const projectRoot = join(root, projectRootName);
+        await mkdir(join(projectRoot, "manuscript"), {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Recovery Materials\nsummary: ''\n", "utf8");
+        await writeFile(join(projectRoot, "manuscript", "scene.md"), "verified scene body\n", "utf8");
+        await openProject(projectWorkspaceRef(projectRootName), {kind: "job", source: "compaction-recovery-test"}, harness.workspaceRoot);
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.compaction-recovery-materials",
+                name: "Compaction Recovery Materials",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["read"],
+            runtimeDefaults: {
+                compaction: {
+                    trigger: {kind: "tokens", value: 1},
+                    keepRecent: {kind: "tokens", value: 1},
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        const providerPrompts: string[] = [];
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("read", {path: "manuscript/scene.md"}, {id: "read-recovery-material"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage(fauxText("RECOVERY COMPACT SUMMARY")),
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done");
+            },
+        ]);
+
+        try {
+            const created = await harness.createAgent({
+                profileKey: "test.compaction-recovery-materials",
+                initial: {},
+                currentProjectRoot: projectRootName,
+            });
+            const result = await harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "read and continue"},
+            });
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            const context = harness.repo.reduce(snapshot);
+            const latestCompaction = snapshot.entries.filter((entry) => entry.type === "compaction").at(-1);
+
+            expect(result.status, result.error ?? result.errorInfo?.message).toBe("completed");
+            expect(providerPrompts[1]).toContain("<compaction-recovery-materials>");
+            expect(providerPrompts[1]).toContain(`${projectRootName}/manuscript/scene.md`);
+            expect(providerPrompts[1]).toContain("verified scene body");
+            expect(visibleMessageText(context.messages)).not.toContain("<compaction-recovery-materials>");
+            expect(latestCompaction?.type === "compaction" ? latestCompaction.details?.recoveryCandidates : undefined)
+                .toEqual([expect.objectContaining({path: "manuscript/scene.md", projectRoot: projectRootName})]);
+        } finally {
+            await closeProjectForTest(projectRootName).catch(() => undefined);
+        }
+    }, 30_000);
+
     it("自定义 runtime 有 profile compaction 配置时仍会自动 compaction", async () => {
         const providerPrompts: string[] = [];
         harness.tools.register({
@@ -3060,6 +3128,127 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("error");
         expect(result.errorInfo?.message).toContain("已关闭 Compaction");
         expect(result.errorInfo?.message).toContain("超过模型");
+    }, 30_000);
+
+    it("自动 compaction 开启时首次超窗请求也会在 provider 前失败", async () => {
+        const streamSimple = vi.spyOn(faux.runtime, "streamSimple");
+        const smallWindowHarness = createTestHarness({
+            repo: harness.repo,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                contextWindow: 64,
+                maxTokens: 16,
+            }),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        harness = smallWindowHarness;
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.compaction-enabled-overflow",
+                name: "Compaction Enabled Overflow",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtimeDefaults: {compaction: {enabled: true}},
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.compaction-enabled-overflow",
+            initial: {},
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "x".repeat(2_000)},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.errorInfo?.phase).toBe("model");
+        expect(result.errorInfo?.message).toContain("Provider 请求上下文");
+        expect(streamSimple).not.toHaveBeenCalled();
+    }, 30_000);
+
+    it("turn 路径 system/tools 固定开销过大时裁剪后仍超窗拒绝", async () => {
+        const streamSimple = vi.spyOn(faux.runtime, "streamSimple");
+        // 构造小窗口，启用 compaction 跳过 createTurnSnapshot 的 preflight
+        const tinyWindowHarness = createTestHarness({
+            repo: harness.repo,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                contextWindow: 1_000,
+                maxTokens: 16,
+            }),
+            runtimeResolver: () => faux.runtime,
+            enableSessionSummarizer: false,
+        });
+        harness = tinyWindowHarness;
+        // 注册一个复杂工具（多参数，详细描述）占用约 80 tokens
+        harness.tools.register({
+            key: "complex_tool",
+            name: "Complex Tool with Many Parameters",
+            label: "Complex Tool",
+            description: "This is a very detailed tool description that occupies significant token budget. ".repeat(10),
+            parameters: Type.Object({
+                param1: Type.String({description: "First parameter with detailed explanation".repeat(3)}),
+                param2: Type.Number({description: "Second parameter with detailed explanation".repeat(3)}),
+                param3: Type.Boolean({description: "Third parameter with detailed explanation".repeat(3)}),
+                param4: Type.Array(Type.String(), {description: "Fourth parameter with detailed explanation".repeat(3)}),
+            }),
+            execute: async () => ({content: [{type: "text" as const, text: "x".repeat(3_000)}], terminate: true}),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.prune-overflow",
+                name: "Prune Overflow",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["complex_tool"],
+            runtimeDefaults: {compaction: {enabled: true}},
+            prepare() {
+                // 该 system prompt 约 563 tokens；首轮仍需在 1000-token 窗口内通过
+                return {
+                    systemPrompt: "System instruction. This is a comprehensive instruction set for the agent. ".repeat(30),
+                };
+            },
+        }), false);
+        faux.setResponses([
+            // 第一轮：返回工具调用
+            fauxAssistantMessage([
+                fauxText("calling tool"),
+                fauxToolCall("complex_tool", {param1: "test", param2: 1, param3: true, param4: []}),
+            ], {stopReason: "toolUse"}),
+            // 第二轮：工具结果已 3000 字符，会被裁剪至 128 字符
+            // system prompt + tools 的固定开销使裁剪后仍超 1000 窗口
+            fauxAssistantMessage(fauxText("should not reach")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.prune-overflow",
+            initial: {},
+        });
+
+        // 第一轮：触发工具调用，成功
+        const firstResult = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "call complex_tool"},
+        });
+        expect(firstResult.status, firstResult.error ?? firstResult.errorInfo?.message).toBe("completed");
+
+        // 第二轮：工具结果已存在，pruneProviderMessagesForWindow 裁剪至 128 字符后仍超窗
+        const secondResult = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "continue"},
+        });
+
+        expect(secondResult.status).toBe("error");
+        expect(secondResult.errorInfo?.phase).toBe("model");
+        expect(secondResult.errorInfo?.message).toContain("Provider 请求上下文");
+        expect(streamSimple).toHaveBeenCalledTimes(1); // 只第一轮成功
     }, 30_000);
 
     it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
