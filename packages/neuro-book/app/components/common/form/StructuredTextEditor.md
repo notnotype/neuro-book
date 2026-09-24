@@ -1,13 +1,12 @@
 ---
 标签: [state:local]
-验证入口: PlotThreadDetailPanel
 ---
 
 # StructuredTextEditor
 
 `StructuredTextEditor` 是 Markdown 表单编辑器：同一段 Markdown 可在带格式工具栏的富文本视图和源码视图之间切换，并把编辑结果通过受控模型交给宿主。它比普通多行文本框多了 Markdown 格式操作、模式切换和按内容或行数约束高度；并不负责保存文档。
 
-本组件由 [PlotThreadDetailPanel](../../novel-ide/plot/thread-panel/PlotThreadDetailPanel.vue) 直接使用，编辑 thread / scene 的摘要、目的和写作提示。它是当前集成验证入口之一；`PlotThreadEditorDialog` 也有直接调用。Component Lab 当前没有这些宿主的场景，因此本文档不为编辑器伪造独立 fixture 或宿主。
+本组件由 [PlotThreadDetailPanel](../../novel-ide/plot/thread-panel/PlotThreadDetailPanel.vue) 和 `PlotThreadEditorDialog` 使用，编辑 thread / scene 的摘要、目的和写作提示。组件有独立的受控 Markdown 输入与模式切换，可在 Component Lab 用确定性内容验证；真实 Project 的保存与引用解析仍由宿主负责。
 
 ## 布局
 

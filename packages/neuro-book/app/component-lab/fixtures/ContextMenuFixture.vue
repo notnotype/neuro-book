@@ -31,7 +31,13 @@ function closeMenu(): void {
 </script>
 
 <template>
-    <div class="relative h-full min-h-0 w-full bg-[var(--panel-surface)]">
-        <ContextMenu data-lab-subject v-bind="bindings" @close="closeMenu" />
+    <div data-lab-subject class="relative h-full min-h-0 w-full bg-[var(--panel-surface)]">
+        <ContextMenu
+            v-bind="bindings"
+            :visible="props.input?.props?.visible === true"
+            :x="Number(props.input?.props?.x ?? 0)"
+            :y="Number(props.input?.props?.y ?? 0)"
+            @close="closeMenu"
+        />
     </div>
 </template>

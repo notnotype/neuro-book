@@ -2042,6 +2042,14 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./FormTextareaFixture.vue")).default,
     },
     {
+        component: "StructuredTextEditor",
+        scenes: [
+            {id: "rich", label: "富文本", input: {model: {modelValue: "## 退潮之后\n\n码头上的灯仍亮着。", mode: "rich"}, props: {placeholder: "记录场景目的"}}},
+            {id: "source", label: "Markdown 源码", input: {model: {modelValue: "## 场景目的\n\n- 找到线索\n- 留下伏笔", mode: "source"}}},
+        ],
+        load: async () => (await import("./StructuredTextEditorFixture.vue")).default,
+    },
+    {
         component: "ReferencePlainTextEditor",
         scenes: [
             {id: "references", label: "Markdown 引用", input: {model: {modelValue: "相关章节：[第一章 退潮](manuscript/volume-1/chapter-01.md)\\n后续将从退潮后的码头继续。"}, props: {placeholder: "输入正文", ariaLabel: "消息正文", minHeight: 64, maxHeight: 150}}},

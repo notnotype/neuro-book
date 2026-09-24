@@ -1166,7 +1166,11 @@ watch(fixture, async (next) => {
     }
 }, {immediate: true});
 
-watch([selectedScene, fixture], () => {
+watch([selectedScene, fixture], ([id, currentFixture]) => {
+    if (currentFixture && !currentFixture.scenes.some((item) => item.id === id)) {
+        selectedScene.value = currentFixture.scenes[0]?.id ?? "";
+        return;
+    }
     resetScene();
     hasFixtureControls.value = false;
 }, {immediate: true});
@@ -1816,8 +1820,9 @@ watch([sceneData, sceneInput, canvasWidth, canvasHeight], () => {
             </template>
         </NbAlertDialog>
 
-        <!-- 虚线框与组件气泡仅在检查取色时跟随鼠标呈现；左键选中后不常驻遮挡画布元素。 -->
+        <!-- 悬停只在探针模式绘制虚线框；选中后只保留贴边标签。 -->
         <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
+        <HighlightBox class="lab-picked-marker" :rect="pickedRect" :label="selectionLabel" :show-box="false" />
     </div>
 </template>
 
