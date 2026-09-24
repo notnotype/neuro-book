@@ -66,16 +66,11 @@ Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口
   ```
 - 所有事件实时推送到 Lab 右侧「事件」面板，供审查人员验证交互时序与负载。
 
-### 3.3 状态与数据双向同步：`data` 驱动与 `useLabDataSink`
-- **严禁数据留白**：凡具有用户输入、配置项或可变属性的交互型组件，**必须在 `fixtures/index.ts` 为其所有场景登记可序列化的 `data` 初值**。严禁出现数据为空导致 Lab 右侧「数据」面板只显示静态占位提示的情况（`index.test.ts` 设有门禁断言）。
-- **可编辑数据驱动**：Fixture 组件必须声明 `data?: unknown`，并通过 `computed` / `watch` 将 `props.data` 响应式投影为组件入参。在 Lab 右栏 JSON 编辑器改动假数据时，舞台组件应当实时响应。
-- **状态与草稿输出上报**：本地受控状态、草稿输入（如 `draft`、选中的选项索引、运行标志）必须通过 `useLabDataSink()` 持续同步：
-  ```ts
-  const syncLabData = useLabDataSink();
-  // 状态变化时
-  syncLabData({ scene: props.scene, count: messages.length, draft: draft.value, active: true });
-  ```
-- 同步的数据实时反映在 Lab 右侧「数据」面板，形成「右栏改数据驱动组件输入，组件交互实时更新右栏数据输出」的完整双向闭环。
+### 3.3 场景输入：宿主 `data`、组件 `input` 与 `useLabDataSink`
+- **复合宿主 fixture**：在 `fixtures/index.ts` 为可编辑场景登记可 JSON 化的 `data` 初值。fixture 声明 `data?: unknown`，将 `props.data` 响应式投影到宿主装配的被检组件上；右栏修改后舞台实时响应。
+- **组件签名 fixture**：原子或直连组件以 `input` 登记 `props`、`model`、`slots` 三层初值。使用 `useLabSubject(Component, () => props.input)` 绑定被检组件，Lab 校验组件运行时签名并接管 `update:<model>`。
+- 两种通道语义不同：`data` 描述 fixture 自己装配的宿主假数据；`input` 描述被检组件的真实 props/model/slots。一个场景可按需同时登记两者，数据面板分别呈现和还原，不把宿主字段伪装成组件 props。
+- **状态与草稿输出上报**：本地受控状态、草稿输入（如 `draft`、选中的选项索引、运行标志）通过 `useLabDataSink()` 上报；它是只读的 fixture 状态快照，不替代可编辑的 `data` 或 `input`。
 
 ---
 

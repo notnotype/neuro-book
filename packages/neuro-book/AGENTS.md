@@ -11,7 +11,7 @@
 - Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色规则见「前端规范」。
 - 普通界面复用 `app/components/common` 与现有通知、Tooltip、可调整面板能力；对话框按「前端规范」选择 nb-ui `Dialog` / `DialogWindow`。
 - 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。
-- 修改 UI 后按根规则选择聚焦测试；未经明确授权不自动执行浏览器人工验收。
+- 修改 UI 后按根规则选择聚焦测试，浏览器取证档位见 [UI 验收分档](../../docs/testing/README.md#ui-验收分档)：Agent 用内置浏览器自检属日常验证，不需要单独授权；用真实数据跑完整用户旅程的人工评测仍需明确授权。
 
 ## 前端规范
 

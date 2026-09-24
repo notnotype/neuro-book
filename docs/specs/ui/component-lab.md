@@ -37,8 +37,8 @@ Lab 是只存在于源码开发环境的组件检视入口。它提供组件导�
 - **可分发产物**：构建输出的客户端、服务端或桌面安装包。
 - **Lab**：源码开发环境专属的组件检视入口。
 - **组件索引**：从产品组件和 Lab 零件的同名 Markdown 文档扫描得到的派生导航数据，不是人工维护的第二份清单。
-- **fixture**：固定输入与交互场景。重复运行结果相同，不含真实用户数据，不产生真实产品副作用。
-- **场景**：某个 fixture 登记的一组固定初始数据和呈现方式；场景不是组件索引的一部分。
+- **场景**：某个 fixture 登记的一组固定初始数据和呈现方式；场景不是组件索引的一部分，可用 `data` 表达复合宿主 fixture 输入，用 `input` 表达被检组件签名的 props/model/slots。
+- **组件签名输入**：`input` 的三层数据与被检 `.vue` 的运行时 props/emits/models 和 fixture slot presets 对齐；宿主假数据仍使用独立的 `data`，两者可并存。
 - **检查器**：对 Lab 页面 DOM 元素进行 hover 探针、点击选中、尺寸/组件/源文件/选择器展示和定位报告复制的开发工具。
 - **确定性场景**：可以由 fixture 完整表达的场景，位置在 Lab。
 - **真实行为场景**：必须在正式界面并使用真实产品边界验证的场景，不能用 fixture 替代。
@@ -132,6 +132,9 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 
 ## 证据
 
+- 实现入口：[`component-index.ts`](../../../packages/neuro-book/app/component-lab/component-index.ts)
+- 合同测试：[`component-index.test.ts`](../../../packages/neuro-book/app/component-lab/component-index.test.ts)
+- Smoke：[`component-lab.ts`](../../../packages/neuro-book/scripts/smoke/component-lab.ts)（`bun run smoke:component-lab:core`）
 - 批准与范围依据：[`w00003 NeuroBook UI Foundation Migration`](../../../.agents/works/w00003-neurobook-ui-foundation-migration/README.md)、t05 Component Lab 任务与 t07/t10/t11 交付记录。t09 的 `LabShell.vue` 拆分已延期；产品主题 `theme.system` clean cutover 和渐进组件迁移仍是后续 Work 切片。
 - 分层 smoke 入口：`smoke:component-lab:core` 只验证 Lab 壳、通用场景、偏好与响应式；`smoke:component-lab:agent-profile` 只验证 Agent Profile 导航和 DialogWindow；`smoke:component-lab` 保留完整组合验证。分层入口共享同一 Node + Playwright runner 和失败截图机制，避免无关场景失败阻断目标组件证据。
 - 真实 NeuroBook smoke：`bun run smoke:component-lab:core -- --url http://127.0.0.1:3000 --browser-executable <chromium>` 与 `bun run smoke:component-lab:agent-profile -- --url http://127.0.0.1:3000 --browser-executable <chromium>`；完整组合入口仍为 `bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable <chromium>`。

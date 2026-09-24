@@ -27,6 +27,7 @@ Task 首页保存当前快照；重大历程与原始证据按需放入 `walkthr
 
 - 需要隔离代码改动时，同一Work默认共享`.worktree/<workId>`；分支使用`{type}/{refs}-{slug}`且refs使用Work编号。开发者明确指定既有worktree/branch时沿用该身份并在报告中记录。
 - 默认路径已属于其它仓库、Work或不匹配branch时报告冲突并停止，不覆盖或自动改名；保持主工作区在master，不覆盖用户改动。
+- 直接改主工作区前先看 `git status`：目标文件已有他人未提交改动时改到 worktree，不覆盖、不 stash、不改他人改动；主工作区定位与保护要求见根 [AGENTS.md](../../AGENTS.md#git-注意事项)。
 - Task 有依赖时顺序推进；已知独立任务在 owner、文件和合同不冲突时并行，不为并行而拆 Task。
 - 只提交Task范围文件，使用可审查的Conventional Commit，不force push共享分支。
 - push和PR属于远端写入，分别获授权后执行。

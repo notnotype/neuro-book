@@ -1,9 +1,10 @@
+// @vitest-environment jsdom
 import {existsSync, readdirSync, readFileSync, statSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
-import {describe, expect, it} from "vitest";
-import {labComponents} from "../component-index";
+import {labComponents, loadLabSubject} from "../component-index";
 import {findLabFixture, labFixtures} from "./index";
+import {checkLabInput, readLabSignature} from "../lab-subject";
 
 const fixturesRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -230,10 +231,10 @@ describe("Lab 场景覆盖", () => {
     });
 
     /**
-     * 多场景组件的 fixture 必须声明并消费 scene prop。
-     * 严禁在 fixture 内部写死静态展示或平铺展示多个状态，否则工具条或 SegmentedControl 切换场景将无反应。
+     * 多场景 fixture 必须消费 scene，或把分层 input 响应式绑定到被测组件。
+     * 显式 scene 用于旧 data 驱动场景；useLabSubject 用于组件签名驱动的 props/model/slots 输入。
      */
-    it("多场景 fixture 必须声明并消费 scene prop", () => {
+    it("多场景 fixture 必须消费场景状态或绑定分层输入", () => {
         const multiSceneFixtures = labFixtures.filter((f) => f.scenes.length > 1);
         const missing: string[] = [];
 
@@ -243,16 +244,18 @@ describe("Lab 场景覆盖", () => {
             if (!existsSync(filePath)) continue;
             const content = readFileSync(filePath, "utf8");
 
-            const hasScene = /defineProps<[\s\S]*?scene\s*:\s*string/mu.test(content)
-                || /defineProps\([\s\S]*?scene/mu.test(content)
+            const consumesScene = /defineProps<[^>]*scene\s*:\s*string/mu.test(content)
                 || content.includes("props.scene")
                 || content.includes("scene:");
-            if (!hasScene) {
+            const bindsReactiveLabInput = content.includes("useLabSubject(")
+                && /\w+\.bindings\.value/u.test(content)
+                && content.includes("props.input");
+            if (!consumesScene && !bindsReactiveLabInput) {
                 missing.push(`${entry.component}（${entry.scenes.length} 个场景）`);
             }
         }
 
-        expect(missing, `这些登记了多个场景的组件 fixture 未声明或消费 scene prop，会导致切换场景无响应：${missing.join("、")}`).toEqual([]);
+        expect(missing, `这些多场景 fixture 未消费 scene 且未将 props.input 绑定到被测组件：${missing.join("、")}`).toEqual([]);
     });
 
     /**
@@ -290,31 +293,48 @@ describe("Lab 场景覆盖", () => {
 
 describe("Component Lab 数据与状态契约", () => {
     /**
-     * 场景 data 必须是可合法 JSON 序列化的值。
-     * JSON 编辑器直接使用 structuredClone / JSON 操作，非序列化值（如函数、Symbol）会导致运行时崩溃。
+     * 两种输入都必须是确定性 JSON：`data` 给复合宿主 fixture，`input` 按组件签名分层。
      */
-    it("所有登记了 data 的场景都必须是合法的 JSON 序列化对象", () => {
+    it("所有登记的 data 和 input 场景输入都可以 JSON 往返", () => {
         const invalid: string[] = [];
 
         for (const fixture of labFixtures) {
             for (const scene of fixture.scenes) {
-                if (scene.data === undefined) continue;
-                try {
-                    const serialized = JSON.stringify(scene.data);
-                    if (serialized === undefined) {
-                        invalid.push(`${fixture.component}::${scene.id} (序列化为 undefined)`);
-                    } else {
-                        JSON.parse(serialized);
+                for (const [channel, value] of [["data", scene.data], ["input", scene.input]] as const) {
+                    if (value === undefined) continue;
+                    try {
+                        const serialized = JSON.stringify(value);
+                        if (serialized === undefined) {
+                            invalid.push(`${fixture.component}::${scene.id}.${channel} (序列化为 undefined)`);
+                        } else {
+                            JSON.parse(serialized);
+                        }
+                    } catch (error) {
+                        invalid.push(`${fixture.component}::${scene.id}.${channel} (${(error as Error).message})`);
                     }
-                } catch (error) {
-                    invalid.push(`${fixture.component}::${scene.id} (${(error as Error).message})`);
                 }
             }
         }
 
-        expect(invalid, `这些场景的 data 包含不可合法 JSON 化的数据：${invalid.join("、")}`).toEqual([]);
+        expect(invalid, `这些场景输入不可合法 JSON 化：${invalid.join("、")}`).toEqual([]);
     });
 
+    // 该合同会动态加载 36 个受检组件；默认 5 秒不足以覆盖 Windows 冷启动。
+    it("所有组件签名输入都满足 props、model、slots 运行时合同", async () => {
+        const inputFixtures = labFixtures.filter((fixture) => fixture.scenes.some((scene) => scene.input !== undefined));
+        const results = await Promise.all(inputFixtures.map(async (fixture) => {
+            const component = await loadLabSubject(fixture.component);
+            if (component === null) return [`${fixture.component}: component index has no subject loader`];
+            const signature = readLabSignature(component);
+            return fixture.scenes.flatMap((scene) => (scene.input === undefined
+                ? []
+                : checkLabInput(signature, scene.input, fixture.slots ?? []).map((issue) => (
+                    `${fixture.component}::${scene.id}.${issue.layer}.${issue.key}: ${issue.message}`
+                ))));
+        }));
+        const issues = results.flat();
+        expect(issues, `这些场景输入不符合被检组件运行时签名：${issues.join("；")}`).toEqual([]);
+    }, 30_000);
     /**
      * 核心交互零件防遗漏门禁：
      * 具有用户交互或输入输出特性的核心零件，所有场景必须登记可改假数据 (data)，

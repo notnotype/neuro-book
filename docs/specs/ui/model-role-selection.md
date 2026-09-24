@@ -103,8 +103,10 @@ owners:
 
 ## 证据
 
+- 实现入口：[`ModelPickerPopover.vue`](../../../packages/neuro-book/app/components/novel-ide/model-picker/ModelPickerPopover.vue) 与 [`ModelPickerContent.vue`](../../../packages/neuro-book/app/components/novel-ide/model-picker/ModelPickerContent.vue)
+- 合同测试：[`ModelPicker.test.ts`](../../../packages/neuro-book/app/components/novel-ide/model-picker/ModelPicker.test.ts)
+- Smoke：不适用——model picker 的行为在会话头与设置页的真实集成里验收，仓库内没有覆盖它的可执行 smoke 入口。
 - 目标提案：[`docs/proposals/model-roles-contract.md`](../../proposals/model-roles-contract.md)
-- 实现组件：[`packages/neuro-book/app/components/novel-ide/model-picker/`](../../../packages/neuro-book/app/components/novel-ide/model-picker/)
 - 设置联动：[`packages/neuro-book/app/components/novel-ide/settings/sections/roles/RolesSettingsView.vue`](../../../packages/neuro-book/app/components/novel-ide/settings/sections/roles/RolesSettingsView.vue)
 - 会话集成：[`packages/neuro-book/app/components/novel-ide/agent/panels/header/AgentSessionModelControls.vue`](../../../packages/neuro-book/app/components/novel-ide/agent/panels/header/AgentSessionModelControls.vue)
 

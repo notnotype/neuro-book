@@ -90,6 +90,7 @@ describe("documentation governance gate", () => {
 
         expect(checkDocumentation(fixture.root, fixture.paths)).toEqual({
             failures: [],
+            warnings: [],
             checkedFiles: fixture.paths.length,
         });
     });
@@ -227,7 +228,7 @@ describe("documentation governance gate", () => {
         expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([]);
     });
 
-    it("拒绝空壳章节、模板占位值和无链接的 implemented 证据", async () => {
+    it("拒绝空壳章节、模板占位值和缺失分类证据", async () => {
         const fixture = await createDocumentationFixture({
             "docs/specs/editor/empty.md": specDocument({
                 capability: "editor.empty",
@@ -261,7 +262,9 @@ describe("documentation governance gate", () => {
         expect(report.failures).toContain("Spec capability 仍是模板占位值：docs/specs/editor/template-copy.md");
         expect(report.failures).toContain("Spec owners 仍包含模板占位值：docs/specs/editor/template-copy.md");
         expect(report.failures).toContain("Implemented Spec 的“实现合同”章节没有实义内容：docs/specs/editor/fake-implemented.md");
-        expect(report.failures).toContain("Implemented Spec 的“证据”必须链接仓库内实现或验证入口：docs/specs/editor/fake-implemented.md");
+        expect(report.failures).toContain("Implemented Spec 的“证据”缺少「实现入口：」标签行：docs/specs/editor/fake-implemented.md");
+        expect(report.failures).toContain("Implemented Spec 的“证据”缺少「合同测试：」标签行：docs/specs/editor/fake-implemented.md");
+        expect(report.failures).toContain("Implemented Spec 的“证据”缺少「Smoke：」标签行：docs/specs/editor/fake-implemented.md");
     });
 
     it("拒绝注册目录、治理文件、重复行和反斜杠链接", async () => {
@@ -310,12 +313,13 @@ describe("documentation governance gate", () => {
         );
     });
 
-    it("只校验新 schema Task 的具体 Spec 绑定和活跃链接", async () => {
+    it("只把 current v2 Task 当 Task 检查，legacy v1 不再进门禁", async () => {
         const fixture = await createDocumentationFixture({
-            ".agents/tasks/00150-valid/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/html.md)\n",
-            ".agents/tasks/00151-no-behavior-change/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n本任务行为合同未变。\n",
-            ".agents/tasks/00152-broken/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/missing.md)\n",
-            "packages/neuro-book/.agents/tasks/00153-package-valid/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../../../docs/specs/editor/html.md)\n",
+            ".agents/works/w00001-test-work/tasks/t01-valid/README.md": "---\nschema: nbook.task/v2\ntaskId: t01-valid\n---\n\n# Task\n\n[Spec](../../../../../docs/specs/editor/html.md)\n",
+            ".agents/works/w00001-test-work/tasks/t02-no-behavior-change/README.md": "---\nschema: nbook.task/v2\ntaskId: t02-no-behavior-change\n---\n\n# Task\n\n本任务行为合同未变。\n",
+            ".agents/works/w00001-test-work/tasks/t03-broken/README.md": "---\nschema: nbook.task/v2\ntaskId: t03-broken\n---\n\n# Task\n\n[Spec](../../../../../docs/specs/editor/missing.md)\n",
+            ".agents/tasks/00150-legacy-valid/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/html.md)\n",
+            ".agents/tasks/00151-legacy-broken/README.md": "---\nschema: nbook.task/v1\n---\n\n# Task\n\n[Spec](../../../docs/specs/editor/missing.md)\n",
             "docs/specs/editor/html.md": specDocument({capability: "editor.html"}),
         }, {
             planned: ["docs/specs/editor/html.md"],
@@ -323,13 +327,135 @@ describe("documentation governance gate", () => {
 
         const report = checkDocumentation(fixture.root, fixture.paths);
 
-        expect(report.failures).toContain("相对链接目标不存在：.agents/tasks/00152-broken/README.md -> ../../../docs/specs/editor/missing.md（docs/specs/editor/missing.md）");
-        expect(report.failures).toContain("新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：.agents/tasks/00152-broken/README.md");
-        expect(report.failures.some((failure) => failure.includes("42-history"))).toBe(false);
-        expect(report.failures.some((failure) => failure.includes("00150-valid"))).toBe(false);
-        expect(report.failures.some((failure) => failure.includes("00151-no-behavior-change"))).toBe(false);
-        expect(report.failures.some((failure) => failure.includes("00153-package-valid"))).toBe(false);
+        expect(report.warnings).toContain("相对链接目标不存在：.agents/works/w00001-test-work/tasks/t03-broken/README.md -> ../../../../../docs/specs/editor/missing.md（docs/specs/editor/missing.md）");
+        expect(report.warnings).toContain("新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：.agents/works/w00001-test-work/tasks/t03-broken/README.md");
+        expect(report.failures).toEqual([]);
+        expect(report.warnings.some((warning) => warning.includes("t01-valid"))).toBe(false);
+        expect(report.warnings.some((warning) => warning.includes("t02-no-behavior-change"))).toBe(false);
+        expect(report.warnings.some((warning) => warning.includes("00150-legacy-valid"))).toBe(false);
+        expect(report.warnings.some((warning) => warning.includes("00151-legacy-broken"))).toBe(false);
     });
+
+    it("implemented Spec 的证据必须给出实现入口、合同测试与 Smoke 固定标签行", async () => {
+        const headings = ["目标与非目标", "术语与参与者", "输入与前置条件", "输出与可观察行为", "状态与转换", "副作用与数据", "失败与恢复", "边界与兼容", "验收与 Smoke"];
+        const implemented = (evidence: string): string => [
+            ...headings.map((heading) => `## ${heading}\n\n有效说明。`),
+            "## 实现合同\n\n有效实现合同。",
+            `## 证据\n\n${evidence}`,
+        ].join("\n\n");
+        const fixture = await createDocumentationFixture({
+            "docs/specs/editor/valid.md": specDocument({
+                capability: "editor.valid",
+                status: "implemented",
+                body: implemented([
+                    "- 实现入口：[`example.ts`](../../../app/example.ts)",
+                    "- 合同测试：[`example.test.ts`](../../../app/example.test.ts)",
+                    "- Smoke：[`example-smoke.ts`](../../../scripts/smoke/example-smoke.ts)",
+                ].join("\n")),
+            }),
+            "docs/specs/editor/incomplete.md": specDocument({
+                capability: "editor.incomplete",
+                status: "implemented",
+                body: implemented([
+                    "- 实现入口：[`example.ts`](../../../app/example.ts)",
+                    "- 合同测试：[`example.test.ts`](../../../app/example.test.ts)",
+                ].join("\n")),
+            }),
+            "docs/specs/editor/mistyped.md": specDocument({
+                capability: "editor.mistyped",
+                status: "implemented",
+                body: implemented([
+                    "- 实现入口：[`components.md`](../../../docs/standards/code/components.md)",
+                    "- 合同测试：[`example.ts`](../../../app/example.ts)",
+                    "- Smoke：[`cli.ts`](../../../scripts/smoke/missing-cli.ts)",
+                ].join("\n")),
+            }),
+            "docs/specs/editor/no-reason.md": specDocument({
+                capability: "editor.no-reason",
+                status: "implemented",
+                body: implemented([
+                    "- 实现入口：[`example.ts`](../../../app/example.ts)",
+                    "- 合同测试：[`example.test.ts`](../../../app/example.test.ts)",
+                    "- Smoke：不适用",
+                ].join("\n")),
+            }),
+            "docs/specs/editor/doc-smoke.md": specDocument({
+                capability: "editor.doc-smoke",
+                status: "implemented",
+                body: implemented([
+                    "- 实现入口：[`example.ts`](../../../app/example.ts)",
+                    "- 合同测试：[`example.test.ts`](../../../app/example.test.ts)",
+                    "- Smoke：[`components.md`](../../../docs/standards/code/components.md)",
+                ].join("\n")),
+            }),
+            "app/example.ts": "export const example = true;\n",
+            "app/example.test.ts": "export const suite = true;\n",
+            "scripts/smoke/example-smoke.ts": "export const smoke = true;\n",
+        }, {
+            implemented: [
+                "docs/specs/editor/valid.md",
+                "docs/specs/editor/incomplete.md",
+                "docs/specs/editor/mistyped.md",
+                "docs/specs/editor/no-reason.md",
+                "docs/specs/editor/doc-smoke.md",
+            ],
+        });
+
+        const report = checkDocumentation(fixture.root, fixture.paths);
+
+        expect(report.failures).toContain("Implemented Spec 的“证据”缺少「Smoke：」标签行：docs/specs/editor/incomplete.md");
+        expect(report.failures).toContain("Implemented Spec 的「实现入口：」必须链接存在的源码文件（非 .md）：docs/specs/editor/mistyped.md");
+        expect(report.failures).toContain("Implemented Spec 的「合同测试：」必须链接存在的测试文件：docs/specs/editor/mistyped.md");
+        expect(report.failures).toContain("Implemented Spec 的「Smoke：」必须链接存在的可执行入口，或写「不适用——<理由>」：docs/specs/editor/mistyped.md");
+        expect(report.failures).toContain("Implemented Spec 的「Smoke：」必须链接存在的可执行入口，或写「不适用——<理由>」：docs/specs/editor/no-reason.md");
+        expect(report.failures).toContain("Implemented Spec 的「Smoke：」必须链接存在的可执行入口，或写「不适用——<理由>」：docs/specs/editor/doc-smoke.md");
+        expect(report.failures.some((failure) => failure.includes("editor/valid.md"))).toBe(false);
+    });
+
+    it("受管组件缺少同名文档时阻断，且忽略未导出组件", async () => {
+        const fixture = await createDocumentationFixture({
+            "packages/nb-ui/src/components/index.ts": [
+                'export {default as Button} from "./controls/Button.vue";',
+                'export {default as DialogWindow} from "./feedback/DialogWindow.vue";',
+                "",
+            ].join("\n"),
+            "packages/nb-ui/src/components/controls/Button.vue": "<template><button /></template>\n",
+            "packages/nb-ui/src/components/feedback/DialogWindow.vue": "<template><div /></template>\n",
+            "packages/nb-ui/src/components/feedback/DialogWindow.md": "---\n标签: []\n---\n\n# DialogWindow\n",
+            "packages/nb-ui/src/components/feedback/ContextMenuPanel.vue": "<template><div /></template>\n",
+            "packages/neuro-book/app/components/common/form/FormInput.vue": "<template><input /></template>\n",
+            "packages/neuro-book/app/components/common/SideDetailPanel.vue": "<template><aside /></template>\n",
+            "packages/neuro-book/app/components/common/SideDetailPanel.md": "---\n标签: []\n---\n\n# SideDetailPanel\n",
+            "packages/neuro-book/app/components/editor-workbench/CodeEditorView.vue": "<template><div /></template>\n",
+        });
+
+        const report = checkDocumentation(fixture.root, fixture.paths);
+
+        expect(report.failures).toEqual([
+            "受管组件缺少同名文档：packages/nb-ui/src/components/controls/Button.vue（应为 packages/nb-ui/src/components/controls/Button.md）",
+            "受管组件缺少同名文档：packages/neuro-book/app/components/common/form/FormInput.vue（应为 packages/neuro-book/app/components/common/form/FormInput.md）",
+        ]);
+        expect(report.warnings).toEqual([]);
+    });
+
+    it("受管组件文档拒绝漏标签与未知标签", async () => {
+        const fixture = await createDocumentationFixture({
+            "packages/nb-ui/src/components/index.ts": [
+                'export {default as Button} from "./controls/Button.vue";',
+                "",
+            ].join("\n"),
+            "packages/nb-ui/src/components/controls/Button.vue": "<template><button /></template>\n",
+            "packages/nb-ui/src/components/controls/Button.md": "---\n别名: []\n---\n\n# Button\n",
+            "packages/neuro-book/app/components/common/SideDetailPanel.vue": "<template><aside /></template>\n",
+            "packages/neuro-book/app/components/common/SideDetailPanel.md": "---\n标签: [state:inject, private:secret]\n---\n\n# WrongName\n",
+        });
+
+        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
+            "受管组件文档必须声明封闭清单内的「标签」数组：packages/nb-ui/src/components/controls/Button.md",
+            "受管组件文档必须声明封闭清单内的「标签」数组：packages/neuro-book/app/components/common/SideDetailPanel.md",
+        ]);
+    });
+
 
     it("图片链接和路径大小写使用受管文件集合校验", async () => {
         const fixture = await createDocumentationFixture({

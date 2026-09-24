@@ -340,7 +340,7 @@ function resetMessages(): void {
 </script>
 
 <template>
-    <div class="h-full w-full">
+    <div class="novel-ide-theme h-full w-full">
         <AgentSidebarView
             ref="viewRef"
             class="h-full w-full"

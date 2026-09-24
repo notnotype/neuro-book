@@ -97,5 +97,8 @@ owners:
 
 ## 证据
 
+- 实现入口：[`QuickInput.vue`](../../../packages/nb-ui/src/components/feedback/QuickInput.vue)
+- 合同测试：[`QuickInput.test.ts`](../../../packages/nb-ui/src/components/feedback/QuickInput.test.ts)
+- Smoke：不适用——S4 面板在 `/lab` 真实浏览器里人工验收，仓库没有覆盖它的可执行 smoke 入口。
 - 批准该目标的提案：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。
 - 相关规范：[`commands.md`](commands.md)（命令注册、`when` 求值与暴露策略）。

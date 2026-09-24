@@ -212,7 +212,7 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
         activeSessionSummaryText: "包含文档图片、附件栏与多模态参考",
         availabilityStatus: "ready",
         running: false,
-        inputText: "参考这张钟楼的概念图，为场景增加建筑风格细节描述。",
+        attachmentPanelOpen: true,
         attachments: [
             {
                 attachment: {

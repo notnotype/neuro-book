@@ -9,13 +9,14 @@ taskId: t04-docs-anchor-check
 
 开发者 2026-09-24 批准：让 `bun run docs:check` 校验活跃文档链接中的 `#锚点`。行为合同未变：只扩展文档治理检查，不改产品行为。
 
-非目标：扩大活跃文档范围、current Task 检查范围修正（审查发现 DOC-H1，待开发者拍板）。
+非目标：扩大活跃文档范围；current Task 检查范围修正已由 t06 处理。
 
 ## 当前状态
 
 实现与聚焦验证完成；开发者 2026-09-24 授权本地提交到下述分支，不授权 push、PR 或合并。
 
-- checkout：`.worktree/w00001-development-workflow-governance`；branch：`feat/w00001-docs-anchor-check`；基线 `0afe7c69`。
+- checkout：`.worktree/w00001-development-workflow-governance`；branch：`feat/w00001-docs-anchor-check`；基线 `0afe7c69`，已 rebase 到 `master` 的 `573a45f2`。
+- t04 已本地提交 `ca8e1a65`；随后为集成 master 的两项已授权 UI 提交进行了本地 rebase，当前分支未 push。
 - `scripts/ci/check-documentation.ts`：仓库文档按 `github-slugger`（新增 devDependency `^2.0.0`）计算标题锚点；`vitepress/locales/**` 页面按 VitePress 默认 slugify 与 `{#自定义-id}` 计算；HTML `id`/`name` 均视为锚点；VitePress 站内绝对路径（`/x`、`/en/x`）带锚点时解析到 locale 页面。
 - VitePress slugify 未公开导出，脚本内复刻 `vitepress@2.0.0-alpha.18` 的实现，升级时需复核。
 - [`docs/README.md`](../../../../../docs/README.md) 生命周期节补充锚点规则。

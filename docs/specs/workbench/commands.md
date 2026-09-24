@@ -179,5 +179,8 @@ owners:
 
 ## 证据
 
+- 实现入口：[`commands.ts`](../../../packages/neuro-book/app/utils/workbench/commands.ts)
+- 合同测试：[`commands.test.ts`](../../../packages/neuro-book/app/utils/workbench/commands.test.ts)
+- Smoke：不适用——命令面板的 S4 入口在 `/lab` 真实浏览器里人工验收，`component-lab.ts` smoke 只覆盖检查器「命令」面板 tab。
 - 批准该目标的提案：[`../../proposals/workbench-commands.md`](../../proposals/workbench-commands.md)（2026-09-14 起草，2026-09-18 需求讨论修订）。
 - 相关规范：[`../ui/workbench-shell.md`](../ui/workbench-shell.md)（视图描述与 `when` / authority 求值口径）；[`quick-open.md`](quick-open.md)（命令面板与行号跳转交互）。

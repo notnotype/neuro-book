@@ -53,4 +53,10 @@ owners:
 
 ## 证据
 
-`planned` 阶段链接批准该目标的 Proposal/ADR。`implemented` 阶段再链接合同测试、smoke 命令和实现入口。Task 只作为实现 provenance，不作为行为依据。
+`planned` 阶段链接批准该目标的 Proposal/ADR。Task 只作为实现 provenance，不作为行为依据。
+
+`implemented` 阶段改用三条固定标签，每条至少链接一个仓库内存在的文件，类型必须对应（`bun run docs:check` 校验）：
+
+- 实现入口：源码文件，不能是 `.md`
+- 合同测试：`*.test.ts` / `*.spec.ts` 等测试文件
+- Smoke：可执行 smoke 脚本或测试；确实没有时写「不适用——<理由>」

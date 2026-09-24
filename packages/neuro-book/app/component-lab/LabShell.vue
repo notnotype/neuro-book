@@ -118,6 +118,8 @@ const fixtureLoading = ref(false);
 const fixtureLoadError = ref("");
 /** 当前场景的分层输入：场景登记的初值，之后由数据面板编辑、组件 `update:x` 与 fixture 回写。 */
 const sceneInput = ref<LabSceneInput | undefined>(undefined);
+/** 复合宿主 fixture 使用的可编辑场景初值，与被检组件的 input 签名分开保存。 */
+const sceneData = ref<unknown>(undefined);
 /** fixture 上报的被测组件内部状态快照，只读展示。 */
 const fixtureState = ref<unknown>(undefined);
 /** 数据面板最近一次编辑不符合分层 schema 时的原因；合法编辑后清空。 */
@@ -1122,6 +1124,7 @@ function exposeTextOf(command: CommandMetadata): string {
 }
 
 function resetScene(): void {
+    sceneData.value = structuredClone(scene.value?.data);
     sceneInput.value = structuredClone(scene.value?.input);
     fixtureState.value = undefined;
     inputEditError.value = "";
@@ -1163,8 +1166,6 @@ watch(fixture, async (next) => {
     }
 }, {immediate: true});
 
-// 换场景等于重来一次：假数据回到登记的初值，事件日志清空，
-// 否则「同一场景重复打开结果一致」这条验收就不成立。
 watch([selectedScene, fixture], () => {
     resetScene();
     hasFixtureControls.value = false;
@@ -1175,7 +1176,7 @@ watch([fixtureComponent, selectedScene], () => {
     clearPicked();
 });
 // 改假数据不换节点，但选中的元素可能被推走或改大小，ResizeObserver 看不见位移
-watch([sceneInput, canvasWidth, canvasHeight], () => {
+watch([sceneData, sceneInput, canvasWidth, canvasHeight], () => {
     void nextTick(measurePicked);
 }, {deep: true});
 </script>
@@ -1457,6 +1458,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                                     :is="fixtureComponent"
                                     v-if="fixtureComponent"
                                     :scene="selectedScene"
+                                    :data="sceneData"
                                     :input="sceneInput"
                                 />
                             </div>
@@ -1716,13 +1718,21 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                         </div>
 
                         <div v-else-if="rightTab === 'data'" class="lab-pad lab-data" data-lab-panel="data">
-                            <!-- 按被测组件的签名分层：model 是 Lab 持有、组件回写的受控值；props 是非受控输入；
-                                 slots 开关 fixture 备好的插槽预设。内部状态只读，由 fixture 上报。 -->
+                            <div v-if="sceneData !== undefined || sceneInput !== undefined" class="flex shrink-0 items-center justify-between">
+                                <span class="lab-note">改完立刻生效</span>
+                                <button type="button" class="lab-btn" @click="resetScene">还原</button>
+                            </div>
+                            <section v-if="sceneData !== undefined">
+                                <p class="lab-panel-label">fixture · 宿主场景数据</p>
+                                <JsonViewer
+                                    :value="sceneData"
+                                    :read-only="false"
+                                    :max-height="320"
+                                    @update:value="sceneData = $event"
+                                />
+                            </section>
                             <template v-if="sceneInput !== undefined">
-                                <div class="flex shrink-0 items-center justify-between">
-                                    <span class="lab-note">改完立刻生效</span>
-                                    <button type="button" class="lab-btn" @click="resetScene">还原</button>
-                                </div>
+                                <!-- 按被检组件签名分层：model/props 可编辑，slots 切换 fixture 预设。 -->
                                 <section v-if="inputIssues.length > 0" role="status" class="lab-issues">
                                     <p class="lab-panel-label">与组件签名不一致 {{ inputIssues.length }} 处</p>
                                     <ul class="flex flex-col gap-2">
@@ -1754,7 +1764,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                                     />
                                 </section>
                                 <section v-if="fixtureSlots.length > 0">
-                                    <p class="lab-panel-label">slots · 开启后填入 fixture 备好的预设内容</p>
+                                    <p class="lab-panel-label">slots · 开启后填入 fixture 备好的插槽预设</p>
                                     <div v-for="name in fixtureSlots" :key="name" class="lab-meta-row items-center">
                                         <code class="lab-chip">#{{ name }}</code>
                                         <NbSwitch
@@ -1766,7 +1776,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                                     </div>
                                 </section>
                             </template>
-                            <p v-else class="lab-note">这个场景没有登记输入。</p>
+                            <p v-if="sceneData === undefined && sceneInput === undefined" class="lab-note">这个场景没有登记输入。</p>
                             <section v-if="fixtureState !== undefined">
                                 <p class="lab-panel-label">内部状态 · 只读，由 fixture 上报</p>
                                 <JsonViewer :value="fixtureState" :read-only="true" :max-height="260" />

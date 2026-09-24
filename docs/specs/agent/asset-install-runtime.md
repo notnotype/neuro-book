@@ -160,7 +160,10 @@ owners:
 
 ## 证据
 
- - 批准依据：[Task 135 Agent 资产安装协议](../../../packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md)，其中记录了 Seed Root、Install Root、Project Root、`agent/installed.json`、七阶段事务、失败恢复和 `templates/variables` 保留边界的用户决策。
+- 实现入口：[`system-asset-installation.ts`](../../../packages/neuro-book/server/workspace-files/system-asset-installation.ts)
+- 合同测试：[`system-asset-installation.test.ts`](../../../packages/neuro-book/server/workspace-files/system-asset-installation.test.ts)
+- Smoke：不适用——安装事务只在真实 Product image 或 Windows portable 启动时发生，仓库内没有覆盖它的 smoke 入口（未运行项见上）。
+- 批准依据：[Task 135 Agent 资产安装协议](../../../packages/neuro-book/.agents/tasks/135-agent-asset-install-protocol/README.md)，其中记录了 Seed Root、Install Root、Project Root、`agent/installed.json`、七阶段事务、失败恢复和 `templates/variables` 保留边界的用户决策。
  - 本 Spec 已登记为 `implemented`：实现与聚焦验证覆盖本轮已交付的安装事务、Reference manifest、legacy projection、Agent package exclusion、Authoring Kit 形状及启动合同。
  - 未运行项仍是独立环境门禁：真实 Product image、Windows portable 与完整启动 smoke；历史 checkout 数据迁移及 Runtime consumer 全量根审计也不在本轮授权范围内，不得用 status 字段替代这些验收证据。
  - Product compiled artifact 策略：Product image 构建时生成并携带自包含 Authoring Kit，Runtime `prepareSystemAssets()` 对 Runtime artifact 采用受控 authoring context；Seeder 只处理三类 Agent package 与 Reference，不从 Seed 回退读取 compiled artifact。

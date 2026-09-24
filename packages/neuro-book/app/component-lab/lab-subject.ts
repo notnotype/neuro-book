@@ -19,8 +19,8 @@ export const LabSceneInputSchema = Type.Object({
 
 export type LabSceneInput = Static<typeof LabSceneInputSchema>;
 
-/** Lab 交给每个 fixture 的 props：当前场景 id，以及场景登记了输入时的那份输入。 */
-export type LabFixtureProps = {scene: string; input?: LabSceneInput};
+/** Lab 交给 fixture 的场景初值：`data` 是复合宿主输入，`input` 是组件签名分层输入。 */
+export type LabFixtureProps = {scene: string; data?: unknown; input?: LabSceneInput};
 
 export type LabPropSignature = Readonly<{name: string; required: boolean}>;
 

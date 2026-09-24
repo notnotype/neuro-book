@@ -14,4 +14,6 @@ issueId: null
 
 2026-09-24 开发者批准 `docs:check` 校验链接锚点，见 [t04](tasks/t04-docs-anchor-check/README.md)；执行 checkout 为 `.worktree/w00001-development-workflow-governance`，分支 `feat/w00001-docs-anchor-check`，授权本地提交，不授权远端动作。
 
-2026-09-24 开发者批准治理审查的机械性文档修正，见 [t05](tasks/t05-governance-doc-fixes/README.md)；同一 checkout 与分支，未授权提交。
+2026-09-24 开发者批准治理审查的机械性文档修正，见 [t05](tasks/t05-governance-doc-fixes/README.md)，已本地提交 `32dd1036`，未授权远端动作。
+
+2026-09-24 开发者批准文档门禁、UI 验收和 Work 生命周期治理改进，见 [t06](tasks/t06-documentation-gates-and-ui-governance/README.md)；继续使用同一 checkout 与分支，远端动作未授权。

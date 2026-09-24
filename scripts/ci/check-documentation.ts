@@ -11,6 +11,8 @@ import {defaultRepoRoot, git} from "#scripts/ci/agent-governance-contract";
 
 export type DocumentationCheckReport = {
     failures: string[];
+    /** 只报告不阻断的结果，例如 current Task 快照问题。 */
+    warnings: string[];
     checkedFiles: number;
 };
 
@@ -45,6 +47,21 @@ const BEHAVIOR_SPEC_HEADINGS = [
     "验收与 Smoke",
 ] as const;
 const PLACEHOLDER_SECTION_PATTERN = /^(?:(?:TODO|FIXME|TBD|WIP|待补(?:充)?|待定|占位(?:内容)?|尚未实现|无内容)\s*)+$/iu;
+const EVIDENCE_LABELS = ["实现入口", "合同测试", "Smoke"] as const;
+const EVIDENCE_LABEL_PATTERN = /^(?:[-*]\s+)?(?:\*\*)?(实现入口|合同测试|Smoke)(?:\*\*)?[：:]\s*(.*)$/u;
+const TEST_FILE_PATTERN = /\.(?:test|spec)\.[cm]?[jt]sx?$/u;
+const EXECUTABLE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|sh|ps1|py)$/u;
+const SMOKE_NOT_APPLICABLE_PATTERN = /^不适用[—–-]{1,2}\s*\S/u;
+const WORK_TASK_README_PATTERN = /^\.agents\/works\/[^/]+\/tasks\/[^/]+\/README\.md$/u;
+const NB_UI_COMPONENT_BARREL = "packages/nb-ui/src/components/index.ts";
+const NB_UI_COMPONENT_EXPORT_PATTERN = /export \{default as \w+\} from "\.\/([\w/.-]+)\.vue";/gu;
+const APP_COMMON_COMPONENT_PREFIX = "packages/neuro-book/app/components/common/";
+const COMPONENT_TAGS = new Set([
+    "state:local", "state:shared-read", "state:shared-write", "state:inject",
+    "persist:local", "persist:session", "persist:idb",
+    "io:read", "io:mutate", "io:stream",
+    "env:timer", "env:route", "env:global", "env:clipboard", "env:portal",
+]);
 
 type SpecMetadata = {
     kind: string;
@@ -75,19 +92,21 @@ export function checkDocumentation(repoRoot: string, paths?: readonly string[]):
         .sort();
     const fileSet = new Set(files);
     const failures: string[] = [];
+    const warnings: string[] = [];
 
     checkRequiredIndexes(fileSet, failures);
     checkDocsRoot(files, failures);
     checkRetiredDocumentationPaths(files, failures);
     checkVitepressStructure(normalizedRoot, files, fileSet, failures);
     checkAdrs(normalizedRoot, files, failures);
-    checkActiveLinks(normalizedRoot, files, fileSet, failures);
+    checkActiveLinks(normalizedRoot, files, fileSet, failures, warnings);
     checkSpecRegistry(normalizedRoot, fileSet, failures);
-    checkSpecs(normalizedRoot, files, failures);
+    checkSpecs(normalizedRoot, files, fileSet, failures);
     checkFrozenReference(normalizedRoot, files, failures);
-    checkCurrentTaskContracts(normalizedRoot, files, fileSet, failures);
+    checkComponentDocuments(normalizedRoot, files, fileSet, failures);
+    checkCurrentTaskContracts(normalizedRoot, files, fileSet, warnings);
 
-    return {failures, checkedFiles: files.length};
+    return {failures, warnings, checkedFiles: files.length};
 }
 
 
@@ -204,8 +223,15 @@ type AnchorRule = "github" | "vitepress";
  * 校验活跃文档的链接目标与 `#锚点`。
  * 锚点按来源的渲染方式计算：VitePress 站点页面用 VitePress 规则，其余仓库文档用 GitHub 规则；
  * 仅校验指向 Markdown 的锚点，站点绝对路径只在带锚点时解析到 locale 页面。
+ * current Task 快照按其 v2 合同只是协作参考，命中问题进 `warnings` 而不阻断。
  */
-function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+function checkActiveLinks(
+    repoRoot: string,
+    files: readonly string[],
+    fileSet: ReadonlySet<string>,
+    failures: string[],
+    warnings: string[],
+): void {
     const anchorCache = new Map<string, ReadonlySet<string>>();
     const anchorsOf = (path: string, rule: AnchorRule): ReadonlySet<string> => {
         const key = `${rule}:${path}`;
@@ -217,18 +243,19 @@ function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: R
         return anchors;
     };
     for (const source of files.filter((path) => isActiveMarkdown(path) || isCurrentTaskContract(repoRoot, path))) {
+        const report = isActiveMarkdown(source) ? failures : warnings;
         const text = readFileSync(resolve(repoRoot, source), "utf8");
         let tree: Root;
         try {
             tree = fromMarkdown(text);
         } catch (error) {
-            failures.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
+            report.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
         const rule: AnchorRule = VITEPRESS_PAGE_PATTERN.test(source) ? "vitepress" : "github";
         for (const url of collectLinkUrls(tree, true)) {
             if (url.includes("\\")) {
-                failures.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
+                report.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
                 continue;
             }
             const fragment = linkFragment(url);
@@ -236,12 +263,12 @@ function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: R
             let anchorTarget: string | null = null;
             if (target !== null) {
                 if (target.startsWith("../") || target === "..") {
-                    failures.push(`相对链接越出仓库：${source} -> ${url}`);
+                    report.push(`相对链接越出仓库：${source} -> ${url}`);
                     continue;
                 }
                 const resolved = resolveLinkTarget(target, fileSet);
                 if (resolved === null) {
-                    failures.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
+                    report.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
                     continue;
                 }
                 anchorTarget = resolved;
@@ -250,13 +277,13 @@ function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: R
             } else if (fragment !== null && rule === "vitepress" && /^\/(?!\/)/u.test(url.trim())) {
                 anchorTarget = resolveVitepressRoute(url, fileSet);
                 if (anchorTarget === null) {
-                    failures.push(`站内链接目标不存在：${source} -> ${url}`);
+                    report.push(`站内链接目标不存在：${source} -> ${url}`);
                     continue;
                 }
             }
             if (fragment === null || anchorTarget === null || !anchorTarget.endsWith(".md")) continue;
             if (!anchorsOf(anchorTarget, rule).has(fragment)) {
-                failures.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
+                report.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
             }
         }
     }
@@ -354,24 +381,32 @@ function isActiveMarkdown(path: string): boolean {
     return path.startsWith(".agents/skills/");
 }
 
+/**
+ * current Task 的唯一入口是 `.agents/works/<work>/tasks/<task>/README.md` 的 `nbook.task/v2`；
+ * legacy `.agents/tasks/` 只保存 `nbook.task/v1` provenance，其门禁由 `governance:check` 负责。
+ */
 function isCurrentTaskContract(repoRoot: string, path: string): boolean {
-    if (!/^(?:\.agents\/tasks|packages\/neuro-book\/.agents\/tasks)\/[^/]+\/README\.md$/u.test(path)) return false;
+    if (!WORK_TASK_README_PATTERN.test(path)) return false;
     const text = readFileSync(resolve(repoRoot, path), "utf8");
     const frontmatter = FRONTMATTER_PATTERN.exec(text)?.[1];
     if (!frontmatter) return false;
     try {
         const metadata = parseYaml(frontmatter) as {schema?: unknown} | null;
-        return metadata?.schema === "nbook.task/v1";
+        return metadata?.schema === "nbook.task/v2";
     } catch {
         return false;
     }
 }
 
+/**
+ * current Task 必须链接具体 Spec，或明确说明“行为合同未变”。
+ * v2 合同下 Task 正文只是协作参考，命中问题进 `warnings` 而不阻断。
+ */
 function checkCurrentTaskContracts(
     repoRoot: string,
     files: readonly string[],
     fileSet: ReadonlySet<string>,
-    failures: string[],
+    warnings: string[],
 ): void {
     for (const path of files.filter((candidate) => isCurrentTaskContract(repoRoot, candidate))) {
         const text = readFileSync(resolve(repoRoot, path), "utf8");
@@ -383,7 +418,7 @@ function checkCurrentTaskContracts(
             return isSpecDocument(candidate) && fileSet.has(candidate);
         });
         if (!hasConcreteSpec && !text.includes("行为合同未变")) {
-            failures.push(`新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${path}`);
+            warnings.push(`新 Task 必须链接具体 Spec，或明确说明“行为合同未变”：${path}`);
         }
     }
 }
@@ -450,7 +485,7 @@ function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failu
     }
 }
 
-function checkSpecs(repoRoot: string, files: readonly string[], failures: string[]): void {
+function checkSpecs(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
     const registryPath = "docs/specs/README.md";
     if (!files.includes(registryPath)) return;
     const registry = readFileSync(resolve(repoRoot, registryPath), "utf8");
@@ -482,10 +517,7 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
             if (metadata.status === "implemented") {
                 checkRequiredSpecSection(path, sections, "实现合同", "Implemented Spec", failures);
                 const evidence = sections.get("证据");
-                const evidenceLinks = evidence === undefined ? [] : collectLinkUrls(fromMarkdown(evidence));
-                if (evidence !== undefined && evidenceLinks.every((url) => resolveRelativeLink(path, url) === null)) {
-                    failures.push(`Implemented Spec 的“证据”必须链接仓库内实现或验证入口：${path}`);
-                }
+                if (evidence !== undefined) checkImplementedEvidence(path, evidence, fileSet, failures);
             }
         }
     }
@@ -498,6 +530,90 @@ function checkSpecs(repoRoot: string, files: readonly string[], failures: string
 function isSpecDocument(path: string): boolean {
     if (!(path.startsWith("docs/specs/") || path.startsWith("packages/neuro-book/docs/specs/")) || !path.endsWith(".md")) return false;
     return !SPEC_SUPPORT_FILENAMES.has(posix.basename(path));
+}
+
+type EvidenceLabel = typeof EVIDENCE_LABELS[number];
+
+/**
+ * implemented Spec 的“证据”用三条固定标签给出实现入口、合同测试与 smoke。
+ * 每条至少链接一个存在的仓库文件，且类型对应；没有 smoke 时写「不适用——<理由>」。
+ */
+function checkImplementedEvidence(
+    path: string,
+    evidence: string,
+    fileSet: ReadonlySet<string>,
+    failures: string[],
+): void {
+    const labels: Partial<Record<EvidenceLabel, string>> = {};
+    for (const line of evidence.split(/\r?\n/u)) {
+        const match = EVIDENCE_LABEL_PATTERN.exec(line.trim());
+        if (match) labels[match[1] as EvidenceLabel] ??= match[2];
+    }
+    for (const label of EVIDENCE_LABELS) {
+        if (labels[label] === undefined) failures.push(`Implemented Spec 的“证据”缺少「${label}：」标签行：${path}`);
+    }
+    const targetsOf = (value: string | undefined): string[] => {
+        if (value === undefined) return [];
+        const targets: string[] = [];
+        for (const url of collectLinkUrls(fromMarkdown(value))) {
+            const target = resolveRelativeLink(path, url);
+            if (target === null) continue;
+            const resolved = resolveLinkTarget(target, fileSet);
+            if (resolved !== null) targets.push(resolved);
+        }
+        return targets;
+    };
+    if (labels.实现入口 !== undefined && !targetsOf(labels.实现入口).some((target) => fileSet.has(target) && !target.endsWith(".md"))) {
+        failures.push(`Implemented Spec 的「实现入口：」必须链接存在的源码文件（非 .md）：${path}`);
+    }
+    if (labels.合同测试 !== undefined && !targetsOf(labels.合同测试).some((target) => fileSet.has(target) && TEST_FILE_PATTERN.test(target))) {
+        failures.push(`Implemented Spec 的「合同测试：」必须链接存在的测试文件：${path}`);
+    }
+    if (labels.Smoke !== undefined && !targetsOf(labels.Smoke).some((target) => fileSet.has(target) && EXECUTABLE_FILE_PATTERN.test(target))
+        && !SMOKE_NOT_APPLICABLE_PATTERN.test(labels.Smoke.trim())) {
+        failures.push(`Implemented Spec 的「Smoke：」必须链接存在的可执行入口，或写「不适用——<理由>」：${path}`);
+    }
+}
+
+/** 受管组件 = nb-ui barrel 导出 + 应用公共组件；缺少同名契约文档时阻断 docs:check。 */
+function checkComponentDocuments(
+    repoRoot: string,
+    files: readonly string[],
+    fileSet: ReadonlySet<string>,
+    failures: string[],
+): void {
+    const barrel = resolve(repoRoot, NB_UI_COMPONENT_BARREL);
+    const exported = existsSync(barrel)
+        ? [...readFileSync(barrel, "utf8").matchAll(NB_UI_COMPONENT_EXPORT_PATTERN)].map((match) => `packages/nb-ui/src/components/${match[1]}.vue`)
+        : [];
+    const managed = new Set(exported.filter((path) => fileSet.has(path)));
+    for (const path of files) {
+        if (path.startsWith(APP_COMMON_COMPONENT_PREFIX) && path.endsWith(".vue")) managed.add(path);
+    }
+    for (const path of [...managed].sort()) {
+        const documentPath = `${path.slice(0, -".vue".length)}.md`;
+        if (!fileSet.has(documentPath)) {
+            failures.push(`受管组件缺少同名文档：${path}（应为 ${documentPath}）`);
+            continue;
+        }
+        const text = readFileSync(resolve(repoRoot, documentPath), "utf8");
+        const frontmatter = FRONTMATTER_PATTERN.exec(text)?.[1];
+        if (frontmatter === undefined) {
+            failures.push(`受管组件文档缺少 frontmatter：${documentPath}`);
+            continue;
+        }
+        let metadata: unknown;
+        try {
+            metadata = parseYaml(frontmatter);
+        } catch {
+            failures.push(`受管组件文档 frontmatter 无法解析：${documentPath}`);
+            continue;
+        }
+        const tags = metadata !== null && typeof metadata === "object" && "标签" in metadata ? metadata.标签 : undefined;
+        if (!Array.isArray(tags) || tags.some((tag) => typeof tag !== "string" || !COMPONENT_TAGS.has(tag))) {
+            failures.push(`受管组件文档必须声明封闭清单内的「标签」数组：${documentPath}`);
+        }
+    }
 }
 
 function checkRequiredSpecSection(
