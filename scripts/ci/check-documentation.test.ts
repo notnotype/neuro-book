@@ -342,6 +342,72 @@ describe("documentation governance gate", () => {
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> images/missing.png（docs/standards/images/missing.png）");
         expect(report.failures).toContain("相对链接目标不存在：docs/standards/assets.md -> README.MD（docs/standards/README.MD）");
     });
+
+    it("仓库文档按 GitHub 规则校验锚点", async () => {
+        const fixture = await createDocumentationFixture({
+            "docs/standards/target.md": [
+                "---",
+                "title: 前置元数据",
+                "---",
+                "",
+                "# Target",
+                "",
+                "## 八、踩过的坑",
+                "",
+                "## 10. 开发后自检（Checklist）",
+                "",
+                "## 重复",
+                "",
+                "## 重复",
+                "",
+                "<a id=\"legacy-anchor\"></a>",
+                "",
+            ].join("\n"),
+            "docs/standards/source.md": [
+                "# Source",
+                "",
+                "## 本页",
+                "",
+                "[a](target.md#八踩过的坑) [b](target.md#10-开发后自检checklist) [c](target.md#重复-1)",
+                "[d](target.md#legacy-anchor) [e](#本页) [f](target.md)",
+                "[g](target.md#不存在) [h](target.md#_10-开发后自检-checklist) [i](#missing-local) [j](target.md#title-前置元数据)",
+                "",
+            ].join("\n"),
+        });
+
+        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
+            "链接锚点不存在：docs/standards/source.md -> target.md#不存在（docs/standards/target.md#不存在）",
+            "链接锚点不存在：docs/standards/source.md -> target.md#_10-开发后自检-checklist（docs/standards/target.md#_10-开发后自检-checklist）",
+            "链接锚点不存在：docs/standards/source.md -> #missing-local（docs/standards/source.md#missing-local）",
+            "链接锚点不存在：docs/standards/source.md -> target.md#title-前置元数据（docs/standards/target.md#title-前置元数据）",
+        ]);
+    });
+
+    it("VitePress 页面按站点规则校验锚点与站内路由", async () => {
+        const quickStart = "# 快速开始\n\n## 配置 AI 模型\n\n## 10. 开发后自检（Checklist）\n";
+        const changelog = "# v0.8\n\n### 旧对话的模型引用 {#session-model-refs}\n";
+        const fixture = await createDocumentationFixture({
+            "vitepress/locales/zh-Hans/quick-start.md": quickStart,
+            "vitepress/locales/en-US/quick-start.md": "# Quick start\n\n## Configure an AI model\n",
+            "vitepress/locales/zh-Hans/changelog/v0.8.md": changelog,
+            "vitepress/locales/en-US/changelog/v0.8.md": changelog,
+            "vitepress/locales/zh-Hans/index.md": [
+                "# 首页",
+                "",
+                "[a](./quick-start#配置-ai-模型) [b](/quick-start#_10-开发后自检-checklist) [c](./changelog/v0.8#session-model-refs)",
+                "[d](/en/quick-start.md#configure-an-ai-model) [e](/quick-start)",
+                "[f](/quick-start#10-开发后自检checklist) [g](/missing#x)",
+                "",
+            ].join("\n"),
+            "vitepress/locales/en-US/index.md": "# Home\n\n[a](/en/quick-start#missing)\n",
+        });
+
+        expect(checkDocumentation(fixture.root, fixture.paths).failures).toEqual([
+            "链接锚点不存在：vitepress/locales/en-US/index.md -> /en/quick-start#missing（vitepress/locales/en-US/quick-start.md#missing）",
+            "链接锚点不存在：vitepress/locales/zh-Hans/index.md -> /quick-start#10-开发后自检checklist（vitepress/locales/zh-Hans/quick-start.md#10-开发后自检checklist）",
+            "站内链接目标不存在：vitepress/locales/zh-Hans/index.md -> /missing#x",
+        ]);
+    });
 });
 
 async function createDocumentationFixture(

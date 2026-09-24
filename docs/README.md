@@ -57,7 +57,7 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
 5. 已完成沉淀的 Proposal 归档；活跃入口不得依赖 archived 内容才能解释行为。
 6. VitePress 只投影稳定内容；修改导航、构建根或部署路径时同步 `package.json`、工作流和站点配置。
 
-入口使用触发式指针说明“何时读取”和“目标是什么”，不复制目标正文。活跃文档的相对链接必须解析到仓库内现存目标；历史 Task 与 archive 中的旧路径可作为 provenance 保留，但不得被当前规范当作活跃依赖。
+入口使用触发式指针说明“何时读取”和“目标是什么”，不复制目标正文。活跃文档的相对链接必须解析到仓库内现存目标，带 `#锚点` 时还必须对应目标文件中现存的标题或 HTML `id`：仓库文档按 GitHub 规则计算标题锚点，VitePress 页面按站点规则计算（支持 `{#自定义-id}`）。历史 Task 与 archive 中的旧路径可作为 provenance 保留，但不得被当前规范当作活跃依赖。
 
 ## Reference 迁移
 

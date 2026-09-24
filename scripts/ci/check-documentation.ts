@@ -4,6 +4,7 @@ import {resolve} from "node:path";
 import {posix} from "node:path";
 import type {Nodes, Root} from "mdast";
 import {fromMarkdown} from "mdast-util-from-markdown";
+import GithubSlugger from "github-slugger";
 import {parse as parseYaml} from "yaml";
 
 import {defaultRepoRoot, git} from "#scripts/ci/agent-governance-contract";
@@ -193,7 +194,28 @@ function checkAdrs(repoRoot: string, files: readonly string[], failures: string[
     }
 }
 
+const VITEPRESS_PAGE_PATTERN = /^vitepress\/locales\/(?:zh-Hans|en-US)\/.+\.md$/u;
+const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u;
+const VITEPRESS_SLUG_SPECIAL = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/gu;
+
+type AnchorRule = "github" | "vitepress";
+
+/**
+ * 校验活跃文档的链接目标与 `#锚点`。
+ * 锚点按来源的渲染方式计算：VitePress 站点页面用 VitePress 规则，其余仓库文档用 GitHub 规则；
+ * 仅校验指向 Markdown 的锚点，站点绝对路径只在带锚点时解析到 locale 页面。
+ */
 function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: ReadonlySet<string>, failures: string[]): void {
+    const anchorCache = new Map<string, ReadonlySet<string>>();
+    const anchorsOf = (path: string, rule: AnchorRule): ReadonlySet<string> => {
+        const key = `${rule}:${path}`;
+        let anchors = anchorCache.get(key);
+        if (anchors === undefined) {
+            anchors = collectAnchors(readFileSync(resolve(repoRoot, path), "utf8"), rule);
+            anchorCache.set(key, anchors);
+        }
+        return anchors;
+    };
     for (const source of files.filter((path) => isActiveMarkdown(path) || isCurrentTaskContract(repoRoot, path))) {
         const text = readFileSync(resolve(repoRoot, source), "utf8");
         let tree: Root;
@@ -203,20 +225,120 @@ function checkActiveLinks(repoRoot: string, files: readonly string[], fileSet: R
             failures.push(`Markdown 无法解析：${source}：${error instanceof Error ? error.message : String(error)}`);
             continue;
         }
+        const rule: AnchorRule = VITEPRESS_PAGE_PATTERN.test(source) ? "vitepress" : "github";
         for (const url of collectLinkUrls(tree, true)) {
             if (url.includes("\\")) {
                 failures.push(`相对链接必须使用正斜杠：${source} -> ${url}`);
                 continue;
             }
+            const fragment = linkFragment(url);
             const target = resolveRelativeLink(source, url);
-            if (target === null) continue;
-            if (target.startsWith("../") || target === "..") {
-                failures.push(`相对链接越出仓库：${source} -> ${url}`);
-                continue;
+            let anchorTarget: string | null = null;
+            if (target !== null) {
+                if (target.startsWith("../") || target === "..") {
+                    failures.push(`相对链接越出仓库：${source} -> ${url}`);
+                    continue;
+                }
+                const resolved = resolveLinkTarget(target, fileSet);
+                if (resolved === null) {
+                    failures.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
+                    continue;
+                }
+                anchorTarget = resolved;
+            } else if (fragment !== null && url.trim().startsWith("#")) {
+                anchorTarget = source;
+            } else if (fragment !== null && rule === "vitepress" && /^\/(?!\/)/u.test(url.trim())) {
+                anchorTarget = resolveVitepressRoute(url, fileSet);
+                if (anchorTarget === null) {
+                    failures.push(`站内链接目标不存在：${source} -> ${url}`);
+                    continue;
+                }
             }
-            if (!linkTargetExists(repoRoot, target, fileSet)) failures.push(`相对链接目标不存在：${source} -> ${url}（${target}）`);
+            if (fragment === null || anchorTarget === null || !anchorTarget.endsWith(".md")) continue;
+            if (!anchorsOf(anchorTarget, rule).has(fragment)) {
+                failures.push(`链接锚点不存在：${source} -> ${url}（${anchorTarget}#${fragment}）`);
+            }
         }
     }
+}
+
+function linkFragment(rawUrl: string): string | null {
+    const url = rawUrl.trim();
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/u.test(url) || url.startsWith("//")) return null;
+    const index = url.indexOf("#");
+    if (index < 0 || index === url.length - 1) return null;
+    const fragment = url.slice(index + 1);
+    try {
+        return decodeURIComponent(fragment);
+    } catch {
+        return fragment;
+    }
+}
+
+/** 解析 VitePress 站点绝对路径：`/` 对应 zh-Hans，`/en/` 对应 en-US，末尾 `/` 指向目录 index。 */
+function resolveVitepressRoute(rawUrl: string, fileSet: ReadonlySet<string>): string | null {
+    let route = rawUrl.trim().split("#", 1)[0].split("?", 1)[0];
+    try {
+        route = decodeURIComponent(route);
+    } catch {
+        // 保留原始路径，按不存在报告。
+    }
+    const english = route === "/en" || route.startsWith("/en/");
+    const localeRoot = `vitepress/locales/${english ? "en-US" : "zh-Hans"}`;
+    const page = route.slice(english ? 3 : 0).replace(/^\//u, "").replace(/\.(?:html|md)$/u, "");
+    const candidate = page === "" || page.endsWith("/")
+        ? `${localeRoot}/${page}index.md`
+        : `${localeRoot}/${page}.md`;
+    return fileSet.has(candidate) ? candidate : null;
+}
+
+function collectAnchors(text: string, rule: AnchorRule): ReadonlySet<string> {
+    let tree: Root;
+    try {
+        tree = fromMarkdown(text.replace(FRONTMATTER_PATTERN, ""));
+    } catch {
+        return new Set();
+    }
+    const anchors = new Set<string>();
+    const githubSlugger = new GithubSlugger();
+    const vitepressSlugCounts = new Map<string, number>();
+    const visit = (node: Nodes | Root): void => {
+        if (node.type === "heading") {
+            const title = markdownNodeText(node);
+            if (rule === "github") {
+                anchors.add(githubSlugger.slug(title));
+            } else {
+                const custom = /\s*\{#([^}\s]+)\}\s*$/u.exec(title);
+                if (custom) {
+                    anchors.add(custom[1]);
+                } else {
+                    const slug = vitepressSlug(title);
+                    const count = vitepressSlugCounts.get(slug);
+                    vitepressSlugCounts.set(slug, (count ?? 0) + 1);
+                    anchors.add(count === undefined ? slug : `${slug}-${count}`);
+                }
+            }
+        }
+        if (node.type === "html") {
+            for (const match of node.value.matchAll(/\s(?:id|name)\s*=\s*["']([^"']+)["']/gu)) anchors.add(match[1]);
+        }
+        if ("children" in node) for (const child of node.children) visit(child);
+    };
+    visit(tree);
+    return anchors;
+}
+
+/** 与 VitePress 默认 slugify 逐步一致；该函数未从 `vitepress` 公开导出，升级 VitePress 时需复核。 */
+function vitepressSlug(text: string): string {
+    return text
+        .normalize("NFKD")
+        .replace(/[\u0300-\u036F]/gu, "")
+        .replace(/[\u0000-\u001f]/gu, "")
+        .replace(VITEPRESS_SLUG_SPECIAL, "-")
+        .replace(/-{2,}/gu, "-")
+        .replace(/^-+|-+$/gu, "")
+        .replace(/^(\d)/u, "_$1")
+        .toLowerCase();
 }
 
 function isActiveMarkdown(path: string): boolean {
@@ -235,7 +357,7 @@ function isActiveMarkdown(path: string): boolean {
 function isCurrentTaskContract(repoRoot: string, path: string): boolean {
     if (!/^(?:\.agents\/tasks|packages\/neuro-book\/.agents\/tasks)\/[^/]+\/README\.md$/u.test(path)) return false;
     const text = readFileSync(resolve(repoRoot, path), "utf8");
-    const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text)?.[1];
+    const frontmatter = FRONTMATTER_PATTERN.exec(text)?.[1];
     if (!frontmatter) return false;
     try {
         const metadata = parseYaml(frontmatter) as {schema?: unknown} | null;
@@ -301,14 +423,16 @@ function resolveRelativeLink(source: string, rawUrl: string): string | null {
     return posix.normalize(posix.join(posix.dirname(source), decoded));
 }
 
-function linkTargetExists(_repoRoot: string, target: string, fileSet: ReadonlySet<string>): boolean {
+/** 返回链接实际落到的受管文件；目录链接无 README/index 时返回目录本身。 */
+function resolveLinkTarget(target: string, fileSet: ReadonlySet<string>): string | null {
     const normalizedTarget = normalizeRepoPath(target).replace(/\/$/u, "");
     const candidates = [normalizedTarget];
     if (!normalizedTarget.endsWith(".md")) candidates.push(`${normalizedTarget}.md`);
     candidates.push(`${normalizedTarget}/README.md`, `${normalizedTarget}/index.md`);
-    if (candidates.some((candidate) => fileSet.has(candidate))) return true;
+    const file = candidates.find((candidate) => fileSet.has(candidate));
+    if (file !== undefined) return file;
     const directoryPrefix = `${normalizedTarget}/`;
-    return [...fileSet].some((candidate) => candidate.startsWith(directoryPrefix));
+    return [...fileSet].some((candidate) => candidate.startsWith(directoryPrefix)) ? normalizedTarget : null;
 }
 
 function checkSpecRegistry(repoRoot: string, fileSet: ReadonlySet<string>, failures: string[]): void {
@@ -467,7 +591,7 @@ function registeredSpecTargets(
 }
 
 function parseSpecMetadata(path: string, text: string, failures: string[]): SpecMetadata | null {
-    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(text);
+    const match = FRONTMATTER_PATTERN.exec(text);
     if (!match) {
         failures.push(`Spec 缺少 YAML frontmatter：${path}`);
         return null;
