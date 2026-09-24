@@ -48,34 +48,76 @@ Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口
 
 ---
 
-## 3. 零件标定、事件与数据 Sink
+## 3. 零件标定、分层输入与内部状态
 
 ### 3.1 核心零件标定：`data-lab-subject`
 - 被测核心组件必须标记 `data-lab-subject` 属性：
   ```html
-  <AgentSidebarView data-lab-subject class="h-full w-full" ... />
+  <FixtureExample data-lab-subject v-bind="subject.bindings.value" />
   ```
 - Lab 的元素检查器（Inspector）与高亮探针据此准确定位核心主体，不受外围容器干扰。
 
-### 3.2 交互事件上报：`useLabEventSink`
-- 组件触发的业务事件（如 `@composer-send`、`@select`、`@action`）通过 `useLabEventSink()` 派发：
-  ```ts
-  const emitLabEvent = useLabEventSink();
-  // 在事件处理函数中
-  emitLabEvent("composer-send", payload);
-  ```
-- 所有事件实时推送到 Lab 右侧「事件」面板，供审查人员验证交互时序与负载。
+### 3.2 分层输入：场景登记 `input`，fixture 用 `useLabSubject` 接入
+场景对被测组件的输入按 fixture **明确声明的调试面**分层。Lab 不读取组件实现来猜哪些字段可调；fixture 在登记入口通过 TypeScript 类型把输入键约束到组件的 Props / v-model / Slots：
 
-### 3.3 状态与数据双向同步：`data` 驱动与 `useLabDataSink`
-- **严禁数据留白**：凡具有用户输入、配置项或可变属性的交互型组件，**必须在 `fixtures/index.ts` 为其所有场景登记可序列化的 `data` 初值**。严禁出现数据为空导致 Lab 右侧「数据」面板只显示静态占位提示的情况（`index.test.ts` 设有门禁断言）。
-- **可编辑数据驱动**：Fixture 组件必须声明 `data?: unknown`，并通过 `computed` / `watch` 将 `props.data` 响应式投影为组件入参。在 Lab 右栏 JSON 编辑器改动假数据时，舞台组件应当实时响应。
-- **状态与草稿输出上报**：本地受控状态、草稿输入（如 `draft`、选中的选项索引、运行标志）必须通过 `useLabDataSink()` 持续同步：
-  ```ts
-  const syncLabData = useLabDataSink();
-  // 状态变化时
-  syncLabData({ scene: props.scene, count: messages.length, draft: draft.value, active: true });
-  ```
-- 同步的数据实时反映在 Lab 右侧「数据」面板，形成「右栏改数据驱动组件输入，组件交互实时更新右栏数据输出」的完整双向闭环。
+| 层 | 内容 | 谁持有 |
+| --- | --- | --- |
+| `model` | fixture 声明的 v-model 受控值；组件发 `update:x` 时 Lab 回写 | Lab |
+| `props` | fixture 声明的非受控 prop 初值；没写的走组件默认值 | Lab；fixture 可用 `subject.write` 扮演宿主 |
+| `slots` | fixture 自己备好的插槽预设开关 | Lab 登记开关，fixture 填入内容 |
+
+```ts
+// fixtures/index.ts：type-only import 不加载组件
+import type FixtureExample from "../FixtureExample.vue";
+import {defineLabFixture} from "./index";
+
+defineLabFixture<typeof FixtureExample>({
+    component: "FixtureExample",
+    slots: ["extra"],
+    scenes: [{
+        id: "default",
+        label: "默认",
+        input: {props: {title: "示例", status: "ready"}, slots: {extra: true}},
+    }],
+    load: () => import("./FixtureExampleFixture.vue").then((module) => module.default),
+});
+```
+
+`defineLabFixture<typeof C>` 是登记入口，不加载 `C`，也不把 fixture 自动挂到组件上。它的 TypeScript 检查会拒绝不存在的 prop、错误值类型、把 model 放进 props、缺少必填 prop 和未知插槽；有数据 prop 时必须登记 `props` 层，但层内可选 prop 可以省略。无数据 prop 的组件才可以写 `noInput: "组件没有可编辑输入"`，理由必须非空；有 props 的组件不能用它绕过输入登记。
+
+```vue
+<script setup lang="ts">
+import FixtureExample from "../FixtureExample.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
+
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle", "action"]);
+</script>
+<template>
+    <FixtureExample
+        data-lab-subject
+        v-bind="subject.bindings.value"
+        @toggle="subject.write('props', 'active', $event)"
+    >
+        <template v-if="subject.slots.value.extra" #extra>预设内容</template>
+    </FixtureExample>
+</template>
+```
+
+- `useLabSubject` 只自动接入 fixture 在 `events` 参数中声明的普通事件；这些事件进入事件 tab。model 层的键自动接入对应 `update:x`，记录并写回 model。未声明的普通事件不由 Lab 猜测，fixture 可以直接写模板监听或调用 `useLabEventSink`。
+- 「数据」tab 只显示场景实际登记的层。TypeBox schema 只保证编辑值仍是 `{props?, model?, slots?}` 的 JSON 形状；组件字段名、必填值和 model 分层由登记入口的 TypeScript 检查负责，fixture 是否真的把输入传给组件由 fixture 自己负责并需通过行为验证。
+- 登记检查要求每个场景提供非空 `input`，或 fixture 提供非空 `noInput` 理由；未迁移的旧场景不会把 `data` 自动当作 `input`。
+- 不在组件调试输入里的场景道具（假数据集大小、模拟延迟等）放 `<LabFixtureControls>`，不塞进 `input`。
+
+### 3.3 内部状态上报：`useLabDataSink`（只读）
+组件或 fixture 自己持有、不经 props 暴露的状态（草稿、展开项、运行标志）用 `useLabDataSink()` 上报，数据 tab 以只读「内部状态」展示，不能从面板改回去：
+```ts
+const reportState = useLabDataSink();
+watch(draft, (value) => reportState({draft: value}), {immediate: true});
+```
+
+### 3.4 迁移中的旧协议
+旧场景的 `data` 字段已废止：类型检查会逐条报告 `data` 不属于 `LabScene`，登记检查会报告缺少 `input` 或 `noInput`。按 3.2 迁移；本轮不自动改写、不加迁移白名单。未迁移场景在数据 tab 显示「这个场景未登记调试输入，请按 fixture 合同迁移」。
 
 ---
 
@@ -89,8 +131,9 @@ Lab 的舞台容器（`ViewportCanvas`）直接充当被测组件的外部视口
 2. **流式与交互控件范例**：[`app/component-lab/fixtures/AgentChatFlowFixture.vue`](AgentChatFlowFixture.vue)
    - 舞台 100% 留给会话流；
    - 流式仿真控制器优雅下放至 `<LabFixtureControls>`。
-3. **部件与卡片范例**：[`app/component-lab/fixtures/FixtureExampleFixture.vue`](FixtureExampleFixture.vue)
-   - 示范标准卡片零件的自适应宽度与调试控件分离。
+3. **分层输入与部件范例**：[`app/component-lab/fixtures/FixtureExampleFixture.vue`](FixtureExampleFixture.vue)
+   - `useLabSubject` 接入 props / slots 分层输入，声明的事件进入事件 tab；
+   - fixture 扮演宿主处理普通受控 prop（`toggle` → `active`）。
 
 ---
 

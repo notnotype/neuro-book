@@ -1,14 +1,15 @@
-import {camelize, computed, inject, toHandlerKey, type Component, type ComponentPropsOptions, type ComputedRef, type EmitsOptions} from "vue";
+import {camelize, computed, inject, toHandlerKey, type AllowedComponentProps, type ComponentCustomProps, type ComputedRef, type VNodeProps} from "vue";
 import {Type, type Static} from "typebox";
-import {LAB_INPUT_SINK, useLabEventSink, type LabInputSink} from "./lab-event-sink";
+import {LAB_INPUT_SINK, useLabEventSink} from "./lab-event-sink";
 
 /**
- * 场景输入：按被测组件的调用签名分层。键名与组件的 prop 名、插槽名逐字一致——不改名、不另起 fixture 私有字段。
+ * 场景输入：fixture 声明哪些东西可以在 Lab 里调。分三层，键名与组件的 prop 名、插槽名逐字一致：
  *
  * - `props`：非受控 prop 的初值；没写的 prop 走组件自己的默认值。
  * - `model`：v-model 受控值的初值，键是 prop 名（`open`、`modelValue`）。组件发出 `update:<键>` 时 Lab 回写这一层。
- * - `slots`：插槽开关，键是组件的插槽名；`true` 时 fixture 填入它为这个插槽备好的预设内容，缺省或 `false` 用组件自带内容。
+ * - `slots`：插槽开关，键是组件的插槽名；`true` 时 fixture 填入它为这个插槽备好的预设内容。
  *
+ * Lab 只展示 fixture 声明了的层，不去组件实现里读签名；键名对不对由登记处 `defineLabFixture<typeof X>` 的类型检查保证。
  * schema 是数据面板 JSON 编辑器的入口校验：不符合的编辑不生效，下游拿到的永远是这个形状。
  */
 export const LabSceneInputSchema = Type.Object({
@@ -22,125 +23,109 @@ export type LabSceneInput = Static<typeof LabSceneInputSchema>;
 /** Lab 交给每个 fixture 的 props：当前场景 id，以及场景登记了输入时的那份输入。 */
 export type LabFixtureProps = {scene: string; input?: LabSceneInput};
 
-export type LabPropSignature = Readonly<{name: string; required: boolean}>;
+/*
+ * 以下类型只在编译期起作用：从被测组件的类型推出场景输入该长什么样。运行时不解析组件。
+ */
+
+/** 组件实例上的 `$props`：数据 prop、`on*` 事件监听，外加 key / ref / class / style 等通用属性。取不到实例类型时返回 `never`，禁止登记退化为宽泛 Record。 */
+export type LabSubjectProps<C> = C extends abstract new (...args: never[]) => {$props: infer P} ? P : never;
+
+/** 每个组件都接受、但不是组件自己声明的属性。 */
+type SharedAttrKey = keyof VNodeProps | keyof AllowedComponentProps | keyof ComponentCustomProps;
+
+type Camelize<S extends string> = S extends `${infer Head}-${infer Tail}` ? `${Head}${Capitalize<Camelize<Tail>>}` : S;
 
 /**
- * 被测组件的调用签名，读自组件的运行时选项。
- *
- * `defineProps` / `defineEmits` 编译后留下的 `props` / `emits` 就是这里的来源，所以它是**实现**的签名，
- * 不是文档里写的那份。插槽没有运行时声明，不在这里；fixture 备了哪些插槽预设由场景登记声明。
+ * `$props` 里组件自己声明的数据 prop 的键。去掉索引签名与通用属性；与 Vue 的规则一致，
+ * `on` 后紧跟非小写字母的是事件监听（`onToggle` 是，`online` 不是）。
  */
-export type LabSignature = Readonly<{
-    props: readonly LabPropSignature[];
-    emits: readonly string[];
-    /** 同时有 prop `x` 与事件 `update:x` 的受控值 */
-    models: readonly string[];
-}>;
+type DataKey<K> = string extends K ? never : number extends K ? never : K extends SharedAttrKey ? never
+    : K extends `on${infer E}` ? (E extends Uncapitalize<E> ? K : never) : K;
 
-export type LabInputIssue = Readonly<{layer: keyof LabSceneInput; key: string; message: string}>;
+/** 事件监听键对应的事件名：`onToggle` → `toggle`，`onUpdate:open` → `update:open`。 */
+type EventKey<K> = string extends K ? never : K extends SharedAttrKey ? never
+    : K extends `on${infer E}` ? (E extends Uncapitalize<E> ? never : Uncapitalize<E>) : never;
 
-const UPDATE_PREFIX = "update:";
+type DataProps<P> = {[K in keyof P as DataKey<K>]: P[K]};
 
-/** `update:model-value` → `modelValue`；不是 `update:` 事件时为 null。 */
-function modelKeyOf(emitName: string): string | null {
-    return emitName.startsWith(UPDATE_PREFIX) ? camelize(emitName.slice(UPDATE_PREFIX.length)) : null;
-}
+/** v-model 受控值：同时有数据 prop `x` 与事件 `update:x`（事件写成 kebab 也算）。 */
+type ModelKey<P> = Extract<{[K in keyof P]-?: K extends `onUpdate:${infer M}` ? Camelize<M> : never}[keyof P], keyof DataProps<P>>;
 
-export function readLabSignature(component: Component): LabSignature {
-    // 选项式与 `<script setup>` 编译产物、函数式组件都在这两个字段上声明签名
-    const options = component as {props?: ComponentPropsOptions; emits?: EmitsOptions};
-    const rawProps = options.props ?? [];
-    const props: LabPropSignature[] = Array.isArray(rawProps)
-        ? rawProps.map((name) => ({name: camelize(name), required: false}))
-        : Object.entries(rawProps).map(([name, definition]) => ({
-            name: camelize(name),
-            // 构造器与构造器数组写法没有 required，只有对象写法能声明必填
-            required: definition !== null && typeof definition === "object" && !Array.isArray(definition) && definition.required === true,
-        }));
-    const rawEmits = options.emits ?? [];
-    const emits = Array.isArray(rawEmits) ? [...rawEmits] : Object.keys(rawEmits);
-    const propNames = props.map((prop) => prop.name);
-    const models = [...new Set(emits.map(modelKeyOf).filter((key): key is string => key !== null && propNames.includes(key)))];
-    return {props, emits, models};
-}
+/** 只要组件有数据 prop，必须显式登记 props 层；空键集合的层不能凭空出现。 */
+type Layer<Name extends string, T, RequiredLayer extends boolean = false> = [keyof T] extends [never]
+    ? {[K in Name]?: never}
+    : RequiredLayer extends true ? {[K in Name]: T} : {} extends T ? {[K in Name]?: T} : {[K in Name]: T};
+
+/** 组件的数据 prop 名。 */
+export type LabPropOf<C> = keyof DataProps<LabSubjectProps<C>> & string;
+
+/** 组件发出的事件名。 */
+export type LabEventOf<C> = keyof {[K in keyof LabSubjectProps<C> as EventKey<K>]: true} & string;
 
 /**
- * 输入与签名对不上的每一处。这些规则就是「数据 tab 是完整的」的定义：
- * 每个 v-model 都有初值、必填 prop 都有值、受控值与普通 prop 各归各层、没有签名以外的键。
+ * 组件的具名插槽。模板里 `<slot>` 声明的插槽由 vue-tsc 推出；默认 `$slots` 的 `[name: string]` 索引签名不算。
+ * 取不到实例类型的组件退回任意字符串。
  */
-export function checkLabInput(signature: LabSignature, input: LabSceneInput | undefined, slotPresets: readonly string[]): LabInputIssue[] {
-    const issues: LabInputIssue[] = [];
-    const propNames = signature.props.map((prop) => prop.name);
-    const props = input?.props ?? {};
-    const model = input?.model ?? {};
+export type LabSlotOf<C> = C extends abstract new (...args: never[]) => {$slots: infer S}
+    ? keyof {[K in keyof S as string extends K ? never : number extends K ? never : K]: true} & string
+    : string;
 
-    for (const key of Object.keys(props)) {
-        if (!propNames.includes(key)) {
-            issues.push({layer: "props", key, message: "组件签名里没有这个 prop"});
-        } else if (signature.models.includes(key)) {
-            issues.push({layer: "props", key, message: `它是受控值（组件会发 update:${key}），放进 model 层`});
-        }
-    }
-    for (const key of Object.keys(model)) {
-        if (!propNames.includes(key)) {
-            issues.push({layer: "model", key, message: "组件签名里没有这个 prop"});
-        } else if (!signature.models.includes(key)) {
-            issues.push({layer: "model", key, message: `组件不发 update:${key}，它不是受控值，放进 props 层`});
-        }
-    }
-    for (const key of signature.models) {
-        if (!(key in model)) {
-            issues.push({layer: "model", key, message: "受控值没有初值：Lab 不持有它，就接不住组件的回写"});
-        }
-    }
-    for (const prop of signature.props) {
-        if (prop.required && !signature.models.includes(prop.name) && !(prop.name in props)) {
-            issues.push({layer: "props", key: prop.name, message: "必填 prop 没有初值"});
-        }
-    }
-    for (const key of Object.keys(input?.slots ?? {})) {
-        if (!slotPresets.includes(key)) {
-            issues.push({layer: "slots", key, message: "fixture 没有为这个插槽登记预设内容"});
-        }
-    }
-    return issues;
-}
+/**
+ * 按组件 C 检查过的场景输入：
+ * - 键名必须是 C 真实的 prop 名 / 插槽名，写错即多余属性报错；
+ * - 必填的非受控 prop 必须出现在 `props` 层；
+ * - 每个 v-model 都必须在 `model` 层给初值，也只能放在这一层。
+ */
+export type LabInputOf<C> =
+    Layer<"props", Omit<DataProps<LabSubjectProps<C>>, ModelKey<LabSubjectProps<C>>>, true>
+    & Layer<"model", Required<Pick<DataProps<LabSubjectProps<C>>, ModelKey<LabSubjectProps<C>>>>>
+    & Layer<"slots", {[K in LabSlotOf<C>]?: boolean}>;
 
-export type LabSubject = {
-    /** 直接 `v-bind` 到被测组件：props 层 + model 层 + 签名里每个事件的监听。 */
-    bindings: ComputedRef<Record<string, unknown>>;
+export type LabSubject<C> = {
+    /** 直接 `v-bind` 到被测组件：props 层 + model 层 + 声明的事件与 v-model 的监听。 */
+    bindings: ComputedRef<LabSubjectProps<C>>;
     /** slots 层：fixture 用它决定是否填入某个插槽的预设内容。 */
     slots: ComputedRef<Readonly<Record<string, boolean>>>;
     /**
-     * fixture 扮演宿主时改写一项输入，例如收到 `action` 后改 `count`。
+     * fixture 扮演宿主时改写一项输入，例如收到 `toggle` 后改 `active`。
      * 改的与数据面板是同一份，面板随之更新；不在 Lab 里时是空操作。
      */
-    write: LabInputSink;
+    write: (layer: "props" | "model", key: LabPropOf<C>, value: unknown) => void;
 };
 
 /**
- * fixture 接入分层输入的唯一入口。
+ * fixture 接入场景输入的入口。怎么接由 fixture 自己决定，这里只统一 Lab 必须一致的两件事：
  *
- * - 签名里的**每个**事件都记进事件 tab，不由 fixture 挑着转发；
- * - `update:x` 且 `x` 是受控值时，把新值写回 model 层——Lab 持有受控值，组件的 v-model 才真的是双向的；
- * - fixture 自己还想响应某个事件时，照常在组件上写 `@x`，Vue 会把两份监听合并调用。
+ * - model 层的每个键 `x` 都监听 `update:x`：记进事件 tab 并写回 model 层——Lab 持有受控值，v-model 才真的双向；
+ * - `events` 里声明的事件记进事件 tab。没声明的事件 Lab 看不到；fixture 还想响应某个事件时照常写 `@x`，Vue 会合并两份监听。
+ *
+ * 类型参数 C 是被测组件（`useLabSubject<typeof X>`），只用于类型：`bindings` 的形状、`events` 与 `write` 键的取值范围。
  */
-export function useLabSubject(component: Component, input: () => LabSceneInput | undefined): LabSubject {
-    const {emits, models} = readLabSignature(component);
+export function useLabSubject<C>(input: () => LabSceneInput | undefined, events: readonly LabEventOf<C>[] = []): LabSubject<C> {
     const recordEvent = useLabEventSink();
     const write = inject(LAB_INPUT_SINK, () => undefined);
-    // 与 Vue 查找监听的规则一致：`update:model-value` 与 `update:modelValue` 都落到 `onUpdate:modelValue`
-    const listeners = Object.fromEntries(emits.map((name) => {
-        const key = modelKeyOf(name);
-        return [toHandlerKey(camelize(name)), (...args: unknown[]) => {
-            recordEvent(name, args.length <= 1 ? args[0] : args);
-            if (key !== null && models.includes(key)) {
-                write("model", key, args[0]);
-            }
-        }];
-    }));
+    // 监听键与 Vue 查找监听的规则一致：`composer-send` 与 `composerSend` 都落到 `onComposerSend`
+    const declared = computed(() => {
+        const modelEventKeys = new Set(Object.keys(input()?.model ?? {}).map((key) => toHandlerKey(camelize(`update:${key}`))));
+        return Object.fromEntries(events
+            .map((name) => [toHandlerKey(camelize(name)), name] as const)
+            .filter(([handlerKey]) => !modelEventKeys.has(handlerKey))
+            .map(([handlerKey, name]) => [handlerKey, (...args: unknown[]) => {
+                recordEvent(name, args.length <= 1 ? args[0] : args);
+            }]));
+    });
     return {
-        bindings: computed(() => ({...input()?.props, ...input()?.model, ...listeners})),
+        bindings: computed(() => {
+            const model = input()?.model ?? {};
+            const modelListeners = Object.fromEntries(Object.keys(model).map((key) => [`onUpdate:${key}`, (value: unknown) => {
+                recordEvent(`update:${key}`, value);
+                write("model", key, value);
+            }]));
+            const merged = {...input()?.props, ...model, ...declared.value, ...modelListeners};
+            // 场景输入是 JSON，这里证明不了它的形状；形状由登记处 defineLabFixture<typeof X> 的类型检查保证
+            const bound = merged as LabSubjectProps<C>;
+            return bound;
+        }),
         slots: computed(() => input()?.slots ?? {}),
         write,
     };

@@ -2,8 +2,6 @@
  * Lab 的组件索引。清单不是手写的，是扫描组件文档得来的派生产物——
  * 组件规范要求文档与实现并列，Lab 规范要求不保留第二份组件清单。
  */
-import type {Component} from "vue";
-
 export type LabComponentEntry = {
     /** 组件名，取自文档文件名，与同目录的 .vue 同名 */
     name: string;
@@ -146,15 +144,8 @@ const HEADING_PATTERN = /^#[ \t]+(.+?)[ \t]*$/mu;
 
 const productDocs = import.meta.glob("../components/**/*.md", {query: "?raw", import: "default", eager: true}) as Record<string, string>;
 const labDocs = import.meta.glob("./*.md", {query: "?raw", import: "default", eager: true}) as Record<string, string>;
-type SubjectModule = {default: Component};
-const productModules = import.meta.glob<SubjectModule>("../components/**/*.vue");
-const labModules = import.meta.glob<SubjectModule>("./*.vue");
-
-/**
- * 组件名 → 实现模块的加载器，与索引共用同一份 glob、同样先到先得（与 `findLabComponent` 一致）。
- * 数据 tab 用它读被测组件的运行时签名；fixture 本来就 import 同一个模块，不多一次加载。
- */
-const subjectLoaders: Record<string, () => Promise<SubjectModule>> = {};
+const productModules = import.meta.glob("../components/**/*.vue");
+const labModules = import.meta.glob("./*.vue");
 
 function parseTags(raw: string): string[] {
     const frontmatter = FRONTMATTER_PATTERN.exec(raw)?.[1];
@@ -296,15 +287,13 @@ function buildEntries(): LabComponentEntry[] {
      * rootSegments 是 glob 根在路径里的段数：`../components/**` 是 2 段（".." 与 "components"），
      * `./*.md` 是 1 段（"."）。它们不是分类，导航从它们下面一层开始。
      */
-    const collect = (docs: Record<string, string>, modules: Record<string, () => Promise<SubjectModule>>, fallbackGroup: string, rootSegments: number): void => {
+    const collect = (docs: Record<string, string>, modules: Record<string, unknown>, fallbackGroup: string, rootSegments: number): void => {
         for (const [path, raw] of Object.entries(docs)) {
             const name = path.slice(path.lastIndexOf("/") + 1, -".md".length);
-            const loader = modules[`${path.slice(0, -".md".length)}.vue`];
             // 没有同名 .vue 的 .md 不是组件文档，跳过（例如目录里的 README）
-            if (loader === undefined) {
+            if (!(`${path.slice(0, -".md".length)}.vue` in modules)) {
                 continue;
             }
-            subjectLoaders[name] ??= loader;
             const segments = path.split("/");
             // 目录路径 = 去掉文件名与 glob 根之后的每一段。
             // "../components/novel-ide/settings/sections/providers/components/X.md" → novel-ide / settings / sections / model / components
@@ -365,10 +354,4 @@ export const labComponents: LabComponentEntry[] = buildEntries();
 
 export function findLabComponent(name: string): LabComponentEntry | null {
     return labComponents.find((entry) => entry.name === name) ?? null;
-}
-
-/** 被测组件本身（不是 fixture）。组件不在索引里时为 null。 */
-export async function loadLabSubject(name: string): Promise<Component | null> {
-    const load = subjectLoaders[name];
-    return load === undefined ? null : (await load()).default;
 }

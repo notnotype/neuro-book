@@ -1,9 +1,12 @@
+import {isDeepStrictEqual} from "node:util";
 import {existsSync, readdirSync, readFileSync, statSync} from "node:fs";
 import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
+import {Value} from "typebox/value";
 import {describe, expect, it} from "vitest";
 import {labComponents} from "../component-index";
-import {findLabFixture, labFixtures} from "./index";
+import {LabSceneInputSchema} from "../lab-subject";
+import {findLabFixture, labFixtures, type LabFixture} from "./index";
 
 const fixturesRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -233,11 +236,13 @@ describe("Lab 场景覆盖", () => {
      * 多场景组件的 fixture 必须声明并消费 scene prop。
      * 严禁在 fixture 内部写死静态展示或平铺展示多个状态，否则工具条或 SegmentedControl 切换场景将无反应。
      */
-    it("多场景 fixture 必须声明并消费 scene prop", () => {
+    it("多场景 fixture 必须能让场景切换产生差异", () => {
         const multiSceneFixtures = labFixtures.filter((f) => f.scenes.length > 1);
         const missing: string[] = [];
 
         for (const entry of multiSceneFixtures) {
+            // 场景登记了分层输入时，切换场景换的就是输入，fixture 不必再认 scene
+            if (entry.scenes.every((scene) => scene.input !== undefined)) continue;
             const fixtureFileName = `${entry.component}Fixture.vue`;
             const filePath = join(fixturesRoot, fixtureFileName);
             if (!existsSync(filePath)) continue;
@@ -252,7 +257,7 @@ describe("Lab 场景覆盖", () => {
             }
         }
 
-        expect(missing, `这些登记了多个场景的组件 fixture 未声明或消费 scene prop，会导致切换场景无响应：${missing.join("、")}`).toEqual([]);
+        expect(missing, `这些登记了多个场景的组件既没有给每个场景登记 input，fixture 也不消费 scene prop，切换场景不会有反应：${missing.join("、")}`).toEqual([]);
     });
 
     /**
@@ -288,84 +293,90 @@ describe("Lab 场景覆盖", () => {
     });
 });
 
-describe("Component Lab 数据与状态契约", () => {
-    /**
-     * 场景 data 必须是可合法 JSON 序列化的值。
-     * JSON 编辑器直接使用 structuredClone / JSON 操作，非序列化值（如函数、Symbol）会导致运行时崩溃。
-     */
-    it("所有登记了 data 的场景都必须是合法的 JSON 序列化对象", () => {
-        const invalid: string[] = [];
-
-        for (const fixture of labFixtures) {
-            for (const scene of fixture.scenes) {
-                if (scene.data === undefined) continue;
-                try {
-                    const serialized = JSON.stringify(scene.data);
-                    if (serialized === undefined) {
-                        invalid.push(`${fixture.component}::${scene.id} (序列化为 undefined)`);
-                    } else {
-                        JSON.parse(serialized);
-                    }
-                } catch (error) {
-                    invalid.push(`${fixture.component}::${scene.id} (${(error as Error).message})`);
+function collectInputRegistrationIssues(fixtures: readonly Pick<LabFixture, "component" | "scenes" | "slots" | "noInput">[]): string[] {
+    const issues: string[] = [];
+    for (const fixture of fixtures) {
+        const reason = fixture.noInput?.trim() ?? "";
+        if (fixture.noInput !== undefined && reason === "") {
+            issues.push(`${fixture.component}：noInput 必须是非空理由`);
+        }
+        if (fixture.noInput !== undefined && fixture.slots !== undefined) {
+            issues.push(`${fixture.component}：noInput fixture 不能登记 slots 预设`);
+        }
+        for (const scene of fixture.scenes) {
+            const prefix = `${fixture.component}::${scene.id}`;
+            if (fixture.noInput !== undefined) {
+                if (scene.input !== undefined) issues.push(`${prefix}：noInput fixture 不能同时登记 input`);
+                continue;
+            }
+            if (scene.input === undefined) {
+                issues.push(`${prefix}：必须登记 input，或给无 props 组件提供 noInput 理由`);
+                continue;
+            }
+            const layers = [scene.input.props, scene.input.model, scene.input.slots];
+            if (layers.every((layer) => layer === undefined || Object.keys(layer).length === 0)) {
+                issues.push(`${prefix}：input 不能是空对象`);
+            }
+            for (const slotName of Object.keys(scene.input.slots ?? {})) {
+                if (!(fixture.slots ?? []).includes(slotName)) {
+                    issues.push(`${prefix}.slots.${slotName}：未登记 fixture 插槽预设`);
                 }
             }
         }
+    }
+    return issues;
+}
 
-        expect(invalid, `这些场景的 data 包含不可合法 JSON 化的数据：${invalid.join("、")}`).toEqual([]);
-    });
-
-    /**
-     * 核心交互零件防遗漏门禁：
-     * 具有用户交互或输入输出特性的核心零件，所有场景必须登记可改假数据 (data)，
-     * 严禁出现场景数据为空导致 Lab 右侧数据面板不可编辑。
-     */
-    it("已声明数据契约的交互零件必须完整登记场景假数据 (data)", () => {
-        const contractInteractiveComponents = [
-            "AgentUserInputPrompt",
-            "FixtureExample",
-        ];
-
-        const missingData: string[] = [];
-
-        for (const name of contractInteractiveComponents) {
-            const fixture = findLabFixture(name);
-            expect(fixture, `组件 ${name} 必须登记在 labFixtures`).not.toBeNull();
-            if (!fixture) continue;
-
-            for (const scene of fixture.scenes) {
-                if (scene.data === undefined || scene.data === null) {
-                    missingData.push(`${name}::${scene.id}`);
+function jsonRoundTripIssues(fixtures: readonly LabFixture[]): string[] {
+    const invalid: string[] = [];
+    for (const fixture of fixtures) {
+        for (const scene of fixture.scenes) {
+            if (scene.input === undefined) continue;
+            const name = `${fixture.component}::${scene.id}`;
+            try {
+                const serialized = JSON.stringify(scene.input);
+                const restored = JSON.parse(serialized);
+                if (!Value.Check(LabSceneInputSchema, scene.input) || !isDeepStrictEqual(restored, scene.input)) {
+                    invalid.push(name);
                 }
+            } catch {
+                invalid.push(name);
             }
         }
+    }
+    return invalid;
+}
 
-        expect(missingData, `这些核心交互零件的场景遗漏了假数据 (data) 登记，导致 Lab 数据面板不可编辑：${missingData.join("、")}`).toEqual([]);
+describe("Component Lab 分层输入契约", () => {
+    it("每个场景登记 input，或明确声明无输入理由", () => {
+        const issues = collectInputRegistrationIssues(labFixtures);
+        expect(issues, `分层输入登记问题：\n${issues.join("\n")}`).toEqual([]);
     });
 
-    /**
-     * 交互零件必须调用 useLabDataSink 同步状态输出，
-     * 确保 Lab 数据面板不仅能输入（改假数据），还能看到组件草稿与状态变化（输出）。
-     */
-    it("已声明数据契约的交互零件 fixture 必须调用 useLabDataSink 同步状态", () => {
-        const interactiveFixtures = [
-            "AgentUserInputPromptFixture.vue",
-            "FixtureExampleFixture.vue",
-        ];
+    it("场景 input 符合分层 schema 且能无损 JSON 往返", () => {
+        const invalid = jsonRoundTripIssues(labFixtures);
+        expect(invalid, `这些场景的 input 不是合法 JSON 分层对象：${invalid.join("、")}`).toEqual([]);
+    });
 
-        const missingSink: string[] = [];
+    it("登记的插槽预设都被至少一个场景使用", () => {
+        const unused = labFixtures.flatMap((fixture) => (fixture.slots ?? [])
+            .filter((name) => !fixture.scenes.some((scene) => scene.input?.slots?.[name] !== undefined))
+            .map((name) => `${fixture.component}#${name}`));
+        expect(unused, `这些插槽预设没有任何场景开关它们：${unused.join("、")}`).toEqual([]);
+    });
 
-        for (const fileName of interactiveFixtures) {
-            const filePath = join(fixturesRoot, fileName);
-            if (!existsSync(filePath)) continue;
-            const content = readFileSync(filePath, "utf8");
-
-            if (!content.includes("useLabDataSink")) {
-                missingSink.push(fileName);
-            }
-        }
-
-        expect(missingSink, `这些交互零件 fixture 缺少 useLabDataSink，导致用户操作无法反映到 Lab 数据面板：${missingSink.join("、")}`).toEqual([]);
+    it("边界样例收集缺输入、空输入和坏 JSON", () => {
+        const fixture = {component: "Probe", scenes: [
+            {id: "missing", label: "缺输入"},
+            {id: "empty", label: "空输入", input: {}},
+            {id: "bad", label: "坏值", input: {props: {value: undefined}}},
+        ], slots: []} satisfies Pick<LabFixture, "component" | "scenes" | "slots">;
+        const registrationIssues = collectInputRegistrationIssues([fixture]);
+        expect(registrationIssues).toEqual([
+            "Probe::missing：必须登记 input，或给无 props 组件提供 noInput 理由",
+            "Probe::empty：input 不能是空对象",
+        ]);
+        expect(jsonRoundTripIssues([fixture as unknown as LabFixture])).toEqual(["Probe::bad"]);
     });
 });
 

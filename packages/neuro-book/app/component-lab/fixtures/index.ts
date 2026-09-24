@@ -1,5 +1,6 @@
+import type FixtureExample from "../FixtureExample.vue";
 import type {Component} from "vue";
-import type {LabSceneInput} from "../lab-subject";
+import type {LabInputOf, LabPropOf, LabSlotOf, LabSubjectProps} from "../lab-subject";
 
 /**
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
@@ -8,25 +9,47 @@ import type {LabSceneInput} from "../lab-subject";
 export type LabScene = {
     id: string;
     label: string;
-    /**
-     * 这个场景的输入初值，按被测组件的签名分层（props / model / slots），键名与组件签名逐字一致。
-     * Lab 把它交给 fixture 的 `input`，并在数据 tab 分层就地改；fixture 用 `useLabSubject` 绑到组件上。
-     * 不写表示这个场景没有可改的输入。必须能 JSON 化——改输入用的是 JSON 编辑器。
-     */
-    input?: LabSceneInput;
+    /** 运行时消费的宽化输入；登记入口负责把它约束到组件类型。 */
+    input?: {props?: Record<string, unknown>; model?: Record<string, unknown>; slots?: Record<string, boolean>};
 };
+
+declare const LAB_FIXTURE_BRAND: unique symbol;
 
 export type LabFixture = {
     /** 与组件文档同名 */
     component: string;
     scenes: LabScene[];
-    /**
-     * fixture 为哪些插槽备了预设内容（插槽名与组件一致）。场景的 `input.slots` 只能开关这里列出的插槽；
-     * 插槽没有运行时声明，Lab 只能从这里知道有哪些可切换。
-     */
+    /** 无输入组件的显式理由；有 props 的组件不能借此跳过输入登记。 */
+    noInput?: string;
+    /** fixture 为哪些插槽备了预设内容。 */
     slots?: readonly string[];
     load: () => Promise<Component>;
+    readonly [LAB_FIXTURE_BRAND]: true;
 };
+
+export type LabFixtureDefinition<C> = {
+    component: string;
+    load: () => Promise<Component>;
+} & (
+    | {
+        noInput?: never;
+        slots?: readonly LabSlotOf<C>[];
+        scenes: Array<{id: string; label: string; input: LabInputOf<C>}>;
+    }
+    | ([LabPropOf<C>] extends [never] ? {
+        noInput: string;
+        slots?: never;
+        scenes: Array<{id: string; label: string; input?: never}>;
+    } : never)
+);
+
+/** 唯一的类型化 fixture 登记入口；运行时只返回登记对象，不加载组件或推导签名。 */
+export function defineLabFixture<C = never>(
+    definition: [C] extends [never] ? never : [LabSubjectProps<C>] extends [never] ? never : LabFixtureDefinition<C>,
+): LabFixture {
+    // 类型检查发生在入口参数；消费方需要的宽化 registry 类型在此处擦除一次。
+    return definition as unknown as LabFixture;
+}
 
 /**
  * fixture 在被检视的那个零件上加 `data-lab-subject`，Lab 据此画常亮描边。
@@ -85,60 +108,88 @@ export const labFixtures: LabFixture[] = [
         ],
         load: async () => (await import("./HighlightBoxFixture.vue")).default,
     },
-    {
+    defineLabFixture<typeof FixtureExample>({
         component: "FixtureExample",
+        slots: ["extra"],
         scenes: [
             {
                 id: "default",
                 label: "默认受控卡片（居中与标准材质示范）",
-                data: {
-                    title: "章节大纲智能体编排",
-                    description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
-                    status: "ready",
-                    count: 12,
-                    active: false,
-                    disabled: false,
+                input: {
+                    props: {
+                        title: "章节大纲智能体编排",
+                        description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
+                        status: "ready",
+                        count: 12,
+                        active: false,
+                        disabled: false,
+                    },
+                    slots: {extra: true},
                 },
             },
             {
                 id: "active",
                 label: "激活态与高亮外框",
-                data: {
-                    title: "章节大纲智能体编排",
-                    description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
-                    status: "ready",
-                    count: 12,
-                    active: true,
-                    disabled: false,
+                input: {
+                    props: {
+                        title: "章节大纲智能体编排",
+                        description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
+                        status: "ready",
+                        count: 12,
+                        active: true,
+                        disabled: false,
+                    },
+                    slots: {extra: true},
                 },
             },
             {
                 id: "busy",
                 label: "忙碌呼吸状态",
-                data: {
-                    title: "正在生成第三卷剧情推演",
-                    description: "后台正在计算角色动机转移概率矩阵与未回收伏笔拓扑图...",
-                    status: "busy",
-                    count: 99,
-                    active: true,
-                    disabled: false,
+                input: {
+                    props: {
+                        title: "正在生成第三卷剧情推演",
+                        description: "后台正在计算角色动机转移概率矩阵与未回收伏笔拓扑图...",
+                        status: "busy",
+                        count: 99,
+                        active: true,
+                        disabled: false,
+                    },
+                    slots: {extra: true},
                 },
             },
             {
                 id: "warning",
                 label: "警告冲突状态",
-                data: {
-                    title: "检测到人物性格设定冲突",
-                    description: "角色「沈屿」在第二章的对话用词与素材库口吻约定存在 2 处偏差。",
-                    status: "warning",
-                    count: 2,
-                    active: false,
-                    disabled: false,
+                input: {
+                    props: {
+                        title: "检测到人物性格设定冲突",
+                        description: "角色「沈屿」在第二章的对话用词与素材库口吻约定存在 2 处偏差。",
+                        status: "warning",
+                        count: 2,
+                        active: false,
+                        disabled: false,
+                    },
+                    slots: {extra: false},
+                },
+            },
+            {
+                id: "disabled",
+                label: "禁用态",
+                input: {
+                    props: {
+                        title: "章节大纲智能体编排",
+                        description: "负责小说卷级与章级大纲的递归展开，维护伏笔与人物动机一致性。",
+                        status: "ready",
+                        count: 12,
+                        active: false,
+                        disabled: true,
+                    },
+                    slots: {extra: false},
                 },
             },
         ],
         load: async () => (await import("./FixtureExampleFixture.vue")).default,
-    },
+    }),
     {
         component: "JsonViewer",
         scenes: [

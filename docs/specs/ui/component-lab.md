@@ -38,7 +38,9 @@ Lab 是只存在于源码开发环境的组件检视入口。它提供组件导�
 - **Lab**：源码开发环境专属的组件检视入口。
 - **组件索引**：从产品组件和 Lab 零件的同名 Markdown 文档扫描得到的派生导航数据，不是人工维护的第二份清单。
 - **fixture**：固定输入与交互场景。重复运行结果相同，不含真实用户数据，不产生真实产品副作用。
-- **场景**：某个 fixture 登记的一组固定初始数据和呈现方式；场景不是组件索引的一部分。
+- **分层输入**：fixture 在登记入口显式声明的 `{props?, model?, slots?}` 调试输入。`model` 是 fixture 声明的 v-model 受控值，`props` 是 fixture 声明的非受控 prop，`slots` 是 fixture 自己提供的插槽预设开关；Lab 不从组件实现推导这些层。
+- **调试声明**：`defineLabFixture<typeof C>` 对场景输入的编译期约束，加上 fixture 通过 `useLabSubject` 显式声明要记录的事件。声明描述 Lab 应展示什么，不替 fixture 负责把值接到组件。
+- **登记门禁**：`fixtures/index.test.ts` 对每个场景检查非空 `input` 或有理由的 `noInput`，对分层 schema、JSON 无损往返和插槽预设关系做运行时检查；TypeScript 检查组件字段名、值类型、必填 prop 和 model 分层。
 - **检查器**：对 Lab 页面 DOM 元素进行 hover 探针、点击选中、尺寸/组件/源文件/选择器展示和定位报告复制的开发工具。
 - **确定性场景**：可以由 fixture 完整表达的场景，位置在 Lab。
 - **真实行为场景**：必须在正式界面并使用真实产品边界验证的场景，不能用 fixture 替代。
@@ -59,8 +61,8 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 
 ## 输出与可观察行为
 - 进入 Lab 后，左侧显示按目录分组的组件树；组件索引包含可挂载和不可挂载条目。不可挂载条目可查询，但中栏显示不能在 Lab 验证的原因，不创建替代 fixture；声明了 `验证入口` 的零件，中栏的原因下方另给一条直达宿主场景的入口。行首图形按组件分类给，被别处声明为验证入口的集成入口另有独立图形，不与普通分类混同。
-- 右侧检视面板固定提供五个 tab：`文档`、`元素`、`事件`、`数据`、`命令`。文档 tab 展示能力标签、挂载结论和同名组件文档；事件 tab 展示当前会话事件并可清空；数据 tab 展示当前场景的可编辑 JSON 或明确说明该场景没有可改数据；命令 tab 只读展示当前注册表的 canonical metadata（按 domain 分组）、`when` 的共享求值结果、有效 expose 与当前上下文键字典，以及本会话最近 200 条命令执行记录，不在 tab 内执行命令或修改上下文。
-- 场景选择位于画布工具条。组件有多个 fixture 场景时切换场景直接替换组件，不插入空白退场阶段；场景切换和数据还原回到登记的初始数据，并清空事件日志。
+- 数据 tab 只展示 fixture 当前场景登记的层：已登记的 `model` 与 `props` 可编辑，已登记的 `slots` 预设可开关，另有 fixture 上报的只读「内部状态」。编辑结果须整份通过分层 schema 才生效，不合法时保持原值并说明原因。Lab 不显示组件实现签名、不生成签名问题清单、不为未声明层凭空增加编辑器；场景没有登记输入时显示迁移提示或 `noInput` 理由。fixture 通过 `useLabSubject` 显式接入事件和 model 回写。
+- 场景选择位于画布工具条。组件有多个 fixture 场景时切换场景直接替换组件，不插入空白退场阶段；场景切换和「还原输入」恢复登记初值并清空内部状态与事件日志。还原输入不承诺重置 fixture 私有 ref；只有场景切换的舞台 key 会重新挂载 fixture。
 - 检查模式下 hover 显示不接收鼠标事件的虚线探针框和标签；点击后固定元素描述，切换到元素 tab，保留贴边标签但不绘制常驻整块边框。描述包含可用时的 Vue 组件名、包内相对源文件、选择器、尺寸和类名；可复制完整定位报告，按 Escape 退出探针。
 - Lab 提供随窗口、手机和 tablet 三种画布容器；手机固定为 `390 × 844`，平板固定为 `768 × 1024`，并允许自由宽高。切换容器不改变 fixture 语义。
 - Fixture 容器在声明最大宽度约束时必须携带 `mx-auto` 水平居中，陈列区使用 flex 居中，严禁靠左贴死导致视口失衡；Fixture 必须消费面板级语义材质变量（`var(--panel-surface)`、`var(--bg-panel)` 等），严禁在 Fixture 容器上硬编码页面顶层底色 `var(--bg-main)`，确保与舞台材质层级以及明暗主题对齐。典型夹具示范见 `packages/neuro-book/app/component-lab/fixtures/FixtureExampleFixture.vue` 与 `fixtures/README.md`。
@@ -72,7 +74,7 @@ fixture 不得要求凭据、网络、真实 Project/Session、Provider/Model �
 
 本能力不引入产品侧持久状态。场景加载、动作执行、搜索、选中元素与事件日志都只存在于当前页面，不写入任何产品数据；Lab 自己的界面偏好是唯一例外，按本节的字段白名单保存在浏览器里。
 
-组件切换时选择首个登记场景并加载对应 fixture；场景切换和数据还原将数据恢复为登记初值并清空当前事件日志。fixture 数据、搜索词、选中元素与事件日志不写入浏览器存储；当前组件、场景与检视 tab 属于界面偏好，按下一节的字段白名单持久化。
+组件切换时选择首个登记场景并加载对应 fixture；场景切换和数据还原将输入恢复为登记初值并清空内部状态与事件日志。fixture 输入、内部状态、搜索词、选中元素与事件日志不写入浏览器存储；当前组件、场景与检视 tab 属于界面偏好，按下一节的字段白名单持久化。
 
 Lab 自身的界面偏好保存在本机浏览器：主题、配色、桌面背景、画布背景、缩放、画布宽高、桌面侧栏开合与当前检视 tab 写入版本化 localStorage 文档；自定义桌面壁纸 Blob 继续写入 Lab 专属 IndexedDB。窄屏自动收起只改变当前布局，不覆盖桌面侧栏偏好。界面提供“恢复 Lab 默认配置”清除小型偏好；壁纸由自定义图片旁的“清除”操作单独删除。
 
@@ -84,7 +86,7 @@ Lab 只读取版本控制内的组件声明与 fixture，并维护本地开发�
 
 localStorage 文档键为 `nb-lab:preferences:v1`，schema 为 `1`；字段白名单为 `themeId`、`colorwayId`、`pageBackdropId`、`canvasBackdropId`、`canvasZoom`、`canvasWidth`、`canvasHeight`、`leftCollapsed`、`rightCollapsed`、`leftPanelWidth`、`rightPanelWidth`、`selectedComponentName`、`selectedSceneId`、`activeInspectTab`（检视 tab 取值 `doc`、`element`、`events`、`data`、`commands`）。画布尺寸只接受 `0..16384` 的整数，枚举值必须仍在当前登记表中。壁纸使用 IndexedDB `nb-lab` 数据库的 `prefs` store 与 `wallpaper` key。
 
-fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、真实接口，也不依赖跨场景共享的状态。fixture 通过 Lab 提供的会话级事件 sink 上报事件，Lab 在内存中最多保留最近 200 条。
+fixture 使用脱敏的静态或内存数据，不调用真实 Provider/Model、真实接口，也不依赖跨场景共享的状态。fixture 通过 `useLabSubject` 接入分层输入与事件记录，通过 `useLabDataSink` 上报只读内部状态；Lab 在内存中最多保留最近 200 条事件。
 
 产物排除是构建阶段的边界：源码开发环境注册 Lab，可分发产物既不注册也不打包。验收产生的截图与日志写入系统临时根，不进入仓库或产物。
 
@@ -110,7 +112,7 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 ## 验收与 Smoke
 
 1. Given Source Dev 服务，When 打开 `/lab`，Then 显示按组的组件树、当前组件画布和 `文档`、`元素`、`事件`、`数据`、`命令` 五个可切换 tab。
-2. Given 组件索引中的可挂载项，When 选择组件并切换已登记场景，Then fixture 被挂载，场景直接替换，数据 tab 可还原可编辑数据，重复打开或还原后初始输入与可观察状态一致。
+2. Given 组件索引中的可挂载项，When 选择组件并切换已登记场景，Then fixture 被挂载，场景直接替换，数据 tab 分层展示可编辑输入并可还原，重复打开或还原后初始输入与可观察状态一致。
 3. Given 缺少组件文档或同名 `.vue` 的条目，When 生成组件索引，Then 该条目不出现在导航；Given 已入索引但带阻断标签的组件，When 选择它，Then 中栏显示不能挂载的原因，不挂载替代 fixture；Given 声明了 `验证入口` 的零件，When 选择它，Then 中栏给出原因与一条直达宿主场景的入口，且不加载独立场景；Given 仓库中的可挂载组件，When 运行 `fixtures/index.test.ts`，Then 缺少非空场景或 loader 即失败。
 4. Given 含 `state:shared-read` 且没有其它阻断标签的组件，When Lab 将其标记为需状态快照，Then 在快照注入机制实现并验证前，不得把它在 Lab 中挂载成功写成确定性验证通过。
 5. Given 检查模式，When hover 或点击 Lab 元素，Then hover 有虚线探针，点击后元素 tab 显示可复制定位报告，选中元素不绘制常驻整块边框，Escape 可退出检查。
@@ -120,12 +122,13 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 9. Given localStorage 中存在损坏 JSON、未知 schema、未知枚举或越界尺寸，When Lab 加载，Then 无效值被拒绝、有效字段仍恢复、fixture 初始输入不变且页面可继续使用。
 10. Given Product 构建，When 检查路由、模块图、文本与清单，Then 不存在 Lab 模块、fixture、开发绝对路径或识别标记，访问 Lab 路径为不存在。
 11. Given 带 frontmatter 别名的部件文档，When 在导航检索里输入组件名、文档显示名或中文/英文别名，Then 都能命中同一个 canonical 条目；没有别名的组件只按组件名与显示名匹配，别名写坏时给开发诊断且不影响其余条目。
+12. Given fixture 通过类型化登记声明分层输入，When 打开数据 tab，Then 只显示声明过的层；When fixture 声明的 model 对应 update 事件发生，Then 事件 tab 记录它且数据 tab 的 model 值通过输入 sink 更新。Given 场景缺 input 且无合法 noInput，Then `fixtures/index.test.ts` 报出组件与场景；Given 登记键名、值类型、必填 prop 或层级错误，Then `nuxt typecheck` 报错。Lab 不读取组件运行时签名。
 
 ## 实现合同
 
 - **owner**：`packages/neuro-book/app/component-lab/` 持有 Lab 页面状态、fixture 关联、检查器与界面偏好；`packages/nb-ui` 持有被消费的通用 Tree、Tabs、表单等公共组件合同；产品组件自身继续由各领域 owner 持有。
-- **公开入口**：`packages/neuro-book/app/pages/lab.vue` 仅在 Source Dev 构建图注册；`packages/neuro-book/scripts/smoke/component-lab.ts` 是自动浏览器 smoke 入口。
-- **索引边界**：`component-index.ts` 扫描同名 Markdown 与 Vue 模块，只收录两者同时存在的条目，解析能力标签、可选别名与可选 `验证入口`、从文档第一条 H1 派生显示名，并推导 `mountable`、`blockedReason`、`verifyEntry`、`integrationEntry`、`needsSnapshot`；检索按组件名、显示名与别名匹配（不搜正文）；`fixtures/` 只登记场景与动态 fixture loader，不复制组件索引。`needsSnapshot` 当前不连接任何快照 provider；`verifyEntry` 指向的组件必须仍在索引里，写坏时给开发诊断并降级为「只在宿主场景里观察」；`integrationEntry` 由「被别的条目当作验证入口」这一关系派生，导航据此给它区别于普通分类的图形，被指向的组件必须自己可挂载。
+- **索引边界**：`component-index.ts` 扫描同名 Markdown 与 Vue 模块，只收录两者同时存在的条目，解析能力标签、可选别名与可选 `验证入口`、从文档第一条 H1 派生显示名，并推导 `mountable`、`blockedReason`、`verifyEntry`、`integrationEntry`、`needsSnapshot`。检索按组件名、显示名与别名匹配（不搜正文）；`fixtures/` 登记场景、显式分层输入、插槽预设名、类型化 fixture loader；不从组件实现生成 props/emits/slots 数据。
+- **输入边界**：`lab-subject.ts` 持有分层 schema、`LabInputOf<C>` 类型约束和 `useLabSubject` 接入 API；`fixtures/index.ts` 的 `defineLabFixture<typeof C>` 是唯一类型化登记入口。LabShell 只做编辑值的 JSON 形状校验，不读取运行时组件签名。
 - **状态与持久化边界**：LabShell 持有页面编排和当前状态；`useLabPreferences` 与 `lab-preferences-store` 只负责 Lab 界面偏好的校验、恢复、保存、重置和 fail-open；`lab-wallpaper-store` 只负责 Lab 壁纸 Blob。产品主题、Global Config 和业务数据不由 Lab 持有。
 - **关键不变量**：Product 构建通过 `pages:extend` 在路由生成阶段移除 `/lab`，使仅由 Lab 引用的模块不可达；Tree 对外维持 string-id，Reka 节点对象不泄漏；场景切换/还原不改变 fixture 初始合同；存储异常不阻断 Lab 打开。
 - **验证入口**：Lab 偏好 store/composable 与 HighlightBox 合同测试、NeuroBook Component Lab 测试、nb-ui Tree 回归测试，以及真实 NeuroBook `/lab` smoke。当前 t09 文件拆分、产品 `theme.system` clean cutover 和渐进组件迁移不属于本实现合同。
@@ -137,3 +140,4 @@ Lab 落地本身不授权删除任何既有的 preview 页面。既有 preview �
 - 真实 NeuroBook smoke：`bun run smoke:component-lab:core -- --url http://127.0.0.1:3000 --browser-executable <chromium>` 与 `bun run smoke:component-lab:agent-profile -- --url http://127.0.0.1:3000 --browser-executable <chromium>`；完整组合入口仍为 `bun run smoke:component-lab -- --url http://127.0.0.1:3000 --browser-executable <chromium>`。
 - Product 排除证据：t05/t06 walkthrough 记录真实 `NODE_ENV=production bun x nuxt build` 后的产物全文与路由表检查，Lab 模块、fixture、开发路径和 `/lab` 均无命中；同一产物的正式路由命中证明扫描方法有效。该机制后续未被 t07–t11 改动，当前 Spec 不把未在 `17f8197eb73851645d0ffb04dcd51057bb098b66` 重跑的完整 Product build 写成最新验证。
 - 当前未完成范围：t09 `LabShell.vue <800` 仍延期；产品主题 `theme.system` clean cutover 尚未开始；渐进式组件迁移尚未完成；nb-ui 全量 E2E 仍有 17 项既有失败；人工视觉验收未获授权。
+- 迁移窗口：分层输入合同落地时只迁移了示范组件 `FixtureExample`；其余场景仍登记旧的 `data` 字段（类型检查逐条报错即迁移清单），运行时 Lab 不再把它交给 fixture，数据 tab 对这些场景显示「没有登记输入」。迁移完成前，这些 fixture 的数据面板不可编辑。
