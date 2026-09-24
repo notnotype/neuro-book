@@ -9,7 +9,7 @@ owners:
 
 # Workbench 外壳接入
 
-> 2026-09-22 拖拽需求已获开发者批准并进入实现，规格状态仍为 `planned`，不由 Tasker 自行晋升。Editor 合同保持不变；Workbench 内容区前后各 50%、Switcher 单 View 建容器、空成员清理、半区比例与全收起剩余区域已接入模型及宿主，验证证据以关联 Task 的最新实施记录为准。
+> 2026-09-22 拖拽需求已获开发者批准并进入实现，规格状态仍为 `planned`，不由 Tasker 自行晋升。Editor 合同保持不变；Workbench 内容区前后各 50%、Switcher 单 View 建容器、空成员清理、半区比例与全收起剩余区域（交互设计意图见 [`workbench-collapsed-view-drop.md`](../../intent/workbench-collapsed-view-drop.md) 与 [`workbench-single-container-title.md`](../../intent/workbench-single-container-title.md)）已接入模型及宿主，验证证据以关联 Task 的最新实施记录为准。
 
 ## 目标与非目标
 

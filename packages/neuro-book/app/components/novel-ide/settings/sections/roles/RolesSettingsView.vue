@@ -72,6 +72,10 @@ function removeRole(id: string): void {
     emit("update:modelValue", removeRoleFromDraft(props.modelValue, id));
 }
 
+function toggleSpecialistInPicker(enabled: boolean): void {
+    emit("update:modelValue", {...props.modelValue, showSpecialistInPicker: enabled});
+}
+
 /** 内置角色只能启用/停用，提示里顺带说明建议模型。 */
 function roleTip(role: ModelRoleDraft): string {
     const parts: string[] = [];
@@ -109,9 +113,20 @@ function roleTip(role: ModelRoleDraft): string {
             :key="axis.axis"
             class="mt-[var(--space-4)] border-t border-[var(--divider)] pt-[var(--space-4)]"
         >
-            <div class="min-w-0">
-                <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ axis.title }}</h3>
-                <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ axis.hint }}</p>
+            <div class="flex items-start justify-between gap-[var(--space-4)]">
+                <div class="min-w-0 flex-1">
+                    <h3 class="text-[var(--text-sm)] [font-weight:var(--weight-medium)] leading-[var(--leading-ui)] text-[var(--text-main)]">{{ axis.title }}</h3>
+                    <p class="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-ui)] text-[var(--text-secondary)]">{{ axis.hint }}</p>
+                </div>
+                <div v-if="axis.axis === 'specialist'" class="flex shrink-0 items-center gap-[var(--space-2)] pt-0.5">
+                    <span class="text-[var(--text-xs)] text-[var(--text-secondary)]">{{ t("settings.panels.roles.showSpecialistInPicker") }}</span>
+                    <Switch
+                        :model-value="Boolean(props.modelValue.showSpecialistInPicker)"
+                        :disabled="props.disabled"
+                        :aria-label="t('settings.panels.roles.showSpecialistInPicker')"
+                        @update:model-value="toggleSpecialistInPicker($event)"
+                    />
+                </div>
             </div>
 
             <div class="mt-[var(--space-3)] flex flex-col">

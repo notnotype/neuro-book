@@ -186,7 +186,7 @@ const switcherGeometryRead = (): WorkbenchDropSwitcherRects | null => {
     const host = selectorRef.value;
     if (host === null || !showTabs.value) return null;
     const tabs = new Map<string, Element>();
-    for (const element of selectorRef.value.querySelectorAll("[data-container-tab]")) {
+    for (const element of host.querySelectorAll("[data-container-tab]")) {
         const containerId = element.getAttribute("data-container-tab");
         if (containerId !== null && !tabs.has(containerId)) {
             tabs.set(containerId, element);
@@ -240,8 +240,6 @@ useDroppable<WorkbenchSwitcherDropData>({
         location: PART_TARGET_LOCATION[partId.value],
         switcherScope: switcherScope.value,
     })),
-    /** 命中口径与几何读法同源：可见矩形 + 指针遮挡（被裁掉 / 被浮层盖住都不接收）。 */
-    element: selectorRef,
     /** 条目带是最粗的一档：精确条目（容器标签 / 活动栏条目）优先于它。 */
     collisionPriority: CollisionPriority.Low,
     element: headRef,

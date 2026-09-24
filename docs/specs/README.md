@@ -108,6 +108,7 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Component Lab | [`ui/component-lab.md`](ui/component-lab.md) | Source Dev-only 确定性 fixture、组件导航、检视面板、响应式容器、偏好和 Product 排除合同；产品主题与渐进组件迁移仍属后续切片 |
 | Workbench 命令系统 | [`workbench/commands.md`](workbench/commands.md) | 注册登记、`when` 求值、执行管线、暴露策略与审计；六条首批命令在 Component Lab 闭环，实现与合同测试闭合 |
 | Workbench 快速打开 | [`workbench/quick-open.md`](workbench/quick-open.md) | 单控件两模（命令搜索与行号跳转）、会话 MRU、S4 浮层键盘与焦点交接；实现与 Lab 验收闭合，主页面接入不在本批 |
+| 模型角色与通用模型选择器 | [`ui/model-role-selection.md`](ui/model-role-selection.md) | 梯度轴与专精轴快速选择、通用模型高密度浏览搜索、会话临时覆盖与状态栏联动已由代码与业务集成支持 |
 
 ## 待实现规范
 以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。

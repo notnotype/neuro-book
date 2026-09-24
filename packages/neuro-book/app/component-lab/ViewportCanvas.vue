@@ -60,7 +60,7 @@ const boxStyle = computed(() => {
     } else {
         // tight 模式：小部件在未指定宽度时，默认给予 640px 舒适操作宽度（不超过视区）
         style.width = "640px";
-        style.maxWidth = "calc(100% - 2 * var(--space-7))";
+        style.maxWidth = "100%";
     }
 
     if (shownHeight.value > 0) {

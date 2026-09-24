@@ -68,9 +68,9 @@ function handleSelect(item: DropdownItem): void {
 }
 
 const triggerRef = ref<HTMLElement | null>(null);
-function setTriggerRef(element: {$el?: HTMLElement} | HTMLElement | null): void {
-    const node = element && "$el" in element ? element.$el : element;
-    triggerRef.value = node && "getBoundingClientRect" in node ? node : null;
+function setTriggerRef(element: unknown): void {
+    const node = element && typeof element === "object" && "$el" in element ? (element as { $el?: HTMLElement }).$el : element;
+    triggerRef.value = node && typeof node === "object" && "getBoundingClientRect" in node ? (node as HTMLElement) : null;
 }
 const unscaledAnchor = computed(() => {
     const trigger = triggerRef.value;

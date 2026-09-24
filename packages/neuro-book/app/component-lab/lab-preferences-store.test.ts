@@ -1,11 +1,15 @@
 import {describe, expect, it} from "vitest";
 import {
     LAB_PREFERENCES_STORAGE_KEY,
+    LAB_SESSION_STORAGE_KEY,
     clearLabPreferences,
+    clearLabSession,
     loadLabPreferences,
+    loadLabSession,
     saveLabPreferences,
+    saveLabSession,
 } from "./lab-preferences-store";
-import type {LabPreferenceCatalog, LabPreferences} from "./lab-preferences-store";
+import type {LabPreferenceCatalog, LabPreferences, LabSessionState} from "./lab-preferences-store";
 
 const catalog: LabPreferenceCatalog = {
     themeIds: ["nbook", "macos"],
@@ -92,6 +96,49 @@ describe("Lab preferences store", () => {
         expect(saveLabPreferences(storage, preferences)).toBe(false);
         expect(clearLabPreferences(storage)).toBe(false);
         expect(loadLabPreferences(storage, catalog)).toEqual({});
+    });
+});
+
+describe("Lab session store", () => {
+    const session: LabSessionState = {
+        schema: 1,
+        selectedComponentName: "EditorWorkbench",
+        selectedSceneId: "mixed",
+        activeInspectTab: "element",
+        canvasZoom: 2,
+        canvasWidth: 800,
+        canvasHeight: 600,
+    };
+
+    it("round-trips validated tab-isolated session state", () => {
+        const storage = new MemoryStorage();
+        expect(saveLabSession(storage, session)).toBe(true);
+        expect(loadLabSession(storage, catalog)).toEqual(session);
+    });
+
+    it("drops invalid components, scenes, tabs and negative sizes", () => {
+        const storage = new MemoryStorage();
+        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({
+            schema: 1,
+            selectedComponentName: "NonExistentComponent",
+            selectedSceneId: "bad scene name with spaces",
+            activeInspectTab: "invalid-tab",
+            canvasZoom: 99,
+            canvasWidth: -50,
+            canvasHeight: 600,
+        }));
+        expect(loadLabSession(storage, catalog)).toEqual({
+            schema: 1,
+            canvasHeight: 600,
+        });
+    });
+
+    it("clears session cleanly", () => {
+        const storage = new MemoryStorage();
+        saveLabSession(storage, session);
+        expect(loadLabSession(storage, catalog)).toEqual(session);
+        expect(clearLabSession(storage)).toBe(true);
+        expect(loadLabSession(storage, catalog)).toEqual({});
     });
 });
 

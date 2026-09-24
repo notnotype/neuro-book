@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import LowCodeForm from "nbook/app/components/common/low-code-form/LowCodeForm.vue";
-import AgentComposerInput from "../../composer/AgentComposerInput.vue";
+import AgentComposerInput from "./AgentComposerInput.vue";
 import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 import {
     isPlanSuggestion,
@@ -64,11 +64,23 @@ const planSuggestionSelected = computed(() => Boolean(
     activeQuestion.value
     && isPlanSuggestion(activeQuestion.value, activeAnswer.value.selectedOptionIndex),
 ));
+const isPrimaryInput = computed(() => {
+    const question = activeQuestion.value;
+    if (!question || question.options.length === 0) return true;
+    if (activeAnswer.value.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX) return true;
+    return planSuggestionSelected.value;
+});
 /** 备注/回答输入区常显（Task 137）：未选选项时也直接展示，减少一次点击才发现入口的成本。 */
 const showNoteInput = computed(() => Boolean(activeQuestion.value));
+const isSingleItem = computed(() => items.value.length <= 1);
+const isLastItem = computed(() => activeIndex.value >= items.value.length - 1);
+const isNextStepSubmit = computed(() => {
+    if (allComplete.value || isSingleItem.value) return true;
+    return completedCount.value === items.value.length - 1 && !currentComplete.value && isLastItem.value;
+});
 const primaryLabel = computed(() => {
     if (activeForm.value && !activeFormDraft.value.confirmed) return t("agent.userInput.confirmItem");
-    if (allComplete.value) return t("agent.userInput.submitAll");
+    if (isNextStepSubmit.value) return t("agent.userInput.submitAll");
     return t("agent.userInput.next");
 });
 const primaryDisabled = computed(() => {
@@ -187,14 +199,20 @@ function handlePrimary(): void {
         confirmForm(item);
         return;
     }
-    if (allComplete.value) {
+    if (allComplete.value || isSingleItem.value) {
         emit("submit");
         return;
     }
     const nextIndex = items.value.findIndex((candidate, index) => index > activeIndex.value
         && !pendingResolutionItemComplete(candidate, props.draft));
     const fallbackIndex = items.value.findIndex((candidate) => !pendingResolutionItemComplete(candidate, props.draft));
-    switchItem(nextIndex >= 0 ? nextIndex : fallbackIndex);
+    if (nextIndex >= 0) {
+        switchItem(nextIndex);
+    } else if (fallbackIndex >= 0 && fallbackIndex !== activeIndex.value) {
+        switchItem(fallbackIndex);
+    } else {
+        emit("submit");
+    }
 }
 </script>
 
@@ -202,31 +220,38 @@ function handlePrimary(): void {
     <!-- Task 63：唯一的会话待处理输入入口；历史气泡只展示摘要。 -->
     <section
         v-if="activeItem"
-        class="grid h-[clamp(320px,50dvh,420px)] min-w-0 w-full grid-rows-[auto_auto_minmax(0,1fr)_auto] overflow-hidden rounded-lg border border-[var(--status-warning-border)] bg-[var(--bg-panel)] shadow-sm"
+        class="flex flex-col min-h-[220px] max-h-[min(560px,78dvh)] min-w-0 w-full overflow-hidden rounded-lg border border-[var(--status-warning-border)] bg-[var(--bg-panel)] shadow-sm"
         role="region"
         :aria-label="t('agent.userInput.pendingRegion')"
         :aria-busy="props.submitting ? 'true' : 'false'"
     >
-        <header class="flex min-w-0 items-center justify-between gap-3 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2">
-            <div class="min-w-0">
-                <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] font-medium text-[var(--status-warning)]">
-                    <span class="inline-flex items-center gap-1.5"><span class="i-lucide-message-square-more h-3.5 w-3.5"></span>{{ t("agent.userInput.pendingTitle") }}</span>
-                    <span class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-subtle)] px-2 py-0.5 tabular-nums">{{ activeIndex + 1 }} / {{ items.length }}</span>
-                    <span class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-subtle)] px-2 py-0.5 tabular-nums">{{ t("agent.userInput.answeredProgress", {answered: completedCount, total: items.length}) }}</span>
-                </div>
-                <div class="mt-0.5 text-xs font-medium text-[var(--text-main)]">{{ questionTypeLabel }}</div>
+        <header class="flex shrink-0 min-w-0 items-center justify-between gap-3 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-1.5">
+            <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                <span class="inline-flex items-center gap-1.5 font-medium text-[var(--status-warning)]">
+                    <span class="i-lucide-message-square-more h-3.5 w-3.5"></span>
+                    {{ t("agent.userInput.pendingTitle") }}
+                </span>
+                <span v-if="items.length > 1" class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-subtle)] px-2 py-0.2 text-[11px] tabular-nums text-[var(--text-secondary)]">
+                    {{ activeIndex + 1 }} / {{ items.length }}
+                </span>
+                <span v-if="items.length > 1" class="rounded-full border border-[var(--status-warning-border)] bg-[var(--bg-subtle)] px-2 py-0.2 text-[11px] tabular-nums text-[var(--text-muted)]">
+                    {{ t("agent.userInput.answeredProgress", {answered: completedCount, total: items.length}) }}
+                </span>
+                <span v-if="activeForm || activeItem?.kind === 'approval'" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.2 text-[11px] font-medium text-[var(--text-secondary)]">
+                    {{ questionTypeLabel }}
+                </span>
             </div>
-            <div class="flex shrink-0 items-center gap-1 text-[var(--text-muted)]">
-                <button type="button" class="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35" :disabled="activeIndex === 0" :title="t('agent.userInput.previous')" @click="switchItem(activeIndex - 1)">
+            <div v-if="items.length > 1" class="flex shrink-0 items-center gap-1 text-[var(--text-muted)]">
+                <button type="button" class="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35" :disabled="activeIndex === 0" :title="t('agent.userInput.previous')" @click="switchItem(activeIndex - 1)">
                     <span class="i-lucide-chevron-left h-3.5 w-3.5"></span>
                 </button>
-                <button type="button" class="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35" :disabled="activeIndex >= items.length - 1" :title="t('agent.userInput.nextQuestion')" @click="switchItem(activeIndex + 1)">
+                <button type="button" class="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-35" :disabled="activeIndex >= items.length - 1" :title="t('agent.userInput.nextQuestion')" @click="switchItem(activeIndex + 1)">
                     <span class="i-lucide-chevron-right h-3.5 w-3.5"></span>
                 </button>
             </div>
         </header>
 
-        <div>
+        <div v-if="(!props.canResolve && props.blockedMessage) || props.submissionIssue" class="shrink-0">
             <div v-if="!props.canResolve && props.blockedMessage" class="flex items-start gap-2 border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs leading-5 text-[var(--status-danger)]" role="status">
                 <span class="i-lucide-octagon-alert mt-0.5 h-3.5 w-3.5 shrink-0"></span>
                 <span>{{ props.blockedMessage }}</span>
@@ -238,7 +263,7 @@ function handlePrimary(): void {
             </div>
         </div>
 
-        <div class="min-h-0">
+        <div class="min-h-0 flex-1 flex flex-col">
             <!-- Low-Code Form 项目 -->
             <div v-if="activeForm && activeForm.session.form" ref="contentScrollRef" class="h-full overflow-y-auto px-3 py-3">
                 <LowCodeForm :form="activeForm.session.form" :model-value="activeFormDraft.data" :disabled="answerControlsDisabled" @update:model-value="updateForm" />
@@ -250,37 +275,37 @@ function handlePrimary(): void {
 
             <!-- 问答与审批项目 -->
             <div v-else-if="activeQuestion" class="flex h-full min-h-0 flex-col">
-                <div ref="contentScrollRef" class="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div ref="contentScrollRef" class="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
                     <div v-if="activeQuestion.header" class="mb-1 text-[11px] font-medium text-[var(--text-muted)]">{{ activeQuestion.header }}</div>
-                    <h3 class="break-words text-sm font-semibold leading-6 text-[var(--text-main)]">{{ activeQuestion.question }}</h3>
+                    <h3 class="break-words text-sm font-semibold leading-5 text-[var(--text-main)]">{{ activeQuestion.question }}</h3>
 
-                    <fieldset v-if="activeQuestion.options.length > 0" class="mt-3 space-y-1.5" :disabled="answerControlsDisabled">
+                    <fieldset v-if="activeQuestion.options.length > 0" class="mt-2.5 space-y-1.5" :disabled="answerControlsDisabled">
                         <legend class="sr-only">{{ activeQuestion.question }}</legend>
-                        <label v-for="(option, index) in activeQuestion.options" :key="index" :for="optionId(index)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === index ? 'bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : ''">
+                        <label v-for="(option, index) in activeQuestion.options" :key="index" :for="optionId(index)" class="group flex cursor-pointer items-start gap-2 rounded-md border px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-main)] outline-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === index ? 'border-[var(--accent-main)]/60 bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : 'border-transparent'">
                             <input :id="optionId(index)" type="radio" :name="`agent-pending-${activeItem.key}`" class="sr-only" :checked="activeAnswer.selectedOptionIndex === index" :disabled="answerControlsDisabled" @change="selectOption(index)">
                             <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ index + 1 }}.</span>
                             <span class="min-w-0 flex-1">
                                 <span class="block text-[13px] font-semibold leading-5" :class="activeAnswer.selectedOptionIndex === index ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'">{{ option.label }}</span>
                                 <span v-if="option.description" class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ option.description }}</span>
                             </span>
-                            <span class="mt-0.5 h-4 w-4 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === index ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
+                            <span class="mr-1 mt-0.5 h-4 w-4 shrink-0 rounded-full border transition-colors" :class="activeAnswer.selectedOptionIndex === index ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
                         </label>
 
-                        <label v-if="activeItem.kind === 'question' || (activeItem.kind === 'approval' && activeQuestion.approvalAction === 'switch_mode' && activeQuestion.switchTargetMode === 'normal')" :for="optionId(NONE_OF_ABOVE_OPTION_INDEX)" class="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : ''">
+                        <label v-if="activeItem.kind === 'question' || (activeItem.kind === 'approval' && activeQuestion.approvalAction === 'switch_mode' && activeQuestion.switchTargetMode === 'normal')" :for="optionId(NONE_OF_ABOVE_OPTION_INDEX)" class="group flex cursor-pointer items-start gap-2 rounded-md border px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-main)] outline-none has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-55" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'border-[var(--accent-main)]/60 bg-[var(--accent-bg)] shadow-[inset_2px_0_0_var(--accent-main)]' : 'border-transparent'">
                             <input :id="optionId(NONE_OF_ABOVE_OPTION_INDEX)" type="radio" :name="`agent-pending-${activeItem.key}`" class="sr-only" :checked="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX" :disabled="answerControlsDisabled" @change="selectOption(NONE_OF_ABOVE_OPTION_INDEX)">
                             <span class="w-5 shrink-0 pt-0.5 text-right text-xs tabular-nums text-[var(--text-muted)]">{{ activeQuestion.options.length + 1 }}.</span>
                             <span class="min-w-0 flex-1">
                                 <span class="block text-[13px] font-semibold leading-5" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'text-[var(--text-main)]' : 'text-[var(--text-secondary)]'">{{ activeItem.kind === 'approval' ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer") }}</span>
                                 <span class="block text-[11px] leading-4 text-[var(--text-muted)]">{{ activeItem.kind === 'approval' ? t("agent.userInput.suggestionDescription") : t("agent.userInput.otherAnswerDescription") }}</span>
                             </span>
-                            <span class="mt-0.5 h-4 w-4 shrink-0 rounded-full border" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
+                            <span class="mr-1 mt-0.5 h-4 w-4 shrink-0 rounded-full border transition-colors" :class="activeAnswer.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX ? 'border-[var(--accent-main)] bg-[var(--accent-main)] shadow-[inset_0_0_0_2px_var(--bg-main)]' : 'border-[var(--border-color)] group-hover:border-[var(--text-muted)]'"></span>
                         </label>
                     </fieldset>
                 </div>
 
                 <!-- 回答编辑器固定在选项区下方，不随长问题滚出面板。 -->
                 <div v-if="showNoteInput" class="shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-3 py-2">
-                    <span class="mb-1.5 block text-xs font-medium text-[var(--text-secondary)]">{{ noteLabel }}</span>
+                    <span class="mb-1 block text-xs font-medium text-[var(--text-secondary)]">{{ noteLabel }}</span>
                     <AgentComposerInput
                         :key="activeItem.key"
                         ref="answerInputRef"
@@ -288,8 +313,8 @@ function handlePrimary(): void {
                         :placeholder="notePlaceholder"
                         :aria-label="noteLabel"
                         :readonly="answerControlsDisabled"
-                        :min-height="72"
-                        :max-height="112"
+                        :min-height="isPrimaryInput ? 72 : 36"
+                        :max-height="isPrimaryInput ? 112 : 72"
                         :submit-on-enter="false"
                         :submit-on-modifier-enter="false"
                         :enable-image-files="false"
@@ -302,15 +327,25 @@ function handlePrimary(): void {
             </div>
         </div>
 
-        <footer class="flex min-w-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-3 py-2">
-            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded px-2 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.submitting || !props.canAbort" @click="emit('cancel')">
-                <span class="i-lucide-square h-3.5 w-3.5"></span>
+        <footer class="flex shrink-0 min-w-0 flex-wrap items-center justify-between gap-2 border-t border-[var(--border-color)] bg-[var(--bg-panel)]/50 px-3 py-2">
+            <button
+                type="button"
+                class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)]/60 bg-[var(--bg-subtle)] px-2.5 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:border-[var(--status-danger-border)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="props.submitting || !props.canAbort"
+                @click="emit('cancel')"
+            >
+                <span class="i-lucide-ban h-3.5 w-3.5"></span>
                 <span>{{ t("agent.userInput.terminateRun") }}</span>
             </button>
-            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-xs font-semibold text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="primaryDisabled" @click="handlePrimary">
+            <button
+                type="button"
+                class="inline-flex h-8 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-xs font-semibold text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="primaryDisabled"
+                @click="handlePrimary"
+            >
                 <span>{{ primaryLabel }}</span>
                 <span v-if="props.submitting" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                <span v-else-if="allComplete" class="i-lucide-corner-down-left h-3.5 w-3.5"></span>
+                <span v-else-if="isNextStepSubmit" class="i-lucide-corner-down-left h-3.5 w-3.5"></span>
                 <span v-else class="i-lucide-arrow-right h-3.5 w-3.5"></span>
             </button>
         </footer>

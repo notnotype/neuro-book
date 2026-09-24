@@ -5,6 +5,7 @@
  * 这里只建立通道与状态，命令由各域自己注册——核心不内置任何业务命令。
  */
 import {
+    hasInjectionContext,
     inject,
     onBeforeUnmount,
     provide,
@@ -136,4 +137,11 @@ export function useWorkbenchCommands(): WorkbenchCommandsHost {
         throw new Error("Workbench Commands 尚未由宿主提供。");
     }
     return host;
+}
+
+export function tryUseWorkbenchCommands(): WorkbenchCommandsHost | null {
+    if (!hasInjectionContext()) {
+        return null;
+    }
+    return inject(WORKBENCH_COMMANDS_KEY, null);
 }

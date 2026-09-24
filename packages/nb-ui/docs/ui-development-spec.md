@@ -41,7 +41,7 @@
 1. 单行字段默认消费 `.nb-ui-control-h-md` 与 `.nb-ui-control-px`；紧凑档消费 `sm`，大档消费 `lg`。组件模板不得重新写固定高度模拟同一档。
 2. 控件、面板、菜单、胶囊分别消费 `--radius-control`、`--radius-panel`、`--radius-menu`、`--radius-pill`。浮层内角由 `.nb-ui-popover-item` 推导，不独立写 `rounded-*`。
 3. 界面文字消费 `--font-ui` 与登记字号；长文内容消费 `--font-display` 和阅读刻度。`--text-2xs` 只用于计数、序号、时间戳和短角标。
-4. 布局使用明确的 grid/flex 轨道、gap、min/max 与 overflow 所有权。动态文字、图标、加载态和计数不得改变固定格式控件的外框尺寸。按钮与交互控件的点击、激活（active）、聚焦（focus）或悬停（hover）状态不得引起自身或父容器的盒模型尺寸（`offsetWidth` / `offsetHeight`）产生任何抖动或布局位移（Zero Layout Shift）。按压缩放动效仅允许通过 GPU 合成层（`transform: scale(...)`）进行内部视觉缩放，禁用态（disabled）严禁触发任何缩放动效；边框高亮必须预留透明占位或使用 `outline` / `box-shadow`，不得在 hover/active 时动态改变 `border-width` 挤压容器。
+4. 布局使用明确的 grid/flex 轨道、gap、min/max 与 overflow 所有权。动态文字、图标、加载态和计数不得改变固定格式控件的外框尺寸。按钮与交互控件的点击、激活（active）、聚焦（focus）或悬停（hover）状态不得引起自身或父容器的盒模型尺寸（`offsetWidth` / `offsetHeight`）产生任何抖动或布局位移（Zero Layout Shift）。按压缩放动效仅允许通过 GPU 合成层（`transform: scale(...)`）进行内部视觉缩放，禁用态（disabled）严禁触发任何缩放动效；边框高亮必须预留透明占位或使用 `outline` / `box-shadow`，不得在 hover/active 时动态改变 `border-width` 挤压容器。与弹性拉伸控件（`flex-1`）同行的动态读数或状态标签，必须声明固定宽度与居中对齐（如 `w-16 shrink-0 justify-center`），杜绝因字符增减造成整行轨道的伸缩抖动。
 5. 390px 宽度必须无页面级横向溢出。窄屏可以重排工具面板，但不得隐藏完成核心操作所需的控件。
 6. 动效只消费 `--motion-fast` / `--motion-base` / `--motion-enter` 与 `--ease-standard`；组件不得写死时长或缓动，不得使用 `transition-all`。浮层入退场编排与判据见 [设计语言](./design-language.md) 的动效节。
 
@@ -252,6 +252,10 @@
     - 视口自带 22px 光学散焦双向遮罩（`nb-ui-popover-scroll-fade-*`，中点 8px 处 35% 透光消散），未到底时呈现后续半项透光虚化，滑到底部虚化平滑撤销；
     - 4px 悬浮微胶囊滑块独立绝对定位在外层，100% 跨平台绝对可见、常态半透明、悬停加深，支持鼠标按住 1:1 拖拽，内容溢出时自动挂载并避让 6px（`pr-1.5`）。
 
+- **Tier 2.5: 宽大上下文面板（Large Context Popover · 宽 ≥ 480px）**：
+  - **阴影轻量化**：禁止机械套用小浮层的高浓度深散焦阴影，应收敛黑度至 18% 以内并清除子卡片嵌套阴影；
+  - **基准对齐与呼吸感**：与宿主保持 ≥ 12px 间隙；从带 padding 的容器弹出时，使用负边距抵消内边距，使浮层与宿主外边框在垂直线上严格平齐。
+
 - **Tier 3: 悬浮命令面板与快速输入（QuickInput / WorkbenchCommandPalette · 全局输入）**：
   - **几何重构**：外框圆角明确锁定为 **14px**（`--nb-popover-radius: 14px`），彻底移除对 20px 巨角 `--radius-panel` 的盲目继承；与内部 8px 输入框（`rounded-lg`）达成黄金同心比例；
   - **纯净现代通透质感**：直接消费全局 `.nb-ui-popover-surface`，彻底清除顶部生硬塑料白光条（消除日光灯管反光），在 640px 宽度上呈现深邃柔和的环境悬浮投影与纯净毛玻璃底。
@@ -431,6 +435,18 @@
    - 统一消费 `--elevation-popover`：`0 0 0 1px color-mix(in srgb, var(--text-main) 8%, transparent), 0 6px 16px -2px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 20px 48px -4px color-mix(in srgb, var(--shadow-color) 28%, transparent), 0 36px 80px -8px color-mix(in srgb, var(--shadow-color) 20%, transparent)`，外发散柔影与 1px 微反光边缘兼备。
 4. **单一样式源与组合子（`useDropdownFloating` / `useDropdownSurfaceStyle`）**：
    - 任何涉及下拉与浮层的组件，严禁在模板中重复书写内联样式，统一调用 `useDropdownFloating` 或 `useDropdownSurfaceStyle`，自动注入标准 `popoverClasses`、`popoverStyle`、同心圆角视口与避让 Trigger 发光圈的 `side-offset: 7`。
+
+## 10. 开发后自检与易错清单（Checklist）
+
+本节收录在真实开发与实测推演中沉淀出的检查项（不设假想项，可被自动化脚本拦截的条目由 CI 与测试负责；本节仅收录真实踩坑沉淀、且自动化工具难以静态拦截的体验与行为判据，随实践动态演进）：
+
+- [ ] **浮层高亮材质**：玻璃浮层（`.nb-ui-popover-surface`）内的项高亮消费 `--overlay-item-active`（半透明 tint），不使用实色 `--bg-hover`，避免在通透玻璃上产生实色色块（设计语言 §五）；
+- [ ] **同心圆角防负值**：所有内圆角推导公式包裹 `max(2px, calc(...))`，防止负半径导致浏览器丢弃属性突变直角（设计语言 §三）；
+- [ ] **单层滚动权**：页面最外层容器持有滚动权，内部子组件不滥用 `overflow-y: auto` 产生双层嵌套滚动；动态流式列表声明 `scrollbar-gutter: stable` 防 1px 抖动（§4.2 第 15 条）；
+- [ ] **浮层关闭时序**：浮层关闭与状态交接依赖原语真实的 `closed` 事件或过渡钩子，不使用固定 `setTimeout` 毫秒数推断（设计语言 §七第 6 条）；
+- [ ] **去框化流式卡片（去三段式盒子）**：展示卡片与留痕面板严禁采用“独立背景横幅头 + 内容大框 + 底部提示横幅”的三段式机械堆叠；区段之间消费 `--divider` 发丝线或 `Separator`，标题与正文同字号（13px）依靠字重和色阶区分，严禁大面积整卡漫铺刺眼警示黄底（设计语言 §三、§五）；
+- [ ] **Agent 交互与工具调用留痕契约**：前端工具卡片必须对照底层真实 Schema（`server/agent/tools/`），严禁凭空臆造字段；严格按底层数据形状区分开放式与选项式提问；交互决策留痕组件应声明为 `mode: "message"` 顶级消息卡片，杜绝嵌套在普通执行工具的 `mode: "block"` 折叠灰盒内产生外壳套内盒。
+
 
 
 

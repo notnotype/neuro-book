@@ -140,7 +140,7 @@ describe("Agent 消息与专用工具气泡群 Lab 场景", () => {
             "AgentApplyPatchBubble",
             "AgentSwitchModeBubble",
             "AgentTaskBubble",
-            "AgentRequestUserInputBubble",
+            "AgentRequestUserInputCard",
         ];
 
         for (const name of expectedComponents) {
@@ -285,6 +285,87 @@ describe("Lab 场景覆盖", () => {
         }
 
         expect(violations, `发现违背 Component Lab 视口规范的老写法：\n${violations.join("\n")}`).toEqual([]);
+    });
+});
+
+describe("Component Lab 数据与状态契约", () => {
+    /**
+     * 场景 data 必须是可合法 JSON 序列化的值。
+     * JSON 编辑器直接使用 structuredClone / JSON 操作，非序列化值（如函数、Symbol）会导致运行时崩溃。
+     */
+    it("所有登记了 data 的场景都必须是合法的 JSON 序列化对象", () => {
+        const invalid: string[] = [];
+
+        for (const fixture of labFixtures) {
+            for (const scene of fixture.scenes) {
+                if (scene.data === undefined) continue;
+                try {
+                    const serialized = JSON.stringify(scene.data);
+                    if (serialized === undefined) {
+                        invalid.push(`${fixture.component}::${scene.id} (序列化为 undefined)`);
+                    } else {
+                        JSON.parse(serialized);
+                    }
+                } catch (error) {
+                    invalid.push(`${fixture.component}::${scene.id} (${(error as Error).message})`);
+                }
+            }
+        }
+
+        expect(invalid, `这些场景的 data 包含不可合法 JSON 化的数据：${invalid.join("、")}`).toEqual([]);
+    });
+
+    /**
+     * 核心交互零件防遗漏门禁：
+     * 具有用户交互或输入输出特性的核心零件，所有场景必须登记可改假数据 (data)，
+     * 严禁出现场景数据为空导致 Lab 右侧数据面板不可编辑。
+     */
+    it("已声明数据契约的交互零件必须完整登记场景假数据 (data)", () => {
+        const contractInteractiveComponents = [
+            "AgentUserInputPrompt",
+            "FixtureExample",
+        ];
+
+        const missingData: string[] = [];
+
+        for (const name of contractInteractiveComponents) {
+            const fixture = findLabFixture(name);
+            expect(fixture, `组件 ${name} 必须登记在 labFixtures`).not.toBeNull();
+            if (!fixture) continue;
+
+            for (const scene of fixture.scenes) {
+                if (scene.data === undefined || scene.data === null) {
+                    missingData.push(`${name}::${scene.id}`);
+                }
+            }
+        }
+
+        expect(missingData, `这些核心交互零件的场景遗漏了假数据 (data) 登记，导致 Lab 数据面板不可编辑：${missingData.join("、")}`).toEqual([]);
+    });
+
+    /**
+     * 交互零件必须调用 useLabDataSink 同步状态输出，
+     * 确保 Lab 数据面板不仅能输入（改假数据），还能看到组件草稿与状态变化（输出）。
+     */
+    it("已声明数据契约的交互零件 fixture 必须调用 useLabDataSink 同步状态", () => {
+        const interactiveFixtures = [
+            "AgentUserInputPromptFixture.vue",
+            "FixtureExampleFixture.vue",
+        ];
+
+        const missingSink: string[] = [];
+
+        for (const fileName of interactiveFixtures) {
+            const filePath = join(fixturesRoot, fileName);
+            if (!existsSync(filePath)) continue;
+            const content = readFileSync(filePath, "utf8");
+
+            if (!content.includes("useLabDataSink")) {
+                missingSink.push(fileName);
+            }
+        }
+
+        expect(missingSink, `这些交互零件 fixture 缺少 useLabDataSink，导致用户操作无法反映到 Lab 数据面板：${missingSink.join("、")}`).toEqual([]);
     });
 });
 

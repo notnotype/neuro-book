@@ -3,7 +3,7 @@ import {mount} from "@vue/test-utils";
 import {describe, expect, it} from "vitest";
 import {defineComponent, h} from "vue";
 import {Type} from "typebox";
-import {provideWorkbenchCommands, useWorkbenchCommands, type WorkbenchCommandsHost} from "nbook/app/composables/useWorkbenchCommands";
+import {provideWorkbenchCommands, tryUseWorkbenchCommands, useWorkbenchCommands, type WorkbenchCommandsHost} from "nbook/app/composables/useWorkbenchCommands";
 import type {CommandEditorBinding} from "nbook/app/components/editor-workbench/editor-view.types";
 
 const target = {workspaceKey: "lab:code-editor-view", generation: 1, documentId: "lab-doc:a.txt", path: "lab/a.txt"};
@@ -27,6 +27,10 @@ function mountHost(): {host: WorkbenchCommandsHost; wrapper: ReturnType<typeof m
 describe("useWorkbenchCommands", () => {
     it("缺提供方时抛出明确错误", () => {
         expect(() => useWorkbenchCommands()).toThrowError("Workbench Commands 尚未由宿主提供。");
+    });
+
+    it("缺提供方时 tryUseWorkbenchCommands 返回 null 而不抛错", () => {
+        expect(tryUseWorkbenchCommands()).toBeNull();
     });
 
     it("两个宿主实例不共享 registry / context / MRU", async () => {

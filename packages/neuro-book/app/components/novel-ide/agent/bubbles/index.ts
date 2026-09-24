@@ -23,6 +23,7 @@ export {default as AgentApplyPatchBubble} from "./tools/AgentApplyPatchBubble.vu
 export {default as AgentTaskBubble} from "./tools/AgentTaskBubble.vue";
 export {default as AgentWorkflowBubble} from "./tools/AgentWorkflowBubble.vue";
 
-export {default as AgentUserInputPrompt} from "./interactive/AgentUserInputPrompt.vue";
-export {default as AgentRequestUserInputBubble} from "./interactive/AgentRequestUserInputBubble.vue";
+export {default as AgentUserInputPrompt} from "../composer/AgentUserInputPrompt.vue";
+export {default as AgentRequestUserInputCard} from "./interactive/AgentRequestUserInputCard.vue";
+export {default as AgentRequestUserInputBubble} from "./interactive/AgentRequestUserInputCard.vue";
 export {default as AgentSwitchModeBubble} from "./interactive/AgentSwitchModeBubble.vue";

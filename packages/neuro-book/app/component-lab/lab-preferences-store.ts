@@ -104,6 +104,69 @@ export function clearLabPreferences(storage: Storage): boolean {
     }
 }
 
+export const LAB_SESSION_STORAGE_KEY = "nb-lab:session:v1";
+
+export type LabSessionState = {
+    schema?: 1;
+    selectedComponentName?: string;
+    selectedSceneId?: string;
+    activeInspectTab?: string;
+    canvasZoom?: number;
+    canvasWidth?: number;
+    canvasHeight?: number;
+};
+
+export function loadLabSession(storage: Storage, catalog: LabPreferenceCatalog): LabSessionState {
+    try {
+        const raw = storage.getItem(LAB_SESSION_STORAGE_KEY);
+        if (raw === null) {
+            return {};
+        }
+        const parsed: unknown = JSON.parse(raw);
+        if (!isRecord(parsed) || parsed.schema !== 1) {
+            return {};
+        }
+        const session: LabSessionState = {schema: 1};
+        if (catalog.componentNames) {
+            copyAllowedString(parsed, "selectedComponentName", catalog.componentNames, session);
+        } else if (typeof parsed.selectedComponentName === "string" && parsed.selectedComponentName.length <= 100) {
+            session.selectedComponentName = parsed.selectedComponentName;
+        }
+        if (typeof parsed.selectedSceneId === "string" && /^[a-zA-Z0-9_.-]+$/.test(parsed.selectedSceneId) && parsed.selectedSceneId.length <= 100) {
+            session.selectedSceneId = parsed.selectedSceneId;
+        }
+        if (typeof parsed.activeInspectTab === "string" && ["doc", "events", "data", "element", "commands"].includes(parsed.activeInspectTab)) {
+            session.activeInspectTab = parsed.activeInspectTab;
+        }
+        if (typeof parsed.canvasZoom === "number" && catalog.zooms.includes(parsed.canvasZoom)) {
+            session.canvasZoom = parsed.canvasZoom;
+        }
+        copyCanvasSize(parsed, "canvasWidth", session);
+        copyCanvasSize(parsed, "canvasHeight", session);
+        return session;
+    } catch {
+        return {};
+    }
+}
+
+export function saveLabSession(storage: Storage, session: LabSessionState): boolean {
+    try {
+        storage.setItem(LAB_SESSION_STORAGE_KEY, JSON.stringify({...session, schema: 1}));
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+export function clearLabSession(storage: Storage): boolean {
+    try {
+        storage.removeItem(LAB_SESSION_STORAGE_KEY);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -112,7 +175,7 @@ function copyAllowedString(
     source: Record<string, unknown>,
     key: "themeId" | "colorwayId" | "pageBackdropId" | "canvasBackdropId" | "selectedComponentName",
     allowed: readonly string[],
-    target: LabPreferences,
+    target: Record<string, unknown>,
 ): void {
     const value = source[key];
     if (typeof value === "string" && allowed.includes(value)) {
@@ -123,7 +186,7 @@ function copyAllowedString(
 function copyCanvasSize(
     source: Record<string, unknown>,
     key: "canvasWidth" | "canvasHeight",
-    target: LabPreferences,
+    target: Record<string, unknown>,
 ): void {
     const value = source[key];
     if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= MAX_CANVAS_SIZE) {

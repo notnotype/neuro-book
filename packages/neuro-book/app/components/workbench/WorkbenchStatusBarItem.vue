@@ -122,9 +122,10 @@ function onClick(e: MouseEvent): void {
 .workbench-status-bar-item {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
-    height: 100%;
-    padding: 0 var(--space-2);
+    gap: 5px;
+    height: calc(100% - 4px);
+    padding: 0 6px;
+    margin: 0;
     color: var(--text-secondary);
     font-size: var(--text-2xs);
     font-weight: var(--weight-normal);
@@ -133,10 +134,12 @@ function onClick(e: MouseEvent): void {
     user-select: none;
     background: transparent;
     border: none;
-    border-radius: var(--radius-control);
+    border-radius: var(--radius-control, 4px);
+    box-sizing: border-box;
     transition:
         color var(--motion-fast) var(--ease-standard),
-        background-color var(--motion-fast) var(--ease-standard);
+        background-color var(--motion-fast) var(--ease-standard),
+        opacity var(--motion-fast) var(--ease-standard);
 }
 
 .workbench-status-bar-item--clickable {
@@ -174,10 +177,11 @@ function onClick(e: MouseEvent): void {
     background: color-mix(in srgb, var(--status-success) 16%, transparent);
 }
 
-/* 激活选中态 */
+/* 激活选中态：微质感品牌主色点缀，告别粗硬发灰块 */
 .workbench-status-bar-item--active {
-    color: var(--text-main);
-    background: var(--overlay-item-active);
+    color: var(--accent-main);
+    background: color-mix(in srgb, var(--accent-main) 12%, transparent);
+    font-weight: var(--weight-medium);
 }
 
 /* 颜色变体 */
@@ -201,6 +205,11 @@ function onClick(e: MouseEvent): void {
     width: 12px;
     height: 12px;
     flex-shrink: 0;
+    opacity: 0.85;
+}
+
+.workbench-status-bar-item:hover .workbench-status-bar-item__icon {
+    opacity: 1;
 }
 
 .workbench-status-bar-item__label {
@@ -219,6 +228,7 @@ function onClick(e: MouseEvent): void {
     font-weight: var(--weight-medium);
     line-height: 1;
     border-radius: var(--radius-pill);
+    margin-left: 2px;
 }
 
 .workbench-status-bar-item--default .workbench-status-bar-item__badge {

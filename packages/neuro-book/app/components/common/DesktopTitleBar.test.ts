@@ -96,11 +96,15 @@ function mountHost(): Harness {
     return {wrapper, invoked, switched, opened, activeElement, surfaceActive};
 }
 
-function menuItem(label: string): HTMLButtonElement {
-    const item = [...document.querySelectorAll<HTMLButtonElement>('[data-titlebar-menu-panel="group"] [role="menuitem"]')]
+function menuItem(label: string): HTMLElement {
+    const item = [...document.querySelectorAll<HTMLElement>('[data-titlebar-menu-panel="group"] [role="menuitem"]')]
         .find((candidate) => candidate.textContent?.trim() === label);
     if (item === undefined) throw new Error(`菜单项不存在：${label}`);
     return item;
+}
+
+function isItemDisabled(item: HTMLElement): boolean {
+    return item.hasAttribute("data-disabled") || item.getAttribute("aria-disabled") === "true";
 }
 
 async function openMenu(wrapper: VueWrapper, label: string): Promise<void> {
@@ -126,8 +130,8 @@ describe("DesktopTitleBar", () => {
         activeElement.value = document.body;
         await wrapper.vm.$nextTick();
         await openMenu(wrapper, "Edit");
-        expect(menuItem("撤销").disabled).toBe(true);
-        expect(menuItem("全选").disabled).toBe(true);
+        expect(isItemDisabled(menuItem("撤销"))).toBe(true);
+        expect(isItemDisabled(menuItem("全选"))).toBe(true);
     });
 
     it("Project 列表两条路径各走各的：本标签切 Project，新标签只给链接", async () => {
@@ -179,8 +183,8 @@ describe("DesktopTitleBar", () => {
         await trigger.trigger("keydown", {key: "ArrowDown"});
         await wrapper.vm.$nextTick();
 
-        expect([...document.querySelectorAll<HTMLButtonElement>('[data-titlebar-menu-panel="group"] [role="menuitem"]')]
-            .map((item) => [item.textContent?.trim(), item.disabled])).toEqual([
+        expect([...document.querySelectorAll<HTMLElement>('[data-titlebar-menu-panel="group"] [role="menuitem"]')]
+            .map((item) => [item.textContent?.trim(), isItemDisabled(item)])).toEqual([
             ["撤销", false],
             ["重做", false],
             ["剪切", false],

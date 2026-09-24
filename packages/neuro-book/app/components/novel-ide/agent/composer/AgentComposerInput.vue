@@ -134,6 +134,7 @@ defineExpose({
         :aria-label="props.ariaLabel || props.placeholder || t('agent.composer.messagePlaceholder')"
         :min-height="editorMinHeight"
         :max-height="editorMaxHeight"
+        :expanded="props.expanded"
         :submit-on-enter="props.submitOnEnter && !props.expanded"
         :submit-on-modifier-enter="props.submitOnModifierEnter"
         :enable-quick-triggers="true"

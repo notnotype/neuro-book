@@ -60,35 +60,37 @@ defineSlots<{
     height: calc(var(--space-7) - var(--space-1));
     min-height: calc(var(--space-7) - var(--space-1));
     max-height: calc(var(--space-7) - var(--space-1));
-    padding-inline: var(--space-2);
+    padding-inline: var(--space-3);
     box-sizing: border-box;
     overflow: hidden;
     user-select: none;
-    background: var(--panel-surface);
+    background: var(--bg-panel);
     border-top: var(--border-w) solid var(--divider);
-    border-bottom: var(--border-w) solid var(--panel-outline);
+    border-bottom: none;
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
     color: var(--text-secondary);
     font-size: var(--text-2xs);
     line-height: 1;
 }
 
-/* 左侧项组：横向排列，允许子项紧凑收缩，内容溢出时隐去，不造成整栏换行 */
+/* 左侧项组：横向排列，允许子项紧凑收缩，项间距通透不粘连 */
 .workbench-status-bar__left {
     display: flex;
     flex: 1 1 auto;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-1-5, 6px);
     height: 100%;
     min-width: 0;
     overflow: hidden;
 }
 
-/* 右侧项组：贴右排列，紧凑且不换行 */
+/* 右侧项组：贴右排列，紧凑规整，与外壳右侧保持舒适安全内边距 */
 .workbench-status-bar__right {
     display: flex;
     flex: 0 0 auto;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-1-5, 6px);
     height: 100%;
     margin-left: auto;
 }

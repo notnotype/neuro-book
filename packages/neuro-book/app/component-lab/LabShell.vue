@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch} from "vue";
+import {computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, toRaw, watch} from "vue";
 import {Type, type TSchema} from "typebox";
+import {Value} from "typebox/value";
 import {
     AlertDialog as NbAlertDialog,
     FormInput as NbFormInput,
     FormSelect as NbFormSelect,
     SegmentedControl as NbSegmentedControl,
+    Switch as NbSwitch,
     Tabs as NbTabs,
     ToggleGroup as NbToggleGroup,
     Tree as NbTree,
@@ -18,10 +20,11 @@ import ViewportCanvas from "./ViewportCanvas.vue";
 import MarkdownView from "./MarkdownView.vue";
 import EventLogPanel from "./EventLogPanel.vue";
 import HighlightBox from "./HighlightBox.vue";
-import {labComponents, findLabComponent, labComponentLabel, matchesLabQuery} from "./component-index";
+import {labComponents, findLabComponent, labComponentLabel, loadLabSubject, matchesLabQuery} from "./component-index";
 import type {LabComponentKind, LabDisplayMode} from "./component-index";
 import {findLabFixture} from "./fixtures";
-import {LAB_CONTROLS_REGISTER, LAB_DATA_SINK, LAB_EVENT_SINK} from "./lab-event-sink";
+import {LAB_CONTROLS_REGISTER, LAB_DATA_SINK, LAB_EVENT_SINK, LAB_INPUT_SINK} from "./lab-event-sink";
+import {LabSceneInputSchema, checkLabInput, readLabSignature, type LabSceneInput, type LabSignature} from "./lab-subject";
 import type {LabEventEntry} from "./event-log.types";
 import type {HighlightRect} from "./highlight-box.types";
 import type {InspectedNode} from "./inspect";
@@ -82,8 +85,25 @@ const LAB_CANVAS_MIN_WIDTH = 560;
 const LAB_PANEL_RAIL_WIDTH = 40;
 const leftWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.left);
 const rightWidth = ref<number>(LAB_PANEL_DEFAULT_WIDTH.right);
-const selectedName = ref<string>(labComponents.find((entry) => entry.mountable)?.name ?? "");
-const selectedScene = ref<string>("");
+function getInitialLabSelection(): {name: string; scene: string} {
+    if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const comp = params.get("c") ?? params.get("component") ?? undefined;
+        const scene = params.get("s") ?? params.get("scene") ?? undefined;
+        if (comp && labComponents.some((entry) => entry.name === comp)) {
+            return {
+                name: comp,
+                scene: (scene && /^[a-zA-Z0-9_.-]+$/.test(scene)) ? scene : "",
+            };
+        }
+    }
+    const defaultMountable = labComponents.find((entry) => entry.mountable)?.name ?? "";
+    return {name: defaultMountable, scene: ""};
+}
+
+const initialSelection = getInitialLabSelection();
+const selectedName = ref<string>(initialSelection.name);
+const selectedScene = ref<string>(initialSelection.scene);
 const rightTab = ref("doc");
 const treeQuery = ref("");
 const expandedGroups = ref<string[]>([...ALL_GROUP_IDS]);
@@ -96,8 +116,14 @@ const pageBackdrop = ref(LAB_DEFAULT_PAGE_BACKDROP);
 const fixtureComponent = shallowRef<Component | null>(null);
 const fixtureLoading = ref(false);
 const fixtureLoadError = ref("");
-const sceneData = ref<unknown>(undefined);
-const fixtureData = ref<unknown>(undefined);
+/** 当前场景的分层输入：场景登记的初值，之后由数据面板编辑、组件 `update:x` 与 fixture 回写。 */
+const sceneInput = ref<LabSceneInput | undefined>(undefined);
+/** fixture 上报的被测组件内部状态快照，只读展示。 */
+const fixtureState = ref<unknown>(undefined);
+/** 数据面板最近一次编辑不符合分层 schema 时的原因；合法编辑后清空。 */
+const inputEditError = ref("");
+/** 被测组件（不是 fixture）的运行时签名，数据面板据此对照输入。 */
+const subjectSignature = shallowRef<LabSignature | null>(null);
 const events = ref<LabEventEntry[]>([]);
 let fixtureLoadToken = 0;
 let eventCounter = 0;
@@ -253,7 +279,11 @@ const selectedDetail = computed(() => {
 });
 const fixture = computed(() => (selectedName.value ? findLabFixture(selectedName.value) : null));
 const scene = computed(() => fixture.value?.scenes.find((item) => item.id === selectedScene.value) ?? null);
-const sceneHasData = computed(() => scene.value?.data !== undefined);
+
+const fixtureSlots = computed(() => fixture.value?.slots ?? []);
+const inputIssues = computed(() => (subjectSignature.value === null || sceneInput.value === undefined
+    ? []
+    : checkLabInput(subjectSignature.value, sceneInput.value, fixtureSlots.value)));
 
 /*
  * 场景摆在中栏工具条上，用 SegmentedControl；右栏的分区导航用 Tabs。两者不是同一件事：
@@ -274,7 +304,7 @@ const tabItems = computed<TabsItem[]>(() => [
     {value: "doc", label: "文档"},
     {value: "element", label: "元素"},
     {value: "events", label: "事件", count: events.value.length},
-    {value: "data", label: "数据"},
+    {value: "data", label: "数据", count: inputIssues.value.length},
     {value: "commands", label: "命令"},
 ]);
 
@@ -349,11 +379,14 @@ onMounted(async () => {
     await restorePreferences();
     ensureSelectedComponentExpanded(selectedName.value);
     applyLabTheme(labThemeId.value, labColorwayId.value);
+    syncUrlQuery(selectedName.value, selectedScene.value);
+    window.addEventListener("popstate", onPopState);
     mobileQuery = window.matchMedia(`(max-width: ${LAB_MOBILE_BREAKPOINT}px)`);
     collapseForMobile(mobileQuery);
     mobileQuery.addEventListener("change", collapseForMobile);
 });
 onBeforeUnmount(() => {
+    window.removeEventListener("popstate", onPopState);
     mobileQuery?.removeEventListener("change", collapseForMobile);
     mobileQuery = null;
 });
@@ -408,6 +441,17 @@ const {
     setRightCollapsed,
 } = useLabPreferences({
     storage: () => window.localStorage,
+    sessionStorage: () => window.sessionStorage,
+    getUrlParams: () => {
+        if (typeof window === "undefined") {
+            return {};
+        }
+        const params = new URLSearchParams(window.location.search);
+        return {
+            component: params.get("c") ?? params.get("component") ?? undefined,
+            scene: params.get("s") ?? params.get("scene") ?? undefined,
+        };
+    },
     catalog: {
         themeIds: labThemes.map((theme) => theme.manifest.id),
         colorwayIds: Object.keys(labColorwayMeta),
@@ -447,6 +491,52 @@ const {
         activeInspectTab: rightTab,
     },
     hasCustomWallpaper: () => wallpaperUrl.value !== "",
+});
+
+function syncUrlQuery(componentName: string, sceneId: string): void {
+    if (typeof window === "undefined") {
+        return;
+    }
+    const url = new URL(window.location.href);
+    if (componentName) {
+        url.searchParams.set("c", componentName);
+    } else {
+        url.searchParams.delete("c");
+    }
+    url.searchParams.delete("component");
+
+    if (sceneId) {
+        url.searchParams.set("s", sceneId);
+    } else {
+        url.searchParams.delete("s");
+    }
+    url.searchParams.delete("scene");
+
+    if (url.search !== window.location.search) {
+        window.history.replaceState(window.history.state, "", url.toString());
+    }
+}
+
+function onPopState(): void {
+    if (typeof window === "undefined") {
+        return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    const compParam = params.get("c") ?? params.get("component");
+    const sceneParam = params.get("s") ?? params.get("scene");
+    if (compParam && compParam !== selectedName.value && labComponents.some((c) => c.name === compParam)) {
+        selectedName.value = compParam;
+        ensureSelectedComponentExpanded(compParam);
+    }
+    if (sceneParam && sceneParam !== selectedScene.value) {
+        selectedScene.value = sceneParam;
+    }
+}
+
+watch([selectedName, selectedScene], ([comp, sc]) => {
+    if (!preferencesHydrating.value) {
+        syncUrlQuery(comp, sc);
+    }
 });
 
 async function resetPreferences(): Promise<void> {
@@ -684,9 +774,55 @@ function recordEvent(name: string, payload?: unknown): void {
 }
 
 provide(LAB_EVENT_SINK, recordEvent);
+/**
+ * 面板只存能 JSON 化的快照：组件发出的值可能是响应式代理，或挂着函数。
+ * 克隆失败时退回字符串，面板照样能显示，也不把活对象的引用留在 Lab 手里。
+ */
+function snapshot(value: unknown): unknown {
+    try {
+        return structuredClone(toRaw(value));
+    } catch {
+        try {
+            return JSON.parse(JSON.stringify(value));
+        } catch {
+            return String(value);
+        }
+    }
+}
+
 provide(LAB_DATA_SINK, (value: unknown) => {
-    fixtureData.value = structuredClone(value);
+    fixtureState.value = snapshot(value);
 });
+// 整份替换而不是就地改：fixture 通过 props 拿到输入，换引用它的 computed 才会重算
+provide(LAB_INPUT_SINK, (layer, key, value) => {
+    sceneInput.value = {...sceneInput.value, [layer]: {...sceneInput.value?.[layer], [key]: snapshot(value)}};
+});
+
+/** 数据面板改某一层：整份输入过 schema 才生效，不合法时保持原值并说明原因。 */
+function editInputLayer(layer: "props" | "model", value: unknown): void {
+    const next = {...sceneInput.value, [layer]: value};
+    if (!Value.Check(LabSceneInputSchema, next)) {
+        inputEditError.value = `${layer} 层必须是 JSON 对象，这次编辑没有生效`;
+        return;
+    }
+    inputEditError.value = "";
+    sceneInput.value = next;
+}
+
+function setSlotPreset(name: string, on: boolean): void {
+    sceneInput.value = {...sceneInput.value, slots: {...sceneInput.value?.slots, [name]: on}};
+}
+
+let signatureToken = 0;
+// 签名读自被测组件本身。加载失败不在这里报：fixture import 的是同一个模块，中栏会给出加载错误
+watch(selectedName, async (name) => {
+    const token = ++signatureToken;
+    subjectSignature.value = null;
+    const component = name === "" ? null : await loadLabSubject(name).catch(() => null);
+    if (token === signatureToken) {
+        subjectSignature.value = component === null ? null : readLabSignature(component);
+    }
+}, {immediate: true});
 
 const hasFixtureControls = ref(false);
 const bottomPanelCollapsed = ref(false);
@@ -986,9 +1122,9 @@ function exposeTextOf(command: CommandMetadata): string {
 }
 
 function resetScene(): void {
-    const initialData = structuredClone(scene.value?.data);
-    sceneData.value = initialData;
-    fixtureData.value = initialData;
+    sceneInput.value = structuredClone(scene.value?.input);
+    fixtureState.value = undefined;
+    inputEditError.value = "";
     events.value = [];
 }
 
@@ -1039,7 +1175,7 @@ watch([fixtureComponent, selectedScene], () => {
     clearPicked();
 });
 // 改假数据不换节点，但选中的元素可能被推走或改大小，ResizeObserver 看不见位移
-watch([sceneData, canvasWidth, canvasHeight], () => {
+watch([sceneInput, canvasWidth, canvasHeight], () => {
     void nextTick(measurePicked);
 }, {deep: true});
 </script>
@@ -1128,13 +1264,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                 :style="leftCollapsed ? undefined : {width: `${leftWidth}px`, flex: `0 0 ${leftWidth}px`}"
                 @update:collapsed="setLeftCollapsed"
             >
-                <template #actions>
-                    <span class="lab-note shrink-0 tabular-nums">
-                        {{ matchedComponents.length }} / {{ labComponents.length }}
-                    </span>
-                </template>
-
-                <div class="lab-search">
+                <template #search>
                     <NbFormInput
                         v-model="treeQuery"
                         size="sm"
@@ -1143,8 +1273,15 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         icon-class="i-lucide-search"
                         clearable
                         aria-label="搜组件名或部件名称"
+                        class="w-full"
                     />
-                </div>
+                </template>
+
+                <template #actions>
+                    <span class="lab-note shrink-0 tabular-nums">
+                        {{ matchedComponents.length }} / {{ labComponents.length }}
+                    </span>
+                </template>
 
                 <!-- 侧栏本身就是那块面，树在里面是裸列表。用默认的 card 会得到
                      「一张卡片浮在侧栏里」：卡片自带的面色、描边与阴影和侧栏的重复一遍。 -->
@@ -1320,7 +1457,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                     :is="fixtureComponent"
                                     v-if="fixtureComponent"
                                     :scene="selectedScene"
-                                    :data="fixtureData"
+                                    :input="sceneInput"
                                 />
                             </div>
                         </Transition>
@@ -1332,33 +1469,57 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                     v-show="hasFixtureControls"
                     class="lab-bottom-panel flex shrink-0 flex-col border-t border-[var(--divider)] bg-[var(--lab-surface)] backdrop-blur-[var(--lab-surface-blur)] select-none"
                 >
-                    <div class="flex h-9 shrink-0 items-center justify-between px-3 text-xs font-medium text-[var(--text-muted)]">
-                        <div class="flex items-center gap-2">
-                            <span class="i-lucide-sliders-horizontal text-[var(--accent-text)] h-3.5 w-3.5" aria-hidden="true" />
-                            <span class="font-medium text-[var(--text-main)]">场景交互控制</span>
-                            <span class="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
+                    <!-- 交互控制面板顶栏：支持点击整行折叠/展开，高亮当前场景名与状态 -->
+                    <div
+                        class="flex h-9 shrink-0 items-center justify-between px-3 text-xs font-medium text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)]/60 cursor-pointer select-none"
+                        :class="bottomPanelCollapsed ? '' : 'border-b border-[var(--divider)]'"
+                        role="button"
+                        :aria-expanded="!bottomPanelCollapsed"
+                        tabindex="0"
+                        :title="bottomPanelCollapsed ? '展开场景交互控制面板' : '收起场景交互控制面板'"
+                        @click="bottomPanelCollapsed = !bottomPanelCollapsed"
+                        @keydown.enter.self="bottomPanelCollapsed = !bottomPanelCollapsed"
+                        @keydown.space.prevent.self="bottomPanelCollapsed = !bottomPanelCollapsed"
+                    >
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-control)] bg-[var(--accent-bg)]/50 text-[var(--accent-text)] border border-[var(--accent-border)]/30">
+                                <span class="i-lucide-sliders-horizontal h-3 w-3" aria-hidden="true" />
+                            </span>
+                            <span class="font-medium text-[var(--text-main)] shrink-0">场景交互控制</span>
+                            <span
+                                v-if="scene?.label"
+                                class="truncate text-[11px] font-normal text-[var(--text-secondary)] hidden sm:inline"
+                            >
+                                · {{ scene.label }}
+                            </span>
+                            <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-muted)] border border-[var(--border-color)] shrink-0">
                                 {{ selectedScene }}
                             </span>
                         </div>
-                        <button
-                            type="button"
-                            class="lab-btn lab-btn--icon h-6 px-2 text-[11px]"
-                            :title="bottomPanelCollapsed ? '展开控制面板' : '收起控制面板'"
-                            @click="bottomPanelCollapsed = !bottomPanelCollapsed"
-                        >
-                            <span
-                                class="h-3.5 w-3.5"
-                                :class="bottomPanelCollapsed ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
-                                aria-hidden="true"
-                            />
-                            <span>{{ bottomPanelCollapsed ? '展开' : '收起' }}</span>
-                        </button>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="text-[10px] text-[var(--text-muted)] hidden md:inline">
+                                {{ bottomPanelCollapsed ? '已折叠' : '调试控件' }}
+                            </span>
+                            <button
+                                type="button"
+                                class="inline-flex h-6 items-center gap-1 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--bg-main)] px-2 text-[11px] font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] cursor-pointer"
+                                :title="bottomPanelCollapsed ? '展开控制面板' : '收起控制面板'"
+                                @click.stop="bottomPanelCollapsed = !bottomPanelCollapsed"
+                            >
+                                <span
+                                    class="h-3.5 w-3.5 transition-transform duration-200"
+                                    :class="bottomPanelCollapsed ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"
+                                    aria-hidden="true"
+                                />
+                                <span>{{ bottomPanelCollapsed ? '展开' : '收起' }}</span>
+                            </button>
+                        </div>
                     </div>
 
                     <div
                         v-show="!bottomPanelCollapsed"
                         id="lab-fixture-controls-target"
-                        class="min-h-0 max-h-48 overflow-auto border-t border-[var(--divider)] px-4 py-2 text-xs"
+                        class="min-h-0 max-h-48 overflow-auto px-4 py-2 text-xs"
                     >
                         <!-- Fixture 的 LabFixtureControls 将 Teleport 到此处 -->
                     </div>
@@ -1408,6 +1569,14 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                         <dt class="lab-meta-key">组件</dt>
                                         <dd class="min-w-0 break-words">{{ picked.componentName }}</dd>
                                     </div>
+                                    <div v-if="picked.hostComponentName && picked.hostComponentName !== picked.componentName" class="lab-meta-row">
+                                        <dt class="lab-meta-key">所属宿主</dt>
+                                        <dd class="min-w-0 break-words">{{ picked.hostComponentName }}</dd>
+                                    </div>
+                                    <div v-if="picked.hostComponentFile && picked.hostComponentFile !== picked.componentFile" class="lab-meta-row">
+                                        <dt class="lab-meta-key">宿主文件</dt>
+                                        <dd class="min-w-0 break-all font-mono">{{ picked.hostComponentFile }}</dd>
+                                    </div>
                                     <div v-if="picked.componentFile" class="lab-meta-row">
                                         <dt class="lab-meta-key">源文件</dt>
                                         <dd class="min-w-0 break-all font-mono">{{ picked.componentFile }}</dd>
@@ -1415,6 +1584,14 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                                     <div class="lab-meta-row">
                                         <dt class="lab-meta-key">选择器</dt>
                                         <dd class="min-w-0 break-all font-mono">{{ picked.selector }}</dd>
+                                    </div>
+                                    <div v-if="picked.text" class="lab-meta-row">
+                                        <dt class="lab-meta-key">文本</dt>
+                                        <dd class="min-w-0 break-words font-mono text-[11px]">{{ picked.text }}</dd>
+                                    </div>
+                                    <div v-if="picked.snippet" class="lab-meta-row">
+                                        <dt class="lab-meta-key">标签</dt>
+                                        <dd class="min-w-0 break-all font-mono text-[11px] text-[var(--accent-text)]">{{ picked.snippet }}</dd>
                                     </div>
                                     <div class="lab-meta-row">
                                         <dt class="lab-meta-key">尺寸</dt>
@@ -1539,20 +1716,61 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
                         </div>
 
                         <div v-else-if="rightTab === 'data'" class="lab-pad lab-data" data-lab-panel="data">
-                            <template v-if="sceneHasData">
+                            <!-- 按被测组件的签名分层：model 是 Lab 持有、组件回写的受控值；props 是非受控输入；
+                                 slots 开关 fixture 备好的插槽预设。内部状态只读，由 fixture 上报。 -->
+                            <template v-if="sceneInput !== undefined">
                                 <div class="flex shrink-0 items-center justify-between">
                                     <span class="lab-note">改完立刻生效</span>
                                     <button type="button" class="lab-btn" @click="resetScene">还原</button>
                                 </div>
-                                <JsonViewer
-                                    :value="fixtureData"
-                                    :read-only="false"
-                                    :max-height="0"
-                                    class="min-h-0 flex-1"
-                                    @update:value="(value) => { sceneData = value; fixtureData = value; }"
-                                />
+                                <section v-if="inputIssues.length > 0" role="status" class="lab-issues">
+                                    <p class="lab-panel-label">与组件签名不一致 {{ inputIssues.length }} 处</p>
+                                    <ul class="flex flex-col gap-2">
+                                        <li v-for="issue in inputIssues" :key="`${issue.layer}:${issue.key}:${issue.message}`" class="flex gap-2">
+                                            <code class="lab-chip shrink-0">{{ issue.key === "" ? issue.layer : `${issue.layer}.${issue.key}` }}</code>
+                                            <span class="min-w-0">{{ issue.message }}</span>
+                                        </li>
+                                    </ul>
+                                </section>
+                                <p v-if="inputEditError !== ''" role="alert" class="lab-note text-[var(--status-danger)]">{{ inputEditError }}</p>
+                                <section>
+                                    <p class="lab-panel-label">
+                                        model · 受控值，组件发 update 时回写（{{ subjectSignature?.models.join("、") || "组件没有受控值" }}）
+                                    </p>
+                                    <JsonViewer
+                                        :value="sceneInput.model ?? {}"
+                                        :read-only="false"
+                                        :max-height="260"
+                                        @update:value="editInputLayer('model', $event)"
+                                    />
+                                </section>
+                                <section>
+                                    <p class="lab-panel-label">props · 非受控输入，没写的走组件默认值</p>
+                                    <JsonViewer
+                                        :value="sceneInput.props ?? {}"
+                                        :read-only="false"
+                                        :max-height="260"
+                                        @update:value="editInputLayer('props', $event)"
+                                    />
+                                </section>
+                                <section v-if="fixtureSlots.length > 0">
+                                    <p class="lab-panel-label">slots · 开启后填入 fixture 备好的预设内容</p>
+                                    <div v-for="name in fixtureSlots" :key="name" class="lab-meta-row items-center">
+                                        <code class="lab-chip">#{{ name }}</code>
+                                        <NbSwitch
+                                            :model-value="sceneInput.slots?.[name] === true"
+                                            size="sm"
+                                            :aria-label="`插槽 ${name} 使用预设内容`"
+                                            @update:model-value="setSlotPreset(name, $event)"
+                                        />
+                                    </div>
+                                </section>
                             </template>
-                            <p v-else class="lab-note">这个场景没有登记可改的假数据。</p>
+                            <p v-else class="lab-note">这个场景没有登记输入。</p>
+                            <section v-if="fixtureState !== undefined">
+                                <p class="lab-panel-label">内部状态 · 只读，由 fixture 上报</p>
+                                <JsonViewer :value="fixtureState" :read-only="true" :max-height="260" />
+                            </section>
                         </div>
                     </div>
                 </div>
@@ -1588,8 +1806,7 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
             </template>
         </NbAlertDialog>
 
-        <!-- 选中元素只留贴边标签，避免大块元素的常驻框退化成一条左竖线；虚线框仅在取色时跟随鼠标。 -->
-        <HighlightBox class="lab-picked-marker" :rect="pickedRect" :label="selectionLabel" tone="subject" :show-box="false" />
+        <!-- 虚线框与组件气泡仅在检查取色时跟随鼠标呈现；左键选中后不常驻遮挡画布元素。 -->
         <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
     </div>
 </template>
@@ -2092,11 +2309,18 @@ watch([sceneData, canvasWidth, canvasHeight], () => {
     padding: var(--panel-p);
 }
 
+/* 分层之后是几段依次排下来，由外层滚动；不再让一个编辑器撑满整栏 */
 .lab-data {
     display: flex;
-    height: 100%;
     flex-direction: column;
-    gap: var(--space-4);
+    gap: var(--space-5);
+}
+
+.lab-issues {
+    padding: var(--space-4);
+    border-radius: var(--radius-control);
+    background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+    font-size: var(--text-xs);
 }
 
 .lab-meta {

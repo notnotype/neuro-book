@@ -47,6 +47,7 @@ const knobs = computed(() => {
     const data = (props.data ?? {}) as Record<string, unknown>;
     return {
         title: readString(data.title, "NeuroBook"),
+        presentation: (data.presentation === "full" || data.presentation === "compact" ? data.presentation : undefined) as TitleBarMenuPresentation | undefined,
         projects: readProjects(data.projects),
         currentProjectRoot: typeof data.currentProjectRoot === "string" ? data.currentProjectRoot : null,
         surfaceActive: readBoolean(data.surfaceActive, true),
@@ -82,6 +83,9 @@ watch(() => props.scene, () => {
     openMenu.value = initialMenu.value || null;
 }, {immediate: true});
 
+const sidebarOpen = ref(true);
+const bottomPanelOpen = ref(false);
+
 function onWindowCommand(command: TitleBarWindowCommand): void {
     emitLabEvent("window-command", command);
 }
@@ -99,7 +103,7 @@ function onSelectProject(projectRoot: string | null): void {
     <div class="flex h-full min-h-0 w-full flex-col bg-[var(--bg-main)]">
         <LabFixtureControls>
             <div class="flex flex-col gap-1 text-xs text-[var(--text-secondary)]">
-                <div>桌面标题栏（36px 标准高度）：支持项目切换、命令菜单、展开收起。</div>
+                <div>桌面标题栏（36px 标准高度）：直达书架独立按钮、项目切换、VS Code 风格命令搜索中心、布局切换与窗口控制。</div>
                 <div>可通过 Lab 顶栏预设或拖动手柄观察收缩至 compact 菜单与搜索框自适应折叠。</div>
             </div>
         </LabFixtureControls>
@@ -110,6 +114,7 @@ function onSelectProject(projectRoot: string | null): void {
                 data-lab-subject
                 class="w-full"
                 :title="knobs.title"
+                :presentation="narrow ? 'compact' : knobs.presentation"
                 :projects="knobs.projects"
                 :current-project-root="knobs.currentProjectRoot"
                 :capabilities="capabilities"
@@ -119,10 +124,15 @@ function onSelectProject(projectRoot: string | null): void {
                 :renderer-menus="knobs.rendererMenus"
                 :custom-window-controls="knobs.customWindowControls"
                 :connection="knobs.connection"
+                :sidebar-open="sidebarOpen"
+                :bottom-panel-open="bottomPanelOpen"
                 @invoke-command="onInvokeCommand"
                 @select-project="onSelectProject"
                 @toggle-agent-panel="emitLabEvent('toggle-agent-panel')"
                 @window-command="onWindowCommand"
+                @open-command-palette="emitLabEvent('open-command-palette')"
+                @toggle-sidebar="sidebarOpen = !sidebarOpen; emitLabEvent('toggle-sidebar', sidebarOpen)"
+                @toggle-bottom-panel="bottomPanelOpen = !bottomPanelOpen; emitLabEvent('toggle-bottom-panel', bottomPanelOpen)"
             />
         </div>
 

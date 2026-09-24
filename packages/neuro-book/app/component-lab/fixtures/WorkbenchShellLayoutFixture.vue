@@ -1421,7 +1421,7 @@ initializeScene();
                                 :project-url="null"
                                 :agent-panel-available="false"
                                 :agent-panel-open="false"
-                                :renderer-menus="false"
+                                :renderer-menus="true"
                                 :custom-window-controls="false"
                                 :connection="null"
                             />

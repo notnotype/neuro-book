@@ -103,6 +103,9 @@ describe("Lab 目录检索", () => {
         expect(deriveDisplayMode("AgentWriteFileBubble")).toBe("tight");
         expect(deriveDisplayMode("AgentStatusNode", "part")).toBe("tight");
         expect(deriveDisplayMode("EditorSettingsView", "view")).toBe("fill");
+        expect(deriveDisplayMode("WorkbenchStatusBar")).toBe("fill");
+        expect(deriveDisplayMode("WorkbenchStatusBarItem")).toBe("tight");
+        expect(deriveDisplayMode("DesktopTitleBarChrome")).toBe("fill");
 
         for (const item of labComponents) {
             expect(["tight", "fill"]).toContain(item.displayMode);

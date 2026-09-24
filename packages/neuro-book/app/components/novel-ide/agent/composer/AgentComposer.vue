@@ -3,7 +3,7 @@ import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/
 import type {AgentPendingResolutionDraft, AgentPendingSubmissionIssue} from "nbook/app/components/novel-ide/agent/agent-pending-resolution";
 import AgentComposerInput from "./AgentComposerInput.vue";
 import AgentSessionModelControls from "../panels/header/AgentSessionModelControls.vue";
-import AgentUserInputPrompt from "../bubbles/interactive/AgentUserInputPrompt.vue";
+import AgentUserInputPrompt from "./AgentUserInputPrompt.vue";
 import AgentQueuedMessageList from "./AgentQueuedMessageList.vue";
 import AgentComposerAvailabilityBanner from "./AgentComposerAvailabilityBanner.vue";
 import AgentComposerImageBar from "./AgentComposerImageBar.vue";
@@ -14,6 +14,7 @@ import type {
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelPickerRoleItem} from "nbook/app/components/novel-ide/model-picker/model-picker.types";
 import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
 import type {ComposerImageNode} from "./composer-image-transaction";
@@ -46,6 +47,8 @@ const props = defineProps<{
     sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentSessionModelDraft;
     selectableModels: EnabledModelOptionDto[];
+    modelRoles?: ModelPickerRoleItem[];
+    showSpecialistInPicker?: boolean;
     agentMode: AgentMode;
     canContinueWithoutInput: boolean;
     queuedMessages: AgentQueuedMessageDto[];
@@ -570,14 +573,15 @@ defineExpose({focus, insertAttachment});
                         :session-thinking-resolved-label="props.sessionThinkingResolvedLabel"
                         :session-model-draft="props.sessionModelDraft"
                         :selectable-models="props.selectableModels"
+                        :roles="props.modelRoles"
+                        :show-specialist-in-picker="props.showSpecialistInPicker"
                         :session-model-saving="props.sessionModelSaving"
                         :session-model-popover-open="props.sessionModelPopoverOpen"
                         :readonly="composerReadonly"
                         :running="props.running"
                         :loading-session="props.loadingSession"
                         dropdown-direction="up"
-                        root-class="min-w-0 max-w-[320px] flex-1"
-                        popover-class="w-[360px]"
+                        root-class="w-auto min-w-0"
                         @update:session-model-popover-open="emit('update:sessionModelPopoverOpen', $event)"
                         @update:session-model-draft="emit('update:sessionModelDraft', $event)"
                         @update-session-model-selection="emit('update-session-model-selection', $event)"

@@ -1,4 +1,4 @@
-import {nextTick, ref} from "vue";
+import {nextTick, shallowRef} from "vue";
 import {createSubmenuScheduler, measureCascadePanel} from "../components/feedback/menu-cascade";
 
 export interface MenuCascadeLevel<T> {
@@ -15,8 +15,8 @@ export function useMenuCascade<T>(): {
     schedule(value: T | null, trigger: HTMLElement, depth: number, immediate: boolean, hasChildren: boolean): void;
     reset(): void;
 } {
-    const levels = ref<MenuCascadeLevel<T>[]>([]);
-    const panels = ref<Array<HTMLElement | null>>([]);
+    const levels = shallowRef<MenuCascadeLevel<T>[]>([]);
+    const panels = shallowRef<Array<HTMLElement | null>>([]);
     const openedPanels: Array<HTMLElement | null> = [];
     const scheduler = createSubmenuScheduler();
     async function open(value: T | null, trigger: HTMLElement, depth: number, hasChildren: boolean): Promise<void> {
@@ -38,7 +38,9 @@ export function useMenuCascade<T>(): {
             openedPanels.length = depth;
             return;
         }
-        levels.value[depth] = {value, switching, style: {top: `${measured.y}px`, left: `${measured.x}px`, width: `${measured.width}px`, height: `${measured.height}px`}};
+        const nextLevels = [...levels.value];
+        nextLevels[depth] = {value, switching, style: {top: `${measured.y}px`, left: `${measured.x}px`, width: `${measured.width}px`, height: `${measured.height}px`}};
+        levels.value = nextLevels;
     }
     return {
         levels,

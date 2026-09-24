@@ -1,4 +1,5 @@
 import type {Component} from "vue";
+import type {LabSceneInput} from "../lab-subject";
 
 /**
  * 场景登记。这不是第二份组件清单——组件清单由 component-index 扫文档得到，
@@ -8,17 +9,22 @@ export type LabScene = {
     id: string;
     label: string;
     /**
-     * 这个场景的假数据初值。Lab 把它交给 fixture 的 `data`，并允许在右栏就地改。
-     * 不写表示这个场景没有可改的数据，右栏的数据 tab 会说明这一点。
-     * 必须是能 JSON 化的值——改数据用的是 JSON 编辑器。
+     * 这个场景的输入初值，按被测组件的签名分层（props / model / slots），键名与组件签名逐字一致。
+     * Lab 把它交给 fixture 的 `input`，并在数据 tab 分层就地改；fixture 用 `useLabSubject` 绑到组件上。
+     * 不写表示这个场景没有可改的输入。必须能 JSON 化——改输入用的是 JSON 编辑器。
      */
-    data?: unknown;
+    input?: LabSceneInput;
 };
 
 export type LabFixture = {
     /** 与组件文档同名 */
     component: string;
     scenes: LabScene[];
+    /**
+     * fixture 为哪些插槽备了预设内容（插槽名与组件一致）。场景的 `input.slots` 只能开关这里列出的插槽；
+     * 插槽没有运行时声明，Lab 只能从这里知道有哪些可切换。
+     */
+    slots?: readonly string[];
     load: () => Promise<Component>;
 };
 
@@ -1250,11 +1256,179 @@ export const labFixtures: LabFixture[] = [
         load: async () => (await import("./AgentTaskBubbleFixture.vue")).default,
     },
     {
-        component: "AgentRequestUserInputBubble",
+        component: "AgentRequestUserInputCard",
         scenes: [
-            {id: "default", label: "请求用户输入决策"},
+            {
+                id: "pending",
+                label: "等待用户输入决策",
+                data: {
+                    status: "running",
+                    isPending: true,
+                    questions: [
+                        {
+                            id: "q1",
+                            header: "角色动机",
+                            question: "是否确认将反派角色‘罗恩’的背叛动机从单纯的金钱诱惑改为家族契约逼迫？",
+                            options: [
+                                {label: "确认修改（增加家族契约悲剧色彩）", description: "赋予角色更深层的身不由己动机"},
+                                {label: "保持原状（维持利益驱使的纯粹恶人设定）", description: "凸显人性的纯粹自私与残酷贪婪"},
+                            ],
+                        },
+                    ],
+                    answers: [],
+                },
+            },
+            {
+                id: "answered-choice",
+                label: "单选决策已完成",
+                data: {
+                    status: "success",
+                    isPending: false,
+                    questions: [
+                        {
+                            id: "q1",
+                            header: "角色动机",
+                            question: "是否确认将反派角色‘罗恩’的背叛动机从单纯的金钱诱惑改为家族契约逼迫？",
+                            options: [
+                                {label: "确认修改（增加家族契约悲剧色彩）", description: "赋予角色更深层的身不由己动机"},
+                                {label: "保持原状（维持利益驱使的纯粹恶人设定）", description: "凸显人性的纯粹自私与残酷贪婪"},
+                            ],
+                        },
+                    ],
+                    answers: [
+                        {
+                            questionIndex: 0,
+                            selectedOptionIndex: 0,
+                            note: "",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "answered-open",
+                label: "开放问答已回答",
+                data: {
+                    status: "success",
+                    isPending: false,
+                    questions: [
+                        {
+                            id: "q-open",
+                            header: "设定讨论",
+                            question: "请详细描述第三卷登场的古神祭坛的建筑风格与周边生态环境。",
+                            options: [],
+                        },
+                    ],
+                    answers: [
+                        {
+                            questionIndex: 0,
+                            text: "祭坛由黑曜石与风化玄武岩筑成，四周环绕着发光的荧光苔藓与深不见底的静水深潭。",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "answered-custom",
+                label: "带补充说明回答",
+                data: {
+                    status: "success",
+                    isPending: false,
+                    questions: [
+                        {
+                            id: "q1",
+                            header: "角色动机",
+                            question: "是否确认将反派角色‘罗恩’的背叛动机从单纯的金钱诱惑改为家族契约逼迫？",
+                            options: [
+                                {label: "确认修改（增加家族契约悲剧色彩）", description: "赋予角色更深层的身不由己动机"},
+                                {label: "保持原状（维持利益驱使的纯粹恶人设定）", description: "凸显人性的纯粹自私与残酷贪婪"},
+                            ],
+                        },
+                    ],
+                    answers: [
+                        {
+                            questionIndex: 0,
+                            selectedOptionIndex: 0,
+                            note: "建议将家族契约与第三卷的古神祭坛暗中关联起来，预埋伏笔",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "tool-approval",
+                label: "文件更新工具审批",
+                data: {
+                    status: "success",
+                    isPending: false,
+                    questions: [
+                        {
+                            id: "q-approval",
+                            header: "审批",
+                            question: "Agent 请求执行文件更新：将主角觉醒章节写入 src/chapters/ch03.md，是否批准？",
+                            options: [
+                                {label: "批准执行", description: "允许 Agent 覆盖写入目标章节文件"},
+                                {label: "拒绝操作", description: "阻止文件改动，由作者手动接管后续操作"},
+                            ],
+                        },
+                    ],
+                    answers: [
+                        {
+                            questionIndex: 0,
+                            selectedOptionIndex: 0,
+                            note: "已通过大纲审查，允许更新",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "multi-questions",
+                label: "多问题组合决策",
+                data: {
+                    status: "success",
+                    isPending: false,
+                    questions: [
+                        {
+                            id: "q1",
+                            header: "冲突走向",
+                            question: "情节走向决策：如何处理反派罗恩与主角在钟楼的对决？",
+                            options: [
+                                {label: "正面交锋并揭穿背叛真相", description: "迅速推动矛盾高潮"},
+                                {label: "表面虚与委蛇，暗中留下逃生退路", description: "强化悬疑与智斗氛围"},
+                            ],
+                        },
+                        {
+                            id: "q2",
+                            header: "篇幅控制",
+                            question: "章节篇幅规划：本场对决预期字数与节奏控制？",
+                            options: [
+                                {label: "快节奏短章（约 3000 字）", description: "紧凑推进，不拖泥带水"},
+                                {label: "多视角大章（约 6000 字）", description: "细致刻画配角心理与环境氛围"},
+                            ],
+                        },
+                    ],
+                    answers: [
+                        {
+                            questionIndex: 0,
+                            selectedOptionIndex: 0,
+                            note: "",
+                        },
+                        {
+                            questionIndex: 1,
+                            selectedOptionIndex: 1,
+                            note: "需重点描写钟楼暴风雨的声音与光影细节",
+                        },
+                    ],
+                },
+            },
+            {
+                id: "streaming",
+                label: "参数流式生成中",
+                data: {
+                    status: "running",
+                    isPending: false,
+                    streamingArgs: "{\"questions\":[{\"id\":\"q1\",\"question\":\"是否确认调整角色动机",
+                },
+            },
         ],
-        load: async () => (await import("./AgentRequestUserInputBubbleFixture.vue")).default,
+        load: async () => (await import("./AgentRequestUserInputCardFixture.vue")).default,
     },
     {
         component: "AgentQueuedMessageList",
@@ -1338,18 +1512,188 @@ export const labFixtures: LabFixture[] = [
         scenes: [
             {id: "closed", label: "参数面板折叠"},
             {id: "open", label: "展开参数调节面板"},
+            {id: "with-specialist", label: "展开角色与专精轴"},
+            {id: "gradient-only", label: "仅梯度角色"},
             {id: "readonly", label: "只读锁定"},
             {id: "saving", label: "保存中状态"},
         ],
         load: async () => (await import("./AgentSessionModelControlsFixture.vue")).default,
     },
     {
+        component: "ModelPickerContent",
+        scenes: [
+            {
+                id: "content-only",
+                label: "直接嵌入面板",
+                data: {
+                    selectedValue: "role:main",
+                    thinkingLevel: "medium",
+                    showSpecialist: true,
+                },
+            },
+            {
+                id: "specialist-enabled",
+                label: "全部角色与模型",
+                data: {
+                    selectedValue: "role:writer",
+                    thinkingLevel: "high",
+                    showSpecialist: true,
+                },
+            },
+            {
+                id: "gradient-only",
+                label: "仅梯度角色",
+                data: {
+                    selectedValue: "role:fast",
+                    thinkingLevel: "off",
+                    showSpecialist: false,
+                },
+            },
+        ],
+        load: async () => (await import("./ModelPickerFixture.vue")).default,
+    },
+    {
+        component: "ModelPickerPopover",
+        scenes: [
+            {
+                id: "default",
+                label: "默认弹出态",
+                data: {
+                    selectedValue: "role:main",
+                    thinkingLevel: null,
+                    showSpecialist: true,
+                    popoverOpen: true,
+                },
+            },
+            {
+                id: "specialist-enabled",
+                label: "含专精轴角色",
+                data: {
+                    selectedValue: "role:plan",
+                    thinkingLevel: "high",
+                    showSpecialist: true,
+                    popoverOpen: true,
+                },
+            },
+            {
+                id: "gradient-only",
+                label: "仅梯度角色",
+                data: {
+                    selectedValue: "role:tiny",
+                    thinkingLevel: "minimal",
+                    showSpecialist: false,
+                    popoverOpen: true,
+                },
+            },
+        ],
+        load: async () => (await import("./ModelPickerFixture.vue")).default,
+    },
+    {
         component: "AgentUserInputPrompt",
         scenes: [
-            {id: "single-choice", label: "单选决策"},
-            {id: "open-ended", label: "开放式简答"},
-            {id: "multi-question", label: "多步问答导航"},
-            {id: "submitting", label: "提交处理中"},
+            {
+                id: "single-choice",
+                label: "单选决策",
+                data: {
+                    canResolve: true,
+                    canAbort: true,
+                    submitting: false,
+                    questions: [
+                        {
+                            header: "叙事视点选择",
+                            question: "接下来这一幕你希望以谁的视角展开叙述？",
+                            options: [
+                                {label: "主角（第一人称感知）", description: "强化主观沉浸感与情绪张力"},
+                                {label: "观察者（第三人称全知）", description: "宏观把控全局线索与多方动态"},
+                                {label: "对手（限知视角）", description: "制造信息差与悬念心理压迫"},
+                            ],
+                        },
+                    ],
+                },
+            },
+            {
+                id: "open-ended",
+                label: "开放式简答",
+                data: {
+                    canResolve: true,
+                    canAbort: true,
+                    submitting: false,
+                    questions: [
+                        {
+                            header: "核心立意构思",
+                            question: "请简述这一章你想表达的核心主题与关键情节转折：",
+                            options: [],
+                        },
+                    ],
+                },
+            },
+            {
+                id: "multi-question",
+                label: "多步问答导航",
+                data: {
+                    canResolve: true,
+                    canAbort: true,
+                    submitting: false,
+                    questions: [
+                        {
+                            header: "步骤 1 · 暗线处置",
+                            question: "你希望反派在何时被主角揭穿？",
+                            options: [
+                                {label: "本章结尾直接揭穿", description: "迅速释放矛盾高潮"},
+                                {label: "下一卷再揭晓", description: "蓄积更长线的情感反差"},
+                                {label: "始终不揭穿，留作暗线", description: "作为长期悬念伏笔"},
+                            ],
+                        },
+                        {
+                            header: "步骤 2 · 心境倾向",
+                            question: "主角此时的心理状态偏向哪种？",
+                            options: [
+                                {label: "愤怒与复仇", description: "行动果决暴烈"},
+                                {label: "困惑与失望", description: "内心动摇与挣扎"},
+                                {label: "平静与释怀", description: "超脱并掌控全局"},
+                            ],
+                        },
+                    ],
+                },
+            },
+            {
+                id: "submitting",
+                label: "提交处理中",
+                data: {
+                    canResolve: true,
+                    canAbort: false,
+                    submitting: true,
+                    questions: [
+                        {
+                            header: "提交处理中示例",
+                            question: "接下来这一幕你希望以谁的视角展开叙述？",
+                            options: [
+                                {label: "主角（第一人称感知）", description: "主观视角"},
+                            ],
+                        },
+                    ],
+                },
+            },
+            {
+                id: "blocked",
+                label: "权限阻断",
+                data: {
+                    canResolve: false,
+                    canAbort: true,
+                    submitting: false,
+                    blockedMessage: "当前正在执行正文生成，请等待当前生成结束或中止后再回答。",
+                    questions: [
+                        {
+                            header: "权限阻断演示",
+                            question: "接下来这一幕你希望以谁的视角展开叙述？",
+                            options: [
+                                {label: "主角（第一人称感知）", description: "主观视角"},
+                                {label: "观察者（第三人称全知）", description: "全景视角"},
+                            ],
+                        },
+                    ],
+                },
+            },
         ],
         load: async () => (await import("./AgentUserInputPromptFixture.vue")).default,
     },

@@ -20,10 +20,11 @@ function role(item: T): string {
     return "menuitem";
 }
 function onKeydown(item: T, event: KeyboardEvent): void {
-    if (!hasChildren(item) || event.key !== "ArrowRight" || !event.currentTarget || !("getBoundingClientRect" in event.currentTarget)) return;
+    const target = event.currentTarget as HTMLElement | null;
+    if (!hasChildren(item) || event.key !== "ArrowRight" || !target || !("getBoundingClientRect" in target)) return;
     event.preventDefault();
-    event.currentTarget.setAttribute("aria-expanded", "true");
-    emit("hover", item, event.currentTarget, true);
+    target.setAttribute("aria-expanded", "true");
+    emit("hover", item, target, true);
 }
 </script>
 

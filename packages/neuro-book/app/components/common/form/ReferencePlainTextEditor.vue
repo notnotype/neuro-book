@@ -382,8 +382,38 @@ onBeforeUnmount(() => {
 /**
  * 聚焦编辑器。
  */
-function focus(): void {
-    editor.value?.commands.focus();
+function focus(position?: "start" | "end" | "all" | number | boolean | null): void {
+    if (position !== undefined && position !== null) {
+        editor.value?.commands.focus(position);
+    } else {
+        editor.value?.commands.focus();
+    }
+}
+
+/**
+ * 点击输入框空白处时聚焦并定位光标。
+ */
+function handleBodyClick(event: MouseEvent): void {
+    if (props.readonly || !editor.value) {
+        return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+        return;
+    }
+    if (target.closest("button, a, input, select, textarea, [data-interactive]")) {
+        return;
+    }
+    const prosemirrorEl = bodyRef.value?.querySelector(".reference-plain-text-editor__prosemirror");
+    if (!prosemirrorEl) {
+        return;
+    }
+    // 如果点击发生在文本段落/内联节点等内部，保留 ProseMirror 自身的光标定位
+    if (prosemirrorEl.contains(target) && target !== prosemirrorEl) {
+        return;
+    }
+    // 点击了 bodyRef、content 容器，或者点击了 ProseMirror 底部的空白区域
+    editor.value.commands.focus("end");
 }
 
 /**
@@ -769,7 +799,13 @@ defineExpose({
         :class="[rootClass, {'reference-plain-text-editor--readonly': props.readonly}, props.borderless ? 'border-none bg-[var(--bg-panel)] shadow-none' : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]']"
         :data-readonly="String(props.readonly)"
     >
-        <div ref="bodyRef" class="reference-plain-text-editor__body" :style="bodyStyle" @scroll="handleBodyScroll">
+        <div
+            ref="bodyRef"
+            class="reference-plain-text-editor__body"
+            :style="bodyStyle"
+            @scroll="handleBodyScroll"
+            @click="handleBodyClick"
+        >
             <EditorContent v-if="editor" :editor="editor" class="reference-plain-text-editor__content" />
         </div>
 
@@ -810,16 +846,25 @@ defineExpose({
 }
 
 .reference-plain-text-editor__body {
+    display: flex;
+    flex-direction: column;
     background: var(--bg-panel);
     border-radius: inherit;
+    cursor: text;
 }
 
 .reference-plain-text-editor__content {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
     min-height: 100%;
+    cursor: text;
 }
 
 :deep(.reference-plain-text-editor__prosemirror) {
+    flex: 1 1 auto;
     min-height: 100%;
+    box-sizing: border-box;
     margin: 0;
     padding: var(--plain-reference-padding);
     color: var(--text-main);
@@ -828,6 +873,7 @@ defineExpose({
     line-height: var(--plain-reference-line-height);
     white-space: pre-wrap;
     word-break: break-word;
+    cursor: text;
 }
 
 :deep(.reference-plain-text-editor__prosemirror--readonly) {

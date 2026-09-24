@@ -1,5 +1,13 @@
 <script setup lang="ts">
 import {computed, ref, watch} from "vue";
+import {
+    Button,
+    FormSelect,
+    type FormSelectOption,
+    SegmentedControl,
+    type SegmentedControlOption,
+    Switch,
+} from "@notnotype/nb-ui/components";
 import AgentComposer from "../../components/novel-ide/agent/composer/AgentComposer.vue";
 import type {ComposerImageTransactionApi} from "../../components/novel-ide/agent/composables/useComposerImageTransaction";
 import type {AgentPendingUserInputSession} from "../../components/novel-ide/agent/agent-message";
@@ -15,9 +23,10 @@ import type {
 import type {AgentSessionModelDraft} from "../../components/novel-ide/agent/agent-session-model-controls";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "../../components/novel-ide/agent/trigger-menu";
 import type {EnabledModelOptionDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelPickerRoleItem} from "../../components/novel-ide/model-picker/model-picker.types";
 import type {AgentQueuedMessageDto, AgentMode, AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
 import type {PublicTextPreviewDto} from "nbook/shared/dto/agent-public-event.dto";
-import {useLabEventSink} from "../lab-event-sink";
+import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
 const props = defineProps<{
@@ -26,6 +35,7 @@ const props = defineProps<{
 }>();
 
 const emitLabEvent = useLabEventSink();
+const syncLabData = useLabDataSink();
 
 /** Lab 附件条目：按当前 DTO 合成，`attachmentId` 与 `target` 用 sha256 形状的稳定标识，不接真实存储。 */
 function labAttachmentItem(input: {suffix: string; mimeType: string; bytes: number; name?: string; seenAt: number}): AgentSessionAttachmentItemDto {
@@ -98,7 +108,121 @@ const selectableModels: EnabledModelOptionDto[] = [
     },
 ];
 
+const showSpecialistInPicker = ref(true);
+
+const modelRoles = ref<ModelPickerRoleItem[]>([
+    {
+        id: "tiny",
+        axis: "gradient",
+        name: "极轻量",
+        description: "会话标题、简单打标、轻量检索",
+        modelKey: "deepseek-reasoner",
+        modelLabel: "DeepSeek R1",
+        iconClass: "i-lucide-feather",
+        enabled: true,
+    },
+    {
+        id: "fast",
+        axis: "gradient",
+        name: "快速",
+        description: "日常问答、快速搜索、简单改写",
+        modelKey: "gpt-4o",
+        modelLabel: "GPT-4o Omnimodal",
+        iconClass: "i-lucide-zap",
+        enabled: true,
+    },
+    {
+        id: "main",
+        axis: "gradient",
+        name: "主力",
+        description: "主会话、综合分析、长篇写作",
+        modelKey: "claude-3-7-sonnet",
+        modelLabel: "Claude 3.7 Sonnet (Hybrid)",
+        iconClass: "i-lucide-star",
+        enabled: true,
+    },
+    {
+        id: "deep",
+        axis: "gradient",
+        name: "深度",
+        description: "复杂规划、难点分析、深度推理",
+        modelKey: "claude-3-7-sonnet",
+        modelLabel: "Claude 3.7 Sonnet (Hybrid)",
+        iconClass: "i-lucide-brain",
+        enabled: true,
+    },
+    {
+        id: "writer",
+        axis: "specialist",
+        name: "写作",
+        description: "小说正文与段落润色",
+        modelKey: "claude-3-7-sonnet",
+        modelLabel: "Claude 3.7 Sonnet (Hybrid)",
+        iconClass: "i-lucide-pen-line",
+        enabled: true,
+    },
+    {
+        id: "narrative",
+        axis: "specialist",
+        name: "叙事",
+        description: "剧情设计与伏笔规划",
+        modelKey: "claude-3-7-sonnet",
+        modelLabel: "Claude 3.7 Sonnet (Hybrid)",
+        iconClass: "i-lucide-book-open",
+        enabled: true,
+    },
+    {
+        id: "plan",
+        axis: "specialist",
+        name: "计划",
+        description: "进入计划模式后切换的模型",
+        modelKey: "gpt-4o",
+        modelLabel: "GPT-4o Omnimodal",
+        iconClass: "i-lucide-map",
+        enabled: true,
+    },
+    {
+        id: "vision",
+        axis: "specialist",
+        name: "视觉",
+        description: "图像与多模态插画理解",
+        modelKey: "gpt-4o",
+        modelLabel: "GPT-4o Omnimodal",
+        iconClass: "i-lucide-eye",
+        enabled: true,
+    },
+]);
+
 const pendingResolutionDraft = ref<AgentPendingResolutionDraft>(createAgentPendingResolutionDraft([]));
+
+// 选项配置
+const agentModeOptions: SegmentedControlOption[] = [
+    {value: "normal", label: "常规 (Normal)"},
+    {value: "discuss", label: "讨论 (Discuss)"},
+    {value: "plan", label: "规划 (Plan)"},
+];
+
+const availabilityOptions: FormSelectOption[] = [
+    {value: "ready", label: "就绪可编辑 (ready)", description: "常规正常输入态"},
+    {value: "unselected", label: "未选择会话 (unselected)", description: "展示无活动会话提示"},
+    {value: "archived", label: "已归档会话 (archived)", description: "会话已锁定，只读"},
+    {value: "load-error", label: "加载错误 (load-error)", description: "模拟网络连接中断"},
+    {value: "waiting-blocked", label: "等待输入受阻 (waiting-blocked)", description: "等待回答时阻断其他输入"},
+];
+
+function syncSink(): void {
+    syncLabData({
+        scene: props.scene,
+        inputText: inputText.value,
+        running: running.value,
+        agentMode: agentMode.value,
+        availabilityStatus: availabilityStatus.value,
+        queuedCount: queuedMessages.value.length,
+        hasPendingPrompt: pendingSessions.value.length > 0,
+        attachmentsCount: sessionAttachments.value.length,
+        selectedModel: sessionModelSelectionValue.value,
+    });
+}
 
 // 场景初始数据映射
 watch(() => props.scene, (scene) => {
@@ -207,7 +331,6 @@ const availability = computed<AgentComposerAvailability>(() => {
 const mockImageApi: ComposerImageTransactionApi = {
     async uploadSessionAttachment(sessionId: number, file: File) {
         emitLabEvent("image-upload-mock", {sessionId, name: file.name, size: file.size});
-        // 模拟 200ms 延时
         await new Promise((resolve) => setTimeout(resolve, 200));
         return labAttachmentItem({
             suffix: `mock-att-${String(Date.now())}`,
@@ -283,11 +406,13 @@ function handleSend() {
         running.value = true;
         inputText.value = "";
     }
+    syncSink();
 }
 
 function handleStop() {
     emitLabEvent("stop");
     running.value = false;
+    syncSink();
 }
 
 function handleCycleMode() {
@@ -295,6 +420,7 @@ function handleCycleMode() {
     if (agentMode.value === "normal") agentMode.value = "discuss";
     else if (agentMode.value === "discuss") agentMode.value = "plan";
     else agentMode.value = "normal";
+    syncSink();
 }
 
 function handleAddQueue() {
@@ -308,10 +434,12 @@ function handleAddQueue() {
         omittedImages: 0,
         createdAt: Date.now(),
     });
+    syncSink();
 }
 
 function handleClearQueue() {
     queuedMessages.value = [];
+    syncSink();
 }
 
 function handleTogglePrompt() {
@@ -340,11 +468,12 @@ function handleTogglePrompt() {
         pendingSessions.value = [mockPromptSession];
         pendingResolutionDraft.value = createAgentPendingResolutionDraft([mockPromptSession]);
     }
+    syncSink();
 }
 </script>
 
 <template>
-    <div class="flex w-full flex-col justify-end p-4">
+    <div class="flex h-full min-h-0 w-full flex-col justify-end p-4">
         <AgentComposer
             data-lab-subject
             class="w-full"
@@ -366,6 +495,8 @@ function handleTogglePrompt() {
             :session-model-selection-value="sessionModelSelectionValue"
             session-thinking-resolved-label="思考耗时 1.8s"
             :selectable-models="selectableModels"
+            :model-roles="modelRoles"
+            :show-specialist-in-picker="showSpecialistInPicker"
             :agent-mode="agentMode"
             :can-continue-without-input="false"
             :queued-messages="queuedMessages"
@@ -388,70 +519,104 @@ function handleTogglePrompt() {
             @apply-session-model-settings="sessionModelPopoverOpen = false; emitLabEvent('apply-session-model-settings')"
             @reset-session-model-settings="emitLabEvent('reset-session-model-settings')"
             @availability-action="emitLabEvent('availability-action', $event)"
+            @update-session-model-selection="sessionModelSelectionValue = $event; syncSink()"
         />
+    </div>
 
-        <!-- Component Lab 底部可展开调试控制抽屉 -->
-        <LabFixtureControls>
-            <div class="space-y-4 text-xs">
-                <div>
-                    <span class="mb-1.5 block font-semibold text-[var(--text-primary)]">运行与模式控制</span>
-                    <div class="grid grid-cols-2 gap-2">
-                        <label class="flex items-center gap-2 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
-                            <input type="checkbox" v-model="running" class="rounded accent-[var(--theme-accent)]">
-                            <span>正在运行 (running)</span>
-                        </label>
-                        <select
-                            v-model="agentMode"
-                            class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-[var(--text-primary)]"
-                        >
-                            <option value="normal">模式: 常规 (Normal)</option>
-                            <option value="discuss">模式: 讨论 (Discuss)</option>
-                            <option value="plan">模式: 规划 (Plan)</option>
-                        </select>
+    <!-- Component Lab 底部可展开调试控制抽屉（消费标准 nb-ui 控件与主题语义变量） -->
+    <LabFixtureControls>
+            <div class="flex flex-col gap-3 py-1 text-xs select-none">
+                <!-- 第一行：状态开关与模式切换 -->
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">运行控制:</span>
+                        <div class="flex items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 py-1 shadow-xs">
+                            <span
+                                class="h-2 w-2 rounded-full transition-colors"
+                                :class="running ? 'bg-[var(--status-success)] animate-pulse' : 'bg-[var(--text-muted)]'"
+                                aria-hidden="true"
+                            />
+                            <span class="text-[11px] text-[var(--text-main)]">{{ running ? "执行推进中 (running)" : "就绪空闲中 (idle)" }}</span>
+                            <Switch
+                                :model-value="running"
+                                size="sm"
+                                aria-label="切换执行推进状态"
+                                @update:model-value="running = $event; syncSink()"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">专精角色:</span>
+                        <div class="flex items-center gap-2 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2.5 py-1 shadow-xs">
+                            <span class="text-[11px] text-[var(--text-main)]">{{ showSpecialistInPicker ? "显示" : "隐藏" }}</span>
+                            <Switch
+                                :model-value="showSpecialistInPicker"
+                                size="sm"
+                                aria-label="切换专精角色显示"
+                                @update:model-value="showSpecialistInPicker = $event; syncSink()"
+                            />
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-medium text-[var(--text-secondary)]">Agent 模式:</span>
+                        <SegmentedControl
+                            :model-value="agentMode"
+                            :options="agentModeOptions"
+                            size="sm"
+                            @update:model-value="(val) => { agentMode = val as AgentMode; syncSink(); }"
+                        />
                     </div>
                 </div>
 
-                <div>
-                    <span class="mb-1.5 block font-semibold text-[var(--text-primary)]">可用性状态 (Availability)</span>
-                    <select
-                        v-model="availabilityStatus"
-                        class="w-full rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-[var(--text-primary)]"
-                    >
-                        <option value="ready">就绪可编辑 (ready)</option>
-                        <option value="unselected">未选择会话 (unselected)</option>
-                        <option value="archived">已归档会话 (archived)</option>
-                        <option value="load-error">加载错误 (load-error)</option>
-                        <option value="waiting-blocked">等待回答受阻 (waiting-blocked)</option>
-                    </select>
-                </div>
+                <!-- 第二行：可用性切换与模拟交互操作 -->
+                <div class="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--divider)] pt-2.5">
+                    <div class="flex items-center gap-2">
+                        <span class="shrink-0 text-xs font-medium text-[var(--text-secondary)]">可用性状态:</span>
+                        <div class="w-64">
+                            <FormSelect
+                                v-model="availabilityStatus"
+                                :options="availabilityOptions"
+                                size="sm"
+                                aria-label="可用性状态"
+                                @update:model-value="syncSink()"
+                            />
+                        </div>
+                    </div>
 
-                <div>
-                    <span class="mb-1.5 block font-semibold text-[var(--text-primary)]">模拟动态交互</span>
-                    <div class="flex flex-wrap gap-2">
-                        <button
-                            type="button"
-                            class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                    <div class="flex flex-wrap items-center gap-2">
+                        <Button
+                            size="sm"
+                            variant="secondary"
                             @click="handleAddQueue"
                         >
-                            + 追加排队消息
-                        </button>
-                        <button
-                            type="button"
-                            class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                            <span class="i-lucide-plus mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            追加排队消息
+                        </Button>
+                        <Button
+                            size="sm"
+                            variant="ghost"
+                            :disabled="queuedMessages.length === 0"
                             @click="handleClearQueue"
                         >
-                            清空排队消息
-                        </button>
-                        <button
-                            type="button"
-                            class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                            <span class="i-lucide-trash-2 mr-1 h-3.5 w-3.5" aria-hidden="true" />
+                            清空排队 ({{ queuedMessages.length }})
+                        </Button>
+                        <Button
+                            size="sm"
+                            :variant="pendingSessions.length > 0 ? 'primary' : 'secondary'"
                             @click="handleTogglePrompt"
                         >
-                            {{ pendingSessions.length > 0 ? "取消提问弹窗" : "注入 Agent 提问" }}
-                        </button>
+                            <span
+                                :class="pendingSessions.length > 0 ? 'i-lucide-x' : 'i-lucide-help-circle'"
+                                class="mr-1 h-3.5 w-3.5"
+                                aria-hidden="true"
+                            />
+                            {{ pendingSessions.length > 0 ? "取消提问向导" : "注入 Agent 提问" }}
+                        </Button>
                     </div>
                 </div>
             </div>
         </LabFixtureControls>
-    </div>
 </template>
