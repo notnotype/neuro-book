@@ -42,7 +42,10 @@ neuro-book/
 │   │   ├── assets/reference/       # 运行期 Reference 的 canonical 源
 │   │   └── assets/workspace/       # 内置 workspace 资产与产品 Skill 的 canonical 源
 │   ├── neuro-book-manager/         # 安装、运行、工具链与升级
-│   ├── neuro-agent-harness/        # 会话、Profile、工具与事件恢复
+│   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint
+│   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002）
+│   ├── nb-profile/                 # Profile 加载与 JSX 渲染（w00002）
+│   ├── nb-session/                 # 会话日志（w00002）
 │   ├── neuro-book-contracts/       # 跨包类型与合同
 │   ├── nb-memory/                  # episode、facts 与主体注册表
 │   ├── nb-history/                 # 操作日志、事件溯源与内容寻址快照

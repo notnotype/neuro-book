@@ -155,11 +155,12 @@ The public documentation sources live under [`vitepress/locales/en-US/`](vitepre
 
 ## Workspace Map
 
-All further development happens in these 12 workspaces. The pre-migration sibling checkouts are no longer development entry points.
+All further development happens in these 15 workspaces (the root `package.json` `workspaces` list is authoritative). The pre-migration sibling checkouts are no longer development entry points.
 
 - Application and host: [main application](packages/neuro-book/AGENTS.md) · [Manager](packages/neuro-book-manager/README.md)
 - Internal packages: [Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - Autonomous packages: [History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
+- Agent harness rebuild (w00002): [nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)
 
 See the [Monorepo Module boundaries](docs/modules/monorepo-boundaries.md) and [package governance](packages/AGENTS.md) for dependency direction, inherited governance, and runtime-state ownership.
 

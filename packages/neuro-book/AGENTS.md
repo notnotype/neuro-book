@@ -8,7 +8,7 @@
 - monorepo 级治理仍在根 [`docs/`](../../docs/)（specs 注册表、standards、testing、modules 边界正文与提案流程）；判断当前行为只依据根注册表登记的 `implemented` Spec。
 - 主应用交付配置归本包：`Dockerfile*`、`docker-compose*.yml`、`.env.docker.example`、`.env.example`、`.env.product`、`.env.typecheck`、`config.example.yaml` 与包级 `.gitignore`。Docker build context 仍由根 monorepo 提供，根 `.dockerignore` 是 context 过滤器，不是应用源码入口。
 - `.env` 与 `config.yaml` 是 State Root 的本机运行文件，不提交到源码包；Source Dev 默认把 State Root 放在平台用户数据目录，运行时 Workspace 为 State Root 下的 `workspace/`。checkout 根的 `assets/`、`workspace/` 只作为历史/用户数据隔离区，不得当作应用源码或通过启动 fallback 读取。
-- Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色只消费 `app/utils/theme/README.md` 登记的变量。
+- Vue 组件、composable 和 store 沿用现有函数式风格；主题颜色规则见「前端规范」。
 - 普通界面复用 `app/components/common` 与现有通知、Tooltip、可调整面板能力；对话框按「前端规范」选择 nb-ui `Dialog` / `DialogWindow`。
 - 前端 API 错误使用 `resolveApiErrorMessage()`；跨入口反馈使用 `useNotification()`。
 - 修改 UI 后按根规则选择聚焦测试；未经明确授权不自动执行浏览器人工验收。
@@ -16,7 +16,7 @@
 ## 前端规范
 
 - 通用组件优先复用 `app/components/common`：`NotificationViewport`、`Tooltip` 和 `form/FormColorField`；模态对话框与非模态浮动窗口复用 `@notnotype/nb-ui/components` 的 `Dialog` / `DialogWindow`（`app/components/common/Dialog.vue` 只剩未迁移的调用点，不要再新增消费者）。
-- Novel IDE 普通界面颜色只消费 `app/utils/theme/README.md` 登记的主题变量，不新增 Tailwind 调色板或 `dark:` 变体；新增组件变量前确认现有变量无法表达，并同步登记到主题文档和 8 套内置主题。
+- Novel IDE 普通界面颜色只消费 nb-ui 登记的主题变量（事实源见 [nb-ui UI 开发规范 §1](../nb-ui/docs/ui-development-spec.md#1-事实源)：配色变量在 `src/colorway/colorway-contract.ts`，token 名在 `src/theme/tokens.ts`），不新增 Tailwind 调色板或 `dark:` 变体；新增组件变量前确认现有变量无法表达，并同步登记到该事实源，覆盖 [`shared/theme/theme-axes.ts`](shared/theme/theme-axes.ts) 的 `productThemeIds` 登记的产品主题（当前 `nbook`、`macos`）。
 - 状态色使用 `warning`（草稿/待审/未保存）、`success`（完成/已同步）、`danger`（错误/删除/冲突）、`info`（运行中/引用/说明）和 `accent`（选中/当前/主操作）。内容、编辑器和 chip 分类色是例外，不按状态色重写。
 - World Engine 的 `--we-*` 只在 `app/styles/theme-vars.css` 的 `.world-engine-workbench-theme` 中映射；真实 Dialog 和 preview 使用该 class，不在局部样式反向覆盖全局变量。
 - `ReferenceChip.vue` 只输出类别语义 class，外观统一在 `app/styles/reference-chips.css`；不要在 TipTap 或业务组件重复定义。

@@ -44,7 +44,7 @@
 - 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`。
 - 每个 Vitest 配置显式声明 `root`（仓库根或包根），不依赖 `process.cwd()`；include 覆盖
   该作用域内全部测试文件。
-- 全量测试统一 `bun run test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
+- Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
   （如 zod）的 CJS/ESM interop 与 node 不同，过滤单文件可能误报
   `zod does not provide an export named 'z'`；以 node 运行时为准。
 - 新增测试目录（如新 `scripts/<area>/`）必须同步加入对应配置的 `include`，否则测试
@@ -88,7 +88,7 @@
 
 `bun run test:real-model`（等价 `bun run --cwd packages/neuro-book test:real-model`）是应用包唯一会真实调用
 Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.config.ts` 只收集
-`packages/neuro-book/scripts/smoke/real-model/**`，默认门禁（`bun run test`）显式排除该目录，常规测试零模型调用。
+`packages/neuro-book/scripts/smoke/real-model/**`，默认门禁（`bun run --cwd packages/neuro-book test`）显式排除该目录，常规测试零模型调用。
 
 - **凭据**：从仓库根 dotenv（`.env`，含 `.env.local` / `.env.real-model*` 变体）白名单注入测试进程（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；缺凭据的用例 skip 并在证据中记为「未验证」，不得写成通过。`REAL_MODEL_SMOKE_MODEL` 可覆盖模型（默认 `deepseek/deepseek-flash`）。
 - **隔离**：测试使用独立 State Root 与临时 workspace；写入的全局配置只落在本 run 的隔离根内（缺少 `NEURO_BOOK_STATE_ROOT` 时直接拒绝写入），POSIX 下收紧为 0600，随 run teardown 删除。
