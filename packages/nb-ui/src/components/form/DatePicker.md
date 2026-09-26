@@ -22,7 +22,7 @@
 - 浮层底部“清除”按钮发出空值事件并关闭；“关闭”按钮只关闭浮层，不改变日期。
 - `disabled` 会禁用触发器；组件不再通过触发器打开日历。
 - `readonly` 转发给日历，并隐藏触发器右侧清除图标；日历的只读选择语义由上游实现。当前实现中浮层底部的“清除”按钮没有同步设置 disabled，因此只读场景仍可能通过该按钮清除值，见「已知偏差」。
-- Popover 的 Escape、外部点击、焦点恢复和日历的键盘导航由上游原语处理；组件没有另行声明快捷键，也没有公开 `open` 控制事件。
+- Popover 的 Escape、外部点击与日历的键盘导航由上游原语处理；关闭弹层时本包装阻止默认自动聚焦回移。组件没有另行声明快捷键，也没有公开 `open` 控制事件。
 
 ## 数据
 
@@ -56,7 +56,7 @@ type DatePickerSlots = {
 
 `modelValue` 没有默认日期，父组件必须通过 `update:modelValue` 接住选择结果以维持受控值。浮层是否打开由组件内部 `isOpen` 持有，不提供 `v-model:open`、`open` prop 或 open/close emit。组件不提供 expose API。
 
-未声明的 attrs、`class` 和 `style` 不属于稳定公共合同；不要依赖它们透传到触发器、Popover 内容或日历内部节点。组件也不提供自定义日历、触发器或 footer slot。
+未声明的 attrs、`class` 和 `style` 按 Vue 单根 fallthrough 到 `PopoverRoot`；不要依赖它们透传到触发器、Popover 内容或日历内部节点。组件也不提供自定义日历、触发器或 footer slot。
 
 ## 状态
 
@@ -71,7 +71,7 @@ type DatePickerSlots = {
 - 不支持日期范围、多月并排或自定义日期禁用规则；需要区间选择时使用 `DateRangePicker`。
 - 不支持由父组件控制 Popover 开关，也不提供打开状态事件。
 - 不支持自定义触发器、日历主体、操作栏的 slot 或 expose 方法。
-- 不直接发起请求、校验业务规则或持久化日期。
+- 不接入 `FormField` 错误上下文，不直接发起请求、校验业务规则或持久化日期。
 
 ## 上游边界
 
@@ -81,7 +81,7 @@ Reka UI 的 `PopoverRoot`、`PopoverTrigger`、`PopoverContent` 与 `PopoverPort
 
 - `state:local`：打开状态 `isOpen` 只描述本次组件实例的 Popover 生命周期，关闭组件即丢失；日期值仍通过受控 `modelValue` 由父组件持有。
 - `state:inject`：组件读取 `NB_POPOVER_Z_INDEX`。`DialogWindow` 需要让窗口内日期浮层压在窗口表面之上；通过可选注入传层级比让每个父组件重复改写浮层样式更稳定。没有注入时回退到 `NB_Z_INDEX.popover`，不读取业务 store。
-- `env:portal`：`PopoverPortal` 把日历浮层放到组件树之外，以脱离宿主局部 stacking context 并避免被表单容器裁剪；目标与缺失目标行为由 Reka Portal 处理，组件不创建隐式目标或持久化 DOM。
+- `env:portal`：`PopoverPortal` 把日历浮层放到组件树之外，以脱离宿主局部 stacking context 并避免被表单容器裁剪；目标遵循 Reka UI `ConfigProvider.teleportTo`，未配置时默认为 `body`；缺失目标行为由 Reka Portal 处理，组件不创建隐式目标或持久化 DOM。
 
 ## 已知偏差
 

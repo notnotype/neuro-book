@@ -27,16 +27,17 @@ import type {DescriptorResult} from "nbook/app/utils/workbench/descriptors";
 import type {WorkbenchViewEntry} from "nbook/app/utils/workbench/product-catalog";
 import type {ViewActionTarget, ViewTitleActionState, WorkbenchViewActionHandle} from "nbook/app/utils/workbench/view-title-actions";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
-const props = defineProps<{scene: string; data?: unknown}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchViewInstances>(() => props.input);
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
 
 const LEFT_CONTAINER_ID = "lab.container.left";
 const PANEL_CONTAINER_ID = "lab.container.panel";
 const VIEW_ID = "lab.instances.demo";
-const VIEW_TITLE = "实例演示视图";
 
 /** 挂载 / 释放探针：组件重挂会再记一次，于是「搬 DOM 不重挂」有可观察的证据。 */
 const probe = ref({mounts: 0, releases: 0});
@@ -124,8 +125,8 @@ const generation = ref(0);
 
 watch(() => props.scene, (scene) => {
     probe.value = {mounts: 0, releases: 0};
-    containerId.value = LEFT_CONTAINER_ID;
-    viewVisible.value = scene !== "hidden";
+    containerId.value = subject.bindings.value.views[0]?.containerId ?? LEFT_CONTAINER_ID;
+    viewVisible.value = subject.bindings.value.views[0]?.visible ?? false;
     lastMove.value = "";
     generation.value = 0;
     if (scene === "moved") {
@@ -147,32 +148,15 @@ async function settle(): Promise<void> {
     }
 }
 
-const VIEW_DESCRIPTOR = {
-    id: VIEW_ID,
-    titleKey: VIEW_ID,
-    icon: "i-lucide-square",
-    container: LEFT_CONTAINER_ID,
-    layout: "fill" as const,
-    order: 10,
-    weight: 1,
-    canToggleVisibility: false,
-    canMoveView: false,
-    factoryKey: "lab.view.instances",
-    stateScope: "user" as const,
-};
+/** 视图模型仅由登记 input 驱动；宿主按钮回写同一条真实 views prop。 */
+const entries = computed<readonly WorkbenchViewEntry[]>(() => subject.bindings.value.views);
 
-/** 条目：可见性由场景与按钮决定；不可见时给一条人能读懂的原因。 */
-const entries = computed<readonly WorkbenchViewEntry[]>(() => [{
-    view: {...VIEW_DESCRIPTOR, container: containerId.value},
-    title: VIEW_TITLE,
-    containerId: containerId.value,
-    order: 10,
-    source: "default",
-    visible: viewVisible.value,
-    visibilityReasons: viewVisible.value ? [] : ["Lab 场景把这条视图设为不可见：实例被释放，落点不留空盒"],
-    actionable: true,
-    authorityReasons: [],
-}]);
+watch(entries, (views) => {
+    const entry = views[0];
+    if (!entry) return;
+    containerId.value = entry.containerId;
+    viewVisible.value = entry.visible;
+});
 
 /** 本地白名单：只登记这一个空白视图，未知键给 Lab 自己的诊断（产品白名单不参与）。 */
 function resolveFactory(factoryKey: string): DescriptorResult<Component> {
@@ -187,6 +171,9 @@ function moveTo(target: string, via: string): void {
     }
     const from = containerId.value;
     containerId.value = target;
+    subject.write("props", "views", entries.value.map((entry) => entry.view.id === VIEW_ID ? {
+        ...entry, view: {...entry.view, container: target}, containerId: target,
+    } : entry));
     lastMove.value = `${from} → ${target}（${via === "scene" ? "场景初值" : "按钮"}）`;
     emitLabEvent("view-move", {viewId: VIEW_ID, sourceContainerId: from, targetContainerId: target, via});
 }
@@ -197,6 +184,10 @@ function onMoveClick(): void {
 
 function onVisibilityClick(): void {
     viewVisible.value = !viewVisible.value;
+    subject.write("props", "views", entries.value.map((entry) => entry.view.id === VIEW_ID ? {
+        ...entry, visible: viewVisible.value,
+        visibilityReasons: viewVisible.value ? [] : ["Lab 场景把这条视图设为不可见：实例被释放，落点不留空盒"],
+    } : entry));
     emitLabEvent("view-visibility", {viewId: VIEW_ID, visible: viewVisible.value});
 }
 
@@ -218,7 +209,7 @@ const SCENE_NOTES: Record<string, string> = {
 
 const stageNote = computed(() => SCENE_NOTES[props.scene] ?? "");
 
-watch([entries, probe, generation, lastMove, () => props.scene], () => {
+watch([entries, probe, generation, lastMove, containerId, viewVisible, () => props.scene], () => {
     publishLabData({
         scene: props.scene,
         containerId: containerId.value,
@@ -259,9 +250,10 @@ watch([entries, probe, generation, lastMove, () => props.scene], () => {
 
         <!-- 实例层是宿主的祖先：落点元素经 `VIEW_TARGET_REGISTRY` 登记进来，实例由它 Teleport 搬过去。 -->
         <WorkbenchViewInstances
+            data-lab-subject
             :key="scene"
             class="flex-1"
-            :views="entries"
+            v-bind="subject.bindings.value"
             :view-factory-resolver="resolveFactory"
             @view-actions="onViewActions"
             @view-handle-ready="onViewHandleReady"

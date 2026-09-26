@@ -55,6 +55,7 @@ export interface MenubarMenuData {
     disabled?: boolean;
     /** 此菜单的条目；必填，可为空数组 */
     items: MenubarItemData[];
+}
 
 type MenubarProps = {
     /** 顶层菜单数组；默认空数组 */

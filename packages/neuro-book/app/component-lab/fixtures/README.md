@@ -83,7 +83,7 @@ defineLabFixture<typeof FixtureExample>({
 });
 ```
 
-`defineLabFixture<typeof C>` 是登记入口，不加载 `C`，也不把 fixture 自动挂到组件上。它的 TypeScript 检查会拒绝不存在的 prop、错误值类型、把 model 放进 props、缺少必填 prop 和未知插槽；有数据 prop 时必须登记 `props` 层，但层内可选 prop 可以省略。无数据 prop 的组件才可以写 `noInput: "组件没有可编辑输入"`，理由必须非空；有 props 的组件不能用它绕过输入登记。
+`defineLabFixture<typeof C>` 是登记入口，不加载 `C`，也不把 fixture 自动挂到组件上。它的 TypeScript 检查会拒绝不存在的 prop、错误值类型、把 model 放进 props、缺少必填 JSON prop 和未知插槽；有可登记 JSON 数据 prop 时必须登记 `props` 层，但层内可选 prop 可以省略。只有投影后没有 JSON 数据 prop 的组件可以写有非空理由的 `noInput`；函数或服务等运行期必填 prop 仍必须由 fixture 在最终 Vue 组件绑定上补齐。
 
 ```vue
 <script setup lang="ts">
@@ -106,8 +106,9 @@ const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle
 
 - `useLabSubject` 只自动接入 fixture 在 `events` 参数中声明的普通事件；这些事件进入事件 tab。model 层的键自动接入对应 `update:x`，记录并写回 model。未声明的普通事件不由 Lab 猜测，fixture 可以直接写模板监听或调用 `useLabEventSink`。
 - 「数据」tab 只显示场景实际登记的层。TypeBox schema 只保证编辑值仍是 `{props?, model?, slots?}` 的 JSON 形状；组件字段名、必填值和 model 分层由登记入口的 TypeScript 检查负责，fixture 是否真的把输入传给组件由 fixture 自己负责并需通过行为验证。
-- 登记检查要求每个场景提供非空 `input`，或 fixture 提供非空 `noInput` 理由；未迁移的旧场景不会把 `data` 自动当作 `input`。
+- 登记检查要求每个场景提供非空 `input`，或 fixture 提供非空 `noInput` 理由；场景调试值只有 `{props?, model?, slots?}` 这一种结构。
 - 不在组件调试输入里的场景道具（假数据集大小、模拟延迟等）放 `<LabFixtureControls>`，不塞进 `input`。
+- `LabJsonInput<T>` 只投影编译期可登记的 JSON 字段；Date、Set、函数、Vue Ref 等不能塞到场景值，fixture 用固定内存值/已有回调显式补齐，再由最终组件绑定的类型检查验证。对象内可编辑 JSON 字段仍来自 `subject.bindings.value`，不要因其旁边有回调就把整个对象藏到不可编辑常量中。
 
 ### 3.3 内部状态上报：`useLabDataSink`（只读）
 组件或 fixture 自己持有、不经 props 暴露的状态（草稿、展开项、运行标志）用 `useLabDataSink()` 上报，数据 tab 以只读「内部状态」展示，不能从面板改回去：
@@ -115,9 +116,6 @@ const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle
 const reportState = useLabDataSink();
 watch(draft, (value) => reportState({draft: value}), {immediate: true});
 ```
-
-### 3.4 迁移中的旧协议
-旧场景的 `data` 字段已废止：类型检查会逐条报告 `data` 不属于 `LabScene`，登记检查会报告缺少 `input` 或 `noInput`。按 3.2 迁移；本轮不自动改写、不加迁移白名单。未迁移场景在数据 tab 显示「这个场景未登记调试输入，请按 fixture 合同迁移」。
 
 ---
 
@@ -142,5 +140,5 @@ watch(draft, (value) => reportState({draft: value}), {immediate: true});
 `props` 全部来自宿主链（`state:inject` / `env:portal`）的零件，在文档 frontmatter 声明 `验证入口:`（宿主组件名）后由 Lab 标为**不可独立挂载**，中栏给出一条直达宿主场景的入口。
 
 - 不要为它们在 `fixtures/index.ts` 里登记独立场景，也不要在 fixture 里搭一层假宿主：脱离宿主链没有可验证状态，假壳验的是另一个东西；
-- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里。workbench 链上的零件入口是 `WorkbenchShellLayout`：新场景加在 `WorkbenchShellLayoutFixture.vue` 的 `SCENES`，并同步 `fixtures/index.ts` 的场景表；
+- 它们的呈现（含失败态与空态）写在宿主的 fixture 场景里。workbench 链上的零件入口是 `WorkbenchShellLayout`：新场景加在 `WorkbenchShellLayout.scenes.ts` 的 `WORKBENCH_SHELL_LAYOUT_SCENES`，并由 `fixtures/index.ts` 登记。
 - 每个组件名在 `fixtures/index.ts` 里只能登记一次：`findLabFixture` 只读第一份，重复登记会让后一份的场景永远打不开（`fixtures/index.test.ts` 有门禁拦截）。

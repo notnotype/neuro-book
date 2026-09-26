@@ -1,7 +1,7 @@
-import type {Component} from "vue";
+import type {Component, Ref} from "vue";
 import type FixtureExample from "./FixtureExample.vue";
 import {defineLabFixture, type LabFixture} from "./fixtures";
-import type {LabInputOf} from "./lab-subject";
+import type {LabBindingsOf, LabInputOf, LabJsonInput, LabJsonPropOf} from "./lab-subject";
 
 declare const fixtureLoader: () => Promise<Component>;
 type FixtureDefinition = Parameters<typeof defineLabFixture<typeof FixtureExample>>[0];
@@ -68,6 +68,11 @@ void defineLabFixture<typeof FixtureExample>({
     load: fixtureLoader,
 });
 
+const ordinaryObject = {
+    component: "FixtureExample",
+    scenes: [{id: "default", label: "默认", input: validInput}],
+    load: fixtureLoader,
+};
 // @ts-expect-error registry 消费类型要求 defineLabFixture 返回的私有 brand
 const bypassedFixture: LabFixture = ordinaryObject;
 void bypassedFixture;
@@ -200,3 +205,31 @@ void missingPropsLayer;
 
 // @ts-expect-error 必须显式提供组件泛型
 void defineLabFixture({component: "MissingType", scenes: [], load: pickerLoader});
+
+type JsonCandidate = {
+    readonly title: string;
+    at: Date;
+    enabled: Set<string>;
+    run: () => void;
+    details?: {count: number; callback: () => void};
+    rows: Array<{name: string; at: Date}>;
+};
+const jsonCandidate: LabJsonInput<JsonCandidate> = {title: "检查", details: {count: 1}, rows: [{name: "一"}]};
+void jsonCandidate;
+// @ts-expect-error Date 不可进入 JSON 数据面板
+const jsonWithDate: LabJsonInput<JsonCandidate> = {title: "检查", at: new Date(), rows: []};
+void jsonWithDate;
+type RuntimeHost = {palette: {query: Ref<string>}; registry: {execute: () => void}};
+type RuntimeOnly = abstract new (...args: never[]) => {$props: {host: RuntimeHost; titleOf: (key: string) => string}};
+// @ts-expect-error 运行期能力没有 JSON 属性
+const runtimeOnlyKey: LabJsonPropOf<RuntimeOnly> = "host";
+void runtimeOnlyKey;
+void defineLabFixture<RuntimeOnly>({component: "RuntimeOnly", noInput: "能力宿主", scenes: [{id: "default", label: "默认"}], load: fixtureLoader});
+
+type DateEntry = {id: string; at: Date};
+type DateList = abstract new (...args: never[]) => {$props: {entries: DateEntry[]}};
+const dateInput: LabInputOf<DateList> = {props: {entries: [{id: "事件"}]}};
+void dateInput;
+// @ts-expect-error 缺 Date 的 JSON 条目不能直接当组件完整 props 使用
+const dateBindings: {entries: DateEntry[]} = {} as LabBindingsOf<DateList>;
+void dateBindings;

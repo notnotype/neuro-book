@@ -12,15 +12,14 @@
  * 右容器用 `#head` 覆盖头部（宿主要在自己的头部里加状态标签时走这条）与 `#content`。
  * 两边的 `#actions` 都摆了宿主按钮，点一下在右栏「事件」里留一条记录。
  *
- * 数据是确定性的内存值：标题、行数、两档 layout 都从 `data` 读，场景只换这一份初值。
+ * 标题与布局取自场景 JSON；演示行由 fixture 按场景提供，Section 可见性走组件的 visibleSections model。
  */
 import {computed, ref} from "vue";
 import {Badge, IconButton} from "@notnotype/nb-ui/components";
 import WorkbenchContainerSurface, {
     type ContainerSectionItem,
 } from "nbook/app/components/workbench/WorkbenchContainerSurface.vue";
-import type {ViewLayoutMode} from "nbook/app/utils/workbench/descriptors";
-import {SHELL_LEFT_CONTAINER, SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
+import {SHELL_RIGHT_CONTAINER} from "nbook/app/utils/workbench/containers";
 import {
     SHELL_CONTAINER_GUTTER_PX,
     SHELL_LEFT_PANEL_DEFAULT_WIDTH,
@@ -28,40 +27,21 @@ import {
 } from "nbook/app/utils/workbench/layout";
 import {useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchContainerSurface>(() => props.input, ["toggle-section-visibility", "toggle-section-collapsed"]);
 
 const emitLabEvent = useLabEventSink();
-
-/** 行数上限：`fill` 档里这张列表自己滚，行数太少就演示不出「谁拥有滚动」。 */
-const ROW_LIMIT = 60;
-
-function readString(value: unknown, fallback: string): string {
-    return typeof value === "string" && value !== "" ? value : fallback;
-}
-
-function readLayout(value: unknown, fallback: ViewLayoutMode): ViewLayoutMode {
-    return value === "scroll" || value === "fill" ? value : fallback;
-}
-
-function readRows(value: unknown): number {
-    const rows = typeof value === "number" && Number.isFinite(value) ? Math.floor(value) : 30;
-    return Math.min(ROW_LIMIT, Math.max(1, rows));
-}
-
-const knobs = computed(() => {
-    const data = (props.data ?? {}) as Record<string, unknown>;
-    return {
-        leftTitle: readString(data.leftTitle, "主侧边栏 / Primary Side Bar"),
-        rightTitle: readString(data.rightTitle, "辅助侧边栏 / Secondary Side Bar"),
-        /** 单栏场景（`primary-sidebar` / `secondary-sidebar`）的标题与内容档。 */
-        title: readString(data.title, "主侧边栏 / Primary Side Bar"),
-        singleLayout: readLayout(data.layout, "scroll"),
-        leftLayout: readLayout(data.leftLayout, "scroll"),
-        rightLayout: readLayout(data.rightLayout, "fill"),
-        rows: readRows(data.rows),
-    };
-});
+const knobs = computed(() => ({
+    leftTitle: subject.bindings.value.title ?? "主侧边栏 / Primary Side Bar",
+    rightTitle: props.scene === "sections" ? "窄栏溢出测试容器标题超长展示" : props.scene === "product" ? "辅助侧边栏 / Secondary Side Bar" : "Agent",
+    title: subject.bindings.value.title ?? "主侧边栏 / Primary Side Bar",
+    singleLayout: subject.bindings.value.layout ?? "scroll",
+    leftLayout: subject.bindings.value.layout ?? "scroll",
+    rightLayout: props.scene === "scroll" ? "scroll" as const : "fill" as const,
+    rows: props.scene === "scroll" || props.scene === "fill" ? 30 : props.scene === "primary-sidebar" ? 18 : props.scene === "secondary-sidebar" ? 12 : props.scene === "sections" ? 15 : 30,
+}));
 
 /**
  * 单栏场景摆哪一边：主侧边栏与辅助侧边栏是**同一个容器部件**的两个明确落位，
@@ -100,47 +80,6 @@ function onAction(name: string): void {
     emitLabEvent("container-action", name);
 }
 
-/** sections 场景专用演示数据 */
-const leftSections = ref<ContainerSectionItem[]>([
-    {
-        id: "files",
-        title: "项目文件",
-        contextLabel: "workspace",
-        layout: "scroll",
-        collapsible: true,
-        collapsed: false,
-        canToggleVisibility: true,
-    },
-    {
-        id: "outline",
-        title: "大纲",
-        contextLabel: "7 章节",
-        layout: "scroll",
-        collapsible: true,
-        collapsed: false,
-        canToggleVisibility: true,
-    },
-    {
-        id: "timeline",
-        title: "时间线",
-        contextLabel: "已更新",
-        layout: "scroll",
-        collapsible: true,
-        collapsed: true,
-        canToggleVisibility: true,
-    },
-    {
-        id: "references",
-        title: "关联引用",
-        contextLabel: "0 项",
-        layout: "scroll",
-        collapsible: true,
-        collapsed: false,
-        empty: true,
-        emptyText: "暂无关联引用，在正文中 @ 引用即可添加",
-        canToggleVisibility: true,
-    },
-]);
 
 const rightSections = ref<ContainerSectionItem[]>([
     {
@@ -198,11 +137,9 @@ const sampleTimeline = [
             <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(SHELL_LEFT_PANEL_DEFAULT_WIDTH)" data-fixture-leaf="left">
                 <WorkbenchContainerSurface
                     data-lab-subject
-                    :container="SHELL_LEFT_CONTAINER"
-                    :title="knobs.leftTitle"
-                    :sections="leftSections"
+                    v-bind="subject.bindings.value"
                 >
-                    <template #actions>
+                    <template v-if="subject.slots.value.actions" #actions>
                         <IconButton size="sm" icon-class="i-lucide-refresh-cw" title="刷新（宿主动作）" @click="onAction('left:refresh')" />
                     </template>
 
@@ -257,7 +194,6 @@ const sampleTimeline = [
             <!-- 右叶：窄栏溢出测试（220px 宽度，展示截断与布局稳定性） -->
             <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(220)" data-fixture-leaf="right">
                 <WorkbenchContainerSurface
-                    data-lab-subject
                     :container="SHELL_RIGHT_CONTAINER"
                     title="窄栏溢出测试容器标题超长展示"
                     :sections="rightSections"
@@ -291,11 +227,9 @@ const sampleTimeline = [
             >
                 <WorkbenchContainerSurface
                     data-lab-subject
-                    :container="singleSide === 'left' ? SHELL_LEFT_CONTAINER : SHELL_RIGHT_CONTAINER"
-                    :title="knobs.title"
-                    :layout="knobs.singleLayout"
+                    v-bind="subject.bindings.value"
                 >
-                    <template #actions>
+                    <template v-if="subject.slots.value.actions" #actions>
                         <IconButton size="sm" icon-class="i-lucide-plus" title="新建（宿主动作）" @click="onAction(singleSide === 'left' ? 'primary:new' : 'secondary:new')" />
                         <IconButton size="sm" icon-class="i-lucide-ellipsis" title="更多（宿主动作）" @click="onAction(singleSide === 'left' ? 'primary:more' : 'secondary:more')" />
                     </template>
@@ -339,11 +273,9 @@ const sampleTimeline = [
             <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(SHELL_LEFT_PANEL_DEFAULT_WIDTH)" data-fixture-leaf="left">
                 <WorkbenchContainerSurface
                     data-lab-subject
-                    :container="SHELL_LEFT_CONTAINER"
-                    :title="knobs.leftTitle"
-                    :layout="knobs.leftLayout"
+                    v-bind="subject.bindings.value"
                 >
-                    <template #actions>
+                    <template v-if="subject.slots.value.actions" #actions>
                         <IconButton size="sm" icon-class="i-lucide-plus" title="新建（宿主动作）" @click="onAction('left:new')" />
                         <IconButton size="sm" icon-class="i-lucide-ellipsis" title="更多（宿主动作）" @click="onAction('left:more')" />
                     </template>
@@ -387,12 +319,13 @@ const sampleTimeline = [
             <div class="flex min-h-0 min-w-0 flex-col" :style="leafStyle(SHELL_RIGHT_PANEL_DEFAULT_WIDTH)" data-fixture-leaf="right">
                 <WorkbenchContainerSurface
                     data-lab-subject
+                    v-bind="subject.bindings.value"
                     :container="SHELL_RIGHT_CONTAINER"
                     :title="knobs.rightTitle"
                     :layout="knobs.rightLayout"
                 >
                     <!-- 头部覆盖：宿主自己画头部（这里保持同样的解剖：图标 + 标题，尾部加一枚档位标签）。 -->
-                    <template #head>
+                    <template v-if="subject.slots.value.head" #head>
                         <span :class="SHELL_RIGHT_CONTAINER.icon" class="h-[14px] w-[14px] shrink-0 text-[var(--text-muted)]" aria-hidden="true"></span>
                         <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[var(--text-xs)] [font-weight:var(--weight-strong)] text-[var(--text-main)]">{{ knobs.rightTitle }}</span>
                         <Badge size="sm" variant="soft" tone="accent">{{ knobs.rightLayout }}</Badge>

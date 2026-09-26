@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import SurfaceTierDemo from "../SurfaceTierDemo.vue";
+import type {LabFixtureProps} from "../lab-subject";
+
+defineProps<LabFixtureProps>();
 
 /**
  * SurfaceTierDemo 的 fixture。这个组件不接 props、没有交互，所以 fixture 只是一个空壳。

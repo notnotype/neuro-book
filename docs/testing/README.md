@@ -44,7 +44,7 @@
 - 测试文件与被测源码同目录，命名 `<module>.test.ts`；服务端需要 JSX 时用 `.test.tsx`。
 - 每个 Vitest 配置显式声明 `root`（仓库根或包根），不依赖 `process.cwd()`；include 覆盖
   该作用域内全部测试文件。
-- 全量测试统一 `bun run test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
+- Vitest 包的全量测试统一用包脚本 `bun run --cwd packages/<pkg> test`（node 运行时）。`bun --bun` 直接运行 vitest 时部分依赖
   （如 zod）的 CJS/ESM interop 与 node 不同，过滤单文件可能误报
   `zod does not provide an export named 'z'`；以 node 运行时为准。
 - 新增测试目录（如新 `scripts/<area>/`）必须同步加入对应配置的 `include`，否则测试
@@ -72,7 +72,7 @@
 - 实施前确定当前目标的可观察行为、直接受影响边界与完成证据；有 Task 时写入快照，否则使用会话计划，不强制创建额外文件。
 - 纯文档修改检查链接、结构与语义，不运行产品测试、typecheck、构建或浏览器；治理脚本变化仅运行直接相关脚本测试与类型检查。VitePress 投影仍按 [文档目录合同](../AGENTS.md) 运行 `bun run docs:build`。
 - 实现变化运行受影响既有测试；类型表面改变才运行对应 typecheck。工具只支持全应用检查时运行一次，区分本次诊断与已有基线，不借失败扩大修复范围。CSS 生成物按包合同构建。
-- 局部 UI 默认检查实际交互路径与一个代表状态；涉及响应式或主题 token 才增加对应尺寸／主题。共享基础组件或具体未解风险影响更广时，说明要消除的不确定性再扩大；不因“最后验证”默认跑全主题、全库测试或生产构建。UI、迁移、集成和发布的既有授权边界不变。
+- 局部 UI 按 [UI 验收分档](#ui-验收分档) 取证，不为超出该档的覆盖额外加测；改动面更广或存在具体未解风险时，说明要消除的不确定性再扩大；不因“最后验证”默认跑全主题、全库测试或生产构建。UI、迁移、集成和发布的既有授权边界不变。
 - 长期测试保护可观察合同、真实回归、边界或时序，不匹配措辞、源码镜像或无意义转发。用户报告的现象作为事实处理；有合适切入点时用能捕获缺陷的最小复现形成回归，否则以聚焦 smoke 说明缺口。低风险可逆改动不为“有测试”而新建测试。
 - 失败先区分产品、测试模型和环境，修直接根因后只重跑失效项。后续代码／环境变化使证据失效、真实失败或新增具体风险才重跑或扩大；叙事更新与新 revision 本身不使有效证据失效。
 - 当前目标的所需证据齐全且无范围内未解决缺陷即交付，不为更多截图、报告格式或各 Skill 清单继续检查。命令结果与覆盖边界记录一次；截图／JSON 按复现、交接或用户要求保留，必要但不可恢复的工具输出保留最小持久副本，不默认新建证据包。
@@ -82,13 +82,26 @@
 
 - OMP 默认使用内置 `browser.open`、`tab.observe` 与 `tab.run`。只有内置能力不可用、存在具体能力缺口或用户指定 CLI 时，才使用 `playwright-cli`；无内置浏览器的宿主可以直接使用 CLI。
 - 页面业务失败不构成换工具的理由；先区分产品、环境和工具问题。备用工具不自动授权安装依赖、修改全局配置、连接用户登录态或迁移数据。
-- 普通 UI 运行验证不自动升级为完整人工评测。人工评测的触发、授权、真实数据与证据合同见 [人工评测](manual-eval/README.md)，不得用 focused 测试冒充未执行的浏览器场景。
+- 普通 UI 运行验证不自动升级为完整人工评测：Agent 用内置浏览器自检属日常验证，不需要额外授权；用真实数据跑完整用户旅程的人工评测按 [人工评测](manual-eval/README.md) 单独取得授权，不得用 focused 测试冒充未执行的浏览器场景。
+
+### UI 验收分档
+
+浏览器取证按改动面分档，做到本档要求即可，不默认扩到全主题、全视口：
+
+| 改动面 | 必备取证 |
+| --- | --- |
+| 普通 UI 改动 | 走实际交互路径（点击、输入、跳转等），核对一个代表状态 |
+| 主题变量或窄屏布局 | 追加受影响的主题组合或 390px 视口 |
+| nb-ui 共享基础组件 | 主题轴 × 配色轴四组合（nbook/macos × light/dark），外加 390px 视口 |
+
+- 每项给出实测结果（元素计算样式 ↔ 同名变量解析值、几何、交互前后差异），不用静态推断或截图观感冒充实测；内置浏览器确实做不到时如实说明未做，并按本节首条选择工具。
+- 分档只决定取证范围；人工评测的授权要求见本节「普通 UI 运行验证不自动升级为完整人工评测」一条。
 
 ## 应用包真实模型 smoke（`test:real-model`）
 
 `bun run test:real-model`（等价 `bun run --cwd packages/neuro-book test:real-model`）是应用包唯一会真实调用
 Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.config.ts` 只收集
-`packages/neuro-book/scripts/smoke/real-model/**`，默认门禁（`bun run test`）显式排除该目录，常规测试零模型调用。
+`packages/neuro-book/scripts/smoke/real-model/**`，默认门禁（`bun run --cwd packages/neuro-book test`）显式排除该目录，常规测试零模型调用。
 
 - **凭据**：从仓库根 dotenv（`.env`，含 `.env.local` / `.env.real-model*` 变体）白名单注入测试进程（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；缺凭据的用例 skip 并在证据中记为「未验证」，不得写成通过。`REAL_MODEL_SMOKE_MODEL` 可覆盖模型（默认 `deepseek/deepseek-flash`）。
 - **隔离**：测试使用独立 State Root 与临时 workspace；写入的全局配置只落在本 run 的隔离根内（缺少 `NEURO_BOOK_STATE_ROOT` 时直接拒绝写入），POSIX 下收紧为 0600，随 run teardown 删除。

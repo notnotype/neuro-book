@@ -11,7 +11,7 @@ VitePress 源码位于 [`../vitepress/`](../vitepress/)，面向用户发布，�
 4. [`standards/`](standards/) 与 [`testing/`](testing/)：编码、仓库流程、测试、临时根和证据合同。
 5. [`../packages/neuro-book/docs/runbooks/`](../packages/neuro-book/docs/runbooks/)：基于已批准合同执行的开发、诊断和运维步骤。
 6. [`proposals/`](proposals/)：尚未生效的方案；accepted 只授权更新规范与创建 Work/Task。
-7. [`../.agents/works/`](../.agents/works/)：current 一次实现的范围、role、交接和证据；[`../.agents/tasks/`](../.agents/tasks/) 只保存 legacy provenance。
+7. [`../.agents/works/`](../.agents/works/)：current 一次实现的范围、交接和证据；[`../.agents/tasks/`](../.agents/tasks/) 只保存 legacy provenance。
 8. [`../packages/neuro-book/docs/research/`](../packages/neuro-book/docs/research/) 与 [`../packages/neuro-book/docs/archived/`](../packages/neuro-book/docs/archived/)：非规范资料，不用于判断当前行为。
 
 同一 capability 只维护一个 Spec 文件；成熟度在原文件中从 `planned` 晋升为 `implemented`。其它入口只写摘要和链接；判断当前产品已有行为时只使用 `implemented` Spec 或注册的冻结过渡规范。
@@ -31,7 +31,7 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
 ## 仓库其它文档
 
 - 根目录大写 Markdown 是产品、人类、Agent 或机器消费的入口；正文下沉到对应真相源。`RELEASE.md` 等被程序直接读取的文件可以保留完整机器载荷。
-- [`../.agents/works/`](../.agents/works/) 保存 current 一次实现的范围、role、walkthrough 和证据；[`../.agents/tasks/`](../.agents/tasks/) 保存 legacy 记录。Task 完成不改变当前规范的优先级。
+- [`../.agents/works/`](../.agents/works/) 保存 current 一次实现的范围、walkthrough 和证据；[`../.agents/tasks/`](../.agents/tasks/) 保存 legacy 记录。Task 完成不改变当前规范的优先级。
 - [`../vitepress/`](../vitepress/) 保存用户文档站投影；它描述稳定用户流程，不承担内部工程合同。
 - [`../packages/neuro-book/assets/reference/`](../packages/neuro-book/assets/reference/) 是运行期 Reference 资产根；它不是新规范的落点。
 
@@ -51,13 +51,13 @@ packages/neuro-book/docs/      主应用专属文档：术语与 capability Spec
 ## 生命周期与维护
 
 1. 行为变化先在 [`specs/README.md`](specs/README.md) 定位 capability 和成熟度；同一能力只更新一个稳定文件。
-2. 新功能和仍有产品歧义的 bug 先写 Proposal；accepted 后形成 `planned` Spec，并在根 `.agents/works/` 创建或复用 Work 与带 canonical role 的 Task。Proposal 本身不成为合同。
+2. 新功能和仍有产品歧义的 bug 先写 Proposal；accepted 后形成 `planned` Spec，并在根 `.agents/works/` 创建或复用 Work 与 Task。Proposal 本身不成为合同。
 3. Spec-first、Work/Task-first 或紧急 code-first 都必须在同一交付中让代码、测试和 Spec 收敛；证据闭合后才把原 Spec 晋升为 `implemented`。
 4. 纯内部重构核对行为合同仍成立，不把文件布局写入 Spec。旧行为退出时更新原 Spec；长期理由进入 ADR；有状态升级、备份和回滚进入 migration；操作步骤进入 runbook；考古正文进入 archived。
 5. 已完成沉淀的 Proposal 归档；活跃入口不得依赖 archived 内容才能解释行为。
 6. VitePress 只投影稳定内容；修改导航、构建根或部署路径时同步 `package.json`、工作流和站点配置。
 
-入口使用触发式指针说明“何时读取”和“目标是什么”，不复制目标正文。活跃文档的相对链接必须解析到仓库内现存目标；历史 Task 与 archive 中的旧路径可作为 provenance 保留，但不得被当前规范当作活跃依赖。
+入口使用触发式指针说明“何时读取”和“目标是什么”，不复制目标正文。活跃文档的相对链接必须解析到仓库内现存目标，带 `#锚点` 时还必须对应目标文件中现存的标题或 HTML `id`：仓库文档按 GitHub 规则计算标题锚点，VitePress 页面按站点规则计算（支持 `{#自定义-id}`）。历史 Task 与 archive 中的旧路径可作为 provenance 保留，但不得被当前规范当作活跃依赖。
 
 ## Reference 迁移
 

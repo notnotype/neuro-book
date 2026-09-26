@@ -16,52 +16,12 @@ import type {EditorAction, EditorChangeResult, EditorDocumentSnapshot, EditorDoc
 import type {WorkspaceReferencePreviewMeta, WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES} from "nbook/shared/editor-workbench";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof MarkdownEditorView>(() => props.input, ["save", "focus", "ready", "actions", "open-frontmatter-profile", "inline-ai-reference"]);
 const emitLabEvent = useLabEventSink();
 
-type SceneData = {
-    path: string;
-    content: string;
-    readonly: boolean;
-    showFrontmatterPanel: boolean;
-};
-
-const sceneData: Record<string, SceneData> = {
-    prose: {
-        path: "manuscript/chapter-01.md",
-        readonly: false,
-        showFrontmatterPanel: false,
-        content: "# 开场\n\n潮水退下去的时候，礁石上留下了一层薄薄的盐。\n\n她把鞋提在手里，沿着滩涂往东走，**没有回头**。\n\n> 那些没有说出口的话，最后都变成了潮声。\n\n- 把灯点上\n- 等他回来\n\n行内代码写作 `manuscript/chapter-01.md`。\n",
-    },
-    comments: {
-        path: "manuscript/chapter-02.md",
-        readonly: false,
-        showFrontmatterPanel: false,
-        // 批注是正文的一部分：夹具不替它包一层假 UI。
-        content: "# 退潮\n\n<comment body=\"这里要补一段潮汐的细节\">她把鞋提在手里，沿着滩涂往东走。</comment>\n\n<comment body=\"第二处批注：删掉重复的比喻\">礁石上留下了一层薄薄的盐。</comment>\n\n（打开右上角的批注动作可以看到这两条；修改批注会写回这份正文。）\n",
-    },
-    frontmatter: {
-        path: "manuscript/退潮/index.md",
-        readonly: false,
-        // 产品里由 canEditContentFrontmatter 决定；Lab 直接按场景给定，不复制那条判定。
-        showFrontmatterPanel: true,
-        content: "---\ntitle: 退潮\nstatus: 草稿\nwords: 1284\n---\n\n# 退潮\n\n正文在第一段之后开始，frontmatter 不属于正文。\n",
-    },
-    readonly: {
-        path: "manuscript/定稿/开场.md",
-        readonly: true,
-        showFrontmatterPanel: false,
-        content: "# 开场（定稿）\n\n这份文档只读：可以选中、复制、滚动与查看批注，但输入不会写回正文。\n",
-    },
-    empty: {
-        path: "manuscript/未命名.md",
-        readonly: false,
-        showFrontmatterPanel: false,
-        content: "",
-    },
-};
 
 /**
  * 夹具扮演宿主的引用解析：只认下面这张内存表。
@@ -105,58 +65,39 @@ const viewHandle = ref<EditorViewHandle | null>(null);
 /** 组件自己上报的动作，不是夹具手写的第二份清单。 */
 const viewActions = ref<readonly EditorAction[]>([]);
 
-const target = computed<EditorDocumentTarget>(() => ({
-    workspaceKey: "lab:markdown-editor-view",
-    generation: 1,
-    documentId: `lab-doc:${path.value}`,
-    path: path.value,
-}));
+const inputDocument = computed(() => subject.bindings.value.document);
+const target = computed<EditorDocumentTarget>(() => inputDocument.value.target);
 const documentSnapshot = computed<EditorDocumentSnapshot>(() => ({
-    target: target.value,
+    ...inputDocument.value,
     content: content.value,
     contentRevision: revision.value,
-    languageId: "markdown",
-    readonly: readonly.value,
 }));
 const dirty = computed(() => content.value !== baseline.value);
 
-function normalize(value: unknown): SceneData | null {
-    if (!value || typeof value !== "object") {
-        return null;
-    }
-    const candidate = value as Partial<SceneData>;
-    if (typeof candidate.path !== "string" || typeof candidate.content !== "string") {
-        return null;
-    }
-    return {
-        path: candidate.path,
-        content: candidate.content,
-        readonly: candidate.readonly === true,
-        showFrontmatterPanel: candidate.showFrontmatterPanel === true,
-    };
+/** 编辑器唯一可编辑初值是组件自身的 document 与 showFrontmatterPanel。 */
+function resolveScene(): EditorDocumentSnapshot {
+    return inputDocument.value;
 }
 
-function resolveScene(): SceneData {
-    return normalize(props.data) ?? sceneData[props.scene] ?? sceneData.prose!;
-}
-
-watch(() => [props.scene, props.data] as const, () => {
+watch(() => [props.scene, props.input?.props?.document, props.input?.props?.showFrontmatterPanel] as const, () => {
     const next = resolveScene();
-    const nextIdentity = `${next.path}|${next.readonly}|${next.showFrontmatterPanel}`;
-    path.value = next.path;
+    const frontmatter = subject.bindings.value.showFrontmatterPanel;
+    const nextIdentity = `${next.target.workspaceKey}|${next.target.documentId}|${next.target.path}|${next.readonly}|${frontmatter}`;
+    path.value = next.target.path;
     readonly.value = next.readonly;
-    showFrontmatterPanel.value = next.showFrontmatterPanel;
-    viewActions.value = [];
+    showFrontmatterPanel.value = frontmatter;
     if (nextIdentity !== identity.value) {
         identity.value = nextIdentity;
         content.value = next.content;
-        revision.value = 0;
+        revision.value = next.contentRevision;
         baseline.value = next.content;
+        viewActions.value = [];
         mountKey.value += 1;
         return;
     }
     if (content.value !== next.content) {
-        externalContent(next.content);
+        content.value = next.content;
+        revision.value = next.contentRevision;
     }
 }, {immediate: true});
 
@@ -168,6 +109,7 @@ function onCommitChange(nextTarget: EditorDocumentTarget, baseRevision: number, 
     }
     content.value = next;
     revision.value += 1;
+    subject.write("props", "document", documentSnapshot.value);
     emitLabEvent("change", {path: nextTarget.path, chars: next.length});
     return {status: "accepted", snapshot: documentSnapshot.value};
 }
@@ -195,6 +137,7 @@ function runAction(action: EditorAction): void {
 function externalContent(next: string): void {
     content.value = next;
     revision.value += 1;
+    subject.write("props", "document", documentSnapshot.value);
 }
 
 function externalUpdate(): void {
@@ -257,6 +200,7 @@ function resetToBaseline(): void {
         <div class="min-h-0 flex-1">
             <MarkdownEditorView
                 data-lab-subject
+                v-bind="subject.bindings.value"
                 :key="mountKey"
                 :document="documentSnapshot"
                 :visible="true"

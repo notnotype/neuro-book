@@ -48,3 +48,9 @@ Task README 只保留当前快照：目标／范围与非目标、当前状态�
 膨胀的 current Task 在其 owner 可协调的恢复点渐进整理：把失效叙事移入已有 walkthrough，保留日期、授权和失败记录，README 留最新快照与链接。不批量整理无关 Task，不回填历史验证结果。
 
 旧 `.agents/tasks/` 与包级 `.agents/tasks/` 只保存 legacy `nbook.task/v1` provenance，不接收 `nbook.task/v2`。历史名称、worktree、branch、PR 与 Task 不迁移。
+
+## 收尾与清理
+
+- Work 不新增状态字段；收尾事实写进 Work README 正文。Work 的全部 Task 合入 `master` 后记一行：`已收尾：<master 上的合入提交号>；待清理：<worktree 路径>、<branch>`；未全部合入时不写，改在快照里继续。
+- `governance:worktree` 报告的 `cleanup: "待清理"` 是清单来源：分支已是 `master` 祖先的 worktree 会被标记（判定为 `git merge-base --is-ancestor <branch> refs/heads/master`）；报告只读，不执行删除。
+- 清理 worktree 与分支是受限动作：需开发者明确授权，且只清理 Work README 清单内的项；删除前逐项确认没有未提交改动；清单外的 worktree 一律保留并报告。

@@ -24,9 +24,10 @@ import type {
 } from "nbook/app/components/editor-workbench/editor-view.types";
 import {createEditorRegistry, type EditorRegistry} from "nbook/app/utils/editor-workbench/registry";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorViewHost>(() => props.input, ["handle-ready", "save-request", "focus-change", "view-actions", "view-error", "conflict-resolved"]);
 const emitLabEvent = useLabEventSink();
 
 /**
@@ -211,18 +212,11 @@ const conflictResolution = ref<EditorConflictResolution | null>(null);
 const unresolvedToken = ref("");
 const unresolvedChoice = ref<EditorConflictResolution["choice"]>("adopt-current");
 
-const target = computed<EditorDocumentTarget>(() => ({
-    workspaceKey: "lab:editor-view-host",
-    generation: 1,
-    documentId: `lab-doc:${path.value}`,
-    path: path.value,
-}));
+const inputDocument = computed(() => subject.bindings.value.document);
 const documentSnapshot = computed<EditorDocumentSnapshot>(() => ({
-    target: target.value,
+    ...inputDocument.value!,
     content: content.value,
     contentRevision: revision.value,
-    languageId: "markdown",
-    readonly: false,
 }));
 const dirty = computed(() => content.value !== baseline.value);
 
@@ -234,27 +228,18 @@ function buildRegistry(stubs: StubOptions[]): EditorRegistry {
     return result.value;
 }
 
-function normalize(value: unknown): {editorId: string; path: string; content: string} | null {
-    if (!value || typeof value !== "object") {
-        return null;
-    }
-    const candidate = value as {editorId?: unknown; path?: unknown; content?: unknown};
-    if (typeof candidate.editorId !== "string" || typeof candidate.path !== "string" || typeof candidate.content !== "string") {
-        return null;
-    }
-    return {editorId: candidate.editorId, path: candidate.path, content: candidate.content};
-}
 
-watch(() => [props.scene, props.data] as const, () => {
-    const definition = sceneDefinitions[props.scene] ?? sceneDefinitions.switch!;
-    const next = normalize(props.data);
+watch(() => props.scene, (scene) => {
+    const definition = sceneDefinitions[scene] ?? sceneDefinitions.switch!;
+    const document = inputDocument.value;
+    if (!document) return;
     mountKey.value += 1;
     registry.value = buildRegistry(definition.stubs);
-    path.value = next?.path ?? "manuscript/chapter-01.md";
-    content.value = next?.content ?? "# 退潮\n\n礁石上留下了一层薄薄的盐。\n";
-    revision.value = 0;
-    baseline.value = content.value;
-    editorId.value = next?.editorId ?? definition.editorId;
+    path.value = document.target.path;
+    content.value = document.content;
+    revision.value = document.contentRevision;
+    baseline.value = document.content;
+    editorId.value = subject.bindings.value.editorId ?? definition.editorId;
     lastEvent.value = "";
     failure.value = "";
     activeEditorId.value = "";
@@ -262,9 +247,23 @@ watch(() => [props.scene, props.data] as const, () => {
     unresolvedToken.value = "";
 }, {immediate: true});
 
+watch(() => props.input?.props?.document, () => {
+    const document = inputDocument.value;
+    if (!document) return;
+    path.value = document.target.path;
+    if (content.value !== document.content || revision.value !== document.contentRevision) {
+        content.value = document.content;
+        revision.value = document.contentRevision;
+    }
+});
+watch(() => props.input?.props?.editorId, () => {
+    editorId.value = subject.bindings.value.editorId ?? "code";
+});
+
 function switchEditor(nextEditorId: string): void {
     failure.value = "";
     editorId.value = nextEditorId;
+    subject.write("props", "editorId", nextEditorId);
     log("switch-editor", nextEditorId);
 }
 
@@ -287,6 +286,7 @@ function onCommitChange(request: EditorChangeRequest): EditorChangeResult {
     }
     content.value = request.content;
     revision.value += 1;
+    subject.write("props", "document", documentSnapshot.value);
     log("commit", `${request.token} accepted → 修订 ${revision.value}`);
     return {status: "accepted", snapshot: documentSnapshot.value};
 }
@@ -376,6 +376,7 @@ function onViewError(nextTarget: EditorDocumentTarget, token: string, message: s
         <div class="min-h-0 flex-1">
             <EditorViewHost
                 data-lab-subject
+                v-bind="subject.bindings.value"
                 :key="mountKey"
                 :document="documentSnapshot"
                 :registry="registry"

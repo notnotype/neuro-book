@@ -1,10 +1,10 @@
 ---
-标签: []
+标签: [state:local]
 ---
 
 # DateRangeField
 
-`DateRangeField` 是一个紧凑的分段式日期区间输入控件。它在同一个控件中并列编辑开始日期和结束日期，中间用 `~` 分隔；与 `DateRangePicker` 不同，它不打开日历浮层，也不提供清除按钮。
+`DateRangeField` 是一个紧凑的分段式日期区间输入控件。它由同一个范围控件管理两端，在同一个控件中并列编辑开始日期和结束日期，中间用 `~` 分隔；与 `DateRangePicker` 不同，它不打开日历浮层，也不提供清除按钮。
 
 ## 布局
 
@@ -52,7 +52,7 @@ type DateRangeFieldSlots = {
 
 `modelValue` 与 `defaultValue` 同时转发给上游 `DateRangeFieldRoot`。传入 `modelValue` 时父组件控制区间，组件自身不改写 prop；不持续传入 `modelValue` 时由 `defaultValue` 启动上游的非受控编辑状态。`defaultValue` 的默认对象两端均为 `undefined`，因此初始状态可以是尚未选择任何端点的空区间。
 
-组件没有 expose API，也没有公共 slot。未声明 attrs、`class` 和 `style` 不属于稳定合同，不应依赖它们透传到某个 segment。
+组件没有 expose API，也没有公共 slot。未声明 attrs、`class` 和 `style` 按 Vue 单根 fallthrough 到 `DateRangeFieldRoot`，最终 DOM 落点由 Reka UI 决定；不应依赖它们透传到某个 segment。
 
 ## 状态
 
@@ -65,12 +65,12 @@ type DateRangeFieldSlots = {
 ## 不支持
 
 - 不支持日历浮层、范围快捷选项或清除动作；需要这些能力时使用 `DateRangePicker`。
-- 不支持最小/最大日期、禁用日期集合或自定义区间校验 prop。
+- 不支持最小/最大日期、禁用日期集合、自定义分隔符或自定义区间校验 prop。
 - 不支持分别为开始和结束端点提供独立 slot 或事件。
 
 ## 上游边界
 
-`DateRangeFieldRoot` 与 `DateRangeFieldInput` 负责区间日期的解析、segment 划分、键盘编辑、locale 语义和 disabled/readonly 的具体行为。本组件承诺的是区间布局、图标与尺寸样式、props 转发以及 `update:modelValue` 事件；上游未声明的日期合法性、端点调整和键盘边界不属于本组件合同。
+`DateRangeFieldRoot` 与 `DateRangeFieldInput` 负责区间日期的解析、segment 划分、键盘编辑、无障碍语义、locale 语义和 disabled/readonly 的具体行为。本组件承诺的是区间布局、图标与尺寸样式、props 转发以及 `update:modelValue` 事件；上游未声明的日期合法性、端点调整和键盘边界不属于本组件合同。
 
 ## 注意事项
 

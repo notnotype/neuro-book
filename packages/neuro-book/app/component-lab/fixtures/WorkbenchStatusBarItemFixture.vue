@@ -17,73 +17,23 @@ import WorkbenchStatusBarItem, {
 } from "nbook/app/components/workbench/WorkbenchStatusBarItem.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchStatusBarItem>(() => props.input);
 
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
-
-// 受控状态
-const label = ref("refactor/w00003-nb-ui-adoption");
-const icon = ref("i-lucide-git-branch");
-const badge = ref<string | number>("1↑");
-const variant = ref<WorkbenchStatusBarItemVariant>("default");
-const clickable = ref(true);
-const active = ref(false);
-const title = ref("当前 Git 分支");
 const clickCount = ref(0);
+watch(() => props.scene, () => { clickCount.value = 0; });
 
-function applyScene(sceneName: string): void {
-    clickCount.value = 0;
-    switch (sceneName) {
-        case "variants":
-            label.value = "5 个错误";
-            icon.value = "i-lucide-x-circle";
-            badge.value = 5;
-            variant.value = "error";
-            clickable.value = true;
-            active.value = false;
-            title.value = "工作区诊断错误计数";
-            break;
-        case "readonly":
-            label.value = "UTF-8";
-            icon.value = "";
-            badge.value = "";
-            variant.value = "default";
-            clickable.value = false;
-            active.value = false;
-            title.value = "只读：文件编码模式";
-            break;
-        case "default":
-        default:
-            label.value = "refactor/w00003-nb-ui-adoption";
-            icon.value = "i-lucide-git-branch";
-            badge.value = "1↑";
-            variant.value = "default";
-            clickable.value = true;
-            active.value = false;
-            title.value = "当前 Git 分支（带未推送提交角标）";
-            break;
-    }
-}
 
-watch(
-    () => props.scene,
-    (newScene) => {
-        applyScene(newScene || "default");
-    },
-    {immediate: true},
-);
-
-function onItemClick(event: MouseEvent): void {
+function onItemClick(): void {
     clickCount.value += 1;
     emitLabEvent("status-item-click", {
-        label: label.value,
-        variant: variant.value,
-        active: active.value,
+        label: subject.bindings.value.label,
+        variant: subject.bindings.value.variant,
+        active: subject.bindings.value.active,
         clickCount: clickCount.value,
     });
 }
@@ -91,7 +41,7 @@ function onItemClick(event: MouseEvent): void {
 function onStripClick(event: MouseEvent): void {
     // 当 item 为 readonly (clickable=false) 时，根节点为 span，不发组件级 click。
     // 这里监听承载槽位，用于在 readonly 场景下直观验证「槽位捕获到原生事件，但组件没有触发 click」的断言契约。
-    if (!clickable.value) {
+    if (!subject.bindings.value.clickable) {
         emitLabEvent("status-strip-pointer", {
             note: "只读项（span）未拦截且不分发 click 事件，点击穿透至外层宿主",
             time: Date.now(),
@@ -101,15 +51,10 @@ function onStripClick(event: MouseEvent): void {
 
 const VARIANTS: WorkbenchStatusBarItemVariant[] = ["default", "error", "warning", "info", "success"];
 
-watch([label, icon, badge, variant, clickable, active, clickCount], () => {
+watch(() => [subject.bindings.value, clickCount.value], () => {
     publishLabData({
         scene: props.scene,
-        label: label.value,
-        icon: icon.value,
-        badge: badge.value,
-        variant: variant.value,
-        clickable: clickable.value,
-        active: active.value,
+        ...subject.bindings.value,
         clickCount: clickCount.value,
     });
 }, {immediate: true});
@@ -129,8 +74,8 @@ watch([label, icon, badge, variant, clickable, active, clickCount], () => {
                         :key="v"
                         type="button"
                         class="h-5 cursor-pointer rounded px-1.5 text-[11px] transition-colors"
-                        :class="variant === v ? 'bg-[var(--accent-main)] font-semibold text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
-                        @click="variant = v"
+                        :class="subject.bindings.value.variant === v ? 'bg-[var(--accent-main)] font-semibold text-white' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'"
+                        @click="subject.write('props', 'variant', v)"
                     >
                         {{ v }}
                     </button>
@@ -140,20 +85,20 @@ watch([label, icon, badge, variant, clickable, active, clickCount], () => {
                 <button
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
-                    :class="active ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="active = !active"
+                    :class="subject.bindings.value.active ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
+                    @click="subject.write('props', 'active', !subject.bindings.value.active)"
                 >
-                    {{ active ? "激活态 (Active)" : "非激活 (Normal)" }}
+                    {{ subject.bindings.value.active ? "激活态 (Active)" : "非激活 (Normal)" }}
                 </button>
 
                 <!-- 可点 / 只读切换 -->
                 <button
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
-                    :class="clickable ? 'bg-[var(--panel-surface)] text-[var(--text-main)]' : 'bg-[var(--status-warning)] text-black font-semibold'"
-                    @click="clickable = !clickable"
+                    :class="subject.bindings.value.clickable ? 'bg-[var(--panel-surface)] text-[var(--text-main)]' : 'bg-[var(--status-warning)] text-black font-semibold'"
+                    @click="subject.write('props', 'clickable', !subject.bindings.value.clickable)"
                 >
-                    {{ clickable ? "可交互 (<button>)" : "只读形态 (<span>)" }}
+                    {{ subject.bindings.value.clickable ? "可交互 (<button>)" : "只读形态 (<span>)" }}
                 </button>
 
                 <!-- 角标切换 -->
@@ -162,9 +107,9 @@ watch([label, icon, badge, variant, clickable, active, clickCount], () => {
                     <button
                         type="button"
                         class="h-5 cursor-pointer rounded border border-[var(--border-color)] px-1.5 hover:bg-[var(--bg-hover)]"
-                        @click="badge = badge ? '' : 42"
+                        @click="subject.write('props', 'badge', subject.bindings.value.badge ? '' : 42)"
                     >
-                        {{ badge !== '' ? `有 (${badge})` : '无' }}
+                        {{ subject.bindings.value.badge !== '' ? `有 (${subject.bindings.value.badge})` : '无' }}
                     </button>
                 </div>
 
@@ -188,20 +133,13 @@ watch([label, icon, badge, variant, clickable, active, clickCount], () => {
             >
                 <WorkbenchStatusBarItem
                     data-lab-subject
-                    :id="'status-item-subject'"
-                    :label="label"
-                    :icon="icon"
-                    :badge="badge"
-                    :variant="variant"
-                    :clickable="clickable"
-                    :active="active"
-                    :title="title"
+                    v-bind="subject.bindings.value"
                     @click="onItemClick"
                 />
             </div>
 
             <div class="text-[11px] text-[var(--text-muted)] select-none">
-                {{ clickable ? "💡 鼠标悬停可预览 2px 微圆角高亮反馈，点击测试事件上报" : "🔒 只读形态（span 根节点）：无悬停底色、无焦点环，点击不产生 click 事件" }}
+                {{ subject.bindings.value.clickable ? "💡 鼠标悬停可预览 2px 微圆角高亮反馈，点击测试事件上报" : "🔒 只读形态（span 根节点）：无悬停底色、无焦点环，点击不产生 click 事件" }}
             </div>
         </div>
     </div>

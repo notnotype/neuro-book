@@ -14,7 +14,7 @@
 
 ## 交互
 
-- 点击整个 label 或使用原生 checkbox 的键盘操作切换选中状态，组件发出 `update:modelValue`。
+- 点击整个 label 或使用原生 checkbox 的键盘操作切换选中状态，组件发出布尔值 `update:modelValue`。
 - 当 `modelValue` 为 `"indeterminate"` 或 `indeterminate` 为 true 时显示半选短横，并把 `aria-checked` 设为 `mixed`。
 - 获得原生 input 焦点时发出 `focus`，视觉层显示主题 focus ring。
 - `disabled` 时原生 input 不可操作，label 显示禁止光标并降低不透明度。
@@ -63,8 +63,9 @@ type FormCheckboxSlots = {
 
 - **默认/未选中**：显示空的视觉 checkbox；没有 label 和默认 slot 时，文字 fallback 为 `false`。
 - **选中**：`modelValue === true` 且未处于半选时显示白色勾号；无自定义标签时文字 fallback 为 `true`。
-- **半选**：显示短横并设置 `aria-checked="mixed"`；`indeterminate` prop 与字符串值任一成立即进入该状态。
-- **禁用**：不可点击、视觉降低不透明度；父组件仍可改变受控值。
+- **半选**：显示短横并设置 `aria-checked="mixed"`，真实 checkbox 不视为 checked；`indeterminate` prop 与字符串值任一成立即进入该状态。
+- **字段错误**：从 `FormField` 注入 invalid 时设置 `aria-invalid`、`aria-describedby` 并应用错误样式。
+- **禁用**：不可点击、视觉降低不透明度，原生 change 不发更新事件；父组件仍可改变受控值。
 - **只读、加载中、出错、空数据**：组件没有这些专用状态；只读或校验提示由宿主控制。
 
 ## 不支持

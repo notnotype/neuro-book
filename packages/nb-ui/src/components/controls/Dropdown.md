@@ -8,9 +8,9 @@
 
 ## 布局
 
-组件由触发器、主菜单浮层和零个或多个级联子菜单组成。默认菜单项按普通密度渲染（约 32px 高），`compact` 使用紧凑密度（约 24px 高）；主菜单默认宽度至少 200px，紧凑模式至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中，长列表显示悬浮胶囊滚动条；视口高度默认按可见项数计算并露出下一项的一部分，传 `menuMaxHeight` 可改为显式上限。
+组件由触发器、主菜单浮层和零个或多个级联子菜单组成。默认菜单项高为 `--control-h-sm`（约 32px），`compact` 使用紧凑密度（约 24px 高）；主菜单默认宽度至少 200px，紧凑模式至少 160px，调用方可以用 `menuClass` 改写。菜单内容在内部滚动视口中，长列表显示悬浮胶囊滚动条；视口高度默认按密度计算，普通/紧凑模式分别完整显示约 6/5 项并露出下一项的一部分，传 `menuMaxHeight` 可改为显式上限。
 
-浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。
+浮层通过 `DropdownMenuPortal` 脱离触发器所在 stacking context。`side`、`align`、`sideOffset` 控制锚点关系，默认在底部、起点对齐并留 7px 间距；碰撞时由上游定位原语按 8px 边界向视口内调整。级联菜单与父项保留 6px 间隙并在空间不足时翻到另一侧。
 
 组件本身不换行菜单项，条目文字超出时截断；在 `390×844` 窄屏中浮层会按定位原语的碰撞规则收进视口，但触发器的宽度和菜单项的内容宽度仍由父级提供。父级应给触发器合理的可用宽度。
 
@@ -21,7 +21,7 @@
 - `type: "radio"` 或 `"checkbox"` 的项分别使用对应 menuitem 语义并显示 `checked`；组件只读 `checked`，选择后仍由宿主更新输入数据，不在内部切换。
 - 指针悬停首次展开子菜单等待 300ms；点击、键盘 ArrowRight 或已有同级面板切换立即展开。离开/关闭会清理级联状态。
 - 菜单关闭时 `update:open` 报告 `false`，上游负责把焦点归还触发器；打开后的方向键、Escape、Home/End 等菜单漫游行为由 Reka UI 负责。组件声明的 `focus` 事件当前实现没有发出路径，见「已知偏差」。
-- 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动，拖动手势结束后解除窗口监听。
+- 菜单内容溢出时可滚动；拖动右侧悬浮滑块滚动，拖动手势结束或组件销毁时解除窗口监听。
 
 ## 数据
 
@@ -60,6 +60,7 @@ type DropdownEmits = {
     (event: "select", value: string): void;
     /** 声明的焦点事件；当前实现没有触发路径，见「已知偏差」 */
     (event: "focus", payload: FocusEvent): void;
+    /** 展开态变化时发出；受控和非受控两种用法都会发出 */
     (event: "update:open", value: boolean): void;
 };
 
@@ -106,25 +107,37 @@ interface DropdownItem {
 type DropdownItemType = "item" | "radio" | "checkbox";
 ```
 
-`open` 有两种模式：省略时让 Reka 维护展开状态，传入时由父组件回写 `update:open` 才能继续改变显示；两种模式都上报事件。`menuMaxHeight` 为非空字符串时直接作为视口最大高度，省略或空字符串则按密度计算。`group` 目前只用于缺失分组标识时的开发诊断，不执行分组或互斥；radio/checkbox 的显示状态由父组件通过 `checked` 提供。
+省略 `open` 时由上游维护展开状态；传入时由父组件回写 `update:open` 才能改变显示，两种模式都上报更新。`menuMaxHeight` 非空时直接作为 CSS 最大高度；省略或空字符串时按密度计算。radio `group` 缺失会输出开发诊断，但当前菜单节点不执行分组或互斥，勾选仍完全由 `checked` 控制。
 
-组件没有 `expose` API。未声明的 attribute、`class` 与 `style` 按 Vue 默认行为落在根菜单原语；主浮层需要额外属性时使用 `contentProps`，不要依赖 attribute 是否落到 Portal 内容。没有业务请求、store 或持久化能力。
+组件没有 `expose` API。未声明的 attribute、`class` 与 `style` 按 Vue 默认规则落到根菜单原语；Portal 中的菜单属性使用 `contentProps` 指定，不应依赖根节点透传。没有业务请求、store 或持久化能力。
 
-- 默认：触发器可操作，菜单关闭；打开后显示 `items`，当前 `active` 项使用强调底色。
-- 禁用：`disabled` 禁用触发器；条目的 `disabled` 禁止选择并降低不透明度，级联仍由其它可用项控制。
-- 受控展开：`open=false` 时不渲染 Portal 内容，虽然仍会上报打开请求；`open=true` 时按输入显示菜单。
+## 状态
 
+- 默认：触发器可用、菜单关闭；打开时按 `items` 渲染，`active` 项使用强调样式。
+- 禁用：`disabled` 禁用触发器；条目的 `disabled` 阻止选择并降低不透明度，级联仍由其它可用项控制。
+- 受控展开：`open=false` 时内容不渲染，但会发出打开请求；`open=true` 时按输入显示菜单。
+- 空数据：`items=[]` 时仍可打开空菜单，不会产生选择事件。
+- 只读、加载、错误：组件无统一状态；父级用禁用项或外部内容表达业务状态。
+
+## 不支持
 
 - 不支持替宿主切换 radio/checkbox 的 `checked`，也不执行 `value` 对应的业务命令。
 - 不支持内置搜索、分页、异步加载或多选结果汇总；长列表只有滚动能力。
-- 不支持自定义 Portal 目标；浮层目标由 Reka 的 `DropdownMenuPortal` 决定，本地源码未核实实际目标及目标不可用时的表现。
+- 不支持自定义 Portal 目标；目标位置及目标不可用时的具体表现由 Reka `DropdownMenuPortal` 决定，本地源码未核实。
 
 ## 上游边界
-- `env:portal`：菜单必须脱离触发器的局部 stacking context 才能正确覆盖内容，目标由 Reka Portal 提供，本组件不能配置。目标位置与目标不可用时的具体表现由上游原语决定，本地源码未核实。
-- `env:timer`：首次悬停级联菜单使用 300ms 延迟，避免指针掠过父项时立即展开；关闭/切换时取消待执行任务。
-- `env:global`：滚动条拖动在手势期间向 `window` 注册 `mousemove`/`mouseup`，用于跨出滑块后仍保持滚动；手势结束或组件卸载时解除监听，不是常驻快捷键。
+
+Reka UI 负责菜单角色、键盘漫游、Escape/outside dismiss、焦点归还、受控展开生命周期、Portal 与 Popper 碰撞定位。本组件承诺菜单项映射、选择事件、级联面板、滚动视口和浮层样式；未由本组件明确约束的上游行为不属于稳定合同。
+
+## 隐藏通道理由
+
+- `state:inject`：从 `NB_POPOVER_Z_INDEX` 读取所属 `DialogWindow` 的浮层层级，避免菜单被窗口表面遮挡；没有提供方时回退到普通 popover 层级。
+- `env:portal`：菜单必须脱离触发器祖先的局部 stacking context 才能覆盖页面内容；渲染位置由 Reka Portal 决定，组件不提供目标配置。目标位置及不可用表现本地源码未核实。
+- `env:timer`：首次悬停级联菜单使用 300ms 延迟以减少误展开；关闭或切换时取消待执行任务。
+- `env:global`：滚动条拖动期间在 `window` 监听 `mousemove` / `mouseup`，以支持指针离开滑块后的连续拖动；手势结束或卸载时解除监听。
 
 ## 已知偏差
 
-- `DropdownItem.rightIconClass` 保留在类型中，但当前 `MenuNodes` 没有渲染该字段；右侧自定义内容请使用 `item-right` slot。
-- `popoverStyle` 被声明并传入浮层 composable，但当前模板没有把 composable 返回的 style 绑定到浮层；该 prop 不改变显示样式。需要补充浮层属性时可通过 `contentProps` 传入 style。
+- `focus` 事件在 `defineEmits` 中声明，但组件没有调用 `emit("focus", ...)` 的路径；使用方不能依赖它报告焦点。
+- `DropdownItem.rightIconClass` 有类型定义但 `MenuNodes` 未渲染；右侧自定义内容使用 `item-right` slot。
+- `popoverStyle` 被传入浮层 composable，但模板未绑定其返回的浮层样式；该 prop 当前不改变显示样式，可通过 `contentProps` 传原生浮层属性。

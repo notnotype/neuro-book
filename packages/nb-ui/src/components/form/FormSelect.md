@@ -18,7 +18,7 @@
 
 - 点击或使用上游 Select 键盘操作打开、漫游和关闭选项浮层。
 - 选择可用项时发出 `update:modelValue`，payload 是选项的 `value` 字符串；未知或非字符串的上游值回退为空字符串。
-- `dropdownDirection="up"` 固定从触发器上方打开，`"down"` 固定从下方打开，`"auto"`（默认）允许上游根据碰撞翻转。
+- `dropdownDirection="up"` 固定从触发器上方打开，`"down"` 固定从下方打开，`"auto"`（默认）允许上游根据碰撞翻转；固定方向不允许侧向翻转。
 - `disabled` 禁用触发器；选项自身的 `disabled` 禁止选择并降低不透明度。
 - `hideCheckmark` 隐藏选项右侧的选中指示器，不改变选择行为。
 - 触发器获得焦点时发出 `focus`；浮层关闭时组件阻止上游把焦点弹回造成的二次闪烁，完整焦点生命周期由上游 Select 管理。
@@ -27,10 +27,10 @@
 ## 数据
 
 ```ts
-type FormSelectSize = "default" | "sm";
-type FormSelectDirection = "auto" | "up" | "down";
+export type FormSelectSize = "default" | "sm";
+export type FormSelectDirection = "auto" | "up" | "down";
 
-type FormSelectOption = {
+export type FormSelectOption = {
     /** 主标签；必填。 */
     label: string;
     /** 发给 update:modelValue 的值；必填且应在 options 中唯一。 */
@@ -87,10 +87,10 @@ type FormSelectSlots = {
 
 ## 状态
 
-- **默认/空值**：触发器显示 placeholder；无匹配 `modelValue` 时也按空选择处理，选项列表仍可打开。
+- **默认/空值**：触发器显示 placeholder；无匹配 `modelValue` 时也按空选择处理，选项列表仍可打开；`options=[]` 时没有选项行，也不显示自定义空状态。
 - **已选值**：显示匹配选项的 label，并按 `indicatorClass` 优先、否则 `iconClass` 显示前导标识；浮层中该项显示勾选标记（除非 hideCheckmark）。
 - **禁用**：触发器不可操作；单个 disabled 选项保留在列表中但不可选。
-- **错误**：FormField 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`。
+- **错误**：FormField 的 invalid 上下文使触发器使用错误样式并设置 `aria-invalid`、`aria-describedby`；required 与字段上下文取逻辑或。
 - **长列表**：浮层内部可滚动；内容超出视口时显示拖动滑块和渐隐提示。
 - **只读、加载中、出错**：组件没有统一 readonly、loading 或请求错误状态；宿主应通过 disabled、options 或外围状态表达。
 

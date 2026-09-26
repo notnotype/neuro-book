@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:inject]
 ---
 
 # FormField
@@ -51,9 +51,13 @@ type FormFieldSlots = {
 };
 ```
 
-组件生成的 id 形如 `nb-field-*`，只有 `for` prop 非空时才使用调用方给出的 id。组件不提供 expose API。未声明的 attrs、`class` 和 `style` 按 Vue 默认行为落到根 `label`，不应把它们当作内部控件属性透传入口。
+组件生成的 id 形如 `nb-field-<Vue useId>`，只有 `for` prop 非空时才使用调用方给出的 id。组件不提供 expose API。未声明的 attrs、`class` 和 `style` 按 Vue 默认行为落到根 `label`，不应把它们当作内部控件属性透传入口。
 
 FormField 通过 `NB_FORM_FIELD_CONTEXT_KEY` provide 下列只读计算值给后代：`inputId`、`descriptionId`、`errorId`、`ariaDescribedby`、`required` 和 `invalid`。`FormInput`、`FormNumberInput`、`FormSelect` 与 `FormCheckbox` 会可选读取这份上下文；其它默认 slot 内容不会自动获得原生属性。没有这些消费者时，provide 不产生额外副作用。
+
+## 隐藏通道理由
+
+`state:inject`：组件通过 `provide` 建立后代字段控件读取的上下文，包含 input id、说明/错误 id、描述关联、required 与 invalid；标签表示它参与 provide/inject 字段通道，不表示它从父级注入状态。
 
 ## 状态
 

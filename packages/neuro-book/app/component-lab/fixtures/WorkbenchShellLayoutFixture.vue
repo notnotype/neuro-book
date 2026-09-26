@@ -112,12 +112,15 @@ import {
 } from "nbook/app/utils/workbench/workbench-shell-commands";
 import type {WorkbenchViewCustomizationsRecord} from "nbook/shared/storage/workbench-views";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {WORKBENCH_SHELL_LAYOUT_SCENES} from "./WorkbenchShellLayout.scenes";
 import WorkbenchSkeletonView, {resetSkeletonProbes, skeletonProbeSnapshot} from "./WorkbenchSkeletonView.vue";
 
 defineOptions({name: "WorkbenchShellLayoutFixture"});
 
-const props = defineProps<{scene: string; data?: unknown}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchShellLayout>(() => props.input, ["resize", "layout", "gesture-cancel"]);
 
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
@@ -352,8 +355,6 @@ const LAB_CONTEXT: WorkbenchContext = {
 type SkeletonScene = Readonly<{
     label: string;
     note: string;
-    /** Panel 保存意图 + 宿主内存里的瞬时最大化。 */
-    panel?: Partial<WorkbenchPanelState>;
     /** 位置覆盖（`viewId → 目标容器`）：用同一套 `composeViewPlacements` 生成初值。 */
     placements?: readonly Readonly<{viewId: string; containerId: string; beforeViewId?: string}>[];
     /** 容器落位覆盖（整容器跨 Part 移动 / 同 Part 换序）。 */
@@ -369,14 +370,6 @@ type SkeletonScene = Readonly<{
      * 用来观察容器把失败写在原地而不是留一块空白。
      */
     unknownFactoryKeys?: readonly string[];
-    /**
-     * 初始隐藏的叶（`left` / `right`）。
-     *
-     * 默认场景隐藏**右栏**：Lab 画布约 810px 宽，而侧栏最小值是 280 + 320（产品合同，不在这里放松），
-     * 三栏全开时编辑区只剩 ~150px，Panel 标题区连一个动作按钮都放不下。侧栏本身要保留 280/320 的
-     * 宽度记忆，所以这里只把它初始藏起来；Activity Bar 里的容器条目选中时会把它打开。
-     */
-    hiddenParts?: readonly string[];
 }>;
 
 const SCENES: Record<string, SkeletonScene> = {
@@ -388,31 +381,26 @@ const SCENES: Record<string, SkeletonScene> = {
     "panel-positions": {
         label: "Panel 在左侧",
         note: "位置是保存意图的一部分：左侧的 Panel 是宽度叶（160..600），与底部的高度记忆互相独立。",
-        panel: {position: "left"},
         box: {width: null, height: 720},
     },
     "panel-alignments": {
         label: "底部 / 两端对齐",
         note: "两端对齐的 Panel 跨过左右侧栏，但**不跨活动栏**——活动栏永远是主体左侧的通高列。",
-        panel: {position: "bottom", alignment: "justify"},
         box: {width: null, height: 720},
     },
     "panel-collapsed": {
         label: "32px 标题头",
         note: "收起只对水平位置有效：叶仍在树里、编辑实例不重挂，只留一条 32px 的标题头。",
-        panel: {position: "bottom", alignment: "center", collapsed: true},
         box: {width: null, height: 720},
     },
     "panel-hidden": {
         label: "隐藏（零占用）",
         note: "隐藏是整个 Panel 零占用；状态栏的「显示面板」同时清 hidden 与 collapsed。",
-        panel: {position: "bottom", alignment: "center", hidden: true},
         box: {width: null, height: 720},
     },
     "panel-maximized": {
         label: "最大化（瞬时）",
         note: "最大化只占编辑区所在列，侧栏 / 活动栏 / 标题栏 / 状态栏保留，编辑器内容停放而不卸载；它不落盘。",
-        panel: {position: "bottom", alignment: "center", maximized: true},
         box: {width: null, height: 720},
     },
     "empty-panel": {
@@ -423,14 +411,12 @@ const SCENES: Record<string, SkeletonScene> = {
             {viewId: "lab.panel-b", containerId: LAB_RIGHT_CONTAINER.id},
         ],
         box: {width: null, height: 720},
-        hiddenParts: [],
     },
     containers: {
         label: "多容器单选",
         note: "主侧栏与面板各有两个容器：点标签切换活动容器（一个 Part 只显示一个），未活动的容器停在实例层 parking 不销毁；面板第二个容器默认为空，保留切换入口与空态说明。",
         activeContainers: {left: LAB_LEFT_SECONDARY_CONTAINER.id, panel: LAB_PANEL_SECONDARY_CONTAINER.id},
         box: {width: null, height: 720},
-        hiddenParts: [],
     },
     "container-moved": {
         label: "整容器搬到 Panel",
@@ -471,7 +457,6 @@ const SCENES: Record<string, SkeletonScene> = {
         note: "第二个面板容器里只有一个 `when` 受限的视图：环境事实不满足时它不出现，容器空态把求值原因写出来——可见性不是权限，也不是加载中。",
         activeContainers: {panel: LAB_PANEL_SECONDARY_CONTAINER.id},
         box: {width: null, height: 720},
-        hiddenParts: [],
     },
     "unknown-factory": {
         label: "未知 factoryKey（失败可见）",
@@ -481,16 +466,8 @@ const SCENES: Record<string, SkeletonScene> = {
     },
 };
 
-/**
- * 骨架默认隐藏右栏。
- *
- * Lab「随窗口」画布约 810px，而侧栏最小值是 280 + 320（产品合同，不在这里放松）：三栏全开时编辑列
- * 只剩 ~150px，Panel 标题区连一个动作按钮都放不下（标题操作会被挤成 0 宽）。所以默认藏起右栏，
- * 需要它的场景（`empty-panel`）显式写 `hiddenParts: []`；活动栏第二项随时可以手动显示。
- */
-const DEFAULT_HIDDEN_PARTS: readonly string[] = ["right"];
-
 const scene = computed<SkeletonScene>(() => SCENES[props.scene] ?? SCENES.default!);
+const sceneInput = computed(() => props.input);
 
 // ── 探针：探针只开在面板视图上（它才是会被搬来搬去的那两个） ──────────────────────
 
@@ -530,17 +507,8 @@ function resolveLabViewFactory(factoryKey: string): DescriptorResult<Component> 
 
 // ── 内存状态：初值由场景决定，全部可重建 ────────────────────────────────────────
 
-/**
- * 初始尺寸：Lab 画布（「随窗口」档）通常只有 ~810px 宽，产品默认的 340 + 400 会把编辑区挤到几十像素。
- * 骨架用它自己的一档初值（两侧栏都取最小值），保证默认场景就是「能看懂、能拖」的样子；
- * 产品默认值不在这里改——产品页面在自己的宽度下用 340 / 400。
- */
-const LAB_SIZE_DEFAULTS: ShellSizePreferences = {
-    ...SHELL_SIZE_DEFAULTS,
-    leftPanelWidth: 220,
-    agentPanelWidth: 220,
-};
-const sizes = ref<ShellSizePreferences>({...LAB_SIZE_DEFAULTS});
+/** The fixture owns gesture state; each scene supplies the initial sizes through JSON input. */
+const sizes = ref<ShellSizePreferences>({...SHELL_SIZE_DEFAULTS});
 const hiddenParts = ref<readonly string[]>([]);
 /** 「已确认记录」的内存替身：位置、活动页签与 Panel 偏好都由它派生（与产品同一套字段）。 */
 const record = ref<WorkbenchViewCustomizationsRecord | null>(null);
@@ -558,7 +526,7 @@ const panelPreferences = computed<WorkbenchPanelPreferences>(() => resolvePanelP
 
 const panel = computed<WorkbenchPanelState>(() => ({...panelPreferences.value, maximized: maximized.value}));
 
-const contextKey = computed(() => `lab-skeleton:${props.scene}`);
+const contextKey = computed(() => subject.bindings.value.contextKey ?? `lab-skeleton:${props.scene}`);
 
 const boxStyle = computed<Record<string, string>>(() => ({
     width: scene.value.box.width === null ? "100%" : `${String(scene.value.box.width)}px`,
@@ -566,15 +534,15 @@ const boxStyle = computed<Record<string, string>>(() => ({
     height: `${String(scene.value.box.height)}px`,
 }));
 
-function initialRecord(current: SkeletonScene): WorkbenchViewCustomizationsRecord | null {
+function initialRecord(current: SkeletonScene, initialPanel: WorkbenchPanelState | undefined): WorkbenchViewCustomizationsRecord | null {
     const patches: ViewPlacementsPatch[] = [];
-    if (current.panel !== undefined) {
+    if (initialPanel !== undefined) {
         patches.push({
             kind: "set-panel-state",
-            ...(current.panel.position === undefined ? {} : {position: current.panel.position}),
-            ...(current.panel.alignment === undefined ? {} : {alignment: current.panel.alignment}),
-            ...(current.panel.hidden === undefined ? {} : {hidden: current.panel.hidden}),
-            ...(current.panel.collapsed === undefined ? {} : {collapsed: current.panel.collapsed}),
+            position: initialPanel.position,
+            alignment: initialPanel.alignment,
+            hidden: initialPanel.hidden,
+            collapsed: initialPanel.collapsed,
         });
     }
     let record = patches.length === 0 ? null : composeViewPlacements(LAB_PLACEMENTS, null, patches).value;
@@ -620,10 +588,13 @@ function initialRecord(current: SkeletonScene): WorkbenchViewCustomizationsRecor
 function initializeScene(): void {
     // 探针计数必须在任何子组件挂载之前清掉（子组件挂载会 +1），因此它在 setup 的第一次调用里同步执行。
     resetSkeletonProbes();
-    sizes.value = {...LAB_SIZE_DEFAULTS};
-    hiddenParts.value = [...(scene.value.hiddenParts ?? DEFAULT_HIDDEN_PARTS)];
-    maximized.value = scene.value.panel?.maximized === true;
-    record.value = initialRecord(scene.value);
+    const input = sceneInput.value?.props;
+    sizes.value = {...SHELL_SIZE_DEFAULTS, ...(input?.sizes as ShellSizePreferences | undefined)};
+    hiddenParts.value = [...((input?.hiddenParts as readonly string[] | undefined) ?? [])];
+    dragCollapsed.value = {...(input?.dragCollapsedParts as ShellDragCollapseMap | undefined)};
+    const initialPanel = input?.panel as WorkbenchPanelState | undefined;
+    maximized.value = initialPanel?.maximized === true;
+    record.value = initialRecord(scene.value, initialPanel);
     layoutFacts.value = null;
     notices.value = [];
     lastEffectiveKey = "";
@@ -1354,12 +1325,30 @@ const ALIGNMENT_CONTROLS = SHELL_PANEL_ALIGNMENTS.map((alignment) => ({
 }));
 
 /**
- * 换场景 = 重建初值。watch 与首次调用都放在最后：`initializeScene` 会读 `presentation` 等常量，
- * 提前触发会踩到暂时性死区；首次调用还必须在任何子组件挂载之前同步跑完，探针计数才清得干净。
+ * 换场景重建宿主状态；修改 JSON 输入只更新被测组件的 props，不重建 View 实例和探针。
+ * 交互命令仍由宿主内存状态持有，和产品工作台的职责分工相同。
  */
 watch(() => props.scene, () => {
     initializeScene();
 });
+
+watch(() => props.input, () => {
+    const input = subject.bindings.value;
+    if (input.sizes !== undefined) sizes.value = {...input.sizes};
+    if (input.hiddenParts !== undefined) hiddenParts.value = [...input.hiddenParts];
+    if (input.dragCollapsedParts !== undefined) dragCollapsed.value = {...input.dragCollapsedParts};
+    if (input.panel !== undefined) {
+        maximized.value = input.panel.maximized;
+        record.value = composeViewPlacements(LAB_PLACEMENTS, record.value, [{
+            kind: "set-panel-state",
+            position: input.panel.position,
+            alignment: input.panel.alignment,
+            hidden: input.panel.hidden,
+            collapsed: input.panel.collapsed,
+        }]).value;
+    }
+    publishData();
+}, {deep: true});
 
 initializeScene();
 </script>
@@ -1401,6 +1390,7 @@ initializeScene();
                 <!-- 画布盒子：高度由场景给（720 / 260 / 窄屏 844），不用 `flex-1`——那会按剩余空间拉伸而不是保持场景尺寸。 -->
                 <div class="flex min-h-0 min-w-0 flex-col" :style="boxStyle">
                     <WorkbenchShellLayout
+                        v-bind="subject.bindings.value"
                         data-lab-subject
                         :sizes="sizes"
                         :panel="panel"

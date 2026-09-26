@@ -9,7 +9,7 @@ export interface AgentSidebarFixtureSceneData {
     activeSessionTitle: string;
     activeDrawerTitle: string;
     activeSessionSummaryText: string;
-    messages: AgentMessage[];
+    messages: Array<Omit<AgentMessage, "assistantContent">>;
     availabilityStatus: "ready" | "restoring" | "unselected" | "empty" | "archived" | "profile-unavailable" | "waiting-blocked" | "load-error" | "blocked";
     availabilityMessage?: string;
     running?: boolean;
@@ -51,7 +51,7 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
                 profileKey: "writer",
                 title: "第三幕雨夜钟楼决战细纲推演",
                 status: "idle",
-                updatedAt: Date.now() - 1000 * 60 * 12,
+                updatedAt: 1750000000000 - 1000 * 60 * 12,
                 archived: false,
             },
             {
@@ -60,7 +60,7 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
                 profileKey: "plot.planner",
                 title: "蒸汽机械帝国世界观与法则梳理",
                 status: "idle",
-                updatedAt: Date.now() - 1000 * 60 * 60 * 3,
+                updatedAt: 1750000000000 - 1000 * 60 * 60 * 3,
                 archived: false,
             },
             {
@@ -69,7 +69,7 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
                 profileKey: "leader.default",
                 title: "第一章环境冷峻氛围描写润色",
                 status: "idle",
-                updatedAt: Date.now() - 1000 * 60 * 60 * 24 * 2,
+                updatedAt: 1750000000000 - 1000 * 60 * 60 * 24 * 2,
                 archived: false,
             },
         ],
@@ -212,7 +212,7 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
         activeSessionSummaryText: "包含文档图片、附件栏与多模态参考",
         availabilityStatus: "ready",
         running: false,
-        inputText: "参考这张钟楼的概念图，为场景增加建筑风格细节描述。",
+        attachmentPanelOpen: true,
         attachments: [
             {
                 attachment: {
@@ -355,29 +355,29 @@ export const SIDEBAR_FIXTURE_SCENARIOS: Record<string, AgentSidebarFixtureSceneD
         sessions: [
             {
                 sessionId: 109,
-                sessionIdentity: "uuid-session-109" as any,
+                sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000109",
                 profileKey: "leader.default",
                 title: "多会话管理与分支树视图",
                 status: "idle",
-                updatedAt: Date.now() - 60000,
+                updatedAt: 1750000000000 - 60000,
                 archived: false,
             },
             {
                 sessionId: 101,
-                sessionIdentity: "uuid-session-101" as any,
+                sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000101",
                 profileKey: "leader.default",
                 title: "第一章大纲推演与世界观设定",
                 status: "idle",
-                updatedAt: Date.now() - 3600000,
+                updatedAt: 1750000000000 - 3600000,
                 archived: false,
             },
             {
                 sessionId: 99,
-                sessionIdentity: "uuid-session-99" as any,
+                sessionIdentity: "sha256:0000000000000000000000000000000000000000000000000000000000000099",
                 profileKey: "leader.default",
                 title: "早期灵感草稿（已归档）",
                 status: "idle",
-                updatedAt: Date.now() - 86400000,
+                updatedAt: 1750000000000 - 86400000,
                 archived: true,
             },
         ],

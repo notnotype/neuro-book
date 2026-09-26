@@ -26,74 +26,17 @@ import {registerEditorCommands} from "nbook/app/utils/workbench/editor-commands"
 import type {CommandInvocation, CommandResult, Release} from "nbook/app/utils/workbench/commands";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES} from "nbook/shared/editor-workbench";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof CodeEditorView>(() => props.input, ["save", "focus", "ready", "update-temporary-font-size"]);
 const emitLabEvent = useLabEventSink();
 const host = useWorkbenchCommands();
-
-type SceneData = {
-    path: string;
-    content: string;
-    languageId: string;
-    readonly: boolean;
-};
 
 /** 无编辑器场景：只演示「没有活动编辑器时命令不注册」，不摆假编辑器。 */
 const EDITORLESS_SCENES = new Set(["commands-unavailable"]);
 
-/** 60 行、无尾换行：行号跳转的 1 / 60 边界就落在这份正文上。 */
-function commandNavigationContent(): string {
-    return Array.from({length: 60}, (_, index) => `第 ${index + 1} 行：命令导航验收`).join("\n");
-}
-
-/** 登记初值。右栏数据面板改的是同一份形状。 */
-const sceneData: Record<string, SceneData> = {
-    markdown: {
-        path: "manuscript/chapter-01.md",
-        languageId: "markdown",
-        readonly: false,
-        content: "# 开场\n\n潮水退下去的时候，礁石上留下了一层薄薄的盐。\n\n她把鞋提在手里，沿着滩涂往东走。\n\n> 那些没有说出口的话，最后都变成了潮声。\n\n- 第一件事：把灯点上\n- 第二件事：等他回来\n",
-    },
-    "json-invalid": {
-        path: "project/chapters.json",
-        languageId: "json",
-        readonly: false,
-        // 故意不是合法 JSON：缺少闭合括号、字符串没写完。夹具不替它补全，也不格式化。
-        content: "{\n    \"chapters\": [\n        {\"id\": 1, \"title\": \"开场\"},\n        {\"id\": 2, \"title\": \"退潮\", \"draft\": tru\n",
-    },
-    "html-source": {
-        path: "export/page.html",
-        languageId: "html",
-        readonly: false,
-        content: "<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n    <meta charset=\"utf-8\">\n    <title>退潮</title>\n</head>\n<body>\n    <p>这段 HTML 只有源码，没有预览。</p>\n</body>\n</html>\n",
-    },
-    readonly: {
-        path: "assets/导出的旧稿.txt",
-        languageId: "plaintext",
-        readonly: true,
-        content: "这是一份只读文档：内核不允许输入，夹具也不伪造「保存成功」。\n",
-    },
-    empty: {
-        path: "manuscript/未命名.md",
-        languageId: "markdown",
-        readonly: false,
-        content: "",
-    },
-    "command-navigation": {
-        path: "lab/command-navigation.txt",
-        languageId: "plaintext",
-        readonly: false,
-        content: commandNavigationContent(),
-    },
-    "commands-unavailable": {
-        path: "lab/commands-unavailable.txt",
-        languageId: "plaintext",
-        readonly: false,
-        content: "",
-    },
-};
 
 const path = ref("");
 const content = ref("");
@@ -116,18 +59,12 @@ let commandRelease: Release | null = null;
 let commandGeneration: number | null = null;
 
 const editorless = computed(() => EDITORLESS_SCENES.has(props.scene));
-const target = computed<EditorDocumentTarget>(() => ({
-    workspaceKey: "lab:code-editor-view",
-    generation: mountKey.value,
-    documentId: `lab-doc:${path.value}`,
-    path: path.value,
-}));
+const inputDocument = computed(() => subject.bindings.value.document);
+const target = computed<EditorDocumentTarget>(() => inputDocument.value.target);
 const documentSnapshot = computed<EditorDocumentSnapshot>(() => ({
-    target: target.value,
+    ...inputDocument.value,
     content: content.value,
     contentRevision: revision.value,
-    languageId: languageId.value,
-    readonly: readonly.value,
 }));
 const dirty = computed(() => content.value !== baseline.value);
 const agentMode = computed({
@@ -137,25 +74,9 @@ const agentMode = computed({
     },
 });
 
-/** 右栏改数据可能被改成任意 JSON，先校验形状再消费，避免夹具自己崩掉。 */
-function normalize(value: unknown): SceneData | null {
-    if (!value || typeof value !== "object") {
-        return null;
-    }
-    const candidate = value as Partial<SceneData>;
-    if (typeof candidate.path !== "string" || typeof candidate.content !== "string" || typeof candidate.languageId !== "string") {
-        return null;
-    }
-    return {
-        path: candidate.path,
-        content: candidate.content,
-        languageId: candidate.languageId,
-        readonly: candidate.readonly === true,
-    };
-}
-
-function resolveScene(): SceneData {
-    return normalize(props.data) ?? sceneData[props.scene] ?? sceneData.markdown!;
+/** Registry 登记的 document 是唯一可编辑的真实组件输入。 */
+function resolveScene(): EditorDocumentSnapshot {
+    return inputDocument.value;
 }
 
 /** 命令是否可用的唯一判据：按钮 disabled 与执行入口读同一份求值结果。 */
@@ -250,6 +171,7 @@ function onCommitChange(nextTarget: EditorDocumentTarget, baseRevision: number, 
     content.value = next;
     revision.value += 1;
     host.editorRevision.value += 1;
+    subject.write("props", "document", documentSnapshot.value);
     emitLabEvent("change", {path: nextTarget.path, chars: next.length});
     return {status: "accepted", snapshot: documentSnapshot.value};
 }
@@ -279,6 +201,7 @@ function applyExternalContent(next: string): void {
     content.value = next;
     revision.value += 1;
     host.editorRevision.value += 1;
+    subject.write("props", "document", documentSnapshot.value);
 }
 
 /** 夹具自己发起的外部更新：模拟「别处改了正文，宿主推给视图」。 */
@@ -292,39 +215,35 @@ function resetToBaseline(): void {
     emitLabEvent("reset", baseline.value.length);
 }
 
-watch(() => [props.scene, props.data] as const, () => {
+watch(() => [props.scene, props.input?.props?.document] as const, () => {
     const next = resolveScene();
-    const nextIdentity = `${next.path}|${next.languageId}|${next.readonly}`;
-
-    path.value = next.path;
+    const nextIdentity = `${next.target.workspaceKey}|${next.target.generation}|${next.target.documentId}|${next.target.path}|${next.languageId}|${next.readonly}`;
+    path.value = next.target.path;
     languageId.value = next.languageId;
     readonly.value = next.readonly;
 
     if (editorless.value) {
-        // 无编辑器场景不保留上一份文档的注册与活动绑定。
         releaseEditorCommands();
         identity.value = "";
         content.value = next.content;
-        revision.value = 0;
+        revision.value = next.contentRevision;
         baseline.value = next.content;
         return;
     }
-
     if (nextIdentity !== identity.value) {
-        // 身份变化：命令注册先下线，再按新文档重建内核（模型路径与初值一起换）。
         releaseEditorCommands();
         identity.value = nextIdentity;
         content.value = next.content;
-        revision.value = 0;
+        revision.value = next.contentRevision;
         baseline.value = next.content;
         temporaryFontSize.value = null;
         mountKey.value = host.allocateEditorGeneration();
         return;
     }
-
-    // 同一份文档：走内部件的「外部正文更新」通道，不重建实例。
     if (content.value !== next.content) {
-        applyExternalContent(next.content);
+        content.value = next.content;
+        revision.value = next.contentRevision;
+        host.editorRevision.value += 1;
     }
 }, {immediate: true});
 
@@ -428,6 +347,7 @@ onBeforeUnmount(releaseEditorCommands);
             <CodeEditorView
                 data-lab-subject
                 class="absolute inset-0"
+                v-bind="subject.bindings.value"
                 :key="mountKey"
                 :document="documentSnapshot"
                 :visible="true"

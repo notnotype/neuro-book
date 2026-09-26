@@ -1,5 +1,5 @@
 ---
-标签: []
+标签: [state:local]
 ---
 
 # DateField
@@ -52,7 +52,7 @@ type DateFieldSlots = {
 
 `modelValue` 与 `defaultValue` 同时传给上游字段根节点：使用 `modelValue` 时是受控值，组件自身不会改写它；使用 `defaultValue` 且不持续传入 `modelValue` 时由上游字段保留内部编辑状态，变化仍通过 `update:modelValue` 通知父组件。`modelValue` 的默认值是 `undefined`，`defaultValue` 的默认值也是 `undefined`；其余默认值见类型注释。
 
-组件没有 expose API，也没有公共 slot。未声明的 attrs、`class` 和 `style` 不属于稳定合同，不应依赖它们落到某个 segment 或内部根节点。
+组件没有 expose API，也没有公共 slot。未声明的 attrs、`class` 和 `style` 按 Vue 单根 fallthrough 到 `DateFieldRoot`，最终 DOM 落点由 Reka UI 决定；不应依赖它们落到某个 segment 或原生输入节点。
 
 ## 状态
 
@@ -70,7 +70,7 @@ type DateFieldSlots = {
 
 ## 上游边界
 
-`DateFieldRoot` 与 `DateFieldInput` 负责日期值的解析、segment 划分、键盘编辑、locale 语义以及 disabled/readonly 的具体行为。本组件承诺的是图标、主题控件外观、尺寸映射、props 转发和 `update:modelValue` 事件；上游日期原语未声明的输入边界与格式细节不属于本组件合同，升级上游后应重新实测。
+`DateFieldRoot` 与 `DateFieldInput` 负责日期值的解析、segment 划分、键盘编辑、无障碍语义、locale 语义以及 disabled/readonly 的具体行为。本组件承诺的是图标、主题控件外观、尺寸映射、props 转发和 `update:modelValue` 事件；上游日期原语未声明的输入边界与格式细节不属于本组件合同，升级上游后应重新实测。
 
 ## 注意事项
 

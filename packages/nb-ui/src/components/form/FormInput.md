@@ -86,7 +86,7 @@ type FormInputSlots = {
 
 `modelValue` 是受控值：组件用它设置原生 input 的 value，不在内部复制一份输入值。没有传入 `modelValue` 时使用默认空字符串。组件没有 expose API。
 
-组件通过 `useFormFieldContext()` 可选读取外层 `FormField` 的 input id、required、`aria-describedby` 和 invalid；显式 `id`、`required` 优先或合并到该上下文。组件有前缀/后缀时存在扩展容器与 input 两个根节点，没有这些能力时根节点直接是 input；因此未声明 attrs、`class` 和 `style` 不属于稳定的原生 input 透传合同，应使用上面声明的 props。
+组件通过 `useFormFieldContext()` 可选读取外层 `FormField` 的 input id、required、`aria-describedby` 和 invalid；显式 `id`、`required` 优先或合并到该上下文。有前缀、后缀、图标或清除入口时活动根节点是扩展容器，其他情况下根节点是原生 input；未声明 attrs 按 Vue 默认 fallthrough 到活动根节点，因此不能稳定地透传到 input，应使用上面声明的 props。
 
 ## 状态
 
@@ -94,7 +94,7 @@ type FormInputSlots = {
 - **受控**：父组件通过 `modelValue` 决定输入值，输入事件只向外报告。
 - **禁用**：原生 input 不可编辑，视觉降低不透明度，清空入口隐藏。
 - **只读**：原生 input 保留值但不接受编辑，清空入口隐藏。
-- **错误**：从 FormField 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`。
+- **错误**：从 FormField 收到 `invalid` 时控制器使用错误样式并向 input 设置 `aria-invalid`、`aria-describedby`。
 - **加载中、空数据**：没有专用状态；加载/业务校验由宿主表达。
 
 ## 不支持

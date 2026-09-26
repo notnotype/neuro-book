@@ -10,183 +10,32 @@
  */
 import {computed, ref, watch} from "vue";
 import MonacoCodeEditor from "nbook/app/components/editor-workbench/MonacoCodeEditor.vue";
-import {DEFAULT_MONACO_EDITOR_PREFERENCES, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof MonacoCodeEditor>(() => props.input, ["ready", "change", "focus", "blur", "save-request", "submit", "shift-tab", "update-temporary-font-size"]);
 const emitLabEvent = useLabEventSink();
-
-type SceneData = {
-    initialValue: string;
-    language: string;
-    readonly: boolean;
-    placeholder: string;
-    temporaryFontSize: number | null;
-    preferences: MonacoEditorPreferences;
-};
-
-type ScenePatch = {
-    initialValue?: string;
-    language?: string;
-    readonly?: boolean;
-    placeholder?: string;
-    temporaryFontSize?: number | null;
-    preferences?: Partial<MonacoEditorPreferences>;
-};
-function preferences(overrides: Partial<MonacoEditorPreferences> = {}): MonacoEditorPreferences {
-    return {...DEFAULT_MONACO_EDITOR_PREFERENCES, ...overrides};
-}
-
-const sceneData: Record<string, SceneData> = {
-    markdown: {
-        initialValue: "# 退潮\n\n礁石上留下了一层薄薄的盐。\n\n- 把灯点上\n- 等他回来\n",
-        language: "markdown",
-        readonly: false,
-        placeholder: "",
-        temporaryFontSize: null,
-        preferences: preferences(),
-    },
-    typescript: {
-        initialValue: "type Draft = {\n    id: string;\n    title: string;\n    words: number;\n};\n\nfunction isLong(draft: Draft): boolean {\n    return draft.words > 3000;\n}\n",
-        language: "typescript",
-        readonly: false,
-        placeholder: "",
-        temporaryFontSize: null,
-        preferences: preferences({tabSize: 4, lineNumbers: true}),
-    },
-    readonly: {
-        initialValue: "这份文档只读：可以选中、复制、滚动，但输入不会进入正文。\n",
-        language: "plaintext",
-        readonly: true,
-        placeholder: "",
-        temporaryFontSize: null,
-        preferences: preferences(),
-    },
-    placeholder: {
-        initialValue: "",
-        language: "markdown",
-        readonly: false,
-        placeholder: "在此输入正文，Ctrl+S 发出保存请求…",
-        temporaryFontSize: null,
-        preferences: preferences(),
-    },
-    preferences: {
-        initialValue: "const unwrapped = \"这一段不自动换行，并且显示空白字符与行号开关的效果\";\n\n\t缩进用制表符，字号被临时调大。\n",
-        language: "javascript",
-        readonly: false,
-        placeholder: "",
-        temporaryFontSize: 22,
-        preferences: preferences({wordWrap: false, lineNumbers: false, renderWhitespace: true, tabSize: 8, fontSize: 18}),
-    },
-};
-
-const initialValue = ref("");
-const language = ref("plaintext");
-const readonly = ref(false);
-const placeholder = ref("");
-const temporaryFontSize = ref<number | null>(null);
-const viewPreferences = ref<MonacoEditorPreferences>(preferences());
 const visible = ref(true);
 const mountKey = ref(0);
 const ready = ref(false);
-/** 状态行只反映夹具收到的输入，不代表任何磁盘状态。 */
+/** 内核正文只在建实例时取 initialValue；输入面板修改会重建内核。 */
 const liveValue = ref("");
 const lastEvent = ref("");
+const initialValue = computed(() => subject.bindings.value.initialValue ?? "");
+const language = computed(() => subject.bindings.value.language ?? "plaintext");
+const readonly = computed(() => subject.bindings.value.readonly ?? false);
+const temporaryFontSize = computed(() => subject.bindings.value.temporaryFontSize ?? null);
 
-/** 右栏数据是按字段覆盖场景初值的补丁，不是整份替换：少写一个键就沿用场景的登记值。 */
-function readPreferences(value: unknown): Partial<MonacoEditorPreferences> | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return null;
-    }
-    const raw = value as Record<string, unknown>;
-    const patch: Partial<MonacoEditorPreferences> = {};
-    if (typeof raw.fontFamily === "string") {
-        patch.fontFamily = raw.fontFamily;
-    }
-    if (typeof raw.fontSize === "number" && Number.isFinite(raw.fontSize)) {
-        patch.fontSize = raw.fontSize;
-    }
-    if (typeof raw.lineHeight === "number" && Number.isFinite(raw.lineHeight)) {
-        patch.lineHeight = raw.lineHeight;
-    }
-    if (typeof raw.tabSize === "number" && Number.isFinite(raw.tabSize)) {
-        patch.tabSize = raw.tabSize;
-    }
-    if (typeof raw.wordWrap === "boolean") {
-        patch.wordWrap = raw.wordWrap;
-    }
-    if (typeof raw.minimapEnabled === "boolean") {
-        patch.minimapEnabled = raw.minimapEnabled;
-    }
-    if (typeof raw.lineNumbers === "boolean") {
-        patch.lineNumbers = raw.lineNumbers;
-    }
-    if (typeof raw.renderWhitespace === "boolean") {
-        patch.renderWhitespace = raw.renderWhitespace;
-    }
-    return patch;
-}
-
-function normalize(value: unknown): ScenePatch | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return null;
-    }
-    const candidate = value as Record<string, unknown>;
-    const patch: ScenePatch = {};
-    if (typeof candidate.initialValue === "string") {
-        patch.initialValue = candidate.initialValue;
-    }
-    if (typeof candidate.language === "string") {
-        patch.language = candidate.language;
-    }
-    if (typeof candidate.readonly === "boolean") {
-        patch.readonly = candidate.readonly;
-    }
-    if (typeof candidate.placeholder === "string") {
-        patch.placeholder = candidate.placeholder;
-    }
-    if (candidate.temporaryFontSize === null || (typeof candidate.temporaryFontSize === "number" && Number.isFinite(candidate.temporaryFontSize))) {
-        patch.temporaryFontSize = candidate.temporaryFontSize;
-    }
-    if (candidate.preferences !== undefined) {
-        const preferencePatch = readPreferences(candidate.preferences);
-        if (preferencePatch !== null) {
-            patch.preferences = preferencePatch;
-        }
-    }
-    return patch;
-}
-
-function resolveScene(): SceneData {
-    const base = sceneData[props.scene] ?? sceneData.markdown!;
-    const patch = normalize(props.data);
-    if (!patch) {
-        return base;
-    }
-    return {
-        ...base,
-        ...patch,
-        preferences: {...base.preferences, ...(patch.preferences ?? {})},
-    };
-}
-
-watch(() => [props.scene, props.data] as const, () => {
-    const next = resolveScene();
-    initialValue.value = next.initialValue;
-    language.value = next.language;
-    readonly.value = next.readonly;
-    placeholder.value = next.placeholder;
-    temporaryFontSize.value = next.temporaryFontSize;
-    viewPreferences.value = next.preferences;
+watch(() => [props.scene, initialValue.value] as const, () => {
     visible.value = true;
-    liveValue.value = next.initialValue;
+    liveValue.value = initialValue.value;
     ready.value = false;
     lastEvent.value = "";
     mountKey.value += 1;
 }, {immediate: true});
 
-/** 隐藏场景：visible 是产品的「重新可见前同步最新快照」开关，这里只做挂载与卸载观察。 */
+/** 隐藏场景：visible 是产品的「重新可见前同步最新快照」开关。 */
 function toggleVisible(): void {
     visible.value = !visible.value;
     emitLabEvent("visible", visible.value);
@@ -226,19 +75,11 @@ const dirty = computed(() => liveValue.value !== initialValue.value);
             <MonacoCodeEditor
                 data-lab-subject
                 :key="mountKey"
-                :initial-value="initialValue"
-                :language="language"
-                :readonly="readonly"
-                :placeholder="placeholder"
+                v-bind="subject.bindings.value"
                 :visible="visible"
-                :monaco-preferences="viewPreferences"
-                :temporary-font-size="temporaryFontSize"
-                @ready="ready = true; emitLabEvent('ready')"
-                @change="(value: string) => { liveValue = value; lastEvent = `change ${value.length}`; emitLabEvent('change', value.length); }"
-                @focus="emitLabEvent('focus')"
-                @blur="emitLabEvent('blur')"
-                @save-request="emitLabEvent('save-request')"
-                @update-temporary-font-size="emitLabEvent('update-temporary-font-size', $event)"
+                @ready="ready = true"
+                @change="(value: string) => { liveValue = value; lastEvent = `change ${value.length}`; }"
+                @update-temporary-font-size="subject.write('props', 'temporaryFontSize', $event)"
             />
         </div>
     </div>

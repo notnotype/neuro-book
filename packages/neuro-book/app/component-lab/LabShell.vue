@@ -1148,9 +1148,11 @@ watch(fixture, async (next) => {
     }
 }, {immediate: true});
 
-// 换场景等于重来一次：假数据回到登记的初值，事件日志清空，
-// 否则「同一场景重复打开结果一致」这条验收就不成立。
-watch([selectedScene, fixture], () => {
+watch([selectedScene, fixture], ([id, currentFixture]) => {
+    if (currentFixture && !currentFixture.scenes.some((item) => item.id === id)) {
+        selectedScene.value = currentFixture.scenes[0]?.id ?? "";
+        return;
+    }
     resetScene();
     hasFixtureControls.value = false;
 }, {immediate: true});
@@ -1159,7 +1161,7 @@ watch([selectedScene, fixture], () => {
 watch([fixtureComponent, selectedScene], () => {
     clearPicked();
 });
-// 改假数据不换节点，但选中的元素可能被推走或改大小，ResizeObserver 看不见位移
+// 调试输入变更可能推动所选零件的位置或尺寸。
 watch([sceneInput, canvasWidth, canvasHeight], () => {
     void nextTick(measurePicked);
 }, {deep: true});
@@ -1781,8 +1783,9 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
             </template>
         </NbAlertDialog>
 
-        <!-- 虚线框与组件气泡仅在检查取色时跟随鼠标呈现；左键选中后不常驻遮挡画布元素。 -->
+        <!-- 悬停只在探针模式绘制虚线框；选中后只保留贴边标签。 -->
         <HighlightBox :rect="hoverRect" :label="hoverLabel" tone="probe" />
+        <HighlightBox class="lab-picked-marker" :rect="pickedRect" :label="selectionLabel" :show-box="false" />
     </div>
 </template>
 

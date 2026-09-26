@@ -19,75 +19,28 @@ import {useLabDataSink, useLabEventSink} from "nbook/app/component-lab/lab-event
 import WorkbenchTitleActions from "nbook/app/components/workbench/WorkbenchTitleActions.vue";
 import type {WorkbenchTitleActionItem} from "nbook/app/utils/workbench/view-title-actions";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchTitleActions>(() => props.input);
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
 
-const ICONS: readonly string[] = [
-    "i-lucide-refresh-cw",
-    "i-lucide-wand-2",
-    "i-lucide-list-tree",
-    "i-lucide-search",
-    "i-lucide-bell",
-    "i-lucide-star",
-];
 
-/** 场景宽度：overflow 场景用一个明显的窄盒子，好让折叠真的发生。 */
-const WIDTHS: Record<string, number> = {
-    default: 420,
-    overflow: 170,
-    disabled: 420,
-    checked: 420,
-};
-
-const width = ref(WIDTHS[props.scene] ?? 420);
+const width = ref(420);
 const marked = ref(false);
 const density = ref<"compact" | "comfortable">("comfortable");
 const lastInvoked = ref("");
+const primary = computed<readonly WorkbenchTitleActionItem[]>(() => props.scene === "checked"
+    ? [{id: "mark", label: "标记当前视图", icon: "i-lucide-star", type: "checkbox", checked: marked.value}]
+    : subject.bindings.value.primary ?? []);
+const secondary = computed<readonly WorkbenchTitleActionItem[]>(() => props.scene === "checked"
+    ? [{id: "density", label: "列表密度", icon: "i-lucide-list", children: [
+        {id: "density:comfortable", label: "宽松", type: "radio", group: "density", checked: density.value === "comfortable"},
+        {id: "density:compact", label: "紧凑", type: "radio", group: "density", checked: density.value === "compact"},
+    ]}, {id: "reset", label: "重置标记", icon: "i-lucide-undo-2", disabled: !marked.value, reason: "还没有标记"}]
+    : subject.bindings.value.secondary ?? []);
 
-const primary = computed<readonly WorkbenchTitleActionItem[]>(() => {
-    if (props.scene === "overflow") {
-        return ICONS.map((icon, index) => ({id: `action-${index + 1}`, label: `动作 ${index + 1}`, icon}));
-    }
-    if (props.scene === "disabled") {
-        return [
-            {id: "maximize", label: "最大化面板", icon: "i-lucide-maximize-2", disabled: true, reason: "居中对齐后可最大化"},
-            {id: "hide", label: "隐藏面板", icon: "i-lucide-eye-off"},
-        ];
-    }
-    if (props.scene === "checked") {
-        return [{
-            id: "mark",
-            label: "标记当前视图",
-            icon: "i-lucide-star",
-            type: "checkbox",
-            checked: marked.value,
-        }];
-    }
-    return [
-        {id: "refresh", label: "刷新", icon: "i-lucide-refresh-cw"},
-        {id: "pin", label: "固定", icon: "i-lucide-star"},
-    ];
-});
-
-const secondary = computed<readonly WorkbenchTitleActionItem[]>(() => {
-    if (props.scene === "checked") {
-        return [
-            {
-                id: "density",
-                label: "列表密度",
-                icon: "i-lucide-list",
-                children: [
-                    {id: "density:comfortable", label: "宽松", type: "radio", group: "density", checked: density.value === "comfortable"},
-                    {id: "density:compact", label: "紧凑", type: "radio", group: "density", checked: density.value === "compact"},
-                ],
-            },
-            {id: "reset", label: "重置标记", icon: "i-lucide-undo-2", disabled: !marked.value, reason: "还没有标记"},
-        ];
-    }
-    return [{id: "secondary-demo", label: "示例次要动作", icon: "i-lucide-wand-2"}];
-});
 
 /** 点击落地：勾选与 radio 由**宿主**改（组件是受控的），事件只是通知 Lab。 */
 function onInvoke(id: string): void {
@@ -105,7 +58,7 @@ function onInvoke(id: string): void {
 }
 
 watch(() => props.scene, () => {
-    width.value = WIDTHS[props.scene] ?? 420;
+    width.value = props.scene === "overflow" ? 170 : 420;
     marked.value = false;
     density.value = "comfortable";
     lastInvoked.value = "";
@@ -133,11 +86,10 @@ watch([marked, density, lastInvoked, width], () => {
             <div class="flex items-center rounded-[var(--radius-panel)] border border-[var(--panel-outline)] bg-[var(--panel-surface)] p-[var(--space-2)]" :style="{width: `${width}px`, maxWidth: '100%'}">
                 <WorkbenchTitleActions
                     data-lab-subject
-                    scope="view"
+                    v-bind="subject.bindings.value"
                     :primary="primary"
                     :secondary="secondary"
                     :context-key="`${scene}|${marked}|${density}`"
-                    label="视图操作"
                     @invoke="onInvoke"
                 />
             </div>

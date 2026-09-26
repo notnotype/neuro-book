@@ -3,6 +3,8 @@ import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
 import {createApp, type App, type Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {onClickOutside} from "@vueuse/core";
+import {agentSidebarViewScenes} from "./AgentSidebarView.scenes";
 
 beforeAll(() => {
     const globals = globalThis as typeof globalThis & Record<string, unknown>;
@@ -10,6 +12,7 @@ beforeAll(() => {
     globals.defineStore = defineStore;
     globals.piniaPluginPersistedstate = {sessionStorage: () => ({})};
     globals.useI18n = () => ({t: (key: string) => key});
+    globals.onClickOutside = onClickOutside;
     const stateMap = new Map<string, unknown>();
     globals.useState = (key: string, init?: () => unknown) => {
         if (!stateMap.has(key)) {
@@ -37,6 +40,12 @@ afterEach(() => {
     document.body.replaceChildren();
 });
 
+function sceneProps(scene: string): {scene: string; input: unknown} {
+    const found = agentSidebarViewScenes.find((entry) => entry.id === scene);
+    if (!found) throw new Error(`缺少 AgentSidebarView 场景 ${scene}`);
+    return {scene, input: structuredClone(found.input)};
+}
+
 describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
     it("挂载 delivery-unknown 与 sessions 场景时不抛出 Invalid Teleport target 警告", async () => {
         const {default: AgentSidebarViewFixture} = await import("./AgentSidebarViewFixture.vue");
@@ -47,7 +56,7 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         document.body.append(host);
 
         const pinia = createPinia();
-        const app = createApp(AgentSidebarViewFixture as Component, {scene: "delivery-unknown"});
+        const app = createApp(AgentSidebarViewFixture as Component, sceneProps("delivery-unknown"));
         app.use(pinia);
         app.provide(LAB_DATA_SINK, () => {});
         app.provide(LAB_EVENT_SINK, () => {});
@@ -73,7 +82,7 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         document.body.append(host);
 
         const pinia = createPinia();
-        const app = createApp(AgentSidebarViewFixture as Component, {scene: "conversation"});
+        const app = createApp(AgentSidebarViewFixture as Component, sceneProps("conversation"));
         app.use(pinia);
         app.provide(LAB_DATA_SINK, () => {});
         app.provide(LAB_EVENT_SINK, () => {});
@@ -93,7 +102,7 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         // 1. 验证 empty 场景：包含最近会话和推荐提示词
         const hostEmpty = document.createElement("div");
         document.body.append(hostEmpty);
-        const appEmpty = createApp(AgentSidebarViewFixture as Component, {scene: "empty"});
+        const appEmpty = createApp(AgentSidebarViewFixture as Component, sceneProps("empty"));
         appEmpty.use(createPinia());
         appEmpty.provide(LAB_DATA_SINK, () => {});
         appEmpty.provide(LAB_EVENT_SINK, () => {});
@@ -118,5 +127,28 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         // 验证不使用浏览器原生 title 属性，而是使用组件库 Tooltip 浮层
         expect(promptButtons[0]?.getAttribute("title")).toBeNull();
         expect(promptButtons[0]?.textContent).toContain("帮我润色一段环境描写");
+    }, 20000);
+
+    it("images 场景展开附件面板并在点击缩略图后显示原图预览", async () => {
+        const {default: AgentSidebarViewFixture} = await import("./AgentSidebarViewFixture.vue");
+        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
+
+        const host = document.createElement("div");
+        document.body.append(host);
+        const app = createApp(AgentSidebarViewFixture as Component, sceneProps("images"));
+        app.use(createPinia());
+        app.provide(LAB_DATA_SINK, () => {});
+        app.provide(LAB_EVENT_SINK, () => {});
+        mounted.push(app);
+        app.mount(host);
+        await vue.nextTick();
+        const previewTrigger = host.querySelector<HTMLButtonElement>("section.nb-ui-popover-surface button[aria-label*='openOriginal']");
+        expect(previewTrigger).not.toBeNull();
+        previewTrigger?.click();
+        await vue.nextTick();
+
+        const expectedUrl = "/api/agent/sessions/105/entries/entry-att-1/attachments/0";
+        const originalImage = [...host.querySelectorAll<HTMLImageElement>("img")].find((image) => image.getAttribute("src") === expectedUrl);
+        expect(originalImage).toBeDefined();
     }, 20000);
 });

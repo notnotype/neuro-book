@@ -353,11 +353,11 @@
 
 1. 更新组件类型、所有本仓调用方和 barrel 导出；
 2. 增加或更新覆盖新合同的 happy-dom 测试；
-3. 在 `/components` 组合画廊完成组件组合验收；
+3. 在 `/components` 组合画廊检查受影响组合；
 4. 同步 README 的公开用法与本文设计规范；
-5. 依次运行 `bun run test`、`bun run typecheck`、`bun run build:css`、`git diff --check`；
-6. 在真实 playground 验收桌面和 390px 窄屏，记录主题 × 配色、计算样式、键盘路径、控制台与页面错误；
-7. 提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
+5. 测试、类型检查、CSS 产物按仓库 [验证门禁](../../../docs/testing/README.md#验证门禁) 与包级条件触发规则运行；
+6. UI 行为与视觉验收按 [UI 验收分档](../../../docs/testing/README.md#ui-验收分档) 进行，共享基础组件验证四种主题 × 配色组合及 390px，记录实测计算样式、键盘路径、控制台与页面错误；
+7. CSS 生成物变更时提交 `dist/nb-ui.css`，并明确阶段 2 尚未经 NeuroBook 主仓接入验证。
 
 ## 7. Component Lab（/lab 诊断实验室）开发与展示规范
 

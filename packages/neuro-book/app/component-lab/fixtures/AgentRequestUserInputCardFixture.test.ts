@@ -3,6 +3,10 @@ import {createPinia, setActivePinia} from "pinia";
 import * as vue from "vue";
 import type {App, Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {agentRequestUserInputCardScenes} from "./AgentConversation.scenes";
+import {LAB_EVENT_SINK, LAB_INPUT_SINK} from "../lab-event-sink";
+import type {LabSceneInput} from "../lab-subject";
+import type {AgentToolCall} from "../../components/novel-ide/agent/agent-message";
 
 beforeAll(() => {
     const globals = globalThis as typeof globalThis & Record<string, unknown>;
@@ -44,23 +48,23 @@ afterEach(() => {
 });
 
 describe("AgentRequestUserInputCardFixture 场景与只读数据驱动验证", {timeout: 15000}, () => {
-    async function mountFixture(scene: string, data?: unknown) {
+    async function mountFixture(scene: string) {
         const {default: Fixture} = await import("./AgentRequestUserInputCardFixture.vue");
-        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
-
+        const input = vue.ref<LabSceneInput>(structuredClone(agentRequestUserInputCardScenes.find((entry) => entry.id === scene)!.input));
         const host = document.createElement("div");
         document.body.append(host);
-
-        const pinia = createPinia();
-        const app = vue.createApp(Fixture as Component, {scene, data});
-        app.use(pinia);
-        app.provide(LAB_DATA_SINK, () => {});
+        const app = vue.createApp(vue.defineComponent({
+            setup() { return () => vue.h(Fixture as Component, {scene, input: input.value}); },
+        }));
+        app.use(createPinia());
+        app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+            input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+        });
         app.provide(LAB_EVENT_SINK, () => {});
         mounted.push(app);
         app.mount(host);
-
         await vue.nextTick();
-        return {host, app};
+        return {host, app, input};
     }
 
     it("正常挂载 pending 场景并标定 data-lab-subject，以只读形态展示待决问题与候选项", async () => {
@@ -115,31 +119,24 @@ describe("AgentRequestUserInputCardFixture 场景与只读数据驱动验证", {
         expect(host.textContent).toContain("是否确认调整角色动机");
     });
 
-    it("支持通过 props.data 自定义题目与作答，并在组件中即时响应渲染", async () => {
-        const customData = {
-            status: "success",
-            isPending: false,
-            questions: [
-                {
-                    id: "custom-q1",
-                    header: "动态注入测试",
-                    question: "是否在第十章引爆地下矿脉的魔法水晶？",
-                    options: [
-                        {label: "立即引爆造成全面坍塌", description: "不可逆的剧情重大变故"},
-                        {label: "拆除引线保留矿脉设施", description: "稳妥的探索路线"},
-                    ],
-                },
-            ],
-            answers: [
-                {
-                    questionIndex: 0,
-                    selectedOptionIndex: 0,
-                    note: "作者特别批注：坍塌后主角将跌入深渊古遗迹",
-                },
+    it("支持通过 props.toolCall 编辑题目与作答，并在组件中即时响应渲染", async () => {
+        const {host, input} = await mountFixture("answered-choice");
+        const call = input.value.props!.toolCall as AgentToolCall;
+        const args = JSON.parse(call.argsText) as {questions: Array<{header: string; question: string; options: Array<{label: string; description?: string}>}>};
+        args.questions[0] = {
+            header: "动态注入测试",
+            question: "是否在第十章引爆地下矿脉的魔法水晶？",
+            options: [
+                {label: "立即引爆造成全面坍塌", description: "不可逆的剧情重大变故"},
+                {label: "拆除引线保留矿脉设施", description: "稳妥的探索路线"},
             ],
         };
-
-        const {host} = await mountFixture("answered-choice", customData);
+        const argsJson = JSON.stringify(args);
+        input.value = {...input.value, props: {toolCall: {
+            ...call, argsText: argsJson, argsJson,
+            resultData: {answers: [{questionIndex: 0, selectedOptionIndex: 0, note: "作者特别批注：坍塌后主角将跌入深渊古遗迹"}]},
+        }}};
+        await vue.nextTick();
         expect(host.textContent).toContain("动态注入测试");
         expect(host.textContent).toContain("是否在第十章引爆地下矿脉的魔法水晶？");
         expect(host.textContent).toContain("立即引爆造成全面坍塌");

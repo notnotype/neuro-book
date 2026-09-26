@@ -17,11 +17,10 @@ import WorkbenchPanelTab from "nbook/app/components/workbench/WorkbenchPanelTab.
 import WorkbenchTitleActions from "nbook/app/components/workbench/WorkbenchTitleActions.vue";
 import type {WorkbenchTitleActionItem} from "nbook/app/utils/workbench/view-title-actions";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchPanelSurface>(() => props.input);
 
 const emitLabEvent = useLabEventSink();
 
@@ -84,8 +83,6 @@ const tabs: WorkbenchPanelTabItem[] = [
 /** `empty-actions` 场景没有标签：标题区只剩框架动作区。 */
 const displayTabs = computed(() => (isEmptyActionsScene.value ? [] : tabs));
 
-/** 面标题只是无障碍名称与场景说明：动作场景不叫「问题与输出」。 */
-const surfaceTitle = computed(() => (isEmptyActionsScene.value ? "空面板（没有标签）" : "问题与输出"));
 
 const SCENE_NOTES: Record<string, string> = {
     "empty-actions": "空面板：没有标签、没有 View 动作，标题区只剩框架动作区（位置 / 最大化 / 还原 / 隐藏仍然可到达）。",
@@ -105,26 +102,11 @@ function readBoolean(value: unknown, fallback: boolean): boolean {
     return typeof value === "boolean" ? value : fallback;
 }
 
-const config = computed(() => {
-    const data = (props.data ?? {}) as Record<string, unknown>;
-    return {
-        activeTab: readString(data.activeTab, props.scene === "empty-actions" ? "" : (props.scene === "output" ? "output" : "problems")),
-        collapsed: readBoolean(data.collapsed, props.scene === "collapsed"),
-        layout: (data.layout === "scroll" || props.scene === "scroll") ? ("scroll" as const) : ("fill" as const),
-        rows: typeof data.rows === "number" ? data.rows : 30,
-    };
-});
+const config = computed(() => ({layout: subject.bindings.value.layout ?? "fill"}));
 
-const activeTab = ref(config.value.activeTab);
-const collapsed = ref(config.value.collapsed);
+const activeTab = computed({get: () => subject.bindings.value.activeTab ?? "", set: (value: string) => subject.write("model", "activeTab", value)});
+const collapsed = computed({get: () => subject.bindings.value.collapsed ?? false, set: (value: boolean) => subject.write("model", "collapsed", value)});
 
-watch(() => config.value.activeTab, (val) => {
-    activeTab.value = val;
-});
-
-watch(() => config.value.collapsed, (val) => {
-    collapsed.value = val;
-});
 
 /**
  * 面板配置一律 CSS px（不再有百分比往返）：验证台高约 520px，给 editor 320 + panel 200。
@@ -189,13 +171,10 @@ const problemRows = Array.from({length: 44}, (_, i) => ({
                 <template #panel-panel>
                     <div class="h-full w-full overflow-hidden p-1 box-sizing: border-box;">
                         <WorkbenchPanelSurface
-                            v-model:active-tab="activeTab"
-                            v-model:collapsed="collapsed"
-                            :layout="config.layout"
-                            :title="surfaceTitle"
+                            v-bind="subject.bindings.value"
                             data-lab-subject="panel"
                         >
-                            <template #tabs>
+                            <template v-if="subject.slots.value.tabs" #tabs>
                                 <WorkbenchPanelTab
                                     v-for="tab in displayTabs"
                                     :key="tab.id"
@@ -209,7 +188,7 @@ const problemRows = Array.from({length: 44}, (_, i) => ({
                                 />
                             </template>
 
-                            <template #actions>
+                            <template v-if="subject.slots.value.actions" #actions>
                                 <!-- view-actions：标题区里真实的两组动作（活动 View 的 + 框架的），顺序与产品一致。 -->
                                 <template v-if="isViewActionsScene">
                                     <WorkbenchTitleActions
@@ -269,7 +248,7 @@ const problemRows = Array.from({length: 44}, (_, i) => ({
                                 </template>
                             </template>
 
-                            <template #content>
+                            <template v-if="subject.slots.value.content" #content>
                                 <!-- 动作场景：内容区不重要，说明摆在它上面。 -->
                                 <div v-if="isViewActionsScene || isEmptyActionsScene" class="flex h-full flex-col items-center justify-center gap-[var(--space-2)] p-[var(--space-3)] text-center text-xs text-[var(--text-muted)]">
                                     <p v-if="isViewActionsScene" data-lab-note>

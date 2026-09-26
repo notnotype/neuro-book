@@ -36,8 +36,9 @@ import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 import {buildLabRegistry} from "./editor-workbench/mock-views";
 import EditorWorkbenchCloseConfirm from "./editor-workbench/EditorWorkbenchCloseConfirm.vue";
 import type {EditorSplitPayload, TabTransferPayload} from "nbook/app/components/editor-workbench/editor-intents";
-import {DEFAULT_CONTENTS, SCENE_TABS} from "./editor-workbench/fixture-data";
-import {createGrid, type Grid, type GridExtent, type GridGestureCommit, type GridLayoutResult, type GridNode} from "@notnotype/nb-ui/components";
+import {DEFAULT_CONTENTS} from "./editor-workbench/fixture-data";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
+import {createGrid, type Grid, type GridExtent, type GridGestureCommit, type GridLayoutResult, type GridNode, type GridNodeInput} from "@notnotype/nb-ui/components";
 import {
     applyEditorGesture,
     createEditorGrid,
@@ -46,18 +47,22 @@ import {
     splitEditorGroup,
 } from "nbook/app/utils/editor-workbench/editor-groups";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorWorkbench>(() => props.input, ["toolbar-action", "navigate-breadcrumb", "empty-focus", "gesture-start", "gesture-update", "gesture-end", "gesture-cancel", "issues"]);
 
 const emitLabEvent = useLabEventSink();
 const updateLabData = useLabDataSink();
 
 const LAB_REGISTRY = buildLabRegistry();
 
-const busy = ref<boolean>(false);
-const diagnosis = ref<string | null>(null);
+const busy = computed({
+    get: () => primaryGroup.value?.busy ?? false,
+    set: (value: boolean) => { for (const group of groups.value) group.busy = value; },
+});
+const diagnosis = computed({
+    get: () => primaryGroup.value?.diagnosis ?? null,
+    set: (value: string | null) => { for (const group of groups.value) group.diagnosis = value; },
+});
 const currentEditorId = ref<string>("code");
 const documentContents = reactive<Record<string, string>>({...DEFAULT_CONTENTS});
 /** 每份文档的权威修订：夹具按基线判 accepted/conflict，与真实 Store 的输入回执同形。 */
@@ -188,13 +193,8 @@ function splitDirectionOf(): EditorSplitDirection | null {
 
 const activeGroupPath = computed(() => getGroup(activeGroupId.value)?.activePath ?? "");
 
-/** 组的外壳状态（菜单、忙碌、诊断）在 Lab 里是共享的：按组铺开交给外壳。 */
-const displayGroups = computed<EditorGroupState[]>(() => groups.value.map((group) => ({
-    ...group,
-    menus: menus.value,
-    busy: busy.value,
-    diagnosis: diagnosis.value,
-})));
+/** 菜单是运行期回调，不进入 Lab JSON 输入；其余组字段直接来自真实 props。 */
+const displayGroups = computed<EditorGroupState[]>(() => groups.value.map((group) => ({...group, menus: menus.value})));
 
 const primaryGroup = computed(() => groups.value.find((g) => g.id === "primary") || groups.value[0]);
 const tabs = computed<EditorTabPresentation[]>({
@@ -214,176 +214,41 @@ function getGroup(id: string): EditorGroupState | undefined {
     return groups.value.find((g) => g.id === id);
 }
 
-let lastEmittedJson = "";
+let lastPublishedInput = "";
 
-/** 场景初值：全部校验通过后才发布，非法输入整份拒绝（不部分写内容、不伪造分屏）。 */
-type SceneDraft = {
-    tabs: EditorTabPresentation[];
-    activePath: string;
-    content: string | null;
-    split: EditorSplitPayload | null;
-};
-
-/**
- * 自定义标签表的校验/归一：path 必须非空且组内唯一，任一不满足整份拒绝（返回 null）。
- * `preview` 与 `pinned` 互斥的收敛与产品恢复记录同规则。
- */
-function normalizeSceneTabs(raw: readonly unknown[]): EditorTabPresentation[] | null {
-    const seen = new Set<string>();
-    const tabs: EditorTabPresentation[] = [];
-    for (const entry of raw) {
-        const item = (entry ?? {}) as Record<string, unknown>;
-        const path = typeof item.path === "string" ? item.path : "";
-        if (!path || seen.has(path)) {
-            return null;
-        }
-        seen.add(path);
-        const pinned = Boolean(item.pinned);
-        tabs.push({
-            path,
-            title: typeof item.title === "string" && item.title ? item.title : path,
-            pinned,
-            preview: pinned ? false : Boolean(item.preview),
-            dirty: Boolean(item.dirty),
-            iconClass: typeof item.iconClass === "string" && item.iconClass ? item.iconClass : "i-lucide-file-text",
-            statusText: typeof item.statusText === "string" ? item.statusText : undefined,
-            description: typeof item.description === "string" ? item.description : undefined,
-        });
+/** Input 是真实 EditorWorkbench props；非 JSON 的手势回调由 fixture 本地接线。 */
+function initScene(resetSession: boolean): void {
+    const input = subject.bindings.value;
+    if (resetSession) {
+        closeConfirmTab.value = null;
+        draftSequence = 0;
     }
-    return tabs;
-}
-
-/** 场景默认标签表（每次深拷一层，换场景不叠加上一次的写入）。 */
-function sceneTabsOf(sceneId: string): EditorTabPresentation[] {
-    return (SCENE_TABS[sceneId] ?? []).map((tab) => ({...tab}));
-}
-
-/**
- * 场景初值的整份校验：标签表（非空 path、组内唯一）、activePath 与分屏参数先全部核对，
- * 通过后才发布。任一非法（含与请求配对的正文）都整份拒绝：不写半份数据，也不回退到硬编码标签。
- */
-function prepareScene(sceneId: string, rawData: Record<string, unknown>): SceneDraft {
-    const tabs = Array.isArray(rawData.tabs) ? normalizeSceneTabs(rawData.tabs) : sceneTabsOf(sceneId);
-    if (tabs === null) {
-        const defaults = sceneTabsOf(sceneId);
-        emitLabEvent("scene-rejected", {scene: sceneId, reason: "自定义标签表非法：存在空 path 或组内重复 path"});
-        return {tabs: defaults, activePath: defaultActiveOf(defaults), content: null, split: null};
+    groups.value = input.groups.map((group) => ({...group, tabs: group.tabs.map((tab) => ({...tab}))}));
+    const incomingTree = input.tree;
+    if (resetSession || JSON.stringify(incomingTree) !== JSON.stringify(editorGrid.value.root())) {
+        editorGrid.value = createGrid<string>(incomingTree ? copyGridNode(incomingTree) : null, {sashSize: 1});
     }
-    const requestedActive = typeof rawData.activePath === "string" ? rawData.activePath : null;
-    const activeAccepted = requestedActive === null || tabs.some((tab) => tab.path === requestedActive);
-    if (!activeAccepted) {
-        emitLabEvent("active-path-rejected", {path: requestedActive, scene: sceneId});
-    }
-    const split = sceneSplitOf(rawData, tabs);
-    return {
-        tabs,
-        activePath: activeAccepted && requestedActive !== null ? requestedActive : defaultActiveOf(tabs),
-        content: activeAccepted && split !== undefined && typeof rawData.content === "string" ? rawData.content : null,
-        split: activeAccepted ? split ?? null : null,
-    };
-}
-
-/** 默认活动标签：优先既有的 chapter-02，否则第一个（没有标签就是空）。 */
-function defaultActiveOf(tabs: readonly EditorTabPresentation[]): string {
-    return tabs.find((tab) => tab.path === "src/story/chapter-02.md")?.path ?? tabs[0]?.path ?? "";
-}
-
-/** 未请求分屏返回 null；非法请求返回 undefined，并拒绝同一初始化请求的正文写入。 */
-function sceneSplitOf(rawData: Record<string, unknown>, tabs: readonly EditorTabPresentation[]): EditorSplitPayload | null | undefined {
-    const path = typeof rawData.splitPanePath === "string" ? rawData.splitPanePath : null;
-    const direction = rawData.splitPaneDirection;
-    if (!path && direction === undefined) {
-        return null;
-    }
-    const rejection = (reason: string): undefined => {
-        emitLabEvent("split-tab-rejected", {path, direction, sourceGroupId: "primary", targetGroupId: "primary", reason});
-        return undefined;
-    };
-    if (!path || !tabs.some((tab) => tab.path === path)) {
-        return rejection("场景分屏路径不在标签表里");
-    }
-    if (!isSplitDirection(direction)) {
-        return rejection("场景分屏方向非法");
-    }
-    return {sourceGroupId: "primary", targetGroupId: "primary", path, direction, mode: "copy"};
-}
-
-function initScene(sceneId: string, customData?: unknown): void {
-    const rawData = (customData ?? {}) as Record<string, unknown>;
-    busy.value = typeof rawData.busy === "boolean" ? rawData.busy : sceneId === "loading";
-    diagnosis.value = typeof rawData.diagnosis === "string"
-        ? rawData.diagnosis
-        : (sceneId === "diagnosis" ? "打开方式“diagram-viewer”不可用，当前使用源码编辑器。" : null);
-    closeConfirmTab.value = null;
-    // 每个场景会话从 0 起算；路径是否可写由占用检查决定，不靠计数器猜。
-    draftSequence = 0;
-
-    const draft = prepareScene(sceneId, rawData);
-
-    groups.value = [
-        {
-            id: "primary",
-            tabs: draft.tabs,
-            activePath: draft.activePath,
-        },
-    ];
-    editorGrid.value = createEditorGrid("primary");
-    activeGroupId.value = "primary";
-    groupCounter = 1;
-    recalcLayout();
-
-    if (draft.split) {
-        handleSplitTab(draft.split);
-    }
-
-    const rawEditorId = typeof rawData.editorId === "string"
-        ? rawData.editorId
-        : (typeof rawData.currentEditorId === "string" ? rawData.currentEditorId : null);
-
-    if (rawEditorId) {
-        currentEditorId.value = rawEditorId;
-    } else if (sceneId === "multi-view") {
-        currentEditorId.value = "code";
-    } else {
-        currentEditorId.value = draft.activePath.endsWith(".md") ? "markdown" : "code";
-    }
-
-    if (draft.content !== null && draft.activePath) {
-        writeExternalContent(draft.activePath, draft.content);
-    }
+    layoutTree.value = editorGrid.value.root();
+    if (resetSession) editorExtent.value = {width: 0, height: 0};
+    layout.value = input.layout;
+    activeGroupId.value = input.activeGroupId;
+    layoutRevision.value = input.revision ?? 0;
+    groupCounter = Math.max(1, ...groups.value.map((group) => Number(group.id.match(/^group-(\d+)$/)?.[1] ?? 1)));
+    if (resetSession) currentEditorId.value = props.scene === "multi-view" ? "code" : (activePath.value.endsWith(".md") ? "markdown" : "code");
     syncDataSink();
 }
 
-watch(() => props.scene, (scene) => {
-    initScene(scene, props.data);
-}, {immediate: true});
+/** JSON 树的 readonly 子节点转换为网格的可变输入；不修改登记初值。 */
+function copyGridNode(node: NonNullable<typeof subject.bindings.value.tree>): GridNodeInput<string> {
+    if (node.kind === "leaf") return {...node};
+    return {...node, children: node.children.map(copyGridNode)};
+}
 
-watch(() => props.data, (newData) => {
-    if (!newData) return;
-    const serialized = JSON.stringify(newData);
-    if (serialized === lastEmittedJson) return;
-
-    const raw = newData as Record<string, unknown>;
-    if (typeof raw.busy === "boolean") busy.value = raw.busy;
-    if (typeof raw.diagnosis === "string" || raw.diagnosis === null) diagnosis.value = raw.diagnosis as string | null;
-    const rawEdId = typeof raw.editorId === "string" ? raw.editorId : (typeof raw.currentEditorId === "string" ? raw.currentEditorId : null);
-    if (rawEdId && rawEdId !== currentEditorId.value) currentEditorId.value = rawEdId;
-
-    // 非法 activePath 整条拒绝：不把组的活动标签指向不存在的标签，也不按它写正文。
-    let activeAccepted = true;
-    if (typeof raw.activePath === "string" && raw.activePath !== activePath.value) {
-        if (primaryGroup.value?.tabs.some((tab) => tab.path === raw.activePath)) {
-            activePath.value = raw.activePath;
-        } else {
-            activeAccepted = false;
-            emitLabEvent("active-path-rejected", {path: raw.activePath, scene: props.scene});
-        }
-    }
-
-    if (typeof raw.content === "string" && activeAccepted && activePath.value) {
-        writeExternalContent(activePath.value, raw.content);
-    }
-    syncDataSink();
+watch(() => props.scene, () => initScene(true), {immediate: true});
+watch(() => props.input, () => {
+    const serialized = JSON.stringify(props.input);
+    if (serialized === lastPublishedInput) return;
+    initScene(false);
 }, {deep: true});
 
 function syncDataSink(): void {
@@ -391,8 +256,8 @@ function syncDataSink(): void {
         scene: props.scene,
         activePath: activePath.value,
         currentEditorId: currentEditorId.value,
-        busy: busy.value,
-        diagnosis: diagnosis.value,
+        busy: primaryGroup.value?.busy ?? false,
+        diagnosis: primaryGroup.value?.diagnosis ?? null,
         tabCount: tabs.value.length,
         dirtyCount: tabs.value.filter((t) => t.dirty).length,
         pinnedCount: tabs.value.filter((t) => t.pinned).length,
@@ -400,9 +265,22 @@ function syncDataSink(): void {
         splitPanePath: groups.value[1]?.activePath ?? null,
         splitPaneDirection: splitDirectionOf(),
     };
-    lastEmittedJson = JSON.stringify(payload);
     updateLabData(payload);
+    const current = props.input?.props;
+    if (!current) return;
+    const renderedGroups = groups.value.map(({menus: _menus, ...group}) => ({
+        ...group,
+        tabs: group.tabs.map((tab) => Object.fromEntries(Object.entries(tab).filter(([, value]) => value !== undefined))),
+    }));
+    if (JSON.stringify(current.groups) !== JSON.stringify(renderedGroups)) subject.write("props", "groups", renderedGroups);
+    const tree = editorGrid.value.root();
+    if (JSON.stringify(current.tree) !== JSON.stringify(tree)) subject.write("props", "tree", tree);
+    if (JSON.stringify(current.layout) !== JSON.stringify(layout.value)) subject.write("props", "layout", layout.value);
+    if (current.activeGroupId !== activeGroupId.value) subject.write("props", "activeGroupId", activeGroupId.value);
+    if (current.revision !== layoutRevision.value) subject.write("props", "revision", layoutRevision.value);
+    lastPublishedInput = JSON.stringify({...props.input, props: {...current, groups: renderedGroups, tree, layout: layout.value, activeGroupId: activeGroupId.value, revision: layoutRevision.value}});
 }
+
 
 const currentLanguageId = computed(() => {
     if (!activePath.value) return "plaintext";
@@ -953,12 +831,11 @@ watch(activePath, (p) => {
             <EditorWorkbench
                 data-lab-subject
                 class="flex-1 min-w-[140px] min-h-[140px]"
+                v-bind="subject.bindings.value"
                 :groups="displayGroups"
                 :tree="layoutTree"
                 :layout="layout"
                 :active-group-id="activeGroupId"
-                :allow-split="true"
-                :context-key="scene"
                 :revision="layoutRevision"
                 :on-gesture-commit="onGestureCommit"
                 @select-tab="(g, p) => handleSelectTab(p, g)"
@@ -971,7 +848,7 @@ watch(activePath, (p) => {
                 @select-menu="(g, item) => handleMenuSelect(item, g)"
                 @retry="() => handleRetry()"
                 @open-as-code="() => handleOpenAsCode()"
-                @focus-group="(g) => { activeGroupId = g; }"
+                @focus-group="(g) => { activeGroupId = g; syncDataSink(); }"
                 @container-extent="setContainerExtent"
             >
                 <template #content="{ group, activePath: path }">
@@ -979,7 +856,7 @@ watch(activePath, (p) => {
                         v-if="path && getSnapshot(path)"
                         :document="getSnapshot(path)!"
                         :registry="LAB_REGISTRY"
-                        :editor-id="path.endsWith('.md') ? 'markdown' : 'code'"
+                        :editor-id="currentEditorId"
                         :commit-change="commitDocumentChange"
                         @save-request="() => saveDocument(path)"
                         @focus-change="(_t, _token, f) => emitLabEvent('editor-focus', {focused: f, path})"

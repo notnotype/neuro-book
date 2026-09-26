@@ -15,37 +15,24 @@ import WorkbenchStatusBar from "nbook/app/components/workbench/WorkbenchStatusBa
 import WorkbenchStatusBarItem from "nbook/app/components/workbench/WorkbenchStatusBarItem.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchStatusBar>(() => props.input);
 
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
 
-function readString(value: unknown, fallback: string): string {
-    return typeof value === "string" && value !== "" ? value : fallback;
-}
-
-function readNumber(value: unknown, fallback: number): number {
-    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-const config = computed(() => {
-    const data = (props.data ?? {}) as Record<string, unknown>;
-    return {
-        branch: readString(data.branch, "refactor/w00003-nb-ui-adoption"),
-        errors: readNumber(data.errors, props.scene === "errors" ? 5 : (props.scene === "clean" ? 0 : 0)),
-        warnings: readNumber(data.warnings, props.scene === "errors" ? 12 : (props.scene === "clean" ? 0 : 3)),
-        infos: readNumber(data.infos, props.scene === "errors" ? 8 : (props.scene === "clean" ? 0 : 14)),
-        line: readNumber(data.line, 42),
-        column: readNumber(data.column, 18),
-        encoding: readString(data.encoding, "UTF-8"),
-        language: readString(data.language, "TypeScript"),
-        narrow: props.scene === "narrow",
-    };
-});
+const config = computed(() => ({
+    branch: props.scene === "clean" ? "main" : "refactor/w00003-nb-ui-adoption",
+    errors: props.scene === "errors" ? 5 : props.scene === "narrow" ? 2 : 0,
+    warnings: props.scene === "errors" ? 12 : props.scene === "narrow" ? 4 : props.scene === "clean" ? 0 : 3,
+    infos: props.scene === "errors" ? 8 : props.scene === "narrow" ? 6 : props.scene === "clean" ? 0 : 14,
+    line: 42,
+    column: 18,
+    encoding: "UTF-8",
+    language: "TypeScript",
+}));
 
 // 可在 Controls 中动态调节的状态
 const dynamicErrors = ref(0);
@@ -147,8 +134,8 @@ watch([dynamicErrors, dynamicWarnings, dynamicInfos, isSyncing, activePanel], ()
         </div>
 
         <!-- 核心被测组件：整条状态栏（平直贴附底边，无大药丸胶囊圆角） -->
-        <WorkbenchStatusBar data-lab-subject="statusbar" class="w-full shrink-0">
-            <template #left>
+        <WorkbenchStatusBar data-lab-subject="statusbar" class="w-full shrink-0" v-bind="subject.bindings.value">
+            <template v-if="subject.slots.value.left" #left>
                 <!-- 远程/主入口 -->
                 <WorkbenchStatusBarItem
                     id="remote"
@@ -211,7 +198,7 @@ watch([dynamicErrors, dynamicWarnings, dynamicInfos, isSyncing, activePanel], ()
                 />
             </template>
 
-            <template #right>
+            <template v-if="subject.slots.value.right" #right>
                 <!-- 光标行列 -->
                 <WorkbenchStatusBarItem
                     id="cursor"
