@@ -3,7 +3,7 @@ import LowCodeCheckboxField from "../../components/common/low-code-form/LowCodeC
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeCheckboxField, () => props.input);
+const subject = useLabSubject<typeof LowCodeCheckboxField>(() => props.input);
 </script>
 
 <template>

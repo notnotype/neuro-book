@@ -2,7 +2,9 @@
 import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
 import type {App, Component} from "vue";
-import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {findLabFixture} from "./index";
+import {LAB_EVENT_SINK, LAB_INPUT_SINK} from "../lab-event-sink";
 
 beforeAll(() => {
     const globals = globalThis as typeof globalThis & Record<string, unknown>;
@@ -39,22 +41,25 @@ afterEach(() => {
 
 describe("AgentComposerFixture 挂载与场景渲染验证", {timeout: 20000}, () => {
     async function mountFixture(scene: string) {
-        const {default: AgentComposerFixture} = await import("./AgentComposerFixture.vue");
-        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
-
+        const definition = findLabFixture("AgentComposer")!;
+        const input = vue.ref(structuredClone(definition.scenes.find((entry) => entry.id === scene)!.input!));
+        const fixture = await definition.load();
         const host = document.createElement("div");
         document.body.append(host);
-
-        const pinia = createPinia();
-        const app = vue.createApp(AgentComposerFixture as Component, {scene});
-        app.use(pinia);
-        app.provide(LAB_DATA_SINK, () => {});
+        const app = vue.createApp(vue.defineComponent({
+            setup() {
+                return () => vue.h(fixture as Component, {scene, input: input.value});
+            },
+        }));
+        app.use(createPinia());
+        app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+            input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+        });
         app.provide(LAB_EVENT_SINK, () => {});
         mounted.push(app);
         app.mount(host);
-
         await vue.nextTick();
-        return {host, app};
+        return {host, app, input};
     }
 
     it("正常挂载 ready 场景，并带有 data-lab-subject 标记", async () => {

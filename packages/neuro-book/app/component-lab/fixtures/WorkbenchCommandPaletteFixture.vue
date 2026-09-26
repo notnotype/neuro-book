@@ -5,14 +5,27 @@
  * 夹具只承载真实编辑器（直接复用 CodeEditorViewFixture 的场景与控制栏），面板本体由
  * LabShell 挂载。打开中的面板会被 Lab 标成受检零件，关闭时靠这行提示指路。
  */
-import {computed} from "vue";
+import {computed, provide, ref, watch} from "vue";
 import CodeEditorViewFixture from "./CodeEditorViewFixture.vue";
+import {findLabFixture} from "./index";
+import {LAB_INPUT_SINK} from "../lab-event-sink";
+import type {LabFixtureProps, LabSceneInput} from "../lab-subject";
 import {useWorkbenchCommands} from "nbook/app/composables/useWorkbenchCommands";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
 const host = useWorkbenchCommands();
 const paletteOpen = computed(() => host.palette.open.value);
+
+function initialEditorInput(scene: string): LabSceneInput {
+    const match = findLabFixture("CodeEditorView")?.scenes.find((candidate) => candidate.id === scene);
+    if (!match?.input) throw new Error(`WorkbenchCommandPalette 缺少对应 CodeEditorView 场景：${scene}`);
+    return structuredClone(match.input);
+}
+const editorInput = ref<LabSceneInput>(initialEditorInput(props.scene));
+watch([() => props.scene, () => props.input], ([scene]) => {editorInput.value = initialEditorInput(scene);});
+provide(LAB_INPUT_SINK, (layer, key, value) => {
+    editorInput.value = {...editorInput.value, [layer]: {...editorInput.value[layer], [key]: value}};
+});
 </script>
 
 <template>
@@ -24,7 +37,7 @@ const paletteOpen = computed(() => host.palette.open.value);
             全局面板由 Lab 挂一个实例：点底部控制栏的「命令面板」，或按 Ctrl/Cmd+Shift+P 打开；打开时它会作为受检零件被标出。
         </p>
         <div class="min-h-0 flex-1">
-            <CodeEditorViewFixture :scene="props.scene" :data="props.data" />
+            <CodeEditorViewFixture :scene="props.scene" :input="editorInput" />
         </div>
     </div>
 </template>

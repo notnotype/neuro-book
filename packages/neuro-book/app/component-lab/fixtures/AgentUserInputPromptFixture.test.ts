@@ -3,6 +3,8 @@ import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
 import type {App, Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {agentUserInputPromptScenes} from "./AgentConversation.scenes";
+import {LAB_EVENT_SINK, LAB_INPUT_SINK} from "../lab-event-sink";
 
 beforeAll(() => {
     const globals = globalThis as typeof globalThis & Record<string, unknown>;
@@ -50,30 +52,33 @@ afterEach(() => {
 });
 
 describe("AgentUserInputPromptFixture 挂载与输入输出契约验证", {timeout: 20000}, () => {
-    async function mountFixture(scene: string, data?: unknown) {
+    async function mountFixture(scene: string, inputOverride?: {props?: Record<string, unknown>; model?: Record<string, unknown>}) {
         const {default: AgentUserInputPromptFixture} = await import("./AgentUserInputPromptFixture.vue");
-        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
-
+        const initial = agentUserInputPromptScenes.find((entry) => entry.id === scene)!.input;
+        const input = vue.ref({
+            ...structuredClone(initial),
+            props: {...structuredClone(initial.props), ...inputOverride?.props},
+            model: {...structuredClone(initial.model), ...inputOverride?.model},
+        });
         const host = document.createElement("div");
         document.body.append(host);
-
-        const dataSnapshots: unknown[] = [];
         const eventSnapshots: Array<{name: string; payload?: unknown}> = [];
-
-        const pinia = createPinia();
-        const app = vue.createApp(AgentUserInputPromptFixture as Component, {scene, data});
-        app.use(pinia);
-        app.provide(LAB_DATA_SINK, (val: unknown) => dataSnapshots.push(val));
-        app.provide(LAB_EVENT_SINK, (name: string, payload?: unknown) => eventSnapshots.push({name, payload}));
+        const app = vue.createApp(vue.defineComponent({
+            setup() { return () => vue.h(AgentUserInputPromptFixture as Component, {scene, input: input.value}); },
+        }));
+        app.use(createPinia());
+        app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+            input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+        });
+        app.provide(LAB_EVENT_SINK, (name, payload) => eventSnapshots.push({name, payload}));
         mounted.push(app);
         app.mount(host);
-
         await vue.nextTick();
-        return {host, app, dataSnapshots, eventSnapshots};
+        return {host, app, input, eventSnapshots};
     }
 
     it("正常挂载 single-choice 场景，标记 data-lab-subject 并正确渲染单选题", async () => {
-        const {host, dataSnapshots} = await mountFixture("single-choice");
+        const {host, input} = await mountFixture("single-choice");
         const subject = host.querySelector("[data-lab-subject]");
         expect(subject).not.toBeNull();
         expect(host.textContent).toContain("接下来这一幕你希望以谁的视角展开叙述？");
@@ -90,27 +95,20 @@ describe("AgentUserInputPromptFixture 挂载与输入输出契约验证", {timeo
         const terminateIcon = host.querySelector(".i-lucide-ban");
         expect(terminateIcon).not.toBeNull();
 
-        // 验证 useLabDataSink 正确捕获并上报了数据
-        expect(dataSnapshots.length).toBeGreaterThan(0);
-        const latest = dataSnapshots.at(-1) as Record<string, unknown>;
-        expect(latest.scene).toBe("single-choice");
-        expect(latest.questionsCount).toBe(1);
+        expect(input.value.props.sessions).toHaveLength(1);
+        expect(input.value.model.draft.answers).toHaveProperty("question:call-single-choice-0:0");
     });
 
-    it("支持通过 props.data 自定义题目并在组件中即时响应渲染", async () => {
-        const customData = {
-            questions: [
-                {
-                    header: "自定义测试分类",
-                    question: "你希望故事的结局是开放式还是闭环？",
-                    options: [
-                        {label: "完全闭环大团圆", description: "交代所有人物命运"},
-                        {label: "留白开放式", description: "引人遐思"},
-                    ],
-                },
-            ],
-        };
-        const {host} = await mountFixture("single-choice", customData);
+    it("支持通过 props.sessions 自定义题目并在组件中即时响应渲染", async () => {
+        const {host, input} = await mountFixture("single-choice");
+        const sessions = structuredClone(vue.toRaw(input.value.props.sessions));
+        sessions[0]!.questions[0]!.question = "你希望故事的结局是开放式还是闭环？";
+        sessions[0]!.questions[0]!.options = [
+            {label: "完全闭环大团圆", description: "交代所有人物命运"},
+            {label: "留白开放式", description: "引人遐思"},
+        ];
+        input.value = {...input.value, props: {...input.value.props, sessions}};
+        await vue.nextTick();
         expect(host.textContent).toContain("你希望故事的结局是开放式还是闭环？");
         expect(host.textContent).toContain("完全闭环大团圆");
         expect(host.textContent).toContain("留白开放式");

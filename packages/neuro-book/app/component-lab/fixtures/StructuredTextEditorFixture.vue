@@ -3,7 +3,7 @@ import StructuredTextEditor from "nbook/app/components/common/form/StructuredTex
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(StructuredTextEditor, () => props.input);
+const subject = useLabSubject<typeof StructuredTextEditor>(() => props.input);
 </script>
 
 <template>
@@ -11,6 +11,5 @@ const subject = useLabSubject(StructuredTextEditor, () => props.input);
         data-lab-subject
         class="w-full"
         v-bind="subject.bindings.value"
-        :model-value="String(props.input?.model?.modelValue ?? '')"
     />
 </template>

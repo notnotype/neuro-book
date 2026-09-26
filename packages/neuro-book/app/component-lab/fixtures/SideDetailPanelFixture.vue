@@ -4,7 +4,7 @@ import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(SideDetailPanel, () => props.input);
+const subject = useLabSubject<typeof SideDetailPanel>(() => props.input);
 const longBody = Array.from({length: 12}, (_, index) => `第 ${String(index + 1)} 条：主角在旧城档案里找到守钟人的手记，记录时间比钟楼停摆早了三年。`);
 </script>
 

@@ -156,8 +156,16 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
         await arrayScene.click();
         await expectText(page, "read_file", failures, "切换数组场景应挂载确定性 fixture 数据");
 
+        // 分层输入：组件发出的事件经 fixture 回写输入，数据面板「还原输入」回到登记初值
+        const fixtureExampleItem = page.locator('.lab-columns > .nb-lab-panel--nav [role="treeitem"]').filter({hasText: /^FixtureExample$/u});
+        await fixtureExampleItem.click();
         await page.locator('[role="tab"]').filter({hasText: "数据"}).click();
-        await expectText(page, "还原", failures, "数据面板应提供场景重置入口");
+        await expectText(page, "还原输入", failures, "数据面板应提供输入重置入口");
+        const switchReaches = (checked: boolean) => page.locator(`.lab-main .fixture-example-card [role="switch"][aria-checked="${checked}"]`).first().waitFor({state: "visible", timeout: 5_000}).then(() => true, () => false);
+        await page.locator('.lab-main .fixture-example-card [role="switch"][aria-checked="false"]').first().click();
+        assert(await switchReaches(true), failures, "toggle 经 fixture 回写 props.active 后组件应显示启用态");
+        await page.locator('[data-lab-panel="data"] button').filter({hasText: /^还原输入$/u}).click();
+        assert(await switchReaches(false), failures, "数据面板还原输入后应回到登记的 active 初值");
         if (suite === "all") {
             // 工作台骨架会把画布切到手机宽度，排在它之后的窄容器检查必须从宽画布重新开始。
             await page.locator('[aria-label="画布宽度"] button').filter({hasText: /^随窗口$/u}).first().click().catch(() => undefined);

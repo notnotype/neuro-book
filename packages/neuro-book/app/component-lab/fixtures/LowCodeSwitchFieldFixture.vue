@@ -3,7 +3,7 @@ import LowCodeSwitchField from "../../components/common/low-code-form/LowCodeSwi
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeSwitchField, () => props.input);
+const subject = useLabSubject<typeof LowCodeSwitchField>(() => props.input);
 </script>
 
 <template>

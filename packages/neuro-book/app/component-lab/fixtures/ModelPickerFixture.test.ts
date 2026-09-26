@@ -3,6 +3,8 @@ import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
 import type {App, Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it} from "vitest";
+import {findLabFixture} from "./index";
+import {LAB_EVENT_SINK, LAB_INPUT_SINK} from "../lab-event-sink";
 
 beforeAll(() => {
     const globals = globalThis as typeof globalThis & Record<string, unknown>;
@@ -12,9 +14,7 @@ beforeAll(() => {
     globals.useI18n = () => ({t: (key: string) => key});
     const stateMap = new Map<string, unknown>();
     globals.useState = (key: string, init?: () => unknown) => {
-        if (!stateMap.has(key)) {
-            stateMap.set(key, vue.ref(init ? init() : undefined));
-        }
+        if (!stateMap.has(key)) stateMap.set(key, vue.ref(init ? init() : undefined));
         return stateMap.get(key);
     };
     if (typeof globals.ResizeObserver === "undefined") {
@@ -27,108 +27,77 @@ beforeAll(() => {
 });
 
 const mounted: App[] = [];
-
-beforeEach(() => {
-    setActivePinia(createPinia());
-});
-
+beforeEach(() => setActivePinia(createPinia()));
 afterEach(() => {
     for (const app of mounted.splice(0)) app.unmount();
     document.body.replaceChildren();
 });
 
-describe("ModelPickerFixture 挂载与场景渲染验证", {timeout: 20000}, () => {
-    async function mountFixture(scene: string) {
-        const {default: ModelPickerFixture} = await import("./ModelPickerFixture.vue");
-        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
-
+describe("ModelPickerContent 与 ModelPickerPopover 场景交互", {timeout: 20000}, () => {
+    async function mountFixture(component: "ModelPickerContent" | "ModelPickerPopover", scene: string) {
+        const definition = findLabFixture(component)!;
+        const input = vue.ref(structuredClone(definition.scenes.find((entry) => entry.id === scene)!.input!));
+        const fixture = await definition.load();
         const host = document.createElement("div");
         document.body.append(host);
-
-        const pinia = createPinia();
-        const app = vue.createApp(ModelPickerFixture as Component, {scene});
-        app.use(pinia);
-        app.provide(LAB_DATA_SINK, () => {});
+        const app = vue.createApp(vue.defineComponent({
+            setup() {
+                return () => vue.h(fixture as Component, {scene, input: input.value});
+            },
+        }));
+        app.use(createPinia());
+        app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+            input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+        });
         app.provide(LAB_EVENT_SINK, () => {});
         mounted.push(app);
         app.mount(host);
-
         await vue.nextTick();
-        return {host, app};
+        return {host, input};
     }
 
-    it("正常挂载 default 场景，渲染 popover 触发按钮与弹层", async () => {
-        const {host} = await mountFixture("default");
-        const subject = host.querySelector("[data-lab-subject]");
-        expect(subject).not.toBeNull();
+    it("Popover 默认场景在触发按钮展示当前角色", async () => {
+        const {host} = await mountFixture("ModelPickerPopover", "default");
         expect(host.textContent).toContain("主力");
     });
 
-    it("挂载 content-only 场景，直接嵌入渲染 ModelPickerContent", async () => {
-        const {host} = await mountFixture("content-only");
-        const subject = host.querySelector("[data-lab-subject]");
-        expect(subject).not.toBeNull();
+    it("Content 直接嵌入并展示梯度与专精角色", async () => {
+        const {host} = await mountFixture("ModelPickerContent", "content-only");
         expect(host.textContent).toContain("Claude 3.7 Sonnet");
         expect(host.textContent).toContain("极轻量");
         expect(host.textContent).toContain("深度");
     });
 
-    it("挂载 gradient-only 场景，仅显示梯度轴角色", async () => {
-        const {host} = await mountFixture("gradient-only");
-        expect(host.textContent).toContain("极轻量");
-        expect(host.textContent).toContain("主力");
-        expect(host.textContent).not.toContain("小说正文与段落润色");
+    it("Content 梯度场景隐藏专精角色，专精场景展示它", async () => {
+        const gradient = await mountFixture("ModelPickerContent", "gradient-only");
+        expect(gradient.host.textContent).toContain("主力");
+        expect(gradient.host.textContent).not.toContain("小说正文与段落润色");
+        const specialist = await mountFixture("ModelPickerContent", "specialist-enabled");
+        expect(specialist.host.textContent).toContain("写作");
+        expect(specialist.host.textContent).toContain("叙事");
     });
 
-    it("挂载 specialist-enabled 场景，同时显示专精轴角色", async () => {
-        const {host} = await mountFixture("specialist-enabled");
-        expect(host.textContent).toContain("写作");
-        expect(host.textContent).toContain("叙事");
-    });
-
-    it("支持通过 props.data 响应式自定义数据并在组件中即时响应渲染", async () => {
-        const {default: ModelPickerFixture} = await import("./ModelPickerFixture.vue");
-        const {LAB_DATA_SINK, LAB_EVENT_SINK} = await import("../lab-event-sink");
-
-        const host = document.createElement("div");
-        document.body.append(host);
-
-        const dataRef = vue.ref({
-            selectedValue: "role:deep",
-            thinkingLevel: "max",
-            showSpecialist: true,
-        });
-
-        const RootComponent = vue.defineComponent({
-            setup() {
-                return () => vue.h(ModelPickerFixture as Component, {
-                    scene: "content-only",
-                    data: dataRef.value,
-                });
-            },
-        });
-
-        const pinia = createPinia();
-        const app = vue.createApp(RootComponent);
-        app.use(pinia);
-        app.provide(LAB_DATA_SINK, () => {});
-        app.provide(LAB_EVENT_SINK, () => {});
-        mounted.push(app);
-        app.mount(host);
-
+    it("Content JSON 输入更新立即改变选中角色和思考等级", async () => {
+        const {host, input} = await mountFixture("ModelPickerContent", "content-only");
+        input.value = {...input.value, model: {...input.value.model, modelValue: "role:deep", thinkingLevel: "max"}};
         await vue.nextTick();
         expect(host.textContent).toContain("深度");
         expect(host.textContent).toContain("最大满载");
-
-        // 修改 data 中的假数据，组件实时响应
-        dataRef.value = {
-            selectedValue: "role:fast",
-            thinkingLevel: "off",
-            showSpecialist: false,
-        };
+        input.value = {...input.value, props: {...input.value.props, showSpecialistInPicker: false}, model: {...input.value.model, modelValue: "role:fast", thinkingLevel: "off"}};
         await vue.nextTick();
         expect(host.textContent).toContain("快速");
         expect(host.textContent).toContain("关闭思考");
         expect(host.textContent).not.toContain("小说正文与段落润色");
+    });
+
+    it("Popover 控制条关闭与打开同步更新登记 model", async () => {
+        const {host, input} = await mountFixture("ModelPickerPopover", "default");
+        const toggle = host.querySelector('[aria-label="切换弹层打开状态"]') as HTMLElement;
+        toggle.click();
+        await vue.nextTick();
+        expect(input.value.model?.open).toBe(false);
+        toggle.click();
+        await vue.nextTick();
+        expect(input.value.model?.open).toBe(true);
     });
 });

@@ -3,7 +3,7 @@ import TagInput from "../../components/common/form/TagInput.vue";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(TagInput, () => props.input);
+const subject = useLabSubject<typeof TagInput>(() => props.input);
 </script>
 
 <template>

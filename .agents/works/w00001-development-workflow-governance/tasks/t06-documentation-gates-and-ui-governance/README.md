@@ -7,29 +7,31 @@ taskId: t06-documentation-gates-and-ui-governance
 
 ## 目标与范围
 
-开发者 2026-09-24 批准修复 DOC-H1/H2/H3，并采纳 UI 验收分档、implemented Spec 证据分类、受管组件范围、主工作区写入与 Work 收尾建议。行为合同未变：治理检查和文档契约调整，不改变产品运行时行为。
+开发者 2026-09-24 批准修复 DOC-H1/H2/H3，并采纳 UI 验收分档、implemented Spec 证据分类、受管组件范围、主工作区写入与 Work 收尾建议；随后另行批准将 [Component Lab 显式输入合同](../../../../../docs/specs/ui/component-lab.md) 与主线场景整合到本治理工作树。治理规则与文档检查的行为合同未变；Component Lab 运行期输入合同改为单一 `{props?, model?, slots?}`。
 
 受管组件范围为 nb-ui barrel 对外导出的组件及 `packages/neuro-book/app/components/common/**` 下的 Vue 组件。为应用组件补文档时，同时满足 Component Lab 场景合同；无场景的组件按其实际宿主依赖补可运行场景或标记真实验证入口，不虚构状态。
 
-非目标：修复其他 Work 的历史 Task 警告、清理任何 worktree/branch、运行真实 Provider/Model、远端写入或发布。
+非目标：修复其他 Work 的历史 Task 警告、清理任何 worktree/branch、运行真实 Provider/Model、远端写入或发布。开发者随后明确要求将当前本地 diff 合并到 `master`，故本地提交与合并属于此次授权；隔离 State Root 的 `migrate:application-state -- --apply` 与浏览器人工验收仍分别需要明确授权。
 
 ## 当前状态
 
-治理规则、检查器、受管组件文档和应用 Component Lab 场景合同已完成；Lab 的 `data`（复合宿主输入）与 `input`（被测组件签名输入）通道已分离，并由 fixture 覆盖测试约束。checkout `.worktree/w00001-development-workflow-governance`，branch `feat/w00001-docs-anchor-check`。基础变更在本地提交 `f2887ff2`；本轮浏览器验收修正已单独提交到同一分支。远端动作未授权。
+执行位置为 `.worktree/w00001-development-workflow-governance`，分支 `feat/w00001-docs-anchor-check`。治理规则、检查器和受管组件文档保留；本轮导入主线已提交的场景差异并消除冲突，132 个组件的 468 个场景全部通过 `defineLabFixture<typeof C>` 显式登记。场景仅登记 JSON 输入，函数、Date、Set、服务与宿主回调由 fixture 在内存中提供；三个确无可编辑 JSON 输入的组件提供 `noInput` 理由。LabShell 移除旧 `data` 通道，`useLabSubject` 接入输入和事件；`index.test.ts` 验证输入登记、schema、JSON 无损往返与插槽预设。Grid 布局字典原为 null-prototype 对象，编辑台场景在登记处正规化为普通 JSON 对象，不修改 Grid 运行期逻辑。
 
-## 有效证据
+本轮整合由开发者授权本地提交及合并，不包含 push、PR 或远端写入。主工作区当前保持 `master`，原有 15 个 modified、28 个 untracked 属于用户改动，不能 stash/reset 或覆盖；治理工作树原有 `packages/nb-harness/AGENTS.md` 修改不属于本次集成。主工作区脏时不强制同步或移动其分支 ref，集成状态以实际 Git 操作结果为准。此前 `localhost:3000` 与 `127.0.0.1:3127` 的浏览器记录属于不同 checkout/revision，不能充作本轮运行证据。
+
+## 本轮有效证据
 
 | 验证 | 结果 |
 |---|---|
+| `bun x vue-tsc --noEmit --project tsconfig.json --pretty false`（`packages/neuro-book`） | 通过，零诊断；包含 `lab-subject.typecheck.ts` 的负例约束 |
+| `node ../../node_modules/vitest/vitest.mjs run app/component-lab`（`packages/neuro-book`） | 19 个文件、118/118 通过，包含 132/468 场景覆盖、编辑台 JSON 往返、项目选择与 Agent 面板交互回写；提示面板单文件冷加载复验 6/6 通过 |
+| `bun run nuxt:prepare`（`packages/neuro-book`） | 通过，生成 `.nuxt` 类型 |
+| `bun run docs:check`（仓库根） | `failures: []`；其他历史 Work/Task 的已存在链接与 Spec 警告仍保留 |
+| `bun run governance:check`（仓库根） | `failures: []`、`warnings: []` |
 | `bun x vitest run --config scripts/vitest.config.ts scripts/ci/check-documentation.test.ts` | 21/21 通过 |
-| `bun scripts/ci/check-documentation.ts` | `failures: []`、`warnings: 72`、`checkedFiles: 6593`；警告来自历史 Work/Task 链接和既有 Spec 绑定，不属于本 Task 的失败门禁 |
-| `bun run --cwd packages/neuro-book test -- app/component-lab/fixtures/index.test.ts app/component-lab/component-index.test.ts app/component-lab/fixtures/AgentSidebarViewFixture.test.ts` | 3 个文件、29/29 通过；包含新增 StructuredTextEditor 场景的组件签名合同与 AgentSidebar 原有回归 |
-| `bun run --cwd packages/neuro-book nuxt:prepare` | 通过 |
-| `git diff --cached --check` | 通过；仅有 git add 的既有 LF→CRLF 提示，无 diff-check 空白错误 |
-| `playwright-cli open http://localhost:3000/lab` | 备用浏览器打开既有 live server 成功；标题为“组件 Lab”，渲染 `.lab-root`、108 个组件、五个检视 tab。该服务不是当前分支，未将其记作当前分支验收 |
-| `bun run --cwd packages/neuro-book smoke:component-lab:core -- --url http://localhost:3000 --browser-executable "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"` | 既有 live server 页面可打开，但 3 项 smoke 断言失败：选中元素贴边标签、数组场景 `read_file`、数据面板“还原”；该服务未反映本分支新增的 `data/input` 场景改动 |
-| `bun run --cwd packages/neuro-book smoke:component-lab:core -- --url http://127.0.0.1:3127 --browser-executable "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"` | 在当前分支隔离服务通过；包含五个检视 tab、选中贴边标签、数组场景数据、主题及窄屏偏好 |
-| `browser.open(http://localhost:3000/lab)` | 内置 browser daemon 不可用；已使用备用 CLI 完成既有 live server 探测，未将既有服务冒充当前分支 |
-| `bun x vue-tsc --noEmit --project tsconfig.json --pretty false` | 未通过：仍有 88 条旧 fixture 必填 prop 类型诊断；本轮触及的 ContextMenuFixture 与新增 StructuredTextEditorFixture 均无诊断。未将全局 typecheck 记作通过 |
+| `bun run docs:build`（仓库根） | VitePress client/server bundle 与页面渲染通过 |
+| `git diff --cached --check && git diff --check && git ls-files -u`（治理工作树） | 无空白错误、无未解决冲突；Git 对部分 LF 工作副本报告将来替换为 CRLF 的提示 |
 
-当前分支使用系统临时目录下独立 State Root：先完成 4 个 App SQLite migrations，再验证 Application State 为 `already_current`；真实用户 State Root 未触碰。隔离服务位于 `http://127.0.0.1:3127/lab`，与其他 checkout 的 `localhost:3000` 分开。备用浏览器验证 StructuredTextEditor 富文本与 Markdown 源码场景可挂载、模式切换可用、浏览器控制台 0 errors / 0 warnings；390px 页面无横向溢出。修复了检查后贴边标签未渲染、首次场景初始化缺失必填 props、Teleport 根属性透传 warning、验证入口失效。
+## 授权边界与下一步
+
+本轮未执行隔离 State Root 的 `migrate:application-state -- --apply`，也未启动当前治理分支的 Source Dev 或浏览器人工验收；测试和静态检查不能替代实际界面视觉证据。完成这些运行验收需分别取得对应授权，且只能使用系统 Temp 下隔离 State Root，不能触碰真实用户数据库或复用其他 checkout 的服务。本地合并不会授权任何迁移、浏览器人工验收或远端写入。

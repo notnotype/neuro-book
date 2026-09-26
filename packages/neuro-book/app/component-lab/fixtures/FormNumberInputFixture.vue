@@ -4,7 +4,7 @@ import type {LabFixtureProps} from "../lab-subject";
 import {useLabSubject} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(FormNumberInput, () => props.input);
+const subject = useLabSubject<typeof FormNumberInput>(() => props.input);
 </script>
 
 <template>

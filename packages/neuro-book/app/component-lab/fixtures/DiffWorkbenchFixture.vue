@@ -6,7 +6,7 @@ import type {LabFixtureProps} from "../lab-subject";
 import {useLabSubject} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(DiffWorkbench, () => props.input);
+const subject = useLabSubject<typeof DiffWorkbench>(() => props.input, ["update:mode", "update:resultContent", "save-request"]);
 const document = computed(() => props.input?.props?.document as DiffWorkbenchDocument | undefined);
 </script>
 

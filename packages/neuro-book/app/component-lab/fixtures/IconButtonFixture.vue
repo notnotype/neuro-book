@@ -5,7 +5,7 @@ import {useLabSubject} from "../lab-subject";
 import {useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(IconButton, () => props.input);
+const subject = useLabSubject<typeof IconButton>(() => props.input);
 const emitLabEvent = useLabEventSink();
 </script>
 

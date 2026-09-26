@@ -44,117 +44,13 @@ import {
     type DesktopSettingsPatch,
     type DesktopStatus,
 } from "@notnotype/neuro-book-contracts/desktop";
-import type {
-    SettingsScopeId,
-    SettingsScopeOption,
-    SettingsSectionOption,
-} from "../../components/novel-ide/settings/sections/NovelIdeSettingsView.types";
-import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import type {SettingsScopeId} from "../../components/novel-ide/settings/sections/NovelIdeSettingsView.types";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
 const {t} = useI18n();
-const emitLabEvent = useLabEventSink();
-const syncLabData = useLabDataSink();
-
-type SceneKey = "global" | "project" | "dialog-window" | "loading" | "load-error";
-
-const sceneKey = computed<SceneKey>(() => {
-    const known: SceneKey[] = ["global", "project", "dialog-window", "loading", "load-error"];
-    return known.find((key) => key === props.scene) ?? "global";
-});
-
-/**
- * 外壳的作用域与区段都由宿主给：全局 / 项目 / 本机 / 启动四档都能进入，
- * 每档挂的区段体见下方内容槽。
- */
-const scopeOptions: SettingsScopeOption[] = [
-    {value: "boot", label: "启动", description: "启动期安全配置，只读说明"},
-    {value: "global", label: "全局", description: "写入全局配置文件"},
-    {value: "project", label: "项目", description: "写入当前项目配置"},
-    {value: "browser", label: "本机", description: "写入本机浏览器状态"},
-];
-
-const sectionOptions: SettingsSectionOption[] = [
-    {
-        value: "providers",
-        label: "Provider",
-        description: "管理 Provider 与模型清单",
-        iconClass: "i-lucide-cpu",
-        scopes: ["global"],
-    },
-    {
-        value: "roles",
-        label: "模型角色",
-        description: "按用途把模型分配给各角色",
-        iconClass: "i-lucide-shapes",
-        scopes: ["global"],
-    },
-    {
-        value: "agent-profile-models",
-        label: "Agent Profile",
-        description: "Profile 的模型、运行策略与专属设置",
-        iconClass: "i-lucide-bot-message-square",
-        scopes: ["global", "project"],
-        layout: "fill",
-    },
-    {
-        value: "web-tools",
-        label: "Web 工具",
-        description: "搜索服务、本地抓取与兜底",
-        iconClass: "i-lucide-globe",
-        scopes: ["global"],
-    },
-    {
-        value: "embedding",
-        label: "向量嵌入",
-        description: "向量服务与项目覆盖",
-        iconClass: "i-lucide-binary",
-        scopes: ["global"],
-    },
-    {
-        value: "cost",
-        label: "费用显示",
-        description: "展示币种与 USD/CNY 汇率",
-        iconClass: "i-lucide-circle-dollar-sign",
-        scopes: ["global"],
-    },
-    {
-        value: "observability",
-        label: "可观测",
-        description: "Pi 请求 trace 记录开关与保留策略",
-        iconClass: "i-lucide-activity",
-        scopes: ["global"],
-    },
-    {
-        value: "security",
-        label: "密码保护",
-        description: "查看启动期鉴权配置和安全影响",
-        iconClass: "i-lucide-shield-check",
-        scopes: ["boot"],
-    },
-    {
-        value: "frontend",
-        label: "前端设定",
-        description: "界面语言、主题、推理强度与视图模式",
-        iconClass: "i-lucide-monitor-cog",
-        scopes: ["browser"],
-    },
-    {
-        value: "editor",
-        label: "编辑器",
-        description: "Markdown 富文本显示偏好",
-        iconClass: "i-lucide-type",
-        scopes: ["browser"],
-    },
-    {
-        value: "desktop",
-        label: "桌面应用",
-        description: "窗口、缩放和系统托盘行为",
-        iconClass: "i-lucide-panels-top-left",
-        scopes: ["browser"],
-    },
-];
+const subject = useLabSubject<typeof NovelIdeSettingsView>(() => props.input, ["reload"]);
+const sceneKey = computed(() => props.scene);
 
 function harnessRuntime() {
     return {
@@ -238,10 +134,8 @@ function buildDraft(): AgentProfileSettingsPageDraft {
     };
 }
 
-const scope = ref<SettingsScopeId>("global");
-const activeSection = ref("agent-profile-models");
-/** 配置目标只在项目作用域下有值：跟着作用域走，而不是跟着场景。 */
-const targetLabel = computed(() => scope.value === "project" ? "C:/novels/长夜行" : "");
+const scope = computed(() => subject.bindings.value.scope);
+const activeSection = computed(() => subject.bindings.value.modelValue);
 const settingsDraft = ref<AgentProfileSettingsPageDraft>(buildDraft());
 const traceEnabled = ref(true);
 const traceMaxRecords = ref(100);
@@ -285,13 +179,11 @@ const modelEnabledModelIds = new Set<string>();
 const dialogWidth = ref<number | null>(null);
 const dialogHeight = ref<number | null>(null);
 
-const loading = computed(() => sceneKey.value === "loading");
-const loadError = computed(() => sceneKey.value === "load-error" ? "读取设置失败：示例后端返回 500。" : "");
+
 const isDialogScene = computed(() => sceneKey.value === "dialog-window");
 
 watch(sceneKey, (scene) => {
-    scope.value = scene === "project" ? "project" : "global";
-    activeSection.value = "agent-profile-models";
+
     settingsDraft.value = buildDraft();
     securityAuthEnabled.value = true;
     editorMarkdown.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
@@ -310,87 +202,35 @@ watch(sceneKey, (scene) => {
     dialogOpen.value = scene === "dialog-window";
 }, {immediate: true});
 
-watch([scope, activeSection, loading, loadError], () => {
-    syncLabData({
-        scope: scope.value,
-        activeSection: activeSection.value,
-        traceEnabled: traceEnabled.value,
-        traceMaxRecords: traceMaxRecords.value,
-        costCurrency: costCurrency.value,
-        embeddingGlobal: {...embeddingDraft.value.global},
-        webOrder: [...webDraft.value.order],
-        securityAuthEnabled: securityAuthEnabled.value,
-        editorMarkdown: {...editorMarkdown.value},
-        editorMonaco: {...editorMonaco.value},
-        desktopZoom: desktopSettings.value.zoomFactor,
-        modelDefaultKey: modelDraft.value.defaultModelKey,
-        boundRoles: boundRoleCount(rolesDraft.value),
-        modelProviderCount: modelDraft.value.providers.length,
-        loading: loading.value,
-        loadError: loadError.value,
-    });
-}, {immediate: true});
 
-function emitScopeChange(value: SettingsScopeId): void {
-    emitLabEvent("update:scope", {scope: value});
-}
 
-function emitSectionChange(value: string): void {
-    emitLabEvent("update:modelValue", {section: value});
-}
-
-/** 桌面设置的写回在 Lab 里不存在：就地合并 patch 并记录事件。 */
 function updateDesktopSettings(patch: DesktopSettingsPatch): void {
     desktopSettings.value = {...desktopSettings.value, ...patch};
-    emitLabEvent("update:settings", {...patch});
 }
 
-/** 重置由宿主决定重置成什么；外壳 fixture 里就恢复两份文档化默认值。 */
 function resetEditorPreferences(target: "markdown" | "monaco"): void {
-    if (target === "markdown") {
-        editorMarkdown.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
-    } else {
-        editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
-    }
-    emitLabEvent("reset", {target});
+    if (target === "markdown") editorMarkdown.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
+    else editorMonaco.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
 }
 
-/** 模型草稿在 Lab 里由 fixture 自己持有：会话与写回都在宿主，这里只接受新草稿。 */
 function updateModelDraft(value: ModelSettingsDraft): void {
     modelDraft.value = value;
-    emitLabEvent("update:draft", {providers: value.providers.length, defaultModelKey: value.defaultModelKey});
 }
 
-/** 已绑定的角色数：梯度轴与专精轴一起算。 */
-function boundRoleCount(draft: {gradient: Array<{modelKey: string | null}>; specialist: Array<{modelKey: string | null}>}): number {
-    return [...draft.gradient, ...draft.specialist].filter((role) => role.modelKey).length;
-}
-
-/** 角色绑定在 Lab 里也由 fixture 持有：落写规则在 roles-settings-draft。 */
 function updateRolesDraft(value: typeof rolesDraft.value): void {
     rolesDraft.value = value;
-    emitLabEvent("update:roles", {boundRoles: boundRoleCount(value)});
 }
 
 function openDialog(): void {
     dialogOpen.value = true;
 }
-</script>
 
+</script>
 <template>
     <div class="flex h-full min-h-0 flex-col">
         <div v-if="!isDialogScene" class="min-h-0 flex-1">
             <NovelIdeSettingsView
-                :scope="scope"
-                :scopes="scopeOptions"
-                :sections="sectionOptions"
-                :model-value="activeSection"
-                version-label="v0.0.0"
-                environment-label="Lab"
-                :loading="loading"
-                :load-error="loadError"
-                @update:scope="scope = $event; emitScopeChange($event)"
-                @update:model-value="activeSection = $event; emitSectionChange($event)"
+                v-bind="subject.bindings.value"
             >
                 <AgentProfileSettingsView
                     v-if="activeSection === 'agent-profile-models'"
@@ -541,16 +381,7 @@ function openDialog(): void {
                     <span class="text-sm font-semibold text-[var(--text-main)]">设置 · 全局</span>
                 </template>
                 <NovelIdeSettingsView
-                    :scope="scope"
-                    :scopes="scopeOptions"
-                    :sections="sectionOptions"
-                    :model-value="activeSection"
-                    version-label="v0.0.0"
-                environment-label="Lab"
-                    :loading="loading"
-                    :load-error="loadError"
-                    @update:scope="scope = $event; emitScopeChange($event)"
-                    @update:model-value="activeSection = $event; emitSectionChange($event)"
+                    v-bind="subject.bindings.value"
                 >
                     <AgentProfileSettingsView
                         v-if="activeSection === 'agent-profile-models'"

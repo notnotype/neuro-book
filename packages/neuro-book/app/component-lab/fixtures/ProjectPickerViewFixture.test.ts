@@ -1,10 +1,25 @@
 // @vitest-environment jsdom
-import {createApp, nextTick} from "vue";
+import {createApp, defineComponent, h, nextTick, ref} from "vue";
 import type {App} from "vue";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import ProjectPickerViewFixture from "./ProjectPickerViewFixture.vue";
-
+import {projectPickerViewScenes} from "./SettingsProject.scenes";
+import {LAB_INPUT_SINK, LAB_EVENT_SINK} from "../lab-event-sink";
 const mounted: App[] = [];
+
+function mountScene(host: HTMLElement, scene: string) {
+    const definition = projectPickerViewScenes.find((entry) => entry.id === scene);
+    if (!definition) throw new Error(`未登记 ProjectPickerView 场景：${scene}`);
+    const input = ref(structuredClone(definition.input));
+    const app = createApp(defineComponent({setup: () => () => h(ProjectPickerViewFixture, {scene, input: input.value})}));
+    app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+        input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+    });
+    app.provide(LAB_EVENT_SINK, () => {});
+    mounted.push(app);
+    app.mount(host);
+    return {input, app};
+}
 
 beforeEach(() => {
     vi.stubGlobal("useI18n", () => ({
@@ -27,16 +42,7 @@ describe("ProjectPickerViewFixture", () => {
     it("default 场景渲染书架卡片并支持打开与删除", async () => {
         const host = document.createElement("div");
         document.body.append(host);
-        const events: Array<{name: string; payload?: unknown}> = [];
-
-        const app = createApp(ProjectPickerViewFixture, {sceneId: "default"});
-        mounted.push(app);
-        const vm = app.mount(host);
-
-        // 监听 fixture 向上派发的 event
-        (vm as any).$emit = (name: string, payload?: unknown) => {
-            events.push({name, payload});
-        };
+        mountScene(host, "default");
 
         const cards = host.querySelectorAll("[data-project-card]");
         expect(cards.length).toBe(14);
@@ -62,9 +68,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "empty"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "empty");
         await nextTick();
 
         expect(host.querySelectorAll("[data-project-card]").length).toBe(0);
@@ -75,9 +79,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "create-dialog"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "create-dialog");
         await nextTick();
 
         const form = document.body.querySelector("[data-project-create-form]");
@@ -103,9 +105,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "creating"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "creating");
         await nextTick();
 
         const form = document.body.querySelector("[data-project-create-form]");
@@ -119,9 +119,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "loading"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "loading");
 
         expect(host.querySelector("[role='status']")).not.toBeNull();
         expect(host.textContent).toContain("ide.picker.loading");
@@ -131,9 +129,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "load-error"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "load-error");
 
         expect(host.querySelector("[role='alert']")).not.toBeNull();
         expect(host.textContent).toContain("ide.picker.loadFailed");
@@ -144,9 +140,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "default"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "default");
 
         const cards = host.querySelectorAll("[data-project-card]");
         const firstCard = cards[0];
@@ -169,9 +163,7 @@ describe("ProjectPickerViewFixture", () => {
         const host = document.createElement("div");
         document.body.append(host);
 
-        const app = createApp(ProjectPickerViewFixture, {scene: "phone"});
-        mounted.push(app);
-        app.mount(host);
+        mountScene(host, "phone");
         await nextTick();
 
         const labSubject = host.querySelector("[data-lab-subject]");
@@ -185,9 +177,7 @@ describe("ProjectPickerViewFixture", () => {
             const host = document.createElement("div");
             document.body.append(host);
 
-            const app = createApp(ProjectPickerViewFixture, {scene});
-            mounted.push(app);
-            app.mount(host);
+            mountScene(host, scene);
             await nextTick();
 
             if (scene === "compact") {
@@ -203,9 +193,7 @@ describe("ProjectPickerViewFixture", () => {
             const host = document.createElement("div");
             document.body.append(host);
 
-            const app = createApp(ProjectPickerViewFixture, {scene});
-            mounted.push(app);
-            app.mount(host);
+            mountScene(host, scene);
             await nextTick();
 
             const img = host.querySelector<HTMLImageElement>("img");

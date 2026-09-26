@@ -1,4 +1,6 @@
-import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
+import {createEditorGrid} from "nbook/app/utils/editor-workbench/editor-groups";
+import type {EditorGroupState, EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
+import type {GridLayoutResult, GridNode} from "@notnotype/nb-ui/components";
 
 export const SCENE_TABS: Record<string, EditorTabPresentation[]> = {
     empty: [],
@@ -26,6 +28,48 @@ export const SCENE_TABS: Record<string, EditorTabPresentation[]> = {
     ],
     "keyboard-menu": [{path: "src/main.ts", title: "main.ts", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"}],
     "multi-view": [{path: "chapter-01.md", title: "chapter-01.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"}],
+};
+
+export type EditorWorkbenchScene = "empty" | "mixed" | "long-titles" | "loading" | "diagnosis" | "closing-cancel" | "keyboard-menu" | "multi-view";
+
+const initialGrid = createEditorGrid("primary");
+const initialTree = initialGrid.root();
+// Grid 内部的尺寸字典使用 null prototype；场景输入必须能按 JSON 往返得到同一普通对象结构。
+const gridLayout = initialGrid.layout({width: 0, height: 0});
+const initialLayout: GridLayoutResult = {
+    ...gridLayout,
+    sizes: {...gridLayout.sizes},
+    constraints: {...gridLayout.constraints},
+    sashSizes: {...gridLayout.sashSizes},
+};
+
+function sceneInput(scene: EditorWorkbenchScene, activePath: string, extra: Pick<EditorGroupState, "busy" | "diagnosis">): {props: {
+    groups: EditorGroupState[]; tree: GridNode<string> | null; layout: GridLayoutResult; activeGroupId: string;
+    allowSplit: boolean; contextKey: string; revision: number;
+}} {
+    return {
+        props: {
+            groups: [{id: "primary", tabs: SCENE_TABS[scene]!, activePath, ...extra}],
+            tree: initialTree,
+            layout: initialLayout,
+            activeGroupId: "primary",
+            allowSplit: true,
+            contextKey: scene,
+            revision: 0,
+        },
+    };
+}
+
+/** 登记入口与 fixture 测试共用同一套真实 EditorWorkbench JSON props。 */
+export const EDITOR_WORKBENCH_SCENE_INPUTS = {
+    empty: sceneInput("empty", "", {busy: false, diagnosis: null}),
+    mixed: sceneInput("mixed", "src/story/chapter-02.md", {busy: false, diagnosis: null}),
+    "long-titles": sceneInput("long-titles", SCENE_TABS["long-titles"]![0]!.path, {busy: false, diagnosis: null}),
+    loading: sceneInput("loading", "src/heavy-dataset.json", {busy: true, diagnosis: null}),
+    diagnosis: sceneInput("diagnosis", "assets/diagram.drawio", {busy: false, diagnosis: "打开方式“diagram-viewer”不可用，当前使用源码编辑器。"}),
+    "closing-cancel": sceneInput("closing-cancel", "src/draft-chapter.md", {busy: false, diagnosis: null}),
+    "keyboard-menu": sceneInput("keyboard-menu", "src/main.ts", {busy: false, diagnosis: null}),
+    "multi-view": sceneInput("multi-view", "chapter-01.md", {busy: false, diagnosis: null}),
 };
 
 export const DEFAULT_CONTENTS: Record<string, string> = {

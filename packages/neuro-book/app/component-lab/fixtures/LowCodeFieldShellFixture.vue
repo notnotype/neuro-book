@@ -5,7 +5,7 @@ import type {LowCodeFieldDto} from "nbook/shared/dto/low-code-form.dto";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeFieldShell, () => props.input);
+const subject = useLabSubject<typeof LowCodeFieldShell>(() => props.input);
 
 const controlField: LowCodeFieldDto = {
     path: "profile.displayName",

@@ -1,90 +1,30 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
+import {computed} from "vue";
 import EditorTabItem from "nbook/app/components/editor-workbench/EditorTabItem.vue";
-import type {EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
-import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorTabItem>(() => props.input);
 const emitLabEvent = useLabEventSink();
-const updateLabData = useLabDataSink();
+type Tab = InstanceType<typeof EditorTabItem>["$props"]["tab"];
+const currentTab = computed(() => props.input?.props?.tab as Tab);
+const tabActive = computed(() => Boolean(props.input?.props?.active));
+const tabPinned = computed(() => Boolean(props.input?.props?.pinned));
+const tabPreview = computed(() => currentTab.value?.preview ?? false);
+const tabDirty = computed(() => currentTab.value?.dirty ?? false);
+const tabStatusText = computed(() => currentTab.value?.statusText ?? "");
+const tabDescription = computed(() => currentTab.value?.description ?? "");
 
-const tabTitle = ref<string>("chapter-01.md");
-const tabPath = ref<string>("src/story/chapter-01.md");
-const tabActive = ref<boolean>(false);
-const tabPinned = ref<boolean>(false);
-const tabPreview = ref<boolean>(false);
-const tabDirty = ref<boolean>(false);
-const tabStatusText = ref<string>("");
-const tabDescription = ref<string>("");
-const tabIconClass = ref<string>("i-lucide-file-text");
-
-function applyScene(sceneName: string): void {
-    tabTitle.value = "chapter-01.md";
-    tabPath.value = "src/story/chapter-01.md";
-    tabActive.value = false;
-    tabPinned.value = false;
-    tabPreview.value = false;
-    tabDirty.value = false;
-    tabStatusText.value = "";
-    tabDescription.value = "";
-    tabIconClass.value = "i-lucide-file-text";
-
-    switch (sceneName) {
-        case "active":
-            tabActive.value = true;
-            break;
-        case "pinned":
-            tabPinned.value = true;
-            break;
-        case "preview":
-            tabPreview.value = true;
-            break;
-        case "dirty":
-            tabDirty.value = true;
-            break;
-        case "git-modified":
-            tabStatusText.value = "M";
-            tabDirty.value = true;
-            break;
-        case "git-untracked":
-            tabStatusText.value = "U";
-            break;
-        case "with-description":
-            tabDescription.value = "...\\story";
-            break;
-        default:
-            break;
-    }
+function changeTab(patch: Partial<Tab>): void {
+    subject.write("props", "tab", {...currentTab.value, ...patch});
 }
 
-watch(
-    () => props.scene,
-    (newScene) => {
-        applyScene(newScene || "default");
-    },
-    {immediate: true},
-);
-
-const currentTab = computed<EditorTabPresentation>(() => ({
-    path: tabPath.value,
-    title: tabTitle.value,
-    pinned: tabPinned.value,
-    preview: tabPreview.value,
-    dirty: tabDirty.value,
-    statusText: tabStatusText.value || undefined,
-    description: tabDescription.value || undefined,
-    iconClass: tabIconClass.value,
-}));
-
 function handleSelect(path: string): void {
-    tabActive.value = !tabActive.value;
-    emitLabEvent("tab-select", {path, active: tabActive.value});
-    updateLabData({active: tabActive.value});
+    const active = !tabActive.value;
+    emitLabEvent("tab-select", {path, active});
+    subject.write("props", "active", active);
 }
 
 function handleClose(path: string): void {
@@ -92,15 +32,14 @@ function handleClose(path: string): void {
 }
 
 function handleUnpin(path: string): void {
-    tabPinned.value = false;
     emitLabEvent("tab-unpin", {path});
-    updateLabData({pinned: false});
+    subject.write("props", "pinned", false);
+    changeTab({pinned: false});
 }
 
 function handleKeep(path: string): void {
-    tabPreview.value = false;
     emitLabEvent("tab-keep", {path});
-    updateLabData({preview: false});
+    changeTab({preview: false});
 }
 </script>
 
@@ -114,7 +53,7 @@ function handleKeep(path: string): void {
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                     :class="tabActive ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="tabActive = !tabActive"
+                    @click="subject.write('props', 'active', !tabActive)"
                 >
                     {{ tabActive ? "激活态 (Active)" : "普通态 (Inactive)" }}
                 </button>
@@ -123,7 +62,7 @@ function handleKeep(path: string): void {
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                     :class="tabPinned ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="tabPinned = !tabPinned"
+                    @click="subject.write('props', 'pinned', !tabPinned); changeTab({pinned: !tabPinned})"
                 >
                     {{ tabPinned ? "已固定 (Pinned)" : "未固定" }}
                 </button>
@@ -132,7 +71,7 @@ function handleKeep(path: string): void {
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                     :class="tabPreview ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="tabPreview = !tabPreview"
+                    @click="changeTab({preview: !tabPreview})"
                 >
                     {{ tabPreview ? "预览态 (Preview)" : "常规文档" }}
                 </button>
@@ -141,7 +80,7 @@ function handleKeep(path: string): void {
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                     :class="tabDirty ? 'bg-[var(--status-warning)] text-black' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="tabDirty = !tabDirty"
+                    @click="changeTab({dirty: !tabDirty})"
                 >
                     {{ tabDirty ? "未保存 (Dirty)" : "已保存" }}
                 </button>
@@ -152,7 +91,7 @@ function handleKeep(path: string): void {
                         type="button"
                         class="h-5 cursor-pointer rounded px-1 text-[11px]"
                         :class="tabStatusText === '' ? 'bg-[var(--bg-hover)] font-bold' : ''"
-                        @click="tabStatusText = ''"
+                        @click="changeTab({statusText: undefined})"
                     >
                         无
                     </button>
@@ -160,7 +99,7 @@ function handleKeep(path: string): void {
                         type="button"
                         class="h-5 cursor-pointer rounded px-1 text-[11px] text-[var(--status-warning)]"
                         :class="tabStatusText === 'M' ? 'bg-[var(--bg-hover)] font-bold' : ''"
-                        @click="tabStatusText = 'M'"
+                        @click="changeTab({statusText: 'M'})"
                     >
                         M
                     </button>
@@ -168,7 +107,7 @@ function handleKeep(path: string): void {
                         type="button"
                         class="h-5 cursor-pointer rounded px-1 text-[11px] text-[var(--status-success)]"
                         :class="tabStatusText === 'U' ? 'bg-[var(--bg-hover)] font-bold' : ''"
-                        @click="tabStatusText = 'U'"
+                        @click="changeTab({statusText: 'U'})"
                     >
                         U
                     </button>
@@ -178,7 +117,7 @@ function handleKeep(path: string): void {
                     type="button"
                     class="h-6 cursor-pointer rounded-[var(--radius-control)] border border-[var(--border-color)] px-2 text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
                     :class="tabDescription ? 'bg-[var(--accent-main)] text-white' : 'bg-[var(--panel-surface)] text-[var(--text-main)]'"
-                    @click="tabDescription = tabDescription ? '' : '...\\story'"
+                    @click="changeTab({description: tabDescription ? undefined : '...\\story'})"
                 >
                     {{ tabDescription ? "消歧义路径: 有" : "消歧义路径: 无" }}
                 </button>
@@ -195,9 +134,7 @@ function handleKeep(path: string): void {
             <div class="flex h-[36px] items-center rounded-[var(--radius-panel)] border border-[var(--divider)] bg-[var(--bg-panel)] px-4 shadow-xs">
                 <EditorTabItem
                     data-lab-subject
-                    :tab="currentTab"
-                    :active="tabActive"
-                    :pinned="tabPinned"
+                    v-bind="subject.bindings.value"
                     @select="handleSelect"
                     @close="handleClose"
                     @unpin="handleUnpin"

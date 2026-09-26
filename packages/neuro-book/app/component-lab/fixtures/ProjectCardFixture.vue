@@ -1,73 +1,17 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
 import ProjectCard from "nbook/app/components/novel-ide/project-picker/components/ProjectCard.vue";
-import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
-import type {ProjectPickerRecoveryEntry} from "nbook/app/utils/project-picker-recovery";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene?: string;
-    sceneId?: string;
-    data?: unknown;
-}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof ProjectCard>(() => props.input, ["open", "delete", "retry-delete-recovery", "open-cover-dialog", "cover-error"]);
 
-const emit = defineEmits<{
-    (e: "event", name: string, payload?: unknown): void;
-}>();
-
-const currentScene = computed(() => props.scene ?? props.sceneId ?? "fallback");
-
-const baseProject: ProjectMetadataDto = {
-    projectRoot: "workspace/projects/star-odyssey",
-    kind: "novel",
-    title: "群星尽头的低语：流浪观测站实录",
-    summary: "跃迁引擎熄灭的第十年，深空探测员在潮汐锁定行星上收到了来自地球的最后一封电波信。",
-    cover: undefined,
-    manifestUpdatedAt: "2026-09-10T15:30:00Z",
-};
-
-const project = ref<ProjectMetadataDto>({...baseProject});
-const tags = ref<string[]>(["硬科幻", "深空探索"]);
-const deleteBusy = ref(false);
-const deleteRecovery = ref<ProjectPickerRecoveryEntry | undefined>(undefined);
-
-watch(currentScene, (scene) => {
-    project.value = {...baseProject};
-    tags.value = ["硬科幻", "深空探索"];
-    deleteBusy.value = false;
-    deleteRecovery.value = undefined;
-
-    if (scene === "with-cover") {
-        project.value.cover = "workspace/projects/star-odyssey/cover.jpg";
-    } else if (scene === "delete-busy") {
-        deleteBusy.value = true;
-    } else if (scene === "delete-recovery") {
-        deleteRecovery.value = {
-            attempt: 1,
-            commitState: "unknown",
-            error: "文件被其他进程占用，删除操作已中止。请点击重试恢复。",
-        };
-    }
-}, {immediate: true});
-
-function handleOpen(root: string): void {
-    emit("event", "open", {projectRoot: root});
+function handleDelete(): void {
+    subject.write("props", "deleteBusy", true);
+    setTimeout(() => subject.write("props", "deleteBusy", false), 1200);
 }
 
-function handleDelete(item: ProjectMetadataDto): void {
-    emit("event", "delete", item);
-    deleteBusy.value = true;
-    setTimeout(() => {
-        deleteBusy.value = false;
-    }, 1200);
-}
-
-function handleRetryDeleteRecovery(root: string): void {
-    emit("event", "retry-delete-recovery", {projectRoot: root});
-    deleteRecovery.value = undefined;
-}
-
-function handleOpenCoverDialog(item: ProjectMetadataDto): void {
-    emit("event", "open-cover-dialog", item);
+function handleRetryDeleteRecovery(): void {
+    subject.write("props", "deleteRecovery", {attempt: 2, commitState: "unknown", error: "已请求重试，等待结果。"});
 }
 
 function fakeResolveCoverUrl(): string {
@@ -80,15 +24,10 @@ function fakeResolveCoverUrl(): string {
         <ProjectCard
             data-lab-subject
             class="w-full"
-            :project="project"
-            :tags="tags"
-            :delete-busy="deleteBusy"
-            :delete-recovery="deleteRecovery"
-            :resolve-cover-url="currentScene === 'with-cover' ? fakeResolveCoverUrl : undefined"
-            @open="handleOpen"
+            v-bind="subject.bindings.value"
+            :resolve-cover-url="fakeResolveCoverUrl"
             @delete="handleDelete"
             @retry-delete-recovery="handleRetryDeleteRecovery"
-            @open-cover-dialog="handleOpenCoverDialog"
         />
     </div>
 </template>

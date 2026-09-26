@@ -4,7 +4,7 @@ import type {LabFixtureProps} from "../lab-subject";
 import {useLabSubject} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(Dialog, () => props.input);
+const subject = useLabSubject<typeof Dialog>(() => props.input, ["request-close", "confirm"]);
 
 function closeDialog(): void {
     subject.write("model", "modelValue", false);

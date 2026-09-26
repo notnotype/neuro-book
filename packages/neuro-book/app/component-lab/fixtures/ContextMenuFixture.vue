@@ -8,7 +8,7 @@ import {useLabEventSink} from "../lab-event-sink";
 type FixtureMenuItem = Omit<ContextMenuItem, "action" | "children"> & {children?: FixtureMenuItem[]};
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(ContextMenu, () => props.input);
+const subject = useLabSubject<typeof ContextMenu>(() => props.input, ["close"]);
 const emitLabEvent = useLabEventSink();
 
 function mapItem(item: FixtureMenuItem): ContextMenuItem {
@@ -19,10 +19,9 @@ function mapItem(item: FixtureMenuItem): ContextMenuItem {
     };
 }
 
-const bindings = computed(() => {
-    const source = subject.bindings.value.items;
-    const items = Array.isArray(source) ? (source as FixtureMenuItem[]).map(mapItem) : [];
-    return {...subject.bindings.value, items};
+const items = computed<ContextMenuItem[]>(() => {
+    const source = props.input?.props?.items;
+    return Array.isArray(source) ? (source as FixtureMenuItem[]).map(mapItem) : [];
 });
 
 function closeMenu(): void {
@@ -32,12 +31,6 @@ function closeMenu(): void {
 
 <template>
     <div data-lab-subject class="relative h-full min-h-0 w-full bg-[var(--panel-surface)]">
-        <ContextMenu
-            v-bind="bindings"
-            :visible="props.input?.props?.visible === true"
-            :x="Number(props.input?.props?.x ?? 0)"
-            :y="Number(props.input?.props?.y ?? 0)"
-            @close="closeMenu"
-        />
+        <ContextMenu :visible="subject.bindings.value.visible" :x="subject.bindings.value.x" :y="subject.bindings.value.y" :items="items" @close="closeMenu" />
     </div>
 </template>

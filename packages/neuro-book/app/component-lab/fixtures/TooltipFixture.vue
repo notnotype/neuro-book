@@ -4,7 +4,7 @@ import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import {useLabEventSink} from "../lab-event-sink";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(Tooltip, () => props.input);
+const subject = useLabSubject<typeof Tooltip>(() => props.input);
 const emitLabEvent = useLabEventSink();
 </script>
 
@@ -13,7 +13,7 @@ const emitLabEvent = useLabEventSink();
         data-lab-subject
         v-bind="subject.bindings.value"
     >
-        <template v-if="subject.slots.value.default">
+        <template #default>
             <button
                 @mouseenter="emitLabEvent('trigger-hover')"
                 @focus="emitLabEvent('trigger-focus')"

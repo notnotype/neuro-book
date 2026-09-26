@@ -3,7 +3,7 @@ import LowCodeResourcePresetField from "../../components/common/low-code-form/Lo
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeResourcePresetField, () => props.input);
+const subject = useLabSubject<typeof LowCodeResourcePresetField>(() => props.input);
 </script>
 
 <template>

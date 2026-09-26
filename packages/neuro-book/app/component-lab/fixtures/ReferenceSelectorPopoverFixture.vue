@@ -5,7 +5,7 @@ import type {LabFixtureProps} from "../lab-subject";
 import {useLabSubject} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(ReferenceSelectorPopover, () => props.input);
+const subject = useLabSubject<typeof ReferenceSelectorPopover>(() => props.input);
 const anchorElement = ref<HTMLElement | null>(null);
 
 function handleHover(index: number): void {

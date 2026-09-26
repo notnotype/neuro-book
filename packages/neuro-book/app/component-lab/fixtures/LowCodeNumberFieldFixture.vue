@@ -3,7 +3,7 @@ import LowCodeNumberField from "../../components/common/low-code-form/LowCodeNum
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeNumberField, () => props.input);
+const subject = useLabSubject<typeof LowCodeNumberField>(() => props.input);
 </script>
 
 <template>

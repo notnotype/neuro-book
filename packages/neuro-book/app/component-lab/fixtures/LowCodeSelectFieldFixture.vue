@@ -3,7 +3,7 @@ import LowCodeSelectField from "../../components/common/low-code-form/LowCodeSel
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeSelectField, () => props.input);
+const subject = useLabSubject<typeof LowCodeSelectField>(() => props.input);
 </script>
 
 <template>

@@ -3,7 +3,7 @@ import LowCodeRadioField from "../../components/common/low-code-form/LowCodeRadi
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(LowCodeRadioField, () => props.input);
+const subject = useLabSubject<typeof LowCodeRadioField>(() => props.input);
 </script>
 
 <template>

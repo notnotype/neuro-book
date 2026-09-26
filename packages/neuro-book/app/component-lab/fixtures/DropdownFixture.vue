@@ -4,7 +4,7 @@ import type {LabFixtureProps} from "../lab-subject";
 import {useLabSubject} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(Dropdown, () => props.input);
+const subject = useLabSubject<typeof Dropdown>(() => props.input);
 </script>
 
 <template>

@@ -3,7 +3,7 @@ import SkillChip from "nbook/app/components/common/SkillChip.vue";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(SkillChip, () => props.input);
+const subject = useLabSubject<typeof SkillChip>(() => props.input);
 </script>
 
 <template>

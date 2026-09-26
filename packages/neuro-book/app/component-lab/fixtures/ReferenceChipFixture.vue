@@ -3,7 +3,7 @@ import ReferenceChip from "nbook/app/components/common/ReferenceChip.vue";
 import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 const props = defineProps<LabFixtureProps>();
-const subject = useLabSubject(ReferenceChip, () => props.input);
+const subject = useLabSubject<typeof ReferenceChip>(() => props.input);
 </script>
 
 <template>
