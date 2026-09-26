@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import {createPinia, defineStore, setActivePinia} from "pinia";
 import * as vue from "vue";
+import {LAB_INPUT_SINK, LAB_DATA_SINK, LAB_EVENT_SINK} from "../lab-event-sink";
+import type {LabSceneInput} from "../lab-subject";
 import {createApp, type App, type Component} from "vue";
 import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import {onClickOutside} from "@vueuse/core";
@@ -146,9 +148,39 @@ describe("AgentSidebarViewFixture 挂载与 Teleport 目标验证", () => {
         expect(previewTrigger).not.toBeNull();
         previewTrigger?.click();
         await vue.nextTick();
-
         const expectedUrl = "/api/agent/sessions/105/entries/entry-att-1/attachments/0";
         const originalImage = [...host.querySelectorAll<HTMLImageElement>("img")].find((image) => image.getAttribute("src") === expectedUrl);
         expect(originalImage).toBeDefined();
     }, 20000);
+
+    it("模型选择器打开时回写 Lab 输入且不产生 readonly 警告", async () => {
+        const {default: AgentSidebarViewFixture} = await import("./AgentSidebarViewFixture.vue");
+        const input = vue.ref<LabSceneInput>(sceneProps("conversation").input as LabSceneInput);
+        const host = document.createElement("div");
+        document.body.append(host);
+        const app = createApp(vue.defineComponent({
+            setup() {
+                return () => vue.h(AgentSidebarViewFixture as Component, {scene: "conversation", input: input.value});
+            },
+        }));
+        app.use(createPinia());
+        app.provide(LAB_DATA_SINK, () => {});
+        app.provide(LAB_EVENT_SINK, () => {});
+        app.provide(LAB_INPUT_SINK, (layer, key, value) => {
+            input.value = {...input.value, [layer]: {...input.value[layer], [key]: value}};
+        });
+        mounted.push(app);
+
+        const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+        app.mount(host);
+        await vue.nextTick();
+        host.querySelector<HTMLButtonElement>("[role='combobox']")?.click();
+        await vue.nextTick();
+
+        const composerInput = (input.value.props?.composer ?? {}) as Record<string, unknown>;
+        expect(composerInput.sessionModelPopoverOpen).toBe(true);
+        expect(warnSpy.mock.calls.some((call) => call.some((arg) => typeof arg === "string" && arg.includes("computed value is readonly")))).toBe(false);
+        warnSpy.mockRestore();
+    }, 15000);
+
 });

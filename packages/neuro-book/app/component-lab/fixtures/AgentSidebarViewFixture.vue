@@ -29,19 +29,46 @@ const subject = useLabSubject<typeof AgentSidebarView>(() => props.input, [
 const registered = computed(() => subject.bindings.value);
 
 // 控制条直接回写 Lab 的同一份输入，只有回调能力留在 fixture 内存。
-const inputText = computed(() => viewProps.value.composer.inputText);
+const inputText = computed({
+    get: () => viewProps.value.composer.inputText,
+    set: (value: string) => subject.write("props", "composer", {...registered.value.composer, inputText: value}),
+});
 const messages = computed<AgentMessage[]>({
     get: () => registered.value.flow.messages as AgentMessage[],
     set: (next) => subject.write("props", "flow", {...registered.value.flow, messages: next}),
 });
-const attachmentPanelOpen = computed(() => viewProps.value.attachmentPanelOpen);
-const linkedAgentPanelOpen = computed(() => viewProps.value.linkedAgentPanelOpen);
-const systemPromptPanelOpen = computed(() => viewProps.value.systemPromptPanelOpen);
-const sessionDialogOpen = computed(() => viewProps.value.sessionDialogOpen);
-const sessionTreeDialogOpen = computed(() => viewProps.value.sessionTreeDialogOpen);
-const contextInspectorOpen = computed(() => viewProps.value.contextInspectorOpen);
-const workspaceExpanded = computed(() => viewProps.value.workspaceChanges.expanded);
-const sessionModelPopoverOpen = computed(() => viewProps.value.composer.sessionModelPopoverOpen);
+const attachmentPanelOpen = computed({
+    get: () => viewProps.value.attachmentPanelOpen,
+    set: (value: boolean) => subject.write("props", "attachmentPanelOpen", value),
+});
+const linkedAgentPanelOpen = computed({
+    get: () => viewProps.value.linkedAgentPanelOpen,
+    set: (value: boolean) => subject.write("props", "linkedAgentPanelOpen", value),
+});
+const systemPromptPanelOpen = computed({
+    get: () => viewProps.value.systemPromptPanelOpen,
+    set: (value: boolean) => subject.write("props", "systemPromptPanelOpen", value),
+});
+const sessionDialogOpen = computed({
+    get: () => viewProps.value.sessionDialogOpen,
+    set: (value: boolean) => subject.write("props", "sessionDialogOpen", value),
+});
+const sessionTreeDialogOpen = computed({
+    get: () => viewProps.value.sessionTreeDialogOpen,
+    set: (value: boolean) => subject.write("props", "sessionTreeDialogOpen", value),
+});
+const contextInspectorOpen = computed({
+    get: () => viewProps.value.contextInspectorOpen,
+    set: (value: boolean) => subject.write("props", "contextInspectorOpen", value),
+});
+const workspaceExpanded = computed({
+    get: () => viewProps.value.workspaceChanges.expanded,
+    set: (value: boolean) => subject.write("props", "workspaceChanges", {...registered.value.workspaceChanges, expanded: value}),
+});
+const sessionModelPopoverOpen = computed({
+    get: () => viewProps.value.composer.sessionModelPopoverOpen,
+    set: (value: boolean) => subject.write("props", "composer", {...registered.value.composer, sessionModelPopoverOpen: value}),
+});
 const running = computed(() => viewProps.value.composer.running);
 const agentMode = computed(() => viewProps.value.composer.agentMode);
 const availabilityStatus = computed(() => viewProps.value.composer.availability.status);
