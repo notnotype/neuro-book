@@ -4299,6 +4299,7 @@ const sidebarComposerProps = computed<AgentSidebarComposerProps>(() => ({
     sessionThinkingResolvedLabel: sessionThinkingResolvedLabel.value,
     sessionModelDraft: sessionModelDraft.value,
     selectableModels: selectableModels.value,
+    showSpecialistInPicker: true,
     agentMode: agentMode.value,
     canContinueWithoutInput: canContinueWithoutInput.value,
     queuedMessages: queuedMessages.value,

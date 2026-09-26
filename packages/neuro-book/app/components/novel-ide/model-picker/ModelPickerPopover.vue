@@ -25,15 +25,22 @@ const props = withDefaults(defineProps<{
     pickerHeightClass?: string;
 }>(), {
     roles: () => [],
-    showSpecialistInPicker: false,
+    showSpecialistInPicker: true,
     thinkingLevel: null,
     direction: "auto",
     align: "start",
     disabled: false,
     triggerClass: "",
     popoverClass: "",
-    pickerWidthClass: "w-[640px] max-w-[calc(100vw-32px)]",
-    pickerHeightClass: "h-[470px]",
+    pickerWidthClass: "w-[620px] max-w-[calc(100vw-32px)]",
+    pickerHeightClass: "h-[440px]",
+});
+
+const effectivePickerHeightClass = computed(() => {
+    if (props.pickerHeightClass && props.pickerHeightClass !== "h-[440px]") {
+        return props.pickerHeightClass;
+    }
+    return props.showSpecialistInPicker ? (props.pickerHeightClass || "h-[440px]") : "h-[330px]";
 });
 
 const emit = defineEmits<{
@@ -88,6 +95,17 @@ const activeDisplay = computed(() => {
 
 const effectiveDirection = ref<"up" | "down">("up");
 
+const popoverOriginClass = computed(() => {
+    if (effectiveDirection.value === "up") {
+        if (props.align === "end") return "origin-bottom-right";
+        if (props.align === "center") return "origin-bottom";
+        return "origin-bottom-left";
+    }
+    if (props.align === "end") return "origin-top-right";
+    if (props.align === "center") return "origin-top";
+    return "origin-top-left";
+});
+
 function computeDirection(): void {
     if (props.direction === "up" || props.direction === "down") {
         effectiveDirection.value = props.direction;
@@ -124,7 +142,11 @@ function handleClose(): void {
 function handleSelect(value: string, item: ModelPickerRoleItem | ModelPickerModelItem): void {
     emit("update:modelValue", value);
     emit("select", value, item);
-    emit("update:open", false);
+    // 规范：选择角色后不自动关闭浮层，保留浮层供用户调整思考等级与核对设定；选择物理模型时自动收起
+    const isRole = "axis" in item || value.startsWith("role:");
+    if (!isRole) {
+        emit("update:open", false);
+    }
 }
 
 onClickOutside(rootRef, () => {
@@ -176,32 +198,35 @@ onUnmounted(() => {
             </button>
         </slot>
 
-        <!-- 浮层内容面板：精致发丝反光与通透空气柔影，避免沉重黑晕 -->
-        <div
-            v-if="props.open"
-            class="model-picker-popover-panel nb-ui-popover-motion absolute z-50 overflow-hidden rounded-2xl border border-[color:var(--panel-outline,var(--border-color))] bg-[var(--bg-panel)]/95 backdrop-blur-md"
-            :class="[
-                effectiveDirection === 'up' ? 'bottom-full mb-3' : 'top-full mt-3',
-                props.align === 'end' ? 'right-0' : props.align === 'center' ? 'left-1/2 [translate:-50%_0]' : 'left-0',
-                props.pickerWidthClass,
-                props.pickerHeightClass,
-                props.popoverClass,
-            ]"
-        >
-            <ModelPickerContent
-                :model-value="props.modelValue"
-                :roles="props.roles"
-                :models="props.models"
-                :show-specialist-in-picker="props.showSpecialistInPicker"
-                :thinking-level="props.thinkingLevel"
-                width-class="w-full"
-                height-class="h-full"
-                @update:model-value="emit('update:modelValue', $event)"
-                @update:thinking-level="emit('update:thinkingLevel', $event)"
-                @select="handleSelect"
-                @close="handleClose"
-            />
-        </div>
+        <!-- 浮层内容面板：精致发丝反光与通透空气柔影，通过 Transition 消费 nb-popover 展开与收起动效 -->
+        <Transition name="nb-popover">
+            <div
+                v-if="props.open"
+                class="model-picker-popover-panel nb-ui-popover-motion absolute z-50 overflow-hidden rounded-2xl border border-[color:var(--panel-outline,var(--border-color))] bg-[var(--bg-panel)]/95 backdrop-blur-md"
+                :class="[
+                    effectiveDirection === 'up' ? 'bottom-full mb-3' : 'top-full mt-3',
+                    props.align === 'end' ? 'right-0' : props.align === 'center' ? 'left-1/2 [translate:-50%_0]' : 'left-0',
+                    popoverOriginClass,
+                    props.pickerWidthClass,
+                    effectivePickerHeightClass,
+                    props.popoverClass,
+                ]"
+            >
+                <ModelPickerContent
+                    :model-value="props.modelValue"
+                    :roles="props.roles"
+                    :models="props.models"
+                    :show-specialist-in-picker="props.showSpecialistInPicker"
+                    :thinking-level="props.thinkingLevel"
+                    width-class="w-full"
+                    height-class="h-full"
+                    @update:model-value="emit('update:modelValue', $event)"
+                    @update:thinking-level="emit('update:thinkingLevel', $event)"
+                    @select="handleSelect"
+                    @close="handleClose"
+                />
+            </div>
+        </Transition>
     </div>
 </template>
 
@@ -214,5 +239,37 @@ onUnmounted(() => {
         0 4px 12px -2px color-mix(in srgb, var(--shadow-color) 8%, transparent),
         0 14px 32px -4px color-mix(in srgb, var(--shadow-color) 10%, transparent),
         0 24px 48px -12px color-mix(in srgb, var(--shadow-color) 6%, transparent);
+}
+
+/*
+ * 丝滑弹层物理动效：
+ * 采用 Apple 标准的减速弹簧缓动 cubic-bezier(0.16, 1, 0.3, 1)，
+ * 并在入场时分配 var(--motion-enter, 220ms)，配合动态计算的 transform-origin，
+ * 彻底消除原本 120ms keyframe 带来的机械生硬感。
+ */
+.model-picker-popover-panel.nb-popover-enter-active {
+    transition: opacity var(--motion-enter, 220ms) cubic-bezier(0.16, 1, 0.3, 1),
+                transform var(--motion-enter, 220ms) cubic-bezier(0.16, 1, 0.3, 1) !important;
+    animation: none !important;
+}
+
+.model-picker-popover-panel.nb-popover-leave-active {
+    transition: opacity var(--motion-fast, 120ms) var(--ease-standard),
+                transform var(--motion-fast, 120ms) var(--ease-standard) !important;
+    animation: none !important;
+}
+
+.model-picker-popover-panel.nb-popover-enter-from,
+.model-picker-popover-panel.nb-popover-leave-to {
+    opacity: 0 !important;
+    transform: scale(0.97) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .model-picker-popover-panel.nb-popover-enter-active,
+    .model-picker-popover-panel.nb-popover-leave-active {
+        transition-duration: 0ms !important;
+        transform: none !important;
+    }
 }
 </style>

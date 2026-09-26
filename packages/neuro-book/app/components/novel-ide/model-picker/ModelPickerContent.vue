@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import {computed, ref, onMounted, nextTick, watch} from "vue";
-import {Slider} from "@notnotype/nb-ui/components";
+import {computed, ref, onMounted, onUnmounted, nextTick, watch} from "vue";
+import {SegmentedControl, Slider} from "@notnotype/nb-ui/components";
+import type {SegmentedControlOption} from "@notnotype/nb-ui/components";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {
     ModelPickerModelItem,
@@ -30,9 +31,16 @@ const props = withDefaults(defineProps<{
     roles: () => [],
     showSpecialistInPicker: false,
     thinkingLevel: null,
-    widthClass: "w-[640px] max-w-[calc(100vw-32px)]",
-    heightClass: "h-[470px]",
+    widthClass: "w-[620px] max-w-[calc(100vw-32px)]",
+    heightClass: "h-[440px]",
     standalone: false,
+});
+
+const effectiveHeightClass = computed(() => {
+    if (props.heightClass && props.heightClass !== "h-[440px]") {
+        return props.heightClass;
+    }
+    return props.showSpecialistInPicker ? (props.heightClass || "h-[440px]") : "h-[330px]";
 });
 
 const emit = defineEmits<{
@@ -182,12 +190,11 @@ function isModelActive(model: ModelPickerModelItem): boolean {
     return props.modelValue === model.key || props.modelValue === model.modelId;
 }
 
-// 选中某个角色
+// 选中某个角色（不自动关闭，方便用户查看绑定模型与调整思考等级）
 function selectRole(role: ModelPickerRoleItem): void {
     const value = `role:${role.id}`;
     emit("update:modelValue", value);
     emit("select", value, role);
-    emit("close");
 }
 
 // 选中某个模型
@@ -209,6 +216,127 @@ function isProviderExpanded(providerId: string): boolean {
     // 默认展开所有组
     return true;
 }
+
+// 专精角色是否需要横向滚动：当数量大于 4 时启用横向滚动，恰好 <= 4 个时直接采用 4 列等宽网格排布
+const isSpecialistScrollable = computed(() => filteredSpecialistRoles.value.length > 4);
+
+let targetScrollLeft = 0;
+let wheelRafId: number | null = null;
+let currentScrollElement: HTMLElement | null = null;
+
+/**
+ * 专精角色横向滚动辅助：
+ * 采用 rAF 指数插值缓动，将 Windows 鼠标滚轮离散突兀的 100px 阶梯跳动转化为丝滑流畅的连续滑动；
+ * 到达最左/最右边界时自动放行默认行为，使页面或父容器能继续正常纵向滚动。
+ */
+function handleSpecialistWheel(event: WheelEvent): void {
+    const el = event.currentTarget as HTMLElement | null;
+    if (!el) return;
+
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    if (maxScroll <= 0) return;
+
+    // 若当前输入为横向主导（如 MacBook 触控板横向划动），让浏览器原生高频平滑处理
+    if (Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+
+    const delta = event.deltaY;
+    const canScrollLeft = delta < 0 && el.scrollLeft > 0;
+    const canScrollRight = delta > 0 && el.scrollLeft < maxScroll - 1;
+
+    // 边界放行：到达边界不再拦截，交由外层纵向滚动
+    if (!canScrollLeft && !canScrollRight) {
+        return;
+    }
+
+    event.preventDefault();
+
+    currentScrollElement = el;
+    if (wheelRafId === null) {
+        targetScrollLeft = el.scrollLeft;
+    }
+
+    // 累加滚轮目标并限制在 [0, maxScroll] 范围内
+    targetScrollLeft = Math.max(0, Math.min(maxScroll, targetScrollLeft + delta * 0.9));
+
+    function step() {
+        if (!currentScrollElement) {
+            wheelRafId = null;
+            return;
+        }
+        const diff = targetScrollLeft - currentScrollElement.scrollLeft;
+        if (Math.abs(diff) < 0.6) {
+            currentScrollElement.scrollLeft = targetScrollLeft;
+            wheelRafId = null;
+            return;
+        }
+        // 缓动阻尼系数 0.22：兼顾敏捷响应与丝滑制动
+        currentScrollElement.scrollLeft += diff * 0.22;
+        wheelRafId = requestAnimationFrame(step);
+    }
+
+    if (wheelRafId === null) {
+        wheelRafId = requestAnimationFrame(step);
+    }
+}
+
+// 专精角色鼠标直接拖拽滚动（Drag to scroll）
+let isDragging = false;
+let dragStartX = 0;
+let dragInitialScrollLeft = 0;
+let hasDraggedDistance = false;
+
+function handleSpecialistPointerDown(event: PointerEvent): void {
+    const el = event.currentTarget as HTMLElement | null;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    if (event.button !== 0) return;
+
+    isDragging = true;
+    hasDraggedDistance = false;
+    dragStartX = event.clientX;
+    dragInitialScrollLeft = el.scrollLeft;
+    try {
+        el.setPointerCapture(event.pointerId);
+    } catch {}
+}
+
+function handleSpecialistPointerMove(event: PointerEvent): void {
+    if (!isDragging) return;
+    const el = event.currentTarget as HTMLElement | null;
+    if (!el) return;
+
+    const deltaX = event.clientX - dragStartX;
+    if (Math.abs(deltaX) > 4) {
+        hasDraggedDistance = true;
+    }
+    el.scrollLeft = dragInitialScrollLeft - deltaX;
+}
+
+function handleSpecialistPointerUp(event: PointerEvent): void {
+    if (!isDragging) return;
+    isDragging = false;
+    const el = event.currentTarget as HTMLElement | null;
+    if (el) {
+        try {
+            el.releasePointerCapture(event.pointerId);
+        } catch {}
+    }
+}
+
+function handleSpecialistCardClick(event: MouseEvent, role: ModelPickerRoleItem): void {
+    if (hasDraggedDistance) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+    }
+    selectRole(role);
+}
+
+onUnmounted(() => {
+    if (wheelRafId !== null) {
+        cancelAnimationFrame(wheelRafId);
+        wheelRafId = null;
+    }
+});
 
 // 顶部共享区域：当前选中模型 / 角色的核心详细展示（占大头）
 const activeSelectionDetails = computed(() => {
@@ -267,6 +395,28 @@ const activeSelectionDetails = computed(() => {
     };
 });
 
+const filterTabOptions: SegmentedControlOption[] = [
+    {value: "roles", label: "角色"},
+    {value: "models", label: "模型库"},
+];
+
+const slideDirection = ref<"left" | "right">("left");
+const mainScrollRef = ref<HTMLElement | null>(null);
+
+watch(activeFilter, (newVal, oldVal) => {
+    if (newVal === "models" && oldVal === "roles") {
+        slideDirection.value = "left";
+        void nextTick(() => {
+            searchInputRef.value?.focus();
+        });
+    } else if (newVal === "roles" && oldVal === "models") {
+        slideDirection.value = "right";
+    }
+    if (mainScrollRef.value) {
+        mainScrollRef.value.scrollTop = 0;
+    }
+});
+
 onMounted(() => {
     void nextTick(() => {
         searchInputRef.value?.focus();
@@ -279,41 +429,30 @@ onMounted(() => {
         class="model-picker-root flex flex-col overflow-hidden text-[var(--text-main)]"
         :class="[
             props.widthClass,
-            props.heightClass,
+            effectiveHeightClass,
             props.standalone
                 ? 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[var(--shadow-panel)]'
                 : 'rounded-[inherit] bg-transparent',
         ]"
     >
-        <!-- 1. 顶部共享核心区：当前生效模型 + 思考等级（共享且占大头） -->
+        <!-- 1. 顶部共享核心区：当前生效模型 + 思考等级（共享且高度恒定，彻底避免换页抖动） -->
         <header class="flex shrink-0 flex-col gap-2.5 border-b border-[var(--divider,var(--border-color))] p-3">
             <!-- 1.1 顶部栏：标题与 Tab 切换 -->
             <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2">
-                    <span class="text-xs font-semibold tracking-wide text-[var(--text-main)]">会话模型设定</span>
-                    <span class="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+                <div class="flex min-w-0 items-center gap-2">
+                    <span class="shrink-0 text-xs font-semibold tracking-wide text-[var(--text-main)]">会话模型设定</span>
+                    <span class="truncate rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
                         会话独立生效 · 默认设定不受影响
                     </span>
                 </div>
-                <!-- 切换选项卡：角色 vs 模型库 -->
-                <div class="flex items-center gap-0.5 rounded-[var(--radius-control)] border border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-input))] p-0.5">
-                    <button
-                        type="button"
-                        class="nb-ui-focus-ring rounded-[calc(var(--radius-control)-2px)] px-2.5 py-0.5 text-[11px] font-medium outline-none transition-all"
-                        :class="activeFilter === 'roles' ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-xs' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
-                        @click="activeFilter = 'roles'"
-                    >
-                        角色
-                    </button>
-                    <button
-                        type="button"
-                        class="nb-ui-focus-ring rounded-[calc(var(--radius-control)-2px)] px-2.5 py-0.5 text-[11px] font-medium outline-none transition-all"
-                        :class="activeFilter === 'models' ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-xs' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
-                        @click="activeFilter = 'models'"
-                    >
-                        模型库
-                    </button>
-                </div>
+                <!-- 切换选项卡：角色 vs 模型库 (复用 nb-ui 官方 SegmentedControl，内置平滑滑动指示块动效) -->
+                <SegmentedControl
+                    :model-value="activeFilter"
+                    :options="filterTabOptions"
+                    size="xs"
+                    class="w-[124px] shrink-0"
+                    @update:model-value="(val) => (activeFilter = val as 'roles' | 'models')"
+                />
             </div>
 
             <!-- 1.2 核心展示卡片：当前生效模型 (共享且占注意力大头) -->
@@ -366,203 +505,229 @@ onMounted(() => {
                     />
                 </div>
             </div>
-
-            <!-- 1.4 搜索框：仅在模型库 Tab 显示（角色 Tab 不需要搜索框） -->
-            <div v-if="activeFilter === 'models'" class="relative flex items-center">
-                <span class="i-lucide-search pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                <input
-                    ref="searchInputRef"
-                    v-model="searchQuery"
-                    type="text"
-                    placeholder="搜索模型名称、ID、Provider 或 reasoning / vision..."
-                    class="nb-ui-control h-8 w-full rounded-[var(--radius-control)] border border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-input))] pl-8 pr-7 text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none"
-                    @keydown.esc.stop="emit('close')"
-                />
-                <button
-                    v-if="searchQuery"
-                    type="button"
-                    class="nb-ui-focus-ring absolute right-2 flex h-4 w-4 items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
-                    @click="searchQuery = ''"
-                >
-                    <span class="i-lucide-x h-3 w-3"></span>
-                </button>
-            </div>
         </header>
 
-        <!-- 2. 内容滚动区：统一网格，严格等宽等高，消费 .nb-ui-popover-scroll -->
-        <main class="nb-ui-popover-scroll flex-1 min-h-0 p-3 space-y-3">
-            <!-- 2.1 角色梯度轴 (固定 4 档) -->
-            <section v-if="activeFilter === 'roles' && filteredGradientRoles.length > 0" class="space-y-1.5">
-                <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
-                    <span class="flex items-center gap-1.5">
-                        <span class="i-lucide-layers h-3 w-3 text-[var(--accent-text)]"></span>
-                        模型角色梯度轴 (默认常驻)
-                    </span>
-                    <span class="text-[10px] text-[var(--text-muted)]">随用途自动调度</span>
-                </div>
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <button
-                        v-for="role in filteredGradientRoles"
-                        :key="role.id"
-                        type="button"
-                        class="nb-ui-focus-ring group relative flex h-[78px] flex-col justify-between rounded-[var(--radius-control)] border p-2.5 text-left outline-none transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)]"
-                        :class="isRoleActive(role)
-                            ? 'border-[var(--accent-main)] bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))] shadow-[0_0_0_1px_var(--accent-main)]'
-                            : 'border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]'"
-                        @click="selectRole(role)"
-                        @mouseenter="hoveredKey = `role:${role.id}`"
-                        @mouseleave="hoveredKey = null"
-                    >
-                        <div class="flex w-full items-center justify-between gap-1">
-                            <span class="flex items-center gap-1.5 font-medium text-xs text-[var(--text-main)] truncate">
-                                <span :class="role.iconClass || 'i-lucide-bot'" class="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]"></span>
-                                <span class="truncate">{{ role.name }}</span>
+        <!-- 2. 内容滚动区：角色 Tab 严格禁用竖直滚动 (overflow-hidden)，模型库 Tab 启用 .nb-ui-popover-scroll 纵向滚动 -->
+        <main
+            ref="mainScrollRef"
+            class="relative flex-1 min-h-0 p-3"
+            :class="activeFilter === 'models' ? 'nb-ui-popover-scroll overflow-y-auto overflow-x-hidden' : 'overflow-hidden'"
+        >
+            <Transition :name="slideDirection === 'left' ? 'tab-slide-left' : 'tab-slide-right'">
+                <!-- 2.1 角色 Tab (包含梯度轴 + 专精轴) -->
+                <div v-if="activeFilter === 'roles'" key="tab-roles" class="tab-pane w-full space-y-2.5">
+                    <!-- 角色梯度轴 (固定 4 档) -->
+                    <section v-if="filteredGradientRoles.length > 0" class="space-y-1.5">
+                        <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
+                            <span class="flex items-center gap-1.5">
+                                <span class="i-lucide-layers h-3 w-3 text-[var(--accent-text)]"></span>
+                                模型角色梯度轴 (默认常驻)
                             </span>
-                            <span v-if="isRoleActive(role)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                            <span class="text-[10px] text-[var(--text-muted)]">随用途自动调度</span>
                         </div>
-                        <span class="truncate font-mono text-[10px] text-[var(--text-muted)]" :title="role.modelLabel || role.modelKey || '未配置'">
-                            {{ role.modelLabel || role.modelKey || '未配置' }}
-                        </span>
-                        <p class="truncate text-[10px] text-[var(--text-secondary)]" :title="role.description">
-                            {{ role.description }}
-                        </p>
-                    </button>
-                </div>
-            </section>
+                        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                            <button
+                                v-for="role in filteredGradientRoles"
+                                :key="role.id"
+                                type="button"
+                                class="nb-ui-focus-ring group relative flex h-[78px] flex-col justify-between rounded-[var(--radius-control)] border p-2.5 text-left outline-none transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)]"
+                                :class="isRoleActive(role)
+                                    ? 'border-[var(--accent-main)] bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))] shadow-[0_0_0_1px_var(--accent-main)]'
+                                    : 'border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]'"
+                                @click="selectRole(role)"
+                                @mouseenter="hoveredKey = `role:${role.id}`"
+                                @mouseleave="hoveredKey = null"
+                            >
+                                <div class="flex w-full items-center justify-between gap-1">
+                                    <span class="flex items-center gap-1.5 font-medium text-xs text-[var(--text-main)] truncate">
+                                        <span :class="role.iconClass || 'i-lucide-bot'" class="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]"></span>
+                                        <span class="truncate">{{ role.name }}</span>
+                                    </span>
+                                    <span v-if="isRoleActive(role)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                                </div>
+                                <span class="truncate font-mono text-[10px] text-[var(--text-muted)]" :title="role.modelLabel || role.modelKey || '未配置'">
+                                    {{ role.modelLabel || role.modelKey || '未配置' }}
+                                </span>
+                                <p class="truncate text-[10px] text-[var(--text-secondary)]" :title="role.description">
+                                    {{ role.description }}
+                                </p>
+                            </button>
+                        </div>
+                    </section>
 
-            <!-- 2.2 角色专精轴 (尺寸与梯度轴严格一致，同为 grid-cols-4) -->
-            <section v-if="activeFilter === 'roles' && filteredSpecialistRoles.length > 0" class="space-y-1.5">
-                <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
-                    <span class="flex items-center gap-1.5">
-                        <span class="i-lucide-sparkles h-3 w-3 text-[var(--accent-text)]"></span>
-                        专精角色 (用户已开启展示)
-                    </span>
-                </div>
-                <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                    <button
-                        v-for="role in filteredSpecialistRoles"
-                        :key="role.id"
-                        type="button"
-                        class="nb-ui-focus-ring group relative flex h-[78px] flex-col justify-between rounded-[var(--radius-control)] border p-2.5 text-left outline-none transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)]"
-                        :class="isRoleActive(role)
-                            ? 'border-[var(--accent-main)] bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))] shadow-[0_0_0_1px_var(--accent-main)]'
-                            : 'border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]'"
-                        @click="selectRole(role)"
-                        @mouseenter="hoveredKey = `role:${role.id}`"
-                        @mouseleave="hoveredKey = null"
-                    >
-                        <div class="flex w-full items-center justify-between gap-1">
-                            <span class="flex items-center gap-1.5 font-medium text-xs text-[var(--text-main)] truncate">
-                                <span :class="role.iconClass || 'i-lucide-shapes'" class="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]"></span>
-                                <span class="truncate">{{ role.name }}</span>
+                    <!-- 2.2 角色专精轴 (<=4 个角色时直接 4 列等宽对齐无滚动条；>4 个时支持鼠标滚轮平滑缓动与直接拖拽) -->
+                    <section v-if="filteredSpecialistRoles.length > 0" class="space-y-1.5">
+                        <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
+                            <span class="flex items-center gap-1.5">
+                                <span class="i-lucide-sparkles h-3 w-3 text-[var(--accent-text)]"></span>
+                                专精角色 (用户已开启展示)
                             </span>
-                            <span v-if="isRoleActive(role)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                            <span v-if="isSpecialistScrollable" class="text-[10px] text-[var(--text-muted)]">横向滑动浏览</span>
                         </div>
-                        <span class="truncate font-mono text-[10px] text-[var(--text-muted)]" :title="role.modelLabel || role.modelKey || '未配置'">
-                            {{ role.modelLabel || role.modelKey || '未配置' }}
-                        </span>
-                        <p class="truncate text-[10px] text-[var(--text-secondary)]" :title="role.description">
-                            {{ role.description }}
-                        </p>
-                    </button>
-                </div>
-            </section>
-
-            <!-- 2.3 所有物理模型库 (按 Provider 分组) -->
-            <section v-if="activeFilter === 'models'" class="space-y-2">
-                <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
-                    <span class="flex items-center gap-1.5">
-                        <span class="i-lucide-cpu h-3 w-3 text-[var(--accent-text)]"></span>
-                        所有模型库 ({{ filteredModels.length }})
-                    </span>
-                    <span class="text-[10px] text-[var(--text-muted)]">按 Provider 分类</span>
-                </div>
-
-                <div v-if="providerGroups.length === 0" class="py-8 text-center text-xs text-[var(--text-muted)]">
-                    无匹配模型
-                </div>
-
-                <div v-for="group in providerGroups" :key="group.providerId" class="overflow-hidden rounded-[var(--radius-control)] border border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]">
-                    <!-- Provider 组标题 -->
-                    <button
-                        type="button"
-                        class="nb-ui-focus-ring flex w-full items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-hover)] px-3 py-1.5 text-left text-xs font-semibold text-[var(--text-main)] outline-none hover:bg-[color-mix(in_srgb,var(--bg-hover)_80%,var(--text-main))]"
-                        @click="toggleProvider(group.providerId)"
-                    >
-                        <div class="flex items-center gap-2">
-                            <span class="i-lucide-server h-3.5 w-3.5 text-[var(--accent-text)]"></span>
-                            <span>{{ group.providerName }}</span>
-                            <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.2 text-[10px] font-normal text-[var(--text-muted)]">
-                                {{ group.models.length }}
-                            </span>
-                        </div>
-                        <span
-                            class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)]"
-                            :class="isProviderExpanded(group.providerId) ? 'rotate-0' : '-rotate-90'"
-                        ></span>
-                    </button>
-
-                    <!-- Provider 内部模型列表 -->
-                    <div v-if="isProviderExpanded(group.providerId)" class="divide-y divide-[var(--border-color)]">
-                        <button
-                            v-for="model in group.models"
-                            :key="model.key"
-                            type="button"
-                            class="nb-ui-focus-ring flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs outline-none transition-colors hover:bg-[var(--bg-hover)]"
-                            :class="isModelActive(model) ? 'bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))]' : ''"
-                            @click="selectModel(model)"
-                            @mouseenter="hoveredKey = model.key"
-                            @mouseleave="hoveredKey = null"
+                        <div
+                            :class="[
+                                isSpecialistScrollable
+                                    ? 'flex gap-2 overflow-x-auto overscroll-x-contain pb-1.5 pt-0.5 [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,var(--text-main)_20%,transparent)_transparent] cursor-grab active:cursor-grabbing select-none'
+                                    : 'grid grid-cols-2 gap-2 sm:grid-cols-4',
+                            ]"
+                            @wheel="handleSpecialistWheel"
+                            @pointerdown="handleSpecialistPointerDown"
+                            @pointermove="handleSpecialistPointerMove"
+                            @pointerup="handleSpecialistPointerUp"
+                            @pointercancel="handleSpecialistPointerUp"
                         >
-                            <!-- 模型名称与 ID -->
-                            <div class="min-w-0 flex-1">
-                                <div class="flex items-center gap-1.5">
-                                    <span class="truncate font-medium text-[var(--text-main)]">{{ model.label }}</span>
-                                    <span v-if="isModelActive(model)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                            <button
+                                v-for="role in filteredSpecialistRoles"
+                                :key="role.id"
+                                type="button"
+                                class="nb-ui-focus-ring group relative flex h-[78px] flex-col justify-between rounded-[var(--radius-control)] border p-2.5 text-left outline-none transition-[background-color,border-color,box-shadow] [transition-duration:var(--motion-fast)] [transition-timing-function:var(--ease-standard)] hover:bg-[var(--bg-hover)]"
+                                :class="[
+                                    isSpecialistScrollable ? 'w-[142px] shrink-0' : 'w-full',
+                                    isRoleActive(role)
+                                        ? 'border-[var(--accent-main)] bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))] shadow-[0_0_0_1px_var(--accent-main)]'
+                                        : 'border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]',
+                                ]"
+                                @click="handleSpecialistCardClick($event, role)"
+                                @mouseenter="hoveredKey = `role:${role.id}`"
+                                @mouseleave="hoveredKey = null"
+                            >
+                                <div class="flex w-full items-center justify-between gap-1">
+                                    <span class="flex items-center gap-1.5 font-medium text-xs text-[var(--text-main)] truncate">
+                                        <span :class="role.iconClass || 'i-lucide-shapes'" class="h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]"></span>
+                                        <span class="truncate">{{ role.name }}</span>
+                                    </span>
+                                    <span v-if="isRoleActive(role)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
                                 </div>
-                                <div class="truncate font-mono text-[10px] text-[var(--text-muted)]">
-                                    {{ model.modelId }}
-                                </div>
-                            </div>
-
-                            <!-- 能力徽章与规格（使用语义设计契约变量） -->
-                            <div class="flex shrink-0 items-center gap-2">
-                                <!-- 视觉徽章 -->
-                                <span
-                                    v-if="model.input.includes('image')"
-                                    class="inline-flex items-center gap-0.5 rounded border border-[color-mix(in_srgb,var(--status-success)_30%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--status-success)]"
-                                    title="支持图像与多模态视觉理解"
-                                >
-                                    <span class="i-lucide-eye h-3 w-3"></span>
-                                    Vision
+                                <span class="truncate font-mono text-[10px] text-[var(--text-muted)]" :title="role.modelLabel || role.modelKey || '未配置'">
+                                    {{ role.modelLabel || role.modelKey || '未配置' }}
                                 </span>
-
-                                <!-- 思考/推理徽章 -->
-                                <span
-                                    v-if="model.reasoning"
-                                    class="inline-flex items-center gap-0.5 rounded border border-[color-mix(in_srgb,var(--accent-main)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-text)]"
-                                    title="支持深度思考 / Reasoning"
-                                >
-                                    <span class="i-lucide-sparkles h-3 w-3"></span>
-                                    Reasoning
-                                </span>
-
-                                <!-- Context Window -->
-                                <span class="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
-                                    {{ formatContextWindow(model.contextWindowTokens) }}
-                                </span>
-
-                                <!-- 价格 -->
-                                <span class="min-w-[65px] text-right font-mono text-[10px] text-[var(--text-muted)]">
-                                    {{ formatCost(model) }}
-                                </span>
-                            </div>
-                        </button>
-                    </div>
+                                <p class="truncate text-[10px] text-[var(--text-secondary)]" :title="role.description">
+                                    {{ role.description }}
+                                </p>
+                            </button>
+                        </div>
+                    </section>
                 </div>
-            </section>
-        </main>
 
+                <!-- 2.3 所有物理模型库 (按 Provider 分组) -->
+                <div v-else key="tab-models" class="tab-pane w-full space-y-2">
+                    <!-- 搜索框：置于模型库顶部，输入即时过滤，具备 sticky 吸顶与自适应背景 -->
+                    <div class="sticky top-0 z-10 -mx-3 -mt-3 mb-2 bg-[var(--bg-panel)] px-3 pt-3 pb-1 border-b border-[var(--divider,var(--border-color))]">
+                        <div class="relative flex items-center">
+                            <span class="i-lucide-search pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                            <input
+                                ref="searchInputRef"
+                                v-model="searchQuery"
+                                type="text"
+                                placeholder="搜索模型名称、ID、Provider 或 reasoning / vision..."
+                                class="nb-ui-control h-8 w-full rounded-[var(--radius-control)] border border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-input))] pl-8 pr-7 text-xs text-[var(--text-main)] placeholder:text-[var(--text-muted)] outline-none"
+                                @keydown.esc.stop="emit('close')"
+                            />
+                            <button
+                                v-if="searchQuery"
+                                type="button"
+                                class="nb-ui-focus-ring absolute right-2 flex h-4 w-4 items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-main)]"
+                                @click="searchQuery = ''"
+                            >
+                                <span class="i-lucide-x h-3 w-3"></span>
+                            </button>
+                        </div>
+                    </div>
+                    <section class="space-y-2">
+                        <div class="flex items-center justify-between text-[11px] font-medium text-[var(--text-muted)]">
+                            <span class="flex items-center gap-1.5">
+                                <span class="i-lucide-cpu h-3 w-3 text-[var(--accent-text)]"></span>
+                                所有模型库 ({{ filteredModels.length }})
+                            </span>
+                            <span class="text-[10px] text-[var(--text-muted)]">按 Provider 分类</span>
+                        </div>
+
+                        <div v-if="providerGroups.length === 0" class="py-8 text-center text-xs text-[var(--text-muted)]">
+                            无匹配模型
+                        </div>
+
+                        <div v-for="group in providerGroups" :key="group.providerId" class="overflow-hidden rounded-[var(--radius-control)] border border-[color:var(--control-outline,var(--border-color))] bg-[var(--control-surface,var(--bg-panel))]">
+                            <!-- Provider 组标题 -->
+                            <button
+                                type="button"
+                                class="nb-ui-focus-ring flex w-full items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-hover)] px-3 py-1.5 text-left text-xs font-semibold text-[var(--text-main)] outline-none hover:bg-[color-mix(in_srgb,var(--bg-hover)_80%,var(--text-main))]"
+                                @click="toggleProvider(group.providerId)"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <span class="i-lucide-server h-3.5 w-3.5 text-[var(--accent-text)]"></span>
+                                    <span>{{ group.providerName }}</span>
+                                    <span class="rounded bg-[var(--bg-panel)] px-1.5 py-0.2 text-[10px] font-normal text-[var(--text-muted)]">
+                                        {{ group.models.length }}
+                                    </span>
+                                </div>
+                                <span
+                                    class="i-lucide-chevron-down h-3.5 w-3.5 text-[var(--text-muted)] transition-transform [transition-duration:var(--motion-fast)]"
+                                    :class="isProviderExpanded(group.providerId) ? 'rotate-0' : '-rotate-90'"
+                                ></span>
+                            </button>
+
+                            <!-- Provider 内部模型列表 -->
+                            <div v-if="isProviderExpanded(group.providerId)" class="divide-y divide-[var(--border-color)]">
+                                <button
+                                    v-for="model in group.models"
+                                    :key="model.key"
+                                    type="button"
+                                    class="nb-ui-focus-ring flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs outline-none transition-colors hover:bg-[var(--bg-hover)]"
+                                    :class="isModelActive(model) ? 'bg-[var(--overlay-item-active,color-mix(in_srgb,var(--accent-main)_10%,transparent))]' : ''"
+                                    @click="selectModel(model)"
+                                    @mouseenter="hoveredKey = model.key"
+                                    @mouseleave="hoveredKey = null"
+                                >
+                                    <!-- 模型名称与 ID -->
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="truncate font-medium text-[var(--text-main)]">{{ model.label }}</span>
+                                            <span v-if="isModelActive(model)" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                                        </div>
+                                        <div class="truncate font-mono text-[10px] text-[var(--text-muted)]">
+                                            {{ model.modelId }}
+                                        </div>
+                                    </div>
+
+                                    <!-- 能力徽章与规格（使用语义设计契约变量） -->
+                                    <div class="flex shrink-0 items-center gap-2">
+                                        <!-- 视觉徽章 -->
+                                        <span
+                                            v-if="model.input.includes('image')"
+                                            class="inline-flex items-center gap-0.5 rounded border border-[color-mix(in_srgb,var(--status-success)_30%,transparent)] bg-[color-mix(in_srgb,var(--status-success)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--status-success)]"
+                                            title="支持图像与多模态视觉理解"
+                                        >
+                                            <span class="i-lucide-eye h-3 w-3"></span>
+                                            Vision
+                                        </span>
+
+                                        <!-- 思考/推理徽章 -->
+                                        <span
+                                            v-if="model.reasoning"
+                                            class="inline-flex items-center gap-0.5 rounded border border-[color-mix(in_srgb,var(--accent-main)_30%,transparent)] bg-[color-mix(in_srgb,var(--accent-main)_12%,transparent)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-text)]"
+                                            title="支持深度思考 / Reasoning"
+                                        >
+                                            <span class="i-lucide-sparkles h-3 w-3"></span>
+                                            Reasoning
+                                        </span>
+
+                                        <!-- Context Window -->
+                                        <span class="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--text-secondary)]">
+                                            {{ formatContextWindow(model.contextWindowTokens) }}
+                                        </span>
+
+                                        <!-- 价格 -->
+                                        <span class="min-w-[65px] text-right font-mono text-[10px] text-[var(--text-muted)]">
+                                            {{ formatCost(model) }}
+                                        </span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </Transition>
+        </main>
         <!-- 3. 底部简洁快捷键与辅助栏 -->
         <footer class="flex h-8 shrink-0 items-center justify-between border-t border-[var(--divider,var(--border-color))] px-3 text-[10px] text-[var(--text-muted)]">
             <div class="flex items-center gap-1.5">
@@ -575,3 +740,64 @@ onMounted(() => {
         </footer>
     </div>
 </template>
+
+<style scoped>
+/*
+ * 丝滑双向同频切换动效（Directional Simultaneous Cross-Slide）：
+ * 1. 彻底移除 mode="out-in" 造成的 120ms 黑屏/空白停顿，入场与退场同频并发；
+ * 2. 严格服从物理视差与 SegmentedControl 按钮方向：
+ *    - 切到右侧「模型库」：新内容从右向左滑入 (translateX 14px -> 0)，旧内容向左滑出 (translateX 0 -> -14px)；
+ *    - 切回左侧「角色」：新内容从左向右滑入 (translateX -14px -> 0)，旧内容向右滑出 (translateX 0 -> 14px)；
+ * 3. 采用 Apple 标准弹簧阻尼减速曲线 cubic-bezier(0.16, 1, 0.3, 1)，时长 180ms，极致轻盈丝滑。
+ */
+.tab-pane {
+    transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1),
+                transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform, opacity;
+}
+
+/* 向左滑动（切到模型库） */
+.tab-slide-left-enter-from {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0);
+}
+.tab-slide-left-leave-active {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    pointer-events: none;
+}
+.tab-slide-left-leave-to {
+    opacity: 0;
+    transform: translate3d(-14px, 0, 0);
+}
+
+/* 向右滑动（切回角色） */
+.tab-slide-right-enter-from {
+    opacity: 0;
+    transform: translate3d(-14px, 0, 0);
+}
+.tab-slide-right-leave-active {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    right: 12px;
+    pointer-events: none;
+}
+.tab-slide-right-leave-to {
+    opacity: 0;
+    transform: translate3d(14px, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .tab-pane,
+    .tab-slide-left-enter-from,
+    .tab-slide-left-leave-to,
+    .tab-slide-right-enter-from,
+    .tab-slide-right-leave-to {
+        transition: none !important;
+        transform: none !important;
+    }
+}
+</style>

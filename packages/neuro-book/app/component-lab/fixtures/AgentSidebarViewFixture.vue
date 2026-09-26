@@ -152,6 +152,7 @@ const viewProps = computed<AgentSidebarViewProps>(() => {
                     contextWindowTokens: 64000,
                 },
             ],
+            showSpecialistInPicker: true,
             agentMode: agentMode.value,
             canContinueWithoutInput: true,
             queuedMessages: s.queuedMessages ?? [],

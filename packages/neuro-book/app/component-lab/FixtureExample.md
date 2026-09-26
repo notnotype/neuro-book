@@ -1,5 +1,5 @@
 ---
-标签: [state:local]
+标签: []
 ---
 
 # FixtureExample
@@ -25,19 +25,34 @@ Component Lab 规范指南中的典型受控零件，展示标准设计变量消
 
 ```ts
 export interface FixtureExampleProps {
+    /** 标题，单行截断。必填。 */
     title: string;
+    /** 描述正文，最多两行。默认 ""，为空时不渲染这一段。 */
     description?: string;
+    /** 状态徽标。默认 "ready"。 */
     status?: "ready" | "busy" | "warning";
+    /** 计数徽标，0 时不显示。默认 0。 */
     count?: number;
+    /** 是否激活。父组件持有，组件自身不修改；点开关只发 toggle。默认 false。 */
     active?: boolean;
+    /** 禁用后开关与按钮都不响应。默认 false。 */
     disabled?: boolean;
 }
 
 export type FixtureExampleEmits = {
+    /** 点开关时发出，携带期望的新状态；`active` 不会自己变，由父组件决定是否采纳。 */
     (e: "toggle", active: boolean): void;
+    /** 点「检视」「刷新」时发出，携带动作标识 "inspect" / "refresh"。 */
     (e: "action", actionId: string): void;
 };
+
+export type FixtureExampleSlots = {
+    /** 标题行右侧、计数徽标之后的附加内容。 */
+    extra?: () => unknown;
+};
 ```
+
+`active` 是普通受控 prop，不是 v-model：事件叫 `toggle` 而不是 `update:active`，写 `v-model:active` 不会生效。不 expose 任何方法或属性；未声明的 attribute、`class` 与 `style` 按 Vue 默认行为落到根节点。
 
 ## 状态
 

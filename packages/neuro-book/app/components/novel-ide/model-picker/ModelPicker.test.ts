@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import {mount} from "@vue/test-utils";
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {Slider} from "@notnotype/nb-ui/components";
+import {SegmentedControl, Slider} from "@notnotype/nb-ui/components";
 import ModelPickerContent from "./ModelPickerContent.vue";
 import ModelPickerPopover from "./ModelPickerPopover.vue";
 import type {ModelPickerModelItem, ModelPickerRoleItem} from "./model-picker.types";
@@ -179,7 +179,7 @@ describe("ModelPickerContent", () => {
         expect(wrapper.text()).toContain("$3 / $15");
     });
 
-    it("点击角色卡片发出 role:id 格式的值与 select 事件", async () => {
+    it("点击角色卡片发出 role:id 格式的值与 select 事件，且不自动关闭", async () => {
         const wrapper = mount(ModelPickerContent, {
             props: {
                 modelValue: "role:main",
@@ -197,7 +197,8 @@ describe("ModelPickerContent", () => {
         expect(wrapper.emitted("update:modelValue")).toBeTruthy();
         expect(wrapper.emitted("update:modelValue")![0]).toEqual(["role:fast"]);
         expect(wrapper.emitted("select")).toBeTruthy();
-        expect(wrapper.emitted("close")).toBeTruthy();
+        // 规范：选择角色后不自动关闭，方便调整思考等级
+        expect(wrapper.emitted("close")).toBeFalsy();
     });
 
     it("点击具体模型发出 model.key 与 select 事件", async () => {
@@ -274,6 +275,65 @@ describe("ModelPickerContent", () => {
         expect(wrapper.emitted("update:thinkingLevel")).toBeTruthy();
         expect(wrapper.emitted("update:thinkingLevel")![0]).toEqual(["high"]);
     });
+
+    it("复用 SegmentedControl 并在顶部正确渲染选项卡", async () => {
+        const wrapper = mount(ModelPickerContent, {
+            props: {
+                modelValue: "role:main",
+                roles: mockRoles,
+                models: mockModels,
+            },
+        });
+
+        const segmented = wrapper.findComponent(SegmentedControl);
+        expect(segmented.exists()).toBe(true);
+        expect(segmented.props("modelValue")).toBe("roles");
+
+        // 切换到 models
+        await segmented.vm.$emit("update:modelValue", "models");
+        expect(wrapper.text()).toContain("Anthropic");
+    });
+
+    it("专精角色行容器：<=4 个角色时直接采用网格无滚动条，>4 个角色时支持横向平滑滚动", () => {
+        // 1. 2 个专精角色 (<= 4)：不启用横向滚动，采用网格无滚动条，不展示“横向滑动浏览”
+        const wrapperNormal = mount(ModelPickerContent, {
+            props: {
+                modelValue: "role:main",
+                roles: mockRoles,
+                models: mockModels,
+                showSpecialistInPicker: true,
+            },
+        });
+
+        expect(wrapperNormal.find(".overflow-x-auto").exists()).toBe(false);
+        expect(wrapperNormal.text()).not.toContain("横向滑动浏览");
+
+        // 2. 5 个专精角色 (> 4)：启用横向滚动与卡片定宽
+        const manyRoles = [
+            ...mockRoles,
+            {...mockRoles[4]!, id: "spec3", name: "角色3", description: "d3"},
+            {...mockRoles[4]!, id: "spec4", name: "角色4", description: "d4"},
+            {...mockRoles[4]!, id: "spec5", name: "角色5", description: "d5"},
+        ];
+        const wrapperMany = mount(ModelPickerContent, {
+            props: {
+                modelValue: "role:main",
+                roles: manyRoles,
+                models: mockModels,
+                showSpecialistInPicker: true,
+            },
+        });
+
+        const specialistContainer = wrapperMany.find(".overflow-x-auto");
+        expect(specialistContainer.exists()).toBe(true);
+        expect(specialistContainer.classes()).toContain("flex");
+        expect(specialistContainer.classes()).toContain("overflow-x-auto");
+        expect(wrapperMany.text()).toContain("横向滑动浏览");
+
+        const specialistButtons = specialistContainer.findAll("button");
+        expect(specialistButtons.length).toBe(5);
+        expect(specialistButtons[0]!.classes()).toContain("shrink-0");
+    });
 });
 
 describe("ModelPickerPopover", () => {
@@ -333,5 +393,24 @@ describe("ModelPickerPopover", () => {
 
         expect(wrapper.emitted("update:thinkingLevel")).toBeTruthy();
         expect(wrapper.emitted("update:thinkingLevel")![0]).toEqual(["medium"]);
+    });
+
+    it("ModelPickerPopover 弹出浮层具有 nb-popover 过渡动画配置", () => {
+        const wrapper = mount(ModelPickerPopover, {
+            props: {
+                open: true,
+                modelValue: "role:main",
+                roles: mockRoles,
+                models: mockModels,
+            },
+        });
+
+        const transition = wrapper.findComponent({name: "Transition"});
+        expect(transition.exists()).toBe(true);
+        expect(transition.props("name")).toBe("nb-popover");
+
+        const panel = wrapper.find(".model-picker-popover-panel");
+        expect(panel.exists()).toBe(true);
+        expect(panel.classes()).toContain("nb-ui-popover-motion");
     });
 });

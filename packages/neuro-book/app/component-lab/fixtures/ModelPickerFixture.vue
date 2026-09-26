@@ -18,8 +18,8 @@ const props = defineProps<{
 
 const emitLabEvent = useLabEventSink();
 
-// 模拟梯度轴与专精轴角色
-const mockRoles = ref<ModelPickerRoleItem[]>([
+// 模拟梯度轴角色 (固定 4 档)
+const GRADIENT_ROLES: ModelPickerRoleItem[] = [
     {
         id: "tiny",
         axis: "gradient",
@@ -60,6 +60,10 @@ const mockRoles = ref<ModelPickerRoleItem[]>([
         iconClass: "i-lucide-brain",
         enabled: true,
     },
+];
+
+// 恰好 4 个专精角色（验证 <=4 时直接采用网格无滚动条）
+const DEFAULT_SPECIALIST_ROLES: ModelPickerRoleItem[] = [
     {
         id: "writer",
         axis: "specialist",
@@ -100,6 +104,36 @@ const mockRoles = ref<ModelPickerRoleItem[]>([
         iconClass: "i-lucide-eye",
         enabled: true,
     },
+];
+
+// 扩充专精角色 (6 个，验证 >4 时的横向滑动浏览)
+const EXTENDED_SPECIALIST_ROLES: ModelPickerRoleItem[] = [
+    ...DEFAULT_SPECIALIST_ROLES,
+    {
+        id: "polish",
+        axis: "specialist",
+        name: "润色",
+        description: "词句精修与文风调和",
+        modelKey: "anthropic/claude-3-7-sonnet",
+        modelLabel: "Claude 3.7 Sonnet",
+        iconClass: "i-lucide-wand-sparkles",
+        enabled: true,
+    },
+    {
+        id: "lore",
+        axis: "specialist",
+        name: "设定",
+        description: "世界观与人物小传一致性校验",
+        modelKey: "deepseek/deepseek-chat",
+        modelLabel: "DeepSeek V3",
+        iconClass: "i-lucide-scroll",
+        enabled: true,
+    },
+];
+
+const mockRoles = ref<ModelPickerRoleItem[]>([
+    ...GRADIENT_ROLES,
+    ...DEFAULT_SPECIALIST_ROLES,
 ]);
 
 // 模拟物理模型列表
@@ -243,6 +277,10 @@ function applySceneAndData(scene: string, rawData: unknown): void {
 
     if (Array.isArray(data.roles) && data.roles.length > 0) {
         mockRoles.value = data.roles;
+    } else if (scene === "specialist-enabled" || scene === "content-only") {
+        mockRoles.value = [...GRADIENT_ROLES, ...EXTENDED_SPECIALIST_ROLES];
+    } else {
+        mockRoles.value = [...GRADIENT_ROLES, ...DEFAULT_SPECIALIST_ROLES];
     }
     if (Array.isArray(data.models) && data.models.length > 0) {
         mockModels.value = data.models;
@@ -260,7 +298,8 @@ watch(
 function handleSelect(val: string, item: unknown) {
     selectedValue.value = val;
     emitLabEvent("select", {val, item});
-    if (viewMode.value === "popover") {
+    const isRole = val.startsWith("role:") || (typeof item === "object" && item !== null && "axis" in item);
+    if (!isRole && viewMode.value === "popover") {
         popoverOpen.value = false;
     }
 }
@@ -316,7 +355,7 @@ function handleThinkingLevelUpdate(level: ThinkingLevelDto | null) {
                 direction="down"
                 align="center"
                 trigger-class="w-[280px]"
-                picker-width-class="w-[640px] max-w-[calc(100vw-32px)]"
+                picker-width-class="w-[620px] max-w-[calc(100vw-32px)]"
                 @update:model-value="emitLabEvent('update:modelValue', $event)"
                 @update:thinking-level="handleThinkingLevelUpdate"
                 @select="handleSelect"

@@ -574,7 +574,7 @@ defineExpose({focus, insertAttachment});
                         :session-model-draft="props.sessionModelDraft"
                         :selectable-models="props.selectableModels"
                         :roles="props.modelRoles"
-                        :show-specialist-in-picker="props.showSpecialistInPicker"
+                        :show-specialist-in-picker="props.showSpecialistInPicker ?? true"
                         :session-model-saving="props.sessionModelSaving"
                         :session-model-popover-open="props.sessionModelPopoverOpen"
                         :readonly="composerReadonly"

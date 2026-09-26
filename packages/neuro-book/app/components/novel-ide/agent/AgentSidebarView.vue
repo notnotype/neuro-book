@@ -225,6 +225,8 @@ defineExpose({
                     :session-thinking-resolved-label="props.composer.sessionThinkingResolvedLabel"
                     :session-model-draft="props.composer.sessionModelDraft"
                     :selectable-models="props.composer.selectableModels"
+                    :model-roles="props.composer.modelRoles"
+                    :show-specialist-in-picker="props.composer.showSpecialistInPicker ?? true"
                     :agent-mode="props.composer.agentMode"
                     :can-continue-without-input="props.composer.canContinueWithoutInput"
                     :queued-messages="props.composer.queuedMessages"
