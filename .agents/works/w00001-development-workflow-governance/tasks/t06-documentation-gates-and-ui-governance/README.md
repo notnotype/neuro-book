@@ -17,7 +17,7 @@ taskId: t06-documentation-gates-and-ui-governance
 
 执行位置为 `.worktree/w00001-development-workflow-governance`，分支 `feat/w00001-docs-anchor-check`。治理规则、检查器和受管组件文档保留；本轮导入主线已提交的场景差异并消除冲突，132 个组件的 468 个场景全部通过 `defineLabFixture<typeof C>` 显式登记。场景仅登记 JSON 输入，函数、Date、Set、服务与宿主回调由 fixture 在内存中提供；三个确无可编辑 JSON 输入的组件提供 `noInput` 理由。LabShell 移除旧 `data` 通道，`useLabSubject` 接入输入和事件；`index.test.ts` 验证输入登记、schema、JSON 无损往返与插槽预设。Grid 布局字典原为 null-prototype 对象，编辑台场景在登记处正规化为普通 JSON 对象，不修改 Grid 运行期逻辑。
 
-本轮整合由开发者授权本地提交及合并，不包含 push、PR 或远端写入。主工作区当前保持 `master`，原有 15 个 modified、28 个 untracked 属于用户改动，不能 stash/reset 或覆盖；治理工作树原有 `packages/nb-harness/AGENTS.md` 修改不属于本次集成。主工作区脏时不强制同步或移动其分支 ref，集成状态以实际 Git 操作结果为准。此前 `localhost:3000` 与 `127.0.0.1:3127` 的浏览器记录属于不同 checkout/revision，不能充作本轮运行证据。
+本轮在治理树本地提交为 `98b495e0b1eaf3a960355b33177510b282839962`，开发者授权合并 `master`，但尚未合并：主工作区保持 `master`，现有 15 个 modified、27 个 untracked 属于用户改动，其中两处 Lab fixture 与治理提交路径重叠，26 份未跟踪 nb-ui 文档也与治理既有提交路径重叠（16 份内容不同）。依仓库合并门禁，脏主树不切分支、不 stash/reset/覆盖、不移动 `master`；需要 owner 先完成其未提交改动的归属与集成，再从此提交继续。治理工作树原有 `packages/nb-harness/AGENTS.md` 修改仍未暂存，不属于集成。此前 `localhost:3000` 与 `127.0.0.1:3127` 的浏览器记录属于不同 checkout/revision，不能充作本轮运行证据。
 
 ## 本轮有效证据
 
@@ -34,4 +34,4 @@ taskId: t06-documentation-gates-and-ui-governance
 
 ## 授权边界与下一步
 
-本轮未执行隔离 State Root 的 `migrate:application-state -- --apply`，也未启动当前治理分支的 Source Dev 或浏览器人工验收；测试和静态检查不能替代实际界面视觉证据。完成这些运行验收需分别取得对应授权，且只能使用系统 Temp 下隔离 State Root，不能触碰真实用户数据库或复用其他 checkout 的服务。本地合并不会授权任何迁移、浏览器人工验收或远端写入。
+本轮未执行隔离 State Root 的 `migrate:application-state -- --apply`，也未启动当前治理分支的 Source Dev 或浏览器人工验收；测试和静态检查不能替代实际界面视觉证据。`git merge-tree --write-tree --messages master feat/w00001-docs-anchor-check` 只读预演显示双方六处已提交内容冲突；不能把纯树预演当作实际合并。主树的未提交修改未获 owner 交接，主分支集成暂停；此时不进行脏主树真实 merge，不清理用户文件。迁移与浏览器人工验收仍各需单独授权，本地合并授权不包含 push、PR 或远端写入。
