@@ -17,7 +17,7 @@ taskId: t06-documentation-gates-and-ui-governance
 
 集成前执行位置为 `.worktree/w00001-development-workflow-governance`，分支 `feat/w00001-docs-anchor-check`；最终验证与合并结果位于 `master`。治理规则、检查器和受管组件文档保留；本轮导入主线已提交的场景差异并消除冲突，132 个组件的 468 个场景全部通过 `defineLabFixture<typeof C>` 显式登记。场景仅登记 JSON 输入，函数、Date、Set、服务与宿主回调由 fixture 在内存中提供；三个确无可编辑 JSON 输入的组件提供 `noInput` 理由。LabShell 移除旧 `data` 通道，`useLabSubject` 接入输入和事件；`index.test.ts` 验证输入登记、schema、JSON 无损往返与插槽预设。Grid 布局字典原为 null-prototype 对象，编辑台场景在登记处正规化为普通 JSON 对象，不修改 Grid 运行期逻辑。
 
-治理树显式输入合同提交为 `98b495e0b1eaf3a960355b33177510b282839962`，治理阻塞快照提交为 `d5d0b486924c2c7902c06aa60040451b0194e546`。开发者随后明确要求先提交 `master` 原有改动再合并；原有 nb-ui 文档与 Agent/ModelPicker 行为分别提交为 `14d504f8fe68effa235520bfa95a174542039ffd`、`964ef83a1acecd952ca4cb6da18c640a1d3069ed`，最终在 `master` 提交合并结果 `1ec1a8b8abcd093b46d97cbb4e82661375d6a821` 并解决冲突。治理工作树原有 `packages/nb-harness/AGENTS.md` 修改仍未暂存，不属于集成。此前 `localhost:3000` 与 `127.0.0.1:3127` 的浏览器记录属于不同 checkout/revision，不能充作本轮运行证据。
+治理树显式输入合同提交为 `98b495e0b1eaf3a960355b33177510b282839962`，治理阻塞快照提交为 `d5d0b486924c2c7902c06aa60040451b0194e546`。开发者随后明确要求先提交 `master` 原有改动再合并；原有 nb-ui 文档与 Agent/ModelPicker 行为分别提交为 `14d504f8fe68effa235520bfa95a174542039ffd`、`964ef83a1acecd952ca4cb6da18c640a1d3069ed`，最终在 `master` 提交合并结果 `1ec1a8b8abcd093b46d97cbb4e82661375d6a821` 并解决冲突；AgentSidebar fixture 修复提交为 `1b677f775f4d6f74ab9c523ac39e83ca6f42afad`，已授权合入的 nb-harness 包规则提交为 `5c8f11cfbaf14ddf72b578c00c111866b8612e7f`。治理工作树此前原有的 `packages/nb-harness/AGENTS.md` 修改已按开发者授权同步到 `master`，治理工作树当前仅保留该文件的工作副本状态应以实际 Git 状态为准。此前 `localhost:3000` 与 `127.0.0.1:3127` 的浏览器记录属于不同 checkout/revision，不能充作本轮运行证据。
 
 ## 本轮有效证据
 
