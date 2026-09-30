@@ -113,6 +113,9 @@ owners:
 
 ## 证据
 
+- 实现入口：[`application.ts`](../../../packages/neuro-book/runtime/application/application.ts)
+- 合同测试：[`application.test.ts`](../../../packages/neuro-book/runtime/application/application.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
 - 2026-09-20 开发者明确要求以“环境适配入口、小内核”为第一切片并落 Spec，再以内置服务插件验证。批准方向与非目标见 [总体提案决策记录](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md#决策记录与下一步)。
 - 实现与验证：[w00017 t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（内核、适配器、双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对、公开面收紧并晋升）。
 - 已知限制：本规范描述第一切片的受控装配入口；产品整体启动链（`server/runtime/product-startup.ts`、`product-shutdown.ts`、Nuxt 插件）尚未迁入，仍走旧入口。POSIX 信号路径未在本机（Windows）实测：Windows 上外部进程无法合作发送信号，smoke 走 stdin `stop` 通道，适配器的信号翻译由合同测试的进程替身覆盖。显式关闭的 dirty/在途协商由调用方在调用 `stop()` 之前完成，第一切片没有 dirty 参与者，内核不提供否决接口。强制终止后的「未知」由外部观察者（持久化与领域 owner）判断，不属于实例自身可报告的结果。Desktop/Worker 无实测。

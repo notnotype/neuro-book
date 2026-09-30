@@ -131,6 +131,9 @@ owners:
 
 ## 证据
 
+- 实现入口：[`sqlite.ts`](../../../packages/neuro-book/server/features/sqlite/sqlite.ts)
+- 合同测试：[`sqlite.test.ts`](../../../packages/neuro-book/server/features/sqlite/sqlite.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
 - 批准依据：开发者于 2026-09-20 明确接受总体推进方向并要求把两片沉淀为 `planned` Spec；[应用运行时与内置插件架构提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md) 的内置插件划分表与“File、SQLite 与业务插件的分层”规定 `sqlite` 管连接、事务、迁移执行与关闭，Project 代次作用域内的 database 资源 owner 唯一管理物理文件与全部驱动连接，应用库、历史库与 RAG 库各有独立 owner。
 - 实现 provenance：[w00017 应用运行时与内置插件架构](../../../.agents/works/w00017-application-runtime-architecture/README.md) 与其 [t04 底座两切片规范与整体实施路径任务](../../../.agents/works/w00017-application-runtime-architecture/tasks/t04-foundation-spec-plan/README.md)。
 - 实现与验证：[w00017 t12](../../../.agents/works/w00017-application-runtime-architecture/tasks/t12-platform-sqlite/README.md)（机制与合同测试）、[t13 第二片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)（组合 smoke 与逐条核对后晋升）。

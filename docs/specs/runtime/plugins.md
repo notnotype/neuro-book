@@ -145,6 +145,9 @@ Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 由
 
 ## 证据
 
+- 实现入口：[`plugins.ts`](../../../packages/neuro-book/runtime/plugins/plugins.ts)
+- 合同测试：[`plugins.test.ts`](../../../packages/neuro-book/runtime/plugins/plugins.test.ts)
+- Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t07](../../../.agents/works/w00017-application-runtime-architecture/tasks/t07-runtime-plugins/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 已知限制：首批真实内置插件（diagnostics、platform-files、sqlite）归第二片；第一片只有受控插件证明机制。命令/View/设置等接收者的领域字段与校验由各能力 Spec 在首次消费时补齐。
