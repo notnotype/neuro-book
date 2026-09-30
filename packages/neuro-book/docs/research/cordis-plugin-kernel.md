@@ -5,6 +5,7 @@
 - 调研对象：上游 `cordiverse/cordis`（MIT）及其在 DeepSeek Harness 中的源码 vendored 副本
 - 关联：[ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)、[可扩展应用平台](../proposals/extensible-application-platform.md)、[应用运行时总提案](../proposals/application-runtime-and-plugins.md)
 - 配套调研：[运行时模块卸载能力](runtime-module-unloading.md)
+- 修订：2026-09-30 按 DeepSeek Harness 源码（commit `21638c5631`）复核客户端一节，补充两端结构与依赖（6.8 节）；来源为 [w00017 t27 的 DeepSeek Harness 调研](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)
 
 ## 证据口径与边界
 
@@ -229,19 +230,20 @@ cordis 不参与进程管理。DSH 由宿主层负责：`boot()` 装载 profile�
 
 ### 6.6 客户端
 
-cordis 核心可在浏览器运行，DSH 的多个客户端包 import cordis（源码：`packages/client/**` 的 import 语句）。插件的浏览器部分有两条加载路径，两者都不重新构建 Web 客户端（官方文档）：
+cordis 核心可在浏览器运行：DSH 的多个客户端包 import cordis，Web 启动时执行 `new Context()`、`ctx.plugin(Loader)`，并把客户端模块系统设为 Loader 的内部装载器（源码 `packages/client/**` 的 import 语句、`packages/client/web/src/boot.ts:169`、`packages/client/web/src/boot-client.ts:38-40`；未运行验证）。插件的浏览器部分有两条加载路径，两者都不重新构建 Web 客户端（官方文档）：
 
-1. **已安装插件的客户端模块**（`docs/subsystems/client-modules.md`、`packages/client/modules/README.md`）：
-   - 插件包在 `package.json` 中声明 `dsh.client`，并以 `exports["./client"]` 导出自己预先构建的 bundle；
-   - Host 扫描已启用的 Loader entry，组合启动图注入页面，经 `/plugins` 路由提供 bundle；
-   - 浏览器用自有的 lazy-CJS 模块表加载：执行 bundle 只登记工厂，首次使用才求值；外部依赖只能解析到外壳冻结的共享模块表 `PLATFORM_MODULES`（React、Cordis 与静态 UI 库）；
-   - 打开的页面经 HMR 传输跟随 Host 的模块图：启用插件时加入；停用时等待其异步清理，再逐出不再使用的模块与样式；重新启用时装载一个新实例；
+1. **已安装插件的客户端模块**（`docs/subsystems/client-modules.md`、`packages/client/modules/README.md`；2026-09-30 按源码复核）：
+   - 插件包在 `package.json` 中声明 `dsh.client`，其中 `platform` 必填且 Web 端只认 `web`，并以 `exports["./client"]` 导出自己预先构建的 bundle；声明了 `dsh.client` 却没有该导出时，扫描直接报错（源码 `packages/util/package-manifest/src/types.ts:80-94`、`packages/client/modules/src/index.ts:836-848`）。
+   - Host 只收录未禁用且已有 fiber 的 Loader entry，即 Node 端 import 成功的行（源码 `packages/client/modules/src/index.ts:984`），组合启动图注入页面，经 `/plugins` 路由提供 bundle。因此只有浏览器部分的包也要带一个能导入的 Node 端，多为空 `apply()`：71 个带 `dsh.client` 的包中有 44 个如此（脚本统计 `packages/*/*/package.json` 与对应 `src/index.ts`）。
+   - 浏览器用自有的 lazy-CJS 模块表加载：执行 bundle 只登记工厂，首次使用才求值。模块解析顺序为种子表、已物化记录、图中的包行、已注册工厂（源码 `packages/client/modules/src/client/manifest.ts:18-21`）。外壳冻结的共享模块表 `PLATFORM_MODULES`（React、Cordis 与静态 UI 库）是隐式基线；包还可以经 `dsh.client.external` 请求另一个动态包行，目前有 5 个包这样做，请求的都是 `@deepseek-ai/dsh-api-gateway/client`（源码与脚本统计）。
+   - 浏览器 entry 以 `{ name: 包名 }` 创建，拿不到 Host entry 的配置（源码 `packages/client/modules/src/client/entries.ts:167-175`）。
+   - 打开的页面经 dsh-client-hmr 与 `ClientEntries` 跟随 Host 的模块图，不经 cordis 的 `@cordisjs/plugin-hmr`（源码 `packages/client/hmr/src/client/index.ts:22`）：启用插件时加入；停用时先移除并等待其异步清理（源码 `packages/client/modules/src/client/entries.ts:200-209`），再逐出不再使用的模块与样式；重新启用时装载一个新实例。这在默认 Web 组合下成立，web-app bundle 常驻 `client-hmr` 行（`packages/bundle/web-app/cordis.patch.yml:201-202`）；Host 侧配置热应用依赖 `dsh-hmr`，base bundle 只在有 `profileContext` 时启用它（`packages/bundle/base/cordis.patch.yml:28-32`），没有 HMR 时启停要到重启才生效（`packages/boot/plugin-manager/README.md`）。
    - 替换已安装包的版本需要重启进程（`packages/boot/plugin-manager/README.md` 已知限制）。
 2. **模型定义的进程内动态包**（`packages/extensions/cordis-client-runner/README.md`）：浏览器部分是纯 JavaScript（无 JSX、TypeScript 与模块 import），以 async 函数执行，只能使用注入的 `React`、`console`、`styles`、`host`；须经批准或用户手势才进入页面，页面刷新后不恢复。
 
 第 2 条的设计笔记（`.agents/notes/rejected/architecture/2026-08-08-cordis-web-dynamic-packages.md`）状态为“rejected — closed as a proposal”，原因是已发布的 `packages/extensions` 运行时及其 README 接管了设计。笔记中“状态无法一致解释”是它要解决的问题陈述，不是否决理由。
 
-本节内容来自 DSH 的 README 与子系统文档，未在本地运行验证（见 §9）。
+本节第 1 条已按源码复核，第 2 条来自 README；两条都未在本地运行验证（见[未验证边界](#9-未验证边界)）。
 
 ### 6.7 vendoring 与本地改动
 
@@ -259,6 +261,25 @@ cordis 核心可在浏览器运行，DSH 的多个客户端包 import cordis（�
 | 22 | volatile 配置语义（跨 cosmokit / schemastery / cordis / loader） |
 
 同步流程为：记录上游 commit → 覆盖 `src/` → 重新应用本地改动 → 更新 manifest 版本与 commit → 跑根仓库 `pnpm install && pnpm run test && pnpm run build`（`vendor/README.md` 末尾）。
+
+### 6.8 两端结构与依赖
+
+2026-09-30 按源码补充（commit `21638c5631`，未运行验证）；完整行号见 [t27 的 DeepSeek Harness 调研](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/deps-dsh/REPORT.md)。
+
+- **两端是两个 cordis 插件。** 一个包的 Node 端来自 `"."` 导出，浏览器端来自 `exports["./client"]`，各有自己的 `apply` 与 `inject`，两端的 `inject` 可以完全不同。例如 file-upload 的 Node 端依赖 `agents`、`attachments`、`commands`、`connection`，浏览器端只依赖 `remote`（源码 `packages/client/file-upload/src/index.ts:58`、`packages/client/file-upload/src/client/index.ts:18`）。
+- **依赖声明分三层，互不替代**（文档 `packages/client/AGENTS.md:85-97`）：
+  - cordis `inject` 按服务名声明，决定激活。vendored cordis 只有必需一种，缺任一服务即停在 `PENDING`（源码 `vendor/cordis/src/registry.ts:12-19`、`vendor/cordis/src/fiber.ts:611-623`）；可选依赖用子插件 `ctx.inject([...], cb)` 或运行时 `ctx.get()`。
+  - `dsh.client.inject` 是包名列表，只在浏览器端用于工厂到达顺序与 HMR 比对，类型注释写明它不是 cordis 服务注入（源码 `packages/util/package-manifest/src/types.ts:84-85`、`packages/client/modules/src/client/system.ts:268-271`、`packages/client/modules/src/client/entries.ts:29-31`）。
+  - npm 依赖只表示安装关系，不决定激活（文档 `packages/client/AGENTS.md:60-66`）。
+  - 没有“插件 A 依赖插件 B”的插件级依赖：`DshManifest` 只有 `bundle`、`profile`、`client` 三个角色字段（源码 `packages/util/package-manifest/src/types.ts:30-39`）。
+- **浏览器端经 `remote` 网关使用服务端能力。** Host 服务继承 `TypertRemoteService` 并以名字登记，例如 `fileUploads`；构建从它的类型生成 `./remote` 描述。浏览器端网关把描述挂为 `ctx.remote.<命名空间>`，并为每个命名空间另登记一个 `remote.<命名空间>` 服务（源码 `packages/client/file-upload/src/index.ts`、`packages/api/gateway/src/client/index.ts:348-366,752-753`）。挂载只在浏览器本地完成，不检查 Host 服务是否在线；Host 服务缺席时，调用返回 `gateway/service-unavailable` 或 `gateway/invocation-unavailable`（源码 `packages/api/gateway/src/index.ts:694-700,771-772`）。多数命名空间由 `dsh-api-remotes` 的浏览器端静态列出（24 个）；实验性的语音输入在自己的浏览器端激活时自行挂载（源码 `packages/api/remotes/src/client/index.ts`、`packages/experimental/client-ui-voice-input/src/client/mount.ts:61`）。
+- **启停身份在 Host 端。** 安装单位是 bundle，启停单位是 Host Loader entry id；浏览器行由 Host entry 派生、按包名标识，经 HMR 推到每个页面；页面本地失败不改变 Host 的启用状态（源码 `packages/client/modules/src/client/entries.ts:9`；文档 `packages/client/modules/README.md:42`）。
+- **两端的失败语义不同。** 3.3 节所述 `PENDING` 不产生错误输出是 cordis 本身的行为，DSH 在两端另加了审计：
+  - Host 端非必需 entry 停在 `PENDING` 只告警，7 个必需 id 任一失败即抛 StartupError 并退出（源码 `packages/boot/app-boot/src/index.ts:746-754,824-862`）。
+  - Web 首次启动要求全部浏览器 entry 都已激活，否则停在启动页、不挂载界面（源码 `packages/client/web/src/boot-client.ts:36-88`；文档 `packages/client/web/README.md:123`）；启动后新增的行停在 `PENDING` 时只记为页面本地失败（源码 `packages/client/modules/src/client/entries.ts:232-243`）。
+  - Host 端 import 失败时浏览器行不发布（源码 `vendor/loader/src/config/entry.ts:221-235`、`packages/client/modules/src/index.ts:984`）；Host 端停在 `PENDING` 或失败时浏览器行照常发布（推断，依据同上两处，无测试覆盖）。
+- **同一服务名在两端可以是不同实现**，例如 `connection`（源码 `packages/client/connection/src/rpc-host.ts:80`、`packages/client/connection/src/client/index.ts:310`）。
+- **客户端平台。** `dsh.client.platform` 是字符串，目前只有 Web 端消费 `web`；headless、acp、sdk 等是服务端的 profile 组合，不是客户端平台（源码 `packages/util/package-manifest/src/types.ts:80-94`；文档 `packages/boot/app-boot/README.md:50`）。
 
 ## 7. 与 w00017 内核合同的机制对照
 
@@ -286,7 +307,7 @@ cordis 核心可在浏览器运行，DSH 的多个客户端包 import cordis（�
 |---|---|---|
 | 1 开放第三方可执行插件；最终验收为从本地文件夹安装的文生图插件 | Loader 可按绝对路径、`file://` URL 或包说明符装载并运行时挂载 | 源码 `tree.ts` `import()`；§5.3 实测 |
 | 1 第一版不做插件市场、在线分发、签名、权限沙箱、独立扩展宿主进程、热安装与热卸载 | cordis 无沙箱与分发机制；运行时挂载/卸载与配置热更新存在，代码热替换依赖外部插件并需要 Node 私有 API | 本文件 §5、配套调研 |
-| 1 文生图插件需在浏览器侧生效 | cordis 核心可在浏览器运行；DSH 已安装插件的浏览器部分以预构建 bundle 在运行时装入浏览器模块表，共享依赖解析到外壳的冻结模块表，启用与停用可在打开的页面上即时同步，版本替换需重启 | §6.6；DSH 客户端模块文档 |
+| 1 文生图插件需在浏览器侧生效 | cordis 核心可在浏览器运行；DSH 已安装插件的浏览器部分以预构建 bundle 在运行时装入浏览器模块表，共享依赖以外壳的冻结模块表为基线，默认 Web 组合下启用与停用可在打开的页面上即时同步，版本替换需重启 | 6.6 节；DSH 客户端模块源码与文档 |
 | 2 内核拥有进程 | cordis 不提供；由宿主层实现进程信号、启动门禁与根上下文 dispose | §6.5 |
 | 2 内置与第三方使用同一套登记、激活与贡献机制 | Loader 的 entry 机制对内置与第三方一致；贡献点机制需另建 | §5、§7 |
 | 3 公开 API 全部异步、参数与结果可序列化，插件只经注入的 API 对象访问宿主 | cordis 的服务是进程内对象引用（`ctx.<key>`）；跨端或跨进程调用需另加传输层 | 源码 `service.ts` / `context.ts`；§6.4 之外另见 DSH 的 Remote API 与 gateway 包 |
@@ -296,13 +317,12 @@ cordis 核心可在浏览器运行，DSH 的多个客户端包 import cordis（�
 
 ## 9. 未验证边界
 
-- 未运行 DeepSeek Harness 本体，§6 的内容全部来自其 README 与配置文件，未做运行时验证。
+- 未运行 DeepSeek Harness 本体。第 6 节主要来自其 README 与配置文件，6.6 节与 6.8 节于 2026-09-30 按源码复核；均未做运行时验证。
 - 未在 Nuxt / Nitro / 浏览器环境加载 cordis。
 - 未验证 cordis 在 Windows 与本项目 State Root 布局下的装载行为。
 - 未验证 `isolate` / `intercept` 的实际效果。
 - 本文实测使用 `cordis@4.0.0-rc.10` 与 `@cordisjs/plugin-loader@1.0.0-rc.7`；vendored 副本版本不同（4.0.0-rc.7 / 1.0.0-rc.5），两者行为可能存在差异。
 - 关于 Koishi 使用 cordis 的说法来自网络检索摘要，未在本地验证。
-- 未验证浏览器端 `@cordisjs/plugin-hmr` 是否存在。
 
 ## 10. 证据清单与复现
 
@@ -322,6 +342,7 @@ cordis 核心可在浏览器运行，DSH 的多个客户端包 import cordis（�
 - `packages/bundle/base/{README.md,cordis.patch.yml}`
 - `docs/subsystems/client-modules.md`、`packages/client/modules/README.md`、`packages/extensions/cordis-client-runner/README.md`（§6.6，2026-09-28 修正时补读）
 - `.agents/notes/rejected/architecture/2026-08-08-cordis-web-dynamic-packages.md`
+- 6.6 节与 6.8 节（2026-09-30，commit `21638c5631`）：`packages/util/package-manifest/src/types.ts`、`packages/client/modules/src/{index.ts,client/manifest.ts,client/system.ts,client/entries.ts}`、`packages/client/hmr/src/client/index.ts`、`packages/client/web/src/{boot.ts,boot-client.ts}`、`packages/client/file-upload/src/{index.ts,client/index.ts}`、`packages/api/gateway/src/{index.ts,client/index.ts}`、`packages/api/remotes/src/client/index.ts`、`packages/boot/app-boot/src/index.ts`、`vendor/loader/src/config/entry.ts`、`packages/client/AGENTS.md`、`packages/bundle/web-app/cordis.patch.yml`
 
 外部事实来源：
 

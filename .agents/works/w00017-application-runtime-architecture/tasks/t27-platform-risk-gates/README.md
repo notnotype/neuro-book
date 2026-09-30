@@ -62,4 +62,4 @@ taskId: t27-platform-risk-gates
 
 ## 下一步
 
-本 Task 的验证交付完成。2026-09-30 开发者同意插件系统与进程生命周期分两条线推进、生命周期部分按验证证据直接写入设计；设计稿 P2、P4、P5、P6、P7、P9、P11 与 ADR 0022 已按三个门的结论修订。剩余插件系统问题由开发者逐项决定后，把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，再进入阶段 1。
+本 Task 的验证交付完成。2026-09-30 开发者同意插件系统与进程生命周期分两条线推进、生命周期部分按验证证据直接写入设计；设计稿 P2、P4、P5、P6、P7、P9、P11 与 ADR 0022 已按三个门的结论修订。剩余插件系统问题已于 2026-09-30 全部确定：热升级（P8）、“插件、入口、服务”三层与按服务依赖（P1、P2、P3、P11）。下一步把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，再进入阶段 1。
