@@ -142,4 +142,4 @@ Smoke：示例外部插件在服务端与 Chromium 中各执行一次 worker 调
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P3、P4、P7（2026-09-30 确认 `ctx.storage` 在阶段 3 提供、`ctx.config` 与 `ctx.secrets` 在阶段 3 由 `nbook.settings` 提供、SDK 提供作用域定时器与异步包装、WebAssembly 不强制切分）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
 - 验证依据：[G2 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)（worker 池原型在 Bun 与 Chrome 中实测）。
-- “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，待开发者确认。
+- “跨插件调用一律返回结构化结果、不 reject”的解释、跨插件接口的三类划分、宿主错误码列表、worker 池上限与结算时限、`ctx.storage` 的键值加私有目录形态与数据位置、密钥不可解密时的行为由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

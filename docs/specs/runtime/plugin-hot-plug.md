@@ -140,4 +140,4 @@ Smoke：在真实服务端与 Chromium 上用示例外部插件（两端入口�
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P1 第 4 至 6、9 项与 P11（2026-09-29 批准运行期即时生效，2026-09-30 确认热插拔三档、引用账本、三步停止）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 1 条。
 - 实验依据：[t26 同线程卸载与看门狗实验](../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)。
-- 等待上限 5 秒与中止宽限 2 秒由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，待开发者确认。
+- 等待上限 5 秒与中止宽限 2 秒由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

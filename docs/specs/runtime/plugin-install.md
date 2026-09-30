@@ -123,4 +123,4 @@ Smoke：阶段 3 的示例外部插件完成场景 1、3、4、5、8，在真实
 ## 证据
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P8（含 2026-09-30 确认的热升级）与 P11；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 1、3、4 条。
-- 插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、升级成功判定、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，待开发者确认。
+- 插件登记表文件名 `plugins.json`、复制范围与路径边界、拒绝同版本重装、允许降级并提示、升级成功判定、各操作的提交点、插件管理限插件所有者、安全模式环境变量名、插件管理由内置插件 `nbook.plugins` 提供，由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。

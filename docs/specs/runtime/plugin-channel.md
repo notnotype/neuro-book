@@ -117,4 +117,4 @@ Smoke：Files 竖切（阶段 2）在真实服务端与 Chromium 上核对场景
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P5（2026-09-30 确认合同三种原语、HTTP 入口两层、不采用 waterfall、流的传输在首个需要的功能落地时实现、版本校验）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 3 条。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)（自有入口下的请求处理与会话鉴权）。
-- 错误码与 HTTP 状态的对应、路由鉴权方式的两种取值、插件集合修订号、路由冲突规则、请求日志字段由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，待开发者确认。
+- 错误码与 HTTP 状态的对应、路由鉴权方式的两种取值、插件集合修订号、路由冲突规则、请求日志字段由 [w00017 t28](../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md) 选定，2026-09-30 开发者确认；这些值尚无实现验证，实现中可按实测修订，修订时同步本文。
