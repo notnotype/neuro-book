@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 状态：`accepted`（2026-09-30）。需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道、热升级、入口与服务级依赖，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。风险门 G0、G1、G2 已于同日验证（见 [w00017 t27](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)），结论写入 P2、P4、P5、P6、P7、P11；接受不等于实施授权，行为合同写入 `planned` Spec 后才进入阶段 1。
+- 状态：`accepted`（2026-09-30）。需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道、热升级、入口与服务级依赖，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。风险门 G0、G1、G2 已于同日验证（见 [w00017 t27](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)），结论写入 P2、P4、P5、P6、P7、P11；接受不等于实施授权；行为合同已于同日写入 `planned` Spec（见[对 Spec 的预期改动](#对-spec-的预期改动)），实施按阶段另行授权。
 - 与既有提案的关系：
   - [应用运行时总提案](application-runtime-and-plugins.md)的内核合同（资源作用域、服务装配、激活事务、有序关闭）继续有效；其非目标“不加载第三方代码”由 ADR 0022 取代。
   - [产品装配提案](application-runtime-product-integration.md)中后端启动（S0）与 HTTP 入口的设计由本文 [P6](#p6-服务端宿主内核拥有进程) 替代；其余阶段待按本文复核。
@@ -279,7 +279,7 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 
 - **阈值 10 秒。** 必须小于 Session Store 租约的心跳间隔 15 秒，而不是过期时间 30 秒：卡死若发生在一次续期之前，锁在约 15 秒后即可被其它进程接管（G2 实测第 17.3 秒被接管，原进程恢复后还执行了一次写入）。
 - **何时计时。** 启动完成后才开始计时；识别整个进程被暂停（例如系统睡眠）并重新计时；检测到调试器连接时停用，开发模式默认关闭，因为断点只暂停主线程，看门狗会误判为卡死。
-- **卡死时的动作。** 写出卡死报告（在途插件调用，嫌疑按可信度分为 direct、candidate、weak、unknown），删除本进程持有的租约锁，以专用退出码经 FFI 结束进程（POSIX `_exit`，Windows `TerminateProcess`）。不用 `SIGKILL`：经产品两层启动包装后，Manager 看到的是退出码 1，与启动失败无法区分；不删锁则重启后要等锁过期（实测 9.6 秒）才能取得租约。
+- **卡死时的动作。** 写出卡死报告（在途插件调用，嫌疑按可信度分为 direct、candidate、weak、unknown），以专用退出码经 FFI 结束进程（POSIX `_exit`，Windows `TerminateProcess`）。不用 `SIGKILL`：经产品两层启动包装后，Manager 看到的是退出码 1，与启动失败无法区分。租约锁由 Manager 在确认进程已退出后删除再重启（不删锁则重启后要等锁过期，实测 9.6 秒）；看门狗自己不删锁，因为卡死的主线程可能在删锁与进程结束之间恢复，与新的锁持有者同时写入（2026-09-30 跨模型审查指出，据此修订）。
 - **重启与提示的职责。** Manager 负责重启与重启次数上限，Desktop 负责重启期间的呈现，内核在下次启动时读报告并提示禁用相关插件；只有 direct 与 candidate 计入“反复卡死自动进入安全模式”。现有 Desktop 与 Manager 在服务就绪后既不重启也不提示，需要改产品运行时合同、Manager、Electron 与 Tauri。
 - **分期（2026-09-30 开发者确认）。** 阶段 1 只做“只统计、不结束进程”的记录模式，也可以暂不做；结束进程、自动重启与提示禁用放在阶段 3，随第三方插件加载器一起做。难度不高，主要是跨五处的工作量。
 
@@ -334,7 +334,7 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 1. **准备：** 新版本复制到 `<State Root>/plugins/<id>/<新版本>/`，与旧版本并存；校验清单与 `engines.neurobook`。依赖它的插件如果在 `pluginVersions` 中声明的范围不接受新版本，列出这些插件，由用户确认升级后它们受阻。
 2. **切换：** 旧版本按禁用执行三步停止（[P11](#p11-启动停止与插件状态)），依赖它的入口先停；登记新版本。旧版本原先处于激活状态时新版本立即激活，否则只登记；依赖者重新激活，取得新版本的导出 API。确认界面提示依赖者会短暂停止、在途调用会被中断。
 3. **两端同步：** 服务端经插件集合变化事件通知所有窗口；窗口停止旧的浏览器部分、从宿主模块表注销旧代码、加载新版本，页面不刷新。切换瞬间的在途通道请求由版本校验兜住（P5 通道语义第 8 条）。
-4. **失败回滚：** 新版本登记或激活失败时自动切回旧版本；这两步成功之前不删除旧版本目录。
+4. **失败回滚：** 升级只在服务端判定：新版本登记失败，或旧版本已激活、新版本仍存在的服务端入口激活失败时，自动切回旧版本；这两步成功之前不删除旧版本目录。浏览器入口在某个窗口中失败不触发回滚，按窗口失败呈现，升级不是跨运行位置的原子操作。同一版本重装被拒绝。
 5. **数据：** 插件私有存储与配置跨版本保留。数据格式的迁移由插件自己完成，激活时 SDK 提供上一次激活的版本号。回滚后旧版本可能读到已被新版本迁移的数据，内核不回滚数据，插件作者文档写明这一限制。
 6. **回收旧代码：** 服务端删除旧版本的模块缓存，浏览器注销旧模块表项，按 L2 尽力回收（P11）。
 
@@ -464,7 +464,7 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 
 1. **登记跟随作用域。** 贡献实现、命令处理函数、事件订阅、上下文键、借用的导出 API 都登记在登记方的激活作用域上，作用域关闭时自动撤回。
 2. **撤回由内核推送。** 贡献点拥有者经接收者得到声明层与实现层通知；导出 API 的使用方按连带规则先于提供方受阻，残留的转发器失效；命令调用方在调用时得到结果。拥有者不轮询。
-3. **三步停止。** 连带受阻的入口按依赖逆序先于被禁用插件的入口执行：
+3. **三步停止。** 一次启停中受影响的全部入口同时进入每一步，时间预算按整次操作计算（等待 5 秒、中止宽限 2 秒，待开发者确认），之后按依赖逆序关闭：
    1. 等待：停止接纳新调用，按声明逆序撤回它交出的贡献，有界等待在途调用自然完成；
    2. 中止：触发插件的终止信号，再给一段短时间；
    3. 放弃：仍未结束的调用由内核替调用方结算为“已中断”，撤销该插件持有的全部宿主 API 转发器，删除其模块缓存；迟到的结果一律丢弃。
@@ -516,19 +516,22 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 
 ## 对 Spec 的预期改动
 
-G0、G1、G2 验证完成后写入 `planned` Spec；在此之前不修改 Spec。现行的 [`runtime.plugins`](../../../../docs/specs/runtime/plugins.md) 仍把第三方加载与热卸载列为非目标，它描述的是已实现的行为，改写时一并更新。
+2026-09-30 已按本文写入 `planned` Spec（[w00017 t28](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t28-platform-planned-specs/README.md)）。已 `implemented` 的 [`runtime.plugins`](../../../../docs/specs/runtime/plugins.md) 与 [`runtime.application`](../../../../docs/specs/runtime/application.md) 描述当前行为，不改为 `planned`；新行为按可独立验收的能力拆成下列 Spec，旧 Spec 只补相邻链接，实现后再修订其非目标。
 
-| Capability | 改动 |
-|---|---|
-| `runtime.plugins` | 插件包与清单、拥有者插件定义的贡献点（声明层与实现层）、激活事件、跨位置同一身份、入口清单与服务级依赖（含依赖本插件通道）、外部来源加载与兼容检查、引用账本与转发器、跨插件调用包装、三步停止、代码装载器与卸载、开发模式检查 |
-| `runtime.application` | 宿主适配器拥有进程；开发与生产两种服务端宿主；停止来源；主线程卡死看门狗与卡死报告 |
-| 新增：插件安装与发现 | 安装、启用、禁用、卸载、升级即时生效；热升级的检查、切换、两端同步与失败回滚；三种用户状态与推导的运行状态；兼容、安全模式、失败呈现 |
-| 新增：插件公开 API | SDK 公开面、远程形态约束、终止信号约定、worker 池、私有存储、错误与释放语义 |
-| 新增：插件通道 | 合同三种原语、调用与订阅事件流、双向流、鉴权与用户身份、Project 身份与代次、断线重订阅、连接作用域、路由贡献 |
-| 新增：API 文档 | 端点收集、OpenAPI 生成与展示 |
-| `workbench.*` | 视图、命令、菜单、快捷键改由 workbench 插件的贡献点提供 |
-| `workspace.files`、`workbench.files-explorer` | 传输改走插件通道；行为合同不变 |
-| 模型、Agent 工具、编辑器、资产、设置 | 阶段 3 时按各自能力沿原 Spec 修订或新建 |
+| Capability | 内容 | 实施阶段 |
+|---|---|---|
+| [`runtime.plugin-manifest`](../../../../docs/specs/runtime/plugin-manifest.md) | 清单格式、入口与服务级依赖、同一运行位置解析、受阻推导、启停顺序 | 1 起 |
+| [`runtime.server-host`](../../../../docs/specs/runtime/server-host.md) | 内核拥有进程、启动与停止序列、停止来源、退出码、开发模式 | 1 |
+| [`runtime.browser-host`](../../../../docs/specs/runtime/browser-host.md) | 挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界 | 1 |
+| [`runtime.plugin-channel`](../../../../docs/specs/runtime/plugin-channel.md) | 合同端点、订阅与重连、错误格式、版本校验、路由贡献（流的传输另立） | 1、2 |
+| [`runtime.api-docs`](../../../../docs/specs/runtime/api-docs.md) | 端点收集、OpenAPI 生成与展示 | 2 |
+| [`runtime.plugin-hot-plug`](../../../../docs/specs/runtime/plugin-hot-plug.md) | 热插拔三档、引用账本、三步停止、在途调用 | 3 |
+| [`runtime.plugin-install`](../../../../docs/specs/runtime/plugin-install.md) | 安装、卸载、兼容、安全模式、热升级 | 3 |
+| [`runtime.plugin-code-loading`](../../../../docs/specs/runtime/plugin-code-loading.md) | 服务端装载与回收、浏览器宿主模块表、纯度检查、插件文件端点 | 3 |
+| [`runtime.plugin-api`](../../../../docs/specs/runtime/plugin-api.md) | SDK 公开面、错误码、worker 池、私有存储、配置与密钥 | 3 |
+| [`runtime.stall-watchdog`](../../../../docs/specs/runtime/stall-watchdog.md) | 卡死检测与报告、退出码 76、自动重启与提示 | 3 |
+
+以下随各阶段的功能落地再写：`workbench.*` 的视图、命令、菜单、快捷键改由 workbench 插件的贡献点提供；`workspace.files`、`workbench.files-explorer` 的传输改走插件通道（行为合同不变）；模型、Agent 工具、编辑器、资产、设置在阶段 3 按各自能力沿原 Spec 修订或新建；流原语的传输在第一个需要上行的功能落地时另立。
 
 ## 评审问题
 

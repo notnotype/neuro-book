@@ -107,6 +107,7 @@ owners:
 - **跨位置**：不做网络原子激活、不传对象引用、不提供通用 RPC 或写操作的自动重试；跨位置协议与授权归 `runtime.application` 与各能力合同。
 - **兼容与迁移**：允许 clean cutover（迁移全部调用方并删除旧入口）；本批不提供热卸载、不承诺第三方 SDK 兼容、不新增发布包、不改变数据格式或迁移策略。首批验收只要求底座与最小内置服务插件集合（diagnostics、platform-files、sqlite）真实可用，不要求全部业务插件迁移。
 - **相邻合同**：服务声明与解析（含提供声明到激活的协作、对外依赖边与运行时等待环）见 [`runtime.services`](./services.md)；资源所有权与关闭见 [`runtime.lifecycle`](./lifecycle.md)；应用清单、启动门禁与跨位置装配见 `runtime.application`。
+- **已批准的后续目标**（`planned`，实现后本文随之修订非目标）：插件清单与按入口的服务依赖见 [`runtime.plugin-manifest`](./plugin-manifest.md)；运行期启用、禁用与引用撤回见 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)；第三方安装与热升级见 [`runtime.plugin-install`](./plugin-install.md)；代码装载与回收见 [`runtime.plugin-code-loading`](./plugin-code-loading.md)。
 
 ## 验收与 Smoke
 

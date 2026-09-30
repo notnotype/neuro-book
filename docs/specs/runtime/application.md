@@ -77,6 +77,7 @@ owners:
 4. State Root 完整性检查当前只读并告警，不因接入本合同自动变成拒绝启动或自动合并/删除数据。所有真实数据格式/迁移策略变化单独决策。
 5. Nuxt/Nitro hook 只连接一个明确的应用装配入口。Component Lab 不成为该入口的底层依赖；后续 Lab 清单与产品清单分开，浏览器是否访问产品服务取决于明确装配，而不是路由名称的隐式豁免。
 6. 第一切片交付 B/S 所需的浏览器与后端环境入口，另有受控测试宿主用于故障验证；Desktop/Worker 仅保留可适配边界，尚无该环境实测时不得宣称支持。
+7. 产品启动链迁入内核的目标合同（`planned`）见 [`runtime.server-host`](server-host.md)、[`runtime.browser-host`](browser-host.md) 与 [`runtime.stall-watchdog`](stall-watchdog.md)。
 
 ## 验收与 Smoke
 

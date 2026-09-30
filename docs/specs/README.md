@@ -128,6 +128,16 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
 | 工作区文件访问与操作 | [`workspace/files.md`](workspace/files.md) | `workspace.files`；首版文件读写、目录/批量操作、无覆盖冲突、逐项失败与取消语义已批准；尚未实施或运行验证 |
+| 插件清单、入口与服务依赖 | [`runtime/plugin-manifest.md`](runtime/plugin-manifest.md) | `runtime.plugin-manifest`；清单格式、按入口声明依赖的服务、同一运行位置解析、受阻推导与启停顺序；阶段 1 起实施 |
+| 服务端宿主 | [`runtime/server-host.md`](runtime/server-host.md) | `runtime.server-host`；内核拥有进程、启动与停止序列、停止来源汇合、退出码、开发模式热重载与停止；阶段 1 实施 |
+| 浏览器宿主 | [`runtime/browser-host.md`](runtime/browser-host.md) | `runtime.browser-host`；挂载前建立窗口运行实例、引导接口、多窗口隔离、可分离边界；阶段 1 实施 |
+| 插件通道与 HTTP 入口 | [`runtime/plugin-channel.md`](runtime/plugin-channel.md) | `runtime.plugin-channel`；合同端点、订阅与重连、错误格式、版本校验、路由贡献；流的传输另立；阶段 1、2 实施 |
+| 端点收集与 API 文档 | [`runtime/api-docs.md`](runtime/api-docs.md) | `runtime.api-docs`；端点声明收集、OpenAPI 生成与展示；阶段 2 实施 |
+| 插件运行期启用与禁用 | [`runtime/plugin-hot-plug.md`](runtime/plugin-hot-plug.md) | `runtime.plugin-hot-plug`；热插拔三档、引用账本与转发器、三步停止、在途调用结算；阶段 3 实施 |
+| 插件安装与热升级 | [`runtime/plugin-install.md`](runtime/plugin-install.md) | `runtime.plugin-install`；本地文件夹安装、卸载、兼容、安全模式、热升级与回滚；阶段 3 实施 |
+| 插件代码的装载与回收 | [`runtime/plugin-code-loading.md`](runtime/plugin-code-loading.md) | `runtime.plugin-code-loading`；服务端装载与缓存回收、浏览器宿主模块表、纯度检查、插件文件端点；阶段 3 实施 |
+| 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | `runtime.plugin-api`；远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥；阶段 3 实施 |
+| 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | `runtime.stall-watchdog`；卡死检测、报告、退出码 76、Manager 自动重启与 Desktop 呈现、提示禁用与自动安全模式；阶段 3 实施 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | `workbench.files-explorer`；双模式、F1–F9 交互/剪贴板/dirty 策略与验收已收口；主页面真实链尚未实施，第二版草案未进入本规范 |
 
 ## 冻结过渡规范
