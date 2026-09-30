@@ -5,6 +5,7 @@ import {dirname, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {resolveAgentScratchPath} from "@notnotype/neuro-book-test-support/paths";
 import {chromium, type Browser, type ConsoleMessage, type Page} from "playwright-core";
+import {assertAgentConversationViewSmoke} from "./agent-conversation-view";
 import {assert, runAgentProfileNavSmoke} from "./agent-profile-nav";
 import {assertAgentProfileSettingsDialogSmoke, assertAgentProfileSettingsNarrowSmoke} from "./agent-profile-settings-dialog";
 import {assertSettingsViewSmoke} from "./settings-view";
@@ -13,7 +14,7 @@ import {assertWorkbenchContainerSmoke} from "./workbench-containers";
 import {assertWorkbenchShellSmoke} from "./workbench-shell";
 import {assertLabCommandSceneSmoke, leaveLabThroughRouter, watchLabBootstrapRequests} from "./lab-command-scene";
 
-type ComponentLabSmokeSuite = "all" | "core" | "agent-profile" | "project-picker" | "workbench-shell";
+type ComponentLabSmokeSuite = "all" | "core" | "agent-profile" | "agent-conversation" | "project-picker" | "workbench-shell";
 
 type ComponentLabSmokeOptions = {
     url: string;
@@ -43,6 +44,19 @@ export async function runComponentLabSmoke(input: ComponentLabSmokeOptions): Pro
             headless: true,
             timeout: 60_000,
         });
+        if (suite === "agent-conversation") {
+            // 按场景各开标签页、用 URL 参数直达，不依赖下面的 Lab 外壳检查，外壳改版不阻断这组证据。
+            const screenshots = input.screenshot === undefined
+                ? resolveAgentScratchPath("browser", "component-lab-agent-conversation", randomBytes(4).toString("hex"))
+                : dirname(input.screenshot);
+            await assertAgentConversationViewSmoke(browser, input.url, failures, screenshots);
+            if (failures.length > 0) {
+                throw new Error(formatFailures(failures, screenshots));
+            }
+            console.log(`Component Lab Agent conversation smoke passed: ${input.url}`);
+            return;
+        }
+
         const page = await browser.newPage({viewport: {width: 1600, height: 1000}});
         observePage(page, failures);
 
@@ -289,10 +303,10 @@ function parseOptions(args: string[]): ComponentLabSmokeOptions {
     const url = values["--url"];
     const browserExecutable = values["--browser-executable"];
     if (!url || !browserExecutable) {
-        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile|project-picker|workbench-shell] [--screenshot <path>]");
+        throw new Error("用法：node --import tsx scripts/smoke/component-lab.ts --url <url> --browser-executable <path> [--suite all|core|agent-profile|agent-conversation|project-picker|workbench-shell] [--screenshot <path>]");
     }
     const suite = values["--suite"];
-    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile" && suite !== "project-picker" && suite !== "workbench-shell") {
+    if (suite !== undefined && suite !== "all" && suite !== "core" && suite !== "agent-profile" && suite !== "agent-conversation" && suite !== "project-picker" && suite !== "workbench-shell") {
         throw new Error(`无效 smoke 套件：${suite}`);
     }
     return {url: new URL(url).href, browserExecutable, screenshot: values["--screenshot"], suite: (suite ?? "all") as ComponentLabSmokeSuite};

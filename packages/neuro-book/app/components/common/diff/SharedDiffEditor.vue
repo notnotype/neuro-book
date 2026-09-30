@@ -69,9 +69,14 @@ async function ensureEditor(): Promise<void> {
         return;
     }
     monacoApi = monacoApi ?? await loadMonacoEditor();
-    applyMonacoDiffTheme(monacoApi, rootRef.value);
+    // 首次加载 Monaco 要几秒，组件可能已经卸载，模板 ref 随之置空。
+    const root = rootRef.value;
+    if (!root) {
+        return;
+    }
+    applyMonacoDiffTheme(monacoApi, root);
     if (!diffEditor) {
-        diffEditor = monacoApi.editor.createDiffEditor(rootRef.value, {
+        diffEditor = monacoApi.editor.createDiffEditor(root, {
             automaticLayout: true,
             readOnly: props.readonly,
             originalEditable: false,

@@ -17,14 +17,15 @@ NeuroBook 是本地优先的长篇写作工作区；作品文件、SQLite、Agen
 - 不为可逆、影响小的改动强制写测试；涉及核心逻辑、边界或无把握时仍应补充测试。
 - 主 Agent 对当前目标负责，可直接调查、实现和验证；只有独立且值得委派的切片才交给子代理。高风险变更按需独立审查，不设正式角色或强制交接。
 - 按当前问题选择能补足缺失知识的最具体 Skill；已加载且未变化的材料不重读，多技能检查按目的去重。验证与停止条件统一见 [`docs/testing/README.md#验证门禁`](docs/testing/README.md#验证门禁)，不叠加通用生命周期门禁。
+- 任务中出现意外失败或绕路、用户纠正做法或提出新规范、发现规范缺失或矛盾时，按 [`task-reflection`](.agents/skills/task-reflection/SKILL.md) 在交付时分类列出回写建议，经开发者批准后再写入。
 
 ## 了解开发者
 
-- 使用中文、结论先行，以可观察行为和影响解释判断；长任务必要时简短回顾目标。
-- 不用罕见符号代替中文词；代码、JSON、命令和记法定义本身的符号不受此限。
+- 使用中文交流、结论先行，以可观察行为和影响解释判断；长任务必要时简短回顾目标。
+- 回复和文档都不用罕见符号代替中文词，例如引用章节写小节名或锚点链接，不写 `§`；代码、JSON、命令和记法定义本身的符号不受此限。`governance:check` 对活跃 Markdown 里的 `§`、`¶` 给出警告。
 - 从请求和既有上下文判断意图，可查事实自行查明。只把改变产品结果、范围、权限或不可逆后果的问题交给开发者，并说明背景和取舍；低风险细节沿用现有模式，重大假设简短说明。
 - 关于 advisor：advisor 不是我，是 omp 中监督你工作的另一个 agent。敢于质疑 advisor。可以参考它的建议，但最终决定权在你自己，他的回复不代表开发者的回复，不要把回复他当做最终回复，也不要因为他的回复而扩大你的任务范围
-- 回复中的文件引用使用绝对路径或者相对于当前工作目录的相对路径
+- 回复中的文件引用使用绝对路径或者相对路径（有 worktree 需要带 worktree）
 
 ## 真实模型调用与样本数据
 
@@ -88,7 +89,7 @@ neuro-book/
 | Git 分支、worktree、提交、PR、合并或发布操作 | [`.agents/skills/repository-workflow/SKILL.md`](.agents/skills/repository-workflow/SKILL.md)；Issue 元数据维护读 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)，公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
 | 前端、UI 界面、组件、样式或主题修改 | [`.agents/skills/ui-development/SKILL.md`](.agents/skills/ui-development/SKILL.md)、[`docs/standards/code/components.md`](docs/standards/code/components.md)、[`packages/nb-ui/docs/ui-development-spec.md`](packages/nb-ui/docs/ui-development-spec.md)；查改组件必读并列同名 `.md` |
 | 前端、服务端、桌面、数据库、脚本、发布、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`packages/neuro-book/server/AGENTS.md`](packages/neuro-book/server/AGENTS.md)、[`packages/neuro-book/prisma/AGENTS.md`](packages/neuro-book/prisma/AGENTS.md)、[`desktop/AGENTS.md`](desktop/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
-| Agent 消费的规则、Skill、AGENTS.md 或 CLAUDE.md | [`.agents/skills/writing-for-agents/SKILL.md`](.agents/skills/writing-for-agents/SKILL.md)；修改 Skill 时再读同目录 `SKILL-MECHANICS.md` |
+| 新增或修改开发 Agent Skill | [`.agents/skills/README.md`](.agents/skills/README.md) |
 
 ## Git 注意事项
 

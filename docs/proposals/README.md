@@ -13,6 +13,8 @@
 - [可扩展应用平台](../../packages/neuro-book/docs/proposals/extensible-application-platform.md)：内核拥有进程、领域能力皆为内置插件、第三方插件免构建安装、运行期热插拔、插件通道与远程形态 API 的机制设计及推进路线，`accepted`（2026-09-30）；已确认的长期决定见 [ADR 0022](../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。
 - [Files 与资源管理器第一版](../../packages/neuro-book/docs/proposals/files-explorer.md)：范围及 F1–F9 `accepted`，行为已原位沉淀为 `workspace.files` / `workbench.files-explorer`（`planned`）；保留设计理由、内部接缝与待验证性能依据，尚未实施。
 - [Files 与资源管理器第二版](../../packages/neuro-book/docs/proposals/files-explorer-v2.md)：`draft`；快速打开与删除恢复为核心方向，全文搜索/内容整理/导入导出为候选，不扩大第一版验收。
+- [`Agent 对话视图重做`](../../packages/neuro-book/docs/proposals/agent-conversation-view.md)：在 `app/components/agent/` 重做纯视图的 `AgentConversationView`（只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流、卡片与视觉统一、Lab 时间线回放），只做前端、只以 Lab 验收，状态为 `accepted`；已批准行为见 [ui.agent-conversation-view](../specs/ui/agent-conversation-view.md) 与 [ui.component-lab.timeline](../specs/ui/component-lab-timeline.md)。
+- [`Agent 会话数据层后续`](../../packages/neuro-book/docs/proposals/agent-session-data-layer.md)：记录阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等数据层与后端问题，留到 w00017 插件体系就绪后处理，状态为 `draft`。
 - [`model-roles-contract.md`](./model-roles-contract.md)：模型角色的后端契约（全局配置 `roles` 段、按 role 解析模型的优先级、本地模型已由 Provider 机制覆盖的结论），状态为 `draft`，等待「未决取舍」拍板。
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。

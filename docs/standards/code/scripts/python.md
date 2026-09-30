@@ -1,6 +1,6 @@
 # Python Skill 工具规范
 
-适用：`.agents/skills/**/*.py`。修改 Skill 时同时读取该 Skill 的 `SKILL.md`、可用的 `SKILL-MECHANICS.md` 和 writing-for-agents 规范。
+适用：`.agents/skills/**/*.py`。修改 Skill 时同时读取该 Skill 的 `SKILL.md`。
 
 - Python 工具留在所属 Skill 内，沿用该 Skill 的依赖、入口和验证方式；仓库根不新增平行 Python runtime、虚拟环境或依赖管理。
 - 使用 4 空格、`pathlib`、标准库结构化解析和 `if __name__ == "__main__":`；公共函数与跨文件数据加类型标注。

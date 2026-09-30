@@ -57,6 +57,8 @@
     "smoke:component-lab": "node --import tsx scripts/smoke/component-lab.ts",
     "smoke:component-lab:core": "node --import tsx scripts/smoke/component-lab.ts --suite core",
     "smoke:component-lab:agent-profile": "node --import tsx scripts/smoke/component-lab.ts --suite agent-profile",
+    "smoke:component-lab:agent-conversation": "node --import tsx scripts/smoke/component-lab.ts --suite agent-conversation",
+    "lab:shot": "node --import tsx scripts/lab/shot.ts",
     "smoke:storage-host-identity": "node --import tsx scripts/smoke/storage-host-identity.ts",
     "smoke:storage-value-adapter": "node --import tsx scripts/smoke/storage-value-adapter.ts",
     "smoke:storage-project-adapter": "node --import tsx scripts/smoke/storage-project-adapter.ts",

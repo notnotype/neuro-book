@@ -507,6 +507,54 @@ export function verifyGovernanceDocumentLimits(repoRoot: string): string[] {
     return failures;
 }
 
+/** 文档里代替中文词的罕见符号；行内代码与代码块中的不算，它们是在引用符号本身。 */
+const RARE_DOCUMENT_SYMBOL_PATTERN = /[§¶]/gu;
+
+/** 历史 provenance 与 changelog 保持原样，不参与罕见符号检查。 */
+function isFrozenDocument(relativePath: string): boolean {
+    return relativePath.startsWith("docs/tasks/")
+        || relativePath.startsWith("docs/archived/")
+        || relativePath.startsWith(".agents/tasks/")
+        || relativePath.includes("/.agents/tasks/")
+        || /^vitepress\/locales\/[^/]+\/changelog\//u.test(relativePath);
+}
+
+function countRareDocumentSymbols(markdown: string): number {
+    const prose = markdown
+        .replace(/^[ \t]*(```|~~~)[^\n]*\n[\s\S]*?^[ \t]*\1[^\n]*$/gmu, "")
+        .replace(/`[^`\n]*`/gu, "");
+    return prose.match(RARE_DOCUMENT_SYMBOL_PATTERN)?.length ?? 0;
+}
+
+/**
+ * 活跃 Markdown 里用 `§`、`¶` 代替中文词时给出警告（开发者要求写小节名或锚点链接）。
+ * 存量很多，逐处列出会占满报告和读报告的上下文，所以最多一条：总数、未提交改动里的文件、存量最多的几个文件。
+ * 返回 warnings，不是 failures。
+ */
+export function verifyRareDocumentSymbols(repoRoot: string, listLimit = 5): string[] {
+    const files = git(repoRoot, ["ls-files", "--cached", "--others", "--exclude-standard", "--", "*.md"])
+        .split(/\r?\n/u)
+        .filter((relativePath) => relativePath !== "" && !isFrozenDocument(relativePath) && hasFile(repoRoot, relativePath));
+    const counts = new Map<string, number>();
+    for (const relativePath of new Set(files)) {
+        const count = countRareDocumentSymbols(readRepoText(repoRoot, relativePath));
+        if (count > 0) counts.set(relativePath, count);
+    }
+    if (counts.size === 0) return [];
+    const changed = new Set(git(repoRoot, ["status", "--porcelain", "--untracked-files=all", "--", "*.md"])
+        .split(/\r?\n/u)
+        .filter(Boolean)
+        .map((line) => line.slice(3).replace(/^.* -> /u, "")));
+    const describe = (entries: [string, number][]) => entries.slice(0, listLimit).map(([path, count]) => `${path}（${String(count)}）`).join("、");
+    const byCount = [...counts].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+    const inChanges = byCount.filter(([path]) => changed.has(path));
+    const total = byCount.reduce((sum, [, count]) => sum + count, 0);
+    const parts = [`文档用 § 或 ¶ 代替了中文词：${String(counts.size)} 个文件共 ${String(total)} 处，改写成小节名或锚点链接`];
+    if (inChanges.length > 0) parts.push(`未提交改动里的：${describe(inChanges)}`);
+    parts.push(`存量最多的：${describe(byCount.filter(([path]) => !changed.has(path)))}`);
+    return [parts.join("；")];
+}
+
 /** 校验 sibling 导入差异均已归类，且迁移收口没有隐式复制或删除。 */
 export function verifySiblingResyncResolution(repoRoot: string): string[] {
     const failures: string[] = [];

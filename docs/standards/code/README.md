@@ -26,8 +26,7 @@
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/viewer-v6.template.html` | [`common.md`](common.md)、[`frontend.md`](frontend.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t02-novel-memory-model-design/scripts/**/*.ts`、`.agents/works/w00005-novel-understanding-spike/tasks/t03-extraction-pipeline-design/scripts/**/*.ts` | [`common.md`](common.md)、[`languages/typescript.md`](languages/typescript.md)、[`scripts/typescript.md`](scripts/typescript.md) |
 | `.agents/works/w00005-novel-understanding-spike/tasks/t03-extraction-pipeline-design/evidences/v6/**/*.json` | [`data-formats.md`](data-formats.md) |
-
-| `.agents/skills/**/*.md` | [`common.md`](common.md)、[`writing-for-agents/SKILL.md`](../../../.agents/skills/writing-for-agents/SKILL.md)；修改 frontmatter 或调用方式时追加 [`writing-for-agents/SKILL-MECHANICS.md`](../../../.agents/skills/writing-for-agents/SKILL-MECHANICS.md) |
+| `.agents/skills/**/*.md` | [`common.md`](common.md)、[`.agents/skills/README.md`](../../../.agents/skills/README.md) |
 | `.json`、`.yaml`、`.yml` 配置 | 对应领域规范，再追加 [`data-formats.md`](data-formats.md) |
 
 不在表中的源码先按所有权找到最近的 `AGENTS.md`；仍无法确定归属时，更新本路由后再实现，避免临时选择一套相似规范。

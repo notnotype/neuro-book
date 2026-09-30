@@ -9,6 +9,7 @@ import {
     saveLabSession,
 } from "./lab-preferences-store";
 import type {LabPreferenceCatalog, LabPreferences, LabSessionState} from "./lab-preferences-store";
+import type {LabUrlParams} from "./lab-url";
 
 type LabPreferenceState = {
     themeId: Ref<string>;
@@ -49,7 +50,7 @@ type UseLabPreferencesOptions = {
     state: LabPreferenceState;
     hasCustomWallpaper: () => boolean;
     sessionStorage?: () => Storage;
-    getUrlParams?: () => {component?: string; scene?: string};
+    getUrlParams?: () => LabUrlParams;
 };
 
 export function useLabPreferences(options: UseLabPreferencesOptions) {
@@ -117,8 +118,9 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
 
         const state = options.state;
         const defaults = options.defaults;
-        state.themeId.value = savedPrefs.themeId ?? defaults.themeId;
-        state.colorwayId.value = savedPrefs.colorwayId ?? defaults.colorwayId;
+        // URL 指定的主题、配色与画布尺寸优先于已保存的偏好，等同于在界面上选中它们。
+        state.themeId.value = allowed(urlParams?.themeId, options.catalog.themeIds) ?? savedPrefs.themeId ?? defaults.themeId;
+        state.colorwayId.value = allowed(urlParams?.colorwayId, options.catalog.colorwayIds) ?? savedPrefs.colorwayId ?? defaults.colorwayId;
         state.pageBackdropId.value = savedPrefs.pageBackdropId === "custom" && !options.hasCustomWallpaper()
             ? defaults.pageBackdropId
             : savedPrefs.pageBackdropId ?? defaults.pageBackdropId;
@@ -126,8 +128,8 @@ export function useLabPreferences(options: UseLabPreferencesOptions) {
 
         // 缩放与尺寸优先从 session 读取，其次偏好，最后默认值
         state.canvasZoom.value = String(savedSession.canvasZoom ?? savedPrefs.canvasZoom ?? defaults.canvasZoom);
-        state.canvasWidth.value = savedSession.canvasWidth ?? savedPrefs.canvasWidth ?? 0;
-        state.canvasHeight.value = savedSession.canvasHeight ?? savedPrefs.canvasHeight ?? 0;
+        state.canvasWidth.value = urlParams?.canvasSize?.width ?? savedSession.canvasWidth ?? savedPrefs.canvasWidth ?? 0;
+        state.canvasHeight.value = urlParams?.canvasSize?.height ?? savedSession.canvasHeight ?? savedPrefs.canvasHeight ?? 0;
 
         state.preferredLeftCollapsed.value = savedPrefs.leftCollapsed ?? false;
         state.preferredRightCollapsed.value = savedPrefs.rightCollapsed ?? false;
@@ -297,6 +299,10 @@ function resolveValidComponent(name: string | undefined, catalog: LabPreferenceC
         return undefined;
     }
     return trimmed;
+}
+
+function allowed(value: string | undefined, catalog: readonly string[]): string | undefined {
+    return value !== undefined && catalog.includes(value) ? value : undefined;
 }
 
 function resolveValidScene(scene: string | undefined): string | undefined {

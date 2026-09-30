@@ -5,7 +5,7 @@ import {dirname, join} from "node:path";
 import {promisify} from "node:util";
 import {afterEach, describe, expect, it} from "vitest";
 
-import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveLegacyTaskReadmePath, verifyApplicationScriptBoundary, verifyLegacyTaskProvenance, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifySiblingResyncResolution, verifyTaskMigration, verifyTaskOwnership, verifyWorkContracts, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
+import {canonicalSha256, primaryCheckoutRoot, readGitTextAttributes, resolveLegacyTaskReadmePath, verifyApplicationScriptBoundary, verifyLegacyTaskProvenance, verifyMonorepoCutover, verifyMonorepoWorktreeLayout, verifyRareDocumentSymbols, verifySiblingResyncResolution, verifyTaskMigration, verifyTaskOwnership, verifyWorkContracts, verifyWorkspacePackageGovernance} from "#scripts/ci/agent-governance-contract";
 import {createTestTmpRoot} from "@notnotype/neuro-book-test-support/tmp";
 
 const execFile = promisify(execFileCallback);
@@ -99,6 +99,35 @@ describe("Task ownership 当前树门禁", () => {
         expect(missing.checkedRoots).toEqual([".agents/tasks"]);
     });
 });
+describe("文档罕见符号警告", () => {
+    it("只数正文里的 § 与 ¶，历史归档不算，汇总成一条；未提交改动里的文件单列", async () => {
+        const repoRoot = await createTestTmpRoot("governance-symbols", "governance-symbols-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, "docs/a.md", "见 §3 与 ¶2。\n\n`§` 是在说符号本身。\n\n  ```\n  § 代码块里的\n  ```\n");
+        await writeText(repoRoot, "docs/b.md", "见 §1。\n");
+        await writeText(repoRoot, ".agents/tasks/01-old/README.md", "旧记录 §1\n");
+        await writeText(repoRoot, "docs/clean.md", "没有符号。\n");
+        await runGit(repoRoot, ["init", "--initial-branch", "master"]);
+        await runGit(repoRoot, ["config", "user.email", "governance-test@example.invalid"]);
+        await runGit(repoRoot, ["config", "user.name", "Governance Test"]);
+        await runGit(repoRoot, ["add", "."]);
+        await runGit(repoRoot, ["commit", "-m", "baseline"]);
+        await writeText(repoRoot, "docs/b.md", "见 §1 和 §2。\n");
+
+        expect(verifyRareDocumentSymbols(repoRoot)).toEqual([
+            "文档用 § 或 ¶ 代替了中文词：2 个文件共 4 处，改写成小节名或锚点链接；未提交改动里的：docs/b.md（2）；存量最多的：docs/a.md（2）",
+        ]);
+    });
+
+    it("没有罕见符号时不给警告", async () => {
+        const repoRoot = await createTestTmpRoot("governance-symbols-clean", "governance-symbols-clean-test");
+        fixtureRoots.push(repoRoot);
+        await writeText(repoRoot, "docs/clean.md", "引用章节写小节名。\n");
+        await runGit(repoRoot, ["init", "--initial-branch", "master"]);
+        expect(verifyRareDocumentSymbols(repoRoot)).toEqual([]);
+    });
+});
+
 describe("Work 与 Task 当前容器门禁", () => {
     it("合法 Work 内 Task 通过，且不需要旧 agentWorkflow、actionIssueId 或 role", async () => {
         const repoRoot = await createTestTmpRoot("governance-work", "governance-work-test");

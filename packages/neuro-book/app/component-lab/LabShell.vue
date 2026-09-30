@@ -15,6 +15,8 @@ import type {Component} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
 import CollapsibleSidePanel from "./CollapsibleSidePanel.vue";
 import ViewportCanvas from "./ViewportCanvas.vue";
+import {installLabDebugApi} from "./lab-debug";
+import {LAB_VIEWPORT_PRESETS, parseLabUrl} from "./lab-url";
 import MarkdownView from "./MarkdownView.vue";
 import EventLogPanel from "./EventLogPanel.vue";
 import HighlightBox from "./HighlightBox.vue";
@@ -381,11 +383,7 @@ const presetOptions: ToggleGroupOption[] = [
     {value: "tablet", label: "平板"},
     {value: "phone", label: "手机"},
 ];
-const presetSizes: Record<string, [number, number]> = {
-    free: [0, 0],
-    tablet: [768, 1024],
-    phone: [390, 844],
-};
+const presetSizes = LAB_VIEWPORT_PRESETS;
 const activePreset = computed(() => {
     for (const [id, [w, h]] of Object.entries(presetSizes)) {
         if (w === canvasWidth.value && h === canvasHeight.value) {
@@ -421,16 +419,7 @@ const {
 } = useLabPreferences({
     storage: () => window.localStorage,
     sessionStorage: () => window.sessionStorage,
-    getUrlParams: () => {
-        if (typeof window === "undefined") {
-            return {};
-        }
-        const params = new URLSearchParams(window.location.search);
-        return {
-            component: params.get("c") ?? params.get("component") ?? undefined,
-            scene: params.get("s") ?? params.get("scene") ?? undefined,
-        };
-    },
+    getUrlParams: () => (typeof window === "undefined" ? {} : parseLabUrl(window.location.search, labColorwayMeta)),
     catalog: {
         themeIds: labThemes.map((theme) => theme.manifest.id),
         colorwayIds: Object.keys(labColorwayMeta),
@@ -612,6 +601,24 @@ watch([labThemeId, labColorwayId], ([theme, colorway]) => {
 });
 // 主题写在 <html> 上（见 lab-theme.ts），离开 Lab 必须复原，否则产品界面跟着变
 onBeforeUnmount(clearLabTheme);
+
+// ——— 调试接口：截图脚本与控制台读 window.__nbLab（见 lab-debug.ts） ———
+let uninstallDebugApi: (() => void) | null = null;
+onMounted(() => {
+    uninstallDebugApi = installLabDebugApi({
+        state: () => ({
+            component: selectedName.value,
+            scene: selectedScene.value,
+            ready: !preferencesHydrating.value && !fixtureLoading.value && fixtureComponent.value !== null,
+            loadError: fixtureLoadError.value,
+            canvas: {width: canvasWidth.value, height: canvasHeight.value},
+            themeId: labThemeId.value,
+            colorwayId: labColorwayId.value,
+        }),
+        scenes: (component) => (findLabFixture(component ?? selectedName.value)?.scenes ?? []).map(({id, label}) => ({id, label})),
+    });
+});
+onBeforeUnmount(() => uninstallDebugApi?.());
 // ——— 检查：一个开关，devtools 那种取色针 ———
 //
 // 原来是「描边」「探针」两个开关。现在只保留单一检查模式：悬停用虚线框定位，点击后
@@ -870,6 +877,9 @@ watch(fixture, async (next) => {
         selectedScene.value = next.scenes[0]?.id ?? "";
     }
 
+    // 场景与输入在这次渲染就换成新组件的（见下一个 watch），组件却要等 loader：
+    // 留着旧组件，它会按新 key 带着别的组件的输入重新挂载，setup 抛错后整个舞台卸载失败。
+    fixtureComponent.value = null;
     fixtureLoading.value = true;
     try {
         const component = await next.load();
@@ -1185,7 +1195,7 @@ watch([sceneInput, canvasWidth, canvasHeight], () => {
                             @enter="handleStageEnter"
                             @after-leave="handleStageAfterLeave"
                         >
-                            <div :key="`${selectedName}:${selectedScene}`" class="h-full w-full">
+                            <div :key="`${selectedName}:${selectedScene}`" class="h-full w-full" data-lab-stage>
                                 <component
                                     :is="fixtureComponent"
                                     v-if="fixtureComponent"

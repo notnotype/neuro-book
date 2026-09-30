@@ -7,6 +7,7 @@ import {
     git,
     hasFile,
     verifyGovernanceDocumentLimits,
+    verifyRareDocumentSymbols,
     verifyApplicationScriptBoundary,
     verifyMonorepoCutover,
     verifySiblingResyncResolution,
@@ -46,6 +47,7 @@ failures.push(...verifyMonorepoCutover(repoRoot));
 failures.push(...verifyApplicationScriptBoundary(repoRoot));
 failures.push(...verifySiblingResyncResolution(repoRoot));
 failures.push(...verifyGovernanceDocumentLimits(repoRoot));
+warnings.push(...verifyRareDocumentSymbols(repoRoot));
 for (const relativePath of [".env.local", ".worktree", ".agent/"]) {
     if (!isIgnored(relativePath)) failures.push(`运行态未被忽略：${relativePath}`);
 }

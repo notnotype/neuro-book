@@ -41,6 +41,7 @@ export default defineConfig({
             "app/component-lab/**/*.test.ts",
             "app/features/files/**/*.test.ts",
             "app/runtime/product-browser-runtime.test.ts",
+            "app/components/agent/**/*.test.ts",
             "app/components/novel-ide/**/*.test.ts",
             "app/components/common/**/*.test.ts",
             "app/components/workbench/**/*.test.ts",

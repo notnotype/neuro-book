@@ -140,6 +140,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 插件公开 API | [`runtime/plugin-api.md`](runtime/plugin-api.md) | `runtime.plugin-api`；远程形态约束、激活上下文、错误码、worker 池、私有存储、配置与密钥；阶段 3 实施 |
 | 主线程卡死看门狗 | [`runtime/stall-watchdog.md`](runtime/stall-watchdog.md) | `runtime.stall-watchdog`；卡死检测、报告、退出码 76、Manager 自动重启与 Desktop 呈现、提示禁用与自动安全模式；阶段 3 实施 |
 | 文件资源管理器 | [`workbench/files-explorer.md`](workbench/files-explorer.md) | `workbench.files-explorer`；双模式、F1–F9 交互/剪贴板/dirty 策略与验收已收口；主页面真实链尚未实施，第二版草案未进入本规范 |
+| Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `ui.agent-conversation-view`；纯受控视图、只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流与原始视图；只以 Lab 验收，不接主页面 |
+| Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | `ui.component-lab.timeline`；fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 
 ## 冻结过渡规范
 
