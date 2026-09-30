@@ -40,7 +40,7 @@ vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
     productShutdownController: {requestProcessExit: mocks.requestProcessExit},
 }));
 
-import {prepareProductRuntime} from "nbook/server/runtime/product-startup";
+import {exitOnProductStartupFailure, prepareProductRuntime} from "nbook/server/runtime/product-startup";
 
 describe("Product startup", () => {
     beforeEach(() => {
@@ -158,5 +158,20 @@ describe("Product startup", () => {
         await expect(prepareProductRuntime()).rejects.toThrow("migration pending");
 
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
+    });
+
+    it("启动门禁失败时记录fatal诊断并请求有序退出，而不是依赖未捕获异常", async () => {
+        const failure = new Error("migration pending");
+        mocks.assertProductMigrationsReady.mockRejectedValue(failure);
+
+        await prepareProductRuntime().catch(exitOnProductStartupFailure);
+
+        expect(mocks.fatalSync).toHaveBeenCalledWith(
+            "runtime.startup.failed",
+            undefined,
+            failure,
+            expect.stringContaining("有序关闭"),
+        );
+        expect(mocks.requestProcessExit).toHaveBeenCalledWith(1);
     });
 });

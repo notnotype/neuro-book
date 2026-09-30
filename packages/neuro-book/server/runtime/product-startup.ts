@@ -104,6 +104,17 @@ function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromise
 }
 
 /**
+ * 启动门禁失败时记录原因并请求有序退出。
+ *
+ * 不能靠抛出未捕获异常终止进程：Nitro node-server 入口的 `trapUnhandledNodeErrors()`
+ * 注册的 uncaughtException 处理器只记录不退出，进程会存活并对所有请求返回 500。
+ */
+export function exitOnProductStartupFailure(error: unknown): void {
+    appLogger.fatalSync("runtime.startup.failed", undefined, error, "Product 启动门禁失败，Product将有序关闭");
+    productShutdownController.requestProcessExit(1);
+}
+
+/**
  * 返回进程级唯一启动结果；Nitro middleware 与并发首批请求共享同一个 Promise。
  */
 export function productRuntimeReady(): Promise<void> {
