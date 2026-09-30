@@ -2,7 +2,7 @@
 
 ## 状态
 
-- 状态：`accepted`（2026-09-30）。需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。实施前先验证风险门 G0、G1、G2（见 [w00017 t27](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)）；接受不等于实施授权，行为合同写入 `planned` Spec 后才进入阶段 1。
+- 状态：`accepted`（2026-09-30）。需求与五项长期决定已由开发者于 2026-09-28 确认，记于 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)；此后的设计走查逐项确认了启动流程、热插拔与卸载规则、协作方式、插件的浏览器部分、执行位置与插件通道，确认日期见[决策记录](#决策记录)。“Agent 工具与 Profile 的装配”已移交 nb-harness 重构。风险门 G0、G1、G2 已于同日验证（见 [w00017 t27](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)），结论写入 P2、P4、P5、P6、P7、P11；接受不等于实施授权，行为合同写入 `planned` Spec 后才进入阶段 1。
 - 与既有提案的关系：
   - [应用运行时总提案](application-runtime-and-plugins.md)的内核合同（资源作用域、服务装配、激活事务、有序关闭）继续有效；其非目标“不加载第三方代码”由 ADR 0022 取代。
   - [产品装配提案](application-runtime-product-integration.md)中后端启动（S0）与 HTTP 入口的设计由本文 [P6](#p6-服务端宿主内核拥有进程) 替代；其余阶段待按本文复核。
@@ -123,9 +123,9 @@ w00017 已经交付一个经过合同测试的小内核，但它还没有成为�
 
 - 插件 id 为 `publisher.name`；内置插件使用 `nbook.*`。
 - `main` 与 `browser` 分别是服务端和浏览器入口，二者同属一个插件身份，现有 Files 的两个身份合并为 `nbook.files`。
-- 入口必须是预构建的 ESM。服务端入口需把依赖打进单文件，不在 State Root 解析 `node_modules`；浏览器入口把 `vue`、`@notnotype/nb-ui` 与 SDK 声明为外部依赖（[P7](#p7-浏览器宿主与第三方界面)）。SDK 以后提供构建预设。
+- 入口都是预构建产物。服务端入口是把依赖打进单文件的 ESM，不在 State Root 解析 `node_modules`。浏览器入口是 SDK 构建预设生成的登记工厂式 CommonJS（G1 结论，见 [P7](#p7-浏览器宿主与第三方界面)），`vue`、`@notnotype/nb-ui` 与 SDK 从宿主模块表取得。构建预设带纯度检查：把 Vue、nb-ui 或 SDK 打进插件时构建失败，因为插件自带一份 Vue 会静默失效（G1 实测：点击后界面不更新，没有任何报错）。
 - 内置插件使用同一清单格式，但代码随产品构建静态进入镜像，不走运行时加载，因为它们依赖 Vue SFC 与 Nuxt 构建。
-- 走查中新增的清单内容：联动项 `integrations`（P1 第 7 项）、上下文键声明 `contextKeys` 与菜单位置 `menuLocations`（P7）、路由贡献 `http.routes`（P5）；`http.endpoints` 由合同生成，不手写。浏览器入口的产物格式随 G1 的结论确定：采用宿主模块表时是登记工厂的 CommonJS 形式，不是 ESM。
+- 走查中新增的清单内容：联动项 `integrations`（P1 第 7 项）、上下文键声明 `contextKeys` 与菜单位置 `menuLocations`（P7）、路由贡献 `http.routes`（P5）；`http.endpoints` 由合同生成，不手写。
 
 ### P3 插件之间的三种协作
 
@@ -169,7 +169,12 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
   4. 错误以结构化结果返回，失败原因可被定位；
   5. 每个处理函数都收到终止信号 `signal`，宿主 API 都接受 `signal`。
 - 这些约束让第一版同进程直接调用与以后的跨进程 RPC 使用同一份接口定义；不跨插件传递活对象，也让撤回引用可以完整记账（P1 第 5 项）。
-- 插件开发者须遵守的规则：状态只在 `activate` 内建立并登记到激活作用域，不在模块顶层保存；把收到的 `signal` 传给自己的 I/O；CPU 密集的工作交给 SDK 提供的 worker 池（`ctx.workers.run(module, input, {signal})`，中止时直接终止对应 worker），不在主线程上长时间同步计算。构建预设可以提示从未使用 `signal` 的异步处理函数。
+- 插件开发者须遵守的规则：状态只在 `activate` 内建立并登记到激活作用域，不在模块顶层保存；把收到的 `signal` 传给自己的 I/O；CPU 密集的工作交给 SDK 提供的 worker 池，不在主线程上长时间同步计算。构建预设可以提示从未使用 `signal` 的异步处理函数。
+- worker 池（G2 原型在 Bun 与 Chrome 中实测，见 [G2 报告](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md) §4）：
+  - 形态：`ctx.workers.run(module, input, {signal, transfer, onProgress})`，返回结构化结果（成功值，或 `interrupted`、`task-error`、`input-not-cloneable`、`output-not-cloneable`、`load-failed`、`worker-crashed` 之一），不抛异常；中止、插件禁用、宿主停止都以 `interrupted` 结算，迟到的结果与进度一律丢弃。
+  - worker 模块是插件预构建的单文件 ESM，默认导出一个纯计算函数；输入输出必须可结构化克隆，大块二进制用 `transfer` 移交；worker 内拿不到宿主 API。
+  - 按（插件，模块）复用空闲 worker，设全局与每插件上限，满员时排队；插件禁用时拒绝新调用、结算排队与在途调用并终止其全部 worker。
+  - 限制：调用方在中止后立即得到“已中断”，但 Bun 中 WebAssembly 与原生阻塞调用要等其返回 JS 才停止（死循环只能随进程重启回收），Chrome 终止后约 2 秒才停；未停止的 worker 继续占名额并在诊断中按插件显示。开发者 2026-09-30 确认不强制插件把 WebAssembly 计算切成小段，只在文档中写明这一限制。
 
 ### P5 运行位置与插件通道
 
@@ -190,7 +195,7 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 
 - 调用走 `POST /api/plugins/<id>/rpc/<method>`；
 - 事件与下行流走每个窗口一条多路复用的 SSE。本机服务是 HTTP/1.1，浏览器对同一来源的并发连接有上限，每条 SSE 长期占用一条，所以插件事件不各开连接；
-- 上行流与双向流走每个窗口按需打开的一条 WebSocket 多路复用。合同原语现在定义，传输在第一个需要上行的功能（例如语音输入）落地时实现；调用与事件不迁移。Chromium 的流式上传只支持 HTTP/2，所以上行流不用 `fetch`。WebSocket 升级与鉴权的验证并入 G0（现有依赖 crossws 0.3.5 带 node 与 bun 适配器，Nitro 的 node-server 入口即用它处理升级）。
+- 上行流与双向流走每个窗口按需打开的一条 WebSocket 多路复用。合同原语现在定义，传输在第一个需要上行的功能（例如语音输入）落地时实现；调用与事件不迁移。Chromium 的流式上传只支持 HTTP/2，所以上行流不用 `fetch`。G0 实测：Bun 1.4.2 下自有入口用 crossws 0.3.5 的 node 适配器完成升级与双向收发，带登录 Cookie 的升级成功、不带或伪造时返回 401。现有 `getCurrentUser` 会在会话失效时写回 Cookie，而升级请求没有可写的响应，所以要拆出不写 Cookie 的只读身份判定，HTTP 中间件与 WebSocket 升级共用；WebSocket 处理注册到 `h3App.websocket`，让开发与生产共用同一份（开发模式未验证）。
 
 **通道语义：**
 
@@ -215,22 +220,43 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 
 ### P6 服务端宿主：内核拥有进程
 
-**生产构建：** 用 Nitro 的 `entry` 选项指定自有宿主入口，入口与所有服务端代码处于同一次构建、同一模块图，避免同一模块出现两份实例。入口的职责：
+风险门 G0、G2 已于 2026-09-30 验证（[G0 报告](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)、[G2 报告](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g2/REPORT.md)）。开发者同日同意生命周期部分按验证证据直接写入，本节即按结论修订。
 
-1. 用 [`ServerRuntimeHost`](../../server/runtime/foundation/server-host.ts) 建立运行实例并挂接进程信号与 Desktop/Manager 的停止通道；
-2. 按清单登记内置与已安装插件，执行启动门禁；
-3. `nbook.http` 插件激活时用 `toNodeListener(useNitroApp().h3App)` 建立 HTTP 服务并监听端口。沿用现在的语义：端口先监听，业务请求等待运行实例就绪；
-4. 停止时 http 插件先停止接纳并等待在途请求，其它插件按依赖逆序关闭。
+**生产构建：** 用 Nitro 的 `entry` 选项指定自有宿主入口，入口与所有服务端代码处于同一次构建、同一模块图（G0 实测：入口与路由取得的是同一份模块实例）。`entry` 由一个 Nuxt 模块只在非开发构建时注入，并在 `prerender:config` 中移除：直接写在 nuxt.config 的 `nitro.entry` 会同时替换开发 worker 与预渲染器的入口。自有入口依赖 nitropack 的内部导出（`#nitro-internal-pollyfills`、`trapUnhandledNodeErrors`），升级 nitropack（尤其是 Nitro 3）时要重新验证。入口的职责：
 
-`.output/server/index.mjs` 路径不变，Manager、Desktop、容器的启动合同不变。Nitro 自带的 `setupGracefulShutdown` 与 node-server 监听不再使用。[`server/plugins/`](../../server/plugins/) 下现有的 Nitro 插件（日志、Boot Config、Storage 定义、错误日志、Project 会话关闭、Server Timing）逐项改为内核插件的职责。
+1. 用 [`ServerRuntimeHost`](../../server/runtime/foundation/server-host.ts) 建立运行实例；进程信号与 Desktop/Manager 的停止通道只由宿主挂接一次；
+2. 按清单登记内置与已安装插件，执行启动门禁。入口等待启动结果，失败时有序停止并以约定退出码退出，不依赖未捕获异常：Nitro 的 `trapUnhandledNodeErrors()` 会把它吞掉，进程存活并对所有请求返回 500（现有产品的同一问题由 w00020 / [PR #245](https://github.com/notnotype/neuro-book/pull/245) 修复）；
+3. `nbook.http` 插件激活时用 `toNodeListener(useNitroApp().h3App)` 建立 HTTP 服务并监听端口（G0 实测 Bun 1.4.2 下先监听、约 50 毫秒后就绪）。沿用现在的语义：端口先监听，业务请求等待运行实例就绪；
+4. 所有停止来源（进程信号、`PRODUCT_SHUTDOWN_PATH` 控制请求、租约失效）都经宿主的 `requestStop` 汇合：http 插件先停止接纳新请求（排空期间保持监听、对新请求返回 503），关闭 WebSocket，等待在途请求，其它插件再按依赖逆序关闭。现有的 HTTP 停止路由直接调用关闭控制器、绕过了停止接纳这一步，迁入时改正。
 
-**开发模式：** `nuxi dev` 在 worker 中拥有端口监听。开发适配器是一个 Nitro 插件：在 Nitro 初始化时（不是首个请求时）建立同一运行实例，在 Nitro 的 `close` 钩子中停止它；http 插件在开发模式只提供 h3 应用、不监听。开发与生产只在“谁监听端口”上不同。
+`.output/server/index.mjs` 路径不变，Manager、Desktop、容器的启动合同不变（G0 用 Manager 自己的就绪探测与停止函数实测通过；Desktop 经 Manager 间接依赖，未实跑）。Nitro 自带的 `setupGracefulShutdown` 与 node-server 监听不再使用。[`server/plugins/`](../../server/plugins/) 下现有的 Nitro 插件（日志、Boot Config、Storage 定义、错误日志、Project 会话关闭、Server Timing）逐项改为内核插件的职责。
 
-**主线程卡死看门狗：** 插件与宿主同线程运行，主线程上的同步计算无法被打断，宿主的超时定时器也会停摆。服务端宿主启动一个看门狗 worker，经共享内存读取主线程每秒递增的心跳；停滞超过阈值（低于 Session Store 租约的 30 秒过期时间，例如 20 秒）时，写出卡死报告（含当时在途的插件调用），结束进程，由 Desktop 或 Manager 重启。重启后内核读取报告，提示禁用相关插件；同一插件反复导致卡死或崩溃时自动进入安全模式。本机 Bun 1.4.2 实测：主线程死循环约 1 秒后被检出，报告写出，进程以 `SIGKILL` 结束（[t26 证据](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)）。
+**开发模式：** 与生产有三处不同，不只是“谁监听端口”：
 
-**风险门 G0：** 上述自定义入口仅从源码与类型推断可行。实施前先做一次性验证：自定义入口的产品构建能启动与停止；服务端单例只有一份；Desktop 的就绪探测与停止通道正常；开发模式热重载后不残留旧实例；自有入口在 Bun 下能完成 WebSocket 升级并按现有会话鉴权（P5）。
+1. 运行时：`bun x nuxt dev` 按 nuxt 可执行文件的 shebang 由 Node 运行，生产运行在 Bun；
+2. 实例重叠：Nitro 热重载时不等旧 worker 关完就启动新 worker，每个 worker 是独立线程，进程级全局单例保护不起作用；
+3. 停止：worker 中的 `process.exit` 只结束 worker 线程，nuxi 也不处理 SIGTERM，现有停止通道都不能有序停止开发进程。
 
-**风险门 G2：** 看门狗阈值、Desktop 与 Manager 在进程被结束后的重启行为、Windows 上结束进程的方式、worker 池 API 形态，在阶段 1 前与 G0、G1 一起验证。
+开发适配器是一个 Nitro 插件，在 Nitro 初始化时（不是首个请求时）建立同一运行实例，http 插件在开发模式只提供 h3 应用、不监听。适配器要处理上述差异：
+
+- 新实例取得进程级资源（Session Store 租约等）前，有界等待同一进程中的旧实例释放；
+- 开发模式不缓存启动失败，下一次请求或热重载可以重试；
+- 内核只注册一个不会抛错的 Nitro `close` 钩子，其余关闭由内核按依赖逆序管理：hookable 串行执行钩子，第一个抛错会跳过其余钩子；
+- 停止通道另行设计，候选做法是只在开发时启用、运行在 nuxi 主进程中的 Nuxt 模块，接管信号与停止请求并调用 `nuxt.close()`（未验证）。
+
+现有开发模式的同类问题登记为 [#244](https://github.com/notnotype/neuro-book/issues/244)，随阶段 1 解决。
+
+**主线程卡死看门狗：** 插件与宿主同线程运行，主线程上的同步计算无法被打断，宿主的超时定时器也会停摆。服务端宿主启动一个看门狗 worker，经共享内存读取主线程心跳（G2 实测开销约 0.13% 单核 CPU、10MB 内存；主线程穿插 200 至 500 毫秒的同步任务时无误报）：
+
+- **阈值 10 秒。** 必须小于 Session Store 租约的心跳间隔 15 秒，而不是过期时间 30 秒：卡死若发生在一次续期之前，锁在约 15 秒后即可被其它进程接管（G2 实测第 17.3 秒被接管，原进程恢复后还执行了一次写入）。
+- **何时计时。** 启动完成后才开始计时；识别整个进程被暂停（例如系统睡眠）并重新计时；检测到调试器连接时停用，开发模式默认关闭，因为断点只暂停主线程，看门狗会误判为卡死。
+- **卡死时的动作。** 写出卡死报告（在途插件调用，嫌疑按可信度分为 direct、candidate、weak、unknown），删除本进程持有的租约锁，以专用退出码经 FFI 结束进程（POSIX `_exit`，Windows `TerminateProcess`）。不用 `SIGKILL`：经产品两层启动包装后，Manager 看到的是退出码 1，与启动失败无法区分；不删锁则重启后要等锁过期（实测 9.6 秒）才能取得租约。
+- **重启与提示的职责。** Manager 负责重启与重启次数上限，Desktop 负责重启期间的呈现，内核在下次启动时读报告并提示禁用相关插件；只有 direct 与 candidate 计入“反复卡死自动进入安全模式”。现有 Desktop 与 Manager 在服务就绪后既不重启也不提示，需要改产品运行时合同、Manager、Electron 与 Tauri。
+- **分期（2026-09-30 开发者确认）。** 阶段 1 只做“只统计、不结束进程”的记录模式，也可以暂不做；结束进程、自动重启与提示禁用放在阶段 3，随第三方插件加载器一起做。难度不高，主要是跨五处的工作量。
+
+**风险门 G0：** 已验证。生产侧成立：`entry` 自有入口构建、同一模块图、Bun 下自建 HTTP 服务并有序停止、Manager 就绪与停止合同、WebSocket 升级与会话鉴权。开发模式只部分成立，按上文重新设计。
+
+**风险门 G2：** 已验证。看门狗、卡死报告与 worker 池可行；阈值、结束方式与重启职责按上文修订。Windows 上从 worker 结束进程只依据文档与源码，未实测。
 
 ### P7 浏览器宿主与第三方界面
 
@@ -254,12 +280,17 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 - 宿主只统一插件通道（鉴权、服务端地址、请求随作用域取消、断线重连与重新订阅、统一错误格式、事件复用一条流、请求日志）；请求什么、缓存什么由插件决定。
 - 菜单位置由拥有者定义，并规定菜单项收到的参数与局部上下文，例如 Files 定义 `explorer/context`。上下文键分全局键（窗口级，登记在设置方的作用域上）与局部键（单次菜单调用时由菜单位置拥有者传入）；键在清单中声明，`when` 由 workbench 求值。
 
-**风险门 G1：** 运行时加载的第三方组件必须与宿主共用同一份 Vue 与 nb-ui；否则响应式更新失效，`inject` 取不到宿主提供的 i18n、主题与浮层宿主。实施前比较两种做法：
+**风险门 G1：** 已于 2026-09-30 验证（[G1 报告](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g1/REPORT.md)）。import map 与宿主模块表两种做法，在开发与生产构建、Chromium 151、WPE WebKit 26.5、Electron 43、WebKitGTK 2.52.6 上，响应式更新、宿主 i18n 与主题与 `inject`、nb-ui 浮层、卸载无残留、抛错隔离全部成立。两者的区别在卸载：原生 ESM 模块被浏览器的模块映射永久持有，禁用后代码要到刷新页面才释放，升级必须换 URL；宿主模块表注销后代码可被回收（Chromium 与 Electron 堆快照实测）。Tauri 本体与 WebView2 未运行。
 
-1. import map：裸模块名 `vue`、`@notnotype/nb-ui` 与 SDK 指向宿主的转发模块。要求 import map 出现在 Nuxt 注入的首个模块脚本之前，并在 Electron、Tauri（WebKitGTK、WebView2）中逐个确认。
-2. 宿主模块表：插件浏览器部分构建为登记工厂的 CommonJS 形式，外部依赖经宿主提供的 `require` 解析到冻结的共享模块表。DeepSeek Harness 已采用这一做法（[调研](../research/cordis-plugin-kernel.md) §6.6）；它不依赖 import map、不改 `index.html`，禁用时还能从表中删除插件代码让浏览器回收。
+**采用宿主模块表：**
 
-倾向第 2 种。验证内容：在源码树外建一个示例插件，在开发构建、生产构建、Electron 与 Tauri 中运行时加载，确认响应式更新、`inject` 取得宿主上下文、nb-ui 浮层正常、卸载无残留、组件抛错只影响本视图。SDK 声明插件编译所用 Vue 的版本范围，纳入 `engines.neurobook` 兼容检查。两种做法都不成立时，第三方视图退回 iframe 方案。
+- 宿主在根组件挂载前建立一张冻结的共享模块表，放入 Vue、nb-ui 的共享入口与 SDK；插件浏览器部分由构建预设包装为登记工厂，执行时只登记，首次使用时经宿主提供的 `require` 从表中解析依赖。不需要改写 `index.html`、生成导出名单或放宽 CSP，开发与生产构建路径相同。
+- 插件 `require` 表外模块时，在物化阶段返回结构化错误；同一 id 重复登记时拒绝。
+- 禁用时依次注销表项、移除插件样式、释放视图；插件 CSS 的加载与移除由加载器负责。
+- 错误边界（`onErrorCaptured`）只覆盖 Vue 调用路径上的错误（渲染、生命周期、事件处理）；插件自己的定时器与未被 Vue 接管的 Promise 中的错误不在其内。生产构建的 Vue 只给出错误参考链接，诊断记录需另存组件名与错误信息。
+- 共享哪些 nb-ui 入口等于对插件作者承诺哪些 API 保持兼容，纳入 `engines.neurobook` 兼容范围。第一版只共享 `@notnotype/nb-ui/components`，其余入口按需再加；开发者 2026-09-30 同意，并要求配合一个需要界面的插件（例如 Files）一起设计。内置插件随宿主构建、不经模块表，所以模块表由阶段 3 的示例外部插件实际检验。共享会让宿主包对 Vue 与 nb-ui 失去 tree-shaking，体积影响待测。
+- SDK 声明插件编译所用 Vue 的版本范围，纳入 `engines.neurobook` 兼容检查。
+- 浏览器侧的“卸载后仍被引用”开发检查沿用 G1 的方法：弱引用加强制 GC；Vue 开发构建会缓冲页面加载后前 3 秒的组件事件，检查要等缓冲清空后进行。
 
 ### P8 安装、发现、兼容与安全模式
 
@@ -289,12 +320,12 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 | 3 | `nbook.editor` | 浏览器 | `editor/context` 菜单位置、编辑器上下文键；导出插入节点等 API | 编辑器组件内的直接调用 |
 | 3 | `nbook.assets` | 服务端 | 写入 Project 资产并返回可访问 URL | 无统一入口 |
 | 3 | `nbook.settings` | 两端 | `configuration` 贡献点、有效值、秘密字段 | 分散的配置读写 |
-| 3 | 加载器与安装 | 两端 | P8 全部能力；运行期安装、启用、禁用、卸载、升级；插件私有存储 `ctx.storage`；先用一个示例外部插件验证 | 无 |
+| 3 | 加载器与安装 | 两端 | P8 全部能力；运行期安装、启用、禁用、卸载、升级；插件私有存储 `ctx.storage`；宿主模块表与共享的 nb-ui 入口；看门狗结束进程、自动重启与提示禁用（P6）；先用一个示例外部插件验证 | 无 |
 | 4 验收 | 文生图（第三方） | 两端 | 放在产品源码之外的独立目录 | — |
 
 各阶段的退出条件：
 
-- **阶段 1：** `product-shutdown.ts`、启动中间件与 `productRuntimeReady()` 的全局单例删除；进程信号与停止通道由宿主适配器处理；关闭顺序由依赖图产生；`index.vue` 不再创建运行时。G0、G1、G2 在本阶段开始前完成。
+- **阶段 1：** `product-shutdown.ts`、启动中间件与 `productRuntimeReady()` 的全局单例删除；进程信号与停止通道由宿主适配器处理；关闭顺序由依赖图产生；`index.vue` 不再创建运行时。G0、G1、G2 已于 2026-09-30 验证完成（[t27](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/README.md)）。
 - **阶段 2：** 满足[目标](#目标) 5；Files 的现有合同与性能预算不回退。
 - **阶段 3：** 示例外部插件从本地文件夹安装后不重启即可使四类贡献（命令菜单、视图、Agent 工具、设置）全部生效；运行期禁用或安全模式下全部消失，且不影响其它插件与正在运行的 Agent 会话。
 - **阶段 4：** 满足[目标](#目标) 6。
@@ -405,12 +436,12 @@ VS Code 的 git 扩展是同一模式：使用方声明依赖 `vscode.git`，运
 |---|---|---|
 | 配合中止 | 最迟在三步停止结束时得到“已中断” | I/O 被中止，资源立即释放 |
 | 不响应中止的异步工作 | 同上 | 在后台继续执行；再调用宿主 API 时失败；结束后被回收 |
-| CPU 工作在 worker 池中 | 同上 | worker 被终止（本机实测 3 至 14 毫秒） |
-| CPU 工作直接在主线程上 | 计算结束前整个服务端没有响应 | 超过看门狗阈值时进程被结束并重启 |
+| CPU 工作在 worker 池中 | 同上 | JS 计算在 4 至 30 毫秒内终止；Bun 中 WebAssembly 与原生阻塞调用要等其返回，死循环只能随进程重启回收；Chrome 终止后约 2 秒才停 |
+| CPU 工作直接在主线程上 | 计算结束前整个服务端没有响应 | 阶段 3 起，超过看门狗阈值（10 秒）时进程被结束并重启 |
 
 各协作方式的终止信号来源：导出 API 调用、贡献调用、命令由内核合成；事件不需要（发出方不等待监听者，监听者的异常互相隔离）；插件通道的请求随浏览器端作用域关闭或断线取消。
 
-**代码与内存：** 已加载的 ESM 没有公开的卸载 API；Bun 1.4.2 中删除 `require.cache` 对 ESM 同样生效，本机实测撤回引用并删除缓存后内存不随启用、禁用、升级次数增长，弱引用检测在 2 至 3 轮 GC 后确认回收（[调研](../research/runtime-module-unloading.md) §4.4，[t26 证据](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)）。这一行为失效时退回“旧代码保留到重启”，L1 不受影响。浏览器端采用宿主模块表（P7 G1）时，禁用时同样删除插件代码。
+**代码与内存：** 已加载的 ESM 没有公开的卸载 API；Bun 1.4.2 中删除 `require.cache` 对 ESM 同样生效，本机实测撤回引用并删除缓存后内存不随启用、禁用、升级次数增长，弱引用检测在 2 至 3 轮 GC 后确认回收（[调研](../research/runtime-module-unloading.md) §4.4，[t26 证据](../../../../.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/evidences/inproc-probe/output.txt)）。这一行为失效时退回“旧代码保留到重启”，L1 不受影响。浏览器端采用宿主模块表，禁用时同样删除插件代码（G1 在 Chromium 与 Electron 中实测注销后被回收；原生 ESM 被浏览器模块映射永久持有）。
 
 ## 备选方案和取舍
 
@@ -485,3 +516,4 @@ G0、G1、G2 验证完成后写入 `planned` Spec；在此之前不修改 Spec�
 | 2026-09-30 | 开发者 | 插件与前端通信（P5）细化：同意调用与订阅的处理函数带已鉴权用户、插件私有存储 `ctx.storage` 在阶段 3 提供；服务端需要用户回答时用持久化的待处理事项加普通调用，不用 waterfall；HTTP 入口支持两层：合同生成的端点（默认）与向 `nbook.http` 贡献的路由。开发者提出语音输入、AI 补全、内置中文输入法的需求，双向流是否在合同中预留待确认，确认后统一写入 P5 |
 | 2026-09-30 | 开发者 | 全部确认 P5 细化：合同三种原语（调用、订阅、流），流的上行传输在首个需要的功能落地时以 WebSocket 实现；HTTP 入口两层；编辑器输入与补全扩展点只作检验设计的例子，不列入本路线。设计改为 `accepted`，开 t27 验证 G0、G1、G2 |
 | 2026-09-30 | 开发者 | 风险门结论出来后：插件用 WebAssembly 做 CPU 工作时不强制切分为可返回 JS 的小段，限制写入文档并在诊断中显示未停止的 worker。验证中发现的现有问题：启动失败不退出与 API 路径按扩展名放行认证在 w00020 修复；开发模式热重载与停止问题登记为 [#244](https://github.com/notnotype/neuro-book/issues/244)，随阶段 1 解决。其余设计修改待开发者确认 |
+| 2026-09-30 | 开发者 | 插件系统与进程生命周期分两条线推进，生命周期部分按验证证据直接写入设计（P6 按 G0、G2 结论重写）；看门狗阶段 1 只统计不结束进程（也可暂不做），结束进程、自动重启与提示禁用放在阶段 3；浏览器侧采用宿主模块表，共享的 nb-ui 入口第一版只放 `components`，配合一个需要界面的插件一起设计；w00020 修复开 PR #245，等 master 上的工作完成后合并 |
