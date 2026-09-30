@@ -1,0 +1,12 @@
+{
+  "label": "prod-webkit",
+  "browserVersion": "26.5",
+  "inserted": {
+    "hasImportMapInHtml": false,
+    "inserted": true,
+    "supportsMultiple": true
+  },
+  "status": "mounted",
+  "error": null,
+  "consoleMessages": []
+}

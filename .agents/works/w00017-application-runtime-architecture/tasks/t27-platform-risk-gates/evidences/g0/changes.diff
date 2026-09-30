@@ -1,0 +1,313 @@
+diff --git a/packages/neuro-book/nuxt.config.ts b/packages/neuro-book/nuxt.config.ts
+index 547b6df0..7483702e 100644
+--- a/packages/neuro-book/nuxt.config.ts
++++ b/packages/neuro-book/nuxt.config.ts
+@@ -9,6 +9,7 @@ const rootDir = fileURLToPath(new URL("./", import.meta.url));
+ const repositoryRoot = resolve(rootDir, "..", "..");
+ const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
+ const i18nConfigPath = fileURLToPath(new URL("./app/i18n/i18n.config.ts", import.meta.url));
++const productHostEntry = fileURLToPath(new URL("./server/host/product-host-entry.ts", import.meta.url));
+ const configuredStateRoot = process.env.NEURO_BOOK_STATE_ROOT?.trim();
+ const runtimeWorkspaceRoot = configuredStateRoot ? resolve(configuredStateRoot, "workspace").replace(/\\/g, "/").replace(/\/$/u, "") : "";
+ const productImageRoot = process.env.NEURO_BOOK_PRODUCT_IMAGE_ROOT?.trim();
+@@ -221,6 +222,20 @@ export default defineNuxtConfig({
+         transpile: ["@notnotype/nb-ui"],
+     },
+     modules: [
++        // G0：生产构建改用自有宿主入口。nuxt.config 的 nitro 配置作为 overrides 传入，会盖过
++        // 任何预设的 entry（含 nuxi dev 的 nitro-dev 与预渲染的 nitro-prerender），所以只在
++        // 非开发构建设置，并在预渲染器配置里移除。
++        (_options, nuxt) => {
++            if (nuxt.options.dev) return;
++            nuxt.hook("nitro:config", (nitroConfig) => {
++                nitroConfig.entry = productHostEntry;
++            });
++            nuxt.hook("nitro:init", (nitro) => {
++                nitro.hooks.hook("prerender:config", (prerenderConfig) => {
++                    delete prerenderConfig.entry;
++                });
++            });
++        },
+         "nuxt-auth-utils",
+         "@pinia/nuxt",
+         "pinia-plugin-persistedstate/nuxt",
+diff --git a/packages/neuro-book/server/api/g0/probe.get.ts b/packages/neuro-book/server/api/g0/probe.get.ts
+new file mode 100644
+index 00000000..26b4a096
+--- /dev/null
++++ b/packages/neuro-book/server/api/g0/probe.get.ts
+@@ -0,0 +1,36 @@
++import {probeEvaluations, probeIdentity, productApplicationPhase} from "nbook/server/g0/probe";
++import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
++import {productRuntimeReady} from "nbook/server/runtime/product-startup";
++import {getCurrentUser, isAuthEnabled} from "nbook/server/utils/auth";
++
++type EntryGlobals = typeof globalThis & {
++    __g0Entry?: {
++        probeToken: symbol;
++        shutdownController: unknown;
++        productRuntimeReady: unknown;
++        startupPromise: Promise<void>;
++    };
++};
++
++const G0_ROUTE_REVISION = "r1";
++
++/** G0：从路由侧报告与自有入口共享的模块身份。 */
++export default defineEventHandler(async (event) => {
++    const entry = (globalThis as EntryGlobals).__g0Entry;
++    const user = await getCurrentUser(event);
++    return {
++        routeRevision: G0_ROUTE_REVISION,
++        probeEvaluations: probeEvaluations(),
++        probeSerial: probeIdentity.serial,
++        threadId: probeIdentity.threadId,
++        devWorkerId: probeIdentity.devWorkerId,
++        entryPresent: Boolean(entry),
++        sameProbeModule: entry ? entry.probeToken === probeIdentity.token : null,
++        sameShutdownController: entry ? entry.shutdownController === productShutdownController : null,
++        sameProductRuntimeReady: entry ? entry.productRuntimeReady === productRuntimeReady : null,
++        sameStartupPromise: entry ? entry.startupPromise === productRuntimeReady() : null,
++        productApplicationPhase: productApplicationPhase(),
++        authEnabled: isAuthEnabled(),
++        user: user ? {id: user.id, username: user.username} : null,
++    };
++});
+diff --git a/packages/neuro-book/server/api/g0/slow.get.ts b/packages/neuro-book/server/api/g0/slow.get.ts
+new file mode 100644
+index 00000000..1c5164ee
+--- /dev/null
++++ b/packages/neuro-book/server/api/g0/slow.get.ts
+@@ -0,0 +1,11 @@
++import {getQuery} from "h3";
++import {recordG0Event} from "nbook/server/g0/probe";
++
++/** G0：模拟在途请求，用于观察停止时的 drain 顺序。 */
++export default defineEventHandler(async (event) => {
++    const ms = Math.min(Number(getQuery(event).ms ?? 2000) || 2000, 20_000);
++    recordG0Event("slow-request-begin", {ms});
++    await new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
++    recordG0Event("slow-request-end", {ms});
++    return {sleptMs: ms};
++});
+diff --git a/packages/neuro-book/server/g0/probe.ts b/packages/neuro-book/server/g0/probe.ts
+new file mode 100644
+index 00000000..657f9fbf
+--- /dev/null
++++ b/packages/neuro-book/server/g0/probe.ts
+@@ -0,0 +1,45 @@
++import {appendFileSync} from "node:fs";
++import {threadId} from "node:worker_threads";
++
++/**
++ * G0 一次性验证探针：模块求值次数计数放在 globalThis，而模块身份（Symbol、serial）是模块私有的。
++ * 如果同一模块在一次运行中被求值两次，计数会大于 1，入口与路由拿到的 Symbol 也会不同。
++ */
++type ProbeGlobals = typeof globalThis & {__g0ProbeEvaluations?: number};
++const probeGlobals = globalThis as ProbeGlobals;
++probeGlobals.__g0ProbeEvaluations = (probeGlobals.__g0ProbeEvaluations ?? 0) + 1;
++
++export const probeIdentity = {
++    token: Symbol("g0-probe"),
++    serial: probeGlobals.__g0ProbeEvaluations,
++    evaluatedAt: new Date().toISOString(),
++    threadId,
++    devWorkerId: process.env.NITRO_DEV_WORKER_ID ?? null,
++} as const;
++
++export function probeEvaluations(): number {
++    return probeGlobals.__g0ProbeEvaluations ?? 0;
++}
++
++/** 当前线程里的 Product Application 根作用域阶段；未启动为 null。 */
++export function productApplicationPhase(): string | null {
++    const state = (globalThis as {__nbookProductApplicationV1?: {application: {root: {phase: string}}}}).__nbookProductApplicationV1;
++    return state?.application.root.phase ?? null;
++}
++
++/** 追加一行 JSONL 时间线；只在显式设置 G0_EVENT_LOG 时写入。 */
++export function recordG0Event(event: string, detail: Record<string, unknown> = {}): void {
++    const path = process.env.G0_EVENT_LOG?.trim();
++    const line = {
++        at: new Date().toISOString(),
++        mono: Math.round(performance.timeOrigin + performance.now()),
++        pid: process.pid,
++        threadId,
++        devWorkerId: process.env.NITRO_DEV_WORKER_ID ?? null,
++        event,
++        phase: productApplicationPhase(),
++        ...detail,
++    };
++    if (path) appendFileSync(path, `${JSON.stringify(line)}\n`, "utf8");
++    console.log(`[g0] ${JSON.stringify(line)}`);
++}
+diff --git a/packages/neuro-book/server/host/product-host-entry.ts b/packages/neuro-book/server/host/product-host-entry.ts
+new file mode 100644
+index 00000000..4620e828
+--- /dev/null
++++ b/packages/neuro-book/server/host/product-host-entry.ts
+@@ -0,0 +1,123 @@
++// G0 一次性验证用的自有宿主入口：取代 nitropack node-server 预设入口，由入口自己监听端口、
++// 处理 WebSocket 升级并拥有进程停止。Nitro 仍负责构建和请求处理（useNitroApp().h3App）。
++import "#nitro-internal-pollyfills";
++import {Server as HttpServer} from "node:http";
++import wsAdapter from "crossws/adapters/node";
++import destr from "destr";
++import {toNodeListener} from "h3";
++import {useNitroApp, useRuntimeConfig} from "nitropack/runtime";
++import {trapUnhandledNodeErrors} from "nitropack/runtime/internal";
++import {probeIdentity, recordG0Event} from "nbook/server/g0/probe";
++import {productRuntimeReady} from "nbook/server/runtime/product-startup";
++import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
++import {isAuthEnabled} from "nbook/server/utils/auth";
++import {prisma} from "nbook/server/utils/prisma";
++
++const nitroApp = useNitroApp();
++recordG0Event("entry-evaluated", {probeSerial: probeIdentity.serial});
++
++// 与 Nitro middleware 共享同一个进程级启动 Promise；端口先监听，业务请求在 middleware 中等待就绪。
++const startupPromise = productRuntimeReady();
++void startupPromise.then(
++    () => recordG0Event("runtime-available"),
++    (error: unknown) => recordG0Event("runtime-failed", {message: error instanceof Error ? error.message : String(error)}),
++);
++
++(globalThis as Record<string, unknown>).__g0Entry = {
++    probeToken: probeIdentity.token,
++    shutdownController: productShutdownController,
++    productRuntimeReady,
++    startupPromise,
++};
++
++const server = new HttpServer(toNodeListener(nitroApp.h3App));
++
++type UpgradeUser = {id: string; username: string} | {anonymous: true};
++
++/**
++ * 升级请求只读地识别现有 Cookie 会话；与 getCurrentUser 相同的判定，但不写回 Cookie，
++ * 因为升级请求没有可写的 HTTP 响应（h3 对非 H3Event 的会话只读）。
++ */
++async function resolveUpgradeUser(request: {headers: Headers; context: Record<string, unknown>}): Promise<UpgradeUser | null> {
++    if (!isAuthEnabled()) return {anonymous: true};
++    let session: {user?: {id?: string; sessionVersion?: number}};
++    try {
++        session = await getUserSession(request as never);
++    } catch {
++        // 没有会话 Cookie 时 h3 无法在只读事件上初始化新会话。
++        return null;
++    }
++    const userId = Number.parseInt(session.user?.id ?? "", 10);
++    if (!Number.isSafeInteger(userId) || userId <= 0) return null;
++    const user = await prisma.user.findUnique({where: {id: userId}});
++    if (!user || user.status !== "active" || user.sessionVersion !== session.user?.sessionVersion) return null;
++    return {id: String(user.id), username: user.username};
++}
++
++const ws = wsAdapter({
++    hooks: {
++        async upgrade(request) {
++            const url = new URL(request.url);
++            if (url.pathname !== "/__g0/ws") {
++                return new Response("Not Found", {status: 404});
++            }
++            await startupPromise;
++            const user = await resolveUpgradeUser(request as never);
++            recordG0Event("ws-upgrade", {accepted: Boolean(user), user});
++            if (!user) return new Response("Unauthorized", {status: 401});
++            request.context.user = user;
++        },
++        open(peer) {
++            recordG0Event("ws-open", {user: peer.context.user});
++            peer.send(JSON.stringify({type: "hello", user: peer.context.user, threadId: probeIdentity.threadId}));
++        },
++        message(peer, message) {
++            peer.send(JSON.stringify({type: "echo", text: message.text(), user: peer.context.user}));
++        },
++        close(peer, details) {
++            recordG0Event("ws-close", {code: details.code});
++        },
++    },
++});
++server.on("upgrade", (req, socket, head) => {
++    void ws.handleUpgrade(req, socket, head).catch((error: unknown) => {
++        recordG0Event("ws-upgrade-error", {message: error instanceof Error ? error.message : String(error)});
++        socket.destroy();
++    });
++});
++
++const port = destr<number>(process.env.NITRO_PORT || process.env.PORT) || 3000;
++const host = process.env.NITRO_HOST || process.env.HOST;
++server.listen({port, host}, () => {
++    const address = server.address();
++    const baseURL = (useRuntimeConfig().app.baseURL || "").replace(/\/$/u, "");
++    const url = typeof address === "string"
++        ? address
++        : `http://${address?.family === "IPv6" ? `[${address.address}]` : address?.address}:${String(address?.port)}${baseURL}`;
++    console.log(`Listening on ${url}`);
++    recordG0Event("listening", {url});
++});
++
++trapUnhandledNodeErrors();
++
++let stopRequested = false;
++/** 停止：先停止接纳新连接与 WebSocket，再运行 Nitro close 钩子，最后由统一关闭控制器排空并退出。 */
++function requestStop(source: string): void {
++    if (stopRequested) return;
++    stopRequested = true;
++    recordG0Event("stop-requested", {source});
++    server.close(() => recordG0Event("http-server-closed"));
++    ws.closeAll(1001, "server shutdown");
++    void nitroApp.hooks.callHook("close")
++        .catch((error: unknown) => recordG0Event("close-hook-failed", {message: String(error)}))
++        .finally(() => {
++            recordG0Event("close-hook-done");
++            productShutdownController.requestProcessExit(0);
++        });
++}
++for (const signal of ["SIGTERM", "SIGINT"] as const) {
++    process.on(signal, () => requestStop(`signal:${signal}`));
++}
++process.on("exit", (code) => recordG0Event("process-exit", {code}));
++
++export default {};
+diff --git a/packages/neuro-book/server/plugins/00-g0-dev-runtime.ts b/packages/neuro-book/server/plugins/00-g0-dev-runtime.ts
+new file mode 100644
+index 00000000..7e83e8d6
+--- /dev/null
++++ b/packages/neuro-book/server/plugins/00-g0-dev-runtime.ts
+@@ -0,0 +1,35 @@
++import {existsSync, readFileSync} from "node:fs";
++import {defineNitroPlugin} from "nitropack/runtime";
++import {recordG0Event} from "nbook/server/g0/probe";
++import {productRuntimeReady} from "nbook/server/runtime/product-startup";
++import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
++
++/**
++ * G0 开发适配器：nuxi dev 的 worker 拥有端口，这里只在 Nitro 初始化时建立运行实例，
++ * 并在 Nitro close 钩子（worker 收到 shutdown 时触发）中停止它。生产由自有入口负责。
++ */
++export default defineNitroPlugin((nitroApp) => {
++    if (!import.meta.dev) return;
++    recordG0Event("dev-plugin-init");
++    void productRuntimeReady().then(
++        () => recordG0Event("dev-runtime-available"),
++        (error: unknown) => recordG0Event("dev-runtime-failed", {message: error instanceof Error ? error.message : String(error)}),
++    );
++    nitroApp.hooks.hook("close", async () => {
++        recordG0Event("dev-close-begin");
++        // G0 实验：模拟旧实例释放资源较慢（例如在跑的 Agent 任务需要收尾），观察热重载时新旧实例是否重叠。
++        const delayFile = process.env.G0_EVENT_LOG ? `${process.env.G0_EVENT_LOG}.close-delay-ms` : "";
++        const delayMs = delayFile && existsSync(delayFile) ? Number(readFileSync(delayFile, "utf8").trim()) || 0 : 0;
++        if (delayMs > 0) {
++            recordG0Event("dev-close-simulated-delay", {delayMs});
++            await new Promise((resolvePromise) => setTimeout(resolvePromise, delayMs));
++        }
++        try {
++            await productShutdownController.shutdown();
++            recordG0Event("dev-close-end");
++        } catch (error) {
++            recordG0Event("dev-close-failed", {message: error instanceof Error ? error.message : String(error)});
++            throw error;
++        }
++    });
++});

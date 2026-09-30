@@ -1,0 +1,30 @@
+{
+  "url": "http://127.0.0.1:3431/g1",
+  "approach": "esm",
+  "interact": "full",
+  "collected": {
+    "component": false,
+    "factory": null
+  },
+  "targetCount": 1,
+  "paths": [
+    {
+      "reachable": true,
+      "path": [
+        "synthetic: --element:1--> synthetic:(GC roots)",
+        "synthetic:(GC roots) --element:29--> synthetic:C++ Persistent roots",
+        "synthetic:C++ Persistent roots --internal:blink::ScriptState::ScriptState(v8::Local<v8::Context>, DOMW--> native:blink::ScriptStateImpl",
+        "native:blink::ScriptStateImpl --element:1--> native:blink::V8PerContextData",
+        "native:blink::V8PerContextData --element:3--> native:blink::HeapHashTableBacking<blink::HashTable<const char *, blink::KeyValuePair<c",
+        "native:blink::HeapHashTableBacking<blink::HashTable<const char *, blink::KeyValuePair<c --element:1--> native:Modulator",
+        "native:Modulator --element:4--> native:blink::ModuleRecordResolverImpl",
+        "native:blink::ModuleRecordResolverImpl --element:2--> native:blink::HeapHashTableBacking<blink::HashTable<cppgc::internal::BasicMember<blink:",
+        "native:blink::HeapHashTableBacking<blink::HashTable<cppgc::internal::BasicMember<blink: --element:791--> native:blink::BoxedV8Module",
+        "native:blink::BoxedV8Module --element:1--> native:system / SourceTextModule",
+        "native:system / SourceTextModule --hidden:0--> array:",
+        "array: --internal:16--> native:system / Cell",
+        "native:system / Cell --internal:value--> object:Object"
+      ]
+    }
+  ]
+}

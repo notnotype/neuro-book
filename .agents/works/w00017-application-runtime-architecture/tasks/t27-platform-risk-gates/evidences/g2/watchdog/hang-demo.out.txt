@@ -1,0 +1,109 @@
+# 2026-09-30T10:53:23Z Linux 7.2.7-arch1-1 bun 1.4.2；阈值 3000ms（缩短以便演示），心跳 1000ms，检查 500ms，退出方式 ffi _exit(76)
+main: 开始 case=sync at 2026-09-30T10:53:25.966Z
+case=sync exit=76 总用时=4048ms
+main: 开始 case=async at 2026-09-30T10:53:30.014Z
+case=async exit=76 总用时=5040ms
+main: 开始 case=unowned at 2026-09-30T10:53:35.054Z
+case=unowned exit=76 总用时=5038ms
+--- hang-report-sync.json（摘录）
+{
+ "stalledMs": 3003,
+ "lastHeartbeatAt": "2026-09-30T10:53:24.966Z",
+ "detectedAt": "2026-09-30T10:53:27.989Z",
+ "suspects": {
+  "confidence": "direct",
+  "pluginIds": [
+   "acme.wordcount"
+  ]
+ },
+ "inflight": [
+  {
+   "plugin": "acme.image-gen@1.2.0",
+   "gen": 3,
+   "kind": "channel-call",
+   "target": "imageGen.render",
+   "elapsedMs": 3523,
+   "startedAfterLastHeartbeat": false,
+   "holdsMainThread": false
+  },
+  {
+   "plugin": "acme.wordcount@0.3.1",
+   "gen": 1,
+   "kind": "command",
+   "target": "wordcount.recount",
+   "elapsedMs": 2023,
+   "startedAfterLastHeartbeat": true,
+   "holdsMainThread": true
+  }
+ ],
+ "action": {
+  "exitMethod": "ffi-exit",
+  "exitCode": 76,
+  "leaseLockReleased": false
+ }
+}
+--- hang-report-async.json（摘录）
+{
+ "stalledMs": 3003,
+ "lastHeartbeatAt": "2026-09-30T10:53:30.014Z",
+ "detectedAt": "2026-09-30T10:53:33.032Z",
+ "suspects": {
+  "confidence": "candidate",
+  "pluginIds": [
+   "acme.wordcount"
+  ]
+ },
+ "inflight": [
+  {
+   "plugin": "acme.image-gen@1.2.0",
+   "gen": 3,
+   "kind": "channel-call",
+   "target": "imageGen.render",
+   "elapsedMs": 4519,
+   "startedAfterLastHeartbeat": false,
+   "holdsMainThread": false
+  },
+  {
+   "plugin": "acme.wordcount@0.3.1",
+   "gen": 1,
+   "kind": "export",
+   "target": "wordcount.countProject",
+   "elapsedMs": 3018,
+   "startedAfterLastHeartbeat": true,
+   "holdsMainThread": false
+  }
+ ],
+ "action": {
+  "exitMethod": "ffi-exit",
+  "exitCode": 76,
+  "leaseLockReleased": false
+ }
+}
+--- hang-report-unowned.json（摘录）
+{
+ "stalledMs": 3003,
+ "lastHeartbeatAt": "2026-09-30T10:53:35.054Z",
+ "detectedAt": "2026-09-30T10:53:38.070Z",
+ "suspects": {
+  "confidence": "weak",
+  "pluginIds": [
+   "acme.image-gen"
+  ]
+ },
+ "inflight": [
+  {
+   "plugin": "acme.image-gen@1.2.0",
+   "gen": 3,
+   "kind": "channel-call",
+   "target": "imageGen.render",
+   "elapsedMs": 4516,
+   "startedAfterLastHeartbeat": false,
+   "holdsMainThread": false
+  }
+ ],
+ "action": {
+  "exitMethod": "ffi-exit",
+  "exitCode": 76,
+  "leaseLockReleased": false
+ }
+}

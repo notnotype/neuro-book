@@ -1,0 +1,36 @@
+# 2026-09-30T11:04:22.539Z linux bun 1.4.2
+1 冷启动（创建 worker + 加载 1.6KB 插件模块 + 一次调用）：平均 15.32ms，最小 14.44ms，最大 16.86ms
+  热调用往返（小输入，串行 1000 次）：平均 25µs
+  热调用往返（1KB 字符串，串行 1000 次）：平均 26µs
+  热调用往返（1MB 字符串，串行 100 次）：平均 848µs
+  64MB 输入：结构化克隆复制 79.23ms，transfer 移交 2.27ms（移交后本端 byteLength=0）
+  池统计：{"spawned":1,"terminated":0,"reused":2102,"maxConcurrent":1,"live":1,"queued":0}（同一插件同一模块 2104 次调用只创建 1 个 worker）
+2 中止：结果 {"ok":false,"error":{"code":"interrupted","reason":"aborted","message":"已中断：aborted"}}；死循环 200ms 期间主线程 10ms 定时器触发 20 次
+  abort() → 调用方得到结果：平均 0.09ms；abort() → worker 线程 exit：平均 5.28ms，最大 16.54ms
+  池统计：{"spawned":10,"terminated":10,"reused":1,"maxConcurrent":1,"live":0,"queued":0}
+3 terminate() 能否打断不同阻塞（运行 300ms 后终止）：
+  spin: 退出 exitCode=1，28.37ms
+  atomics-wait: 退出 exitCode=1，2.09ms
+  sleep-sync: 5 秒内未退出
+    （该 worker 仍在运行；进程结束时由 process.exit 回收）
+  regex: 退出 exitCode=1，270.11ms
+  wasm-loop: 5 秒内未退出
+    （该 worker 仍在运行；进程结束时由 process.exit 回收）
+  sort: 退出 exitCode=1，15.38ms
+4 上限：maxWorkers=3、每插件 2，9 个 200ms 任务（3 个插件）用时 662.76ms，全部成功=true，统计 {"spawned":7,"terminated":4,"reused":2,"maxConcurrent":3,"live":3,"queued":0}
+  排队中的调用被中止：排队数 1，结果 interrupted/aborted，0.06ms 结算，未创建 worker
+5 禁用：插件 A 有 2 个忙碌 worker + 3 个排队；全部结算 0.55ms，worker 全部退出 46.08ms；结果 ["interrupted/plugin-disabled"]
+  禁用后再调用：{"ok":false,"error":{"code":"interrupted","reason":"plugin-disabled","message":"已中断：plugin-disabled"}}；插件 B 的调用：ok=true；剩余 worker 1
+6 错误形状：
+  插件代码抛错：{"ok":false,"error":{"code":"task-error","name":"RangeError","message":"bad input 7","stack":"<stack>"}}
+  输入不可克隆：{"ok":false,"error":{"code":"input-not-cloneable","name":"DataCloneError","message":"The object can not be cloned."}}
+  输出不可克隆：{"ok":false,"error":{"code":"output-not-cloneable","name":"DataCloneError","message":"The object can not be cloned.","stack":"<stack>"}}
+  插件代码 process.exit(3)：{"ok":false,"error":{"code":"worker-crashed","message":"worker 意外退出，exitCode=3"}}
+  模块缺少 default 导出：{"ok":false,"error":{"code":"load-failed","name":"TypeError","message":"worker 模块缺少 default 导出函数：file:///tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g2/pool/plugin-broken/no-default.mjs","stack":"<stack>"}}
+  模块语法错误：{"ok":false,"error":{"code":"load-failed","name":"BuildMessage","message":"Expected identifier but found end of file"}}
+  出错后同插件仍可用：{"ok":true,"value":"ok"}
+  流式进度：1000 条进度 + 结果 3.73ms，收到 1000 条，顺序正确=true，结果={"ok":true,"value":1000}
+  中止后不再回调进度：中止前 1 条，中止后新增 0 条
+7 WebAssembly 死循环：中止后 0.10ms 得到 interrupted/aborted
+  3 秒后池统计：{"spawned":1,"terminated":1,"reused":0,"maxConcurrent":1,"live":1,"queued":0}（live=1 即未退出的 worker 仍占名额）
+  其它插件调用：{"ok":true,"value":"仍可服务"}

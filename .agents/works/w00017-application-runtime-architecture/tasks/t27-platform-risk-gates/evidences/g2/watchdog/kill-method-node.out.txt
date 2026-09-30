@@ -1,0 +1,26 @@
+# 2026-09-30T10:49:09Z node v26.10.0
+## node sigkill
+exit=137
+## node sigterm
+main: 3s 死循环结束，进程未被结束
+worker: sigterm 返回后 worker 仍在运行
+main: SIGTERM handler 执行
+main: worker exit 事件 code=0
+main: exit 事件 code=0
+exit=0
+## node exit
+main: 3s 死循环结束，进程未被结束
+main: worker exit 事件 code=76
+main: exit 事件 code=0
+exit=0
+## node abort
+main: 3s 死循环结束，进程未被结束
+main: worker error process.abort() is not supported in workers
+main: worker exit 事件 code=1
+main: exit 事件 code=0
+exit=0
+## node reallyExit
+main: 3s 死循环结束，进程未被结束
+main: worker exit 事件 code=76
+main: exit 事件 code=0
+exit=0

@@ -1,0 +1,17 @@
+{
+  "label": "prod-chromium",
+  "url": "http://127.0.0.1:3432/g1",
+  "status": "mounted",
+  "identity": {
+    "vueRef": false,
+    "nbButton": true,
+    "sdkKey": true
+  },
+  "slotError": null,
+  "rendered": true,
+  "injectText": "g1-host:selfvue",
+  "countAfterClick": "0",
+  "capturedErrors": [],
+  "pageErrors": [],
+  "consoleMessages": []
+}

@@ -1,0 +1,485 @@
+{
+  "checks": {
+    "esm.importmap-bootstrap": {
+      "pass": true,
+      "detail": {
+        "importMapFirstInHead": true,
+        "supportsImportMap": true,
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/60.5 Safari/605.1.15"
+      }
+    },
+    "esm.identity-shared": {
+      "pass": true,
+      "detail": {
+        "vueRef": true,
+        "nbButton": true,
+        "sdkKey": true
+      }
+    },
+    "esm.reactivity": {
+      "pass": true,
+      "detail": {
+        "count": "2"
+      }
+    },
+    "esm.plugin-css": {
+      "pass": true,
+      "detail": {
+        "border": "dashed"
+      }
+    },
+    "esm.i18n": {
+      "pass": true,
+      "detail": {
+        "i18nInitial": {
+          "text": "取消",
+          "locale": "zh-CN"
+        },
+        "i18nEn": {
+          "text": "Cancel",
+          "locale": "en-US"
+        }
+      }
+    },
+    "esm.theme": {
+      "pass": true,
+      "detail": {
+        "themeInitial": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        },
+        "themeLight": {
+          "text": "light",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        },
+        "themeBack": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        }
+      }
+    },
+    "esm.inject-host-context": {
+      "pass": true,
+      "detail": {
+        "inject": "g1-host:esm"
+      }
+    },
+    "esm.tooltip": {
+      "pass": true,
+      "detail": {
+        "tooltipGap": 6,
+        "tooltipCenterDelta": 0.390625,
+        "zIndex": "4321",
+        "tt": {
+          "trigger": {
+            "top": 196,
+            "bottom": 222,
+            "left": 50,
+            "right": 109.78125
+          },
+          "surface": {
+            "top": 164,
+            "bottom": 190,
+            "left": 40,
+            "right": 119
+          }
+        }
+      }
+    },
+    "esm.popover": {
+      "pass": true,
+      "detail": {
+        "popoverGap": 6,
+        "zIndex": "4321",
+        "topmostAtCenter": true,
+        "text": "popover esm · 确定 · 2",
+        "pg": {
+          "trigger": {
+            "top": 196,
+            "bottom": 222,
+            "left": 117.78125,
+            "right": 187.375
+          },
+          "surface": {
+            "top": 228,
+            "bottom": 284,
+            "left": 53,
+            "right": 251.671875
+          }
+        }
+      }
+    },
+    "esm.unload-dom": {
+      "pass": true,
+      "detail": {
+        "after": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0
+        },
+        "baselineBodyChildren": [
+          "div#__nuxt",
+          "div#teleports",
+          "script",
+          "script",
+          "script#__NUXT_DATA__",
+          "svg#nb-theme-svg-nbook",
+          "svg#nb-theme-svg-macos"
+        ]
+      }
+    },
+    "esm.unload-listeners": {
+      "pass": true,
+      "detail": {
+        "leak": {},
+        "mountedDiff": {
+          "window:resize": 1
+        }
+      }
+    },
+    "cjs.identity-shared": {
+      "pass": true,
+      "detail": {
+        "vueRef": true,
+        "nbButton": true,
+        "sdkKey": true
+      }
+    },
+    "cjs.reactivity": {
+      "pass": true,
+      "detail": {
+        "count": "2"
+      }
+    },
+    "cjs.plugin-css": {
+      "pass": true,
+      "detail": {
+        "border": "dashed"
+      }
+    },
+    "cjs.i18n": {
+      "pass": true,
+      "detail": {
+        "i18nInitial": {
+          "text": "取消",
+          "locale": "zh-CN"
+        },
+        "i18nEn": {
+          "text": "Cancel",
+          "locale": "en-US"
+        }
+      }
+    },
+    "cjs.theme": {
+      "pass": true,
+      "detail": {
+        "themeInitial": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        },
+        "themeLight": {
+          "text": "light",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        },
+        "themeBack": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.090196 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          }
+        }
+      }
+    },
+    "cjs.inject-host-context": {
+      "pass": true,
+      "detail": {
+        "inject": "g1-host:cjs"
+      }
+    },
+    "cjs.tooltip": {
+      "pass": true,
+      "detail": {
+        "tooltipGap": 6,
+        "tooltipCenterDelta": 0.421875,
+        "zIndex": "4321",
+        "tt": {
+          "trigger": {
+            "top": 296,
+            "bottom": 322,
+            "left": 50,
+            "right": 109.78125
+          },
+          "surface": {
+            "top": 264,
+            "bottom": 290,
+            "left": 45,
+            "right": 115.625
+          }
+        }
+      }
+    },
+    "cjs.popover": {
+      "pass": true,
+      "detail": {
+        "popoverGap": 6,
+        "zIndex": "4321",
+        "topmostAtCenter": true,
+        "text": "popover cjs · 确定 · 2",
+        "pg": {
+          "trigger": {
+            "top": 296,
+            "bottom": 322,
+            "left": 117.78125,
+            "right": 187.375
+          },
+          "surface": {
+            "top": 328,
+            "bottom": 384,
+            "left": 59,
+            "right": 245.484375
+          }
+        }
+      }
+    },
+    "cjs.unload-dom": {
+      "pass": true,
+      "detail": {
+        "after": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0
+        },
+        "baselineBodyChildren": [
+          "div#__nuxt",
+          "div#teleports",
+          "script",
+          "script",
+          "script#__NUXT_DATA__",
+          "svg#nb-theme-svg-nbook",
+          "svg#nb-theme-svg-macos"
+        ]
+      }
+    },
+    "cjs.unload-listeners": {
+      "pass": true,
+      "detail": {
+        "leak": {},
+        "mountedDiff": {
+          "window:resize": 1
+        }
+      }
+    },
+    "cjs.table-entry-removed": {
+      "pass": true,
+      "detail": {
+        "ids": []
+      }
+    },
+    "error.render-isolated": {
+      "pass": true,
+      "detail": {
+        "esmError": " 插件视图出错：G1 plugin render error (esm)",
+        "cjsCount": "1",
+        "hostBefore": 0,
+        "hostAfter": 1
+      }
+    },
+    "error.handler-isolated": {
+      "pass": true,
+      "detail": {
+        "cjsError": " 插件视图出错：G1 plugin handler error (cjs)"
+      }
+    },
+    "error.recover-after-reload": {
+      "pass": true,
+      "detail": {
+        "esm": "1",
+        "cjs": "1",
+        "sameModuleOnReload": {
+          "esm": true,
+          "cjs": false
+        }
+      }
+    }
+  },
+  "negative": {
+    "identity": {
+      "vueRef": false,
+      "nbButton": true,
+      "sdkKey": true
+    },
+    "countAfterClick": "0",
+    "inject": "g1-host:selfvue"
+  },
+  "pageErrors": [],
+  "capturedErrors": [
+    {
+      "approach": "esm",
+      "message": "G1 plugin render error (esm)",
+      "info": "component update"
+    },
+    {
+      "approach": "cjs",
+      "message": "G1 plugin handler error (cjs)",
+      "info": "native event handler"
+    }
+  ],
+  "webkitgtk": "2.52.6"
+}

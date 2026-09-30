@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>G2 browser worker pool</title>
+<script type="module">
+import {BrowserWorkerPool} from "./browser-pool.mjs";
+window.BrowserWorkerPool = BrowserWorkerPool;
+window.PLUGIN = new URL("../pool/plugin-demo/dist/worker.mjs", location.href).href;
+window.BROKEN = (f) => new URL(`../pool/plugin-broken/${f}`, location.href).href;
+window.__ready = true;
+</script>

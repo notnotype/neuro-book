@@ -1,0 +1,36 @@
+{"at":"2026-09-30T10:59:23.242Z","mono":1790765963242,"pid":1853272,"threadId":1,"devWorkerId":"2","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T10:59:23.385Z","mono":1790765963386,"pid":1853272,"threadId":1,"devWorkerId":"2","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T10:59:55.030Z","mono":1790765995030,"pid":1853272,"threadId":1,"devWorkerId":"2","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T10:59:55.077Z","mono":1790765995078,"pid":1853272,"threadId":1,"devWorkerId":"2","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T10:59:56.731Z","mono":1790765996732,"pid":1853272,"threadId":2,"devWorkerId":"3","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T10:59:56.854Z","mono":1790765996855,"pid":1853272,"threadId":2,"devWorkerId":"3","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:00:36.973Z","mono":1790766036973,"pid":1853272,"threadId":2,"devWorkerId":"3","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T11:00:37.060Z","mono":1790766037061,"pid":1853272,"threadId":2,"devWorkerId":"3","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:00:38.785Z","mono":1790766038785,"pid":1853272,"threadId":3,"devWorkerId":"4","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:00:38.932Z","mono":1790766038932,"pid":1853272,"threadId":3,"devWorkerId":"4","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:00:50.483Z","mono":1790766050484,"pid":1853272,"threadId":3,"devWorkerId":"4","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T11:00:50.550Z","mono":1790766050551,"pid":1853272,"threadId":3,"devWorkerId":"4","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:00:52.160Z","mono":1790766052161,"pid":1853272,"threadId":4,"devWorkerId":"5","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:00:52.324Z","mono":1790766052324,"pid":1853272,"threadId":4,"devWorkerId":"5","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:01:04.311Z","mono":1790766064312,"pid":1853272,"threadId":4,"devWorkerId":"5","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T11:01:04.439Z","mono":1790766064440,"pid":1853272,"threadId":4,"devWorkerId":"5","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:01:06.694Z","mono":1790766066695,"pid":1853272,"threadId":5,"devWorkerId":"6","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:01:06.872Z","mono":1790766066873,"pid":1853272,"threadId":5,"devWorkerId":"6","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:01:17.162Z","mono":1790766077162,"pid":1853272,"threadId":5,"devWorkerId":"6","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T11:01:18.278Z","mono":1790766078278,"pid":1853272,"threadId":6,"devWorkerId":"7","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:01:18.389Z","mono":1790766078390,"pid":1853272,"threadId":6,"devWorkerId":"7","event":"dev-runtime-failed","phase":"closed","message":"Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g0-state/dev/workspace/.nbook/agent/migrations/runtime.lease；报告 owner：pid=1853272 kind=runtime acquiredAt=2026-09-30T11:01:06.865Z runtime=node@26.10.0；heartbeat=2026-09-30T11:01:08.001Z。请先正常关闭该实例；owner 仍存活时不要删除 runtime.lease.lock。"}
+{"at":"2026-09-30T11:04:02.631Z","mono":1790766242632,"pid":1853272,"threadId":6,"devWorkerId":"7","event":"dev-close-begin","phase":"closed"}
+{"at":"2026-09-30T11:04:02.685Z","mono":1790766242685,"pid":1853272,"threadId":6,"devWorkerId":"7","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:04:03.449Z","mono":1790766243449,"pid":1853272,"threadId":7,"devWorkerId":"8","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:04:03.557Z","mono":1790766243558,"pid":1853272,"threadId":7,"devWorkerId":"8","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:04:23.654Z","mono":1790766263654,"pid":1853272,"threadId":7,"devWorkerId":"8","event":"dev-close-begin","phase":"available"}
+{"at":"2026-09-30T11:04:23.654Z","mono":1790766263655,"pid":1853272,"threadId":7,"devWorkerId":"8","event":"dev-close-simulated-delay","phase":"available","delayMs":4000}
+{"at":"2026-09-30T11:04:24.567Z","mono":1790766264567,"pid":1853272,"threadId":8,"devWorkerId":"9","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:04:24.677Z","mono":1790766264678,"pid":1853272,"threadId":8,"devWorkerId":"9","event":"dev-runtime-failed","phase":"closed","message":"Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/g0-state/dev/workspace/.nbook/agent/migrations/runtime.lease；报告 owner：pid=1853272 kind=runtime acquiredAt=2026-09-30T11:04:03.554Z runtime=node@26.10.0；heartbeat=2026-09-30T11:04:18.554Z。请先正常关闭该实例；owner 仍存活时不要删除 runtime.lease.lock。"}
+{"at":"2026-09-30T11:04:27.695Z","mono":1790766267695,"pid":1853272,"threadId":7,"devWorkerId":"8","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:06:17.192Z","mono":1790766377192,"pid":1853272,"threadId":8,"devWorkerId":"9","event":"dev-close-begin","phase":"closed"}
+{"at":"2026-09-30T11:06:17.246Z","mono":1790766377247,"pid":1853272,"threadId":8,"devWorkerId":"9","event":"dev-close-end","phase":"closed"}
+{"at":"2026-09-30T11:06:17.980Z","mono":1790766377981,"pid":1853272,"threadId":9,"devWorkerId":"10","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:06:18.084Z","mono":1790766378084,"pid":1853272,"threadId":9,"devWorkerId":"10","event":"dev-runtime-available","phase":"available"}
+{"at":"2026-09-30T11:07:04.347Z","mono":1790766424347,"pid":1853272,"threadId":10,"devWorkerId":"11","event":"dev-plugin-init","phase":"creating"}
+{"at":"2026-09-30T11:07:04.443Z","mono":1790766424444,"pid":1853272,"threadId":10,"devWorkerId":"11","event":"dev-runtime-available","phase":"available"}

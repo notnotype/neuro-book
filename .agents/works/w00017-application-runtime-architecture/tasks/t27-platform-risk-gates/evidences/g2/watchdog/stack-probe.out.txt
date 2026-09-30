@@ -1,0 +1,10 @@
+# 2026-09-30T11:09:26Z
+## bun 1.4.2
+worker: 无法取主线程栈：Inspector error -32000: Inspector method "Debugger.enable" requires an active inspector (call inspector.open() first)
+## node v26.10.0
+worker: 主线程栈 ["pluginHotLoop :7","<anon> :9"]
+worker: 已取得栈
+## bun 1.4.2（主线程先 inspector.open(0)）
+Debugger listening on ws://127.0.0.1:39751/a28e0f37-dde1-4284-a438-159359f76bfb
+main: inspector.open → ws://127.0.0.1:39751/a28e0f37-dde1-4284-a438-159359f76bfb
+worker: 无法取主线程栈：Inspector error -32000: Inspector method "Debugger.enable" requires an active inspector (call inspector.open() first)

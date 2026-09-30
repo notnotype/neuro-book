@@ -1,0 +1,45 @@
+G0 其它原始观察（命令输出按原样摘录；时间为 UTC，2026-09-30）
+
+== A. crossws node 适配器在 Bun 1.4.2 下的独立预检（不经 Nuxt；node:http Server + server.on("upgrade")）
+脚本：harness/standalone-ws.mjs（端口 3320，运行后已删除临时副本）
+输出：
+{"bun":"1.4.2","results":[{"ok":true,"got":["hello u1","echo:ping"]},{"ok":false,"error":"WebSocket connection to 'ws://127.0.0.1:3320/x' failed: Expected 101 status code"}]}
+
+== B. 构建尝试
+build-1：Nitro raw 构建与后处理全部完成，最后被 Builder 拒绝：
+  error: Product build 期间 Source 输入发生变化：sourceDigest（原因：构建期间我在 worktree 新建了 g0-harness/prod-harness.ts）
+build-2：nuxt:build:raw 被 SIGKILL（systemd 日志同时刻有 oom-kill；另一个子代理的 nuxt dev 占用约 3.7 GB，本机 15 GB 内存、交换区几乎用尽）
+build-3：成功（见 build-product-image-excerpt.log、item1-build-evidence.txt），耗时 1:29.97
+
+== C. 开发模式：HTTP 停止通道（source-dev.ts 使用的同一通道）打到 nuxi dev（端口 3311）
+$ curl -X POST -H "authorization: Bearer <dev token>" http://127.0.0.1:3311/__nbook/control/shutdown
+{"accepted": true}  shutdown POST status=202
+4 秒后：
+-- dev process alive?
+    PID     ELAPSED COMMAND
+1853272       07:45 node .../g0-wt/node_modules/.bin/nuxt dev --no-fork
+-- probe after:
+{"error": true, ... "statusCode": 500, ... "message": "worker exited with code 0", ...}
+-- lease lock: absent
+结论：关闭步骤在 worker 内跑完（lease 已释放），但 process.exit(0) 只结束了 worker 线程，nuxi 进程继续存活并对所有请求返回 500。
+
+== D. 开发模式：对 dev:runtime 进程组发送 SIGTERM（Owned Process 强制收口的做法）
+进程组 1852925：bun run dev:runtime → bun source-runtime.ts → bun x nuxt dev --no-fork → node nuxt dev --no-fork（+ vite/nitro 的 esbuild 子进程）
+$ kill -TERM -1852925
+nuxi alive after wait: no (waited ~1s)
+-- events: （空：没有 dev-close-begin / dev-close-end）
+-- lease lock: .../workspace/.nbook/agent/migrations/runtime.lease.lock  （残留，需等 30 秒过期）
+源码：@nuxt/cli 3.36.1 dist/dev-CQg8KtEQ.mjs 在 --no-fork 路径下只为 CPU profile 监听信号，未把 SIGTERM/SIGINT 接到 close()。
+
+== E. 开发模式运行时
+lease owner：{"kind":"runtime","pid":1853272,"runtime":"node","runtimeVersion":"26.10.0"}
+进程：node .../node_modules/.bin/nuxt dev --no-fork（由 bun x 按 nuxt 可执行文件的 #!/usr/bin/env node 启动）
+开发者 3001 端口的开发服务同样是 node .../node_modules/.bin/nuxt dev --no-fork（ps 只读观察，未访问）
+生产：lease owner {"runtime":"bun","runtimeVersion":"1.4.2"}
+
+== F. 生产：启动门禁失败时进程不退出（未迁移的空 State Root，端口 3314，直接运行 .output/server/index.mjs）
+alive after 8s: yes
+GET /api/app/version -> status=500 {"statusMessage":"Server Error"}
+事件：listening → runtime-failed（"NeuroBook 数据状态需要迁移，服务已在启动前停止。"）→ 8 秒后手动 SIGTERM → exit 0
+原因（源码）：server/middleware/00-product-startup.ts 用 setImmediate(() => { throw error }) 终止进程，
+但入口（以及原 node-server 入口）调用的 nitropack trapUnhandledNodeErrors() 把 uncaughtException 只记录不退出。

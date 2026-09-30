@@ -1,0 +1,12 @@
+# 2026-09-30T11:05:43.515Z 151.0.7922.71（headless），页面 http://127.0.0.1:38421
+1 冷启动（创建 module worker + 加载宿主引导与插件模块 + 一次调用）：平均 10.46ms（8.9~19.6）；热调用往返平均 34µs；池统计 {"spawned":1,"terminated":0,"reused":1000,"maxConcurrent":1,"live":1,"queued":0}
+2 中止 JS 死循环：结果 interrupted/aborted，abort→结算 0.30ms；死循环约 1.3s 期间页面主线程 10ms 定时器触发 130 次；渲染进程 CPU 终止前 1010ms/s → 终止后 1000ms/s
+2 中止 WebAssembly 死循环：结果 interrupted/aborted，abort→结算 0.10ms；死循环约 1.3s 期间页面主线程 10ms 定时器触发 130 次；渲染进程 CPU 终止前 1500ms/s → 终止后 1000ms/s
+3 禁用：{"settleMs":0.29999998211860657,"codes":["interrupted/plugin-disabled"],"after":{"ok":false,"error":{"code":"interrupted","reason":"plugin-disabled","message":"已中断：plugin-disabled"}},"other":true,"live":1}
+  错误形状 throw：{"ok":false,"error":{"code":"task-error","name":"RangeError","message":"bad input 7","stack":"<stack>"}}
+  错误形状 inputNotCloneable：{"ok":false,"error":{"code":"input-not-cloneable","name":"DataCloneError","message":"Failed to execute 'postMessage' on 'Worker': () => 1 could not be cloned."}}
+  错误形状 outputNotCloneable：{"ok":false,"error":{"code":"output-not-cloneable","name":"DataCloneError","message":"Failed to execute 'postMessage' on 'DedicatedWorkerGlobalScope': () => 1 could not be cloned.","stack":"<stack>"}}
+  错误形状 noDefault：{"ok":false,"error":{"code":"load-failed","name":"TypeError","message":"worker 模块缺少 default 导出函数：http://127.0.0.1:38421/pool/plugin-broken/no-default.mjs","stack":"<stack>"}}
+  错误形状 syntax：{"ok":false,"error":{"code":"load-failed","name":"SyntaxError","message":"Unexpected end of input","stack":"<stack>"}}
+  错误形状 stillWorks：{"ok":true,"value":"ok"}
+  流式进度：{"ms":8.900000005960464,"count":1000,"ordered":true,"r":{"ok":true,"value":1000}}

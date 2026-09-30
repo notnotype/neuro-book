@@ -1,0 +1,637 @@
+{
+  "label": "dev-chromium",
+  "url": "http://127.0.0.1:3431/g1",
+  "browserKind": "chromium",
+  "startedAt": "2026-09-30T11:40:17.760Z",
+  "checks": {
+    "esm.importmap-bootstrap": {
+      "pass": true,
+      "detail": {
+        "importMapFirstInHead": true,
+        "supportsImportMap": true,
+        "headScriptOrder": [
+          "importmap",
+          "modulepreload",
+          "module",
+          "module",
+          "classic"
+        ],
+        "forwarderDrift": {
+          "vue": {
+            "forwarderOnly": [],
+            "runtimeOnly": [],
+            "count": 171
+          },
+          "@notnotype/nb-ui/components": {
+            "forwarderOnly": [],
+            "runtimeOnly": [],
+            "count": 96
+          },
+          "@neurobook/plugin-sdk": {
+            "forwarderOnly": [],
+            "runtimeOnly": [],
+            "count": 3
+          }
+        },
+        "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36"
+      }
+    },
+    "esm.forwarder-export-list-matches-runtime": {
+      "pass": true,
+      "detail": {
+        "vue": {
+          "forwarderOnly": [],
+          "runtimeOnly": [],
+          "count": 171
+        },
+        "@notnotype/nb-ui/components": {
+          "forwarderOnly": [],
+          "runtimeOnly": [],
+          "count": 96
+        },
+        "@neurobook/plugin-sdk": {
+          "forwarderOnly": [],
+          "runtimeOnly": [],
+          "count": 3
+        }
+      }
+    },
+    "esm.identity-shared": {
+      "pass": true,
+      "detail": {
+        "vueRef": true,
+        "nbButton": true,
+        "sdkKey": true
+      }
+    },
+    "esm.reactivity": {
+      "pass": true,
+      "detail": {
+        "count": "2"
+      }
+    },
+    "esm.plugin-css": {
+      "pass": true,
+      "detail": {
+        "pluginBorder": "dashed"
+      }
+    },
+    "esm.i18n": {
+      "pass": true,
+      "detail": {
+        "i18nInitial": {
+          "text": "取消",
+          "locale": "zh-CN"
+        },
+        "i18nEn": {
+          "text": "Cancel",
+          "locale": "en-US"
+        },
+        "i18nBack": "取消"
+      }
+    },
+    "esm.theme": {
+      "pass": true,
+      "detail": {
+        "themeInitial": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "dark nb-ui-colorway"
+        },
+        "themeLight": {
+          "text": "light",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "nb-ui-colorway light"
+        },
+        "themeBack": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "nb-ui-colorway dark"
+        },
+        "pluginSecondaryChangedWithTheme": false
+      }
+    },
+    "esm.inject-host-context": {
+      "pass": true,
+      "detail": {
+        "injected": "g1-host:esm"
+      }
+    },
+    "esm.tooltip": {
+      "pass": true,
+      "detail": {
+        "tooltipGap": 5.703125,
+        "tooltipCenterDelta": 0.3828125,
+        "zIndex": "4321",
+        "inSlot": false,
+        "portalParent": "BODY",
+        "tooltipGeom": {
+          "trigger": {
+            "top": 191,
+            "bottom": 217,
+            "left": 50,
+            "right": 103.34375,
+            "width": 53.34375,
+            "height": 26
+          },
+          "surface": {
+            "top": 159,
+            "bottom": 185.296875,
+            "left": 42,
+            "right": 112.109375,
+            "width": 70.109375,
+            "height": 26.296875
+          }
+        }
+      }
+    },
+    "esm.popover": {
+      "pass": true,
+      "detail": {
+        "popoverGap": 6,
+        "zIndex": "4321",
+        "inSlot": false,
+        "topmostAtCenter": true,
+        "text": "popover esm · 确定 · 2",
+        "popoverGeom": {
+          "trigger": {
+            "top": 191,
+            "bottom": 217,
+            "left": 111.34375,
+            "right": 172.671875,
+            "width": 61.328125,
+            "height": 26
+          },
+          "surface": {
+            "top": 223,
+            "bottom": 278,
+            "left": 49,
+            "right": 235,
+            "width": 186,
+            "height": 55
+          }
+        }
+      }
+    },
+    "esm.unload-dom": {
+      "pass": true,
+      "detail": {
+        "baseline": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        },
+        "mounted": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 1,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 1,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        },
+        "after": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        }
+      }
+    },
+    "esm.unload-listeners": {
+      "pass": true,
+      "detail": {
+        "listenerLeakVsBaseline": {},
+        "resizeListenerDuringMount": 1,
+        "mountedDiff": {
+          "window:resize": 1
+        }
+      }
+    },
+    "cjs.identity-shared": {
+      "pass": true,
+      "detail": {
+        "vueRef": true,
+        "nbButton": true,
+        "sdkKey": true
+      }
+    },
+    "cjs.reactivity": {
+      "pass": true,
+      "detail": {
+        "count": "2"
+      }
+    },
+    "cjs.plugin-css": {
+      "pass": true,
+      "detail": {
+        "pluginBorder": "dashed"
+      }
+    },
+    "cjs.i18n": {
+      "pass": true,
+      "detail": {
+        "i18nInitial": {
+          "text": "取消",
+          "locale": "zh-CN"
+        },
+        "i18nEn": {
+          "text": "Cancel",
+          "locale": "en-US"
+        },
+        "i18nBack": "取消"
+      }
+    },
+    "cjs.theme": {
+      "pass": true,
+      "detail": {
+        "themeInitial": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "nb-ui-colorway dark"
+        },
+        "themeLight": {
+          "text": "light",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "nb-ui-colorway light"
+        },
+        "themeBack": {
+          "text": "dark",
+          "plugin": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "host": {
+            "bg": "rgb(0, 122, 255)",
+            "color": "rgb(255, 252, 245)",
+            "radius": "6px",
+            "height": 26
+          },
+          "pluginSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "hostSecondary": {
+            "bg": "color(srgb 0.121569 0.109804 0.0901961 / 0.08)",
+            "color": "rgb(31, 28, 23)",
+            "radius": "6px",
+            "height": 26
+          },
+          "html": "nb-ui-colorway dark"
+        },
+        "pluginSecondaryChangedWithTheme": false
+      }
+    },
+    "cjs.inject-host-context": {
+      "pass": true,
+      "detail": {
+        "injected": "g1-host:cjs"
+      }
+    },
+    "cjs.tooltip": {
+      "pass": true,
+      "detail": {
+        "tooltipGap": 5.703125,
+        "tooltipCenterDelta": 0.3671875,
+        "zIndex": "4321",
+        "inSlot": false,
+        "portalParent": "BODY",
+        "tooltipGeom": {
+          "trigger": {
+            "top": 289,
+            "bottom": 315,
+            "left": 50,
+            "right": 103.34375,
+            "width": 53.34375,
+            "height": 26
+          },
+          "surface": {
+            "top": 257,
+            "bottom": 283.296875,
+            "left": 44,
+            "right": 108.609375,
+            "width": 64.609375,
+            "height": 26.296875
+          }
+        }
+      }
+    },
+    "cjs.popover": {
+      "pass": true,
+      "detail": {
+        "popoverGap": 6,
+        "zIndex": "4321",
+        "inSlot": false,
+        "topmostAtCenter": true,
+        "text": "popover cjs · 确定 · 2",
+        "popoverGeom": {
+          "trigger": {
+            "top": 289,
+            "bottom": 315,
+            "left": 111.34375,
+            "right": 172.671875,
+            "width": 61.328125,
+            "height": 26
+          },
+          "surface": {
+            "top": 321,
+            "bottom": 376,
+            "left": 49,
+            "right": 235,
+            "width": 186,
+            "height": 55
+          }
+        }
+      }
+    },
+    "cjs.unload-dom": {
+      "pass": true,
+      "detail": {
+        "baseline": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        },
+        "mounted": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 1,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 1,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        },
+        "after": {
+          "bodyChildren": [
+            "div#__nuxt",
+            "div#teleports",
+            "script",
+            "script",
+            "script#__NUXT_DATA__",
+            "svg#nb-theme-svg-nbook",
+            "svg#nb-theme-svg-macos"
+          ],
+          "teleports": 0,
+          "pluginNodes": 0,
+          "tooltipSurfaces": 0,
+          "popoverSurfaces": 0,
+          "pluginCss": 0,
+          "pluginScripts": 0,
+          "bodyStyle": "--color-scheme: light; --bg-main: #e3e4e6; --bg-panel: #fffcf5; --bg-sidebar: #edeef0; --bg-subtle: color-mix(in srgb, #edeef0 78%, #fffcf5); --bg-input: #fffcf5; --bg-hover: #dcdee1; --text-main: #1f1c17; --text-secondary: #57534b; --text-muted: #8b857b; --text-inverse: #fffcf5; --border-color: #d8d9dc; --border-strong: #bcbec2; --border-accent: color-mix(in srgb, #007aff 46%, #d8d9dc); --accent-main: #007aff; --accent-bg: rgba(0, 122, 255, 0.10); --accent-text: #0060df; --selection-bg: rgba(0, 122, 255, 0.22); --status-info: #0a7ea4; --status-info-bg: rgba(10, 126, 164, 0.11); --status-info-border: rgba(10, 126, 164, 0.26); --status-success: #2c7a39; --status-success-bg: rgba(44, 122, 57, 0.11); --status-success-border: rgba(44, 122, 57, 0.26); --status-warning: #9a5b00; --status-warning-bg: rgba(154, 91, 0, 0.12); --status-warning-border: rgba(154, 91, 0, 0.28); --status-danger: #c0342a; --status-danger-bg: rgba(192, 52, 42, 0.10); --status-danger-border: rgba(192, 52, 42, 0.26); --shadow-color: #33353a; --shadow-panel: 0 1px 2px rgba(51, 53, 58, 0.10), 0 18px 44px rgba(51, 53, 58, 0.14); --overlay-bg: rgba(51, 53, 58, 0.16);"
+        }
+      }
+    },
+    "cjs.unload-listeners": {
+      "pass": true,
+      "detail": {
+        "listenerLeakVsBaseline": {},
+        "resizeListenerDuringMount": 1,
+        "mountedDiff": {
+          "window:resize": 1
+        }
+      }
+    },
+    "cjs.table-entry-removed": {
+      "pass": true,
+      "detail": {
+        "has": false,
+        "ids": []
+      }
+    },
+    "error.render-isolated": {
+      "pass": true,
+      "detail": {
+        "esmError": " 插件视图出错：G1 plugin render error (esm)",
+        "cjsCountAfterEsmError": "1",
+        "hostBefore": 0,
+        "hostAfter": 1
+      }
+    },
+    "error.handler-isolated": {
+      "pass": true,
+      "detail": {
+        "cjsError": " 插件视图出错：G1 plugin handler error (cjs)",
+        "hostAfter2": 2
+      }
+    },
+    "error.recover-after-reload": {
+      "pass": true,
+      "detail": {
+        "esm": "1",
+        "cjs": "1",
+        "sameModuleOnReload": {
+          "esm": true,
+          "cjs": false
+        },
+        "capturedErrors": [
+          {
+            "approach": "esm",
+            "message": "G1 plugin render error (esm)",
+            "info": "component update"
+          },
+          {
+            "approach": "cjs",
+            "message": "G1 plugin handler error (cjs)",
+            "info": "native event handler"
+          }
+        ]
+      }
+    },
+    "cjs.gc-after-unload": {
+      "pass": null,
+      "detail": {
+        "forcedGc": true,
+        "componentCollected": true,
+        "factoryCollected": true
+      }
+    },
+    "esm.gc-after-unload": {
+      "pass": null,
+      "detail": {
+        "forcedGc": true,
+        "componentCollected": false,
+        "factoryCollected": null
+      }
+    }
+  },
+  "pageErrors": [],
+  "consoleErrors": [],
+  "browserVersion": "151.0.7922.71",
+  "pageErrorsAfterFunctional": [],
+  "finishedAt": "2026-09-30T11:40:43.139Z"
+}

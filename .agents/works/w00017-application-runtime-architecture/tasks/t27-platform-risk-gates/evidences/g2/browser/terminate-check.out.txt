@@ -1,0 +1,4 @@
+# 2026-09-30T11:06:39.707Z 151.0.7922.71 crossOriginIsolated=true
+空闲 1s 各进程 CPU(ms)：browser:1863826=80 GPU:1863863=100
+js：运行中 CPU browser:1863826=30 renderer:1863898=990；terminate 后每 500ms 渲染进程 CPU：0.5s:CPU=500ms,计数+40927608 1.0s:CPU=500ms,计数+40765349 1.5s:CPU=500ms,计数+43027678 2.0s:CPU=490ms,计数+41106828 2.5s:CPU=0ms,计数+0
+wasm：运行中 CPU renderer:1863898=1000；terminate 后每 500ms 渲染进程 CPU：0.5s:CPU=500ms 1.0s:CPU=500ms 1.5s:CPU=500ms 2.0s:CPU=500ms 2.5s:CPU=0ms

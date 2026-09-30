@@ -1,0 +1,58 @@
+# 2026-09-30T10:52:44.099Z linux bun 1.4.2；租约 stale=30000ms update=15000ms（仓库常量）
+## A_worst_phase_block22s_with_contender
+参数：{"holder":{"BLOCK_AT":"14000","BLOCK_FOR":"22000","END_AT":"50000"},"contender":{"START_AT":"14500","HOLD":"8000","GIVE_UP_AT":"48000"}}
+{"t":73,"who":"holder","ev":"acquired","lockMtime":1024,"pid":1840412}
+{"t":14074,"who":"holder","ev":"block-start","lockMtime":1024}
+{"t":14608,"who":"contender","ev":"first-attempt-failed","lockMtime":1024,"code":"ELOCKED"}
+{"t":31363,"who":"contender","ev":"acquired","lockMtime":33024,"attempts":34,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":36074,"who":"holder","ev":"block-end","lockMtime":33024}
+{"t":36075,"who":"holder","ev":"compromised","lockMtime":33024,"cause":"Unable to update lock within the stale threshold"}
+{"t":36078,"who":"holder","ev":"process-exit","code":75,"signal":null}
+{"t":39364,"who":"contender","ev":"released","lockMtime":null}
+{"t":39366,"who":"contender","ev":"process-exit","code":0,"signal":null}
+会话写入时间范围：holder 576..36074ms（28 次）；contender 31867..38891ms（15 次）
+## B_best_phase_block22s_with_contender
+参数：{"holder":{"BLOCK_AT":"15600","BLOCK_FOR":"22000","END_AT":"42000"},"contender":{"START_AT":"16000","HOLD":"2000","GIVE_UP_AT":"55000"}}
+{"t":65,"who":"holder","ev":"acquired","lockMtime":1017,"pid":1840414}
+{"t":15666,"who":"holder","ev":"block-start","lockMtime":15067}
+{"t":16054,"who":"contender","ev":"first-attempt-failed","lockMtime":15067,"code":"ELOCKED"}
+{"t":37667,"who":"holder","ev":"block-end","lockMtime":15067}
+{"t":42066,"who":"holder","ev":"released","lockMtime":null}
+{"t":42068,"who":"holder","ev":"process-exit","code":0,"signal":null}
+{"t":42315,"who":"contender","ev":"acquired","lockMtime":43017,"attempts":53,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":44329,"who":"contender","ev":"released","lockMtime":null}
+{"t":44333,"who":"contender","ev":"process-exit","code":0,"signal":null}
+会话写入时间范围：holder 565..41672ms（40 次）；contender 42815..43817ms（3 次）
+## C_block45s_no_contender
+参数：{"holder":{"BLOCK_AT":"14000","BLOCK_FOR":"45000","END_AT":"75000"},"contender":{"START_AT":"64000","HOLD":"1000","GIVE_UP_AT":"70000"}}
+{"t":94,"who":"holder","ev":"acquired","lockMtime":1017,"pid":1840415}
+{"t":14095,"who":"holder","ev":"block-start","lockMtime":1017}
+{"t":59095,"who":"holder","ev":"block-end","lockMtime":1017}
+{"t":64346,"who":"contender","ev":"first-attempt-failed","lockMtime":59096,"code":"ELOCKED"}
+{"t":70089,"who":"contender","ev":"gave-up","lockMtime":59096,"attempts":11}
+{"t":70091,"who":"contender","ev":"process-exit","code":0,"signal":null}
+{"t":75104,"who":"holder","ev":"released","lockMtime":null}
+{"t":75115,"who":"holder","ev":"process-exit","code":0,"signal":null}
+会话写入时间范围：holder 596..74625ms（59 次）
+## D_best_phase_watchdog20s_sigkill_restart
+参数：{"holder":{"BLOCK_AT":"15600","BLOCK_FOR":"20000","KILL":"sigkill","END_AT":"90000"},"restartOnExit":{"HOLD":"1000","GIVE_UP_AT":"80000","POLL":"250"}}
+{"t":97,"who":"holder","ev":"acquired","lockMtime":1015,"pid":1840419}
+{"t":15696,"who":"holder","ev":"block-start","lockMtime":15098}
+{"t":35697,"who":"holder","ev":"watchdog-kill","lockMtime":15098}
+{"t":35700,"who":"holder","ev":"process-exit","code":null,"signal":"SIGKILL"}
+{"t":35752,"who":"restart","ev":"first-attempt-failed","lockMtime":15098,"code":"ELOCKED"}
+{"t":45303,"who":"restart","ev":"acquired","lockMtime":47015,"attempts":39,"firstError":"ELOCKED: Agent Session Store 正被另一NeuroBook 运行实例使用：/tmp/claude-1000/-home-notnotype-CodeRe"}
+{"t":46305,"who":"restart","ev":"released","lockMtime":null}
+{"t":46307,"who":"restart","ev":"process-exit","code":0,"signal":null}
+会话写入时间范围：holder 599..15617ms（31 次）；restart 45804..45804ms（1 次）
+## E_best_phase_watchdog20s_release_then_sigkill_restart
+参数：{"holder":{"BLOCK_AT":"15600","BLOCK_FOR":"20000","KILL":"sigkill-release","END_AT":"90000"},"restartOnExit":{"HOLD":"1000","GIVE_UP_AT":"80000","POLL":"250"}}
+{"t":80,"who":"holder","ev":"acquired","lockMtime":1014,"pid":1840421}
+{"t":15680,"who":"holder","ev":"block-start","lockMtime":15079}
+{"t":35683,"who":"holder","ev":"watchdog-released-lock","lockMtime":null}
+{"t":35683,"who":"holder","ev":"watchdog-kill","lockMtime":null}
+{"t":35688,"who":"holder","ev":"process-exit","code":null,"signal":"SIGKILL"}
+{"t":35729,"who":"restart","ev":"acquired","lockMtime":37014,"attempts":1,"firstError":""}
+{"t":36731,"who":"restart","ev":"released","lockMtime":null}
+{"t":36734,"who":"restart","ev":"process-exit","code":0,"signal":null}
+会话写入时间范围：holder 582..15612ms（31 次）；restart 36229..36229ms（1 次）

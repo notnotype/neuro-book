@@ -1,0 +1,12 @@
+{
+  "label": "prod-chromium",
+  "browserVersion": "151.0.7922.71",
+  "inserted": {
+    "hasImportMapInHtml": false,
+    "inserted": true,
+    "supportsMultiple": true
+  },
+  "status": "mounted",
+  "error": null,
+  "consoleMessages": []
+}

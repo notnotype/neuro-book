@@ -1,0 +1,29 @@
+
+.g1-plugin[data-v-162316f4] {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px dashed rgb(120 160 255 / 60%);
+    border-radius: 8px;
+}
+.g1-plugin__row[data-v-162316f4] {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.g1-plugin__label[data-v-162316f4] {
+    opacity: 0.6;
+    font-size: 12px;
+}
+.g1-plugin__plain[data-v-162316f4] {
+    padding: 2px 8px;
+    border: 1px solid currentColor;
+    border-radius: 4px;
+}
+.g1-plugin__popover[data-v-162316f4] {
+    min-width: 160px;
+    padding: 4px;
+}
+/*$vite$:1*/

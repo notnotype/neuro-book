@@ -37,7 +37,19 @@ taskId: t27-platform-risk-gates
 
 ## 当前状态
 
-2026-09-30 开放。G0、G1、G2 分别委派给三个子代理并行验证：G0、G1 各使用一个从当前 HEAD 分离出的临时 worktree（位于会话临时目录，不在仓库内），G2 在临时目录中实验并只读参考仓库源码。等待结果。
+2026-09-30 开放，G0、G1、G2 分别委派给三个子代理并行验证。三个子代理都曾因用量限额中断，限额恢复后续跑。子代理的写入工具不允许创建报告类 `.md`，各门 `REPORT.md` 由主会话按子代理交回的正文原样保存。
+
+- **G0 已完成**（[报告](evidences/g0/REPORT.md)）：生产侧成立，包括 `entry` 自有入口构建、同一模块图、Bun 下自建 HTTP 服务并有序停止、Manager 就绪与停止合同、WebSocket 升级与会话鉴权。开发模式只部分成立：热重载存在新旧实例重叠窗口，重叠后新实例拿不到 Session Store 租约且不会自愈；Nitro close 钩子一个抛错会跳过其余钩子；开发模式的停止通道与 SIGTERM 都不能有序停止进程。另发现：`entry` 只能在生产构建设置；HTTP 停止路由绕过宿主；启动门禁失败时进程不退出（推断为现有问题）；`bun x nuxt dev` 实际运行在 Node 上。G0 的临时 worktree 已删除，改动保存在 `evidences/g0/changes.diff`。
+- **G2 已完成**（[报告](evidences/g2/REPORT.md)）：看门狗、卡死报告、worker 池原型可行，但有四处与设计不符：
+  - 看门狗阈值必须小于租约心跳间隔 15 秒（建议 10 秒），而不是设计写的“低于 30 秒、例如 20 秒”；
+  - 结束进程要写报告、删除本进程的租约锁，并以专用退出码经 FFI `_exit` 结束，因为 `SIGKILL` 经产品包装链后变成退出码 1；
+  - Desktop 与 Manager 现在在服务就绪后既不重启也不提示；
+  - Bun 的 `worker.terminate()` 打断不了 WebAssembly 与原生阻塞调用，Chrome 终止后有约 2 秒宽限。
+- **G1 已完成**（[报告](evidences/g1/REPORT.md)）：成立。import map 与宿主模块表两种做法，在开发与生产构建、Chromium 151、WPE WebKit 26.5、Electron 43、WebKitGTK 2.52.6 上，响应式、宿主 i18n/主题/inject、nb-ui 浮层、卸载无残留、抛错隔离全部成立。区别在卸载：ESM 模块被浏览器模块映射永久持有，宿主模块表注销后代码可被回收（Chromium、Electron 堆快照）。插件自带一份 Vue 时是静默失败（计数不更新、无报错，`inject` 却能取到宿主上下文），只能在构建或加载时拦截。Tauri 本体与 WebView2 未运行。G1 的临时 worktree 已删除，改动保存在 `evidences/g1/changes.diff`。
+
+三个门的结论：G0 生产侧成立、开发模式需重新设计；G1 成立；G2 可行但阈值、结束方式与重启链路需改。“内核拥有进程”“同线程加保护”“宿主模块表”三个方向都不需要推翻。各报告列出的设计修改建议待开发者确认。
+
+验证过程的副作用：G1 为运行 Electron 启动无头 KWin 时首次崩溃，触发了开发者桌面会话的崩溃报告器（约 1 分钟内已停止）；浏览器、Electron 等下载物放在会话临时目录。
 
 ## 依据
 
@@ -46,4 +58,4 @@ taskId: t27-platform-risk-gates
 
 ## 下一步
 
-汇总三个门的结论；任一门不成立时，按设计中的退路修改 P6 或 P7 并交开发者确认。三个门都成立后，把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，再进入阶段 1。
+开发者确认设计修改后，按确认结果修订设计稿 P2、P4、P5、P6、P7、P11（本 Task 或新 Task 均可），再把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，进入阶段 1。

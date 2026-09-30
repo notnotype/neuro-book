@@ -1,0 +1,6 @@
+# 2026-09-30T11:08:10Z unshare --user --map-root-user --pid --fork（bun 为新 PID 命名空间的 1 号进程）
+pid=1 method=sigkill
+main: 2s 死循环结束，进程未被结束
+method=sigkill exit=0
+pid=1 method=ffi-exit
+method=ffi-exit exit=76

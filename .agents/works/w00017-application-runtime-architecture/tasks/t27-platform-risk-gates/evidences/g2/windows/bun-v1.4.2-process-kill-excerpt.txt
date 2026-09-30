@@ -1,0 +1,56 @@
+# 摘自 oven-sh/bun tag bun-v1.4.2（commit 744846f844374847c902b5e7fd59b4342a51ef99）src/jsc/bindings/BunProcess.cpp
+# 获取方式：gh api repos/oven-sh/bun/contents/src/jsc/bindings/BunProcess.cpp?ref=bun-v1.4.2，2026-09-30T11:10:34Z
+## 第 1858-1870 行 Process_functionAbort
+
+JSC_DEFINE_HOST_FUNCTION(Process_functionAbort, (JSGlobalObject * globalObject, CallFrame*))
+{
+#if OS(WINDOWS)
+    // Raising SIGABRT is handled in the CRT in windows, calling _exit() with ambiguous code "3" by default.
+    // This adjustment to the abort behavior gives a more sane exit code on abort, by calling _exit directly with code 134.
+    _exit(134);
+#else
+    // process.abort() is user-requested; bypass the crash handler so it does
+    // not print "Bun has crashed" or upload a report.
+    restoreDefaultSignalDisposition(SIGABRT);
+    abort();
+#endif
+## 第 4739-4778 行 Process_functionReallyKill（process.kill 最终调用）
+JSC_DEFINE_HOST_FUNCTION(Process_functionReallyKill, (JSC::JSGlobalObject * globalObject, JSC::CallFrame* callFrame))
+{
+    auto scope = DECLARE_THROW_SCOPE(JSC::getVM(globalObject));
+
+    if (callFrame->argumentCount() < 2) {
+        throwVMError(globalObject, scope, "Not enough arguments"_s);
+        return {};
+    }
+
+    int pid = callFrame->argument(0).toInt32(globalObject);
+    RETURN_IF_EXCEPTION(scope, {});
+
+    int signal = callFrame->argument(1).toInt32(globalObject);
+    RETURN_IF_EXCEPTION(scope, {});
+
+#if !OS(WINDOWS)
+    int ownPid = getpid();
+#else
+    int ownPid = uv_os_getpid();
+#endif
+    // Node's Kill binding runs RunAtExit for a self-directed unhandled signal, so flush profiles
+    // first. `signalToContextIdsMap` is mutated only on the main thread; workers never set
+    // profiler configs, so skipping the flush there avoids a rehash race.
+    if (signal > 0 && (pid == 0 || pid == -1 || pid == ownPid || pid == -ownPid)
+        && !(Bun__isMainThreadVM() && signalToContextIdsMap && signalToContextIdsMap->contains(signal))) {
+        Bun__writeProfilesBeforeSelfKill();
+    }
+
+#if !OS(WINDOWS)
+    bypassCrashHandlerForSelfSentSignal(pid, ownPid, signal);
+    int result = kill(pid, signal);
+    if (result < 0)
+        result = errno;
+#else
+    int result = uv_kill(pid, signal);
+#endif
+
+    RELEASE_AND_RETURN(scope, JSValue::encode(jsNumber(result)));
+}

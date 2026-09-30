@@ -1,0 +1,6 @@
+# 2026-09-30T11:03:23.980Z bun 1.4.2；wasm 倒计数 2^32 次的自然耗时 1290ms
+finite: terminate 后 1002ms 退出；期间进程 CPU 1020ms
+infinite-js-outer-loop: terminate 后 1013ms 退出；期间进程 CPU 1030ms
+# 2026-09-30T11:03:36.533Z node v26.10.0；wasm 倒计数 2^32 次的自然耗时 9855ms
+finite: terminate 后 2ms 退出；期间进程 CPU 0ms
+infinite-js-outer-loop: terminate 后 1ms 退出；期间进程 CPU 0ms

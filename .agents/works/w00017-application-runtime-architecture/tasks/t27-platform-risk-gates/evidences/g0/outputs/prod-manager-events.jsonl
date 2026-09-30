@@ -1,0 +1,15 @@
+{"at":"2026-09-30T10:57:27.093Z","mono":1790765847094,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"entry-evaluated","phase":"creating","probeSerial":1}
+{"at":"2026-09-30T10:57:27.102Z","mono":1790765847102,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"listening","phase":"creating","url":"http://127.0.0.1:3310"}
+{"at":"2026-09-30T10:57:27.162Z","mono":1790765847163,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"runtime-available","phase":"available"}
+{"at":"2026-09-30T10:57:27.355Z","mono":1790765847355,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-upgrade","phase":"available","accepted":false,"user":null}
+{"at":"2026-09-30T10:57:27.359Z","mono":1790765847359,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-upgrade","phase":"available","accepted":true,"user":{"id":"1","username":"admin"}}
+{"at":"2026-09-30T10:57:27.360Z","mono":1790765847361,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-open","phase":"available","user":{"id":"1","username":"admin"}}
+{"at":"2026-09-30T10:57:27.361Z","mono":1790765847362,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-upgrade","phase":"available","accepted":false,"user":null}
+{"at":"2026-09-30T10:57:27.362Z","mono":1790765847363,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-close","phase":"available","code":1006}
+{"at":"2026-09-30T10:57:27.363Z","mono":1790765847364,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-upgrade","phase":"available","accepted":true,"user":{"id":"1","username":"admin"}}
+{"at":"2026-09-30T10:57:27.364Z","mono":1790765847364,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-open","phase":"available","user":{"id":"1","username":"admin"}}
+{"at":"2026-09-30T10:57:27.366Z","mono":1790765847367,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-upgrade","phase":"available","accepted":false,"user":null}
+{"at":"2026-09-30T10:57:27.367Z","mono":1790765847367,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"ws-close","phase":"available","code":1000}
+{"at":"2026-09-30T10:57:27.371Z","mono":1790765847372,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"slow-request-begin","phase":"available","ms":3000}
+{"at":"2026-09-30T10:57:30.374Z","mono":1790765850375,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"slow-request-end","phase":"available","ms":3000}
+{"at":"2026-09-30T10:57:30.409Z","mono":1790765850409,"pid":1850018,"threadId":0,"devWorkerId":null,"event":"process-exit","phase":"closed","code":0}

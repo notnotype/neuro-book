@@ -1,0 +1,11 @@
+# 2026-09-30T10:57:56.877Z linux bun 1.4.2；Manager → owned-process 监督进程 → [product-command → start] → 模拟服务端
+wrapped hang-sigkill: completion={"exitCode":1,"signal":null} 用时=2573ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：1」
+wrapped hang-ffi76: completion={"exitCode":76,"signal":null} 用时=2571ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：76」
+wrapped exit75: completion={"exitCode":75,"signal":null} 用时=850ms 服务端存活=false Manager 文案=「NeuroBook 服务因运行租约失去所有权而退出。可能有另一个 NeuroBook 实例或迁移程序正在使用同一工作区，也可能是当前进程或系统长时间暂停。请关闭其他实例或迁移程序后重试；不要手动删除 runtime.lease.lock。」
+wrapped exit1: completion={"exitCode":1,"signal":null} 用时=853ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：1」
+wrapped external-kill: completion={"exitCode":1,"signal":null} 用时=1514ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：1」
+direct hang-sigkill: completion={"exitCode":null,"signal":"SIGKILL"} 用时=2550ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：SIGKILL」
+direct hang-ffi76: completion={"exitCode":76,"signal":null} 用时=2548ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：76」
+direct exit75: completion={"exitCode":75,"signal":null} 用时=830ms 服务端存活=false Manager 文案=「NeuroBook 服务因运行租约失去所有权而退出。可能有另一个 NeuroBook 实例或迁移程序正在使用同一工作区，也可能是当前进程或系统长时间暂停。请关闭其他实例或迁移程序后重试；不要手动删除 runtime.lease.lock。」
+direct exit1: completion={"exitCode":1,"signal":null} 用时=839ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：1」
+direct external-kill: completion={"exitCode":null,"signal":"SIGKILL"} 用时=1508ms 服务端存活=false Manager 文案=「NeuroBook 服务退出：SIGKILL」

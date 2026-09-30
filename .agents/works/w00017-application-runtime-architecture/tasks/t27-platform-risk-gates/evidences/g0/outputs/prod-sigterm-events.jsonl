@@ -1,0 +1,9 @@
+{"at":"2026-09-30T10:57:51.869Z","mono":1790765871870,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"entry-evaluated","phase":"creating","probeSerial":1}
+{"at":"2026-09-30T10:57:51.879Z","mono":1790765871880,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"listening","phase":"creating","url":"http://127.0.0.1:3312"}
+{"at":"2026-09-30T10:57:51.931Z","mono":1790765871931,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"runtime-available","phase":"available"}
+{"at":"2026-09-30T10:57:52.152Z","mono":1790765872152,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"slow-request-begin","phase":"available","ms":3000}
+{"at":"2026-09-30T10:57:52.446Z","mono":1790765872447,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"stop-requested","phase":"available","source":"signal:SIGTERM"}
+{"at":"2026-09-30T10:57:55.152Z","mono":1790765875153,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"slow-request-end","phase":"available","ms":3000}
+{"at":"2026-09-30T10:57:55.163Z","mono":1790765875163,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"http-server-closed","phase":"stopping"}
+{"at":"2026-09-30T10:57:55.186Z","mono":1790765875186,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"close-hook-done","phase":"closed"}
+{"at":"2026-09-30T10:57:55.186Z","mono":1790765875186,"pid":1850466,"threadId":0,"devWorkerId":null,"event":"process-exit","phase":"closed","code":0}

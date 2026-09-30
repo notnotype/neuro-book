@@ -1,0 +1,11 @@
+{
+  "url": "http://127.0.0.1:3431/g1",
+  "approach": "cjs",
+  "interact": "full",
+  "collected": {
+    "component": true,
+    "factory": true
+  },
+  "targetCount": 0,
+  "paths": []
+}

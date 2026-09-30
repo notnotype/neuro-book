@@ -1,0 +1,4 @@
+== 后处理前（esbuild 重打包前）Nitro raw 输出 .deploy/staging/<op>/server/index.mjs 的第一行（构建过程中截取）
+import process from 'node:process';globalThis._importMeta_={url:import.meta.url,env:process.env};import { r as randomUUID, a as recordG0Event, p as probeIdentity, b as productRuntimeReady, c as productShutdownController, t as toNodeListener, d as destr, u as useRuntimeConfig, e as trapUnhandledNodeErrors, f as useNitroApp, i as isAuthEnabled, g as getUserSession, h as prisma } from './chunks/nitro/nitro.mjs';
+== 同一 raw 输出中：grep -c "entry-evaluated|__g0Entry" server/index.mjs => 2 ；grep -c setupGracefulShutdown server/index.mjs => 0
+== 构建日志：Nitro preset: node-server；无 "Initializing prerenderer"（本构建没有预渲染路由）

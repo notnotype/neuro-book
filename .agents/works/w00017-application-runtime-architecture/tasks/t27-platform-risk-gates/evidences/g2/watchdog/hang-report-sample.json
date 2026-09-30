@@ -1,0 +1,54 @@
+{
+  "schema": "nbook.main-thread-hang-report/v1",
+  "reportId": "8f6781e7-ca1b-4d0e-acb3-de40787b7f37",
+  "pid": 1843965,
+  "runtime": "bun",
+  "runtimeVersion": "1.4.2",
+  "platform": "linux",
+  "arch": "x64",
+  "processStartedAt": "2026-09-30T10:53:23.948Z",
+  "detectedAt": "2026-09-30T10:53:27.989Z",
+  "lastHeartbeatAt": "2026-09-30T10:53:24.966Z",
+  "stalledMs": 3003,
+  "thresholdMs": 3000,
+  "hostPhase": "phase:available",
+  "suspects": {
+    "confidence": "direct",
+    "pluginIds": [
+      "acme.wordcount"
+    ]
+  },
+  "inflight": [
+    {
+      "pluginId": "acme.image-gen",
+      "pluginVersion": "1.2.0",
+      "generation": 3,
+      "kind": "channel-call",
+      "target": "imageGen.render",
+      "callSeq": 1,
+      "startedAt": "2026-09-30T10:53:24.466Z",
+      "elapsedMs": 3523,
+      "startedAfterLastHeartbeat": false,
+      "holdsMainThread": false
+    },
+    {
+      "pluginId": "acme.wordcount",
+      "pluginVersion": "0.3.1",
+      "generation": 1,
+      "kind": "command",
+      "target": "wordcount.recount",
+      "callSeq": 2,
+      "startedAt": "2026-09-30T10:53:25.966Z",
+      "elapsedMs": 2023,
+      "startedAfterLastHeartbeat": true,
+      "holdsMainThread": true
+    }
+  ],
+  "inflightOverflow": 0,
+  "rssBytes": 51847168,
+  "action": {
+    "exitMethod": "ffi-exit",
+    "exitCode": 76,
+    "leaseLockReleased": false
+  }
+}

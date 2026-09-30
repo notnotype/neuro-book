@@ -1,0 +1,7 @@
+{"at":"2026-09-30T11:09:36.671Z","mono":1790766576671,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"entry-evaluated","phase":"creating","probeSerial":1}
+{"at":"2026-09-30T11:09:36.679Z","mono":1790766576679,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"listening","phase":"creating","url":"http://127.0.0.1:3314"}
+{"at":"2026-09-30T11:09:36.690Z","mono":1790766576690,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"runtime-failed","phase":"closed","message":"NeuroBook 数据状态需要迁移，服务已在启动前停止。\n待应用 App SQLite migrations:\n- 20260524120000_init\n- 20260524121000_add_database_locks\n- 20260722020000_add_passport_credential\n- 20260727210000_fix_official_passport_origin\nApplication State: Application State 尚未初始化。\n请通过 NeuroBook Manager 启动/更新，或执行：bun run migrate:application-state -- --apply"}
+{"at":"2026-09-30T11:09:43.903Z","mono":1790766583904,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"stop-requested","phase":"closed","source":"signal:SIGTERM"}
+{"at":"2026-09-30T11:09:43.905Z","mono":1790766583906,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"http-server-closed","phase":"closed"}
+{"at":"2026-09-30T11:09:43.905Z","mono":1790766583906,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"close-hook-done","phase":"closed"}
+{"at":"2026-09-30T11:09:43.905Z","mono":1790766583906,"pid":1866677,"threadId":0,"devWorkerId":null,"event":"process-exit","phase":"closed","code":0}

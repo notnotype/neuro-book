@@ -1,0 +1,573 @@
+diff --git a/packages/neuro-book/app/g1/G1PluginSlot.vue b/packages/neuro-book/app/g1/G1PluginSlot.vue
+new file mode 100644
+index 00000000..b3a5fa66
+--- /dev/null
++++ b/packages/neuro-book/app/g1/G1PluginSlot.vue
+@@ -0,0 +1,173 @@
++<script setup lang="ts">
++import {type Component, markRaw, nextTick, onErrorCaptured, provide, ref, shallowRef} from "vue";
++import * as Vue from "vue";
++import * as NbUiComponents from "@notnotype/nb-ui/components";
++import {NB_POPOVER_Z_INDEX} from "@notnotype/nb-ui/theme";
++import {PLUGIN_HOST_CONTEXT} from "nbook/app/g1/plugin-sdk";
++import {loadClassicScript, type PluginModuleTable} from "nbook/app/g1/module-table";
++
++// G1 实验：workbench 视图容器的最小替身。它向插件视图提供宿主上下文、包一层错误边界，
++// 并负责按两种做法加载与卸载插件代码。
++const PLUGIN_ID = "example.g1";
++const G1_POPOVER_Z_INDEX = 4321;
++
++// selfvue 是对照组：插件包自带一份 Vue，只用于确认验证能发现“两份 Vue”的失败。
++const props = defineProps<{approach: "esm" | "cjs" | "selfvue"}>();
++
++type G1Global = {
++    identity: Record<string, Record<string, boolean>>;
++    weak: Record<string, {component?: WeakRef<object>; factory?: WeakRef<object>}>;
++    errors: {approach: string; message: string; info: string}[];
++    loads: Record<string, number>;
++    sameModuleOnReload: Record<string, boolean>;
++};
++
++const g1 = (): G1Global => (window as unknown as {__G1__: G1Global}).__G1__;
++const moduleTable = (): PluginModuleTable => (window as unknown as {__NB_MODULES__: PluginModuleTable}).__NB_MODULES__;
++
++provide(PLUGIN_HOST_CONTEXT, {hostName: `g1-host:${props.approach}`});
++provide(NB_POPOVER_Z_INDEX, G1_POPOVER_Z_INDEX);
++
++const SLOT_TITLES = {
++    esm: "做法 1：import map（ESM）",
++    cjs: "做法 2：宿主模块表（登记工厂 CJS）",
++    selfvue: "对照组：插件自带 Vue（ESM）",
++} as const;
++
++const view = shallowRef<Component | null>(null);
++const failure = shallowRef<Error | null>(null);
++const status = ref("idle");
++let lastModule: WeakRef<object> | null = null;
++
++onErrorCaptured((error, _instance, info) => {
++    const normalized = error instanceof Error ? error : new Error(String(error));
++    failure.value = normalized;
++    view.value = null;
++    status.value = "failed";
++    g1().errors.push({approach: props.approach, message: normalized.message, info});
++    // 阻止错误继续冒泡到应用级 errorHandler：插件抛错只影响本视图。
++    return false;
++});
++
++function pluginUrl(path: string): string {
++    return new URL(`/g1-plugins/${path}`, window.location.href).href;
++}
++
++function attachStyle(): void {
++    if (document.querySelector(`link[data-g1-plugin-css="${props.approach}"]`)) {
++        return;
++    }
++    const link = document.createElement("link");
++    link.rel = "stylesheet";
++    link.href = pluginUrl(`${props.approach}/plugin.css`);
++    link.dataset.g1PluginCss = props.approach;
++    document.head.appendChild(link);
++}
++
++function detachStyle(): void {
++    document.querySelector(`link[data-g1-plugin-css="${props.approach}"]`)?.remove();
++}
++
++async function loadModule(): Promise<Record<string, unknown>> {
++    if (props.approach === "esm" || props.approach === "selfvue") {
++        // 绝对地址：避免开发模式 Vite 改写相对动态导入；裸模块名由页面 import map 解析。
++        return await import(/* @vite-ignore */ pluginUrl(`${props.approach}/plugin.mjs`)) as Record<string, unknown>;
++    }
++    const table = moduleTable();
++    if (!table.has(PLUGIN_ID)) {
++        await loadClassicScript(pluginUrl("cjs/plugin.cjs.js"));
++    }
++    const factory = table.factoryOf(PLUGIN_ID);
++    if (factory) {
++        g1().weak.cjs = {...g1().weak.cjs, factory: new WeakRef(factory)};
++    }
++    return table.materialize(PLUGIN_ID);
++}
++
++async function load(): Promise<void> {
++    failure.value = null;
++    status.value = "loading";
++    try {
++        const mod = await loadModule();
++        const previous = lastModule?.deref();
++        if (previous !== undefined) {
++            g1().sameModuleOnReload[props.approach] = previous === mod;
++        }
++        lastModule = new WeakRef(mod);
++        g1().loads[props.approach] = (g1().loads[props.approach] ?? 0) + 1;
++        g1().identity[props.approach] = {
++            vueRef: mod.probeVueRef === Vue.ref,
++            nbButton: mod.probeNbButton === NbUiComponents.Button,
++            sdkKey: mod.probeSdkKey === PLUGIN_HOST_CONTEXT,
++        };
++        const component = mod.component as object;
++        g1().weak[props.approach] = {...g1().weak[props.approach], component: new WeakRef(component)};
++        attachStyle();
++        view.value = markRaw(component) as Component;
++        status.value = "mounted";
++    } catch (error) {
++        failure.value = error instanceof Error ? error : new Error(String(error));
++        status.value = "load-failed";
++    }
++}
++
++async function unload(): Promise<void> {
++    view.value = null;
++    failure.value = null;
++    await nextTick();
++    detachStyle();
++    if (props.approach === "cjs") {
++        moduleTable().unregister(PLUGIN_ID);
++    }
++    status.value = "unloaded";
++}
++</script>
++
++<template>
++    <section class="g1-slot" :data-g1-slot="props.approach">
++        <header class="g1-slot__bar">
++            <strong>{{ SLOT_TITLES[props.approach] }}</strong>
++            <span :data-testid="`slot-status-${props.approach}`">{{ status }}</span>
++            <button :data-testid="`load-${props.approach}`" class="g1-slot__btn" type="button" @click="load">加载</button>
++            <button :data-testid="`unload-${props.approach}`" class="g1-slot__btn" type="button" @click="unload">卸载</button>
++        </header>
++        <div class="g1-slot__body">
++            <div v-if="failure" :data-testid="`slot-error-${props.approach}`" class="g1-slot__error">
++                插件视图出错：{{ failure.message }}
++            </div>
++            <component :is="view" v-else-if="view" :variant="props.approach" />
++            <div v-else class="g1-slot__empty">未加载</div>
++        </div>
++    </section>
++</template>
++
++<style scoped>
++.g1-slot {
++    border: 1px solid var(--border-subtle, #8884);
++    border-radius: 8px;
++    padding: 12px;
++    display: flex;
++    flex-direction: column;
++    gap: 8px;
++}
++
++.g1-slot__bar {
++    display: flex;
++    gap: 8px;
++    align-items: center;
++}
++
++.g1-slot__btn {
++    padding: 2px 10px;
++    border: 1px solid currentColor;
++    border-radius: 4px;
++}
++
++.g1-slot__error {
++    color: #e5484d;
++}
++
++.g1-slot__empty {
++    opacity: 0.6;
++}
++</style>
+diff --git a/packages/neuro-book/app/g1/module-table.ts b/packages/neuro-book/app/g1/module-table.ts
+new file mode 100644
+index 00000000..1b6f3f21
+--- /dev/null
++++ b/packages/neuro-book/app/g1/module-table.ts
+@@ -0,0 +1,92 @@
++import type {SharedModules} from "nbook/app/g1/shared-modules";
++
++// G1 实验：做法 2「宿主模块表」。插件脚本执行时只调用 register 登记工厂；
++// 宿主物化时注入只认共享表的 require，禁用时把工厂和导出从表中删除。
++
++type ModuleExports = Record<string, unknown>;
++export type PluginFactory = (
++    require: (specifier: string) => unknown,
++    module: {exports: ModuleExports},
++    exports: ModuleExports,
++) => void;
++
++export type PluginModuleTable = Readonly<{
++    register(id: string, factory: PluginFactory): void;
++    materialize(id: string): ModuleExports;
++    unregister(id: string): boolean;
++    has(id: string): boolean;
++    ids(): string[];
++    /** 仅供 G1 取证：返回当前登记的工厂函数，用来建立弱引用。 */
++    factoryOf(id: string): PluginFactory | undefined;
++}>;
++
++export function createModuleTable(shared: SharedModules): PluginModuleTable {
++    const factories = new Map<string, PluginFactory>();
++    const materialized = new Map<string, ModuleExports>();
++
++    function requireShared(specifier: string): unknown {
++        if (Object.hasOwn(shared, specifier)) {
++            return shared[specifier];
++        }
++        const loaded = materialized.get(specifier);
++        if (loaded) {
++            return loaded;
++        }
++        throw new Error(`plugin require("${specifier}") 不在宿主模块表中`);
++    }
++
++    return Object.freeze({
++        register(id: string, factory: PluginFactory): void {
++            if (factories.has(id) || materialized.has(id)) {
++                throw new Error(`插件模块 ${id} 重复登记`);
++            }
++            factories.set(id, factory);
++        },
++        materialize(id: string): ModuleExports {
++            const cached = materialized.get(id);
++            if (cached) {
++                return cached;
++            }
++            const factory = factories.get(id);
++            if (!factory) {
++                throw new Error(`插件模块 ${id} 未登记`);
++            }
++            const module = {exports: {} as ModuleExports};
++            factory(requireShared, module, module.exports);
++            materialized.set(id, module.exports);
++            return module.exports;
++        },
++        unregister(id: string): boolean {
++            const removedFactory = factories.delete(id);
++            const removedExports = materialized.delete(id);
++            return removedFactory || removedExports;
++        },
++        has(id: string): boolean {
++            return factories.has(id) || materialized.has(id);
++        },
++        ids(): string[] {
++            return [...new Set([...factories.keys(), ...materialized.keys()])];
++        },
++        factoryOf(id: string): PluginFactory | undefined {
++            return factories.get(id);
++        },
++    });
++}
++
++/** 以经典脚本加载插件包；脚本只负责调用 register，加载完即可移除元素。 */
++export function loadClassicScript(url: string): Promise<void> {
++    return new Promise((resolve, reject) => {
++        const script = document.createElement("script");
++        script.src = url;
++        script.async = true;
++        script.onload = () => {
++            script.remove();
++            resolve();
++        };
++        script.onerror = () => {
++            script.remove();
++            reject(new Error(`插件脚本加载失败：${url}`));
++        };
++        document.head.appendChild(script);
++    });
++}
+diff --git a/packages/neuro-book/app/g1/plugin-sdk.ts b/packages/neuro-book/app/g1/plugin-sdk.ts
+new file mode 100644
+index 00000000..b051d5b1
+--- /dev/null
++++ b/packages/neuro-book/app/g1/plugin-sdk.ts
+@@ -0,0 +1,22 @@
++import {computed, type ComputedRef, type InjectionKey, type Ref} from "vue";
++import {useI18n} from "vue-i18n";
++import {useColorMode} from "#imports";
++
++// G1 实验：宿主对 SDK 模块的实现。插件只以裸模块名 `@neurobook/plugin-sdk` 引用它，
++// 运行时由 import map 转发模块或宿主模块表交给插件同一个对象。
++
++export type PluginHostContext = {hostName: string};
++
++export const PLUGIN_HOST_CONTEXT: InjectionKey<PluginHostContext> = Symbol("nbook.plugin-host-context");
++
++/** 插件组件 setup 内调用：返回宿主的全局 i18n 组合。 */
++export function useHostI18n(): {t: (key: string) => string; locale: Ref<string>} {
++    const {t, locale} = useI18n({useScope: "global"});
++    return {t: (key: string) => t(key), locale};
++}
++
++/** 插件组件 setup 内调用：返回宿主 color-mode 的当前值。 */
++export function useHostColorMode(): ComputedRef<string> {
++    const mode = useColorMode();
++    return computed(() => mode.value);
++}
+diff --git a/packages/neuro-book/app/g1/shared-modules.ts b/packages/neuro-book/app/g1/shared-modules.ts
+new file mode 100644
+index 00000000..dee7d10a
+--- /dev/null
++++ b/packages/neuro-book/app/g1/shared-modules.ts
+@@ -0,0 +1,15 @@
++import * as Vue from "vue";
++import * as NbUiComponents from "@notnotype/nb-ui/components";
++import * as PluginSdk from "nbook/app/g1/plugin-sdk";
++
++// G1 实验：宿主交给第三方插件的共享模块。两种加载做法都从这一张冻结表取值，
++// 因此插件拿到的 Vue、nb-ui 与 SDK 与宿主是同一份模块实例。
++export type SharedModules = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
++
++export function createSharedModules(): SharedModules {
++    return Object.freeze({
++        "vue": Vue,
++        "@notnotype/nb-ui/components": NbUiComponents,
++        "@neurobook/plugin-sdk": PluginSdk,
++    });
++}
+diff --git a/packages/neuro-book/app/pages/g1.vue b/packages/neuro-book/app/pages/g1.vue
+new file mode 100644
+index 00000000..19065f59
+--- /dev/null
++++ b/packages/neuro-book/app/pages/g1.vue
+@@ -0,0 +1,72 @@
++<script setup lang="ts">
++import {Button} from "@notnotype/nb-ui/components";
++import G1PluginSlot from "nbook/app/g1/G1PluginSlot.vue";
++import {THEME_HOST_CLASS} from "nbook/app/utils/theme/host";
++
++// G1 风险门实验页：生产构建也保留（文件名不命中 Lab 路由过滤）。不承载产品宿主。
++definePageMeta({productHost: false});
++useHead({title: "G1 插件共享实验"});
++
++const nuxtApp = useNuxtApp();
++const i18n = nuxtApp.$i18n as unknown as {locale: {value: string}; setLocale: (locale: string) => Promise<void>};
++const colorMode = useColorMode();
++const hostCount = ref(0);
++
++async function switchLocale(locale: string): Promise<void> {
++    await i18n.setLocale(locale);
++}
++
++function switchTheme(mode: "dark" | "light"): void {
++    colorMode.preference = mode;
++}
++
++onMounted(() => {
++    (window as unknown as {__G1__: {ready: boolean}}).__G1__.ready = true;
++});
++</script>
++
++<template>
++    <div :class="[THEME_HOST_CLASS, 'g1-page']">
++        <header class="g1-page__bar">
++            <strong>G1 宿主</strong>
++            <button data-testid="host-inc" class="g1-page__btn" type="button" @click="hostCount++">宿主计数 +1</button>
++            <span data-testid="host-count">{{ hostCount }}</span>
++            <button data-testid="locale-zh" class="g1-page__btn" type="button" @click="switchLocale('zh-CN')">zh-CN</button>
++            <button data-testid="locale-en" class="g1-page__btn" type="button" @click="switchLocale('en-US')">en-US</button>
++            <span data-testid="host-locale">{{ i18n.locale.value }}</span>
++            <button data-testid="theme-dark" class="g1-page__btn" type="button" @click="switchTheme('dark')">dark</button>
++            <button data-testid="theme-light" class="g1-page__btn" type="button" @click="switchTheme('light')">light</button>
++            <span data-testid="host-theme">{{ colorMode.value }}</span>
++            <Button data-testid="host-nb-button" size="sm">host nb-ui</Button>
++            <Button data-testid="host-nb-secondary" variant="secondary" size="sm">host secondary</Button>
++        </header>
++        <G1PluginSlot approach="esm" />
++        <G1PluginSlot approach="cjs" />
++        <G1PluginSlot approach="selfvue" />
++    </div>
++</template>
++
++<style scoped>
++.g1-page {
++    min-height: 100vh;
++    padding: 24px;
++    display: flex;
++    flex-direction: column;
++    gap: 16px;
++    background: var(--bg-main, #111);
++    color: var(--text-main, #eee);
++}
++
++.g1-page__bar {
++    display: flex;
++    gap: 8px;
++    align-items: center;
++    flex-wrap: wrap;
++}
++
++.g1-page__btn {
++    padding: 2px 10px;
++    border: 1px solid currentColor;
++    border-radius: 4px;
++}
++</style>
+diff --git a/packages/neuro-book/app/plugins/g1-plugin-host.client.ts b/packages/neuro-book/app/plugins/g1-plugin-host.client.ts
+new file mode 100644
+index 00000000..047ff7b4
+--- /dev/null
++++ b/packages/neuro-book/app/plugins/g1-plugin-host.client.ts
+@@ -0,0 +1,22 @@
++import {createModuleTable} from "nbook/app/g1/module-table";
++import {createSharedModules} from "nbook/app/g1/shared-modules";
++
++// G1 实验：浏览器宿主在根组件挂载前交出共享模块。
++// __NB_SHARED__ 供 import map 转发模块读取；__NB_MODULES__ 是宿主模块表。
++export default defineNuxtPlugin({
++    name: "g1-plugin-host",
++    setup() {
++        const shared = createSharedModules();
++        const target = window as unknown as Record<string, unknown>;
++        target.__NB_SHARED__ = shared;
++        target.__NB_MODULES__ = createModuleTable(shared);
++        target.__G1__ = {
++            ready: false,
++            identity: {},
++            weak: {},
++            errors: [] as unknown[],
++            loads: {esm: 0, cjs: 0},
++            sameModuleOnReload: {},
++        };
++    },
++});
+diff --git a/packages/neuro-book/public/g1-shared/nb-ui-components.js b/packages/neuro-book/public/g1-shared/nb-ui-components.js
+new file mode 100644
+index 00000000..e900f599
+--- /dev/null
++++ b/packages/neuro-book/public/g1-shared/nb-ui-components.js
+@@ -0,0 +1,4 @@
++// 生成文件：@notnotype/nb-ui/components 的 import map 转发模块（96 个导出）。
++const shared = globalThis.__NB_SHARED__?.["@notnotype/nb-ui/components"];
++if (!shared) throw new Error("宿主未提供共享模块 @notnotype/nb-ui/components");
++export const {Accordion, AlertDialog, AspectRatio, Autocomplete, Avatar, Badge, Breadcrumb, Button, Calendar, CheckboxGroup, Collapsible, CollapsibleSection, ColorPicker, Combobox, ContextMenu, DateField, DatePicker, DateRangeField, DateRangePicker, Dialog, DialogWindow, Drawer, DropFeedbackOverlay, DropIndicator, DropIndicatorLabel, Dropdown, Editable, EmptyState, FileTree, FormCheckbox, FormField, FormInput, FormNumberInput, FormSelect, FormTextarea, GRID_LEGACY_SNAPSHOT_VERSION, GRID_MAX_DEPTH, GRID_MAX_NODES, GRID_SNAPSHOT_VERSION, GridRenderer, HoverCard, IconButton, Kbd, Listbox, Menubar, MonthPicker, MonthRangePicker, NavigationMenu, Notification, NotificationViewport, Pagination, Panel, PinInput, Popover, Progress, QuickInput, RadioGroup, RangeCalendar, Rating, ScrollArea, SegmentedControl, Separator, Skeleton, Slider, Spinner, Splitter, Stepper, Switch, SwitchField, TIME_PICKER_DEFAULT_MAX, TIME_PICKER_DEFAULT_MIN, TIME_PICKER_DEFAULT_STEP, Table, Tabs, TagInput, TimeField, TimePicker, TimePickerDefault, TimeRangeField, ToggleGroup, Toolbar, Tooltip, Tree, YearPicker, YearRangePicker, axisOf, buildGridBranchPanels, clampMinutes, createGrid, createGridGestureSession, formatMinutes, gridBranchSizesPx, paginationRange, parseTimeToMinutes, sashPanelsOfConfig, timeOptions} = shared;
+diff --git a/packages/neuro-book/public/g1-shared/plugin-sdk.js b/packages/neuro-book/public/g1-shared/plugin-sdk.js
+new file mode 100644
+index 00000000..5115a64c
+--- /dev/null
++++ b/packages/neuro-book/public/g1-shared/plugin-sdk.js
+@@ -0,0 +1,4 @@
++// 生成文件：@neurobook/plugin-sdk 的 import map 转发模块（3 个导出）。
++const shared = globalThis.__NB_SHARED__?.["@neurobook/plugin-sdk"];
++if (!shared) throw new Error("宿主未提供共享模块 @neurobook/plugin-sdk");
++export const {PLUGIN_HOST_CONTEXT, useHostColorMode, useHostI18n} = shared;
+diff --git a/packages/neuro-book/public/g1-shared/vue.js b/packages/neuro-book/public/g1-shared/vue.js
+new file mode 100644
+index 00000000..b1f6451a
+--- /dev/null
++++ b/packages/neuro-book/public/g1-shared/vue.js
+@@ -0,0 +1,4 @@
++// 生成文件：vue 的 import map 转发模块（171 个导出）。
++const shared = globalThis.__NB_SHARED__?.["vue"];
++if (!shared) throw new Error("宿主未提供共享模块 vue");
++export const {BaseTransition, BaseTransitionPropsValidators, Comment, DeprecationTypes, EffectScope, ErrorCodes, ErrorTypeStrings, Fragment, KeepAlive, ReactiveEffect, Static, Suspense, Teleport, Text, TrackOpTypes, Transition, TransitionGroup, TriggerOpTypes, VueElement, assertNumber, callWithAsyncErrorHandling, callWithErrorHandling, camelize, capitalize, cloneVNode, compatUtils, compile, computed, createApp, createBlock, createCommentVNode, createElementBlock, createElementVNode, createHydrationRenderer, createPropsRestProxy, createRenderer, createSSRApp, createSlots, createStaticVNode, createTextVNode, createVNode, customRef, defineAsyncComponent, defineComponent, defineCustomElement, defineEmits, defineExpose, defineModel, defineOptions, defineProps, defineSSRCustomElement, defineSlots, devtools, effect, effectScope, getCurrentInstance, getCurrentScope, getCurrentWatcher, getTransitionRawChildren, guardReactiveProps, h, handleError, hasInjectionContext, hydrate, hydrateOnIdle, hydrateOnInteraction, hydrateOnMediaQuery, hydrateOnVisible, initCustomFormatter, initDirectivesForSSR, inject, isMemoSame, isProxy, isReactive, isReadonly, isRef, isRuntimeOnly, isShallow, isVNode, markRaw, mergeDefaults, mergeModels, mergeProps, nextTick, nodeOps, normalizeClass, normalizeProps, normalizeStyle, onActivated, onBeforeMount, onBeforeUnmount, onBeforeUpdate, onDeactivated, onErrorCaptured, onMounted, onRenderTracked, onRenderTriggered, onScopeDispose, onServerPrefetch, onUnmounted, onUpdated, onWatcherCleanup, openBlock, patchProp, popScopeId, provide, proxyRefs, pushScopeId, queuePostFlushCb, reactive, readonly, ref, registerRuntimeCompiler, render, renderList, renderSlot, resolveComponent, resolveDirective, resolveDynamicComponent, resolveFilter, resolveTransitionHooks, setBlockTracking, setDevtoolsHook, setTransitionHooks, shallowReactive, shallowReadonly, shallowRef, ssrContextKey, ssrUtils, stop, toDisplayString, toHandlerKey, toHandlers, toRaw, toRef, toRefs, toValue, transformVNodeArgs, triggerRef, unref, useAttrs, useCssModule, useCssVars, useHost, useId, useModel, useSSRContext, useShadowRoot, useSlots, useTemplateRef, useTransitionState, vModelCheckbox, vModelDynamic, vModelRadio, vModelSelect, vModelText, vShow, version, warn, watch, watchEffect, watchPostEffect, watchSyncEffect, withAsyncContext, withCtx, withDefaults, withDirectives, withKeys, withMemo, withModifiers, withScopeId} = shared;
+diff --git a/packages/neuro-book/scripts/g1/generate-shared-forwarders.ts b/packages/neuro-book/scripts/g1/generate-shared-forwarders.ts
+new file mode 100644
+index 00000000..cfda75c6
+--- /dev/null
++++ b/packages/neuro-book/scripts/g1/generate-shared-forwarders.ts
+@@ -0,0 +1,44 @@
++#!/usr/bin/env bun
++import {mkdir, readFile, writeFile} from "node:fs/promises";
++import {resolve} from "node:path";
++import {plugin} from "bun";
++
++// G1 实验：为做法 1 生成 import map 指向的转发模块。ESM 的具名导出必须静态列出，
++// 所以名单在宿主构建时从真实模块求出；运行时由浏览器端测试再与 __NB_SHARED__ 对账。
++// .vue 在这里只需要导出名，用空桩代替；SDK 依赖 Nuxt 的 #imports，直接读源码里的顶层导出声明。
++plugin({
++    name: "g1-export-name-stubs",
++    setup(build) {
++        build.onLoad({filter: /\.vue$/u}, () => ({contents: "export default {};", loader: "js"}));
++    },
++});
++
++async function sourceExportNames(file: string): Promise<Record<string, unknown>> {
++    const text = await readFile(file, "utf-8");
++    const names = [...text.matchAll(/^export (?:const|function) ([A-Za-z_$][\w$]*)/gmu)].map((match) => match[1]!);
++    return Object.fromEntries(names.map((name) => [name, true]));
++}
++
++const packageRoot = resolve(import.meta.dirname, "../..");
++const outDir = resolve(packageRoot, "public/g1-shared");
++const targets: {file: string; specifier: string; load: () => Promise<Record<string, unknown>>}[] = [
++    {file: "vue.js", specifier: "vue", load: () => import("vue")},
++    {file: "nb-ui-components.js", specifier: "@notnotype/nb-ui/components", load: () => import("@notnotype/nb-ui/components")},
++    {file: "plugin-sdk.js", specifier: "@neurobook/plugin-sdk", load: () => sourceExportNames(resolve(packageRoot, "app/g1/plugin-sdk.ts"))},
++];
++
++const IDENTIFIER = /^[A-Za-z_$][\w$]*$/u;
++
++await mkdir(outDir, {recursive: true});
++for (const target of targets) {
++    const names = Object.keys(await target.load()).filter((name) => name !== "default" && IDENTIFIER.test(name)).sort();
++    const source = [
++        `// 生成文件：${target.specifier} 的 import map 转发模块（${names.length} 个导出）。`,
++        `const shared = globalThis.__NB_SHARED__?.[${JSON.stringify(target.specifier)}];`,
++        `if (!shared) throw new Error(${JSON.stringify(`宿主未提供共享模块 ${target.specifier}`)});`,
++        `export const {${names.join(", ")}} = shared;`,
++        "",
++    ].join("\n");
++    await writeFile(resolve(outDir, target.file), source);
++    console.log(`${target.file}: ${names.length} exports`);
++}
+diff --git a/packages/neuro-book/server/plugins/g1-importmap.ts b/packages/neuro-book/server/plugins/g1-importmap.ts
+new file mode 100644
+index 00000000..7e814425
+--- /dev/null
++++ b/packages/neuro-book/server/plugins/g1-importmap.ts
+@@ -0,0 +1,19 @@
++// G1 实验：做法 1 的 import map。必须先于 Nuxt 注入的任何模块脚本与 modulepreload，
++// 所以放在 head 最前面。转发模块是静态文件，运行时从 window.__NB_SHARED__ 取值。
++const G1_IMPORT_MAP = JSON.stringify({
++    imports: {
++        "vue": "/g1-shared/vue.js",
++        "@notnotype/nb-ui/components": "/g1-shared/nb-ui-components.js",
++        "@neurobook/plugin-sdk": "/g1-shared/plugin-sdk.js",
++    },
++});
++
++export default defineNitroPlugin((nitroApp) => {
++    nitroApp.hooks.hook("render:html", (html, {event}) => {
++        // 实验开关：?g1-late-importmap 时不注入，由页内脚本在启动后动态插入，验证各引擎对迟到 import map 的处理。
++        if (getQuery(event)["g1-late-importmap"] !== undefined) {
++            return;
++        }
++        html.head.unshift(`<script type="importmap">${G1_IMPORT_MAP}</script>`);
++    });
++});
+diff --git a/packages/neuro-book/server/routes/g1-plugins/[...path].get.ts b/packages/neuro-book/server/routes/g1-plugins/[...path].get.ts
+new file mode 100644
+index 00000000..c7a94350
+--- /dev/null
++++ b/packages/neuro-book/server/routes/g1-plugins/[...path].get.ts
+@@ -0,0 +1,30 @@
++import {readFile} from "node:fs/promises";
++import {resolve, sep} from "node:path";
++
++// G1 实验：模拟设计 P7 的 `/plugins/<id>/<version>/`，从源码树外的目录提供插件构建产物，
++// 证明插件无需重新构建宿主即可加载。
++const CONTENT_TYPES: Record<string, string> = {
++    ".mjs": "text/javascript; charset=utf-8",
++    ".js": "text/javascript; charset=utf-8",
++    ".css": "text/css; charset=utf-8",
++};
++
++export default defineEventHandler(async (event) => {
++    const root = process.env.G1_PLUGIN_DIR?.trim();
++    if (!root) {
++        throw createError({statusCode: 404, statusMessage: "G1_PLUGIN_DIR 未配置"});
++    }
++    const base = resolve(root);
++    const file = resolve(base, getRouterParam(event, "path") ?? "");
++    if (!file.startsWith(base + sep)) {
++        throw createError({statusCode: 400});
++    }
++    const body = await readFile(file).catch(() => null);
++    if (!body) {
++        throw createError({statusCode: 404});
++    }
++    const extension = file.slice(file.lastIndexOf("."));
++    setResponseHeader(event, "content-type", CONTENT_TYPES[extension] ?? "application/octet-stream");
++    setResponseHeader(event, "cache-control", "no-store");
++    return body;
++});

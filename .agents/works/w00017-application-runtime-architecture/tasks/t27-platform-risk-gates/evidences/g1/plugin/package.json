@@ -1,0 +1,14 @@
+{
+  "name": "example-g1-plugin",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "build": "vite build --config vite.config.ts --mode esm && vite build --config vite.config.ts --mode cjs && vite build --config vite.config.ts --mode selfvue"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.7",
+    "vite": "8.1.4",
+    "vue": "3.5.39"
+  }
+}
