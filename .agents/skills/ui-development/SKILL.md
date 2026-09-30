@@ -30,13 +30,14 @@ description: 指导 NeuroBook 与 nb-ui 的前端与 UI 开发、组件设计与
 
 通用验证范围与停止条件以 [验证门禁](../../../docs/testing/README.md#验证门禁) 为准，本节只补 UI 特有的检查项。
 
-1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出；涉及主题 token 时，确认明暗两态对比正常。
-2. 对照 [`ui-development-spec.md` §10](../../../packages/nb-ui/docs/ui-development-spec.md#10-开发后自检与易错清单checklist) 中与本次改动相关的条目。
+1. 涉及布局或响应式时，确认桌面与 390px 窄屏都没有水平溢出，并在宽窗口（≥1400px）下确认内容列封顶、宽度随内容的元素不拉满整行（见 [`design-language.md`](../../../packages/nb-ui/docs/design-language.md) 自检清单）；涉及主题 token 时，确认明暗两态对比正常。
+2. 对照 [`ui-development-spec.md` 的开发后自检与易错清单](../../../packages/nb-ui/docs/ui-development-spec.md#10-开发后自检与易错清单checklist)中与本次改动相关的条目。
+3. 设计信息流或信息密度高的界面前，先和开发者确认信息的注意力排序（首先看什么、默认折叠什么、什么时候整块收起），写进 Spec 后再出视觉候选；否则视觉迭代会反复推翻版式。
 
 ## 反思回写
 
 按 [task-reflection](../task-reflection/SKILL.md) 列出回写建议，经批准后写入。UI 类知识的目标位置：
 
-- 浏览器怪异行为与判据失误：写到 [`design-language.md` §八 踩过的坑](../../../packages/nb-ui/docs/design-language.md#八踩过的坑)，按“现象 → 根因 → 判据”的格式。
-- 控件参数、交互合同，以及用户提出或纠正的 UI 规范：写到 [`ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 对应小节；自动化工具查不出的易错项写到 §10。
+- 浏览器怪异行为与判据失误：写到 [`design-language.md` 的“踩过的坑”](../../../packages/nb-ui/docs/design-language.md#八踩过的坑)，按“现象 → 根因 → 判据”的格式。
+- 控件参数、交互合同，以及用户提出或纠正的 UI 规范：写到 [`ui-development-spec.md`](../../../packages/nb-ui/docs/ui-development-spec.md) 对应小节；自动化工具查不出的易错项写到其中的开发后自检与易错清单。
 - 视觉判据与设计取舍：写到 `design-language.md` 对应章节。

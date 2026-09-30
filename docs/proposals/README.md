@@ -9,6 +9,8 @@
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
 - [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，Work 本地登记、无正式角色的 Task 当前快照、主 Agent 直接执行与按需协调、专项技能和最小充分验证，状态为 `accepted`。
 - [`应用运行时与内置插件架构`](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：状态为 `accepted`，接受基础架构及“环境/小内核 → 最小服务插件 → Lab → Files → Settings → World/Plot”分段方向；前两片七项 `planned` Spec 已登记。本轮交付规范与实施规划，未实施产品；任意热卸载/升级仍仅为后续评估。
+- [`Agent 对话视图重做`](../../packages/neuro-book/docs/proposals/agent-conversation-view.md)：在 `app/components/agent/` 重做纯视图的 `AgentConversationView`（只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流、卡片与视觉统一、Lab 时间线回放），只做前端、只以 Lab 验收，状态为 `accepted`；已批准行为见 [ui.agent-conversation-view](../specs/ui/agent-conversation-view.md) 与 [ui.component-lab.timeline](../specs/ui/component-lab-timeline.md)。
+- [`Agent 会话数据层后续`](../../packages/neuro-book/docs/proposals/agent-session-data-layer.md)：记录阻塞 invoke 与 SSE 双通道、live state 无版本、重复入口等数据层与后端问题，留到 w00017 插件体系就绪后处理，状态为 `draft`。
 - [`model-roles-contract.md`](./model-roles-contract.md)：模型角色的后端契约（全局配置 `roles` 段、按 role 解析模型的优先级、本地模型已由 Provider 机制覆盖的结论），状态为 `draft`，等待「未决取舍」拍板。
 - [`nb-ui-surface-model.md`](./nb-ui-surface-model.md)：nb-ui 表面模型，把材质（玻璃 / 实心，整页只有一层且只有它开模糊）与层级（不透明色阶，可嵌套、按位置自动推导）拆成两条轴，材质层有可读性不透明度下限，状态为 `accepted`。
 - [`../packages/neuro-book/docs/proposals/workbench-view-host.md`](../../packages/neuro-book/docs/proposals/workbench-view-host.md)：Workbench 与 View Host（descriptor 注册表、可序列化拆分树原语、布局状态四类分层、视图跨容器与容器跨栏移动），状态为 `accepted`。

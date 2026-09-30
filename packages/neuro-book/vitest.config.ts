@@ -39,6 +39,7 @@ export default defineConfig({
         include: [
             "app/composables/**/*.test.ts",
             "app/component-lab/**/*.test.ts",
+            "app/components/agent/**/*.test.ts",
             "app/components/novel-ide/**/*.test.ts",
             "app/components/common/**/*.test.ts",
             "app/components/workbench/**/*.test.ts",

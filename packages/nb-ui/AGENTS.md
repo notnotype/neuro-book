@@ -27,5 +27,5 @@
 - 组件类名、图标、token 或 `src/styles.css` 变化运行 `bun run build:css`，并提交更新的 `dist/nb-ui.css`。
 - 只有改动覆盖的行为有 e2e 专属边界时才运行 `bun run test:e2e`；不因修改位于本包而默认跑全套。
 - 组件组合或公开用法变化时，在 `/components` 检查相应组合。
-- UI 行为/观感变化按 [UI 验收分档](../../docs/testing/README.md#ui-验收分档) 取证；共享基础组件按四种主题/配色组合及 390px 视口验收。真实 playground 通过内置浏览器优先，备用工具规则见测试规范。
+- UI 行为/观感变化按 [UI 验收分档](../../docs/testing/README.md#ui-验收分档) 取证；共享基础组件按四种主题/配色组合及 390px 视口验收。真实 playground 的浏览器工具按测试规范的 [浏览器工具](../../docs/testing/README.md#浏览器工具) 选择。
 - 阶段 2 结论必须标注“未经 NeuroBook 主仓接入验证”。

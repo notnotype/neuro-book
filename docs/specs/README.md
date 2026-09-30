@@ -128,6 +128,8 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | Storage 架构边界 | [`storage/boundaries.md`](storage/boundaries.md) | Config / Storage / 内存 / 领域数据职责、user/project 归属、插件与 grid 消费边界 |
 | Storage 本地持久化 | [`storage/persistence.md`](storage/persistence.md) | 身份与客户端分区、条件读写、生命周期、恢复、备份与首批迁移；运行时与验收尚未实现 |
 | 工作台与插件嵌套 grid | [`ui/nested-grid.md`](ui/nested-grid.md) | 二维原语、原子手势、共享测量/宿主、scope仲裁与绝对指针跟随；新矩阵未闭合前保持planned |
+| Agent 对话视图 | [`ui/agent-conversation-view.md`](ui/agent-conversation-view.md) | `ui.agent-conversation-view`；纯受控视图、只读 ctx 加 action 合同、扩展点注册表、分轮折叠消息流与原始视图；只以 Lab 验收，不接主页面 |
+| Component Lab 时间线回放 | [`ui/component-lab-timeline.md`](ui/component-lab-timeline.md) | `ui.component-lab.timeline`；fixture 声明时间线、虚拟时钟、可复现定位与播放控件 |
 
 ## 冻结过渡规范
 

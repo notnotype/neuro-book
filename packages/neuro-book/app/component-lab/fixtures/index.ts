@@ -48,6 +48,28 @@ import type JsonViewer from "../../components/common/JsonViewer.vue";
 import type SurfaceTierDemo from "../SurfaceTierDemo.vue";
 import type DesktopTitleBarChrome from "../../components/common/DesktopTitleBarChrome.vue";
 import {desktopTitleBarChromeScenes} from "./DesktopTitleBarChrome.scenes";
+import type AgentConversationView from "../../components/agent/AgentConversationView.vue";
+import type AgentCard from "../../components/agent/AgentCard.vue";
+import type AgentFileChanges from "../../components/agent/AgentFileChanges.vue";
+import type AgentMarkdown from "../../components/agent/AgentMarkdown.vue";
+import type AgentMessageActions from "../../components/agent/AgentMessageActions.vue";
+import type AgentConversationTurn from "../../components/agent/AgentConversationTurn.vue";
+import type AgentStepLine from "../../components/agent/AgentStepLine.vue";
+import type AgentChainSummary from "../../components/agent/AgentChainSummary.vue";
+import type AgentTaskList from "../../components/agent/AgentTaskList.vue";
+import type AgentTaskListNode from "../../components/agent/AgentTaskListNode.vue";
+import type AgentTurnBlock from "../../components/agent/AgentTurnBlock.vue";
+import type AgentCodeBlock from "../../components/agent/AgentCodeBlock.vue";
+import type AgentCommandDetail from "../../components/agent/AgentCommandDetail.vue";
+import type AgentFileContentDetail from "../../components/agent/AgentFileContentDetail.vue";
+import type AgentFileDiffDetail from "../../components/agent/AgentFileDiffDetail.vue";
+import type AgentToolDetail from "../../components/agent/AgentToolDetail.vue";
+import type AgentDeliveryNotice from "../../components/agent/AgentDeliveryNotice.vue";
+import type AgentRawView from "../../components/agent/AgentRawView.vue";
+import type AgentUserContent from "../../components/agent/AgentUserContent.vue";
+import {defineSubjectFixture} from "./subject-fixture";
+import {agentCardScenes, agentConversationTurnScenes, agentFileChangesScenes, agentMarkdownScenes, agentMessageActionsScenes, agentStepLineScenes, agentChainSummaryScenes, agentTaskListNodeScenes, agentTaskListScenes, agentTurnBlockScenes, agentCodeBlockScenes, agentToolDetailScenes, agentFileContentDetailScenes, agentFileDiffDetailScenes, agentCommandDetailScenes, agentUserContentScenes, agentDeliveryNoticeScenes, agentRawViewScenes} from "./AgentConversationParts.scenes";
+import {agentConversationViewScenes} from "./AgentConversationView.scenes";
 import type AgentSidebarView from "../../components/novel-ide/agent/AgentSidebarView.vue";
 import {agentSidebarViewScenes} from "./AgentSidebarView.scenes";
 import type ContextMenu from "../../components/common/ContextMenu.vue";
@@ -510,6 +532,56 @@ export const labFixtures: LabFixture[] = [
     defineLabFixture<typeof AgentSessionTreeDialog>({component: "AgentSessionTreeDialog", scenes: agentSessionTreeDialogScenes, load: async () => (await import("./AgentSessionTreeDialogFixture.vue")).default}),
     defineLabFixture<typeof AgentSessionAttachmentPanel>({component: "AgentSessionAttachmentPanel", scenes: agentSessionAttachmentPanelScenes, load: async () => (await import("./AgentSessionAttachmentPanelFixture.vue")).default}),
     defineLabFixture<typeof AgentModeSessionSidebar>({component: "AgentModeSessionSidebar", scenes: agentModeSessionSidebarScenes, load: async () => (await import("./AgentModeSessionSidebarFixture.vue")).default}),
+    defineLabFixture<typeof AgentConversationView>({
+        component: "AgentConversationView", scenes: agentConversationViewScenes,
+        load: async () => (await import("./AgentConversationViewFixture.vue")).default,
+    }),
+    defineLabFixture<typeof AgentCard>({component: "AgentCard", slots: ["default", "actions"], scenes: agentCardScenes, load: async () => (await import("./AgentCardFixture.vue")).default}),
+    defineLabFixture<typeof AgentStepLine>({component: "AgentStepLine", slots: ["default"], scenes: agentStepLineScenes, load: async () => (await import("./AgentStepLineFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentChainSummary>({component: "AgentChainSummary", scenes: agentChainSummaryScenes, subject: () => import("nbook/app/components/agent/AgentChainSummary.vue"), events: ["toggle"], writeBack: {toggle: {layer: "props", key: "expanded"}}, class: "w-full"}),
+    defineSubjectFixture<typeof AgentTaskList>({component: "AgentTaskList", scenes: agentTaskListScenes, subject: () => import("nbook/app/components/agent/AgentTaskList.vue")}),
+    defineSubjectFixture<typeof AgentTaskListNode>({component: "AgentTaskListNode", scenes: agentTaskListNodeScenes, subject: () => import("nbook/app/components/agent/AgentTaskListNode.vue")}),
+    defineLabFixture<typeof AgentTurnBlock>({component: "AgentTurnBlock", scenes: agentTurnBlockScenes, load: async () => (await import("./AgentTurnBlockFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentToolDetail>({
+        component: "AgentToolDetail", scenes: agentToolDetailScenes, subject: () => import("nbook/app/components/agent/AgentToolDetail.vue"), class: "w-full",
+        runtimeProps: async () => {
+            const [{createAgentViewRegistry}, {builtinToolsContribution}] = await Promise.all([
+                import("../../components/agent/agent-view-registry"),
+                import("../../components/agent/builtin-tools"),
+            ]);
+            return {registry: createAgentViewRegistry([builtinToolsContribution])};
+        },
+    }),
+    defineSubjectFixture<typeof AgentFileContentDetail>({component: "AgentFileContentDetail", scenes: agentFileContentDetailScenes, subject: () => import("nbook/app/components/agent/AgentFileContentDetail.vue"), class: "w-full"}),
+    defineSubjectFixture<typeof AgentFileDiffDetail>({component: "AgentFileDiffDetail", scenes: agentFileDiffDetailScenes, subject: () => import("nbook/app/components/agent/AgentFileDiffDetail.vue"), class: "w-full"}),
+    defineSubjectFixture<typeof AgentCommandDetail>({component: "AgentCommandDetail", scenes: agentCommandDetailScenes, subject: () => import("nbook/app/components/agent/AgentCommandDetail.vue"), class: "w-full"}),
+    defineSubjectFixture<typeof AgentCodeBlock>({component: "AgentCodeBlock", scenes: agentCodeBlockScenes, subject: () => import("nbook/app/components/agent/AgentCodeBlock.vue"), class: "w-full"}),
+    defineLabFixture<typeof AgentMarkdown>({component: "AgentMarkdown", scenes: agentMarkdownScenes, load: async () => (await import("./AgentMarkdownFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentMessageActions>({component: "AgentMessageActions", scenes: agentMessageActionsScenes, subject: () => import("nbook/app/components/agent/AgentMessageActions.vue"), events: ["select", "branch"]}),
+    defineLabFixture<typeof AgentConversationTurn>({component: "AgentConversationTurn", scenes: agentConversationTurnScenes, load: async () => (await import("./AgentConversationTurnFixture.vue")).default}),
+    defineSubjectFixture<typeof AgentFileChanges>({component: "AgentFileChanges", scenes: agentFileChangesScenes, subject: () => import("nbook/app/components/agent/AgentFileChanges.vue"), events: ["open"]}),
+    defineSubjectFixture<typeof AgentUserContent>({
+        component: "AgentUserContent", scenes: agentUserContentScenes, subject: () => import("nbook/app/components/agent/AgentUserContent.vue"),
+        runtimeProps: async () => {
+            const {labAttachmentUrls} = await import("./agent-conversation-fixture-data");
+            return {resolveAttachmentUrl: (locator: string) => labAttachmentUrls[locator] ?? null};
+        },
+    }),
+    defineSubjectFixture<typeof AgentDeliveryNotice>({component: "AgentDeliveryNotice", noInput: "只有“重新发送”“移除”两个事件，没有数据 prop", scenes: agentDeliveryNoticeScenes, subject: () => import("nbook/app/components/agent/AgentDeliveryNotice.vue"), events: ["resend", "dismiss"]}),
+    defineSubjectFixture<typeof AgentRawView>({
+        component: "AgentRawView", scenes: agentRawViewScenes, subject: () => import("nbook/app/components/agent/AgentRawView.vue"), events: ["action"], class: "w-full",
+        runtimeProps: async () => {
+            const [{createAgentViewRegistry}, {builtinToolsContribution}, {labAttachmentUrls}] = await Promise.all([
+                import("../../components/agent/agent-view-registry"),
+                import("../../components/agent/builtin-tools"),
+                import("./agent-conversation-fixture-data"),
+            ]);
+            return {
+                registry: createAgentViewRegistry([builtinToolsContribution]),
+                services: {resolveAttachmentUrl: (locator: string) => labAttachmentUrls[locator] ?? null, resolveTriggerMenu: () => []},
+            };
+        },
+    }),
     defineLabFixture<typeof AgentSidebarView>({
         component: "AgentSidebarView", scenes: agentSidebarViewScenes,
         load: async () => (await import("./AgentSidebarViewFixture.vue")).default,

@@ -103,11 +103,18 @@ async function ensureEditor(): Promise<void> {
         return;
     }
     monacoApi = monacoApi ?? await loadMonacoEditor();
-    applyMonacoDiffTheme(monacoApi, rootRef.value);
-    applyMonacoDiffTheme(monacoApi, currentRef.value);
-    applyMonacoDiffTheme(monacoApi, incomingRef.value);
+    // 首次加载 Monaco 要几秒，组件可能已经卸载，模板 ref 随之置空。
+    const root = rootRef.value;
+    const current = currentRef.value;
+    const incoming = incomingRef.value;
+    if (!root || !current || !incoming) {
+        return;
+    }
+    applyMonacoDiffTheme(monacoApi, root);
+    applyMonacoDiffTheme(monacoApi, current);
+    applyMonacoDiffTheme(monacoApi, incoming);
     if (!currentEditor) {
-        currentEditor = monacoApi.editor.create(currentRef.value, {
+        currentEditor = monacoApi.editor.create(current, {
             automaticLayout: true,
             readOnly: true,
             minimap: {enabled: false},
@@ -118,7 +125,7 @@ async function ensureEditor(): Promise<void> {
         });
     }
     if (!incomingEditor) {
-        incomingEditor = monacoApi.editor.create(incomingRef.value, {
+        incomingEditor = monacoApi.editor.create(incoming, {
             automaticLayout: true,
             readOnly: true,
             minimap: {enabled: false},
@@ -129,7 +136,7 @@ async function ensureEditor(): Promise<void> {
         });
     }
     if (!editor) {
-        editor = monacoApi.editor.create(rootRef.value, {
+        editor = monacoApi.editor.create(root, {
             automaticLayout: true,
             readOnly: props.readonly,
             minimap: {enabled: false},

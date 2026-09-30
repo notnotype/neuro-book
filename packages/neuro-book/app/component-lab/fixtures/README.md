@@ -111,7 +111,36 @@ const subject = useLabSubject<typeof FixtureExample>(() => props.input, ["toggle
 - 不在组件调试输入里的场景道具（假数据集大小、模拟延迟等）放 `<LabFixtureControls>`，不塞进 `input`。
 - `LabJsonInput<T>` 只投影编译期可登记的 JSON 字段；Date、Set、函数、Vue Ref 等不能塞到场景值，fixture 用固定内存值/已有回调显式补齐，再由最终组件绑定的类型检查验证。对象内可编辑 JSON 字段仍来自 `subject.bindings.value`，不要因其旁边有回调就把整个对象藏到不可编辑常量中。
 
-### 3.3 内部状态上报：`useLabDataSink`（只读）
+### 3.3 透传夹具：`defineSubjectFixture`（不写 fixture `.vue`）
+夹具只做“绑定场景输入、记录事件、把个别事件回写成受控输入、补运行期 props”时，直接在 `fixtures/index.ts` 用 `defineSubjectFixture` 登记，不再写一个只有十行的 `XxxFixture.vue`：
+
+```ts
+defineSubjectFixture<typeof AgentChainSummary>({
+    component: "AgentChainSummary",
+    scenes: agentChainSummaryScenes,
+    subject: () => import("nbook/app/components/agent/AgentChainSummary.vue"),
+    events: ["toggle"],
+    writeBack: {toggle: {layer: "props", key: "expanded"}},   // 受控 prop 由 Lab 扮演宿主
+    class: "w-full",
+    // 函数、注册表等不是 JSON 输入的 props；异步准备，依赖和被测组件一样按需加载
+    runtimeProps: async () => ({registry: (await import("…/agent-view-registry")).createAgentViewRegistry([])}),
+});
+```
+
+类型检查与 `defineLabFixture<typeof C>` 相同，`events` 与 `writeBack` 也只能写 C 真实的事件和 prop。需要插槽预设、`<LabFixtureControls>`、挂载后才准备的服务（例如 `onMounted` 里加载 DOMPurify）或自己搭宿主状态时，仍手写 fixture。
+
+### 3.4 截图与溢出检查：`lab:shot` 与 `window.__nbLab`
+不要为 Lab 截图手写 Playwright 脚本，也不要点 Lab 外壳的按钮文字或 class：外壳改版就会失效。
+
+- 地址栏参数直接进入指定状态：`/lab?c=<组件>&s=<场景>&vp=phone|tablet|free|<宽>x<高>&cw=light|dark|<配色 id>&theme=<主题 id>`。
+- 截图、测溢出用命令行（在 `packages/neuro-book` 下，开发服务需已启动）：
+  ```bash
+  NB_LAB_URL=http://127.0.0.1:3000 bun run lab:shot -- -c AgentConversationView --vp phone,1400x900 --cw dark,light
+  ```
+  缺省截全部场景；`--click <选择器>` 可在截图前点开舞台里的元素（可重复），`--out` 指定目录，缺省写系统临时根。每个组合用新标签页打开，固定宽高的画布会自动放大窗口，舞台不会被检视栏盖住。每张图的溢出像素、越界元素（带选择器）和页面错误打印在终端并写入 `report.json`，有问题时以非零退出。
+- 浏览器控制台里可用 `window.__nbLab.state()`、`.scenes()`、`.measure()`；截图按 `[data-lab-stage]` 裁剪。
+
+### 3.5 内部状态上报：`useLabDataSink`（只读）
 组件或 fixture 自己持有、不经 props 暴露的状态（草稿、展开项、运行标志）用 `useLabDataSink()` 上报，数据 tab 以只读「内部状态」展示，不能从面板改回去：
 ```ts
 const reportState = useLabDataSink();
