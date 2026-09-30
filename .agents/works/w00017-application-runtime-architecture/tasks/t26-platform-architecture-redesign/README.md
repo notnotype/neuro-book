@@ -41,11 +41,11 @@ taskId: t26-platform-architecture-redesign
 
 2026-09-30 开发者重新确定需求基线六条并全部确认：插件系统、热插拔三档（L1 承诺、L2 尽力可验证、不做 L3）、三种协作方式、可选能力（门面加贡献或联动项）、引用撤回（内核账本与转发器）、在途工作（三步停止、worker 池、看门狗）。第三方插件与宿主同线程运行，不采用每插件一个 worker。已写入设计稿 P1、P3、P4、P6、P11 与 ADR 0022。支撑实验：[worker 实验](evidences/worker-probe/output.txt)、[同线程卸载、内存与看门狗实验](evidences/inproc-probe/output.txt)；开发者仓库外的两份笔记（HMR 与模块卸载、插件与前端通信）按路径在调研文档中引用。
 
-剩余待确认：插件与前端通信（P5）的细化。确认后设计稿改为 `accepted`。
+2026-09-30 开发者确认插件与前端通信（P5）的全部细化，设计改为 `accepted`。本 Task 交付完成：ADR 0022 与可扩展应用平台设计已于 `476d430b` 本地提交。
 
-仍未运行验证的可行性：
+三个风险门的验证移交 [t27](../t27-platform-risk-gates/README.md)：
 
-- **G0**：Nitro `entry` 选项配合 `node-listener` 形态的自有服务端入口；
+- **G0**：Nitro `entry` 选项配合 `node-listener` 形态的自有服务端入口，以及该入口上的 WebSocket 升级与鉴权；
 - **G1**：浏览器端让运行时加载的插件组件共享宿主的 Vue 与 nb-ui（import map 与宿主模块表两种做法）；
 - **G2**：看门狗阈值、Desktop 与 Manager 在进程被结束后的重启行为、Windows 上结束进程的方式、worker 池 API。
 
@@ -57,6 +57,4 @@ taskId: t26-platform-architecture-redesign
 
 ## 下一步
 
-1. 开发者确认 P5 细化后，提案状态改为 `accepted`。
-2. 新建 Task，先做 G0、G1、G2 一次性验证；结果决定 P6、P7 是否需要改方案。
-3. 验证通过后把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，再进入阶段 1。
+无。后续工作在 [t27](../t27-platform-risk-gates/README.md) 继续：三个风险门的结论决定 P6、P7 是否需要修改；都成立后把 `runtime.plugins`、`runtime.application` 的改动与新增 capability 写入 `planned` Spec，再进入阶段 1。
