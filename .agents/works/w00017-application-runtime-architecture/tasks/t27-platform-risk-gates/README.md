@@ -51,6 +51,8 @@ taskId: t27-platform-risk-gates
 
 开发者 2026-09-30 的处理：WebAssembly 计算不强制切分；启动失败不退出与 API 路径认证放行两个现有问题交 w00020 修复（分支 `fix/w00020-startup-exit-api-auth`）；开发模式问题登记为 [#244](https://github.com/notnotype/neuro-book/issues/244)。
 
+插件依赖按端细分的外部调研（2026-09-30，开发者要求）：[VS Code](evidences/deps-vscode/REPORT.md)、[DeepSeek Harness](evidences/deps-dsh/REPORT.md)。两者都没有“依赖某插件的某一端”的写法：VS Code 一个扩展只在一个宿主运行，依赖只在同宿主解析，跨宿主依赖要求被依赖方声明 `api: none` 并放弃导出 API；DeepSeek Harness 没有插件级激活依赖，两端各自在代码里按服务名 `inject`，各自解析。
+
 验证过程的副作用：G1 为运行 Electron 启动无头 KWin 时首次崩溃，触发了开发者桌面会话的崩溃报告器（约 1 分钟内已停止）；浏览器、Electron 等下载物放在会话临时目录。
 
 ## 依据
