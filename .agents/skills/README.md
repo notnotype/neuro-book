@@ -9,9 +9,10 @@ current Work/Task 以 [工作入口](../works/AGENTS.md) 为准，legacy provena
 - [repository-workflow](repository-workflow/SKILL.md)：Git 分支、worktree、提交、PR、合并与发布操作；普通编码不触发。
 - [doc-review](doc-review/SKILL.md)：目标读者视角的可理解性、歧义与链接审查，按需独立复核。
 - [diagnosing-bugs](diagnosing-bugs/SKILL.md)：复杂故障或性能回退诊断。
-- [writing-for-agents](writing-for-agents/SKILL.md)：规则与 Skill 写作；Skill 调用说明见 [SKILL-MECHANICS.md](writing-for-agents/SKILL-MECHANICS.md)。
 - [ui-development](ui-development/SKILL.md)：UI 界面与组件开发的真相源路由、组件复用决策、UI 专属检查与回写位置。
 - [task-reflection](task-reflection/SKILL.md)：把意外、用户纠正或新规范整理成回写建议，经开发者批准后写入对应真相源；目标位置由领域 Skill 指定。
+
+新增或修改 Skill 时：`name` 保持稳定；`description` 简述用途与触发条件，供宿主发现，不罗列同义触发词抢占其它 Skill；参数型入口用 `argument-hint` 说明参数。`disable-model-invocation: true` 只关闭模型自动调用，不限制文件读取。只有独立触发用途值得长期维护时才新建 Skill，共享参考能放进已有文件就复用。
 
 通用 Skill 在宿主允许范围内服务当前请求，服从根规则、当前合同和授权，不另立审批或完成门禁。项目不依赖特定 Code Agent 宿主。
 
