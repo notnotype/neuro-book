@@ -1,0 +1,100 @@
+$ git rev-parse HEAD
+2be161e18d7d91dfd7b22c01da8d33b13ba01c47
+$ bun run typecheck:runtime-foundation
+$ tsc --noEmit -p tsconfig.runtime-foundation.json
+../nb-ui/src/components/layout/grid-splitter.ts(10,40): error TS2307: Cannot find module './Splitter.vue' or its corresponding type declarations.
+../nb-ui/src/components/layout/index.ts(68,35): error TS2307: Cannot find module './Splitter.vue' or its corresponding type declarations.
+../nb-ui/src/components/layout/index.ts(69,39): error TS2307: Cannot find module './GridRenderer.vue' or its corresponding type declarations.
+../nb-ui/src/components/layout/index.ts(70,40): error TS2307: Cannot find module './Splitter.vue' or its corresponding type declarations.
+../nb-ui/src/components/layout/sash-feedback.ts(33,28): error TS2304: Cannot find name 'Document'.
+../nb-ui/src/components/layout/sash-feedback.ts(34,28): error TS2304: Cannot find name 'Document'.
+../nb-ui/src/components/layout/sash-feedback.ts(34,38): error TS2304: Cannot find name 'HTMLStyleElement'.
+../nb-ui/src/components/layout/sash-feedback.ts(43,40): error TS2304: Cannot find name 'Document'.
+../nb-ui/src/components/layout/sash-feedback.ts(71,27): error TS2304: Cannot find name 'Document'.
+../nb-ui/src/components/layout/sash-feedback.ts(71,38): error TS2304: Cannot find name 'HTMLStyleElement'.
+../nb-ui/src/composables/useSashGesture.ts(25,23): error TS2304: Cannot find name 'HTMLElement'.
+../nb-ui/src/composables/useSashGesture.ts(31,67): error TS2304: Cannot find name 'HTMLElement'.
+../nb-ui/src/composables/useSashGesture.ts(42,20): error TS2304: Cannot find name 'KeyboardEvent'.
+../nb-ui/src/composables/useSashGesture.ts(43,18): error TS2304: Cannot find name 'KeyboardEvent'.
+../nb-ui/src/composables/useSashGesture.ts(55,15): error TS2304: Cannot find name 'HTMLElement'.
+../nb-ui/src/composables/useSashGesture.ts(70,34): error TS2304: Cannot find name 'HTMLElement'.
+../nb-ui/src/composables/useSashGesture.ts(76,30): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(79,33): error TS2304: Cannot find name 'HTMLElement'.
+../nb-ui/src/composables/useSashGesture.ts(154,35): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(201,22): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(210,13): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(326,35): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(362,13): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(370,35): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(379,25): error TS2304: Cannot find name 'requestAnimationFrame'.
+../nb-ui/src/composables/useSashGesture.ts(399,33): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(404,13): error TS2304: Cannot find name 'cancelAnimationFrame'.
+../nb-ui/src/composables/useSashGesture.ts(425,37): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(432,35): error TS2304: Cannot find name 'PointerEvent'.
+../nb-ui/src/composables/useSashGesture.ts(444,38): error TS2304: Cannot find name 'KeyboardEvent'.
+../nb-ui/src/composables/useSashGesture.ts(450,29): error TS2304: Cannot find name 'KeyboardEvent'.
+../nb-ui/src/composables/useSashGesture.ts(520,27): error TS2304: Cannot find name 'KeyboardEvent'.
+../nb-ui/src/composables/useSashGesture.ts(548,9): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(549,9): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+../nb-ui/src/composables/useSashGesture.ts(556,13): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(570,9): error TS2304: Cannot find name 'window'.
+../nb-ui/src/composables/useSashGesture.ts(571,9): error TS2584: Cannot find name 'document'. Do you need to change your target library? Try changing the 'lib' compiler option to include 'dom'.
+../nb-ui/src/composables/useSashGesture.ts(573,13): error TS2304: Cannot find name 'cancelAnimationFrame'.
+../nb-ui/src/composables/useSashGesture.ts(647,30): error TS2304: Cannot find name 'KeyboardEvent'.
+app/features/files/files-client.ts(36,67): error TS2347: Untyped function calls may not accept type arguments.
+app/features/files/files-client.ts(36,78): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+app/features/files/files-client.ts(37,81): error TS2347: Untyped function calls may not accept type arguments.
+app/features/files/files-client.ts(37,92): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+app/features/files/files-client.ts(38,78): error TS2347: Untyped function calls may not accept type arguments.
+app/features/files/files-client.ts(38,89): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+app/features/files/files-client.ts(39,87): error TS2347: Untyped function calls may not accept type arguments.
+app/features/files/files-client.ts(39,98): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+app/utils/api-error.ts(12,25): error TS2304: Cannot find name 'useNuxtApp'.
+app/utils/api-fetch.ts(7,30): error TS7017: Element implicitly has an 'any' type because type 'typeof globalThis' has no index signature.
+app/utils/api-fetch.ts(7,83): error TS2304: Cannot find name '$fetch'.
+app/utils/storage/client-identity.ts(46,26): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(51,23): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(59,40): error TS2304: Cannot find name 'IDBDatabase'.
+app/utils/storage/client-identity.ts(122,72): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(132,25): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(151,14): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(152,27): error TS2304: Cannot find name 'IDBDatabase'.
+app/utils/storage/client-identity.ts(163,47): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/storage/client-identity.ts(165,18): error TS2304: Cannot find name 'IDBOpenDBRequest'.
+app/utils/storage/client-identity.ts(209,15): error TS2304: Cannot find name 'IDBDatabase'.
+app/utils/storage/client-identity.ts(210,20): error TS2304: Cannot find name 'IDBObjectStore'.
+app/utils/storage/client-identity.ts(220,22): error TS2304: Cannot find name 'IDBTransaction'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(310,26): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(450,38): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(450,70): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(460,24): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(466,14): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(467,20): error TS2304: Cannot find name 'IDBObjectStore'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(472,32): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(499,14): error TS2304: Cannot find name 'IDBFactory'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(500,11): error TS2304: Cannot find name 'IDBTransactionMode'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(501,20): error TS2304: Cannot find name 'IDBObjectStore'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(505,18): error TS2304: Cannot find name 'IDBOpenDBRequest'.
+app/utils/workbench/storage-migration-legacy-bucket.ts(534,26): error TS2304: Cannot find name 'IDBTransaction'.
+app/utils/workbench/view-factories.ts(15,32): error TS2307: Cannot find module 'nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue' or its corresponding type declarations.
+server/agent/tools/web-tools.ts(370,16): error TS7016: Could not find a declaration file for module 'jsdom'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/jsdom/lib/api.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/jsdom` if it exists or add a new declaration (.d.ts) file containing `declare module 'jsdom';`
+server/agent/tools/web-tools.ts(371,16): error TS7016: Could not find a declaration file for module 'turndown'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown/lib/turndown.cjs.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/turndown` if it exists or add a new declaration (.d.ts) file containing `declare module 'turndown';`
+server/agent/tools/web-tools.ts(372,16): error TS7016: Could not find a declaration file for module 'turndown-plugin-gfm'. '/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/turndown-plugin-gfm/lib/turndown-plugin-gfm.cjs.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/turndown-plugin-gfm` if it exists or add a new declaration (.d.ts) file containing `declare module 'turndown-plugin-gfm';`
+server/agent/tools/web-tools.ts(392,100): error TS2304: Cannot find name 'Document'.
+server/agent/tools/web-tools.ts(395,101): error TS7006: Parameter 'element' implicitly has an 'any' type.
+server/utils/auth.ts(40,11): error TS2304: Cannot find name 'setUserSession'.
+server/utils/auth.ts(47,27): error TS2304: Cannot find name 'getUserSession'.
+server/utils/auth.ts(49,11): error TS2304: Cannot find name 'clearUserSession'.
+server/utils/auth.ts(89,15): error TS2304: Cannot find name 'createError'.
+server/utils/auth.ts(97,15): error TS2304: Cannot find name 'createError'.
+server/utils/auth.ts(110,27): error TS2304: Cannot find name 'getUserSession'.
+server/utils/auth.ts(158,15): error TS2304: Cannot find name 'createError'.
+server/utils/auth.ts(174,27): error TS2304: Cannot find name 'getUserSession'.
+server/utils/auth.ts(176,15): error TS2304: Cannot find name 'createError'.
+server/utils/auth.ts(191,15): error TS2304: Cannot find name 'createError'.
+server/utils/auth.ts(241,15): error TS2304: Cannot find name 'createError'.
+server/workspace-files/project-root-reparse-windows.ts(73,49): error TS2307: Cannot find module 'bun:ffi' or its corresponding type declarations.
+exit=2

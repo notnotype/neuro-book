@@ -1,0 +1,13 @@
+$ git rev-parse HEAD
+514352e2aa2cec6f5afcc5c73df67780b7e5e65c
+$ bun run governance:check
+$ bun scripts/ci/agent-governance.ts
+{
+  "schema": "nbook.governance-report/v1",
+  "repoRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "failures": [],
+  "warnings": [
+    "文档用 § 或 ¶ 代替了中文词：77 个文件共 385 处，改写成小节名或锚点链接；存量最多的：packages/nb-memory/docs/reports/2026-08-01-round1-regression.md（32）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t60-view-migration-review/walkthroughs/review.md（24）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t56-state-ownership-cleanup/walkthroughs/implementation.md（19）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t50-browser-titlebar/walkthroughs/implementation.md（15）、.agents/works/w00003-neurobook-ui-foundation-migration/tasks/t51-checkpoint-b-review/walkthroughs/review.md（15）"
+  ]
+}
+exit=0

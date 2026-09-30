@@ -1,0 +1,74 @@
+同一组 35 个测试文件（取自合并后全量 bun run test 的失败文件）分别在三处单独运行后的失败测试对照。
+merged(514352e2)=441  baseline w00017(5e6e5528)=433  baseline master(0fa8bc99)=25
+
+## 合并引入（两个基线都不失败）: 0
+
+## 两个基线都失败: 17
+   8  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts
+   1  app/utils/novel-ide-settings-current-project.contract.test.ts
+   1  server/agent/profiles/profile-compile-worker-preview.test.ts
+   2  server/agent/profiles/rp-profiles.test.ts
+   2  server/agent/profiles/simulation-director-profiles.test.ts
+   1  server/agent/profiles/world-engine-profile.test.ts
+   2  server/agent/tools/subject-memory-tools.test.ts
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变）
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > when 不满足的视图不出现，容器空态把求值原因写出来
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 未知 factoryKey 的失败写在视图位置上，不留空白
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来
+      app/utils/novel-ide-settings-current-project.contract.test.ts > Novel IDE Settings Current Project contract > Project scope 只消费当前已打开的 Project，不读取或选择 Catalog
+      server/agent/profiles/profile-compile-worker-preview.test.ts > profile compile worker preview 与 lifecycle > dry-run preview 不写入真实用户源码或 compiled artifact
+      server/agent/profiles/rp-profiles.test.ts > RP builtin profiles > rp.leader 作为 RP 用户交流层，读取 manual 并调用 simulator.leader
+      server/agent/profiles/rp-profiles.test.ts > RP builtin profiles > simulator.leader 作为 simulation runtime owner 并负责调度 actor
+      server/agent/profiles/simulation-director-profiles.test.ts > simulation and director builtin profiles > director 暴露 Plot System 合同和 Scene World Context
+      server/agent/profiles/simulation-director-profiles.test.ts > simulation and director builtin profiles > simulator.leader 暴露世界模拟合同和受限工具
+      server/agent/profiles/world-engine-profile.test.ts > world.engine profile > 只暴露 World Engine 维护所需工具，并注入第一版边界
+      server/agent/tools/subject-memory-tools.test.ts > subject memory tools > subject_event_append 追加 JSONL 并标记 RAG dirty
+      server/agent/tools/subject-memory-tools.test.ts > subject memory tools > subject_memory_update 调用真实 memory.curator profile，应用 JSON Patch 并标记 dirty
+
+## 仅 w00017 基线失败: 416
+   1  app/utils/editor-workbench/editor-session-storage.test.ts
+   1  server/agent/attachments/session-attachment-authority.test.ts
+   8  server/agent/harness/neuro-agent-harness-payload.test.ts
+  31  server/agent/harness/neuro-agent-harness.black-box.test.ts
+ 195  server/agent/harness/neuro-agent-harness.test.ts
+  16  server/agent/harness/session-attachment.test.ts
+   2  server/agent/harness/session-query.test.ts
+   4  server/agent/observability/context-inspection.test.tsx
+   2  server/agent/observability/harness-trace-segments.test.tsx
+   1  server/agent/observability/harness-trace.test.ts
+   1  server/agent/profiles/profile-compile-worker-lifecycle.test.ts
+   2  server/agent/profiles/profile-http-service.test.ts
+   3  server/agent/tools/approval.test.ts
+  49  server/agent/tools/file-tools.test.ts
+  14  server/agent/tools/subject-memory-tools.test.ts
+   2  server/agent/tools/task-tools.test.ts
+   1  server/api/projects/rag/overview.get.test.ts
+   3  server/api/workspace-files/download.get.test.ts
+   2  server/api/workspace-files/upload-file.post.test.ts
+   2  server/api/workspace-files/upload-project.post.test.ts
+  64  server/config/config-service.test.ts
+   3  server/runtime/product-startup.test.ts
+   3  server/workspace-files/authorized-file-operation.test.ts
+   1  server/workspace-files/project-session.test.ts
+   5  server/workspace-files/workspace-files.test.ts
+
+## 仅 master 基线失败: 8
+   1  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts
+   2  app/components/common/DesktopTitleBar.test.ts
+   3  app/components/common/DesktopTitleBarChrome.test.ts
+   1  app/components/workbench/WorkbenchPartHost.test.ts
+   1  server/storage/storage-service.test.ts
+      app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针
+      app/components/common/DesktopTitleBar.test.ts > DesktopTitleBar > 没有桌面 bridge 也画标题栏，并按页面的真实焦点决定编辑动作
+      app/components/common/DesktopTitleBar.test.ts > DesktopTitleBar > 键盘进标题栏后 Edit 六条仍可用，且激活后发的是同一条编辑命令
+      app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 浏览器里的粘贴画成禁用并说明改用 Ctrl+V，撤销照常可点
+      app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 键盘：ArrowDown 进首项、循环跳过禁用项、Escape 关菜单并把焦点还给触发按钮
+      app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 键盘：ArrowRight 换组时浮层跟着换锚点与内容
+      app/components/workbench/WorkbenchPartHost.test.ts > WorkbenchPartHost > 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container
+      server/storage/storage-service.test.ts > 路径边界与原子替换 > 并发写入期间读取只会看到完整旧记录或完整新记录
+
+## 基线失败但合并后通过: 0
