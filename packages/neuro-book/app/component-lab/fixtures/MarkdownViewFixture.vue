@@ -1,17 +1,13 @@
 <script setup lang="ts">
-import {computed} from "vue";
 import MarkdownView from "../MarkdownView.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
-const source = computed(() => {
-    const data = (props.data ?? {}) as Record<string, unknown>;
-    return typeof data.source === "string" ? data.source : "";
-});
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof MarkdownView>(() => props.input);
 </script>
 
 <template>
     <div class="h-full overflow-auto p-4">
-        <MarkdownView data-lab-subject :source="source" />
+        <MarkdownView data-lab-subject v-bind="subject.bindings.value" />
     </div>
 </template>

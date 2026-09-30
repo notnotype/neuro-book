@@ -25,6 +25,7 @@ import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
 import type {SummarizerStatus} from "nbook/app/components/novel-ide/agent/panels/header/AgentSessionHeader.vue";
+import type {ModelPickerRoleItem} from "nbook/app/components/novel-ide/model-picker/model-picker.types";
 
 export interface AgentSidebarHeaderProps {
     drawerIconClass: string;
@@ -88,6 +89,8 @@ export interface AgentSidebarComposerProps {
     sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentSessionModelDraft;
     selectableModels: EnabledModelOptionDto[];
+    modelRoles?: ModelPickerRoleItem[];
+    showSpecialistInPicker?: boolean;
     agentMode: AgentMode;
     canContinueWithoutInput: boolean;
     queuedMessages: AgentQueuedMessageDto[];

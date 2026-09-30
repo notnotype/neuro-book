@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
-import {defineComponent, nextTick} from "vue";
+import {defineComponent, nextTick, reactive} from "vue";
 import EditorWorkbenchFixture from "./EditorWorkbenchFixture.vue";
 import EditorWorkbench from "nbook/app/components/editor-workbench/EditorWorkbench.vue";
 import type {EditorSplitPayload, TabTransferPayload} from "nbook/app/components/editor-workbench/editor-intents";
-import {DEFAULT_CONTENTS, SCENE_TABS} from "./editor-workbench/fixture-data";
-import {LAB_DATA_SINK, LAB_EVENT_SINK, type LabDataSink, type LabEventSink} from "../lab-event-sink";
+import {DEFAULT_CONTENTS, SCENE_TABS, type EditorWorkbenchScene} from "./editor-workbench/fixture-data";
+import {findLabFixture} from "./index";
+import {LAB_DATA_SINK, LAB_EVENT_SINK, LAB_INPUT_SINK, type LabDataSink, type LabEventSink, type LabInputSink} from "../lab-event-sink";
+import type {LabSceneInput} from "../lab-subject";
 
 /**
  * Lab 夹具的身份与事务边界：标签实例身份是 `(groupId, path)`，同组内 path 唯一。
@@ -76,33 +78,53 @@ type Harness = {
     wrapper: VueWrapper;
     events: Array<{name: string; payload?: unknown}>;
     data: unknown[];
+    setInput: (input: LabSceneInput) => void;
 };
 
-function mountFixture(scene: string, data?: unknown): Harness {
+function registeredInput(scene: EditorWorkbenchScene): LabSceneInput {
+    const input = findLabFixture("EditorWorkbench")?.scenes.find((entry) => entry.id === scene)?.input;
+    if (!input) throw new Error(`EditorWorkbench 缺少登记场景：${scene}`);
+    return structuredClone(input);
+}
+
+function mountFixture(scene: EditorWorkbenchScene, input: LabSceneInput = registeredInput(scene)): Harness {
     const events: Array<{name: string; payload?: unknown}> = [];
     const data_ = [] as unknown[];
-    const eventSink: LabEventSink = (name, payload) => {
-        events.push({name, payload});
+    const eventSink: LabEventSink = (name, payload) => { events.push({name, payload}); };
+    const dataSink: LabDataSink = (value) => { data_.push(value); };
+    const state = reactive({input});
+    const inputSink: LabInputSink = (layer, key, value) => {
+        state.input = {...state.input, [layer]: {...state.input[layer], [key]: value}};
     };
-    const dataSink: LabDataSink = (value) => {
-        data_.push(value);
-    };
-    const wrapper = mount(EditorWorkbenchFixture, {
-        props: {scene, data},
-        attachTo: document.body,
+    const HarnessComponent = defineComponent({
+        components: {EditorWorkbenchFixture},
+        props: {scene: {type: String, required: true}},
+        setup() { return {state}; },
+        template: `<EditorWorkbenchFixture :scene="scene" :input="state.input" />`,
+    });
+    const wrapper = mount(HarnessComponent, {
+        props: {scene}, attachTo: document.body,
         global: {
             provide: {
                 [LAB_EVENT_SINK as symbol]: eventSink,
                 [LAB_DATA_SINK as symbol]: dataSink,
+                [LAB_INPUT_SINK as symbol]: inputSink,
             },
             stubs: {Splitter: SplitterStub},
         },
     });
     wrappers.push(wrapper);
-    return {wrapper, events, data: data_};
+    return {wrapper, events, data: data_, setInput: (next: LabSceneInput) => { state.input = next; }};
 }
 
-/** 场景标签表：只给身份字段，其余由夹具归一（与 Lab 传 `data.tabs` 同形）。 */
+/** 仅修改真实 EditorWorkbench props，不再给夹具注入旧 data 便利字段。 */
+function inputWithTabs(scene: EditorWorkbenchScene, tabs: Record<string, unknown>[], activePath: string): LabSceneInput {
+    const input: LabSceneInput = registeredInput(scene);
+    input.props!.groups = [{id: "primary", tabs, activePath, busy: false, diagnosis: null}];
+    return input;
+}
+
+/** 在真实 groups prop 内创建标签实例。 */
 function tab(path: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {path, title: path.split("/").pop() ?? path, pinned: false, preview: false, dirty: false, ...overrides};
 }
@@ -190,10 +212,7 @@ function snapshot(): {groups: Array<[string, string[]]>; activeGroup: string} {
 
 describe("EditorWorkbenchFixture 身份与事务边界", () => {
     it("三标签在组边缘 move 分屏：只搬走被选中的那一个实例，源组保留其余标签", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md"), tab("c.md")],
-            activePath: "b.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md"), tab("c.md")], "b.md"));
         await flush();
         expect(groupIds()).toEqual(["primary"]);
         expect(activeTabPath("primary")).toBe("b.md");
@@ -221,10 +240,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("三标签复制分屏（工具栏按钮）：源组保留全部标签，新组拿到同一文档的第二个视图", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md"), tab("c.md")],
-            activePath: "b.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md"), tab("c.md")], "b.md"));
         await flush();
 
         clickSelector('[data-group-id="primary"] .editor-toolbar-split-btn');
@@ -238,10 +254,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("向左分屏时组集合顺序跟布局树叶序（新组在前），不靠数组追加假定叶序", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md")], "a.md"));
         await flush();
 
         emitIntent(harness, "split-tab", {
@@ -261,7 +274,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("单标签 move 分屏：源组塌陷，新组接管活动组（不留空组、不留假标签）", async () => {
-        const harness = mountFixture("mixed", {tabs: [tab("only.md")], activePath: "only.md"});
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("only.md")], "only.md"));
         await flush();
 
         emitIntent(harness, "split-tab", {
@@ -280,10 +293,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("未知来源/路径与非法方向、模式的分屏载荷不改变任何可见标签与组数", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md"), tab("c.md")],
-            activePath: "b.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md"), tab("c.md")], "b.md"));
         await flush();
         const before = snapshot();
 
@@ -308,10 +318,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("创建草稿按占用取号：移动走的草稿不让 primary 数量回落复用同一路径或覆盖旧正文", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md")], "a.md"));
         await flush();
 
         clickButton("+ 新建标签");
@@ -341,10 +348,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("关闭草稿后再创建：序号继续递增，不复用刚释放的路径", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md")], "a.md"));
         await flush();
 
         clickButton("+ 新建标签");
@@ -370,6 +374,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
         expect(firstBody).toContain("新建笔记 01");
 
         // 换场景会重建标签与布局，但正文缓冲留在会话里——序号仍要避开它。
+        harness.setInput(registeredInput("long-titles"));
         await harness.wrapper.setProps({scene: "long-titles"});
         await flush();
         expect(tabPaths("primary")).toEqual(SCENE_TABS["long-titles"]!.map((item) => item.path));
@@ -383,10 +388,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("跨组转移遇到目标已有同 path：只激活既有引用并删除来源实例，不产生重复标签", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md")], "a.md"));
         await flush();
 
         clickSelector('[data-group-id="primary"] .editor-toolbar-split-btn');
@@ -428,10 +430,7 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
     });
 
     it("未知来源/目标/路径的跨组转移被拒绝，且不改任何可见标签与组数", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md")], "a.md"));
         await flush();
         clickSelector('[data-group-id="primary"] .editor-toolbar-split-btn');
         await flush();
@@ -452,85 +451,43 @@ describe("EditorWorkbenchFixture 身份与事务边界", () => {
         expect(countOf(harness, "transfer-tab")).toBe(0);
     });
 
-    it("非法 activePath 的数据更新不写正文，合法更新照常写入", async () => {
-        const data = {tabs: [tab("src/a.md")], activePath: "src/a.md", content: "# A1"};
-        const harness = mountFixture("mixed", data);
-        await flush();
-        expect(activeTabPath("primary")).toBe("src/a.md");
-        expect(bodyOf("primary")).toBe("# A1");
-
-        await harness.wrapper.setProps({data: {...data, activePath: "src/missing.md", content: "# 不该写入"}});
-        await flush();
-
-        expect(countOf(harness, "active-path-rejected")).toBe(1);
-        expect(activeTabPath("primary")).toBe("src/a.md");
-        expect(bodyOf("primary")).toBe("# A1");
-
-        // 同一条通道的合法更新仍然生效：上面的读取不是"永远读不到新正文"的假阳性。
-        await harness.wrapper.setProps({data: {...data, content: "# A2"}});
-        await flush();
-        expect(bodyOf("primary")).toBe("# A2");
-    });
-
-    it("自定义标签表含空 path 或组内重复 path 时整份拒绝，回落到场景默认标签且不写正文", async () => {
-        const defaults = SCENE_TABS.mixed!.map((item) => item.path);
-
-        for (const tabs of [[tab("dup.md"), tab("dup.md")], [tab("a.md"), {path: ""}]]) {
-            const harness = mountFixture("mixed", {tabs, activePath: "dup.md", content: "# 不该写入"});
+    it("八个场景输入均以真实 props 控制工作台标签、忙碌与诊断态", async () => {
+        for (const scene of Object.keys(SCENE_TABS) as EditorWorkbenchScene[]) {
+            const input = registeredInput(scene);
+            const harness = mountFixture(scene, input);
             await flush();
-
-            expect(countOf(harness, "scene-rejected"), `标签表 ${JSON.stringify(tabs)} 应被拒绝`).toBe(1);
-            expect(tabPaths("primary")).toEqual(defaults);
-            expect(activeTabPath("primary")).toBe("src/story/chapter-02.md");
-            expect(lastData(harness).tabCount).toBe(defaults.length);
-            expect(bodyOf("primary")).toBe(DEFAULT_CONTENTS["src/story/chapter-02.md"]);
+            const initial = (input.props!.groups as Array<{tabs: Array<{path: string}>; activePath: string; busy: boolean; diagnosis: string | null}>)[0]!;
+            expect(tabPaths("primary"), scene).toEqual(initial.tabs.map((tab) => tab.path));
+            expect(activeTabPath("primary"), scene).toBe(initial.activePath);
+            expect(lastData(harness).busy, scene).toBe(initial.busy);
+            expect(lastData(harness).diagnosis, scene).toBe(initial.diagnosis);
+            expect(harness.wrapper.findComponent(EditorWorkbench).props("allowSplit"), scene).toBe(true);
             unmountAll();
         }
     });
 
-    it("场景分屏参数非法时既不建组也不写正文", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-            splitPanePath: "missing.md",
-            splitPaneDirection: "right",
-            content: "# 不该写入",
-        });
+    it("数据面板修改真实 groups prop 后更新活动标签、正文和诊断，不沿用旧场景", async () => {
+        const harness = mountFixture("mixed");
         await flush();
-
-        expect(countOf(harness, "split-tab-rejected")).toBe(1);
-        expect(groupIds()).toEqual(["primary"]);
-        expect(tabPaths("primary")).toEqual(["a.md", "b.md"]);
-        expect(bodyOf("primary")).not.toContain("不该写入");
-    });
-
-    it("未指定标签表时非法活动路径也拒绝正文写入", async () => {
-        const harness = mountFixture("mixed", {activePath: "missing.md", content: "# 不该写入"});
+        const input = inputWithTabs("mixed", [tab("src/story/chapter-01.md"), tab("src/story/chapter-02.md")], "src/story/chapter-01.md");
+        harness.setInput(input);
         await flush();
-        expect(countOf(harness, "active-path-rejected")).toBe(1);
+        expect(tabPaths("primary")).toEqual(["src/story/chapter-01.md", "src/story/chapter-02.md"]);
+        expect(activeTabPath("primary")).toBe("src/story/chapter-01.md");
+        expect(bodyOf("primary")).toBe(DEFAULT_CONTENTS["src/story/chapter-01.md"]);
+
+        const changed = structuredClone(input);
+        (changed.props!.groups as Array<{activePath: string; diagnosis: string | null}>)[0]!.activePath = "src/story/chapter-02.md";
+        (changed.props!.groups as Array<{activePath: string; diagnosis: string | null}>)[0]!.diagnosis = "视图不可用";
+        harness.setInput(changed);
+        await flush();
+        expect(activeTabPath("primary")).toBe("src/story/chapter-02.md");
         expect(bodyOf("primary")).toBe(DEFAULT_CONTENTS["src/story/chapter-02.md"]);
-    });
-
-    it("场景分屏参数合法时按声明的边缘方向真的分屏", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md")],
-            activePath: "a.md",
-            splitPanePath: "b.md",
-            splitPaneDirection: "right",
-        });
-        await flush();
-
-        expect(countOf(harness, "split-tab")).toBe(1);
-        expect(groupIds()).toEqual(["primary", "group-2"]);
-        expect(tabPaths("primary")).toEqual(["a.md", "b.md"]);
-        expect(tabPaths("group-2")).toEqual(["b.md"]);
+        expect(lastData(harness).diagnosis).toBe("视图不可用");
     });
 
     it("轮转分屏按钮按真实源标签逐档扩到 4 组再还原单组", async () => {
-        const harness = mountFixture("mixed", {
-            tabs: [tab("a.md"), tab("b.md"), tab("c.md")],
-            activePath: "a.md",
-        });
+        const harness = mountFixture("mixed", inputWithTabs("mixed", [tab("a.md"), tab("b.md"), tab("c.md")], "a.md"));
         await flush();
 
         clickButton("分屏打开");

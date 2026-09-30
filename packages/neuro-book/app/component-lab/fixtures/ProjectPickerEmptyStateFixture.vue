@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import ProjectPickerEmptyState from "nbook/app/components/novel-ide/project-picker/components/ProjectPickerEmptyState.vue";
 
-const emit = defineEmits<{
-    (e: "event", name: string, payload?: unknown): void;
-}>();
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
+
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof ProjectPickerEmptyState>(() => props.input, ["create-book"]);
 </script>
 
 <template>
@@ -11,7 +12,7 @@ const emit = defineEmits<{
         <ProjectPickerEmptyState
             data-lab-subject
             class="w-full"
-            @create-book="emit('event', 'create-book')"
+            v-bind="subject.bindings.value"
         />
     </div>
 </template>

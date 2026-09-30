@@ -1,6 +1,6 @@
 import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {nextTick} from "vue";
+import {h, nextTick} from "vue";
 import Dropdown from "./Dropdown.vue";
 
 /**
@@ -93,6 +93,7 @@ describe("Dropdown", () => {
         const parent = document.querySelector<HTMLElement>("[role=menuitem][aria-haspopup=menu]");
         expect(parent?.textContent?.trim()).toBe("面板位置");
 
+        parent!.focus();
         parent!.dispatchEvent(new KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
         await flush();
         expect(parent!.getAttribute("aria-expanded")).toBe("true");
@@ -104,6 +105,7 @@ describe("Dropdown", () => {
 
         radios[1]!.focus();
         radios[1]!.dispatchEvent(new KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+        radios[1]!.click();
         await flush();
         expect(wrapper.emitted("select")).toEqual([["top"]]);
     });
@@ -137,7 +139,7 @@ describe("Dropdown", () => {
         expect(checkbox!.getAttribute("aria-checked")).toBe("false");
     });
 
-    it("缺 group 的 radio 与超出一层的 children 给开发诊断", async () => {
+    it("任意层级的 children 都继续展开，不再降成普通项", async () => {
         const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
         const wrapper = mountDropdown({
             items: [
@@ -154,13 +156,18 @@ describe("Dropdown", () => {
         const radios = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitemradio]"));
         expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["true"]);
 
-        document.querySelector<HTMLElement>("[role=menuitem][aria-haspopup=menu]")!.click();
+        vi.useFakeTimers();
+        document.querySelector<HTMLElement>("[role=menuitem][aria-haspopup=menu]")!.dispatchEvent(new PointerEvent("pointerenter", {bubbles: true}));
+        await vi.advanceTimersByTimeAsync(300);
         await flush();
-        expect(Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).map((item) => item.textContent?.trim())).toContain("内层");
+        document.querySelectorAll<HTMLElement>("[role=menuitem][aria-haspopup=menu]")[1]!.dispatchEvent(new PointerEvent("pointerenter", {bubbles: true}));
+        await vi.advanceTimersByTimeAsync(300);
+        await flush();
+        vi.useRealTimers();
+        expect(Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).map((item) => item.textContent?.trim())).toContain("更深");
 
         expect(warn.mock.calls.map((call) => String(call[0]))).toEqual([
             expect.stringContaining("缺少 group"),
-            expect.stringContaining("超过一层"),
         ]);
         warn.mockRestore();
     });
@@ -205,5 +212,28 @@ describe("Dropdown", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("支持通过 contentProps 透传属性与 #item 自定义槽位", async () => {
+        const wrapper = mount(Dropdown, {
+            attachTo: document.body,
+            props: {
+                items: [{label: "自定义项", value: "custom-1"}],
+                contentProps: {"data-test-panel": "custom-panel"},
+            },
+            slots: {
+                default: "<button class=\"test-trigger\">打开</button>",
+                item: ({item}: {item: {label: string}}) => h("span", {class: "custom-slot-label"}, `${item.label} (Custom)`),
+            },
+        });
+        const trigger = wrapper.get(".test-trigger");
+        (trigger.element as HTMLButtonElement).focus();
+        await trigger.trigger("keydown", {key: "ArrowDown"});
+        await flush();
+
+        const menu = document.querySelector<HTMLElement>("[data-test-panel='custom-panel']");
+        expect(menu).not.toBeNull();
+        expect(menu?.querySelector(".custom-slot-label")?.textContent).toBe("自定义项 (Custom)");
+        wrapper.unmount();
     });
 });

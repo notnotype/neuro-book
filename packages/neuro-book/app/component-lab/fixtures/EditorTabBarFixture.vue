@@ -15,7 +15,7 @@
  * 6. 多行开关：默认多行，标签栏尾部的可见按钮（aria-pressed）与「标签布局」菜单共用同一个本地状态，
  *    窄屏下不必先展开菜单就能验证换行。
  */
-import {ref, watch} from "vue";
+import {computed, ref} from "vue";
 import {IconButton} from "@notnotype/nb-ui/components";
 import EditorDragProvider from "nbook/app/components/editor-workbench/EditorDragProvider.vue";
 import EditorTabBar from "nbook/app/components/editor-workbench/EditorTabBar.vue";
@@ -23,93 +23,26 @@ import EditorToolbar from "nbook/app/components/editor-workbench/EditorToolbar.v
 import type {EditorTabDropPosition, EditorTabPresentation} from "nbook/app/components/editor-workbench/editor-view.types";
 import {reorderTab, type EditorSessionState, type EditorSessionTab} from "nbook/app/utils/editor-workbench/editor-session";
 import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-/** Lab 宿主会传场景数据；这四个场景不登记 data，夹具不消费它。 */
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorTabBar>(() => props.input);
 const emitLabEvent = useLabEventSink();
-
-type SceneKey = "mixed" | "overflow" | "pinned-only" | "single-preview";
-
-type SceneSeed = Readonly<{tabs: EditorTabPresentation[]; activePath: string}>;
-
-const SCENE_KEYS: SceneKey[] = ["mixed", "overflow", "pinned-only", "single-preview"];
-
-/** 假项目沿用 EditorWorkbenchFixture 的同一套路径，两个夹具在 Lab 里看起来是同一个工作区。 */
-const MIXED_TABS: EditorTabPresentation[] = [
-    {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
-    {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "src/story/chapter-02.md", title: "chapter-02.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
-    {path: "src/notes/quick-draft.txt", title: "quick-draft.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
-];
-
-// 标题用相对路径而不是文件名：标签最大宽度 200px，长路径必然截断，横向滚动才有东西可滚。
-const OVERFLOW_TABS: EditorTabPresentation[] = [
-    {path: "docs/specifications/2026-09-16-editor-workbench-architecture-and-view-host-contract-specification.md", title: "docs/specifications/2026-09-16-editor-workbench-architecture-and-view-host-contract-specification.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "packages/neuro-book/app/components/editor-workbench/EditorTabBar.vue", title: "packages/neuro-book/app/components/editor-workbench/EditorTabBar.vue", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/components/editor-workbench/EditorToolbar.vue", title: "packages/neuro-book/app/components/editor-workbench/EditorToolbar.vue", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/components/editor-workbench/EditorWorkbench.vue", title: "packages/neuro-book/app/components/editor-workbench/EditorWorkbench.vue", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/components/editor-workbench/editor-view.types.ts", title: "packages/neuro-book/app/components/editor-workbench/editor-view.types.ts", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/shared/theme/theme-axes.ts", title: "packages/neuro-book/shared/theme/theme-axes.ts", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/utils/theme/theme-session.ts", title: "packages/neuro-book/app/utils/theme/theme-session.ts", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/component-lab/fixtures/EditorWorkbenchFixture.vue", title: "packages/neuro-book/app/component-lab/fixtures/EditorWorkbenchFixture.vue", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "packages/neuro-book/app/components/novel-ide/settings/sections/providers/components/ProviderSettingsViewFixtureLongPathComponentName.vue", title: "packages/neuro-book/app/components/novel-ide/settings/sections/providers/components/ProviderSettingsViewFixtureLongPathComponentName.vue", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "assets/workspace/deeply/nested/directory/structure/with-multiple-submodules/long-configuration-matrix-sample.json", title: "assets/workspace/deeply/nested/directory/structure/with-multiple-submodules/long-configuration-matrix-sample.json", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-    {path: "src/story/volumes/volume-03/chapters/chapter-017-the-clockmakers-secret-room-draft.md", title: "src/story/volumes/volume-03/chapters/chapter-017-the-clockmakers-secret-room-draft.md", pinned: false, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "src/notes/2026-09-17-editor-tab-bar-scroll-and-truncation-manual-verification-checklist.txt", title: "src/notes/2026-09-17-editor-tab-bar-scroll-and-truncation-manual-verification-checklist.txt", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file"},
-];
-
-const PINNED_ONLY_TABS: EditorTabPresentation[] = [
-    {path: "docs/architecture.md", title: "architecture.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "src/config/app.json", title: "app.json", pinned: true, preview: false, dirty: true, iconClass: "i-lucide-file-code-2"},
-    {path: "src/story/chapter-01.md", title: "chapter-01.md", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "packages/neuro-book/app/components/editor-workbench/EditorTabBar.vue", title: "EditorTabBar.vue", pinned: true, preview: false, dirty: false, iconClass: "i-lucide-file-code-2"},
-];
-
-const SINGLE_PREVIEW_TABS: EditorTabPresentation[] = [
-    {path: "docs/outline.md", title: "outline.md", pinned: false, preview: true, dirty: false, iconClass: "i-lucide-file-text"},
-    {path: "src/story/chapter-03.md", title: "chapter-03.md", pinned: false, preview: false, dirty: true, iconClass: "i-lucide-file-text"},
-];
-
-/** 场景初值只登记在这里一处：`fixtures/index.ts` 不给这些场景登记 data，Lab 数据面板对它们不可编辑。 */
-const SCENE_SEEDS: Record<SceneKey, SceneSeed> = {
-    "mixed": {tabs: MIXED_TABS, activePath: "src/story/chapter-02.md"},
-    "overflow": {tabs: OVERFLOW_TABS, activePath: "src/notes/2026-09-17-editor-tab-bar-scroll-and-truncation-manual-verification-checklist.txt"},
-    "pinned-only": {tabs: PINNED_ONLY_TABS, activePath: "src/config/app.json"},
-    "single-preview": {tabs: SINGLE_PREVIEW_TABS, activePath: "docs/outline.md"},
-};
-
-function resolveScene(scene: string): SceneKey {
-    return SCENE_KEYS.find((key) => key === scene) ?? "mixed";
-}
-
-
-const tabs = ref<EditorTabPresentation[]>([]);
-const activePath = ref("");
+const tabs = computed(() => (props.input?.props?.tabs ?? []) as EditorTabPresentation[]);
+const activePath = computed(() => (props.input?.props?.activePath ?? "") as string);
+const wrapTabs = computed(() => props.input?.props?.wrap !== false);
 const lastEvent = ref("—");
-/** 与 EditorGroup 一致：默认多行，场景重置时回到多行而不是沿用上一次的手动切换。 */
-const wrapTabs = ref(true);
 
-function applyScene(): void {
-    const seed = SCENE_SEEDS[resolveScene(props.scene)];
-    // 拷贝一份：双击保留预览要改标签对象，登记初值不能被就地污染。
-    tabs.value = seed.tabs.map((tab) => ({...tab}));
-
-    // 活动路径必须真的在列表里：否则每一行的 aria-selected 都是 false，
-    // 看起来像「没有选中项」，而不是「指向了不存在的标签」。
-    activePath.value = tabs.value.some((tab) => tab.path === seed.activePath)
-        ? seed.activePath
-        : (tabs.value[0]?.path ?? "");
-    lastEvent.value = "—";
-    // 换场景就是换一份初值：多行开关也回到默认，免得沿用上一次的比较结果。
-    wrapTabs.value = true;
+function updateTabs(next: EditorTabPresentation[]): void {
+    subject.write("props", "tabs", next);
 }
 
-watch(() => props.scene, applyScene, {immediate: true});
+function toggleWrap(): void {
+    subject.write("props", "wrap", !wrapTabs.value);
+}
 
 function handleSelectTab(path: string): void {
-    activePath.value = path;
+    subject.write("props", "activePath", path);
     lastEvent.value = `select-tab ${path}`;
     emitLabEvent("select-tab", path);
 }
@@ -120,12 +53,12 @@ function handleCloseTab(path: string): void {
         return;
     }
     const wasActive = path === activePath.value;
-    tabs.value = tabs.value.filter((tab) => tab.path !== path);
+    updateTabs(tabs.value.filter((tab) => tab.path !== path));
     // 关掉当前标签就把焦点交给接替的邻居，与真实宿主的相邻接管一致；
     // 一个都不剩时 activePath 清空，标签栏会随之发出 empty-focus。
     // 脏文件的关闭确认属于宿主策略，这个夹具不做，要观察的是标签栏有没有把意图说出来。
     if (wasActive) {
-        activePath.value = tabs.value[Math.min(index, tabs.value.length - 1)]?.path ?? "";
+        subject.write("props", "activePath", tabs.value[Math.min(index, tabs.value.length - 1)]?.path ?? "");
     }
     lastEvent.value = `close-tab ${path}`;
     emitLabEvent("close-tab", path);
@@ -133,7 +66,7 @@ function handleCloseTab(path: string): void {
 
 function handleKeepTab(path: string): void {
     // preview 是只读字段，只能换掉整个条目而不是就地赋值。
-    tabs.value = tabs.value.map((tab) => tab.path === path ? {...tab, preview: false} : tab);
+    updateTabs(tabs.value.map((tab) => tab.path === path ? {...tab, preview: false} : tab));
     lastEvent.value = `keep-tab ${path}`;
     emitLabEvent("keep-tab", path);
 }
@@ -143,7 +76,7 @@ function handleSetPin(path: string, pinned: boolean): void {
         return;
     }
     // 固定是标签实例自己的字段：就地应用后固定区与普通区会各自重新分区，取消固定能直接看出来。
-    tabs.value = tabs.value.map((tab) => tab.path === path ? {...tab, pinned} : tab);
+    updateTabs(tabs.value.map((tab) => tab.path === path ? {...tab, pinned} : tab));
     lastEvent.value = `set-pin ${path} → ${pinned ? "固定" : "取消固定"}`;
     emitLabEvent("set-pin", {path, pinned});
 }
@@ -182,7 +115,7 @@ function handleMoveTab(path: string, targetPath: string | null, targetPinned: bo
         const presentation = tabs.value.find((item) => item.path === tab.path);
         if (presentation) next.push({...presentation, pinned: tab.pinned, preview: tab.preview});
     }
-    tabs.value = next;
+    updateTabs(next);
 
     lastEvent.value = `move-tab ${path} → ${targetPath ?? "分区尾部"} (${position})`;
     emitLabEvent("move-tab", {path, targetPath, targetPinned, position});
@@ -204,10 +137,7 @@ function handleEmptyFocus(): void {
         >
             <EditorTabBar
                 data-lab-subject
-                :tabs="tabs"
-                :active-path="activePath"
-                group-id="primary"
-                :wrap="wrapTabs"
+                v-bind="subject.bindings.value"
                 @select-tab="handleSelectTab"
                 @close-tab="handleCloseTab"
                 @set-pin="handleSetPin"
@@ -215,7 +145,7 @@ function handleEmptyFocus(): void {
                 @move-tab="handleMoveTab"
                 @empty-focus="handleEmptyFocus"
             >
-                <template #trailing>
+                <template v-if="subject.slots.value.trailing" #trailing>
                     <!-- 可见的多行开关：与「标签布局」菜单里的同一项共享本地状态，窄屏点一下就能切换 -->
                     <IconButton
                         icon-class="i-lucide-wrap-text"
@@ -225,11 +155,11 @@ function handleEmptyFocus(): void {
                         aria-label="多行标签"
                         :aria-pressed="wrapTabs"
                         class="editor-tab-bar-fixture-wrap-tabs cursor-pointer"
-                        @click="wrapTabs = !wrapTabs"
+                        @click="toggleWrap"
                     />
                     <EditorToolbar
                         :menus="[{id: 'layout', label: '标签布局', items: [{value: 'wrap', label: '多行标签', type: 'checkbox', checked: wrapTabs}]}]"
-                        @select="wrapTabs = !wrapTabs"
+                        @select="toggleWrap"
                     />
                 </template>
             </EditorTabBar>

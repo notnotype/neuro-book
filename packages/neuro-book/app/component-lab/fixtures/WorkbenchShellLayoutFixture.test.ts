@@ -3,6 +3,7 @@ import {mount, type VueWrapper} from "@vue/test-utils";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {nextTick} from "vue";
 import WorkbenchShellLayoutFixture from "./WorkbenchShellLayoutFixture.vue";
+import {WORKBENCH_SHELL_LAYOUT_SCENES} from "./WorkbenchShellLayout.scenes";
 import {LAB_DATA_SINK, LAB_EVENT_SINK, type LabDataSink, type LabEventSink} from "../lab-event-sink";
 
 /**
@@ -75,7 +76,7 @@ function mountFixture(scene: string): Harness {
         data.push(value);
     };
     const wrapper = mount(WorkbenchShellLayoutFixture, {
-        props: {scene},
+        props: {scene, input: inputOf(scene)},
         attachTo: document.body,
         global: {
             provide: {
@@ -86,6 +87,12 @@ function mountFixture(scene: string): Harness {
     });
     wrappers.push(wrapper);
     return {wrapper, events, data};
+}
+
+function inputOf(scene: string) {
+    const entry = WORKBENCH_SHELL_LAYOUT_SCENES.find((candidate) => candidate.id === scene);
+    if (entry === undefined) throw new Error(`未登记骨架场景：${scene}`);
+    return entry.input;
 }
 
 function countOf(harness: Harness, prefix: string): number {
@@ -178,14 +185,14 @@ describe("WorkbenchShellLayoutFixture", () => {
         expect(countOf(harness, "shell-reset")).toBeGreaterThanOrEqual(0);
 
         // 切到隐藏场景：初值是 hidden，且上一个场景的计数不该带过来。
-        await harness.wrapper.setProps({scene: "panel-hidden"});
+        await harness.wrapper.setProps({scene: "panel-hidden", input: inputOf("panel-hidden")});
         await flush();
         expect(document.querySelector('[data-leaf="panel"]')).toBeNull();
         expect(lastData(harness).panel).toMatchObject({hidden: true});
         expect(harness.events.some((entry) => entry.name === "shell-reset" && (entry.payload as {scene?: string}).scene === "panel-hidden")).toBe(true);
 
         // 切回默认：计数从 0 重来（初值重建，不是恢复上一次的运行时值）。
-        await harness.wrapper.setProps({scene: "default"});
+        await harness.wrapper.setProps({scene: "default", input: inputOf("default")});
         await flush();
         expect(document.querySelector('[data-leaf="panel"]')).not.toBeNull();
         expect(textOf('[data-lab-demo="counter"]')).toContain("0");
@@ -247,6 +254,30 @@ describe("WorkbenchShellLayoutFixture", () => {
 
         // 全程没有写任何浏览器存储：这份状态只活在 fixture 的内存里。
         expect(localStorage.length).toBe(0);
+    });
+
+    it("16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针", async () => {
+        expect(WORKBENCH_SHELL_LAYOUT_SCENES).toHaveLength(16);
+        for (const scene of WORKBENCH_SHELL_LAYOUT_SCENES) {
+            expect(scene.input.props.contextKey).toBe(`lab-skeleton:${scene.id}`);
+            expect(scene.input.props.sizes).toMatchObject({leftPanelWidth: 220, agentPanelWidth: 220});
+            expect(scene.input.props.panel).toMatchObject({position: expect.any(String), alignment: expect.any(String)});
+        }
+
+        const harness = mountFixture("default");
+        await flush();
+        await harness.wrapper.setProps({input: {
+            props: {...inputOf("default").props,
+                panel: {...inputOf("default").props.panel, position: "left"},
+                hiddenParts: [],
+                sizes: {...inputOf("default").props.sizes, panelWidth: 400},
+            },
+        }});
+        await flush();
+        expect(leavesIn("panel-stack")).toEqual(["panel", "editor"]);
+        expect(document.querySelector('[data-leaf="right"]')).not.toBeNull();
+        expect(lastData(harness).panel).toMatchObject({position: "left"});
+        expect(lastData(harness).sizes).toMatchObject({panelWidth: 400});
     });
 
     it("紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列", async () => {

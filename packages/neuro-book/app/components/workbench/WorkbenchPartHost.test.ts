@@ -98,6 +98,7 @@ const PANEL_MORE = "lab.panel-more";
  */
 const LEFT_EXTRA = "lab.left-extra";
 
+
 /** 右侧 Part 故意**没有**容器：空 Part 的空态与容器的空容器是两种不同的状态。 */
 const CATALOG: WorkbenchCatalog = {
     parts: [],
@@ -108,6 +109,7 @@ const CATALOG: WorkbenchCatalog = {
         {...SHELL_FILES_VIEW, id: PANEL_EXTRA, titleKey: `lab.view.${PANEL_EXTRA}`, container: SHELL_PANEL_CONTAINER.id, order: 20, factoryKey: `lab.view.${FILES}`},
         {...SHELL_FILES_VIEW, id: PANEL_MORE, titleKey: `lab.view.${PANEL_MORE}`, container: SHELL_PANEL_CONTAINER.id, order: 30, factoryKey: `lab.view.${FILES}`},
         {...SHELL_FILES_VIEW, id: LEFT_EXTRA, titleKey: `lab.view.${LEFT_EXTRA}`, container: SECOND_LEFT_CONTAINER.id, order: 10, factoryKey: `lab.view.${FILES}`},
+
     ],
 };
 
@@ -1188,7 +1190,6 @@ describe("WorkbenchPartHost", () => {
         await wrapper.find("[data-title-actions=\"panel\"] [data-title-action=\"nbook.view.toggle-panel-maximized\"]").trigger("click");
         expect(titleAction).toHaveBeenLastCalledWith({scope: "panel", actionId: "nbook.view.toggle-panel-maximized"});
     });
-
     it("Panel 的 32px 收起按钮回传 panel-collapse 的反值", async () => {
         const panelCollapse = vi.fn();
         const wrapper = mountPart({partId: "panel", panelCollapsed: false, events: {panelCollapse}});
@@ -1200,18 +1201,27 @@ describe("WorkbenchPartHost", () => {
 
         expect(panelCollapse).toHaveBeenCalledWith({collapsed: true});
     });
-    it("左栏不渲染容器标题，Panel 收起按钮位于动作区最后", async () => {
-        const left = mountPart({partId: "left"});
+    it("左栏单容器显示容器名并可拖，多容器隐藏标题但保留拖动源", async () => {
+        const single = mountPart({partId: "left"});
         await settle();
-        const source = left.get(".workbench-part__drag-source");
-        expect(source.classes()).toContain("workbench-part__drag-source");
-        expect(source.element.getBoundingClientRect().width).toBe(0);
-        const panel = mountPart({partId: "panel"});
+        const title = single.get("header .workbench-container-tab__title");
+        expect(title.text()).toContain("t:ide.toolPanel.files");
+        expect(title.element.closest("[data-workbench-drag-kind=\"container\"]")).not.toBeNull();
+        const base = presentationWith();
+        const left = base.part("left");
+        const active = left.containers.find((container) => container.containerId === left.activeContainerId);
+        if (active === undefined) throw new Error("missing active left container");
+        const multiplePresentation = {
+            ...base,
+            part: (partId: ToolPartId) => partId === "left"
+                ? {...left, containers: left.containers.map((container) => container.containerId === active.containerId ? {...container, mode: "multiple" as const, singleViewId: null} : container)}
+                : base.part(partId),
+        };
+        const multiple = mountPart({partId: "left", presentation: ref(multiplePresentation)});
         await settle();
-        const actions = [...panel.element.querySelectorAll(".workbench-part__actions > *")];
-        expect(actions.at(-1)?.getAttribute("data-panel-collapse-toggle")).not.toBeNull();
+        expect(multiple.find("header.workbench-part__head").exists()).toBe(false);
+        expect(multiple.find(".workbench-part__drag-source").exists()).toBe(true);
     });
-
     it("右栏：条目带常驻，容器移走后空带与空正文都收两种源", async () => {
         installLayoutStubs();
         const placed = {[SHELL_PANEL_CONTAINER.id]: placementOf(SHELL_PANEL_CONTAINER.id, "sidebar-right", 10)};

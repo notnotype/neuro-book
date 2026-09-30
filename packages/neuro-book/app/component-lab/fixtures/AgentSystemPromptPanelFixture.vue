@@ -9,132 +9,92 @@
  * 4. 控件下放：所有交互调试控件包裹在 LabFixtureControls 内部挂载到底部抽屉栏；
  * 5. 契约同步：使用 useLabEventSink 记录事件，使用 useLabDataSink 同步状态。
  */
-import {ref, watch} from "vue";
+import {computed, onBeforeUnmount, ref, watch} from "vue";
 import AgentSystemPromptPanel from "nbook/app/components/novel-ide/agent/panels/system-prompt/AgentSystemPromptPanel.vue";
 import LabFixtureControls from "../LabFixtureControls.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
+import {sampleSystemPrompt} from "./AgentExtraPanels.scenes";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
-
-const emitLabEvent = useLabEventSink();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof AgentSystemPromptPanel>(() => props.input, ["load", "refresh"]);
 const syncLabData = useLabDataSink();
-
-const DEFAULT_SAMPLE_PROMPT = `## 角色定义
-
-你是一位专业的小说写作助手，擅长长篇小说创作。你将帮助用户进行：
-
-- **情节构思**：根据用户设定的世界观和角色，推进故事发展
-- **文风校准**：保持与用户既有章节一致的叙述风格
-- **角色刻画**：确保角色行为与性格设定一致
-
-## 约束
-
-1. 不主动改变已确认的角色设定
-2. 每次输出控制在 2000 字以内
-3. 涉及敏感话题时主动提醒用户
-
-## 引用
-
-- \`workspace://characters/林渊.md\`
-- \`workspace://world/青云宗.md\``;
-
-const open = ref(true);
-const promptValue = ref<string | null>(DEFAULT_SAMPLE_PROMPT);
-const loading = ref(false);
-const error = ref<string | undefined>(undefined);
+const emitLabEvent = useLabEventSink();
+const open = computed(() => subject.bindings.value.modelValue);
+const promptValue = computed(() => subject.bindings.value.value);
+const loading = computed(() => subject.bindings.value.loading);
+const error = computed(() => subject.bindings.value.error);
 const hasUserTriggeredRetry = ref(false);
+let pending: ReturnType<typeof setTimeout> | undefined;
+let pendingInput: LabFixtureProps["input"];
 
-function applyScene(sceneId: string, customData?: unknown): void {
-    const rawData = (customData ?? {}) as Record<string, unknown>;
-    hasUserTriggeredRetry.value = false;
-
-    if (typeof rawData.open === "boolean") {
-        open.value = rawData.open;
-    } else {
-        open.value = true;
-    }
-
-    if (sceneId === "loading") {
-        loading.value = typeof rawData.loading === "boolean" ? rawData.loading : true;
-        promptValue.value = typeof rawData.value === "string" ? rawData.value : null;
-        error.value = undefined;
-    } else if (sceneId === "error") {
-        loading.value = false;
-        promptValue.value = null;
-        error.value = typeof rawData.error === "string"
-            ? rawData.error
-            : "加载 System Prompt 失败：网络请求超时，请检查后端服务连接";
-    } else if (sceneId === "empty") {
-        loading.value = false;
-        error.value = undefined;
-        promptValue.value = typeof rawData.value === "string" ? rawData.value : "";
-    } else {
-        // expanded 展开状态
-        loading.value = typeof rawData.loading === "boolean" ? rawData.loading : false;
-        error.value = typeof rawData.error === "string" ? rawData.error : undefined;
-        promptValue.value = typeof rawData.value === "string" ? rawData.value : DEFAULT_SAMPLE_PROMPT;
-    }
-
-    syncSink();
+function cancelPending(): void {
+    if (pending !== undefined) clearTimeout(pending);
+    pending = undefined;
+    pendingInput = undefined;
 }
 
-watch(
-    () => [props.scene, props.data],
-    () => applyScene(props.scene, props.data),
-    {immediate: true, deep: true},
-);
+watch([() => props.scene, () => props.input], ([scene], [previousScene, previousInput]) => {
+    if (scene !== previousScene) hasUserTriggeredRetry.value = false;
+    if (scene !== previousScene || (props.input !== previousInput && props.input !== pendingInput)) cancelPending();
+});
+onBeforeUnmount(cancelPending);
+watch([() => props.scene, open, promptValue, loading, error], () => {
+    syncLabData({scene: props.scene, open: open.value, value: promptValue.value, loading: loading.value, error: error.value});
+}, {immediate: true});
 
-function syncSink(): void {
-    syncLabData({
-        scene: props.scene,
-        open: open.value,
-        value: promptValue.value,
-        loading: loading.value,
-        error: error.value,
-    });
+function handleControlModelValueUpdate(value: boolean): void {
+    emitLabEvent("update:modelValue", value);
+    subject.write("model", "modelValue", value);
 }
 
-function handleModelValueUpdate(val: boolean): void {
-    open.value = val;
-    emitLabEvent("update:modelValue", {open: val});
-    syncSink();
+function handleControlRefresh(): void {
+    emitLabEvent("refresh");
+    handleRefresh();
 }
 
 function handleLoad(): void {
-    emitLabEvent("load");
     if (props.scene === "error" && error.value && !hasUserTriggeredRetry.value) {
         hasUserTriggeredRetry.value = true;
         return;
     }
-
-    loading.value = true;
-    error.value = undefined;
-    syncSink();
-
-    setTimeout(() => {
-        loading.value = false;
-        promptValue.value = DEFAULT_SAMPLE_PROMPT;
-        syncSink();
+    subject.write("props", "loading", true);
+    subject.write("props", "error", "");
+    cancelPending();
+    pending = setTimeout(() => {
+        subject.write("props", "loading", false);
+        subject.write("props", "value", sampleSystemPrompt);
+        pending = undefined;
+        pendingInput = undefined;
     }, 600);
+    pendingInput = props.input;
 }
 
 function handleRefresh(): void {
-    emitLabEvent("refresh");
-    loading.value = true;
-    syncSink();
-
-    setTimeout(() => {
-        loading.value = false;
-        syncSink();
+    subject.write("props", "loading", true);
+    cancelPending();
+    pending = setTimeout(() => {
+        subject.write("props", "loading", false);
+        pending = undefined;
+        pendingInput = undefined;
     }, 400);
+    pendingInput = props.input;
 }
 
 function handleOpenReference(target: string): void {
     emitLabEvent("openReference", {target});
 }
+function toggleError(): void {
+    const hadError = Boolean(error.value);
+    subject.write("props", "error", hadError ? "" : "加载 System Prompt 失败：网络请求超时");
+    if (!hadError) subject.write("props", "value", null);
+}
+
+function togglePrompt(): void {
+    subject.write("props", "value", promptValue.value ? "" : sampleSystemPrompt);
+    subject.write("props", "error", "");
+}
+
 </script>
 
 <template>
@@ -142,12 +102,8 @@ function handleOpenReference(target: string): void {
         <AgentSystemPromptPanel
             data-lab-subject
             class="w-full"
-            :model-value="open"
-            :value="promptValue"
-            :loading="loading"
-            :error="error"
+            v-bind="subject.bindings.value"
             :open-reference="handleOpenReference"
-            @update:model-value="handleModelValueUpdate"
             @load="handleLoad"
             @refresh="handleRefresh"
         />
@@ -159,7 +115,7 @@ function handleOpenReference(target: string): void {
             <button
                 type="button"
                 class="mt-2 text-[var(--accent-text)] hover:underline cursor-pointer"
-                @click="handleModelValueUpdate(true)"
+                @click="handleControlModelValueUpdate(true)"
             >
                 点击展开面板
             </button>
@@ -174,46 +130,35 @@ function handleOpenReference(target: string): void {
                     <button
                         type="button"
                         class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                        @click="handleModelValueUpdate(!open)"
+                        @click="handleControlModelValueUpdate(!open)"
                     >
                         {{ open ? "收起面板" : "展开面板" }}
                     </button>
                     <button
                         type="button"
                         class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                        @click="handleRefresh"
+                        @click="handleControlRefresh"
                     >
                         模拟刷新
                     </button>
                     <button
                         type="button"
                         class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                        @click="() => {
-                            loading = !loading;
-                            syncSink();
-                        }"
+                        @click="subject.write('props', 'loading', !loading)"
                     >
                         {{ loading ? "停止加载" : "模拟加载中" }}
                     </button>
                     <button
                         type="button"
                         class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                        @click="() => {
-                            error = error ? undefined : '加载 System Prompt 失败：网络请求超时';
-                            if (error) promptValue = null;
-                            syncSink();
-                        }"
+                        @click="toggleError"
                     >
                         {{ error ? "清除错误" : "模拟错误" }}
                     </button>
                     <button
                         type="button"
                         class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
-                        @click="() => {
-                            promptValue = promptValue ? '' : DEFAULT_SAMPLE_PROMPT;
-                            error = undefined;
-                            syncSink();
-                        }"
+                        @click="togglePrompt"
                     >
                         {{ promptValue ? "设为空 Prompt" : "恢复 Prompt" }}
                     </button>

@@ -181,6 +181,7 @@
     "@vitest/coverage-v8": "^4.1.2",
     "@vueuse/nuxt": "^14.2.1",
     "es-module-lexer": "^2.3.1",
+    "github-slugger": "^2.0.0",
     "playwright-core": "^1.61.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

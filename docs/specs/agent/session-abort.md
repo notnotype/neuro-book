@@ -203,5 +203,8 @@ forced lifecycle 已入队但 physical append、after-write 或 live-state 阶�
 
 ## 证据
 
+- 实现入口：[`neuro-agent-harness.ts`](../../../packages/neuro-book/server/agent/harness/neuro-agent-harness.ts)、[`write-plan.ts`](../../../packages/neuro-book/server/agent/session/write-plan.ts)
+- 合同测试：[`abort.post.test.ts`](../../../packages/neuro-book/server/api/agent/sessions/[sessionId]/abort.post.test.ts)、[`write-plan.test.ts`](../../../packages/neuro-book/server/agent/session/write-plan.test.ts)
+- Smoke：不适用——abort 端到端需要真实 Provider 会话；`scripts/smoke/agent.ts` 只等待 `aborted` 状态，不覆盖 abort 请求路径。
 - [ADR 0019：Agent abort mutation boundary](../../../packages/neuro-book/docs/adr/0019-agent-abort-mutation-boundary.md)
 - [Current Task：Agent abort mutation 合同闭合](../../../.agents/works/w00004-agent-abort-mutation-contract/tasks/t01-agent-abort-mutation-contract/README.md)

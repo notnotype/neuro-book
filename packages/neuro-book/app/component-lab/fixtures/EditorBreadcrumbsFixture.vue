@@ -1,32 +1,10 @@
 <script setup lang="ts">
-import {computed} from "vue";
-import EditorBreadcrumbs, {type BreadcrumbItem} from "nbook/app/components/editor-workbench/EditorBreadcrumbs.vue";
-import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
+import EditorBreadcrumbs from "nbook/app/components/editor-workbench/EditorBreadcrumbs.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import LabFixtureControls from "../LabFixtureControls.vue";
 
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
-
-const emitLabEvent = useLabEventSink();
-const updateLabData = useLabDataSink();
-
-const samplePath = computed<string>(() =>
-    props.scene === "long"
-        ? "packages/neuro-book/app/components/novel-ide/settings/sections/providers/components/ProviderSettingsViewFixtureLongPathComponentName.vue"
-        : "src/story/chapter-01.md"
-);
-
-const symbols = [
-    {id: "sym-1", label: "第一节：潮声"},
-    {id: "sym-2", label: "核心冲突"},
-];
-
-function handleNavigate(item: BreadcrumbItem): void {
-    emitLabEvent("navigate", {id: item.id, label: item.label, path: item.path});
-    updateLabData({lastNavigated: item.id});
-}
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorBreadcrumbs>(() => props.input, ["navigate"]);
 </script>
 
 <template>
@@ -40,12 +18,10 @@ function handleNavigate(item: BreadcrumbItem): void {
         <div class="w-full">
             <EditorBreadcrumbs
                 data-lab-subject
+                v-bind="subject.bindings.value"
                 class="w-full"
-                :path="samplePath"
-                :symbols="symbols"
-                @navigate="handleNavigate"
             >
-                <template #trailing>
+                <template v-if="subject.slots.value.trailing" #trailing>
                     <button
                         type="button"
                         class="inline-flex items-center gap-1 h-[18px] px-1.5 rounded-[4px] text-[11px] leading-none text-[var(--text-muted)] hover:text-[var(--text-main)] hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"

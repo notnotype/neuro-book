@@ -20,6 +20,7 @@ import {computed, ref, watch} from "vue";
 import WorkbenchPanelTab from "nbook/app/components/workbench/WorkbenchPanelTab.vue";
 import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
 import LabFixtureControls from "../LabFixtureControls.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 type LabTab = {
     id: string;
@@ -30,42 +31,26 @@ type LabTab = {
     disabled?: boolean;
 };
 
-const props = defineProps<{scene: string; data?: unknown}>();
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof WorkbenchPanelTab>(() => props.input);
 const emitLabEvent = useLabEventSink();
 const publishLabData = useLabDataSink();
 
-/** 每档场景的确定性初值：标签集合 + 初始激活项。 */
-const SCENES: Record<string, {tabs: readonly LabTab[]; active: string}> = {
-    default: {
-        tabs: [
-            {id: "problems", label: "问题", icon: "i-lucide-alert-circle", badge: 44},
-            {id: "output", label: "输出", icon: "i-lucide-file-text"},
-            {id: "debug", label: "调试控制台", icon: "i-lucide-terminal"},
-            {id: "ports", label: "端口", icon: "i-lucide-radio", badge: 2},
-        ],
-        active: "problems",
-    },
-    disabled: {
-        tabs: [
-            {id: "problems", label: "问题", icon: "i-lucide-alert-circle", badge: 3},
-            {id: "output", label: "输出", icon: "i-lucide-file-text", disabled: true},
-            {id: "debug", label: "调试控制台", icon: "i-lucide-terminal", closable: true},
-            {id: "ports", label: "端口", icon: "i-lucide-radio", closable: true},
-        ],
-        active: "problems",
-    },
-    keyboard: {
-        tabs: [
-            {id: "problems", label: "问题", badge: 3},
-            {id: "output", label: "输出"},
-            {id: "debug", label: "调试控制台"},
-            {id: "terminal", label: "终端"},
-        ],
-        active: "problems",
-    },
-};
 
-const stage = computed(() => SCENES[props.scene] ?? SCENES.default!);
+const stage = computed(() => ({tabs: props.scene === "keyboard" ? [
+    {id: "problems", label: "问题", badge: 3}, {id: "output", label: "输出"},
+    {id: "debug", label: "调试控制台"}, {id: "terminal", label: "终端"},
+] : props.scene === "disabled" ? [
+    {id: "problems", label: "问题", icon: "i-lucide-alert-circle", badge: 3},
+    {id: "output", label: "输出", icon: "i-lucide-file-text", disabled: true},
+    {id: "debug", label: "调试控制台", icon: "i-lucide-terminal", closable: true},
+    {id: "ports", label: "端口", icon: "i-lucide-radio", closable: true},
+] : [
+    {id: "problems", label: "问题", icon: "i-lucide-alert-circle", badge: 44},
+    {id: "output", label: "输出", icon: "i-lucide-file-text"},
+    {id: "debug", label: "调试控制台", icon: "i-lucide-terminal"},
+    {id: "ports", label: "端口", icon: "i-lucide-radio", badge: 2},
+], active: "problems"}));
 const tabs = ref<LabTab[]>([...stage.value.tabs]);
 const activeTab = ref(stage.value.active);
 const focusedTab = ref(stage.value.active);
@@ -200,12 +185,7 @@ watch([tabs, activeTab, focusedTab], () => {
                 v-for="tab in tabs"
                 :key="tab.id"
                 data-lab-subject
-                :id="tab.id"
-                :label="tab.label"
-                :icon="tab.icon"
-                :badge="tab.badge"
-                :closable="tab.closable"
-                :disabled="tab.disabled"
+                v-bind="tab.id === subject.bindings.value.id ? subject.bindings.value : tab"
                 :active="tab.id === activeTab"
                 :tabindex="tab.id === focusedTab && tab.disabled !== true ? 0 : -1"
                 @click="onTabClick"

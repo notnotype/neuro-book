@@ -2,7 +2,6 @@
  * Lab 的组件索引。清单不是手写的，是扫描组件文档得来的派生产物——
  * 组件规范要求文档与实现并列，Lab 规范要求不保留第二份组件清单。
  */
-
 export type LabComponentEntry = {
     /** 组件名，取自文档文件名，与同目录的 .vue 同名 */
     name: string;
@@ -75,7 +74,10 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
         name === "AgentSidebarView" ||
         name === "AgentChatFlow" ||
         name === "ProjectPickerView" ||
-        name === "CodeEditorView"
+        name === "CodeEditorView" ||
+        name === "WorkbenchStatusBar" ||
+        name === "DesktopTitleBar" ||
+        name === "DesktopTitleBarChrome"
     ) {
         return "fill";
     }
@@ -88,7 +90,7 @@ export function deriveDisplayMode(name: string, kind?: LabComponentKind): LabDis
         return "tight";
     }
 
-    if (/SettingsView$/u.test(name) || /Panel$/u.test(name)) {
+    if (/SettingsView$/u.test(name) || /Panel$/u.test(name) || /(Dialog|Window)$/u.test(name) || kind === "dialog") {
         return "fill";
     }
 

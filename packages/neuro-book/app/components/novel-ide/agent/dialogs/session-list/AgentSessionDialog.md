@@ -1,10 +1,15 @@
 ---
-标签: [io:read]
+标签: [state:local, env:global, env:portal]
 ---
 
 # AgentSessionDialog
 
-全功能会话管理弹窗。以 Dialog 承载会话列表，支持多维度筛选（Profile 组、运行状态、关系类型）、搜索、翻页、新建（可选 Profile 下拉）、归档、恢复与重命名。
+全功能会话管理弹窗。以 Dialog 承载会话列表，支持多维度筛选（Profile 组、运行状态、关系类型）、搜索、翻页、新建（可选 Profile 下拉）、归档、恢复与重命名。所有列表查询与会话操作均通过受控 props/emits 委托父级执行。
+
+## 隐藏通道理由
+
+- `env:global`：监听全局 `Escape` 键盘事件与外部点击（`onClickOutside`）以收起筛选浮层。
+- `env:portal`：底层 `Dialog` 默认 teleport 到 `.novel-ide-theme`（在 Component Lab 中可通过 `teleportTarget: false` 内联挂载）。
 
 ## 数据
 
@@ -38,6 +43,8 @@ type Props = {
     createProfileOptions: CreateProfileOption[];
     /** 是否允许选择 Profile 创建会话（否则直接创建默认）。 */
     canChooseCreateProfile: boolean;
+    /** Dialog teleport 目标选择器；传 false 时禁用 teleport 内联渲染。 */
+    teleportTarget?: string | boolean;
 };
 
 type Emits = {
@@ -54,5 +61,6 @@ type Emits = {
 type Slots = {};
 ```
 
-- **阻断原因**：Dialog teleport 到 `.novel-ide-theme` 容器；内部维护复杂筛选/翻页状态与防抖刷新。
+- **扩展面**：无自定义 slots，无 expose。
 - **不支持**：不直接发起网络请求，所有列表查询与会话操作通过 emits 委托父级。
+

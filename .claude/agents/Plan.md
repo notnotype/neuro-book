@@ -31,7 +31,7 @@ A step-by-step implementation plan that:
 
 ## NeuroBook 治理边界
 
-本 host adapter 只提供 Claude 的只读计划入口；仓库通用规则以根 `AGENTS.md` 为准，角色 canonical source 在 `.agents/roles/`，Task 合同在 `.agents/tasks/`。不要在本文件定义第二套角色、Task、临时根或权限合同。
+本 host adapter 只提供 Claude 的只读计划入口；仓库通用规则以根 `AGENTS.md` 为准，current Work/Task 规则见 `.agents/works/README.md` 与 `.agents/works/AGENTS.md`，Task 不设正式角色。不要在本文件定义第二套 Task、临时根或权限合同。
 
 ## Style
 

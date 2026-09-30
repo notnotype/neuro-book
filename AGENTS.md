@@ -42,7 +42,10 @@ neuro-book/
 │   │   ├── assets/reference/       # 运行期 Reference 的 canonical 源
 │   │   └── assets/workspace/       # 内置 workspace 资产与产品 Skill 的 canonical 源
 │   ├── neuro-book-manager/         # 安装、运行、工具链与升级
-│   ├── neuro-agent-harness/        # 会话、Profile、工具与事件恢复
+│   ├── neuro-agent-harness/        # 已冻结，只服务 llmlint
+│   ├── nb-harness/                 # NeuroBook Agent harness 重构（w00002）
+│   ├── nb-profile/                 # Profile 加载与 JSX 渲染（w00002）
+│   ├── nb-session/                 # 会话日志（w00002）
 │   ├── neuro-book-contracts/       # 跨包类型与合同
 │   ├── nb-memory/                  # episode、facts 与主体注册表
 │   ├── nb-history/                 # 操作日志、事件溯源与内容寻址快照
@@ -83,6 +86,7 @@ neuro-book/
 | 新功能、bug 期望不明确或长期行为变化 | [`docs/proposals/README.md`](docs/proposals/README.md)、[`docs/specs/AGENTS.md`](docs/specs/AGENTS.md)、相关 Spec 与 ADR |
 | 源码、脚本、schema 或 migration | [`docs/standards/code/README.md`](docs/standards/code/README.md)；按改动路径只读取表中列出的领域与语言规范 |
 | Git 分支、worktree、提交、PR、合并或发布操作 | [`.agents/skills/repository-workflow/SKILL.md`](.agents/skills/repository-workflow/SKILL.md)；Issue 元数据维护读 [`docs/standards/repository-workflow.md`](docs/standards/repository-workflow.md)，公开贡献再读 [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| 前端、UI 界面、组件、样式或主题修改 | [`.agents/skills/ui-development/SKILL.md`](.agents/skills/ui-development/SKILL.md)、[`docs/standards/code/components.md`](docs/standards/code/components.md)、[`packages/nb-ui/docs/ui-development-spec.md`](packages/nb-ui/docs/ui-development-spec.md)；查改组件必读并列同名 `.md` |
 | 前端、服务端、桌面、数据库、脚本、发布、包 | [`packages/neuro-book/AGENTS.md`](packages/neuro-book/AGENTS.md)、[`packages/neuro-book/server/AGENTS.md`](packages/neuro-book/server/AGENTS.md)、[`packages/neuro-book/prisma/AGENTS.md`](packages/neuro-book/prisma/AGENTS.md)、[`desktop/AGENTS.md`](desktop/AGENTS.md)、[`scripts/AGENTS.md`](scripts/AGENTS.md)、[`scripts/release/AGENTS.md`](scripts/release/AGENTS.md)、[`packages/AGENTS.md`](packages/AGENTS.md) 中匹配的最近入口 |
 | Agent 消费的规则、Skill、AGENTS.md 或 CLAUDE.md | [`.agents/skills/writing-for-agents/SKILL.md`](.agents/skills/writing-for-agents/SKILL.md)；修改 Skill 时再读同目录 `SKILL-MECHANICS.md` |
 

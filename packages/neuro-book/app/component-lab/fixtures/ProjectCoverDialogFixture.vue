@@ -1,87 +1,43 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
 import {Button} from "@notnotype/nb-ui/components";
 import ProjectCoverDialog from "nbook/app/components/novel-ide/project-picker/components/ProjectCoverDialog.vue";
-import type {ProjectMetadataDto} from "nbook/shared/dto/project.dto";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene?: string;
-    sceneId?: string;
-    data?: unknown;
-}>();
-
-const emit = defineEmits<{
-    (e: "event", name: string, payload?: unknown): void;
-}>();
-
-const currentScene = computed(() => props.scene ?? props.sceneId ?? "default");
-
-const isOpen = ref(true);
-const busy = ref(false);
-const recoveryNotice = ref("");
-const recoveryError = ref("");
-const coverUrl = ref("");
-
-const project = ref<ProjectMetadataDto>({
-    projectRoot: "workspace/projects/cyber-city",
-    kind: "novel",
-    title: "赛博霓虹：仿生纪元",
-    summary: "在全自动化的人形都市中，一名记忆修复师偶然发现了一具被删除了所有情感模块的古老合成人。",
-    cover: undefined,
-    manifestUpdatedAt: "2026-09-10T14:32:00Z",
-});
-
-watch(currentScene, (scene) => {
-    isOpen.value = true;
-    busy.value = false;
-    recoveryNotice.value = "";
-    recoveryError.value = "";
-    coverUrl.value = "";
-
-    if (scene === "with-cover") {
-        coverUrl.value = "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=400&q=80";
-        project.value.cover = "workspace/projects/cyber-city/cover.jpg";
-    } else if (scene === "busy") {
-        busy.value = true;
-    }
-}, {immediate: true});
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof ProjectCoverDialog>(() => props.input, ["upload", "clear", "retry-recovery", "preview-original"]);
 
 function handleUpload(file: File): void {
-    emit("event", "upload", {fileName: file.name, size: file.size});
-    busy.value = true;
+    subject.write("props", "busy", true);
     setTimeout(() => {
-        busy.value = false;
-        coverUrl.value = URL.createObjectURL(file);
-        project.value.cover = "uploaded-cover.png";
+        subject.write("props", "busy", false);
+        subject.write("props", "coverUrl", URL.createObjectURL(file));
+        const project = subject.bindings.value.project;
+        if (project) subject.write("props", "project", {...project, cover: "uploaded-cover.png"});
     }, 1000);
 }
 
 function handleClear(): void {
-    emit("event", "clear");
-    coverUrl.value = "";
-    project.value.cover = undefined;
+    subject.write("props", "coverUrl", "");
+    const project = subject.bindings.value.project;
+    if (project) {
+        const {cover, ...withoutCover} = project;
+        subject.write("props", "project", withoutCover);
+    }
 }
 </script>
 
 <template>
     <div class="flex h-full min-h-[500px] w-full items-center justify-center p-6" data-lab-subject>
-        <div v-if="!isOpen" class="text-center">
+        <div v-if="!subject.bindings.value.modelValue" class="text-center">
             <p class="mb-4 text-sm text-[var(--text-secondary)]">封面对话框已关闭</p>
-            <Button variant="primary" @click="isOpen = true">重新打开对话框</Button>
+            <Button variant="primary" @click="subject.write('model', 'modelValue', true)">重新打开对话框</Button>
         </div>
 
         <ProjectCoverDialog
-            v-model="isOpen"
-            :project="project"
-            :busy="busy"
-            :recovery-notice="recoveryNotice"
-            :recovery-error="recoveryError"
-            :cover-url="coverUrl"
-            :teleport-target="false"
+            v-bind="subject.bindings.value"
             @upload="handleUpload"
             @clear="handleClear"
-            @preview-original="emit('event', 'preview-original')"
-            @retry-recovery="recoveryError = ''"
+            @retry-recovery="subject.write('props', 'recoveryError', '')"
         />
     </div>
 </template>

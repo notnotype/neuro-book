@@ -1,10 +1,14 @@
 ---
-标签: [io:read]
+标签: [state:local, env:global]
 ---
 
 # AgentModeSessionSidebar
 
-Agent Mode 左侧会话导航侧边栏。以可搜索、可置顶的列表展示当前 Project Workspace 的所有会话，支持拖拽调节宽度。选中某会话后通过 emit 通知父级切换。
+Agent Mode 左侧会话导航侧边栏。以可搜索、可置顶的列表展示当前 Project Workspace 的所有会话，支持拖拽调节宽度。选中、置顶、新建、重命名、归档等操作均通过受控 props/emits 委托父级执行。
+
+## 隐藏通道理由
+
+- `env:global`：通过 `useResizablePanel` 在拖拽调节侧边栏宽度期间监听全局指针移动与释放事件。
 
 ## 数据
 
@@ -16,20 +20,19 @@ type Props = {
     activeSessionId: number | null;
     /** 列表是否正在加载中。 */
     loading: boolean;
-    /** 当前是否有会话正在运行。 */
-    running: boolean;
     /** 正在执行操作的会话 ID（归档、重命名等）。 */
     actionId: number | null;
-    /** localStorage 置顶偏好的作用域键。 */
-    sessionScopeKey: string;
-    /** 侧边栏是否展开。 */
-    open: boolean;
-    /** 侧边栏宽度（px）。 */
-    width: number;
+    /** 置顶会话 ID 列表（v-model:pinnedSessionIds）。 */
+    pinnedSessionIds?: number[];
+    /** 侧边栏是否展开（默认 true）。 */
+    open?: boolean;
+    /** 受控侧边栏像素宽度（v-model:width）；省略时自适应撑满外层容器宽度。 */
+    width?: number;
 };
 
 type Emits = {
     (e: "update:width", value: number): void;
+    (e: "update:pinnedSessionIds", value: number[]): void;
     (e: "select", sessionId: number): void;
     (e: "create"): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
@@ -40,5 +43,6 @@ type Emits = {
 type Slots = {};
 ```
 
-- **阻断原因**：读写 `localStorage` 存储会话置顶偏好；使用 `useResizablePanel` 与 DOM 拖拽交互。
-- **不支持**：不发起网络请求，所有会话操作通过 emits 委托父级。
+- **扩展面**：无 slots，无 expose。
+- **不支持**：不直接发起网络请求或读写 `localStorage`，所有会话操作与置顶偏好通过 emits 委托父级。
+

@@ -78,7 +78,10 @@ watch(() => props.collapsed, (isCollapsed) => {
         <template v-else>
             <!-- 标题栏高度固定，切换内容不引起布局位移 -->
             <div class="nb-lab-panel-head flex shrink-0 items-center">
-                <span class="nb-lab-panel-title min-w-0 flex-1 truncate">{{ props.title }}</span>
+                <span class="nb-lab-panel-title truncate" :class="$slots.search ? 'shrink-0' : 'min-w-0 flex-1'">{{ props.title }}</span>
+                <div v-if="$slots.search" class="min-w-0 flex-1">
+                    <slot name="search"></slot>
+                </div>
                 <slot name="actions"></slot>
                 <button
                     ref="toggleRef"

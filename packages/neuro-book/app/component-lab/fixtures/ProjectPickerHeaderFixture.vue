@@ -1,36 +1,9 @@
 <script setup lang="ts">
-import {computed, ref, watch} from "vue";
 import ProjectPickerHeader from "nbook/app/components/novel-ide/project-picker/components/ProjectPickerHeader.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
-const props = defineProps<{
-    scene?: string;
-    sceneId?: string;
-    data?: unknown;
-}>();
-
-const emit = defineEmits<{
-    (e: "event", name: string, payload?: unknown): void;
-}>();
-
-const currentScene = computed(() => props.scene ?? props.sceneId ?? "default");
-
-const isLoading = ref(false);
-const hasLoadError = ref(false);
-const isCreating = ref(false);
-
-watch(currentScene, (scene) => {
-    isLoading.value = false;
-    hasLoadError.value = false;
-    isCreating.value = false;
-
-    if (scene === "loading") {
-        isLoading.value = true;
-    } else if (scene === "creating") {
-        isCreating.value = true;
-    } else if (scene === "load-error") {
-        hasLoadError.value = true;
-    }
-}, {immediate: true});
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof ProjectPickerHeader>(() => props.input, ["open-user-assets", "create-book"]);
 </script>
 
 <template>
@@ -38,11 +11,7 @@ watch(currentScene, (scene) => {
         <ProjectPickerHeader
             data-lab-subject
             class="w-full"
-            :is-loading="isLoading"
-            :has-load-error="hasLoadError"
-            :is-creating="isCreating"
-            @open-user-assets="emit('event', 'open-user-assets')"
-            @create-book="emit('event', 'create-book')"
+            v-bind="subject.bindings.value"
         />
     </div>
 </template>

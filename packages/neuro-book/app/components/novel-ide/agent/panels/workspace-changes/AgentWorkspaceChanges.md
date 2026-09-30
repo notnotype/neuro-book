@@ -1,16 +1,10 @@
 ---
-标签: [state:local, state:inject, io:read, io:mutate]
+标签: []
 ---
 
 # AgentWorkspaceChanges
 
-在 Agent Composer 上方以折叠栏形式展示当前工作区的文件变更摘要（未审阅的 Agent 历史变更）。支持展开查看分组变更、差异比对导航、单文件或全量接受/拒绝。
-
-## 隐藏通道理由
-
-- `state:inject`：通过 `useNotification` 弹出接受与拒绝操作的成功/失败提示。
-- `io:read`：调用 `useWorkspaceHistoryInbox` 读取当前项目的历史未接受变更列表及 diff 详情。
-- `io:mutate`：直接调用服务端 API 执行接受单个变更、全部接受或放弃变更操作。变更属于底层工作区文件系统真实写操作。
+在 Agent Composer 上方以折叠栏形式展示当前工作区的文件变更摘要（未审阅的 Agent 历史变更）。支持展开查看分组变更、内联安全差异比对预览、打开完整收件箱或文件差异编辑器，以及单文件或全量接受变更。所有数据与动作通过受控 props/emits 交互。
 
 ## 数据
 
@@ -18,20 +12,36 @@
 type Props = {
     /** 当前打开的项目根目录绝对路径。 */
     projectRoot: string | null;
-    /** 刷新触发键。 */
-    refreshKey: string | number;
-    /** 工作区变更面板是否处于激活关注状态。 */
-    active: boolean;
+    /** 待审阅的文件变更分组列表（最多展示前 6 项）。 */
+    groups: WorkspaceHistoryInboxGroupDto[];
+    /** 是否正在检查或加载工作区变更。 */
+    loading: boolean;
+    /** 加载或操作失败时的错误信息。 */
+    error: string | null;
+    /** 折叠栏是否展开（v-model:expanded）。 */
+    expanded: boolean;
+    /** 当前展开内联 diff 预览的文件路径。 */
+    selectedPath: string | null;
+    /** 当前正在执行单文件接受操作的文件路径。 */
+    busyPath: string | null;
+    /** 是否正在执行全部接受操作。 */
+    acceptingAll: boolean;
+    /** 按变更分组查询当前 revision 的内联 diff 状态。 */
+    diffStateFor: (group: WorkspaceHistoryInboxGroupDto) => WorkspaceHistoryDiffState;
 };
 
 type Emits = {
-    /** 打开完整的历史审阅收件箱。 */
+    (e: "update:expanded", value: boolean): void;
+    (e: "select-group", group: WorkspaceHistoryInboxGroupDto): void;
+    (e: "accept-group", group: WorkspaceHistoryInboxGroupDto): void;
+    (e: "accept-all"): void;
+    (e: "refresh"): void;
     (e: "open-full"): void;
-    /** 打开指定文件的差异比对编辑器。 */
     (e: "open-file", path: string): void;
 };
 
 type Slots = {};
 ```
 
-- **扩展面**：无 slots，无 expose，attrs 透传至根元素。
+- **扩展面**：无 slots，无 expose，根元素受 Transition 控制显隐。
+

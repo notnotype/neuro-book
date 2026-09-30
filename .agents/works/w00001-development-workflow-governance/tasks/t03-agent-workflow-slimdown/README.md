@@ -11,14 +11,14 @@ taskId: t03-agent-workflow-slimdown
 
 ## 当前状态
 
-实施、聚焦验证与独立审查已完成；交付未提交 diff，不请求或执行远端动作。主 Agent 集成项目文档、39 份既有 current Task 元数据和两个独立切片；本 Task 自始无 role。
+实施、聚焦验证与独立审查已完成；技能拆分成果以 `328c1f58` 提交，并随 `836979cd` 合入 `master`。主 Agent 集成项目文档、39 份既有 current Task 元数据和两个独立切片；本 Task 自始无 role。
 
 ## 授权与基线
 
 - 用户明确批准用户级 Skills 一并精简及执行完整计划；不授权提交、push、合并、发布、部署或产品数据操作。
 - checkout：`.worktree/w00001-development-workflow-governance`；branch：`refactor/w00001-agent-workflow-slimdown`；基线 HEAD：`45906272915ff43e83318653af62afa9ce668206`。
 - 从主 checkout 保留目标文件已有内容；原内容及复制清单位于系统 Temp `neuro-book-governance-baseline-Q7qY6x/manifest.json`。另按已有链接原样保全 34 份依赖（含 Spec 注册表、提案、规范及历史证据），清单见同目录 `dependencies.json`；后续对 w00017 implementation-plan 的登记前置修订属于本轮，其余依赖不算本轮成果。主 checkout 和产品树 t67 未修改。
-- 验证覆盖未提交 diff，无独立 revision。历史 provenance、用户的 w00003 合并后才能进入 w00017 实施的条件不变。
+本 Task 的初始验证覆盖当时的未提交 diff；技能拆分现已由 `328c1f58`／`836979cd` 提交并合入 `master`。历史 provenance、用户的 w00003 合并后才能进入 w00017 实施的条件不变。
 
 ## 验证与边界
 

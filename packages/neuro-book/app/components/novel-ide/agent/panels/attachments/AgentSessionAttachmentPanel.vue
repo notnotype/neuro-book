@@ -1,11 +1,17 @@
 <script setup lang="ts">
+import {computed, onMounted, onUnmounted, ref} from "vue";
+import {onClickOutside} from "@vueuse/core";
 import {IconButton} from "@notnotype/nb-ui/components";
 import type {AgentSessionAttachmentItemDto} from "nbook/shared/dto/agent-session.dto";
-import {agentAttachmentUrl} from "nbook/app/components/novel-ide/agent/agent-attachment";
+import {agentAttachmentUrl, type AgentAttachmentUrlResolver} from "nbook/app/components/novel-ide/agent/agent-attachment";
 import OriginalImagePreviewDialog from "nbook/app/components/common/OriginalImagePreviewDialog.vue";
 import {canonicalImageMime} from "nbook/shared/media/raster-image";
 
-const props = defineProps<{
+defineOptions({
+    inheritAttrs: false,
+});
+
+const props = withDefaults(defineProps<{
     sessionId: number;
     items: AgentSessionAttachmentItemDto[];
     total: number;
@@ -13,7 +19,12 @@ const props = defineProps<{
     loading: boolean;
     search: string;
     insertDisabled: boolean;
-}>();
+    resolveAttachmentUrl?: AgentAttachmentUrlResolver;
+    teleportTarget?: string | boolean;
+}>(), {
+    resolveAttachmentUrl: undefined,
+    teleportTarget: ".novel-ide-theme",
+});
 
 const emit = defineEmits<{
     (e: "update:search", value: string): void;
@@ -32,9 +43,22 @@ const originalPreviewOpen = computed({
     },
 });
 
+function resolveUrl(entryId: string, contentIndex: number, preset?: "attachment-grid"): string | null {
+    if (props.resolveAttachmentUrl) {
+        return props.resolveAttachmentUrl({
+            sessionId: props.sessionId,
+            entryId,
+            contentIndex,
+            preset,
+            retry: 0,
+        });
+    }
+    return agentAttachmentUrl(props.sessionId, entryId, contentIndex, preset);
+}
+
 function imageUrl(item: AgentSessionAttachmentItemDto): string | null {
     return isImage(item)
-        ? agentAttachmentUrl(props.sessionId, item.locator.entryId, item.locator.contentIndex, "attachment-grid")
+        ? resolveUrl(item.locator.entryId, item.locator.contentIndex, "attachment-grid")
         : null;
 }
 
@@ -46,7 +70,7 @@ function isImage(item: AgentSessionAttachmentItemDto): boolean {
 /** 原图 URL 不带变体参数，只在共享预览 Dialog 打开后挂载。 */
 function originalUrl(item: AgentSessionAttachmentItemDto | null): string {
     return item
-        ? agentAttachmentUrl(props.sessionId, item.locator.entryId, item.locator.contentIndex) ?? ""
+        ? resolveUrl(item.locator.entryId, item.locator.contentIndex) ?? ""
         : "";
 }
 
@@ -85,7 +109,7 @@ onUnmounted(() => {
 
 <template>
     <!-- Session 全分支附件目录 -->
-    <section ref="panelRef" class="nb-ui-popover-surface absolute inset-x-2 top-12 z-30 flex max-h-[28rem] flex-col overflow-hidden rounded-xl">
+    <section ref="panelRef" v-bind="$attrs" class="nb-ui-popover-surface absolute inset-x-2 top-12 z-30 flex max-h-[28rem] flex-col overflow-hidden rounded-xl">
         <header class="flex items-center gap-2 border-b border-[var(--border-color)] px-3 py-2">
             <span class="i-lucide-paperclip h-4 w-4 text-[var(--accent-text)]"></span>
             <div class="min-w-0 flex-1">
@@ -130,5 +154,5 @@ onUnmounted(() => {
             <button v-else-if="props.hasMore" type="button" class="mt-2 w-full rounded-[var(--radius-control)] border border-[var(--border-color)] py-1.5 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="emit('load-more')">{{ t("agent.attachments.loadMore") }}</button>
         </div>
     </section>
-    <OriginalImagePreviewDialog v-model="originalPreviewOpen" :src="originalUrl(previewItem)" :alt="previewItem?.attachment.name || t('agent.attachments.imageAlt')" :download-name="previewItem?.attachment.name" />
+    <OriginalImagePreviewDialog v-model="originalPreviewOpen" :src="originalUrl(previewItem)" :alt="previewItem?.attachment.name || t('agent.attachments.imageAlt')" :download-name="previewItem?.attachment.name" :teleport-target="props.teleportTarget" />
 </template>

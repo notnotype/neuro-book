@@ -2,7 +2,7 @@
 
 本包位于 `packages/nb-harness`，遵循仓库共享 Agent 合同 [`../../AGENTS.md`](../../AGENTS.md)。本文件只保留本包的项目专属规则。
 
-`@notnotype/nb-harness` 是域无关的 agent 内核，直接以 OMP 包族（`@oh-my-pi/*`）为底座：模型取自 `pi-catalog`、循环与工具协议来自 `pi-agent-core`、传输用 `pi-ai` 的 `streamSimple`、编辑走 `pi-natives` 的 `EditSession`。域工具不在本包内，通过插件缝（`HarnessPlugin`）由宿主注入。
+`@notnotype/nb-harness` 是 NeuroBook 领域 harness，不追求通用：内核与循环直接以 OMP 包族（`@oh-my-pi/*`）为底座（模型取自 `pi-catalog`、循环与工具协议来自 `pi-agent-core`、传输用 `pi-ai` 的 `streamSimple`、编辑走 `pi-natives` 的 `EditSession`），通用能力由 OMP 覆盖，不另造平行抽象。领域工具通过插件缝（`HarnessPlugin`）接入，不在本包内实现。
 
 ## 开工前
 

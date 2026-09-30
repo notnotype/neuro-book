@@ -14,6 +14,7 @@ import {computed, onBeforeUnmount, onMounted, ref, watch} from "vue";
 import DesktopTitleBarChrome, {type TitleBarWindowCommand} from "nbook/app/components/common/DesktopTitleBarChrome.vue";
 import {markTitleBarPresent} from "nbook/app/composables/useTitleBarPresent";
 import {useWorkbenchChrome} from "nbook/app/composables/useWorkbenchChrome";
+import {tryUseWorkbenchCommands} from "nbook/app/composables/useWorkbenchCommands";
 import {
     parseDesktopStatus,
     type DesktopMenuCommandId,
@@ -81,6 +82,11 @@ function windowCommand(command: TitleBarWindowCommand): void {
     void bridge.value?.window(command);
 }
 
+function handleOpenCommandPalette(): void {
+    const commands = tryUseWorkbenchCommands();
+    commands?.openPalette("commands");
+}
+
 onMounted(async () => {
     // 在场事实登记给通知视口这类抢同一块屏幕的组件（浏览器同样有标题栏）。
     markTitleBarPresent(true);
@@ -119,5 +125,6 @@ watch(
         @select-project="void selectProject($event)"
         @toggle-agent-panel="void toggleAgentPanel()"
         @window-command="windowCommand"
+        @open-command-palette="handleOpenCommandPalette"
     />
 </template>

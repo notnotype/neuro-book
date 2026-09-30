@@ -37,6 +37,8 @@ export type ModelRoleDraft = {
 export type RolesSettingsDraft = {
     gradient: ModelRoleDraft[];
     specialist: ModelRoleDraft[];
+    /** 是否在快捷模型选择器（如 AgentComposer）中展示专精轴 */
+    showSpecialistInPicker?: boolean;
 };
 
 type RoleSeed = Omit<ModelRoleDraft, "modelKey" | "name" | "description" | "enabled"> & {
@@ -144,6 +146,7 @@ export function createRolesSettingsDraft(translate: RoleTranslate): RolesSetting
     return {
         gradient: GRADIENT_SEEDS.map(materialize),
         specialist: SPECIALIST_SEEDS.map(materialize),
+        showSpecialistInPicker: false,
     };
 }
 
@@ -249,6 +252,7 @@ export type RolesSectionPayload = {
         modelKey: string | null;
         enabled: boolean;
     }>;
+    showSpecialistInPicker?: boolean;
 };
 
 /**
@@ -265,5 +269,6 @@ export function buildRolesSection(draft: RolesSettingsDraft): RolesSectionPayloa
             modelKey: role.modelKey,
             enabled: role.enabled,
         })),
+        showSpecialistInPicker: Boolean(draft.showSpecialistInPicker),
     };
 }

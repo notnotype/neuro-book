@@ -167,11 +167,12 @@ AI 助手干活的规矩是可以改的，而且不用写代码。每个助手�
 
 ## Workspace 导航
 
-后续开发只在本仓库的 12 个 workspace 内进行；迁移前的同级 checkout 不再是开发入口。
+后续开发只在本仓库的 15 个 workspace 内进行（以根 `package.json` 的 `workspaces` 为准）；迁移前的同级 checkout 不再是开发入口。
 
 - 应用与宿主：[主应用](packages/neuro-book/AGENTS.md) · [Manager](packages/neuro-book-manager/README.md)
 - 内部基础包：[Owned Process](packages/owned-process/package.json) · [File Snapshot Cache](packages/file-snapshot-cache/README.md) · [NeuroBook Contracts](packages/neuro-book-contracts/package.json) · [Test Support](packages/neuro-book-test-support/package.json)
 - 自治包：[History](packages/nb-history/README.md) · [Workflow](packages/nb-workflow/README.md) · [Memory](packages/nb-memory/README.md) · [UI](packages/nb-ui/README.md) · [Agent Harness](packages/neuro-agent-harness/README.md) · [llmlint](packages/llmlint/README.md)
+- Agent harness 重构（w00002）：[nb-harness](packages/nb-harness/AGENTS.md) · [nb-profile](packages/nb-profile/package.json) · [nb-session](packages/nb-session/package.json)
 
 共享依赖方向、治理继承和运行态边界见 [Monorepo Module 边界与迁移规范](docs/modules/monorepo-boundaries.md) 与 [packages/AGENTS.md](packages/AGENTS.md)。
 

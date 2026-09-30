@@ -2,9 +2,8 @@
 import {computed, ref, watch} from "vue";
 import type {MenubarItemData, MenubarMenuData} from "@notnotype/nb-ui/components";
 import EditorToolbar from "../../components/editor-workbench/EditorToolbar.vue";
-import {useLabDataSink, useLabEventSink} from "../lab-event-sink";
-
-type SceneKey = "default" | "checked" | "submenu" | "empty";
+import {useLabEventSink} from "../lab-event-sink";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 
 /** 最近一次 select 回传的叶项读数：只留验收要核对的那几个字段。 */
 type SelectedItemReadout = {
@@ -14,168 +13,40 @@ type SelectedItemReadout = {
     type: string | null;
 };
 
-const props = defineProps<{scene: string; data?: unknown}>();
-
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof EditorToolbar>(() => props.input, ["split", "action"]);
 const emitLabEvent = useLabEventSink();
-const syncLabData = useLabDataSink();
+const menus = computed(() => (props.input?.props?.menus ?? []) as MenubarMenuData[]);
+const checkableValues = computed(() => collectCheckableValues(menus.value));
 
-const SCENE_KEYS: SceneKey[] = ["default", "checked", "submenu", "empty"];
-
-/**
- * 被检视组件要看的菜单结构。结构里不写 `checked`：勾选态只有 data 一个来源，
- * 两处都写会分不清哪个说了算。可勾选项一律显式声明 type，checked 由这里注入。
- * value 在场景内唯一——EditorToolbar 靠它把显示副本映射回原始叶项。
- */
-const SCENE_MENUS: Record<SceneKey, MenubarMenuData[]> = {
-    default: [
-        {
-            id: "file",
-            label: "文件",
-            items: [
-                {label: "保存", value: "file.save", shortcut: "Ctrl+S"},
-                {label: "全部保存", value: "file.save-all", shortcut: "Ctrl+Shift+S", disabled: true},
-                {label: "", value: "file.sep-1", separator: true},
-                {label: "重新加载打开方式", value: "file.reload"},
-                {label: "关闭全部标签", value: "file.close-all", shortcut: "Ctrl+Shift+W"},
-                {label: "", value: "file.sep-2", separator: true},
-                {label: "删除当前章节", value: "file.delete-chapter", iconClass: "i-lucide-trash-2", tone: "danger"},
-            ],
-        },
-        {
-            id: "edit",
-            label: "编辑",
-            items: [
-                {label: "撤销", value: "edit.undo", shortcut: "Ctrl+Z", disabled: true},
-                {label: "重做", value: "edit.redo", shortcut: "Ctrl+Y", disabled: true},
-                {label: "", value: "edit.sep-1", separator: true},
-                {label: "剪切", value: "edit.cut", shortcut: "Ctrl+X"},
-                {label: "复制", value: "edit.copy", shortcut: "Ctrl+C"},
-                {label: "粘贴", value: "edit.paste", shortcut: "Ctrl+V"},
-                {label: "全选", value: "edit.select-all", shortcut: "Ctrl+A"},
-            ],
-        },
-        {
-            id: "view",
-            label: "视图",
-            items: [
-                {label: "放大", value: "view.zoom-in", shortcut: "Ctrl+="},
-                {label: "缩小", value: "view.zoom-out", shortcut: "Ctrl+-"},
-                {label: "重置缩放", value: "view.zoom-reset", shortcut: "Ctrl+0"},
-            ],
-        },
-        {
-            id: "help",
-            label: "帮助",
-            items: [
-                {label: "快捷键指南", value: "help.shortcuts", shortcut: "Ctrl+/"},
-                {label: "关于 NeuroBook", value: "help.about", iconClass: "i-lucide-info"},
-            ],
-        },
-    ],
-    checked: [
-        {
-            id: "view",
-            label: "视图",
-            items: [
-                {label: "侧边栏", value: "view.sidebar", type: "checkbox"},
-                {label: "大纲", value: "view.outline", type: "checkbox"},
-                {label: "行号", value: "view.line-numbers", type: "checkbox"},
-                {label: "", value: "view.sep-1", separator: true},
-                {label: "阅读主题：浅色", value: "view.theme-light", type: "radio"},
-                {label: "阅读主题：棕褐", value: "view.theme-sepia", type: "radio"},
-                {label: "阅读主题：深色", value: "view.theme-dark", type: "radio"},
-                {label: "", value: "view.sep-2", separator: true},
-                {label: "小地图", value: "view.minimap", type: "checkbox", disabled: true},
-            ],
-        },
-        {
-            id: "review",
-            label: "审阅",
-            disabled: true,
-            items: [
-                {label: "拼写检查", value: "review.spelling"},
-                {label: "字数统计", value: "review.word-count"},
-            ],
-        },
-    ],
-    submenu: [
-        {
-            id: "file",
-            label: "文件",
-            items: [
-                {label: "新建章节", value: "file.new-chapter", shortcut: "Ctrl+N"},
-                {
-                    label: "导出作品",
-                    value: "file.export",
-                    iconClass: "i-lucide-download",
-                    children: [
-                        {label: "EPUB 电子书", value: "export.epub", type: "checkbox"},
-                        {label: "PDF 文档", value: "export.pdf", type: "checkbox"},
-                        {label: "Markdown 纯文本", value: "export.md", type: "checkbox", disabled: true},
-                        {label: "", value: "export.sep-1", separator: true},
-                        {label: "删除导出缓存", value: "export.clear-cache", tone: "danger"},
-                    ],
-                },
-                {label: "", value: "file.sep-1", separator: true},
-                {label: "关闭全部标签", value: "file.close-all", shortcut: "Ctrl+Shift+W"},
-            ],
-        },
-        {
-            id: "view",
-            label: "视图",
-            items: [
-                {
-                    label: "排版",
-                    value: "view.typography",
-                    iconClass: "i-lucide-type",
-                    children: [
-                        {label: "自动换行", value: "layout.wrap", type: "checkbox"},
-                        {label: "显示行号", value: "layout.line-numbers", type: "checkbox"},
-                        {label: "", value: "layout.sep-1", separator: true},
-                        {label: "等宽字体", value: "layout.font-mono", type: "radio"},
-                        {label: "衬线字体", value: "layout.font-serif", type: "radio"},
-                    ],
-                },
-            ],
-        },
-    ],
-    empty: [],
-};
-
-const sceneKey = computed<SceneKey>(() => SCENE_KEYS.find((key) => key === props.scene) ?? "default");
-const menus = computed<MenubarMenuData[]>(() => SCENE_MENUS[sceneKey.value]);
-const checkableValues = computed<string[]>(() => collectCheckableValues(menus.value));
-
-const checkedByValue = ref<Record<string, boolean>>(readCheckedSeed(props.data));
 const lastSelection = ref<SelectedItemReadout | null>(null);
+watch(() => props.scene, () => { lastSelection.value = null; }, {immediate: true});
+const checkedByValue = computed(() => Object.fromEntries(checkableValues.value.map((key) => [key, findChecked(menus.value, key)])));
 
-// 场景切换：所有本地状态回到登记初值。同一场景重复打开、或右栏点「还原」之后，看到的东西必须一样。
-watch(() => props.scene, () => {
-    checkedByValue.value = readCheckedSeed(props.data);
-    lastSelection.value = null;
-}, {immediate: true});
-
-// 右栏假数据改动要立刻生效，但只重播勾选态，不动最近回传读数——那是事件记录，不是场景初值。
-watch(() => props.data, () => {
-    const seed = readCheckedSeed(props.data);
-    // 回写数据面板会把刚写出去的值原样带回来；等值时跳过，否则「回写 → 回流 → 再回写」会自激。
-    if (!isSameChecked(seed, checkedByValue.value)) {
-        checkedByValue.value = seed;
+function findChecked(source: MenubarMenuData[], key: string): boolean {
+    const find = (items: MenubarItemData[]): boolean | undefined => {
+        for (const item of items) {
+            if (item.value === key) return item.checked === true;
+            const nested = item.children ? find(item.children) : undefined;
+            if (nested !== undefined) return nested;
+        }
+        return undefined;
+    };
+    for (const menu of source) {
+        const checked = find(menu.items);
+        if (checked !== undefined) return checked;
     }
-}, {deep: true});
+    return false;
+}
 
-// 回写数据面板：只有登记了 data 的场景才回写，否则右栏会凭空多出一份「可改的假数据」。
-watch(checkedByValue, (next) => {
-    if (props.data === undefined) {
-        return;
-    }
-    syncLabData({checked: {...next}});
-}, {deep: true, immediate: true});
-
-const displayMenus = computed<MenubarMenuData[]>(() => menus.value.map((menu) => ({
-    ...menu,
-    items: withCheckedState(menu.items),
-})));
+function toggleChecked(source: MenubarMenuData[], key: string): MenubarMenuData[] {
+    const change = (items: MenubarItemData[]): MenubarItemData[] => items.map((item) => ({
+        ...item,
+        ...(item.value === key ? {checked: item.checked !== true} : {}),
+        ...(item.children ? {children: change(item.children)} : {}),
+    }));
+    return source.map((menu) => ({...menu, items: change(menu.items)}));
+}
 
 const lastSelectionText = computed(() => (lastSelection.value === null
     ? "（还没有点过菜单项）"
@@ -205,10 +76,7 @@ function onSelect(item: MenubarItemData): void {
     };
     // 只翻转被点的叶项：单选互斥、勾选组联动属于宿主的业务状态机，fixture 不替它推演。
     if (item.value in checkedByValue.value) {
-        checkedByValue.value = {
-            ...checkedByValue.value,
-            [item.value]: !checkedByValue.value[item.value],
-        };
+        subject.write("props", "menus", toggleChecked(menus.value, item.value));
     }
     emitLabEvent("select", item);
 }
@@ -232,54 +100,18 @@ function collectCheckableValues(source: MenubarMenuData[]): string[] {
     return values;
 }
 
-/** 勾选态注入到每一层：递归下去才能覆盖子菜单里的可勾选项。 */
-function withCheckedState(items: MenubarItemData[]): MenubarItemData[] {
-    return items.map((item) => {
-        const next: MenubarItemData = {...item};
-        if (item.type === "checkbox" || item.type === "radio") {
-            next.checked = checkedByValue.value[item.value] === true;
-        }
-        if (item.children !== undefined && item.children.length > 0) {
-            next.children = withCheckedState(item.children);
-        }
-        return next;
-    });
-}
-
-/** 登记 data 的形状是 {checked: {叶项 value: 初值}}；没登记或形状不符就全按未勾选播种。 */
-function readCheckedSeed(value: unknown): Record<string, boolean> {
-    const source = isRecord(value) && isRecord(value.checked) ? value.checked : {};
-    const seed: Record<string, boolean> = {};
-    // 只认结构里登记过的可勾选值：面板里手加的未知键不参与，免得标出 UI 上不存在的勾选态。
-    for (const checkable of checkableValues.value) {
-        seed[checkable] = source[checkable] === true;
-    }
-    return seed;
-}
-
-function isSameChecked(left: Record<string, boolean>, right: Record<string, boolean>): boolean {
-    const keys = Object.keys(left);
-    if (keys.length !== Object.keys(right).length) {
-        return false;
-    }
-    return keys.every((key) => left[key] === right[key]);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 </script>
 
 <template>
     <div class="flex h-full min-h-0 min-w-0 flex-col gap-3 p-3">
         <EditorToolbar
             data-lab-subject
-            :menus="displayMenus"
+            v-bind="subject.bindings.value"
             @select="onSelect"
         />
 
         <p
-            v-if="sceneKey === 'empty'"
+            v-if="props.scene === 'empty'"
             class="shrink-0 rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-3 py-2 text-xs leading-5 text-[var(--text-muted)]"
         >
             场景说明：menus 是空数组。上面那个窄窄的描边空盒子就是 nb-ui Menubar 的外壳——它照旧渲染，

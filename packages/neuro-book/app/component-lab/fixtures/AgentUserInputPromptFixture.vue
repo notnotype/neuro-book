@@ -1,130 +1,57 @@
 <script setup lang="ts">
-import AgentUserInputPrompt from "../../components/novel-ide/agent/bubbles/interactive/AgentUserInputPrompt.vue";
-import type {AgentPendingUserInputSession} from "../../components/novel-ide/agent/agent-message";
-import {
-    createAgentPendingResolutionDraft,
-    type AgentPendingResolutionDraft,
-} from "../../components/novel-ide/agent/agent-pending-resolution";
+import AgentUserInputPrompt from "../../components/novel-ide/agent/composer/AgentUserInputPrompt.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof AgentUserInputPrompt>(() => props.input, ["submit","cancel","resync"]);
+import LabFixtureControls from "../LabFixtureControls.vue";
+import {createAgentPendingResolutionDraft} from "../../components/novel-ide/agent/agent-pending-resolution";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "../../components/novel-ide/agent/trigger-menu";
-import {useLabEventSink} from "../lab-event-sink";
-
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
-
-const emitLabEvent = useLabEventSink();
-
-const sessions = computed<AgentPendingUserInputSession[]>(() => {
-    switch (props.scene) {
-        case "open-ended":
-            return [
-                {
-                    assistantMessageId: "assistant-open",
-                    status: "pending",
-                    questions: [
-                        {
-                            toolNodeId: "node-open",
-                            toolCallId: "call-open",
-                            toolName: "request_user_input",
-                            questionIndex: 0,
-                            kind: "question",
-                            question: "请简述这一章你想表达的核心主题：",
-                            options: [],
-                        },
-                    ],
-                },
-            ];
-        case "multi-question":
-            return [
-                {
-                    assistantMessageId: "assistant-multi",
-                    status: "pending",
-                    questions: [
-                        {
-                            toolNodeId: "node-multi-1",
-                            toolCallId: "call-multi-1",
-                            toolName: "request_user_input",
-                            questionIndex: 0,
-                            kind: "question",
-                            question: "你希望反派在何时被主角揭穿？",
-                            options: [
-                                {label: "本章结尾直接揭穿"},
-                                {label: "下一卷再揭晓"},
-                                {label: "始终不揭穿，留作暗线"},
-                            ],
-                        },
-                        {
-                            toolNodeId: "node-multi-2",
-                            toolCallId: "call-multi-2",
-                            toolName: "request_user_input",
-                            questionIndex: 1,
-                            kind: "question",
-                            question: "主角此时的心理状态偏向哪种？",
-                            options: [
-                                {label: "愤怒与复仇"},
-                                {label: "困惑与失望"},
-                                {label: "平静与释怀"},
-                            ],
-                        },
-                    ],
-                },
-            ];
-        case "single-choice":
-        default:
-            return [
-                {
-                    assistantMessageId: "assistant-single",
-                    status: "pending",
-                    questions: [
-                        {
-                            toolNodeId: "node-single",
-                            toolCallId: "call-single",
-                            toolName: "request_user_input",
-                            questionIndex: 0,
-                            kind: "question",
-                            question: "接下来这一幕你希望以谁的视角展开叙述？",
-                            options: [
-                                {label: "主角（第一人称感知）"},
-                                {label: "观察者（第三人称全知）"},
-                                {label: "对手（限知视角）"},
-                            ],
-                        },
-                    ],
-                },
-            ];
-    }
-});
-
-const draft = ref<AgentPendingResolutionDraft>(createAgentPendingResolutionDraft(sessions.value));
-
-watch(sessions, (next) => {
-    draft.value = createAgentPendingResolutionDraft(next);
-});
-
-const resolveMenu = (_context: AgentTriggerMenuContext): AgentTriggerMenuState => ({
-    title: "快捷指令",
-    prefix: "/",
-    sections: [],
-});
-const submitting = computed(() => props.scene === "submitting");
+const resolveMenu = (_context: AgentTriggerMenuContext): AgentTriggerMenuState => ({title: "快捷指令", prefix: "/", sections: []});
+function toggleBlocked(): void { subject.write("props", "canResolve", !subject.bindings.value.canResolve); }
+function toggleSubmitting(): void { subject.write("props", "submitting", !subject.bindings.value.submitting); }
+function toggleIssue(): void {
+    subject.write("props", "submissionIssue", subject.bindings.value.submissionIssue ? null : {kind: "unknown", message: "提交结果暂时无法确认，需手动同步。"});
+}
+function resetDraft(): void { subject.write("model", "draft", createAgentPendingResolutionDraft(subject.bindings.value.sessions)); }
 </script>
-
 <template>
-    <div class="w-full p-4">
-        <AgentUserInputPrompt
-            data-lab-subject
-            class="w-full"
-            :sessions="sessions"
-            v-model:draft="draft"
-            :can-resolve="true"
-            :can-abort="true"
-            :submitting="submitting"
-            menu-refresh-key="fixture"
-            :resolve-menu="resolveMenu"
-            @submit="emitLabEvent('submit')"
-            @cancel="emitLabEvent('cancel')"
-            @resync="emitLabEvent('resync')"
-        />
-    </div>
+    <div class="w-full"><AgentUserInputPrompt data-lab-subject class="w-full" v-bind="subject.bindings.value" :resolve-menu="resolveMenu" /></div>
+    <!-- 交互调试控制条：下放至 Lab 底部抽屉栏 -->
+    <LabFixtureControls>
+        <div class="flex flex-wrap items-center justify-between gap-2 text-xs select-none">
+            <span class="text-[var(--text-secondary)]">用户输入向导 · 交互调试</span>
+            <div class="flex flex-wrap items-center gap-1.5">
+                <button
+                    type="button"
+                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                    @click="() => { toggleBlocked(); }"
+                >
+                    {{ !subject.bindings.value.canResolve ? "解除阻断" : "模拟阻断" }}
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                    @click="() => { toggleSubmitting(); }"
+                >
+                    {{ subject.bindings.value.submitting ? "取消提交中" : "切为提交中" }}
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                    @click="() => {
+                        toggleIssue();
+                    }"
+                >
+                    {{ subject.bindings.value.submissionIssue ? "清除异常" : "模拟同步异常" }}
+                </button>
+                <button
+                    type="button"
+                    class="inline-flex h-6 items-center rounded-[var(--radius-control)] border border-[var(--border-color)] bg-[var(--panel-surface)] px-2 text-[11px] hover:bg-[var(--bg-hover)] cursor-pointer text-[var(--text-main)]"
+                    @click="resetDraft"
+                >
+                    重置草稿
+                </button>
+            </div>
+        </div>
+    </LabFixtureControls>
 </template>

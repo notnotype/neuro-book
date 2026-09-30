@@ -86,15 +86,18 @@ describe("roles-settings-draft", () => {
         }]);
     });
 
-    it("写回体带轴、启用状态与全部角色（含未绑定），因为宿主需要它来报配置错误", () => {
+    it("写回体带轴、启用状态与全部角色（含未绑定），支持专精轴展示偏好", () => {
         const draft = createRolesSettingsDraft(identityTranslate);
+        expect(draft.showSpecialistInPicker).toBe(false);
         draft.specialist[4]!.modelKey = "gpt-5.1";
         draft.gradient[3]!.enabled = false;
+        draft.showSpecialistInPicker = true;
 
         const payload = buildRolesSection(draft);
         expect(payload.roles).toHaveLength(9);
         expect(payload.roles[0]).toMatchObject({id: "tiny", axis: "gradient", modelKey: null, enabled: true});
         expect(payload.roles[3]).toMatchObject({id: "deep", axis: "gradient", enabled: false});
         expect(payload.roles[8]).toMatchObject({id: "vision", axis: "specialist", modelKey: "gpt-5.1", enabled: true});
+        expect(payload.showSpecialistInPicker).toBe(true);
     });
 });

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import {computed, ref} from "vue";
-import {onClickOutside, useDebounceFn} from "@vueuse/core";
+import {computed, onMounted, onUnmounted, ref, watch} from "vue";
+import {onClickOutside} from "@vueuse/core";
 import {Badge, Button, Dialog, Dropdown, IconButton} from "@notnotype/nb-ui/components";
 import type {DropdownItem} from "@notnotype/nb-ui/components";
 import type {AgentSessionListQueryDto, AgentSessionRelationFilter, AgentSessionStatusFilter, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
@@ -49,12 +49,6 @@ const filterPanelOpen = ref(false);
 const filterPanelRef = ref<HTMLElement | null>(null);
 const filterButtonRef = ref<any>(null);
 const {t} = useI18n();
-
-onClickOutside(filterPanelRef, () => {
-    filterPanelOpen.value = false;
-}, {
-    ignore: ['[aria-label*="筛选"]', '[title*="筛选"]'],
-});
 
 const onFilterKeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" && filterPanelOpen.value) {
@@ -126,17 +120,21 @@ function refresh(): void {
     emit("refresh", query.value);
 }
 
-const debouncedRefresh = useDebounceFn(refresh, 250);
-
 /**
  * 重置筛选条件到默认 leader 近期会话。
  */
 function resetFilters(): void {
+    const alreadyDefault = sessionSearch.value === ""
+        && profileFilter.value === "leader"
+        && statusFilter.value === "active"
+        && relationFilter.value === "all";
     sessionSearch.value = "";
     profileFilter.value = "leader";
     statusFilter.value = "active";
     relationFilter.value = "all";
-    refresh();
+    if (alreadyDefault) {
+        refresh();
+    }
 }
 
 /**
@@ -219,7 +217,7 @@ function profileDisplayName(profileKey: string): string {
 }
 
 watch(query, () => {
-    debouncedRefresh();
+    refresh();
 }, {deep: true});
 watch(() => props.modelValue, (open) => {
     if (open) {
@@ -228,7 +226,9 @@ watch(() => props.modelValue, (open) => {
 });
 onClickOutside(filterPanelRef, () => {
     filterPanelOpen.value = false;
-}, {ignore: [filterButtonRef]});
+}, {
+    ignore: [filterButtonRef, '[aria-label*="筛选"]', '[title*="筛选"]'],
+});
 </script>
 
 <template>
@@ -255,7 +255,7 @@ onClickOutside(filterPanelRef, () => {
             <div class="relative flex items-center gap-2">
                 <div class="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3">
                     <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                    <input v-model="sessionSearch" type="text" :placeholder="t('agent.session.dialogSearchPlaceholder')" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]">
+                    <input v-model="sessionSearch" type="text" :placeholder="t('agent.session.dialogSearchPlaceholder')" class="nb-ui-native-input min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]">
                     <IconButton
                         ref="filterButtonRef"
                         size="sm"
@@ -307,27 +307,27 @@ onClickOutside(filterPanelRef, () => {
                             <section>
                                 <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">{{ t("agent.session.profile") }}</div>
                                 <div class="grid grid-cols-2 gap-1.5">
-                                    <button v-for="item in profileItems" :key="item.value" type="button" class="rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="profileFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="profileFilter = item.value">{{ item.label }}</button>
+                                    <button v-for="item in profileItems" :key="item.value" type="button" :aria-pressed="profileFilter === item.value" class="cursor-pointer rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="profileFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="profileFilter = item.value">{{ item.label }}</button>
                                 </div>
                             </section>
 
                             <section>
                                 <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">{{ t("agent.session.status") }}</div>
                                 <div class="grid grid-cols-2 gap-1.5">
-                                    <button v-for="item in statusItems" :key="item.value" type="button" class="rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="statusFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="statusFilter = item.value">{{ item.label }}</button>
+                                    <button v-for="item in statusItems" :key="item.value" type="button" :aria-pressed="statusFilter === item.value" class="cursor-pointer rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="statusFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="statusFilter = item.value">{{ item.label }}</button>
                                 </div>
                             </section>
 
                             <section>
                                 <div class="mb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">{{ t("agent.session.relation") }}</div>
                                 <div class="grid grid-cols-3 gap-1.5">
-                                    <button v-for="item in relationItems" :key="item.value" type="button" class="rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="relationFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="relationFilter = item.value">{{ item.label }}</button>
+                                    <button v-for="item in relationItems" :key="item.value" type="button" :aria-pressed="relationFilter === item.value" class="cursor-pointer rounded-md border px-2 py-1.5 text-[11px] transition-colors" :class="relationFilter === item.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]'" @click="relationFilter = item.value">{{ item.label }}</button>
                                 </div>
                             </section>
 
                             <div class="grid grid-cols-2 gap-2 text-[11px] text-[var(--text-secondary)]">
-                                <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 hover:bg-[var(--bg-hover)]" @click="resetFilters">{{ t("agent.session.resetFilters") }}</button>
-                                <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 hover:bg-[var(--bg-hover)]" @click="sessionSearch = ''">{{ t("agent.session.clearSearch") }}</button>
+                                <button type="button" class="cursor-pointer rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 hover:bg-[var(--bg-hover)]" @click="resetFilters">{{ t("agent.session.resetFilters") }}</button>
+                                <button type="button" class="cursor-pointer rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 hover:bg-[var(--bg-hover)]" @click="sessionSearch = ''">{{ t("agent.session.clearSearch") }}</button>
                             </div>
                         </div>
                     </div>
@@ -339,13 +339,13 @@ onClickOutside(filterPanelRef, () => {
                 <div
                     v-for="session in listedSessions"
                     :key="session.sessionId"
-                    class="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-all duration-200"
+                    class="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-[border-color,background-color,color,box-shadow] duration-200"
                     :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] shadow-sm' : 'border-[var(--border-color)] bg-transparent hover:bg-[var(--bg-hover)]'"
                     @click="emit('select', session.sessionId)"
                 >
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-2.5">
-                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200" :class="session.parentSessionId ? 'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
+                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-[border-color,background-color,color] duration-200" :class="session.parentSessionId ? 'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
                                 <span :class="session.parentSessionId ? 'i-lucide-bot' : 'i-lucide-crown'" class="h-4.5 w-4.5"></span>
                             </div>
                             <span class="truncate text-sm font-semibold text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ sessionTitle(session) }}</span>

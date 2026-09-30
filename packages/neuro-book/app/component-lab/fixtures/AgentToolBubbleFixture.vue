@@ -1,28 +1,10 @@
 <script setup lang="ts">
 import AgentToolBubble from "../../components/novel-ide/agent/bubbles/tools/AgentToolBubble.vue";
+import {useLabSubject, type LabFixtureProps} from "../lab-subject";
 import type {AgentToolCall} from "../../components/novel-ide/agent/agent-message";
-
-const props = defineProps<{
-    scene: string;
-    data?: unknown;
-}>();
-
-const toolCall: AgentToolCall = {
-    id: "tb-call-1",
-    index: 0,
-    name: "read_file",
-    argsText: JSON.stringify({path: "chapters/01.md"}),
-    status: "success",
-    result: "章回内容预览...",
-};
+const props = defineProps<LabFixtureProps>();
+const subject = useLabSubject<typeof AgentToolBubble>(() => props.input);
 </script>
-
 <template>
-    <div class="w-full p-4">
-        <AgentToolBubble
-            data-lab-subject
-            class="w-full"
-            :tool-call="toolCall"
-        />
-    </div>
+    <div class="w-full p-4"><AgentToolBubble data-lab-subject class="w-full" v-bind="subject.bindings.value" :tool-call="subject.bindings.value.toolCall as AgentToolCall" /></div>
 </template>

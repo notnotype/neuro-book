@@ -3,15 +3,27 @@ import {computed, onBeforeUnmount, onMounted, ref} from "vue";
 import {useLabControlsRegister} from "./lab-event-sink";
 
 const register = useLabControlsRegister();
-const isClient = ref(false);
+const isClient = ref(typeof document !== "undefined");
+let registered = false;
+
+if (typeof document !== "undefined") {
+    register(true);
+    registered = true;
+}
 
 onMounted(() => {
     isClient.value = true;
-    register(true);
+    if (!registered) {
+        register(true);
+        registered = true;
+    }
 });
 
 onBeforeUnmount(() => {
-    register(false);
+    if (registered) {
+        register(false);
+        registered = false;
+    }
 });
 
 const canTeleport = computed(() => {

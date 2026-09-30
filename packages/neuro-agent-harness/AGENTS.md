@@ -4,7 +4,8 @@
 
 ## 项目边界
 
-- `neuro-agent-harness` 是独立的、宿主无关的 TypeScript Agent Harness；NeuroBook 是对照消费者，不是本项目的运行时依赖。
+- 本包已冻结：只服务 llmlint，不接收新功能，待 llmlint 退出后处置（开发者决定见 [w00002 t01 context](../../.agents/works/w00002-neuro-agent-harness-redesign/tasks/t01-product-host-success-research/context.md)）。NeuroBook 的 harness 由 w00002 在 [`packages/nb-harness`](../nb-harness/AGENTS.md) 重建。
+- 本包现状：独立的、宿主无关的 TypeScript Agent Harness；NeuroBook 不是本包的运行时依赖。
 - Core 保持宿主无关；NeuroBook、Nuxt、Prisma、Pi、provider、路径和 UI 逻辑通过 Adapter、Capability 或 Workflow 注入。
 - Core 不依赖 NeuroBook、llmlint、Nuxt、Prisma、Vue 或具体 Project Workspace 布局。
 
@@ -14,7 +15,7 @@
 2. 从公开导出追到实现和行为测试；涉及 Session、Invocation、Snapshot、Event Cursor、Store、Capability、Workflow、Approval、Compaction 或 Tool 调度时，以 `CONTEXT.md` 和对应设计文档为准。
 3. 做最小变更；公共合同变化同步类型、导出、测试和文档。
 4. 按风险先跑聚焦测试，再跑 `bun run verify`；涉及打包或发布边界时再跑 `bun run pack:smoke`，分别报告各项结果和未运行项。
-5. 跨模块、架构、公共合同、goal 或包内新工作统一在根 `.agents/works/` 建立或复用 Work，并在其下创建带 canonical role 的 Task；每轮把变更、证据、未验证项、绕道和下一步写回该 Task 引用的报告或 evidence。
+5. 跨模块、架构、公共合同、goal 或包内新工作统一在根 `.agents/works/` 建立或复用 Work，并在 Work 内维护 current Task（不设正式角色）；每轮把变更、证据、未验证项、绕道和下一步写回该 Task 引用的报告或 evidence。
 
 ## 项目合同
 

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {Dialog} from "@notnotype/nb-ui/components";
+import {computed, nextTick, ref, watch} from "vue";
+import {Button, Dialog, IconButton} from "@notnotype/nb-ui/components";
 import type {SessionTreeNode} from "nbook/server/agent/session/types";
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
 import {
@@ -24,6 +25,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
     (e: "select", entryId: string): void;
+    (e: "copy-id", value: string): void;
 }>();
 
 const search = ref("");
@@ -440,7 +442,11 @@ function activateSelected(): void {
  * 复制 entry id。
  */
 async function copyId(value: string | null | undefined): Promise<void> {
-    if (!value || !import.meta.client) {
+    if (!value) {
+        return;
+    }
+    emit("copy-id", value);
+    if (!import.meta.client || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
         return;
     }
     await navigator.clipboard.writeText(value);
@@ -493,15 +499,15 @@ function handleKeyDown(e: KeyboardEvent): void {
         :teleport-target="props.teleportTarget"
         width="min(1560px, calc(100vw - 16px))"
         height="min(920px, calc(100vh - 16px))"
-        body-class="!p-0 !gap-0 !overflow-hidden !bg-[var(--bg-main)]"
-        header-class="!px-4 !py-3 !bg-[var(--bg-main)]"
+        body-class="!p-0 !gap-0 !overflow-hidden"
+        header-class="!px-4 !py-3"
         :show-footer="false"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <template #header>
             <div class="flex min-w-0 flex-1 items-center justify-between gap-4">
                 <div class="flex min-w-0 items-center gap-3">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--accent-text)]">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-subtle)] text-[var(--accent-text)]">
                         <span class="i-lucide-git-branch h-4.5 w-4.5"></span>
                     </span>
                     <div class="min-w-0">
@@ -513,27 +519,34 @@ function handleKeyDown(e: KeyboardEvent): void {
                         </div>
                     </div>
                 </div>
-                <button type="button" class="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :aria-label="t('agent.sessionTree.close')" @click="emit('update:modelValue', false)">
+                <IconButton
+                    size="sm"
+                    variant="default"
+                    :title="t('agent.sessionTree.close')"
+                    :aria-label="t('agent.sessionTree.close')"
+                    @click="emit('update:modelValue', false)"
+                >
                     <span class="i-lucide-x h-4 w-4"></span>
-                </button>
+                </IconButton>
             </div>
         </template>
 
-        <div class="flex min-h-0 flex-1 bg-[var(--bg-main)]">
+        <div class="flex min-h-0 flex-1 flex-col bg-[var(--bg-panel)] lg:flex-row">
             <!-- Tree 主列表 -->
-            <div class="flex min-w-0 flex-1 flex-col border-r border-[var(--border-color)] bg-[var(--bg-main)]">
-                <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--toolbar-surface)]/95 px-3 py-2 backdrop-blur">
-                    <div class="flex h-8 min-w-[280px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 shadow-sm">
+            <div class="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-panel)] lg:border-r lg:border-[var(--border-color)]">
+                <div class="sticky top-0 z-20 flex flex-wrap items-center gap-2 border-b border-[var(--border-color)] bg-[var(--bg-subtle)] px-3 py-2">
+                    <div class="flex h-8 min-w-[180px] flex-1 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 shadow-sm">
                         <span class="i-lucide-search h-4 w-4 shrink-0 text-[var(--text-muted)]"></span>
-                        <input v-model="search" class="min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" :placeholder="t('agent.sessionTree.searchPlaceholder')" />
+                        <input v-model="search" class="nb-ui-native-input min-w-0 flex-1 bg-transparent text-sm text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" :placeholder="t('agent.sessionTree.searchPlaceholder')" />
                     </div>
-                    <div class="flex h-8 overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 shadow-sm">
+                    <div class="flex h-8 max-w-full overflow-x-auto rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 shadow-sm">
                         <button
                             v-for="option in filterOptions"
                             :key="option.value"
                             type="button"
-                            class="min-w-[74px] rounded px-2.5 text-xs font-medium transition-colors"
+                            class="min-w-[64px] shrink-0 rounded px-2.5 text-xs font-medium transition-colors"
                             :class="filterMode === option.value ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                            :aria-pressed="filterMode === option.value"
                             :title="option.title"
                             @click="filterMode = option.value"
                         >
@@ -604,20 +617,27 @@ function handleKeyDown(e: KeyboardEvent): void {
             </div>
 
             <!-- 节点详情 -->
-            <aside class="flex w-[440px] shrink-0 flex-col bg-[var(--bg-panel)]">
-                <div class="border-b border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
+            <aside class="flex max-h-[45%] w-full shrink-0 flex-col border-t border-[var(--border-color)] bg-[var(--bg-subtle)] lg:max-h-none lg:w-[380px] lg:border-t-0 xl:w-[440px]">
+                <div class="border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
                     <div class="flex min-w-0 items-center justify-between gap-3">
                         <div class="min-w-0">
                             <div class="text-sm font-semibold text-[var(--text-main)]">{{ t("agent.sessionTree.details") }}</div>
                             <div class="mt-1 truncate font-mono text-[11px] text-[var(--text-muted)]">{{ selectedEntryLabel }}</div>
                         </div>
-                        <button v-if="selectedNode" type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('agent.sessionTree.copyEntryId')" @click="void copyId(selectedNode.id)">
+                        <IconButton
+                            v-if="selectedNode"
+                            size="sm"
+                            variant="default"
+                            :title="t('agent.sessionTree.copyEntryId')"
+                            :aria-label="t('agent.sessionTree.copyEntryId')"
+                            @click="void copyId(selectedNode.id)"
+                        >
                             <span class="i-lucide-copy h-3.5 w-3.5"></span>
-                        </button>
+                        </IconButton>
                     </div>
                 </div>
                 <div v-if="selectedNode" class="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-                    <div class="mb-4 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+                    <div class="mb-4 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
                         <div class="flex min-w-0 items-center gap-2">
                             <span :class="nodeIcon(selectedNode)" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
                             <span class="min-w-0 truncate rounded border px-2 py-1 text-xs font-medium" :class="roleToneClass(selectedNode)" :title="roleTitle(selectedNode)">{{ roleLabel(selectedNode) }}</span>
@@ -632,14 +652,14 @@ function handleKeyDown(e: KeyboardEvent): void {
                         {{ t("agent.sessionTree.structureOnly") }}
                     </div>
 
-                    <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-main)] p-3 text-xs">
+                    <div class="mt-4 space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 text-xs">
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Entry ID</span>
-                            <button class="min-w-0 truncate font-mono text-[var(--accent-text)]" :title="selectedNode.id" @click="void copyId(selectedNode.id)">{{ shortEntryId(selectedNode.id) }}</button>
+                            <button type="button" class="min-w-0 truncate font-mono text-[var(--accent-text)]" :title="selectedNode.id" @click="void copyId(selectedNode.id)">{{ shortEntryId(selectedNode.id) }}</button>
                         </div>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Parent</span>
-                            <button class="min-w-0 truncate font-mono text-[var(--text-secondary)]" :title="selectedNode.parentId ?? '-'" @click="void copyId(selectedNode.parentId)">{{ selectedNode.parentId ? shortEntryId(selectedNode.parentId) : "-" }}</button>
+                            <button type="button" class="min-w-0 truncate font-mono text-[var(--text-secondary)]" :title="selectedNode.parentId ?? '-'" @click="void copyId(selectedNode.parentId)">{{ selectedNode.parentId ? shortEntryId(selectedNode.parentId) : "-" }}</button>
                         </div>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-[var(--text-muted)]">Type</span>
@@ -658,11 +678,17 @@ function handleKeyDown(e: KeyboardEvent): void {
                 <div v-else class="flex flex-1 items-center justify-center px-4 text-sm text-[var(--text-muted)]">
                     {{ t("agent.sessionTree.selectNodeHint") }}
                 </div>
-                <div class="border-t border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
-                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-[var(--text-inverse)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !props.canActivate || !selectedNode" @click="activateSelected">
-                        <span class="i-lucide-git-branch h-4 w-4"></span>
+                <div class="border-t border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+                    <Button
+                        size="md"
+                        variant="primary"
+                        class="w-full justify-center"
+                        icon-class="i-lucide-git-branch"
+                        :disabled="props.running || !props.canActivate || !selectedNode"
+                        @click="activateSelected"
+                    >
                         {{ t("agent.sessionTree.activateNode") }}
-                    </button>
+                    </Button>
                 </div>
             </aside>
         </div>

@@ -20,22 +20,24 @@ Issue 被接受表示方向可以推进，不保证具体实现或完成时间�
 
 ## 本地开发
 
-需要 Git、[Bun](https://bun.sh/) 和改动目标平台所需工具。安装依赖并启动：
+需要 Git、[Bun](https://bun.sh/) 和改动目标平台所需工具。根目录只保留治理、文档和发布编排命令；应用命令在主应用包内执行。安装依赖并启动：
 
 ```bash
 bun install
-bun run dev
+bun run --cwd packages/neuro-book dev
 ```
 
 按改动选择验证：
 
 ```bash
-bun run test -- path/to/relevant.test.ts
-bun run typecheck
+bun run --cwd packages/neuro-book test -- path/to/relevant.test.ts
+bun run --cwd packages/neuro-book typecheck
+bun run --cwd packages/neuro-book build
 bun run docs:check
 bun run docs:build
-bun run build
 ```
+
+其它包的命令见各自 `package.json`。
 
 PR 列出实际命令和结果；没有执行的检查写“未运行”。聚焦测试、全量测试、构建、浏览器和真实 Provider 验收不能互相替代。
 
@@ -52,7 +54,7 @@ PR 列出实际命令和结果；没有执行的检查写“未运行”。聚�
 | [`docs/standards/code/README.md`](docs/standards/code/README.md) | 按改动路径选择前端、服务端、桌面、脚本、数据库或包规范 |
 | [`docs/testing/README.md`](docs/testing/README.md) | 测试、临时根、环境、验收和证据 |
 | [`packages/neuro-book/docs/adr/`](packages/neuro-book/docs/adr/) | 已接受架构决策的理由 |
-| [`.agents/tasks/`](.agents/tasks/README.md) | 重大实现的范围、过程和证据 |
+| [`.agents/works/`](.agents/works/README.md) | 当前 Work/Task：重大实现的范围、过程和证据；`.agents/tasks/` 只保留历史记录 |
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | 仓库现状与当前验收缺口 |
 | [`RELEASE.md`](RELEASE.md) | 发布程序消费的当前版本说明 |
 

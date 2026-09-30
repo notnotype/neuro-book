@@ -20,22 +20,24 @@ Issue acceptance approves a direction, not a specific implementation or delivery
 
 ## Local Development
 
-You need Git, [Bun](https://bun.sh/), and tools required by the target platform. Install and start with:
+You need Git, [Bun](https://bun.sh/), and tools required by the target platform. The repository root only keeps governance, documentation, and release orchestration commands; application commands run inside the main application package. Install and start with:
 
 ```bash
 bun install
-bun run dev
+bun run --cwd packages/neuro-book dev
 ```
 
 Choose checks that cover the change:
 
 ```bash
-bun run test -- path/to/relevant.test.ts
-bun run typecheck
+bun run --cwd packages/neuro-book test -- path/to/relevant.test.ts
+bun run --cwd packages/neuro-book typecheck
+bun run --cwd packages/neuro-book build
 bun run docs:check
 bun run docs:build
-bun run build
 ```
+
+Commands for other packages are defined in each package's `package.json`.
 
 List exact commands and results in the PR; mark omitted checks as “not run.” Focused tests, full tests, builds, browser verification, and real-provider acceptance are distinct evidence.
 
@@ -52,7 +54,7 @@ Confirm the current contract before editing:
 | [`docs/standards/code/README.md`](docs/standards/code/README.md) | Route changes to frontend, server, desktop, scripts, database, or package standards |
 | [`docs/testing/README.md`](docs/testing/README.md) | Tests, temporary roots, environment, acceptance, and evidence |
 | [`docs/adr/`](packages/neuro-book/docs/adr/) | Reasons behind accepted architecture decisions |
-| [`.agents/tasks/`](.agents/tasks/README.md) | Scope, process, and evidence for major implementations |
+| [`.agents/works/`](.agents/works/README.md) | Current Work/Task: scope, process, and evidence for major implementations; `.agents/tasks/` only keeps historical records |
 | [`PROJECT-STATUS.md`](PROJECT-STATUS.md) | Repository state and current acceptance gaps |
 | [`RELEASE.md`](RELEASE.md) | Current release payload consumed by release tooling |
 

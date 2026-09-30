@@ -60,7 +60,7 @@ const boxStyle = computed(() => {
     } else {
         // tight 模式：小部件在未指定宽度时，默认给予 640px 舒适操作宽度（不超过视区）
         style.width = "640px";
-        style.maxWidth = "calc(100% - 2 * var(--space-7))";
+        style.maxWidth = "100%";
     }
 
     if (shownHeight.value > 0) {
@@ -315,6 +315,7 @@ function handleKeydown(axis: ResizeAxis, event: KeyboardEvent): void {
     color: var(--text-muted);
     font-family: var(--font-mono);
     font-size: var(--text-xs);
+    line-height: 16px;
 }
 
 /* 盒子是内容盒：默认厚玻璃的面板色，被测组件才有一个确定的底。

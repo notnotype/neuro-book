@@ -10,7 +10,7 @@
 
 一个 Part 的宿主：**容器选择器**（Panel / 右栏的标签带，或主侧栏的可拖标题）+ **容器落点** + **活动容器的挂载目标** + **`single` 的 View 动作上提**。
 
-它把「一个 Part 只显示一个活动容器」这条规则落成界面：Panel 与右栏用标签带（只有一个容器也保留——容器标签本身还是拖动源与落点），主侧栏（`left`）**不画**第二套标签带（那里由 Activity Bar 的主入口组选容器，Part 头只显示当前容器的可拖标题；不再用容器数量推断要不要画 tab）。活动容器的挂载目标登记给 `WorkbenchContainerInstances`，由它把容器的 `WorkbenchViewHost` 搬进来，未活动容器停在那一层的 parking。容器整体也可以从这里拖走或从菜单移到别的落位。
+它把「一个 Part 只显示一个活动容器」这条规则落成界面：Panel 与右栏用标签带（只有一个容器也保留——容器标签本身还是拖动源与落点），主侧栏（`left`）**不画**第二套标签带（那里由 Activity Bar 的主入口组选容器）。主侧栏在 `single` 时显示当前容器名，这一行除动作区外可拖走容器；`multiple` 时不渲染容器标题行，各 View 保留自己的标题，容器只留不可见拖动源。活动容器的挂载目标登记给 `WorkbenchContainerInstances`，由它把容器的 `WorkbenchViewHost` 搬进来，未活动容器停在那一层的 parking。容器整体也可以从这里拖走或从菜单移到别的落位。
 
 容器里只有一个**可见** View 时（`mode === "single"`），那个 View 的 Section 不渲染标题（见 `WorkbenchViewSection`），它的贡献动作与「移动到」入口在这里投射到容器右上角：一组标记为 `[data-title-actions="view"]` 的动作（`data-action-view-id` / `data-action-generation`），排列是 View 贡献 → 容器管理 → Part 框架。动作仍是 **View** 的命令：回传同一个 `{scope:"view", target:{viewId,generation}}`，沿用既有执行闸门，不复制 handler。
 

@@ -1,7 +1,7 @@
 import {markRaw, type Component} from "vue";
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentEditFileBubble from "nbook/app/components/novel-ide/agent/bubbles/tools/AgentEditFileBubble.vue";
-import AgentRequestUserInputBubble from "nbook/app/components/novel-ide/agent/bubbles/interactive/AgentRequestUserInputBubble.vue";
+import AgentRequestUserInputCard from "nbook/app/components/novel-ide/agent/bubbles/interactive/AgentRequestUserInputCard.vue";
 import AgentSwitchModeBubble from "nbook/app/components/novel-ide/agent/bubbles/interactive/AgentSwitchModeBubble.vue";
 import AgentWriteFileBubble from "nbook/app/components/novel-ide/agent/bubbles/tools/AgentWriteFileBubble.vue";
 import AgentApplyPatchBubble from "nbook/app/components/novel-ide/agent/bubbles/tools/AgentApplyPatchBubble.vue";
@@ -27,10 +27,10 @@ const DEFAULT_TOOL_RENDER_CONFIG: AgentToolRenderConfig = {
 
 const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
     request_user_input: {
-        mode: "block",
+        mode: "message",
         typeLabel: "Question",
         collapsedPreviewKey: "agent.tool.waitingUserAnswer",
-        component: markRaw(AgentRequestUserInputBubble),
+        component: markRaw(AgentRequestUserInputCard),
     },
     switch_mode: {
         mode: "message",

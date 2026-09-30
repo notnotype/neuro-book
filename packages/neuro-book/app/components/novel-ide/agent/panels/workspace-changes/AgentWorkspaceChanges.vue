@@ -111,7 +111,7 @@ function availableDiff(group: WorkspaceHistoryInboxGroupDto): Extract<WorkspaceH
                     <span v-if="props.groups[0]" class="max-w-[38%] truncate font-mono text-[10px] text-[var(--text-muted)]" :title="props.groups[0].path">{{ props.groups[0].path }}</span>
                     <span class="i-lucide-chevron-down h-3 w-3 shrink-0 text-[var(--text-muted)] transition-transform duration-200" :class="props.expanded ? 'rotate-180' : ''"></span>
                 </button>
-                <button v-if="props.groups.length > 0" type="button" class="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-1.5 text-[10px] font-medium text-[var(--status-success)] transition-all duration-150 hover:border-[var(--status-success)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45" :disabled="props.acceptingAll || props.busyPath !== null" @click="emit('accept-all')">
+                <button v-if="props.groups.length > 0" type="button" class="inline-flex h-6 shrink-0 items-center gap-1 rounded border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-1.5 text-[10px] font-medium text-[var(--status-success)] transition-[border-color,background-color,color,transform,opacity] duration-150 hover:border-[var(--status-success)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45" :disabled="props.acceptingAll || props.busyPath !== null" @click="emit('accept-all')">
                     <span :class="props.acceptingAll ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check-check'" class="h-2.5 w-2.5"></span>
                     <span>{{ t("agent.workspaceChanges.acceptAll") }}</span>
                 </button>
@@ -146,7 +146,7 @@ function availableDiff(group: WorkspaceHistoryInboxGroupDto): Extract<WorkspaceH
                                             <span class="i-lucide-external-link h-2.5 w-2.5"></span>
                                             <span>{{ t("agent.workspaceChanges.open") }}</span>
                                         </button>
-                                        <button type="button" class="inline-flex h-5 shrink-0 items-center gap-0.5 rounded border border-[var(--status-success-border)] px-1.5 text-[10px] font-medium text-[var(--status-success)] transition-all duration-150 hover:bg-[var(--status-success-bg)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45" :disabled="props.busyPath !== null || props.acceptingAll" @click="emit('accept-group', group)">
+                                        <button type="button" class="inline-flex h-5 shrink-0 items-center gap-0.5 rounded border border-[var(--status-success-border)] px-1.5 text-[10px] font-medium text-[var(--status-success)] transition-[border-color,background-color,color,transform,opacity] duration-150 hover:bg-[var(--status-success-bg)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-45" :disabled="props.busyPath !== null || props.acceptingAll" @click="emit('accept-group', group)">
                                             <span :class="props.busyPath === group.path ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check'" class="h-2.5 w-2.5"></span>
                                             <span>{{ t("agent.workspaceChanges.accept") }}</span>
                                         </button>
