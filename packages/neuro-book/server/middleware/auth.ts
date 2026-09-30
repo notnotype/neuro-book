@@ -19,6 +19,10 @@ export function isPublicPath(pathname: string): boolean {
     if (publicApiPaths.has(pathname)) {
         return true;
     }
+    // API 路径的末段可能是用户可控的 id 或文件名，只按显式白名单公开，不能按扩展名判为静态资源。
+    if (isApiRequest(pathname)) {
+        return false;
+    }
     if (pathname.startsWith("/_nuxt/") || pathname.startsWith("/__nuxt")) {
         return true;
     }

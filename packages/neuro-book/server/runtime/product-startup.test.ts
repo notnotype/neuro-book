@@ -1,7 +1,7 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
-import type {productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles} from "nbook/server/runtime/product-startup";
+import type {exitOnProductStartupFailure, productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles} from "nbook/server/runtime/product-startup";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
@@ -50,6 +50,7 @@ let runtime: {
     stopProductRuntime: typeof stopProductRuntime;
     productProjectOwner: typeof productProjectOwner;
     withProductWorkspaceFiles: typeof withProductWorkspaceFiles;
+    exitOnProductStartupFailure: typeof exitOnProductStartupFailure;
 };
 const productGlobals = globalThis as typeof globalThis & {__nbookProductApplicationV1?: unknown};
 
@@ -283,5 +284,20 @@ describe("Product startup", () => {
         await expect(runtime.productRuntimeReady()).rejects.toThrow("migration pending");
 
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
+    });
+
+    it("启动门禁失败时记录fatal诊断并请求有序退出，而不是依赖未捕获异常", async () => {
+        const failure = new Error("migration pending");
+        mocks.assertProductMigrationsReady.mockRejectedValue(failure);
+
+        await runtime.productRuntimeReady().catch(runtime.exitOnProductStartupFailure);
+
+        expect(mocks.fatalSync).toHaveBeenCalledWith(
+            "runtime.startup.failed",
+            undefined,
+            failure,
+            expect.stringContaining("有序关闭"),
+        );
+        expect(mocks.requestProcessExit).toHaveBeenCalledWith(1);
     });
 });

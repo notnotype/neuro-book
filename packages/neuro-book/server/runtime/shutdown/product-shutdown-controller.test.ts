@@ -154,4 +154,22 @@ describe("ProductShutdownController", () => {
 
         expect(exits).toEqual([PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED]);
     });
+
+    it("lease失效后启动失败再请求通用失败码时保留专用退出码", async () => {
+        const exits: number[] = [];
+        const scheduled: Array<() => void> = [];
+        const controller = new ProductShutdownController([], {
+            exit: (code) => exits.push(code),
+            schedule: (task) => scheduled.push(task),
+        });
+
+        controller.requestProcessExit(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
+        controller.requestProcessExit(1);
+        scheduled[0]!();
+        await controller.shutdown();
+        await Promise.resolve();
+
+        expect(scheduled).toHaveLength(1);
+        expect(exits).toEqual([PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED]);
+    });
 });
