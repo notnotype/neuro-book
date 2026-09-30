@@ -8,6 +8,8 @@
 
 2026-09-26 开发者确认 Files 首版 F1–F9，批准首版实施计划并要求逐步执行、逐步验证；2026-09-27 又明确批准合同逐条复核、收口。第一版[独立设计](../../../packages/neuro-book/docs/proposals/files-explorer.md)与两项 `planned` 合同是本轮依据；[第二版](../../../packages/neuro-book/docs/proposals/files-explorer-v2.md)仍为 `draft`，不改变切片顺序，也不纳入本轮。仅允许既定本地可逆开发及自建 Temp/隔离服务验证，提交与远端动作仍需分别授权。
 
+2026-09-28 开发者重做需求并接受 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。此后的推进路线（地基 → Files 竖切 → 扩展点 → 文生图验收）以[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md)为准，该设计已于 2026-09-30 接受；下文 Settings、World/Plot 的功能切片不再是既定顺序，第一、二片与 Lab、Files 的记录保留为已执行的实施路径。
+
 ## 分段原则
 
 1. 首片做到地基可运行即止：不以“还没有 Files”掩盖内核无法独立启动/停止，也不为验证地基先启动整个 Agent/Project。

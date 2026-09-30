@@ -2,6 +2,8 @@
 
 状态：accepted（2026-09-13 已获批准）
 
+2026-09-28 部分修订：[ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md) 开放可执行第三方插件（本文的 L3），取代本文“不开放 L3”的非目标。视图组件改由拥有者插件在激活时交给 workbench，不再由宿主静态白名单解析 `factoryKey`；descriptor 仍不含组件与模块路径，布局算法、视图实例模型与布局状态分层保留。见[可扩展应用平台 P7](extensible-application-platform.md#p7-浏览器宿主与第三方界面)。
+
 对应 Issue：[#192 建立类 VS Code 的 Workbench 与 View Host 抽象](https://github.com/notnotype/neuro-book/issues/192)（硬前置 #191 主应用 nb-ui 底座迁移）。
 
 本提案引用先行调查用相对路径（如 [`../research/vscode/03-workbench-layout-views.md`](../research/vscode/03-workbench-layout-views.md)）；「研究 03」指该文件，同类的 08、12、15 同理。

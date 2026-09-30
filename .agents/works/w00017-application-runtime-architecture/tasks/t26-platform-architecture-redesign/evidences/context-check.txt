@@ -1,0 +1,22 @@
+$ bun scripts/cli/agent-context.ts --work "w00017-application-runtime-architecture" --task "t26-platform-architecture-redesign"
+{
+  "schema": "nbook.governance-context/v2",
+  "repoRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "revision": "334cbc8846deac2fcc5a6675a77b79108aaef4f9",
+  "branch": "refactor/w00017-runtime-foundation",
+  "worktree": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "work": "w00017-application-runtime-architecture",
+  "workReadme": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/README.md",
+  "task": "t26-platform-architecture-redesign",
+  "taskReadme": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/README.md",
+  "status": "NeuroBook 当前处于快速开发阶段，产品主线已收敛到 Novel 写作模式 v1；核心数据与运行时合同基本落地，主要缺口是 stable 发布、真实 Provider、完整浏览器流程和持续作者试用。",
+  "roots": {
+    "agentRoot": "/tmp/neuro-book",
+    "testRoot": "/tmp/neuro-book/vitest/00000000",
+    "acceptanceRoot": "/tmp/neuro-book/acceptance/product-runtime",
+    "cacheRoot": "/tmp/neuro-book/cache/source-dev",
+    "worktreeRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree"
+  },
+  "trackedChanges": " M .agents/works/w00002-neuro-agent-harness-redesign/README.md\n M .agents/works/w00017-application-runtime-architecture/README.md\n M .agents/works/w00017-application-runtime-architecture/implementation-plan.md\n M docs/proposals/README.md\n M packages/neuro-book/docs/proposals/application-runtime-and-plugins.md\n M packages/neuro-book/docs/proposals/application-runtime-product-integration.md\n M packages/neuro-book/docs/proposals/workbench-view-host.md\n M packages/neuro-book/docs/research/README.md\n?? .agents/works/w00002-neuro-agent-harness-redesign/research/2026-09-29-plugin-agent-tools-and-profiles.md\n?? .agents/works/w00017-application-runtime-architecture/tasks/t26-platform-architecture-redesign/\n?? packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md\n?? packages/neuro-book/docs/proposals/extensible-application-platform.md\n?? packages/neuro-book/docs/research/cordis-plugin-kernel.md\n?? packages/neuro-book/docs/research/runtime-module-unloading.md",
+  "failures": []
+}

@@ -1,0 +1,15 @@
+# 2026-09-29T07:49:51Z Linux 7.2.7-arch1-1 bun 1.4.2
+## probe.mjs
+worker 死循环 300ms 期间主线程定时器触发 31 次（期望约 30）
+terminate 返回 exitCode=1，耗时 3.2ms
+主线程同步阻塞 500ms 后，50ms 定时器是否已触发：false（阻塞期间不可能触发）
+让出一次事件循环后：true
+启动 5 个空 worker 平均 13.8ms/个，RSS 增加约 4MB/个
+1000 次 postMessage 往返平均 16µs
+bun 1.4.2
+## probe2.mjs
+限额 64MB：最后分配到第 59 块（每块约 10MB），结果=done-without-limit，exit=0，主进程存活
+RSS：开始 35MB，worker 结束时 646MB，GC 后 43MB
+## probe3.mjs
+throws.mjs: exit=1 error=plugin bug，主进程继续运行
+exits.mjs: exit=3 error=null，主进程继续运行

@@ -9,7 +9,8 @@
 - [`../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md`](../../packages/neuro-book/docs/proposals/agent-model-execution-surfaces.md)：Harness Agent、completion 与 headless 三套调用面、Catalog、授权和 Workflow 重放边界，状态为 `accepted`。
 - [`p-005-development-workflow-governance.md`](./p-005-development-workflow-governance.md)：`P-005`，Work 本地登记、无正式角色的 Task 当前快照、主 Agent 直接执行与按需协调、专项技能和最小充分验证，状态为 `accepted`。
 - [应用运行时与内置插件架构](../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：基础方向 `accepted`；只维护架构、生命周期和能力地图，第一、二片已实现，Lab 状态见关联 Work。
-- [应用运行时产品装配](../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md)：从启动到 Project/工作台及领域接入的细化方案，`reviewing`；从总提案迁出，不新增实现授权。
+- [应用运行时产品装配](../../packages/neuro-book/docs/proposals/application-runtime-product-integration.md)：从启动到 Project/工作台及领域接入的细化方案，`reviewing`；从总提案迁出，不新增实现授权。后端启动与 HTTP 入口部分已由下一项替代。
+- [可扩展应用平台](../../packages/neuro-book/docs/proposals/extensible-application-platform.md)：内核拥有进程、领域能力皆为内置插件、第三方插件免构建安装、运行期热插拔、插件通道与远程形态 API 的机制设计及推进路线，`accepted`（2026-09-30）；已确认的长期决定见 [ADR 0022](../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。
 - [Files 与资源管理器第一版](../../packages/neuro-book/docs/proposals/files-explorer.md)：范围及 F1–F9 `accepted`，行为已原位沉淀为 `workspace.files` / `workbench.files-explorer`（`planned`）；保留设计理由、内部接缝与待验证性能依据，尚未实施。
 - [Files 与资源管理器第二版](../../packages/neuro-book/docs/proposals/files-explorer-v2.md)：`draft`；快速打开与删除恢复为核心方向，全文搜索/内容整理/导入导出为候选，不扩大第一版验收。
 - [`model-roles-contract.md`](./model-roles-contract.md)：模型角色的后端契约（全局配置 `roles` 段、按 role 解析模型的优先级、本地模型已由 Provider 机制覆盖的结论），状态为 `draft`，等待「未决取舍」拍板。

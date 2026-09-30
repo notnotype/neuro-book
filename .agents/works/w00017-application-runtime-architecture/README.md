@@ -14,6 +14,7 @@ issueId: null
 2. 第二切片以内置服务插件检验地基；当前最小真实集合为**诊断、平台文件、SQLite**。其它应用服务随首次真实功能消费接入，不先搬完所有后台。
 3. 后续按**外部插件开发者视角**推进 Lab → Files → Settings → World/Plot，不把第三方市场/SDK/沙箱引入当前范围。
 4. 开发者要求先等 w00003 合并 master 再创建 w00017 worktree；该条件已于 `bb688931`（Merge branch `refactor/w00003-nb-ui-adoption` into master）满足，实现 worktree 已创建，t05–t09 已按批准的实施计划执行。
+5. 2026-09-28 开发者重做需求分析并确认 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)：开放第三方可执行插件；内核拥有进程，HTTP、workbench、Agent、模型等都是内置插件；第一版完全信任、公开 API 为远程形态。第 3 条的第三方范围与 Files 之后的顺序由此改为“地基 → Files 竖切 → 扩展点 → 文生图验收”。机制设计见 [t26](tasks/t26-platform-architecture-redesign/README.md)，设计稿于 2026-09-30 `accepted`；实施前先由 [t27](tasks/t27-platform-risk-gates/README.md) 验证风险门 G0、G1、G2。
 
 规范、Work、整体路径、Task 与审查证据在主线提交 `bc144b2d`。第一片（t05–t09）与第二片（t10–t13）的七项 Spec 已晋升 `implemented`；[t14 Lab 宿主边界](tasks/t14-lab-host-boundary/README.md) 将 LabShell 常驻产品命令宿主收回命令场景，直接打开 `/lab` 跳过产品配色与旧桶迁移，保持 Lab 自有检视和偏好。2026-09-26 开发者报告在 `http://localhost:3000/lab` 完成人工验证，目前未发现问题；后续 [t15 Files 设计](tasks/t15-files-explorer-design/README.md) 纳入文件切换性能重构与主页面左侧资源管理器迁入 Lab。Files 切片期间已将进程级 Session Store gate 和 Project generation owner 接入 runtime.application；产品日志器与既有数据库仍走旧入口。未执行 push、PR、合并或真实模型验收。开发者 2026-09-23 决定首两片一起合，第三片按方案 B 继续本地实施；远端操作仍需授权。
 
@@ -22,6 +23,7 @@ issueId: null
 ## 规范与实施入口
 
 - [总体提案](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)：`accepted` 为基础架构与分段方向；任意热卸载/代码升级仍仅评估，未纳入当前实施。
+- [可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md)：`accepted`（2026-09-30），2026-09-28 需求重做后的内核、插件模型、热插拔、插件通道与推进路线；已确认的长期决定见 [ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md)。
 - 第一片 `implemented`：[runtime.lifecycle](../../../docs/specs/runtime/lifecycle.md)、[runtime.services](../../../docs/specs/runtime/services.md)、[runtime.plugins](../../../docs/specs/runtime/plugins.md)、[runtime.application](../../../docs/specs/runtime/application.md)（受控装配入口；进程级产品门禁/Session Store lease 及 Project generation owner 已接入）。
 - 第二片 `implemented`：[runtime.diagnostics](../../../docs/specs/runtime/diagnostics.md)、[platform.files](../../../docs/specs/platform/files.md)、[platform.sqlite](../../../docs/specs/platform/sqlite.md)（真实服务插件；产品日志器与既有数据库尚未迁入）。
 - Files 首版 `planned`：[workspace.files](../../../docs/specs/workspace/files.md)、[workbench.files-explorer](../../../docs/specs/workbench/files-explorer.md)；F1–F9 产品交互、Project owner、单机浏览器主链与 t25 合同复核已落地；Windows 原子 no-replace 移动本机验证及完整产品镜像构建通过，Linux/macOS、其它文件系统及跨机器基础操作未验收，不等于整体 `implemented`。
@@ -58,11 +60,14 @@ issueId: null
 | [t23](tasks/t23-file-operation-settlement/README.md) | 已完成：复制 dirty 三选一、移动输入结算与成功重绑定、删除影响确认及 dirty/conflict 取消；定向测试/typecheck 与隔离浏览器磁盘验收通过 |
 | [t24](tasks/t24-files-switch-performance/README.md) | 四组永久标签 3×30 热切换与输入撤销通过，富文本单/双组 p95=38.0/42.1 ms，源码单/双组 p95=53.8/53.4 ms；Lab 五态无产品请求，390 px 手机画布可见；双窗口、错误重试、最后标签 Tiptap/Monaco 释放已实测 |
 | [t25](tasks/t25-files-contract-closure/README.md) | 全合同复核与本机修复验收：同名协商、多选删除/原生拖动、源身份、取消/未知结果、EOF 失同步与内置 Files 服务装配；追加原子 no-replace 路径移动、Windows 同名竞争和完整产品镜像构建验证；跨平台与跨机器仍未闭合 |
+| [t26](tasks/t26-platform-architecture-redesign/README.md) | 2026-09-28 需求重做与设计走查：需求记入 ADR 0022；可扩展应用平台设计 2026-09-30 `accepted`；无产品代码改动 |
+| [t27](tasks/t27-platform-risk-gates/README.md) | 风险门 G0（自有服务端入口与 WebSocket 升级）、G1（运行时加载组件共享 Vue 与 nb-ui）、G2（看门狗、进程重启、worker 池）的一次性验证 |
+
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
 ## 执行位置与版本
 
-实现 checkout：`.worktree/w00017-application-runtime-architecture`，分支 `refactor/w00017-runtime-foundation`，基线 `411449ec4c1fbc57cceaeb7aa9d2385132a0d3e0`（master，含 w00003 合并 `bb688931` 与本 Work 七项 Spec 提交 `bc144b2d`）。分支上依次有 t05 提交 `a03c7169`、`3defd3dc`，t06 提交 `c8d7000e`、`b7e7b41c`，规则调整 `e457375d`，t07 提交 `e6ef6f19`、`492bc849`，t08 提交 `0e938172`、`2a17e85f`，t09 提交 `4d0b3c84`、`728acd40`、`b53753b9` 与文档提交 `d8956662`、`eeeec16b`，t10–t13 第二片提交。各 Task 的 `governance:context` 在该 checkout 核实身份，原始输出见各自 evidences。
+实现 checkout：`.worktree/w00017-runtime-foundation`（2026-09-28 `governance:context` 核实的实际路径），分支 `refactor/w00017-runtime-foundation`，基线 `411449ec4c1fbc57cceaeb7aa9d2385132a0d3e0`（master，含 w00003 合并 `bb688931` 与本 Work 七项 Spec 提交 `bc144b2d`）。分支上依次有 t05 提交 `a03c7169`、`3defd3dc`，t06 提交 `c8d7000e`、`b7e7b41c`，规则调整 `e457375d`，t07 提交 `e6ef6f19`、`492bc849`，t08 提交 `0e938172`、`2a17e85f`，t09 提交 `4d0b3c84`、`728acd40`、`b53753b9` 与文档提交 `d8956662`、`eeeec16b`，t10–t13 第二片提交。各 Task 的 `governance:context` 在该 checkout 核实身份，原始输出见各自 evidences。
 
 Work／Task 进度只在实现分支维护；主工作区保持 `master`，其 Work 目录副本是 `bc144b2d` 的占号记录，不回填进度、不在主树切分支。登记按 [编号合同](../README.md#编号分配与记录位置) 本地协调，不要求独立登记 PR 或非 squash 祖先关系。
 

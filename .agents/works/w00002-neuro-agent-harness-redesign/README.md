@@ -23,6 +23,7 @@ issueId: i193
 - [`research/2026-09-11-assembly-cordis-vs-harness.md`](research/2026-09-11-assembly-cordis-vs-harness.md)：装配方式讨论（Cordis/dsh 与自组装）。
 - [`research/2026-09-11-package-map.md`](research/2026-09-11-package-map.md)：通用包候选蓝图（拆什么、什么结构、各包介绍）。
 - [`research/2026-09-18-upstream-reuse-and-event-domain.md`](research/2026-09-18-upstream-reuse-and-event-domain.md)：上游复用取证与事件域讨论。
+- [`research/2026-09-29-plugin-agent-tools-and-profiles.md`](research/2026-09-29-plugin-agent-tools-and-profiles.md)：w00017 移交的问题：插件工具如何装配到 Profile、工具变化与提示词缓存。
 
 ## 2026-09-22 主线接手提交
 

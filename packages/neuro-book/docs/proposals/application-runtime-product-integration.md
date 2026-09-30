@@ -2,6 +2,7 @@
 
 ## 状态与归属
 
+- **2026-09-28 部分替代**：后端启动（S0）与 HTTP 入口改由[可扩展应用平台设计](extensible-application-platform.md#p6-服务端宿主内核拥有进程)的“内核拥有进程”方案承担；其余阶段待按该设计复核后再更新本文。决定依据见 [ADR 0022](../adr/0022-extensible-platform-and-plugin-trust.md)。
 - 状态：`reviewing`（产品装配细化）；基础方向及 Lab → Files → Settings → World/Plot 顺序已在[总提案](application-runtime-and-plugins.md)接受，本文不扩大实现授权。
 - 2026-09-26 从总提案拆出 B/S Tracer Bullet 专题；保留 2026-09-20 调查基线及未实现目标，不把拆分当作重新验收。文中的“主树／w00003”均指当时证据，当前执行快照见 [w00017](../../../../.agents/works/w00017-application-runtime-architecture/README.md)。
 - 本文只拥有跨进程启动、Project ready、工作面构造与领域贡献的接入设计；资源机制见[总提案生命周期矩阵](application-runtime-and-plugins.md#生命周期矩阵)，第一版 Files 产品策略见[独立设计](files-explorer.md)，行为合同见[规范注册表](../../../../docs/specs/README.md)。
