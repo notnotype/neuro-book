@@ -27,4 +27,8 @@ issueId: i193
 
 ## 2026-09-22 主线接手提交
 
-并发 Agent 停止后，t06 交付的三包与工作区/CI 接线由主线提交为 `0ba63939`（`packages/nb-session`、`packages/nb-profile`、`packages/nb-harness`，workspaces、三条 CI 路径过滤与 workspace-package-matrix 检查）。复跑 `bun run --cwd packages/<pkg> typecheck` 与 `test` → 45 用例全部通过。本 Work 无独立 worktree，Linux CI 上的 OMP 原生依赖安装成本尚未实测。
+并发 Agent 停止后，t06 交付的三包与工作区/CI 接线由主线提交为 `0ba63939`（`packages/nb-session`、`packages/nb-profile`、`packages/nb-harness`，workspaces、三条 CI 路径过滤与 workspace-package-matrix 检查）。复跑 `bun run --cwd packages/<pkg> typecheck` 与 `test` → 45 用例全部通过。Linux CI 上的 OMP 原生依赖安装成本尚未实测。
+
+## 2026-10-01 补规范与审查
+
+开发者要求重写 #193 正文，并给三包补 Spec、README、API 文档与示例，顺带审查。执行位置：worktree `.worktree/w00002-neuro-agent-harness-redesign`，分支 `docs/w00002-harness-specs`。五份 `implemented` Spec 位于 [`docs/specs/harness/`](../../../docs/specs/harness/)；审查发现 16 条（3 条高优先级），均未修复。详见 [`t07-harness-specs-and-docs`](tasks/t07-harness-specs-and-docs/README.md)。
