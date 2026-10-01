@@ -49,6 +49,7 @@
     "test:real-model": "vitest run --config vitest.real-model.config.ts",
     "test:runtime-foundation": "vitest run --config vitest.runtime-foundation.config.ts",
     "smoke:runtime-foundation": "node --import tsx scripts/smoke/runtime-foundation.ts",
+    "smoke:product-lifecycle": "bun scripts/smoke/product-lifecycle.ts",
     "smoke:agent": "bun scripts/smoke/agent.ts",
     "smoke:agent-http": "bun scripts/smoke/agent-http.ts",
     "smoke:sqlite-vec": "bun scripts/smoke/sqlite-vec.ts",
@@ -199,7 +200,8 @@
     "vitest": "^4.1.2",
     "vue-tsc": "^3.3.7",
     "llmlint-dev": "workspace:*",
-    "@notnotype/neuro-book-test-support": "workspace:*"
+    "@notnotype/neuro-book-test-support": "workspace:*",
+    "@notnotype/neuro-book-manager": "workspace:*"
   },
   "private": true
 }

@@ -1,0 +1,240 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-01T03:21:30.662Z",
+  "durationMs": 333443,
+  "skipBuild": true,
+  "selected": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L7",
+    "L8",
+    "L9",
+    "L10"
+  ],
+  "results": [
+    {
+      "id": "L1",
+      "result": "pass",
+      "durationMs": 8017,
+      "evidence": "L1-login: Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。；L1-create-project: 真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目；L1-seed-files: 临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。；L1-workbench-files: 主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L1.log",
+      "observations": [
+        {
+          "id": "L1-login",
+          "result": "pass",
+          "evidence": "Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。"
+        },
+        {
+          "id": "L1-create-project",
+          "result": "pass",
+          "evidence": "真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目"
+        },
+        {
+          "id": "L1-seed-files",
+          "result": "pass",
+          "evidence": "临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。"
+        },
+        {
+          "id": "L1-workbench-files",
+          "result": "pass",
+          "evidence": "主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。"
+        }
+      ]
+    },
+    {
+      "id": "L2",
+      "result": "pending",
+      "durationMs": 1,
+      "evidence": "activation-order: 当前产品没有公开运行时激活顺序诊断或诊断读取接口；不能从普通 HTTP 日志推导依赖顺序。建议宿主写入带 generation、entry、requires 与 sequence 的脱敏 JSONL 诊断。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L2.log",
+      "observations": [
+        {
+          "id": "activation-order",
+          "result": "pending",
+          "evidence": "当前产品没有公开运行时激活顺序诊断或诊断读取接口；不能从普通 HTTP 日志推导依赖顺序。建议宿主写入带 generation、entry、requires 与 sequence 的脱敏 JSONL 诊断。"
+        }
+      ]
+    },
+    {
+      "id": "L3",
+      "result": "fail",
+      "durationMs": 63581,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 0（期望 503），body=Unable to connect. Is the computer able to access the url?；inflight-complete: archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()；process-exit-and-lease: 关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放；close-order: 产品没有关闭步骤顺序诊断，无法核对依赖逆序；需要宿主提供 close-order 诊断。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L3.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "fail",
+          "evidence": "在途 archive 期间 /api/app/version 返回 0（期望 503），body=Unable to connect. Is the computer able to access the url?"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "fail",
+          "evidence": "archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "pass",
+          "evidence": "关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放"
+        },
+        {
+          "id": "close-order",
+          "result": "pending",
+          "evidence": "产品没有关闭步骤顺序诊断，无法核对依赖逆序；需要宿主提供 close-order 诊断。"
+        }
+      ]
+    },
+    {
+      "id": "L4",
+      "result": "fail",
+      "durationMs": 37210,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:41987/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}；inflight-complete: archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()；process-exit-and-lease: 关闭后 completion={\"code\":1,\"signal\":null}，runtime.lease.lock=仍存在；close-order: 产品没有关闭步骤顺序诊断，无法核对依赖逆序；需要宿主提供 close-order 诊断。；control-stop: PRODUCT_SHUTDOWN_PATH stop=forced；required process/lease status=fail",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L4.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "pass",
+          "evidence": "在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:41987/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "fail",
+          "evidence": "archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "fail",
+          "evidence": "关闭后 completion={\"code\":1,\"signal\":null}，runtime.lease.lock=仍存在"
+        },
+        {
+          "id": "close-order",
+          "result": "pending",
+          "evidence": "产品没有关闭步骤顺序诊断，无法核对依赖逆序；需要宿主提供 close-order 诊断。"
+        },
+        {
+          "id": "control-stop",
+          "result": "fail",
+          "evidence": "PRODUCT_SHUTDOWN_PATH stop=forced；required process/lease status=fail"
+        }
+      ]
+    },
+    {
+      "id": "L5",
+      "result": "pass",
+      "durationMs": 727,
+      "evidence": "fatal-exit: 未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true；bounded: 在 30 秒内结束；no-listener: 端口无残留监听",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L5.log",
+      "observations": [
+        {
+          "id": "fatal-exit",
+          "result": "pass",
+          "evidence": "未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true"
+        },
+        {
+          "id": "bounded",
+          "result": "pass",
+          "evidence": "在 30 秒内结束"
+        },
+        {
+          "id": "no-listener",
+          "result": "pass",
+          "evidence": "端口无残留监听"
+        }
+      ]
+    },
+    {
+      "id": "L6",
+      "result": "pass",
+      "durationMs": 19479,
+      "evidence": "lease-exit: 删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L6.log",
+      "observations": [
+        {
+          "id": "lease-exit",
+          "result": "pass",
+          "evidence": "删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75"
+        }
+      ]
+    },
+    {
+      "id": "L7",
+      "result": "fail",
+      "durationMs": 92305,
+      "evidence": "L7.error: Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:42887/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l7/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:42887/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 703ms\",\"[success] Vite server built in 4711ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 14959ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。；exception: Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:42887/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l7/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:42887/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 703ms\",\"[success] Vite server built in 4711ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 14959ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。\n    at waitForReady (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:213:15)\n    at async <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:47:39)\n    at async check (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:530:25)\n    at async runDevelopmentChecks (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:41:19)\n    at async main (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:567:15)\n    at processTicksAndRejections (native:7:39)",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L7.log",
+      "observations": [
+        {
+          "id": "L7.error",
+          "result": "fail",
+          "evidence": "Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:42887/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l7/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:42887/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 703ms\",\"[success] Vite server built in 4711ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 14959ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。"
+        },
+        {
+          "id": "exception",
+          "result": "fail",
+          "evidence": "Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:42887/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l7/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:42887/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 703ms\",\"[success] Vite server built in 4711ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 14959ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。\n    at waitForReady (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:213:15)\n    at async <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:47:39)\n    at async check (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:530:25)\n    at async runDevelopmentChecks (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:41:19)\n    at async main (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:567:15)\n    at processTicksAndRejections (native:7:39)"
+        }
+      ]
+    },
+    {
+      "id": "L8",
+      "result": "fail",
+      "durationMs": 92409,
+      "evidence": "L8.error: Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:37229/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l8/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:37229/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 701ms\",\"[success] Vite server built in 4701ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 15153ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。；exception: Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:37229/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l8/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:37229/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 701ms\",\"[success] Vite server built in 4701ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 15153ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。\n    at waitForReady (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:213:15)\n    at async <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:88:37)\n    at async check (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:530:25)\n    at async runDevelopmentChecks (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:82:19)\n    at async main (unknown)\n    at processTicksAndRejections (native:7:39)",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L8.log",
+      "observations": [
+        {
+          "id": "L8.error",
+          "result": "fail",
+          "evidence": "Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:37229/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l8/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:37229/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 701ms\",\"[success] Vite server built in 4701ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 15153ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。"
+        },
+        {
+          "id": "exception",
+          "result": "fail",
+          "evidence": "Error: Node Nuxt dev在90000ms内未就绪：lastStatus=500，lastBody={ \"error\": true, \"url\": \"http://127.0.0.1:37229/api/app/version\", \"statusCode\": 500, \"statusMessage\": \"Server Error\", \"message\": \"worker exited with code 1\", \"stack\": [ \"worker exited with code 1\", \"at createError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/h3/dist/index.mjs:66:12)\", \"at #generateError (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/dist/core/index.mjs:2910:14)\", ，leasePath=/tmp/neuro-book-product-lifecycle-PwbjYu/product-lifecycle/development-l8/workspace/.nbook/agent/migrations/runtime.lease，recentOutput=[\"[log] │\",\"●  Nuxt 4.4.8 (with Nitro 2.13.4, Vite 7.3.6 and Vue 3.5.39)\",\"[log] \",\"  ➜ Local:    http://127.0.0.1:37229/\",\"  ➜ Network:  use --host to expose\",\"[success] Vite client built in 701ms\",\"[success] Vite server built in 4701ms\",\"[warn] \\\"node:sqlite\\\" is imported by \\\"server/rag/sqlite-vec-database.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[warn] \\\"bun:ffi\\\" is imported by \\\"server/workspace-files/project-root-reparse-windows.ts\\\", but could not be resolved – treating it as an external dependency.\",\"[success] [nitro] Nuxt Nitro server built in 15153ms\",\"[info] Vite client warmed up in 3ms\",\"[log] {\\\"emergency\\\":{\\\"instanceId\\\":\\\"product\\\",\\\"stage\\\":\\\"startup\\\",\\\"reason\\\":\\\"必需门禁失败，业务不接纳\\\",\\\"detail\\\":\\\"agent-session-store:resolve:initialization-failed\\\"}}\"]。\n    at waitForReady (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:213:15)\n    at async <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:88:37)\n    at async check (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:530:25)\n    at async runDevelopmentChecks (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle/development.ts:82:19)\n    at async main (unknown)\n    at processTicksAndRejections (native:7:39)"
+        }
+      ]
+    },
+    {
+      "id": "L9",
+      "result": "fail",
+      "durationMs": 5404,
+      "evidence": "no-half-workbench: 失败请求后 files/workbench markers 存在=true；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)我的书架搜索命令、文件与章节...Ctrl PA我的书架用户资产新建书籍读取书架失败browser smoke catalog failure重试将视图拖动到此处显示无文档无文档1/10/3隐藏底部面板工具需要打开 Project将视图拖动到此处显示将视图拖动到此处显示window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"server-first\"},piniaPluginPersistedstate:{storage:\"localStorage\"},i18n:{baseUrl:\"\",defaultLocale:\"zh-CN\",rootRedirect:\"\",redirectStatusCode:302,skipSettingLocaleOnNavigate:false,locales:[{code:\"zh-CN\",language:\"zh-CN\",name:\"简体中文\"},{code:\"en-US\",language:\"en-US\",nam；failure-surface-with-retry: 真实 GET /api/projects 拦截命中=2，HTTP=500；failure alert=true，真实 retry=true；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)我的书架搜索命令、文件与章节...Ctrl PA我的书架用户资产新建书籍读取书架失败browser smoke catalog failure重试将视图拖动到此处显示无文档无文档1/10/3隐藏底部面板工具需要打开 Project将视图拖动到此处显示将视图拖动到此处显示window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"server-first\"},piniaPluginPersistedstate:{storage:\"localStorage\"},i18n:{baseUrl:\"\",defaultLocale:\"zh-CN\",rootRedirect:\"\",redirectStatusCode:302,skipSettingLocaleOnNavigate:false,locales:[{code:\"zh-CN\",language:\"zh-CN\",name:\"简体中文\"},{code:\"en-US\",language:\"en-US\",nam；retry-recovery: 解除 route=true 后点击真实 retry/刷新；project picker=true，workbench=true，文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)生命周期浏览器 Smoke 项目生命周期浏览器 Smoke 项目 · 搜索命令与文件Ctrl PA文件普通内容agentslorebookmanualmanuscriptreferenceuploadworld-engineAGENTS.mdindex.mdlifecycle-smoke-note.mdproject.yaml将视图拖动到此处显示编辑器工作区继续写你的故事从最近文件继续，或新建章节、世界书条目和项目文档。需要讨论与规划时，打开右侧 Agent 面板。新建章节打开文件树新建世界书条目记录角色、地点或规则。新建 Markdown创建普通项目文档。打开 Agent在右侧讨论、规划和执行任务，不离开当前文件。继续还没有打开的文件，先进入 manuscript 或打开文件树。将视图拖动到此处显示将视图拖动到此处显示生命周期浏览器 Smoke 项目无文档无文档1/11/3隐藏底部面板window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"s",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L9.log",
+      "observations": [
+        {
+          "id": "no-half-workbench",
+          "result": "fail",
+          "evidence": "失败请求后 files/workbench markers 存在=true；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)我的书架搜索命令、文件与章节...Ctrl PA我的书架用户资产新建书籍读取书架失败browser smoke catalog failure重试将视图拖动到此处显示无文档无文档1/10/3隐藏底部面板工具需要打开 Project将视图拖动到此处显示将视图拖动到此处显示window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"server-first\"},piniaPluginPersistedstate:{storage:\"localStorage\"},i18n:{baseUrl:\"\",defaultLocale:\"zh-CN\",rootRedirect:\"\",redirectStatusCode:302,skipSettingLocaleOnNavigate:false,locales:[{code:\"zh-CN\",language:\"zh-CN\",name:\"简体中文\"},{code:\"en-US\",language:\"en-US\",nam"
+        },
+        {
+          "id": "failure-surface-with-retry",
+          "result": "pass",
+          "evidence": "真实 GET /api/projects 拦截命中=2，HTTP=500；failure alert=true，真实 retry=true；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)我的书架搜索命令、文件与章节...Ctrl PA我的书架用户资产新建书籍读取书架失败browser smoke catalog failure重试将视图拖动到此处显示无文档无文档1/10/3隐藏底部面板工具需要打开 Project将视图拖动到此处显示将视图拖动到此处显示window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"server-first\"},piniaPluginPersistedstate:{storage:\"localStorage\"},i18n:{baseUrl:\"\",defaultLocale:\"zh-CN\",rootRedirect:\"\",redirectStatusCode:302,skipSettingLocaleOnNavigate:false,locales:[{code:\"zh-CN\",language:\"zh-CN\",name:\"简体中文\"},{code:\"en-US\",language:\"en-US\",nam"
+        },
+        {
+          "id": "retry-recovery",
+          "result": "pass",
+          "evidence": "解除 route=true 后点击真实 retry/刷新；project picker=true，workbench=true，文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]；raw page text=NeuroBook文件(F)编辑(E)查看(V)帮助(H)生命周期浏览器 Smoke 项目生命周期浏览器 Smoke 项目 · 搜索命令与文件Ctrl PA文件普通内容agentslorebookmanualmanuscriptreferenceuploadworld-engineAGENTS.mdindex.mdlifecycle-smoke-note.mdproject.yaml将视图拖动到此处显示编辑器工作区继续写你的故事从最近文件继续，或新建章节、世界书条目和项目文档。需要讨论与规划时，打开右侧 Agent 面板。新建章节打开文件树新建世界书条目记录角色、地点或规则。新建 Markdown创建普通项目文档。打开 Agent在右侧讨论、规划和执行任务，不离开当前文件。继续还没有打开的文件，先进入 manuscript 或打开文件树。将视图拖动到此处显示将视图拖动到此处显示生命周期浏览器 Smoke 项目无文档无文档1/11/3隐藏底部面板window.__NUXT__={};window.__NUXT__.config={public:{auth:{loadStrategy:\"s"
+        }
+      ]
+    },
+    {
+      "id": "L10",
+      "result": "pass",
+      "durationMs": 13597,
+      "evidence": "L10-window-isolation: 关闭窗口 A 后窗口 B 仍可重载；B 文件读取=true，readyHTTP=true，Product port=46587。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t31-product-lifecycle-smoke/evidences/L10.log",
+      "observations": [
+        {
+          "id": "L10-window-isolation",
+          "result": "pass",
+          "evidence": "关闭窗口 A 后窗口 B 仍可重载；B 文件读取=true，readyHTTP=true，Product port=46587。"
+        }
+      ]
+    }
+  ]
+}

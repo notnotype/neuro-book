@@ -21,6 +21,12 @@
             "import": "./dist/runtime-projection.mjs",
             "default": "./dist/runtime-projection.mjs"
         },
+        "./product-control": {
+            "types": "./src/product-control.ts",
+            "bun": "./src/product-control.ts",
+            "import": "./dist/product-control.mjs",
+            "default": "./dist/product-control.mjs"
+        },
         "./desktop-installation": "./dist/desktop-installation-entry.mjs",
         "./desktop-uac-client": {
             "types": "./src/desktop-uac-client-entry.ts",

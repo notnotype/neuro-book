@@ -63,6 +63,9 @@ issueId: null
 | [t26](tasks/t26-platform-architecture-redesign/README.md) | 2026-09-28 需求重做与设计走查：需求记入 ADR 0022；可扩展应用平台设计 2026-09-30 `accepted`；无产品代码改动 |
 | [t27](tasks/t27-platform-risk-gates/README.md) | 风险门 G0（自有服务端入口与 WebSocket 升级）、G1（运行时加载组件共享 Vue 与 nb-ui）、G2（看门狗、进程重启、worker 池）的一次性验证 |
 | [t28](tasks/t28-platform-planned-specs/README.md) | 按已接受的平台设计写 10 份 `planned` Spec（插件清单、宿主、通道、API 文档、热插拔、安装、代码装载、公开 API、看门狗），并做跨模型审查；只改文档 |
+| [t29](tasks/t29-master-sync/README.md) | 同步 master 与 w00020（PR #245），解决冲突；发现分支原有的测试回归 |
+| [t30](tasks/t30-branch-test-baseline/README.md) | 修复分支测试与类型检查基线（omp 编码）；修复 Profile 预览线程边界与 watcher 前 rename 丢失；之后 master 快进到 `f00f0380` |
+| [t31](tasks/t31-product-lifecycle-smoke/README.md) | 阶段 1 生命周期 smoke `smoke:product-lifecycle`（L1–L10）与当前基线（omp 编码） |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 
