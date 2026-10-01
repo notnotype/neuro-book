@@ -116,6 +116,11 @@ Code-first 只调整已授权 Task 内的修改顺序，不绕过人类授权、
 | 平台文件 | [`platform/files.md`](platform/files.md) | `platform.files`；受根约束 I/O、授予隔离、watch/锁与关闭门禁；不是业务文件树服务；第二切片闭合 |
 | SQLite机制 | [`platform/sqlite.md`](platform/sqlite.md) | `platform.sqlite`；具名资源owner、连接借用、单库事务、代次与关闭；不自动迁移；第二切片闭合，既有数据库尚未迁入 |
 | 模型角色与通用模型选择器 | [`ui/model-role-selection.md`](ui/model-role-selection.md) | 梯度轴与专精轴快速选择、通用模型高密度浏览搜索、会话临时覆盖与状态栏联动已由代码与业务集成支持 |
+| Harness 会话日志 | [`harness/session-log.md`](harness/session-log.md) | `harness.session-log`；`nb-session` 的 append-only 日志、JSONL 格式、重启续写与中断尾修复；未接入产品 |
+| Harness Profile DSL | [`harness/profile-dsl.md`](harness/profile-dsl.md) | `harness.profile-dsl`；`nb-profile` 的节点、渲染与加载；与产品 Profile SDK 不兼容 |
+| Harness 装配与对话轮次 | [`harness/agent-turn.md`](harness/agent-turn.md) | `harness.agent-turn`；`nb-harness` 基于 OMP 的装配、轮次、日志落盘、插件与模型解析；含已知缺口清单，未接入产品 |
+| Harness 内置文件工具 | [`harness/file-tools.md`](harness/file-tools.md) | `harness.file-tools`；`read` 与 hashline `edit`；访问范围不受 `cwd` 限制，仅适合受信本机使用 |
+| Harness SSE | [`harness/sse.md`](harness/sse.md) | `harness.sse`；SSE 帧序列化与背压写出 |
 
 ## 待实现规范
 以下已获批准但尚未实现的目标合同必须在代码切换前满足；实现和验证闭合后原地晋升为 `implemented`。
