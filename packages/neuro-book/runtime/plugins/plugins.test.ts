@@ -16,6 +16,7 @@ import type {
     ActivationOutput,
     ContributionHandle,
     ContributionReceiver,
+    ContributionPointDefinition,
     PluginDefinition,
     PluginDiagnostic,
     PluginEntryDefinition,
@@ -40,10 +41,13 @@ const clockKey = defineServiceKey<Clock>("clock/clock");
 const loggerKey = defineServiceKey<Logger>("clock/logger");
 const unknownKey = defineServiceKey<unknown>("unknown");
 const keys = [clockKey, loggerKey];
+const receiverKey = defineServiceKey<boolean>("receivers/lifetime");
 
-/** 让一个宏任务过去，足以冲刷机制内部全部 microtask 链；不是等待真实时间。 */
+/** 等待事件循环检查点，不推进真实时间。 */
 function tick(): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, 0));
+    const {promise, resolve} = Promise.withResolvers<void>();
+    setImmediate(resolve);
+    return promise;
 }
 
 async function isSettled(promise: Promise<unknown>): Promise<boolean> {
@@ -65,14 +69,12 @@ interface RecordingReceiver extends ContributionReceiver<{readonly title: string
     readonly commit: Mock<(handle: CommandHandle, prepared: string) => void>;
 }
 
-function recordingReceiver(capability: string, hooks: {prepare?: (id: string) => void; commit?: (id: string) => void; revoke?: (id: string) => void} = {}): RecordingReceiver {
+function recordingReceiver(hooks: {prepare?: (id: string) => void; commit?: (id: string) => void; revoke?: (id: string) => void} = {}): RecordingReceiver {
     const handles = new Map<string, ContributionHandle<{readonly title: string}, Command>>();
     const revocations: RecordingReceiver["revocations"] = [];
     return {
-        capability,
         handles,
         revocations,
-        validate: (descriptor) => (descriptor.declaration.title.trim() === "" ? "title 不能为空" : null),
         prepare: vi.fn((handle) => {
             hooks.prepare?.(handle.id);
             handles.set(handle.id, handle);
@@ -98,15 +100,30 @@ interface Host {
     readonly diagnostics: PluginDiagnostic[];
 }
 
-function setup(location: RuntimeLocation = "server", instanceId = `${location}-1`, receivers: {commands?: RecordingReceiver; views?: RecordingReceiver} = {}): Host {
+async function setup(location: RuntimeLocation = "server", instanceId = `${location}-1`, receivers: {commands?: RecordingReceiver; views?: RecordingReceiver} = {}, connect = true): Promise<Host> {
     const runtime = createRuntimeInstance({location, instanceId});
     runtime.root.open();
-    const assembly = createServiceAssembly(runtime, {keys});
-    const commands = receivers.commands ?? recordingReceiver("commands");
-    const views = receivers.views ?? recordingReceiver("views");
+    const assembly = createServiceAssembly(runtime, {keys: [...keys, receiverKey]});
+    const commands = receivers.commands ?? recordingReceiver();
+    const views = receivers.views ?? recordingReceiver();
     const diagnostics: PluginDiagnostic[] = [];
-    const host = createPluginHost(runtime, assembly, {receivers: [commands, views], observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
+    const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => diagnostics.push(diagnostic)}});
+    if (connect) {
+        accepted(host, receiverOwner(location, {commands, views}), runtime.root);
+        expect(await host.activate({plugin: "receivers", entry: "main"})).toMatchObject({status: "activated"});
+    }
     return {runtime, root: runtime.root, assembly, host, commands, views, diagnostics};
+}
+
+function receiverOwner(location: RuntimeLocation, receivers: Readonly<Record<string, ContributionReceiver>>): PluginDefinition {
+    const contributionPoints: ContributionPointDefinition<{readonly title: string}>[] = Object.keys(receivers).map((id) => ({
+        id,
+        implementation: "required",
+        validate: ({declaration}) => declaration.title.trim() === "" ? "title 不能为空" : null,
+    }));
+    return {id: "receivers", contributionPoints, entries: [{
+        id: "main", location, provides: [receiverKey], receives: Object.keys(receivers), activate: () => ({services: [provide(receiverKey, true)], receivers}),
+    }]};
 }
 
 function openedChild(parent: Scope, label: string): Scope {
@@ -175,17 +192,16 @@ describe("runtime.plugins 机制边界", () => {
         }
     });
 
-    it("宿主绑定同一运行实例的装配；同一能力不能登记两个接收者", () => {
-        const a = setup();
+    it("宿主只接受同一运行实例的装配", async () => {
+        const a = await setup();
         const other = createRuntimeInstance({location: "server", instanceId: "server-2"});
-        expect(() => createPluginHost(other, a.assembly, {receivers: []})).toThrow(TypeError);
-        expect(() => createPluginHost(a.runtime, a.assembly, {receivers: [recordingReceiver("x"), recordingReceiver("x")]})).toThrow(TypeError);
+        expect(() => createPluginHost(other, a.assembly, {})).toThrow(TypeError);
     });
 });
 
 describe("描述登记", () => {
-    it("校验失败或重复 id 整体拒绝、报错可见、不静默覆盖，也不向 services 留下部分声明", () => {
-        const {host, root, assembly, commands, diagnostics} = setup();
+    it("结构失败或重复插件 id 整体拒绝、报错可见、不留下部分服务声明", async () => {
+        const {host, root, assembly, commands, diagnostics} = await setup("server", "registration", {}, false);
         accepted(host, plugin("a", commandEntry("main", ["a.run"])), root);
         const before = assembly.report().entries.length;
         const other = createRuntimeInstance({location: "server", instanceId: "server-9"});
@@ -197,10 +213,6 @@ describe("描述登记", () => {
             {definition: plugin("empty"), reason: "no-entries"},
             {definition: plugin("a", commandEntry("again", ["a.other"])), reason: "duplicate-plugin"},
             {definition: plugin("dup", commandEntry("e", ["d.1"]), commandEntry("e", ["d.2"])), reason: "duplicate-entry"},
-            {definition: plugin("recv", {...commandEntry("e", []), contributions: [{capability: "settings", id: "s", declaration: {}}]}), reason: "unknown-receiver"},
-            {definition: plugin("clash", commandEntry("e", ["a.run"])), reason: "duplicate-contribution"},
-            {definition: plugin("clash2", commandEntry("e", ["x.1"]), commandEntry("f", ["x.1"])), reason: "duplicate-contribution"},
-            {definition: plugin("bad", {...commandEntry("e", []), contributions: [{capability: "commands", id: "b", declaration: {title: " "}}]}), reason: "invalid-declaration"},
             {definition: plugin("key", commandEntry("e", [], {provides: [unknownKey]})), reason: "unknown-service-key"},
             {definition: plugin("self", commandEntry("e", [], {provides: [clockKey], dependencies: [{key: clockKey}]})), reason: "self-dependency"},
             {definition: plugin("foreign", commandEntry("e", [])), scope: other.root, reason: "foreign-scope"},
@@ -219,8 +231,8 @@ describe("描述登记", () => {
         expect(commands.prepare).not.toHaveBeenCalled();
     });
 
-    it("登记不创建资源、不调用 activate；目录列出依赖、提供项与贡献描述；其它位置的入口只进描述", () => {
-        const {host, root, assembly} = setup();
+    it("登记不创建资源、不调用 activate；目录列出依赖、提供项与贡献描述；其它位置的入口只进描述", async () => {
+        const {host, root, assembly} = await setup("server", "catalog", {}, false);
         const activate = vi.fn(async () => ({contributions: {commands: {"p.run": () => "run"}}, services: [provide(clockKey, {now: () => 1})]}));
         accepted(
             host,
@@ -247,7 +259,7 @@ describe("描述登记", () => {
         expect(activate).not.toHaveBeenCalled();
         expect(assembly.report().entries.map((entry) => entry.id).sort()).toEqual(["plugin:clock/server@1", "plugin:clock/server@1:clock/clock"]);
         expect(assembly.providerState("plugin:clock/server@1:clock/clock")).toBe("unresolved");
-        expect(host.contribution("commands", "p.open")).toBeNull();
+        expect(host.contribution("commands", "p.open")).toMatchObject([{status: "declared", location: "browser"}]);
         expect(root.snapshot().resources).toEqual([]);
         expect(root.snapshot().children.length).toBe(1);
     });
@@ -255,7 +267,7 @@ describe("描述登记", () => {
 
 describe("Spec 验收 1：描述先于实现", () => {
     it("解析尚未激活提供者的服务触发一次激活；两个并发解析与一次直接触发共享同一次激活，入口不等待自身提供项", async () => {
-        const {host, root, assembly, commands} = setup();
+        const {host, root, assembly, commands} = await setup();
         const gate = deferred<void>();
         const activate = vi.fn(async (context: ActivationContext) => {
             await gate.promise;
@@ -274,7 +286,7 @@ describe("Spec 验收 1：描述先于实现", () => {
         await tick();
         expect(activate).toHaveBeenCalledTimes(1);
         expect(host.entryState({plugin: "clock", entry: "main"})).toMatchObject({status: "activating", generation: 1});
-        expect(host.contribution("commands", "clock.show")).toMatchObject({status: "activating"});
+        expect(host.contribution("commands", "clock.show")).toMatchObject([{status: "activating"}]);
         gate.resolve();
         const [a, b, activation] = await Promise.all([first, second, direct]);
         expect(activation).toMatchObject({status: "activated", generation: 1});
@@ -286,14 +298,14 @@ describe("Spec 验收 1：描述先于实现", () => {
         }
         expect(activate).toHaveBeenCalledTimes(1);
         expect(commands.prepare).toHaveBeenCalledTimes(1);
-        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("available");
+        expect(assembly.providerState("plugin:clock/main@2:clock/clock")).toBe("available");
     });
 });
 
 describe("Spec 验收 2：激活一次、执行两次", () => {
     it("两个消费者并发首次触发只激活一次、贡献只发布一次，两次调用各自独立执行", async () => {
         const executions = new Map<string, number>();
-        const {host, root, commands} = setup();
+        const {host, root, commands} = await setup();
         const activate = vi.fn(commandEntry("main", ["p.run"], {executions}).activate);
         accepted(host, plugin("p", {...commandEntry("main", ["p.run"], {executions}), activate}), root);
 
@@ -306,7 +318,7 @@ describe("Spec 验收 2：激活一次、执行两次", () => {
 
         const handle = commands.handles.get("p.run")!;
         expect(handle.implementation()()).toBe("p.run@1");
-        expect(host.contribution<unknown, Command>("commands", "p.run")).toMatchObject({status: "available", generation: 1});
+        expect(host.contribution<unknown, Command>("commands", "p.run")).toMatchObject([{status: "available", generation: 1}]);
         expect(handle.implementation()()).toBe("p.run@1");
         expect(executions.get("p.run")).toBe(2);
         // 成功后同代次再次触发复用，不再调用 activate。
@@ -316,7 +328,7 @@ describe("Spec 验收 2：激活一次、执行两次", () => {
 
     it("单个等待方取消只结束自身等待；其它等待方正常取得能力，激活仍只发生一次", async () => {
         const gate = deferred<void>();
-        const {host, root} = setup();
+        const {host, root} = await setup();
         const activate = vi.fn(async () => {
             await gate.promise;
             return {contributions: {commands: {"p.run": () => "ok"}}};
@@ -337,8 +349,8 @@ describe("Spec 验收 2：激活一次、执行两次", () => {
 
 describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
     it("同一定义在 server 与 browser 宿主分别激活；一处失败不阻止另一处可用，结果分别报告", async () => {
-        const server = setup("server");
-        const browser = setup("browser", "browser-1");
+        const server = await setup("server");
+        const browser = await setup("browser", "browser-1");
         const definition = plugin(
             "files",
             {
@@ -360,24 +372,24 @@ describe("Spec 验收 3、8：入口独立与跨位置非原子", () => {
         expect(server.host.entryState({plugin: "files", entry: "browser"})).toMatchObject({status: "foreign-location"});
         expect(await server.host.activate({plugin: "files", entry: "browser"})).toMatchObject({status: "rejected", reason: "location-mismatch"});
         expect(browser.host.entryState({plugin: "files", entry: "browser"})).toMatchObject({status: "available"});
-        expect(browser.host.contribution("commands", "files.open")).toMatchObject({status: "available"});
+        expect(browser.host.contribution("commands", "files.open")).toMatchObject([{status: "available"}]);
     });
 
     it("同一位置的两个入口不共享激活状态", async () => {
-        const {host, root} = setup();
+        const {host, root} = await setup();
         const activateA = vi.fn(commandEntry("a", ["p.a"]).activate);
         const activateB = vi.fn(commandEntry("b", ["p.b"]).activate);
         accepted(host, plugin("p", {...commandEntry("a", ["p.a"]), activate: activateA}, {...commandEntry("b", ["p.b"]), activate: activateB}), root);
         expect(await host.activate({plugin: "p", entry: "a"})).toMatchObject({status: "activated"});
         expect(activateB).not.toHaveBeenCalled();
         expect(host.entryState({plugin: "p", entry: "b"})).toMatchObject({status: "registered"});
-        expect(host.contribution("commands", "p.b")).toMatchObject({status: "declared", reason: "not-activated"});
+        expect(host.contribution("commands", "p.b")).toMatchObject([{status: "declared", reason: "not-activated"}]);
     });
 });
 
 describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
     it("插件 A 中途失败时插件 B 已发布的贡献仍可用；A 的描述与失败原因保留，本次暂存项撤回，失败原因脱敏", async () => {
-        const {host, root, commands, views, diagnostics} = setup();
+        const {host, root, commands, views, diagnostics} = await setup();
         accepted(host, plugin("b", commandEntry("main", ["b.run"])), root);
         expect(await host.activate({plugin: "b", entry: "main"})).toMatchObject({status: "activated"});
         accepted(
@@ -400,10 +412,10 @@ describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
         expect(commands.revocations).toEqual([{id: "a.run", reason: "activation-failed", prepared: "a.run#1"}]);
         expect(views.revocations).toEqual([{id: "a.view", reason: "activation-failed", prepared: "a.view#1"}]);
         expect(() => commands.handles.get("a.run")!.implementation()).toThrow(PluginStateError);
-        expect(host.contribution("commands", "a.run")).toMatchObject({status: "activation-failed", failure: {reason: "receiver-commit-failed"}});
-        expect(host.contribution("commands", "b.run")).toMatchObject({status: "available"});
+        expect(host.contribution("commands", "a.run")).toMatchObject([{status: "activation-failed", failure: {reason: "receiver-commit-failed"}}]);
+        expect(host.contribution("commands", "b.run")).toMatchObject([{status: "available"}]);
         expect(commands.handles.get("b.run")!.implementation()()).toBe("b.run@1");
-        expect(host.catalog().plugins.map((description) => description.id).sort()).toEqual(["a", "b"]);
+        expect(host.catalog().plugins.map((description) => description.id).sort()).toEqual(["a", "b", "receivers"]);
         expect(host.entryState({plugin: "a", entry: "main"})).toMatchObject({status: "failed", closeout: "pending"});
         await tick();
         expect(host.entryState({plugin: "a", entry: "main"})).toMatchObject({status: "failed", closeout: "closed"});
@@ -417,7 +429,7 @@ describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
     });
 
     it("关闭操作级作用域撤回该实例已发布的实现并释放资源；描述保留并带不可用原因；重复关闭不重复副作用；根上的必需插件不受影响", async () => {
-        const {host, root, commands} = setup();
+        const {host, root, commands} = await setup();
         accepted(host, plugin("base", commandEntry("main", ["base.run"])), root);
         expect(await host.activate({plugin: "base", entry: "main"})).toMatchObject({status: "activated"});
         const view = openedChild(root, "view");
@@ -443,14 +455,14 @@ describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
         expect(commands.revocations).toEqual([{id: "viewer.close", reason: "scope-closed", prepared: "viewer.close#1"}]);
         expect(handle.published).toBe(false);
         expect(() => handle.implementation()).toThrow(PluginStateError);
-        expect(host.contribution("commands", "viewer.close")).toMatchObject({status: "revoked", generation: 1, reason: "scope-closed", declaration: {title: "viewer.close"}});
+        expect(host.contribution("commands", "viewer.close")).toMatchObject([{status: "revoked", generation: 1, reason: "scope-closed", declaration: {title: "viewer.close"}}]);
         expect(host.entryState({plugin: "viewer", entry: "main"})).toMatchObject({status: "closed", generation: 1, closeout: "closed"});
-        expect(host.catalog().plugins.map((description) => description.id).sort()).toEqual(["base", "viewer"]);
+        expect(host.catalog().plugins.map((description) => description.id).sort()).toEqual(["base", "receivers", "viewer"]);
 
         expect(await view.close()).toEqual(first);
         expect(release).toHaveBeenCalledTimes(1);
         expect(commands.revocations.length).toBe(1);
-        expect(host.contribution("commands", "base.run")).toMatchObject({status: "available"});
+        expect(host.contribution("commands", "base.run")).toMatchObject([{status: "available"}]);
         expect(commands.handles.get("base.run")!.implementation()()).toBe("base.run@1");
         expect(await host.activate({plugin: "viewer", entry: "main"})).toEqual({status: "rejected", plugin: "viewer", entry: "main", reason: "scope-closed"});
     });
@@ -458,7 +470,7 @@ describe("Spec 验收 4、7：失败隔离与普通关闭", () => {
 
 describe("Spec 验收 5：迟到发布阻断与再激活边界", () => {
     it("激活等待期间作用域关闭：迟到的成功不发布、已登记资源收口；已关闭作用域拒绝再触发；重新启用基于新作用域产生新代次", async () => {
-        const {host, root, commands} = setup();
+        const {host, root, commands} = await setup();
         const scope = openedChild(root, "project-1");
         const gate = deferred<void>();
         const release = vi.fn();
@@ -484,7 +496,7 @@ describe("Spec 验收 5：迟到发布阻断与再激活边界", () => {
         expect(late).toHaveBeenCalledTimes(1);
         expect(release).toHaveBeenCalledTimes(1);
         expect(commands.prepare).not.toHaveBeenCalled();
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "declared", reason: "scope-closed"});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "declared", reason: "scope-closed"}]);
         expect(host.entryState({plugin: "p", entry: "main"})).toMatchObject({status: "closed", generation: 1});
         expect(await host.activate({plugin: "p", entry: "main"})).toEqual({status: "rejected", plugin: "p", entry: "main", reason: "scope-closed"});
 
@@ -494,24 +506,24 @@ describe("Spec 验收 5：迟到发布阻断与再激活边界", () => {
         gate.resolve();
         expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "activated", generation: 2});
         expect(commands.handles.get("p.run")!.generation).toBe(2);
-        expect(host.catalog().plugins).toHaveLength(1);
-        expect(host.catalog().plugins[0]).toMatchObject({scopeId: next.id});
+        expect(host.catalog().plugins.map((description) => description.id)).toEqual(["p", "receivers"]);
+        expect(host.catalog().plugins.find((description) => description.id === "p")).toMatchObject({scopeId: next.id});
     });
 
     it("已登记但从未激活的入口在作用域关闭后拒绝触发", async () => {
-        const {host, root} = setup();
+        const {host, root} = await setup();
         const scope = openedChild(root, "op");
         accepted(host, plugin("p", commandEntry("main", ["p.run"])), scope);
         await scope.close();
         expect(await host.activate({plugin: "p", entry: "main"})).toEqual({status: "rejected", plugin: "p", entry: "main", reason: "scope-closed"});
         expect(host.entryState({plugin: "p", entry: "main"})).toMatchObject({status: "closed", generation: null});
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "declared", reason: "scope-closed"});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "declared", reason: "scope-closed"}]);
     });
 });
 
 describe("Spec 验收 6：接收者五态", () => {
     it("描述已登记、实现待激活、实现可用、激活失败、已撤回五种结果可区分；缺失实现即失败，不产生空 handler", async () => {
-        const {host, root, commands} = setup();
+        const {host, root, commands} = await setup();
         const gate = deferred<void>();
         accepted(
             host,
@@ -527,23 +539,23 @@ describe("Spec 验收 6：接收者五态", () => {
         const scope = openedChild(root, "op");
         accepted(host, plugin("empty", {...commandEntry("main", ["empty.run"]), activate: () => ({contributions: {}})}), scope);
 
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "declared", reason: "not-activated"});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "declared", reason: "not-activated"}]);
         const activation = host.activate({plugin: "p", entry: "main"});
         await tick();
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "activating", generation: 1});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "activating", generation: 1}]);
         gate.resolve();
         await activation;
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "available", generation: 1});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "available", generation: 1}]);
 
         expect(await host.activate({plugin: "empty", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "missing-implementation", capability: "commands", contribution: "empty.run"});
-        expect(host.contribution("commands", "empty.run")).toMatchObject({status: "activation-failed"});
+        expect(host.contribution("commands", "empty.run")).toMatchObject([{status: "activation-failed"}]);
         expect(commands.handles.has("empty.run")).toBe(false);
 
         // 撤回：在事务中止或关闭后才出现，且描述仍可查询。
         await scope.close();
-        expect(host.contribution("commands", "empty.run")).toMatchObject({status: "activation-failed", declaration: {title: "empty.run"}});
+        expect(host.contribution("commands", "empty.run")).toMatchObject([{status: "activation-failed", declaration: {title: "empty.run"}}]);
         await root.close();
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "revoked", reason: "scope-closed", declaration: {title: "p.run"}});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "revoked", reason: "scope-closed", declaration: {title: "p.run"}}]);
     });
 });
 
@@ -555,10 +567,11 @@ describe("Spec 验收 9：两种作用域 × 两个 host 复用", () => {
         ["browser", "operation"],
     ] as const)("%s 位置、%s 作用域上得到相同可观察结果", async (location, level) => {
         const executions = new Map<string, number>();
-        const {host, root, commands} = setup(location, `${location}-${level}`);
+        const {host, root, commands} = await setup(location, `${location}-${level}`);
         const scope = level === "root" ? root : openedChild(root, "operation");
+        const dependencies = level === "root" ? [{key: receiverKey}] : [];
         const activate = vi.fn(commandEntry("main", ["p.run"], {executions, location}).activate);
-        accepted(host, plugin("p", {...commandEntry("main", ["p.run"], {executions, location}), activate}), scope);
+        accepted(host, plugin("p", {...commandEntry("main", ["p.run"], {executions, location, dependencies}), activate}), scope);
         const [a, b] = await Promise.all([host.activate({plugin: "p", entry: "main"}), host.activate({plugin: "p", entry: "main"})]);
         expect(a).toEqual(b);
         expect(a).toMatchObject({status: "activated", generation: 1});
@@ -568,14 +581,14 @@ describe("Spec 验收 9：两种作用域 × 两个 host 复用", () => {
         handle.implementation()();
         expect(executions.get("p.run")).toBe(2);
         await scope.close();
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "revoked", reason: "scope-closed"});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "revoked", reason: "scope-closed"}]);
         expect(commands.revocations).toEqual([{id: "p.run", reason: "scope-closed", prepared: "p.run#1"}]);
     });
 });
 
 describe("Spec 验收 10：重试前置收口", () => {
     it("失败后资源收口完成前 recover 不结算；收口完成后显式恢复产生新代次并成功", async () => {
-        const {host, root, commands} = setup();
+        const {host, root, commands} = await setup();
         const releaseGate = deferred<void>();
         let attempts = 0;
         accepted(
@@ -608,7 +621,7 @@ describe("Spec 验收 10：重试前置收口", () => {
     });
 
     it("经服务解析触发的失败也稳定；recover 同时重置提供者，之后解析得到新代次实例", async () => {
-        const {host, root, assembly} = setup();
+        const {host, root, assembly} = await setup();
         let attempts = 0;
         accepted(
             host,
@@ -629,9 +642,9 @@ describe("Spec 验收 10：重试前置收口", () => {
         expect(first).toMatchObject({status: "unavailable", reason: "initialization-failed", error: {name: "PluginStateError"}});
         expect(await assembly.access("consumer").resolve(clockKey)).toEqual(first);
         expect(await host.activate({plugin: "clock", entry: "main"})).toMatchObject({status: "failed", generation: 1});
-        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("failed");
+        expect(assembly.providerState("plugin:clock/main@2:clock/clock")).toBe("failed");
         expect(await host.recover({plugin: "clock", entry: "main"})).toMatchObject({status: "reset"});
-        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("unresolved");
+        expect(assembly.providerState("plugin:clock/main@2:clock/clock")).toBe("unresolved");
         const second = await assembly.access("consumer").resolve(clockKey);
         expect(second.status).toBe("resolved");
         if (second.status === "resolved") {
@@ -644,9 +657,9 @@ describe("Spec 验收 10：重试前置收口", () => {
 describe("Spec 验收 11：多接收者事务", () => {
     it("第二个接收者准备失败：第一个接收者的暂存项撤回且不可调用，其它插件仍可调用；成功路径全部接收者完成后才可调用", async () => {
         const order: string[] = [];
-        const commands = recordingReceiver("commands", {prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
-        const views = recordingReceiver("views", {prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
-        const {host, root} = setup("server", "server-1", {commands, views});
+        const commands = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
+        const views = recordingReceiver({prepare: (id) => order.push(`prepare:${id}`), commit: (id) => order.push(`commit:${id}`), revoke: (id) => order.push(`revoke:${id}`)});
+        const {host, root} = await setup("server", "server-1", {commands, views});
         accepted(host, plugin("other", commandEntry("main", ["other.run"])), root);
         await host.activate({plugin: "other", entry: "main"});
         order.length = 0;
@@ -668,8 +681,8 @@ describe("Spec 验收 11：多接收者事务", () => {
         expect(await host.activate({plugin: "a", entry: "main"})).toMatchObject({status: "failed", stage: "prepare", reason: "receiver-prepare-failed", capability: "views"});
         expect(order).toEqual(["prepare:a.run", "prepare:a.view", "revoke:a.run"]);
         expect(() => commands.handles.get("a.run")!.implementation()).toThrow(PluginStateError);
-        expect(host.contribution("commands", "a.run")).toMatchObject({status: "activation-failed"});
-        expect(host.contribution("views", "a.view")).toMatchObject({status: "activation-failed"});
+        expect(host.contribution("commands", "a.run")).toMatchObject([{status: "activation-failed"}]);
+        expect(host.contribution("views", "a.view")).toMatchObject([{status: "activation-failed"}]);
         expect(commands.handles.get("other.run")!.implementation()()).toBe("other.run@1");
 
         order.length = 0;
@@ -689,7 +702,7 @@ describe("Spec 验收 11：多接收者事务", () => {
 
 describe("提供项与依赖协作", () => {
     it("必需依赖缺失时入口受阻且不消耗代次，依赖可用后经 require 取得，实例与借用随激活作用域", async () => {
-        const {host, root, assembly} = setup();
+        const {host, root, assembly} = await setup();
         const activate = vi.fn((context: ActivationContext) => {
             context.services.require(clockKey).now();
             return {contributions: {commands: {"p.run": () => "ok"}}};
@@ -707,7 +720,7 @@ describe("提供项与依赖协作", () => {
     });
 
     it("提供项实例交付给 services 后随本代次关闭，只释放一次；旧绑定 stale；产出未声明的键即失败", async () => {
-        const {host, root, assembly} = setup();
+        const {host, root, assembly} = await setup();
         const release = vi.fn();
         const scope = openedChild(root, "op");
         accepted(host, plugin("clock", {...commandEntry("main", [], {provides: [clockKey]}), activate: () => ({services: [provide(clockKey, {now: () => 1}, release)]})}), scope);
@@ -726,7 +739,7 @@ describe("提供项与依赖协作", () => {
     });
 
     it("提供项释放失败不被标记为已释放：交付给 services 与未交付两条路径都在显式恢复时重试，成功后不再重复", async () => {
-        const {host, root, assembly} = setup();
+        const {host, root, assembly} = await setup();
         const attempts = {adopted: 0, unadopted: 0};
         let fail = true;
         const failingOnce = (label: "adopted" | "unadopted") => () => {
@@ -757,23 +770,24 @@ describe("提供项与依赖协作", () => {
     it("观察者异常不影响机制；接收者 revoke 抛错只记诊断", async () => {
         const runtime = createRuntimeInstance({location: "server", instanceId: "server-obs"});
         runtime.root.open();
-        const assembly = createServiceAssembly(runtime, {keys});
-        const commands = recordingReceiver("commands");
+        const assembly = createServiceAssembly(runtime, {keys: [...keys, receiverKey]});
+        const commands = recordingReceiver();
         commands.revoke = () => {
             throw new Error("revoke 崩溃");
         };
         const host = createPluginHost(runtime, assembly, {
-            receivers: [commands],
             observer: {
                 diagnosticRecorded: () => {
                     throw new Error("观察者崩溃");
                 },
             },
         });
+        accepted(host, receiverOwner("server", {commands}), runtime.root);
+        expect((await host.activate({plugin: "receivers", entry: "main"})).status).toBe("activated");
         accepted(host, plugin("p", commandEntry("main", ["p.run"])), runtime.root);
         expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "activated"});
         expect((await runtime.root.close()).status).toBe("closed");
         expect(host.diagnostics().map((diagnostic) => diagnostic.reason)).toContain("receiver-revoke-threw");
-        expect(host.contribution("commands", "p.run")).toMatchObject({status: "revoked"});
+        expect(host.contribution("commands", "p.run")).toMatchObject([{status: "revoked"}]);
     });
 });

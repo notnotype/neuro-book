@@ -1,5 +1,5 @@
 /**
- * runtime.plugins 的实现：描述目录、按入口 single-flight 的激活、受控贡献事务与撤回、
+ * runtime.plugins 的实现：描述目录、按入口 single-flight 的激活、贡献接上与交付账本、
  * 与 runtime.services 的提供项协作、稳定失败与显式恢复。
  *
  * 代次作用域保持 plugin:<id>/<entry>#<n> 身份，持有必需依赖借用与入口收口资源；工作子作用域
@@ -7,6 +7,9 @@
  * 停止时等待服务实例首次释放结算，防止提供方先清理自己的资源；租约保留失败供显式恢复。
  * 发布资源依赖激活产出，贡献先撤回。代次确认工作与服务全部关闭后记录 closed，最后结束
  * 必需依赖借用，使依赖者的全部资源释放先于提供者。
+ *
+ * 贡献点只由拥有者插件定义。接收者存在于拥有者入口的激活产出中；贡献不进入 services
+ * 依赖图，拥有者缺席时贡献保持等待接收者。所有接收者回调经过同一连接的串行锁。
  */
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
@@ -19,12 +22,16 @@ import type {
     ActivationFailed,
     ActivationFailureReason,
     ActivationOutput,
+    ContributionDeclaration,
+    ContributionDelivery,
+    ContributionHandle,
+    ContributionPointDefinition,
+    ContributionReceiver,
+    ContributionState,
+    ContributionValidation,
     ProvidedService,
     ActivationResult,
     ActivationStage,
-    ContributionHandle,
-    ContributionReceiver,
-    ContributionState,
     EntryDescription,
     EntryRef,
     EntryBlocked,
@@ -47,6 +54,20 @@ import {deriveBlocked, entryIdentity} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
 
+type DeliveryMode = "activation" | "backfill";
+type AttemptOutcome = {readonly status: "activated"} | {readonly status: "failed"; readonly failure: ActivationFailed} | {readonly status: "stopped"};
+
+type DeliveryFailure = {
+    readonly stage: "prepare" | "commit";
+    readonly handle: HandleImpl;
+    readonly error: FailureError;
+};
+
+type DeliveryAttemptResult =
+    | {readonly status: "ok"}
+    | {readonly status: "failed"; readonly failure: DeliveryFailure}
+    | {readonly status: "stopped"};
+
 function isAlive(scope: Scope): boolean {
     return scope.phase === "creating" || scope.phase === "available";
 }
@@ -66,45 +87,63 @@ function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
     return waiting;
 }
 
-function contributionIdentity(capability: string, id: string): string {
-    return `${capability}:${id}`;
-}
-
 class HandleImpl implements ContributionHandle {
     readonly capability: string;
     readonly id: string;
     readonly plugin: string;
-    readonly entry: string;
+    readonly entry: string | null;
     readonly generation: number;
+    readonly kind: "entry" | "plugin";
     readonly declaration: unknown;
-    readonly receiver: ContributionReceiver;
     readonly #implementation: unknown;
-    published = false;
+    readonly #source: HandleImpl | undefined;
+    readonly #isAlive: () => boolean;
+    #published = false;
     /** 发布后撤回或从未发布即失败/停止时的原因；null 表示仍在事务中或已发布。 */
     withdrawn: RevokeReason | null = null;
-    prepared: unknown = undefined;
 
     constructor(input: {
-        readonly receiver: ContributionReceiver;
         readonly capability: string;
         readonly id: string;
         readonly plugin: string;
-        readonly entry: string;
+        readonly entry: string | null;
         readonly generation: number;
+        readonly kind: "entry" | "plugin";
         readonly declaration: unknown;
         readonly implementation: unknown;
+        readonly source?: HandleImpl;
+        readonly isAlive?: () => boolean;
     }) {
-        this.receiver = input.receiver;
         this.capability = input.capability;
         this.id = input.id;
         this.plugin = input.plugin;
         this.entry = input.entry;
         this.generation = input.generation;
+        this.kind = input.kind;
         this.declaration = input.declaration;
         this.#implementation = input.implementation;
+        this.#source = input.source;
+        this.#isAlive = input.isAlive ?? (() => true);
+    }
+
+    get published(): boolean {
+        return this.#published && this.#isAlive() && (this.#source?.published ?? true);
+    }
+
+    set published(value: boolean) {
+        this.#published = value;
     }
 
     implementation(): unknown {
+        if (this.kind === "plugin") {
+            throw new PluginStateError({
+                plugin: this.plugin,
+                entry: null,
+                generation: null,
+                reason: "顶层声明没有实现",
+                detail: `${this.capability}:${this.id}`,
+            });
+        }
         if (!this.published) {
             throw new PluginStateError({
                 plugin: this.plugin,
@@ -114,7 +153,7 @@ class HandleImpl implements ContributionHandle {
                 detail: `${this.capability}:${this.id}`,
             });
         }
-        return this.#implementation;
+        return this.#source === undefined ? this.#implementation : this.#source.implementation();
     }
 }
 
@@ -127,8 +166,6 @@ interface ProvidedRecord {
     released: boolean;
 }
 
-type AttemptOutcome = {readonly status: "activated"} | {readonly status: "failed"; readonly failure: ActivationFailed} | {readonly status: "stopped"};
-
 interface Attempt {
     readonly generation: number;
     readonly scope: Scope;
@@ -137,6 +174,9 @@ interface Attempt {
     readonly outcome: Promise<AttemptOutcome>;
     settled: AttemptOutcome | null;
     handles: ReadonlyArray<HandleImpl>;
+    readonly handlesByContribution: Map<ContributionRecord, HandleImpl>;
+    readonly deliveries: Set<DeliveryRecord>;
+    readonly connections: ReceiverConnection[];
     provided: ReadonlyMap<ServiceKey<unknown>, ProvidedRecord>;
     readonly releasedOutputs: Set<ProvidedService>;
     /** 失败时发起的收口；停止与正常关闭由 lifecycle 级联推进，不在这里记录。 */
@@ -151,54 +191,93 @@ interface EntryRecord {
     readonly activatable: boolean;
     readonly consumerId: EntryId;
     readonly providerIds: ReadonlyMap<ServiceKey<unknown>, EntryId>;
-    readonly contributions: ReadonlyArray<{readonly receiver: ContributionReceiver; readonly capability: string; readonly id: string; readonly declaration: unknown}>;
+    readonly contributions: ReadonlyArray<ContributionRecord>;
     current: Attempt | null;
 }
 
 interface PluginRecord {
     readonly id: string;
     readonly scope: Scope;
+    readonly points: ReadonlyMap<string, ContributionPointDefinition>;
     readonly entries: ReadonlyMap<string, EntryRecord>;
+    contributions: ReadonlyArray<ContributionRecord>;
+}
+
+interface ContributionRecord {
+    readonly key: string;
+    readonly plugin: PluginRecord;
+    entry: EntryRecord | null;
+    readonly definition: ContributionDeclaration;
+    readonly kind: "entry" | "plugin";
+    readonly location: RuntimeLocation;
+    readonly deliveries: DeliveryRecord[];
+}
+
+interface ReceiverConnection {
+    readonly id: string;
+    readonly point: string;
+    readonly owner: EntryRecord;
+    readonly attempt: Attempt;
+    readonly receiver: ContributionReceiver;
+    readonly deliveries: Map<string, DeliveryRecord>;
+    tail: Promise<void>;
+    closed: boolean;
+    closeout: Promise<void> | null;
+}
+
+interface DeliveryPlan {
+    readonly connection: ReceiverConnection;
+    readonly contribution: ContributionRecord;
+    readonly handle: HandleImpl;
+    readonly sourceAttempt: Attempt | null;
+}
+
+interface DeliveryRecord {
+    readonly key: string;
+    readonly contribution: ContributionRecord;
+    readonly handle: HandleImpl;
+    readonly connection: ReceiverConnection;
+    readonly sourceAttempt: Attempt | null;
+    prepared: unknown;
+    preparedSuccessfully: boolean;
+    state: "preparing" | "committing" | "delivered" | "failed" | "revoked";
+    revoked: boolean;
+    error: FailureError | null;
 }
 
 export class PluginHostImpl implements PluginHost {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
     readonly #assembly: ServiceAssembly;
-    readonly #receivers: ReadonlyMap<string, ContributionReceiver>;
     readonly #observer: PluginObserver | undefined;
     readonly #plugins = new Map<string, PluginRecord>();
-    /** 本位置目录：`capability:id` → 入口。 */
-    readonly #contributions = new Map<string, EntryRecord>();
+    /** 贡献目录：贡献点 id + 贡献 id → 全部当前登记，重复判定不区分运行位置。 */
+    readonly #contributions = new Map<string, ContributionRecord[]>();
+    readonly #connections = new Map<string, ReceiverConnection>();
     /** 代次跨登记单调递增：重新启用得到新代次，旧代次身份不复用。 */
     readonly #generations = new Map<string, number>();
     readonly #diagnostics: PluginDiagnostic[] = [];
     #registrations = 0;
     #sequence = 0;
+    #contributionSequence = 0;
+    #connectionSequence = 0;
 
     constructor(instance: RuntimeInstance, assembly: ServiceAssembly, options: PluginHostOptions) {
         this.instanceId = instance.identity.instanceId;
         this.location = instance.identity.location;
         this.#assembly = assembly;
-        const receivers = new Map<string, ContributionReceiver>();
-        for (const receiver of options.receivers) {
-            if (receivers.has(receiver.capability)) {
-                throw new TypeError(`能力 ${receiver.capability} 登记了两个接收者`);
-            }
-            receivers.set(receiver.capability, receiver);
-        }
-        this.#receivers = receivers;
         this.#observer = options.observer;
     }
 
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult {
         const rejections = validateDefinition(definition, {
             location: this.location,
-            receivers: this.#receivers,
             hasKey: (key) => this.#assembly.hasKey(key),
-            contributionTaken: (capability, id) => {
-                const owner = this.#contributions.get(contributionIdentity(capability, id));
-                return owner !== undefined && owner.scope.phase !== "closed";
+            contributionPointTaken: (id) => {
+                for (const plugin of this.#plugins.values()) {
+                    if (plugin.scope.phase !== "closed" && plugin.points.has(id)) return true;
+                }
+                return false;
             },
         });
         const existing = this.#plugins.get(definition.id);
@@ -218,12 +297,24 @@ export class PluginHostImpl implements PluginHost {
         }
 
         this.#registrations += 1;
+        const points = new Map<string, ContributionPointDefinition>();
+        for (const point of definition.contributionPoints ?? []) {
+            points.set(point.id, point);
+        }
         const entries = new Map<string, EntryRecord>();
+        const allContributions: ContributionRecord[] = [];
+        const pluginRecord: PluginRecord = {id: definition.id, scope: options.scope, points, entries, contributions: allContributions};
         const registered: string[] = [];
+
         for (const entry of definition.entries) {
             const activatable = entry.location === this.location;
             const consumerId = `plugin:${definition.id}/${entry.id}@${this.#registrations}`;
             const providerIds = new Map<ServiceKey<unknown>, EntryId>();
+            const contributions = (entry.contributions ?? []).map((declaration) => {
+                const record = this.#createContribution(pluginRecord, declaration, "entry", entry.location);
+                allContributions.push(record);
+                return record;
+            });
             const record: EntryRecord = {
                 plugin: definition.id,
                 definition: entry,
@@ -231,14 +322,12 @@ export class PluginHostImpl implements PluginHost {
                 activatable,
                 consumerId,
                 providerIds,
-                contributions: (entry.contributions ?? []).map((contribution) => ({
-                    receiver: this.#receivers.get(contribution.capability)!,
-                    capability: contribution.capability,
-                    id: contribution.id,
-                    declaration: contribution.declaration,
-                })),
+                contributions,
                 current: null,
             };
+            for (const contribution of contributions) {
+                contribution.entry = record;
+            }
             entries.set(entry.id, record);
             if (!activatable) {
                 continue;
@@ -259,11 +348,29 @@ export class PluginHostImpl implements PluginHost {
                     release: (instance) => this.#releaseProvided(record, key, instance),
                 }));
             }
-            for (const contribution of record.contributions) {
-                this.#contributions.set(contributionIdentity(contribution.capability, contribution.id), record);
-            }
         }
-        this.#plugins.set(definition.id, {id: definition.id, scope: options.scope, entries});
+
+        const topLevel = (definition.contributions ?? []).map((declaration) => {
+            const record = this.#createContribution(pluginRecord, declaration, "plugin", this.location);
+            allContributions.push(record);
+            return record;
+        });
+        pluginRecord.contributions = allContributions;
+        this.#plugins.set(definition.id, pluginRecord);
+        for (const contribution of allContributions) {
+            const identity = this.#contributionIdentity(contribution.definition.capability, contribution.definition.id);
+            const records = this.#contributions.get(identity) ?? [];
+            records.push(contribution);
+            this.#contributions.set(identity, records);
+        }
+        if (topLevel.length > 0) {
+            options.scope.register({
+                kind: "top-level-contributions",
+                label: definition.id,
+                value: topLevel,
+                release: (records) => this.#revokeTopLevel(records),
+            });
+        }
         return {status: "accepted", plugin: definition.id, entries: registered};
     }
 
@@ -274,7 +381,14 @@ export class PluginHostImpl implements PluginHost {
             const local = entries.filter((entry) => entry.location === this.location);
             const unavailable = local.filter((entry) => entry.state.status === "blocked" || entry.state.status === "failed").length;
             const summary = unavailable === 0 ? "available" : unavailable === local.length ? "blocked" : "partial";
-            return {id: plugin.id, scopeId: plugin.scope.id, entries, summary} as const;
+            return {
+                id: plugin.id,
+                scopeId: plugin.scope.id,
+                summary,
+                contributionPoints: [...plugin.points.values()].map((point) => ({id: point.id, implementation: point.implementation})),
+                contributions: plugin.contributions.filter((contribution) => contribution.kind === "plugin").map((contribution) => this.#contributionState(contribution)),
+                entries,
+            } as const;
         });
         return {plugins};
     }
@@ -284,13 +398,15 @@ export class PluginHostImpl implements PluginHost {
         return record === null ? null : this.#stateOf(record);
     }
 
-    contribution<Declaration, Implementation>(capability: string, id: string): ContributionState<Declaration, Implementation> | null {
-        const record = this.#contributions.get(contributionIdentity(capability, id));
-        if (record === undefined) {
-            return null;
-        }
-        const contribution = record.contributions.find((candidate) => candidate.capability === capability && candidate.id === id)!;
-        return this.#contributionState(record, contribution) as ContributionState<Declaration, Implementation>;
+    contribution<Declaration, Implementation>(capability: string, id: string): ReadonlyArray<ContributionState<Declaration, Implementation>> {
+        const records = (this.#contributions.get(this.#contributionIdentity(capability, id)) ?? [])
+            .filter((record) => this.#plugins.get(record.plugin.id) === record.plugin)
+            .sort((a, b) => {
+                const left = `${a.plugin.id}/${a.entry?.definition.id ?? ""}/${a.kind}`;
+                const right = `${b.plugin.id}/${b.entry?.definition.id ?? ""}/${b.kind}`;
+                return left < right ? -1 : left > right ? 1 : 0;
+            });
+        return records.map((record) => this.#contributionState(record) as ContributionState<Declaration, Implementation>);
     }
 
     async activate(ref: EntryRef, options: {readonly signal?: AbortSignal} = {}): Promise<ActivationResult> {
@@ -363,6 +479,78 @@ export class PluginHostImpl implements PluginHost {
         return [...this.#diagnostics];
     }
 
+    #contributionIdentity(capability: string, id: string): string {
+        return `${capability.length}:${capability}${id}`;
+    }
+
+    #createContribution(plugin: PluginRecord, definition: ContributionDeclaration, kind: "entry" | "plugin", location: RuntimeLocation): ContributionRecord {
+        return {
+            key: String(++this.#contributionSequence),
+            plugin,
+            entry: null,
+            definition,
+            kind,
+            location,
+            deliveries: [],
+        };
+    }
+
+    #pointOwner(id: string): PluginRecord | null {
+        for (const plugin of this.#plugins.values()) {
+            if (isAlive(plugin.scope) && plugin.points.has(id)) {
+                return plugin;
+            }
+        }
+        return null;
+    }
+
+    #pointFor(contribution: ContributionRecord): ContributionPointDefinition | null {
+        return this.#pointOwner(contribution.definition.capability)?.points.get(contribution.definition.capability) ?? null;
+    }
+
+    #liveContributions(capability: string, id: string): ReadonlyArray<ContributionRecord> {
+        return (this.#contributions.get(this.#contributionIdentity(capability, id)) ?? []).filter((record) =>
+            this.#plugins.get(record.plugin.id) === record.plugin && isAlive(record.plugin.scope));
+    }
+
+    #validation(contribution: ContributionRecord): ContributionValidation {
+        const point = this.#pointFor(contribution);
+        if (point === null) {
+            return {status: "pending", reason: "unknown-point"};
+        }
+        if (this.#liveContributions(contribution.definition.capability, contribution.definition.id).length > 1) {
+            return {status: "rejected", reason: "duplicate-contribution", detail: null};
+        }
+        if (point.implementation === "required" && contribution.kind === "plugin") {
+            return {status: "rejected", reason: "implementation-required", detail: null};
+        }
+        if (point.implementation === "none" && contribution.kind === "entry") {
+            return {status: "rejected", reason: "implementation-not-accepted", detail: null};
+        }
+        if (point.validate !== undefined) {
+            const descriptor = {
+                ...contribution.definition,
+                plugin: contribution.plugin.id,
+                entry: contribution.entry?.definition.id ?? null,
+                location: contribution.location,
+            };
+            try {
+                const detail = point.validate(descriptor);
+                if (detail !== null) {
+                    return {status: "rejected", reason: "invalid-declaration", detail};
+                }
+            } catch (error) {
+                return {status: "rejected", reason: "invalid-declaration", detail: summarizeFailure(error).message};
+            }
+        }
+        return {status: "accepted"};
+    }
+
+    #isEffective(contribution: ContributionRecord): boolean {
+        const validation = this.#validation(contribution);
+        return validation.status === "accepted" || validation.status === "pending";
+    }
+
     #declare(result: {readonly status: "accepted" | "rejected"; readonly id: EntryId}): void {
         if (result.status === "rejected") {
             // 不变量：登记前已按同一登记表与作用域预检，services 不应再拒绝。
@@ -402,7 +590,22 @@ export class PluginHostImpl implements PluginHost {
         const work = scope.createChild("entry-work");
         work.open();
         const {promise, resolve} = Promise.withResolvers<AttemptOutcome>();
-        const attempt: Attempt = {generation, scope, work, services: new Set(), outcome: promise, settled: null, handles: [], provided: new Map(), releasedOutputs: new Set(), closeout: null, closeoutResult: null};
+        const attempt: Attempt = {
+            generation,
+            scope,
+            work,
+            services: new Set(),
+            outcome: promise,
+            settled: null,
+            handles: [],
+            handlesByContribution: new Map(),
+            deliveries: new Set(),
+            connections: [],
+            provided: new Map(),
+            releasedOutputs: new Set(),
+            closeout: null,
+            closeoutResult: null,
+        };
         record.current = attempt;
         this.#record("activate", "activation-started", {plugin: record.plugin, entry: record.definition.id, generation});
         const stopping = Promise.withResolvers<void>();
@@ -410,8 +613,9 @@ export class PluginHostImpl implements PluginHost {
             this.#record("close", "close-started", {plugin: record.plugin, entry: record.definition.id, generation});
             stopping.resolve();
         }, {once: true});
-        work.accept({label: "provided-services-close-barrier", run: async () => {
+        work.accept({label: `${record.plugin}/${record.definition.id}`, run: async () => {
             await stopping.promise;
+            await attempt.outcome;
             await Promise.all([...attempt.services].map((service) => service.close()));
         }});
         void this.#run(record, attempt).then((outcome) => {
@@ -498,7 +702,6 @@ export class PluginHostImpl implements PluginHost {
         }
 
         registerCloseout();
-
         // 2. 受管获取：激活作用域停止即 abort；迟到的产出登记为迟到资源，只收口不发布。
         const context: ActivationContext = {
             plugin,
@@ -537,7 +740,7 @@ export class PluginHostImpl implements PluginHost {
             return stopped();
         }
 
-        // 3. 产出核对：声明过的提供项与贡献都必须有实现；不接受占位。
+        // 3. 产出核对：提供项与 accepted/pending 入口贡献必须有实现，接收者必须与 receives 一致。
         const output = acquired.handle.value;
         const provided = new Map<ServiceKey<unknown>, ProvidedRecord>();
         const declaredKeys = record.definition.provides ?? [];
@@ -554,60 +757,101 @@ export class PluginHostImpl implements PluginHost {
                 return fail("output", "missing-service", {key: key.name});
             }
         }
+
         const handles: HandleImpl[] = [];
         for (const contribution of record.contributions) {
-            const implementation = output.contributions?.[contribution.capability]?.[contribution.id];
-            if (implementation === undefined) {
-                return fail("output", "missing-implementation", {capability: contribution.capability, contribution: contribution.id});
+            const validation = this.#validation(contribution);
+            if (validation.status === "rejected") {
+                continue;
             }
-            handles.push(new HandleImpl({...contribution, plugin, entry, generation, implementation}));
+            const implementation = output.contributions?.[contribution.definition.capability]?.[contribution.definition.id];
+            if (implementation === undefined) {
+                return fail("output", "missing-implementation", {capability: contribution.definition.capability, contribution: contribution.definition.id});
+            }
+            const handle = new HandleImpl({
+                capability: contribution.definition.capability,
+                id: contribution.definition.id,
+                plugin,
+                entry,
+                generation,
+                kind: "entry",
+                declaration: contribution.definition.declaration,
+                implementation,
+                isAlive: () => isAlive(scope),
+            });
+            handles.push(handle);
+            attempt.handlesByContribution.set(contribution, handle);
         }
         attempt.handles = handles;
 
-        // 4/5. 受控事务：按声明顺序 prepare，全部成功后按序 commit；任一失败逆序撤回全部暂存项。
-        const prepared: HandleImpl[] = [];
-        for (const handle of handles) {
-            try {
-                handle.prepared = await handle.receiver.prepare?.(handle);
-            } catch (error) {
-                await this.#revoke(prepared, "activation-failed");
-                return fail("prepare", "receiver-prepare-failed", {capability: handle.capability, contribution: handle.id, error: summarizeFailure(error)});
-            }
-            prepared.push(handle);
-            if (!isAlive(scope)) {
-                await this.#revoke(prepared, "activation-stopped");
-                return stopped();
+        const receivers = output.receivers ?? {};
+        const declaredReceivers = record.definition.receives ?? [];
+        for (const point of declaredReceivers) {
+            const receiver = receivers[point];
+            if (receiver === undefined) {
+                return fail("output", "missing-receiver", {capability: point});
             }
         }
-        for (const handle of prepared) {
-            try {
-                await handle.receiver.commit?.(handle, handle.prepared);
-            } catch (error) {
-                await this.#revoke(prepared, "activation-failed");
-                return fail("commit", "receiver-commit-failed", {capability: handle.capability, contribution: handle.id, error: summarizeFailure(error)});
+        for (const point of Object.keys(receivers)) {
+            if (!declaredReceivers.includes(point)) {
+                return fail("output", "undeclared-receiver", {capability: point});
             }
-            if (!isAlive(scope)) {
-                await this.#revoke(prepared, "activation-stopped");
+        }
+
+        // 4. 先接上再补交：按贡献方代次整批交付，单批失败只记账，不改变两侧激活结果。
+        const connections = attempt.connections;
+        for (const point of declaredReceivers) {
+            const connection = this.#connectReceiver(record, attempt, point, receivers[point]!, acquired.handle);
+            if (connection === null || !isAlive(scope)) {
+                await this.#withdrawAttempt(attempt, "activation-stopped");
                 return stopped();
+            }
+            connections.push(connection);
+        }
+        await this.#backfillReceivers(connections);
+
+        // 5. 受控事务：整批 prepare 后 commit，失败逆序撤回；循环纳入发布前新接上的接收者。
+        for (;;) {
+            if (!isAlive(scope)) {
+                await this.#withdrawAttempt(attempt, "activation-stopped");
+                return stopped();
+            }
+            const plans = this.#deliveryPlans(attempt);
+            if (plans.length === 0) {
+                break;
+            }
+            const delivery = await this.#deliverPlans(plans, "activation", attempt);
+            if (delivery.status === "stopped") {
+                await this.#withdrawAttempt(attempt, "activation-stopped");
+                return stopped();
+            }
+            if (delivery.status === "failed") {
+                await this.#withdrawAttempt(attempt, "activation-failed");
+                return fail(delivery.failure.stage, delivery.failure.stage === "prepare" ? "receiver-prepare-failed" : "receiver-commit-failed", {
+                    capability: delivery.failure.handle.capability,
+                    contribution: delivery.failure.handle.id,
+                    error: delivery.failure.error,
+                });
             }
         }
 
         // 6. 发布：同步段内核对阶段并登记发布资源，其释放即撤回；随后打开作用域接纳业务。
         if (scope.phase !== "creating") {
-            await this.#revoke(prepared, "activation-stopped");
+            await this.#withdrawAttempt(attempt, "activation-stopped");
             return stopped();
         }
         const publication = attempt.work.register<ReadonlyArray<HandleImpl>>({
             kind: "contribution-publication",
             label: `${plugin}/${entry}#${generation}`,
-            value: prepared,
+            value: handles,
             dependsOn: [acquired.handle],
-            release: (items) => this.#revoke(items, "scope-closed"),
+            release: (items) => this.#withdrawAttempt(attempt, "scope-closed", items),
         });
         if (publication.status !== "registered") {
+            await this.#withdrawAttempt(attempt, "activation-stopped");
             return stopped();
         }
-        for (const handle of prepared) {
+        for (const handle of handles) {
             handle.published = true;
         }
         scope.open();
@@ -615,28 +859,343 @@ export class PluginHostImpl implements PluginHost {
         return {status: "activated"};
     }
 
-    /** 逆序撤回；接收者的异常只记诊断，不改变机制状态。 */
-    async #revoke(handles: ReadonlyArray<HandleImpl>, reason: RevokeReason): Promise<void> {
-        for (let index = handles.length - 1; index >= 0; index -= 1) {
-            const handle = handles[index]!;
-            if (handle.withdrawn !== null) {
+    #connectReceiver(record: EntryRecord, attempt: Attempt, point: string, receiver: ContributionReceiver, activationOutput: ReleaseDependency): ReceiverConnection | null {
+        const id = `${record.plugin}/${record.definition.id}#${attempt.generation}:${point}:${++this.#connectionSequence}`;
+        const connection: ReceiverConnection = {
+            id,
+            point,
+            owner: record,
+            attempt,
+            receiver,
+            deliveries: new Map(),
+            tail: Promise.resolve(),
+            closed: false,
+            closeout: null,
+        };
+        // 接收者资源依赖激活产出，保证断开先于产出释放。
+        const result = attempt.work.register<ReceiverConnection>({
+            kind: "contribution-receiver",
+            label: point,
+            value: connection,
+            dependsOn: [activationOutput],
+            release: (current) => this.#disconnectReceiver(current),
+        });
+        if (result.status !== "registered") {
+            connection.closed = true;
+            return null;
+        }
+        // 补交前登记连接，使并发激活中的贡献方在下一轮发现它。
+        this.#connections.set(id, connection);
+        this.#record("publish", "receiver-connected", {plugin: record.plugin, entry: record.definition.id, generation: attempt.generation, capability: point});
+        return connection;
+    }
+
+
+    async #backfillReceivers(connections: ReadonlyArray<ReceiverConnection>): Promise<void> {
+        const groups = new Map<Attempt | ContributionRecord, {readonly attempt: Attempt | null; readonly plans: DeliveryPlan[]}>();
+        for (const plugin of this.#plugins.values()) {
+            for (const contribution of plugin.contributions) {
+                if (contribution.location !== this.location || !this.#isSourceAvailable(contribution)) {
+                    continue;
+                }
+                for (const connection of connections) {
+                    if (connection.point !== contribution.definition.capability) {
+                        continue;
+                    }
+                    const plan = this.#planForContribution(connection, contribution);
+                    if (plan === null) {
+                        continue;
+                    }
+                    const key = plan.sourceAttempt ?? contribution;
+                    const group = groups.get(key) ?? {attempt: plan.sourceAttempt, plans: []};
+                    group.plans.push(plan);
+                    groups.set(key, group);
+                }
+            }
+        }
+        for (const group of groups.values()) {
+            const result = await this.#deliverPlans(group.plans, "backfill", group.attempt);
+            if (result.status === "failed") {
+                this.#record("publish", "backfill-failed", {
+                    plugin: result.failure.handle.plugin,
+                    entry: result.failure.handle.entry,
+                    generation: result.failure.handle.generation,
+                    capability: result.failure.handle.capability,
+                    contribution: result.failure.handle.id,
+                    error: result.failure.error,
+                });
+            }
+        }
+    }
+
+
+    #isSourceAvailable(contribution: ContributionRecord): boolean {
+        if (!this.#isEffective(contribution)) {
+            return false;
+        }
+        if (contribution.kind === "plugin") {
+            return isAlive(contribution.plugin.scope);
+        }
+        const attempt = contribution.entry?.current;
+        const handle = attempt?.handlesByContribution.get(contribution);
+        return attempt?.scope.phase === "available" && handle?.published === true;
+    }
+
+    #planForContribution(connection: ReceiverConnection, contribution: ContributionRecord): DeliveryPlan | null {
+        const sourceAttempt = contribution.entry?.current ?? null;
+        let handle: HandleImpl;
+        if (contribution.kind === "plugin") {
+            handle = new HandleImpl({
+                capability: contribution.definition.capability,
+                id: contribution.definition.id,
+                plugin: contribution.plugin.id,
+                entry: null,
+                generation: 0,
+                kind: "plugin",
+                declaration: contribution.definition.declaration,
+                implementation: undefined,
+                isAlive: () => isAlive(contribution.plugin.scope),
+            });
+            handle.published = true;
+        } else {
+            const current = sourceAttempt?.handlesByContribution.get(contribution);
+            if (current === undefined) {
+                return null;
+            }
+            handle = current;
+        }
+        const key = this.#deliveryKey(contribution, handle.generation);
+        if (connection.deliveries.has(key)) {
+            return null;
+        }
+        return {connection, contribution, handle, sourceAttempt};
+    }
+
+    #deliveryPlans(attempt: Attempt): DeliveryPlan[] {
+        const plans: DeliveryPlan[] = [];
+        for (const contribution of attempt.handlesByContribution.keys()) {
+            if (!this.#isEffective(contribution)) {
                 continue;
             }
-            handle.published = false;
-            handle.withdrawn = reason;
+            for (const connection of this.#connections.values()) {
+                if (!this.#receiverAlive(connection) || connection.point !== contribution.definition.capability) {
+                    continue;
+                }
+                const plan = this.#planForContribution(connection, contribution);
+                if (plan !== null) {
+                    plans.push(plan);
+                }
+            }
+        }
+        return plans;
+    }
+
+    #deliveryKey(contribution: ContributionRecord, generation: number): string {
+        return `${contribution.key}@${generation}`;
+    }
+
+    async #deliverPlans(plans: ReadonlyArray<DeliveryPlan>, mode: DeliveryMode, sourceAttempt: Attempt | null): Promise<DeliveryAttemptResult> {
+        // 多连接按 id 排序加锁，避免不同批次互相等待。
+        const connections = [...new Set(plans.map((plan) => plan.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        return this.#withReceiverLocks(connections, async () => {
+            const sourceAlive = (): boolean => sourceAttempt === null
+                ? plans.every((plan) => isAlive(plan.contribution.plugin.scope))
+                : isAlive(sourceAttempt.scope);
+            if (!sourceAlive()) {
+                return {status: "stopped"};
+            }
+            const deliveries: DeliveryRecord[] = [];
+            for (const plan of plans) {
+                const key = this.#deliveryKey(plan.contribution, plan.handle.generation);
+                if (!this.#receiverAlive(plan.connection) || plan.connection.deliveries.has(key) || !this.#isEffective(plan.contribution)) {
+                    continue;
+                }
+                const handle = new HandleImpl({
+                    capability: plan.handle.capability,
+                    id: plan.handle.id,
+                    plugin: plan.handle.plugin,
+                    entry: plan.handle.entry,
+                    generation: plan.handle.generation,
+                    kind: plan.handle.kind,
+                    declaration: plan.handle.declaration,
+                    implementation: undefined,
+                    source: plan.handle,
+                    isAlive: () => this.#receiverAlive(plan.connection),
+                });
+                const delivery: DeliveryRecord = {
+                    key,
+                    contribution: plan.contribution,
+                    handle,
+                    connection: plan.connection,
+                    sourceAttempt: plan.sourceAttempt,
+                    prepared: undefined,
+                    preparedSuccessfully: false,
+                    state: "preparing",
+                    revoked: false,
+                    error: null,
+                };
+                plan.connection.deliveries.set(key, delivery);
+                plan.contribution.deliveries.push(delivery);
+                sourceAttempt?.deliveries.add(delivery);
+                deliveries.push(delivery);
+            }
+            const fail = async (stage: "prepare" | "commit", handle: HandleImpl, error: unknown): Promise<DeliveryAttemptResult> => {
+                const failure = summarizeFailure(error);
+                for (const delivery of deliveries) {
+                    delivery.state = "failed";
+                    delivery.error = failure;
+                }
+                await this.#revokeDeliveriesLocked(deliveries, mode === "activation" ? "activation-failed" : "delivery-failed", true);
+                this.#record("publish", "delivery-failed", {
+                    plugin: handle.plugin, entry: handle.entry, generation: handle.generation,
+                    capability: handle.capability, contribution: handle.id, error: failure,
+                });
+                return {status: "failed", failure: {stage, handle, error: failure}};
+            };
+            const stop = async (): Promise<DeliveryAttemptResult> => {
+                await this.#revokeDeliveriesLocked(deliveries, mode === "activation" ? "activation-stopped" : "scope-closed", false);
+                return {status: "stopped"};
+            };
+            for (const delivery of deliveries) {
+                if (!this.#receiverAlive(delivery.connection)) {
+                    continue;
+                }
+                try {
+                    delivery.prepared = await delivery.connection.receiver.prepare?.(delivery.handle);
+                    delivery.preparedSuccessfully = true;
+                } catch (error) {
+                    if (!this.#receiverAlive(delivery.connection)) {
+                        this.#record("publish", "delivery-failed", {
+                            plugin: delivery.handle.plugin, entry: delivery.handle.entry, generation: delivery.handle.generation,
+                            capability: delivery.handle.capability, contribution: delivery.handle.id, error: summarizeFailure(error),
+                        });
+                        continue;
+                    }
+                    return fail("prepare", delivery.handle, error);
+                }
+                if (!sourceAlive()) {
+                    return stop();
+                }
+            }
+            await this.#revokeDeliveriesLocked(deliveries.filter((delivery) => !this.#receiverAlive(delivery.connection)), "receiver-closed", false);
+            for (const delivery of deliveries) {
+                if (!delivery.preparedSuccessfully || delivery.revoked || !this.#receiverAlive(delivery.connection)) {
+                    continue;
+                }
+                delivery.state = "committing";
+                try {
+                    await delivery.connection.receiver.commit?.(delivery.handle, delivery.prepared);
+                } catch (error) {
+                    if (!this.#receiverAlive(delivery.connection)) {
+                        this.#record("publish", "delivery-failed", {
+                            plugin: delivery.handle.plugin, entry: delivery.handle.entry, generation: delivery.handle.generation,
+                            capability: delivery.handle.capability, contribution: delivery.handle.id, error: summarizeFailure(error),
+                        });
+                        continue;
+                    }
+                    return fail("commit", delivery.handle, error);
+                }
+                if (!sourceAlive()) {
+                    return stop();
+                }
+            }
+            await this.#revokeDeliveriesLocked(deliveries.filter((delivery) => !this.#receiverAlive(delivery.connection)), "receiver-closed", false);
+            for (const delivery of deliveries) {
+                if (delivery.preparedSuccessfully && !delivery.revoked && this.#receiverAlive(delivery.connection)) {
+                    delivery.state = "delivered";
+                    delivery.handle.published = true;
+                }
+            }
+            return {status: "ok"};
+        });
+    }
+
+    async #withReceiverLocks<T>(connections: ReadonlyArray<ReceiverConnection>, work: () => Promise<T>): Promise<T> {
+        const releases: Array<() => void> = [];
+        for (const connection of connections) {
+            const previous = connection.tail;
+            const {promise, resolve} = Promise.withResolvers<void>();
+            connection.tail = previous.then(() => promise);
+            await previous;
+            releases.push(resolve);
+        }
+        try {
+            return await work();
+        } finally {
+            for (let index = releases.length - 1; index >= 0; index -= 1) {
+                releases[index]!();
+            }
+        }
+    }
+
+    /** 逆序撤回；接收者的异常只记诊断，不改变机制状态。 */
+    async #revokeDeliveriesLocked(deliveries: ReadonlyArray<DeliveryRecord>, reason: RevokeReason, failed: boolean): Promise<void> {
+        for (let index = deliveries.length - 1; index >= 0; index -= 1) {
+            const delivery = deliveries[index]!;
+            // prepare 抛错的项未完成暂存，不交给接收者撤回。
+            if (delivery.revoked || !delivery.preparedSuccessfully) {
+                continue;
+            }
+            delivery.revoked = true;
+            delivery.handle.published = false;
+            delivery.handle.withdrawn = reason;
+            delivery.state = failed ? "failed" : "revoked";
             try {
-                await handle.receiver.revoke?.(handle, handle.prepared, reason);
+                await delivery.connection.receiver.revoke?.(delivery.handle, delivery.prepared, reason);
             } catch (error) {
                 this.#record("revoke", "receiver-revoke-threw", {
-                    plugin: handle.plugin,
-                    entry: handle.entry,
-                    generation: handle.generation,
-                    capability: handle.capability,
-                    contribution: handle.id,
+                    plugin: delivery.handle.plugin,
+                    entry: delivery.handle.entry,
+                    generation: delivery.handle.generation,
+                    capability: delivery.handle.capability,
+                    contribution: delivery.handle.id,
                     error: summarizeFailure(error),
                 });
             }
         }
+    }
+
+    #receiverAlive(connection: ReceiverConnection): boolean {
+        return !connection.closed && isAlive(connection.owner.scope) && isAlive(connection.attempt.scope);
+    }
+
+    #disconnectReceiver(connection: ReceiverConnection): Promise<void> {
+        if (connection.closeout !== null) {
+            return connection.closeout;
+        }
+        connection.closed = true;
+        connection.closeout = this.#withReceiverLocks([connection], async () => {
+            await this.#revokeDeliveriesLocked([...connection.deliveries.values()], "receiver-closed", false);
+            this.#connections.delete(connection.id);
+            this.#record("revoke", "receiver-closed", {
+                plugin: connection.owner.plugin,
+                entry: connection.owner.definition.id,
+                generation: connection.attempt.generation,
+                capability: connection.point,
+            });
+        });
+        return connection.closeout;
+    }
+
+    async #withdrawAttempt(attempt: Attempt, reason: RevokeReason, handles: ReadonlyArray<HandleImpl> = attempt.handles): Promise<void> {
+        const deliveries = [...attempt.deliveries];
+        const connections = [...new Set(deliveries.map((delivery) => delivery.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        await this.#withReceiverLocks(connections, async () => {
+            await this.#revokeDeliveriesLocked(deliveries, reason, false);
+        });
+        for (let index = handles.length - 1; index >= 0; index -= 1) {
+            const handle = handles[index]!;
+            handle.published = false;
+            handle.withdrawn = reason;
+        }
+    }
+
+    async #revokeTopLevel(records: ReadonlyArray<ContributionRecord>): Promise<void> {
+        const deliveries = records.flatMap((record) => record.deliveries);
+        const connections = [...new Set(deliveries.map((delivery) => delivery.connection))].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        await this.#withReceiverLocks(connections, async () => {
+            await this.#revokeDeliveriesLocked(deliveries, "scope-closed", false);
+        });
     }
 
     /**
@@ -708,8 +1267,11 @@ export class PluginHostImpl implements PluginHost {
 
     /** 同一提供项的释放不会并发（lifecycle 不重入在途释放）；成功后才标记，失败留给显式恢复重试。 */
     async #releaseProvided(record: EntryRecord, key: ServiceKey<unknown>, instance: unknown): Promise<void> {
-        const provided = record.current?.provided.get(key);
-        if (provided !== undefined && provided.instance === instance && !provided.released) {
+        const attempt = record.current;
+        const provided = attempt?.provided.get(key);
+        if (attempt !== null && provided !== undefined && provided.instance === instance && !provided.released) {
+            // services 接管实例后可先于 entry-work 收口，撤回必须仍能使用接收者产出。
+            await Promise.all(attempt.connections.map((connection) => this.#disconnectReceiver(connection)));
             await provided.release?.(instance);
             provided.released = true;
         }
@@ -759,18 +1321,46 @@ export class PluginHostImpl implements PluginHost {
         return {...base, status, generation: attempt.generation, scopeId: attempt.scope.id, failure, closeout};
     }
 
-    #contributionState(record: EntryRecord, contribution: EntryRecord["contributions"][number]): ContributionState {
+    #deliveryState(contribution: ContributionRecord): ContributionDelivery {
+        if (!isAlive(contribution.plugin.scope)) {
+            return {status: "waiting-receiver"};
+        }
+        const sourceAttempt = contribution.entry?.current ?? null;
+        for (let index = contribution.deliveries.length - 1; index >= 0; index -= 1) {
+            const delivery = contribution.deliveries[index]!;
+            if (!this.#receiverAlive(delivery.connection) || delivery.sourceAttempt !== sourceAttempt) {
+                continue;
+            }
+            const receiver = {plugin: delivery.connection.owner.plugin, entry: delivery.connection.owner.definition.id, generation: delivery.connection.attempt.generation};
+            if (delivery.state === "failed") {
+                return {status: "delivery-failed", receiver, error: delivery.error};
+            }
+            if (delivery.state === "delivered" && !delivery.revoked) {
+                return {status: "delivered", receiver};
+            }
+        }
+        return {status: "waiting-receiver"};
+    }
+
+    #contributionState(contribution: ContributionRecord): ContributionState {
+        const validation = this.#validation(contribution);
         const base = {
-            capability: contribution.capability,
-            id: contribution.id,
-            plugin: record.plugin,
-            entry: record.definition.id,
-            location: record.definition.location,
-            declaration: contribution.declaration,
+            capability: contribution.definition.capability,
+            id: contribution.definition.id,
+            plugin: contribution.plugin.id,
+            entry: contribution.entry?.definition.id ?? null,
+            location: contribution.location,
+            kind: contribution.kind,
+            declaration: contribution.definition.declaration,
+            validation,
+            delivery: this.#deliveryState(contribution),
         };
-        const attempt = record.current;
-        if (attempt === null) {
-            return {...base, status: "declared", reason: isAlive(record.scope) ? "not-activated" : "scope-closed"};
+        if (contribution.kind === "plugin" || validation.status === "rejected") {
+            return {...base, status: "declared", reason: isAlive(contribution.plugin.scope) ? "not-activated" : "scope-closed"};
+        }
+        const attempt = contribution.entry?.current;
+        if (attempt === null || attempt === undefined) {
+            return {...base, status: "declared", reason: isAlive(contribution.plugin.scope) ? "not-activated" : "scope-closed"};
         }
         const generation = attempt.generation;
         if (attempt.settled === null) {
@@ -782,12 +1372,12 @@ export class PluginHostImpl implements PluginHost {
         if (attempt.settled.status === "stopped") {
             return {...base, status: "declared", reason: "scope-closed"};
         }
-        const handle = attempt.handles.find((candidate) => candidate.capability === contribution.capability && candidate.id === contribution.id)!;
-        if (handle.published && attempt.scope.phase === "available") {
+        const handle = attempt.handlesByContribution.get(contribution);
+        if (handle?.published && attempt.scope.phase === "available") {
             return {...base, status: "available", generation, implementation: handle.implementation()};
         }
         // 已发布过的贡献只会因停止或关闭撤回；失败撤回发生在发布前，已由 failed 分支覆盖。
-        return {...base, status: "revoked", generation, reason: handle.withdrawn === "activation-stopped" ? "activation-stopped" : "scope-closed"};
+        return {...base, status: "revoked", generation, reason: handle?.withdrawn === "activation-stopped" ? "activation-stopped" : "scope-closed"};
     }
 
     #blocked(): ReadonlyMap<string, EntryBlocked | null> {
@@ -827,7 +1417,8 @@ export class PluginHostImpl implements PluginHost {
             location: record.definition.location,
             dependencies: (record.definition.dependencies ?? []).map((dependency) => ({key: dependency.key.name, required: dependency.required ?? true})),
             provides: (record.definition.provides ?? []).map((key) => key.name),
-            contributions: record.contributions.map((contribution) => this.#contributionState(record, contribution)),
+            receives: [...(record.definition.receives ?? [])],
+            contributions: record.contributions.map((contribution) => this.#contributionState(contribution)),
             state: this.#stateOf(record, blocked.get(`${record.plugin}/${record.definition.id}`) ?? null),
         };
     }
@@ -866,4 +1457,3 @@ export class PluginHostImpl implements PluginHost {
         }
     }
 }
-

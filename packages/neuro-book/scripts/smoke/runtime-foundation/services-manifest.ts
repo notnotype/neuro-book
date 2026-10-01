@@ -78,7 +78,6 @@ export function createServicesManifest(input: ServicesManifestInput): Applicatio
     };
     return {
         keys: [diagnosticsKey, platformFilesKey, notesGrantKey, sqliteKey],
-        receivers: [],
         plugins: [...SERVICE_PLUGIN_IDS.filter((id) => !input.omit.has(id)).map((id) => providers[id]), notesPlugin(input), auditPlugin(input)],
         gates: [
             {id: "diagnostics", kind: "activate", entry: {plugin: "nbook.diagnostics", entry: "main"}},

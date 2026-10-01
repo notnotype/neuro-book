@@ -6,7 +6,7 @@
 
 import type {ApplicationManifest, CapabilityProvider} from "../../../runtime/application/application";
 import type {RuntimeLocation} from "../../../runtime/lifecycle/lifecycle";
-import type {ContributionHandle, ContributionReceiver, PluginDefinition, RevokeReason} from "../../../runtime/plugins/plugins";
+import type {ContributionHandle, ContributionPointDefinition, ContributionReceiver, PluginDefinition, RevokeReason} from "../../../runtime/plugins/plugins";
 import {provide} from "../../../runtime/plugins/plugins";
 import {defineServiceKey} from "../../../runtime/services/services";
 
@@ -41,8 +41,6 @@ export function createCommandTable(): CommandTable {
     const revocations: Array<{readonly id: string; readonly reason: RevokeReason}> = [];
     return {
         receiver: {
-            capability: "commands",
-            validate: (descriptor) => (descriptor.declaration.title.trim() === "" ? "title 不能为空" : null),
             prepare: (handle) => `${handle.id}#${handle.generation}`,
             commit: (handle) => {
                 handles.set(handle.id, handle);
@@ -54,14 +52,10 @@ export function createCommandTable(): CommandTable {
         },
         run(id, argument) {
             const handle = handles.get(id);
-            if (handle === undefined) {
+            if (handle === undefined || !handle.published) {
                 return null;
             }
-            try {
-                return handle.implementation()(argument);
-            } catch {
-                return null;
-            }
+            return handle.implementation()(argument);
         },
         revocations,
     };
@@ -80,6 +74,22 @@ export interface ControlledManifestInput {
 
 /** greeter 插件依赖 clock，提供 greeter 服务与一条命令；flaky 插件只在注入可选失败时加入。 */
 export function createControlledManifest(input: ControlledManifestInput): ApplicationManifest {
+    const commandsPoint: ContributionPointDefinition<{readonly title: string}> = {
+        id: "commands",
+        implementation: "required",
+        validate: ({declaration}) => declaration.title.trim() === "" ? "title 不能为空" : null,
+    };
+    const commandOwner: PluginDefinition = {
+        id: "command-owner",
+        contributionPoints: [commandsPoint],
+        entries: [{
+            id: "main",
+            location: input.location,
+            receives: ["commands"],
+            activate: () => ({receivers: {commands: input.commands.receiver}}),
+        }],
+    };
+
     const greeter: PluginDefinition = {
         id: "greeter",
         entries: [
@@ -131,9 +141,9 @@ export function createControlledManifest(input: ControlledManifestInput): Applic
     }
     return {
         keys: [clockKey, presenceKey, greeterKey],
-        receivers: [input.commands.receiver],
         capabilities: [input.clock, input.presence],
-        plugins: input.failOptional ? [greeter, flaky] : [greeter],
+        plugins: input.failOptional ? [commandOwner, greeter, flaky] : [commandOwner, greeter],
+        requiredPlugins: [commandOwner.id],
         gates,
     };
 }

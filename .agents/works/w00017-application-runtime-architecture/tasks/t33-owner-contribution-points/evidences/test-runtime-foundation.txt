@@ -1,0 +1,47 @@
+$ bun run test:runtime-foundation
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book[39m
+
+ [32m✓[39m runtime/plugins/owner-contribution-points.test.ts [2m([22m[2m18 tests[22m[2m)[22m[32m 89[2mms[22m[39m
+ [32m✓[39m runtime/plugins/plugins.test.ts [2m([22m[2m25 tests[22m[2m)[22m[32m 115[2mms[22m[39m
+ [32m✓[39m runtime/application/application-startup.test.ts [2m([22m[2m21 tests[22m[2m)[22m[32m 97[2mms[22m[39m
+ [32m✓[39m runtime/application/application.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 99[2mms[22m[39m
+ [32m✓[39m server/runtime/foundation/server-host.test.ts [2m([22m[2m5 tests[22m[2m)[22m[32m 154[2mms[22m[39m
+ [32m✓[39m app/runtime/browser-host.test.ts [2m([22m[2m6 tests[22m[2m)[22m[32m 259[2mms[22m[39m
+ [32m✓[39m runtime/lifecycle/lifecycle.test.ts [2m([22m[2m28 tests[22m[2m)[22m[32m 77[2mms[22m[39m
+ [32m✓[39m runtime/services/services.test.ts [2m([22m[2m20 tests[22m[2m)[22m[32m 69[2mms[22m[39m
+ [32m✓[39m runtime/plugins/entry-dependencies.test.ts [2m([22m[2m11 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m runtime/diagnostics/diagnostics.test.ts [2m([22m[2m14 tests[22m[2m)[22m[32m 85[2mms[22m[39m
+ [32m✓[39m server/features/sqlite/sqlite.test.ts [2m([22m[2m9 tests[22m[2m)[22m[32m 116[2mms[22m[39m
+ [32m✓[39m server/features/runtime-diagnostics/jsonl-exporter.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 111[2mms[22m[39m
+ [32m✓[39m server/features/platform-files/platform-files.test.ts [2m([22m[2m19 tests[22m[2m)[22m[33m 718[2mms[22m[39m
+     [33m[2m✓[22m[39m 外部修改收到相对路径事件，重读得到新内容，释放后不再开始排队回调 [33m 471[2mms[22m[39m
+ [32m✓[39m runtime/plugins/review-regressions.test.ts [2m([22m[2m8 tests[22m[2m)[22m[32m 36[2mms[22m[39m
+ [32m✓[39m app/features/runtime-diagnostics/console-exporter.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 14[2mms[22m[39m
+ [32m✓[39m app/features/files/files-client.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 51[2mms[22m[39m
+ [32m✓[39m runtime/plugins/blocked.test.ts [2m([22m[2m4 tests[22m[2m)[22m[32m 6[2mms[22m[39m
+ [32m✓[39m server/features/workspace-files/service.test.ts [2m([22m[2m3 tests[22m[2m)[22m[32m 33[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m18 passed[39m[22m[90m (18)[39m
+[2m      Tests [22m [1m[32m217 passed[39m[22m[90m (217)[39m
+[2m   Start at [22m 11:01:40
+[2m   Duration [22m 4.99s[2m (transform 4.36s, setup 668ms, import 6.72s, tests 2.18s, environment 3ms)[22m
+
+
+exitCode=0
+
+$ bun run test app/runtime/product-browser-runtime.test.ts
+$ vitest run app/runtime/product-browser-runtime.test.ts
+
+[1m[30m[46m RUN [49m[39m[22m [36mv4.1.10 [39m[90m/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book[39m
+
+ [32m✓[39m app/runtime/product-browser-runtime.test.ts [2m([22m[2m2 tests[22m[2m)[22m[32m 83[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m2 passed[39m[22m[90m (2)[39m
+[2m   Start at [22m 11:01:45
+[2m   Duration [22m 4.13s[2m (transform 2.01s, setup 162ms, import 2.76s, tests 83ms, environment 0ms)[22m
+
+
+exitCode=0

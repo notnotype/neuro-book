@@ -1,19 +1,18 @@
 /**
- * 描述登记的纯校验：只看定义、宿主位置、接收者与服务键登记表，不触碰作用域或 runtime.services。
- * 整个定义作为一个单位判定：任一拒绝即全部不登记，调用方据此避免留下部分声明。
+ * 描述登记的纯结构校验：只看定义、宿主位置、贡献点占用与服务键登记表。
+ * 贡献点存在性、声明规则与重复贡献属于单条动态结果，不在这里拒绝整个插件。
  */
 
 import type {RuntimeLocation} from "../lifecycle/lifecycle";
 import type {ServiceKey} from "../services/services";
 
-import type {ContributionReceiver, PluginDefinition, RegistrationRejection, RegistrationRejectionReason} from "./contracts";
+import type {PluginDefinition, RegistrationRejection, RegistrationRejectionReason} from "./contracts";
 
 export interface RegistrationEnvironment {
     readonly location: RuntimeLocation;
-    readonly receivers: ReadonlyMap<string, ContributionReceiver>;
     hasKey(key: ServiceKey<unknown>): boolean;
-    /** 本位置目录里已被存活登记占用的贡献身份（`capability:id`）。 */
-    contributionTaken(capability: string, id: string): boolean;
+    /** 本位置存活登记中已被其它插件占用的贡献点 id。 */
+    contributionPointTaken(id: string): boolean;
 }
 
 function rejection(
@@ -37,9 +36,24 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
     if (definition.entries.length === 0) {
         rejections.push(rejection("no-entries"));
     }
+
+    const pointIds = new Set<string>();
+    for (const point of definition.contributionPoints ?? []) {
+        if (point.id.trim() === "") {
+            rejections.push(rejection("empty-id", {capability: point.id}));
+        }
+        if (pointIds.has(point.id)) {
+            rejections.push(rejection("duplicate-contribution-point", {capability: point.id}));
+        }
+        if (environment.contributionPointTaken(point.id)) {
+            rejections.push(rejection("duplicate-contribution-point", {capability: point.id}));
+        }
+        pointIds.add(point.id);
+    }
+
     const entryIds = new Set<string>();
-    const localContributions = new Set<string>();
     const providedNames = new Set<string>();
+    const receiversByLocation = new Map<RuntimeLocation, Set<string>>();
     for (const entry of definition.entries) {
         if (entry.id.trim() === "") {
             rejections.push(rejection("empty-id", {entry: entry.id}));
@@ -48,6 +62,7 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
             rejections.push(rejection("duplicate-entry", {entry: entry.id}));
         }
         entryIds.add(entry.id);
+
         for (const key of entry.provides ?? []) {
             if (providedNames.has(key.name)) {
                 rejections.push(rejection("duplicate-service", {entry: entry.id, detail: key.name}));
@@ -60,8 +75,30 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
                 rejections.push(rejection("reserved-service-name", {entry: entry.id, detail: key.name}));
             }
         }
+
+        const receives = entry.receives ?? [];
+        const localReceivers = receiversByLocation.get(entry.location) ?? new Set<string>();
+        for (const pointId of receives) {
+            if (!pointIds.has(pointId)) {
+                rejections.push(rejection("unknown-contribution-point", {entry: entry.id, capability: pointId}));
+            }
+            if (localReceivers.has(pointId)) {
+                rejections.push(rejection("duplicate-receiver", {entry: entry.id, capability: pointId}));
+            }
+            localReceivers.add(pointId);
+        }
+        receiversByLocation.set(entry.location, localReceivers);
+
+        for (const contribution of entry.contributions ?? []) {
+            if (contribution.capability.trim() === "") {
+                rejections.push(rejection("empty-id", {entry: entry.id, capability: contribution.capability, contribution: contribution.id}));
+            }
+            if (contribution.id.trim() === "") {
+                rejections.push(rejection("empty-id", {entry: entry.id, capability: contribution.capability, contribution: contribution.id}));
+            }
+        }
         if (entry.location !== environment.location) {
-            // 其它位置的入口只进目录描述，不在本宿主校验接收者与服务键。
+            // 其它位置的入口只进目录描述，不在本宿主校验服务依赖与服务键。
             continue;
         }
         const provides = entry.provides ?? [];
@@ -78,29 +115,14 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
                 rejections.push(rejection("self-dependency", {entry: entry.id, detail: dependency.key.name}));
             }
         }
-        for (const contribution of entry.contributions ?? []) {
-            const identity = `${contribution.capability}:${contribution.id}`;
-            if (contribution.id.trim() === "") {
-                rejections.push(rejection("empty-id", {entry: entry.id, capability: contribution.capability, contribution: contribution.id}));
-            }
-            if (localContributions.has(identity) || environment.contributionTaken(contribution.capability, contribution.id)) {
-                rejections.push(rejection("duplicate-contribution", {entry: entry.id, capability: contribution.capability, contribution: contribution.id}));
-            }
-            localContributions.add(identity);
-            const receiver = environment.receivers.get(contribution.capability);
-            if (receiver === undefined) {
-                rejections.push(rejection("unknown-receiver", {entry: entry.id, capability: contribution.capability, contribution: contribution.id}));
-                continue;
-            }
-            const verdict = receiver.validate?.({
-                ...contribution,
-                plugin: definition.id,
-                entry: entry.id,
-                location: entry.location,
-            });
-            if (verdict !== undefined && verdict !== null) {
-                rejections.push(rejection("invalid-declaration", {entry: entry.id, capability: contribution.capability, contribution: contribution.id, detail: verdict}));
-            }
+    }
+
+    for (const contribution of definition.contributions ?? []) {
+        if (contribution.capability.trim() === "") {
+            rejections.push(rejection("empty-id", {capability: contribution.capability, contribution: contribution.id}));
+        }
+        if (contribution.id.trim() === "") {
+            rejections.push(rejection("empty-id", {capability: contribution.capability, contribution: contribution.id}));
         }
     }
     return rejections;

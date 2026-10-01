@@ -51,7 +51,6 @@ function greeterPlugin(location: "server" | "browser" = "server", activate?: Plu
 function manifest(overrides: Partial<ApplicationManifest> & {readonly extraGates?: StartupGate[]; readonly releaseClock?: () => void} = {}): ApplicationManifest {
     return {
         keys: [clockKey, greeterKey],
-        receivers: [],
         capabilities: [{id: "clock", key: clockKey, create: (): Clock => ({now: () => 1}), release: overrides.releaseClock}],
         plugins: [greeterPlugin()],
         gates: [{id: "greeter", kind: "activate", entry: {plugin: "greeter", entry: "main"}}, ...(overrides.extraGates ?? [])],

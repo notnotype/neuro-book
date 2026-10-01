@@ -15,7 +15,7 @@ const keys = [aKey, bKey, cKey, browserKey, missing];
 function setup() {
     const runtime = createRuntimeInstance({instanceId: "entry-contract", location: "server"});
     const assembly = createServiceAssembly(runtime, {keys});
-    const host = createPluginHost(runtime, assembly, {receivers: []});
+    const host = createPluginHost(runtime, assembly, {});
     return {runtime, assembly, host};
 }
 
@@ -135,7 +135,7 @@ describe("入口与服务级依赖合同", () => {
         const empty = defineServiceKey("a/");
         const channel = defineServiceKey("a/channel");
         const reservedAssembly = createServiceAssembly(runtime, {keys: [empty, channel, bKey]});
-        const reservedHost = createPluginHost(runtime, reservedAssembly, {receivers: []});
+        const reservedHost = createPluginHost(runtime, reservedAssembly, {});
         for (const [key, reason] of [[bKey, "foreign-service-id"], [empty, "foreign-service-id"], [channel, "reserved-service-name"]] as const) {
             expect(reservedHost.register({id: "a", entries: [definition("a").entries[0]!, {id: "browser", location: "browser", provides: [key], activate: () => ({})}]}, {scope: runtime.root})).toMatchObject({status: "rejected", rejections: [{reason, detail: key.name}]});
             expect(reservedHost.catalog().plugins).toEqual([]);

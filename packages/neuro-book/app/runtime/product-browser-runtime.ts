@@ -15,12 +15,22 @@ import {
     type WorkbenchViewCommandPort,
 } from "nbook/app/utils/workbench/workbench-shell-commands";
 import type {ApplicationManifest, StartupResult, StopResult} from "../../runtime/application/application";
-import type {ContributionReceiver} from "../../runtime/plugins/plugins";
+import type {ContributionReceiver, PluginDefinition} from "../../runtime/plugins/plugins";
 import {BrowserRuntimeHost, type PageLifecycleTarget} from "./browser-host";
 
+const WORKBENCH_ENTRY = {plugin: "nbook.workbench", entry: "browser"} as const;
 const FILES_ENTRY = {plugin: "nbook.files", entry: "browser"} as const;
 const FILES_VIEW_CAPABILITY = "workbench.view";
 const FILES_COMMAND_CAPABILITY = "workbench.command";
+
+const WORKBENCH_VIEW_POINT = {
+    id: FILES_VIEW_CAPABILITY,
+    implementation: "required" as const,
+};
+const WORKBENCH_COMMAND_POINT = {
+    id: FILES_COMMAND_CAPABILITY,
+    implementation: "required" as const,
+};
 
 export interface ProductBrowserRuntimeOptions {
     readonly instanceId: string;
@@ -49,9 +59,6 @@ export function createProductBrowserRuntime(options: ProductBrowserRuntimeOption
     let viewPublished = false;
 
     const views: ContributionReceiver<ViewDescriptor, ViewDescriptor, DescriptorResult<Component>> = {
-        capability: FILES_VIEW_CAPABILITY,
-        validate: ({id, declaration}) => id === SHELL_FILES_VIEW.id && declaration === SHELL_FILES_VIEW
-            ? null : "Files View 声明与产品目录不一致",
         prepare: () => {
             const factory = resolveWorkbenchViewFactory(SHELL_FILES_VIEW.factoryKey);
             if (!factory.ok) throw new Error(factory.reason);
@@ -61,9 +68,6 @@ export function createProductBrowserRuntime(options: ProductBrowserRuntimeOption
         revoke: () => { viewPublished = false; },
     };
     const commands: ContributionReceiver<typeof SHELL_FILES_REFRESH_COMMAND, WorkbenchViewCommandPort, {release: Release | null}> = {
-        capability: FILES_COMMAND_CAPABILITY,
-        validate: ({id, declaration}) => id === SHELL_FILES_REFRESH_COMMAND.command.id && declaration === SHELL_FILES_REFRESH_COMMAND
-            ? null : "Files 命令声明与产品目录不一致",
         prepare: () => ({release: null}),
         commit: (handle, prepared) => {
             const result = registerViewTitleCommands(options.commands, [handle.declaration], options.viewCommands);
@@ -75,10 +79,33 @@ export function createProductBrowserRuntime(options: ProductBrowserRuntimeOption
             prepared.release = null;
         },
     };
+    const workbench: PluginDefinition = {
+        id: WORKBENCH_ENTRY.plugin,
+        contributionPoints: [
+            {
+                ...WORKBENCH_VIEW_POINT,
+                validate: ({id, declaration}) => id === SHELL_FILES_VIEW.id && declaration === SHELL_FILES_VIEW
+                    ? null : "Files View 声明与产品目录不一致",
+            },
+            {
+                ...WORKBENCH_COMMAND_POINT,
+                validate: ({id, declaration}) => id === SHELL_FILES_REFRESH_COMMAND.command.id && declaration === SHELL_FILES_REFRESH_COMMAND
+                    ? null : "Files 命令声明与产品目录不一致",
+            },
+        ],
+        entries: [{
+            id: WORKBENCH_ENTRY.entry,
+            location: "browser",
+            receives: [FILES_VIEW_CAPABILITY, FILES_COMMAND_CAPABILITY],
+            activate: () => ({receivers: {
+                [FILES_VIEW_CAPABILITY]: views,
+                [FILES_COMMAND_CAPABILITY]: commands,
+            }}),
+        }],
+    };
     const manifest: ApplicationManifest = {
         keys: [],
-        receivers: [views, commands],
-        plugins: [{id: FILES_ENTRY.plugin, entries: [{
+        plugins: [workbench, {id: FILES_ENTRY.plugin, entries: [{
             id: FILES_ENTRY.entry,
             location: "browser",
             contributions: [
@@ -90,6 +117,7 @@ export function createProductBrowserRuntime(options: ProductBrowserRuntimeOption
                 [FILES_COMMAND_CAPABILITY]: {[SHELL_FILES_REFRESH_COMMAND.command.id]: options.viewCommands},
             }}),
         }]}],
+        requiredPlugins: [WORKBENCH_ENTRY.plugin],
         gates: [
             {id: "workbench-shell", kind: "check", check: ({root}) => {
                 const result = registerWorkbenchShellCommands(options.commands, options.shell);

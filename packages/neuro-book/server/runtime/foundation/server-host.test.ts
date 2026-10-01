@@ -16,7 +16,6 @@ const clockKey = defineServiceKey<{now(): number}>("clock");
 function manifest(input: {readonly release?: () => void | Promise<void>; readonly failRequired?: boolean} = {}): ApplicationManifest {
     return {
         keys: [clockKey],
-        receivers: [],
         capabilities: [{id: "clock", key: clockKey, create: () => ({now: () => 1}), release: input.release}],
         plugins: [],
         gates: [

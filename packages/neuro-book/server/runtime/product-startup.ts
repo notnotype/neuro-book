@@ -77,7 +77,6 @@ function productManifest(recordStartupError: (error: unknown) => void): Applicat
     let prerequisitesReady = false;
     return {
         keys: [sessionStoreKey, workspaceFilesKey],
-        receivers: [],
         plugins: [createWorkspaceFilesPlugin()],
         capabilities: [{
             id: "agent-session-store",

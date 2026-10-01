@@ -15,20 +15,30 @@ export interface EntryRef {
     readonly entry: string;
 }
 
-/** 向某类能力提交的静态声明；描述与执行实现分离，登记阶段不携带实现。 */
+/** 向某个贡献点提交的静态声明；描述与执行实现分离，登记阶段不携带实现。 */
 export interface ContributionDeclaration<Declaration = unknown> {
-    /** 接收者能力 id；宿主必须登记了同名接收者。 */
+    /** 贡献点 id。 */
     readonly capability: string;
-    /** 同一能力内、同一运行位置上唯一。 */
+    /** 同一贡献点内的稳定身份。 */
     readonly id: string;
     readonly declaration: Declaration;
 }
 
-/** 已进入目录的贡献描述。 */
+/** 已进入目录的贡献描述；顶层声明的 entry 为 null。 */
 export interface ContributionDescriptor<Declaration = unknown> extends ContributionDeclaration<Declaration> {
     readonly plugin: string;
-    readonly entry: string;
+    readonly entry: string | null;
     readonly location: RuntimeLocation;
+}
+
+/** 由拥有者插件定义的贡献点。 */
+export interface ContributionPointDefinition<Declaration = unknown> {
+    /** 在全部存活登记中唯一，例如 "workbench.view"。 */
+    readonly id: string;
+    /** required：贡献写在入口下并给出实现；none：只有顶层声明。 */
+    readonly implementation: "required" | "none";
+    /** 纯函数，返回拒绝原因或 null。 */
+    validate?(descriptor: ContributionDescriptor<Declaration>): string | null;
 }
 
 /** 入口激活期间可用的上下文。 */
@@ -58,11 +68,13 @@ export interface ProvidedService {
     release?(instance: unknown): void | Promise<void>;
 }
 
-/** 入口激活的产出：每个声明的贡献与提供项都必须给出实现，缺失即激活失败，不接受占位。 */
+/** 入口激活的产出：当前有效的入口贡献与所有提供项必须给出实现，接收者与 receives 完全一致。 */
 export interface ActivationOutput {
-    /** capability → contribution id → 实现。 */
+    /** contribution point id → contribution id → implementation。 */
     readonly contributions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
     readonly services?: ReadonlyArray<ProvidedService>;
+    /** 本入口声明的贡献点接收者；键必须与 `receives` 完全一致。 */
+    readonly receivers?: Readonly<Record<string, ContributionReceiver>>;
 }
 
 export type ActivationEvent = "onStartup";
@@ -75,6 +87,9 @@ export interface PluginEntryDefinition {
     readonly dependencies?: ReadonlyArray<ServiceDependency>;
     /** 描述登记阶段即向 runtime.services 声明的提供项；实例化归激活。 */
     readonly provides?: ReadonlyArray<ServiceKey<unknown>>;
+    /** 本入口接收的、由本插件定义的贡献点。 */
+    readonly receives?: ReadonlyArray<string>;
+    /** 入口激活后向贡献点提交的声明。 */
     readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     /** 只在激活时调用；登记、目录查询与状态查询都不调用它。 */
     activate(context: ActivationContext): ActivationOutput | Promise<ActivationOutput>;
@@ -83,36 +98,39 @@ export interface PluginEntryDefinition {
 /** 随产品发布的静态描述；不是已激活实例。 */
 export interface PluginDefinition {
     readonly id: string;
+    readonly contributionPoints?: ReadonlyArray<ContributionPointDefinition>;
+    /** 只有声明、没有入口实现的贡献。 */
+    readonly contributions?: ReadonlyArray<ContributionDeclaration>;
     readonly entries: ReadonlyArray<PluginEntryDefinition>;
 }
 
 /**
- * 接收者持有的贡献句柄。业务调用必须在调用时经 `implementation()` 取实现：事务提交并发布前、
- * 失败撤回后、正常关闭后它都抛 PluginStateError；接收者不得在 prepare 阶段缓存实现绕过门禁。
+ * 接收者持有的贡献句柄。业务调用必须在调用时经 implementation() 取实现：事务提交并发布前、
+ * 任一侧停止或撤回后它都抛 PluginStateError；接收者不得缓存实现绕过门禁。顶层声明始终没有实现。
  */
 export interface ContributionHandle<Declaration = unknown, Implementation = unknown> {
     readonly capability: string;
     readonly id: string;
     readonly plugin: string;
-    readonly entry: string;
+    /** 顶层声明没有入口，因此为 null。 */
+    readonly entry: string | null;
     readonly generation: number;
+    /** entry：入口实现；plugin：顶层声明。 */
+    readonly kind: "entry" | "plugin";
     readonly declaration: Declaration;
-    /** 事务提交并发布后为 true；撤回后为 false 且不再变回。 */
+    /** 整批交付与贡献方发布后为 true；prepare/commit 期间、任一侧停止或撤回后为 false。 */
     readonly published: boolean;
     implementation(): Implementation;
 }
 
-export type RevokeReason = "activation-failed" | "activation-stopped" | "scope-closed";
+export type RevokeReason = "activation-failed" | "activation-stopped" | "scope-closed" | "receiver-closed" | "delivery-failed";
 
 /**
- * 贡献接收者：某类能力的 owner。校验在登记阶段，准备与提交在激活事务内，撤回在失败回滚
- * 与正常关闭时；prepare/commit 抛出即事务失败，revoke 的异常只记诊断，不改变机制状态。
+ * 贡献接收者：由拥有者入口在激活产出中提供。prepare/commit 抛出即事务失败；
+ * revoke 的异常只记诊断，不改变机制状态，同一接收者连接上的回调串行。
  */
 export interface ContributionReceiver<Declaration = unknown, Implementation = unknown, Prepared = unknown> {
-    readonly capability: string;
-    /** 登记阶段校验描述；返回拒绝原因或 null。不得产生副作用。 */
-    validate?(descriptor: ContributionDescriptor<Declaration>): string | null;
-    /** 激活事务：准备本次暂存项并返回它；此时 `handle.implementation()` 仍不可用。 */
+    /** 激活或补交事务的暂存项；prepare/commit 期间 implementation 不可用。 */
     prepare?(handle: ContributionHandle<Declaration, Implementation>): Prepared | Promise<Prepared>;
     /** 全部接收者准备成功后按声明顺序提交。 */
     commit?(handle: ContributionHandle<Declaration, Implementation>, prepared: Prepared): void | Promise<void>;
@@ -126,9 +144,9 @@ export type RegistrationRejectionReason =
     | "duplicate-plugin"
     | "duplicate-entry"
     | "duplicate-service"
-    | "unknown-receiver"
-    | "duplicate-contribution"
-    | "invalid-declaration"
+    | "unknown-contribution-point"
+    | "duplicate-receiver"
+    | "duplicate-contribution-point"
     | "unknown-service-key"
     | "foreign-service-id"
     | "reserved-service-name"
@@ -157,6 +175,8 @@ export type ActivationFailureReason =
     | "missing-implementation"
     | "missing-service"
     | "undeclared-service"
+    | "missing-receiver"
+    | "undeclared-receiver"
     | "receiver-prepare-failed"
     | "receiver-commit-failed";
 
@@ -213,13 +233,30 @@ export interface EntryState {
     readonly closeout: "pending" | "closed" | "incomplete" | null;
 }
 
+export type ContributionValidation =
+    | {readonly status: "accepted"}
+    | {readonly status: "pending"; readonly reason: "unknown-point"}
+    | {
+        readonly status: "rejected";
+        readonly reason: "invalid-declaration" | "implementation-required" | "implementation-not-accepted" | "duplicate-contribution";
+        readonly detail: string | null;
+    };
+
+export type ContributionDelivery =
+    | {readonly status: "waiting-receiver"}
+    | {readonly status: "delivered"; readonly receiver: EntryRef & {readonly generation: number}}
+    | {readonly status: "delivery-failed"; readonly receiver: EntryRef & {readonly generation: number}; readonly error: FailureError | null};
+
 export type ContributionState<Declaration = unknown, Implementation = unknown> = {
     readonly capability: string;
     readonly id: string;
     readonly plugin: string;
-    readonly entry: string;
+    readonly entry: string | null;
     readonly location: RuntimeLocation;
+    readonly kind: "entry" | "plugin";
     readonly declaration: Declaration;
+    readonly validation: ContributionValidation;
+    readonly delivery: ContributionDelivery;
 } & (
     | {readonly status: "declared"; readonly reason: "not-activated" | "scope-closed"}
     | {readonly status: "activating"; readonly generation: number}
@@ -228,6 +265,11 @@ export type ContributionState<Declaration = unknown, Implementation = unknown> =
     | {readonly status: "revoked"; readonly generation: number; readonly reason: "activation-stopped" | "scope-closed"}
 );
 
+export interface ContributionPointDescription {
+    readonly id: string;
+    readonly implementation: "required" | "none";
+}
+
 export interface EntryDescription {
     readonly plugin: string;
     readonly entry: string;
@@ -235,6 +277,7 @@ export interface EntryDescription {
     readonly dependencies: ReadonlyArray<{readonly key: string; readonly required: boolean}>;
     /** 对外提供的服务键名。 */
     readonly provides: ReadonlyArray<string>;
+    readonly receives: ReadonlyArray<string>;
     readonly contributions: ReadonlyArray<ContributionState>;
     readonly state: EntryState;
 }
@@ -243,6 +286,8 @@ export interface PluginDescription {
     readonly id: string;
     readonly scopeId: ScopeId;
     readonly summary: "available" | "partial" | "blocked";
+    readonly contributionPoints: ReadonlyArray<ContributionPointDescription>;
+    readonly contributions: ReadonlyArray<ContributionState>;
     readonly entries: ReadonlyArray<EntryDescription>;
 }
 
@@ -283,16 +328,16 @@ export interface PluginHost {
     readonly instanceId: string;
     readonly location: RuntimeLocation;
     /**
-     * 登记描述：校验身份、接收者、服务键与作用域，并向 runtime.services 声明本位置入口的依赖与
+     * 登记描述：校验身份、贡献点结构、服务键与作用域，并向 runtime.services 声明本位置入口的依赖与
      * 提供项。不创建运行资源、不调用 activate。同一插件在其登记作用域关闭前不能重复登记。
      */
     register(definition: PluginDefinition, options: {readonly scope: Scope}): RegisterPluginResult;
     catalog(): PluginCatalog;
     /** 未登记的入口返回 null。 */
     entryState(ref: EntryRef): EntryState | null;
-    /** 本位置目录里的贡献；未登记返回 null。查询不触发激活。 */
-    contribution<Declaration = unknown, Implementation = unknown>(capability: string, id: string): ContributionState<Declaration, Implementation> | null;
-    /** 触发或加入该入口在其登记作用域上的激活；`signal` 只结束本等待方。 */
+    /** 本位置目录里的贡献；返回稳定排序后的全部声明，未登记返回空数组，查询不触发激活。 */
+    contribution<Declaration = unknown, Implementation = unknown>(capability: string, id: string): ReadonlyArray<ContributionState<Declaration, Implementation>>;
+    /** 触发或加入该入口在其登记作用域上的激活；signal 只结束本等待方。 */
     activate(ref: EntryRef, options?: {readonly signal?: AbortSignal}): Promise<ActivationResult>;
     /** 显式恢复稳定失败的入口：上次收口完成才重置；不自动重新激活。 */
     recover(ref: EntryRef): Promise<RecoverEntryResult>;
@@ -300,7 +345,6 @@ export interface PluginHost {
 }
 
 export interface PluginHostOptions {
-    readonly receivers: ReadonlyArray<ContributionReceiver>;
     readonly observer?: PluginObserver;
 }
 
@@ -311,12 +355,12 @@ export class PluginStateError extends Error {
     readonly generation: number | null;
     readonly reason: string;
 
-    constructor(input: {readonly plugin: string; readonly entry: string; readonly generation: number | null; readonly reason: string; readonly detail?: string}) {
+    constructor(input: {readonly plugin: string; readonly entry: string | null; readonly generation: number | null; readonly reason: string; readonly detail?: string}) {
         const detail = input.detail === undefined ? "" : `：${input.detail}`;
-        super(`插件入口 ${input.plugin}/${input.entry}${input.generation === null ? "" : `#${input.generation}`} ${input.reason}${detail}`);
+        super(`插件入口 ${input.plugin}/${input.entry ?? "<plugin>"}${input.generation === null ? "" : `#${input.generation}`} ${input.reason}${detail}`);
         this.name = "PluginStateError";
         this.plugin = input.plugin;
-        this.entry = input.entry;
+        this.entry = input.entry ?? "<plugin>";
         this.generation = input.generation;
         this.reason = input.reason;
     }

@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest";
 
-import type {ContributionHandle, PluginDefinition} from "../plugins/plugins";
+import type {ContributionHandle, ContributionPointDefinition, PluginDefinition} from "../plugins/plugins";
 import {provide} from "../plugins/plugins";
 import {defineServiceKey} from "../services/services";
 
@@ -14,7 +14,7 @@ function host() {
 }
 
 function manifest(overrides: Partial<ApplicationManifest>): ApplicationManifest {
-    return {keys: [], receivers: [], plugins: [], gates: [], ...overrides};
+    return {keys: [], plugins: [], gates: [], ...overrides};
 }
 
 function dependencyChain() {
@@ -24,11 +24,30 @@ function dependencyChain() {
     const aOutput = defineServiceKey<string>("A/output");
     const bOutput = defineServiceKey<string>("B/output");
     const cOutput = defineServiceKey<string>("C/output");
+    const receiverKey = defineServiceKey<boolean>("command-owner/lifetime");
     const handles: ContributionHandle[] = [];
+    const commandPoint: ContributionPointDefinition = {id: "commands", implementation: "required"};
+    const commandOwner: PluginDefinition = {
+        id: "command-owner",
+        contributionPoints: [commandPoint],
+        entries: [{
+            id: "main",
+            location: "server",
+            receives: ["commands"],
+            provides: [receiverKey],
+            activate: () => ({services: [provide(receiverKey, true)], receivers: {commands: {
+                prepare: (handle) => {
+                    handles.push(handle);
+                    return handle;
+                },
+                revoke: (handle) => void trace.push(`revoke:${handle.plugin}`),
+            }}}),
+        }],
+    };
     const plugins: PluginDefinition[] = [
         {
             id: "A",
-            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: bKey}], provides: [aOutput], contributions: [{capability: "commands", id: "A.run", declaration: {}}], activate: (context) => {
+            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: receiverKey}, {key: bKey}], provides: [aOutput], contributions: [{capability: "commands", id: "A.run", declaration: {}}], activate: (context) => {
                 expect(context.services.require(bKey).value).toBe("B:C");
                 trace.push("activate:A");
                 context.scope.register({kind: "owned", label: "A:first", value: "first", release: () => void trace.push("resource:A:first")});
@@ -37,7 +56,7 @@ function dependencyChain() {
             }}]},
         {
             id: "B",
-            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: cKey}], provides: [bKey, bOutput], contributions: [{capability: "commands", id: "B.run", declaration: {}}], activate: (context) => {
+            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: receiverKey}, {key: cKey}], provides: [bKey, bOutput], contributions: [{capability: "commands", id: "B.run", declaration: {}}], activate: (context) => {
                 const c = context.services.require(cKey);
                 trace.push("activate:B");
                 context.scope.register({kind: "owned", label: "B:first", value: "first", release: () => void trace.push("resource:B:first")});
@@ -49,7 +68,7 @@ function dependencyChain() {
             }}]},
         {
             id: "C",
-            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], provides: [cKey, cOutput], contributions: [{capability: "commands", id: "C.run", declaration: {}}], activate: (context) => {
+            entries: [{id: "main", location: "server", activationEvents: ["onStartup"], dependencies: [{key: receiverKey}], provides: [cKey, cOutput], contributions: [{capability: "commands", id: "C.run", declaration: {}}], activate: (context) => {
                 trace.push("activate:C");
                 context.scope.register({kind: "owned", label: "C:first", value: "first", release: () => void trace.push("resource:C:first")});
                 context.scope.register({kind: "owned", label: "C:second", value: "second", release: () => void trace.push("resource:C:second")});
@@ -69,12 +88,9 @@ function dependencyChain() {
         }}]},
     ];
     const application = createApplication(host().context, manifest({
-        keys: [aOutput, bKey, bOutput, cKey, cOutput],
-        plugins,
-        receivers: [{capability: "commands", prepare: (handle) => {
-            handles.push(handle);
-            return handle;
-        }, revoke: (handle) => void trace.push(`revoke:${handle.plugin}`)}],
+        keys: [receiverKey, aOutput, bKey, bOutput, cKey, cOutput],
+        plugins: [commandOwner, ...plugins],
+        requiredPlugins: [commandOwner.id],
         observers: {plugins: {diagnosticRecorded: (diagnostic) => {
             if (diagnostic.reason === "published" || diagnostic.reason === "closed") {
                 trace.push(`${diagnostic.reason}:${diagnostic.plugin}`);
@@ -461,7 +477,7 @@ describe("依赖链启动与关闭合同", () => {
         expect((await application.startup).status).toBe("available");
         expect(handles.map((handle) => handle.plugin)).toEqual(["C", "B", "A"]);
         expect(handles.every((handle) => handle.published)).toBe(true);
-        expect(application.plugins.contribution("commands", "A.run")).toMatchObject({status: "available"});
+        expect(application.plugins.contribution("commands", "A.run")).toMatchObject([{status: "available"}]);
         expect(await application.stop()).toEqual({status: "closed"});
         const before = (first: string, second: string) => {
             expect(trace.filter((item) => item === first)).toEqual([first]);
@@ -489,7 +505,7 @@ describe("依赖链启动与关闭合同", () => {
         expect(trace.filter((item) => /^published:[ABC]$/u.test(item))).toEqual(["published:C", "published:B", "published:A"]);
         expect(trace.filter((item) => /^closed:[ABC]$/u.test(item))).toEqual(["closed:A", "closed:B", "closed:C"]);
         expect(handles.every((handle) => !handle.published)).toBe(true);
-        expect(application.plugins.contribution("commands", "A.run")).toMatchObject({status: "revoked"});
+        expect(application.plugins.contribution("commands", "A.run")).toMatchObject([{status: "revoked"}]);
     });
 
     it("验收 14：每个激活代次各有一次 close-started 和 closed，懒入口没有关闭诊断", async () => {

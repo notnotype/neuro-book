@@ -1,0 +1,40 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-01T10:30:32.066Z",
+  "durationMs": 143792,
+  "skipBuild": false,
+  "selected": [
+    "L1"
+  ],
+  "results": [
+    {
+      "id": "L1",
+      "result": "pass",
+      "durationMs": 15001,
+      "evidence": "L1-login: Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。；L1-create-project: 真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目；L1-seed-files: 临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。；L1-workbench-files: 主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t33-verify/L1.log",
+      "observations": [
+        {
+          "id": "L1-login",
+          "result": "pass",
+          "evidence": "Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。"
+        },
+        {
+          "id": "L1-create-project",
+          "result": "pass",
+          "evidence": "真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目"
+        },
+        {
+          "id": "L1-seed-files",
+          "result": "pass",
+          "evidence": "临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。"
+        },
+        {
+          "id": "L1-workbench-files",
+          "result": "pass",
+          "evidence": "主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。"
+        }
+      ]
+    }
+  ]
+}

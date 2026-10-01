@@ -222,7 +222,6 @@ describe("经 createApplication 装配", () => {
     function manifestWith(store: DiagnosticsStore, exporter: DiagnosticExporter, fallback: (record: DiagnosticRecord) => void, failRequired: boolean): ApplicationManifest {
         return {
             keys: [diagnosticsKey, blockerKey],
-            receivers: [],
             plugins: [createDiagnosticsPlugin({location: "server", store, exporter: async () => ({status: "open", exporter}), fallback})],
             gates: [
                 {id: "diagnostics", kind: "activate", entry: {plugin: "nbook.diagnostics", entry: "main"}},

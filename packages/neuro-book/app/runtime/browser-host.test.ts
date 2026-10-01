@@ -22,7 +22,6 @@ function backend() {
         manifest(instanceId: string, input: {readonly failRequired?: boolean} = {}): ApplicationManifest {
             return {
                 keys: [clockKey, presenceKey],
-                receivers: [],
                 capabilities: [
                     {id: "clock", key: clockKey, create: () => ({now: () => 1})},
                     {id: "presence", key: presenceKey, create: () => ({id: instanceId}), release: (presence: {id: string}) => void released.push(presence.id)},
@@ -127,7 +126,6 @@ describe("同一窗口多实例与销毁", () => {
         const hang = Promise.withResolvers<void>();
         const manifest: ApplicationManifest = {
             keys: [presenceKey],
-            receivers: [],
             capabilities: [{id: "presence", key: presenceKey, create: () => ({id: "win"}), release: () => hang.promise}],
             plugins: [],
             gates: [{id: "presence", kind: "resolve", key: presenceKey}],

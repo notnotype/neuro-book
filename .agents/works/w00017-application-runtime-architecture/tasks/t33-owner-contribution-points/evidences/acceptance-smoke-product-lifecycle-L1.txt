@@ -1,0 +1,4 @@
+$ bun scripts/smoke/product-lifecycle.ts --only "L1" --browser-executable /usr/bin/google-chrome-stable --report "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t33-verify/product-lifecycle-L1.json"
+L1	pass	15002ms	pass:L1-login=Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。；pass:L1-create-project=真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目；pass:L1-seed-files=临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。；pass:L1-workbench-files=主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=["agents/","lorebook/","manual/","manuscript/","reference/","upload/","world-engine/","AGENTS.md","index.md","lifecycle-smoke-note.md","project.yaml"]。
+报告	/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t33-verify/product-lifecycle-L1.json
+总耗时	143792ms

@@ -15,7 +15,7 @@ describe("第一轮审查边界回归", () => {
         const runtime = createRuntimeInstance({instanceId: "duplicates", location: "server"});
         const sameName = defineServiceKey("owner/first");
         const assembly = createServiceAssembly(runtime, {keys: [firstKey, sameName]});
-        const host = createPluginHost(runtime, assembly, {receivers: []});
+        const host = createPluginHost(runtime, assembly, {});
         const activate = vi.fn(() => ({}));
         const entries: PluginDefinition["entries"] = scenario === "跨入口" ? [
             {id: "server", location: "server", provides: [firstKey], activate},
@@ -31,7 +31,7 @@ describe("第一轮审查边界回归", () => {
     it("目录按码元排序并保留入口定义顺序，不受大小写与重音语言排序影响", async () => {
         const runtime = createRuntimeInstance({instanceId: "sorting", location: "server"});
         const assembly = createServiceAssembly(runtime, {keys: []});
-        const host = createPluginHost(runtime, assembly, {receivers: []});
+        const host = createPluginHost(runtime, assembly, {});
         for (const id of ["é", "a", "Z", "A", "_", "z"]) {
             expect(host.register({id, entries: [
                 {id: "second", location: "server", activate: () => ({})},
@@ -46,7 +46,7 @@ describe("第一轮审查边界回归", () => {
     it("undeclared-service 中途失败后全部实际产出逆序恰好释放一次", async () => {
         const runtime = createRuntimeInstance({instanceId: "invalid-output", location: "server"});
         const assembly = createServiceAssembly(runtime, {keys: [firstKey, lastKey, foreignKey]});
-        const host = createPluginHost(runtime, assembly, {receivers: []});
+        const host = createPluginHost(runtime, assembly, {});
         const released: string[] = [];
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey, lastKey], activate: () => ({services: [
             provide(firstKey, "first", (value) => {released.push(value);}),
@@ -63,7 +63,7 @@ describe("第一轮审查边界回归", () => {
     it("未校验产出释放失败后恢复只重试失败实例，不重复释放已成功实例", async () => {
         const runtime = createRuntimeInstance({instanceId: "invalid-output-recovery", location: "server"});
         const assembly = createServiceAssembly(runtime, {keys: [firstKey, lastKey, foreignKey]});
-        const host = createPluginHost(runtime, assembly, {receivers: []});
+        const host = createPluginHost(runtime, assembly, {});
         const released: string[] = [];
         let failing = true;
         host.register({id: "owner", entries: [{id: "main", location: "server", provides: [firstKey, lastKey], activate: () => ({services: [
@@ -87,7 +87,7 @@ describe("第一轮审查边界回归", () => {
     it("迟到产出的所有实例逆序恰好释放一次且不发布", async () => {
         const runtime = createRuntimeInstance({instanceId: "late-output", location: "server"});
         const assembly = createServiceAssembly(runtime, {keys: [firstKey, lastKey]});
-        const host = createPluginHost(runtime, assembly, {receivers: []});
+        const host = createPluginHost(runtime, assembly, {});
         const started = Promise.withResolvers<void>();
         const output = Promise.withResolvers<ActivationOutput>();
         const released: string[] = [];
@@ -113,7 +113,7 @@ describe("第一轮审查边界回归", () => {
         const released: string[] = [];
         let activationScope: Scope | null = null;
         let closing: Promise<unknown> | null = null;
-        const host = createPluginHost(runtime, assembly, {receivers: [], observer: {diagnosticRecorded: (diagnostic) => {
+        const host = createPluginHost(runtime, assembly, {observer: {diagnosticRecorded: (diagnostic) => {
             if (diagnostic.reason === "published") {
                 closing = activationScope!.close();
             }

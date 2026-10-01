@@ -83,7 +83,7 @@ interface Harness {
 async function startHarness(driver?: SqliteDriver): Promise<Harness> {
     const instance = createRuntimeInstance({location: "server", instanceId: `sqlite-${randomUUID()}`});
     const assembly = createServiceAssembly(instance, {keys: [sqliteKey]});
-    const host = createPluginHost(instance, assembly, {receivers: []});
+    const host = createPluginHost(instance, assembly, {});
     const box: {sqlite: SqliteService | null; owner: Scope | null; binding: ReleaseDependency | null} = {sqlite: null, owner: null, binding: null};
     const consumer: PluginDefinition = {
         id: "owner",

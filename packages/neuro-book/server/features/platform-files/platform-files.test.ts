@@ -169,7 +169,7 @@ async function startHarness(
     const box: ConsumerBox = {files: null, grants: {}, scope: null};
     const instance = createRuntimeInstance({location: "server", instanceId: `platform-files-${randomUUID()}`});
     const assembly = createServiceAssembly(instance, {keys: [platformFilesKey, ...grants.map((grant) => grant.key)]});
-    const host = createPluginHost(instance, assembly, {receivers: []});
+    const host = createPluginHost(instance, assembly, {});
     const definition = createPlatformFilesPlugin({
         roots: [{id: TEST_ROOT_ID, path: rootPath, maxOperations: options.maxOperations ?? ["read", "write", "delete"]}],
         grants,
@@ -590,7 +590,7 @@ describe("关闭顺序（验收 7）", () => {
         const rootPath = await createTempRoot();
         const instance = createRuntimeInstance({location: "server", instanceId: `platform-files-${randomUUID()}`});
         const assembly = createServiceAssembly(instance, {keys: [platformFilesKey, ...DEFAULT_GRANTS.map((grant) => grant.key)]});
-        const host = createPluginHost(instance, assembly, {receivers: []});
+        const host = createPluginHost(instance, assembly, {});
         expect(host.register(createPlatformFilesPlugin({roots: [{id: TEST_ROOT_ID, path: rootPath, maxOperations: ["read", "write", "delete"]}], grants: DEFAULT_GRANTS}), {scope: instance.root}).status).toBe("accepted");
         instance.root.open();
         const readerScope = instance.root.createChild("reader");

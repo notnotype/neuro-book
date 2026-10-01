@@ -67,6 +67,7 @@ issueId: null
 | [t30](tasks/t30-branch-test-baseline/README.md) | 修复分支测试与类型检查基线（omp 编码）；修复 Profile 预览线程边界与 watcher 前 rename 丢失；之后 master 快进到 `f00f0380` |
 | [t31](tasks/t31-product-lifecycle-smoke/README.md) | 阶段 1 生命周期 smoke `smoke:product-lifecycle`（L1–L10）与当前基线（omp 编码） |
 | [t32](tasks/t32-kernel-entry-dependencies/README.md) | 阶段 1 第一片：服务 id 归插件、按入口受阻推导、插件汇总、启动按依赖激活、关闭严格逆序与激活/关闭诊断（omp 编码）；`runtime.plugins`、`runtime.application` Spec 同步修订 |
+| [t33](tasks/t33-owner-contribution-points/README.md) | 阶段 1 第二片：贡献点由拥有者插件定义、按单条贡献校验、接收者由拥有者入口交出并按交付账本补交与撤回，Files 改由过渡插件 `nbook.workbench` 接收（omp 编码）；`runtime.plugins`、`runtime.application`、`runtime.plugin-manifest` Spec 同步修订 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

@@ -25,8 +25,10 @@ owners:
 - **插件定义**：随产品发布的模块描述，包含稳定 id、运行位置、入口、服务依赖与贡献声明；不是已激活实例。
 - **入口**：插件在某个运行位置的运行入口；每个入口分别装配与激活，拥有独立身份。
 - **激活实例**：插件 id + 入口 + 所在运行实例的作用域 + 激活代次共同标识的一次激活；同一插件的浏览器入口与后端入口不是同一次激活。
-- **贡献**：向指定能力提交的声明（命令、View/Editor 描述、设置定义、工具描述等）；描述与执行实现分离。
-- **贡献接收者（receiver）**：某类能力的所有者，负责校验声明、维护目录并接受/撤回贡献；必须能区分“描述已登记、实现待激活、实现可用、激活失败、已撤回”五种结果。
+- **贡献点**：由拥有者插件定义的扩展点，含 id、该点的贡献是否需要实现，以及可选的声明校验；id 在全部存活登记中唯一。
+- **贡献**：向某个贡献点提交的声明（命令、View/Editor 描述、设置定义、工具描述等）；描述与执行实现分离。写在入口下的贡献由该入口激活时给出实现；写在插件顶层的贡献只有声明。
+- **贡献接收者（receiver）**：拥有者入口激活时交出的某个贡献点的 `prepare`/`commit`/`revoke` 回调，负责维护该点的目录并接受/撤回贡献；必须能区分“描述已登记、实现待激活、实现可用、激活失败、已撤回”五种结果。
+- **交付**：内核把一条已可用的贡献交给同一位置上已接上的接收者，并为每个“贡献 × 贡献方代次 × 接收者连接”记一条账，撤回时逐条核销。
 - **目录**：描述登记后形成的可查询集合；目录中存在描述不代表实现已激活，也不代表权限通过。静态描述独立于激活寿命：正常关闭只撤回可调用实现，描述保留并携带不可用原因（例如未激活或作用域已关闭）。
 - **激活代次**：一次激活的身份；重新启用必须基于存活的新作用域并产生新代次，已关闭作用域不重新激活，旧代次与旧句柄一律失效。
 - **受控贡献事务**：激活期间新增的 handler、订阅、注册先由本次激活拥有，全部必需步骤成功后才对外发布。
@@ -35,8 +37,8 @@ owners:
 
 ## 输入与前置条件
 
-- 静态受信清单先完成描述校验：插件身份、入口身份、运行位置、服务依赖与贡献 owner；重复 id 不静默覆盖。入口提供的服务 id 必须以本插件 id 加 `/` 开头、名称非空、不占用保留名 `channel`，同一插件内不重复（包括不同入口之间）；任一不满足则整个插件不登记。
-- 贡献在核心服务就绪后由接收者登记；恢复布局前必须能查询 View/Editor 等描述，此时执行实现可以尚未激活。
+- 静态受信清单先完成描述校验：插件身份、入口身份、运行位置、服务依赖与贡献点结构；重复 id 不静默覆盖。入口提供的服务 id 必须以本插件 id 加 `/` 开头、名称非空、不占用保留名 `channel`，同一插件内不重复（包括不同入口之间）；贡献点 id 非空、在本插件内不重复且未被另一个存活登记的插件定义；`receives` 只引用本插件定义的贡献点，同一插件中同一位置的两个入口不接收同一个点；贡献点 id 与贡献 id 非空。任一不满足则整个插件不登记。
+- 贡献随插件描述登记，按单条校验（输出第 15 条），不要求拥有者已激活；恢复布局前必须能查询 View/Editor 等描述，此时执行实现可以尚未激活。
 - 激活可由命令调用、View 打开、服务首次取用或明确启动要求触发；触发不表示授权，描述存在不代表 handler 可用。
 - 激活执行前必须已有该入口的作用域与依赖解析结果（由 [`runtime.services`](./services.md) 提供）；每个入口独立声明运行位置。
 - 提供服务的插件在描述登记阶段即声明其提供项（服务键、位置、作用域），使解析在提供者尚未激活时也能查询声明并按需触发激活：该提供项的实例化与可调用实现归属相应入口的激活。激活只等待该入口声明的对外依赖边，不等待自己对外声明的提供项；解析一个提供者尚未激活的服务时会触发（或加入）该入口的激活并等待结果，该等待边进入 [`runtime.services`](./services.md) 的依赖检查。
@@ -49,7 +51,7 @@ owners:
 2. **入口独立**：同一插件在不同位置的入口分别装配、分别激活、分别失败；同一位置的两个入口也不隐式共享激活状态。
 3. **激活合并**：同一激活实例的并发触发合并为一次激活；成功后同代次后续触发复用。单个触发方/等待方取消只结束自身等待，不取消共享激活、不撤其它等待者所需暂存项；共享激活仅由入口owner停止/取消或激活自身失败收口，与服务初始化规则一致。
 4. **执行不合并**：消费方的每次调用是独立操作，与激活去重无关；两个消费者同时执行同一能力得到两次独立执行，而不是因共享激活只执行一次。
-5. **受控发布**：激活期间新增的 handler、订阅与注册先由本次激活拥有；所有接收者的必需校验和准备成功前，它们均不可被业务调用。全部成功才开放本激活的可调用能力；任一准备或提交失败必须保持调用门禁关闭，并撤回本次全部暂存项，不能留下某个接收者已经可调用的半成品。不要求目录查询跨接收者取得原子快照，也不要求跨位置网络事务。对外副作用（文件写入、Provider 调用、数据库提交）不属于注册事务，已发生即不回滚。
+5. **受控发布**：激活期间新增的 handler、订阅与注册先由本次激活拥有；所有已接上接收者准备成功前，它们均不可被业务调用。全部成功才开放本激活的可调用能力；任一准备或提交失败必须保持调用门禁关闭，并撤回本次全部暂存项，不能留下某个接收者已经可调用的半成品。不要求目录查询跨接收者取得原子快照，也不要求跨位置网络事务。对外副作用（文件写入、Provider 调用、数据库提交）不属于注册事务，已发生即不回滚。
 6. **接收者五态**：接收者能区分并报告描述已登记、实现待激活、实现可用、激活失败、已撤回；不得用空 handler 或成功占位应付恢复流程。正常关闭后已发布 handler 不可调用，静态描述仍可查询并携带不可用原因。
 7. **失败隔离**：激活失败保留描述与失败原因、撤回本次未完成能力；不删除其他插件的贡献；依赖它的能力明确失败；无关可选能力继续；启动必需能力失败时宿主不得进入业务接纳（门禁归 `runtime.application`）。
 8. **跨位置非原子**：每个位置独立激活并各自报告结果；不对外声称一次原子激活覆盖所有位置，一处失败不阻止另一处已经可用的入口。
@@ -59,6 +61,10 @@ owners:
 12. **插件汇总与目录顺序**：目录按插件 id 的码元顺序列出，插件内入口保持定义顺序。每个插件给出本位置入口的汇总：没有受阻或失败的入口为 `available`，部分为 `partial`，全部为 `blocked`；本位置没有入口为 `available`。
 13. **关闭严格按依赖逆序**：依赖者撤回贡献、释放激活产出与它登记的全部资源之后，才结束对所依赖服务的借用；提供者的服务实例在全部依赖者完成上述释放之后才释放；提供者自己的贡献、激活产出与资源在它提供的服务实例释放之后才释放。同一入口内贡献先于激活产出撤回。无依赖关系的入口可以并发关闭。
 14. **激活与关闭诊断**：每次激活尝试开始记 `activation-started`，发布记 `published`；代次开始停止记 `close-started`，入口自己的资源与它提供的服务实例全部释放后记 `closed`。对依赖链 A→B→C，`published` 依次为 C、B、A，`closed` 依次为 A、B、C。受阻拒绝记 `blocked`。
+15. **按单条贡献校验**：每条贡献（入口下与顶层）有校验结果，按当前存活登记推导，与登记顺序无关，查询不产生诊断。没有存活登记的插件定义该贡献点为 `pending`/`unknown-point`，定义它的插件登记后按其规则重新判定。拒绝为 `rejected` 并带原因：`invalid-declaration`（拥有者的校验返回原因或抛错，详情可查询）、`implementation-required`（点要求实现而贡献写在顶层）、`implementation-not-accepted`（点不接受实现而贡献写在入口下）、`duplicate-contribution`（同一贡献点内同一 id 出现多于一次，不区分运行位置，全部重复者都拒绝）。其余为 `accepted`。只有被拒绝的那一条不生效：入口激活时 `accepted` 与 `pending` 的入口贡献必须给出实现，`rejected` 的不要求实现，给了也不发布。
+16. **接收者接上与补交**：拥有者入口激活时，激活产出的 `receivers` 必须与入口的 `receives` 完全一致。产出核对通过后、发布之前接上这些接收者，随后补交该点已可用的贡献：入口贡献按贡献方代次整批补交（同一批跨接收者先全部 `prepare`，再全部 `commit`），顶层声明逐条补交。补交在拥有者的 `activate()` 返回前完成。某一批补交失败只把这一批标为交付失败（可查询、记诊断），已准备的项按逆序以 `delivery-failed` 撤回，贡献方与拥有者的激活结果都不受影响。顶层声明交给接收者的句柄 `kind` 为 `plugin`，`implementation()` 抛 `PluginStateError`。
+17. **交付与撤回**：贡献方激活时，已接上接收者的贡献按受控事务（第 5 条）交付，失败则贡献方激活失败；接收者未接上的贡献照常发布，交付状态为等待接收者。贡献方关闭时，已交付项逆序以 `scope-closed` 撤回。拥有者关闭时，接收者断开前把已交付给它的项逐一以 `receiver-closed` 撤回，这些贡献回到等待接收者，贡献方不受影响；断开先于拥有者自己的激活产出释放，撤回回调仍能使用拥有者的实现。拥有者恢复并重新激活后按第 16 条重新补交。两边同时关闭时每条交付恰好撤回一次；同一接收者上的补交、事务交付与撤回串行执行，不交错。
+18. **贡献不构成依赖**：只经贡献点协作的两个插件之间没有依赖边；拥有者受阻、激活失败或缺席不使贡献方受阻或失败，贡献等待接收者。
 
 ## 状态与转换
 
@@ -84,11 +90,21 @@ owners:
 | 状态 | 事件 | 结果 |
 | --- | --- | --- |
 | 未登记 | 通过校验 | 描述进入目录并可查询 |
-| 未登记 | 校验失败或重复 id | 拒绝登记且报错可见；不静默覆盖 |
+| 未登记 | 结构校验失败或重复插件 id | 拒绝登记且报错可见；不静默覆盖 |
+| 已登记 | 单条贡献不合格或贡献点无人定义 | 只有该条为 `rejected` 或 `pending`，插件其它部分照常 |
 | 已登记（实现待激活） | 激活成功 | 实现可用；可调用能力发布一次，目录标记实现可用 |
 | 已登记（实现待激活） | 激活失败 | 描述保留、实现标记激活失败且可诊断 |
 | 已登记（实现可用） | 正常关闭/停止 | 撤回已发布的可调用实现；静态描述保留并标记不可用原因 |
 | 已登记（实现待激活或可用） | 撤回事务内未发布的贡献项 | 目录移除本次未发布项；描述保留 |
+
+交付（同一位置上一条可用贡献对某个接收者）：
+
+| 状态 | 事件 | 下一状态 | 结果 |
+| --- | --- | --- | --- |
+| 等待接收者 | 拥有者接上接收者（补交）或贡献方在接收者已接上时激活（事务交付） | 已交付 | 接收者 `prepare` 后 `commit` |
+| 等待接收者 | 补交批次失败 | 交付失败 | 已准备项逆序以 `delivery-failed` 撤回；两侧激活结果不变 |
+| 已交付 | 拥有者关闭 | 等待接收者 | 断开前以 `receiver-closed` 撤回 |
+| 已交付 | 贡献方关闭 | 已撤回 | 以 `scope-closed` 撤回 |
 
 并发语义：激活合并只作用于激活事务；贡献撤回只作用于本次激活拥有的声明；关闭与激活并发时以关闭为准，迟到成功不得改变已结算结果。
 
@@ -108,6 +124,7 @@ owners:
 - **重试**：不因下一次 UI 渲染自动无限重试；恢复需要显式策略。重试前上次失败的资源必须已收口完成，且不得与仍在 pending 的 cleanup 并发重入。跨位置失败逐处报告，客户端失联不据此宣布服务端已完成停用。
 - **强制终止**：进程崩溃或强制退出不保证撤回回调执行；下次启动按清单与领域合同恢复，不假设上一次贡献已清除。
 - **回滚边界**：本地注册事务可撤回，外部副作用不可撤回。跨接收者准备/提交失败不得开放任何本次可调用实现，全部暂存项由本次owner收口；不要求目录查询一致快照或跨位置原子事务。
+- **补交失败**：拥有者接上时某一批补交失败，只标记这一批并记诊断，不使拥有者或贡献方激活失败，也不自动重试；贡献方或拥有者下一个代次会重新交付。
 
 ## 边界与兼容
 
@@ -117,7 +134,7 @@ owners:
 - **跨位置**：不做网络原子激活、不传对象引用、不提供通用 RPC 或写操作的自动重试；跨位置协议与授权归 `runtime.application` 与各能力合同。
 - **兼容与迁移**：允许 clean cutover（迁移全部调用方并删除旧入口）；本批不提供热卸载、不承诺第三方 SDK 兼容、不新增发布包、不改变数据格式或迁移策略。首批验收只要求底座与最小内置服务插件集合（diagnostics、platform-files、sqlite）真实可用，不要求全部业务插件迁移。
 - **相邻合同**：服务声明与解析（含提供声明到激活的协作、对外依赖边与运行时等待环）见 [`runtime.services`](./services.md)；资源所有权与关闭见 [`runtime.lifecycle`](./lifecycle.md)；应用清单、启动门禁与跨位置装配见 `runtime.application`。
-- **已批准的后续目标**（`planned`，实现后本文随之修订非目标）：插件清单见 [`runtime.plugin-manifest`](./plugin-manifest.md)，其中按入口的服务依赖、受阻推导、汇总状态与启停顺序已对代码定义的插件实现（输出第 11–14 条），清单文件、版本范围、插件通道与按单条贡献校验仍为 `planned`；运行期启用、禁用与引用撤回见 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)；第三方安装与热升级见 [`runtime.plugin-install`](./plugin-install.md)；代码装载与回收见 [`runtime.plugin-code-loading`](./plugin-code-loading.md)。
+- **已批准的后续目标**（`planned`，实现后本文随之修订非目标）：插件清单见 [`runtime.plugin-manifest`](./plugin-manifest.md)，其中按入口的服务依赖、受阻推导、汇总状态、启停顺序（输出第 11–14 条），以及贡献点由拥有者定义、按单条贡献校验与交付（输出第 15–18 条），已对代码定义的插件实现；清单文件、版本范围与插件通道仍为 `planned`；运行期启用、禁用与引用撤回见 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)；第三方安装与热升级见 [`runtime.plugin-install`](./plugin-install.md)；代码装载与回收见 [`runtime.plugin-code-loading`](./plugin-code-loading.md)。
 
 ## 验收与 Smoke
 
@@ -140,32 +157,42 @@ owners:
 13. **登记顺序无关**：同一组插件按不同顺序登记，目录、受阻结果与汇总相同；先登记的依赖方在提供方登记后不再受阻。
 14. **服务 id 归属**：服务 id 不带本插件前缀、名称为 `channel`、在同一插件内重复，各自使整个插件不登记，且不向 services 留下部分声明。
 15. **关闭顺序**：A→B→C 依赖链在应用停止后满足输出第 13 条的全部先后关系，`published` 与 `closed` 诊断顺序符合输出第 14 条。
+16. **单条校验**：拥有者已登记时，一条 `invalid-declaration` 只拒绝该条，原因与详情可查询，同一插件其它贡献与入口照常激活；顶层贡献投向需要实现的点为 `implementation-required`，入口贡献投向不接受实现的点为 `implementation-not-accepted`；两个插件向同一点提交同一 id 时两条都 `duplicate-contribution`，与登记顺序无关；`rejected` 的入口贡献不要求实现，`accepted` 与 `pending` 缺实现仍是 `missing-implementation`。
+17. **拥有者缺席与登记顺序**：贡献点无人定义时贡献为 `pending`/`unknown-point`；定义它的插件随后登记，合格的变为 `accepted`、不合格的变为 `rejected`；三种登记顺序得到相同目录。
+18. **补交**：贡献方先激活时贡献等待接收者；拥有者激活后补交，`activate()` 返回时接收者已 `commit`；跨两个接收者按贡献方代次整批补交，一批失败只标记该批，拥有者与其它批不受影响；顶层声明逐条补交，句柄的 `implementation()` 抛 `PluginStateError`。
+19. **断开与撤回**：拥有者单独关闭时已交付项收到 `receiver-closed` 撤回，断开先于拥有者产出释放，贡献回到等待接收者，贡献方仍可用；拥有者在新作用域重新登记并激活后重新补交，旧句柄不复活。贡献方关闭时已交付项各撤回一次；两边同时关闭时每条交付恰好撤回一次。
+20. **回调串行**：两个贡献方并发激活与一次挂起的补交交错时，同一接收者观察到的回调不交错。
+21. **结构拒绝**：`receives` 引用未定义的点、同位置两个入口接收同一个点、贡献点 id 在本插件内重复或被另一插件定义，各自使整个插件不登记；激活产出缺少声明的接收者为 `missing-receiver`、给出未声明的接收者为 `undeclared-receiver`，都是输出阶段失败。
+22. **贡献不构成依赖**：拥有者入口受阻或激活失败时，贡献方照常激活，贡献等待接收者。
 
-Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 由下节合同测试逐条覆盖；场景 12–15 由合同测试覆盖，在产品内置服务迁成插件后由 `smoke:product-lifecycle` 的 L2 与 L3、L4 读取同一组诊断在真实进程上核对；场景 8、9 的真实浏览器半边由 `smoke:runtime-foundation` 在真实 Chromium 上运行同一份受控清单验证（greeter 插件在两个窗口各自激活并向命令接收者贡献一条命令，可选 flaky 插件在浏览器与后端分别失败且不影响 greeter）。
+Smoke 以目录查询、激活结果与贡献可见性为准。场景 1–11 与 16–22 由下节合同测试逐条覆盖，其中场景 11 的接收者由拥有者插件提供；场景 12–15 由合同测试覆盖，在产品内置服务迁成插件后由 `smoke:product-lifecycle` 的 L2 与 L3、L4 读取同一组诊断在真实进程上核对；场景 8、9 的真实浏览器半边由 `smoke:runtime-foundation` 在真实 Chromium 上运行同一份受控清单验证（启动必需的 `command-owner` 插件定义 `commands` 贡献点并交出接收者，greeter 插件在两个窗口各自激活并向它贡献一条命令，可选 flaky 插件在浏览器与后端分别失败且不影响 greeter）。
 
 ## 实现合同
 
-- **实现 owner 与入口**：runtime；唯一公开入口 `packages/neuro-book/runtime/plugins/plugins.ts`（`createPluginHost(instance, assembly, {receivers, observer?})`、`provide(key, instance, release?)`、`PluginStateError`、`export type *`）。`contracts.ts` 是类型合同，`registration.ts`（登记纯校验）与 `host.ts`（目录、激活事务、恢复）是实现。
-- **依赖方向**：只允许同目录相对导入与 `../lifecycle/lifecycle`、`../services/services`；合同测试用源码守卫锁定。不内置命令/View/设置的领域语义：接收者由各能力 owner 提供。
+- **实现 owner 与入口**：runtime；唯一公开入口 `packages/neuro-book/runtime/plugins/plugins.ts`（`createPluginHost(instance, assembly, {observer?})`、`provide(key, instance, release?)`、`PluginStateError`、`export type *`）。`contracts.ts` 是类型合同，`registration.ts`（登记纯结构校验）与 `host.ts`（目录、单条校验推导、激活事务、交付账本、恢复）是实现。
+- **依赖方向**：只允许同目录相对导入与 `../lifecycle/lifecycle`、`../services/services`；合同测试用源码守卫锁定。不内置命令/View/设置的领域语义：贡献点、校验与接收者由拥有者插件提供。
+- **定义与查询**：`PluginDefinition` 有 `contributionPoints?: ContributionPointDefinition[]`（`{id, implementation: "required" | "none", validate?(descriptor)}`）与只有声明的顶层 `contributions?`；入口有 `receives?`，激活产出有 `receivers?`（贡献点 id → `ContributionReceiver`，只含 `prepare`/`commit`/`revoke`）。`contribution(point, id)` 返回该身份的全部声明（按插件、入口、种类稳定排序），未登记为空数组；`ContributionState` 在五态之上带 `validation` 与 `delivery`（`waiting-receiver`、`delivered` 及接收者入口与代次、`delivery-failed` 及错误摘要）；目录的插件描述列出 `contributionPoints` 与顶层贡献，入口描述列出 `receives`。
 - **关键不变量**：
-  - 登记整体判定：任一入口/贡献/服务键/服务 id 校验失败（含 `foreign-service-id`、`reserved-service-name`、`duplicate-service`），整个定义不登记且不向 services 留下部分声明（登记前用 `assembly.hasKey` 预检）。登记不调用 `activate`、不创建资源。
+  - 登记整体判定：任一入口/服务键/服务 id/贡献点结构校验失败（含 `foreign-service-id`、`reserved-service-name`、`duplicate-service`、`duplicate-contribution-point`、`unknown-contribution-point`、`duplicate-receiver`、空 id），整个定义不登记且不向 services 留下部分声明（登记前用 `assembly.hasKey` 预检）。单条贡献的问题不在登记时拒绝，由宿主在查询与激活时按存活登记推导，不缓存。登记不调用 `activate`、不创建资源。
+  - 交付账本：接收者连接是拥有者 `entry-work` 上的 `contribution-receiver` 资源，`dependsOn` 激活产出，因此断开先于产出释放；已交给 services 的提供项实例释放前也先等待断开。连接在补交前登记，使并发激活中的贡献方在下一轮交付时看到它。每个连接有串行锁，补交、事务交付与撤回都在锁内执行，跨多个连接时按连接 id 排序加锁。每条交付记录在调用 `revoke` 前置撤回标志，只撤回 `prepare` 成功的项。顶层声明的撤回资源登记在插件的登记作用域上。`RevokeReason` 为 `activation-failed | activation-stopped | scope-closed | receiver-closed | delivery-failed`。
   - 受阻推导在 `blocked.ts` 中是纯函数：输入存活登记的入口快照与同一装配中非插件提供者的键名（`AssemblyReport` 只给出键名），插件提供的键按对象身份匹配；宿主在查询与激活时调用，不缓存。`EntryStatus` 含 `blocked`，`EntryState.blocked` 为 `{reason, key, path}` 或 `null`；`activate()` 对受阻入口返回 `rejected`/`blocked` 并携带受阻结果；已有当前尝试的入口状态仍按尝试推导。
   - 代次 = 一次激活新建的 lifecycle 子作用域 `plugin:<id>/<entry>#<n>`，持有必需依赖借用与一条 `plugin-closeout` 收口资源（依赖这些借用，释放时记 `closed`）；其子作用域 `entry-work` 即 `context.scope`，承载入口登记的资源、可选依赖的借用、激活产出、贡献发布记录与服务租约。父作用域等子作用域关闭后才释放自己的资源，因此依赖者的全部资源先于其必需借用结束。`entry-work` 上有一个受管操作，在代次开始停止后等待本代次已交付的服务作用域关闭，提供者自己的资源因此晚于其服务实例释放。发布记录 `dependsOn` 激活产出，贡献先撤回；失败整体收口，正常关闭由 lifecycle 级联，发布记录资源的释放即撤回贡献（逆序、幂等）。
   - 提供项协作：登记阶段向 services 声明提供者，其 `create` 触发或加入入口激活并等待结果；成功且代次仍可用时实例交给服务作用域，并在 `entry-work` 挂一条「关闭服务作用域」租约使两者同寿命，代次开始停止后不再交付；实例只释放一次。激活产出的释放按实际产出逆序进行，未交付、未通过校验与迟到的实例都释放且只释放一次。入口不等待自己的提供项。
   - 贡献事务 `prepare`（按声明顺序）→ `commit`（全部准备成功后）→ 发布；任一步失败逆序 `revoke` 全部已准备项；`ContributionHandle.implementation()` 是唯一取实现路径，发布前/撤回后/关闭后抛 `PluginStateError`。
   - 已结算且实例已离开可用的代次再触发一律 `rejected: scope-closed`，不返回旧结果、不复活；`recover(ref)` 等待上次激活作用域收口，同时重置该入口在 services 的提供者，不自动重新激活。
-  - 缺失实现、缺失提供项、产出未声明的键都是 `output` 阶段失败；不接受空 handler 或占位。
-  - 诊断只含 `{sequence, instanceId, location, plugin, entry, generation, stage, reason, capability, contribution, error{name,message}}`；`stage` 为 `register | activate | publish | revoke | recover | close`。
+  - 缺失实现、缺失提供项、产出未声明的键、缺少声明的接收者（`missing-receiver`）、给出未声明的接收者（`undeclared-receiver`）都是 `output` 阶段失败；不接受空 handler 或占位。
+  - 诊断只含 `{sequence, instanceId, location, plugin, entry, generation, stage, reason, capability, contribution, error{name,message}}`；`stage` 为 `register | activate | publish | revoke | recover | close`。交付相关的原因：`receiver-connected`（`publish`）、`receiver-closed`（`revoke`）、`backfill-failed` 与 `delivery-failed`（`publish`）、`receiver-revoke-threw`（`revoke`）。
   - 目录按插件 id 码元比较排序，`PluginDescription.summary` 按输出第 12 条计算。
-- **合同测试**：`packages/neuro-book/runtime/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id），关闭顺序与启动激活在 `runtime/application/application-startup.test.ts`（场景 15）；经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行。
+- **合同测试**：`packages/neuro-book/runtime/plugins/plugins.test.ts`（含第二片复核补的提供项释放失败重试回归，见 [t13](../../../.agents/works/w00017-application-runtime-architecture/tasks/t13-services-integration-review/README.md)）、`blocked.test.ts`（纯推导）、`entry-dependencies.test.ts`（场景 12–14）、`review-regressions.test.ts`（产出释放、停止后交付、目录排序与重复服务 id）、`owner-contribution-points.test.ts`（场景 16–22 与交付交错回归），关闭顺序与启动激活在 `runtime/application/application-startup.test.ts`（场景 15）；经 `bun run test:runtime-foundation` 与 `bun run typecheck:runtime-foundation` 运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
 
 - 实现入口：[`plugins.ts`](../../../packages/neuro-book/runtime/plugins/plugins.ts)
-- 合同测试：[`plugins.test.ts`](../../../packages/neuro-book/runtime/plugins/plugins.test.ts)、[`entry-dependencies.test.ts`](../../../packages/neuro-book/runtime/plugins/entry-dependencies.test.ts)、[`blocked.test.ts`](../../../packages/neuro-book/runtime/plugins/blocked.test.ts)、[`review-regressions.test.ts`](../../../packages/neuro-book/runtime/plugins/review-regressions.test.ts)
+- 合同测试：[`plugins.test.ts`](../../../packages/neuro-book/runtime/plugins/plugins.test.ts)、[`entry-dependencies.test.ts`](../../../packages/neuro-book/runtime/plugins/entry-dependencies.test.ts)、[`blocked.test.ts`](../../../packages/neuro-book/runtime/plugins/blocked.test.ts)、[`review-regressions.test.ts`](../../../packages/neuro-book/runtime/plugins/review-regressions.test.ts)、[`owner-contribution-points.test.ts`](../../../packages/neuro-book/runtime/plugins/owner-contribution-points.test.ts)
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t07](../../../.agents/works/w00017-application-runtime-architecture/tasks/t07-runtime-plugins/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
 - 入口与服务级依赖（输出第 11–14 条、场景 12–15）：依据 [可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P3、P11（2026-09-30 `accepted`）与 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 2–9 条，实现与验证见 [w00017 t32](../../../.agents/works/w00017-application-runtime-architecture/tasks/t32-kernel-entry-dependencies/README.md)。
-- 已知限制：首批真实内置插件（diagnostics、platform-files、sqlite）归第二片；第一片只有受控插件证明机制。命令/View/设置等接收者的领域字段与校验由各能力 Spec 在首次消费时补齐。
+- 贡献点由拥有者定义、按单条校验与交付账本（输出第 15–18 条、场景 16–22）：依据同一设计的 P1 第 2、4 项与 P3，以及 [`runtime.plugin-manifest`](./plugin-manifest.md) 第 10 条，实现与验证见 [w00017 t33](../../../.agents/works/w00017-application-runtime-architecture/tasks/t33-owner-contribution-points/README.md)。
+- 已知限制：首批真实内置插件（diagnostics、platform-files、sqlite）归第二片；第一片只有受控插件证明机制。命令/View/设置等贡献点的领域字段与校验由各能力 Spec 在首次消费时补齐。声明层在运行期的出现与消失归 [`runtime.plugin-hot-plug`](./plugin-hot-plug.md)：拥有者已接上之后才登记的插件，其顶层声明要等下次接上才补交；之后登记的重复贡献使已交付的那条变为 `rejected`，但不撤回已有交付。
