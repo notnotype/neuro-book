@@ -1,0 +1,1979 @@
+$ vitest run
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+ ❯ server/agent/profiles/rp-profiles.test.ts (9 tests | 2 failed) 3903ms
+     × rp.leader 作为 RP 用户交流层，读取 manual 并调用 simulator.leader 15ms
+     × simulator.leader 作为 simulation runtime owner 并负责调度 actor 2ms
+ ❯ server/storage/storage-service.test.ts (36 tests | 1 failed) 1658ms
+     × 并发写入期间读取只会看到完整旧记录或完整新记录 207ms
+ ❯ app/components/workbench/WorkbenchPartHost.test.ts (21 tests | 1 failed) 2001ms
+     × 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container 57ms
+ ❯ server/agent/profiles/world-engine-profile.test.ts (2 tests | 1 failed) 1003ms
+     × 只暴露 World Engine 维护所需工具，并注入第一版边界 16ms
+ ❯ app/components/common/DesktopTitleBarChrome.test.ts (15 tests | 3 failed) 1601ms
+     × 浏览器里的粘贴画成禁用并说明改用 Ctrl+V，撤销照常可点 122ms
+     × 键盘：ArrowDown 进首项、循环跳过禁用项、Escape 关菜单并把焦点还给触发按钮 45ms
+     × 键盘：ArrowRight 换组时浮层跟着换锚点与内容 79ms
+ ❯ app/components/common/DesktopTitleBar.test.ts (4 tests | 2 failed) 924ms
+     × 没有桌面 bridge 也画标题栏，并按页面的真实焦点决定编辑动作 473ms
+     × 键盘进标题栏后 Edit 六条仍可用，且激活后发的是同一条编辑命令 113ms
+ ❯ server/agent/profiles/simulation-director-profiles.test.ts (3 tests | 2 failed) 44ms
+     × simulator.leader 暴露世界模拟合同和受限工具 25ms
+     × director 暴露 Plot System 合同和 Scene World Context 4ms
+ ❯ server/agent/profiles/profile-compile-worker-preview.test.ts (2 tests | 1 failed) 1059ms
+     × dry-run preview 不写入真实用户源码或 compiled artifact 917ms
+ ❯ app/utils/novel-ide-settings-current-project.contract.test.ts (3 tests | 1 failed) 40ms
+     × Project scope 只消费当前已打开的 Project，不读取或选择 Catalog 30ms
+(node:3118484) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts (9 tests | 9 failed) 28ms
+     × 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来 11ms
+     × 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值 2ms
+     × 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树 1ms
+     × 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针 1ms
+     × 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列 1ms
+     × View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响 1ms
+     × lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变） 1ms
+     × when 不满足的视图不出现，容器空态把求值原因写出来 1ms
+     × 未知 factoryKey 的失败写在视图位置上，不留空白 1ms
+(node:3121926) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+ ❯ scripts/db/migrate-application-state.test.ts (16 tests | 1 failed) 2179ms
+     × 非 Manager 启动门禁给出统一迁移命令 17ms
+[warn] { path: 'copies/source/a.md',
+  error:
+   Error: history unavailable
+       at Object.waitForWarmup (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
+       at recordSafely (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
+       at recordProjectWrite (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
+       at batchWorkspacePathsTracked (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:327:46)
+       at SnapshotCache.runMutation (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
+[warn] { path: 'copies/other.md',
+  error:
+   Error: history unavailable
+       at Object.waitForWarmup (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.test.ts:215:86)
+       at recordSafely (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:490:22)
+       at recordProjectWrite (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history.ts:447:11)
+       at batchWorkspacePathsTracked (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/tracked-workspace-files.ts:310:46)
+       at SnapshotCache.runMutation (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/file-snapshot-cache/src/snapshot-cache.ts:437:20) } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
+(node:3123398) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3123431) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3123440) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[warn] { projectRoot: 'retry-maintenance',
+  phase: 'maintenance',
+  error:
+   Error: injected maintenance failure
+       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/workspace-history/project-history-module.test.ts:155:36
+       at file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } workspace-history warm-up失败
+(node:3123530) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3123629) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3123706) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3123882) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[warn] { path: 'manuscript/ch1.md',
+  error:
+   { LibsqlError: CLIENT_CLOSED: The client is closed
+       at Sqlite3Client.#checkNotClosed (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:201:19)
+       at Sqlite3Client.execute (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/sqlite3.js:82:29)
+       at nameEndState (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/views.ts:183:29)
+       at WorkspaceHistory.implicitReconcile (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:830:41)
+       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/nb-history/src/workspace-history.ts:165:41
+       at processTicksAndRejections (node:internal/process/task_queues:104:5)
+     code: 'CLIENT_CLOSED',
+     extendedCode: undefined,
+     rawCode: undefined,
+     [cause]: undefined } } workspace-history 记账失败（fail-open 降级，历史由对账自愈）
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues:
+   [ { code: 'invalid_type',
+       path: [Array],
+       message: 'Invalid input: expected string, received undefined' } ] } 请求体验证失败
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues: [ { code: 'custom', path: [Array], message: 'projectRoot 必须是一级目录名' } ] } 请求体验证失败
+(node:3124720) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3125157) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:3125551) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[warn] { path:
+   '/tmp/neuro-book/test-paths/nbook-world-engine-cleanup-retry-eR7kAr/world-engine/.runtime-artifact-import-cache',
+  error:
+   Error: simulated EBUSY
+       at Object.<anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:48:23)
+       at Object.rm (file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/spy/dist/index.js:332:34)
+       at removeOldRuntimeCache (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:287:14)
+       at importHashedTypeScript (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:269:19)
+       at processTicksAndRejections (node:internal/process/task_queues:104:5)
+       at importValidatedHashedTypeScript (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:241:12)
+       at importSingleFileTypeScriptConfig (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.ts:60:16)
+       at /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/server/world-engine/single-file-typescript-config-import.test.ts:62:9
+       at file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20 } World Engine 旧 runtime artifact cache 清理失败，将在后续加载重试
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 24 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  app/utils/novel-ide-settings-current-project.contract.test.ts > Novel IDE Settings Current Project contract > Project scope 只消费当前已打开的 Project，不读取或选择 Catalog
+AssertionError: expected '<script setup lang="ts">\nimport {sto…' to contain 'activeScope.value === "project" && no…'
+
+- Expected
++ Received
+
+- activeScope.value === "project" && novelIdeStore.currentProjectRoot
++ <script setup lang="ts">
++ import {storeToRefs} from "pinia";
++ import {DialogWindow} from "@notnotype/nb-ui/components";
++ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
++ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
++ import NovelIdeSettingsView from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.vue";
++ import type {SettingsScopeId, SettingsScopeOption, SettingsSectionOption} from "nbook/app/components/novel-ide/settings/sections/NovelIdeSettingsView.types";
++ import AgentProfileSettingsView from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.vue";
++ import type {AgentProfileSettingsContext, AgentProfileSettingsPageDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/AgentProfileSettingsView.types";
++ import {
++     buildAgentProfileContext,
++     buildAgentProfileGlobalPayload,
++     buildAgentProfileProjectPayload,
++     createAgentProfilePageDraft,
++     shouldPollAgentProfileBuildStatus,
++     validateAgentProfileRuntimeDrafts,
++ } from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-page-draft";
++ import CostSettingsView from "nbook/app/components/novel-ide/settings/sections/cost/CostSettingsView.vue";
++ import {buildCostPayload, readCostCurrency} from "nbook/app/components/novel-ide/settings/sections/cost/cost-settings-draft";
++ import DesktopSettingsView from "nbook/app/components/novel-ide/settings/sections/desktop/DesktopSettingsView.vue";
++ import EditorSettingsView from "nbook/app/components/novel-ide/settings/sections/editor/EditorSettingsView.vue";
++ import EmbeddingSettingsView from "nbook/app/components/novel-ide/settings/sections/embedding/EmbeddingSettingsView.vue";
++ import {buildGlobalEmbeddingPayload, buildProjectEmbeddingPayload, createEmbeddingSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/embedding/embedding-settings-draft";
++ import ObservabilitySettingsView from "nbook/app/components/novel-ide/settings/sections/observability/ObservabilitySettingsView.vue";
++ import {buildObservabilityPayload, createObservabilityDraft} from "nbook/app/components/novel-ide/settings/sections/observability/observability-settings-draft";
++ import ProviderSettingsView from "nbook/app/components/novel-ide/settings/sections/providers/ProviderSettingsView.vue";
++ import SecuritySettingsView from "nbook/app/components/novel-ide/settings/sections/security/SecuritySettingsView.vue";
++ import FrontendSettingsView from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.vue";
++ import WebSettingsView from "nbook/app/components/novel-ide/settings/sections/web/WebSettingsView.vue";
++ import {buildWebPayload, createWebSettingsDraftFromConfig} from "nbook/app/components/novel-ide/settings/sections/web/web-settings-draft";
++ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
++ import {useConfigApi} from "nbook/app/composables/useConfigApi";
++ import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
++ import {useProviderSettingsBinding} from "nbook/app/composables/useProviderSettingsBinding";
++ import {useSectionDraft} from "nbook/app/composables/useSectionDraft";
++ import {useSettingsWindowSize} from "nbook/app/utils/workbench/window-size-session";
++ import {WORKBENCH_SETTINGS_WINDOW_MIN_SIZE} from "nbook/shared/storage/workbench-window-sizes";
++ import {useDelayedFlag, useSettingsSnapshot} from "nbook/app/composables/useSettingsSnapshot";
++ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
++ import {cloneModelDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-draft";
++ import {createProfileRuntimeSettingsDraft} from "nbook/app/components/novel-ide/settings/sections/agent-profile/profile-runtime-settings";
++ import type {AgentProfilePageSource} from "nbook/app/components/novel-ide/settings/sections/agent-profile/agent-profile-page-draft";
++ import {createEmbeddingSettingsDraft} from "nbook/app/components/novel-ide/settings/sections/embedding/embedding-settings-draft";
++ import type {CostDisplayCurrency} from "nbook/app/utils/cost-format";
++ import {useNotification} from "nbook/app/composables/useNotification";
++ import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
++ import {useThemeSettings} from "nbook/app/composables/useThemeSettings";
++ import {useProductTheme} from "nbook/app/utils/theme/theme-session";
++ import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
++ import {filterColorwayContractVars} from "nbook/app/utils/theme/colorway-vars";
++ import {buildColorwayFileJson, colorwayFileName} from "nbook/app/utils/theme/colorway-io";
++ import type {ColorwayDraft} from "nbook/app/components/novel-ide/settings/sections/frontend/FrontendSettingsView.types";
++ import type {ConfigAgentProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, GlobalConfigUpdateDto, ProjectConfigDto, WebConfigDto} from "nbook/shared/dto/config.dto";
++ import {DEFAULT_DESKTOP_SETTINGS, type DesktopCloseBehavior, type DesktopSettings, type DesktopStatus} from "@notnotype/neuro-book-contracts/desktop";
++ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
++
++ type SettingsSection = "security" | "frontend" | "editor" | "providers" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability" | "desktop";
++ type AppVersionKind = "release" | "tag" | "commit" | "package";
++
++ interface AppVersionDto {
++     versionLabel: string;
++     versionKind: AppVersionKind;
++     githubUrl: string;
++ }
++
++
++ const props = defineProps<{
++     modelValue: boolean;
++ }>();
++
++ const emit = defineEmits<{
++     (e: "update:modelValue", value: boolean): void;
++ }>();
++
++ const novelIdeStore = useNovelIdeStore();
++ const notification = useNotification();
++ const authSessionState = useAuthSessionState();
++ const theme = useProductTheme();
++ const themeSettings = useThemeSettings();
++ const {locale, setLocale, t} = useI18n();
++ const {
++     selectedReasoning,
++     markdownEditorPreferences,
++     monacoEditorPreferences,
++ } = storeToRefs(novelIdeStore);
++
++ const activeSection = ref<SettingsSection>("providers");
++ const activeScope = ref<SettingsScopeId>("global");
++ const appVersion = ref<AppVersionDto | null>(null);
++ const appVersionPending = ref(false);
++ const desktopSettings = ref<DesktopSettings>({...DEFAULT_DESKTOP_SETTINGS});
++ const desktopStatus = ref<DesktopStatus | null>(null);
++
++ const sectionItems = computed<SettingsSectionOption[]>(() => [
++     {
++         value: "providers",
++         label: t("settings.section.providers.label"),
++         description: t("settings.section.providers.description"),
++         iconClass: "i-lucide-cpu",
++         scopes: ["global"],
++         // 两栏型：外壳不给内边距、也不再套一层滚动，服务商列表与连接设置各自滚动。
++         layout: "fill",
++     },
++     {
++         value: "embedding",
++         label: "Embedding",
++         description: t("settings.section.embedding.description"),
++         iconClass: "i-lucide-binary",
++         scopes: ["global"],
++     },
++     {
++         value: "cost",
++         label: t("settings.section.cost.label"),
++         description: t("settings.section.cost.description"),
++         iconClass: "i-lucide-circle-dollar-sign",
++         scopes: ["global"],
++     },
++     {
++         value: "web-tools",
++         label: t("settings.section.webTools.label"),
++         description: t("settings.section.webTools.description"),
++         iconClass: "i-lucide-search-code",
++         scopes: ["global"],
++     },
++     {
++         value: "agent-profile-models",
++         label: t("settings.section.agentProfileModels.label"),
++         description: t("settings.section.agentProfileModels.description"),
++         iconClass: "i-lucide-bot-message-square",
++         scopes: ["global", "project"],
++         // 两栏型：外壳不给内边距、也不再套一层滚动，由视图自己管左右两栏各自的滚动。
++         layout: "fill",
++     },
++     {
++         value: "observability",
++         label: t("settings.section.observability.label"),
++         description: t("settings.section.observability.description"),
++         iconClass: "i-lucide-activity",
++         scopes: ["global"],
++     },
++     {
++         value: "security",
++         label: t("settings.section.security.label"),
++         description: t("settings.section.security.description"),
++         iconClass: "i-lucide-shield-check",
++         scopes: ["boot"],
++     },
++     {
++         value: "frontend",
++         label: t("settings.section.frontend.label"),
++         description: t("settings.section.frontend.description"),
++         iconClass: "i-lucide-monitor-cog",
++         scopes: ["browser"],
++     },
++     {
++         value: "editor",
++         label: t("settings.section.editor.label"),
++         description: t("settings.section.editor.description"),
++         iconClass: "i-lucide-type",
++         scopes: ["browser"],
++     },
++     {
++         value: "desktop",
++         label: t("settings.section.desktop.label"),
++         description: t("settings.section.desktop.description"),
++         iconClass: "i-lucide-panels-top-left",
++         scopes: ["browser"],
++     },
++ ]);
++
++ const scopeOptions = computed<SettingsScopeOption[]>(() => [
++     {
++         value: "boot",
++         label: t("settings.scope.boot.shortLabel"),
++         description: t("settings.scope.boot.description"),
++     },
++     {
++         value: "global",
++         label: t("settings.scope.global.shortLabel"),
++         description: t("settings.scope.global.description"),
++     },
++     {
++         value: "project",
++         label: t("settings.scope.project.shortLabel"),
++         description: t("settings.scope.project.description"),
++         disabledReason: projectScopeAvailable.value ? undefined : t("settings.scope.project.unavailable"),
++     },
++     {
++         value: "browser",
++         label: t("settings.scope.browser.shortLabel"),
++         description: t("settings.scope.browser.description"),
++     },
++ ]);
++
++ const desktopBridge = computed(() => import.meta.client ? window.neuroBookDesktop : undefined);
++ const desktopAvailable = computed(() => Boolean(desktopBridge.value));
++ const projectScopeAvailable = computed(() => novelIdeStore.workspaceKind !== "user-assets"
++     && Boolean(novelIdeStore.currentProjectRoot));
++
++ const bootAuthEnabled = computed(() => authSessionState.session.value?.authEnabled ?? null);
++
++
++
++ const targetQuery = computed(() => (activeScope.value === "project" || activeSection.value === "frontend") && novelIdeStore.workspaceKind === "novel" && novelIdeStore.currentProjectRoot
++     ? {workspaceKind: "novel" as const, projectRoot: novelIdeStore.currentProjectRoot}
++     : {workspaceKind: "user-assets" as const});
++ const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectRoot ?? "global"}`);
++ const targetLabel = computed(() => activeScope.value === "project"
++     ? novelIdeStore.currentNovel?.title || novelIdeStore.currentProjectRoot || "Project Workspace"
++     : activeScope.value === "boot" ? "config.yaml" : "Workspace Root");
++
++ const configApi = useConfigApi();
++ const costDisplay = useCostDisplay();
++ const costRefreshing = ref(false);
++ const desktopSaving = ref(false);
++ const desktopSaveError = ref("");
++
++ /**
++  * 写回上下文：这份草稿是按哪个配置目标、以及当时未编辑的基准段构建的。
++  *
++  * 基准段必须一起捕获：写回体 = 基准段 + 本区段的字段，若基准段在写回时另取实时快照，
++  * 切了作用域就会「基准不同 → 写回体与基线不等 → 被判成脏」并把没改过的配置写回去。
++  */
++ type SectionWriteContext = {scope: SettingsScopeId; query: ConfigWorkspaceQueryDto};
++ const writeContext = (): SectionWriteContext => ({scope: activeScope.value, query: targetQuery.value});
++ const notifySaveFailed = (message: string): void => {
++     notification.error(message);
++ };
++
++ /** 前端区段的默认打开方式来自Config；不能依赖先访问其它区段留下的快照。 */
++ const snapshotEnabled = computed(() => props.modelValue && (activeScope.value === "global" || activeScope.value === "project" || activeSection.value === "frontend"));
++ const settingsSnapshot = useSettingsSnapshot({
++     enabled: () => snapshotEnabled.value,
++     targetQuery: () => targetQuery.value,
++     fallbackErrorMessage: t("settings.feedback.loadFailed"),
++ });
++ const viewModeSaving = ref(false);
++ const viewMode = computed(() => {
++     const id = settingsSnapshot.snapshot.value?.global.editor?.associations?.[".md"] ?? "markdown";
++     return id === "markdown" ? "rich" : id === "code" ? "source" : "custom";
++ });
++ const viewModeProjectOverride = computed(() => Boolean(settingsSnapshot.snapshot.value?.project?.editor?.associations?.[".md"]));
++
++ /** Web 工具只有全局段。 */
++ const webDraft = useSectionDraft({
++     source: () => settingsSnapshot.snapshot.value?.global.web ?? null,
++     create: (source) => createWebSettingsDraftFromConfig(source as WebConfigDto | undefined),
++     toPayload: (draft) => ({web: buildWebPayload(draft)}),
++     captureContext: writeContext,
++     write: (payload, context) => configApi.saveGlobal(payload, context.query),
++     notifyError: notifySaveFailed,
++     fallbackErrorMessage: t("settings.feedback.saveFailed"),
++ });
++
++ /** 向量嵌入：global 与 project 共用一份草稿，写回段由草稿构建时捕获的作用域决定。 */
++ const embeddingDraft = useSectionDraft({
++     source: () => settingsSnapshot.snapshot.value,
++     create: (source) => source ? createEmbeddingSettingsDraftFromConfig(source as ConfigEditorSnapshotDto) : createEmbeddingSettingsDraft(),
++     toPayload: (draft, context) => context.scope === "project"
++         ? {embedding: buildProjectEmbeddingPayload(draft.project)}
++         : {embedding: buildGlobalEmbeddingPayload(draft.global)},
++     captureContext: writeContext,
++     write: (payload, context) => context.scope === "project"
++         ? configApi.saveProject(payload as ProjectConfigDto, context.query)
++         : configApi.saveGlobal(payload as GlobalConfigUpdateDto, context.query),
++     notifyError: notifySaveFailed,
++     fallbackErrorMessage: t("settings.feedback.saveFailed"),
++ });
++
++ /** 费用显示：币种进配置，汇率留在本机会话。 */
++ const costDraft = useSectionDraft({
++     source: () => settingsSnapshot.snapshot.value?.global.ui ?? null,
++     create: (source) => readCostCurrency(source as GlobalConfigDto["ui"]),
++     toPayload: (currency, context) => buildCostPayload(context.baseUi, currency),
++     captureContext: () => ({...writeContext(), baseUi: settingsSnapshot.snapshot.value?.global.ui}),
++     write: (payload, context) => configApi.saveGlobal(payload, context.query),
++     notifyError: notifySaveFailed,
++     fallbackErrorMessage: t("settings.feedback.saveFailed"),
++ });
++
++ /** 快照里的币种（含写回回声）同步到本机展示状态。 */
++ watch(() => readCostCurrency(settingsSnapshot.snapshot.value?.global.ui), (currency) => {
++     costDisplay.setCostCurrency(currency);
++     if (currency === "CNY") {
++         void costDisplay.ensureExchangeRate(configApi.exchangeRate);
++     }
++ }, {immediate: true});
++
++ const observabilityDraft = useSectionDraft({
++     source: () => settingsSnapshot.snapshot.value?.global ?? null,
++     create: (source) => createObservabilityDraft(source as GlobalConfigDto | undefined),
++     toPayload: (draft, context) => buildObservabilityPayload(context.baseGlobal, draft),
++     captureContext: () => ({...writeContext(), baseGlobal: settingsSnapshot.snapshot.value?.global}),
++     write: (payload, context) => configApi.saveGlobal(payload, context.query),
++     notifyError: notifySaveFailed,
++     fallbackErrorMessage: t("settings.feedback.saveFailed"),
++ });
++
++ /** Agent Profile 的草稿依赖两个来源：配置快照 + Profile meta（另一个端点）。 */
++ const agentProfileMeta = shallowRef<ConfigAgentProfileSettingsDto | null>(null);
++ /** meta 是按哪个配置目标取的。目标一换就等新数据，不能让上一个目标的表单先渲染一帧。 */
++ const agentProfileMetaKey = ref("");
++ const agentProfileMetaLoading = ref(false);
++ const agentProfileLoadError = ref("");
++ const agentProfileActive = computed(() => activeSection.value === "agent-profile-models");
++ const agentProfileOptions = computed(() => ({
++     workspaceSlot: novelIdeStore.workspaceKind === "user-assets" ? "userAssets" as const : "novel" as const,
++ }));
++
++ /** 页面草稿的来源：快照 + Profile meta 都到位才有值。 */
++ function agentProfileSourceValue(): AgentProfilePageSource | null {
++     const snapshot = settingsSnapshot.snapshot.value;
++     const settings = agentProfileMeta.value;
++     if (!snapshot || !settings) {
++         return null;
++     }
++     // 逐字段取，不把整份快照带进类型推断。
++     // \`ConfigEditorSnapshotDto\` 与 \`GlobalConfigDto\` 的推断类型深度超过 TS 的实例化上限
++     // （同样的值直接当参数传不会炸，一旦有显式目标类型就会），所以在装配点做一次显式断言；
++     // 字段本身的类型检查都在 agent-profile-page-draft.ts 里。
++     return {
++         snapshot: {
++             global: snapshot.global,
++             project: snapshot.project,
++             defaultProfileSettings: snapshot.defaultProfileSettings,
++         },
++         settings,
++         scope: activeScope.value === "project" ? "project" : "global",
++     } as unknown as AgentProfilePageSource;
++ }
++
++ const emptyAgentProfileDraft = (): AgentProfileSettingsPageDraft => ({
++     defaultProfileKey: "",
++     modelDefaults: cloneModelDraft(undefined),
++     runtimeDefaults: createProfileRuntimeSettingsDraft(undefined),
++     profiles: [],
++ });
++
++ /** 当前配置目标的标识：meta 与它不一致就说明数据还没跟上。 */
++ const agentProfileMetaTargetKey = (): string => `${activeScope.value === "project" ? "project" : "global"}:${JSON.stringify(targetQuery.value)}`;
++
++ async function loadAgentProfileMeta(): Promise<void> {
++     const requestKey = agentProfileMetaTargetKey();
++     agentProfileMetaLoading.value = true;
++     agentProfileLoadError.value = "";
++     try {
++         const loaded = await configApi.agentProfileSettings(targetQuery.value, activeScope.value === "project" ? "project" : "global");
++         agentProfileMeta.value = loaded;
++         agentProfileMetaKey.value = requestKey;
++     } catch (error) {
++         agentProfileLoadError.value = resolveApiErrorMessage(error, t("settings.panels.profileModels.loadFailed"));
++         notification.error(agentProfileLoadError.value);
++     } finally {
++         agentProfileMetaLoading.value = false;
++     }
++ }
++
++ /** Profile meta 只在这个区段真的被打开时才取：没进过的区段不发请求，打开后换目标才重取。 */
++ watch(
++     [agentProfileActive, snapshotEnabled, () => JSON.stringify(targetQuery.value)],
++     ([active, enabled]) => {
++         if (active && enabled) {
++             void loadAgentProfileMeta();
++         }
++     },
++     {immediate: true},
++ );
++
++ const agentProfileDraft = useSectionDraft({
++     source: () => agentProfileSourceValue(),
++     create: (source) => source ? createAgentProfilePageDraft(source as AgentProfilePageSource, agentProfileOptions.value) : emptyAgentProfileDraft(),
++     toPayload: (draft, context) => {
++         if (context.scope === "project") {
++             return buildAgentProfileProjectPayload(draft);
++         }
++         // meta 还没到时没有 Global 写回体可言：返回空体，与基线相等，因此不会被写出去。
++         return context.source ? buildAgentProfileGlobalPayload(context.source, draft, agentProfileOptions.value) : {};
++     },
++     captureContext: () => ({...writeContext(), source: agentProfileSourceValue()}),
++     write: async (payload, context) => {
++         const validation = validateAgentProfileRuntimeDrafts(agentProfileDraft.draft.value);
++         if (!validation.ok) {
++             throw new Error(t("settings.panels.profileModels.runtime.validationFailed"));
++         }
++         if (context.scope === "project") {
++             await configApi.saveProject(payload as ProjectConfigDto, context.query);
++         } else {
++             await configApi.saveGlobal(payload as GlobalConfigDto, context.query);
++         }
++         await loadAgentProfileMeta();
++     },
++     notifyError: notifySaveFailed,
++     fallbackErrorMessage: t("settings.feedback.saveFailed"),
++ });
++
++ const agentProfileReady = computed(() => agentProfileSourceValue() !== null
++     && agentProfileMetaKey.value === agentProfileMetaTargetKey()
++     && !agentProfileMetaLoading.value);
++
++ /** 视图需要完整上下文；来源未就绪时返回 null，由宿主渲染加载/失败占位。 */
++ function agentProfileContext(): AgentProfileSettingsContext | null {
++     const source = agentProfileSourceValue();
++     if (!source) {
++         return null;
++     }
++     return buildAgentProfileContext(source, {...agentProfileOptions.value, descriptions: {}});
++ }
++
++ /** 编译中的 profile 需要轮询编译状态；状态落定后由快照重取带回最新结果。 */
++ let buildStatusTimer: ReturnType<typeof setTimeout> | null = null;
++ async function pollAgentProfileBuildStatus(): Promise<void> {
++     buildStatusTimer = null;
++     if (!shouldPollAgentProfileBuildStatus(agentProfileDraft.draft.value)) {
++         return;
++     }
++     try {
++         const status = await configApi.agentProfileBuildStatus();
++         const byKey = new Map(status.profiles.map((profile) => [profile.profileKey, profile]));
++         for (const profile of agentProfileDraft.draft.value.profiles) {
++             const next = byKey.get(profile.profileKey);
++             if (!next) {
++                 continue;
++             }
++             profile.loadStatus = next.loadStatus;
++             profile.issue = next.issue;
++             profile.buildState = next.buildState;
++         }
++     } catch {
++         // 状态轮询只是增量刷新，失败时保持当前表单，不打断编辑。
++     }
++     buildStatusTimer = setTimeout(() => void pollAgentProfileBuildStatus(), 1200);
++ }
++ watch([agentProfileActive, agentProfileDraft.draft], ([active, draft]) => {
++     if (buildStatusTimer !== null) {
++         return;
++     }
++     if (!active || !shouldPollAgentProfileBuildStatus(draft)) {
++         return;
++     }
++     buildStatusTimer = setTimeout(() => void pollAgentProfileBuildStatus(), 1200);
++ }, {deep: true});
++
++ /** 有没有区段正在写盘（含 Provider 会话）。 */
++ const anySectionSaving = computed(() => webDraft.saving.value || embeddingDraft.saving.value || costDraft.saving.value
++     || observabilityDraft.saving.value || agentProfileDraft.saving.value || providerBinding.saving.value);
++
++ /** 把各区段未落盘的改动一次写完；不阻塞调用方（上下文已随草稿捕获）。 */
++ function flushSectionDrafts(): Promise<unknown> {
++     return Promise.all([
++         webDraft.flush(),
++         embeddingDraft.flush(),
++         costDraft.flush(),
++         observabilityDraft.flush(),
++         agentProfileDraft.flush(),
++         providerBinding.flushSave(),
++     ]);
++ }
++
++ /** 编辑器区段的重置按块分发（视图只发目标名）。 */
++ function resetEditorSettings(target: "markdown" | "monaco"): void {
++     if (target === "markdown") {
++         resetEditorPreferences();
++         return;
++     }
++     resetMonacoPreferences();
++ }
++
++ /** 费用显示的汇率刷新：只在用户点击时访问后端。 */
++ async function refreshCostExchangeRate(): Promise<void> {
++     if (costRefreshing.value) {
++         return;
++     }
++     costRefreshing.value = true;
++     try {
++         costDisplay.setExchangeRate(await configApi.exchangeRate());
++     } catch (error) {
++         notification.error(resolveApiErrorMessage(error, t("settings.panels.cost.refreshFailed")));
++     } finally {
++         costRefreshing.value = false;
++     }
++ }
++
++ /** 币种改动：先落本机会话状态，再交给草稿的防抖写回。 */
++ function setCostCurrency(currency: CostDisplayCurrency): void {
++     costDraft.draft.value = currency;
++     costDisplay.setCostCurrency(currency);
++     if (currency === "CNY") {
++         void costDisplay.ensureExchangeRate(configApi.exchangeRate);
++     }
++ }
++
++ /** 设置窗口尺寸是本机偏好（user/local），唯一写者是记录会话：旧裸键 `nbook.settingsDialog.size` 已迁入并删除。 */
++ const windowSizeRecord = useSettingsWindowSize();
++ const settingsWindowSize = windowSizeRecord.size;
++ const settingsWindowSizeNotice = windowSizeRecord.notice;
++
++ function updateSettingsWindowWidth(width: number): void {
++     void windowSizeRecord.commit({...settingsWindowSize.value, width});
++ }
++
++ function updateSettingsWindowHeight(height: number): void {
++     void windowSizeRecord.commit({...settingsWindowSize.value, height});
++ }
++
++ const providerBinding = useProviderSettingsBinding({
++     scope: () => activeScope.value === "project" ? "project" : "global",
++     targetQuery: () => targetQuery.value,
++     targetLabel: () => targetLabel.value,
++     enabled: () => activeSection.value === "providers",
++ });
++
++ /**
++  * 当前区段有没有数据可渲染。重区段自带一次取数（Provider 会话 / Agent Profile 元数据），
++  * 这些取数折进外壳的同一块加载占位——一个区段在任何时刻只会有一个加载呈现。
++  */
++ const activeSectionReady = computed(() => {
++     if (activeSection.value === "providers") {
++         // 重新读取期间也不算就绪：避免上一轮的数据先渲染一帧再被替换。
++         return providerBinding.loaded.value && !providerBinding.loading.value;
++     }
++     if (activeSection.value === "agent-profile-models") {
++         return agentProfileReady.value && !agentProfileMetaLoading.value;
++     }
++     return true;
++ });
++ /** 任一来源在读：交互统一按它禁用（视图不再各自维护 loading）。 */
++ const settingsLoading = computed(() => settingsSnapshot.loading.value || !activeSectionReady.value);
++ /** 加载占位只在读得慢时出现；呈现由外壳的共享状态组件负责。 */
++ const settingsLoaderVisible = useDelayedFlag(() => settingsLoading.value, 200);
++ /** 当前区段的失败原因：快照失败或该区段自带取数失败。 */
++ const settingsLoadError = computed(() => settingsSnapshot.loadError.value
++     || (activeSection.value === "agent-profile-models" ? agentProfileLoadError.value : ""));
++
++ /** 重试：快照 + 当前区段自带的取数。 */
++ function reloadSettings(): void {
++     void settingsSnapshot.reload();
++     if (activeSection.value === "agent-profile-models") {
++         void loadAgentProfileMeta();
++     }
++     if (activeSection.value === "providers") {
++         void providerBinding.load();
++     }
++ }
++
++ /** 桌面应用区段只在 Desktop Envelope 里出现。 */
++ const visibleSectionItems = computed<SettingsSectionOption[]>(() => sectionItems.value.filter((item) => item.value !== "desktop" || desktopAvailable.value));
++
++ const versionLabel = computed(() => {
++     if (appVersionPending.value && !appVersion.value) {
++         return t("settings.version.loading");
++     }
++     if (!appVersion.value) {
++         return t("settings.version.unavailable");
++     }
++     if (appVersion.value.versionKind === "commit") {
++         return t("settings.version.commit", {version: appVersion.value.versionLabel});
++     }
++     if (appVersion.value.versionKind === "release") {
++         return t("settings.version.release", {version: appVersion.value.versionLabel});
++     }
++     return t("settings.version.generic", {version: appVersion.value.versionLabel});
++ });
++
++
++
++
++
++ /**
++  * 保存进行中不允许切换/关闭：写回体还没出去，换目标会把结果落到错误的地方。
++  */
++ function canLeaveCurrentPanel(): boolean {
++     if (anySectionSaving.value) {
++         notification.info(t("settings.feedback.saving"));
++         return false;
++     }
++     return true;
++ }
++
++ /**
++  * 切换配置作用域：立刻切，写回在后台完成。
++  * 写回上下文随草稿一起捕获，因此晚到的写回仍落在原来那一档，不会写到新目标上。
++  */
++ function selectScope(scope: SettingsScopeId): void {
++     if (scope === activeScope.value) {
++         return;
++     }
++     if (!canLeaveCurrentPanel()) {
++         return;
++     }
++     if (scope === "project" && !projectScopeAvailable.value) {
++         notification.info(t("settings.scope.project.unavailable"));
++         activeScope.value = "global";
++         return;
++     }
++     activeScope.value = scope;
++     void flushSectionDrafts();
++ }
++
++ /** 选择配置分区；未落盘的改动会在防抖窗口里自己写完，不需要在切换时阻断。 */
++ function selectSection(section: string): void {
++     if (section === activeSection.value) {
++         return;
++     }
++     if (!canLeaveCurrentPanel()) {
++         return;
++     }
++     activeSection.value = section as SettingsSection;
++ }
++
++ /**
++  * 更新 Markdown 编辑器显示偏好。
++  */
++ function updateEditorPreferences(patch: Partial<MarkdownEditorPreferences>): void {
++     markdownEditorPreferences.value = {
++         ...DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
++         ...markdownEditorPreferences.value,
++         ...patch,
++     };
++ }
++
++ /**
++  * 读取数值输入并限制到指定范围。
++  */
++ function updateEditorNumber(key: keyof Pick<MarkdownEditorPreferences, "fontSize" | "lineHeight" | "contentWidth" | "paragraphIndentEm">, value: string, min: number, max: number): void {
++     const parsed = Number(value);
++     if (!Number.isFinite(parsed)) {
++         return;
++     }
++     updateEditorPreferences({
++         [key]: Math.min(Math.max(parsed, min), max),
++     });
++ }
++
++ /**
++  * 重置 Markdown 编辑器显示偏好。
++  */
++ function resetEditorPreferences(): void {
++     markdownEditorPreferences.value = {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES};
++ }
++
++ /**
++  * 更新 Monaco 源码编辑器显示偏好。
++  */
++ function updateMonacoPreferences(patch: Partial<MonacoEditorPreferences>): void {
++     monacoEditorPreferences.value = {
++         ...DEFAULT_MONACO_EDITOR_PREFERENCES,
++         ...monacoEditorPreferences.value,
++         ...patch,
++     };
++ }
++
++ /**
++  * 读取 Monaco 数值输入并限制到指定范围。
++  */
++ function updateMonacoNumber(key: keyof Pick<MonacoEditorPreferences, "fontSize" | "lineHeight" | "tabSize">, value: string, min: number, max: number): void {
++     const parsed = Number(value);
++     if (!Number.isFinite(parsed)) {
++         return;
++     }
++     updateMonacoPreferences({
++         [key]: Math.min(Math.max(parsed, min), max),
++     });
++ }
++
++ /**
++  * 重置 Monaco 源码编辑器显示偏好。
++  */
++ function resetMonacoPreferences(): void {
++     monacoEditorPreferences.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
++ }
++
++ /**
++  * 关闭设定弹窗。
++  */
++ function closeDialog(): void {
++     if (!canLeaveCurrentPanel()) {
++         return;
++     }
++     emit("update:modelValue", false);
++ }
++
++ /**
++  * 处理界面语言选择。
++  */
++ function updateLocale(value: string): void {
++     if (value === "zh-CN" || value === "en-US") {
++         void setLocale(value);
++     }
++ }
++
++ /** 处理推理强度选择（本地 UI 偏好，进 store）。 */
++ function updateReasoning(value: string): void {
++     selectedReasoning.value = value as typeof selectedReasoning.value;
++ }
++
++ /**
++  * 处理默认视图模式选择。
++  */
++ async function updateViewMode(value: string): Promise<void> {
++     if ((value !== "rich" && value !== "source") || viewModeSaving.value) return;
++     viewModeSaving.value = true;
++     try {
++         const query = configApi.currentQuery();
++         const snapshot = await configApi.editorSnapshot(query);
++         await configApi.saveGlobal({editor: {associations: {...snapshot.global.editor?.associations, ".md": value === "rich" ? "markdown" : "code"}}}, query);
++         await settingsSnapshot.reload();
++     } catch (error) {
++         notification.error(resolveApiErrorMessage(error, t("settings.frontend.viewModeSaveFailed")));
++     } finally {
++         viewModeSaving.value = false;
++     }
++ }
++
++ /**
++  * 保存 / 覆盖一套用户配色（含从主题自带配色另存为一份）。
++  *
++  * 视图已经拦掉了取值不合法的草稿，这里返回 null 只剩两种情况：名称空、或一套合法变量都没有。
++  * 两者都属于「没东西可存」，给一条提示比静默失败好。
++  */
++ async function saveColorwayDraft(draft: ColorwayDraft): Promise<void> {
++     const savedId = await themeSettings.saveUserColorway({
++         id: draft.id,
++         label: draft.label,
++         appearance: draft.appearance,
++         vars: draft.vars,
++     });
++     if (savedId === null) {
++         notification.warning(t("settings.frontend.colorwaySaveEmptyMessage"), {title: t("settings.frontend.themeSaveFailed")});
++     }
++ }
++
++ /**
++  * 导出当前生效配色为 JSON 文件。
++  *
++  * 导出的是**当前这一套**（用户配色给存下来的取值，主题自带配色给契约内的全量取值），
++  * 不导出整库：一次导出多套会把「哪一套是我刚调好的」这件事丢掉，而导入方也只能一次收一套。
++  */
++ function exportActiveColorway(): void {
++     const label = theme.colorwayLabel.value || t("settings.frontend.customColorwayLabel");
++     const activeUserColorway = theme.userColorways.value.find((colorway) => colorway.id === theme.colorwayId.value);
++     const vars = activeUserColorway === undefined
++         ? filterColorwayContractVars(theme.colorwayVars.value)
++         : {...activeUserColorway.vars};
++     const json = buildColorwayFileJson({label, appearance: theme.appearance.value, vars});
++     triggerBrowserDownload(new Blob([json], {type: "application/json"}), colorwayFileName(label));
++ }
++
++ /**
++  * 读取设置页底部展示的应用版本信息。
++  */
++ async function loadAppVersion(): Promise<void> {
++     if (appVersion.value || appVersionPending.value) {
++         return;
++     }
++     appVersionPending.value = true;
++     try {
++         appVersion.value = await $fetch<AppVersionDto>("/api/app/version");
++     } catch {
++         appVersion.value = null;
++     } finally {
++         appVersionPending.value = false;
++     }
++ }
++
++ watch(() => props.modelValue, (open) => {
++     if (!open) {
++         return;
++     }
++     void loadAppVersion();
++     if (desktopBridge.value) {
++         void loadDesktopSettings();
++     }
++ }, {immediate: true});
++
++ watch([
++     () => novelIdeStore.workspaceKind,
++     () => novelIdeStore.currentProjectRoot,
++ ], ([workspaceKind, currentProjectRoot]) => {
++     if ((workspaceKind === "user-assets" || !currentProjectRoot) && activeScope.value === "project") {
++         activeScope.value = "global";
++         activeSection.value = "providers";
++     }
++ }, {immediate: true});
++
++
++ /** 读取 Desktop Envelope 的设备设置；B/S 页面不会执行。 */
++ async function loadDesktopSettings(): Promise<void> {
++     const bridge = desktopBridge.value;
++     if (!bridge) return;
++     try {
++         const [settings, status] = await Promise.all([bridge.settings(), bridge.status()]);
++         desktopSettings.value = settings;
++         desktopStatus.value = status;
++     } catch {
++         desktopStatus.value = null;
++     }
++ }
++
++ /** 通过 Desktop Bridge 更新设备设置，不触碰 Product State Root。 */
++ /** 通过 Desktop Bridge 更新设备设置，不触碰 Product State Root。 */
++ async function updateDesktopSettings(patch: Partial<Pick<DesktopSettings, "zoomFactor" | "trayEnabled" | "closeBehavior">>): Promise<void> {
++     const bridge = desktopBridge.value;
++     if (!bridge) return;
++     desktopSaving.value = true;
++     desktopSaveError.value = "";
++     try {
++         desktopSettings.value = await bridge.updateSettings(patch);
++     } catch (error) {
++         desktopSaveError.value = resolveApiErrorMessage(error, t("settings.desktop.updateFailed"));
++         notification.error(desktopSaveError.value);
++     } finally {
++         desktopSaving.value = false;
++     }
++ }
++
++
++
++ </script>
++
++ <template>
++     <DialogWindow
++         :model-value="props.modelValue"
++         :title="t('settings.title')"
++         :width="settingsWindowSize.width"
++         :height="settingsWindowSize.height"
++         resizable
++         :min-width="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.width"
++         :min-height="WORKBENCH_SETTINGS_WINDOW_MIN_SIZE.height"
++         body-class="min-h-0 overflow-hidden !p-0"
++         teleport-target=".novel-ide-theme"
++         @request-close="closeDialog"
++         @update:width="updateSettingsWindowWidth"
++         @update:height="updateSettingsWindowHeight"
++         @update:model-value="emit('update:modelValue', $event)"
++     >
++         <div
++             v-if="settingsWindowSizeNotice"
++             data-testid="settings-window-size-notice"
++             class="flex shrink-0 items-start gap-2 border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-2 text-[11px] leading-4 text-[var(--status-warning)]"
++         >
++             <span class="min-w-0 flex-1">窗口尺寸记录未就绪：{{ settingsWindowSizeNotice.diagnosis }}</span>
++             <button v-if="settingsWindowSizeNotice.retryable" type="button" class="shrink-0 underline" @click="void windowSizeRecord.retry()">重试</button>
++             <button v-if="settingsWindowSizeNotice.abandonable" type="button" class="shrink-0 underline" @click="windowSizeRecord.abandon()">放弃</button>
++         </div>
++
++         <NovelIdeSettingsView
++             :model-value="activeSection"
++             :scope="activeScope"
++             :scopes="scopeOptions"
++             :sections="visibleSectionItems"
++             :version-label="versionLabel"
++             :github-url="appVersion?.githubUrl ?? ''"
++             :loading="settingsLoaderVisible"
++             :load-error="settingsLoadError"
++             @update:model-value="selectSection"
++             @update:scope="selectScope"
++             @reload="reloadSettings"
++         >
++             <template #default="{section}">
++                 <div :key="`${settingsPanelKey}:${section?.value ?? ''}`" class="flex h-full min-h-0 flex-col">
++                         <!-- 启动期安全配置：只读说明，安全边界不能热更新 -->
++                         <SecuritySettingsView v-if="section?.value === 'security'" :auth-enabled="bootAuthEnabled" />
++
++                         <!-- 前端设定：语言 / 主题两轴 / 用户配色 / 推理强度 / 视图模式，动作全部交回宿主 -->
++                         <FrontendSettingsView
++                             v-else-if="section?.value === 'frontend'"
++                             :locale="locale"
++                             :view-mode="viewMode"
++                             :view-mode-saving="viewModeSaving"
++                             :view-mode-project-override="viewModeProjectOverride"
++                             :reasoning="selectedReasoning"
++                             :reasoning-options="novelIdeStore.reasoningOptions"
++                             :theme-options="theme.themeOptions"
++                             :theme-id="theme.themeId.value"
++                             :appearance="theme.appearance.value"
++                             :colorway-id="theme.colorwayId.value"
++                             :colorway-label="theme.colorwayLabel.value"
++                             :colorway-vars="theme.colorwayVars.value ?? {}"
++                             :colorway-is-user="theme.colorwayIsUser.value"
++                             :user-colorways="theme.userColorways.value"
++                             :disabled="settingsLoading"
++                             @update:locale="updateLocale"
++                             @update:view-mode="updateViewMode"
++                             @update:reasoning="updateReasoning"
++                             @select-theme="(id) => void themeSettings.saveAxes({themeId: id})"
++                             @select-appearance="(appearance) => void themeSettings.saveAxes({appearance})"
++                             @select-colorway="(id) => void themeSettings.saveColorway(id)"
++                             @save-colorway="(draft) => void saveColorwayDraft(draft)"
++                             @delete-colorway="(id) => void themeSettings.deleteUserColorway(id)"
++                             @export-colorway="exportActiveColorway"
++                         />
++
++                         <!-- 编辑器显示偏好：走 store + localStorage，不写配置文件 -->
++                         <EditorSettingsView
++                             v-else-if="section?.value === 'editor'"
++                             :markdown="markdownEditorPreferences"
++                             :monaco="monacoEditorPreferences"
++                             @update:markdown="updateEditorPreferences"
++                             @update:monaco="updateMonacoPreferences"
++                             @reset="resetEditorSettings"
++                         />
++
++                         <!-- Desktop Envelope 设备设置；B/S 页面不会显示该分区 -->
++                         <DesktopSettingsView
++                             v-else-if="section?.value === 'desktop'"
++                             :settings="desktopSettings"
++                             :status="desktopStatus"
++                             :saving="desktopSaving"
++                             :save-error="desktopSaveError"
++                             @update:settings="updateDesktopSettings"
++                         />
++
++                         <!-- Provider 与模型清单：四个会话留在宿主，视图只消费绑定 -->
++                         <ProviderSettingsView v-else-if="section?.value === 'providers'" v-bind="providerBinding.viewBindings.value" />
++
++                         <!-- 向量嵌入 -->
++                         <EmbeddingSettingsView
++                             v-else-if="section?.value === 'embedding'"
++                             :model-value="embeddingDraft.draft.value"
++                             :scope="activeScope === 'project' ? 'project' : 'global'"
++                             :disabled="settingsLoading"
++                             @update:model-value="embeddingDraft.draft.value = $event"
++                         />
++
++                         <!-- 费用显示（币种进配置，汇率是本机会话状态） -->
++                         <CostSettingsView
++                             v-else-if="section?.value === 'cost'"
++                             :currency="costDraft.draft.value"
++                             :exchange-rate="costDisplay.usdToCnyRate.value"
++                             :exchange-rate-stale="costDisplay.exchangeRateStale.value"
++                             :exchange-rate-fetched-at="costDisplay.exchangeRateFetchedAt.value ?? ''"
++                             :refreshing="costRefreshing"
++                             :disabled="settingsLoading"
++                             @update:currency="setCostCurrency"
++                             @refresh-rate="refreshCostExchangeRate"
++                         />
++
++                         <!-- Web 工具 -->
++                         <WebSettingsView
++                             v-else-if="section?.value === 'web-tools'"
++                             :model-value="webDraft.draft.value"
++                             :disabled="settingsLoading"
++                             @update:model-value="webDraft.draft.value = $event"
++                         />
++
++                         <!-- Agent Profile：页面草稿 + 只读上下文都由宿主组装；读取期由外壳的加载占位交代 -->
++                         <AgentProfileSettingsView
++                             v-else-if="section?.value === 'agent-profile-models' && agentProfileReady && agentProfileContext()"
++                             :model-value="agentProfileDraft.draft.value"
++                             :context="agentProfileContext()!"
++                             :show-nav-heading="false"
++                             @update:model-value="agentProfileDraft.draft.value = $event"
++                         />
++
++                         <!-- 可观测（Pi 请求 trace） -->
++                         <ObservabilitySettingsView
++                             v-else-if="section?.value === 'observability'"
++                             :enabled="observabilityDraft.draft.value.enabled"
++                             :max-records="observabilityDraft.draft.value.maxRecords"
++                             :disabled="settingsLoading"
++                             @update:enabled="observabilityDraft.draft.value.enabled = $event"
++                             @update:max-records="observabilityDraft.draft.value.maxRecords = $event"
++                         />
++
++                 </div>
++             </template>
++         </NovelIdeSettingsView>
++     </DialogWindow>
++ </template>
++
+
+ ❯ app/utils/novel-ide-settings-current-project.contract.test.ts:17:24
+     15|         expect(source).not.toContain("loadProjects(");
+     16|         expect(source).not.toContain("selectTargetNovel");
+     17|         expect(source).toContain('activeScope.value === "project" && n…
+       |                        ^
+     18|         expect(source).toContain("projectRoot: novelIdeStore.currentPr…
+     19|         expect(source).toContain('novelIdeStore.currentNovel?.title ||…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/33]⎯
+
+ FAIL  scripts/db/migrate-application-state.test.ts > Application State migration runner > 非 Manager 启动门禁给出统一迁移命令
+AssertionError: expected 'import type {Application, Application…' to contain 'bun run migrate:application-state -- …'
+
+- Expected
++ Received
+
+- bun run migrate:application-state -- --apply
++ import type {Application, ApplicationManifest} from "nbook/runtime/application/application";
++ import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
++ import {createAppStatePlugin, appStateKey} from "nbook/server/features/app-state/plugin";
++ import {createStoragePlugin, storageKey} from "nbook/server/features/storage/plugin";
++ import {createSessionStorePlugin, sessionStoreKey} from "nbook/server/features/session-store/plugin";
++ import {createProjectPlugin, projectKey} from "nbook/server/features/project/plugin";
++ import type {ProductProjectOwnerSlot} from "nbook/server/features/project/plugin";
++ import {createAgentPlugin, agentKey} from "nbook/server/features/agent/plugin";
++ import {ServerRuntimeHost} from "nbook/server/runtime/foundation/server-host";
++ import {createWorkspaceFilesPlugin, workspaceFilesKey} from "nbook/server/features/workspace-files/plugin";
++ import type {WorkspaceFilesBinding, createWorkspaceFilesService} from "nbook/server/features/workspace-files/service";
++ import {appLogger} from "nbook/server/app-logs/logger";
++ import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
++ import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
++
++ export class ProductRuntimeNotReadyError extends Error {
++     readonly code = "PRODUCT_RUNTIME_NOT_READY" as const;
++
++     constructor() {
++         super("Product runtime 未就绪，不接纳 Project generation");
++         this.name = "ProductRuntimeNotReadyError";
++     }
++ }
++
++ export function isProductRuntimeNotReadyError(error: unknown): error is ProductRuntimeNotReadyError {
++     return error instanceof ProductRuntimeNotReadyError
++         || (typeof error === "object"
++             && error !== null
++             && "code" in error
++             && error.code === "PRODUCT_RUNTIME_NOT_READY");
++ }
++
++ type ProductRuntimeState = {
++     application: Application;
++     startup: Promise<void>;
++     workspaceRoot: string;
++     readonly filesKey: typeof workspaceFilesKey;
++     readonly leaseKey: typeof sessionStoreKey;
++     readonly projectOwner: ProductProjectOwnerSlot;
++ };
++ const runtimeGlobals = globalThis as typeof globalThis & {__nbookProductApplicationV1?: ProductRuntimeState};
++
++ /** Project owner 状态附着于 nbook.project 的当前代次；回调仅在代次可用后创建一次。 */
++ export function productProjectOwner<T>(create: (root: Scope) => T): T {
++     const state = runtimeGlobals.__nbookProductApplicationV1;
++     const generation = state?.projectOwner.current;
++     if (!state || !generation || generation.root.phase !== "available") {
++         throw new ProductRuntimeNotReadyError();
++     }
++     // Agent 先排空、Project 后关闭；停止期间仅返回已有 owner，不创建新的 owner。
++     if (generation.owner !== undefined) return generation.owner as T;
++     if (state.application.root.phase !== "available" || generation.scope.phase !== "available") {
++         throw new ProductRuntimeNotReadyError();
++     }
++     generation.owner = create(generation.root);
++     return generation.owner as T;
++ }
++
++ /** 必需插件按服务依赖激活；目录在登记结束后的首条激活诊断中写出。 */
++ function productManifest(recordStartupError: (error: unknown) => void, projectOwner: ProductProjectOwnerSlot): ApplicationManifest {
++     const plugins = [
++         createAppStatePlugin(recordStartupError),
++         createStoragePlugin(),
++         createSessionStorePlugin(recordStartupError),
++         createProjectPlugin(projectOwner),
++         createAgentPlugin(),
++         createWorkspaceFilesPlugin(),
++     ];
++     let catalogRecorded = false;
++     return {
++         keys: [appStateKey, storageKey, sessionStoreKey, projectKey, agentKey, workspaceFilesKey],
++         plugins,
++         requiredPlugins: plugins.map((plugin) => plugin.id),
++         gates: [],
++         observers: {plugins: {diagnosticRecorded: (diagnostic) => {
++             if (!catalogRecorded && diagnostic.reason === "activation-started") {
++                 catalogRecorded = true;
++                 void appLogger.info("runtime.plugins.catalog", {
++                     entries: plugins.flatMap((plugin) => plugin.entries
++                         .filter((entry) => entry.location === "server")
++                         .map((entry) => ({
++                             plugin: plugin.id,
++                             entry: entry.id,
++                             dependencies: (entry.dependencies ?? []).map((dependency) => dependency.key.name),
++                             provides: (entry.provides ?? []).map((key) => key.name),
++                         }))),
++                 });
++             }
++             const {sequence, plugin, entry, generation, stage, reason, capability, contribution, error} = diagnostic;
++             void appLogger.info("runtime.plugins.diagnostic", {sequence, plugin, entry, generation, stage, reason, capability, contribution, error});
++         }}},
++     };
++ }
++
++ /**
++  * 启动门禁失败时记录原因并请求有序退出。
++  *
++  * 不能靠抛出未捕获异常终止进程：Nitro node-server 入口的 `trapUnhandledNodeErrors()`
++  * 注册的 uncaughtException 处理器只记录不退出，进程会存活并对所有请求返回 500。
++  */
++ export function exitOnProductStartupFailure(error: unknown): void {
++     appLogger.fatalSync("runtime.startup.failed", undefined, error, "Product 启动门禁失败，Product将有序关闭");
++     productShutdownController.requestProcessExit(1);
++ }
++
++ /** 返回进程级唯一启动结果；Nitro middleware 与并发首批请求共享同一个 Promise。 */
++ export function productRuntimeReady(): Promise<void> {
++     let state = runtimeGlobals.__nbookProductApplicationV1;
++     if (state && state.workspaceRoot !== runtimePathsFromEnv().workspaceRoot) {
++         return Promise.reject(new Error("Product runtime 已绑定另一 Workspace Root"));
++     }
++     if (state && state.application.root.phase !== "creating" && state.application.root.phase !== "available") {
++         return state.startup.then((): never => {
++             throw new Error("Product runtime 已停止，不再接纳启动请求");
++         });
++     }
++     if (!state) {
++         let startupError: unknown;
++         const workspaceRoot = runtimePathsFromEnv().workspaceRoot;
++         const projectOwner: ProductProjectOwnerSlot = {current: null};
++         const manifest = productManifest((error) => {startupError = error;}, projectOwner);
++         const application = new ServerRuntimeHost().start({instanceId: "product", manifest, signals: []}).application;
++         state = {
++             application,
++             workspaceRoot,
++             filesKey: workspaceFilesKey,
++             leaseKey: sessionStoreKey,
++             projectOwner,
++             startup: application.startup.then((result) => {
++                 if (result.status !== "available") {
++                     throw startupError ?? new Error(`Product runtime 启动失败：${result.status}；${result.failures.map((failure) => `${failure.source}:${failure.reason}`).join("；")}`);
++                 }
++                 const declared = application.assembly.declare({id: "product-files-http", location: "server", scope: application.root, dependencies: [{key: workspaceFilesKey}, {key: sessionStoreKey}]});
++                 if (declared.status !== "accepted") throw new Error(`Files 宿主登记失败：${declared.reason}`);
++             }),
++         };
++         runtimeGlobals.__nbookProductApplicationV1 = state;
++     }
++     return state.startup;
++ }
++
++ /** HTTP 消费者只借用插件服务；授权和 Project operation 由外层守卫持有。 */
++ export async function withProductWorkspaceFiles<T>(
++     binding: WorkspaceFilesBinding,
++     operation: (files: ReturnType<typeof createWorkspaceFilesService>, signal: AbortSignal) => Promise<T>,
++ ): Promise<T> {
++     await productRuntimeReady();
++     const {application, filesKey, leaseKey} = runtimeGlobals.__nbookProductApplicationV1!;
++     const admitted = await application.admit({label: "workspace-files", run: async ({signal}) => {
++         const scope = application.root.createChild("files-request");
++         scope.open();
++         try {
++             const access = application.assembly.access("product-files-http", scope);
++             const lease = await access.resolve(leaseKey);
++             if (lease.status !== "resolved") throw new Error(`Files 宿主不可用：${lease.reason}`);
++             const service = await access.resolve(filesKey);
++             if (service.status !== "resolved") throw new Error(`Files 服务不可用：${service.reason}`);
++             const request = scope.accept({label: "files-consumer", run: () => operation(service.instance.bind(binding), signal)});
++             const result = await request.outcome;
++             await request.termination;
++             if (result.status === "completed") return result.value;
++             if (result.status === "failed") throw result.error;
++             throw new Error("Files 请求已停止");
++         } finally {
++             const result = await scope.close();
++             if (result.status !== "closed") throw new Error("Files 请求未完整释放");
++         }
++     }});
++     if (admitted.status !== "accepted") throw new Error(`Files 服务不可用：${admitted.reason}`);
++     const outcome = await admitted.operation.outcome;
++     // 外层 Project guard 必须等真实执行结束，不能因等待方取消提前归还 Index/History。
++     await admitted.operation.termination;
++     if (outcome.status === "completed") return outcome.value;
++     if (outcome.status === "failed") throw outcome.error;
++     throw new Error("Files 操作已中断，结果需核对");
++ }
++
++ /** 已经取得的进程资源由同一 Application 关闭；未启动时不得因 shutdown 再触发启动。 */
++ export async function stopProductRuntime(): Promise<void> {
++     const state = runtimeGlobals.__nbookProductApplicationV1;
++     if (!state) return;
++     const result = await state.application.stop();
++     if (result.status !== "closed") {
++         throw new Error(`Product runtime 关闭不完整：${result.reason}`, {cause: result.report});
++     }
++ }
++
+
+ ❯ scripts/db/migrate-application-state.test.ts:266:25
+    264|     it("非 Manager 启动门禁给出统一迁移命令", async () => {
+    265|         const startup = await readFile(resolve(import.meta.dirname, ".…
+    266|         expect(startup).toContain("bun run migrate:application-state -…
+       |                         ^
+    267|     });
+    268|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/33]⎯
+
+ FAIL  server/storage/storage-service.test.ts > 路径边界与原子替换 > 并发写入期间读取只会看到完整旧记录或完整新记录
+AssertionError: expected StorageIoError: Storage read 失败：/tmp/neur… { …(4) } to be null
+
+- Expected:
+null
+
++ Received:
+StorageIoError {
+  "message": "Storage read 失败：/tmp/neuro-book/test-paths/nbook-storage-torn-uAjF41/storage/aa2a182d-a0fc-4178-b86d-3f07868324ba/83edcb128e3326a8f6e33c7e4eb17b3f/local/c04da4f28a539224430cf8d564ca2045/test.workspace/records/layout.json（打开的记录与声明路径身份不一致）",
+  "cause": Error {
+    "message": "打开的记录与声明路径身份不一致",
+  },
+  "operation": "read",
+  "target": "/tmp/neuro-book/test-paths/nbook-storage-torn-uAjF41/storage/aa2a182d-a0fc-4178-b86d-3f07868324ba/83edcb128e3326a8f6e33c7e4eb17b3f/local/c04da4f28a539224430cf8d564ca2045/test.workspace/records/layout.json",
+  "name": "StorageIoError",
+}
+
+ ❯ server/storage/storage-service.test.ts:1229:37
+    1227|         }
+    1228|         reading = false;
+    1229|         expect(await readerOutcome).toBeNull();
+       |                                     ^
+    1230|
+    1231|         expect(observed).toContain("missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/33]⎯
+
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变）
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > when 不满足的视图不出现，容器空态把求值原因写出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 未知 factoryKey 的失败写在视图位置上，不留空白
+TypeError: Cannot read properties of undefined (reading 'clear')
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts:37:18
+     35|     viewportWidth = 1440;
+     36|     viewportHeight = 900;
+     37|     localStorage.clear();
+       |                  ^
+     38|     vi.stubGlobal("ResizeObserver", class {
+     39|         observe(): void {}
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/33]⎯
+
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 默认场景把七个 Part、七个空白 View（4 个可见）与两个演示动作渲染出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 换场景重建初值：动作状态、面板结构与事件日志都回到该场景的初值
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 面板位置、对齐与隐藏在内存里生效，并如实换掉壳根的树
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 16 个场景均提供真实可编辑的壳属性，JSON 修改立即改变渲染且保留场景宿主探针
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 紧凑呈现由容器宽驱动：390 宽画布进入 compact，活动栏仍是通高列
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > View 动作按 Section 归属：panel-a 的计数与 panel-b 的标记互不影响
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > lifetime 场景：换面板位置搬 DOM 不重挂实例（探针计数不变）
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > when 不满足的视图不出现，容器空态把求值原因写出来
+ FAIL  app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts > WorkbenchShellLayoutFixture > 未知 factoryKey 的失败写在视图位置上，不留空白
+TypeError: Cannot read properties of undefined (reading 'clear')
+ ❯ app/component-lab/fixtures/WorkbenchShellLayoutFixture.test.ts:52:18
+     50|     vi.restoreAllMocks();
+     51|     vi.unstubAllGlobals();
+     52|     localStorage.clear();
+       |                  ^
+     53| });
+     54|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/33]⎯
+
+ FAIL  app/components/common/DesktopTitleBar.test.ts > DesktopTitleBar > 没有桌面 bridge 也画标题栏，并按页面的真实焦点决定编辑动作
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ app/components/common/DesktopTitleBar.test.ts:133:48
+    131|         await wrapper.vm.$nextTick();
+    132|         await openMenu(wrapper, "Edit");
+    133|         expect(isItemDisabled(menuItem("撤销"))).toBe(true);
+       |                                                ^
+    134|         expect(isItemDisabled(menuItem("全选"))).toBe(true);
+    135|     });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/33]⎯
+
+ FAIL  app/components/common/DesktopTitleBar.test.ts > DesktopTitleBar > 键盘进标题栏后 Edit 六条仍可用，且激活后发的是同一条编辑命令
+AssertionError: expected [ [ '撤销', false ], …(5) ] to deeply equal [ [ '撤销', false ], …(5) ]
+
+- Expected
++ Received
+
+@@ -15,11 +15,11 @@
+      "复制",
+      false,
+    ],
+    [
+      "粘贴",
+-     true,
++     false,
+    ],
+    [
+      "全选",
+      false,
+    ],
+
+ ❯ app/components/common/DesktopTitleBar.test.ts:187:79
+    185|
+    186|         expect([...document.querySelectorAll<HTMLElement>('[data-title…
+    187|             .map((item) => [item.textContent?.trim(), isItemDisabled(i…
+       |                                                                               ^
+    188|             ["撤销", false],
+    189|             ["重做", false],
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/33]⎯
+
+ FAIL  app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 浏览器里的粘贴画成禁用并说明改用 Ctrl+V，撤销照常可点
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ app/components/common/DesktopTitleBarChrome.test.ts:152:105
+    150|         const undo = items.find((item) => item.textContent?.trim() ===…
+    151|
+    152|         expect(paste?.hasAttribute("data-disabled") || paste?.getAttri…
+       |                                                                                                         ^
+    153|         expect(paste?.title).toContain("Ctrl+V");
+    154|         expect(undo?.hasAttribute("data-disabled")).toBe(false);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/33]⎯
+
+ FAIL  app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 键盘：ArrowDown 进首项、循环跳过禁用项、Escape 关菜单并把焦点还给触发按钮
+AssertionError: expected '撤销重做剪切复制粘贴全选' to be '撤销' // Object.is equality
+
+Expected: "撤销"
+Received: "撤销重做剪切复制粘贴全选"
+
+ ❯ app/components/common/DesktopTitleBarChrome.test.ts:179:61
+    177|         await wrapper.vm.$nextTick();
+    178|
+    179|         expect(document.activeElement?.textContent?.trim()).toBe("撤销");
+       |                                                             ^
+    180|
+    181|         // 走到「复制」（撤销 → 重做 → 剪切 → 复制）。
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/33]⎯
+
+ FAIL  app/components/common/DesktopTitleBarChrome.test.ts > DesktopTitleBarChrome > 键盘：ArrowRight 换组时浮层跟着换锚点与内容
+AssertionError: expected '撤销重做剪切复制粘贴全选' to be '撤销' // Object.is equality
+
+Expected: "撤销"
+Received: "撤销重做剪切复制粘贴全选"
+
+ ❯ app/components/common/DesktopTitleBarChrome.test.ts:211:61
+    209|
+    210|         expect(itemLabels(panel("group")!)).toEqual(["撤销", "重做", "剪切",…
+    211|         expect(document.activeElement?.textContent?.trim()).toBe("撤销");
+       |                                                             ^
+    212|     });
+    213|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/33]⎯
+
+ FAIL  app/components/workbench/WorkbenchPartHost.test.ts > WorkbenchPartHost > 容器移动菜单：列出生效落位之外的落点，选中后回传 move-container
+AssertionError: expected undefined to be truthy
+
+- Expected:
+true
+
++ Received:
+undefined
+
+ ❯ app/components/workbench/WorkbenchPartHost.test.ts:1159:24
+    1157|         expect(moveContainer).not.toHaveBeenCalled();
+    1158|         const target = menuItem("t:part.right");
+    1159|         expect(target).toBeTruthy();
+       |                        ^
+    1160|         target!.click();
+    1161|         await settle();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/33]⎯
+
+ FAIL  server/agent/profiles/profile-compile-worker-preview.test.ts > profile compile worker preview 与 lifecycle > dry-run preview 不写入真实用户源码或 compiled artifact
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ server/agent/profiles/profile-compile-worker-preview.test.ts:74:31
+     72|                 }),
+     73|             });
+     74|             expect(result.ok).toBe(true);
+       |                               ^
+     75|             expect(result.preview?.ok).toBe(true);
+     76|             await expect(readFile(sourcePath, "utf8")).resolves.toBe(s…
+ ❯ server/agent/profiles/profile-compile-worker-preview.test.ts:94:9
+ ❯ withIsolatedWorkspaceAssets server/workspace-files/test-workspace-fixture.ts:101:16
+ ❯ withProfileAssets server/agent/profiles/profile-compile-worker-preview.test.ts:88:5
+ ❯ server/agent/profiles/profile-compile-worker-preview.test.ts:57:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/33]⎯
+
+ FAIL  server/agent/profiles/rp-profiles.test.ts > RP builtin profiles > rp.leader 作为 RP 用户交流层，读取 manual 并调用 simulator.leader
+ FAIL  server/agent/profiles/rp-profiles.test.ts > RP builtin profiles > simulator.leader 作为 simulation runtime owner 并负责调度 actor
+ FAIL  server/agent/profiles/simulation-director-profiles.test.ts > simulation and director builtin profiles > simulator.leader 暴露世界模拟合同和受限工具
+ FAIL  server/agent/profiles/simulation-director-profiles.test.ts > simulation and director builtin profiles > director 暴露 Plot System 合同和 Scene World Context
+ FAIL  server/agent/profiles/world-engine-profile.test.ts > world.engine profile > 只暴露 World Engine 维护所需工具，并注入第一版边界
+Error: Import.path 缺少显式 NEURO_BOOK_REPOSITORY_ROOT。Product Runtime 不允许从 checkout 或 import.meta.dirname 推断仓库根。
+ ❯ resolveRepositoryRootForImport server/agent/profiles/profile-dsl.ts:1792:15
+    1790|     const configuredRepositoryRoot = process.env.NEURO_BOOK_REPOSITORY…
+    1791|     if (!configuredRepositoryRoot) {
+    1792|         throw new Error("Import.path 缺少显式 NEURO_BOOK_REPOSITORY_ROOT。P…
+       |               ^
+    1793|     }
+    1794|     return resolve(configuredRepositoryRoot);
+ ❯ resolveApplicationImportPath server/agent/profiles/profile-dsl.ts:1774:15
+ ❯ readImportFile server/agent/profiles/profile-dsl.ts:1207:11
+ ❯ renderImportedContext server/agent/profiles/profile-dsl.ts:1154:30
+ ❯ Object.text server/agent/profiles/profile-dsl.ts:456:24
+ ❯ visit server/agent/profiles/profile-dsl.ts:1330:73
+ ❯ renderStringChildren server/agent/profiles/profile-dsl.ts:1347:15
+ ❯ renderMessageNodeContent server/agent/profiles/profile-dsl.ts:884:46
+ ❯ renderMessageNode server/agent/profiles/profile-dsl.ts:868:31
+ ❯ renderChild server/agent/profiles/profile-dsl.ts:823:42
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/33]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 22 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "没有桌面能力时：不画退出应用与桌面缩放，菜单项仍可用". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "没有桌面能力时：不画退出应用与桌面缩放，菜单项仍可用". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "没有桌面能力时：不画退出应用与桌面缩放，菜单项仍可用". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "有桌面能力时同一组菜单补回桌面动作". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "有桌面能力时同一组菜单补回桌面动作". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "有桌面能力时同一组菜单补回桌面动作". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "浏览器里的粘贴画成禁用并说明改用 Ctrl+V，撤销照常可点". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "下拉层传送出标题栏（不被祖先裁剪），点外部收起". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBarChrome.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: DOMMatrix is not defined
+ ❯ unscaledRect ../nb-ui/src/components/controls/Dropdown.vue:83:19
+     81| function unscaledRect(element: HTMLElement): DOMRect {
+     82|     const rect = element.getBoundingClientRect();
+     83|     const scale = new DOMMatrix(getComputedStyle(element).transform).a…
+       |                   ^
+     84|     if (scale === 1) return rect;
+     85|     const width = rect.width / scale;
+ ❯ Object.getBoundingClientRect ../nb-ui/src/components/controls/Dropdown.vue:78:42
+ ❯ getBoundingClientRect ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:84:30
+ ❯ getRectRelativeToOffsetParent ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:397:16
+ ❯ Object.getElementRects ../../node_modules/@floating-ui/dom/dist/floating-ui.dom.mjs:485:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+ ❯ computePosition ../../node_modules/@floating-ui/core/dist/floating-ui.core.mjs:140:15
+
+This error originated in "app/components/common/DesktopTitleBar.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  11 failed | 581 passed | 3 skipped (595)
+      Tests  24 failed | 5042 passed | 9 skipped (5075)
+     Errors  22 errors
+   Start at  13:51:16
+   Duration  444.14s (transform 78.33s, setup 42.78s, import 246.99s, tests 414.18s, environment 54.12s)
+
+error: script "test" exited with code 1
+exit=1

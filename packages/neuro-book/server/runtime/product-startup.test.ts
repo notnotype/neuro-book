@@ -1,10 +1,12 @@
 import {join} from "node:path";
 import {tmpdir} from "node:os";
-import {beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
 import type {exitOnProductStartupFailure, productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles, ProductRuntimeNotReadyError} from "nbook/server/runtime/product-startup";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
+import type {Application} from "nbook/runtime/application/application";
+import type {AgentSessionMigrationRequiredError} from "nbook/server/agent/session/agent-session-store";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
 function productTestApplicationRoot(): string {
@@ -19,21 +21,36 @@ function productTestWorkspaceRoot(): string {
     return join(productTestStateRoot(), "workspace");
 }
 const mocks = vi.hoisted(() => ({
+    releaseOrder: [] as string[],
+    existsSync: vi.fn(() => true),
     mkdir: vi.fn(async () => undefined),
     inspectStateRootIntegrity: vi.fn(async () => ({kind: "clean"})),
     stateRootIntegrityFailed: vi.fn(() => false),
     assertProductMigrationsReady: vi.fn(async () => undefined),
     startAgentSessionStoreRuntime: vi.fn(async () => ({rootWorkspace: productTestWorkspaceRoot()})),
-    stopAgentSessionStoreRuntime: vi.fn(async () => undefined),
+    stopAgentSessionStoreRuntime: vi.fn(async () => {mocks.releaseOrder.push("session");}),
     observeAgentSessionStoreRuntimeCompromised: vi.fn<() => Promise<{
         leasePath: string;
         kind: "runtime";
     }>>(),
     warn: vi.fn(async () => undefined),
+    info: vi.fn<(event: string, data?: unknown) => Promise<void>>(async () => undefined),
+    disposeAgentHarness: vi.fn(async () => {mocks.releaseOrder.push("agent");}),
+    disposeStorageHost: vi.fn(async () => {mocks.releaseOrder.push("storage");}),
+    closeAllWorkspaceTreeIndexes: vi.fn(async () => {mocks.releaseOrder.push("indexes");}),
+    checkpointAppSqliteDatabase: vi.fn(async () => {mocks.releaseOrder.push("checkpoint");}),
+    disconnectPrismaClient: vi.fn(async () => {mocks.releaseOrder.push("prisma");}),
     fatalSync: vi.fn(),
     requestProcessExit: vi.fn(),
 }));
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
+vi.mock("node:fs", () => ({existsSync: mocks.existsSync}));
+vi.mock("nbook/server/agent/http", () => ({disposeAgentHarness: mocks.disposeAgentHarness}));
+vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost}));
+vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes}));
+vi.mock("nbook/server/database/config", () => ({resolveDatabaseConfig: () => ({sqliteFilePath: join(productTestStateRoot(), "app.db")})}));
+vi.mock("nbook/server/database/app-sqlite-migrations", () => ({checkpointAppSqliteDatabase: mocks.checkpointAppSqliteDatabase}));
+vi.mock("nbook/server/database/prisma", () => ({disconnectPrismaClient: mocks.disconnectPrismaClient}));
 vi.mock("nbook/server/runtime/paths/runtime-paths", () => ({
     runtimePathsFromEnv: () => ({
         applicationRoot: productTestApplicationRoot(),
@@ -53,7 +70,7 @@ vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     observeAgentSessionStoreRuntimeCompromised: mocks.observeAgentSessionStoreRuntimeCompromised,
     stopAgentSessionStoreRuntime: mocks.stopAgentSessionStoreRuntime,
 }));
-vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {warn: mocks.warn, fatalSync: mocks.fatalSync}}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {info: mocks.info, warn: mocks.warn, fatalSync: mocks.fatalSync}}));
 vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
     productShutdownController: {requestProcessExit: mocks.requestProcessExit},
 }));
@@ -66,23 +83,74 @@ let runtime: {
     exitOnProductStartupFailure: typeof exitOnProductStartupFailure;
     ProductRuntimeNotReadyError: typeof ProductRuntimeNotReadyError;
 };
-const productGlobals = globalThis as typeof globalThis & {__nbookProductApplicationV1?: unknown};
+let MigrationRequiredError: typeof AgentSessionMigrationRequiredError;
+type ProductTestGlobals = typeof globalThis & {__nbookProductApplicationV1?: {application: Application}};
+const productGlobals = globalThis as ProductTestGlobals;
+
+function application(): Application {
+    const state = productGlobals.__nbookProductApplicationV1;
+    if (!state) throw new Error("测试尚未建立 Product application");
+    return state.application;
+}
+
+const dependencies = {
+    "nbook.app-state": [],
+    "nbook.storage": ["nbook.app-state/ready"],
+    "nbook.session-store": ["nbook.app-state/ready"],
+    "nbook.project": ["nbook.session-store/runtime", "nbook.storage/ready"],
+    "nbook.agent": ["nbook.session-store/runtime", "nbook.project/owner"],
+    "nbook.files": ["nbook.project/owner"],
+};
 
 describe("Product startup", () => {
     beforeEach(async () => {
         delete productGlobals.__nbookProductApplicationV1;
         vi.resetModules();
+        MigrationRequiredError = (await import("nbook/server/agent/session/agent-session-store")).AgentSessionMigrationRequiredError;
         // 每个用例需要全新进程实例，重新加载模块级 singleton。
         runtime = await import("nbook/server/runtime/product-startup");
         vi.clearAllMocks();
         mocks.inspectStateRootIntegrity.mockResolvedValue({kind: "clean"});
+        mocks.releaseOrder.length = 0;
+        mocks.existsSync.mockReturnValue(true);
+        mocks.info.mockResolvedValue(undefined);
+        mocks.disposeAgentHarness.mockImplementation(async () => {mocks.releaseOrder.push("agent");});
+        mocks.disposeStorageHost.mockImplementation(async () => {mocks.releaseOrder.push("storage");});
+        mocks.closeAllWorkspaceTreeIndexes.mockImplementation(async () => {mocks.releaseOrder.push("indexes");});
+        mocks.stopAgentSessionStoreRuntime.mockImplementation(async () => {mocks.releaseOrder.push("session");});
+        mocks.checkpointAppSqliteDatabase.mockImplementation(async () => {mocks.releaseOrder.push("checkpoint");});
+        mocks.disconnectPrismaClient.mockImplementation(async () => {mocks.releaseOrder.push("prisma");});
         mocks.stateRootIntegrityFailed.mockReturnValue(false);
         mocks.assertProductMigrationsReady.mockResolvedValue(undefined);
         mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: productTestWorkspaceRoot()});
         mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise(() => undefined));
     });
-    it("Product Runtime 未ready时以typed error拒绝创建Project owner", () => {
-        expect(() => runtime.productProjectOwner(() => ({root: {} as Scope}))).toThrow(runtime.ProductRuntimeNotReadyError);
+    afterEach(async () => {
+        mocks.disposeAgentHarness.mockResolvedValue(undefined);
+        mocks.closeAllWorkspaceTreeIndexes.mockResolvedValue(undefined);
+        mocks.disposeStorageHost.mockResolvedValue(undefined);
+        mocks.stopAgentSessionStoreRuntime.mockResolvedValue(undefined);
+        if (productGlobals.__nbookProductApplicationV1 && application().root.phase !== "closed") {
+            if (application().root.phase === "stopping") await application().recover();
+            else await application().stop();
+        }
+    });
+    it("Project 插件可用前与关闭后均以 ProductRuntimeNotReadyError 拒绝创建 owner", async () => {
+        const create = vi.fn((root: Scope) => ({root}));
+        expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
+        const migration = Promise.withResolvers<void>();
+        mocks.assertProductMigrationsReady.mockReturnValue(migration.promise);
+        const ready = runtime.productRuntimeReady();
+        await vi.waitFor(() => expect(mocks.assertProductMigrationsReady).toHaveBeenCalledOnce());
+        expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
+        migration.resolve();
+        await ready;
+        const owner = runtime.productProjectOwner(create);
+        expect(runtime.productProjectOwner(create)).toBe(owner);
+        expect(owner.root).not.toBe(application().root);
+        await runtime.stopProductRuntime();
+        expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
+        expect(create).toHaveBeenCalledOnce();
     });
     it("migration 未完成时不获取 lease，也不发布 HTTP ready", async () => {
         const migration = Promise.withResolvers<void>();
@@ -112,6 +180,101 @@ describe("Product startup", () => {
             mocks.startAgentSessionStoreRuntime.mock.invocationCallOrder[0]!,
         );
     });
+
+    it("产品目录包含六个 available 服务端插件及完整真实依赖", async () => {
+        await runtime.productRuntimeReady();
+        const catalog = application().plugins.catalog();
+        expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(Object.keys(dependencies).sort());
+        for (const plugin of catalog.plugins) {
+            expect(plugin.summary).toBe("available");
+            expect(plugin.entries).toHaveLength(1);
+            const entry = plugin.entries[0]!;
+            expect(entry).toMatchObject({entry: "server", location: "server", state: {status: "available"}});
+            expect(entry.dependencies).toEqual(dependencies[plugin.id as keyof typeof dependencies].map((key) => ({key, required: true})));
+            expect(entry.provides).toHaveLength(1);
+            expect(entry.provides[0]).toMatch(new RegExp(`^${plugin.id}/[^/]+$`));
+        }
+    });
+
+    it("激活发布由依赖图保证每个提供方先于依赖者", async () => {
+        await runtime.productRuntimeReady();
+        const catalog = application().plugins.catalog();
+        const published = application().plugins.diagnostics().filter((diagnostic) => diagnostic.reason === "published");
+        expect(published).toHaveLength(6);
+        for (const plugin of catalog.plugins) {
+            for (const entry of plugin.entries) {
+                for (const dependency of entry.dependencies) {
+                    const provider = catalog.plugins.find((candidate) => candidate.entries.some((item) => item.provides.includes(dependency.key)))!;
+                    expect(published.find((diagnostic) => diagnostic.plugin === provider.id)!.sequence)
+                        .toBeLessThan(published.find((diagnostic) => diagnostic.plugin === plugin.id)!.sequence);
+                }
+            }
+        }
+    });
+
+    it("停止按依赖逆序关闭 Agent、Project、索引与进程资源并为每个代次记录一次关闭", async () => {
+        await runtime.productRuntimeReady();
+        runtime.productProjectOwner((root) => {
+            root.register({kind: "project-test", label: "owner", value: null, release: () => {mocks.releaseOrder.push("project");}});
+            return {root};
+        });
+        await runtime.stopProductRuntime();
+        const before = (first: string, second: string): void => {
+            expect(mocks.releaseOrder.indexOf(first)).toBeGreaterThanOrEqual(0);
+            expect(mocks.releaseOrder.indexOf(first)).toBeLessThan(mocks.releaseOrder.indexOf(second));
+        };
+        before("agent", "project");
+        before("project", "indexes");
+        before("indexes", "session");
+        before("indexes", "storage");
+        before("session", "checkpoint");
+        before("storage", "checkpoint");
+        before("checkpoint", "prisma");
+        const diagnostics = application().plugins.diagnostics();
+        const published = diagnostics.filter((diagnostic) => diagnostic.reason === "published");
+        for (const generation of published) {
+            const records = diagnostics.filter((diagnostic) => diagnostic.plugin === generation.plugin && diagnostic.entry === generation.entry && diagnostic.generation === generation.generation);
+            expect(records.filter((diagnostic) => diagnostic.reason === "close-started")).toHaveLength(1);
+            expect(records.filter((diagnostic) => diagnostic.reason === "closed")).toHaveLength(1);
+        }
+        const closed = diagnostics.filter((diagnostic) => diagnostic.reason === "closed");
+        for (const plugin of application().plugins.catalog().plugins) {
+            for (const dependency of plugin.entries[0]!.dependencies) {
+                const provider = application().plugins.catalog().plugins.find((candidate) => candidate.entries[0]!.provides.includes(dependency.key))!;
+                expect(closed.find((diagnostic) => diagnostic.plugin === plugin.id)!.sequence)
+                    .toBeLessThan(closed.find((diagnostic) => diagnostic.plugin === provider.id)!.sequence);
+            }
+        }
+    });
+
+    it("插件释放抛错仍关闭独立插件并保留依赖，停止结果为 incomplete", async () => {
+        await runtime.productRuntimeReady();
+        mocks.stopAgentSessionStoreRuntime.mockRejectedValueOnce(new Error("session release failed"));
+        await expect(runtime.stopProductRuntime()).rejects.toThrow("关闭不完整");
+        expect(application().status().stop).toMatchObject({status: "incomplete"});
+        expect(application().plugins.entryState({plugin: "nbook.agent", entry: "server"})?.status).toBe("closed");
+        expect(application().plugins.entryState({plugin: "nbook.project", entry: "server"})?.status).toBe("closed");
+        expect(application().plugins.entryState({plugin: "nbook.storage", entry: "server"})?.status).toBe("closed");
+        expect(mocks.disposeStorageHost).toHaveBeenCalledOnce();
+        expect(mocks.disconnectPrismaClient).not.toHaveBeenCalled();
+        expect(await application().recover()).toMatchObject({status: "incomplete"});
+        await expect(application().recover()).resolves.toEqual({status: "closed"});
+        expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
+    });
+
+    it("诊断观察者写入原诊断字段和本位置目录", async () => {
+        await runtime.productRuntimeReady();
+        await runtime.stopProductRuntime();
+        const recorded = mocks.info.mock.calls.filter(([event]) => event === "runtime.plugins.diagnostic").map(([, data]) => data);
+        const expected = application().plugins.diagnostics().map(({sequence, plugin, entry, generation, stage, reason, capability, contribution, error}) => ({sequence, plugin, entry, generation, stage, reason, capability, contribution, error}));
+        expect(recorded).toEqual(expected);
+        const directory = mocks.info.mock.calls.filter(([event]) => event === "runtime.plugins.catalog");
+        expect(directory).toHaveLength(1);
+        expect(directory[0]?.[1]).toEqual({entries: Object.entries(dependencies).map(([plugin, keys]) => ({
+            plugin, entry: "server", dependencies: keys, provides: application().plugins.catalog().plugins.find((candidate) => candidate.id === plugin)!.entries[0]!.provides,
+        }))});
+        expect(mocks.info.mock.calls[0]?.[0]).toBe("runtime.plugins.catalog");
+    });
     it("并发启动共享同一门禁，停止后 lease 只释放一次", async () => {
         const first = runtime.productRuntimeReady();
         expect(runtime.productRuntimeReady()).toBe(first);
@@ -123,7 +286,7 @@ describe("Product startup", () => {
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
     });
 
-    it("Project child释放失败时根停止不释放Session lease，显式recover完成后才释放", async () => {
+    it("Project child释放失败时保留Session lease，显式恢复完成后才释放", async () => {
         await runtime.productRuntimeReady();
         let projectScope!: Scope;
         let ownerScope!: Scope;
@@ -152,8 +315,18 @@ describe("Product startup", () => {
         expect(releaseProject).toHaveBeenCalledOnce();
 
         failRelease = false;
-        const state = productGlobals.__nbookProductApplicationV1 as {application: {recover(): Promise<{status: string}>}};
-        await expect(state.application.recover()).resolves.toMatchObject({status: "closed"});
+        const stopped = application().status().stop;
+        if (stopped?.status !== "incomplete") throw new Error("关闭失败未产生 incomplete 报告");
+        let unclosedChildren = stopped.report.unclosedChildren.length;
+        let recovery = await application().recover();
+        while (recovery.status !== "closed") {
+            expect(recovery.reason).toBe("blocked");
+            expect(recovery.report.unclosedChildren.length).toBeLessThan(unclosedChildren);
+            unclosedChildren = recovery.report.unclosedChildren.length;
+            recovery = await application().recover();
+        }
+        expect(recovery).toEqual({status: "closed"});
+        expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();
         expect(ownerScope.phase).toBe("closed");
         expect(projectScope.phase).toBe("closed");
@@ -161,6 +334,9 @@ describe("Product startup", () => {
         expect(releaseProject.mock.invocationCallOrder[1]).toBeLessThan(
             mocks.stopAgentSessionStoreRuntime.mock.invocationCallOrder[0]!,
         );
+        await runtime.stopProductRuntime();
+        expect(releaseProject).toHaveBeenCalledTimes(2);
+        expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();
     });
 
     it("同一 realm 模块重载复用仍活门禁（不模拟 Nitro Dev 跨 worker）", async () => {
@@ -296,11 +472,53 @@ describe("Product startup", () => {
     });
 
     it("migration 未 ready 时绝不取得 Session Store lease", async () => {
-        mocks.assertProductMigrationsReady.mockRejectedValue(new Error("migration pending"));
+        const failure = new Error("migration pending\n请先执行 bun run migrate:application-state -- --apply");
+        mocks.assertProductMigrationsReady.mockRejectedValue(failure);
 
-        await expect(runtime.productRuntimeReady()).rejects.toThrow("migration pending");
-
+        await expect(runtime.productRuntimeReady()).rejects.toBe(failure);
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
+        expect(application().plugins.diagnostics().filter((diagnostic) => diagnostic.plugin === "nbook.session-store" && diagnostic.reason === "published")).toEqual([]);
+        expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
+    });
+
+    it("Session Store 迁移失败保留原原因、cause 和迁移命令提示", async () => {
+        const failure = new MigrationRequiredError(2, null);
+        mocks.startAgentSessionStoreRuntime.mockRejectedValue(failure);
+        await expect(runtime.productRuntimeReady()).rejects.toMatchObject({
+            cause: failure,
+            message: `${failure.message}\n非 Manager 启动请先执行：bun run migrate:application-state -- --apply`,
+        });
+    });
+
+    it("应用停止时 Agent 排空仍可取得已有 owner，Project 关闭后不再返回", async () => {
+        await runtime.productRuntimeReady();
+        const create = vi.fn((root: Scope) => ({root}));
+        const owner = runtime.productProjectOwner(create);
+        mocks.disposeAgentHarness.mockImplementation(async () => {
+            expect(application().root.phase).toBe("stopping");
+            expect(runtime.productProjectOwner(create)).toBe(owner);
+            expect(owner.root.phase).toBe("available");
+        });
+        await runtime.stopProductRuntime();
+        expect(create).toHaveBeenCalledOnce();
+        expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
+    });
+
+    it("应用停止时 Agent 排空不能创建新的 Project owner", async () => {
+        await runtime.productRuntimeReady();
+        const create = vi.fn((root: Scope) => ({root}));
+        mocks.disposeAgentHarness.mockImplementation(async () => {
+            expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
+        });
+        await runtime.stopProductRuntime();
+        expect(create).not.toHaveBeenCalled();
+    });
+
+    it("插件日志观察者同步抛错不影响启动与关闭", async () => {
+        mocks.info.mockImplementation(() => {throw new Error("log unavailable");});
+        await runtime.productRuntimeReady();
+        await expect(runtime.stopProductRuntime()).resolves.toBeUndefined();
+        expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();
     });
 
     it("启动门禁失败时记录fatal诊断并请求有序退出，而不是依赖未捕获异常", async () => {

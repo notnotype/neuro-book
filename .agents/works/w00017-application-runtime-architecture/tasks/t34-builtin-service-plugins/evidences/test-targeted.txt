@@ -1,0 +1,118 @@
+$ bun run test server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
+$ vitest run server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+
+ Test Files  16 passed (16)
+      Tests  129 passed (129)
+   Start at  12:27:53
+   Duration  9.84s (transform 3.89s, setup 1.73s, import 4.48s, tests 7.12s, environment 11ms)
+
+退出码：0
+
+$ bun run test server/runtime/product-startup.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+ ❯ server/runtime/product-startup.test.ts (24 tests | 1 failed) 3579ms
+     × Project child释放失败时保留Session lease，显式恢复完成后才释放 54ms
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 23 passed (24)
+   Start at  13:04:00
+   Duration  5.05s (transform 1.25s, setup 170ms, import 100ms, tests 3.58s, environment 0ms)
+
+$ vitest run server/runtime/product-startup.test.ts
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/runtime/product-startup.test.ts > Product startup > Project child释放失败时保留Session lease，显式恢复完成后才释放
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "/tmp/neuro-book/vitest/fc471fd9/neuro-book-product-startup/state/workspace",
+    ]
+
+
+Number of calls: 1
+
+ ❯ server/runtime/product-startup.test.ts:320:56
+    318|         expect(await application().recover()).toMatchObject({status: "…
+    319|         expect(application().plugins.entryState({plugin: "nbook.projec…
+    320|         expect(mocks.stopAgentSessionStoreRuntime).not.toHaveBeenCalle…
+       |                                                        ^
+    321|         expect(mocks.disconnectPrismaClient).not.toHaveBeenCalled();
+    322|         expect(await application().recover()).toMatchObject({status: "…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+error: script "test" exited with code 1
+退出码：1
+
+$ bun run test server/runtime/product-startup.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  1 passed (1)
+      Tests  24 passed (24)
+   Start at  13:07:04
+   Duration  4.71s (transform 1.23s, setup 199ms, import 98ms, tests 3.21s, environment 0ms)
+
+$ vitest run server/runtime/product-startup.test.ts
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+退出码：0
+
+最终改动验证：
+$ bun run test server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  16 passed (16)
+      Tests  129 passed (129)
+   Start at  13:18:21
+   Duration  6.68s (transform 2.67s, setup 1.23s, import 3.09s, tests 4.68s, environment 8ms)
+
+$ vitest run server/runtime server/features scripts/smoke/product-lifecycle/plugin-order.test.ts
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+退出码：0

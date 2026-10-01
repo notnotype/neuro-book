@@ -1,0 +1,21 @@
+$ bun run smoke:product-lifecycle -- --only L1,L2,L3,L4,L5,L6 --browser-executable /usr/bin/google-chrome-stable --report /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/lifecycle-report.json
+L1	pending	0ms	检查未执行：依赖步骤失败
+L2	pending	0ms	检查未执行：依赖步骤失败
+L3	pending	0ms	检查未执行：依赖步骤失败
+L4	pending	0ms	检查未执行：依赖步骤失败
+L5	pending	0ms	检查未执行：依赖步骤失败
+L6	pending	0ms	检查未执行：依赖步骤失败
+报告	/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/lifecycle-report.json
+总耗时	77688ms
+$ bun scripts/smoke/product-lifecycle.ts --only "L1,L2,L3,L4,L5,L6" --browser-executable /usr/bin/google-chrome-stable --report "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/lifecycle-report.json"
+Error: 生产构建失败，退出 1
+    at runBuild (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/smoke/product-lifecycle.ts:560:42)
+    at async main (unknown)
+    at processTicksAndRejections (native:7:39)
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L1.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L1.log'
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L2.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L2.log'
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L3.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L3.log'
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L4.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L4.log'
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L5.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L5.log'
+读取 /tmp/neuro-book-product-lifecycle-e4CbOp/L6.log 失败：Error: ENOENT: no such file or directory, open '/tmp/neuro-book-product-lifecycle-e4CbOp/L6.log'
+退出码：0

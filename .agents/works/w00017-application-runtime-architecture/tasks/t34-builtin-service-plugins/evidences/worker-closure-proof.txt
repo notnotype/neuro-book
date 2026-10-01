@@ -1,0 +1,40 @@
+$ bun --no-env-file <系统临时目录>/worker-imports.ts
+[
+  {
+    "snapshot": "current",
+    "opaqueImports": [
+      {
+        "expression": "import(A)",
+        "context": "/g,\"_\").replace(/^_+|_+$/g,\"\")||\"artifact\"}function o2o(A,e){let t=X_o(A);for(let[o,i]of Object.entries(e))t.searchParams.set(o,String(i));return t.href}async function i2o(A){try{return await A2o(A)}catch(e){if(!r2o(e))throw e;return await import(A)}}function r2o(A){return A instanceof TypeError&&A.message.includes(\"dynamic import callback\")}var W"
+      },
+      {
+        "expression": "import(Xjo(A))",
+        "context": ",j4e,g_A=B(()=>{Xjo=function(A,e){return typeof A==\"string\"&&/^\\.\\.?\\//.test(A)?A.replace(/\\.(tsx)$|((?:\\.d)?)((?:\\.[^./]+?)?)\\.([cm]?)ts$/i,function(t,o,i,r,g){return o?e?\".jsx\":\".js\":i&&(!r||!g)?t:i+r+\".\"+g.toLowerCase()+\"js\"}):A},j4e=A=>import(Xjo(A))});var uIA,n_A=B(()=>{uIA=class{credentials=new Map;chains=new Map;enqueue(e,t){let o=this.chains.ge"
+      }
+    ],
+    "sqliteModule": [
+      "packages/neuro-book/server/database/app-sqlite-migrations.ts"
+    ]
+  },
+  {
+    "snapshot": "original-shutdown",
+    "opaqueImports": [
+      {
+        "expression": "import(A)",
+        "context": "/g,\"_\").replace(/^_+|_+$/g,\"\")||\"artifact\"}function s2o(A,e){let t=r2o(A);for(let[o,i]of Object.entries(e))t.searchParams.set(o,String(i));return t.href}async function a2o(A){try{return await g2o(A)}catch(e){if(!C2o(e))throw e;return await import(A)}}function C2o(A){return A instanceof TypeError&&A.message.includes(\"dynamic import callback\")}var X"
+      },
+      {
+        "expression": "import(rWo(A))",
+        "context": ",X4e,C_A=B(()=>{rWo=function(A,e){return typeof A==\"string\"&&/^\\.\\.?\\//.test(A)?A.replace(/\\.(tsx)$|((?:\\.d)?)((?:\\.[^./]+?)?)\\.([cm]?)ts$/i,function(t,o,i,r,g){return o?e?\".jsx\":\".js\":i&&(!r||!g)?t:i+r+\".\"+g.toLowerCase()+\"js\"}):A},X4e=A=>import(rWo(A))});var DIA,B_A=B(()=>{DIA=class{credentials=new Map;chains=new Map;enqueue(e,t){let o=this.chains.ge"
+      },
+      {
+        "expression": "import(o)",
+        "context": "heckpointed!==t.log)throw new Error(`App SQLite WAL checkpoint 未完成：${JSON.stringify(t)}`);return t}finally{e.close(),Ms({force:!0})}}async function BNr(A,e){let t=typeof process.versions.bun==\"string\",o=t?\"bun:sqlite\":\"node:sqlite\",i=await import(o),r=t?i.Database:i.DatabaseSync;if(!r)throw new Error(`当前运行时缺少 SQLite API：${o}`);let g=new r(A,t?{rea"
+      }
+    ],
+    "sqliteModule": [
+      "packages/neuro-book/server/database/app-sqlite-migrations.ts"
+    ]
+  }
+]
+退出码：0

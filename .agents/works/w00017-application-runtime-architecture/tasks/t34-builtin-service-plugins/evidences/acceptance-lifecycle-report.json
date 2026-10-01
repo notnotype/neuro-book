@@ -1,0 +1,160 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-01T12:43:34.852Z",
+  "durationMs": 241645,
+  "skipBuild": false,
+  "selected": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6"
+  ],
+  "results": [
+    {
+      "id": "L1",
+      "result": "pass",
+      "durationMs": 12226,
+      "evidence": "L1-login: Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。；L1-create-project: 真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目；L1-seed-files: 临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。；L1-workbench-files: 主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L1.log",
+      "observations": [
+        {
+          "id": "L1-login",
+          "result": "pass",
+          "evidence": "Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。"
+        },
+        {
+          "id": "L1-create-project",
+          "result": "pass",
+          "evidence": "真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目"
+        },
+        {
+          "id": "L1-seed-files",
+          "result": "pass",
+          "evidence": "临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。"
+        },
+        {
+          "id": "L1-workbench-files",
+          "result": "pass",
+          "evidence": "主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。"
+        }
+      ]
+    },
+    {
+      "id": "L2",
+      "result": "pass",
+      "durationMs": 6238,
+      "evidence": "activation-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L2-plugins.jsonl",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L2.log",
+      "observations": [
+        {
+          "id": "activation-order",
+          "result": "pass",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L2-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L3",
+      "result": "fail",
+      "durationMs": 63636,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 0（期望 503），body=Unable to connect. Is the computer able to access the url?；inflight-complete: archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()；process-exit-and-lease: 关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放；close-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；close-started=13:nbook.app-state/server#1 -> 14:nbook.storage/server#1 -> 15:nbook.session-store/server#1 -> 16:nbook.project/server#1 -> 17:nbook.agent/server#1 -> 18:nbook.files/server#1；closed=19:nbook.files/server#1 -> 20:nbook.agent/server#1；失败=nbook.app-state/server#1 close-started=1, closed=0（各应为 1）；nbook.storage/server#1 close-started=1, closed=0（各应为 1）；nbook.session-store/server#1 close-started=1, closed=0（各应为 1）；nbook.project/server#1 close-started=1, closed=0（各应为 1）；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L3-plugins.jsonl",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L3.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "fail",
+          "evidence": "在途 archive 期间 /api/app/version 返回 0（期望 503），body=Unable to connect. Is the computer able to access the url?"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "fail",
+          "evidence": "archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "pass",
+          "evidence": "关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放"
+        },
+        {
+          "id": "close-order",
+          "result": "fail",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；close-started=13:nbook.app-state/server#1 -> 14:nbook.storage/server#1 -> 15:nbook.session-store/server#1 -> 16:nbook.project/server#1 -> 17:nbook.agent/server#1 -> 18:nbook.files/server#1；closed=19:nbook.files/server#1 -> 20:nbook.agent/server#1；失败=nbook.app-state/server#1 close-started=1, closed=0（各应为 1）；nbook.storage/server#1 close-started=1, closed=0（各应为 1）；nbook.session-store/server#1 close-started=1, closed=0（各应为 1）；nbook.project/server#1 close-started=1, closed=0（各应为 1）；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L3-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L4",
+      "result": "fail",
+      "durationMs": 37528,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:41725/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}；inflight-complete: archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()；process-exit-and-lease: 关闭后 completion={\"code\":1,\"signal\":null}，runtime.lease.lock=仍存在；control-stop: PRODUCT_SHUTDOWN_PATH stop=forced；required process/lease status=fail；close-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；close-started=13:nbook.app-state/server#1 -> 14:nbook.storage/server#1 -> 15:nbook.session-store/server#1 -> 16:nbook.project/server#1 -> 17:nbook.agent/server#1 -> 18:nbook.files/server#1；closed=19:nbook.files/server#1 -> 20:nbook.agent/server#1；失败=nbook.app-state/server#1 close-started=1, closed=0（各应为 1）；nbook.storage/server#1 close-started=1, closed=0（各应为 1）；nbook.session-store/server#1 close-started=1, closed=0（各应为 1）；nbook.project/server#1 close-started=1, closed=0（各应为 1）；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L4-plugins.jsonl",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L4.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "pass",
+          "evidence": "在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:41725/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "fail",
+          "evidence": "archive EOF=false，received=42，content-length=null，字节完整=false，readError=TypeError: The socket connection was closed unexpectedly. For more information, pass `verbose: true` in the second argument to fetch()"
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "fail",
+          "evidence": "关闭后 completion={\"code\":1,\"signal\":null}，runtime.lease.lock=仍存在"
+        },
+        {
+          "id": "control-stop",
+          "result": "fail",
+          "evidence": "PRODUCT_SHUTDOWN_PATH stop=forced；required process/lease status=fail"
+        },
+        {
+          "id": "close-order",
+          "result": "fail",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；close-started=13:nbook.app-state/server#1 -> 14:nbook.storage/server#1 -> 15:nbook.session-store/server#1 -> 16:nbook.project/server#1 -> 17:nbook.agent/server#1 -> 18:nbook.files/server#1；closed=19:nbook.files/server#1 -> 20:nbook.agent/server#1；失败=nbook.app-state/server#1 close-started=1, closed=0（各应为 1）；nbook.storage/server#1 close-started=1, closed=0（各应为 1）；nbook.session-store/server#1 close-started=1, closed=0（各应为 1）；nbook.project/server#1 close-started=1, closed=0（各应为 1）；JSONL=/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L4-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L5",
+      "result": "pass",
+      "durationMs": 733,
+      "evidence": "fatal-exit: 未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true；bounded: 在 30 秒内结束；no-listener: 端口无残留监听",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L5.log",
+      "observations": [
+        {
+          "id": "fatal-exit",
+          "result": "pass",
+          "evidence": "未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true"
+        },
+        {
+          "id": "bounded",
+          "result": "pass",
+          "evidence": "在 30 秒内结束"
+        },
+        {
+          "id": "no-listener",
+          "result": "pass",
+          "evidence": "端口无残留监听"
+        }
+      ]
+    },
+    {
+      "id": "L6",
+      "result": "pass",
+      "durationMs": 19663,
+      "evidence": "lease-exit: 删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75",
+      "logPath": "/tmp/claude-1000/-home-notnotype-CodeRepository-neuro-book/c38df555-3a36-49c9-bf4f-4027b5da6d32/scratchpad/t34-verify/L6.log",
+      "observations": [
+        {
+          "id": "lease-exit",
+          "result": "pass",
+          "evidence": "删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75"
+        }
+      ]
+    }
+  ]
+}

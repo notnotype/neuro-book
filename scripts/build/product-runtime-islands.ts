@@ -171,8 +171,8 @@ export function productOpaqueImportDefinitions(): ProductOpaqueImportDefinition[
         },
         {
             pathPattern: "authoring/profile-compile-worker.mjs",
-            count: 3,
-            reason: "Profile Authoring Worker 加载批准依赖与已编译 artifact；preview 进入 Harness 后，App SQLite 只在 bun:sqlite/node:sqlite 内建模块间选择。",
+            count: 2,
+            reason: "Profile Authoring Worker 加载批准依赖与已编译 artifact。",
             smoke: "Profile compiler compile/import with typebox and preview through the Harness/SQLite path",
         },
         {

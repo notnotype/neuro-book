@@ -262,7 +262,7 @@ describe("Application State migration runner", () => {
     });
 
     it("非 Manager 启动门禁给出统一迁移命令", async () => {
-        const startup = await readFile(resolve(import.meta.dirname, "../../server/runtime/product-startup.ts"), "utf8");
+        const startup = await readFile(resolve(import.meta.dirname, "../../server/features/session-store/plugin.ts"), "utf8");
         expect(startup).toContain("bun run migrate:application-state -- --apply");
     });
 

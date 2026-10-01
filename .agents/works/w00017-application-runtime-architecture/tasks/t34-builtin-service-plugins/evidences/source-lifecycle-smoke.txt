@@ -1,0 +1,13 @@
+$ bun --tsconfig packages/neuro-book/tsconfig.json <系统临时目录>/lifecycle-smoke.ts
+error: Cannot run "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/tsconfig.json"
+note: Bun cannot run json files directly
+退出码：1
+
+$ bun --tsconfig-override packages/neuro-book/tsconfig.json <系统临时目录>/lifecycle-smoke.ts
+migration {"status":"complete"}
+ready {"project":"available","leaseLock":true}
+{"id":"activation-order","result":"pass","evidence":"边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1"}
+{"id":"close-order","result":"pass","evidence":"边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=7:nbook.app-state/server#1 -> 8:nbook.storage/server#1 -> 9:nbook.session-store/server#1 -> 10:nbook.project/server#1 -> 11:nbook.files/server#1 -> 12:nbook.agent/server#1；close-started=13:nbook.app-state/server#1 -> 14:nbook.storage/server#1 -> 15:nbook.session-store/server#1 -> 16:nbook.project/server#1 -> 17:nbook.agent/server#1 -> 18:nbook.files/server#1；closed=19:nbook.files/server#1 -> 20:nbook.agent/server#1 -> 21:nbook.project/server#1 -> 22:nbook.storage/server#1 -> 23:nbook.session-store/server#1 -> 24:nbook.app-state/server#1"}
+closed {"project":"closed","leaseLock":false}
+Internal error: directory mismatch for directory "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/tsconfig.json", fd 3. You don't need to do anything, but this indicates a bug.
+退出码：0

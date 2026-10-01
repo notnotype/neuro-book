@@ -1,62 +1,40 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
+import type {ProductShutdownController} from "nbook/server/runtime/shutdown/product-shutdown-controller";
 
-const mocks = vi.hoisted(() => {
-    const order: string[] = [];
-    return {
-        order,
-        databasePath: "",
-        disposeAgentHarness: vi.fn(async () => { order.push("agent"); }),
-        closeAllWorkspaceTreeIndexes: vi.fn(async () => { order.push("indexes"); }),
-        disposeStorageHost: vi.fn(async () => { order.push("storage"); }),
-        stopProductRuntime: vi.fn(async () => { order.push("runtime"); }),
-        disconnectPrismaClient: vi.fn(async () => { order.push("prisma"); }),
-        checkpointAppSqliteDatabase: vi.fn(async () => { order.push("checkpoint"); }),
-        flush: vi.fn(async () => { order.push("logger"); }),
-    };
-});
-
-vi.mock("nbook/server/app-logs/logger", () => ({
-    appLogger: {flush: mocks.flush, fatalSync: vi.fn()},
+const mocks = vi.hoisted(() => ({
+    stopProductRuntime: vi.fn<() => Promise<void>>(),
+    flush: vi.fn<() => Promise<void>>(),
 }));
-vi.mock("nbook/server/agent/http", () => ({disposeAgentHarness: mocks.disposeAgentHarness}));
-vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost}));
-vi.mock("nbook/server/database/config", () => ({
-    resolveDatabaseConfig: () => ({sqliteFilePath: mocks.databasePath}),
-}));
-vi.mock("nbook/server/database/prisma", () => ({disconnectPrismaClient: mocks.disconnectPrismaClient}));
-vi.mock("nbook/server/runtime/paths/runtime-paths", () => ({
-    runtimePathsFromEnv: () => ({workspaceRoot: "C:/state/workspace"}),
-}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {flush: mocks.flush, fatalSync: vi.fn()}}));
 vi.mock("nbook/server/runtime/product-startup", () => ({stopProductRuntime: mocks.stopProductRuntime}));
-vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({
-    closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes,
-}));
-vi.mock("nbook/server/database/app-sqlite-migrations", () => ({
-    checkpointAppSqliteDatabase: mocks.checkpointAppSqliteDatabase,
-}));
 
-import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
-
-describe("Product shutdown wiring", () => {
-    beforeEach(() => {
-        vi.clearAllMocks();
-        mocks.order.length = 0;
-        mocks.databasePath = process.execPath;
+let controller: ProductShutdownController;
+describe("Product shutdown", () => {
+    beforeEach(async () => {
+        vi.resetModules();
+        vi.resetAllMocks();
+        mocks.stopProductRuntime.mockResolvedValue(undefined);
+        mocks.flush.mockResolvedValue(undefined);
+        controller = (await import("nbook/server/runtime/shutdown/product-shutdown")).productShutdownController;
     });
 
-    it("按 Agent 到日志的所有权顺序关闭全部进程级资源", async () => {
-        await productShutdownController.shutdown();
+    it("运行时关闭在途时不刷写日志，全部插件完成后才完成关闭", async () => {
+        const close = Promise.withResolvers<void>();
+        mocks.stopProductRuntime.mockReturnValue(close.promise);
+        const stopping = controller.shutdown();
+        await vi.waitFor(() => expect(mocks.stopProductRuntime).toHaveBeenCalledOnce());
+        expect(mocks.flush).not.toHaveBeenCalled();
+        close.resolve();
+        await stopping;
+        expect(mocks.flush).toHaveBeenCalledOnce();
+    });
 
-        expect(mocks.stopProductRuntime).toHaveBeenCalledOnce();
-        expect(mocks.checkpointAppSqliteDatabase).toHaveBeenCalledWith(process.execPath);
-        expect(mocks.order).toEqual([
-            "agent",
-            "runtime",
-            "indexes",
-            "storage",
-            "checkpoint",
-            "prisma",
-            "logger",
-        ]);
+    it("运行时关闭不完整仍刷写诊断，最终保留 product-runtime 失败身份", async () => {
+        const cause = new Error("plugin release failed");
+        mocks.stopProductRuntime.mockRejectedValue(cause);
+        await expect(controller.shutdown()).rejects.toMatchObject({
+            errors: [expect.objectContaining({message: "Product shutdown step 失败：product-runtime", cause})],
+        });
+        expect(mocks.flush).toHaveBeenCalledOnce();
     });
 });

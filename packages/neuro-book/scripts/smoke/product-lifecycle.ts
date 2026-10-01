@@ -24,6 +24,7 @@ import {runBrowserChecks} from "./product-lifecycle/browser";
 import {runDevelopmentChecks} from "./product-lifecycle/development";
 import type {CheckId, CheckReport, CheckResult, Observation, RunningProduct, SmokeContext} from "./product-lifecycle/types";
 import {CHECK_IDS} from "./product-lifecycle/types";
+import {observePluginOrder} from "./product-lifecycle/plugin-order";
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const repoRoot = resolve(appRoot, "../..");
@@ -444,7 +445,6 @@ async function runLifecycleDrainCheck(
             result: processAndLease ? "pass" : "fail",
             evidence: `关闭后 completion=${JSON.stringify(outcome.completion)}，runtime.lease.lock=${outcome.leaseLock ? "仍存在" : "已释放"}`,
         });
-        observe({id: "close-order", result: "pending", evidence: "产品没有关闭步骤顺序诊断，无法核对依赖逆序；需要宿主提供 close-order 诊断。"});
         if (id === "L4") {
             observe({
                 id: "control-stop",
@@ -458,9 +458,9 @@ async function runLifecycleDrainCheck(
         observe({id: "drain-new-request", result: "fail", evidence: `无法建立并观测 archive 在途请求：${evidence}`});
         observe({id: "inflight-complete", result: "fail", evidence: `archive 未能读完且核对完整字节：${evidence}`});
         observe({id: "process-exit-and-lease", result: "fail", evidence: `未取得 code 0 且 lease lock 已释放的证据：${evidence}`});
-        observe({id: "close-order", result: "pending", evidence: "没有关闭顺序诊断，说明需要宿主诊断。"});
         if (id === "L4") observe({id: "control-stop", result: "fail", evidence: `PRODUCT_SHUTDOWN_PATH 未取得成功结果：${evidence}`});
     } finally {
+        observe(await observePluginOrder(stateRoot, join(ctx.evidenceRoot, `${id}-plugins.jsonl`), "close-order"));
         if (product) await product.dispose().catch((error: unknown) => ctx.log(id, `dispose-error ${String(error)}`));
     }
 }
@@ -468,7 +468,15 @@ async function runLifecycleDrainCheck(
 
 async function productionChecks(ctx: SmokeContext): Promise<void> {
     await ctx.check("L2", async (observe) => {
-        observe({id: "activation-order", result: "pending", evidence: "当前产品没有公开运行时激活顺序诊断或诊断读取接口；不能从普通 HTTP 日志推导依赖顺序。建议宿主写入带 generation、entry、requires 与 sequence 的脱敏 JSONL 诊断。"});
+        const stateRoot = join(ctx.tempRoot, "l2-state");
+        await ctx.prepare(stateRoot, "L2");
+        const product = await ctx.start(stateRoot, "L2");
+        try {
+            await product.stop();
+            observe(await observePluginOrder(stateRoot, join(ctx.evidenceRoot, "L2-plugins.jsonl"), "activation-order"));
+        } finally {
+            await product.dispose();
+        }
     });
 
     await ctx.check("L3", async (observe) => {

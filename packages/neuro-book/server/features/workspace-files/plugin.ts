@@ -1,6 +1,7 @@
 import {provide, type PluginDefinition} from "nbook/runtime/plugins/plugins";
 import {defineServiceKey} from "nbook/runtime/services/services";
 import {createWorkspaceFilesService} from "nbook/server/features/workspace-files/service";
+import {projectKey} from "nbook/server/features/project/plugin";
 
 /** 只绑定已授权的请求数据面；Project/Index/History 寿命仍归原 owner。 */
 export const workspaceFilesKey = defineServiceKey<{bind: typeof createWorkspaceFilesService}>("nbook.files/workspace");
@@ -11,6 +12,7 @@ export function createWorkspaceFilesPlugin(): PluginDefinition {
         entries: [{
             id: "server",
             location: "server",
+            dependencies: [{key: projectKey}],
             provides: [workspaceFilesKey],
             activate: () => ({services: [provide(workspaceFilesKey, {bind: createWorkspaceFilesService})]}),
         }],

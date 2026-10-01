@@ -1,0 +1,64 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-01T11:34:32.257Z",
+  "durationMs": 77688,
+  "skipBuild": false,
+  "selected": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6"
+  ],
+  "results": [
+    {
+      "id": "L1",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L1.log",
+      "observations": []
+    },
+    {
+      "id": "L2",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L2.log",
+      "observations": []
+    },
+    {
+      "id": "L3",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L3.log",
+      "observations": []
+    },
+    {
+      "id": "L4",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L4.log",
+      "observations": []
+    },
+    {
+      "id": "L5",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L5.log",
+      "observations": []
+    },
+    {
+      "id": "L6",
+      "result": "pending",
+      "durationMs": 0,
+      "evidence": "检查未执行：依赖步骤失败。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/evidences/L6.log",
+      "observations": []
+    }
+  ]
+}

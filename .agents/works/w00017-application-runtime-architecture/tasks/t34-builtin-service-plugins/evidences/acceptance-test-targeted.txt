@@ -1,0 +1,18 @@
+$ vitest run server/runtime server/features scripts/smoke/product-lifecycle
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=2"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+
+ Test Files  16 passed (16)
+      Tests  129 passed (129)
+   Start at  13:49:09
+   Duration  6.83s (transform 2.64s, setup 1.18s, import 3.05s, tests 4.60s, environment 8ms)

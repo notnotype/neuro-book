@@ -1,38 +1,17 @@
-import {mkdir} from "node:fs/promises";
-
 import type {Application, ApplicationManifest} from "nbook/runtime/application/application";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
-import {defineServiceKey} from "nbook/runtime/services/services";
+import {createAppStatePlugin, appStateKey} from "nbook/server/features/app-state/plugin";
+import {createStoragePlugin, storageKey} from "nbook/server/features/storage/plugin";
+import {createSessionStorePlugin, sessionStoreKey} from "nbook/server/features/session-store/plugin";
+import {createProjectPlugin, projectKey} from "nbook/server/features/project/plugin";
+import type {ProductProjectOwnerSlot} from "nbook/server/features/project/plugin";
+import {createAgentPlugin, agentKey} from "nbook/server/features/agent/plugin";
 import {ServerRuntimeHost} from "nbook/server/runtime/foundation/server-host";
 import {createWorkspaceFilesPlugin, workspaceFilesKey} from "nbook/server/features/workspace-files/plugin";
 import type {WorkspaceFilesBinding, createWorkspaceFilesService} from "nbook/server/features/workspace-files/service";
 import {appLogger} from "nbook/server/app-logs/logger";
-import {
-    AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
-    AGENT_SESSION_STORE_LEASE_STALE_MS,
-    AgentSessionStoreLeaseCompromisedError,
-    isAgentSessionStoreLeaseCompromisedError,
-} from "nbook/server/agent/session/agent-session-store-lease";
-import {
-    AgentSessionMigrationRequiredError,
-    AgentSessionRecoveryRequiredError,
-    AgentSessionStoreCorruptError,
-} from "nbook/server/agent/session/agent-session-store";
-import {
-    observeAgentSessionStoreRuntimeCompromised,
-    startAgentSessionStoreRuntime,
-    stopAgentSessionStoreRuntime,
-} from "nbook/server/agent/session/agent-session-store-runtime";
-import {assertProductMigrationsReady} from "nbook/server/runtime/product-migration-gate";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
-import {
-    inspectStateRootIntegrity,
-    stateRootIntegrityFailed,
-} from "nbook/server/runtime/state-root-integrity";
-import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
-
-const sessionStoreKey = defineServiceKey<{readonly workspaceRoot: string}>("product-agent-session-store");
 
 export class ProductRuntimeNotReadyError extends Error {
     readonly code = "PRODUCT_RUNTIME_NOT_READY" as const;
@@ -57,124 +36,60 @@ type ProductRuntimeState = {
     workspaceRoot: string;
     readonly filesKey: typeof workspaceFilesKey;
     readonly leaseKey: typeof sessionStoreKey;
-    projectOwner?: {readonly root: Scope};
+    readonly projectOwner: ProductProjectOwnerSlot;
 };
 const runtimeGlobals = globalThis as typeof globalThis & {__nbookProductApplicationV1?: ProductRuntimeState};
 
-/** Project owner 状态附着于唯一 Application 实例；回调仅在根已可用后创建一次。 */
+/** Project owner 状态附着于 nbook.project 的当前代次；回调仅在代次可用后创建一次。 */
 export function productProjectOwner<T>(create: (root: Scope) => T): T {
     const state = runtimeGlobals.__nbookProductApplicationV1;
-    if (!state || state.application.root.phase !== "available") {
+    const generation = state?.projectOwner.current;
+    if (!state || !generation || generation.root.phase !== "available") {
         throw new ProductRuntimeNotReadyError();
     }
-    if (state.projectOwner === undefined) state.projectOwner = create(state.application.root) as {readonly root: Scope};
-    return state.projectOwner as T;
+    // Agent 先排空、Project 后关闭；停止期间仅返回已有 owner，不创建新的 owner。
+    if (generation.owner !== undefined) return generation.owner as T;
+    if (state.application.root.phase !== "available" || generation.scope.phase !== "available") {
+        throw new ProductRuntimeNotReadyError();
+    }
+    generation.owner = create(generation.root);
+    return generation.owner as T;
 }
 
-/** Product 清单先验证根与迁移，再取得Session lease；Project owner完整关闭后才释放lease。 */
-function productManifest(recordStartupError: (error: unknown) => void): ApplicationManifest {
-    const runtimePaths = runtimePathsFromEnv();
-    let prerequisitesReady = false;
+/** 必需插件按服务依赖激活；目录在登记结束后的首条激活诊断中写出。 */
+function productManifest(recordStartupError: (error: unknown) => void, projectOwner: ProductProjectOwnerSlot): ApplicationManifest {
+    const plugins = [
+        createAppStatePlugin(recordStartupError),
+        createStoragePlugin(),
+        createSessionStorePlugin(recordStartupError),
+        createProjectPlugin(projectOwner),
+        createAgentPlugin(),
+        createWorkspaceFilesPlugin(),
+    ];
+    let catalogRecorded = false;
     return {
-        keys: [sessionStoreKey, workspaceFilesKey],
-        plugins: [createWorkspaceFilesPlugin()],
-        capabilities: [{
-            id: "agent-session-store",
-            key: sessionStoreKey,
-            create: async () => {
-                if (!prerequisitesReady) throw new Error("Product prerequisites 未完成，拒绝取得 Session Store lease");
-                try {
-                    await startAgentSessionStoreRuntime(runtimePaths.workspaceRoot);
-                } catch (error) {
-                    if (isAgentSessionStoreLeaseCompromisedError(error)) {
-                        requestLeaseCompromisedShutdown(error);
-                    }
-                    if (error instanceof AgentSessionMigrationRequiredError
-                        || error instanceof AgentSessionRecoveryRequiredError
-                        || error instanceof AgentSessionStoreCorruptError) {
-                        const migrationError = new Error(
-                            `${error.message}\n非 Manager 启动请先执行：bun run migrate:application-state -- --apply`,
-                            {cause: error},
-                        );
-                        recordStartupError(migrationError);
-                        throw migrationError;
-                    }
-                    recordStartupError(error);
-                    throw error;
-                }
-                void Promise.resolve()
-                    .then(() => observeAgentSessionStoreRuntimeCompromised(runtimePaths.workspaceRoot))
-                    .then(requestLeaseCompromisedShutdown)
-                    .catch((error: unknown) => {
-                        appLogger.fatalSync(
-                            "runtime.agentSessionStore.leaseObserverFailed",
-                            undefined,
-                            error,
-                            "Agent Session Store runtime lease失效观察器异常，Product将有序关闭",
-                        );
-                        productShutdownController.requestProcessExit(
-                            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-                        );
-                    });
-                return {workspaceRoot: runtimePaths.workspaceRoot};
-            },
-            release: async () => {
-                const owner = runtimeGlobals.__nbookProductApplicationV1?.projectOwner;
-                if (owner) {
-                    const result = await (owner.root.phase === "stopping" ? owner.root.recover() : owner.root.close());
-                    if (result.status !== "closed") {
-                        throw new Error("Project generation尚未完整关闭，Session Store lease必须保留");
-                    }
-                }
-                await stopAgentSessionStoreRuntime(runtimePaths.workspaceRoot);
-            },
-        }],
-        gates: [
-            {id: "product-prerequisites", kind: "check", check: async () => {
-                try {
-                    await mkdir(runtimePaths.workspaceRoot, {recursive: true});
-                    const stateIntegrity = await inspectStateRootIntegrity({
-                        installationRoot: runtimePaths.applicationRoot,
-                        stateRoot: runtimePaths.stateRoot,
-                    });
-                    if (stateRootIntegrityFailed(stateIntegrity)) {
-                        void appLogger.warn(
-                            "runtime.stateRoot.integrityFailed",
-                            {stateIntegrity},
-                            stateIntegrity.kind === "shadow-workspace"
-                                ? "检测到Installation Root与State Root存在Workspace Root数据分叉；应用不会自动处理用户数据"
-                                : "无法验证Installation Root与State Root的Workspace Root关系；应用不会自动处理用户数据",
-                        );
-                    }
-                    await assertProductMigrationsReady();
-                    prerequisitesReady = true;
-                } catch (error) {
-                    recordStartupError(error);
-                    throw error;
-                }
-            }},
-            {id: "agent-session-store", kind: "resolve", key: sessionStoreKey},
-            {id: "workspace-files", kind: "resolve", key: workspaceFilesKey},
-        ],
+        keys: [appStateKey, storageKey, sessionStoreKey, projectKey, agentKey, workspaceFilesKey],
+        plugins,
+        requiredPlugins: plugins.map((plugin) => plugin.id),
+        gates: [],
+        observers: {plugins: {diagnosticRecorded: (diagnostic) => {
+            if (!catalogRecorded && diagnostic.reason === "activation-started") {
+                catalogRecorded = true;
+                void appLogger.info("runtime.plugins.catalog", {
+                    entries: plugins.flatMap((plugin) => plugin.entries
+                        .filter((entry) => entry.location === "server")
+                        .map((entry) => ({
+                            plugin: plugin.id,
+                            entry: entry.id,
+                            dependencies: (entry.dependencies ?? []).map((dependency) => dependency.key.name),
+                            provides: (entry.provides ?? []).map((key) => key.name),
+                        }))),
+                });
+            }
+            const {sequence, plugin, entry, generation, stage, reason, capability, contribution, error} = diagnostic;
+            void appLogger.info("runtime.plugins.diagnostic", {sequence, plugin, entry, generation, stage, reason, capability, contribution, error});
+        }}},
     };
-}
-
-/** 记录租约失效诊断并请求一次有序的专用退出。 */
-function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromisedError): void {
-    appLogger.fatalSync(
-        "runtime.agentSessionStore.leaseCompromised",
-        {
-            leasePath: error.leasePath,
-            kind: error.kind,
-            staleMs: AGENT_SESSION_STORE_LEASE_STALE_MS,
-            heartbeatMs: AGENT_SESSION_STORE_LEASE_HEARTBEAT_MS,
-        },
-        error,
-        "Agent Session Store runtime lease失去所有权，Product将有序关闭",
-    );
-    productShutdownController.requestProcessExit(
-        PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-    );
 }
 
 /**
@@ -202,13 +117,15 @@ export function productRuntimeReady(): Promise<void> {
     if (!state) {
         let startupError: unknown;
         const workspaceRoot = runtimePathsFromEnv().workspaceRoot;
-        const manifest = productManifest((error) => {startupError = error;});
+        const projectOwner: ProductProjectOwnerSlot = {current: null};
+        const manifest = productManifest((error) => {startupError = error;}, projectOwner);
         const application = new ServerRuntimeHost().start({instanceId: "product", manifest, signals: []}).application;
         state = {
             application,
             workspaceRoot,
             filesKey: workspaceFilesKey,
             leaseKey: sessionStoreKey,
+            projectOwner,
             startup: application.startup.then((result) => {
                 if (result.status !== "available") {
                     throw startupError ?? new Error(`Product runtime 启动失败：${result.status}；${result.failures.map((failure) => `${failure.source}:${failure.reason}`).join("；")}`);
