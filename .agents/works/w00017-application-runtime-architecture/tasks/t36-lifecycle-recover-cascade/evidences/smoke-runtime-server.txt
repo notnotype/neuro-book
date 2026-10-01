@@ -1,0 +1,28 @@
+$ node --import tsx scripts/smoke/runtime-foundation.ts --host server
+[+    1ms] server 模式：合作停止通道 signal:SIGTERM
+[+  246ms] PASS 同一 instanceId 重复启动共享同一实例
+[+  246ms] PASS 启动 available 且接纳开放 (available)
+[+  246ms] PASS 门禁 presence/greeter 全部通过 (presence:passed,greeter:passed)
+[+  246ms] PASS 接纳操作经命令句柄调用 greeter ("hello smoke @209")
+[+  246ms] PASS 合作停止后关闭完成 (closed)
+[+  246ms] PASS 停止来源为 signal:SIGTERM (signal:SIGTERM)
+[+  246ms] PASS 停止结算后信号监听已移除
+[+  246ms] PASS 停止后接纳被拒绝且原因为 closed (closed)
+[+  246ms] PASS 停止后旧命令句柄不可调用
+[+  246ms] PASS presence 能力释放一次 (1)
+[+  246ms] PASS 子进程自然退出 exit=0
+[+  246ms] PASS 子进程无 stderr 输出
+[+  395ms] PASS 必需门禁失败时启动 failed 且不接纳 (failed)
+[+  395ms] PASS 可选入口失败被单独报告
+[+  395ms] PASS 无关必需门禁仍通过
+[+  395ms] PASS 失败后已取得资源收口完成 (closed)
+[+  395ms] PASS 紧急输出可见且不含注入的敏感串
+[+  395ms] PASS 失败子进程以退出码 2 结束 (2)
+[+  861ms] PASS 释放挂起时停止结算为 incomplete(deadline) (incomplete/deadline)
+[+  861ms] PASS 有界停止结算后信号监听已移除
+[+  861ms] PASS 未完成停止后接纳按 stopping 拒绝 (stopping)
+[+  861ms] PASS 挂起的释放只调用一次，不被重入 (1)
+[+  861ms] PASS 紧急输出一次报告 deadline (1)
+[+  861ms] PASS 未完成停止以退出码 3 结束 (3)
+[+  861ms] PASS 停止请求到退出 322ms：受 300ms 截止约束，未被挂起的释放拖住
+[+  861ms] failures=0

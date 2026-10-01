@@ -1,0 +1,12 @@
+$ vitest run server/agent/harness/neuro-agent-harness.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  1 passed (1)
+      Tests  195 passed (195)
+   Start at  17:07:28
+   Duration  13.59s (transform 2.24s, setup 163ms, import 3.23s, tests 9.14s, environment 0ms)
+
+
+exit=0

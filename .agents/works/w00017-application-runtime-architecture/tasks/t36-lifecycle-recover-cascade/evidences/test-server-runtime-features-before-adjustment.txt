@@ -1,0 +1,43 @@
+$ vitest run server/runtime server/features
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+ ❯ server/runtime/product-startup.test.ts (24 tests | 1 failed) 3380ms
+     × 插件释放抛错仍关闭独立插件并保留依赖，停止结果为 incomplete 62ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/runtime/product-startup.test.ts > Product startup > 插件释放抛错仍关闭独立插件并保留依赖，停止结果为 incomplete
+AssertionError: expected { status: 'closed' } to match object { status: 'incomplete' }
+
+- Expected
++ Received
+
+  {
+-   "status": "incomplete",
++   "status": "closed",
+  }
+
+ ❯ server/runtime/product-startup.test.ts:260:47
+    258|         expect(mocks.disposeStorageHost).toHaveBeenCalledOnce();
+    259|         expect(mocks.disconnectPrismaClient).not.toHaveBeenCalled();
+    260|         expect(await application().recover()).toMatchObject({status: "…
+       |                                               ^
+    261|         await expect(application().recover()).resolves.toEqual({status…
+    262|         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 14 passed (15)
+      Tests  1 failed | 115 passed (116)
+   Start at  16:20:23
+   Duration  6.42s (transform 2.58s, setup 1.11s, import 2.95s, tests 4.56s, environment 7ms)
+
+error: script "test" exited with code 1

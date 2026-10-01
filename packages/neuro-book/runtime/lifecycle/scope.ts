@@ -340,6 +340,7 @@ interface CloseAttempt {
     readonly failures: LifecycleFailure[];
     settled: boolean;
 }
+type AttemptExecution = "sync" | "queued";
 
 const DEADLINE: unique symbol = Symbol("deadline");
 
@@ -548,7 +549,7 @@ export class ScopeImpl implements Scope {
         }
         this.#setPhase("stopping");
         this.#stopController.abort(abortReason(`作用域 ${this.id} 正在停止`));
-        return this.#startAttempt(request.deadline);
+        return this.#startAttempt(request.deadline, "sync");
     }
 
     recover(request: CloseRequest = {}): Promise<CloseResult> {
@@ -562,7 +563,7 @@ export class ScopeImpl implements Scope {
         if (!attempt.settled) {
             return attempt.promise;
         }
-        return this.#startAttempt(request.deadline);
+        return this.#startAttempt(request.deadline, "sync");
     }
 
     snapshot(): ScopeSnapshot {
@@ -756,7 +757,7 @@ export class ScopeImpl implements Scope {
         return this.#phase === "creating" || this.#phase === "available" || this.#attemptInProgress();
     }
 
-    #startAttempt(deadline: AbortSignal | undefined): Promise<CloseResult> {
+    #startAttempt(deadline: AbortSignal | undefined, execution: AttemptExecution): Promise<CloseResult> {
         this.#attemptCount += 1;
         const resolvers = Promise.withResolvers<CloseResult>();
         const attempt: CloseAttempt = {
@@ -768,7 +769,17 @@ export class ScopeImpl implements Scope {
         this.#latestAttempt = attempt;
         // 新尝试让本作用域重新成为活跃借用者，通知 owner 与父作用域重新评估。
         this.#notifyRelated();
-        this.#runAttempt(attempt, deadline).then(resolvers.resolve, resolvers.reject);
+        // 先同步登记整棵子树，再安排子作用域执行，避免提供方在借用者登记前开始释放。
+        this.#advanceChildren(deadline);
+        const run = (): void => {
+            void this.#runAttempt(attempt, deadline).then(resolvers.resolve, resolvers.reject);
+        };
+        if (execution === "queued") {
+            queueMicrotask(run);
+        } else {
+            // 保留原有调用方时序：当前作用域在 close()/recover() 返回前就开始释放规划。
+            run();
+        }
         return attempt.promise;
     }
 
@@ -776,8 +787,7 @@ export class ScopeImpl implements Scope {
         const gate = createDeadlineGate(deadline);
         const attempted = new Set<NodeId>();
         try {
-            // 先推进子作用域、等待在途工作结束：消费者先于提供者，在途操作终止前不释放任何资源。
-            this.#advanceChildren(deadline);
+            // 子作用域已在启动尝试的同步段登记；这里等待其收口与本作用域的在途工作。
             while (!gate.expired && !this.#readyToRelease()) {
                 if ((await gate.race(this.#changed.promise)) === DEADLINE) {
                     break;
@@ -808,12 +818,22 @@ export class ScopeImpl implements Scope {
     #advanceChildren(deadline: AbortSignal | undefined): void {
         for (const child of this.#children) {
             if (child.#phase === "creating" || child.#phase === "available") {
-                void child.close({deadline});
+                child.#closeFromCascade(deadline);
             } else if (child.#phase === "stopping" && !child.#attemptInProgress()) {
                 // 父作用域的显式关闭/恢复是子作用域的显式恢复；本次尝试只级联一次，不循环重试。
-                void child.recover({deadline});
+                child.#recoverFromCascade(deadline);
             }
         }
+    }
+
+    #closeFromCascade(deadline: AbortSignal | undefined): void {
+        this.#setPhase("stopping");
+        this.#stopController.abort(abortReason(`作用域 ${this.id} 正在停止`));
+        void this.#startAttempt(deadline, "queued");
+    }
+
+    #recoverFromCascade(deadline: AbortSignal | undefined): void {
+        void this.#startAttempt(deadline, "queued");
     }
 
     #childBlocksRelease(child: ScopeImpl): boolean {

@@ -1,0 +1,64 @@
+$ vitest run --config vitest.runtime-foundation.config.ts runtime/lifecycle/lifecycle.test.ts runtime/plugins/plugins.test.ts -t "跨子树借用者释放失败|三层服务依赖"
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+ ❯ runtime/lifecycle/lifecycle.test.ts (29 tests | 1 failed | 28 skipped) 20ms
+     × 跨子树借用者释放失败后，一次根恢复完成提供方与消费者整条级联 18ms
+ ❯ runtime/plugins/plugins.test.ts (26 tests | 1 failed | 25 skipped) 28ms
+     × 三层服务依赖的最下游消费者释放失败后，一次根恢复完成整条插件级联 26ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  runtime/lifecycle/lifecycle.test.ts > 关闭顺序与失败聚合 > 跨子树借用者释放失败后，一次根恢复完成提供方与消费者整条级联
+AssertionError: expected { status: 'incomplete', …(12) } to match object { status: 'closed', attempt: 2 }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "attempt": 2,
+-   "status": "closed",
++   "status": "incomplete",
+  }
+
+ ❯ runtime/lifecycle/lifecycle.test.ts:799:36
+    797|         expect(releaseConsumer).toHaveBeenCalledTimes(1);
+    798|
+    799|         await expect(root.recover()).resolves.toMatchObject({status: "…
+       |                                    ^
+    800|         expect(providerScope.phase).toBe("closed");
+    801|         expect(consumerScope.phase).toBe("closed");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  runtime/plugins/plugins.test.ts > 提供项与依赖协作 > 三层服务依赖的最下游消费者释放失败后，一次根恢复完成整条插件级联
+AssertionError: expected { status: 'incomplete', …(12) } to match object { status: 'closed', attempt: 2 }
+(11 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "attempt": 2,
+-   "status": "closed",
++   "status": "incomplete",
+  }
+
+ ❯ runtime/plugins/plugins.test.ts:826:44
+    824|         await expect(runtime.root.close()).resolves.toMatchObject({sta…
+    825|         expect(releaseDownstream).toHaveBeenCalledTimes(1);
+    826|         await expect(runtime.root.recover()).resolves.toMatchObject({s…
+       |                                            ^
+    827|         expect(releaseDownstream).toHaveBeenCalledTimes(2);
+    828|         expect(host.entryState({plugin: "cascade-a", entry: "main"})).…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed (2)
+      Tests  2 failed | 53 skipped (55)
+   Start at  16:07:45
+   Duration  468ms (transform 282ms, setup 66ms, import 304ms, tests 48ms, environment 0ms)
+
+error: script "test:runtime-foundation" exited with code 1

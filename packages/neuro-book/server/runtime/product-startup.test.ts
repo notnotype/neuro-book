@@ -257,7 +257,6 @@ describe("Product startup", () => {
         expect(application().plugins.entryState({plugin: "nbook.storage", entry: "server"})?.status).toBe("closed");
         expect(mocks.disposeStorageHost).toHaveBeenCalledOnce();
         expect(mocks.disconnectPrismaClient).not.toHaveBeenCalled();
-        expect(await application().recover()).toMatchObject({status: "incomplete"});
         await expect(application().recover()).resolves.toEqual({status: "closed"});
         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
     });
@@ -317,14 +316,7 @@ describe("Product startup", () => {
         failRelease = false;
         const stopped = application().status().stop;
         if (stopped?.status !== "incomplete") throw new Error("关闭失败未产生 incomplete 报告");
-        let unclosedChildren = stopped.report.unclosedChildren.length;
-        let recovery = await application().recover();
-        while (recovery.status !== "closed") {
-            expect(recovery.reason).toBe("blocked");
-            expect(recovery.report.unclosedChildren.length).toBeLessThan(unclosedChildren);
-            unclosedChildren = recovery.report.unclosedChildren.length;
-            recovery = await application().recover();
-        }
+        const recovery = await application().recover();
         expect(recovery).toEqual({status: "closed"});
         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();

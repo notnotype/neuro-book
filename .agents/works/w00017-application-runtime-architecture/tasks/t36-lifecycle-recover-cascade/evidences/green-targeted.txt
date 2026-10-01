@@ -1,0 +1,9 @@
+$ vitest run --config vitest.runtime-foundation.config.ts runtime/lifecycle/lifecycle.test.ts runtime/plugins/plugins.test.ts -t "跨子树借用者释放失败|三层服务依赖|借用者恢复仍真实失败"
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 53 skipped (56)
+   Start at  16:19:37
+   Duration  452ms (transform 306ms, setup 83ms, import 318ms, tests 29ms, environment 0ms)

@@ -33,7 +33,7 @@ taskId: t34-builtin-service-plugins
 - `scripts/db/migrate-application-state.test.ts`：迁移命令提示的源码守卫改读 `server/features/session-store/plugin.ts`，提示随 Session Store 错误处理迁到了那里。
 
 **已知问题**：
-1. **内核显式恢复每次只推进一层依赖。** 一处释放失败修好后，第 1 次 `recover()` 关闭 Agent、Project、Files，第 2 次关闭 Session Store 与 Storage，第 3 次才关闭 App State（[source-recovery-proof.txt](evidences/source-recovery-proof.txt)）。[`runtime.lifecycle`](../../../../../docs/specs/runtime/lifecycle.md) 状态表要求失败资源重试成功即到已关闭，所以这是内核原有的缺陷（从代码推断），以前产品没有多层插件依赖，暴露不出来。产品正常关闭不受影响，只在关闭失败后的显式恢复时出现。`product-startup.test.ts` 的对应用例暂时按逐次恢复断言（每次未关闭子作用域严格减少、Project 未关闭不释放租约、Project 先于租约释放），内核修复后恢复为一次恢复即关闭。
+1. **内核显式恢复每次只推进一层依赖**（已由 [t36](../t36-lifecycle-recover-cascade/README.md) 修复）。 一处释放失败修好后，第 1 次 `recover()` 关闭 Agent、Project、Files，第 2 次关闭 Session Store 与 Storage，第 3 次才关闭 App State（[source-recovery-proof.txt](evidences/source-recovery-proof.txt)）。[`runtime.lifecycle`](../../../../../docs/specs/runtime/lifecycle.md) 状态表要求失败资源重试成功即到已关闭，所以这是内核原有的缺陷（从代码推断），以前产品没有多层插件依赖，暴露不出来。产品正常关闭不受影响，只在关闭失败后的显式恢复时出现。`product-startup.test.ts` 的对应用例暂时按逐次恢复断言（每次未关闭子作用域严格减少、Project 未关闭不释放租约、Project 先于租约释放），内核修复后恢复为一次恢复即关闭。
 2. **生产构建中项目归档下载崩溃。** `yazl` 以 `require("buffer-crc32")` 加载 crc32，`buffer-crc32` 1.0.0 同时提供 CJS 与 ESM 入口，打包后 `require` 取到 ESM 命名空间对象，`.unsigned` 为 `undefined`，下载在 42 字节处抛出未捕获异常。t31 基线中 L3、L4 的“在途下载只收到 42 字节”即此原因，不是排空问题（推断 master 同样存在，未验证）。该请求的 Project 操作一直不结束，使 SIGTERM 后 Project 根无法关闭，直到 Nitro 60 秒强制退出，所以 L3、L4 的 `close-order` 如实判为失败：Project、Session Store、Storage、App State 没有 `closed`。
 
 **验证**（主会话运行）：

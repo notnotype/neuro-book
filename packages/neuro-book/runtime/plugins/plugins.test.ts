@@ -767,6 +767,69 @@ describe("提供项与依赖协作", () => {
         expect(attempts).toEqual({adopted: 2, unadopted: 2});
     });
 
+    it("三层服务依赖的最下游消费者释放失败后，一次根恢复完成整条插件级联", async () => {
+        const runtime = createRuntimeInstance({location: "server", instanceId: "three-level-recovery"});
+        runtime.root.open();
+        const aKey = defineServiceKey<{readonly name: string}>("cascade-a/a");
+        const bKey = defineServiceKey<{readonly name: string}>("cascade-b/b");
+        const cKey = defineServiceKey<{readonly name: string}>("cascade-c/c");
+        const assembly = createServiceAssembly(runtime, {keys: [aKey, bKey, cKey]});
+        const host = createPluginHost(runtime, assembly, {});
+        let downstreamReleases = 0;
+        const releaseDownstream = vi.fn(() => {
+            downstreamReleases += 1;
+            if (downstreamReleases === 1) {
+                throw new Error("最下游消费者释放失败");
+            }
+        });
+
+        accepted(host, plugin("cascade-a", {
+            id: "main",
+            location: "server",
+            provides: [aKey],
+            activate: () => ({services: [provide(aKey, {name: "a"})]}),
+        }), runtime.root);
+        accepted(host, plugin("cascade-b", {
+            id: "main",
+            location: "server",
+            dependencies: [{key: aKey}],
+            provides: [bKey],
+            activate: () => ({services: [provide(bKey, {name: "b"})]}),
+        }), runtime.root);
+        accepted(host, plugin("cascade-c", {
+            id: "main",
+            location: "server",
+            dependencies: [{key: bKey}],
+            provides: [cKey],
+            activate: async (context) => {
+                const dependency = await context.services.resolve(bKey);
+                if (dependency.status !== "resolved") {
+                    throw new Error(`依赖 b 不可用：${dependency.reason}`);
+                }
+                context.scope.register({
+                    kind: "downstream-consumer",
+                    label: "cascade-c",
+                    value: null,
+                    dependsOn: [dependency.binding.dependency],
+                    release: releaseDownstream,
+                });
+                return {services: [provide(cKey, {name: "c"})]};
+            },
+        }), runtime.root);
+
+        await expect(host.activate({plugin: "cascade-a", entry: "main"})).resolves.toMatchObject({status: "activated"});
+        await expect(host.activate({plugin: "cascade-b", entry: "main"})).resolves.toMatchObject({status: "activated"});
+        await expect(host.activate({plugin: "cascade-c", entry: "main"})).resolves.toMatchObject({status: "activated"});
+
+        await expect(runtime.root.close()).resolves.toMatchObject({status: "incomplete", reason: "blocked"});
+        expect(releaseDownstream).toHaveBeenCalledTimes(1);
+        await expect(runtime.root.recover()).resolves.toMatchObject({status: "closed", attempt: 2});
+        expect(releaseDownstream).toHaveBeenCalledTimes(2);
+        expect(host.entryState({plugin: "cascade-a", entry: "main"})).toMatchObject({status: "closed"});
+        expect(host.entryState({plugin: "cascade-b", entry: "main"})).toMatchObject({status: "closed"});
+        expect(host.entryState({plugin: "cascade-c", entry: "main"})).toMatchObject({status: "closed"});
+    });
+
     it("观察者异常不影响机制；接收者 revoke 抛错只记诊断", async () => {
         const runtime = createRuntimeInstance({location: "server", instanceId: "server-obs"});
         runtime.root.open();

@@ -1,0 +1,15 @@
+$ vitest run server/runtime server/features
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=4"}}
+{"emergency":{"instanceId":"product","stage":"stop","reason":"关闭未完成：blocked","detail":"failedResources=0 pendingReleases=0 unclosedChildren=8"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.session-store/server:activate/activation-threw; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+{"emergency":{"instanceId":"product","stage":"startup","reason":"必需门禁失败，业务不接纳","detail":"nbook.app-state/server:activate/activation-threw; nbook.storage/server:dependencies/dependency-unavailable; nbook.session-store/server:dependencies/dependency-unavailable; nbook.project/server:dependencies/dependency-unavailable; nbook.agent/server:dependencies/dependency-unavailable; nbook.files/server:dependencies/dependency-unavailable"}}
+
+ Test Files  15 passed (15)
+      Tests  116 passed (116)
+   Start at  16:22:03
+   Duration  6.86s (transform 2.64s, setup 1.18s, import 3.04s, tests 4.75s, environment 9ms)

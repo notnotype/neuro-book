@@ -141,10 +141,11 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
   - 作用域四阶段 `creating | available | stopping | closed`；`close()` 幂等返回同一次 `CloseResult`；只有 `recover()` 另起尝试，且在途尝试未结算时返回它而不重入。
   - 关闭门禁：全部资源 `released`、无待返回受管获取、无在途操作、无未关闭子作用域才 `closed`；否则 `incomplete` 且 `reason ∈ release-failed | deadline | blocked`，报告列出失败/待释放/被阻塞资源、借用、待返回获取、在途操作与未关闭子作用域。
   - 释放顺序按依赖图：消费者先于提供者，被借用资源等借用结束；无依赖资源并行释放。
+  - 关闭与显式恢复先在同步段为整棵子树登记在途尝试（停止中的子作用域各另起一次恢复），子作用域的释放规划排到其后执行；本作用域的规划在 `close()`/`recover()` 返回前开始。因此提供方规划时，另一分支上同在恢复中的借用者算作活跃借用者，失败原因已排除时一次恢复即可推进整条依赖链；借用者的尝试结算后仍持有借用，提供方才判为 `blocked`。
   - 在途操作分两个视角：等待方 `outcome` 在取消或作用域停止时立即 `cancelled`；执行方 `termination` 只在 `run` 实际结束后结算，取消竞态中成功仍记 `completed`，占用资源以 `termination` 为准释放。
   - `stopping` 时 `register` 仍接受但标记 `late: true`，只收口不出借；`closed` 后一切登记抛 `LifecycleStateError`。
   - 失败记录只含 `name/message`，不携带资源值。
-- **合同测试**：`packages/neuro-book/runtime/lifecycle/lifecycle.test.ts`（28 例），经 `bun run test:runtime-foundation`（`vitest.runtime-foundation.config.ts`，无产品/Agent setup）与 `bun run typecheck:runtime-foundation`（`tsconfig.runtime-foundation.json`，strict，无 DOM lib）运行。
+- **合同测试**：`packages/neuro-book/runtime/lifecycle/lifecycle.test.ts`（30 例），经 `bun run test:runtime-foundation`（`vitest.runtime-foundation.config.ts`，无产品/Agent setup）与 `bun run typecheck:runtime-foundation`（`tsconfig.runtime-foundation.json`，strict，无 DOM lib）运行。
 - **实际 smoke**：`bun run smoke:runtime-foundation -- --host server|browser`，见 [`runtime.application`](./application.md#实现合同)。
 
 ## 证据
@@ -154,4 +155,5 @@ Smoke 以场景操作序列为主，通过公开查询与宿主观察结果判�
 - Smoke：[`runtime-foundation.ts`](../../../packages/neuro-book/scripts/smoke/runtime-foundation.ts)（`bun run smoke:runtime-foundation`）
 - 批准目标：[应用运行时、生命周期与内置插件架构](../../../packages/neuro-book/docs/proposals/application-runtime-and-plugins.md)。2026-09-20 开发者接受基础架构与分段推进方向，并明确要求把第一实现切片（环境适配入口与小内核）与第二切片（以内置服务插件检验底座）沉淀为 Spec；不包含任意热卸载扩展。
 - 实现与验证：[w00017 t05](../../../.agents/works/w00017-application-runtime-architecture/tasks/t05-runtime-lifecycle/README.md)（机制与合同测试）、[t08](../../../.agents/works/w00017-application-runtime-architecture/tasks/t08-runtime-application/README.md)（真实双宿主 smoke）、[t09 首片集成复核](../../../.agents/works/w00017-application-runtime-architecture/tasks/t09-foundation-integration-review/README.md)（对照本文逐条核对并晋升）。
+- 级联恢复一次推进整条依赖链：多层插件依赖下原先每次恢复只推进一层，见 [w00017 t36](../../../.agents/works/w00017-application-runtime-architecture/tasks/t36-lifecycle-recover-cascade/README.md)。
 - 已知限制：POSIX 信号路径的真实进程 smoke 未在本机（Windows）运行；受管 Worker、Desktop 位置无实测，仅保留 `RuntimeLocation` 边界。

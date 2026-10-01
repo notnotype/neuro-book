@@ -1,0 +1,1 @@
+$ tsc --noEmit -p tsconfig.runtime-foundation.json

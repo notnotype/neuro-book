@@ -760,6 +760,79 @@ describe("关闭顺序与失败聚合", () => {
         expect(releaseProvider).toHaveBeenCalledTimes(1);
     });
 
+    it("跨子树借用者释放失败后，一次根恢复完成提供方与消费者整条级联", async () => {
+        const root = openedRoot();
+        const providerScope = root.createChild("provider");
+        providerScope.open();
+        const consumerScope = root.createChild("consumer");
+        consumerScope.open();
+        const releaseProvider = vi.fn();
+        const provider = registered(providerScope.register(resourceSpec("provider", releaseProvider)));
+        const borrow = borrowed(consumerScope.borrow(provider));
+        let consumerAttempts = 0;
+        const releaseConsumer = vi.fn(() => {
+            consumerAttempts += 1;
+            if (consumerAttempts === 1) {
+                throw new Error("消费者释放失败");
+            }
+        });
+        registered(
+            consumerScope.register({
+                kind: "test",
+                label: "consumer",
+                value: {label: "consumer"},
+                release: releaseConsumer,
+                dependsOn: [borrow],
+            }),
+        );
+
+        const first = await root.close();
+        expect(first).toMatchObject({
+            status: "incomplete",
+            reason: "blocked",
+            blockedReleases: [],
+            unclosedChildren: [providerScope.id, consumerScope.id],
+        });
+        expect(releaseProvider).not.toHaveBeenCalled();
+        expect(releaseConsumer).toHaveBeenCalledTimes(1);
+
+        await expect(root.recover()).resolves.toMatchObject({status: "closed", attempt: 2});
+        expect(providerScope.phase).toBe("closed");
+        expect(consumerScope.phase).toBe("closed");
+        expect(releaseProvider).toHaveBeenCalledTimes(1);
+        expect(releaseConsumer).toHaveBeenCalledTimes(2);
+    });
+    it("借用者恢复仍真实失败时提供方保持 blocked，级联不等待或重试提供方", async () => {
+        const root = openedRoot();
+        const providerScope = root.createChild("provider");
+        providerScope.open();
+        const borrowerScope = root.createChild("borrower");
+        borrowerScope.open();
+        const releaseProvider = vi.fn();
+        const provider = registered(providerScope.register(resourceSpec("provider", releaseProvider)));
+        const borrow = borrowed(borrowerScope.borrow(provider));
+        const releaseBorrower = vi.fn(() => {
+            throw new Error("借用者始终无法释放");
+        });
+        registered(
+            borrowerScope.register({
+                kind: "test",
+                label: "borrower",
+                value: {label: "borrower"},
+                release: releaseBorrower,
+                dependsOn: [borrow],
+            }),
+        );
+
+        await expect(root.close()).resolves.toMatchObject({status: "incomplete", reason: "blocked"});
+        await expect(root.recover()).resolves.toMatchObject({status: "incomplete", reason: "blocked"});
+        expect(releaseBorrower).toHaveBeenCalledTimes(2);
+        expect(releaseProvider).not.toHaveBeenCalled();
+        expect(providerScope.phase).toBe("stopping");
+        expect(borrowerScope.phase).toBe("stopping");
+    });
+
+
     it("失败记录不携带资源值", async () => {
         const secret = "sk-live-do-not-leak";
         const recorded: LifecycleFailure[] = [];

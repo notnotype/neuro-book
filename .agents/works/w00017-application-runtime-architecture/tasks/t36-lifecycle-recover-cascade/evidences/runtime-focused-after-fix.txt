@@ -1,0 +1,9 @@
+$ vitest run --config vitest.runtime-foundation.config.ts runtime/lifecycle runtime/plugins
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  6 passed (6)
+      Tests  97 passed (97)
+   Start at  16:16:36
+   Duration  903ms (transform 1.66s, setup 311ms, import 2.01s, tests 403ms, environment 1ms)

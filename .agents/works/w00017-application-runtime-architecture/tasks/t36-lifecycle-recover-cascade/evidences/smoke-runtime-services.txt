@@ -1,0 +1,43 @@
+$ node --import tsx scripts/smoke/runtime-foundation.ts --services
+[+    3ms] services 模式：scratch=/tmp/neuro-book/w00017-runtime-foundation-smoke/services-3256185
+[+  338ms] PASS 移除 nbook.diagnostics：启动 failed、不接纳、已取得资源收口 (failed; failed=diagnostics,notes,audit)
+[+  339ms] PASS 移除 nbook.diagnostics：依赖它的 notes 门禁失败
+[+  339ms] PASS 移除 nbook.diagnostics：退出码 2 (2)
+[+  339ms] PASS 移除 nbook.diagnostics：notes 没有文件或数据库副作用
+[+  339ms] PASS 移除 nbook.diagnostics：紧急输出可见
+[+  339ms] PASS 移除 nbook.diagnostics：无非预期 stderr
+[+  607ms] PASS 移除 nbook.platform-files：启动 failed、不接纳、已取得资源收口 (failed; failed=notes)
+[+  607ms] PASS 移除 nbook.platform-files：依赖它的 notes 门禁失败
+[+  607ms] PASS 移除 nbook.platform-files：退出码 2 (2)
+[+  607ms] PASS 移除 nbook.platform-files：notes 没有文件或数据库副作用
+[+  607ms] PASS 移除 nbook.platform-files：紧急输出可见
+[+  607ms] PASS 移除 nbook.platform-files：无非预期 stderr
+[+  863ms] PASS 移除 nbook.sqlite：启动 failed、不接纳、已取得资源收口 (failed; failed=notes,audit)
+[+  863ms] PASS 移除 nbook.sqlite：依赖它的 notes 门禁失败
+[+  863ms] PASS 移除 nbook.sqlite：退出码 2 (2)
+[+  864ms] PASS 移除 nbook.sqlite：notes 没有文件或数据库副作用
+[+  864ms] PASS 移除 nbook.sqlite：紧急输出可见
+[+  864ms] PASS 移除 nbook.sqlite：无非预期 stderr
+[+  865ms] PASS 启动门禁失败写入诊断日志 (2 条)
+[+ 1331ms] PASS 写阶段：文件经授予写入后可读回
+[+ 1332ms] PASS 写阶段：SQLite 事务提交且注入样式文本按值保存 (1 行)
+[+ 1332ms] PASS 同一解析作用域的两个消费者共享同一 SQLite 服务实例
+[+ 1332ms] PASS 同名资源按 owner 作用域隔离 (audit.sqlite)
+[+ 1332ms] PASS 同一物理文件拒绝第二 owner (file-owned)
+[+ 1332ms] PASS 写阶段：诊断文件出口获授日志位置
+[+ 1332ms] PASS 消费者可查询本实例诊断
+[+ 1332ms] PASS 并发实例争用同一日志位置时降级 ({"reason":"location-conflict","detail":"Error: Lock file is already being held"})
+[+ 1332ms] PASS 写阶段合作停止后 closed (closed, exit=0)
+[+ 1332ms] PASS 争用实例仍可用并正常关闭 (exit=0)
+[+ 1332ms] PASS 写阶段与争用实例无非预期 stderr
+[+ 1332ms] PASS 日志文件读回写阶段记录，来源身份在 data.$source
+[+ 1332ms] PASS 争用实例未写入被占用的日志位置
+[+ 1332ms] PASS 日志文件中敏感样本只剩占位符
+[+ 1567ms] PASS 关闭后另一进程重开：文件与已提交行读回一致
+[+ 1568ms] PASS 读阶段合作停止后 closed
+[+ 1849ms] PASS 句柄未释放时停止报告未完成而非 closed (incomplete/blocked)
+[+ 1849ms] PASS 关闭未完成期间服务拒绝新操作 (stopping)
+[+ 1849ms] PASS 释放句柄后显式恢复 closed
+[+ 1849ms] PASS 关闭与恢复不删除数据文件
+[+ 1851ms] scratch 已删除：/tmp/neuro-book/w00017-runtime-foundation-smoke/services-3256185
+[+ 1851ms] failures=0

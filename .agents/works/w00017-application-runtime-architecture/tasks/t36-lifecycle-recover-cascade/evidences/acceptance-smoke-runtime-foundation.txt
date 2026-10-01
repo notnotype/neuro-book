@@ -1,0 +1,105 @@
+$ smoke --host server
+$ node --import tsx scripts/smoke/runtime-foundation.ts --host server
+[+    1ms] server 模式：合作停止通道 signal:SIGTERM
+[+  181ms] PASS 同一 instanceId 重复启动共享同一实例
+[+  181ms] PASS 启动 available 且接纳开放 (available)
+[+  181ms] PASS 门禁 presence/greeter 全部通过 (presence:passed,greeter:passed)
+[+  181ms] PASS 接纳操作经命令句柄调用 greeter ("hello smoke @156")
+[+  181ms] PASS 合作停止后关闭完成 (closed)
+[+  181ms] PASS 停止来源为 signal:SIGTERM (signal:SIGTERM)
+[+  181ms] PASS 停止结算后信号监听已移除
+[+  181ms] PASS 停止后接纳被拒绝且原因为 closed (closed)
+[+  181ms] PASS 停止后旧命令句柄不可调用
+[+  181ms] PASS presence 能力释放一次 (1)
+[+  181ms] PASS 子进程自然退出 exit=0
+[+  181ms] PASS 子进程无 stderr 输出
+[+  308ms] PASS 必需门禁失败时启动 failed 且不接纳 (failed)
+[+  308ms] PASS 可选入口失败被单独报告
+[+  308ms] PASS 无关必需门禁仍通过
+[+  308ms] PASS 失败后已取得资源收口完成 (closed)
+[+  308ms] PASS 紧急输出可见且不含注入的敏感串
+[+  308ms] PASS 失败子进程以退出码 2 结束 (2)
+[+  736ms] PASS 释放挂起时停止结算为 incomplete(deadline) (incomplete/deadline)
+[+  736ms] PASS 有界停止结算后信号监听已移除
+[+  736ms] PASS 未完成停止后接纳按 stopping 拒绝 (stopping)
+[+  736ms] PASS 挂起的释放只调用一次，不被重入 (1)
+[+  736ms] PASS 紧急输出一次报告 deadline (1)
+[+  736ms] PASS 未完成停止以退出码 3 结束 (3)
+[+  736ms] PASS 停止请求到退出 309ms：受 300ms 截止约束，未被挂起的释放拖住
+[+  736ms] failures=0
+exit=0
+$ smoke --services
+$ node --import tsx scripts/smoke/runtime-foundation.ts --services
+[+    2ms] services 模式：scratch=/tmp/neuro-book/w00017-runtime-foundation-smoke/services-3301425
+[+  195ms] PASS 移除 nbook.diagnostics：启动 failed、不接纳、已取得资源收口 (failed; failed=diagnostics,notes,audit)
+[+  196ms] PASS 移除 nbook.diagnostics：依赖它的 notes 门禁失败
+[+  196ms] PASS 移除 nbook.diagnostics：退出码 2 (2)
+[+  196ms] PASS 移除 nbook.diagnostics：notes 没有文件或数据库副作用
+[+  196ms] PASS 移除 nbook.diagnostics：紧急输出可见
+[+  196ms] PASS 移除 nbook.diagnostics：无非预期 stderr
+[+  391ms] PASS 移除 nbook.platform-files：启动 failed、不接纳、已取得资源收口 (failed; failed=notes)
+[+  391ms] PASS 移除 nbook.platform-files：依赖它的 notes 门禁失败
+[+  391ms] PASS 移除 nbook.platform-files：退出码 2 (2)
+[+  392ms] PASS 移除 nbook.platform-files：notes 没有文件或数据库副作用
+[+  392ms] PASS 移除 nbook.platform-files：紧急输出可见
+[+  392ms] PASS 移除 nbook.platform-files：无非预期 stderr
+[+  577ms] PASS 移除 nbook.sqlite：启动 failed、不接纳、已取得资源收口 (failed; failed=notes,audit)
+[+  577ms] PASS 移除 nbook.sqlite：依赖它的 notes 门禁失败
+[+  577ms] PASS 移除 nbook.sqlite：退出码 2 (2)
+[+  577ms] PASS 移除 nbook.sqlite：notes 没有文件或数据库副作用
+[+  577ms] PASS 移除 nbook.sqlite：紧急输出可见
+[+  577ms] PASS 移除 nbook.sqlite：无非预期 stderr
+[+  578ms] PASS 启动门禁失败写入诊断日志 (2 条)
+[+  971ms] PASS 写阶段：文件经授予写入后可读回
+[+  971ms] PASS 写阶段：SQLite 事务提交且注入样式文本按值保存 (1 行)
+[+  971ms] PASS 同一解析作用域的两个消费者共享同一 SQLite 服务实例
+[+  971ms] PASS 同名资源按 owner 作用域隔离 (audit.sqlite)
+[+  971ms] PASS 同一物理文件拒绝第二 owner (file-owned)
+[+  971ms] PASS 写阶段：诊断文件出口获授日志位置
+[+  971ms] PASS 消费者可查询本实例诊断
+[+  971ms] PASS 并发实例争用同一日志位置时降级 ({"reason":"location-conflict","detail":"Error: Lock file is already being held"})
+[+  971ms] PASS 写阶段合作停止后 closed (closed, exit=0)
+[+  971ms] PASS 争用实例仍可用并正常关闭 (exit=0)
+[+  971ms] PASS 写阶段与争用实例无非预期 stderr
+[+  972ms] PASS 日志文件读回写阶段记录，来源身份在 data.$source
+[+  972ms] PASS 争用实例未写入被占用的日志位置
+[+  972ms] PASS 日志文件中敏感样本只剩占位符
+[+ 1183ms] PASS 关闭后另一进程重开：文件与已提交行读回一致
+[+ 1183ms] PASS 读阶段合作停止后 closed
+[+ 1395ms] PASS 句柄未释放时停止报告未完成而非 closed (incomplete/blocked)
+[+ 1395ms] PASS 关闭未完成期间服务拒绝新操作 (stopping)
+[+ 1395ms] PASS 释放句柄后显式恢复 closed
+[+ 1396ms] PASS 关闭与恢复不删除数据文件
+[+ 1397ms] scratch 已删除：/tmp/neuro-book/w00017-runtime-foundation-smoke/services-3301425
+[+ 1397ms] failures=0
+exit=0
+$ smoke --host browser
+$ node --import tsx scripts/smoke/runtime-foundation.ts --host browser --browser-executable /usr/bin/google-chrome-stable
+[+   30ms] PASS 浏览器 bundle 不含服务端模块 (124.5 KiB)
+[+   37ms] 临时页面 http://127.0.0.1:34253
+[+  248ms] chromium 151.0.7922.71 已启动
+[+  530ms] PASS 窗口 A 启动 available 且接纳开放 (available)
+[+  530ms] PASS 窗口 B 启动 available 且接纳开放 (available)
+[+  530ms] PASS 窗口 A 第二实例 启动 available 且接纳开放 (available)
+[+  530ms] PASS 同一窗口内重复启动同一 instanceId 共享实例
+[+  530ms] PASS 三个实例各自登记在场 (win-a,win-b,win-a-second)
+[+  533ms] PASS 窗口 A 经接纳操作调用 greeter (hello A @191)
+[+  534ms] PASS 窗口 B 经接纳操作调用 greeter (hello B @80)
+[+  540ms] PASS 显式销毁关闭完成 (closed)
+[+  540ms] PASS 停止来源 destroy 且卸载监听已移除
+[+  540ms] PASS 销毁后接纳被拒绝且原因为 closed (closed)
+[+  540ms] PASS 销毁后旧命令句柄不可调用
+[+  543ms] PASS 同窗口第二实例不受销毁影响
+[+  543ms] PASS 另一窗口不受销毁影响
+[+  543ms] PASS 只释放 win-a 的在场，未发送全局关闭 (released=win-a closes=0)
+[+  554ms] PASS 注入必需失败的实例不接纳 (failed)
+[+  554ms] PASS 可选入口失败单独报告
+[+  556ms] PASS 紧急输出可见且不含敏感串
+[+  763ms] PASS 释放挂起时销毁结算为 incomplete(deadline) (incomplete/deadline)
+[+  763ms] PASS 有界销毁后监听移除、接纳按 stopping 拒绝 (late=stopping)
+[+  763ms] PASS 销毁耗时 201ms，受 200ms 截止约束
+[+  772ms] PASS pagehide 记录为 unload 并进入停止 (phase=stopping)；关闭结果不作保证
+[+  787ms] PASS 页面无未捕获错误
+[+  842ms] scratch 已删除：/tmp/neuro-book/w00017-runtime-foundation-smoke/browser-3301544
+[+  842ms] failures=0
+exit=0
