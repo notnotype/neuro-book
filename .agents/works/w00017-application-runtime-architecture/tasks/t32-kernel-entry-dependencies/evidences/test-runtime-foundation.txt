@@ -1,0 +1,13 @@
+$ bun run test:runtime-foundation
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  17 passed (17)
+      Tests  199 passed (199)
+   Start at  07:34:12
+   Duration  7.18s (transform 6.75s, setup 1.02s, import 10.61s, tests 2.59s, environment 4ms)
+
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+exit=0

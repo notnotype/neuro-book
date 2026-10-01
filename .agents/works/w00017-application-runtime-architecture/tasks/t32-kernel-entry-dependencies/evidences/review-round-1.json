@@ -1,0 +1,24 @@
+{
+  "review": "t32 第 1 轮",
+  "changes": [
+    {"item": 1, "change": "每个启动触发前检查 root.phase；宿主停止导致 cancelled/stopped 不生成 activation 失败；恢复无条件 root.phase !== creating 的 stopped 分类。迟到产出清理与 closed/stopping 接纳拒绝保留。", "tests": ["必需启动激活中宿主停止时结果为 stopped，迟到资源释放且未选中入口不激活", "插件登记过程中生命周期观察者发停止后不启动入口", "同步启动入口触发宿主停止后不再触发后续启动入口", "宿主截止先于启动激活收口时结果为 stopped，接纳按 stopping 拒绝", "必需启动激活失败后宿主停止仍返回 stopped，并保留真实激活失败"]},
+    {"item": 2, "change": "登记拒绝后立即跳过启动选择，只产生一条 manifest/register 失败；缺失必需插件改为 manifest/register、source 插件 id、reason plugin:unknown-plugin。独立 activate 门禁失败语义保留。", "tests": ["必需插件登记被拒绝只报告一条 manifest 失败，不启动入口", "必需 activate 门禁引用被拒绝插件时报告 manifest 与独立 unknown-entry 门禁失败", "必需插件仅含外位置入口且登记被拒绝时只报告一条 manifest 失败", "必需插件没有入口且登记被拒绝时只报告一条 manifest 失败", "非必需 onStartup 插件登记被拒绝只报告一条 manifest 失败，不阻止应用启动", "清单缺少必需插件时报告 manifest 失败，不能因没有选中入口而放行"]},
+    {"item": 3, "change": "登记校验按服务键名去重，跨入口与外位置也校验；duplicate-service 拒绝整个定义，避免 services 部分登记。", "tests": ["同入口 重复提供服务 id 时整个插件拒绝且无部分登记", "跨入口 重复提供服务 id 时整个插件拒绝且无部分登记", "同名不同键 重复提供服务 id 时整个插件拒绝且无部分登记"]},
+    {"item": 4, "change": "catalog 改用 < 和 > 的码元比较，不依赖 localeCompare。", "tests": ["目录按码元排序并保留入口定义顺序，不受大小写与重音语言排序影响"]},
+    {"item": 5, "change": "删除 size===0 补建记录特例；统一按实际 output.services 逆序清理。同键同实例记录遵守 adopted/released，未校验产出直接释放；成功释放的产出记账以便失败恢复跳过。", "tests": ["undeclared-service 中途失败后全部实际产出逆序恰好释放一次", "迟到产出的所有实例逆序恰好释放一次且不发布", "未校验产出释放失败后恢复只重试失败实例，不重复释放已成功实例", "提供项释放失败不被标记为已释放：交付给 services 与未交付两条路径都在显式恢复时重试，成功后不再重复"]},
+    {"item": 6, "change": "#provide 交付前要求代次作用域 phase===available，否则抛 PluginStateError。停止屏障建立后不能加入新交付，未交付实例仍由激活产出清理。", "tests": ["停止开始后尚未提交的服务交付被拒绝，实例由激活产出释放且不创建租约"]},
+    {"item": 7, "change": "blocked.ts 增加中文文件头、存活快照与无诊断边界、对象身份与 AssemblyReport 键名匹配原因，强连通分量注释改中文。#releaseOutput 注释改中文。ApplicationManifest 恢复组成与执行顺序说明，StartupFailure 注释同步。", "tests": ["入口受阻纯推导既有四个用例", "启动入口选择与失败合同测试"]}
+  ],
+  "files": ["packages/neuro-book/runtime/application/bootstrap.ts", "packages/neuro-book/runtime/application/contracts.ts", "packages/neuro-book/runtime/application/application-startup.test.ts", "packages/neuro-book/runtime/plugins/contracts.ts", "packages/neuro-book/runtime/plugins/registration.ts", "packages/neuro-book/runtime/plugins/host.ts", "packages/neuro-book/runtime/plugins/blocked.ts", "packages/neuro-book/runtime/plugins/review-regressions.test.ts"],
+  "regressionProof": "review-regressions.test.ts 首次运行 7 tests 中 6 failed，分别捕获重复登记、语言排序、未声明产出漏释放及停止后交付；修复后该文件 8 tests passed。集成聚焦 6 files / 83 tests passed。",
+  "verification": "完成标准 1 通过：17 files / 199 tests，test-runtime-foundation.txt；完成标准 2 三项 typecheck exit 0，typecheck.txt；完成标准 4：10 failed files / 23 failed tests，全部与给定基线一致，580 passed files / 5018 passed tests，另有 22 条既有标题栏 DOMMatrix unhandled errors，test-full.txt。三份完整输出已覆盖保存。browser smoke 与外层脚本未改未重跑。",
+  "checklist": [
+    "通过：程序只按状态、原因码和错误类型分支；没有新增静默 catch，激活异常继续记录错误摘要。",
+    "通过：恢复 stopped 原合同，不把停止后果改报 activation 失败；未跳过测试、放宽断言或加入产品测试分支。",
+    "通过：只修改本轮授权内核文件与证据；未改 docs/README/config、lifecycle/services 或外层 smoke，未删除无关代码注释。",
+    "通过：保留失败撤回、迟到产出收口、release-failed 显式恢复；清理统一实际产出路径，无旧兼容分支。",
+    "通过：没有新增跨包源码深导入，内核依赖仍通过 lifecycle/services 公开入口。",
+    "通过：复用现有 phase、借用、作用域和释放记录，回归验证边界而非掩盖错误。"
+  ],
+  "reflection": "本轮是纠正实现未遵守已有停止分类、资源清理与确定性合同；这些规则已存在，不新增治理规范或回写文档。"
+}

@@ -9,7 +9,7 @@ import type {ReleaseDependency, Scope} from "nbook/runtime/lifecycle/lifecycle";
 import {defineServiceKey} from "nbook/runtime/services/services";
 
 /** 受管 SQLite 能力键：一个解析作用域内最多一个提供者。 */
-export const sqliteKey = defineServiceKey<SqliteService>("sqlite");
+export const sqliteKey = defineServiceKey<SqliteService>("nbook.sqlite/sqlite");
 
 /**
  * 调用方按 `code` 分支的失败原因。

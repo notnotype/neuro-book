@@ -24,7 +24,7 @@ import {PlatformFilesService} from "./service";
 import type {ResolvedRoot} from "./service";
 
 /** 插件 id；宿主清单用它引用本插件。 */
-export const platformFilesPluginId = "platform-files";
+export const platformFilesPluginId = "nbook.platform-files";
 
 export interface PlatformFilesPluginOptions {
     readonly roots: ReadonlyArray<RootSpec>;

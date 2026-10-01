@@ -1,0 +1,3 @@
+$ tsc --noEmit -p tsconfig.runtime-foundation.json
+$ tsc --noEmit -p scripts/tsconfig.json
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent

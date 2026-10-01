@@ -27,7 +27,7 @@ export type Command = (argument: string) => string;
 
 export const clockKey = defineServiceKey<Clock>("clock");
 export const presenceKey = defineServiceKey<Presence>("presence");
-export const greeterKey = defineServiceKey<Greeter>("greeter");
+export const greeterKey = defineServiceKey<Greeter>("greeter/greeter");
 
 export interface CommandTable {
     readonly receiver: ContributionReceiver<{readonly title: string}, Command, string>;

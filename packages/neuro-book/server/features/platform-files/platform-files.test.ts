@@ -34,9 +34,9 @@ import {PlatformFilesService} from "./service";
 const TEST_ROOT_ID = "state";
 const CONSUMER_PLUGIN_ID = "test-consumer";
 
-const readGrantKey = defineServiceKey<RootGrant>("test.platform-files.read");
-const readWriteGrantKey = defineServiceKey<RootGrant>("test.platform-files.read-write");
-const adminGrantKey = defineServiceKey<RootGrant>("test.platform-files.admin");
+const readGrantKey = defineServiceKey<RootGrant>("nbook.platform-files/read");
+const readWriteGrantKey = defineServiceKey<RootGrant>("nbook.platform-files/read-write");
+const adminGrantKey = defineServiceKey<RootGrant>("nbook.platform-files/admin");
 
 const ROOTS: string[] = [];
 

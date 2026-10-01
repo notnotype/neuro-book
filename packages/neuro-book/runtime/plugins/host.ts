@@ -2,14 +2,15 @@
  * runtime.plugins 的实现：描述目录、按入口 single-flight 的激活、受控贡献事务与撤回、
  * 与 runtime.services 的提供项协作、稳定失败与显式恢复。
  *
- * 每次激活在登记作用域下新建一个激活作用域作为代次：依赖借用、入口登记的资源、本次发布的
- * 贡献都挂在它上面；失败整体收口，正常关闭由 lifecycle 级联推进，发布资源的释放即撤回贡献。
- * 提供项由登记阶段向 runtime.services 声明的提供者在首次解析时触发（或加入）激活取得实例；
- * 服务作用域经激活作用域上的租约资源随本代次一起关闭。
+ * 代次作用域保持 plugin:<id>/<entry>#<n> 身份，持有必需依赖借用与入口收口资源；工作子作用域
+ * 承载 context.scope 资源、显式解析借用、服务租约、激活产出与贡献。工作作用域的受管操作在
+ * 停止时等待服务实例首次释放结算，防止提供方先清理自己的资源；租约保留失败供显式恢复。
+ * 发布资源依赖激活产出，贡献先撤回。代次确认工作与服务全部关闭后记录 closed，最后结束
+ * 必需依赖借用，使依赖者的全部资源释放先于提供者。
  */
 
 import {LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
-import type {CloseResult, FailureError, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
+import type {CloseResult, FailureError, ReleaseDependency, RuntimeInstance, RuntimeLocation, Scope} from "../lifecycle/lifecycle";
 import type {EntryId, ServiceAssembly, ServiceCreateContext, ServiceKey} from "../services/services";
 
 import {PluginStateError} from "./contracts";
@@ -18,6 +19,7 @@ import type {
     ActivationFailed,
     ActivationFailureReason,
     ActivationOutput,
+    ProvidedService,
     ActivationResult,
     ActivationStage,
     ContributionHandle,
@@ -25,6 +27,7 @@ import type {
     ContributionState,
     EntryDescription,
     EntryRef,
+    EntryBlocked,
     EntryState,
     EntryStatus,
     PluginCatalog,
@@ -40,6 +43,7 @@ import type {
     RevokeReason,
 } from "./contracts";
 import {validateDefinition} from "./registration";
+import {deriveBlocked, entryIdentity} from "./blocked";
 
 const CANCELLED: unique symbol = Symbol("cancelled");
 
@@ -128,10 +132,13 @@ type AttemptOutcome = {readonly status: "activated"} | {readonly status: "failed
 interface Attempt {
     readonly generation: number;
     readonly scope: Scope;
+    readonly work: Scope;
+    readonly services: Set<Scope>;
     readonly outcome: Promise<AttemptOutcome>;
     settled: AttemptOutcome | null;
     handles: ReadonlyArray<HandleImpl>;
     provided: ReadonlyMap<ServiceKey<unknown>, ProvidedRecord>;
+    readonly releasedOutputs: Set<ProvidedService>;
     /** 失败时发起的收口；停止与正常关闭由 lifecycle 级联推进，不在这里记录。 */
     closeout: Promise<CloseResult> | null;
     closeoutResult: CloseResult | null;
@@ -261,11 +268,14 @@ export class PluginHostImpl implements PluginHost {
     }
 
     catalog(): PluginCatalog {
-        const plugins = [...this.#plugins.values()].map((plugin) => ({
-            id: plugin.id,
-            scopeId: plugin.scope.id,
-            entries: [...plugin.entries.values()].map((record) => this.#describe(record)),
-        }));
+        const blocked = this.#blocked();
+        const plugins = [...this.#plugins.values()].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0).map((plugin) => {
+            const entries = [...plugin.entries.values()].map((record) => this.#describe(record, blocked));
+            const local = entries.filter((entry) => entry.location === this.location);
+            const unavailable = local.filter((entry) => entry.state.status === "blocked" || entry.state.status === "failed").length;
+            const summary = unavailable === 0 ? "available" : unavailable === local.length ? "blocked" : "partial";
+            return {id: plugin.id, scopeId: plugin.scope.id, entries, summary} as const;
+        });
         return {plugins};
     }
 
@@ -290,6 +300,11 @@ export class PluginHostImpl implements PluginHost {
         }
         if (!record.activatable) {
             return {status: "rejected", plugin: ref.plugin, entry: ref.entry, reason: "location-mismatch"};
+        }
+        const blocked = record.current === null && isAlive(record.scope) ? this.#blocked().get(`${ref.plugin}/${ref.entry}`) : null;
+        if (blocked != null) {
+            this.#record("activate", "blocked", {plugin: ref.plugin, entry: ref.entry});
+            return {status: "rejected", plugin: ref.plugin, entry: ref.entry, reason: "blocked", blocked};
         }
         const attempt = this.#attemptFor(record);
         if (attempt === null) {
@@ -384,9 +399,21 @@ export class PluginHostImpl implements PluginHost {
         const generation = (this.#generations.get(generationKey) ?? 0) + 1;
         this.#generations.set(generationKey, generation);
         const scope = record.scope.createChild(`plugin:${generationKey}#${generation}`);
+        const work = scope.createChild("entry-work");
+        work.open();
         const {promise, resolve} = Promise.withResolvers<AttemptOutcome>();
-        const attempt: Attempt = {generation, scope, outcome: promise, settled: null, handles: [], provided: new Map(), closeout: null, closeoutResult: null};
+        const attempt: Attempt = {generation, scope, work, services: new Set(), outcome: promise, settled: null, handles: [], provided: new Map(), releasedOutputs: new Set(), closeout: null, closeoutResult: null};
         record.current = attempt;
+        this.#record("activate", "activation-started", {plugin: record.plugin, entry: record.definition.id, generation});
+        const stopping = Promise.withResolvers<void>();
+        scope.stopSignal.addEventListener("abort", () => {
+            this.#record("close", "close-started", {plugin: record.plugin, entry: record.definition.id, generation});
+            stopping.resolve();
+        }, {once: true});
+        work.accept({label: "provided-services-close-barrier", run: async () => {
+            await stopping.promise;
+            await Promise.all([...attempt.services].map((service) => service.close()));
+        }});
         void this.#run(record, attempt).then((outcome) => {
             attempt.settled = outcome;
             resolve(outcome);
@@ -398,6 +425,26 @@ export class PluginHostImpl implements PluginHost {
         const {scope, generation} = attempt;
         const plugin = record.plugin;
         const entry = record.definition.id;
+        const dependencies: ReleaseDependency[] = [];
+        let closeoutRegistered = false;
+        const registerCloseout = (): void => {
+            if (closeoutRegistered || scope.phase === "closed") {
+                return;
+            }
+            closeoutRegistered = true;
+            scope.register({
+                kind: "plugin-closeout",
+                label: `${plugin}/${entry}`,
+                value: attempt,
+                dependsOn: dependencies,
+                release: (current) => {
+                    if (current.work.phase !== "closed" || [...current.services].some((service) => service.phase !== "closed")) {
+                        throw new PluginStateError({plugin, entry, generation, reason: "入口资源收口未完成"});
+                    }
+                    this.#record("close", "closed", {plugin, entry, generation});
+                },
+            });
+        };
         const fail = (
             stage: ActivationStage,
             reason: ActivationFailureReason,
@@ -417,6 +464,7 @@ export class PluginHostImpl implements PluginHost {
                 path: detail.path ?? [],
             };
             this.#record("activate", reason, {plugin, entry, generation, capability: failure.capability, contribution: failure.contribution, error: failure.error});
+            registerCloseout();
             attempt.closeout = scope.close().then((result) => {
                 attempt.closeoutResult = result;
                 return result;
@@ -425,6 +473,7 @@ export class PluginHostImpl implements PluginHost {
         };
         const stopped = (): AttemptOutcome => {
             this.#record("activate", "activation-stopped", {plugin, entry, generation});
+            registerCloseout();
             return {status: "stopped"};
         };
 
@@ -441,18 +490,21 @@ export class PluginHostImpl implements PluginHost {
             }
             if (result.status === "resolved") {
                 required.set(dependency.key, result.instance);
+                dependencies.push(result.binding.dependency);
                 continue;
             }
             const path = result.path.length > 0 ? result.path : result.providerId === null ? [] : [result.providerId];
             return fail("dependencies", "dependency-unavailable", {key: dependency.key.name, error: result.error, path});
         }
 
+        registerCloseout();
+
         // 2. 受管获取：激活作用域停止即 abort；迟到的产出登记为迟到资源，只收口不发布。
         const context: ActivationContext = {
             plugin,
             entry,
             generation,
-            scope,
+            scope: attempt.work,
             signal: scope.stopSignal,
             services: {
                 require: <T>(key: ServiceKey<T>): T => {
@@ -461,16 +513,16 @@ export class PluginHostImpl implements PluginHost {
                     }
                     return required.get(key) as T;
                 },
-                resolve: (key, options) => access.resolve(key, options),
+                resolve: (key, options) => this.#assembly.access(record.consumerId, attempt.work).resolve(key, options),
             },
         };
         let acquired;
         try {
-            acquired = await scope.acquire<ActivationOutput>({
+            acquired = await attempt.work.acquire<ActivationOutput>({
                 kind: "plugin-activation",
                 label: `${plugin}/${entry}`,
                 acquire: () => record.definition.activate(context),
-                release: () => this.#releaseOutput(attempt),
+                release: (output) => this.#releaseOutput(attempt, output),
             });
         } catch (error) {
             if (error instanceof LifecycleStateError) {
@@ -545,10 +597,11 @@ export class PluginHostImpl implements PluginHost {
             await this.#revoke(prepared, "activation-stopped");
             return stopped();
         }
-        const publication = scope.register<ReadonlyArray<HandleImpl>>({
+        const publication = attempt.work.register<ReadonlyArray<HandleImpl>>({
             kind: "contribution-publication",
             label: `${plugin}/${entry}#${generation}`,
             value: prepared,
+            dependsOn: [acquired.handle],
             release: (items) => this.#revoke(items, "scope-closed"),
         });
         if (publication.status !== "registered") {
@@ -590,11 +643,20 @@ export class PluginHostImpl implements PluginHost {
      * 激活产出的释放：只释放未交付给 runtime.services 的提供项实例；已交付的由服务作用域释放。
      * 释放成功后才标记已释放：失败的释放让资源留在 release-failed，显式恢复会重试它，而不是静默跳过。
      */
-    async #releaseOutput(attempt: Attempt): Promise<void> {
-        for (const record of [...attempt.provided.values()].reverse()) {
-            if (!record.adopted && !record.released) {
-                await record.release?.(record.instance);
-                record.released = true;
+    async #releaseOutput(attempt: Attempt, output: ActivationOutput): Promise<void> {
+        // 清理依据实际产出而不是校验到的前缀；未声明与迟到实例也必须释放，成功项在恢复时跳过。
+        const services = output.services ?? [];
+        for (let index = services.length - 1; index >= 0; index -= 1) {
+            const service = services[index]!;
+            const record = attempt.provided.get(service.key);
+            const matching = record?.instance === service.instance ? record : undefined;
+            if (matching?.adopted || matching?.released || attempt.releasedOutputs.has(service)) {
+                continue;
+            }
+            await service.release?.(service.instance);
+            attempt.releasedOutputs.add(service);
+            if (matching !== undefined) {
+                matching.released = true;
             }
         }
     }
@@ -602,6 +664,11 @@ export class PluginHostImpl implements PluginHost {
     /** runtime.services 提供者的 create：触发或加入激活，成功后交付实例并把服务作用域租约挂到本代次。 */
     async #provide(record: EntryRecord, key: ServiceKey<unknown>, context: ServiceCreateContext): Promise<unknown> {
         const identity = {plugin: record.plugin, entry: record.definition.id};
+        const blocked = record.current === null ? this.#blocked().get(entryIdentity(identity)) : null;
+        if (blocked != null) {
+            this.#record("activate", "blocked", identity);
+            throw new PluginStateError({...identity, generation: null, reason: "入口受阻", detail: blocked.reason});
+        }
         const attempt = this.#attemptFor(record);
         if (attempt === null) {
             throw new PluginStateError({...identity, generation: null, reason: "登记作用域已关闭，不再激活"});
@@ -618,16 +685,22 @@ export class PluginHostImpl implements PluginHost {
         if (provided.adopted) {
             throw new PluginStateError({...identity, generation: attempt.generation, reason: "实例已交付给上一次服务代次", detail: key.name});
         }
-        if (attempt.scope.phase === "closed") {
-            throw new PluginStateError({...identity, generation: attempt.generation, reason: "激活作用域已关闭", detail: key.name});
+        if (attempt.scope.phase !== "available") {
+            throw new PluginStateError({...identity, generation: attempt.generation, reason: "激活作用域不再可用", detail: key.name});
         }
         provided.adopted = true;
-        attempt.scope.register<Scope>({
+        attempt.services.add(context.scope);
+        let closingAttempted = false;
+        attempt.work.register<Scope>({
             kind: "provided-service",
             label: key.name,
             value: context.scope,
             release: async (serviceScope) => {
-                await serviceScope.close();
+                const result = await (closingAttempted && serviceScope.phase === "stopping" ? serviceScope.recover() : serviceScope.close());
+                closingAttempted = true;
+                if (result.status !== "closed") {
+                    throw new PluginStateError({...identity, generation: attempt.generation, reason: "服务作用域收口未完成", detail: result.reason});
+                }
             },
         });
         return provided.instance;
@@ -655,15 +728,15 @@ export class PluginHostImpl implements PluginHost {
         }
     }
 
-    #stateOf(record: EntryRecord): EntryState {
-        const base = {plugin: record.plugin, entry: record.definition.id, location: record.definition.location};
+    #stateOf(record: EntryRecord, blocked: EntryBlocked | null = this.#blocked().get(`${record.plugin}/${record.definition.id}`) ?? null): EntryState {
+        const base = {plugin: record.plugin, entry: record.definition.id, location: record.definition.location, blocked: null};
         if (!record.activatable) {
             return {...base, status: "foreign-location", generation: null, scopeId: null, failure: null, closeout: null};
         }
         const attempt = record.current;
         if (attempt === null) {
-            const status: EntryStatus = isAlive(record.scope) ? "registered" : record.scope.phase === "stopping" ? "stopping" : "closed";
-            return {...base, status, generation: null, scopeId: null, failure: null, closeout: null};
+            const status: EntryStatus = isAlive(record.scope) ? blocked === null ? "registered" : "blocked" : record.scope.phase === "stopping" ? "stopping" : "closed";
+            return {...base, status, blocked: status === "blocked" ? blocked : null, generation: null, scopeId: null, failure: null, closeout: null};
         }
         const failure = attempt.settled?.status === "failed" ? attempt.settled.failure : null;
         const phase = attempt.scope.phase;
@@ -717,7 +790,37 @@ export class PluginHostImpl implements PluginHost {
         return {...base, status: "revoked", generation, reason: handle.withdrawn === "activation-stopped" ? "activation-stopped" : "scope-closed"};
     }
 
-    #describe(record: EntryRecord): EntryDescription {
+    #blocked(): ReadonlyMap<string, EntryBlocked | null> {
+        const entries = [];
+        const pluginProviders = new Set<string>();
+        for (const plugin of this.#plugins.values()) {
+            if (!isAlive(plugin.scope)) {
+                continue;
+            }
+            for (const record of plugin.entries.values()) {
+                for (const id of record.providerIds.values()) {
+                    pluginProviders.add(id);
+                }
+                entries.push({
+                    plugin: record.plugin,
+                    entry: record.definition.id,
+                    location: record.definition.location,
+                    provides: record.definition.provides ?? [],
+                    dependencies: record.definition.dependencies ?? [],
+                    status: this.#stateOf(record, null).status,
+                });
+            }
+        }
+        const localServices = new Set<string>();
+        for (const entry of this.#assembly.report().entries) {
+            if (entry.kind === "provider" && entry.key !== null && !pluginProviders.has(entry.id)) {
+                localServices.add(entry.key);
+            }
+        }
+        return deriveBlocked(entries, this.location, localServices);
+    }
+
+    #describe(record: EntryRecord, blocked: ReadonlyMap<string, EntryBlocked | null>): EntryDescription {
         return {
             plugin: record.plugin,
             entry: record.definition.id,
@@ -725,7 +828,7 @@ export class PluginHostImpl implements PluginHost {
             dependencies: (record.definition.dependencies ?? []).map((dependency) => ({key: dependency.key.name, required: dependency.required ?? true})),
             provides: (record.definition.provides ?? []).map((key) => key.name),
             contributions: record.contributions.map((contribution) => this.#contributionState(record, contribution)),
-            state: this.#stateOf(record),
+            state: this.#stateOf(record, blocked.get(`${record.plugin}/${record.definition.id}`) ?? null),
         };
     }
 

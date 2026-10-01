@@ -202,7 +202,8 @@ async function browserMode(executable: string | undefined): Promise<void> {
         });
         const bundle = result.outputFiles[0]!.text;
         check(!/from\s*["']node:/u.test(bundle) && !bundle.includes("process.stderr"), `浏览器 bundle 不含服务端模块 (${(bundle.length / 1024).toFixed(1)} KiB)`);
-        const html = `<!doctype html><html><head><meta charset="utf-8"><title>runtime-foundation smoke</title></head><body><script type="module" src="/entry.js"></script></body></html>`;
+        // 空 icon 阻止完整版 Chrome 请求 /favicon.ico；否则 404 会被下方的控制台错误断言计为页面错误。
+        const html = `<!doctype html><html><head><meta charset="utf-8"><title>runtime-foundation smoke</title><link rel="icon" href="data:,"></head><body><script type="module" src="/entry.js"></script></body></html>`;
         await writeFile(join(scratch, "index.html"), html, "utf8");
 
         // 2. 临时 HTTP 服务器：页面 + 在场计数端点。

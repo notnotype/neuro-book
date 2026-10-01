@@ -1,0 +1,152 @@
+$ bun run typecheck:runtime-foundation
+$ tsc --noEmit -p tsconfig.runtime-foundation.json
+
+exit=0
+$ bun run scripts:typecheck
+$ tsc --noEmit -p scripts/tsconfig.json
+
+exit=0
+$ bun run typecheck
+[nuxt] modules:before: 0.199ms
+ℹ Module auth-utils took 4.88ms to setup.
+[nuxt] kit:compatibility: 0.057ms
+ℹ Module pinia took 0.64ms to setup.
+[nuxt] kit:compatibility: 0.062ms
+ℹ Module pinia-plugin-persistedstate took 1.16ms to setup.
+[nuxt] kit:compatibility: 0.036ms
+ℹ Module @nuxtjs/i18n took 8.72ms to setup.
+ℹ Module unocss took 2.44ms to setup.
+ℹ Module @nuxtjs/color-mode took 2.44ms to setup.
+ℹ Module vueuse took 0.38ms to setup.
+ℹ Module @nuxt/devtools took 146.12ms to setup.
+[nuxt] pages:routerOptions: 0.085ms
+ℹ Module nuxt:pages took 23.61ms to setup.
+ℹ Module nuxt:meta took 3.73ms to setup.
+ℹ Module nuxt:components took 9.95ms to setup.
+ℹ Module nuxt:compiler took 0.28ms to setup.
+ℹ Module nuxt:imports took 3.1ms to setup.
+ℹ Module nuxt:nuxt-config-schema took 0.79ms to setup.
+ℹ Module @nuxt/telemetry took 0.29ms to setup.
+[nuxt] i18n:registerModule: 0.06ms
+[nuxt] imports:dirs: 0.166ms
+[nuxt] imports:sources: 74.132ms
+[nuxt] imports:context: 0.078ms
+[nuxt] imports:extend: 0.118ms
+[nuxt] builder:generateApp: 0.033ms
+[nuxt] schema:extend: 0.037ms
+[nuxt] schema:resolved: 0.021ms
+[nuxt] modules:done: 209.559ms
+[nuxt] nitro:config: 86.067ms
+[nuxt] telemetry:setup: 0.047ms
+[nuxt] nitro:init: 12.186ms
+[nuxt] ready: 0.041ms
+[nuxt] schema:beforeWrite: 0.05ms
+[nuxt] schema:written: 0.038ms
+[nitro] types:extend: 0.265ms
+[nuxt] prepare:types: 152.242ms
+[nuxt] components:dirs: 0.167ms
+[nuxt] app:resolve: 4.176ms
+[nuxt] pages:extend: 0.274ms
+[nuxt] builder:generateApp: 0.046ms
+[nuxt] pages:resolved: 2.313ms
+[nuxt] components:extend: 1.088ms
+[nuxt] app:templates: 83.86ms
+[nuxt] nitro:prepare:types: 0.191ms
+[nuxt] ℹ Compiled app-component.mjs in 20.09ms
+[nuxt] ℹ Compiled types/app.config.d.ts in 19.99ms
+[nuxt] ℹ Compiled app.config.mjs in 19.99ms
+[nuxt] ℹ Compiled types/build.d.ts in 20.01ms
+[nuxt] ℹ Compiled nitro.client.mjs in 19.53ms
+[nuxt] ℹ Compiled css.mjs in 19.49ms
+[nuxt] ℹ Compiled fetch.mjs in 19.5ms
+[nuxt] ℹ Compiled error-component.mjs in 19.57ms
+[nuxt] ℹ Compiled global-polyfills.mjs in 19.61ms
+[nuxt] ℹ Compiled layouts.mjs in 19.73ms
+[nuxt] ℹ Compiled middleware.mjs in 19.64ms
+[nuxt] ℹ Compiled nuxt.config.mjs in 19.15ms
+[nuxt] ℹ Compiled paths.mjs in 18.31ms
+[nuxt] ℹ Compiled root-component.mjs in 18.26ms
+[nuxt] ℹ Compiled types/modules.d.ts in 18.24ms
+[nuxt] ℹ Compiled test-component-wrapper.mjs in 17.06ms
+[nuxt] ℹ Compiled types/vue-shim.d.ts in 17.07ms
+[nuxt] ℹ Compiled types/nitro-layouts.d.ts in 17.11ms
+[nuxt] ℹ Compiled types/builder-env.d.ts in 17.13ms
+[nuxt] ℹ Compiled i18n-options.mjs in 17.18ms
+[nuxt] ℹ Compiled types/i18n-plugin.d.ts in 16.44ms
+[nuxt] ℹ Compiled unocss.mjs in 16.31ms
+[nuxt] ℹ Compiled color-mode-options.mjs in 16.32ms
+[nuxt] ℹ Compiled routes.mjs in 16.25ms
+[nuxt] ℹ Compiled pages.mjs in 15.35ms
+[nuxt] ℹ Compiled types/middleware.d.ts in 15.15ms
+[nuxt] ℹ Compiled types/nitro-middleware.d.ts in 15.14ms
+[nuxt] ℹ Compiled types/layouts.d.ts in 15.17ms
+[nuxt] ℹ Compiled unhead-options.mjs in 15.17ms
+[nuxt] ℹ Compiled unhead.config.mjs in 15.19ms
+[nuxt] ℹ Compiled components.d.ts in 15.21ms
+[nuxt] ℹ Compiled types/components.d.ts in 10.81ms
+[nuxt] ℹ Compiled components.plugin.mjs in 5.28ms
+[nuxt] ℹ Compiled component-names.mjs in 5.09ms
+[nuxt] ℹ Compiled components.islands.mjs in 4.89ms
+[nuxt] ℹ Compiled component-chunk.mjs in 4.61ms
+[nuxt] ℹ Compiled i18n-route-resources.mjs in 21.53ms
+[nuxt] ℹ Compiled route-rules.mjs in 21.76ms
+[nuxt] ℹ Compiled imports.mjs in 23.05ms
+[nuxt] ℹ Compiled imports.d.ts in 23.16ms
+[nuxt] ℹ Compiled types/nitro-nuxt.d.ts in 23.06ms
+[nuxt] ℹ Compiled types/shared-imports.d.ts in 23.5ms
+[nuxt] ℹ Compiled types/runtime-config.d.ts in 40.45ms
+[nuxt] ℹ Compiled types/imports.d.ts in 33.77ms
+[nuxt] pages:routerOptions: 0.028ms
+[nuxt] ℹ Compiled router.options.mjs in 47.16ms
+[nuxt] ℹ Compiled plugins.server.mjs in 12.76ms
+[nuxt] ℹ Compiled plugins.client.mjs in 15.55ms
+[nuxt] ℹ Compiled types/plugins.d.ts in 16.92ms
+[nuxt] imports:extend: 0.096ms
+[nuxt] builder:generateApp: 0.031ms
+[nuxt] app:templatesGenerated: 80.954ms
+[nuxt] unocss:config: 0.04ms
+[nuxt] build:before: 291.357ms
+
+ Nuxt Build Performance
+
+  Phase                       Duration       RSS Delta      Heap Delta
+  ────────────────────────────────────────────────────────────────────
+  init                             6ms       +384.0 KB       +516.9 KB  ███
+  modules                        296ms        +45.7 MB        +11.6 MB  ██████████░░░░░░░░░░
+  modules:done                   136ms        +21.1 MB        -10.2 MB  █████████░░░░░
+  imports:sources                 74ms            +0 B        +13.1 MB  ████████
+  nitro:config                    86ms        +10.1 MB        -11.2 MB  ████████░░
+  nitro:createNitro              201ms        +15.9 MB        +15.3 MB  █████████░░░
+  nitro:init                      12ms       +128.0 KB       +226.3 KB  █████
+  ready                            1ms            +0 B        +26.3 KB  █
+  prepare:types                  152ms         +3.8 MB         +9.8 MB  █████████░
+  app:generate                   107ms         +2.8 MB         -4.4 MB  ████████░
+  app:templates                   84ms         +5.2 MB        +11.8 MB  ████████░
+  app:templatesGenerated          81ms       +640.0 KB        +15.6 MB  ████████
+  build:before                   291ms        +26.0 MB         +2.0 MB  ██████████░░░░░░
+  ────────────────────────────────────────────────────────────────────
+  Total                           2.4s       +190.5 MB        +68.2 MB
+  Tip: run with NODE_OPTIONS=--expose-gc to see retained heap per phase
+
+ Modules
+
+  • @nuxt/devtools — 146ms
+  • nuxt:pages — 24ms
+  • nuxt:components — 10ms
+  • @nuxtjs/i18n — 9ms
+
+ Details
+
+  • module:@nuxtjs/i18n — 9ms
+  • module:@nuxt/devtools — 146ms
+  • module:nuxt:pages — 24ms
+  • module:nuxt:components — 10ms
+
+ Data dump written to ./.nuxt/perf-report.json
+ Trace written to ./.nuxt/perf-trace.json (load in https://ui.perfetto.dev)
+
+[nitro] close: 0.194ms
+[nuxt] close: 8.982ms
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent
+
+exit=0

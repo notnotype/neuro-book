@@ -86,12 +86,17 @@ export interface MechanismObservers {
     readonly plugins?: PluginObserver;
 }
 
-/** 静态受信清单：键登记表、接收者、本地能力、插件定义与门禁；顺序即登记与执行顺序。 */
+/**
+ * 静态受信清单由键登记表、贡献接收者、本地能力、插件定义、启动必需插件与门禁组成。
+ * 登记完成后并发激活选中的启动入口，再按门禁定义顺序执行；插件登记顺序没有语义。
+ */
 export interface ApplicationManifest {
     readonly keys: ReadonlyArray<ServiceKey<unknown>>;
     readonly receivers: ReadonlyArray<ContributionReceiver>;
     readonly capabilities?: ReadonlyArray<CapabilityProvider>;
     readonly plugins: ReadonlyArray<PluginDefinition>;
+    /** 启动必需的插件；登记后并发激活它们在本位置的全部入口，失败则不开放接纳。 */
+    readonly requiredPlugins?: ReadonlyArray<string>;
     readonly gates: ReadonlyArray<StartupGate>;
     readonly observers?: MechanismObservers;
 }
@@ -102,15 +107,20 @@ export type GateOutcome =
     /** 停止先于门禁执行。 */
     | {readonly id: string; readonly required: boolean; readonly status: "skipped"};
 
-export type StartupFailureCategory = "manifest" | "gate" | "stopped";
+export type StartupFailureCategory = "manifest" | "activation" | "gate" | "stopped";
 
 /** 结构化启动失败：分类、来源与阶段是程序分支依据，人类文案不是。 */
 export interface StartupFailure {
     readonly category: StartupFailureCategory;
     readonly required: boolean;
-    /** 插件 id、能力 id 或门禁 id。 */
+    /** 插件/入口、插件 id、能力 id 或门禁 id。 */
     readonly source: string;
-    readonly stage: "register" | "gate";
+    readonly stage: "register" | "activate" | "gate";
+    /**
+     * manifest 原因沿用 capability:<原因> / plugin:<登记拒绝原因>；缺失必需插件为 plugin:unknown-plugin。
+     * activation 原因区分 blocked:<原因>、<失败阶段>/<原因>、rejected:<原因>、activate:threw 与 stopped/cancelled；
+     * 清单拒绝与宿主停止导致的 stopped/cancelled 不额外记 activation 失败。
+     */
     readonly reason: string;
     readonly error: FailureError | null;
 }

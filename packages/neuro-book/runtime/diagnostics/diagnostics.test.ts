@@ -225,7 +225,7 @@ describe("经 createApplication 装配", () => {
             receivers: [],
             plugins: [createDiagnosticsPlugin({location: "server", store, exporter: async () => ({status: "open", exporter}), fallback})],
             gates: [
-                {id: "diagnostics", kind: "activate", entry: {plugin: "runtime-diagnostics", entry: "main"}},
+                {id: "diagnostics", kind: "activate", entry: {plugin: "nbook.diagnostics", entry: "main"}},
                 ...(failRequired ? [{id: "needs-blocker", kind: "resolve" as const, key: blockerKey}] : []),
             ],
             observers: mechanismObservers(store),
@@ -245,7 +245,7 @@ describe("经 createApplication 装配", () => {
                 activate: (context) => {
                     const diagnostics = context.services.require(diagnosticsKey);
                     diagnostics.record({level: "info", event: "consumer.started", message: "hi", source: {plugin: "consumer"}});
-                    receipts.push(`query:${diagnostics.query({plugin: "consumer"}).records.length}`);
+                    receipts.push(`query:${diagnostics.query({plugin: "consumer", event: "consumer.started"}).records.length}`);
                     context.scope.register({kind: "consumer-cleanup", label: "cleanup", value: null, release: () => {
                         receipts.push(`cleanup:${diagnostics.record({level: "info", event: "consumer.cleanup", message: "bye"}).status}`);
                     }});
@@ -261,7 +261,7 @@ describe("经 createApplication 装配", () => {
         expect((await application.startup).status).toBe("available");
         expect(receipts).toEqual(["query:1"]);
         expect(store.query({event: "lifecycle.phase-changed"}).records.length).toBeGreaterThan(0);
-        expect(store.query({event: "plugins.diagnostic", plugin: "runtime-diagnostics"}).records.length).toBeGreaterThan(0);
+        expect(store.query({event: "plugins.diagnostic", plugin: "nbook.diagnostics"}).records.length).toBeGreaterThan(0);
         expect(await application.stop()).toEqual({status: "closed"});
         expect(receipts).toEqual(["query:1", "cleanup:accepted"]);
         expect(store.status().phase).toBe("closed");

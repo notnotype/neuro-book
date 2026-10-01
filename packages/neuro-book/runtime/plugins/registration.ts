@@ -39,6 +39,7 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
     }
     const entryIds = new Set<string>();
     const localContributions = new Set<string>();
+    const providedNames = new Set<string>();
     for (const entry of definition.entries) {
         if (entry.id.trim() === "") {
             rejections.push(rejection("empty-id", {entry: entry.id}));
@@ -47,6 +48,18 @@ export function validateDefinition(definition: PluginDefinition, environment: Re
             rejections.push(rejection("duplicate-entry", {entry: entry.id}));
         }
         entryIds.add(entry.id);
+        for (const key of entry.provides ?? []) {
+            if (providedNames.has(key.name)) {
+                rejections.push(rejection("duplicate-service", {entry: entry.id, detail: key.name}));
+            }
+            providedNames.add(key.name);
+            const prefix = `${definition.id}/`;
+            if (!key.name.startsWith(prefix) || key.name.slice(prefix.length).trim() === "") {
+                rejections.push(rejection("foreign-service-id", {entry: entry.id, detail: key.name}));
+            } else if (key.name.slice(prefix.length) === "channel") {
+                rejections.push(rejection("reserved-service-name", {entry: entry.id, detail: key.name}));
+            }
+        }
         if (entry.location !== environment.location) {
             // 其它位置的入口只进目录描述，不在本宿主校验接收者与服务键。
             continue;

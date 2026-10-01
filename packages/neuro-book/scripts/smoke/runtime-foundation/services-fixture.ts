@@ -3,8 +3,8 @@
  * 本文件没有任何导入，父进程在 server/browser 模式下不会因此加载插件或 `node:sqlite`。
  */
 
-export type ServicePluginId = "runtime-diagnostics" | "platform-files" | "sqlite";
-export const SERVICE_PLUGIN_IDS: ReadonlyArray<ServicePluginId> = ["runtime-diagnostics", "platform-files", "sqlite"];
+export type ServicePluginId = "nbook.diagnostics" | "nbook.platform-files" | "nbook.sqlite";
+export const SERVICE_PLUGIN_IDS: ReadonlyArray<ServicePluginId> = ["nbook.diagnostics", "nbook.platform-files", "nbook.sqlite"];
 
 export const NOTES_FILE = "notes/entry.txt";
 export const NOTES_BODY = "第二切片组合验收：文件与 SQLite 各自提交\n";

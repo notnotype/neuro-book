@@ -1,5 +1,5 @@
 /**
- * 第二切片组合验收的真实装配：runtime-diagnostics、platform-files、sqlite 三个内置服务插件，
+ * 第二切片组合验收的真实装配：nbook.diagnostics、nbook.platform-files、nbook.sqlite 三个内置服务插件，
  * 加两个受信消费者。只用真实插件与真实 I/O（临时根下的日志目录、数据根与数据库目录），
  * 不初始化产品数据库、不执行产品 migration、不调用 Provider。
  *
@@ -28,7 +28,7 @@ import type {ServicePluginId} from "./services-fixture";
 export type ServicesPhase = "write" | "read";
 
 /** notes 消费者的授予：只读写数据根内的 notes 目录所需操作，不含删除。 */
-export const notesGrantKey = defineServiceKey<RootGrant>("smoke.notes.data");
+export const notesGrantKey = defineServiceKey<RootGrant>("nbook.platform-files/notes-data");
 
 export interface NotesResult {
     readonly phase: ServicesPhase;
@@ -64,24 +64,24 @@ export interface ServicesManifestInput {
 
 export function createServicesManifest(input: ServicesManifestInput): ApplicationManifest {
     const providers: Record<ServicePluginId, PluginDefinition> = {
-        "runtime-diagnostics": createDiagnosticsPlugin({
+        "nbook.diagnostics": createDiagnosticsPlugin({
             location: "server",
             store: input.store,
             exporter: createJsonlExporterFactory({directory: input.logDirectory}),
             fallback: createStderrFallback(),
         }),
-        "platform-files": createPlatformFilesPlugin({
+        "nbook.platform-files": createPlatformFilesPlugin({
             roots: [{id: "data", path: input.dataRoot, maxOperations: ["read", "write", "delete"]}],
             grants: [{key: notesGrantKey, root: "data", operations: ["read", "write"]}],
         }),
-        sqlite: createSqlitePlugin(),
+        "nbook.sqlite": createSqlitePlugin(),
     };
     return {
         keys: [diagnosticsKey, platformFilesKey, notesGrantKey, sqliteKey],
         receivers: [],
         plugins: [...SERVICE_PLUGIN_IDS.filter((id) => !input.omit.has(id)).map((id) => providers[id]), notesPlugin(input), auditPlugin(input)],
         gates: [
-            {id: "diagnostics", kind: "activate", entry: {plugin: "runtime-diagnostics", entry: "main"}},
+            {id: "diagnostics", kind: "activate", entry: {plugin: "nbook.diagnostics", entry: "main"}},
             {id: "notes", kind: "activate", entry: {plugin: "notes", entry: "main"}},
             {id: "audit", kind: "activate", entry: {plugin: "audit", entry: "main"}},
         ],

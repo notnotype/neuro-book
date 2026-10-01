@@ -37,8 +37,8 @@ export interface ActivationContext {
     readonly entry: string;
     readonly generation: number;
     /**
-     * 本次激活专属的作用域（登记作用域的子作用域）：激活期间创建的连接、订阅、句柄登记到这里，
-     * 随激活失败整体收口，成功后与本代次同寿命。
+     * 本代次的入口工作作用域：激活期间创建的连接、订阅、句柄登记到这里，
+     * 随激活失败整体收口，成功后与本代次同寿命；身份以激活结果的 scopeId 为准。
      */
     readonly scope: Scope;
     /** 激活作用域的停止信号；入口 owner 停止时触发，迟到的成功不会发布。 */
@@ -46,7 +46,7 @@ export interface ActivationContext {
     readonly services: {
         /** 必需依赖已在激活前解析完成；未声明或可选的键抛 TypeError。 */
         require<T>(key: ServiceKey<T>): T;
-        /** 只允许解析入口声明过的键；结果登记为激活作用域上的借用。 */
+        /** 只允许解析入口声明过的键；借用登记到 context.scope，可用于该作用域资源的 dependsOn。 */
         resolve<T>(key: ServiceKey<T>, options?: ResolveOptions): Promise<ResolveResult<T>>;
     };
 }
@@ -65,10 +65,13 @@ export interface ActivationOutput {
     readonly services?: ReadonlyArray<ProvidedService>;
 }
 
+export type ActivationEvent = "onStartup";
+
 export interface PluginEntryDefinition {
     /** 插件内唯一。 */
     readonly id: string;
     readonly location: RuntimeLocation;
+    readonly activationEvents?: ReadonlyArray<ActivationEvent>;
     readonly dependencies?: ReadonlyArray<ServiceDependency>;
     /** 描述登记阶段即向 runtime.services 声明的提供项；实例化归激活。 */
     readonly provides?: ReadonlyArray<ServiceKey<unknown>>;
@@ -122,10 +125,13 @@ export type RegistrationRejectionReason =
     | "no-entries"
     | "duplicate-plugin"
     | "duplicate-entry"
+    | "duplicate-service"
     | "unknown-receiver"
     | "duplicate-contribution"
     | "invalid-declaration"
     | "unknown-service-key"
+    | "foreign-service-id"
+    | "reserved-service-name"
     | "self-dependency"
     | "foreign-scope"
     | "scope-not-alive";
@@ -170,7 +176,7 @@ export interface ActivationFailed {
     readonly path: ReadonlyArray<EntryId>;
 }
 
-export type ActivationRejection = "unknown-entry" | "location-mismatch" | "scope-closed";
+export type ActivationRejection = "unknown-entry" | "location-mismatch" | "scope-closed" | "blocked";
 
 export type ActivationResult =
     | {readonly status: "activated"; readonly plugin: string; readonly entry: string; readonly generation: number; readonly scopeId: ScopeId}
@@ -179,9 +185,19 @@ export type ActivationResult =
     | {readonly status: "stopped"; readonly plugin: string; readonly entry: string; readonly generation: number}
     /** 只结束本等待方；共享激活继续。 */
     | {readonly status: "cancelled"; readonly plugin: string; readonly entry: string}
-    | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: ActivationRejection};
+    | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: Exclude<ActivationRejection, "blocked">}
+    | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: "blocked"; readonly blocked: EntryBlocked};
 
-export type EntryStatus = "foreign-location" | "registered" | "activating" | "available" | "failed" | "stopping" | "closed";
+export type EntryBlockedReason = "missing-service" | "location-mismatch" | "provider-blocked" | "provider-failed" | "dependency-cycle";
+
+export interface EntryBlocked {
+    readonly reason: EntryBlockedReason;
+    readonly key: string;
+    /** 插件/入口身份；环路径包含首尾相同的入口。 */
+    readonly path: ReadonlyArray<string>;
+}
+
+export type EntryStatus = "foreign-location" | "registered" | "blocked" | "activating" | "available" | "failed" | "stopping" | "closed";
 
 export interface EntryState {
     readonly plugin: string;
@@ -192,6 +208,7 @@ export interface EntryState {
     readonly generation: number | null;
     readonly scopeId: ScopeId | null;
     readonly failure: ActivationFailed | null;
+    readonly blocked: EntryBlocked | null;
     /** 本代次激活作用域的收口结果；未开始收口为 null。 */
     readonly closeout: "pending" | "closed" | "incomplete" | null;
 }
@@ -225,6 +242,7 @@ export interface EntryDescription {
 export interface PluginDescription {
     readonly id: string;
     readonly scopeId: ScopeId;
+    readonly summary: "available" | "partial" | "blocked";
     readonly entries: ReadonlyArray<EntryDescription>;
 }
 
@@ -240,7 +258,7 @@ export type RecoverEntryResult =
     | {readonly status: "closeout-incomplete"; readonly plugin: string; readonly entry: string; readonly scopeId: ScopeId}
     | {readonly status: "rejected"; readonly plugin: string; readonly entry: string; readonly reason: "unknown-entry" | "scope-closed"};
 
-export type PluginDiagnosticStage = "register" | "activate" | "publish" | "revoke" | "recover";
+export type PluginDiagnosticStage = "register" | "activate" | "publish" | "revoke" | "recover" | "close";
 
 /** 插件诊断：只含身份、阶段与原因摘要，不含实现、声明附加字段或凭据。 */
 export interface PluginDiagnostic {

@@ -3,7 +3,7 @@
  * 与两个受信消费者，以 JSON 行向 stdout 报告事件，等待合作停止（POSIX 信号或 stdin 的 `stop` 行）。
  *
  * 用法：node --import tsx scripts/smoke/runtime-foundation/services-entry.ts --scratch <dir> --phase write|read
- *       [--omit runtime-diagnostics|platform-files|sqlite]... [--hold-handle]
+ *       [--omit nbook.diagnostics|nbook.platform-files|nbook.sqlite]... [--hold-handle]
  * `--omit` 移除一个必需提供者，验证启动明确失败且无数据副作用（退出码 2）；`--hold-handle` 让宿主在比提供者
  * 更长寿的根作用域上持有一个 watch 句柄，验证停止报告未完成而不是假 closed，释放后显式恢复才 closed。
  * 本进程只写 `--scratch` 下的 logs/data/db 三个位置，不监听端口、不杀进程、不写仓库数据。

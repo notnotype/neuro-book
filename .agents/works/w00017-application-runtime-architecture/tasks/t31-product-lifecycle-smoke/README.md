@@ -40,4 +40,4 @@ taskId: t31-product-lifecycle-smoke
 
 ## 下一步
 
-开始阶段 1 的实现切片，第一片为内核的入口与服务级依赖。
+开始阶段 1 的实现切片，第一片为内核的入口与服务级依赖（[t32](../t32-kernel-entry-dependencies/README.md)，已完成）。

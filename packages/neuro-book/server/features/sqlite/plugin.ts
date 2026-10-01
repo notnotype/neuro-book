@@ -16,7 +16,7 @@ import type {SqliteDriver} from "./driver";
 import {SqliteServiceImpl} from "./service";
 
 /** 插件 id；宿主清单用它引用本插件。 */
-export const sqlitePluginId = "sqlite";
+export const sqlitePluginId = "nbook.sqlite";
 
 export interface SqlitePluginOptions {
     /** 驱动适配器；缺省 Node 内置 `node:sqlite`。测试可注入受控驱动做故障注入。 */

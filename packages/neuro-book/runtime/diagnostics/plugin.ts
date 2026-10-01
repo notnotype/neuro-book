@@ -1,5 +1,5 @@
 /**
- * runtime-diagnostics 插件定义：激活时打开环境出口并把它接到既有记录缓冲之后，向消费者提供
+ * nbook.diagnostics 插件定义：激活时打开环境出口并把它接到既有记录缓冲之后，向消费者提供
  * 诊断服务；释放时进入停止中、补写并关闭出口。
  *
  * 本文件平台中立：出口由宿主注入（后端文件出口、浏览器 console 出口），缺少文件能力不影响启动。
@@ -27,7 +27,7 @@ import type {
 import {describeDiagnosticError} from "./redaction";
 
 /** 诊断服务键：同一运行实例内最多一个提供者。 */
-export const diagnosticsKey: ServiceKey<DiagnosticsService> = defineServiceKey<DiagnosticsService>("runtime-diagnostics");
+export const diagnosticsKey: ServiceKey<DiagnosticsService> = defineServiceKey<DiagnosticsService>("nbook.diagnostics/diagnostics");
 
 export interface DiagnosticsPluginOptions {
     /** 本插件的运行位置；与宿主实例身份一致。 */
@@ -44,7 +44,7 @@ export interface DiagnosticsPluginOptions {
  */
 export function createDiagnosticsPlugin(options: DiagnosticsPluginOptions): PluginDefinition {
     return {
-        id: "runtime-diagnostics",
+        id: "nbook.diagnostics",
         entries: [
             {
                 id: "main",

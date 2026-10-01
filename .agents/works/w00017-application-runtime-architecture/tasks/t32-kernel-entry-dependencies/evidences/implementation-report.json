@@ -1,0 +1,96 @@
+{
+  "task": "w00017 t32",
+  "status": "内核实现与十四个验收场景完成；smoke 完成标准存在范围外入口/夹具问题，不能宣称全部达标",
+  "verification": {
+    "criterion1": "通过：test-runtime-foundation.txt，第 1 轮返工后 17 files / 199 tests，exit 0",
+    "criterion2": "通过：typecheck.txt，typecheck:runtime-foundation、scripts:typecheck、typecheck 全部 exit 0",
+    "criterion3": "未全部通过：smoke-runtime-foundation.txt。server 与 services 模式 exit 0；原始无参数命令 exit 1（要求模式）；默认浏览器不存在，已安装 Chrome 的业务断言通过，但页面资源 404 断言失败。favicon 是从夹具 HTML 推断，独立请求定位未取得证据，不能认定 URL。外层脚本不在授权范围，未修改或过滤错误。",
+    "criterion4": "符合无新增失败要求：test-full.txt，第 1 轮返工后 10 failed files / 23 failed tests，失败文件与给定基线一致；580 passed files / 5018 passed tests，另有 22 unhandled errors（DOMMatrix，既有标题栏测试）。",
+    "criterion5": "四份指定完整输出均已保存；实现报告另存 implementation-report.json。没有提交、push、stash 或切分支。"
+  },
+  "publicContracts": {
+    "ActivationEvent": "onStartup",
+    "PluginEntryDefinition": "新增 activationEvents?: ReadonlyArray<ActivationEvent>",
+    "RegistrationRejectionReason": ["foreign-service-id", "reserved-service-name", "duplicate-service"],
+    "EntryStatus": "新增 blocked",
+    "EntryBlocked": {"reason": ["missing-service", "location-mismatch", "provider-blocked", "provider-failed", "dependency-cycle"], "key": "服务键名", "path": "ReadonlyArray<string>，插件/入口身份；环包含重复的首尾入口"},
+    "EntryState": "新增 blocked: EntryBlocked | null；当前尝试优先于受阻，外位置 blocked 为 null",
+    "ActivationRejection": "新增 blocked；ActivationResult 对 rejected/blocked 独立判别并携带 blocked，拒绝不消耗代次",
+    "PluginDescription": "新增 summary: available | partial | blocked；仅按本位置 blocked/failed 统计，不同位置和未激活不计不可用",
+    "PluginCatalog": "plugins 按插件 id 的码元顺序排序，入口保留定义顺序；查询不激活、不写诊断",
+    "PluginDiagnostic": "字段不变；阶段新增 close；新增 activate/activation-started、activate/blocked、close/close-started、close/closed；publish/published 保留",
+    "ApplicationManifest": "新增 requiredPlugins?: ReadonlyArray<string>；全部登记后门禁前并发激活本位置必需入口和 onStartup 入口",
+    "StartupFailure": "category 新增 activation，stage 新增 activate；activation 只报告入口受阻或真实激活失败。宿主停止造成 cancelled/stopped 不生成 activation 失败，启动保持 stopped。插件登记拒绝只报告一条 manifest/register；缺失必需插件为 manifest/register、source 插件 id、reason plugin:unknown-plugin。",
+    "ActivationContext": "scope 为代次下 entry-work 子作用域；显式 services.resolve 的借用登记到 context.scope，可用于资源 dependsOn；代次身份仍以 EntryState.scopeId 与 ActivationResult.scopeId 为准"
+  },
+  "closeStructure": {
+    "generationScope": "plugin:<id>/<entry>#<n>；持有必需依赖借用与 plugin-closeout 资源，该资源 dependsOn 已解析必需借用",
+    "entryWorkScope": "代次的子作用域 entry-work；context.scope 资源、显式解析借用、plugin-activation、contribution-publication、provided-service 租约均在此",
+    "barrier": "entry-work 中受管操作等待代次 stopSignal，再等待已交付服务作用域的首次 close 结算；在此之前工作作用域不能释放任何自有资源",
+    "publication": "contribution-publication dependsOn plugin-activation，使贡献撤回先于激活产出释放",
+    "lease": "服务首次关闭失败保留 provided-service 资源失败，显式恢复才调用 serviceScope.recover；不在首次关闭中重复尝试",
+    "completion": "plugin-closeout 确认 entry-work 和已交付服务作用域全部 closed 后记录 closed，随后必需借用才能结束；失败或停止发生在解析依赖阶段也登记收口诊断资源",
+    "proof": "真实 A→B→C 合同测试验证所有资源、未交付输出、贡献撤回和服务释放偏序；published 为 C B A，closed 为 A B C；独立入口不限定位置；原有释放失败显式恢复合同保持通过"
+  },
+  "renames": [
+    "runtime-diagnostics → nbook.diagnostics；runtime-diagnostics 服务键 → nbook.diagnostics/diagnostics",
+    "sqlite → nbook.sqlite；sqlite 服务键 → nbook.sqlite/sqlite",
+    "platform-files → nbook.platform-files；platform-files 服务键 → nbook.platform-files/files",
+    "workspace-files/main → nbook.files/server；workspace.files 服务键 → nbook.files/workspace",
+    "平台 grant 示例键 → nbook.platform-files/read、read-write、admin、notes-data；greeter 示例键 → greeter/greeter；插件测试 clock 键 → clock/clock、clock/logger"
+  ],
+  "oldNamesNotChanged": [
+    {"paths": ["packages/neuro-book/server/runtime/product-startup.ts:158", "packages/neuro-book/server/runtime/product-startup.ts:233"], "reason": "workspace-files 是门禁 id 与操作 label，不是插件或服务身份；实际引用 workspaceFilesKey 对象，自动采用新键"},
+    {"paths": ["packages/neuro-book/app/runtime/product-browser-runtime.ts"], "reason": "既有 nbook.files/browser 保持原样"},
+    {"paths": ["packages/neuro-book/server/features/runtime-diagnostics/jsonl-exporter.test.ts", "packages/neuro-book/server/features/platform-files/platform-files.test.ts", "packages/neuro-book/server/features/workspace-files/service.test.ts"], "reason": "旧词用于临时根、purpose 或测试 instanceId，不参与身份解析"},
+    {"paths": ["packages/neuro-book/server/workspace-files/**", "packages/neuro-book/server/openapi/route-map.ts", "packages/neuro-book/tsconfig.runtime-foundation.json", "scripts/build/workspace-cli-wrapper.test.ts", "packages/neuro-book/scripts/smoke/runtime-foundation/services-*.ts"], "reason": "真实目录、import 路径、HTTP 路由与测试路径未改名"},
+    {"paths": ["packages/neuro-book/server/features/platform-files/plugin.ts:72", "packages/neuro-book/server/features/platform-files/service.ts:415", "packages/neuro-book/server/features/platform-files/service.ts:430", "packages/neuro-book/scripts/smoke/runtime-foundation.ts"], "reason": "既有错误描述、资源 kind 和能力说明不作为插件/service id；外层 smoke 入口不在允许编辑范围"},
+    {"paths": ["packages/neuro-book/server/database/**", "packages/neuro-book/scripts/db/**", "packages/neuro-book/prisma/**", "packages/llmlint/web/prisma/**", "packages/neuro-book/server/generated/project-prisma/**", "packages/neuro-book-manager/src/docker.ts", "scripts/build/product-command-bundle.ts", "scripts/deploy/**", "scripts/release/verify-windows-product.ts"], "reason": "sqlite 是数据库类型、Prisma provider、迁移路径或生成字段"},
+    {"paths": ["docs/specs/workspace/files.md", "docs/specs/workbench/files-explorer.md", "docs/specs/README.md", "docs/proposals/README.md", "packages/neuro-book/docs/proposals/files-explorer*.md"], "reason": "workspace.files 是 capability/Spec 身份，不能随服务键改名"},
+    {"paths": [".agents/tasks/**", "packages/*/.agents/tasks/**", ".agents/works/w00017-application-runtime-architecture/**"], "reason": "历史证据、Task 身份与改名对照保留原始事实，README 与 Work/Task 文档禁止修改"},
+    {"paths": ["packages/neuro-book/scripts/smoke/runtime-foundation/controlled-manifest.ts", "packages/neuro-book/server/runtime/foundation/server-host.test.ts", "packages/neuro-book/app/runtime/browser-host.test.ts"], "reason": "clock/presence 是 CapabilityProvider 本地能力，不受 provides 归属约束"},
+    {"paths": ["packages/neuro-book/docs/proposals/extensible-application-platform.md:18", "packages/neuro-book/docs/proposals/application-runtime-and-plugins.md", "docs/specs/runtime/diagnostics.md", "docs/specs/platform/files.md", "docs/specs/platform/sqlite.md"], "reason": "旧插件身份的文档说明留主 Agent 更新；部分词仅为逻辑 owner，需与实际 plugin id 区分"}
+  ],
+  "changedSourceFiles": [
+    "packages/neuro-book/runtime/plugins/review-regressions.test.ts",
+    "packages/neuro-book/runtime/plugins/contracts.ts",
+    "packages/neuro-book/runtime/plugins/registration.ts",
+    "packages/neuro-book/runtime/plugins/host.ts",
+    "packages/neuro-book/runtime/plugins/blocked.ts",
+    "packages/neuro-book/runtime/plugins/blocked.test.ts",
+    "packages/neuro-book/runtime/plugins/entry-dependencies.test.ts",
+    "packages/neuro-book/runtime/plugins/plugins.test.ts",
+    "packages/neuro-book/runtime/application/contracts.ts",
+    "packages/neuro-book/runtime/application/bootstrap.ts",
+    "packages/neuro-book/runtime/application/application.test.ts",
+    "packages/neuro-book/runtime/application/application-startup.test.ts",
+    "packages/neuro-book/runtime/diagnostics/plugin.ts",
+    "packages/neuro-book/runtime/diagnostics/diagnostics.test.ts",
+    "packages/neuro-book/server/features/platform-files/contracts.ts",
+    "packages/neuro-book/server/features/platform-files/plugin.ts",
+    "packages/neuro-book/server/features/platform-files/platform-files.test.ts",
+    "packages/neuro-book/server/features/sqlite/contracts.ts",
+    "packages/neuro-book/server/features/sqlite/plugin.ts",
+    "packages/neuro-book/server/features/workspace-files/plugin.ts",
+    "packages/neuro-book/scripts/smoke/runtime-foundation/controlled-manifest.ts",
+    "packages/neuro-book/scripts/smoke/runtime-foundation/services-fixture.ts",
+    "packages/neuro-book/scripts/smoke/runtime-foundation/services-manifest.ts",
+    "packages/neuro-book/scripts/smoke/runtime-foundation/services-entry.ts"
+  ],
+  "assertionChanges": "已有缺失必需依赖用例由失败/恢复改为新合同受阻/无代次，严格断言新结果；diagnostics.test.ts 将 query 限定到 consumer.started 业务事件，避免新 activation-started 诊断改变旧 incidental 数量，业务记录数量和关闭记录断言保持不变；其它既有断言只改身份及新增诊断序列",
+  "prohibitedChecklist": [
+    "通过：分支依据状态、原因码、错误类型；新增 catch 记录错误摘要，没有按错误文案分支或新增静默吞错",
+    "通过：未跳过测试、放宽断言、掩盖失败、增加产品测试分支；smoke 范围外失败如实保留",
+    "通过：只改授权源码与证据；未改 lifecycle/services、配置、docs 或 README；未删除无关代码与注释",
+    "通过：保留失败撤回、迟到资源收口、release-failed 显式恢复；未留下 obsolete 兼容入口",
+    "通过：没有新增跨包源码深导入；内核只通过 lifecycle/services 公开入口",
+    "通过：优先使用现有借用、受管操作、子作用域和 dependsOn；未因首轮失败直接声称做不到"
+  ],
+  "followupNotes": [
+    "Spec 更新需反映 blocked 推导、requiredPlugins、onStartup、分层 scope 与新增诊断；本任务未修改 docs",
+    "平台 grant 键也由 nbook.platform-files 插件 provides，装配方应传 nbook.platform-files/<名称>，而 CapabilityProvider 键无需插件前缀",
+    "产品内置服务迁移后再让 t31 L2/L3/L4 消费 published 与 closed 序号；当前不声称产品生命周期全部通过",
+    "关闭顺序保证仅覆盖必需依赖；可选依赖显式解析的借用在 context.scope，调用者资源需要用 binding.dependency 声明 dependsOn",
+    "外层 runtime-foundation.ts 需要明确默认模式，browser HTTP 夹具需消除自身 404 资源请求，不能过滤页面错误来掩盖失败"
+  ]
+}

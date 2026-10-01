@@ -176,4 +176,4 @@ export interface PlatformFiles {
 }
 
 /** 平台文件服务键；消费者经它取得服务实例，经授予键取得根能力。 */
-export const platformFilesKey = defineServiceKey<PlatformFiles>("platform-files");
+export const platformFilesKey = defineServiceKey<PlatformFiles>("nbook.platform-files/files");

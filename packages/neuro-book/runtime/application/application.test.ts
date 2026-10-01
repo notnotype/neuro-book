@@ -19,7 +19,7 @@ interface Clock {
 }
 
 const clockKey = defineServiceKey<Clock>("clock");
-const greeterKey = defineServiceKey<{greet(name: string): string}>("greeter");
+const greeterKey = defineServiceKey<{greet(name: string): string}>("greeter/greeter");
 
 function host(instanceId = "app-1", location: "server" | "browser" = "server") {
     const controller = new AbortController();
@@ -124,7 +124,7 @@ describe("启动与接纳", () => {
         expect(phases.some((entry) => entry.endsWith(":creating>available"))).toBe(true);
         expect(phases.at(-1)).toMatch(/^scope-1:creating>available$/u);
         expect(assemblyDiagnostics).toContain("unknown-key");
-        expect(pluginDiagnostics).toEqual(["published"]);
+        expect(pluginDiagnostics).toEqual(["activation-started", "published"]);
     });
 
     it("必需门禁失败：不接纳、紧急输出可见、已取得资源收口；可选门禁失败只报告，无关能力继续可用", async () => {
@@ -167,7 +167,7 @@ describe("启动与接纳", () => {
     });
 
     it("清单被拒绝的插件是结构化失败：被必需门禁引用时启动失败，门禁本身报 unknown-entry", async () => {
-        const unregisteredKey = defineServiceKey<string>("unregistered");
+        const unregisteredKey = defineServiceKey<string>("greeter/unregistered");
         const rejected: PluginDefinition = {id: "greeter", entries: [{id: "main", location: "server", provides: [unregisteredKey], activate: () => ({services: [provide(unregisteredKey, "x")]})}]};
         const {context} = host();
         const application = createApplication(context, manifest({plugins: [rejected]}));

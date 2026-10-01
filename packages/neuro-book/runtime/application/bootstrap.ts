@@ -8,7 +8,7 @@
 import {createRuntimeInstance, LifecycleStateError, summarizeFailure} from "../lifecycle/lifecycle";
 import type {CloseRequest, CloseResult, OperationSpec, RuntimeInstance, Scope} from "../lifecycle/lifecycle";
 import {createPluginHost} from "../plugins/plugins";
-import type {PluginHost} from "../plugins/plugins";
+import type {ActivationResult, PluginHost} from "../plugins/plugins";
 import {createServiceAssembly} from "../services/services";
 import type {ServiceAssembly} from "../services/services";
 
@@ -27,6 +27,16 @@ import type {
 
 function isRequired(gate: StartupGate): boolean {
     return gate.required !== false;
+}
+
+function activationDetail(result: Exclude<ActivationResult, {readonly status: "activated"}>): string {
+    if (result.status === "failed") {
+        return `${result.stage}/${result.reason}`;
+    }
+    if (result.status === "rejected") {
+        return result.reason === "blocked" ? `blocked:${result.blocked.reason}` : `rejected:${result.reason}`;
+    }
+    return result.status;
 }
 
 /** 首次停止的关闭请求：宿主截止与调用方截止同时约束，任一触发即本次尝试结算为未完成。 */
@@ -149,12 +159,48 @@ export class ApplicationImpl implements Application {
                 this.#fail({category: "manifest", required: true, source: capability.id, stage: "register", reason: `capability:${result.reason}`, error: null});
             }
         }
+        const requiredPlugins = new Set(this.#manifest.requiredPlugins ?? []);
+        const startupEntries: Array<{plugin: string; entry: string; required: boolean}> = [];
+        const declaredPlugins = new Set<string>();
         for (const definition of this.#manifest.plugins) {
             const result = this.plugins.register(definition, {scope: this.root});
+            declaredPlugins.add(definition.id);
             if (result.status === "rejected") {
-                const referenced = this.#manifest.gates.some((gate) => gate.kind === "activate" && isRequired(gate) && gate.entry.plugin === definition.id);
+                const referenced = requiredPlugins.has(definition.id) || this.#manifest.gates.some((gate) => gate.kind === "activate" && isRequired(gate) && gate.entry.plugin === definition.id);
                 const reasons = result.rejections.map((rejection) => (rejection.entry === null ? rejection.reason : `${rejection.entry}:${rejection.reason}`)).join(",");
                 this.#fail({category: "manifest", required: referenced, source: definition.id, stage: "register", reason: `plugin:${reasons}`, error: null});
+                continue;
+            }
+            const required = requiredPlugins.has(definition.id);
+            const selected = definition.entries.filter((entry) => entry.location === this.identity.location && (required || entry.activationEvents?.includes("onStartup")));
+            for (const entry of selected) {
+                startupEntries.push({plugin: definition.id, entry: entry.id, required});
+            }
+        }
+        for (const plugin of requiredPlugins) {
+            if (!declaredPlugins.has(plugin)) {
+                this.#fail({category: "manifest", required: true, source: plugin, stage: "register", reason: "plugin:unknown-plugin", error: null});
+            }
+        }
+        const activationFailures = await Promise.all(startupEntries.map(async ({plugin, entry, required}): Promise<StartupFailure | null> => {
+            if (this.root.phase !== "creating") {
+                return null;
+            }
+            const base = {category: "activation", required, source: `${plugin}/${entry}`, stage: "activate"} as const;
+            try {
+                const result = await this.plugins.activate({plugin, entry}, {signal: this.root.stopSignal});
+                if ((result.status === "cancelled" || result.status === "stopped") && this.root.phase !== "creating") {
+                    return null;
+                }
+                return result.status === "activated" ? null : {...base, reason: activationDetail(result), error: result.status === "failed" ? result.error : null};
+            } catch (error) {
+                return {...base, reason: "activate:threw", error: summarizeFailure(error)};
+            }
+        }));
+        // Promise.all 保留选择顺序，完成先后不改变失败报告的顺序。
+        for (const failure of activationFailures) {
+            if (failure !== null) {
+                this.#fail(failure);
             }
         }
 
@@ -207,7 +253,7 @@ export class ApplicationImpl implements Application {
                     if (result.status === "activated") {
                         return {...base, status: "passed"};
                     }
-                    const detail = result.status === "failed" ? `${result.stage}/${result.reason}` : result.status === "rejected" ? result.reason : result.status;
+                    const detail = result.status === "rejected" && result.reason !== "blocked" ? result.reason : activationDetail(result);
                     return {...base, status: "failed", reason: `activate:${detail}`, error: result.status === "failed" ? result.error : null};
                 }
                 case "resolve": {

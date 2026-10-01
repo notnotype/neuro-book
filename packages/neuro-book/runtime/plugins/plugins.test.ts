@@ -36,8 +36,8 @@ interface Logger {
 
 type Command = () => string;
 
-const clockKey = defineServiceKey<Clock>("clock");
-const loggerKey = defineServiceKey<Logger>("logger");
+const clockKey = defineServiceKey<Clock>("clock/clock");
+const loggerKey = defineServiceKey<Logger>("clock/logger");
 const unknownKey = defineServiceKey<unknown>("unknown");
 const keys = [clockKey, loggerKey];
 
@@ -225,28 +225,28 @@ describe("描述登记", () => {
         accepted(
             host,
             plugin(
-                "p",
+                "clock",
                 {...commandEntry("server", ["p.run"], {provides: [clockKey], dependencies: [{key: loggerKey, required: false}]}), activate},
                 commandEntry("browser", ["p.open"], {location: "browser"}),
             ),
             root,
         );
         const [description] = host.catalog().plugins;
-        expect(description).toMatchObject({id: "p", scopeId: root.id});
+        expect(description).toMatchObject({id: "clock", scopeId: root.id});
         expect(description!.entries).toMatchObject([
             {
                 entry: "server",
                 location: "server",
-                dependencies: [{key: "logger", required: false}],
-                provides: ["clock"],
+                dependencies: [{key: "clock/logger", required: false}],
+                provides: ["clock/clock"],
                 contributions: [{capability: "commands", id: "p.run", declaration: {title: "p.run"}, status: "declared", reason: "not-activated"}],
                 state: {status: "registered", generation: null},
             },
             {entry: "browser", location: "browser", contributions: [{id: "p.open", status: "declared"}], state: {status: "foreign-location"}},
         ]);
         expect(activate).not.toHaveBeenCalled();
-        expect(assembly.report().entries.map((entry) => entry.id).sort()).toEqual(["plugin:p/server@1", "plugin:p/server@1:clock"]);
-        expect(assembly.providerState("plugin:p/server@1:clock")).toBe("unresolved");
+        expect(assembly.report().entries.map((entry) => entry.id).sort()).toEqual(["plugin:clock/server@1", "plugin:clock/server@1:clock/clock"]);
+        expect(assembly.providerState("plugin:clock/server@1:clock/clock")).toBe("unresolved");
         expect(host.contribution("commands", "p.open")).toBeNull();
         expect(root.snapshot().resources).toEqual([]);
         expect(root.snapshot().children.length).toBe(1);
@@ -286,7 +286,7 @@ describe("Spec 验收 1：描述先于实现", () => {
         }
         expect(activate).toHaveBeenCalledTimes(1);
         expect(commands.prepare).toHaveBeenCalledTimes(1);
-        expect(assembly.providerState("plugin:clock/main@1:clock")).toBe("available");
+        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("available");
     });
 });
 
@@ -629,9 +629,9 @@ describe("Spec 验收 10：重试前置收口", () => {
         expect(first).toMatchObject({status: "unavailable", reason: "initialization-failed", error: {name: "PluginStateError"}});
         expect(await assembly.access("consumer").resolve(clockKey)).toEqual(first);
         expect(await host.activate({plugin: "clock", entry: "main"})).toMatchObject({status: "failed", generation: 1});
-        expect(assembly.providerState("plugin:clock/main@1:clock")).toBe("failed");
+        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("failed");
         expect(await host.recover({plugin: "clock", entry: "main"})).toMatchObject({status: "reset"});
-        expect(assembly.providerState("plugin:clock/main@1:clock")).toBe("unresolved");
+        expect(assembly.providerState("plugin:clock/main@1:clock/clock")).toBe("unresolved");
         const second = await assembly.access("consumer").resolve(clockKey);
         expect(second.status).toBe("resolved");
         if (second.status === "resolved") {
@@ -688,20 +688,19 @@ describe("Spec 验收 11：多接收者事务", () => {
 });
 
 describe("提供项与依赖协作", () => {
-    it("必需依赖不可用时入口不调用 activate，失败带服务键与路径；依赖可用后经 require 取得，实例与借用随激活作用域", async () => {
+    it("必需依赖缺失时入口受阻且不消耗代次，依赖可用后经 require 取得，实例与借用随激活作用域", async () => {
         const {host, root, assembly} = setup();
         const activate = vi.fn((context: ActivationContext) => {
             context.services.require(clockKey).now();
             return {contributions: {commands: {"p.run": () => "ok"}}};
         });
         accepted(host, plugin("p", {...commandEntry("main", ["p.run"], {dependencies: [{key: clockKey}]}), activate}), root);
-        expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "failed", stage: "dependencies", reason: "dependency-unavailable", key: "clock"});
+        expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "rejected", reason: "blocked", blocked: {reason: "missing-service", key: "clock/clock", path: ["p/main"]}});
         expect(activate).not.toHaveBeenCalled();
-        expect(await host.recover({plugin: "p", entry: "main"})).toMatchObject({status: "reset"});
 
         const releaseClock = vi.fn();
         assembly.declare({id: "clock", key: clockKey, location: "server", scope: root, create: () => ({now: () => 7}), release: releaseClock});
-        expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "activated", generation: 2});
+        expect(await host.activate({plugin: "p", entry: "main"})).toMatchObject({status: "activated", generation: 1});
         expect(activate).toHaveBeenCalledTimes(1);
         await root.close();
         expect(releaseClock).toHaveBeenCalledTimes(1);
@@ -723,7 +722,7 @@ describe("提供项与依赖协作", () => {
         expect(host.entryState({plugin: "clock", entry: "main"})).toMatchObject({status: "closed"});
 
         accepted(host, plugin("extra", {...commandEntry("main", []), activate: () => ({services: [provide(loggerKey, {lines: [], log: () => undefined})]})}), root);
-        expect(await host.activate({plugin: "extra", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: "logger"});
+        expect(await host.activate({plugin: "extra", entry: "main"})).toMatchObject({status: "failed", stage: "output", reason: "undeclared-service", key: "clock/logger"});
     });
 
     it("提供项释放失败不被标记为已释放：交付给 services 与未交付两条路径都在显式恢复时重试，成功后不再重复", async () => {
