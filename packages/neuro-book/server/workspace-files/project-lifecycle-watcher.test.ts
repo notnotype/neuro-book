@@ -3,7 +3,7 @@ import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 import path from "node:path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
-import {ProjectLifecycle} from "nbook/server/workspace-files/project-lifecycle";
+import {ProjectLifecycle, type ProjectLifecycleWatcherAdapter} from "nbook/server/workspace-files/project-lifecycle";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {ProjectLockModule} from "nbook/server/workspace-files/project-lock";
 import {
@@ -53,6 +53,60 @@ describe("ProjectLifecycle production shallow watcher", () => {
         }
 
         expect(lifecycle.diagnostics.watcher.state).toBe("closed");
+    });
+
+    it("watcher ready前发生rename时，ready复核仍关闭被替换Session", async () => {
+        const workspaceRoot = await mkdtemp(testHostPath("nbook-project-root-replaced-before-ready-"));
+        roots.push(workspaceRoot);
+        const projectRoot = path.join(workspaceRoot, "open-project");
+        const movedRoot = path.join(workspaceRoot, "open-project-moved");
+        await mkdir(projectRoot);
+        await writeFile(
+            path.join(projectRoot, "project.yaml"),
+            "kind: novel\ntitle: Original Project\nsummary: \"\"\n",
+            "utf8",
+        );
+        const readyGate = Promise.withResolvers<void>();
+        const closeOrder: string[] = [];
+        const watcherAdapter: ProjectLifecycleWatcherAdapter = {
+            open: () => ({
+                ready: readyGate.promise,
+                close: async () => undefined,
+            }),
+        };
+        const restoreModules = replaceProjectModulesForTest([
+            recordingModule("database", closeOrder),
+            recordingModule("history", closeOrder),
+            recordingModule("file-index", closeOrder),
+        ]);
+        const lifecycle = new ProjectLifecycle(absoluteFsPath(workspaceRoot), {watcherAdapter, watchDebounceMs: 10});
+        const service = new ProjectSessionService(absoluteFsPath(workspaceRoot), {
+            lifecycle,
+            runtime: new ProjectSessionRuntime(),
+        });
+        const ref = projectWorkspaceRef("open-project");
+
+        try {
+            const ready = await service.openProject(ref, {kind: "user"});
+            await rename(projectRoot, movedRoot);
+            await mkdir(projectRoot);
+            await writeFile(
+                path.join(projectRoot, "project.yaml"),
+                "kind: novel\ntitle: Replacement Project\nsummary: \"\"\n",
+                "utf8",
+            );
+
+            readyGate.resolve();
+
+            await vi.waitFor(() => {
+                expect(() => service.requireReadyProject(ref)).toThrow(ProjectNotOpenError);
+                expect(ready.workspace.ref).toEqual(ref);
+                expect(closeOrder).toEqual(["file-index", "history", "database"]);
+            }, {timeout: 5_000});
+        } finally {
+            await service.closeAll().catch(() => undefined);
+            restoreModules();
+        }
     });
 
     it("真实浅watcher识别同路径ABA replacement并关闭已打开Session", async () => {

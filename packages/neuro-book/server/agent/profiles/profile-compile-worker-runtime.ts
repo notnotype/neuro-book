@@ -22,10 +22,11 @@ import type {
     AgentProfileCompileRequestDto,
     AgentProfileCompileResultDto,
     AgentProfileIssueDto,
+    AgentProfilePreparePreviewDto,
 } from "nbook/shared/dto/agent-profile.dto";
 import {
     isProjectNotOpenError,
-    type ProjectNotOpenError,
+    ProjectNotOpenError,
 } from "nbook/server/workspace-files/project-session-service";
 import {
     isAgentSessionNotFoundError,
@@ -36,6 +37,7 @@ type InternalProfileCompileRequest = AgentProfileCompileRequestDto & {
     profileRoot?: string;
     profileRootLabel?: string;
     runtimePaths?: RuntimePaths;
+    deferPreview?: boolean;
 };
 
 type InternalProfileCompileAllRequest = AgentProfileCompileAllRequestDto & {
@@ -260,10 +262,11 @@ export async function runProfileCompileAll(input: InternalProfileCompileAllReque
 }
 
 /**
- * 在后台 worker 内用临时 profile root 预览当前源码，不污染真实用户 `.compiled`。
+ * 编译临时源码。worker只交回staging，prepare由拥有Project generation的主线程执行。
  */
-async function runDryRunProfilePreview(input: InternalProfileCompileRequest, profileRoot: string): Promise<AgentProfileCompileResultDto> {
+async function runDryRunProfilePreview(input: InternalProfileCompileRequest, profileRoot: string): Promise<ProfileCompileWorkerResult> {
     const temporaryRoot = join(dirname(profileRoot), ".staging", "profile-source-check", randomUUID());
+    let transferred = false;
     try {
         await cp(profileRoot, temporaryRoot, {recursive: true, force: true}).catch(() => undefined);
         if (input.source !== undefined) {
@@ -301,31 +304,65 @@ async function runDryRunProfilePreview(input: InternalProfileCompileRequest, pro
                 issues,
             };
         }
-        if (!input.runtimePaths) {
-            throw new Error("Profile compile preview 需要显式 RuntimePaths。");
-        }
+        const result: ProfileCompileWorkerResult = {
+            ok: true,
+            stale: false,
+            detail,
+            preview: null,
+            issues,
+            previewStaging: {profileRoot: temporaryRoot, profileKey: detail.manifest.key},
+        };
+        transferred = true;
+        if (input.deferPreview) return result;
+        return await completeProfileCompilePreview(input, result);
+    } finally {
+        if (!transferred) await rm(temporaryRoot, {recursive: true, force: true});
+    }
+}
+
+/** 消费worker产物，只在当前Product owner下运行prepare，不重编译或打开Project。 */
+export async function completeProfileCompilePreview(
+    input: AgentProfileCompileRequestDto & {runtimePaths?: RuntimePaths},
+    result: ProfileCompileWorkerResult,
+): Promise<ProfileCompileWorkerResult> {
+    const staging = result.previewStaging;
+    if (!staging) return result;
+    const {previewStaging: _previewStaging, ...compiled} = result;
+    try {
+        const runtimePaths = input.runtimePaths;
+        if (!runtimePaths) throw new Error("Profile compile preview 需要显式 RuntimePaths。");
+        const profiles = new AgentProfileCatalog(
+            staging.profileRoot,
+            undefined,
+            undefined,
+            undefined,
+            (profileRoot, rootLabel) => resolveProfileArtifactPathContext(profileRoot, rootLabel, runtimePaths.applicationRoot),
+            {install: "temporary-profile-source-check"},
+        );
         const [{NeuroAgentHarness}, {previewAgentProfilePrepare}] = await Promise.all([
             import("nbook/server/agent/harness/neuro-agent-harness"),
             import("nbook/server/agent/profiles/profile-http-service"),
         ]);
-        const preview = await previewAgentProfilePrepare(new NeuroAgentHarness({
-            runtimePaths: input.runtimePaths,
-            profiles,
-        }), {
-            profileKey: detail.manifest.key,
-            sessionId: input.sessionId,
-            initial: input.initial,
-            initialOverrides: input.initialOverrides,
-        });
+        const harness = new NeuroAgentHarness({runtimePaths, profiles});
+        let preview: AgentProfilePreparePreviewDto;
+        try {
+            preview = await previewAgentProfilePrepare(harness, {
+                profileKey: staging.profileKey,
+                sessionId: input.sessionId,
+                initial: input.initial,
+                initialOverrides: input.initialOverrides,
+            });
+        } finally {
+            await harness.dispose();
+        }
         return {
-            ok: preview.ok && issues.every((issue) => issue.severity !== "error"),
-            stale: false,
-            detail,
+            ...compiled,
+            ok: preview.ok && compiled.issues.every((issue) => issue.severity !== "error"),
             preview,
-            issues: [...issues, ...preview.issues],
+            issues: [...compiled.issues, ...preview.issues],
         };
     } finally {
-        await rm(temporaryRoot, {recursive: true, force: true});
+        await rm(staging.profileRoot, {recursive: true, force: true});
     }
 }
 
@@ -348,6 +385,7 @@ function resolveProfileRoot(input: {profileRoot?: string}): string {
     }
     return resolve(input.profileRoot);
 }
+
 
 function lifecycleErrorResult(error: ProjectNotOpenError | AgentSessionNotFoundError, startedAt: number): ProfileCompileWorkerResult {
     return {

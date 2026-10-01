@@ -7,6 +7,7 @@ import {
     assertRealPathContained,
     type AbsoluteFsPath,
 } from "nbook/server/runtime/paths/file-path";
+import {appLogger} from "nbook/server/app-logs/logger";
 import {
     isProjectLockReleaseFailedError,
     ProjectLockModule,
@@ -673,6 +674,13 @@ export class ProjectLifecycle {
         const observers = this.workspaceObservers.get(workspace) ?? new Set<() => void>();
         observers.add(onReplaced);
         this.workspaceObservers.set(workspace, observers);
+        // openProject不等待watcher.ready；ready之前发生的rename由首次物理复核收口。
+        void this.watcher?.ready.then(() => this.notifyReplacedWorkspaces()).catch((error: unknown) => {
+            void appLogger.warn("workspaceFiles.projectLifecycle.readyReconcileFailed", {
+                workspaceRoot: this.workspaceRoot,
+                error: error instanceof Error ? error.message : String(error),
+            });
+        });
         let active = true;
         return () => {
             if (!active) {

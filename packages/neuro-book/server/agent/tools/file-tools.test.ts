@@ -17,11 +17,12 @@ import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
 import {authorizeFileOperation} from "nbook/server/workspace-files/authorized-file-operation";
 import {closeAllProjects, openProject} from "nbook/server/runtime/product-project";
+import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 
 describe("v3 file tools", () => {
     let root: string;
@@ -41,6 +42,7 @@ describe("v3 file tools", () => {
         root = await mkdtemp(testHostPath("nbook-agent-file-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(resolve(".")),
             stateRoot: absoluteFsPath(root),

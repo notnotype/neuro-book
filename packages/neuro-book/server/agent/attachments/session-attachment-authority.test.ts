@@ -1,8 +1,10 @@
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {describe, expect, it} from "vitest";
+import {closeAllProjects, resetProjectSessionsForTest} from "nbook/server/runtime/product-project";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {SessionAttachmentAuthority} from "nbook/server/agent/attachments/session-attachment-authority";
 import type {JsonlSessionRepository, SessionFileSignature} from "nbook/server/agent/session/session-repo";
 import type {SessionEntry, SessionMetadata} from "nbook/server/agent/session/types";
-
 describe("SessionAttachmentAuthority rebuild", () => {
     it("第二次扫描签名仍变化时 fail closed，下一次访问重新构建", async () => {
         const repo = new SignatureRepository([
@@ -54,17 +56,23 @@ describe("SessionAttachmentAuthority rebuild", () => {
         };
         const repo = new SignatureRepository(stableSignatures, metadata, [entry]);
         const authority = new SessionAttachmentAuthority(repo as unknown as JsonlSessionRepository);
-
-        await expect(authority.validateDurableOwnership(1)).resolves.toBeUndefined();
-        await expect(authority.resolveDurableOwnership(1, [attachmentId])).resolves.toEqual(new Map([[
-            attachmentId,
-            {
-                type: "attachment",
-                attachment: {id: attachmentId, mimeType: "image/png", bytes: 8},
-                name: "cover.png",
-            },
-        ]]));
-        await expect(authority.locator(1, "attachment-entry", 0)).rejects.toThrow("Project未打开");
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: testHostPath("session-attachment-authority")});
+        try {
+            await expect(authority.validateDurableOwnership(1)).resolves.toBeUndefined();
+            await expect(authority.resolveDurableOwnership(1, [attachmentId])).resolves.toEqual(new Map([[
+                attachmentId,
+                {
+                    type: "attachment",
+                    attachment: {id: attachmentId, mimeType: "image/png", bytes: 8},
+                    name: "cover.png",
+                },
+            ]]));
+            await expect(authority.locator(1, "attachment-entry", 0)).rejects.toThrow("Project未打开");
+        } finally {
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+            setWorkspaceRuntimeRootContextForTest(null);
+        }
     });
 });
 

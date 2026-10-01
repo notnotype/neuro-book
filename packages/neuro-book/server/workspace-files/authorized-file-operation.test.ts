@@ -15,7 +15,7 @@ import {
     openProject,
     ProjectNotOpenError,
 } from "nbook/server/runtime/product-project";
-import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 
 describe("Authorized File Operation", () => {
     const roots: string[] = [];
@@ -132,6 +132,7 @@ describe("Authorized File Operation", () => {
 
     async function openReady(workspaceRoot: ReturnType<typeof absoluteFsPath>, projectRoot: string): Promise<ReadyProjectSessionRef> {
         await createProjectDirectory(workspaceRoot, projectRoot);
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
         return openProject(projectWorkspaceRef(projectRoot), {kind: "job", source: "authorized-file-operation-test"}, workspaceRoot);
     }
 

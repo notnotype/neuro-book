@@ -48,7 +48,7 @@ import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 import {projectModuleToken, replaceProjectModulesForTest, type ProjectModule, type ProjectModuleHandle} from "nbook/server/workspace-files/project-module";
-import {withWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {withWorkspaceRuntimeRootContextForTest, setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {serializeAgentImageMarkdown} from "nbook/shared/agent/agent-image-markdown";
 import managedSummarizerProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/summarizer.profile";
 import {createRasterTestFixtures} from "nbook/server/agent/test-utils/raster-fixtures";
@@ -217,6 +217,8 @@ function createTestProfileCatalog(systemRoot: string, compilerRoot = testArtifac
 function createTestHarness(options: ConstructorParameters<typeof NeuroAgentHarness>[0]): NeuroAgentHarness {
     const definitionArtifactPathContextProvider = options.definitionArtifactPathContextProvider
         ?? createVariableDefinitionArtifactPathContextResolver(testArtifactCompilerRoot);
+    const workspaceRoot = options.runtimePaths?.workspaceRoot ?? options.repo?.rootWorkspace;
+    if (workspaceRoot) setWorkspaceRuntimeRootContextForTest({workspaceRoot});
     return new NeuroAgentHarness({
         ...options,
         definitionArtifactPathContextProvider,

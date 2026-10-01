@@ -7,16 +7,20 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {HistorySet, Message, ProfilePrompt, WorkflowCatalog as WorkflowCatalogPrompt} from "nbook/server/agent/profiles/profile-dsl";
+import {withProfileSourceOverride} from "nbook/server/agent/profiles/profile-source-check";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {createRuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {createVariableDefinitionArtifactPathContextResolver} from "nbook/server/agent/variables/definition-artifact";
 import {WorkflowCatalog} from "nbook/server/agent/workflow/workflow-catalog";
-import {resetProjectSessionsForTest} from "nbook/server/runtime/product-project";
+import {closeAllProjects, resetProjectSessionsForTest} from "nbook/server/runtime/product-project";
+import {profileWorkbenchRootsFromRuntime} from "nbook/server/agent/profiles/profile-workbench-roots";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
+import {resolveApplicationRoot} from "nbook/server/workspace-files/system-workspace-assets";
 
 const roots: string[] = [];
 const originalApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
@@ -24,6 +28,7 @@ const originalStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
 
 afterEach(async () => {
     await closeProjectForTest("project").catch(() => undefined);
+    await closeAllProjects();
     resetProjectSessionsForTest();
     setWorkspaceRuntimeRootContextForTest(null);
     restoreEnv("NEURO_BOOK_APPLICATION_ROOT", originalApplicationRoot);
@@ -224,6 +229,66 @@ describe("Profile prepare preview物理Workspace Root", () => {
             await harness.dispose();
         }
     });
+    it("会话绑定已打开Project时source override dry-run预览由主线程成功执行", async () => {
+        const fixture = await fixtureRoot();
+        const applicationRoot = absoluteFsPath(resolveApplicationRoot());
+        const stateRoot = absoluteFsPath(path.join(fixture, "state"));
+        const runtimePaths = createRuntimePaths({applicationRoot, stateRoot});
+        const projectRoot = absoluteFsPath(path.join(runtimePaths.workspaceRoot, "project"));
+        await Promise.all([
+            mkdir(runtimePaths.workspaceRoot, {recursive: true}),
+            mkdir(projectRoot, {recursive: true}),
+        ]);
+        await writeProjectManifest(projectRoot);
+        process.env.NEURO_BOOK_APPLICATION_ROOT = applicationRoot;
+        process.env.NEURO_BOOK_STATE_ROOT = stateRoot;
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: runtimePaths.workspaceRoot});
+        await openProjectForTest("project");
+
+        const repo = new JsonlSessionRepository(runtimePaths.workspaceRoot);
+        const session = await repo.createSession({
+            profileKey: "test.source-override",
+            initial: {},
+            currentProjectRoot: "project",
+        });
+        const source = `
+            import {Type, defineAgentProfile, toolset} from "nbook/profile-sdk";
+            export const profileManifest = {key: "test.source-override", name: "Source Override"} as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                initialSchema: Type.Object({}),
+                tools: toolset(),
+                prepare({runtime}) {
+                    return {systemPrompt: runtime.currentProject?.workspace.ref.projectRoot ?? "missing"};
+                },
+            });
+        `;
+
+        const roots = profileWorkbenchRootsFromRuntime(runtimePaths);
+        const worker = new ProfileCompileWorkerService(
+            "source-override-preview",
+            1,
+            undefined,
+            roots.profileRoot,
+            "workspace/.nbook/agent/profiles",
+            runtimePaths,
+        );
+        try {
+            const result = await worker.compile({
+                fileName: "custom/source-override.profile.tsx",
+                source,
+                dryRun: true,
+                preview: true,
+                sessionId: String(session.metadata.sessionId),
+            });
+            expect(result.ok).toBe(true);
+            expect(result.preview?.ok).toBe(true);
+            expect(result.preview?.messages.map((message) => message.text).join("\n")).toContain("project");
+        } finally {
+            worker.dispose();
+        }
+    });
+
 });
 
 /** 断言prepare preview看到的Current Project与绝对Workspace Root。 */

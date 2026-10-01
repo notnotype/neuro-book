@@ -26,6 +26,7 @@ import {
     setHistoryEnabledOverrideForTest,
 } from "nbook/server/workspace-history/project-history";
 import memoryCuratorProfileDefinition from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {
     applySubjectMemoryPatch,
     parseSubjectEventsJsonl,
@@ -48,6 +49,7 @@ describe("subject memory tools", () => {
         root = await mkdtemp(testHostPath("nbook-subject-memory-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(join(workspaceRoot, "demo"), {recursive: true});
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
         const runtimePaths = createRuntimePaths({
             applicationRoot: absoluteFsPath(resolve(".")),
             stateRoot: absoluteFsPath(root),
@@ -214,10 +216,13 @@ describe("subject memory tools", () => {
         await mkdir(subjectRoot, {recursive: true});
         await writeFile(join(subjectRoot, "events.jsonl"), "{\"text\":\"旧事件。\"}\n", "utf-8");
         const fileIndex = requireReadyModuleHandle(invocationReady, PROJECT_FILE_INDEX_MODULE_TOKEN);
-        const beforeNode = (await fileIndex.read()).nodes.find((node) => (
-            node.path === "simulation/subjects/heroine/events.jsonl"
-        ));
-        expect(beforeNode).toBeDefined();
+        const beforeNode = await vi.waitFor(async () => {
+            const node = (await fileIndex.read()).nodes.find((candidate) => (
+                candidate.path === "simulation/subjects/heroine/events.jsonl"
+            ));
+            if (!node) throw new Error("Project File Index 尚未收敛到外部创建的 events.jsonl");
+            return node;
+        });
         const tool = mustTool("subject_event_append", harness);
 
         await tool.executeWithContext?.(context, "append-events", {
@@ -481,10 +486,13 @@ describe("subject memory tools", () => {
             "",
         ].join("\n"), "utf-8");
         const fileIndex = requireReadyModuleHandle(invocationReady, PROJECT_FILE_INDEX_MODULE_TOKEN);
-        const beforeNode = (await fileIndex.read()).nodes.find((node) => (
-            node.path === "simulation/subjects/heroine/memory.jsonl"
-        ));
-        expect(beforeNode).toBeDefined();
+        const beforeNode = await vi.waitFor(async () => {
+            const node = (await fileIndex.read()).nodes.find((candidate) => (
+                candidate.path === "simulation/subjects/heroine/memory.jsonl"
+            ));
+            if (!node) throw new Error("Project File Index 尚未收敛到外部创建的 memory.jsonl");
+            return node;
+        });
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("report_result", {

@@ -97,16 +97,25 @@ export type LabEventOf<C> = keyof {[K in keyof LabSubjectProps<C> as EventKey<K>
 export type LabSlotOf<C> = C extends abstract new (...args: never[]) => {$slots: infer S}
     ? keyof {[K in keyof S as string extends K ? never : number extends K ? never : K]: true} & string
     : string;
+/** v-model对应的可选 prop 保持可选；否则 Lab 会强迫组件为未提供的默认值制造受控值。 */
+type RequiredModelKey<P> = {
+    [K in ModelKey<P>]: {} extends Pick<DataProps<P>, K> ? never : K;
+}[ModelKey<P>];
+type OptionalModelKey<P> = Exclude<ModelKey<P>, RequiredModelKey<P>>;
+type ModelLayer<P> = [ModelKey<P>] extends [never] ? {} : {
+    model: Required<Pick<JsonDataProps<P>, Extract<RequiredModelKey<P>, keyof JsonDataProps<P>>>>
+        & Partial<Pick<JsonDataProps<P>, Extract<OptionalModelKey<P>, keyof JsonDataProps<P>>>>;
+};
 
 /**
  * 按组件 C 检查过的场景输入：
  * - 键名必须是 C 真实的 prop 名 / 插槽名，写错即多余属性报错；
  * - 必填的非受控 prop 必须出现在 `props` 层；
- * - 每个 v-model 都必须在 `model` 层给初值，也只能放在这一层。
+ * - 必填的 v-model 在 `model` 层给初值；可选的 v-model 仍可由 fixture 选择是否受控。
  */
 export type LabInputOf<C> =
     Layer<"props", Omit<JsonDataProps<LabSubjectProps<C>>, ModelKey<LabSubjectProps<C>>>, true>
-    & Layer<"model", Required<Pick<JsonDataProps<LabSubjectProps<C>>, Extract<ModelKey<LabSubjectProps<C>>, LabJsonPropOf<C>>>>>
+    & ModelLayer<LabSubjectProps<C>>
     & Layer<"slots", {[K in LabSlotOf<C>]?: boolean}>;
 
 /** JSON 来源的 props 与模型值，加上组件原本声明的监听键；运行期服务由 fixture 自行补齐。 */

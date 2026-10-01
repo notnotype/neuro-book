@@ -1,14 +1,20 @@
-import type * as ProjectOpenGuard from "nbook/server/workspace-files/project-open-guard";
 import {describe, expect, it, vi, beforeEach} from "vitest";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
+function parseBinding(input: Record<string, unknown>): {projectRoot: string; publicId: string} | {workspaceKind: "user-assets"} {
+    if (input.workspaceKind === "user-assets") return {workspaceKind: "user-assets"};
+    if (typeof input.projectRoot !== "string" || !input.projectRoot.trim() || typeof input.publicId !== "string" || !input.publicId.trim()) {
+        throw Object.assign(new Error("projectRoot 不能为空"), {statusCode: 400});
+    }
+    return {projectRoot: input.projectRoot, publicId: input.publicId};
+}
 
 describe("POST /api/workspace-files/upload-file", () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
-        vi.doMock("nbook/server/workspace-files/project-open-guard", async (importOriginal) => ({
-            ...await importOriginal<typeof ProjectOpenGuard>(),
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            parseWorkspaceFileHttpBinding: parseBinding,
             withBoundProjectTargetMutation: vi.fn((_target, _binding, handler: (handles: undefined) => unknown) => handler(undefined)),
         }));
         vi.doMock("nbook/server/workspace-history/tracked-workspace-files", () => ({

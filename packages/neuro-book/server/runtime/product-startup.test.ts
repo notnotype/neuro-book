@@ -1,16 +1,29 @@
+import {join} from "node:path";
+import {tmpdir} from "node:os";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
-import type {exitOnProductStartupFailure, productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles} from "nbook/server/runtime/product-startup";
+import type {exitOnProductStartupFailure, productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles, ProductRuntimeNotReadyError} from "nbook/server/runtime/product-startup";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
 import {absoluteFsPath} from "nbook/server/runtime/paths/file-path";
 
+function productTestApplicationRoot(): string {
+    return join(tmpdir(), "neuro-book-product-startup", "application");
+}
+
+function productTestStateRoot(): string {
+    return join(tmpdir(), "neuro-book-product-startup", "state");
+}
+
+function productTestWorkspaceRoot(): string {
+    return join(productTestStateRoot(), "workspace");
+}
 const mocks = vi.hoisted(() => ({
     mkdir: vi.fn(async () => undefined),
     inspectStateRootIntegrity: vi.fn(async () => ({kind: "clean"})),
     stateRootIntegrityFailed: vi.fn(() => false),
     assertProductMigrationsReady: vi.fn(async () => undefined),
-    startAgentSessionStoreRuntime: vi.fn(async () => ({rootWorkspace: "C:/state/workspace"})),
+    startAgentSessionStoreRuntime: vi.fn(async () => ({rootWorkspace: productTestWorkspaceRoot()})),
     stopAgentSessionStoreRuntime: vi.fn(async () => undefined),
     observeAgentSessionStoreRuntimeCompromised: vi.fn<() => Promise<{
         leasePath: string;
@@ -23,9 +36,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
 vi.mock("nbook/server/runtime/paths/runtime-paths", () => ({
     runtimePathsFromEnv: () => ({
-        applicationRoot: "C:/application",
-        stateRoot: "C:/state",
-        workspaceRoot: "C:/state/workspace",
+        applicationRoot: productTestApplicationRoot(),
+        stateRoot: productTestStateRoot(),
+        workspaceRoot: productTestWorkspaceRoot(),
     }),
 }));
 vi.mock("nbook/server/runtime/state-root-integrity", () => ({
@@ -51,6 +64,7 @@ let runtime: {
     productProjectOwner: typeof productProjectOwner;
     withProductWorkspaceFiles: typeof withProductWorkspaceFiles;
     exitOnProductStartupFailure: typeof exitOnProductStartupFailure;
+    ProductRuntimeNotReadyError: typeof ProductRuntimeNotReadyError;
 };
 const productGlobals = globalThis as typeof globalThis & {__nbookProductApplicationV1?: unknown};
 
@@ -64,8 +78,11 @@ describe("Product startup", () => {
         mocks.inspectStateRootIntegrity.mockResolvedValue({kind: "clean"});
         mocks.stateRootIntegrityFailed.mockReturnValue(false);
         mocks.assertProductMigrationsReady.mockResolvedValue(undefined);
-        mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: "C:/state/workspace"});
+        mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: productTestWorkspaceRoot()});
         mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise(() => undefined));
+    });
+    it("Product Runtime 未ready时以typed error拒绝创建Project owner", () => {
+        expect(() => runtime.productProjectOwner(() => ({root: {} as Scope}))).toThrow(runtime.ProductRuntimeNotReadyError);
     });
     it("migration 未完成时不获取 lease，也不发布 HTTP ready", async () => {
         const migration = Promise.withResolvers<void>();
@@ -81,13 +98,13 @@ describe("Product startup", () => {
     it("按 Workspace、migration、Session Store 顺序完成完整 ready 门禁", async () => {
         await runtime.productRuntimeReady();
 
-        expect(mocks.mkdir).toHaveBeenCalledWith("C:/state/workspace", {recursive: true});
+        expect(mocks.mkdir).toHaveBeenCalledWith(productTestWorkspaceRoot(), {recursive: true});
         expect(mocks.inspectStateRootIntegrity).toHaveBeenCalledWith({
-            installationRoot: "C:/application",
-            stateRoot: "C:/state",
+            installationRoot: productTestApplicationRoot(),
+            stateRoot: productTestStateRoot(),
         });
         expect(mocks.assertProductMigrationsReady).toHaveBeenCalledOnce();
-        expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledWith("C:/state/workspace");
+        expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledWith(productTestWorkspaceRoot());
         expect(mocks.mkdir.mock.invocationCallOrder[0]).toBeLessThan(
             mocks.assertProductMigrationsReady.mock.invocationCallOrder[0]!,
         );
@@ -154,13 +171,13 @@ describe("Product startup", () => {
 
         expect(hotReloaded.productRuntimeReady()).toBe(ready);
         expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
-        await expect(hotReloaded.withProductWorkspaceFiles({target: {kind: "user-assets", root: absoluteFsPath("C:/state/workspace/.nbook")}, handles: undefined}, async () => "reloaded")).resolves.toBe("reloaded");
+        await expect(hotReloaded.withProductWorkspaceFiles({target: {kind: "user-assets", root: absoluteFsPath(join(productTestWorkspaceRoot(), ".nbook"))}, handles: undefined}, async () => "reloaded")).resolves.toBe("reloaded");
         await hotReloaded.stopProductRuntime();
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
     });
 
     it("Files 请求释放不关闭共享服务，应用停止后拒绝新请求", async () => {
-        const binding = {target: {kind: "user-assets" as const, root: absoluteFsPath("C:/state/workspace/.nbook")}, handles: undefined};
+        const binding = {target: {kind: "user-assets" as const, root: absoluteFsPath(join(productTestWorkspaceRoot(), ".nbook"))}, handles: undefined};
         await expect(runtime.withProductWorkspaceFiles(binding, async () => "first")).resolves.toBe("first");
         await expect(runtime.withProductWorkspaceFiles(binding, async () => "second")).resolves.toBe("second");
         await runtime.stopProductRuntime();
@@ -168,7 +185,7 @@ describe("Product startup", () => {
     });
 
     it("Files 在途操作未结束时不释放 Session lease", async () => {
-        const binding = {target: {kind: "user-assets" as const, root: absoluteFsPath("C:/state/workspace/.nbook")}, handles: undefined};
+        const binding = {target: {kind: "user-assets" as const, root: absoluteFsPath(join(productTestWorkspaceRoot(), ".nbook"))}, handles: undefined};
         const started = Promise.withResolvers<void>();
         const finish = Promise.withResolvers<void>();
         const aborted = Promise.withResolvers<void>();
@@ -204,7 +221,7 @@ describe("Product startup", () => {
 
         await runtime.productRuntimeReady();
         const error = Object.assign(new Error("heartbeat lost"), {
-            leasePath: "C:/state/workspace/.nbook/agent/migrations/runtime.lease",
+            leasePath: join(productTestWorkspaceRoot(), ".nbook", "agent", "migrations", "runtime.lease"),
             kind: "runtime" as const,
         });
         resolveCompromised(error);
@@ -228,7 +245,7 @@ describe("Product startup", () => {
     it("ready校验期间runtime lease compromised也走专用退出且不发布ready", async () => {
         const cause = new Error("heartbeat lost before ready");
         const error = new AgentSessionStoreLeaseCompromisedError(
-            "C:/state/workspace/.nbook/agent/migrations/runtime.lease",
+            join(productTestWorkspaceRoot(), ".nbook", "agent", "migrations", "runtime.lease"),
             "runtime",
             cause,
         );

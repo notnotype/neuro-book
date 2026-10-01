@@ -22,7 +22,11 @@ import {
     saveGlobalConfig,
     saveProjectConfig,
 } from "nbook/server/config/config-service";
-import {ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/runtime/product-project";
+import {
+    closeAllProjects,
+    ProjectNotOpenError,
+    resetProjectSessionsForTest,
+} from "nbook/server/runtime/product-project";
 import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
 import type {GlobalConfigUpdateDto} from "nbook/shared/dto/config.dto";
@@ -32,7 +36,7 @@ import {
     stopAgentSessionStoreRuntime,
 } from "nbook/server/agent/session/agent-session-store-runtime";
 import {runSessionSchemaV2Migration} from "nbook/server/agent/session/migrations/session-v2/migration";
-
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent", "writer"]);
 const CONFIG_TEST_PROJECT_ROOT = "config-test-project";
@@ -64,6 +68,7 @@ describe("config service", {timeout: 30_000}, () => {
     });
 
     beforeEach(async () => {
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: workspaceRoot()});
         await createProjectFixture();
         await openProjectForTest(CONFIG_TEST_PROJECT_ROOT);
     });
@@ -1905,6 +1910,7 @@ async function resetConfigTestState(): Promise<void> {
     } catch (error) {
         failures.push(error);
     }
+    await closeAllProjects();
     resetProjectSessionsForTest();
     try {
         await disposeAgentHarness();

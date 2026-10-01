@@ -10,6 +10,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import {resolveProfileArtifactPathContext} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
 import type {AttachmentRef} from "nbook/shared/dto/agent-attachment.dto";
 import {absoluteFsPath, type AbsoluteFsPath} from "nbook/server/runtime/paths/file-path";
 import {closeAllProjects,
@@ -23,7 +24,7 @@ import {
     type ProjectModule,
     type ProjectModuleHandle,
 } from "nbook/server/workspace-files/project-module";
-import {createRasterTestFixtures, jpegWithDimensions} from "nbook/server/agent/test-utils/raster-fixtures";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 
 let png: Buffer;
 let oversizedJpeg: Buffer;
@@ -43,6 +44,7 @@ describe("NeuroAgentHarness session attachment locator", () => {
     beforeEach(() => {
         resetProjectSessionsForTest();
         root = absoluteFsPath(testHostPath("session-attachment-test", randomUUID()));
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: root});
         repo = new JsonlSessionRepository(root);
         attachmentAdapter = memoryAttachmentAdapter();
         harness = new NeuroAgentHarness({

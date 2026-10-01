@@ -11,6 +11,12 @@ export type ProfileCompileStagedRelease = {
     manifest: ProfileArtifactManifest;
 };
 
+/** worker只编译临时源码；主线程消费这个目录执行prepare，并负责最终清理。 */
+export type ProfileCompilePreviewStaging = {
+    readonly profileRoot: string;
+    readonly profileKey: string;
+};
+
 /**
  * worker 内部生命周期错误。它不是公开 DTO 字段，主线程收到后会重新抛 typed error。
  */
@@ -24,6 +30,7 @@ export type ProfileCompileLifecycleError =
 export type ProfileCompileWorkerResult = AgentProfileCompileResultDto & {
     stagedRelease?: ProfileCompileStagedRelease;
     lifecycleError?: ProfileCompileLifecycleError;
+    previewStaging?: ProfileCompilePreviewStaging;
 };
 
 /**

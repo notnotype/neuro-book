@@ -306,6 +306,24 @@ describe("Application-owned project generations", () => {
         }
     });
 
+    it("owner关闭后新建owner承接最新Agent presence probe", async () => {
+        const ref = await createTempProject("probe-owner-reset-book");
+        const firstProbe = vi.fn(() => false);
+        const secondProbe = vi.fn(() => true);
+
+        registerAgentPresenceProbe(firstProbe);
+        const first = await openProject(ref, {kind: "user"}, workspaceRoot);
+        expect(projectOccupancy(ref)?.agentActive).toBe(false);
+
+        await closeAllProjects();
+        registerAgentPresenceProbe(secondProbe);
+
+        const second = await openProject(ref, {kind: "user"}, workspaceRoot);
+        expect(second).not.toBe(first);
+        expect(projectOccupancy(ref)?.agentActive).toBe(true);
+        expect(secondProbe).toHaveBeenCalledWith(second);
+    });
+
     it("Agent在场阻止grace，离场后到期关闭当前generation", async () => {
         const ref = await createTempProject("agent-book");
         const ready = await openProject(ref, {kind: "agent", sessionId: 7}, workspaceRoot);

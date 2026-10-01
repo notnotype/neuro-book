@@ -2522,10 +2522,12 @@ describe("workspace-files", {timeout: 60_000}, () => {
      */
     async function projectIndexOptions(): Promise<ProjectWorkspaceTreeIndexOptions> {
         const ref = projectWorkspaceRef(path.basename(root));
+        const workspaceRoot = absoluteFsPath(path.dirname(root));
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot});
         const ready = await openProject(
             ref,
             {kind: "job", source: "workspace-files-test"},
-            absoluteFsPath(path.dirname(root)),
+            workspaceRoot,
         );
         return {
             target: {kind: "project-workspace", root: ready.workspace.root, projectRoot: ref.projectRoot},

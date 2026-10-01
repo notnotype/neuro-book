@@ -33,6 +33,24 @@ import {
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 
 const sessionStoreKey = defineServiceKey<{readonly workspaceRoot: string}>("product-agent-session-store");
+
+export class ProductRuntimeNotReadyError extends Error {
+    readonly code = "PRODUCT_RUNTIME_NOT_READY" as const;
+
+    constructor() {
+        super("Product runtime 未就绪，不接纳 Project generation");
+        this.name = "ProductRuntimeNotReadyError";
+    }
+}
+
+export function isProductRuntimeNotReadyError(error: unknown): error is ProductRuntimeNotReadyError {
+    return error instanceof ProductRuntimeNotReadyError
+        || (typeof error === "object"
+            && error !== null
+            && "code" in error
+            && error.code === "PRODUCT_RUNTIME_NOT_READY");
+}
+
 type ProductRuntimeState = {
     application: Application;
     startup: Promise<void>;
@@ -47,7 +65,7 @@ const runtimeGlobals = globalThis as typeof globalThis & {__nbookProductApplicat
 export function productProjectOwner<T>(create: (root: Scope) => T): T {
     const state = runtimeGlobals.__nbookProductApplicationV1;
     if (!state || state.application.root.phase !== "available") {
-        throw new Error("Product runtime 未就绪，不接纳 Project generation");
+        throw new ProductRuntimeNotReadyError();
     }
     if (state.projectOwner === undefined) state.projectOwner = create(state.application.root) as {readonly root: Scope};
     return state.projectOwner as T;

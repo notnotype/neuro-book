@@ -49,6 +49,10 @@ import "nbook/server/plot/index";
 import "nbook/server/agent/tools/agent-sql-project-module";
 import "nbook/server/storage/project-storage-module";
 
+export {
+    isProductRuntimeNotReadyError,
+    ProductRuntimeNotReadyError,
+} from "nbook/server/runtime/product-startup";
 export {isProjectNotOpenError, PROJECT_GRACE_MS, ProjectNotOpenError};
 export type {ProjectOpener, ProjectOperationStart, ReadyProjectSessionRef};
 
@@ -89,6 +93,8 @@ type OpenProjectSnapshot = ProjectOccupancySnapshot & {
 };
 
 let testOwner: ProjectOwner | null = null;
+let activeOwner: ProjectOwner | null = null;
+let pendingAgentProbe: ((session: ReadyProjectSessionRef) => boolean) | null = null;
 
 function state(): ProjectOwner {
     const context = getWorkspaceRuntimeRootContextForTest();
@@ -109,17 +115,19 @@ function state(): ProjectOwner {
 function createOwner(root: Scope): ProjectOwner {
     const scope = root.createChild("project-owner");
     scope.open();
-    return {
+    const owner: ProjectOwner = {
         root: scope,
         service: null,
         workspaceRoot: null,
         compilerRoot: null,
-        agentProbe: null,
+        agentProbe: pendingAgentProbe,
         maintenanceTimer: null,
         sweepInFlight: false,
         generations: new Map(),
         closing: null,
     };
+    activeOwner = owner;
+    return owner;
 }
 
 /** Project generation 在 Application 子作用域接纳 opening，并由同一作用域负责最终释放。 */
@@ -400,10 +408,12 @@ export function acquireUserPresence(ref: ProjectWorkspaceRef, publicId: string):
     return service.acquireUserPresence(ref, publicId);
 }
 
-/** 注册 Agent 在场探针；ready 对象身份确保旧 invocation 不会占用重开的 generation。 */
+/** 注册 Agent 在场探针；探针可先于 Application owner 登记，Project generation仍由 owner门禁接纳。 */
 export function registerAgentPresenceProbe(probe: ((session: ReadyProjectSessionRef) => boolean) | null): void {
-    state().agentProbe = probe;
-    state().service?.registerAgentPresenceProbe(probe);
+    pendingAgentProbe = probe;
+    if (!activeOwner) return;
+    activeOwner.agentProbe = probe;
+    activeOwner.service?.registerAgentPresenceProbe(probe);
 }
 
 /** 仅刷新结构化 Project ref 对应 ready generation 的活动时间；未打开保持no-op。 */
@@ -453,12 +463,16 @@ export async function closeAllProjects(): Promise<void> {
     const owner = testOwner;
     const result = owner.root.phase === "available" ? await owner.root.close() : await owner.root.recover();
     if (result.status !== "closed") throw new Error(`Project test owner关闭不完整：${result.reason}`);
+    if (activeOwner === owner) activeOwner = null;
     testOwner = null;
 }
 
 /** 测试隔离根必须在先前显式 close 之后才可重置。 */
 export function resetProjectSessionsForTest(): void {
-    if (testOwner?.root.phase === "closed") testOwner = null;
+    if (testOwner?.root.phase === "closed") {
+        if (activeOwner === testOwner) activeOwner = null;
+        testOwner = null;
+    }
     if (testOwner?.service || testOwner?.generations.size) {
         throw new Error("Project test owner未关闭，不允许重置");
     }
@@ -525,6 +539,7 @@ async function closeOwner(owner: ProjectOwner): Promise<void> {
         owner.generations.clear();
         owner.workspaceRoot = null;
         owner.compilerRoot = null;
+        if (activeOwner === owner) activeOwner = null;
         collectReleasedSqliteHandles({force: true});
     })();
     owner.closing = closing;

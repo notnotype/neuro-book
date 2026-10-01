@@ -23,12 +23,14 @@ import {
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
+import {completeProfileCompilePreview} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 import {appLogger} from "nbook/server/app-logs/logger";
 import type {RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {
     isProjectNotOpenError,
     ProjectNotOpenError,
 } from "nbook/server/workspace-files/project-session-service";
+import {isProductRuntimeNotReadyError} from "nbook/server/runtime/product-project";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -334,14 +336,29 @@ export class ProfileCompileWorkerService {
                     staged?.profileRoot ?? this.profileRoot,
                     staged?.manifest.profilesRoot ?? this.profileRootLabel,
                 );
-                const result = await publishWorkerResult(task, message.result, artifactPathContext, this.cleanupStagedDir);
+                let completedResult = message.result;
+                if (message.result.previewStaging) {
+                    if (!("fileName" in task.input)) {
+                        throw new Error("Profile preview staging 只能由单文件编译任务消费。");
+                    }
+                    completedResult = await completeProfileCompilePreview(
+                        {...task.input, runtimePaths: this.runtimePaths},
+                        message.result,
+                    );
+                }
+                const result = await publishWorkerResult(
+                    task,
+                    completedResult,
+                    artifactPathContext,
+                    this.cleanupStagedDir,
+                );
                 slot.task = null;
                 this.running.delete(task.id);
                 task.resolve(result);
             } catch (error) {
                 slot.task = null;
                 this.running.delete(task.id);
-                if (isProjectNotOpenError(error) || isAgentSessionNotFoundError(error)) {
+                if (isProjectNotOpenError(error) || isAgentSessionNotFoundError(error) || isProductRuntimeNotReadyError(error)) {
                     task.reject(error);
                 } else {
                     task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));

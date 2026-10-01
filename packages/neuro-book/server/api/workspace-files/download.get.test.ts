@@ -1,4 +1,3 @@
-import type * as ProjectOpenGuard from "nbook/server/workspace-files/project-open-guard";
 import {Readable} from "node:stream";
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
@@ -7,6 +6,13 @@ import {
     projectWorkspaceRef,
     resolvedProjectWorkspace,
 } from "nbook/server/workspace-files/project-identity";
+function parseBinding(input: Record<string, unknown>): {projectRoot: string; publicId: string} | {workspaceKind: "user-assets"} {
+    if (input.workspaceKind === "user-assets") return {workspaceKind: "user-assets"};
+    if (typeof input.projectRoot !== "string" || !input.projectRoot.trim() || typeof input.publicId !== "string" || !input.publicId.trim()) {
+        throw Object.assign(new Error("projectRoot 不能为空"), {statusCode: 400});
+    }
+    return {projectRoot: input.projectRoot, publicId: input.publicId};
+}
 
 describe("GET /api/workspace-files/download", () => {
     beforeEach(() => {
@@ -53,8 +59,8 @@ describe("GET /api/workspace-files/download", () => {
             createProjectWorkspaceZipStream,
             createWorkspaceZipStream: vi.fn(),
         }));
-        vi.doMock("nbook/server/workspace-files/project-open-guard", async (importOriginal) => ({
-            ...await importOriginal<typeof ProjectOpenGuard>(),
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            parseWorkspaceFileHttpBinding: parseBinding,
             withBoundProjectTargetOperation: vi.fn((_target, _binding, handler: (handles: unknown) => unknown) => handler({
                 ready: {workspace, generation: 1},
                 fileIndex: {},
@@ -103,8 +109,8 @@ describe("GET /api/workspace-files/download", () => {
             createProjectWorkspaceZipStream,
             createWorkspaceZipStream,
         }));
-        vi.doMock("nbook/server/workspace-files/project-open-guard", async (importOriginal) => ({
-            ...await importOriginal<typeof ProjectOpenGuard>(),
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            parseWorkspaceFileHttpBinding: parseBinding,
             withBoundProjectTargetOperation: vi.fn((_target, _binding, handler: (handles: undefined) => unknown) => handler(undefined)),
         }));
 
@@ -128,12 +134,9 @@ describe("GET /api/workspace-files/download", () => {
             resolveWorkspaceFileTarget: vi.fn(),
             USER_ASSETS_WORKSPACE_KIND: "user-assets",
         }));
-        vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
-            createProjectWorkspaceZipStream: vi.fn(),
-            createWorkspaceZipStream: vi.fn(),
-        }));
-        vi.doMock("nbook/server/utils/prisma", () => ({
-            prisma: {},
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            parseWorkspaceFileHttpBinding: parseBinding,
+            withBoundProjectTargetOperation: vi.fn(),
         }));
 
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;

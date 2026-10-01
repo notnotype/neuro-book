@@ -71,7 +71,6 @@ describe("profile compile worker preview 与 lifecycle", () => {
                     stateRoot: absoluteFsPath(assets.root),
                 }),
             });
-
             expect(result.ok).toBe(true);
             expect(result.preview?.ok).toBe(true);
             await expect(readFile(sourcePath, "utf8")).resolves.toBe(source);

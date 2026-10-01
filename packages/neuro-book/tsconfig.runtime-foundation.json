@@ -22,9 +22,10 @@
     "include": [
         "runtime/**/*.ts",
         "server/runtime/foundation/**/*.ts",
-        "app/runtime/**/*.ts",
-        "server/features/**/*.ts",
-        "app/features/**/*.ts",
+        "app/runtime/browser-host.ts",
+        "server/features/platform-files/**/*.ts",
+        "server/features/sqlite/**/*.ts",
+        "server/features/runtime-diagnostics/**/*.ts",
         "scripts/smoke/runtime-foundation.ts",
         "scripts/smoke/runtime-foundation/**/*.ts"
     ]

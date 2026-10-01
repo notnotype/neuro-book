@@ -1,17 +1,11 @@
 import type AgentSidebarView from "../../components/novel-ide/agent/AgentSidebarView.vue";
 import type {AgentSidebarViewProps} from "../../components/novel-ide/agent/AgentSidebarView.types";
 import type {LabFixtureDefinition} from "./index";
+import type {LabInputOf} from "../lab-subject";
 import {SIDEBAR_FIXTURE_SCENARIOS, type AgentSidebarFixtureSceneData} from "./agent-sidebar-fixture-data";
 import {sampleSessionTree} from "./AgentExtraPanels.scenes";
 
-type SidebarInputProps = Omit<AgentSidebarViewProps, "composer" | "flow" | "workspaceChanges" | "referenceTeleportTarget" | "workflowByToolKey" | "resolveAttachmentUrl" | "systemPrompt"> & {
-    composer: Omit<AgentSidebarViewProps["composer"], "resolveMenu" | "onSkillTriggerStart">;
-    flow: Omit<AgentSidebarViewProps["flow"], "messages" | "resolveEditorMenu" | "onEditorSkillTriggerStart" | "openReference"> & {
-        messages: AgentSidebarFixtureSceneData["messages"];
-    };
-    workspaceChanges: Omit<AgentSidebarViewProps["workspaceChanges"], "diffStateFor">;
-    systemPrompt: Omit<AgentSidebarViewProps["systemPrompt"], "openReference">;
-};
+type SidebarInputProps = NonNullable<LabInputOf<typeof AgentSidebarView>["props"]>;
 
 function availability(s: AgentSidebarFixtureSceneData): AgentSidebarViewProps["composer"]["availability"] {
     switch (s.availabilityStatus) {

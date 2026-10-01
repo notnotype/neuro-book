@@ -7,9 +7,9 @@ import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session-service";
+import {closeAllProjects, ProjectNotOpenError, resetProjectSessionsForTest} from "nbook/server/runtime/product-project";
+import {setWorkspaceRuntimeRootContextForTest} from "nbook/server/workspace-files/workspace-runtime-root";
 import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/test-workspace-fixture";
-
 const PROFILE_FILE_NAME = "custom/lifecycle-home.profile.tsx";
 const PROFILE_KEY = "test.lifecycle-home";
 const PROFILE_SOURCE = `
@@ -64,9 +64,9 @@ describe("profile compile worker Project lifecycle", () => {
             ), "utf8")).rejects.toMatchObject({code: "ENOENT"});
         });
     }, 120_000);
-    it("worker service 将 Project lifecycle error 重新抛为 ProjectNotOpenError", async () => {
+    it("worker service 将主线程 Project 未打开错误重新抛出", async () => {
         await withLifecycleProfile(async (assets) => {
-            const {projectRoot, sessionId} = await createUnopenedProjectSession(assets);
+            const {sessionId} = await createUnopenedProjectSession(assets);
             const fileName = PROFILE_FILE_NAME;
             const source = await readFile(profilePath(assets, fileName), "utf8");
             const worker = new ProfileCompileWorkerService("test-project-lifecycle-error", 1, undefined, assets.userProfileRoot, "workspace/.nbook/agent/profiles", createRuntimePaths({
@@ -84,27 +84,67 @@ describe("profile compile worker Project lifecycle", () => {
                 throw new Error("Expected ProjectNotOpenError");
             } catch (error) {
                 expect(error).toBeInstanceOf(ProjectNotOpenError);
-                expect(error).toMatchObject({projectRoot});
             } finally {
                 worker.dispose();
             }
         });
     }, 120_000);
+    it("prepare失败后同一文件的后续编译能完成，不被遗留运行任务阻塞", async () => {
+        await withLifecycleProfile(async (assets) => {
+            const {sessionId} = await createUnopenedProjectSession(assets);
+            const worker = new ProfileCompileWorkerService(
+                "test-preview-failure-recovery",
+                1,
+                undefined,
+                assets.userProfileRoot,
+                "workspace/.nbook/agent/profiles",
+                createRuntimePaths({
+                    applicationRoot: absoluteFsPath(assets.applicationRoot),
+                    stateRoot: absoluteFsPath(assets.root),
+                }),
+            );
+            try {
+                await expect(worker.compile({
+                    fileName: PROFILE_FILE_NAME,
+                    dryRun: true,
+                    preview: true,
+                    sessionId: String(sessionId),
+                })).rejects.toBeInstanceOf(ProjectNotOpenError);
+                const next = await worker.compile({
+                    fileName: PROFILE_FILE_NAME,
+                    dryRun: false,
+                    preview: false,
+                });
+                expect(next.ok).toBe(true);
+                expect(next.profiles).toEqual([{
+                    profileKey: PROFILE_KEY,
+                    fileName: PROFILE_FILE_NAME,
+                    loadStatus: "loaded",
+                }]);
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 30_000);
 });
 
 /** 使用隔离Workspace Root和最小Profile Home源码运行生命周期测试。 */
 async function withLifecycleProfile(run: (assets: IsolatedWorkspaceAssets) => Promise<void>): Promise<void> {
-    await withIsolatedWorkspaceAssets({useAsCwd: true}, async (assets) => {
+    await withIsolatedWorkspaceAssets({}, async (assets) => {
         const previousApplicationRoot = process.env.NEURO_BOOK_APPLICATION_ROOT;
         const previousStateRoot = process.env.NEURO_BOOK_STATE_ROOT;
         process.env.NEURO_BOOK_APPLICATION_ROOT = assets.applicationRoot;
         process.env.NEURO_BOOK_STATE_ROOT = assets.root;
+        setWorkspaceRuntimeRootContextForTest({workspaceRoot: assets.workspaceContainerRoot});
         try {
             const target = resolve(assets.userProfileRoot, PROFILE_FILE_NAME);
             await mkdir(dirname(target), {recursive: true});
             await writeFile(target, PROFILE_SOURCE, "utf8");
             await run(assets);
         } finally {
+            await closeAllProjects();
+            resetProjectSessionsForTest();
+            setWorkspaceRuntimeRootContextForTest(null);
             restoreEnv("NEURO_BOOK_APPLICATION_ROOT", previousApplicationRoot);
             restoreEnv("NEURO_BOOK_STATE_ROOT", previousStateRoot);
         }

@@ -24,7 +24,7 @@ parentPort.on("message", async (message: WorkerRequest) => {
         ? await runProfileCompileAll(message.input)
         : message.mode === "entry"
             ? await runProfileCompileEntry(message.input as AgentProfileCompileRequestDto)
-            : await runProfileCompile(message.input as AgentProfileCompileRequestDto);
+            : await runProfileCompile({...message.input as AgentProfileCompileRequestDto, deferPreview: true});
     parentPort!.postMessage({
         id: message.id,
         result,

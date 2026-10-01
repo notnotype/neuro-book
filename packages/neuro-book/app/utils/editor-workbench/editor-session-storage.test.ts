@@ -59,8 +59,8 @@ type EditorSessionTestStore = {
     closeWorkspaceTab(groupId: string, filePath: string, discardChanges?: boolean): Promise<void>;
     editorDocumentTarget(path: string): EditorDocumentTarget;
     registerEditorFlush(target: EditorDocumentTarget, token: string, flush: () => EditorFlushResult): () => void;
+    switchToNovelWorkspace(ready: Readonly<{projectRoot: string; publicId: string}>): Promise<void>;
 };
-
 const CLIENT_CREDENTIAL = "0123456789abcdef".repeat(4);
 const READY_A = {projectRoot: "/workspace/a", publicId: "runtime-a:1", revision: 1} as const;
 const SURFACE_PROJECT: WorkbenchLayoutSurface = {kind: "project", ready: READY_A};
@@ -308,6 +308,9 @@ async function setup(surface: WorkbenchLayoutSurface = SURFACE_PROJECT): Promise
     Object.assign(globalThis, {
         $fetch: async (url: string, request: {query?: {path?: string}} = {}) => {
             const path = request.query?.path ?? "";
+            if (url.endsWith("/tree")) {
+                return [];
+            }
             if (url.endsWith("/stat")) {
                 return node(path);
             }
@@ -323,6 +326,7 @@ async function setup(surface: WorkbenchLayoutSurface = SURFACE_PROJECT): Promise
     const {useNovelIdeStore} = await import("nbook/app/stores/novel-ide");
     const {useEditorSessionStorage} = await import("nbook/app/utils/editor-workbench/editor-session-storage");
     const store: EditorSessionTestStore = useNovelIdeStore();
+    await store.switchToNovelWorkspace({projectRoot: "a", publicId: READY_A.publicId});
     store.currentProjectRoot = READY_A.projectRoot;
     const harness = storageHarness();
     const surfaceRef = ref<WorkbenchLayoutSurface>(surface);
