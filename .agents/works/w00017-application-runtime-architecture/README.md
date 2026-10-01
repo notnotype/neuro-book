@@ -69,6 +69,7 @@ issueId: null
 | [t32](tasks/t32-kernel-entry-dependencies/README.md) | 阶段 1 第一片：服务 id 归插件、按入口受阻推导、插件汇总、启动按依赖激活、关闭严格逆序与激活/关闭诊断（omp 编码）；`runtime.plugins`、`runtime.application` Spec 同步修订 |
 | [t33](tasks/t33-owner-contribution-points/README.md) | 阶段 1 第二片：贡献点由拥有者插件定义、按单条贡献校验、接收者由拥有者入口交出并按交付账本补交与撤回，Files 改由过渡插件 `nbook.workbench` 接收（omp 编码）；`runtime.plugins`、`runtime.application`、`runtime.plugin-manifest` Spec 同步修订 |
 | [t34](tasks/t34-builtin-service-plugins/README.md) | 阶段 1 第三片：App State、Storage、Session Store、Project、Agent 的生命周期迁为启动必需的内置插件，关闭顺序由依赖图产生，插件诊断写入产品日志，L2 通过（omp 编码）；发现内核显式恢复逐层推进与生产归档下载 crc32 打包两个缺陷 |
+| [t35](tasks/t35-archive-crc32-bundle/README.md) | 修复产品后处理 esbuild 把 `buffer-crc32`、`bignumber.js` 的 `require` 解析到 ESM 入口的问题（生产归档下载崩溃、大整数解析失败），新增真实产物检查；L3、L4 在途下载通过（omp 编码） |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

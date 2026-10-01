@@ -1,0 +1,79 @@
+{
+  "scope": "修复前真实生产 server metafile 与当前消费者源码",
+  "actualImports": [
+    {
+      "importer": "node_modules/json-bigint/lib/stringify.js",
+      "path": "node_modules/bignumber.js/bignumber.mjs",
+      "kind": "require-call",
+      "original": "bignumber.js"
+    },
+    {
+      "importer": "node_modules/json-bigint/lib/parse.js",
+      "path": "node_modules/bignumber.js/bignumber.mjs",
+      "kind": "require-call",
+      "original": "bignumber.js"
+    },
+    {
+      "importer": "node_modules/gcp-metadata/build/src/index.js",
+      "path": "node_modules/json-bigint/index.js",
+      "kind": "require-call",
+      "original": "json-bigint"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/computeclient.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/envDetect.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/@google/genai/dist/node/index.mjs",
+      "path": "node_modules/google-auth-library/build/src/index.js",
+      "kind": "import-statement",
+      "original": "google-auth-library"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js",
+      "path": "node_modules/@google/genai/dist/node/index.mjs",
+      "kind": "import-statement",
+      "original": "@google/genai"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-vertex.js",
+      "path": "node_modules/@google/genai/dist/node/index.mjs",
+      "kind": "import-statement",
+      "original": "@google/genai"
+    }
+  ],
+  "productBoundary": {
+    "path": "packages/neuro-book/server/agent/harness/pi-runtime-resolver.ts",
+    "adapter": "google-generative-ai",
+    "auth": "显式 API key",
+    "supportedContract": "packages/neuro-book-contracts/src/provider-config-contract.ts",
+    "vertexSupported": false
+  },
+  "failureCondition": {
+    "parser": "json-bigint/lib/parse.js:211-216",
+    "condition": "JSON 数字长度大于 15 且默认使用 BigNumber",
+    "fallback": "gcp-metadata metadataAccessor 捕获解析异常并返回原始字符串",
+    "impact": "包含大整数的实例/项目 metadata 返回字符串而非 BigNumber 或对象；调用方需要结构化响应时受影响；没有大整数的 metadata token JSON 不触发此构造器异常"
+  },
+  "runtimeProviderValidation": "未执行真实 Google Provider 或 GCP metadata 服务请求"
+}

@@ -1,0 +1,731 @@
+{
+  "scope": "原始生产服务器的修复前 esbuild metafile，未执行真实 Provider 请求",
+  "edges": [
+    {
+      "importer": "node_modules/json-bigint/lib/stringify.js",
+      "path": "node_modules/bignumber.js/bignumber.mjs",
+      "kind": "require-call",
+      "original": "bignumber.js"
+    },
+    {
+      "importer": "node_modules/json-bigint/lib/parse.js",
+      "path": "node_modules/bignumber.js/bignumber.mjs",
+      "kind": "require-call",
+      "original": "bignumber.js"
+    },
+    {
+      "importer": "node_modules/json-bigint/index.js",
+      "path": "node_modules/json-bigint/lib/stringify.js",
+      "kind": "require-call",
+      "original": "./lib/stringify.js"
+    },
+    {
+      "importer": "node_modules/json-bigint/index.js",
+      "path": "node_modules/json-bigint/lib/parse.js",
+      "kind": "require-call",
+      "original": "./lib/parse.js"
+    },
+    {
+      "importer": "node_modules/gcp-metadata/build/src/index.js",
+      "path": "node_modules/json-bigint/index.js",
+      "kind": "require-call",
+      "original": "json-bigint"
+    },
+    {
+      "importer": "node_modules/gcp-metadata/build/src/index.js",
+      "path": "node_modules/gcp-metadata/build/src/gcp-residency.js",
+      "kind": "require-call",
+      "original": "./gcp-residency"
+    },
+    {
+      "importer": "node_modules/gcp-metadata/build/src/index.js",
+      "path": "node_modules/gcp-metadata/build/src/gcp-residency.js",
+      "kind": "require-call",
+      "original": "./gcp-residency"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/crypto/browser/crypto.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/shared.js",
+      "kind": "require-call",
+      "original": "../shared"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/browser/crypto.js",
+      "kind": "require-call",
+      "original": "./browser/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/node/crypto.js",
+      "kind": "require-call",
+      "original": "./node/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/shared.js",
+      "kind": "require-call",
+      "original": "./shared"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/shared.cjs",
+      "path": "node_modules/google-auth-library/package.json",
+      "kind": "require-call",
+      "original": "../../package.json"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "path": "node_modules/google-auth-library/build/src/shared.cjs",
+      "kind": "require-call",
+      "original": "../shared.cjs"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "kind": "require-call",
+      "original": "../crypto/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/loginticket.js",
+      "kind": "require-call",
+      "original": "./loginticket"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/computeclient.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/computeclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/idtokenclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/envDetect.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/getToken.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/jwsSign.js",
+      "kind": "require-call",
+      "original": "./jwsSign"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/getCredentials.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/errorWithCode.js",
+      "kind": "require-call",
+      "original": "./errorWithCode"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/tokenHandler.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/getToken.js",
+      "kind": "require-call",
+      "original": "./getToken"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/tokenHandler.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/getCredentials.js",
+      "kind": "require-call",
+      "original": "./getCredentials"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/googleToken.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/tokenHandler.js",
+      "kind": "require-call",
+      "original": "./tokenHandler"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/gtoken/googleToken.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/revokeToken.js",
+      "kind": "require-call",
+      "original": "./revokeToken"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtaccess.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/googleToken.js",
+      "kind": "require-call",
+      "original": "../gtoken/googleToken"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/getCredentials.js",
+      "kind": "require-call",
+      "original": "../gtoken/getCredentials"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/jwtaccess.js",
+      "kind": "require-call",
+      "original": "./jwtaccess"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/refreshclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/refreshclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/impersonated.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/impersonated.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/oauth2common.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "kind": "require-call",
+      "original": "../crypto/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2common.js",
+      "kind": "require-call",
+      "original": "./oauth2common"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "kind": "require-call",
+      "original": "./stscredentials"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "path": "node_modules/google-auth-library/build/src/shared.cjs",
+      "kind": "require-call",
+      "original": "../shared.cjs"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/urlsubjecttokensupplier.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/certificatesubjecttokensupplier.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/filesubjecttokensupplier.js",
+      "kind": "require-call",
+      "original": "./filesubjecttokensupplier"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/urlsubjecttokensupplier.js",
+      "kind": "require-call",
+      "original": "./urlsubjecttokensupplier"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/certificatesubjecttokensupplier.js",
+      "kind": "require-call",
+      "original": "./certificatesubjecttokensupplier"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "kind": "require-call",
+      "original": "./stscredentials"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/awsrequestsigner.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "kind": "require-call",
+      "original": "../crypto/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/defaultawssecuritycredentialssupplier.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/awsrequestsigner.js",
+      "kind": "require-call",
+      "original": "./awsrequestsigner"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/defaultawssecuritycredentialssupplier.js",
+      "kind": "require-call",
+      "original": "./defaultawssecuritycredentialssupplier"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/pluggable-auth-handler.js",
+      "path": "node_modules/google-auth-library/build/src/auth/executable-response.js",
+      "kind": "require-call",
+      "original": "./executable-response"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/executable-response.js",
+      "kind": "require-call",
+      "original": "./executable-response"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/pluggable-auth-handler.js",
+      "kind": "require-call",
+      "original": "./pluggable-auth-handler"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "path": "node_modules/google-auth-library/build/src/auth/pluggable-auth-handler.js",
+      "kind": "require-call",
+      "original": "./pluggable-auth-handler"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "kind": "require-call",
+      "original": "./identitypoolclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "kind": "require-call",
+      "original": "./awsclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "kind": "require-call",
+      "original": "./pluggable-auth-client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalAccountAuthorizedUserClient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalAccountAuthorizedUserClient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2common.js",
+      "kind": "require-call",
+      "original": "./oauth2common"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/externalAccountAuthorizedUserClient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/gdchclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/crypto/crypto.js",
+      "kind": "require-call",
+      "original": "../crypto/crypto"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/computeclient.js",
+      "kind": "require-call",
+      "original": "./computeclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/idtokenclient.js",
+      "kind": "require-call",
+      "original": "./idtokenclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/envDetect.js",
+      "kind": "require-call",
+      "original": "./envDetect"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "kind": "require-call",
+      "original": "./jwtclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/refreshclient.js",
+      "kind": "require-call",
+      "original": "./refreshclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/impersonated.js",
+      "kind": "require-call",
+      "original": "./impersonated"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "kind": "require-call",
+      "original": "./externalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/externalAccountAuthorizedUserClient.js",
+      "kind": "require-call",
+      "original": "./externalAccountAuthorizedUserClient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/auth/gdchclient.js",
+      "kind": "require-call",
+      "original": "./gdchclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "path": "node_modules/google-auth-library/build/src/util.js",
+      "kind": "require-call",
+      "original": "../util"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/downscopedclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/downscopedclient.js",
+      "path": "node_modules/google-auth-library/build/src/auth/stscredentials.js",
+      "kind": "require-call",
+      "original": "./stscredentials"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/auth/passthrough.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/googleauth.js",
+      "kind": "require-call",
+      "original": "./auth/googleauth"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/gcp-metadata/build/src/index.js",
+      "kind": "require-call",
+      "original": "gcp-metadata"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/authclient.js",
+      "kind": "require-call",
+      "original": "./auth/authclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/computeclient.js",
+      "kind": "require-call",
+      "original": "./auth/computeclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/envDetect.js",
+      "kind": "require-call",
+      "original": "./auth/envDetect"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/iam.js",
+      "kind": "require-call",
+      "original": "./auth/iam"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/idtokenclient.js",
+      "kind": "require-call",
+      "original": "./auth/idtokenclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/jwtaccess.js",
+      "kind": "require-call",
+      "original": "./auth/jwtaccess"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/jwtclient.js",
+      "kind": "require-call",
+      "original": "./auth/jwtclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/impersonated.js",
+      "kind": "require-call",
+      "original": "./auth/impersonated"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/oauth2client.js",
+      "kind": "require-call",
+      "original": "./auth/oauth2client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/loginticket.js",
+      "kind": "require-call",
+      "original": "./auth/loginticket"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/refreshclient.js",
+      "kind": "require-call",
+      "original": "./auth/refreshclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/awsclient.js",
+      "kind": "require-call",
+      "original": "./auth/awsclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/awsrequestsigner.js",
+      "kind": "require-call",
+      "original": "./auth/awsrequestsigner"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/identitypoolclient.js",
+      "kind": "require-call",
+      "original": "./auth/identitypoolclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/externalclient.js",
+      "kind": "require-call",
+      "original": "./auth/externalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/baseexternalclient.js",
+      "kind": "require-call",
+      "original": "./auth/baseexternalclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/downscopedclient.js",
+      "kind": "require-call",
+      "original": "./auth/downscopedclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/pluggable-auth-client.js",
+      "kind": "require-call",
+      "original": "./auth/pluggable-auth-client"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/externalAccountAuthorizedUserClient.js",
+      "kind": "require-call",
+      "original": "./auth/externalAccountAuthorizedUserClient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/passthrough.js",
+      "kind": "require-call",
+      "original": "./auth/passthrough"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/auth/gdchclient.js",
+      "kind": "require-call",
+      "original": "./auth/gdchclient"
+    },
+    {
+      "importer": "node_modules/google-auth-library/build/src/index.js",
+      "path": "node_modules/google-auth-library/build/src/gtoken/googleToken.js",
+      "kind": "require-call",
+      "original": "./gtoken/googleToken"
+    },
+    {
+      "importer": "node_modules/@google/genai/dist/node/index.mjs",
+      "path": "node_modules/google-auth-library/build/src/index.js",
+      "kind": "import-statement",
+      "original": "google-auth-library"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js",
+      "path": "node_modules/@google/genai/dist/node/index.mjs",
+      "kind": "import-statement",
+      "original": "@google/genai"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.lazy.js",
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js",
+      "kind": "dynamic-import",
+      "original": "./google-generative-ai.js"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-vertex.js",
+      "path": "node_modules/@google/genai/dist/node/index.mjs",
+      "kind": "import-statement",
+      "original": "@google/genai"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/api/google-vertex.lazy.js",
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/google-vertex.js",
+      "kind": "dynamic-import",
+      "original": "./google-vertex.js"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/providers/google-vertex.js",
+      "path": "node_modules/@earendil-works/pi-ai/dist/api/google-vertex.lazy.js",
+      "kind": "import-statement",
+      "original": "../api/google-vertex.lazy.js"
+    },
+    {
+      "importer": "node_modules/@earendil-works/pi-ai/dist/providers/google-vertex.js",
+      "path": "node_modules/@earendil-works/pi-ai/dist/providers/google-vertex.models.js",
+      "kind": "import-statement",
+      "original": "./google-vertex.models.js"
+    }
+  ]
+}

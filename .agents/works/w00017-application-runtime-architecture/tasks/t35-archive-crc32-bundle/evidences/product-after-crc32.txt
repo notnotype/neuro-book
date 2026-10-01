@@ -1,0 +1,13 @@
+{
+  "entry": ".output/server/index.mjs",
+  "binding": "POo=YOo()",
+  "crcLoader": "YOo=kA((N_B,JOo)=>{\"use strict\";function W_g(A){return A&&A.__esModule&&Object.prototype.hasOwnProperty.call(A,\"default\")?A.default:A}var V_",
+  "commonJsExport": "JOo.exports=$_g",
+  "streamCalls": [
+    {
+      "offset": 10251276,
+      "binding": "POo",
+      "code": "ts(_xe,nTA);function _xe(A){nTA.call(this,A),this.crc32=0}_xe.prototype._transform=function(A,e,t){this.crc32=POo.unsigned(A,this.crc32),t(null,A)};var qxe=\"\\0☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼ !\\\"#$%&'()*+,-./0123456789:;<=>?@ABCDEF"
+    }
+  ]
+}

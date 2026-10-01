@@ -1,6 +1,6 @@
 import {execFile} from "node:child_process";
 import {mkdtemp, mkdir, rm, writeFile} from "node:fs/promises";
-import {tmpdir} from "node:os";
+import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {join, resolve, dirname} from "node:path";
 import {pathToFileURL} from "node:url";
 import {promisify} from "node:util";

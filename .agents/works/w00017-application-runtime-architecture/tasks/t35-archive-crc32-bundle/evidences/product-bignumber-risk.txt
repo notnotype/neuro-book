@@ -1,0 +1,12 @@
+{
+  "entry": ".output/server/index.mjs",
+  "binding": "var Lto=(Vhe(),ut(Whe)),Jto=Yto.exports",
+  "namespace": "var Whe={};qA(Whe,{BigNumber:()=>bto,default:()=>pFr});",
+  "calls": [
+    {
+      "offset": 2951927,
+      "binding": "Lto",
+      "code": "+'\"':'\"'+I+'\"'}function s(I,a){var C,B,E,Q,u=o,l,d=a[I],p=d!=null&&(d instanceof Lto||Lto.isBigNumber(d));switch(d&&typeof d==\"object\"&&typeof d.toJSON==\"function\"&&(d=d."
+    }
+  ]
+}

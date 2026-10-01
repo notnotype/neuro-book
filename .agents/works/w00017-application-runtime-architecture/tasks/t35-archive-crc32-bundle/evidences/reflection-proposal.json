@@ -1,0 +1,7 @@
+{
+  "category": "踩坑",
+  "evidence": "共享 esbuild 全局 import 条件将 CJS require 解析为 ESM 命名空间，已在 yazl 和 json-bigint 的真实 bundle 中观察到失败。",
+  "proposal": "新增：对共享构建器启用全局模块解析条件前，核对 require 与 import 两类消费者的产物行为；默认导出互操作须执行真实产物验证，不能用源码环境调用通过代替。",
+  "target": "docs/standards/code/tooling.md",
+  "status": "待主 Agent 汇总，未回写"
+}

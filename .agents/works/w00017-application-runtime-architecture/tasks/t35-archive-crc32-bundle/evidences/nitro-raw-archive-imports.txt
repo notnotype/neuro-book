@@ -1,0 +1,16 @@
+globalThis.__timing__.logStart('Load chunks/routes/api/workspace-files/download.get');import { cG as readWorkspaceIgnoreRules, cH as toSqliteFileUrl, ch as collectReleasedSqliteHandles, cI as projectWorkspacePathPolicy, cJ as shouldSkipWorkspacePath, cK as isWorkspaceStoragePath, d as defineEventHandler, g as getQuery, cC as resolveWorkspaceFileTarget, f as runtimePathsFromEnv, aq as encodeRfc5987Filename, ak as setResponseHeader, aZ as sendStream } from '../../../nitro/nitro.mjs';
+import { createClient } from 'file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@libsql/client/lib-esm/node.js';
+import consola from 'file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/consola/dist/index.mjs';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path__default from 'node:path';
+import { setTimeout } from 'node:timers/promises';
+import { ZipFile } from 'file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/yazl/index.js';
+import { p as parseWorkspaceFileHttpBinding, a as withBoundProjectTargetOperation } from '../../../_/project-open-guard.mjs';
+import 'node:crypto';
+
+globalThis.__timing__.logStart('Load chunks/routes/api/app/logs/download.get');import { aX as listAppLogFiles, aY as resolveAppLogDirectory, d as defineEventHandler, aq as encodeRfc5987Filename, ak as setResponseHeader, aZ as sendStream } from '../../../../nitro/nitro.mjs';
+import fs from 'node:fs/promises';
+import path__default from 'node:path';
+import { ZipFile } from 'file:///home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/yazl/index.js';
+import 'node:crypto';

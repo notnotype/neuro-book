@@ -1,0 +1,59 @@
+{
+  "schema": "nbook.evidence/archive-crc32/v1",
+  "image": {
+    "revision": "5808b5076836877c81a620ebdbcb1bf374f01536",
+    "dirty": true,
+    "sourceDigest": "sha256:7239777fcb0ad58fcef1b3fdca8f3d4bd7d3b3dd4ecefcac76e6409da7842223",
+    "imageId": "sha256:4ae24351c7eef12b580ab744d2c2731dc1fc45e990f9e2ee609508907a1c102e",
+    "runtime": {
+      "bun": "1.4.2",
+      "nuxt": "4.4.8",
+      "nitro": "2.13.4"
+    }
+  },
+  "checks": {
+    "archiveBefore": 1,
+    "archiveAfter": 0,
+    "relatedTestsInitial": 1,
+    "pluginTestsAfterFixtureImport": 0,
+    "scriptsTypecheck": 0,
+    "typecheck": 0,
+    "lifecycle": 1
+  },
+  "crcExceptionsInL3L4": 0,
+  "otherDefaultExportFailure": {
+    "package": "bignumber.js",
+    "version": "9.3.1",
+    "consumer": "json-bigint",
+    "probeExit": 1,
+    "modified": false
+  },
+  "additionalChecks": {
+    "rootBuildScriptsTypecheck": {
+      "exit": 2,
+      "errors": 11,
+      "location": "packages/neuro-book/server/utils/auth.ts",
+      "classification": "root scripts config omits Nuxt auto-import declarations; source unchanged"
+    },
+    "changedFilesTypecheck": {
+      "exit": 2,
+      "errors": 1,
+      "location": "scripts/build/product-bundle-plugins.ts:74",
+      "classification": "existing Map literal key inference rejects arbitrary esbuild path; source at lookup unchanged"
+    }
+  },
+  "relatedTests": {
+    "files": 6,
+    "tests": 26,
+    "pass": 26,
+    "initialFixtureFailures": 2,
+    "rerunFiles": 1
+  },
+  "auditScopes": {
+    "serverInputs": 4101,
+    "commandWorkerInputs": 4339,
+    "serverRequireToEsm": 99,
+    "commandWorkerRequireToEsm": 98,
+    "nativeIslands": "external, not rewritten by this bundler"
+  }
+}

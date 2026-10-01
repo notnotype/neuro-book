@@ -5,6 +5,12 @@ import type {Plugin} from "esbuild";
 
 const GAXIOS_SOURCE_PATTERN = /[\\/]gaxios[\\/]build[\\/](?:cjs|esm)[\\/]src[\\/]gaxios\.js$/;
 const GAXIOS_NODE_FETCH_IMPORT = "(await import('node-fetch')).default";
+// 同时提供 import/require 入口，且 CJS 消费者把 require 结果当作默认函数或构造器的包，
+// 不能由全局 import 条件改成模块命名空间，必须保留调用者的 require 入口。
+const COMMONJS_DEFAULT_EXPORT_PACKAGES = ["buffer-crc32", "bignumber.js"];
+const COMMONJS_DEFAULT_EXPORT_PATTERN = new RegExp(
+    `^(?:${COMMONJS_DEFAULT_EXPORT_PACKAGES.map((name) => name.replaceAll(".", "\\.")).join("|")})$`,
+);
 const WEB_EXTRACTION_COMMONJS_IMPORT_PATTERN = /^(?:@mozilla\/readability|turndown-plugin-gfm)$/;
 const WEB_EXTRACTION_COMMONJS_NAMESPACE = "nbook-product-web-extraction-esm";
 const WEB_EXTRACTION_COMMONJS_MODULES = [
@@ -45,6 +51,10 @@ export function productRuntimeCompatibilityPlugin(): Plugin {
     return {
         name: "nbook-product-runtime-compatibility",
         setup(build) {
+            build.onResolve({filter: COMMONJS_DEFAULT_EXPORT_PATTERN}, (args) => {
+                if (args.kind !== "require-call") return;
+                return {path: createRequire(args.importer || import.meta.url).resolve(args.path)};
+            });
             build.onLoad({filter: GAXIOS_SOURCE_PATTERN}, async (args) => {
                 const source = await readFile(args.path, "utf8");
                 const first = source.indexOf(GAXIOS_NODE_FETCH_IMPORT);

@@ -1,0 +1,123 @@
+{
+  "inputs": {
+    "node_modules/buffer-crc32/dist/index.cjs": {
+      "bytes": 4772,
+      "imports": [],
+      "format": "cjs"
+    },
+    "node_modules/yazl/index.js": {
+      "bytes": 33328,
+      "imports": [
+        {
+          "path": "fs",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "stream",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "stream",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "zlib",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "util",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "events",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "events",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "node_modules/buffer-crc32/dist/index.cjs",
+          "kind": "require-call",
+          "original": "buffer-crc32"
+        }
+      ],
+      "format": "cjs"
+    },
+    "archive-diagnostic.mjs": {
+      "bytes": 121,
+      "imports": [
+        {
+          "path": "node_modules/yazl/index.js",
+          "kind": "import-statement",
+          "original": "yazl"
+        }
+      ],
+      "format": "esm"
+    }
+  },
+  "outputs": {
+    "stdin.js": {
+      "imports": [
+        {
+          "path": "fs",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "stream",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "stream",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "zlib",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "util",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "events",
+          "kind": "require-call",
+          "external": true
+        },
+        {
+          "path": "events",
+          "kind": "require-call",
+          "external": true
+        }
+      ],
+      "exports": [
+        "zip"
+      ],
+      "entryPoint": "archive-diagnostic.mjs",
+      "inputs": {
+        "node_modules/buffer-crc32/dist/index.cjs": {
+          "bytesInOutput": 3500
+        },
+        "node_modules/yazl/index.js": {
+          "bytesInOutput": 12688
+        },
+        "archive-diagnostic.mjs": {
+          "bytesInOutput": 85
+        }
+      },
+      "bytes": 17075
+    }
+  }
+}

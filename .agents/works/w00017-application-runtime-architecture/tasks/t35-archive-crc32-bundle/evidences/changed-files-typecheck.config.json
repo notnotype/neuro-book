@@ -1,0 +1,14 @@
+{
+    "extends": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/scripts/tsconfig.json",
+    "include": [
+        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/scripts/build/product-bundle-plugins.ts",
+        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/scripts/build/product-bundle-plugins.test.ts",
+        "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/scripts/build/product-reproducible-bundle.test.ts"
+    ],
+    "compilerOptions": {
+        "typeRoots": [
+            "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@types",
+            "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules"
+        ]
+    }
+}

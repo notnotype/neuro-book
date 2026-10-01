@@ -1,0 +1,8 @@
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+
+ Test Files  2 passed (2)
+      Tests  7 passed (7)
+   Start at  15:33:14
+   Duration  573ms (transform 185ms, setup 80ms, import 114ms, tests 406ms, environment 0ms)
