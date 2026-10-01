@@ -1,0 +1,33 @@
+$ test:runtime-foundation
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  20 passed (20)
+      Tests  231 passed (231)
+   Start at  21:00:21
+   Duration  5.01s (transform 4.21s, setup 814ms, import 7.03s, tests 2.20s, environment 4ms)
+
+exit=0
+$ test server/runtime server/features server/middleware server/routes server/host server/api/workspace-files server/api/projects server/api/agent server/agent/harness scripts/smoke/product-lifecycle
+$ vitest run server/runtime server/features server/middleware server/routes server/host server/api/workspace-files server/api/projects server/api/agent server/agent/harness scripts/smoke/product-lifecycle
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues:
+   [ { code: 'invalid_type',
+       path: [Array],
+       message: 'Invalid input: expected string, received undefined' } ] } 请求体验证失败
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues: [ { code: 'custom', path: [Array], message: 'projectRoot 必须是一级目录名' } ] } 请求体验证失败
+
+ Test Files  77 passed (77)
+      Tests  672 passed (672)
+   Start at  21:00:27
+   Duration  50.52s (transform 6.23s, setup 4.07s, import 29.07s, tests 55.16s, environment 35ms)
+
+exit=0

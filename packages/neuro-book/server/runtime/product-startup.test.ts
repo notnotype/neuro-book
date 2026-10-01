@@ -1,9 +1,13 @@
 import {join} from "node:path";
 import {tmpdir} from "node:os";
+import {EventEmitter} from "node:events";
+import {createServer} from "node:http";
+import type {H3Event} from "h3";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
 import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
-import type {exitOnProductStartupFailure, productRuntimeReady, stopProductRuntime, productProjectOwner, withProductWorkspaceFiles, ProductRuntimeNotReadyError} from "nbook/server/runtime/product-startup";
+import type * as RuntimeModule from "nbook/server/runtime/product-startup";
+import type {ProductRuntime, ProductStartOptions} from "nbook/server/runtime/product-startup";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
 import type {Application} from "nbook/runtime/application/application";
 import type {AgentSessionMigrationRequiredError} from "nbook/server/agent/session/agent-session-store";
@@ -41,10 +45,12 @@ const mocks = vi.hoisted(() => ({
     checkpointAppSqliteDatabase: vi.fn(async () => {mocks.releaseOrder.push("checkpoint");}),
     disconnectPrismaClient: vi.fn(async () => {mocks.releaseOrder.push("prisma");}),
     fatalSync: vi.fn(),
-    requestProcessExit: vi.fn(),
+    writeSync: vi.fn(),
+    flush: vi.fn(async () => {mocks.releaseOrder.push("logs");}),
+    exit: vi.fn<(code: number) => void>(),
 }));
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
-vi.mock("node:fs", () => ({existsSync: mocks.existsSync}));
+vi.mock("node:fs", () => ({existsSync: mocks.existsSync, writeSync: mocks.writeSync}));
 vi.mock("nbook/server/agent/http", () => ({disposeAgentHarness: mocks.disposeAgentHarness}));
 vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost}));
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes}));
@@ -70,30 +76,29 @@ vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     observeAgentSessionStoreRuntimeCompromised: mocks.observeAgentSessionStoreRuntimeCompromised,
     stopAgentSessionStoreRuntime: mocks.stopAgentSessionStoreRuntime,
 }));
-vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {info: mocks.info, warn: mocks.warn, fatalSync: mocks.fatalSync}}));
-vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
-    productShutdownController: {requestProcessExit: mocks.requestProcessExit},
-}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {info: mocks.info, warn: mocks.warn, fatalSync: mocks.fatalSync, flush: mocks.flush}}));
 
-let runtime: {
-    productRuntimeReady: typeof productRuntimeReady;
-    stopProductRuntime: typeof stopProductRuntime;
-    productProjectOwner: typeof productProjectOwner;
-    withProductWorkspaceFiles: typeof withProductWorkspaceFiles;
-    exitOnProductStartupFailure: typeof exitOnProductStartupFailure;
-    ProductRuntimeNotReadyError: typeof ProductRuntimeNotReadyError;
-};
+let runtime: typeof RuntimeModule;
+let product: ProductRuntime | undefined;
 let MigrationRequiredError: typeof AgentSessionMigrationRequiredError;
-type ProductTestGlobals = typeof globalThis & {__nbookProductApplicationV1?: {application: Application}};
-const productGlobals = globalThis as ProductTestGlobals;
+
+function ready(options: ProductStartOptions = {}): Promise<void> {
+    product ??= runtime.startProductRuntime({...options, exit: mocks.exit});
+    return product.ready;
+}
+
+function stop(): Promise<void> {
+    if (!product) throw new Error("测试尚未建立 Product application");
+    return product.stop();
+}
 
 function application(): Application {
-    const state = productGlobals.__nbookProductApplicationV1;
-    if (!state) throw new Error("测试尚未建立 Product application");
-    return state.application;
+    if (!product) throw new Error("测试尚未建立 Product application");
+    return product.application;
 }
 
 const dependencies = {
+    "nbook.http": [],
     "nbook.app-state": [],
     "nbook.storage": ["nbook.app-state/ready"],
     "nbook.session-store": ["nbook.app-state/ready"],
@@ -104,7 +109,7 @@ const dependencies = {
 
 describe("Product startup", () => {
     beforeEach(async () => {
-        delete productGlobals.__nbookProductApplicationV1;
+        product = undefined;
         vi.resetModules();
         MigrationRequiredError = (await import("nbook/server/agent/session/agent-session-store")).AgentSessionMigrationRequiredError;
         // 每个用例需要全新进程实例，重新加载模块级 singleton。
@@ -130,7 +135,7 @@ describe("Product startup", () => {
         mocks.closeAllWorkspaceTreeIndexes.mockResolvedValue(undefined);
         mocks.disposeStorageHost.mockResolvedValue(undefined);
         mocks.stopAgentSessionStoreRuntime.mockResolvedValue(undefined);
-        if (productGlobals.__nbookProductApplicationV1 && application().root.phase !== "closed") {
+        if (product && application().root.phase !== "closed") {
             if (application().root.phase === "stopping") await application().recover();
             else await application().stop();
         }
@@ -140,31 +145,31 @@ describe("Product startup", () => {
         expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
         const migration = Promise.withResolvers<void>();
         mocks.assertProductMigrationsReady.mockReturnValue(migration.promise);
-        const ready = runtime.productRuntimeReady();
+        const startup = ready();
         await vi.waitFor(() => expect(mocks.assertProductMigrationsReady).toHaveBeenCalledOnce());
         expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
         migration.resolve();
-        await ready;
+        await startup;
         const owner = runtime.productProjectOwner(create);
         expect(runtime.productProjectOwner(create)).toBe(owner);
         expect(owner.root).not.toBe(application().root);
-        await runtime.stopProductRuntime();
+        await stop();
         expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
         expect(create).toHaveBeenCalledOnce();
     });
     it("migration 未完成时不获取 lease，也不发布 HTTP ready", async () => {
         const migration = Promise.withResolvers<void>();
         mocks.assertProductMigrationsReady.mockReturnValue(migration.promise);
-        const ready = runtime.productRuntimeReady();
+        const startup = ready();
         await vi.waitFor(() => expect(mocks.assertProductMigrationsReady).toHaveBeenCalledOnce());
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
         migration.resolve();
-        await ready;
+        await startup;
         expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledOnce();
     });
 
     it("按 Workspace、migration、Session Store 顺序完成完整 ready 门禁", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
 
         expect(mocks.mkdir).toHaveBeenCalledWith(productTestWorkspaceRoot(), {recursive: true});
         expect(mocks.inspectStateRootIntegrity).toHaveBeenCalledWith({
@@ -181,26 +186,42 @@ describe("Product startup", () => {
         );
     });
 
-    it("产品目录包含六个 available 服务端插件及完整真实依赖", async () => {
-        await runtime.productRuntimeReady();
-        const catalog = application().plugins.catalog();
-        expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(Object.keys(dependencies).sort());
-        for (const plugin of catalog.plugins) {
-            expect(plugin.summary).toBe("available");
-            expect(plugin.entries).toHaveLength(1);
-            const entry = plugin.entries[0]!;
-            expect(entry).toMatchObject({entry: "server", location: "server", state: {status: "available"}});
-            expect(entry.dependencies).toEqual(dependencies[plugin.id as keyof typeof dependencies].map((key) => ({key, required: true})));
-            expect(entry.provides).toHaveLength(1);
-            expect(entry.provides[0]).toMatch(new RegExp(`^${plugin.id}/[^/]+$`));
+    it("CLI 启动函数在端口已占用时不监听，七个必需插件可用，stop 后实例关闭", async () => {
+        const occupied = createServer();
+        const listening = Promise.withResolvers<void>();
+        occupied.once("error", listening.reject);
+        occupied.listen(0, "127.0.0.1", listening.resolve);
+        await listening.promise;
+        const address = occupied.address();
+        if (!address || typeof address === "string") throw new Error("测试未取得占用端口");
+        vi.stubEnv("NITRO_PORT", String(address.port));
+        try {
+            await ready({mode: "cli", http: {listener: (_request, response) => response.end(), baseURL: "/"}});
+            const catalog = application().plugins.catalog();
+            expect(catalog.plugins.map((plugin) => plugin.id)).toEqual(Object.keys(dependencies).sort());
+            for (const plugin of catalog.plugins) {
+                expect(plugin.summary).toBe("available");
+                expect(plugin.entries).toHaveLength(1);
+                const entry = plugin.entries[0]!;
+                expect(entry).toMatchObject({entry: "server", location: "server", state: {status: "available"}});
+                expect(entry.dependencies).toEqual(dependencies[plugin.id as keyof typeof dependencies].map((key) => ({key, required: true})));
+                expect(entry.provides).toHaveLength(1);
+                expect(entry.provides[0]).toMatch(new RegExp(`^${plugin.id}/[^/]+$`));
+            }
+            await stop();
+            expect(application().root.phase).toBe("closed");
+            expect(mocks.releaseOrder.at(-1)).toBe("logs");
+        } finally {
+            vi.unstubAllEnvs();
+            await new Promise<void>((resolve, reject) => occupied.close((error) => error ? reject(error) : resolve()));
         }
     });
 
     it("激活发布由依赖图保证每个提供方先于依赖者", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         const catalog = application().plugins.catalog();
         const published = application().plugins.diagnostics().filter((diagnostic) => diagnostic.reason === "published");
-        expect(published).toHaveLength(6);
+        expect(published).toHaveLength(7);
         for (const plugin of catalog.plugins) {
             for (const entry of plugin.entries) {
                 for (const dependency of entry.dependencies) {
@@ -213,12 +234,12 @@ describe("Product startup", () => {
     });
 
     it("停止按依赖逆序关闭 Agent、Project、索引与进程资源并为每个代次记录一次关闭", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         runtime.productProjectOwner((root) => {
             root.register({kind: "project-test", label: "owner", value: null, release: () => {mocks.releaseOrder.push("project");}});
             return {root};
         });
-        await runtime.stopProductRuntime();
+        await stop();
         const before = (first: string, second: string): void => {
             expect(mocks.releaseOrder.indexOf(first)).toBeGreaterThanOrEqual(0);
             expect(mocks.releaseOrder.indexOf(first)).toBeLessThan(mocks.releaseOrder.indexOf(second));
@@ -248,10 +269,13 @@ describe("Product startup", () => {
     });
 
     it("插件释放抛错仍关闭独立插件并保留依赖，停止结果为 incomplete", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         mocks.stopAgentSessionStoreRuntime.mockRejectedValueOnce(new Error("session release failed"));
-        await expect(runtime.stopProductRuntime()).rejects.toThrow("关闭不完整");
+        await expect(stop()).rejects.toThrow("关闭不完整");
         expect(application().status().stop).toMatchObject({status: "incomplete"});
+        expect((await product!.stopped).failures).toEqual([expect.objectContaining({message: "Product shutdown step 失败：product-runtime"})]);
+        expect((await product!.stopped).exitCode).toBe(1);
+        expect(mocks.releaseOrder.at(-1)).toBe("logs");
         expect(application().plugins.entryState({plugin: "nbook.agent", entry: "server"})?.status).toBe("closed");
         expect(application().plugins.entryState({plugin: "nbook.project", entry: "server"})?.status).toBe("closed");
         expect(application().plugins.entryState({plugin: "nbook.storage", entry: "server"})?.status).toBe("closed");
@@ -261,32 +285,19 @@ describe("Product startup", () => {
         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
     });
 
-    it("诊断观察者写入原诊断字段和本位置目录", async () => {
-        await runtime.productRuntimeReady();
-        await runtime.stopProductRuntime();
-        const recorded = mocks.info.mock.calls.filter(([event]) => event === "runtime.plugins.diagnostic").map(([, data]) => data);
-        const expected = application().plugins.diagnostics().map(({sequence, plugin, entry, generation, stage, reason, capability, contribution, error}) => ({sequence, plugin, entry, generation, stage, reason, capability, contribution, error}));
-        expect(recorded).toEqual(expected);
-        const directory = mocks.info.mock.calls.filter(([event]) => event === "runtime.plugins.catalog");
-        expect(directory).toHaveLength(1);
-        expect(directory[0]?.[1]).toEqual({entries: Object.entries(dependencies).map(([plugin, keys]) => ({
-            plugin, entry: "server", dependencies: keys, provides: application().plugins.catalog().plugins.find((candidate) => candidate.id === plugin)!.entries[0]!.provides,
-        }))});
-        expect(mocks.info.mock.calls[0]?.[0]).toBe("runtime.plugins.catalog");
-    });
     it("并发启动共享同一门禁，停止后 lease 只释放一次", async () => {
-        const first = runtime.productRuntimeReady();
-        expect(runtime.productRuntimeReady()).toBe(first);
+        const first = ready();
+        expect(ready()).toBe(first);
         await first;
-        await runtime.stopProductRuntime();
-        await runtime.stopProductRuntime();
+        await stop();
+        await stop();
 
         expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
     });
 
     it("Project child释放失败时保留Session lease，显式恢复完成后才释放", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         let projectScope!: Scope;
         let ownerScope!: Scope;
         let failRelease = true;
@@ -307,7 +318,7 @@ describe("Product startup", () => {
             owner.open();
             return {root: owner};
         });
-        await expect(runtime.stopProductRuntime()).rejects.toThrow("关闭不完整");
+        await expect(stop()).rejects.toThrow("关闭不完整");
         expect(mocks.stopAgentSessionStoreRuntime).not.toHaveBeenCalled();
         expect(projectScope.phase).toBe("stopping");
         expect(ownerScope.phase).toBe("stopping");
@@ -326,29 +337,17 @@ describe("Product startup", () => {
         expect(releaseProject.mock.invocationCallOrder[1]).toBeLessThan(
             mocks.stopAgentSessionStoreRuntime.mock.invocationCallOrder[0]!,
         );
-        await runtime.stopProductRuntime();
         expect(releaseProject).toHaveBeenCalledTimes(2);
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();
     });
 
-    it("同一 realm 模块重载复用仍活门禁（不模拟 Nitro Dev 跨 worker）", async () => {
-        const ready = runtime.productRuntimeReady();
-        await ready;
-        vi.resetModules();
-        const hotReloaded = await import("nbook/server/runtime/product-startup");
-
-        expect(hotReloaded.productRuntimeReady()).toBe(ready);
-        expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
-        await expect(hotReloaded.withProductWorkspaceFiles({target: {kind: "user-assets", root: absoluteFsPath(join(productTestWorkspaceRoot(), ".nbook"))}, handles: undefined}, async () => "reloaded")).resolves.toBe("reloaded");
-        await hotReloaded.stopProductRuntime();
-        expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
-    });
 
     it("Files 请求释放不关闭共享服务，应用停止后拒绝新请求", async () => {
         const binding = {target: {kind: "user-assets" as const, root: absoluteFsPath(join(productTestWorkspaceRoot(), ".nbook"))}, handles: undefined};
+        await ready();
         await expect(runtime.withProductWorkspaceFiles(binding, async () => "first")).resolves.toBe("first");
         await expect(runtime.withProductWorkspaceFiles(binding, async () => "second")).resolves.toBe("second");
-        await runtime.stopProductRuntime();
+        await stop();
         await expect(runtime.withProductWorkspaceFiles(binding, async () => "late")).rejects.toThrow();
     });
 
@@ -357,6 +356,7 @@ describe("Product startup", () => {
         const started = Promise.withResolvers<void>();
         const finish = Promise.withResolvers<void>();
         const aborted = Promise.withResolvers<void>();
+        await ready();
         const request = runtime.withProductWorkspaceFiles(binding, async (_files, signal) => {
             signal.addEventListener("abort", () => aborted.resolve(), {once: true});
             started.resolve();
@@ -364,7 +364,7 @@ describe("Product startup", () => {
         });
         const interrupted = expect(request).rejects.toThrow();
         await started.promise;
-        const stopping = runtime.stopProductRuntime();
+        const stopping = stop();
         await aborted.promise;
         expect(mocks.stopAgentSessionStoreRuntime).not.toHaveBeenCalled();
         finish.resolve();
@@ -374,10 +374,10 @@ describe("Product startup", () => {
     });
 
     it("关闭后不重新取得 lease", async () => {
-        await runtime.productRuntimeReady();
-        await runtime.stopProductRuntime();
+        await ready();
+        await stop();
 
-        await expect(runtime.productRuntimeReady()).rejects.toThrow("已停止");
+        expect(() => runtime.startProductRuntime()).toThrow("已停止");
         expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
     });
 
@@ -387,15 +387,13 @@ describe("Product startup", () => {
             resolveCompromised = resolvePromise;
         }));
 
-        await runtime.productRuntimeReady();
+        await ready();
         const error = Object.assign(new Error("heartbeat lost"), {
             leasePath: join(productTestWorkspaceRoot(), ".nbook", "agent", "migrations", "runtime.lease"),
             kind: "runtime" as const,
         });
         resolveCompromised(error);
-        await vi.waitFor(() => expect(mocks.requestProcessExit).toHaveBeenCalledWith(
-            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-        ));
+        expect((await product!.stopped).exitCode).toBe(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
 
         expect(mocks.fatalSync).toHaveBeenCalledWith(
             "runtime.agentSessionStore.leaseCompromised",
@@ -419,10 +417,8 @@ describe("Product startup", () => {
         );
         mocks.startAgentSessionStoreRuntime.mockRejectedValue(error);
 
-        await expect(runtime.productRuntimeReady()).rejects.toBe(error);
-        expect(mocks.requestProcessExit).toHaveBeenCalledWith(
-            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-        );
+        await expect(ready()).rejects.toBe(error);
+        expect((await product!.stopped).exitCode).toBe(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
         expect(mocks.fatalSync).toHaveBeenCalledWith(
             "runtime.agentSessionStore.leaseCompromised",
             expect.objectContaining({leasePath: error.leasePath, kind: "runtime"}),
@@ -437,10 +433,8 @@ describe("Product startup", () => {
             throw observerFailure;
         });
 
-        await runtime.productRuntimeReady();
-        await vi.waitFor(() => expect(mocks.requestProcessExit).toHaveBeenCalledWith(
-            PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED,
-        ));
+        await expect(ready()).rejects.toThrow();
+        expect((await product!.stopped).exitCode).toBe(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
         expect(mocks.fatalSync).toHaveBeenCalledWith(
             "runtime.agentSessionStore.leaseObserverFailed",
             undefined,
@@ -454,7 +448,7 @@ describe("Product startup", () => {
         mocks.inspectStateRootIntegrity.mockResolvedValue(stateIntegrity);
         mocks.stateRootIntegrityFailed.mockReturnValue(true);
 
-        await runtime.productRuntimeReady();
+        await ready();
 
         expect(mocks.warn).toHaveBeenCalledWith(
             "runtime.stateRoot.integrityFailed",
@@ -467,7 +461,7 @@ describe("Product startup", () => {
         const failure = new Error("migration pending\n请先执行 bun run migrate:application-state -- --apply");
         mocks.assertProductMigrationsReady.mockRejectedValue(failure);
 
-        await expect(runtime.productRuntimeReady()).rejects.toBe(failure);
+        await expect(ready()).rejects.toBe(failure);
         expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
         expect(application().plugins.diagnostics().filter((diagnostic) => diagnostic.plugin === "nbook.session-store" && diagnostic.reason === "published")).toEqual([]);
         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
@@ -476,14 +470,14 @@ describe("Product startup", () => {
     it("Session Store 迁移失败保留原原因、cause 和迁移命令提示", async () => {
         const failure = new MigrationRequiredError(2, null);
         mocks.startAgentSessionStoreRuntime.mockRejectedValue(failure);
-        await expect(runtime.productRuntimeReady()).rejects.toMatchObject({
+        await expect(ready()).rejects.toMatchObject({
             cause: failure,
             message: `${failure.message}\n非 Manager 启动请先执行：bun run migrate:application-state -- --apply`,
         });
     });
 
     it("应用停止时 Agent 排空仍可取得已有 owner，Project 关闭后不再返回", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         const create = vi.fn((root: Scope) => ({root}));
         const owner = runtime.productProjectOwner(create);
         mocks.disposeAgentHarness.mockImplementation(async () => {
@@ -491,40 +485,123 @@ describe("Product startup", () => {
             expect(runtime.productProjectOwner(create)).toBe(owner);
             expect(owner.root.phase).toBe("available");
         });
-        await runtime.stopProductRuntime();
+        await stop();
         expect(create).toHaveBeenCalledOnce();
         expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
     });
 
     it("应用停止时 Agent 排空不能创建新的 Project owner", async () => {
-        await runtime.productRuntimeReady();
+        await ready();
         const create = vi.fn((root: Scope) => ({root}));
         mocks.disposeAgentHarness.mockImplementation(async () => {
             expect(() => runtime.productProjectOwner(create)).toThrow(runtime.ProductRuntimeNotReadyError);
         });
-        await runtime.stopProductRuntime();
+        await stop();
         expect(create).not.toHaveBeenCalled();
     });
 
     it("插件日志观察者同步抛错不影响启动与关闭", async () => {
         mocks.info.mockImplementation(() => {throw new Error("log unavailable");});
-        await runtime.productRuntimeReady();
-        await expect(runtime.stopProductRuntime()).resolves.toBeUndefined();
+        await ready();
+        await expect(stop()).resolves.toBeUndefined();
         expect(mocks.stopAgentSessionStoreRuntime).toHaveBeenCalledOnce();
     });
 
-    it("启动门禁失败时记录fatal诊断并请求有序退出，而不是依赖未捕获异常", async () => {
-        const failure = new Error("migration pending");
+    it("信号、停止路由和租约失效先后到达只停止一次，75 后再请求 1 仍以 75 退出", async () => {
+        const processSource = new EventEmitter();
+        const compromised = Promise.withResolvers<{leasePath: string; kind: "runtime"}>();
+        mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(compromised.promise);
+        await ready({mode: "production", process: processSource});
+        const response = new EventEmitter();
+        await product!.http.admit({node: {res: response}} as H3Event);
+        processSource.emit("SIGTERM", "SIGTERM");
+        product!.requestStop("control:http");
+        compromised.resolve(Object.assign(new Error("lease lost"), {leasePath: "runtime.lease", kind: "runtime" as const}));
+        await vi.waitFor(() => expect(mocks.fatalSync).toHaveBeenCalledWith("runtime.agentSessionStore.leaseCompromised", expect.any(Object), expect.any(Error), expect.any(String)));
+        product!.requestStop("startup:failed", 1);
+        mocks.disposeAgentHarness.mockRejectedValueOnce(new Error("agent close failed"));
+        expect(mocks.releaseOrder).toEqual([]);
+        response.emit("finish");
+        expect((await product!.stopped).exitCode).toBe(75);
+        expect(product!.host.stopSource).toBe("signal:SIGTERM");
+        expect(mocks.disposeAgentHarness).toHaveBeenCalledOnce();
+        expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(75);
+        expect(processSource.listenerCount("SIGTERM")).toBe(0);
+        await application().recover();
+    });
+
+    it("普通在途请求超出 20 秒后仍关闭其余插件，最后刷写日志并以 1 退出", async () => {
+        let deadline: (() => void) | undefined;
+        let duration: number | undefined;
+        await ready({clock: {schedule(task, milliseconds) {deadline = task; duration = milliseconds; return () => undefined;}}});
+        const response = new EventEmitter();
+        await product!.http.admit({node: {res: response}} as H3Event);
+        product!.requestStop("control:http");
+        expect(duration).toBe(20_000);
+        expect(mocks.releaseOrder).toEqual([]);
+        deadline!();
+        const result = await product!.stopped;
+        expect(result.exitCode).toBe(1);
+        expect(result.failures).toEqual([expect.objectContaining({message: "Product shutdown step 失败：http-drain"})]);
+        expect(application().root.phase).toBe("closed");
+        expect(mocks.releaseOrder.at(-1)).toBe("logs");
+        response.emit("close");
+    });
+
+    it("插件释放仍在途时不刷写日志，释放完成后才结算停止", async () => {
+        const release = Promise.withResolvers<void>();
+        await ready();
+        mocks.disposeAgentHarness.mockReturnValue(release.promise);
+        const stopping = stop();
+        await vi.waitFor(() => expect(mocks.disposeAgentHarness).toHaveBeenCalledOnce());
+        expect(mocks.flush).not.toHaveBeenCalled();
+        expect(mocks.exit).not.toHaveBeenCalled();
+        release.resolve();
+        await stopping;
+        expect(mocks.flush).toHaveBeenCalledOnce();
+        expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(0);
+    });
+
+    it("正常停止以 0 结算，日志在所有插件关闭后刷写且重复 stop 共享结算", async () => {
+        await ready();
+        const left = stop();
+        expect(stop()).toBe(left);
+        await left;
+        expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(0);
+        expect(mocks.releaseOrder.at(-1)).toBe("logs");
+        expect(mocks.releaseOrder.slice(0, -1).sort()).toEqual(["agent", "checkpoint", "indexes", "prisma", "session", "storage"]);
+    });
+
+    it("最后日志刷写失败明确保留步骤原因并以 1 退出，不重新关闭插件", async () => {
+        const failure = new Error("log flush failed");
+        await ready();
+        mocks.flush.mockRejectedValueOnce(failure);
+        const stopping = stop();
+        await expect(stopping).rejects.toMatchObject({errors: [expect.objectContaining({cause: failure})]});
+        expect((await product!.stopped).exitCode).toBe(1);
+        expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(1);
+        expect(mocks.disposeAgentHarness).toHaveBeenCalledOnce();
+        expect(mocks.fatalSync).toHaveBeenCalledWith("product.shutdown.failed", undefined, failure, expect.any(String));
+    });
+
+    it("启动失败先同步写原因与迁移提示，再关闭已取得资源并以 1 退出，不产生未捕获异常", async () => {
+        const failure = new Error("migration pending\n请先执行 bun run migrate:application-state -- --apply");
         mocks.assertProductMigrationsReady.mockRejectedValue(failure);
-
-        await runtime.productRuntimeReady().catch(runtime.exitOnProductStartupFailure);
-
-        expect(mocks.fatalSync).toHaveBeenCalledWith(
-            "runtime.startup.failed",
-            undefined,
-            failure,
-            expect.stringContaining("有序关闭"),
-        );
-        expect(mocks.requestProcessExit).toHaveBeenCalledWith(1);
+        const unhandled = vi.fn();
+        process.on("unhandledRejection", unhandled);
+        try {
+            await expect(ready()).rejects.toBe(failure);
+            expect((await product!.stopped).exitCode).toBe(1);
+            expect(mocks.fatalSync).toHaveBeenCalledWith("runtime.startup.failed", undefined, failure, expect.any(String));
+            expect(mocks.writeSync.mock.calls[0]?.[1]).toContain("runtime.startup.failed");
+            expect(mocks.writeSync.mock.calls[0]?.[1]).toContain("bun run migrate:application-state -- --apply");
+            expect(mocks.writeSync.mock.invocationCallOrder[0]).toBeLessThan(mocks.disconnectPrismaClient.mock.invocationCallOrder[0]!);
+            expect(mocks.fatalSync.mock.invocationCallOrder[0]).toBeLessThan(mocks.disconnectPrismaClient.mock.invocationCallOrder[0]!);
+            expect(mocks.releaseOrder).toEqual(["checkpoint", "prisma", "logs"]);
+            expect(mocks.exit).toHaveBeenCalledWith(1);
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off("unhandledRejection", unhandled);
+        }
     });
 });

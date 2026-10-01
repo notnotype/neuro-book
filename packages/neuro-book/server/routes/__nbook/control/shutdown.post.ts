@@ -1,6 +1,6 @@
 import {timingSafeEqual} from "node:crypto";
 import {createError, defineEventHandler, getHeader, setResponseStatus} from "h3";
-import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
+import {currentProductRuntime} from "nbook/server/runtime/product-startup";
 import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "@notnotype/neuro-book-contracts/product-runtime";
 
 /** 只接受内核报告的本机地址，不信任任何代理转发头。 */
@@ -49,7 +49,7 @@ export default defineEventHandler((event): {accepted: true} => {
     const requestExit = (): void => {
         if (exitRequested) return;
         exitRequested = true;
-        productShutdownController.requestProcessExit();
+        currentProductRuntime().requestStop("control:http");
     };
     event.node.res.once("finish", requestExit);
     event.node.res.once("close", requestExit);

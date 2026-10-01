@@ -22,7 +22,7 @@ import {loadGlobalEffectiveConfigAtWorkspaceRoot, saveGlobalConfig} from "nbook/
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
 import {openProject} from "nbook/server/runtime/product-project";
-import {productRuntimeReady, stopProductRuntime} from "nbook/server/runtime/product-startup";
+import {startProductRuntime} from "nbook/server/runtime/product-startup";
 
 if (!process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || !process.env.NEURO_BOOK_STATE_ROOT?.trim()) {
     throw new Error("Product Agent smoke必须显式设置NEURO_BOOK_APPLICATION_ROOT与NEURO_BOOK_STATE_ROOT。");
@@ -52,16 +52,18 @@ if (process.argv[2] === "resume-moved-state") {
     if (!Number.isInteger(movedSessionId) || movedSessionId <= 0 || !movedProjectSlug) {
         throw new Error("Product Agent moved-state smoke缺少合法sessionId或projectSlug。");
     }
-    await productRuntimeReady();
+    const runtime = startProductRuntime();
+    await runtime.ready;
     try {
         await runMovedStateRootPhase(runtimePaths, movedProjectSlug, movedSessionId);
     } finally {
-        await stopProductRuntime();
+        await runtime.stop();
     }
     process.exit(0);
 }
 
-await productRuntimeReady();
+const runtime = startProductRuntime();
+await runtime.ready;
 let sessionId: number | null = null;
 const projectSlug = `task109-product-smoke-${process.pid}`;
 const projectWorkspaceRoot = path.join(runtimePaths.workspaceRoot, projectSlug);
@@ -134,7 +136,7 @@ try {
     try {
         await harness?.dispose();
     } finally {
-        await stopProductRuntime();
+        await runtime.stop();
     }
 }
 

@@ -21,11 +21,11 @@ import {
 } from "nbook/server/agent/session/agent-session-store-runtime";
 import {appStateKey} from "nbook/server/features/app-state/plugin";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
-import {productShutdownController} from "nbook/server/runtime/shutdown/product-shutdown";
+import type {ProductStopPort} from "nbook/server/host/stop-port";
 
 export const sessionStoreKey = defineServiceKey<{readonly workspaceRoot: string}>("nbook.session-store/runtime");
 
-export function createSessionStorePlugin(recordStartupError: (error: unknown) => void): PluginDefinition {
+export function createSessionStorePlugin(recordStartupError: (error: unknown) => void, stop: ProductStopPort): PluginDefinition {
     return {
         id: "nbook.session-store",
         entries: [{
@@ -38,7 +38,7 @@ export function createSessionStorePlugin(recordStartupError: (error: unknown) =>
                 try {
                     await startAgentSessionStoreRuntime(workspaceRoot);
                 } catch (error) {
-                    if (isAgentSessionStoreLeaseCompromisedError(error)) requestLeaseCompromisedShutdown(error);
+                    if (isAgentSessionStoreLeaseCompromisedError(error)) requestLeaseCompromisedShutdown(error, stop);
                     if (error instanceof AgentSessionMigrationRequiredError
                         || error instanceof AgentSessionRecoveryRequiredError
                         || error instanceof AgentSessionStoreCorruptError) {
@@ -54,7 +54,7 @@ export function createSessionStorePlugin(recordStartupError: (error: unknown) =>
                 }
                 void Promise.resolve()
                     .then(() => observeAgentSessionStoreRuntimeCompromised(workspaceRoot))
-                    .then(requestLeaseCompromisedShutdown)
+                    .then((error) => requestLeaseCompromisedShutdown(error, stop))
                     .catch((error: unknown) => {
                         appLogger.fatalSync(
                             "runtime.agentSessionStore.leaseObserverFailed",
@@ -62,7 +62,7 @@ export function createSessionStorePlugin(recordStartupError: (error: unknown) =>
                             error,
                             "Agent Session Store runtime lease失效观察器异常，Product将有序关闭",
                         );
-                        productShutdownController.requestProcessExit(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
+                        stop.requestStop("session-store:lease-observer-failed", PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
                     });
                 return {services: [provide(sessionStoreKey, {workspaceRoot}, () => stopAgentSessionStoreRuntime(workspaceRoot))]};
             },
@@ -70,8 +70,8 @@ export function createSessionStorePlugin(recordStartupError: (error: unknown) =>
     };
 }
 
-/** 租约失效仍由过渡宿主请求退出；插件迁移不改变退出码与关闭通道。 */
-function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromisedError): void {
+/** 租约失效只报告原因；宿主统一排空并保留专用退出码。 */
+function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromisedError, stop: ProductStopPort): void {
     appLogger.fatalSync(
         "runtime.agentSessionStore.leaseCompromised",
         {
@@ -83,5 +83,5 @@ function requestLeaseCompromisedShutdown(error: AgentSessionStoreLeaseCompromise
         error,
         "Agent Session Store runtime lease失去所有权，Product将有序关闭",
     );
-    productShutdownController.requestProcessExit(PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
+    stop.requestStop("session-store:lease-compromised", PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED);
 }

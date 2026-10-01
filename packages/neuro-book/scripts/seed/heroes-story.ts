@@ -12,7 +12,7 @@ import {resolveRuntimeWorkspaceRoot} from "nbook/server/workspace-files/workspac
 import {resolveProjectDatabasePath} from "nbook/server/workspace-files/project-workspace";
 import {closeProject, openProject} from "nbook/server/runtime/product-project";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
-import {productRuntimeReady, stopProductRuntime} from "nbook/server/runtime/product-startup";
+import {startProductRuntime} from "nbook/server/runtime/product-startup";
 import type {ReadyProjectSessionRef} from "nbook/server/workspace-files/project-session-types";
 
 const argv = process.argv.slice(2);
@@ -22,7 +22,8 @@ if (!process.env.NEURO_BOOK_APPLICATION_ROOT?.trim() || !process.env.NEURO_BOOK_
     throw new Error("Seed脚本要求显式NEURO_BOOK_APPLICATION_ROOT与NEURO_BOOK_STATE_ROOT");
 }
 const workspaceRoot = resolveRuntimeWorkspaceRoot();
-await productRuntimeReady();
+const runtime = startProductRuntime();
+await runtime.ready;
 let currentProject: ReadyProjectSessionRef;
 try {
     currentProject = await openProject(projectRef, {kind: "job", source: "seed-heroes-story"}, workspaceRoot);
@@ -322,6 +323,6 @@ async function main() {
     try {
         await closeProject(projectRef, "shutdown");
     } finally {
-        await stopProductRuntime();
+        await runtime.stop();
     }
 }

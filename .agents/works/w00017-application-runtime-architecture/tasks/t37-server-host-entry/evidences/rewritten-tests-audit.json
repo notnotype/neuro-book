@@ -1,0 +1,102 @@
+[
+  {
+    "file": "packages/neuro-book/server/api/workspace-files/events.get.test.ts",
+    "retained": [
+      "客户端在订阅建立期间关闭时会在订阅返回后立刻清理",
+      "订阅创建本身不会等待 watcher ready 之后才发送 SSE 响应",
+      "operation start 时 signal 已 abort 不会再建立迟到订阅",
+      "客户端断开导致 push closed-stream 错误时会清理订阅",
+      "会把 index 更新事件原样推送给前端",
+      "插件提供者拒绝订阅时归还 Project 操作"
+    ],
+    "removedOrRenamed": [],
+    "addedOrRenamed": [
+      "排空关闭事件流失败仍释放订阅与操作，并把原原因交给 HTTP 停止结算"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/routes/__nbook/control/shutdown.post.test.ts",
+    "retained": [
+      "拒绝非 loopback 请求",
+      "socket 地址缺失时只接受明确的 loopback 监听",
+      "拒绝缺失或错误 bearer token",
+      "token 未注入时关闭控制面"
+    ],
+    "removedOrRenamed": [
+      "正确 token 返回 202 并只请求 controller 退出",
+      "客户端先断开时也请求 controller 退出"
+    ],
+    "addedOrRenamed": [
+      "正确 token 返回 202，响应结束后才经宿主请求停止",
+      "客户端先断开时也只经宿主请求停止一次"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/runtime/foundation/server-host.test.ts",
+    "retained": [
+      "每个实例挂接一次监听；同一 instanceId 重复启动共享实例且不挂第二份；信号成为停止来源并在结算后移除监听",
+      "requestStop 只有第一次生效并记录来源；显式信号列表覆盖缺省",
+      "启动失败即结算：紧急输出经宿主通道、监听移除；已关闭实例的 id 退役，再次启动须换新身份",
+      "stopTimeoutMs 让信号触发的停止有界：释放挂起时结算为 incomplete(deadline) 并移除监听；非法值拒绝创建"
+    ],
+    "removedOrRenamed": [
+      "只依赖 runtime.application 入口；不 import Nitro/H3、数据库或产品启动模块"
+    ],
+    "addedOrRenamed": [
+      "停止前置步骤完成后才关闭资源，重复来源共享同一结算",
+      "停止前置步骤失败仍关闭资源并保留失败原因"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/runtime/product-startup.test.ts",
+    "retained": [
+      "Project 插件可用前与关闭后均以 ProductRuntimeNotReadyError 拒绝创建 owner",
+      "migration 未完成时不获取 lease，也不发布 HTTP ready",
+      "按 Workspace、migration、Session Store 顺序完成完整 ready 门禁",
+      "激活发布由依赖图保证每个提供方先于依赖者",
+      "停止按依赖逆序关闭 Agent、Project、索引与进程资源并为每个代次记录一次关闭",
+      "插件释放抛错仍关闭独立插件并保留依赖，停止结果为 incomplete",
+      "并发启动共享同一门禁，停止后 lease 只释放一次",
+      "Project child释放失败时保留Session lease，显式恢复完成后才释放",
+      "Files 请求释放不关闭共享服务，应用停止后拒绝新请求",
+      "Files 在途操作未结束时不释放 Session lease",
+      "关闭后不重新取得 lease",
+      "runtime lease compromised时记录fatal诊断并请求专用退出",
+      "ready校验期间runtime lease compromised也走专用退出且不发布ready",
+      "runtime lease observer同步抛错时也请求专用退出且不产生未处理rejection",
+      "影子 Workspace 只记录证据，不自动修改用户数据",
+      "migration 未 ready 时绝不取得 Session Store lease",
+      "Session Store 迁移失败保留原原因、cause 和迁移命令提示",
+      "应用停止时 Agent 排空仍可取得已有 owner，Project 关闭后不再返回",
+      "应用停止时 Agent 排空不能创建新的 Project owner",
+      "插件日志观察者同步抛错不影响启动与关闭"
+    ],
+    "removedOrRenamed": [
+      "产品目录包含六个 available 服务端插件及完整真实依赖",
+      "诊断观察者写入原诊断字段和本位置目录",
+      "同一 realm 模块重载复用仍活门禁（不模拟 Nitro Dev 跨 worker）",
+      "启动门禁失败时记录fatal诊断并请求有序退出，而不是依赖未捕获异常"
+    ],
+    "addedOrRenamed": [
+      "CLI 启动函数在端口已占用时不监听，七个必需插件可用，stop 后实例关闭",
+      "信号、停止路由和租约失效先后到达只停止一次，75 后再请求 1 仍以 75 退出",
+      "普通在途请求超出 20 秒后仍关闭其余插件，最后刷写日志并以 1 退出",
+      "插件释放仍在途时不刷写日志，释放完成后才结算停止",
+      "正常停止以 0 结算，日志在所有插件关闭后刷写且重复 stop 共享结算",
+      "最后日志刷写失败明确保留步骤原因并以 1 退出，不重新关闭插件",
+      "启动失败先同步写原因与迁移提示，再关闭已取得资源并以 1 退出，不产生未捕获异常"
+    ]
+  },
+  {
+    "file": "scripts/build/nuxt-output-contract.test.ts",
+    "retained": [
+      "没有 Builder 注入输出目录时只写 Developer Build State",
+      "保留 Builder 候选目录并使用 Source digest 派生稳定 build ID",
+      "Product island matcher 覆盖 bare、Bun、pnpm 与 scoped package"
+    ],
+    "removedOrRenamed": [
+      "Nitro plugin 不得用不会被 runtime 等待的 async callback 启动后台门禁"
+    ],
+    "addedOrRenamed": []
+  }
+]

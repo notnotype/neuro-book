@@ -1,0 +1,29 @@
+import {describe, expect, it, beforeEach, vi} from "vitest";
+
+const mocks = vi.hoisted(() => ({
+    start: vi.fn(),
+    stop: vi.fn<() => Promise<void>>(),
+    fatalSync: vi.fn(),
+}));
+vi.mock("nitropack/runtime", () => ({defineNitroPlugin: (plugin: unknown) => plugin}));
+vi.mock("nbook/server/runtime/product-startup", () => ({startProductRuntime: mocks.start}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {fatalSync: mocks.fatalSync}}));
+import plugin from "./development-plugin";
+
+describe("开发初始化适配器", () => {
+    beforeEach(() => {
+        vi.resetAllMocks();
+        mocks.start.mockReturnValue({stop: mocks.stop});
+    });
+
+    it("Nitro 初始化时建立实例而不是等首个请求，单一 close 钩子失败只写诊断不抛错", async () => {
+        const closeHooks: Array<() => Promise<void>> = [];
+        plugin({hooks: {hook: (_name: string, handler: () => Promise<void>) => {closeHooks.push(handler);}}} as never);
+        expect(mocks.start).toHaveBeenCalledWith({mode: "development"});
+        expect(closeHooks).toHaveLength(1);
+        const failure = new Error("plugin close failed");
+        mocks.stop.mockRejectedValue(failure);
+        await closeHooks[0]!();
+        expect(mocks.fatalSync).toHaveBeenCalledWith("product.shutdown.failed", undefined, failure, expect.any(String));
+    });
+});

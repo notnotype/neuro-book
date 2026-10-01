@@ -1,0 +1,24 @@
+{
+  "production": {
+    "command": "lifecycle-L1-L6-signal-fix.log",
+    "code": 0,
+    "skipBuild": false,
+    "results": {
+      "L1": ["L1-login", "L1-create-project", "L1-seed-files", "L1-workbench-files"],
+      "L2": ["activation-order"],
+      "L3": ["drain-new-request", "inflight-complete", "process-exit-and-lease", "close-order"],
+      "L4": ["drain-new-request", "inflight-complete", "process-exit-and-lease", "control-stop", "close-order"],
+      "L5": ["fatal-exit", "bounded", "no-listener"],
+      "L6": ["lease-exit"]
+    },
+    "allPass": true,
+    "subassertionCount": 18
+  },
+  "development": {
+    "command": "lifecycle-L7-L8.log",
+    "code": 1,
+    "L7": {"result": "pass", "subassertions": ["L7.dev-ready", "L7.hot-reload"]},
+    "L8": {"result": "fail", "subassertions": ["L8.sigterm:pass", "L8.error:fail", "exception:fail"], "reason": "SIGTERM后runtime lease锁未释放"}
+  },
+  "contracts": {"serverTestFiles": 21, "serverTests": 148, "buildContractFiles": 1, "buildContractTests": 8}
+}

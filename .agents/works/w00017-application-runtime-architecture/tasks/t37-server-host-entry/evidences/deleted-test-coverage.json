@@ -1,0 +1,42 @@
+[
+  {
+    "file": "packages/neuro-book/server/middleware/00-product-startup.test.ts",
+    "tests": [
+      "启动失败时交给有序退出，而不是抛出会被 Nitro 吞掉的未捕获异常"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/middleware/product-shutdown-drain.test.ts",
+    "tests": [
+      "响应结束或连接关闭时只释放一次请求 lease",
+      "draining 后拒绝新请求"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/plugins/project-session-close.test.ts",
+    "tests": [
+      "Nitro close同时收口Agent、ProjectSession与plain Workspace File Index",
+      "前序关闭失败时仍尝试全部资源并汇总失败"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/runtime/shutdown/product-shutdown.test.ts",
+    "tests": [
+      "运行时关闭在途时不刷写日志，全部插件完成后才完成关闭",
+      "运行时关闭不完整仍刷写诊断，最终保留 product-runtime 失败身份"
+    ]
+  },
+  {
+    "file": "packages/neuro-book/server/runtime/shutdown/product-shutdown-controller.test.ts",
+    "tests": [
+      "并发与完成后的重复关闭共享同一个 Promise 且每步只执行一次",
+      "前序步骤失败仍执行剩余步骤并聚合带步骤名的错误",
+      "draining 拒绝新请求，并等待已进入请求释放后再关闭 owner",
+      "HTTP drain 超时后继续关闭 owner 并聚合 drain 错误",
+      "进程退出请求幂等，并按关闭结果选择退出码",
+      "普通关闭失败时使用退出码1",
+      "compromised退出码立即进入draining且shutdown失败时仍保留专用退出码",
+      "lease失效后启动失败再请求通用失败码时保留专用退出码"
+    ]
+  }
+]

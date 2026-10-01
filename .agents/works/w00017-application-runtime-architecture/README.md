@@ -71,6 +71,7 @@ issueId: null
 | [t34](tasks/t34-builtin-service-plugins/README.md) | 阶段 1 第三片：App State、Storage、Session Store、Project、Agent 的生命周期迁为启动必需的内置插件，关闭顺序由依赖图产生，插件诊断写入产品日志，L2 通过（omp 编码）；发现内核显式恢复逐层推进与生产归档下载 crc32 打包两个缺陷 |
 | [t35](tasks/t35-archive-crc32-bundle/README.md) | 修复产品后处理 esbuild 把 `buffer-crc32`、`bignumber.js` 的 `require` 解析到 ESM 入口的问题（生产归档下载崩溃、大整数解析失败），新增真实产物检查；L3、L4 在途下载通过（omp 编码） |
 | [t36](tasks/t36-lifecycle-recover-cascade/README.md) | 修复内核显式恢复逐层推进：关闭与恢复先同步登记整棵子树的尝试再规划释放，一次恢复推进整条依赖链，保留原有启动时序（omp 编码）；`runtime.lifecycle` Spec 同步修订 |
+| [t37](tasks/t37-server-host-entry/README.md) | 自有服务端宿主入口与 `nbook.http`：宿主拥有进程信号与停止通道，先排空（503、SSE 主动关闭、20 秒上限）再按依赖逆序关闭，退出码 0/1/75；删除启动中间件、`productRuntimeReady()` 与关闭控制器（omp 编码）；L1–L7、L10 通过 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

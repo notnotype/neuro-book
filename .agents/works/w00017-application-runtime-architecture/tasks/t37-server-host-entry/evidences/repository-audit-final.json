@@ -1,0 +1,73 @@
+{
+  "cwd": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation",
+  "branch": "refactor/w00017-runtime-foundation",
+  "head": "8d6b2d7ffb3a7a1bbfa85ba88b13ea5308caf697",
+  "staged": 0,
+  "trackedDiffFiles": [
+    "packages/neuro-book/docs/research/README.md",
+    "packages/neuro-book/nuxt.config.ts",
+    "packages/neuro-book/scripts/cli/bootstrap-carrier-tree.ts",
+    "packages/neuro-book/scripts/deploy/product-agent-state-root-smoke.ts",
+    "packages/neuro-book/scripts/seed/chapter-01-slices.ts",
+    "packages/neuro-book/scripts/seed/heroes-story.ts",
+    "packages/neuro-book/scripts/seed/world-engine-demo.ts",
+    "packages/neuro-book/server/api/agent/jobs/events.get.ts",
+    "packages/neuro-book/server/api/agent/sessions/[sessionId]/events.get.ts",
+    "packages/neuro-book/server/api/projects/presence.get.ts",
+    "packages/neuro-book/server/api/workspace-files/events.get.test.ts",
+    "packages/neuro-book/server/api/workspace-files/events.get.ts",
+    "packages/neuro-book/server/features/session-store/plugin.ts",
+    "packages/neuro-book/server/middleware/00-product-startup.test.ts",
+    "packages/neuro-book/server/middleware/00-product-startup.ts",
+    "packages/neuro-book/server/middleware/product-shutdown-drain.test.ts",
+    "packages/neuro-book/server/middleware/product-shutdown-drain.ts",
+    "packages/neuro-book/server/plugins/project-session-close.test.ts",
+    "packages/neuro-book/server/plugins/project-session-close.ts",
+    "packages/neuro-book/server/routes/__nbook/control/shutdown.post.test.ts",
+    "packages/neuro-book/server/routes/__nbook/control/shutdown.post.ts",
+    "packages/neuro-book/server/runtime/foundation/server-host.test.ts",
+    "packages/neuro-book/server/runtime/foundation/server-host.ts",
+    "packages/neuro-book/server/runtime/product-startup.test.ts",
+    "packages/neuro-book/server/runtime/product-startup.ts",
+    "packages/neuro-book/server/runtime/shutdown/product-shutdown-controller.test.ts",
+    "packages/neuro-book/server/runtime/shutdown/product-shutdown-controller.ts",
+    "packages/neuro-book/server/runtime/shutdown/product-shutdown.test.ts",
+    "packages/neuro-book/server/runtime/shutdown/product-shutdown.ts",
+    "packages/neuro-book/server/utils/event-stream.ts",
+    "scripts/build/nuxt-output-contract.test.ts"
+  ],
+  "taskSourceFiles": 40,
+  "outOfScope": [],
+  "preexistingUserChange": "packages/neuro-book/docs/research/README.md",
+  "cleanup": {
+    "residualRuntime": [],
+    "temporaryRoots": [
+      {
+        "path": "/tmp/neuro-book-product-lifecycle-Ne9VlB",
+        "exists": false
+      },
+      {
+        "path": "/tmp/neuro-book-product-lifecycle-xbdSLN",
+        "exists": false
+      },
+      {
+        "path": "/tmp/neuro-book/runs/t37-server-host-entry/e08bdc9c-46cf-492a-a859-d9ff0d1a6b04",
+        "exists": false
+      }
+    ],
+    "method": "ps comm/launch arguments with /proc cwd; excluding OMP task text"
+  },
+  "prohibitedActions": {
+    "commit": false,
+    "push": false,
+    "stash": false,
+    "branchSwitch": false,
+    "gitConfigChange": false,
+    "rmRf": false,
+    "fullTest": false,
+    "productionScriptsEdited": false,
+    "docsReadmesEdited": false,
+    "packageMetadataEdited": false,
+    "smokeCriteriaEdited": false
+  }
+}

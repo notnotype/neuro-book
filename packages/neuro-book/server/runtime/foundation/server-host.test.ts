@@ -1,9 +1,6 @@
 import {describe, expect, it, vi} from "vitest";
 
 import {EventEmitter} from "node:events";
-import {readFile} from "node:fs/promises";
-import {dirname, join} from "node:path";
-import {fileURLToPath} from "node:url";
 
 import type {ApplicationManifest} from "../../../runtime/application/application";
 import {defineServiceKey} from "../../../runtime/services/services";
@@ -31,14 +28,6 @@ function fakeProcess(): SignalSource & EventEmitter {
     return new EventEmitter() as SignalSource & EventEmitter;
 }
 
-describe("server 适配器边界", () => {
-    it("只依赖 runtime.application 入口；不 import Nitro/H3、数据库或产品启动模块", async () => {
-        const code = await readFile(join(dirname(fileURLToPath(import.meta.url)), "server-host.ts"), "utf8");
-        const specifiers = [...code.matchAll(/^\s*(?:import|export)\b[^"']*?\bfrom\s+["']([^"']+)["']/gmu)].map((match) => match[1]);
-        expect(specifiers).toEqual(["../../../runtime/application/application", "../../../runtime/application/application"]);
-        expect(code).not.toMatch(/\bimport\s*\(/u);
-    });
-});
 
 describe("进程信号翻译", () => {
     it("每个实例挂接一次监听；同一 instanceId 重复启动共享实例且不挂第二份；信号成为停止来源并在结算后移除监听", async () => {
@@ -50,7 +39,7 @@ describe("进程信号翻译", () => {
         expect(proc.listenerCount("SIGTERM")).toBe(1);
         expect(proc.listenerCount("SIGINT")).toBe(1);
         expect((await host.application.startup).status).toBe("available");
-        proc.emit("SIGTERM", "SIGTERM");
+        proc.emit("SIGTERM");
         expect(host.stopSource).toBe("signal:SIGTERM");
         expect(await host.application.stop()).toEqual({status: "closed"});
         await vi.waitFor(() => expect(host.detached).toBe(true));
@@ -58,8 +47,17 @@ describe("进程信号翻译", () => {
         expect(release).toHaveBeenCalledTimes(1);
         expect(runtime.get("srv")).toBeNull();
         // 释放后到达的信号不再触碰该实例。
-        proc.emit("SIGINT", "SIGINT");
+        proc.emit("SIGINT");
         expect(host.stopSource).toBe("signal:SIGTERM");
+    });
+
+    it("信号来源绑定注册事件名，不依赖监听器参数", async () => {
+        const proc = fakeProcess();
+        const host = new ServerRuntimeHost().start({instanceId: "signal-source", manifest: manifest(), process: proc, signals: ["SIGHUP"], emergency: () => undefined});
+        await host.application.startup;
+        proc.emit("SIGHUP");
+        expect(host.stopSource).toBe("signal:SIGHUP");
+        await host.application.stop();
     });
 
     it("requestStop 只有第一次生效并记录来源；显式信号列表覆盖缺省", async () => {
@@ -71,7 +69,7 @@ describe("进程信号翻译", () => {
         await host.application.startup;
         host.requestStop("stdin:stop");
         host.requestStop("control:route");
-        proc.emit("SIGHUP", "SIGHUP");
+        proc.emit("SIGHUP");
         expect(host.stopSource).toBe("stdin:stop");
         expect(await host.application.stop()).toEqual({status: "closed"});
     });
@@ -101,7 +99,7 @@ describe("进程信号翻译", () => {
         expect(proc.listenerCount("SIGTERM")).toBe(0);
         const host = runtime.start({instanceId: "srv", manifest: manifest({release: () => hang.promise}), process: proc, stopTimeoutMs: 20, emergency});
         await host.application.startup;
-        proc.emit("SIGTERM", "SIGTERM");
+        proc.emit("SIGTERM");
         expect(await host.application.stopped).toMatchObject({status: "incomplete", reason: "deadline"});
         await vi.waitFor(() => expect(host.detached).toBe(true));
         expect(proc.listenerCount("SIGTERM")).toBe(0);
@@ -109,5 +107,34 @@ describe("进程信号翻译", () => {
         // 未完成的实例仍是同一实例（停止中），保留在表里，直到恢复关闭。
         expect(runtime.get("srv")).toBe(host);
         hang.resolve();
+    });
+
+    it("停止前置步骤完成后才关闭资源，重复来源共享同一结算", async () => {
+        const drain = Promise.withResolvers<void>();
+        const release = vi.fn();
+        const proc = fakeProcess();
+        const host = new ServerRuntimeHost().start({instanceId: "drain", manifest: manifest({release}), process: proc, beforeStop: () => drain.promise});
+        await host.application.startup;
+        proc.emit("SIGTERM");
+        const stopped = host.requestStop("control:http");
+        expect(host.requestStop("lease")).toBe(stopped);
+        expect(release).not.toHaveBeenCalled();
+        expect(host.application.root.phase).toBe("available");
+        drain.resolve();
+        expect(await stopped).toEqual({status: "closed"});
+        expect(release).toHaveBeenCalledOnce();
+        expect(proc.listenerCount("SIGTERM")).toBe(0);
+    });
+
+    it("停止前置步骤失败仍关闭资源并保留失败原因", async () => {
+        const failure = new Error("drain failed");
+        const release = vi.fn();
+        const emergency = vi.fn();
+        const host = new ServerRuntimeHost().start({instanceId: "failed-drain", manifest: manifest({release}), signals: [], emergency, beforeStop: () => {throw failure;}});
+        await host.application.startup;
+        expect(await host.requestStop("control:http")).toEqual({status: "closed"});
+        expect(host.beforeStopError).toBe(failure);
+        expect(release).toHaveBeenCalledOnce();
+        expect(emergency).toHaveBeenCalledWith(expect.objectContaining({stage: "stop"}));
     });
 });

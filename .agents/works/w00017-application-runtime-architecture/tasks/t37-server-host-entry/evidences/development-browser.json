@@ -1,0 +1,222 @@
+{
+  "url": "http://127.0.0.1:44527",
+  "version": {
+    "status": 200,
+    "body": "{\n  \"versionLabel\": \"v0.10.2-canary.20260908.091411Z.2e86c254\",\n  \"versionKind\": \"package\",\n  \"githubUrl\": \"https://github.com/notnotype/neuro-book\"\n}"
+  },
+  "home": {
+    "url": "http://127.0.0.1:44527/",
+    "title": "",
+    "viewport": {
+      "width": 1280,
+      "height": 800,
+      "deviceScaleFactor": 1.25
+    },
+    "scroll": {
+      "x": 0,
+      "y": 0,
+      "width": 1280,
+      "height": 800,
+      "scrollWidth": 1270,
+      "scrollHeight": 800
+    },
+    "elements": [
+      {
+        "id": 1,
+        "role": "button",
+        "name": "文件(F)",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 2,
+        "role": "button",
+        "name": "编辑(E)",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 3,
+        "role": "button",
+        "name": "查看(V)",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 4,
+        "role": "button",
+        "name": "帮助(H)",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 5,
+        "role": "button",
+        "name": "进入我的书架",
+        "description": "进入我的书架",
+        "states": []
+      },
+      {
+        "id": 6,
+        "role": "button",
+        "name": "我的书架",
+        "description": "当前工程：我的书架",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 7,
+        "role": "button",
+        "name": "打开命令面板",
+        "description": "搜索命令与文件 (快捷键 Ctrl+P / ⌘P)",
+        "states": []
+      },
+      {
+        "id": 8,
+        "role": "button",
+        "name": "切换主侧栏",
+        "description": "切换主侧栏显示",
+        "states": []
+      },
+      {
+        "id": 9,
+        "role": "button",
+        "name": "切换底部面板",
+        "description": "切换底部面板显示",
+        "states": []
+      },
+      {
+        "id": 10,
+        "role": "button",
+        "name": "Agent 助手",
+        "description": "请先打开一个 Project",
+        "states": [
+          "disabled",
+          "pressed=false"
+        ]
+      },
+      {
+        "id": 11,
+        "role": "button",
+        "name": "工具",
+        "description": "To pick up a draggable item, press the space bar. While dragging, use the arrow keys to move the item in a given direction. Press space again to drop the item in its new position, or press escape to cancel.",
+        "states": [
+          "pressed=false"
+        ]
+      },
+      {
+        "id": 12,
+        "role": "button",
+        "name": "工具",
+        "states": [
+          "pressed=true"
+        ]
+      },
+      {
+        "id": 13,
+        "role": "button",
+        "name": "更多",
+        "description": "更多",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 14,
+        "role": "button",
+        "name": "U",
+        "description": "账户菜单",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 15,
+        "role": "button",
+        "name": "配置中心",
+        "states": [
+          "pressed=false"
+        ]
+      },
+      {
+        "id": 16,
+        "role": "button",
+        "name": "用户资产",
+        "states": []
+      },
+      {
+        "id": 17,
+        "role": "button",
+        "name": "新建书籍",
+        "states": []
+      },
+      {
+        "id": 18,
+        "role": "button",
+        "name": "新建书籍",
+        "states": []
+      },
+      {
+        "id": 19,
+        "role": "button",
+        "name": "面板操作：更多",
+        "description": "面板操作：更多",
+        "states": [
+          "expanded=false"
+        ]
+      },
+      {
+        "id": 20,
+        "role": "button",
+        "name": "最大化面板",
+        "description": "最大化面板",
+        "states": []
+      },
+      {
+        "id": 21,
+        "role": "button",
+        "name": "隐藏面板",
+        "description": "隐藏面板",
+        "states": []
+      },
+      {
+        "id": 22,
+        "role": "button",
+        "name": "收起为标题头",
+        "description": "收起为标题头",
+        "states": [
+          "expanded=true"
+        ]
+      },
+      {
+        "id": 23,
+        "role": "button",
+        "name": "隐藏底部面板",
+        "states": []
+      },
+      {
+        "id": 24,
+        "role": "button",
+        "name": "Toggle Nuxt DevTools",
+        "states": []
+      },
+      {
+        "id": 25,
+        "role": "button",
+        "name": "Toggle Component Inspector",
+        "states": []
+      }
+    ]
+  },
+  "bodyText": "NeuroBook\n文件(F)\n编辑(E)\n查看(V)\n帮助(H)\n我的书架\n搜索命令、文件与章节...\nCtrl P\nU\n我的书架\n用户资产\n新建书籍\n还没有作品\n\n新建第一本书，开始整理故事与正文。\n\n新建书籍\n\n将视图拖动到此处显示\n\n无文档\n无文档\n1/1\n0/3\n隐藏底部面板",
+  "errors": {
+    "entries": [],
+    "nextSeq": 56,
+    "dropped": 0
+  }
+}

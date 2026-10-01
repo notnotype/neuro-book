@@ -1,0 +1,19 @@
+{
+  "residualRuntime": [],
+  "temporaryRoots": [
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-Ne9VlB",
+      "exists": false
+    },
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-xbdSLN",
+      "exists": false
+    },
+    {
+      "path": "/tmp/neuro-book/runs/t37-server-host-entry/e08bdc9c-46cf-492a-a859-d9ff0d1a6b04",
+      "exists": false
+    }
+  ],
+  "method": "ps comm/launch arguments containing worktree; excludes OMP task command text",
+  "checkedAt": "2026-10-01T19:26:23.639Z"
+}

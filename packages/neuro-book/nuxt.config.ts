@@ -221,6 +221,22 @@ export default defineNuxtConfig({
         transpile: ["@notnotype/nb-ui"],
     },
     modules: [
+        (_options, nuxt) => {
+            if (nuxt.options.dev) {
+                nuxt.hook("nitro:config", (config) => {
+                    config.plugins ??= [];
+                    config.plugins.push(fileURLToPath(new URL("./server/host/development-plugin.ts", import.meta.url)));
+                });
+                return;
+            }
+            // overrides 会覆盖开发 worker 和预渲染器的 entry；只注入生产并还原预渲染配置。
+            nuxt.hook("nitro:config", (config) => {
+                config.entry = fileURLToPath(new URL("./server/host/product-host-entry.ts", import.meta.url));
+            });
+            nuxt.hook("nitro:init", (nitro) => {
+                nitro.hooks.hook("prerender:config", (config) => { delete config.entry; });
+            });
+        },
         "nuxt-auth-utils",
         "@pinia/nuxt",
         "pinia-plugin-persistedstate/nuxt",

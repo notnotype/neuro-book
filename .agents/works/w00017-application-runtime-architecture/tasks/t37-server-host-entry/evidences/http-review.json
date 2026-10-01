@@ -1,0 +1,8 @@
+{
+  "reviewer": "HttpDrainReview",
+  "finding": "原审查关于 Node/Bun process 信号回调无信号名参数的结论已撤回；主 Agent 实测两者均收到 [\"SIGTERM\", 15]。",
+  "status": "withdrawn",
+  "reason": "原结论未经实测且与主 Agent 的运行证据矛盾，不属于已证实缺陷。",
+  "implementation": "保留每个注册信号的闭包绑定，使停止来源不依赖监听器实参；测试无实参触发只验证该适配边界，不描述 Node/Bun 的真实参数。",
+  "verification": "原审查记录所引用的首次交付日志均 code 0，但这些测试只验证适配器闭包边界，不证明 Node/Bun 无信号参数；返工后的当前验证见 delivery.md 第 10 节及 rework-1-*.txt。"
+}

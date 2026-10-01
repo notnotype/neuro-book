@@ -1,0 +1,257 @@
+$ vitest run server/runtime server/features server/middleware server/routes server/host server/api/workspace-files server/api/projects server/api/agent
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+(node:3399095) PromiseRejectionHandledWarning: Promise rejection was handled asynchronously (rejection id: 1)
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ❯ server/api/workspace-files/events.get.test.ts (7 tests | 4 failed) 2813ms
+     × 客户端在订阅建立期间关闭时会在订阅返回后立刻清理 10ms
+     × operation start 时 signal 已 abort 不会再建立迟到订阅 2ms
+     × 插件提供者拒绝订阅时归还 Project 操作 2ms
+     × 排空关闭事件流失败仍释放订阅与操作，并把原原因交给 HTTP 停止结算 6ms
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues:
+   [ { code: 'invalid_type',
+       path: [Array],
+       message: 'Invalid input: expected string, received undefined' } ] } 请求体验证失败
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues: [ { code: 'custom', path: [Array], message: 'projectRoot 必须是一级目录名' } ] } 请求体验证失败
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/api/workspace-files/events.get.test.ts > GET /api/workspace-files/events > 客户端在订阅建立期间关闭时会在订阅返回后立刻清理
+AssertionError: promise rejected "ReferenceError: settleCompletion is not d…" instead of resolving
+ ❯ server/api/workspace-files/events.get.test.ts:85:36
+     83|
+     84|         resolveSubscribe?.(unsubscribe);
+     85|         await expect(resultPromise).resolves.toBe("sent");
+       |                                    ^
+     86|         await expect(operationCompletion).resolves.toBeUndefined();
+     87|
+
+Caused by: ReferenceError: settleCompletion is not defined
+ ❯ settleIfClosed server/api/workspace-files/events.get.ts:66:21
+ ❯ server/api/workspace-files/events.get.ts:152:17
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  server/api/workspace-files/events.get.test.ts > GET /api/workspace-files/events > operation start 时 signal 已 abort 不会再建立迟到订阅
+AssertionError: promise rejected "ReferenceError: settleCompletion is not d…" instead of resolving
+ ❯ server/api/workspace-files/events.get.test.ts:127:33
+    125|
+    126|         await expect(handler({} as never)).resolves.toBe("sent");
+    127|         await expect(completion).resolves.toBeUndefined();
+       |                                 ^
+    128|
+    129|         expect(subscribeWorkspaceTreeIndex).not.toHaveBeenCalled();
+
+Caused by: ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.test.ts:119:33
+ ❯ server/api/workspace-files/events.get.ts:51:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  server/api/workspace-files/events.get.test.ts > GET /api/workspace-files/events > 插件提供者拒绝订阅时归还 Project 操作
+AssertionError: promise rejected "ReferenceError: settleCompletion is not d…" instead of resolving
+ ❯ server/api/workspace-files/events.get.test.ts:222:33
+    220|         });
+    221|         await expect(handler({} as never)).rejects.toThrow("provider u…
+    222|         await expect(completion).resolves.toBeUndefined();
+       |                                 ^
+    223|         expect(eventStream.close).toHaveBeenCalledOnce();
+    224|     });
+
+Caused by: ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ startProjectTargetOperation server/api/workspace-files/events.get.test.ts:215:33
+ ❯ server/api/workspace-files/events.get.ts:51:16
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  server/api/workspace-files/events.get.test.ts > GET /api/workspace-files/events > 排空关闭事件流失败仍释放订阅与操作，并把原原因交给 HTTP 停止结算
+AssertionError: expected AggregateError: HTTP 排空未完成 { …(1) } to match object { errors: [ …(1) ] }
+
+- Expected
++ Received
+
+- {
++ AggregateError {
++   "message": "HTTP 排空未完成",
+    "errors": [
+-     Error {
+-       "message": "workspace stream close failed",
++     ReferenceError {
++       "message": "settleCompletion is not defined",
+      },
+    ],
+  }
+
+ ❯ server/api/workspace-files/events.get.test.ts:249:35
+    247|         });
+    248|         await handler(event);
+    249|         await expect(http.drain()).rejects.toMatchObject({errors: [fai…
+       |                                   ^
+    250|         await completion;
+    251|         expect(unsubscribe).toHaveBeenCalledOnce();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 9 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.test.ts:64:33
+ ❯ Mock ../../node_modules/@vitest/spy/dist/index.js:332:34
+ ❯ server/api/workspace-files/events.get.ts:51:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "客户端在订阅建立期间关闭时会在订阅返回后立刻清理". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.test.ts:64:33
+ ❯ Mock ../../node_modules/@vitest/spy/dist/index.js:332:34
+ ❯ server/api/workspace-files/events.get.ts:51:16
+ ❯ processTicksAndRejections node:internal/process/task_queues:104:5
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.ts:49:13
+ ❯ server/api/workspace-files/events.get.ts:51:16
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ settleIfClosed server/api/workspace-files/events.get.ts:66:21
+     64|             const settleIfClosed = () => {
+     65|                 if (streamClosed && setupSettled && closeSettled) {
+     66|                     settleCompletion();
+       |                     ^
+     67|                 }
+     68|             };
+ ❯ server/api/workspace-files/events.get.ts:82:21
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.ts:49:13
+ ❯ server/api/workspace-files/events.get.ts:51:16
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ settleIfClosed server/api/workspace-files/events.get.ts:66:21
+     64|             const settleIfClosed = () => {
+     65|                 if (streamClosed && setupSettled && closeSettled) {
+     66|                     settleCompletion();
+       |                     ^
+     67|                 }
+     68|             };
+ ❯ server/api/workspace-files/events.get.ts:82:21
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ server/api/workspace-files/events.get.ts:49:13
+ ❯ server/api/workspace-files/events.get.ts:51:16
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ settleIfClosed server/api/workspace-files/events.get.ts:66:21
+     64|             const settleIfClosed = () => {
+     65|                 if (streamClosed && setupSettled && closeSettled) {
+     66|                     settleCompletion();
+       |                     ^
+     67|                 }
+     68|             };
+ ❯ server/api/workspace-files/events.get.ts:82:21
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+ReferenceError: settleCompletion is not defined
+ ❯ server/api/workspace-files/events.get.ts:61:17
+     59|             let unsubscribe: (() => void) | null = null;
+     60|             const completion = new Promise<void>((resolve) => {
+     61|                 settleCompletion = resolve;
+       |                 ^
+     62|             });
+     63|
+ ❯ server/api/workspace-files/events.get.ts:60:32
+ ❯ startProjectTargetOperation server/api/workspace-files/events.get.test.ts:242:33
+ ❯ server/api/workspace-files/events.get.ts:51:16
+ ❯ server/api/workspace-files/events.get.test.ts:248:9
+ ❯ ../../node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+This error originated in "server/api/workspace-files/events.get.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed | 53 passed (54)
+      Tests  4 failed | 294 passed (298)
+     Errors  9 errors
+   Start at  20:48:32
+   Duration  33.00s (transform 5.15s, setup 2.78s, import 13.44s, tests 40.20s, environment 24ms)
+
+error: script "test" exited with code 1
+
+RESULT {"code":1}

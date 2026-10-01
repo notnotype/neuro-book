@@ -14,6 +14,7 @@ import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 import {runtimePathsFromEnv, type RuntimePaths} from "nbook/server/runtime/paths/runtime-paths";
 import {withProductWorkspaceFiles} from "nbook/server/runtime/product-startup";
 import type {createWorkspaceFilesService} from "nbook/server/features/workspace-files/service";
+import {registerHttpEventStream} from "nbook/server/features/http/admission";
 
 type WorkspaceFileEventsDependencies = {
     createEventStream: typeof createEventStream;
@@ -52,6 +53,10 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             let streamClosed = false;
             let setupSettled = false;
             let closeSettled = false;
+            // HTTP 排空必须等待关闭结算并保留 close rejection；其他关闭入口仍只触发收口，不等待结果。
+            let closeFailed = false;
+            let closeFailure: unknown;
+            let closePromise: Promise<void> | null = null;
             let unsubscribe: (() => void) | null = null;
             let settleCompletion: () => void = () => undefined;
             const completion = new Promise<void>((resolve) => {
@@ -64,17 +69,21 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
                 }
             };
 
-            const finish = () => {
+            const finish = (): Promise<void> => {
                 if (streamClosed) {
-                    return;
+                    return closePromise ?? Promise.resolve();
                 }
                 streamClosed = true;
                 unsubscribe?.();
                 signal.removeEventListener("abort", finish);
-                void eventStream.close().catch(() => undefined).finally(() => {
+                closePromise = eventStream.close().catch((error: unknown) => {
+                    closeFailed = true;
+                    closeFailure = error;
+                }).finally(() => {
                     closeSettled = true;
                     settleIfClosed();
                 });
+                return closePromise;
             };
 
             const pushWorkspaceEvent = async (payload: WorkspaceFileStreamEventDto): Promise<void> => {
@@ -96,6 +105,13 @@ export function createWorkspaceFileEventsHandler(dependencies: WorkspaceFileEven
             };
 
             eventStream.onClosed(finish);
+            registerHttpEventStream(event, async () => {
+                await finish();
+                await completion;
+                if (closeFailed) {
+                    throw closeFailure;
+                }
+            });
             if (signal.aborted) {
                 finish();
             } else {

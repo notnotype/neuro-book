@@ -1,9 +1,7 @@
 import {execFile} from "node:child_process";
-import {readFile, readdir} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {dirname, resolve} from "node:path";
 import {promisify} from "node:util";
 import {describe, expect, it} from "vitest";
-import { testHostPath } from "@notnotype/neuro-book-test-support/test-path"
 
 import {
     isProductRuntimeIslandModule,
@@ -129,21 +127,5 @@ describe("Nuxt raw Product output", () => {
             .toBe(true);
         expect(isProductRuntimeIslandModule("zod/v4")).toBe(false);
         expect(isProductRuntimeIslandModule("\0virtual:typescript")).toBe(false);
-    });
-
-    it("Nitro plugin 不得用不会被 runtime 等待的 async callback 启动后台门禁", async () => {
-        const pluginRoot = resolve(applicationRoot, "server", "plugins");
-        const pluginFiles = (await readdir(pluginRoot))
-            .filter((fileName) => fileName.endsWith(".ts") && !fileName.endsWith(".test.ts"));
-        const invalid: string[] = [];
-        for (const fileName of pluginFiles) {
-            const source = await readFile(join(pluginRoot, fileName), "utf8");
-            if (/defineNitroPlugin\(\s*async\b/u.test(source)) invalid.push(fileName);
-        }
-
-        expect(invalid).toEqual([]);
-        const startup = await readFile(resolve(applicationRoot, "server", "middleware", "00-product-startup.ts"), "utf8");
-        expect(startup).toContain("const startup = productRuntimeReady()");
-        expect(startup).toContain("await startup");
     });
 });

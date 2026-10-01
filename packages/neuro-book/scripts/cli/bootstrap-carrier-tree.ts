@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import {productRuntimeReady, stopProductRuntime} from "nbook/server/runtime/product-startup";
+import {startProductRuntime} from "nbook/server/runtime/product-startup";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
 import {PROJECT_PLOT_WORLD_MODULE_TOKEN} from "nbook/server/plot";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
@@ -36,7 +36,8 @@ async function main(): Promise<number> {
         console.log("用法: bun scripts/cli/bootstrap-carrier-tree.ts <project-root ...> | --all");
         return 1;
     }
-    await productRuntimeReady();
+    const runtime = startProductRuntime();
+    await runtime.ready;
     try {
         let hadError = false;
         for (const projectRoot of projectRoots) {
@@ -64,7 +65,7 @@ async function main(): Promise<number> {
         }
         return hadError ? 1 : 0;
     } finally {
-        await stopProductRuntime();
+        await runtime.stop();
     }
 }
 

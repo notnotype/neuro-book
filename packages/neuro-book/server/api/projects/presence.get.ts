@@ -4,6 +4,7 @@ import {withProjectHttpError} from "nbook/server/api/projects/project-http-error
 import {acquireUserPresence} from "nbook/server/runtime/product-project";
 import {isClosingEventStreamError} from "nbook/server/utils/event-stream";
 import type {ProjectPresenceEventDto} from "nbook/shared/dto/project.dto";
+import {registerHttpEventStream} from "nbook/server/features/http/admission";
 
 /** 心跳间隔：保持 SSE 连接活性，避免代理层按空闲断连；也让断连能在下个心跳被发现。 */
 const PRESENCE_HEARTBEAT_MS = 30_000;
@@ -47,6 +48,10 @@ export default defineEventHandler(async (event) => {
     };
 
     presence.signal.addEventListener("abort", terminate, {once: true});
+    registerHttpEventStream(event, () => {
+        cleanup();
+        return eventStream.close();
+    });
 
     /**
      * push 一帧 presence 事件。语义：流已关闭则静默丢弃；push 命中 closed-stream 错误

@@ -1,0 +1,7 @@
+{
+  "reviewer": "HostSettlementReview",
+  "overall_correctness": "correct",
+  "explanation": "未发现达到审查门槛的、由补丁引入且证据充分的可观察行为缺陷。重点复核了生产入口信号由宿主挂接、停止前排空后再关闭插件、HTTP 新请求 503、SSE 主动关闭、失败状态和 75 优先级，以及启动函数在生产/开发/CLI 中的分工；按要求未运行验证命令。",
+  "confidence": 0.84,
+  "findings": []
+}

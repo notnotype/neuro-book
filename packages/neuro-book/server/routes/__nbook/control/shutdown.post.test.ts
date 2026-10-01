@@ -2,12 +2,12 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {EventEmitter} from "node:events";
 import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "@notnotype/neuro-book-contracts/product-runtime";
 
-const mocks = vi.hoisted(() => ({requestProcessExit: vi.fn()}));
+const mocks = vi.hoisted(() => ({requestStop: vi.fn()}));
 const originalHost = process.env.HOST;
 const originalNitroHost = process.env.NITRO_HOST;
 
-vi.mock("nbook/server/runtime/shutdown/product-shutdown", () => ({
-    productShutdownController: {requestProcessExit: mocks.requestProcessExit},
+vi.mock("nbook/server/runtime/product-startup", () => ({
+    currentProductRuntime: () => ({requestStop: mocks.requestStop}),
 }));
 
 import shutdownHandler from "nbook/server/routes/__nbook/control/shutdown.post";
@@ -27,7 +27,7 @@ describe("POST /__nbook/control/shutdown", () => {
     it("拒绝非 loopback 请求", async () => {
         expect(capture(() => shutdownHandler(event("192.168.1.20", "Bearer launch-secret") as never)))
             .toMatchObject({statusCode: 403});
-        expect(mocks.requestProcessExit).not.toHaveBeenCalled();
+        expect(mocks.requestStop).not.toHaveBeenCalled();
     });
 
     it("socket 地址缺失时只接受明确的 loopback 监听", () => {
@@ -36,13 +36,13 @@ describe("POST /__nbook/control/shutdown", () => {
 
         expect(shutdownHandler(request as never)).toEqual({accepted: true});
         request.node.res.emit("finish");
-        expect(mocks.requestProcessExit).toHaveBeenCalledTimes(1);
+        expect(mocks.requestStop).toHaveBeenCalledTimes(1);
 
         vi.clearAllMocks();
         process.env.NITRO_HOST = "0.0.0.0";
         expect(capture(() => shutdownHandler(event(undefined, "Bearer launch-secret") as never)))
             .toMatchObject({statusCode: 403});
-        expect(mocks.requestProcessExit).not.toHaveBeenCalled();
+        expect(mocks.requestStop).not.toHaveBeenCalled();
     });
 
     it("拒绝缺失或错误 bearer token", async () => {
@@ -50,7 +50,7 @@ describe("POST /__nbook/control/shutdown", () => {
             .toMatchObject({statusCode: 401});
         expect(capture(() => shutdownHandler(event("127.0.0.1", "Bearer wrong-secret") as never)))
             .toMatchObject({statusCode: 401});
-        expect(mocks.requestProcessExit).not.toHaveBeenCalled();
+        expect(mocks.requestStop).not.toHaveBeenCalled();
     });
 
     it("token 未注入时关闭控制面", async () => {
@@ -60,25 +60,26 @@ describe("POST /__nbook/control/shutdown", () => {
             .toMatchObject({statusCode: 503});
     });
 
-    it("正确 token 返回 202 并只请求 controller 退出", async () => {
+    it("正确 token 返回 202，响应结束后才经宿主请求停止", async () => {
         const request = event("::ffff:127.0.0.1", "bearer launch-secret");
 
         expect(shutdownHandler(request as never)).toEqual({accepted: true});
 
         expect(request.node.res.statusCode).toBe(202);
-        expect(mocks.requestProcessExit).not.toHaveBeenCalled();
+        expect(mocks.requestStop).not.toHaveBeenCalled();
         request.node.res.emit("finish");
         request.node.res.emit("close");
-        expect(mocks.requestProcessExit).toHaveBeenCalledTimes(1);
+        expect(mocks.requestStop).toHaveBeenCalledTimes(1);
+        expect(mocks.requestStop).toHaveBeenCalledWith("control:http");
     });
 
-    it("客户端先断开时也请求 controller 退出", async () => {
+    it("客户端先断开时也只经宿主请求停止一次", async () => {
         const request = event("127.0.0.1", "Bearer launch-secret");
 
         expect(shutdownHandler(request as never)).toEqual({accepted: true});
         request.node.res.emit("close");
 
-        expect(mocks.requestProcessExit).toHaveBeenCalledTimes(1);
+        expect(mocks.requestStop).toHaveBeenCalledTimes(1);
     });
 });
 

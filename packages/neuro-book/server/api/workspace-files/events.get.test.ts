@@ -1,6 +1,9 @@
 import {beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
 import { testAbsoluteFsPath } from "@notnotype/neuro-book-test-support/test-path";
 import {projectWorkspaceRef} from "nbook/server/workspace-files/project-identity";
+import {EventEmitter} from "node:events";
+import type {H3Event} from "h3";
+import {ProductHttpAdmission} from "nbook/server/features/http/admission";
 
 type WorkspaceFileEventsHandlerFactory = typeof import("nbook/server/api/workspace-files/events.get")["createWorkspaceFileEventsHandler"];
 
@@ -218,6 +221,36 @@ describe("GET /api/workspace-files/events", () => {
         await expect(handler({} as never)).rejects.toThrow("provider unavailable");
         await expect(completion).resolves.toBeUndefined();
         expect(eventStream.close).toHaveBeenCalledOnce();
+    });
+
+    it("排空关闭事件流失败仍释放订阅与操作，并把原原因交给 HTTP 停止结算", async () => {
+        const failure = new Error("workspace stream close failed");
+        const unsubscribe = vi.fn();
+        const eventStream = createEventStreamMock({close: vi.fn(async () => {throw failure;})});
+        const http = new ProductHttpAdmission();
+        http.ready();
+        const response = new EventEmitter();
+        const event = {node: {res: response}} as H3Event;
+        await http.admit(event);
+        let completion: Promise<void> | undefined;
+        const handler = createWorkspaceFileEventsHandler({
+            createEventStream: (() => eventStream) as never,
+            runtimePaths: () => ({} as never),
+            resolveWorkspaceFileTarget: async () => target,
+            subscribeWorkspaceTreeIndex: vi.fn(async () => unsubscribe) as never,
+            startProjectTargetOperation: ((_target, _binding, start) => {
+                const started = start(undefined, new AbortController().signal);
+                completion = started.completion;
+                return started.result;
+            }) as never,
+            workspaceTreeIndexOptionsForTarget: projectIndexOptions,
+        });
+        await handler(event);
+        await expect(http.drain()).rejects.toMatchObject({errors: [failure]});
+        await completion;
+        expect(unsubscribe).toHaveBeenCalledOnce();
+        expect(eventStream.close).toHaveBeenCalledOnce();
+        response.emit("close");
     });
 });
 

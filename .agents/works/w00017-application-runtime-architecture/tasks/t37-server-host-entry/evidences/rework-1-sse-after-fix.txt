@@ -1,0 +1,12 @@
+$ vitest run server/api/workspace-files/events.get.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  1 passed (1)
+      Tests  7 passed (7)
+   Start at  20:49:39
+   Duration  4.24s (transform 1.86s, setup 166ms, import 51ms, tests 2.97s, environment 0ms)
+
+
+RESULT {"code":0}
