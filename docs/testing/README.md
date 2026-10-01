@@ -120,7 +120,7 @@ Provider 的测试入口：独立配置 `packages/neuro-book/vitest.real-model.c
 - **Smoke 必测**：每个包至少一条 smoke（包入口可导入 + 一条最小真实路径）。
 - **分层**：L1 纯函数单元 / L2 公共合同 / L3 组件集成（内存假件）/ L4 真实进程与 IO——包内必须有 L1–L3，L4 至少覆盖一条真实边界；L5 宿主验收不属于包。
 - **放置与运行**：测试放在包内（`src/**` 或 `tests/**`，与被测源码同包）；运行器用 Bun 自带测试器 `bun test`，不引入 vitest 配置；包脚本 `test`/`typecheck` 可独立执行（`bun run --cwd packages/<pkg> test`）；导入使用包内相对路径或包名，禁止 `nbook/*` 等产品别名；不得依赖产品 workspace、Prisma 或 `@earendil-works/pi-*`。
-- **真实 LLM 不 mock**：需要 LLM响应的测试直接调用真实 DeepSeek（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；不要伪造 LLM API 数据。凭据只放仓库根 `.env`（已被忽略）或 CI secret，不落盘、不打印、不进用例名。缺凭据时 skip 并在证据中记为“未验证”，不得写成通过；断言结构化结果（状态、字段形状、finish 原因），不断言措辞。
+- **真实 LLM 不 mock**：需要 LLM响应的测试直接调用真实 DeepSeek（`DEEPSEEK_API_KEY`，可选 `DEEPSEEK_API_BASE`）；不要伪造 LLM API 数据。凭据只放仓库根 `.env`（已被忽略）或 CI secret，不落盘、不打印、不进用例名。缺凭据时 skip 并在证据中记为“未验证”，不得写成通过；断言结构化结果（状态、字段形状、finish 原因），不断言措辞。从包目录运行 `bun test` 不会读取仓库根 `.env`，真实 LLM 用例会因此静默 skip；本地要跑它们时用 `bun --env-file=../../.env test`，并在证据里写明是否加载了凭据、实际 pass 与 skip 的数量。
 - **测试支持**：`@notnotype/neuro-book-test-support` 仅作 devDependency；包若离开本仓需自带等价物。
 
 ## Component Lab 夹具规范
