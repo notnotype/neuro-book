@@ -89,6 +89,7 @@ export class AgentSessionStoreLeaseHeldError extends Error {
         readonly heartbeatAt: string | null,
         readonly owner: AgentSessionStoreLeaseOwner | null,
         cause: unknown,
+        readonly handoffTimeoutMs?: number,
     ) {
         const ownerText = owner
             ? `报告 owner：pid=${String(owner.pid)} kind=${owner.kind} acquiredAt=${owner.acquiredAt} runtime=${owner.runtime}@${owner.runtimeVersion}`
@@ -97,8 +98,11 @@ export class AgentSessionStoreLeaseHeldError extends Error {
         const holderText = owner?.kind === "migration"
             ? "迁移程序"
             : owner?.kind === "runtime" ? "NeuroBook 运行实例" : "NeuroBook 实例或迁移程序";
+        const handoffText = handoffTimeoutMs === undefined
+            ? ""
+            : `；同一进程旧运行实例未在${String(handoffTimeoutMs)}ms内释放；热重载后可重试`;
         super(
-            `Agent Session Store 正被另一${holderText}使用：${leasePath}；${ownerText}${heartbeatText}。`
+            `Agent Session Store 正被另一${holderText}使用：${leasePath}；${ownerText}${heartbeatText}${handoffText}。`
             + "请先正常关闭该实例；owner 仍存活时不要删除 runtime.lease.lock。",
             {cause},
         );

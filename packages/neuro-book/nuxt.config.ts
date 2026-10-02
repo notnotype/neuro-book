@@ -5,6 +5,10 @@ import {
     productRuntimeIslandPackageNames,
 } from "../../scripts/build/product-runtime-islands";
 
+import {captureDevelopmentSignalListeners, installDevelopmentMainProcessHost} from "./server/host/development-process";
+
+const developmentSignalBaseline = captureDevelopmentSignalListeners();
+
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 const repositoryRoot = resolve(rootDir, "..", "..");
 const serverDir = fileURLToPath(new URL("./server/", import.meta.url));
@@ -223,6 +227,7 @@ export default defineNuxtConfig({
     modules: [
         (_options, nuxt) => {
             if (nuxt.options.dev) {
+                installDevelopmentMainProcessHost(nuxt, {listenerSignalBaseline: developmentSignalBaseline});
                 nuxt.hook("nitro:config", (config) => {
                     config.plugins ??= [];
                     config.plugins.push(fileURLToPath(new URL("./server/host/development-plugin.ts", import.meta.url)));

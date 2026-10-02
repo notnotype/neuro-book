@@ -1,3 +1,4 @@
+import {setTimeout as sleep} from "node:timers/promises";
 import {resolve} from "node:path";
 import {
     acquireReadyAgentSessionStore,
@@ -7,8 +8,19 @@ import {
 } from "nbook/server/agent/session/agent-session-store";
 import {
     AgentSessionStoreLeaseCompromisedError,
+    AgentSessionStoreLeaseHeldError,
     agentSessionStoreLeasePath,
 } from "nbook/server/agent/session/agent-session-store-lease";
+export const AGENT_SESSION_STORE_LEASE_HANDOFF_TIMEOUT_MS = 45_000;
+export const AGENT_SESSION_STORE_LEASE_HANDOFF_POLL_MS = 100;
+
+export type AgentSessionStoreRuntimeStartOptions = {
+    /** 开发 worker 交接时等待同进程 runtime owner；生产与 CLI 必须保持立即失败。 */
+    readonly waitForSameProcessRuntimeLease?: boolean;
+    readonly leaseHandoffTimeoutMs?: number;
+    readonly leaseHandoffPollMs?: number;
+    readonly signal?: AbortSignal;
+};
 
 type AgentSessionStoreRuntimeEntry = {
     rootWorkspace: string;
@@ -82,7 +94,10 @@ function normalizeRuntimeEntry(entry: AgentSessionStoreRuntimeEntry): void {
  * 多个隔离root（测试与工具）各自独立持有capability，而不是互相顶掉。同root的并发
  * 与HMR调用共享同一条transition chain。
  */
-export async function startAgentSessionStoreRuntime(rootWorkspace: string): Promise<ReadyAgentSessionStore> {
+export async function startAgentSessionStoreRuntime(
+    rootWorkspace: string,
+    options: AgentSessionStoreRuntimeStartOptions = {},
+): Promise<ReadyAgentSessionStore> {
     const entry = ensureEntry(rootWorkspace);
     return enqueueTransition(entry, async () => {
         normalizeRuntimeEntry(entry);
@@ -99,7 +114,7 @@ export async function startAgentSessionStoreRuntime(rootWorkspace: string): Prom
         }
         entry.phase = "starting";
         try {
-            const active = await acquireReadyAgentSessionStore(entry.rootWorkspace);
+            const active = await acquireReadyAgentSessionStoreWithHandoff(entry.rootWorkspace, options);
             entry.active = active;
             entry.phase = "active";
             return active.ready;
@@ -109,6 +124,40 @@ export async function startAgentSessionStoreRuntime(rootWorkspace: string): Prom
             throw error;
         }
     });
+}
+
+async function acquireReadyAgentSessionStoreWithHandoff(
+    rootWorkspace: string,
+    options: AgentSessionStoreRuntimeStartOptions,
+): Promise<AgentSessionStoreRuntime> {
+    if (!options.waitForSameProcessRuntimeLease) return acquireReadyAgentSessionStore(rootWorkspace);
+
+    const timeoutMs = options.leaseHandoffTimeoutMs ?? AGENT_SESSION_STORE_LEASE_HANDOFF_TIMEOUT_MS;
+    const pollMs = options.leaseHandoffPollMs ?? AGENT_SESSION_STORE_LEASE_HANDOFF_POLL_MS;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new TypeError(`leaseHandoffTimeoutMs 必须是正整数，收到 ${String(timeoutMs)}`);
+    }
+    if (!Number.isInteger(pollMs) || pollMs <= 0) {
+        throw new TypeError(`leaseHandoffPollMs 必须是正整数，收到 ${String(pollMs)}`);
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+        options.signal?.throwIfAborted();
+        try {
+            // 陈旧锁恢复仍由 proper-lockfile 判定；只读等待会让已终止 worker 的残留锁永久阻塞。
+            return await acquireReadyAgentSessionStore(rootWorkspace);
+        } catch (error) {
+            if (!(error instanceof AgentSessionStoreLeaseHeldError)) throw error;
+            if (error.owner?.kind !== "runtime" || error.owner.pid !== process.pid) throw error;
+            if (Date.now() >= deadline) {
+                throw new AgentSessionStoreLeaseHeldError(
+                    error.leasePath, error.heartbeatAt, error.owner, error, timeoutMs,
+                );
+            }
+        }
+        await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())), undefined, {signal: options.signal});
+    }
 }
 
 /**

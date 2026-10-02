@@ -1,0 +1,35 @@
+$ bun run test:runtime-foundation
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  20 passed (20)
+      Tests  231 passed (231)
+   Start at  07:11:37
+   Duration  5.07s (transform 4.28s, setup 731ms, import 6.88s, tests 2.25s, environment 7ms)
+
+exit=0
+$ bun run test -- server/host server/runtime server/features server/middleware server/routes server/agent/session server/api/workspace-files server/api/projects server/api/agent shared/source-dev-launcher.test.ts scripts/smoke/product-lifecycle
+$ vitest run server/host server/runtime server/features server/middleware server/routes server/agent/session server/api/workspace-files server/api/projects server/api/agent shared/source-dev-launcher.test.ts scripts/smoke/product-lifecycle
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+[fixture] 回收残留 root 1 个，保留 0 个，失败 0 个
+[test-tmp] 回收残留目录 2 个，保留 2 个，失败 0 个
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues:
+   [ { code: 'invalid_type',
+       path: [Array],
+       message: 'Invalid input: expected string, received undefined' } ] } 请求体验证失败
+[warn] { method: 'POST',
+  path: '/api/agent/workflow/runs',
+  issues: [ { code: 'custom', path: [Array], message: 'projectRoot 必须是一级目录名' } ] } 请求体验证失败
+
+ Test Files  80 passed | 1 skipped (81)
+      Tests  509 passed | 1 skipped (510)
+   Start at  07:11:43
+   Duration  40.03s (transform 5.55s, setup 4.20s, import 20.83s, tests 41.38s, environment 38ms)
+
+exit=0

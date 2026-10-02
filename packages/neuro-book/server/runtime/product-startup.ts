@@ -6,6 +6,7 @@ import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
 import {createAppStatePlugin, appStateKey} from "nbook/server/features/app-state/plugin";
 import {createStoragePlugin, storageKey} from "nbook/server/features/storage/plugin";
 import {createSessionStorePlugin, sessionStoreKey} from "nbook/server/features/session-store/plugin";
+import type {SessionStorePluginOptions} from "nbook/server/features/session-store/plugin";
 import {createProjectPlugin, projectKey} from "nbook/server/features/project/plugin";
 import type {ProductProjectOwnerSlot} from "nbook/server/features/project/plugin";
 import {createAgentPlugin, agentKey} from "nbook/server/features/agent/plugin";
@@ -69,12 +70,19 @@ export function productProjectOwner<T>(create: (root: Scope) => T): T {
 }
 
 /** 必需插件按服务依赖激活；目录在登记结束后的首条激活诊断中写出。 */
-function productManifest(recordStartupError: (error: unknown) => void, projectOwner: ProductProjectOwnerSlot, stop: ProductStopPort, http: ProductHttpAdmission, listener: ProductHttpListener | undefined): ApplicationManifest {
+function productManifest(
+    recordStartupError: (error: unknown) => void,
+    projectOwner: ProductProjectOwnerSlot,
+    stop: ProductStopPort,
+    http: ProductHttpAdmission,
+    listener: ProductHttpListener | undefined,
+    sessionStoreOptions: SessionStorePluginOptions,
+): ApplicationManifest {
     const plugins = [
         createHttpPlugin(http, listener, recordStartupError),
         createAppStatePlugin(recordStartupError),
         createStoragePlugin(),
-        createSessionStorePlugin(recordStartupError, stop),
+        createSessionStorePlugin(recordStartupError, stop, sessionStoreOptions),
         createProjectPlugin(projectOwner),
         createAgentPlugin(),
         createWorkspaceFilesPlugin(),
@@ -141,7 +149,14 @@ export function startProductRuntime(options: ProductStartOptions = {}): ProductR
             void host.requestStop(source);
         },
     };
-    const manifest = productManifest(recordStartupError, projectOwner, stopPort, http, options.mode === "production" ? options.http : undefined);
+    const manifest = productManifest(
+        recordStartupError,
+        projectOwner,
+        stopPort,
+        http,
+        options.mode === "production" ? options.http : undefined,
+        options.mode === "development" ? {waitForSameProcessRuntimeLease: true} : {},
+    );
     host = new ServerRuntimeHost().start({
         instanceId: "product",
         manifest,

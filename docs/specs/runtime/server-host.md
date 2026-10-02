@@ -66,8 +66,8 @@ owners:
 **开发模式：**
 
 - 开发适配器在 Nitro 初始化时（不是首个请求时）建立运行实例；`nbook.http` 在开发模式只提供请求处理，不自行监听端口。
-- 热重载时新实例在取得进程级资源（Session Store 租约等）之前，有界等待同一进程中的旧实例释放；等待超时则新实例启动失败并报告原因，下一次请求或热重载可以重试。
-- 开发模式不缓存启动失败。
+- 热重载时新实例在取得进程级资源（Session Store 租约等）之前，有界等待同一进程中的旧实例释放；等待超时则新实例启动失败并报告原因，下一次热重载可以重试。
+- 开发模式不缓存启动失败：每次热重载建立新的 worker 与模块图，重新启动运行实例；同一 worker 内不重试，请求得到 503 与失败原因。
 - 开发进程收到 SIGTERM、SIGINT 或停止请求时，有序停止运行实例后退出。
 - 一个关闭步骤抛错不会跳过其余关闭步骤。
 
@@ -97,7 +97,7 @@ owners:
 - 排空超时：继续关闭其余插件，退出码 1。
 - 某个插件关闭抛错：记录错误，继续关闭其余插件，退出码 1。
 - 租约失效：立即进入停止并拒绝新请求，退出码 75；已取得排他资源在依赖仍被使用时不提前释放。
-- 开发模式旧实例迟迟不释放：新实例启动失败并可重试，不强行抢占资源。
+- 开发模式旧实例迟迟不释放：新实例启动失败，下一次热重载可重试；不强行抢占资源。
 - 强制结束（`SIGKILL`、断电）：不保证任何关闭步骤执行；下次启动按持久化数据与领域合同恢复。
 
 ## 边界与兼容
@@ -126,4 +126,4 @@ Smoke：生产构建在 Bun 下用临时 State Root 运行场景 2 至 6；开�
 
 - 批准目标：[可扩展应用平台设计](../../../packages/neuro-book/docs/proposals/extensible-application-platform.md) P6 与 P11（2026-09-30 开发者同意生命周期部分按验证证据写入）；[ADR 0022](../../../packages/neuro-book/docs/adr/0022-extensible-platform-and-plugin-trust.md) 第 2 条。
 - 验证依据：[G0 报告](../../../.agents/works/w00017-application-runtime-architecture/tasks/t27-platform-risk-gates/evidences/g0/REPORT.md)；启动失败退出与退出码优先级的现行修复见 [PR #245](https://github.com/notnotype/neuro-book/pull/245)。
-- 实现进展：生产宿主入口、`nbook.http`（监听、请求准入、排空期间返回 503、SSE 事件流在排空开始时关闭、普通在途请求最多等 20 秒）、停止来源汇合（信号、`PRODUCT_SHUTDOWN_PATH`、租约失效、启动失败经 `ServerRuntimeHost` 的同一停止入口，排空作为宿主停止前置步骤）、退出码 0、1、75 与启动失败的同步致命诊断已实现；其余插件按依赖逆序关闭，诊断以 `runtime.plugins.diagnostic` 与 `runtime.plugins.catalog` 写入产品日志。旧的启动中间件、排空中间件、`productRuntimeReady()` 全局单例、关闭控制器与 `project-session-close` Nitro 插件已删除。开发模式只有最小适配（Nitro 初始化时建立实例、单一不抛错的 close 钩子）：热重载交接、启动失败重试与开发进程停止通道（#244）仍未实现，`server/plugins/` 下其它 Nitro 插件尚未迁移，看门狗未实现，本 Spec 保持 `planned`。见 [w00017 t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)。
+- 实现进展：生产宿主入口、`nbook.http`（监听、请求准入、排空期间返回 503、SSE 事件流在排空开始时关闭、普通在途请求最多等 20 秒）、停止来源汇合（信号、`PRODUCT_SHUTDOWN_PATH`、租约失效、启动失败经 `ServerRuntimeHost` 的同一停止入口，排空作为宿主停止前置步骤）、退出码 0、1、75 与启动失败的同步致命诊断已实现；其余插件按依赖逆序关闭，诊断以 `runtime.plugins.diagnostic` 与 `runtime.plugins.catalog` 写入产品日志。旧的启动中间件、排空中间件、`productRuntimeReady()` 全局单例、关闭控制器与 `project-session-close` Nitro 插件已删除。开发模式由 Nitro 插件在初始化时建立实例，nuxi 主线程中的开发宿主接管 SIGINT、SIGTERM 并经 `BroadcastChannel` 与 worker 协调：热重载先等旧实例的停止回执再换 worker；Session Store 租约在开发模式对同一进程的 runtime 持有者有界等待 45 秒，过期锁仍按租约规则接管；停止路由与信号都经宿主停止入口排空、按依赖逆序关闭后退出（#244）。已知限制：同一 worker 内由请求触发的重试未实现，因为 Storage 宿主与文件索引仍是模块级单例，关闭后不能在同一模块图中重建，要等它们成为拥有资源的插件；开发宿主依赖 listhen 注册的信号监听形状与 Nitro `dev:reload` 钩子的执行顺序，升级 Nuxt 或 Nitro 时要重新验证；nuxi 分叉模式、Windows 与 Bun 下的开发 worker 未覆盖。`server/plugins/` 下其它 Nitro 插件尚未迁移，看门狗未实现，本 Spec 保持 `planned`。见 [w00017 t34](../../../.agents/works/w00017-application-runtime-architecture/tasks/t34-builtin-service-plugins/README.md)、[t37](../../../.agents/works/w00017-application-runtime-architecture/tasks/t37-server-host-entry/README.md)、[t38](../../../.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/README.md)。

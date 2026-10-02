@@ -1,9 +1,16 @@
 import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {randomUUID} from "node:crypto";
 import {createHash} from "node:crypto";
-import {mkdir, rm, writeFile} from "node:fs/promises";
+import {setTimeout as sleep} from "node:timers/promises";
+import {mkdir, readFile, rm, stat, utimes, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {afterEach, describe, expect, it} from "vitest";
+import {
+    acquireAgentSessionStoreLease,
+    AGENT_SESSION_STORE_LEASE_STALE_MS,
+    AgentSessionStoreLeaseHeldError,
+    agentSessionStoreLeasePath,
+} from "nbook/server/agent/session/agent-session-store-lease";
 import {
     acquireAgentSessionStoreExclusiveLease,
     agentSessionStoreSentinelPath,
@@ -75,6 +82,115 @@ describe("Agent Session Store runtime owner", () => {
         expect(requireReadyAgentSessionStore(root)).toBe(await secondStart);
         await expect(acquireAgentSessionStoreExclusiveLease(root)).rejects.toMatchObject({code: "ELOCKED"});
     });
+
+    it("场景 1：同进程旧实例慢停止，新实例就绪前等待且不抢占租约", async () => {
+        const root = await readyRoot();
+        const releaseOld = await acquireAgentSessionStoreLease(root, "runtime");
+        const owner = await readFile(agentSessionStoreLeasePath(root), "utf8");
+        let settled = false;
+        const starting = startAgentSessionStoreRuntime(root, {
+            waitForSameProcessRuntimeLease: true,
+            leaseHandoffTimeoutMs: 2_000,
+            leaseHandoffPollMs: 5,
+        }).finally(() => { settled = true; });
+        try {
+            await sleep(20);
+            expect(settled).toBe(false);
+            expect(await readFile(agentSessionStoreLeasePath(root), "utf8")).toBe(owner);
+        } finally {
+            await releaseOld();
+        }
+        const ready = await starting;
+        expect(requireReadyAgentSessionStore(root)).toBe(ready);
+        expect(await readFile(agentSessionStoreLeasePath(root), "utf8")).not.toBe(owner);
+    });
+
+    it("同 PID 旧 worker 的残留锁心跳已过期，新实例无需等到交接期限即可取得租约", async () => {
+        const root = await readyRoot();
+        const path = agentSessionStoreLeasePath(root);
+        const leaseId = randomUUID();
+        const staleTime = new Date(Date.now() - AGENT_SESSION_STORE_LEASE_STALE_MS - 1_000);
+        await writeFile(path, JSON.stringify({
+            schema: "nbook.agent-session-store-lease-owner/v1", leaseId, kind: "runtime",
+            pid: process.pid, acquiredAt: staleTime.toISOString(), runtime: "node", runtimeVersion: process.versions.node,
+        }));
+        await mkdir(`${path}.lock`);
+        await utimes(`${path}.lock`, staleTime, staleTime);
+        const ready = await startAgentSessionStoreRuntime(root, {
+            waitForSameProcessRuntimeLease: true, leaseHandoffTimeoutMs: 100, leaseHandoffPollMs: 5,
+        });
+        expect(requireReadyAgentSessionStore(root)).toBe(ready);
+        expect(JSON.parse(await readFile(path, "utf8")).leaseId).not.toBe(leaseId);
+    });
+
+    it("场景 2：同进程旧runtime未释放时超时且不删除lease，释放后可重试", async () => {
+        const root = await readyRoot();
+        const releaseOld = await acquireAgentSessionStoreLease(root, "runtime");
+
+        await expect(startAgentSessionStoreRuntime(root, {
+            waitForSameProcessRuntimeLease: true,
+            leaseHandoffTimeoutMs: 30,
+            leaseHandoffPollMs: 5,
+        })).rejects.toMatchObject({
+            code: "ELOCKED",
+            handoffTimeoutMs: 30,
+            owner: {kind: "runtime", pid: process.pid},
+        });
+
+        const held = await acquireAgentSessionStoreLease(root, "runtime").catch((error: unknown) => error);
+        expect(held).toBeInstanceOf(AgentSessionStoreLeaseHeldError);
+        await releaseOld();
+        await expect(startAgentSessionStoreRuntime(root, {waitForSameProcessRuntimeLease: true})).resolves.toBeDefined();
+    });
+
+    it("场景 3：migration owner立即失败，不把迁移锁当作HMR交接", async () => {
+        const root = await readyRoot();
+        const releaseMigration = await acquireAgentSessionStoreLease(root, "migration");
+        const startedAt = Date.now();
+
+        await expect(startAgentSessionStoreRuntime(root, {
+            waitForSameProcessRuntimeLease: true,
+            leaseHandoffTimeoutMs: 200,
+            leaseHandoffPollMs: 5,
+        })).rejects.toMatchObject({
+            code: "ELOCKED",
+            owner: {kind: "migration"},
+        });
+        expect(Date.now() - startedAt).toBeLessThan(100);
+        await releaseMigration();
+    });
+
+    it("场景 3：另一进程的 runtime owner 立即失败，不等待也不改锁", async () => {
+        const root = await readyRoot();
+        const release = await acquireAgentSessionStoreLease(root, "runtime");
+        const path = agentSessionStoreLeasePath(root);
+        const owner = JSON.parse(await readFile(path, "utf8")) as {pid: number};
+        owner.pid = process.pid + 1;
+        await writeFile(path, JSON.stringify(owner), "utf8");
+        const heartbeat = (await stat(`${path}.lock`)).mtimeMs;
+        try {
+            await expect(startAgentSessionStoreRuntime(root, {
+                waitForSameProcessRuntimeLease: true,
+                leaseHandoffTimeoutMs: 2_000,
+                leaseHandoffPollMs: 500,
+            })).rejects.toMatchObject({code: "ELOCKED", owner: {pid: owner.pid}, handoffTimeoutMs: undefined});
+            expect((await stat(`${path}.lock`)).mtimeMs).toBe(heartbeat);
+        } finally {
+            await release();
+        }
+    });
+
+    it.each([false, true])("开发交接等待=%s 时停止仍释放锁并保留 owner 诊断 metadata", async (waitForSameProcessRuntimeLease) => {
+        const root = await readyRoot();
+        await startAgentSessionStoreRuntime(root, {waitForSameProcessRuntimeLease});
+        const owner = await readFile(agentSessionStoreLeasePath(root), "utf8");
+        await stopAgentSessionStoreRuntime(root);
+        expect(await readFile(agentSessionStoreLeasePath(root), "utf8")).toBe(owner);
+        await expect(stat(`${agentSessionStoreLeasePath(root)}.lock`)).rejects.toMatchObject({code: "ENOENT"});
+        const release = await acquireAgentSessionStoreExclusiveLease(root);
+        await release();
+    });
+
 
     it("并发stop共享线性化关闭边界", async () => {
         const root = await readyRoot();

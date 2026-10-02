@@ -6,7 +6,9 @@ const mocks = vi.hoisted(() => ({
     fatalSync: vi.fn(),
 }));
 vi.mock("nitropack/runtime", () => ({defineNitroPlugin: (plugin: unknown) => plugin}));
-vi.mock("nbook/server/runtime/product-startup", () => ({startProductRuntime: mocks.start}));
+vi.mock("nbook/server/runtime/product-startup", () => ({
+    startProductRuntime: mocks.start,
+}));
 vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {fatalSync: mocks.fatalSync}}));
 import plugin from "./development-plugin";
 
@@ -14,6 +16,7 @@ describe("开发初始化适配器", () => {
     beforeEach(() => {
         vi.resetAllMocks();
         mocks.start.mockReturnValue({stop: mocks.stop});
+        mocks.stop.mockResolvedValue(undefined);
     });
 
     it("Nitro 初始化时建立实例而不是等首个请求，单一 close 钩子失败只写诊断不抛错", async () => {

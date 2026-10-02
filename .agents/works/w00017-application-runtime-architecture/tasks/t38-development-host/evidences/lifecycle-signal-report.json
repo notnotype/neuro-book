@@ -1,0 +1,25 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-02T03:42:29.135Z",
+  "durationMs": 26737,
+  "skipBuild": true,
+  "selected": [
+    "L8"
+  ],
+  "results": [
+    {
+      "id": "L8",
+      "result": "pass",
+      "durationMs": 26727,
+      "evidence": "L8.sigterm: 已向Node Nuxt dev实际进程pid=3623276发送SIGTERM并在有限时间内完成：code=0 signal=null；leaseLock=released ownerFile=present。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L8.log",
+      "observations": [
+        {
+          "id": "L8.sigterm",
+          "result": "pass",
+          "evidence": "已向Node Nuxt dev实际进程pid=3623276发送SIGTERM并在有限时间内完成：code=0 signal=null；leaseLock=released ownerFile=present。"
+        }
+      ]
+    }
+  ]
+}

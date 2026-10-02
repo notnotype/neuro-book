@@ -5,7 +5,7 @@ import {createServer} from "node:http";
 import type {H3Event} from "h3";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {PRODUCT_RUNTIME_EXIT_CODE_AGENT_SESSION_STORE_LEASE_COMPROMISED} from "@notnotype/neuro-book-contracts/product-runtime";
-import {AgentSessionStoreLeaseCompromisedError} from "nbook/server/agent/session/agent-session-store-lease";
+import {AgentSessionStoreLeaseCompromisedError, AgentSessionStoreLeaseHeldError} from "nbook/server/agent/session/agent-session-store-lease";
 import type * as RuntimeModule from "nbook/server/runtime/product-startup";
 import type {ProductRuntime, ProductStartOptions} from "nbook/server/runtime/product-startup";
 import type {Scope} from "nbook/runtime/lifecycle/lifecycle";
@@ -380,6 +380,52 @@ describe("Product startup", () => {
         expect(() => runtime.startProductRuntime()).toThrow("已停止");
         expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledTimes(1);
     });
+
+    it("场景 1：开发租约交接未完成时请求等待，新实例就绪后才处理", async () => {
+        const leaseReady = Promise.withResolvers<{rootWorkspace: string}>();
+        mocks.startAgentSessionStoreRuntime.mockReturnValueOnce(leaseReady.promise);
+        product = runtime.startProductRuntime({mode: "development"});
+        await vi.waitFor(() => expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledOnce());
+        const response = new EventEmitter();
+        let handled = false;
+        const request = product.http.admit({node: {res: response}} as H3Event).then(() => {handled = true;});
+        await Promise.resolve();
+        expect(handled).toBe(false);
+        leaseReady.resolve({rootWorkspace: productTestWorkspaceRoot()});
+        await product.ready;
+        await request;
+        response.emit("finish");
+        expect(handled).toBe(true);
+        expect(product.application.root.phase).toBe("available");
+    });
+    it.each(["production", "cli"] as const)("场景 3：%s 启动租约占用立即失败，不等待且不允许请求重试", async (mode) => {
+        const failure = new Error("lease held");
+        mocks.startAgentSessionStoreRuntime.mockRejectedValueOnce(failure);
+        product = runtime.startProductRuntime({mode});
+        await expect(product.ready).rejects.toBe(failure);
+        await product.stopped;
+        expect(() => runtime.startProductRuntime({mode})).toThrow("已停止");
+        expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledExactlyOnceWith(productTestWorkspaceRoot());
+    });
+
+    it("场景 2：开发交接超时诊断保留 ELOCKED 原因，同一 worker 请求保持 503", async () => {
+        const owner = {schema: "nbook.agent-session-store-lease-owner/v1" as const, leaseId: "old", kind: "runtime" as const,
+            pid: process.pid, acquiredAt: new Date().toISOString(), runtime: "node" as const, runtimeVersion: process.versions.node};
+        const cause = new AgentSessionStoreLeaseHeldError("runtime.lease", null, owner, new Error("lease held"));
+        const failure = new AgentSessionStoreLeaseHeldError("runtime.lease", null, owner, cause, 45_000);
+        mocks.startAgentSessionStoreRuntime.mockRejectedValueOnce(failure);
+        product = runtime.startProductRuntime({mode: "development"});
+        const response = new EventEmitter();
+        await expect(product.http.admit({node: {res: response}} as H3Event)).rejects.toMatchObject({statusCode: 503, cause: failure});
+        response.emit("finish");
+        await product.stopped;
+        expect(mocks.fatalSync).toHaveBeenCalledWith("runtime.startup.failed", undefined, failure, expect.any(String));
+        expect(failure.cause).toBe(cause);
+        expect(() => runtime.startProductRuntime({mode: "development"})).toThrow("已停止");
+        await expect(product.http.admit({node: {res: new EventEmitter()}} as H3Event)).rejects.toMatchObject({statusCode: 503, cause: failure});
+        expect(mocks.startAgentSessionStoreRuntime).toHaveBeenCalledOnce();
+    });
+
 
     it("runtime lease compromised时记录fatal诊断并请求专用退出", async () => {
         let resolveCompromised!: (error: {leasePath: string; kind: "runtime"}) => void;

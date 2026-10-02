@@ -1,0 +1,287 @@
+{
+  "chainRoot": "/tmp/neuro-book/runs/t38-development-host-rework-1/fa7a26b2-89aa-455c-a0d2-a089197c5cce",
+  "results": [
+    {
+      "signal": "SIGTERM",
+      "port": 37103,
+      "rootPid": 3695627,
+      "sourcePid": 3695629,
+      "ownerPid": 3695932,
+      "terminal": {
+        "code": 0,
+        "signal": null
+      },
+      "durationMs": 339,
+      "forced": false,
+      "graceful": true,
+      "gracefulEvidence": "INFERENCE：单次信号分支等待 shutdownNativeProduct；无强制日志、正常终态 0，其源码返回 graceful。未直接截取返回值。",
+      "lockExists": false,
+      "ownerExists": true,
+      "retainedLeaseId": "acf4278a-540b-4b51-bf6d-6f55fefac40b",
+      "residual": [],
+      "members": [
+        {
+          "pid": 3695627,
+          "parent": 3686745,
+          "group": 3695627,
+          "command": "bun run --cwd packages/neuro-book dev"
+        },
+        {
+          "pid": 3695629,
+          "parent": 3695627,
+          "group": 3695627,
+          "command": "bun scripts/cli/source-dev.ts"
+        },
+        {
+          "pid": 3695640,
+          "parent": 3695629,
+          "group": 3695627,
+          "command": "/usr/bin/bun -e  const {spawn} = require(\"node:child_process\");  const SIGNAL_FAULT = false; const PROBE_FAULT = false; let probePermissionPending = false; let child; let payload; let terminationReason; let closeResult; let cleanupStarted = false; let finished = false; let hardTimer; let pollTimer; let waitTimer;  process.on(\"message\", (message) => {     if (!payload) {         start(message);         return;     }     if (message?.kind === \"terminate\") terminate(message.reason); }); process.on(\"disconnect\", () => {     if (!finished) terminate(\"host-disconnect\"); });  /** \\u76EE\\u6807\\u4EE5\\u72EC\\u7ACB process group \\u542F\\u52A8\\uFF0C\\u76D1\\u7763\\u5668\\u53EA\\u8F6C\\u53D1 stdio \\u4E0E\\u7EC8\\u6001\\u3002 */ function start(message) {     if (!message || message.kind !== \"start\" || typeof message.command !== \"string\") {         finishError(\"protocol\", \"POSIX\\u76D1\\u7763\\u534F\\u8BAE\\u9996\\u6761\\u6D88\\u606F\\u5FC5\\u987B\\u662Fstart\");         return;     }     payload = message;     try {         child = spawn(payload.command, Array.isArray(payload.args) ? payload.args : [], {             cwd: payload.cwd,             env: payload.env,             detached: true,             // Product stdout/stderr \\u662F Supervisor \\u534F\\u8BAE\\u7684\\u8FB9\\u754C\\uFF1Bignore \\u5FC5\\u987B\\u663E\\u5F0F\\u4F20\\u7ED9\\u76EE\\u6807\\u3002             // pipe/inherit \\u90FD\\u7EE7\\u627F Supervisor \\u81EA\\u5DF1\\u7684 fd\\uFF0C\\u7531 Adapter \\u8D1F\\u8D23\\u8FDE\\u63A5\\u5230\\u5BBF\\u4E3B\\u3002             stdio: [payload.stdin === \"pipe\" ? \"pipe\" : 0, outputStdio(payload.stdout), outputStdio(payload.stderr)],         });         if (payload.stdin === \"pipe\") {             process.stdin.on(\"data\", (chunk) => child.stdin?.write(chunk));             process.stdin.on(\"end\", () => child.stdin?.end());         }     } catch (error) {         finishError(\"spawn\", error instanceof Error ? error.message : String(error));         return;     }     child.once(\"spawn\", () => status({kind: \"ready\", rootPid: child.pid}));     child.once(\"error\", (error) => finishError(\"spawn\", error.message));     child.once(\"exit\", () => beginCleanup());     child.once(\"close\", (exitCode, signal) => {         closeResult = {exitCode, signal};         beginCleanup();         settleIfClosed();     }); }  function outputStdio(value) {     return value === \"ignore\" ? \"ignore\" : \"inherit\"; }  /** \\u4E3B\\u52A8\\u7EC8\\u6B62\\u4E0E\\u5BBF\\u4E3B\\u65AD\\u8FDE\\u5171\\u7528\\u540C\\u4E00\\u8FDB\\u7A0B\\u7EC4\\u6536\\u53E3\\u3002 */ function terminate(reason) {     if (finished) return;     terminationReason = terminationReason ?? reason;     if (!child) {         finish({kind: \"terminated\", exitCode: null, signal: null, reason: terminationReason}, 0);         return;     }     beginCleanup(); }  /** TERM \\u540E\\u5347\\u7EA7 KILL\\uFF0C\\u5E76\\u6301\\u7EED\\u8BC1\\u660E\\u6574\\u4E2A process group \\u5DF2\\u6D88\\u5931\\u3002 */ function beginCleanup() {     if (cleanupStarted || finished || !child) return;     cleanupStarted = true;     try {         signalGroup(child.pid, \"SIGTERM\");     } catch (error) {         finishError(\"process-group-signal\", error instanceof Error ? error.message : String(error));         return;     }     hardTimer = setTimeout(() => {         try {             signalGroup(child.pid, \"SIGKILL\");         } catch (error) {             finishError(\"process-group-signal\", error instanceof Error ? error.message : String(error));         }     }, payload.graceMs);     pollTimer = setInterval(settleIfClosed, 25);     waitTimer = setTimeout(() => finishError(         \"hard-kill-wait\",         \"\\u5F3A\\u5236\\u7EC8\\u6B62\\u540E\\u4ECD\\u672A\\u786E\\u8BA4POSIX\\u8FDB\\u7A0B\\u7EC4\\u6536\\u53E3\",     ), payload.graceMs + payload.hardKillWaitMs); }  /** \\u53EA\\u6709\\u6839\\u8FDB\\u7A0B close \\u4E14\\u6574\\u4E2A process group \\u6D88\\u5931\\u540E\\u624D\\u62A5\\u544A\\u7EC8\\u6001\\u3002 */ function settleIfClosed() {     if (finished || !closeResult) return;     try {         if (groupExists(child?.pid)) return;     } catch (error) {         finishError(\"process-group-probe\", error instanceof Error ? error.message : String(error));         return;     }     finish(terminationReason         ? {kind: \"terminated\", ...closeResult, reason: terminationReason}         : {kind: \"complete\", ...closeResult}, 0); }  /** \\u62A5\\u544A\\u9519\\u8BEF\\u540E\\u9000\\u51FA\\uFF1B\\u76EE\\u6807\\u82E5\\u5DF2\\u5EFA\\u7ACB\\uFF0C\\u5BBF\\u4E3B Operation \\u5FC5\\u987B fail closed\\u3002 */ function finishError(stage, message) {     finish({kind: \"error\", stage, message}, 1); }  /** \\u6709\\u754C\\u53D1\\u9001\\u7EC8\\u6001\\uFF0C\\u7136\\u540E\\u5173\\u95ED IPC \\u548C\\u76D1\\u7763\\u8FDB\\u7A0B\\u3002 */ function finish(value, exitCode) {     if (finished) return;     finished = true;     clearTimers();     let reported = false;     const exit = () => {         if (reported) return;         reported = true;         process.disconnect?.();         setImmediate(() => process.exit(exitCode));     };     const fallback = setTimeout(exit, 100);     try {         if (!process.connected || !process.send) {             clearTimeout(fallback);             exit();             return;         }         process.send(value, () => {             clearTimeout(fallback);             exit();         });     } catch {         clearTimeout(fallback);         exit();     } }  /** \\u975E\\u7EC8\\u6001\\u6D88\\u606F\\u5141\\u8BB8\\u5728\\u5BBF\\u4E3B\\u5DF2\\u9000\\u51FA\\u65F6\\u4E22\\u5931\\u3002 */ function status(value) {     try {         process.send?.(value);     } catch {         // \\u5BBF\\u4E3B\\u65AD\\u8FDE\\u4F1A\\u8FDB\\u5165\\u7EDF\\u4E00 cleanup\\u3002     } }  function clearTimers() {     if (hardTimer) clearTimeout(hardTimer);     if (pollTimer) clearInterval(pollTimer);     if (waitTimer) clearTimeout(waitTimer); }  function groupExists(pid) {     if (!pid) return false;     try {         if (PROBE_FAULT) throw Object.assign(new Error(\"unexpected probe failure\"), {code: \"EIO\"});         if (probePermissionPending) {             probePermissionPending = false;             throw Object.assign(new Error(\"operation not permitted\"), {code: \"EPERM\"});         }         process.kill(-pid, 0);         return true;     } catch (error) {         if (error?.code === \"ESRCH\") return false;         // kill(2) \\u7684 EPERM \\u4ECD\\u8BC1\\u660E\\u76EE\\u6807\\u8FDB\\u7A0B\\u7EC4\\u5B58\\u5728\\uFF1B\\u7EE7\\u7EED\\u7B49\\u5F85\\uFF0C\\u4E0D\\u80FD\\u63D0\\u524D\\u63D0\\u4EA4\\u7EC8\\u6001\\u3002         if (error?.code === \"EPERM\") return true;         throw error;     } }  function signalGroup(pid, signal) {     if (!pid) return;     if (SIGNAL_FAULT && signal === \"SIGTERM\") {         throw Object.assign(new Error(\"operation not permitted\"), {code: \"EPERM\"});     }     try {         process.kill(-pid, signal);     } catch (error) {         if (error?.code !== \"ESRCH\") throw error;     } }"
+        },
+        {
+          "pid": 3695642,
+          "parent": 3695640,
+          "group": 3695642,
+          "command": "/usr/bin/bun --no-install run dev:runtime"
+        },
+        {
+          "pid": 3695643,
+          "parent": 3695642,
+          "group": 3695642,
+          "command": "bun scripts/cli/source-runtime.ts"
+        },
+        {
+          "pid": 3695694,
+          "parent": 3695643,
+          "group": 3695642,
+          "command": "/usr/bin/bun --no-install run nuxt:prepare"
+        },
+        {
+          "pid": 3695695,
+          "parent": 3695694,
+          "group": 3695642,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
+        },
+        {
+          "pid": 3695772,
+          "parent": 3695643,
+          "group": 3695642,
+          "command": "/usr/bin/bun --no-install run generate"
+        },
+        {
+          "pid": 3695773,
+          "parent": 3695772,
+          "group": 3695642,
+          "command": "bun scripts/db/prisma-generate.mjs"
+        },
+        {
+          "pid": 3695781,
+          "parent": 3695773,
+          "group": 3695642,
+          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+        },
+        {
+          "pid": 3695782,
+          "parent": 3695781,
+          "group": 3695642,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+        },
+        {
+          "pid": 3695823,
+          "parent": 3695773,
+          "group": 3695642,
+          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+        },
+        {
+          "pid": 3695824,
+          "parent": 3695823,
+          "group": 3695642,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+        },
+        {
+          "pid": 3695866,
+          "parent": 3695824,
+          "group": 3695866,
+          "command": "/usr/bin/node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:53:16+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/notnotype/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
+        },
+        {
+          "pid": 3695882,
+          "parent": 3695643,
+          "group": 3695642,
+          "command": "/usr/bin/bun --no-install /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
+        },
+        {
+          "pid": 3695911,
+          "parent": 3695882,
+          "group": 3695642,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
+        },
+        {
+          "pid": 3695931,
+          "parent": 3695643,
+          "group": 3695642,
+          "command": "/usr/bin/bun --no-install x nuxt dev --no-fork"
+        },
+        {
+          "pid": 3695932,
+          "parent": 3695931,
+          "group": 3695642,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+        },
+        {
+          "pid": 3696028,
+          "parent": 3695932,
+          "group": 3695642,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+        },
+        {
+          "pid": 3696051,
+          "parent": 3695932,
+          "group": 3695642,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+        }
+      ]
+    },
+    {
+      "signal": "SIGINT",
+      "port": 42397,
+      "rootPid": 3696577,
+      "sourcePid": 3696579,
+      "ownerPid": 3696864,
+      "terminal": {
+        "code": 0,
+        "signal": null
+      },
+      "durationMs": 335,
+      "forced": false,
+      "graceful": true,
+      "gracefulEvidence": "INFERENCE：单次信号分支等待 shutdownNativeProduct；无强制日志、正常终态 0，其源码返回 graceful。未直接截取返回值。",
+      "lockExists": false,
+      "ownerExists": true,
+      "retainedLeaseId": "a11d0a03-ac08-400e-a5d5-5f91342d00f2",
+      "residual": [],
+      "members": [
+        {
+          "pid": 3696577,
+          "parent": 3686745,
+          "group": 3696577,
+          "command": "bun run --cwd packages/neuro-book dev"
+        },
+        {
+          "pid": 3696579,
+          "parent": 3696577,
+          "group": 3696577,
+          "command": "bun scripts/cli/source-dev.ts"
+        },
+        {
+          "pid": 3696589,
+          "parent": 3696579,
+          "group": 3696577,
+          "command": "/usr/bin/bun -e  const {spawn} = require(\"node:child_process\");  const SIGNAL_FAULT = false; const PROBE_FAULT = false; let probePermissionPending = false; let child; let payload; let terminationReason; let closeResult; let cleanupStarted = false; let finished = false; let hardTimer; let pollTimer; let waitTimer;  process.on(\"message\", (message) => {     if (!payload) {         start(message);         return;     }     if (message?.kind === \"terminate\") terminate(message.reason); }); process.on(\"disconnect\", () => {     if (!finished) terminate(\"host-disconnect\"); });  /** \\u76EE\\u6807\\u4EE5\\u72EC\\u7ACB process group \\u542F\\u52A8\\uFF0C\\u76D1\\u7763\\u5668\\u53EA\\u8F6C\\u53D1 stdio \\u4E0E\\u7EC8\\u6001\\u3002 */ function start(message) {     if (!message || message.kind !== \"start\" || typeof message.command !== \"string\") {         finishError(\"protocol\", \"POSIX\\u76D1\\u7763\\u534F\\u8BAE\\u9996\\u6761\\u6D88\\u606F\\u5FC5\\u987B\\u662Fstart\");         return;     }     payload = message;     try {         child = spawn(payload.command, Array.isArray(payload.args) ? payload.args : [], {             cwd: payload.cwd,             env: payload.env,             detached: true,             // Product stdout/stderr \\u662F Supervisor \\u534F\\u8BAE\\u7684\\u8FB9\\u754C\\uFF1Bignore \\u5FC5\\u987B\\u663E\\u5F0F\\u4F20\\u7ED9\\u76EE\\u6807\\u3002             // pipe/inherit \\u90FD\\u7EE7\\u627F Supervisor \\u81EA\\u5DF1\\u7684 fd\\uFF0C\\u7531 Adapter \\u8D1F\\u8D23\\u8FDE\\u63A5\\u5230\\u5BBF\\u4E3B\\u3002             stdio: [payload.stdin === \"pipe\" ? \"pipe\" : 0, outputStdio(payload.stdout), outputStdio(payload.stderr)],         });         if (payload.stdin === \"pipe\") {             process.stdin.on(\"data\", (chunk) => child.stdin?.write(chunk));             process.stdin.on(\"end\", () => child.stdin?.end());         }     } catch (error) {         finishError(\"spawn\", error instanceof Error ? error.message : String(error));         return;     }     child.once(\"spawn\", () => status({kind: \"ready\", rootPid: child.pid}));     child.once(\"error\", (error) => finishError(\"spawn\", error.message));     child.once(\"exit\", () => beginCleanup());     child.once(\"close\", (exitCode, signal) => {         closeResult = {exitCode, signal};         beginCleanup();         settleIfClosed();     }); }  function outputStdio(value) {     return value === \"ignore\" ? \"ignore\" : \"inherit\"; }  /** \\u4E3B\\u52A8\\u7EC8\\u6B62\\u4E0E\\u5BBF\\u4E3B\\u65AD\\u8FDE\\u5171\\u7528\\u540C\\u4E00\\u8FDB\\u7A0B\\u7EC4\\u6536\\u53E3\\u3002 */ function terminate(reason) {     if (finished) return;     terminationReason = terminationReason ?? reason;     if (!child) {         finish({kind: \"terminated\", exitCode: null, signal: null, reason: terminationReason}, 0);         return;     }     beginCleanup(); }  /** TERM \\u540E\\u5347\\u7EA7 KILL\\uFF0C\\u5E76\\u6301\\u7EED\\u8BC1\\u660E\\u6574\\u4E2A process group \\u5DF2\\u6D88\\u5931\\u3002 */ function beginCleanup() {     if (cleanupStarted || finished || !child) return;     cleanupStarted = true;     try {         signalGroup(child.pid, \"SIGTERM\");     } catch (error) {         finishError(\"process-group-signal\", error instanceof Error ? error.message : String(error));         return;     }     hardTimer = setTimeout(() => {         try {             signalGroup(child.pid, \"SIGKILL\");         } catch (error) {             finishError(\"process-group-signal\", error instanceof Error ? error.message : String(error));         }     }, payload.graceMs);     pollTimer = setInterval(settleIfClosed, 25);     waitTimer = setTimeout(() => finishError(         \"hard-kill-wait\",         \"\\u5F3A\\u5236\\u7EC8\\u6B62\\u540E\\u4ECD\\u672A\\u786E\\u8BA4POSIX\\u8FDB\\u7A0B\\u7EC4\\u6536\\u53E3\",     ), payload.graceMs + payload.hardKillWaitMs); }  /** \\u53EA\\u6709\\u6839\\u8FDB\\u7A0B close \\u4E14\\u6574\\u4E2A process group \\u6D88\\u5931\\u540E\\u624D\\u62A5\\u544A\\u7EC8\\u6001\\u3002 */ function settleIfClosed() {     if (finished || !closeResult) return;     try {         if (groupExists(child?.pid)) return;     } catch (error) {         finishError(\"process-group-probe\", error instanceof Error ? error.message : String(error));         return;     }     finish(terminationReason         ? {kind: \"terminated\", ...closeResult, reason: terminationReason}         : {kind: \"complete\", ...closeResult}, 0); }  /** \\u62A5\\u544A\\u9519\\u8BEF\\u540E\\u9000\\u51FA\\uFF1B\\u76EE\\u6807\\u82E5\\u5DF2\\u5EFA\\u7ACB\\uFF0C\\u5BBF\\u4E3B Operation \\u5FC5\\u987B fail closed\\u3002 */ function finishError(stage, message) {     finish({kind: \"error\", stage, message}, 1); }  /** \\u6709\\u754C\\u53D1\\u9001\\u7EC8\\u6001\\uFF0C\\u7136\\u540E\\u5173\\u95ED IPC \\u548C\\u76D1\\u7763\\u8FDB\\u7A0B\\u3002 */ function finish(value, exitCode) {     if (finished) return;     finished = true;     clearTimers();     let reported = false;     const exit = () => {         if (reported) return;         reported = true;         process.disconnect?.();         setImmediate(() => process.exit(exitCode));     };     const fallback = setTimeout(exit, 100);     try {         if (!process.connected || !process.send) {             clearTimeout(fallback);             exit();             return;         }         process.send(value, () => {             clearTimeout(fallback);             exit();         });     } catch {         clearTimeout(fallback);         exit();     } }  /** \\u975E\\u7EC8\\u6001\\u6D88\\u606F\\u5141\\u8BB8\\u5728\\u5BBF\\u4E3B\\u5DF2\\u9000\\u51FA\\u65F6\\u4E22\\u5931\\u3002 */ function status(value) {     try {         process.send?.(value);     } catch {         // \\u5BBF\\u4E3B\\u65AD\\u8FDE\\u4F1A\\u8FDB\\u5165\\u7EDF\\u4E00 cleanup\\u3002     } }  function clearTimers() {     if (hardTimer) clearTimeout(hardTimer);     if (pollTimer) clearInterval(pollTimer);     if (waitTimer) clearTimeout(waitTimer); }  function groupExists(pid) {     if (!pid) return false;     try {         if (PROBE_FAULT) throw Object.assign(new Error(\"unexpected probe failure\"), {code: \"EIO\"});         if (probePermissionPending) {             probePermissionPending = false;             throw Object.assign(new Error(\"operation not permitted\"), {code: \"EPERM\"});         }         process.kill(-pid, 0);         return true;     } catch (error) {         if (error?.code === \"ESRCH\") return false;         // kill(2) \\u7684 EPERM \\u4ECD\\u8BC1\\u660E\\u76EE\\u6807\\u8FDB\\u7A0B\\u7EC4\\u5B58\\u5728\\uFF1B\\u7EE7\\u7EED\\u7B49\\u5F85\\uFF0C\\u4E0D\\u80FD\\u63D0\\u524D\\u63D0\\u4EA4\\u7EC8\\u6001\\u3002         if (error?.code === \"EPERM\") return true;         throw error;     } }  function signalGroup(pid, signal) {     if (!pid) return;     if (SIGNAL_FAULT && signal === \"SIGTERM\") {         throw Object.assign(new Error(\"operation not permitted\"), {code: \"EPERM\"});     }     try {         process.kill(-pid, signal);     } catch (error) {         if (error?.code !== \"ESRCH\") throw error;     } }"
+        },
+        {
+          "pid": 3696591,
+          "parent": 3696589,
+          "group": 3696591,
+          "command": "/usr/bin/bun --no-install run dev:runtime"
+        },
+        {
+          "pid": 3696592,
+          "parent": 3696591,
+          "group": 3696591,
+          "command": "bun scripts/cli/source-runtime.ts"
+        },
+        {
+          "pid": 3696633,
+          "parent": 3696592,
+          "group": 3696591,
+          "command": "/usr/bin/bun --no-install run nuxt:prepare"
+        },
+        {
+          "pid": 3696634,
+          "parent": 3696633,
+          "group": 3696591,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt prepare"
+        },
+        {
+          "pid": 3696712,
+          "parent": 3696592,
+          "group": 3696591,
+          "command": "/usr/bin/bun --no-install run generate"
+        },
+        {
+          "pid": 3696713,
+          "parent": 3696712,
+          "group": 3696591,
+          "command": "bun scripts/db/prisma-generate.mjs"
+        },
+        {
+          "pid": 3696722,
+          "parent": 3696713,
+          "group": 3696591,
+          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+        },
+        {
+          "pid": 3696723,
+          "parent": 3696722,
+          "group": 3696591,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/schema.sqlite.prisma"
+        },
+        {
+          "pid": 3696765,
+          "parent": 3696713,
+          "group": 3696591,
+          "command": "/usr/bin/bun x prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+        },
+        {
+          "pid": 3696766,
+          "parent": 3696765,
+          "group": 3696591,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma generate --config /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma.config.ts --schema /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/prisma/project.schema.prisma"
+        },
+        {
+          "pid": 3696800,
+          "parent": 3696766,
+          "group": 3696800,
+          "command": "/usr/bin/node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child {\"product\":\"prisma\",\"version\":\"7.8.0\",\"cli_install_type\":\"local\",\"information\":\"\",\"local_timestamp\":\"2026-10-02T06:54:30+01:00\",\"project_hash\":\"2da23d16\",\"cli_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/prisma\",\"cli_path_hash\":\"4382895c\",\"endpoint\":\"https://checkpoint.prisma.io\",\"disable\":false,\"arch\":\"x64\",\"os\":\"linux\",\"node_version\":\"v26.10.0\",\"ci\":false,\"ci_name\":\"\",\"command\":\"generate --config [redacted] --schema [redacted]\",\"schema_providers\":[\"sqlite\"],\"schema_preview_features\":[],\"schema_generators_providers\":[\"prisma-client\"],\"cache_file\":\"/home/notnotype/.cache/checkpoint-nodejs/prisma-4382895c\",\"cache_duration\":43200000,\"remind_duration\":172800000,\"force\":false,\"timeout\":5000,\"unref\":true,\"child_path\":\"/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/prisma/build/child\",\"client_event_id\":\"\",\"previous_client_event_id\":\"\",\"check_if_update_available\":false}"
+        },
+        {
+          "pid": 3696824,
+          "parent": 3696592,
+          "group": 3696591,
+          "command": "/usr/bin/bun --no-install /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book/scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets"
+        },
+        {
+          "pid": 3696847,
+          "parent": 3696824,
+          "group": 3696591,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.27.7 --ping"
+        },
+        {
+          "pid": 3696863,
+          "parent": 3696592,
+          "group": 3696591,
+          "command": "/usr/bin/bun --no-install x nuxt dev --no-fork"
+        },
+        {
+          "pid": 3696864,
+          "parent": 3696863,
+          "group": 3696591,
+          "command": "node /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/.bin/nuxt dev --no-fork"
+        },
+        {
+          "pid": 3696998,
+          "parent": 3696864,
+          "group": 3696591,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/@nuxt/vite-builder/node_modules/vite/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+        },
+        {
+          "pid": 3697021,
+          "parent": 3696864,
+          "group": 3696591,
+          "command": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/node_modules/nitropack/node_modules/esbuild/node_modules/@esbuild/linux-x64/bin/esbuild --service=0.28.1 --ping"
+        }
+      ]
+    }
+  ]
+}

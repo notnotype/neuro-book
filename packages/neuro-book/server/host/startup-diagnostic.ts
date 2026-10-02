@@ -8,7 +8,8 @@ export function reportProductStartupFailure(error: unknown): void {
     const message = "Product 启动门禁失败，Product将有序关闭";
     appLogger.fatalSync(event, undefined, error, message);
     try {
-        writeSync(process.stderr.fd, `${JSON.stringify({level: "fatal", event, message, error: serializeDiagnosticError(error)})}\n`);
+        // Worker 的 stderr 是代理流，没有 fd；进程的标准错误描述符仍为 2。
+        writeSync(2, `${JSON.stringify({level: "fatal", event, message, error: serializeDiagnosticError(error)})}\n`);
     } catch (outputError) {
         appLogger.fatalSync("runtime.startup.diagnosticFailed", undefined, outputError, "启动致命诊断无法写入进程输出");
     }

@@ -1,0 +1,26 @@
+{
+  "removedRoots": [
+    "/tmp/nbook-t38-dev-yj3uex",
+    "/tmp/nbook-t38-dev2-NSlJYV",
+    "/tmp/nbook-t38-dev3-q2Jr9B",
+    "/tmp/nbook-t38-dev4-Yyjuvg",
+    "/tmp/nbook-t38-hmr-zqTtF4"
+  ],
+  "removedFiles": [
+    "/tmp/nbook-t38-dev2-migrate.log",
+    "/tmp/nbook-t38-dev2-state.log",
+    "/tmp/nbook-t38-hmr-health.json"
+  ],
+  "remainingDiagnosticProcesses": [],
+  "sourceDevTempRootRemoved": "/tmp/neuro-book/runs/t38-development-host/4b03b787-79a1-4196-9641-7b5d70e4e369",
+  "sourceDevResidualProcesses": [
+    {
+      "signal": "SIGTERM",
+      "residual": []
+    },
+    {
+      "signal": "SIGINT",
+      "residual": []
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-02T04:41:06.025Z",
+  "durationMs": 151804,
+  "skipBuild": false,
+  "selected": [
+    "L7",
+    "L8"
+  ],
+  "results": [
+    {
+      "id": "L7",
+      "result": "pass",
+      "durationMs": 44286,
+      "evidence": "L7.dev-ready: Node Nuxt dev已就绪：port=45255，pid=3656359，leaseId=d55eb26e-0348-4860-9907-7a5b58c557b1，heartbeat=2026-10-02T04:42:54.001Z。；L7.hot-reload: 已观察热重载开始与完成：开始=raw=\"[nitro-runtime] dev:ssr-logs: 0.01ms\"；完成=raw=\"[nuxt] ℹ Compiled app-component.mjs in 11.22ms\"；owner leaseId由d55eb26e-0348-4860-9907-7a5b58c557b1变为5290061e-a3ab-4f18-ad63-24adc2a6afa6；heartbeat=2026-10-02T04:43:02.001Z；health=200。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L7.log",
+      "observations": [
+        {
+          "id": "L7.dev-ready",
+          "result": "pass",
+          "evidence": "Node Nuxt dev已就绪：port=45255，pid=3656359，leaseId=d55eb26e-0348-4860-9907-7a5b58c557b1，heartbeat=2026-10-02T04:42:54.001Z。"
+        },
+        {
+          "id": "L7.hot-reload",
+          "result": "pass",
+          "evidence": "已观察热重载开始与完成：开始=raw=\"[nitro-runtime] dev:ssr-logs: 0.01ms\"；完成=raw=\"[nuxt] ℹ Compiled app-component.mjs in 11.22ms\"；owner leaseId由d55eb26e-0348-4860-9907-7a5b58c557b1变为5290061e-a3ab-4f18-ad63-24adc2a6afa6；heartbeat=2026-10-02T04:43:02.001Z；health=200。"
+        }
+      ]
+    },
+    {
+      "id": "L8",
+      "result": "pass",
+      "durationMs": 27394,
+      "evidence": "L8.sigterm: 已向Node Nuxt dev实际进程pid=3656987发送SIGTERM并在有限时间内完成：code=0 signal=null；leaseLock=released ownerFile=absent。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L8.log",
+      "observations": [
+        {
+          "id": "L8.sigterm",
+          "result": "pass",
+          "evidence": "已向Node Nuxt dev实际进程pid=3656987发送SIGTERM并在有限时间内完成：code=0 signal=null；leaseLock=released ownerFile=absent。"
+        }
+      ]
+    }
+  ]
+}

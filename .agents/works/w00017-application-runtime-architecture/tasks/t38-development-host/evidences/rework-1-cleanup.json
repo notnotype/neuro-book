@@ -1,0 +1,78 @@
+{
+  "sourceDevRoot": "/tmp/neuro-book/runs/t38-development-host-rework-1/fa7a26b2-89aa-455c-a0d2-a089197c5cce",
+  "sourceDevRootRemoved": true,
+  "smokeRoot": "/tmp/neuro-book-product-lifecycle-Ct9bPP",
+  "smokeRootRemoved": true,
+  "ownedResidual": [],
+  "signals": [
+    {
+      "signal": "SIGTERM",
+      "pids": [
+        3695627,
+        3695629,
+        3695640,
+        3695642,
+        3695643,
+        3695694,
+        3695695,
+        3695772,
+        3695773,
+        3695781,
+        3695782,
+        3695823,
+        3695824,
+        3695866,
+        3695882,
+        3695911,
+        3695931,
+        3695932,
+        3696028,
+        3696051
+      ]
+    },
+    {
+      "signal": "SIGINT",
+      "pids": [
+        3696577,
+        3696579,
+        3696589,
+        3696591,
+        3696592,
+        3696633,
+        3696634,
+        3696712,
+        3696713,
+        3696722,
+        3696723,
+        3696765,
+        3696766,
+        3696800,
+        3696824,
+        3696847,
+        3696863,
+        3696864,
+        3696998,
+        3697021
+      ]
+    }
+  ],
+  "otherActiveDev": [],
+  "firstRoundLifecycleRoots": [
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-AerHnx",
+      "removed": true
+    },
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-1Cnlc5",
+      "removed": true
+    },
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-3E5PYP",
+      "removed": true
+    },
+    {
+      "path": "/tmp/neuro-book-product-lifecycle-zZ3Chk",
+      "removed": true
+    }
+  ]
+}

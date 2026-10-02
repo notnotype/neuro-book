@@ -21,11 +21,21 @@ import {
 } from "nbook/server/agent/session/agent-session-store-runtime";
 import {appStateKey} from "nbook/server/features/app-state/plugin";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import type {AgentSessionStoreRuntimeStartOptions} from "nbook/server/agent/session/agent-session-store-runtime";
 import type {ProductStopPort} from "nbook/server/host/stop-port";
 
 export const sessionStoreKey = defineServiceKey<{readonly workspaceRoot: string}>("nbook.session-store/runtime");
 
-export function createSessionStorePlugin(recordStartupError: (error: unknown) => void, stop: ProductStopPort): PluginDefinition {
+export type SessionStorePluginOptions = Pick<
+    AgentSessionStoreRuntimeStartOptions,
+    "waitForSameProcessRuntimeLease" | "leaseHandoffTimeoutMs" | "leaseHandoffPollMs"
+>;
+
+export function createSessionStorePlugin(
+    recordStartupError: (error: unknown) => void,
+    stop: ProductStopPort,
+    options: SessionStorePluginOptions = {},
+): PluginDefinition {
     return {
         id: "nbook.session-store",
         entries: [{
@@ -33,10 +43,14 @@ export function createSessionStorePlugin(recordStartupError: (error: unknown) =>
             location: "server",
             dependencies: [{key: appStateKey}],
             provides: [sessionStoreKey],
-            activate: async () => {
+            activate: async (context) => {
                 const {workspaceRoot} = runtimePathsFromEnv();
+                const startOptions = options.waitForSameProcessRuntimeLease
+                    ? {...options, signal: context.signal}
+                    : undefined;
                 try {
-                    await startAgentSessionStoreRuntime(workspaceRoot);
+                    if (startOptions) await startAgentSessionStoreRuntime(workspaceRoot, startOptions);
+                    else await startAgentSessionStoreRuntime(workspaceRoot);
                 } catch (error) {
                     if (isAgentSessionStoreLeaseCompromisedError(error)) requestLeaseCompromisedShutdown(error, stop);
                     if (error instanceof AgentSessionMigrationRequiredError

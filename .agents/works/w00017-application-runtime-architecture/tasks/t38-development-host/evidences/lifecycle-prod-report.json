@@ -1,0 +1,175 @@
+{
+  "schema": "nbook.smoke/product-lifecycle/v1",
+  "startedAt": "2026-10-02T05:06:58.301Z",
+  "durationMs": 139171,
+  "skipBuild": false,
+  "selected": [
+    "L1",
+    "L2",
+    "L3",
+    "L4",
+    "L5",
+    "L6",
+    "L10"
+  ],
+  "results": [
+    {
+      "id": "L1",
+      "result": "pass",
+      "durationMs": 8373,
+      "evidence": "L1-login: Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。；L1-create-project: 真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目；L1-seed-files: 临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。；L1-workbench-files: 主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L1.log",
+      "observations": [
+        {
+          "id": "L1-login",
+          "result": "pass",
+          "evidence": "Chromium 通过真实登录页提交用户名 admin 与生命周期 smoke 密码后进入产品主页。"
+        },
+        {
+          "id": "L1-create-project",
+          "result": "pass",
+          "evidence": "真实 POST /api/projects 创建 Project：projectRoot=sheng-ming-zhou-qi-liu-lan-qi-smoke-xiang-mu，title=生命周期浏览器 Smoke 项目"
+        },
+        {
+          "id": "L1-seed-files",
+          "result": "pass",
+          "evidence": "临时 State Root 内按已发布 project.yaml 约束写入至少两个普通文件：index.md、lifecycle-smoke-note.md。"
+        },
+        {
+          "id": "L1-workbench-files",
+          "result": "pass",
+          "evidence": "主页 Project 卡片可见=true；工作台项目名可见=true；真实资源管理器文件树=[\"agents/\",\"lorebook/\",\"manual/\",\"manuscript/\",\"reference/\",\"upload/\",\"world-engine/\",\"AGENTS.md\",\"index.md\",\"lifecycle-smoke-note.md\",\"project.yaml\"]。"
+        }
+      ]
+    },
+    {
+      "id": "L2",
+      "result": "pass",
+      "durationMs": 5155,
+      "evidence": "activation-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L2-plugins.jsonl",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L2.log",
+      "observations": [
+        {
+          "id": "activation-order",
+          "result": "pass",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L2-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L3",
+      "result": "pass",
+      "durationMs": 7767,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:33311/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}；inflight-complete: archive EOF=true，received=134307891，content-length=null，字节完整=true，readError=；process-exit-and-lease: 关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放；close-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；close-started=15:nbook.http/server#1 -> 16:nbook.app-state/server#1 -> 17:nbook.storage/server#1 -> 18:nbook.session-store/server#1 -> 19:nbook.project/server#1 -> 20:nbook.agent/server#1 -> 21:nbook.files/server#1；closed=22:nbook.files/server#1 -> 23:nbook.agent/server#1 -> 24:nbook.http/server#1 -> 25:nbook.project/server#1 -> 26:nbook.storage/server#1 -> 27:nbook.session-store/server#1 -> 28:nbook.app-state/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L3-plugins.jsonl",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L3.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "pass",
+          "evidence": "在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:33311/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "pass",
+          "evidence": "archive EOF=true，received=134307891，content-length=null，字节完整=true，readError="
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "pass",
+          "evidence": "关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放"
+        },
+        {
+          "id": "close-order",
+          "result": "pass",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；close-started=15:nbook.http/server#1 -> 16:nbook.app-state/server#1 -> 17:nbook.storage/server#1 -> 18:nbook.session-store/server#1 -> 19:nbook.project/server#1 -> 20:nbook.agent/server#1 -> 21:nbook.files/server#1；closed=22:nbook.files/server#1 -> 23:nbook.agent/server#1 -> 24:nbook.http/server#1 -> 25:nbook.project/server#1 -> 26:nbook.storage/server#1 -> 27:nbook.session-store/server#1 -> 28:nbook.app-state/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L3-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L4",
+      "result": "pass",
+      "durationMs": 9466,
+      "evidence": "drain-new-request: 在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:32995/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}；inflight-complete: archive EOF=true，received=134312251，content-length=null，字节完整=true，readError=；process-exit-and-lease: 关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放；control-stop: PRODUCT_SHUTDOWN_PATH stop=graceful；required process/lease status=pass；close-order: 边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；close-started=15:nbook.http/server#1 -> 16:nbook.app-state/server#1 -> 17:nbook.storage/server#1 -> 18:nbook.session-store/server#1 -> 19:nbook.project/server#1 -> 20:nbook.agent/server#1 -> 21:nbook.files/server#1；closed=22:nbook.files/server#1 -> 23:nbook.agent/server#1 -> 24:nbook.http/server#1 -> 25:nbook.project/server#1 -> 26:nbook.storage/server#1 -> 27:nbook.session-store/server#1 -> 28:nbook.app-state/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L4-plugins.jsonl",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L4.log",
+      "observations": [
+        {
+          "id": "drain-new-request",
+          "result": "pass",
+          "evidence": "在途 archive 期间 /api/app/version 返回 503（期望 503），body={\n  \"error\": true,\n  \"url\": \"http://127.0.0.1:32995/api/app/version\",\n  \"statusCode\": 503,\n  \"statusMessage\": \"Server Error\",\n  \"message\": \"NeuroBook 正在关闭。\"\n}"
+        },
+        {
+          "id": "inflight-complete",
+          "result": "pass",
+          "evidence": "archive EOF=true，received=134312251，content-length=null，字节完整=true，readError="
+        },
+        {
+          "id": "process-exit-and-lease",
+          "result": "pass",
+          "evidence": "关闭后 completion={\"code\":0,\"signal\":null}，runtime.lease.lock=已释放"
+        },
+        {
+          "id": "control-stop",
+          "result": "pass",
+          "evidence": "PRODUCT_SHUTDOWN_PATH stop=graceful；required process/lease status=pass"
+        },
+        {
+          "id": "close-order",
+          "result": "pass",
+          "evidence": "边=nbook.app-state/server -> nbook.storage/server [nbook.app-state/ready]；nbook.app-state/server -> nbook.session-store/server [nbook.app-state/ready]；nbook.session-store/server -> nbook.project/server [nbook.session-store/runtime]；nbook.storage/server -> nbook.project/server [nbook.storage/ready]；nbook.session-store/server -> nbook.agent/server [nbook.session-store/runtime]；nbook.project/server -> nbook.agent/server [nbook.project/owner]；nbook.project/server -> nbook.files/server [nbook.project/owner]；published=8:nbook.http/server#1 -> 9:nbook.app-state/server#1 -> 10:nbook.storage/server#1 -> 11:nbook.session-store/server#1 -> 12:nbook.project/server#1 -> 13:nbook.files/server#1 -> 14:nbook.agent/server#1；close-started=15:nbook.http/server#1 -> 16:nbook.app-state/server#1 -> 17:nbook.storage/server#1 -> 18:nbook.session-store/server#1 -> 19:nbook.project/server#1 -> 20:nbook.agent/server#1 -> 21:nbook.files/server#1；closed=22:nbook.files/server#1 -> 23:nbook.agent/server#1 -> 24:nbook.http/server#1 -> 25:nbook.project/server#1 -> 26:nbook.storage/server#1 -> 27:nbook.session-store/server#1 -> 28:nbook.app-state/server#1；JSONL=/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L4-plugins.jsonl"
+        }
+      ]
+    },
+    {
+      "id": "L5",
+      "result": "pass",
+      "durationMs": 808,
+      "evidence": "fatal-exit: 未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true；bounded: 在 30 秒内结束；no-listener: 端口无残留监听",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L5.log",
+      "observations": [
+        {
+          "id": "fatal-exit",
+          "result": "pass",
+          "evidence": "未迁移 State Root 退出 {\"code\":1,\"signal\":null}，致命诊断=true"
+        },
+        {
+          "id": "bounded",
+          "result": "pass",
+          "evidence": "在 30 秒内结束"
+        },
+        {
+          "id": "no-listener",
+          "result": "pass",
+          "evidence": "端口无残留监听"
+        }
+      ]
+    },
+    {
+      "id": "L6",
+      "result": "pass",
+      "durationMs": 19674,
+      "evidence": "lease-exit: 删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L6.log",
+      "observations": [
+        {
+          "id": "lease-exit",
+          "result": "pass",
+          "evidence": "删除 runtime.lease.lock 后退出 {\"code\":75,\"signal\":null}，期望 75"
+        }
+      ]
+    },
+    {
+      "id": "L10",
+      "result": "pass",
+      "durationMs": 8108,
+      "evidence": "L10-window-isolation: 关闭窗口 A 后窗口 B 仍可重载；B 文件读取=true，readyHTTP=true，Product port=40275。",
+      "logPath": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.agents/works/w00017-application-runtime-architecture/tasks/t38-development-host/evidences/L10.log",
+      "observations": [
+        {
+          "id": "L10-window-isolation",
+          "result": "pass",
+          "evidence": "关闭窗口 A 后窗口 B 仍可重载；B 文件读取=true，readyHTTP=true，Product port=40275。"
+        }
+      ]
+    }
+  ]
+}

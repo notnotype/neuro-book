@@ -2,12 +2,15 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {EventEmitter} from "node:events";
 import {PRODUCT_SHUTDOWN_TOKEN_ENVIRONMENT} from "@notnotype/neuro-book-contracts/product-runtime";
 
-const mocks = vi.hoisted(() => ({requestStop: vi.fn()}));
+const mocks = vi.hoisted(() => ({requestStop: vi.fn(), notifyProcessStop: vi.fn()}));
 const originalHost = process.env.HOST;
 const originalNitroHost = process.env.NITRO_HOST;
 
 vi.mock("nbook/server/runtime/product-startup", () => ({
     currentProductRuntime: () => ({requestStop: mocks.requestStop}),
+}));
+vi.mock("nbook/server/host/development-process", () => ({
+    notifyDevelopmentProcessStop: mocks.notifyProcessStop,
 }));
 
 import shutdownHandler from "nbook/server/routes/__nbook/control/shutdown.post";
@@ -71,6 +74,8 @@ describe("POST /__nbook/control/shutdown", () => {
         request.node.res.emit("close");
         expect(mocks.requestStop).toHaveBeenCalledTimes(1);
         expect(mocks.requestStop).toHaveBeenCalledWith("control:http");
+        expect(mocks.notifyProcessStop).toHaveBeenCalledTimes(1);
+        expect(mocks.notifyProcessStop).toHaveBeenCalledWith("control:http");
     });
 
     it("客户端先断开时也只经宿主请求停止一次", async () => {
