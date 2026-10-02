@@ -14,13 +14,13 @@ import type {
     DiagnosticExporter,
     DiagnosticExporterFactory,
     DiagnosticFallback,
-    DiagnosticOrigin,
     DiagnosticRecord,
     DiagnosticsDegraded,
     ExporterOpenOutcome,
 } from "nbook/runtime/diagnostics/diagnostics";
 import {describeDiagnosticError} from "nbook/runtime/diagnostics/diagnostics";
 import {JsonlLogWriter, isNodeErrorCode, isOwnedServerLogFile} from "nbook/server/app-logs/jsonl-log-writer";
+import {formatDiagnosticLine} from "nbook/server/app-logs/diagnostic-format";
 
 /** 授予锁文件；放在被授予目录内，跟随目录移动，且不匹配任何 `server-*` 日志归属模式。 */
 export const LOG_LOCATION_LOCK_NAME = "server-logs.lock";
@@ -224,35 +224,6 @@ class JsonlDiagnosticExporter implements DiagnosticExporter {
         }
         this.#closed = true;
     }
-}
-
-/** 外层字段沿用既有 JSONL 含义；来源身份放进 `data.$source`，非普通对象的负载包成 `{value, $source}`。 */
-function formatDiagnosticLine(record: DiagnosticRecord): string {
-    const entry: Record<string, unknown> = {
-        timestamp: record.timestamp,
-        level: record.level,
-        event: record.event,
-        message: record.message,
-        data: attachSource(record.data, record.origin),
-    };
-    if (record.error !== null) {
-        entry.error = record.error;
-    }
-    return `${JSON.stringify(entry)}\n`;
-}
-
-function attachSource(data: unknown, origin: DiagnosticOrigin): Record<string, unknown> {
-    if (data === null) {
-        return {$source: origin};
-    }
-    if (typeof data === "object" && !Array.isArray(data)) {
-        const prototype = Object.getPrototypeOf(data);
-        if (prototype === Object.prototype || prototype === null) {
-            // 普通对象直接展开；`$source` 由提供者写入，调用方给出的同名字段被覆盖。
-            return {...data, $source: origin};
-        }
-    }
-    return {value: data, $source: origin};
 }
 
 /**

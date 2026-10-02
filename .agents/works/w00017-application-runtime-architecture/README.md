@@ -74,6 +74,7 @@ issueId: null
 | [t37](tasks/t37-server-host-entry/README.md) | 自有服务端宿主入口与 `nbook.http`：宿主拥有进程信号与停止通道，先排空（503、SSE 主动关闭、20 秒上限）再按依赖逆序关闭，退出码 0/1/75；删除启动中间件、`productRuntimeReady()` 与关闭控制器（omp 编码）；L1–L7、L10 通过 |
 | [t38](tasks/t38-development-host/README.md) | 开发宿主（#244）：nuxi 主线程中的开发宿主接管信号并经 `BroadcastChannel` 与 worker 协调，热重载先停旧实例，Session Store 租约对同进程旧实例有界等待，开发进程有序停止后退出；同 worker 内请求重试按开发者决定不做（omp 编码）；L1–L8、L10 通过 |
 | [t39](tasks/t39-browser-host/README.md) | 浏览器宿主（最小范围）：需要登录的引导接口，client plugin 在挂载前完成引导并激活 `nbook.workbench`，失败显示带重试的连接失败页而不渲染工作台；命令表归 workbench 插件，`index.vue` 不再创建运行实例（omp 编码）；`smoke:product-lifecycle` L1–L10 全部通过 |
+| [t40](tasks/t40-phase1-closing/README.md) | 阶段 1 收尾：`server/plugins/` 下 5 个 Nitro 插件迁入内置插件（`nbook.diagnostics` 进入产品清单并借用 `appLogger` 的 writer），产品启动包装进程链如实传递退出码，smoke 在检查未执行时以非零退出（omp 编码）；阶段 1 完成 |
 
 Project generation 真所有权与此前单机浏览器验收已有证据；t25 针对复核发现的操作与插件装配缺口完成修复和隔离主页面验证。Windows 本机路径竞争以原子 no-replace 拒绝，未知平台和模拟原语不支持时失败关闭。Authoring Kit 意外引用应用认证闭包已切断，受控 SQLite 内建动态导入已登记，完整产品镜像构建通过；Linux/macOS 及其它文件系统未实测，跨机器基础操作仍缺第二隔离宿主；不晋升 Files Spec。
 

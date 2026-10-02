@@ -1,0 +1,33 @@
+{
+  "baseline": "修改前 product-start-command.mjs 真实子进程；其 index.mjs 收到转发信号后分别退出 0、1、75",
+  "results": [
+    {
+      "requestedChildExitCode": 0,
+      "signalSent": true,
+      "completion": {
+        "code": 0,
+        "signal": null
+      },
+      "output": ""
+    },
+    {
+      "requestedChildExitCode": 1,
+      "signalSent": true,
+      "completion": {
+        "code": 0,
+        "signal": null
+      },
+      "output": ""
+    },
+    {
+      "requestedChildExitCode": 75,
+      "signalSent": true,
+      "completion": {
+        "code": 0,
+        "signal": null
+      },
+      "output": ""
+    }
+  ],
+  "expectedBeforeFix": "shutdownSignal 分支固定 process.exit(0)，因此三种子进程退出码均被包装器改写为 0"
+}

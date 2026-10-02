@@ -87,7 +87,7 @@ export function productStorageDefinitions(): readonly DefinedStorageState<unknow
     return globalForProductDefinitions.__nbookProductStorageDefinitionsV1!;
 }
 
-/** 生产注册入口；Nitro 插件只调用它。模块重载后重复调用是幂等的（同一批实例）。 */
+/** 由 nbook.storage 激活登记；模块重载后重复调用仍幂等（同一批实例）。 */
 export function registerProductStorageDefinitions(): void {
     registerStorageStateDefinitions(productStorageDefinitions());
 }

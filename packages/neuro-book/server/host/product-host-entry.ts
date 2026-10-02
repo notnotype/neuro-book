@@ -9,9 +9,11 @@ import {reportProductStartupFailure} from "nbook/server/host/startup-diagnostic"
 
 trapUnhandledNodeErrors();
 void (async () => {
+    const nitroApp = useNitroApp();
     const runtime = startProductRuntime({
         mode: "production",
-        http: {listener: toNodeListener(useNitroApp().h3App), baseURL: useRuntimeConfig().app.baseURL || ""},
+        nitroApp,
+        http: {listener: toNodeListener(nitroApp.h3App), baseURL: useRuntimeConfig().app.baseURL || ""},
         exit: (code) => process.exit(code),
     });
     try {

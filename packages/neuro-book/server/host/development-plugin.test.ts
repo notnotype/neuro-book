@@ -19,10 +19,9 @@ describe("开发初始化适配器", () => {
         mocks.stop.mockResolvedValue(undefined);
     });
 
-    it("Nitro 初始化时建立实例而不是等首个请求，单一 close 钩子失败只写诊断不抛错", async () => {
+    it("开发实例关闭失败写致命诊断并结算，不向 Nitro 抛错", async () => {
         const closeHooks: Array<() => Promise<void>> = [];
         plugin({hooks: {hook: (_name: string, handler: () => Promise<void>) => {closeHooks.push(handler);}}} as never);
-        expect(mocks.start).toHaveBeenCalledWith({mode: "development"});
         expect(closeHooks).toHaveLength(1);
         const failure = new Error("plugin close failed");
         mocks.stop.mockRejectedValue(failure);

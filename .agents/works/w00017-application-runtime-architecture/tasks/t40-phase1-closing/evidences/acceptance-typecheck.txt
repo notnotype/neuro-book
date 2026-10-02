@@ -1,0 +1,9 @@
+$ bun run typecheck:runtime-foundation
+$ tsc --noEmit -p tsconfig.runtime-foundation.json
+exit=0
+$ bun run scripts:typecheck
+$ tsc --noEmit -p scripts/tsconfig.json
+exit=0
+$ bun run typecheck
+$ nuxt typecheck --dotenv .env.typecheck --logLevel silent
+exit=0

@@ -5,6 +5,10 @@ import {provide} from "nbook/runtime/plugins/plugins";
 import type {PluginDefinition} from "nbook/runtime/plugins/plugins";
 import {defineServiceKey} from "nbook/runtime/services/services";
 import {ProductHttpAdmission} from "./admission";
+import type {NitroApp} from "nitropack/types";
+import {diagnosticsKey} from "nbook/runtime/diagnostics/diagnostics";
+import {flushServerTiming} from "nbook/server/utils/server-timing";
+import {logRequestError} from "./request-error";
 
 export const httpKey = defineServiceKey<ProductHttpAdmission>("nbook.http/admission");
 
@@ -13,14 +17,26 @@ export type ProductHttpListener = {
     readonly baseURL: string;
 };
 
-export function createHttpPlugin(http: ProductHttpAdmission, listener: ProductHttpListener | undefined, recordStartupError: (error: unknown) => void): PluginDefinition {
+export function createHttpPlugin(
+    http: ProductHttpAdmission,
+    listener: ProductHttpListener | undefined,
+    recordStartupError: (error: unknown) => void,
+    nitroApp?: Pick<NitroApp, "hooks">,
+): PluginDefinition {
     return {
         id: "nbook.http",
         entries: [{
             id: "server",
             location: "server",
+            dependencies: [{key: diagnosticsKey}],
             provides: [httpKey],
             activate: async (context) => {
+                if (nitroApp) {
+                    const unhookError = nitroApp.hooks.hook("error", (error, {event}) => logRequestError(error, event));
+                    context.scope.register({kind: "nitro-hook", label: "request-error", value: unhookError, release: (unhook) => unhook()});
+                    const unhookTiming = nitroApp.hooks.hook("beforeResponse", (event, response) => flushServerTiming(event, response));
+                    context.scope.register({kind: "nitro-hook", label: "server-timing", value: unhookTiming, release: (unhook) => unhook()});
+                }
                 if (listener) {
                     const server = createServer(listener.listener);
                     // 监听失败或激活被取消时，端口仍归本代次释放，不能只在发布服务后登记清理。

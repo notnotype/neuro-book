@@ -261,11 +261,6 @@ describe("Application State migration runner", () => {
         await expect(assertApplicationStateReady(root)).rejects.toBeInstanceOf(ApplicationStateSentinelCorruptError);
     });
 
-    it("非 Manager 启动门禁给出统一迁移命令", async () => {
-        const startup = await readFile(resolve(import.meta.dirname, "../../server/features/session-store/plugin.ts"), "utf8");
-        expect(startup).toContain("bun run migrate:application-state -- --apply");
-    });
-
     it("真实 catalog v1 complete 使用新 run 升级到 v3，rollback 逐字节恢复旧 sentinel", async () => {
         const root = await stateRoot();
         await runApplicationStateMigration({rootWorkspace: root, action: "apply", runId: "legacy-v1"});

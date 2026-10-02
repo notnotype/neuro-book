@@ -21,7 +21,12 @@ import {createWorkspaceFilesPlugin, workspaceFilesKey} from "nbook/server/featur
 import type {WorkspaceFilesBinding, createWorkspaceFilesService} from "nbook/server/features/workspace-files/service";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {runtimePathsFromEnv} from "nbook/server/runtime/paths/runtime-paths";
+import {createDiagnosticsStore, diagnosticsKey, mechanismObservers, recordingEmergency} from "nbook/runtime/diagnostics/diagnostics";
+import type {DiagnosticsStore} from "nbook/runtime/diagnostics/diagnostics";
+import type {PluginDiagnostic} from "nbook/runtime/plugins/plugins";
+import {createProductDiagnosticsPlugin} from "nbook/server/features/runtime-diagnostics/product-plugin";
 import {reportProductStartupFailure} from "nbook/server/host/startup-diagnostic";
+import type {NitroApp} from "nitropack/types";
 
 export interface ProductRuntime extends ProductStopPort {
     readonly application: Application;
@@ -39,6 +44,7 @@ export interface ProductStartOptions {
     readonly process?: SignalSource;
     readonly clock?: DrainClock;
     readonly exit?: (code: ProductExitCode) => void;
+    readonly nitroApp?: NitroApp;
 }
 
 type ProductRuntimeState = ProductRuntime & {
@@ -77,9 +83,13 @@ function productManifest(
     http: ProductHttpAdmission,
     listener: ProductHttpListener | undefined,
     sessionStoreOptions: SessionStorePluginOptions,
+    diagnosticsStore: DiagnosticsStore,
+    nitroApp: NitroApp | undefined,
 ): ApplicationManifest {
+    const diagnostics = createProductDiagnosticsPlugin(diagnosticsStore);
     const plugins = [
-        createHttpPlugin(http, listener, recordStartupError),
+        diagnostics,
+        createHttpPlugin(http, listener, recordStartupError, nitroApp),
         createAppStatePlugin(recordStartupError),
         createStoragePlugin(),
         createSessionStorePlugin(recordStartupError, stop, sessionStoreOptions),
@@ -87,29 +97,44 @@ function productManifest(
         createAgentPlugin(),
         createWorkspaceFilesPlugin(),
     ];
-    let catalogRecorded = false;
+    const observers = mechanismObservers(diagnosticsStore);
+    let logsReady = false;
+    const buffered: PluginDiagnostic[] = [];
     return {
-        keys: [httpKey, appStateKey, storageKey, sessionStoreKey, projectKey, agentKey, workspaceFilesKey],
+        keys: [diagnosticsKey, httpKey, appStateKey, storageKey, sessionStoreKey, projectKey, agentKey, workspaceFilesKey],
         plugins,
         requiredPlugins: plugins.map((plugin) => plugin.id),
         gates: [],
-        observers: {plugins: {diagnosticRecorded: (diagnostic) => {
-            if (!catalogRecorded && diagnostic.reason === "activation-started") {
-                catalogRecorded = true;
-                void appLogger.info("runtime.plugins.catalog", {
-                    entries: plugins.flatMap((plugin) => plugin.entries
-                        .filter((entry) => entry.location === "server")
-                        .map((entry) => ({
-                            plugin: plugin.id,
-                            entry: entry.id,
-                            dependencies: (entry.dependencies ?? []).map((dependency) => dependency.key.name),
-                            provides: (entry.provides ?? []).map((key) => key.name),
-                        }))),
-                });
-            }
-            const {sequence, plugin, entry, generation, stage, reason, capability, contribution, error} = diagnostic;
-            void appLogger.info("runtime.plugins.diagnostic", {sequence, plugin, entry, generation, stage, reason, capability, contribution, error});
-        }}},
+        observers: {
+            lifecycle: observers.lifecycle,
+            services: observers.services,
+            plugins: {
+                ...observers.plugins,
+                diagnosticRecorded: (diagnostic) => {
+                    observers.plugins?.diagnosticRecorded?.(diagnostic);
+                    if (!logsReady) {
+                        buffered.push(diagnostic);
+                        if (diagnostic.plugin !== "nbook.diagnostics" || diagnostic.reason !== "published") return;
+                        logsReady = true;
+                        void appLogger.info("runtime.plugins.catalog", {
+                            entries: plugins.flatMap((plugin) => plugin.entries
+                                .filter((entry) => entry.location === "server")
+                                .map((entry) => ({
+                                    plugin: plugin.id,
+                                    entry: entry.id,
+                                    dependencies: (entry.dependencies ?? []).map((dependency) => dependency.key.name),
+                                    provides: (entry.provides ?? []).map((key) => key.name),
+                                }))),
+                        });
+                    }
+                    const pending = buffered.length > 0 ? buffered.splice(0) : [diagnostic];
+                    for (const item of pending) {
+                        const {sequence, plugin, entry, generation, stage, reason, capability, contribution, error} = item;
+                        void appLogger.info("runtime.plugins.diagnostic", {sequence, plugin, entry, generation, stage, reason, capability, contribution, error});
+                    }
+                },
+            },
+        },
     };
 }
 
@@ -125,6 +150,7 @@ export function startProductRuntime(options: ProductStartOptions = {}): ProductR
     }
     const http = new ProductHttpAdmission({clock: options.clock});
     const projectOwner: ProductProjectOwnerSlot = {current: null};
+    const diagnosticsStore: DiagnosticsStore = createDiagnosticsStore({identity: {location: "server", instanceId: "product"}});
     let startupError: unknown;
     let startupDiagnosed = false;
     let exitCode: ProductExitCode = 0;
@@ -156,17 +182,20 @@ export function startProductRuntime(options: ProductStartOptions = {}): ProductR
         http,
         options.mode === "production" ? options.http : undefined,
         options.mode === "development" ? {waitForSameProcessRuntimeLease: true} : {},
+        diagnosticsStore,
+        options.nitroApp,
     );
+    const emergency = recordingEmergency(diagnosticsStore, (report) => {
+        if (report.stage === "startup") diagnoseStartup(startupError ?? new Error(`${report.reason}：${report.detail ?? ""}`));
+        else appLogger.fatalSync("product.shutdown.failed", {report}, undefined, "Product 关闭不完整");
+    });
     host = new ServerRuntimeHost().start({
         instanceId: "product",
         manifest,
         signals: options.mode === "production" ? undefined : [],
         process: options.process,
         beforeStop: () => http.drain(),
-        emergency: (report) => {
-            if (report.stage === "startup") diagnoseStartup(startupError ?? new Error(`${report.reason}：${report.detail ?? ""}`));
-            else appLogger.fatalSync("product.shutdown.failed", {report}, undefined, "Product 关闭不完整");
-        },
+        emergency,
     });
     const application = host.application;
     const ready = application.startup.then((result) => {
@@ -203,6 +232,25 @@ export function startProductRuntime(options: ProductStartOptions = {}): ProductR
             failures.push(new Error("Product shutdown step 失败：app-logger", {cause: error}));
             requestCode(1);
             appLogger.fatalSync("product.shutdown.failed", undefined, error, "Product 日志刷写失败");
+        }
+        try {
+            // incomplete 仍可能恢复依赖与诊断插件；不得提前关闭它们借用的 writer。
+            if (result.status === "closed") await appLogger.close();
+        } catch (error) {
+            failures.push(new Error("Product shutdown step 失败：app-logger-close", {cause: error}));
+            requestCode(1);
+            appLogger.fatalSync("product.shutdown.failed", undefined, error, "Product 日志关闭失败");
+        }
+        if (result.status !== "closed") {
+            // 显式恢复才可能最终关闭；首次 incomplete 结算不能提前关闭仍被插件借用的 writer。
+            void application.closed.then(async () => {
+                try {
+                    await appLogger.flush();
+                    await appLogger.close();
+                } catch (error) {
+                    appLogger.fatalSync("product.shutdown.failed", undefined, error, "Product 恢复关闭后的日志收口失败");
+                }
+            });
         }
         options.exit?.(exitCode);
         return {exitCode, failures, result};

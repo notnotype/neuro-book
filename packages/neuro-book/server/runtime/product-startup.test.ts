@@ -47,12 +47,16 @@ const mocks = vi.hoisted(() => ({
     fatalSync: vi.fn(),
     writeSync: vi.fn(),
     flush: vi.fn(async () => {mocks.releaseOrder.push("logs");}),
+    closeLogs: vi.fn(async () => undefined),
+    writeDiagnostic: vi.fn(async () => undefined),
+    bootConfig: vi.fn(() => true),
+    registerStorage: vi.fn(),
     exit: vi.fn<(code: number) => void>(),
 }));
 vi.mock("node:fs/promises", () => ({mkdir: mocks.mkdir}));
 vi.mock("node:fs", () => ({existsSync: mocks.existsSync, writeSync: mocks.writeSync}));
 vi.mock("nbook/server/agent/http", () => ({disposeAgentHarness: mocks.disposeAgentHarness}));
-vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost}));
+vi.mock("nbook/server/storage/host", () => ({disposeStorageHost: mocks.disposeStorageHost, registerStorageStateDefinitions: mocks.registerStorage}));
 vi.mock("nbook/server/workspace-files/project-workspace-index", () => ({closeAllWorkspaceTreeIndexes: mocks.closeAllWorkspaceTreeIndexes}));
 vi.mock("nbook/server/database/config", () => ({resolveDatabaseConfig: () => ({sqliteFilePath: join(productTestStateRoot(), "app.db")})}));
 vi.mock("nbook/server/database/app-sqlite-migrations", () => ({checkpointAppSqliteDatabase: mocks.checkpointAppSqliteDatabase}));
@@ -76,7 +80,11 @@ vi.mock("nbook/server/agent/session/agent-session-store-runtime", () => ({
     observeAgentSessionStoreRuntimeCompromised: mocks.observeAgentSessionStoreRuntimeCompromised,
     stopAgentSessionStoreRuntime: mocks.stopAgentSessionStoreRuntime,
 }));
-vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {info: mocks.info, warn: mocks.warn, fatalSync: mocks.fatalSync, flush: mocks.flush}}));
+vi.mock("nbook/server/config/boot-config", () => ({loadBootAuthEnabledSync: mocks.bootConfig}));
+vi.mock("nbook/server/app-logs/logger", () => ({appLogger: {
+    info: mocks.info, warn: mocks.warn, error: vi.fn(async () => undefined), fatalSync: mocks.fatalSync,
+    flush: mocks.flush, close: mocks.closeLogs, writeDiagnostic: mocks.writeDiagnostic,
+}}));
 
 let runtime: typeof RuntimeModule;
 let product: ProductRuntime | undefined;
@@ -98,8 +106,9 @@ function application(): Application {
 }
 
 const dependencies = {
-    "nbook.http": [],
-    "nbook.app-state": [],
+    "nbook.diagnostics": [],
+    "nbook.http": ["nbook.diagnostics/diagnostics"],
+    "nbook.app-state": ["nbook.diagnostics/diagnostics"],
     "nbook.storage": ["nbook.app-state/ready"],
     "nbook.session-store": ["nbook.app-state/ready"],
     "nbook.project": ["nbook.session-store/runtime", "nbook.storage/ready"],
@@ -111,8 +120,8 @@ describe("Product startup", () => {
     beforeEach(async () => {
         product = undefined;
         vi.resetModules();
+        // 启动失败原因与 singleton 必须来自本次重置后的模块图；静态导入会复用上一实例。
         MigrationRequiredError = (await import("nbook/server/agent/session/agent-session-store")).AgentSessionMigrationRequiredError;
-        // 每个用例需要全新进程实例，重新加载模块级 singleton。
         runtime = await import("nbook/server/runtime/product-startup");
         vi.clearAllMocks();
         mocks.inspectStateRootIntegrity.mockResolvedValue({kind: "clean"});
@@ -127,6 +136,7 @@ describe("Product startup", () => {
         mocks.disconnectPrismaClient.mockImplementation(async () => {mocks.releaseOrder.push("prisma");});
         mocks.stateRootIntegrityFailed.mockReturnValue(false);
         mocks.assertProductMigrationsReady.mockResolvedValue(undefined);
+        mocks.bootConfig.mockReturnValue(true);
         mocks.startAgentSessionStoreRuntime.mockResolvedValue({rootWorkspace: productTestWorkspaceRoot()});
         mocks.observeAgentSessionStoreRuntimeCompromised.mockReturnValue(new Promise(() => undefined));
     });
@@ -186,7 +196,7 @@ describe("Product startup", () => {
         );
     });
 
-    it("CLI 启动函数在端口已占用时不监听，七个必需插件可用，stop 后实例关闭", async () => {
+    it("CLI 启动函数在端口已占用时不监听，必需插件可用，stop 后实例关闭", async () => {
         const occupied = createServer();
         const listening = Promise.withResolvers<void>();
         occupied.once("error", listening.reject);
@@ -203,7 +213,7 @@ describe("Product startup", () => {
                 expect(plugin.summary).toBe("available");
                 expect(plugin.entries).toHaveLength(1);
                 const entry = plugin.entries[0]!;
-                expect(entry).toMatchObject({entry: "server", location: "server", state: {status: "available"}});
+                expect(entry).toMatchObject({location: "server", state: {status: "available"}});
                 expect(entry.dependencies).toEqual(dependencies[plugin.id as keyof typeof dependencies].map((key) => ({key, required: true})));
                 expect(entry.provides).toHaveLength(1);
                 expect(entry.provides[0]).toMatch(new RegExp(`^${plugin.id}/[^/]+$`));
@@ -221,7 +231,7 @@ describe("Product startup", () => {
         await ready();
         const catalog = application().plugins.catalog();
         const published = application().plugins.diagnostics().filter((diagnostic) => diagnostic.reason === "published");
-        expect(published).toHaveLength(7);
+        expect(published.map((diagnostic) => diagnostic.plugin).sort()).toEqual(Object.keys(dependencies).sort());
         for (const plugin of catalog.plugins) {
             for (const entry of plugin.entries) {
                 for (const dependency of entry.dependencies) {
@@ -283,6 +293,7 @@ describe("Product startup", () => {
         expect(mocks.disconnectPrismaClient).not.toHaveBeenCalled();
         await expect(application().recover()).resolves.toEqual({status: "closed"});
         expect(mocks.disconnectPrismaClient).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(mocks.closeLogs).toHaveBeenCalledOnce());
     });
 
     it("并发启动共享同一门禁，停止后 lease 只释放一次", async () => {
@@ -591,6 +602,7 @@ describe("Product startup", () => {
         expect(result.failures).toEqual([expect.objectContaining({message: "Product shutdown step 失败：http-drain"})]);
         expect(application().root.phase).toBe("closed");
         expect(mocks.releaseOrder.at(-1)).toBe("logs");
+        expect(mocks.closeLogs).toHaveBeenCalledOnce();
         response.emit("close");
     });
 
@@ -606,6 +618,38 @@ describe("Product startup", () => {
         await stopping;
         expect(mocks.flush).toHaveBeenCalledOnce();
         expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(0);
+    });
+
+    it("非法 Boot Config 在产品必需插件激活时致命失败并以 1 退出", async () => {
+        const failure = new Error("Boot Config auth.enabled 必须是 boolean");
+        mocks.bootConfig.mockImplementationOnce(() => {throw failure;});
+        await expect(ready()).rejects.toBe(failure);
+        expect((await product!.stopped).exitCode).toBe(1);
+        expect(mocks.fatalSync).toHaveBeenCalledWith("runtime.startup.failed", undefined, failure, expect.any(String));
+        expect(mocks.assertProductMigrationsReady).not.toHaveBeenCalled();
+        expect(mocks.startAgentSessionStoreRuntime).not.toHaveBeenCalled();
+        expect(mocks.exit).toHaveBeenCalledExactlyOnceWith(1);
+    });
+
+    it("日志桥接先于其它插件激活，最后一个插件释放后撤销，再最终刷写", async () => {
+        const originalError = console.error;
+        mocks.assertProductMigrationsReady.mockImplementationOnce(async () => {
+            expect(console.error).not.toBe(originalError);
+        });
+        await ready();
+        mocks.disconnectPrismaClient.mockImplementationOnce(async () => {
+            expect(console.error).not.toBe(originalError);
+            mocks.releaseOrder.push("prisma");
+        });
+        mocks.flush.mockImplementationOnce(async () => {
+            expect(application().root.phase).toBe("closed");
+            expect(console.error).toBe(originalError);
+            mocks.releaseOrder.push("logs");
+        });
+        await stop();
+        expect(console.error).toBe(originalError);
+        expect(mocks.releaseOrder.at(-1)).toBe("logs");
+        expect(mocks.closeLogs.mock.invocationCallOrder[0]).toBeGreaterThan(mocks.flush.mock.invocationCallOrder[0]!);
     });
 
     it("正常停止以 0 结算，日志在所有插件关闭后刷写且重复 stop 共享结算", async () => {

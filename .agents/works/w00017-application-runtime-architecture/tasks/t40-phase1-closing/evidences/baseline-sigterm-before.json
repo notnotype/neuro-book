@@ -1,0 +1,47 @@
+{
+  "baseline": "修改前 product-command -> product-start -> index.mjs，向同一 detached process group 连发两次 SIGTERM",
+  "applicationRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book",
+  "imageRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output",
+  "root": "/tmp/nbook-t40-baseline-Eo2yWW",
+  "ready": true,
+  "migrationResults": [
+    {
+      "args": [
+        "command",
+        "migrate-database"
+      ],
+      "code": 0,
+      "signal": null,
+      "output": "Applied SQLite migration 20260524120000_init\nApplied SQLite migration 20260524121000_add_database_locks\nApplied SQLite migration 20260722020000_add_passport_credential\nApplied SQLite migration 20260727210000_fix_official_passport_origin\n"
+    },
+    {
+      "args": [
+        "command",
+        "migrate-application-state",
+        "--apply",
+        "--run-id",
+        "t40-baseline"
+      ],
+      "code": 0,
+      "signal": null,
+      "output": "{\"version\":1,\"catalogVersion\":3,\"runId\":\"t40-baseline\",\"action\":\"apply\",\"status\":\"complete\",\"steps\":[{\"id\":\"app-sqlite\",\"runId\":\"t40-baseline-app-sqlite\",\"status\":\"skipped\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-attachment-v1\",\"runId\":\"t40-baseline-attachment\",\"status\":\"applied\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-session-v2\",\"runId\":\"t40-baseline-session\",\"status\":\"applied\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-session-v2-review-repair\",\"runId\":\"t40-baseline-session-review-repair\",\"status\":\"skipped\",\"changedItems\":0,\"reviewItems\":0}]}\n"
+    }
+  ],
+  "signals": [
+    {
+      "signal": "SIGTERM",
+      "ok": true
+    },
+    {
+      "signal": "SIGTERM",
+      "ok": false,
+      "error": "SystemError: kill() failed: ESRCH: No such process"
+    }
+  ],
+  "completion": {
+    "code": 1,
+    "signal": null
+  },
+  "output": "1 | import{a as w,b as g,c as O,d as v,e as I,g as y,h as E,i as C,k as l,l as x}from\"./chunks/command-shared-AJZRX7X3.mjs\";import\"./chunks/command-shared-EKC7XGP3.mjs\";import\"./chunks/command-shared-ABMTGK2L.mjs\";import{spawn as U}from\"node:child_process\";import{dirname as z,resolve as f}from\"node:path\";import{fileURLToPath as b}from\"node:url\";import{createHash as N,randomUUID as K}from\"node:crypto\";import{mkdir as $,readFile as _,rename as F,rm as L,writeFile as H}from\"node:fs/promises\";import{dirname as j,isAbsolute as q,resolve as A,win32 as Q}from\"node:path\";async function T(t,i,e,o){let m=A(i,\".deploy\",\"product-runtime-receipt.json\"),r=A(e.path);if(r!==m)throw new Error(\"Product Runtime receipt 授权路径不是当前 Installation Root 的受管回执。\");D(e.sha256,\"Product Runtime receipt 授权摘要\");let a=await _(r,\"utf8\");if(k(a)!==e.sha256)throw new Error(\"Product Runtime receipt 授权摘要与磁盘内容不一致。\");let n=C(JSON.parse(a)),c=await new l().openControlPlane(t,o??V(n),{allowPrevi\n\nerror: Product Runtime command 被信号中断：SIGTERM\n      at <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/commands/product-command.mjs:1:3628)\n      at emit (node:events:103:22)\n      at #handleOnExit (node:child_process:568:14)\n\nBun v1.4.2 (Linux x64)\n",
+  "observed": "包装进程退出码：1"
+}

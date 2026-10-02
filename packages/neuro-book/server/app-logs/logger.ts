@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import {resolveStateLogRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {MAX_STRING_LENGTH, redactText, sanitizeDiagnosticValue, serializeDiagnosticError} from "nbook/runtime/diagnostics/diagnostics";
@@ -8,6 +7,8 @@ import {
     listLogFiles,
     type LogFileSummary,
 } from "./jsonl-log-writer";
+import type {DiagnosticRecord} from "nbook/runtime/diagnostics/diagnostics";
+import {formatDiagnosticLine} from "./diagnostic-format";
 
 // 脱敏与序列化只有一份实现（runtime/diagnostics/redaction）；这里保留既有导出名，产品调用方不受影响。
 export {redactSensitiveText} from "nbook/runtime/diagnostics/diagnostics";
@@ -113,6 +114,16 @@ export class AppFileLogger {
             now: options.now,
         });
         this.#now = options.now ?? (() => new Date());
+    }
+
+    /** 排空写队列并关闭共享 writer；产品日志器不参与位置授予。 */
+    async close(): Promise<void> {
+        await this.#writer.close();
+    }
+
+    /** 诊断出口复用 appLogger 的 writer，不创建第二个 JSONL writer。 */
+    writeDiagnostic(record: DiagnosticRecord): Promise<void> {
+        return this.#writer.write(formatDiagnosticLine(record));
     }
 
     /**

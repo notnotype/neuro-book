@@ -1,0 +1,266 @@
+{
+  "marker": "t40-console-error-69db9357-00ab-442a-9116-b87b1853ed04",
+  "root": "/tmp/neuro-book/agent/t40-product-logs-exmN5j",
+  "imageRoot": "/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output",
+  "steps": [
+    {
+      "args": [
+        "command",
+        "migrate-database"
+      ],
+      "result": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "Applied SQLite migration 20260524120000_init\nApplied SQLite migration 20260524121000_add_database_locks\nApplied SQLite migration 20260722020000_add_passport_credential\nApplied SQLite migration 20260727210000_fix_official_passport_origin\n"
+    },
+    {
+      "args": [
+        "command",
+        "migrate-application-state",
+        "--apply"
+      ],
+      "result": {
+        "code": 0,
+        "signal": null
+      },
+      "output": "{\"version\":1,\"catalogVersion\":3,\"runId\":\"b98a2708-24cc-4680-9557-389d5f927589\",\"action\":\"apply\",\"status\":\"complete\",\"steps\":[{\"id\":\"app-sqlite\",\"runId\":\"b98a2708-24cc-4680-9557-389d5f927589-app-sqlite\",\"status\":\"skipped\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-attachment-v1\",\"runId\":\"b98a2708-24cc-4680-9557-389d5f927589-attachment\",\"status\":\"applied\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-session-v2\",\"runId\":\"b98a2708-24cc-4680-9557-389d5f927589-session\",\"status\":\"applied\",\"changedItems\":0,\"reviewItems\":0},{\"id\":\"agent-session-v2-review-repair\",\"runId\":\"b98a2708-24cc-4680-9557-389d5f927589-session-review-repair\",\"status\":\"skipped\",\"changedItems\":0,\"reviewItems\":0}]}\n"
+    }
+  ],
+  "checks": {
+    "ready": {
+      "timestamp": "2026-10-02T12:56:27.752Z",
+      "level": "info",
+      "event": "app.logs.ready",
+      "data": {
+        "directory": "/tmp/neuro-book/agent/t40-product-logs-exmN5j/state/logs",
+        "currentFile": "/tmp/neuro-book/agent/t40-product-logs-exmN5j/state/logs/server-current.jsonl",
+        "nodeEnv": "production"
+      }
+    },
+    "projectsStatus": 200,
+    "serverTiming": "projects.manifests;dur=14.6, projects.total;dur=14.6",
+    "errorStatus": 400,
+    "requestMarker": "t40-query-f5cdec51-423e-497c-8172-284ea4d8203b",
+    "requestError": {
+      "timestamp": "2026-10-02T12:56:27.836Z",
+      "level": "error",
+      "event": "server.request.error",
+      "message": "服务端请求失败: GET /api/config/bootstrap",
+      "data": {
+        "method": "GET",
+        "path": "/api/config/bootstrap",
+        "statusCode": 400,
+        "message": "Invalid option: expected one of \"novel\"|\"user-assets\""
+      },
+      "error": {
+        "name": "Error",
+        "message": "Invalid option: expected one of \"novel\"|\"user-assets\"",
+        "stack": "Error: Invalid option: expected one of \"novel\"|\"user-assets\"\n    at QA (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:943:203209)\n    at aTA (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:895:30725)\n    at <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:898:7464)\n    at <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:960:7366)\n    at Yo (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:895:23132)\n    at <anonymous> (/home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/.output/server/index.mjs:898:7420)\n    at processTicksAndRejections (native:7:39)"
+      }
+    },
+    "completion": {
+      "code": 0,
+      "signal": null
+    },
+    "consoleErrorCount": 1,
+    "markerRecord": {
+      "timestamp": "2026-10-02T12:56:27.810Z",
+      "level": "error",
+      "event": "console.error",
+      "message": "t40-console-error-69db9357-00ab-442a-9116-b87b1853ed04",
+      "data": {
+        "args": [
+          "t40-console-error-69db9357-00ab-442a-9116-b87b1853ed04"
+        ]
+      }
+    },
+    "lockReleased": true,
+    "output": "Listening on http://127.0.0.1:33973\n"
+  },
+  "runtimeImage": {
+    "schema": "nbook.product-runtime-image/v3",
+    "builderContractVersion": "3",
+    "version": "0.10.2-canary.20260908.091411Z.2e86c254",
+    "revision": "fddef68b15131268fba4e7d3c47f8529ce03e3c1",
+    "dirty": true,
+    "platform": "linux-x64-glibc",
+    "lockfileSha256": "sha256:2feceeccacc58408ee34031af2976560b432ae4b562606508996e0e75317947c",
+    "sourceDigest": "sha256:3529940becdd2448440b541715c68b25c0417eae84f19d3d4fcb2a18458c6b5e",
+    "runtime": {
+      "bun": "1.4.2",
+      "nuxt": "4.4.8",
+      "nitro": "2.13.4"
+    },
+    "runtimeContract": {
+      "path": "server/runtime-contract.json",
+      "sha256": "sha256:bc77841efdd440b420f8316a2762918fd0e9eb4718b942c9beaa8620b29f25ba"
+    },
+    "policy": {
+      "schema": "nbook.product-runtime-image-policy/v1",
+      "owners": [
+        {
+          "name": "authoring-kit",
+          "paths": [
+            "server/authoring"
+          ]
+        },
+        {
+          "name": "commands",
+          "paths": [
+            "server/commands",
+            "server/prisma"
+          ]
+        },
+        {
+          "name": "frontend",
+          "paths": [
+            "public"
+          ]
+        },
+        {
+          "name": "native-islands",
+          "paths": [
+            "server/native-islands.json",
+            "server/node_modules"
+          ]
+        },
+        {
+          "name": "runtime-meta",
+          "paths": [
+            "nitro.json",
+            "server/package.json",
+            "server/runtime-contract.json"
+          ]
+        },
+        {
+          "name": "server-bundle",
+          "paths": [
+            "server/index.mjs",
+            "server/index.mjs.map"
+          ]
+        },
+        {
+          "name": "system-assets",
+          "paths": [
+            "server/assets"
+          ]
+        }
+      ],
+      "budget": {
+        "maxFiles": 6000,
+        "maxBytes": 377487360,
+        "ownerBaselines": [
+          {
+            "name": "authoring-kit",
+            "files": 509,
+            "bytes": 14475922
+          },
+          {
+            "name": "commands",
+            "files": 116,
+            "bytes": 10866185
+          },
+          {
+            "name": "frontend",
+            "files": 177,
+            "bytes": 15272675
+          },
+          {
+            "name": "native-islands",
+            "files": 2062,
+            "bytes": 75144692
+          },
+          {
+            "name": "runtime-meta",
+            "files": 3,
+            "bytes": 4762
+          },
+          {
+            "name": "server-bundle",
+            "files": 1,
+            "bytes": 12300888
+          },
+          {
+            "name": "system-assets",
+            "files": 442,
+            "bytes": 5856353
+          }
+        ]
+      },
+      "sha256": "sha256:6fe6d6a602d8cc7b196b5b7fcb1bd5e1e70fa22d97957fa8b72c1154132ea545"
+    },
+    "inventory": {
+      "files": 3397,
+      "bytes": 139037104,
+      "owners": [
+        {
+          "name": "authoring-kit",
+          "paths": [
+            "server/authoring"
+          ],
+          "files": 512,
+          "bytes": 14940232
+        },
+        {
+          "name": "commands",
+          "paths": [
+            "server/commands",
+            "server/prisma"
+          ],
+          "files": 119,
+          "bytes": 10986479
+        },
+        {
+          "name": "frontend",
+          "paths": [
+            "public"
+          ],
+          "files": 108,
+          "bytes": 14894847
+        },
+        {
+          "name": "native-islands",
+          "paths": [
+            "server/native-islands.json",
+            "server/node_modules"
+          ],
+          "files": 2212,
+          "bytes": 79484455
+        },
+        {
+          "name": "runtime-meta",
+          "paths": [
+            "nitro.json",
+            "server/package.json",
+            "server/runtime-contract.json"
+          ],
+          "files": 3,
+          "bytes": 5114
+        },
+        {
+          "name": "server-bundle",
+          "paths": [
+            "server/index.mjs",
+            "server/index.mjs.map"
+          ],
+          "files": 1,
+          "bytes": 12865573
+        },
+        {
+          "name": "system-assets",
+          "paths": [
+            "server/assets"
+          ],
+          "files": 442,
+          "bytes": 5860404
+        }
+      ]
+    },
+    "treeDigest": "sha256:722eab3bc36c17748a6efb8376ac1a5981a2f2aa6802241ecc2959087b45ffdb",
+    "shapeDigest": "sha256:6900d689c6d8a3983e0952a17966f9f1f7c36152ef2277596437b5a86f59da5a",
+    "imageId": "sha256:2a588e669495134bfe3e06aafa9778388ea345b2c56794ad84614dd4828d0ce7",
+    "createdAt": "2026-10-02T12:49:29.441Z"
+  },
+  "cleaned": true
+}

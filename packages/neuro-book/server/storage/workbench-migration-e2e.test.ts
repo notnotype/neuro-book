@@ -1,15 +1,15 @@
 import {readFile} from "node:fs/promises";
-import {describe, expect, it, vi} from "vitest";
-
-vi.mock("nitropack/runtime", () => ({
-    defineNitroPlugin: (plugin: unknown) => plugin,
-}));
-
-import storageDefinitionsPlugin from "nbook/server/plugins/storage-definitions";
+import {afterEach, describe, expect, it, vi} from "vitest";
+import type {Application} from "nbook/runtime/application/application";
+import {createApplication} from "nbook/runtime/application/application";
+import {provide} from "nbook/runtime/plugins/plugins";
+import {appStateKey} from "nbook/server/features/app-state/plugin";
+import {createStoragePlugin, storageKey} from "nbook/server/features/storage/plugin";
 import {
     createStorageActionHost,
     STORAGE_TEST_CLIENT_A,
 } from "nbook/server/storage/fixtures/storage-action-host";
+import type {StorageActionHostFixture} from "nbook/server/storage/fixtures/storage-action-host";
 import {STORAGE_MAX_VALUE_BYTES} from "nbook/shared/storage/contract";
 import type {StorageJsonValue} from "nbook/shared/storage/bounded-json";
 import {
@@ -42,18 +42,31 @@ import {measureLegacyOriginal, splitLegacyOriginalChunks, type LegacyBucketStagi
  *
  * 这里跑的是**产品路径**：真实 HTTP 监听 + 真实 H3 路由 + 隔离临时根 + 真实浏览器适配器
  * （`openStorageUserContext` / `openStorageOwnerHandle` / `createStorageHttpTransport`），
- * 定义来自 `server/plugins/storage-definitions.ts` 这个 Nitro 插件本身，而不是测试注入。
+ * 定义来自 `nbook.storage` 的产品激活步骤，而不是测试注入。
  */
 
 const LEGACY_BUCKET = JSON.stringify({leftPanelWidth: 427, agentPanelWidth: 488, projectPickerLayoutMode: "compact"});
 
-/** 生产插件：`defineNitroPlugin` 被替换成恒等函数，注册逻辑与运行时完全相同。 */
-function runStorageDefinitionsPlugin(): void {
-    (storageDefinitionsPlugin as unknown as () => void)();
+const applications: Application[] = [];
+afterEach(async () => {
+    for (const application of applications.splice(0)) await application.stop();
+});
+
+async function runStorageDefinitionsPlugin(plugin = createStoragePlugin, appKey = appStateKey, stateKey = storageKey): Promise<void> {
+    const application = createApplication({identity: {location: "server", instanceId: "storage-registration"}, stopSignal: new AbortController().signal, emergency: () => undefined}, {
+        keys: [appKey, stateKey],
+        plugins: [
+            {id: "nbook.app-state", entries: [{id: "ready", location: "server", provides: [appKey], activate: () => ({services: [provide(appKey, {ready: true})]})}]},
+            plugin(),
+        ],
+        requiredPlugins: ["nbook.storage"], gates: [],
+    });
+    applications.push(application);
+    expect(await application.startup).toMatchObject({status: "available"});
 }
 
 /** 把浏览器适配器的 Host 请求映射到隔离宿主的真实 HTTP 入口。 */
-function hostRequestFor(host: Awaited<ReturnType<typeof createStorageActionHost>>): StorageHostRequest {
+function hostRequestFor(host: StorageActionHostFixture): StorageHostRequest {
     return async (path, options = {}) => {
         const headers = (options.headers ?? {}) as Record<string, string>;
         const response = await host.request(path, {
@@ -164,7 +177,7 @@ function stagingStub(raw: string): LegacyBucketStaging {
     };
 }
 
-function controllerFor(host: Awaited<ReturnType<typeof createStorageActionHost>>): StorageMigrationController {
+function controllerFor(host: StorageActionHostFixture): StorageMigrationController {
     const request = hostRequestFor(host);
     const identity = identityTarget(STORAGE_TEST_CLIENT_A);
     const adapters: StorageMigrationAdapters = {
@@ -180,7 +193,7 @@ function controllerFor(host: Awaited<ReturnType<typeof createStorageActionHost>>
 }
 
 describe("产品定义注册与迁移边界可达性", () => {
-    it("注册前 workbench.migration 不可达，Nitro 插件注册后经真实 HTTP 可读写", async () => {
+    it("注册前 workbench.migration 不可达，nbook.storage 激活后经真实 HTTP 可读写", async () => {
         const host = await createStorageActionHost();
         try {
             const contextId = await host.issue();
@@ -188,7 +201,7 @@ describe("产品定义注册与迁移边界可达性", () => {
             expect(before.status).toBeGreaterThanOrEqual(400);
             expect(await before.text()).toContain("STORAGE_STATE_UNREGISTERED");
 
-            runStorageDefinitionsPlugin();
+            await runStorageDefinitionsPlugin();
 
             const binding = await host.bind(contextId, WORKBENCH_MIGRATION_OWNER);
             const progress: WorkbenchMigrationProgressRecord = {
@@ -230,8 +243,8 @@ describe("产品定义注册与迁移边界可达性", () => {
         const host = await createStorageActionHost();
         try {
             // 定义实例在模块级只构造一次：dev HMR 重新执行插件不会产生重复注册冲突。
-            runStorageDefinitionsPlugin();
-            runStorageDefinitionsPlugin();
+            await runStorageDefinitionsPlugin();
+            await runStorageDefinitionsPlugin();
             const migration = controllerFor(host);
 
             await migration.start();
@@ -265,19 +278,18 @@ describe("产品定义注册与迁移边界可达性", () => {
     it("模块重载后重复注册仍幂等，宿主继续用已登记的定义服务", async () => {
         const host = await createStorageActionHost();
         try {
-            const plugin = (await import("nbook/server/plugins/storage-definitions")).default as unknown as () => void;
-            plugin();
+            await runStorageDefinitionsPlugin();
             const contextId = await host.issue();
             await expect(host.bind(contextId, WORKBENCH_LAYOUT_OWNER)).resolves.toBeDefined();
             const beforeReload = productStorageDefinitions();
 
             // 模拟 HMR：模块图重新实例化（宿主全局槽保留注册表，这是宿主自己的 HMR 交接设计）。
             vi.resetModules();
-            await import("nbook/server/storage/host");
+            // 必须加载重置后的模块图，才能验证 HMR 的登记边界；静态导入会复用旧实例。
             const reloaded = await import("nbook/server/storage/product-definitions");
-            const pluginAfterReload = (await import("nbook/server/plugins/storage-definitions")).default as unknown as () => void;
-
-            expect(() => pluginAfterReload()).not.toThrow();
+            const {createStoragePlugin: reloadedPlugin, storageKey: reloadedStorageKey} = await import("nbook/server/features/storage/plugin");
+            const {appStateKey: reloadedAppStateKey} = await import("nbook/server/features/app-state/plugin");
+            await runStorageDefinitionsPlugin(reloadedPlugin, reloadedAppStateKey, reloadedStorageKey);
             // 定义实例跨重载复用：注册是同一实例的幂等重复，而不是另一个实例的冲突。
             expect(reloaded.productStorageDefinitions()).toBe(beforeReload);
             await expect(host.bind(contextId, WORKBENCH_LAYOUT_OWNER)).resolves.toBeDefined();

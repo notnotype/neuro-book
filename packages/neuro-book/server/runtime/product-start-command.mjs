@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import {randomBytes} from "node:crypto";
 import {spawn} from "node:child_process";
+import {constants} from "node:os";
 import {existsSync} from "node:fs";
 import {mkdir} from "node:fs/promises";
 import {readFileSync, writeFileSync} from "node:fs";
@@ -51,14 +52,23 @@ const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...pr
 });
 let shutdownSignal;
 
-/** Product启动器是容器PID 1时，必须把停止信号转发给真正的Nitro进程。 */
-for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.once(signal, () => {
-        shutdownSignal = signal;
-        if (child.exitCode === null && child.signalCode === null) {
-            child.kill(signal);
-        }
-    });
+/** 进程组与外层 wrapper 会同时发信号；持续接收但只转发首次停止请求。 */
+const onSigint = () => forwardSignal("SIGINT");
+const onSigterm = () => forwardSignal("SIGTERM");
+process.on("SIGINT", onSigint);
+process.on("SIGTERM", onSigterm);
+
+function forwardSignal(signal) {
+    if (shutdownSignal) return;
+    shutdownSignal = signal;
+    if (child.exitCode === null && child.signalCode === null) {
+        child.kill(signal);
+    }
+}
+
+function cleanupSignals() {
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
 }
 
 /** Product wrapper 只按 Runtime Contract internal ID 执行启动前步骤。 */
@@ -77,17 +87,17 @@ async function runInternal(imageRoot, applicationRoot, env, id) {
     });
 }
 
-child.on("error", () => {
+child.once("error", (error) => {
+    cleanupSignals();
+    console.error("Product 服务进程启动失败", error);
     process.exit(1);
 });
 
-child.on("exit", (code, signal) => {
-    if (shutdownSignal) {
-        process.exit(0);
-    }
+child.once("exit", (code, signal) => {
+    cleanupSignals();
     if (signal) {
-        process.kill(process.pid, signal);
-        return;
+        // PID 1 的自发信号未必有默认终止行为；128+signal 保留容器可观察的信号退出状态。
+        process.exit(128 + constants.signals[signal]);
     }
     process.exit(code ?? 1);
 });

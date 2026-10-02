@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {createDiagnosticsStore} from "nbook/runtime/diagnostics/diagnostics";
+import {LOG_LOCATION_LOCK_NAME} from "nbook/server/features/runtime-diagnostics/jsonl-exporter";
 import {resolveStateLogRoot, resolveStateWorkspaceRoot} from "nbook/server/runtime/installation-paths";
 import {
     AppFileLogger,
@@ -14,8 +16,11 @@ import {testHostPath} from "@notnotype/neuro-book-test-support/test-path";
 import {afterEach, describe, expect, it, vi} from "vitest";
 
 const cleanupRoots: string[] = [];
+const loggers: AppFileLogger[] = [];
 
 afterEach(async () => {
+    for (const logger of loggers.splice(0)) await logger.close();
+    vi.restoreAllMocks();
     for (const root of cleanupRoots.splice(0)) {
         await fs.rm(root, {recursive: true, force: true});
     }
@@ -31,6 +36,49 @@ async function tempLogRoot(): Promise<string> {
 }
 
 describe("app logs logger", () => {
+    it("已有日志位置锁时普通与诊断日志仍共用 writer，关闭排空且不触碰授予", async () => {
+        const root = await tempLogRoot();
+        const lockPath = path.join(root, LOG_LOCATION_LOCK_NAME);
+        await fs.mkdir(lockPath);
+        await fs.writeFile(path.join(lockPath, "owner"), "foundation-owner");
+        const logger = new AppFileLogger({env: {NEURO_BOOK_LOG_DIR: root}});
+        loggers.push(logger);
+        const store = createDiagnosticsStore({identity: {location: "server", instanceId: "shared-writer"}});
+        await store.attach({outcome: {status: "open", exporter: {
+            kind: "jsonl", write: (record) => logger.writeDiagnostic(record), close: async () => undefined,
+        }}, fallback: () => undefined});
+        logger.fatalSync("fatal-with-existing-lock");
+        const ordinary = logger.info("ordinary", {value: 1});
+        store.record({level: "info", event: "diagnostic", message: "shared", data: {value: 2}});
+        await store.shutdown();
+        await logger.close();
+        await ordinary;
+        const records = (await fs.readFile(logger.currentFilePath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+        expect(records).toEqual([
+            expect.objectContaining({event: "fatal-with-existing-lock", level: "fatal"}),
+            expect.objectContaining({event: "ordinary", data: {value: 1}}),
+            expect.objectContaining({event: "diagnostic", data: {value: 2, $source: expect.objectContaining({instanceId: "shared-writer"})}}),
+        ]);
+        expect(await fs.readFile(path.join(lockPath, "owner"), "utf8")).toBe("foundation-owner");
+    });
+
+    it("关闭等待在途记录落盘，之后诊断写入失败且重复关闭不复活 writer", async () => {
+        const root = await tempLogRoot();
+        const logger = new AppFileLogger({env: {NEURO_BOOK_LOG_DIR: root}});
+        loggers.push(logger);
+        const store = createDiagnosticsStore({identity: {location: "server", instanceId: "close-test"}});
+        store.record({level: "info", event: "after-close", message: "late"});
+        const [record] = store.query().records;
+        if (record === undefined) throw new Error("未得到关闭边界的诊断记录");
+        await store.shutdown();
+        const writing = logger.info("before-close", {value: 1});
+        await Promise.all([writing, logger.close(), logger.close()]);
+        await expect(logger.writeDiagnostic(record)).rejects.toThrow("已关闭");
+        await logger.close();
+        const records = (await fs.readFile(logger.currentFilePath, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+        expect(records).toEqual([expect.objectContaining({event: "before-close", data: {value: 1}})]);
+        await expect(fs.stat(path.join(root, LOG_LOCATION_LOCK_NAME))).rejects.toMatchObject({code: "ENOENT"});
+    });
     it("resolves explicit log directory before environment fallbacks", () => {
         const productRoot = testHostPath("app-logs", "product");
         const repoRoot = testHostPath("app-logs", "repo");

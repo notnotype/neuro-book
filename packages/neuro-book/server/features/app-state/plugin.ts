@@ -3,6 +3,8 @@ import {mkdir} from "node:fs/promises";
 import {provide} from "nbook/runtime/plugins/plugins";
 import type {PluginDefinition} from "nbook/runtime/plugins/plugins";
 import {defineServiceKey} from "nbook/runtime/services/services";
+import {diagnosticsKey} from "nbook/runtime/diagnostics/diagnostics";
+import {loadBootAuthEnabledSync} from "nbook/server/config/boot-config";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {resolveDatabaseConfig} from "nbook/server/database/config";
 import {checkpointAppSqliteDatabase} from "nbook/server/database/app-sqlite-migrations";
@@ -19,6 +21,7 @@ export function createAppStatePlugin(recordStartupError: (error: unknown) => voi
         entries: [{
             id: "server",
             location: "server",
+            dependencies: [{key: diagnosticsKey}],
             provides: [appStateKey],
             activate: async (context) => {
                 const paths = runtimePathsFromEnv();
@@ -53,6 +56,7 @@ export function createAppStatePlugin(recordStartupError: (error: unknown) => voi
                     if (!transferred) await closeState();
                 }});
                 try {
+                    loadBootAuthEnabledSync();
                     await mkdir(paths.workspaceRoot, {recursive: true});
                     const stateIntegrity = await inspectStateRootIntegrity({
                         installationRoot: paths.applicationRoot,

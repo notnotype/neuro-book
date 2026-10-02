@@ -395,13 +395,13 @@ async function drainLifecycleArchive(
         if (duringPromise) await duringPromise.catch((error: unknown) => log(`probe-cleanup-error ${String(error)}`));
     }
 }
-
-
 function resultFor(observations: Observation[]): CheckResult {
     if (observations.some((item) => item.result === "fail")) return "fail";
     if (observations.some((item) => item.result === "pending")) return "pending";
     return "pass";
 }
+
+
 async function runLifecycleDrainCheck(
     ctx: SmokeContext,
     id: "L3" | "L4",
@@ -560,13 +560,18 @@ async function runBuild(ctx: SmokeContext & {buildLog: string}, skipBuild: boole
     if (completion.code !== 0) throw new Error(`生产构建失败，退出 ${String(completion.code)}`);
 }
 
-async function main(): Promise<void> {
+export function exitCodeForReports(reports: readonly Pick<CheckReport, "result">[], workflowFailed = false): 0 | 1 {
+    return !workflowFailed && reports.every((report) => report.result === "pass") ? 0 : 1;
+}
+
+async function runProductLifecycle(): Promise<void> {
     const options = parseOptions(process.argv.slice(2));
     const evidenceRoot = resolve(dirname(options.report));
     await mkdir(evidenceRoot, {recursive: true});
     const tempRoot = await mkdtemp(join(tmpdir(), "neuro-book-product-lifecycle-"));
     const ctx = makeContext(options, tempRoot, evidenceRoot);
     const startedAt = Date.now();
+    let workflowFailed = false;
     try {
         if (!options.skipBuild) await runBuild(ctx, false);
         if (!existsSync(join(imageRoot, "server", "index.mjs"))) throw new Error(`缺少生产产物：${join(imageRoot, "server", "index.mjs")}；请先构建或不要使用 --skip-build`);
@@ -574,6 +579,7 @@ async function main(): Promise<void> {
         await runBrowserChecks(ctx);
         await runDevelopmentChecks(ctx);
     } catch (error) {
+        workflowFailed = true;
         console.error(error instanceof Error ? error.stack ?? error.message : String(error));
     } finally {
         for (const id of CHECK_IDS) if (options.only.has(id) && !ctx.reports.some((report) => report.id === id)) {
@@ -593,8 +599,8 @@ async function main(): Promise<void> {
         await writeFile(options.report, `${JSON.stringify(report, null, 2)}\n`);
         await rm(tempRoot, {recursive: true, force: true});
         console.log(`报告\t${options.report}\n总耗时\t${String(report.durationMs)}ms`);
-        if (report.results.some((item) => item.result === "fail")) process.exitCode = 1;
+        process.exitCode = exitCodeForReports(report.results, workflowFailed);
     }
 }
 
-await main();
+if (import.meta.main) await runProductLifecycle();

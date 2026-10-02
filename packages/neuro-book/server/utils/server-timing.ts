@@ -13,6 +13,7 @@ type ServerTimingContext = {
 
 type NitroResponseLike = {
     headers?: Headers | Record<string, string | number | string[] | undefined>;
+    body?: unknown;
 };
 
 type ServerTimingResponsePatch = {

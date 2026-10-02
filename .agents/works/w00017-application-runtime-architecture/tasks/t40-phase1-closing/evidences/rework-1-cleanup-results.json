@@ -1,0 +1,17 @@
+{
+  "imageId": "sha256:424d27918ec65d6c25ca478380b7cb921db1483b161c670b4e8d53f6d5c585e4",
+  "processCompletion": {
+    "code": 0,
+    "signal": null
+  },
+  "ownedTemporaryRoots": [
+    {
+      "root": "/tmp/neuro-book/agent/t40-rework-1-product-logs-Iwc38E",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book/w00017-runtime-foundation-smoke/services-4033096",
+      "absent": true
+    }
+  ]
+}

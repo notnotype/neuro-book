@@ -1,0 +1,33 @@
+{
+  "ownedTemporaryRoots": [
+    {
+      "root": "/tmp/nbook-t40-baseline-Eo2yWW",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book/agent/t40-wrapper-red-LHXnHM",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book/w00017-runtime-foundation-smoke/services-3989007",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book-product-lifecycle-WBOcFX",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book-product-lifecycle-wL3gOh",
+      "absent": true
+    },
+    {
+      "root": "/tmp/neuro-book/agent/t40-product-logs-exmN5j",
+      "absent": true
+    }
+  ],
+  "productionProcessCompletion": {
+    "code": 0,
+    "signal": null
+  },
+  "logLockReleased": true
+}

@@ -1,0 +1,68 @@
+$ bun run test:runtime-foundation
+$ vitest run --config vitest.runtime-foundation.config.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+
+ Test Files  22 passed (22)
+      Tests  235 passed (235)
+   Start at  14:45:44
+   Duration  5.60s (transform 4.82s, setup 858ms, import 7.97s, tests 2.61s, environment 4ms)
+
+exit=0
+$ bun run test -- server/plugins server/features server/runtime server/host server/middleware server/routes server/app-logs server/storage server/config server/utils scripts/db scripts/smoke
+$ vitest run server/plugins server/features server/runtime server/host server/middleware server/routes server/app-logs server/storage server/config server/utils scripts/db scripts/smoke
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation/packages/neuro-book
+
+ ❯ server/storage/storage-service.test.ts (36 tests | 1 failed) 1030ms
+     × 并发写入期间读取只会看到完整旧记录或完整新记录 94ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/storage/storage-service.test.ts > 路径边界与原子替换 > 并发写入期间读取只会看到完整旧记录或完整新记录
+AssertionError: expected StorageIoError: Storage read 失败：/tmp/neur… { …(4) } to be null
+
+- Expected:
+null
+
++ Received:
+StorageIoError {
+  "message": "Storage read 失败：/tmp/neuro-book/test-paths/nbook-storage-torn-1SszSv/storage/84e6605c-fcf1-4440-b5eb-3e901047cec8/83edcb128e3326a8f6e33c7e4eb17b3f/local/c04da4f28a539224430cf8d564ca2045/test.workspace/records/layout.json（打开的记录与声明路径身份不一致）",
+  "cause": Error {
+    "message": "打开的记录与声明路径身份不一致",
+  },
+  "operation": "read",
+  "target": "/tmp/neuro-book/test-paths/nbook-storage-torn-1SszSv/storage/84e6605c-fcf1-4440-b5eb-3e901047cec8/83edcb128e3326a8f6e33c7e4eb17b3f/local/c04da4f28a539224430cf8d564ca2045/test.workspace/records/layout.json",
+  "name": "StorageIoError",
+}
+
+ ❯ server/storage/storage-service.test.ts:1229:37
+    1227|         }
+    1228|         reading = false;
+    1229|         expect(await readerOutcome).toBeNull();
+       |                                     ^
+    1230|
+    1231|         expect(observed).toContain("missing");
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 66 passed (67)
+      Tests  1 failed | 527 passed (528)
+   Start at  14:45:51
+   Duration  29.13s (transform 3.79s, setup 3.67s, import 13.84s, tests 28.81s, environment 32ms)
+
+error: script "test" exited with code 1
+exit=1
+$ bash -c cd ../.. && bun x vitest run --config scripts/vitest.config.ts scripts/build/product-command-graph.test.ts
+
+ RUN  v4.1.10 /home/notnotype/CodeRepository/neuro-book/.worktree/w00017-runtime-foundation
+
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  14:52:02
+   Duration  375ms (transform 98ms, setup 34ms, import 112ms, tests 48ms, environment 0ms)
+
+exit=0

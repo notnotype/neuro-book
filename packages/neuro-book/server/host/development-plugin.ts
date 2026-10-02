@@ -5,7 +5,7 @@ import {installDevelopmentWorkerStopBridge} from "nbook/server/host/development-
 
 /** 由 Nuxt 模块只在开发模式登记；Nitro 不等待 async plugin，启动结果由准入观察。 */
 export default defineNitroPlugin((nitroApp) => {
-    const runtime = startProductRuntime({mode: "development"});
+    const runtime = startProductRuntime({mode: "development", nitroApp});
     const bridge = installDevelopmentWorkerStopBridge(
         async (source) => {
             runtime.requestStop(source);

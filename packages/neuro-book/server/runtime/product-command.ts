@@ -1,4 +1,5 @@
 import {spawn} from "node:child_process";
+import {constants} from "node:os";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {
@@ -73,34 +74,44 @@ async function run(
     env: NodeJS.ProcessEnv,
     stdio: "inherit" | "ignore",
 ): Promise<number> {
-    return await new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...args], {
-            cwd,
-            env,
-            stdio,
-            windowsHide: true,
-        });
-        const forward = (signal: NodeJS.Signals): void => {
-            if (child.exitCode === null && child.signalCode === null) child.kill(signal);
-        };
-        const onSigint = (): void => forward("SIGINT");
-        const onSigterm = (): void => forward("SIGTERM");
-        const cleanup = (): void => {
-            process.off("SIGINT", onSigint);
-            process.off("SIGTERM", onSigterm);
-        };
-        process.once("SIGINT", onSigint);
-        process.once("SIGTERM", onSigterm);
-        child.once("error", (error) => {
-            cleanup();
-            rejectPromise(error);
-        });
-        child.once("exit", (code, signal) => {
-            cleanup();
-            if (signal) rejectPromise(new Error(`Product Runtime command 被信号中断：${signal}`));
-            else resolvePromise(code ?? 1);
-        });
+    const {promise, resolve, reject} = Promise.withResolvers<number>();
+    const child = spawn(process.execPath, [...PRODUCT_BUN_RUNTIME_ARGS, entry, ...args], {
+        cwd,
+        env,
+        stdio,
+        windowsHide: true,
     });
+    let forwardedSignal: NodeJS.Signals | undefined;
+    const forward = (signal: NodeJS.Signals): void => {
+        if (forwardedSignal !== undefined) {
+            return;
+        }
+        forwardedSignal = signal;
+        if (child.exitCode === null && child.signalCode === null) {
+            child.kill(signal);
+        }
+    };
+    const onSigint = (): void => forward("SIGINT");
+    const onSigterm = (): void => forward("SIGTERM");
+    const cleanup = (): void => {
+        process.off("SIGINT", onSigint);
+        process.off("SIGTERM", onSigterm);
+    };
+    process.on("SIGINT", onSigint);
+    process.on("SIGTERM", onSigterm);
+    child.once("error", (error) => {
+        cleanup();
+        reject(error);
+    });
+    child.once("exit", (code, signal) => {
+        cleanup();
+        if (signal) {
+            resolve(128 + constants.signals[signal]);
+            return;
+        }
+        resolve(code ?? 1);
+    });
+    return await promise;
 }
 
 await main();

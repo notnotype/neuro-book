@@ -3,6 +3,7 @@ import type {PluginDefinition} from "nbook/runtime/plugins/plugins";
 import {defineServiceKey} from "nbook/runtime/services/services";
 import {appStateKey} from "nbook/server/features/app-state/plugin";
 import {disposeStorageHost} from "nbook/server/storage/host";
+import {registerProductStorageDefinitions} from "nbook/server/storage/product-definitions";
 
 export const storageKey = defineServiceKey<{readonly ready: true}>("nbook.storage/ready");
 
@@ -14,7 +15,10 @@ export function createStoragePlugin(): PluginDefinition {
             location: "server",
             dependencies: [{key: appStateKey}],
             provides: [storageKey],
-            activate: () => ({services: [provide(storageKey, {ready: true}, disposeStorageHost)]}),
+            activate: () => {
+                registerProductStorageDefinitions();
+                return {services: [provide(storageKey, {ready: true}, disposeStorageHost)]};
+            },
         }],
     };
 }
